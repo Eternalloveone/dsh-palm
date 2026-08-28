@@ -1,0 +1,7 @@
+node_modules/
+lib/
+*.tsbuildinfo
+
+# debug probe scripts (may contain pairing cookies)
+probe-watch.mjs
+probe-ask.mjs
