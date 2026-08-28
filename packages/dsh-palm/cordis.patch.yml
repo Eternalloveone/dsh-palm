@@ -1,0 +1,9 @@
+# dsh-palm: the standalone mobile surface for the dsh web GUI. The patch
+# layer below inserts the single plugin row mounting the host half: pairing
+# tokens, device sessions, the /api/pair route family, the api/gate listener,
+# and the /m/ page with its /m/api RPC channel. There is no browser half to
+# inject into the desktop GUI (M1 extraction scope: mobile surface only).
+
+- insert:
+    - id: dsh-palm
+      name: '@eternalloveone/dsh-palm'

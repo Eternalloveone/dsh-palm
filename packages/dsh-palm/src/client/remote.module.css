@@ -1,0 +1,693 @@
+/* dsh-palm pairing panel — modern SaaS pairing aesthetic (design tokens only,
+   no literal colors). The trigger matches the settings row/rail geometry; the
+   panel is a centered modal (mask + 600px card) with a soft entry animation,
+   a brand-tinted QR frame, segmented address pills, and carded device rows. */
+
+/* ── entry animation ─────────────────────────────────────────────────── */
+
+@keyframes dshPalmMaskIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dshPalmPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mask {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  animation: dshPalmMaskIn 160ms ease-out;
+}
+
+/* Trigger: the 36px rail circle, or a fully rounded (pill) full-row button
+   in wide mode — both maximally rounded so the footer action pair shares one
+   shape family (#1035); the seat's owner (ui-sidebar) lays out the
+   geometry. */
+.trigger {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  /* Transition + focus ring consent (box-shadow from :focus-visible). */
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.trigger[data-wide='wide'] {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  width: auto;
+  min-width: 0;
+  /* Pill: maximal rounding, same shape family as the 36px rail circle —
+     one consistent footer-action look (#1035). */
+  border-radius: 999px;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.trigger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.trigger:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-2), 0 0 0 4px var(--dsw-alias-brand-primary);
+}
+
+.trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Footer seat row: the trigger sits in the footer action row; the rail
+   stacks it as a circle (mirroring the settings circle keeping its bottom
+   anchor). */
+.entryRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.entryRow[data-rail='rail'] {
+  flex-direction: column-reverse;
+  gap: 4px;
+}
+
+/* ── panel chrome ────────────────────────────────────────────────────── */
+
+.panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 600px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 28px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+  animation: dshPalmPanelIn 200ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -4px -4px 0 0;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.close:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.close:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-2), 0 0 0 4px var(--dsw-alias-brand-primary);
+}
+
+.close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── QR card ─────────────────────────────────────────────────────────── */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 20px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.cardTitle {
+  font-weight: 600;
+}
+
+.badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge-waiting {
+  color: var(--dsw-alias-state-warn-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.badge-connected {
+  color: var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.badge-disconnected {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.badge-stopped {
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.badgePublic {
+  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The QR frame: a soft brand-tinted halo that works in both themes; the QR
+   glyph itself always sits on a white chip (scanability is theme-agnostic). */
+.qrWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 120% at 15% 10%, var(--dsw-alias-interactive-bg-hover), transparent 55%),
+    var(--dsw-alias-bg-base);
+}
+
+.qr {
+  display: block;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.expired {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.staleHint {
+  margin: 6px 0 0;
+  color: var(--dsw-alias-state-warning-primary, #b45309);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.expiry {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── pairing links ───────────────────────────────────────────────────── */
+
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.pairLinks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pairLinkRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  transition: border-color 120ms ease;
+}
+
+.pairLinkRow:hover {
+  border-color: var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+}
+
+.pairLinkText {
+  min-width: 0;
+  flex: 1;
+}
+
+.pairLinkLabel {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.link {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-caption);
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.copyLink {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.copyLink:hover:not(:disabled) {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.oneTimeHint {
+  margin: 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+}
+
+.stoppedHint {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+}
+
+.tunnelNote {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.tunnelFailed {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+}
+
+/* ── actions ─────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--dsw-alias-button-floating-hover);
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.action:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.action:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-2), 0 0 0 4px var(--dsw-alias-brand-primary);
+}
+
+.action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── banners ─────────────────────────────────────────────────────────── */
+
+.banner {
+  padding: 16px 18px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-left: 3px solid var(--dsw-alias-state-warn-primary);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.bannerTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.bannerHint {
+  margin: 6px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* ── address picker (segmented pills) ────────────────────────────────── */
+
+.addresses {
+  margin: 4px 0 0;
+  padding: 0;
+  border: none;
+}
+
+.addresses legend {
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.address:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.address input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-2), 0 0 0 4px var(--dsw-alias-brand-primary);
+  border-radius: 50%;
+}
+
+.addressValue {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.addressHint {
+  margin: 6px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+/* ── device roster ───────────────────────────────────────────────────── */
+
+.devices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.devicesTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.devicesEmpty {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.deviceList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.deviceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-radius: 10px;
+  transition: background-color 120ms ease;
+}
+
+.deviceRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.deviceMeta {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deviceName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.devicePresence {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.deviceOnline {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.deviceOffline {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.deviceSeen {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.deviceRevoke {
+  flex: none;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.deviceRevoke:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deviceRevoke:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-2), 0 0 0 4px var(--dsw-alias-brand-primary);
+}
+
+/* ── failed-pair toast ───────────────────────────────────────────────── */
+
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 2000;
+  width: min(420px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  text-align: center;
+  transform: translateX(-50%);
+  animation: dshPalmPanelIn 200ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.noticeTitle {
+  margin: 0;
+  font-weight: 600;
+}
+
+.noticeDetail {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+/* Accessibility: collapse the entry animation and interaction cross-fades
+   for reduced-motion users. */
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .mask,
+  .panel,
+  .notice {
+    animation: none;
+  }
+
+  .trigger,
+  .close,
+  .action,
+  .address,
+  .deviceRow,
+  .deviceRevoke,
+  .pairLinkRow,
+  .copyLink {
+    transition: none;
+  }
+}

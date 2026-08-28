@@ -1,0 +1,15 @@
+dsh-palm
+Copyright (c) 2026 Eternalloveone
+
+This product is a derivative work of dsh-remote-web-ui
+(https://github.com/zhu1090093659/dsh-web, package @linxin666/dsh-remote-web-ui),
+Copyright (c) zhu1090093659, licensed under the Apache License, Version 2.0.
+
+The mobile surface (src/mobile, pairing, gate, routes, mobile-api) was
+extracted from the dsh-remote-web-ui `local/mobile-fixes` branch (M1,
+behavior-identical) and has since been modified and extended independently:
+windowed streaming, inline-markdown preview, image upload, workspace
+browsing, PWA, and the desktop pairing panel.
+
+This product also depends on the dsh platform packages
+(@deepseek-ai/dsh-*, Apache-2.0, https://github.com/deepseek-ai/deepseek-harness).
