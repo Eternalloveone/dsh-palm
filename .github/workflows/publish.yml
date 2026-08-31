@@ -83,6 +83,9 @@ jobs:
         run: pnpm build
       - name: Publish to GitHub Packages
         working-directory: packages/dsh-palm
-        run: pnpm publish
+        # --registry is required: setup-node's registry-url only writes the
+        # auth token line, it does not map the scope; without it pnpm publish
+        # targets the default registry (npmjs) and 401s here.
+        run: pnpm publish --registry https://npm.pkg.github.com --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -85,7 +85,7 @@ describe('renderMarkdown', () => {
 
   it('links file-path tokens to the host file opener', () => {
     expect(renderInline('见 src/main.ts 文件')).toBe('见 <a class="file-link" data-path="src/main.ts">src/main.ts</a> 文件')
-    expect(renderInline('改 D:\\work\\a.ts 即可')).toBe('改 <a class="file-link" data-path="D:\\work\\a.ts">D:\\work\\a.ts</a> 即可')
+    expect(renderInline('改 D:\\example\\a.ts 即可')).toBe('改 <a class="file-link" data-path="D:\\example\\a.ts">D:\\example\\a.ts</a> 即可')
     expect(renderInline('在 ./lib/x.ts 里')).toContain('data-path="./lib/x.ts"')
   })
 

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-31
+
+### Fixed
+
+- **Package description mojibake** - the v0.2.0 publish metadata carried a double-encoded description (PowerShell Get-Content misread the UTF-8 package.json as GBK during the version bump); 0.2.1 republishes with the correct one
+
 ## [0.2.0] - 2026-08-31
 
 ### Added

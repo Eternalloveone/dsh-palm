@@ -17,7 +17,7 @@
  *
  * Code fences render with the full chrome — language label, copy / insert /
  * open buttons — and ```diff fences become diff blocks. Inline text also
- * links file-path-like tokens (`src/main.ts`, `D:\work_REDACTED\a.ts`) to the host
+ * links file-path-like tokens (`src/main.ts`, `D:\example\a.ts`) to the host
  * file opener.
  * @module dsh-palm/mobile/markdown
  */
@@ -77,7 +77,7 @@ function findCloseParen(text: string, from: number): number {
 }
 
 /* ── file-path linking ─────────────────────────────────────────────────
-   Path-like tokens (src/main.ts, ./lib/x.ts, D:\work_REDACTED\a.ts) become
+   Path-like tokens (src/main.ts, ./lib/x.ts, D:\example\a.ts) become
    clickable file links. The regex requires at least one separator and a
    file extension, which keeps dates ("2024/01/15") and bare filenames
    ("file.ts") out; a sticky anchor matches only at the current position
