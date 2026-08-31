@@ -780,14 +780,21 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     scheduleLocate()
   }, [scheduleLocate])
 
-  /** Pin the viewport to the tail WITHOUT re-anchoring the window. Used by
-   * the re-pin effects, which fire while the reader is already at the bottom
-   * and the window is already at the tail — a scrollToBottom-style setWin
-   * would be a no-op, and the locate keeps the window on the new position. */
+  /** Pin the viewport to the REAL tail. In windowed mode the DOM scrollHeight
+   * is an estimate (the top spacer carries estimated heights + the opening
+   * correction), and the true content height is prefix[count] + correction —
+   * the measured rows blend in through the prefix rebuild, and the
+   * correction is refreshed alongside it (see the height-correction effect).
+   * Non-windowed sessions render in full, so the exact DOM value is used. */
   const pinToRealBottom = useCallback(() => {
     const el = scrollRef.current
     if (el === undefined) return
-    el.scrollTop = el.scrollHeight
+    const prefix = prefixRef.current
+    const count = messagesRef.current.length
+    const target = prefix !== undefined && count > 0
+      ? (prefix[count] ?? el.scrollHeight) + heightCorrectionRef.current
+      : el.scrollHeight
+    el.scrollTop = target
     scrollTopRef.current = el.scrollTop
     scheduleLocate()
   }, [scheduleLocate])
@@ -1535,13 +1542,15 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     if (changed) setMeasuredTick(tick => tick + 1)
   }, [windowed, messages, measuredTick])
 
-  // Measure the real content height on every full (non-windowed) render
-  // frame and refresh the windowed height correction. The opening tail page
-  // renders in full before the window locates, so the correction is exact
-  // from the start; jsdom reports no layout (scrollHeight 0), where the
-  // correction stays 0.
+  // Measure the real content height and refresh the windowed height
+  // correction. The opening tail page renders in full before the window
+  // locates, so the correction is exact from the start; afterwards the
+  // windowed DOM height is an estimate, but el.scrollHeight − prefix[count]
+  // still tracks the estimate↔real gap (the top spacer carries the previous
+  // correction, and the windowed rows' measured heights blend into the
+  // prefix), so the correction stays consistent with the prefix rebuild.
+  // jsdom reports no layout (scrollHeight 0), where the correction stays 0.
   useEffect(() => {
-    if (windowed && located) return
     const el = scrollRef.current
     if (el === undefined) return
     const estimated = prefixRef.current?.[messages.length] ?? 0
@@ -1562,7 +1571,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       pinToRealBottom()
     })
     return () => cancelAnimationFrame(frame)
-  }, [windowed, located, messages, pinToRealBottom])
+  }, [windowed, located, messages, measuredTick, pinToRealBottom])
 
   return (
     <div className="chat">

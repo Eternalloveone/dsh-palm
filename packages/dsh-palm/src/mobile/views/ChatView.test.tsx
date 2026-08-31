@@ -807,14 +807,14 @@ describe('ChatView scrolling', () => {
       await waitFor(() => { expect(screen.queryByText('消息0')).toBeNull() })
       // Let the measurement effect run and the prefix rebuild + locate land.
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
-      // The bottom spacer now uses MEASURED heights (100px/row): the window
-      // lands at [45,109] after the open-time scrollToBottom, so the spacer
-      // is prefix[130] − prefix[109] = 13000 − 10900 = 2100px. The pure
-      // estimate (50px/row) would be 6500 − 5450 = 1050px — the measured
-      // value is exactly double, proving the real heights entered the sum.
+      // The window lands at the tail after the open-time re-pin, so the
+      // bottom spacer is 0 and the TOP spacer carries the measured prefix
+      // (100px/row) plus the height correction (scrollHeightMock 20000 −
+      // measured prefix) — the pure estimate (50px/row) would be far
+      // smaller, proving the real heights entered the prefix sum.
       const spacers = container.querySelectorAll('.chat-scroll > div[aria-hidden="true"]')
-      const bottom = spacers[spacers.length - 1] as HTMLElement | undefined
-      expect(bottom?.style.height).toBe('2100px')
+      const top = spacers[0] as HTMLElement | undefined
+      expect(top?.style.height).toBe('17900px')
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original!)
     }
