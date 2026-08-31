@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** SettingsView: desktop-parity card list, phone-local switches, form nav. */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SettingsView } from './SettingsView.tsx'
 
 vi.mock('../api.ts', () => ({
@@ -118,6 +118,13 @@ describe('SettingsView card list', () => {
     expect(onSystemMessages).toHaveBeenCalledWith(true)
   })
 
+  it('shows the package version in the About sheet', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByText('关于'))
+    // The version comes from package.json (not a hardcoded literal).
+    expect(await screen.findByText(/版本 \d+\.\d+\.\d+/)).toBeTruthy()
+  })
+
   it('adds, lists, and removes a voice transcription service', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
 
@@ -152,22 +159,25 @@ describe('SettingsView card list', () => {
     expect(save.disabled).toBe(false)
   })
 
-  it('syncs the host-side services into the phone list on open', async () => {
+  it('does not merge host-side services into the phone list on open', async () => {
+    // Host services carry no api key on the phone (the key never leaves the
+    // host); they are display facts only and must not be persisted locally.
     fetchHostVoiceServicesMock.mockResolvedValue([
-      { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', apiKey: 'sk-host', model: 'FunAudioLLM/SenseVoiceSmall' },
-      { name: 'SiliconFlow TeleASR', baseURL: 'https://api.siliconflow.cn/v1', apiKey: 'sk-host', model: 'TeleAI/TeleSpeechASR' },
+      { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
+      { name: 'SiliconFlow TeleASR', baseURL: 'https://api.siliconflow.cn/v1', model: 'TeleAI/TeleSpeechASR' },
     ])
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
 
     fireEvent.click(await screen.findByText('语音服务'))
-    expect(await screen.findByText('SiliconFlow SenseVoice')).toBeTruthy()
-    expect(screen.getByText('SiliconFlow TeleASR')).toBeTruthy()
     expect(fetchHostVoiceServicesMock).toHaveBeenCalledTimes(1)
+    // The host services are NOT added to the local (editable) list.
+    expect(screen.queryByText('SiliconFlow SenseVoice')).toBeNull()
+    expect(screen.queryByText('SiliconFlow TeleASR')).toBeNull()
   })
 
-  it('refreshes host entries and drops stale host imports while keeping user services', async () => {
+  it('drops stale host imports while keeping user services', async () => {
     fetchHostVoiceServicesMock.mockResolvedValue([
-      { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', apiKey: 'sk-new', model: 'FunAudioLLM/SenseVoiceSmall' },
+      { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
     ])
     // Seed the phone list: a stale legacy host import + a user-added service.
     const { getVoiceServices, upsertVoiceService } = await import('../voice-services.ts')
@@ -178,10 +188,11 @@ describe('SettingsView card list', () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     fireEvent.click(await screen.findByText('语音服务'))
 
-    expect(await screen.findByText('SiliconFlow SenseVoice')).toBeTruthy()
-    // The stale legacy import is gone; the user service survives.
-    expect(screen.queryByText('host 配置')).toBeNull()
+    // The stale legacy import is gone; the user service survives; the host
+    // service is not merged in (no key on the phone).
+    await waitFor(() => expect(screen.queryByText('host 配置')).toBeNull())
     expect(screen.getByText('我的服务')).toBeTruthy()
-    expect(getVoiceServices().length).toBe(2)
+    expect(screen.queryByText('SiliconFlow SenseVoice')).toBeNull()
+    expect(getVoiceServices().length).toBe(1)
   })
 })

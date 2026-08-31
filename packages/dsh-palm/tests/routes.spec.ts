@@ -359,6 +359,34 @@ describe('/api/pair routes', () => {
     }
   })
 
+  it('does not let XFF rotation bypass the accept rate limit (shared socket-IP cap)', async () => {
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    try {
+      // An attacker behind the tunnel (socket IP 127.0.0.1) rotates XFF to
+      // mint a fresh bucket each time. The shared socket-IP bucket caps the
+      // TOTAL (40 per 30 s), so rotation cannot clear it.
+      for (let index = 0; index < 40; index += 1) {
+        const attempt = await call(port, 'POST', '/api/pair/accept', {
+          host: '192.168.1.5:3080',
+          body: { token: 'nope' },
+          headers: { 'x-forwarded-for': '203.0.113.' + String(index) },
+        })
+        expect(attempt.status).not.toBe(429)
+      }
+      // The next attempt — a fresh XFF value — is still rate-limited: the
+      // shared socket-IP bucket is exhausted and XFF rotation cannot reset it.
+      const limited = await call(port, 'POST', '/api/pair/accept', {
+        host: '192.168.1.5:3080',
+        body: { token: 'nope' },
+        headers: { 'x-forwarded-for': '203.0.113.999' },
+      })
+      expect(limited.status).toBe(429)
+    } finally {
+      await close()
+    }
+  })
+
   it('rejects non-GET/POST methods with 405', async () => {
     const service = makeService()
     const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))

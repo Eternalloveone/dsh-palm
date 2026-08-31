@@ -18,6 +18,14 @@ export interface OutboxEntry {
   sessionId: string
   text: string
   queuedAt: number
+  /**
+   * True while a flush is delivering this entry. A crash mid-delivery (after
+   * the send succeeded but before the removal) leaves it set, so the entry is
+   * NOT auto-resent on restart — it is "pending confirmation" and the user
+   * can retry or remove it. Old persisted entries without this field are
+   * treated as to-send.
+   */
+  sending?: boolean
 }
 
 const DB_NAME = 'dsh-palm'
@@ -135,6 +143,64 @@ export async function removeFromOutbox(id: string): Promise<void> {
   }
 }
 
+/**
+ * Drop every queued prompt for one session. Called when the session is
+ * deleted (from the chat's 更多 menu or the session list) so its outbox
+ * entries stop retrying forever against a session that no longer exists.
+ */
+export async function removeOutboxForSession(sessionId: string): Promise<void> {
+  const entries = await listOutbox()
+  for (const entry of entries) {
+    if (entry.sessionId === sessionId) await removeFromOutbox(entry.id)
+  }
+}
+
+/**
+ * Thrown by a flush {@link send} callback to mark an entry as permanently
+ * undeliverable (e.g. the session was deleted and no longer accepts prompts).
+ * flushOutbox drops such an entry instead of keeping it queued for the next
+ * retry, so a dead outbox item never retries forever.
+ */
+export class PermanentOutboxError extends Error {
+  constructor(message = 'permanent outbox failure') {
+    super(message)
+    this.name = 'PermanentOutboxError'
+  }
+}
+
+/** Update one queued entry in BOTH sources (store + memory-held). The memory
+ * entry is mutated first so a store outage (IDB down) still records the
+ * change for the memory fallback; a store-only entry that cannot be reached
+ * degrades to memory-only for the rest of the flush. */
+async function updateEntry(id: string, mutate: (entry: OutboxEntry) => void): Promise<void> {
+  const memory = memoryQueue.find(entry => entry.id === id)
+  if (memory !== undefined) mutate(memory)
+  try {
+    const db = await openDb()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite')
+        const store = tx.objectStore(STORE)
+        const get = store.get(id)
+        get.onsuccess = () => {
+          const entry = get.result as OutboxEntry | undefined
+          if (entry !== undefined) {
+            mutate(entry)
+            store.put(entry)
+          }
+        }
+        tx.oncomplete = () => { resolve() }
+        tx.onerror = () => { reject(tx.error ?? new Error('indexedDB transaction failed')) }
+        tx.onabort = () => { reject(tx.error ?? new Error('indexedDB transaction aborted')) }
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    memoryOnly = true
+  }
+}
+
 /** Flush result: how many went out, how many still queue. */
 export interface FlushResult {
   sent: number
@@ -144,7 +210,14 @@ export interface FlushResult {
 /** Deliver every queued prompt in order; a failing entry is skipped (it
  * stays queued for the next flush) so one permanently failing prompt never
  * blocks the rest of the outbox. Concurrent calls coalesce into the
- * in-flight run (no double delivery). */
+ * in-flight run (no double delivery).
+ *
+ * At-least-once without duplicate delivery: each entry is marked `sending`
+ * and persisted BEFORE the send, and only removed after the send succeeds. A
+ * crash between the send and the removal leaves the entry `sending`, so it is
+ * NOT auto-resent on restart (the prompt may already have reached the host,
+ * which has no idempotency key) — it stays queued as "pending confirmation"
+ * for the user to retry or remove. */
 export async function flushOutbox(send: (entry: OutboxEntry) => Promise<void>): Promise<FlushResult> {
   if (flushing) return { sent: 0, failed: 0 }
   flushing = true
@@ -153,12 +226,29 @@ export async function flushOutbox(send: (entry: OutboxEntry) => Promise<void>): 
     let sent = 0
     let failed = 0
     for (const entry of entries) {
+      // A sending entry is "pending confirmation": a previous flush marked it
+      // sending and the process crashed before it was removed. It is NOT
+      // auto-resent (the prompt may already have been delivered), so it stays
+      // queued for the user to retry or remove manually.
+      if (entry.sending === true) continue
       try {
+        // Mark sending and persist BEFORE the send: if the process crashes
+        // after the send succeeds but before the removal, the entry is left
+        // sending and is not re-delivered on restart.
+        await updateEntry(entry.id, e => { e.sending = true })
         await send(entry)
         await removeFromOutbox(entry.id)
         sent += 1
-      } catch {
-        // Keep the entry queued (it retries on the next flush) and move on.
+      } catch (error) {
+        if (error instanceof PermanentOutboxError) {
+          // The entry can never be delivered (session gone): drop it outright
+          // so it stops retrying forever, then move on.
+          await removeFromOutbox(entry.id)
+        } else {
+          // The send failed (network, etc.): clear the sending flag so the
+          // entry is retried on the next flush, and move on.
+          await updateEntry(entry.id, e => { e.sending = false })
+        }
         failed += 1
       }
     }

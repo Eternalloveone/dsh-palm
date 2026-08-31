@@ -161,7 +161,10 @@ export async function resolveTranscribeServices(): Promise<Array<{ service: Tran
       ?? process.env[service.apiKeyEnv]
       ?? ''
     if (apiKey === '') {
-      return { error: `凭据 ${service.apiKeyEnv} 未配置` }
+      // The credential NAME (apiKeyEnv) must never reach the phone: it is an
+      // internal config detail. A stable "not configured" hint is all the
+      // caller (and any log) needs.
+      return { error: '语音转写未配置' }
     }
     return { service, apiKey }
   })
@@ -201,9 +204,13 @@ async function transcribeViaAsr(
       if (text === '') return { outcome: 'skip', reason: '转写结果为空' }
       return { outcome: 'text', text }
     }
-    const body = (await response.text().catch(() => '')).replace(/\s+/g, ' ')
-    return { outcome: 'skip', reason: `ASR 端点（${model}）HTTP ${response.status} ${body.slice(0, 160)}` }
+    // The ASR response body is never echoed back: it is third-party content
+    // that could carry anything, and it is not needed to decide the outcome.
+    // The status code alone is enough for the (internal) failure reason.
+    return { outcome: 'skip', reason: `ASR 端点（${model}）HTTP ${response.status}` }
   } catch (error) {
+    // The fetch exception message is internal; it is only ever logged by the
+    // caller, never returned to the phone.
     return { outcome: 'stop', reason: `转写失败：${error instanceof Error ? error.message : String(error)}` }
   }
 }
@@ -289,7 +296,9 @@ export async function transcribeWav(audioBase64: string, services?: unknown): Pr
       if (dedicated !== undefined) {
         for (const entry of dedicated) {
           if ('error' in entry) {
-            failures.push(`转写服务: ${entry.error}`)
+            // The host config entry is unusable (missing key); the reason is
+            // internal and only logged, never returned to the phone.
+            failures.push(`host 配置: ${entry.error}`)
           } else {
             candidates.push({
               label: entry.service.name ?? entry.service.model,
@@ -307,9 +316,13 @@ export async function transcribeWav(audioBase64: string, services?: unknown): Pr
     for (const candidate of candidates) {
       const attempt = await transcribeViaAsr(candidate.baseURL, candidate.apiKey, candidate.model, audioBase64, controller)
       if (attempt.outcome === 'text') return { text: attempt.text }
+      // The per-service reason (endpoint, status, fetch exception) is internal
+      // diagnostics: log it for the operator, never return it to the phone.
       failures.push(`${candidate.label}: ${attempt.reason}`)
+      console.warn(`transcribe service ${candidate.label} failed: ${attempt.reason}`)
     }
-    return { error: `所有转写服务均不可用 — ${failures.join('；')}` }
+    // A stable user-facing refusal; the detailed failure list stays in the log.
+    return { error: '转写服务不可用' }
   } finally {
     clearTimeout(timeout)
   }

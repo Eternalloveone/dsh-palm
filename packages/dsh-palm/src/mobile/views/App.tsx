@@ -156,7 +156,7 @@ export function App({ initialPairError }: AppProps) {
     )
   }
 
-  return <PairedApp />
+  return <PairedApp onUnpaired={() => setPairState('unpaired')} />
 }
 
 /** The paired surface's route + slide direction (parallax push/pop). */
@@ -176,7 +176,7 @@ interface TransitionState {
 const PAGE_TRANSITION_MS = 260
 
 /** The existing remote mobile surface, mounted only after device pairing succeeds. */
-function PairedApp() {
+function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   const [transition, setTransition] = useState<TransitionState>({
     current: { route: { kind: 'workspaces' }, forward: true },
     leaving: undefined,
@@ -226,13 +226,16 @@ function PairedApp() {
   }, [scheduleExitCleanup])
 
   // The mux stream lives for the page lifetime: session events keep the
-  // open chat live, and reconnect is automatic.
+  // open chat live, and reconnect is automatic. If the polling fallback hits a
+  // terminal (unpaired) error — the device was revoked or remote control
+  // stopped — the client stops itself and we drop back to the pairing screen
+  // instead of polling forever into a 60 s backoff.
   useEffect(() => {
-    const mux = new MuxClient()
+    const mux = new MuxClient(undefined, { onUnpaired })
     muxRef.current = mux
     mux.start()
     return () => { mux.stop() }
-  }, [])
+  }, [onUnpaired])
 
   // Keep the live-event client pointed at the session currently on screen so
   // its polling fallback can keep that chat fresh over SSE-impairing tunnels

@@ -29,6 +29,25 @@ export interface VoiceRecording {
   cancel(): void
 }
 
+/** Options for {@link startVoiceRecording}. */
+export interface VoiceRecordingOptions {
+  /**
+   * Abort the recording: while getUserMedia is still authorizing, an aborted
+   * signal releases the stream the moment it resolves (the caller left the
+   * page mid-prompt); after recording starts, an abort tears the recorder
+   * down exactly like cancel(). The caller owns the controller and aborts it
+   * on unmount so a pending authorization never leaks the mic.
+   */
+  signal?: AbortSignal
+  /**
+   * Called once when the hard duration cap is reached (the recorder has
+   * already stopped capturing and released the mic). The caller uses it to
+   * auto-finish the recording or surface a "录音已截止" state — without it the
+   * sheet would keep showing "正在听..." past the cap.
+   */
+  onTimeout?: () => void
+}
+
 /** Encode interleaved 16-bit PCM as a container-less WAV, base64-wrapped. */
 function encodeWavBase64(samples: Float32Array, sampleRate: number): string {
   const pcm = new Int16Array(samples.length)
@@ -67,7 +86,7 @@ function encodeWavBase64(samples: Float32Array, sampleRate: number): string {
 }
 
 /** Start recording; rejects with a user-readable message when unavailable. */
-export async function startVoiceRecording(): Promise<VoiceRecording> {
+export async function startVoiceRecording(options?: VoiceRecordingOptions): Promise<VoiceRecording> {
   if (!voiceSupported()) {
     throw new Error('此浏览器不支持录音（需要 HTTPS 访问）')
   }
@@ -77,10 +96,17 @@ export async function startVoiceRecording(): Promise<VoiceRecording> {
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     })
   } catch (error) {
+    if (options?.signal?.aborted === true) throw new Error('录音已取消')
     const name = error instanceof DOMException ? error.name : ''
     if (name === 'NotAllowedError') throw new Error('麦克风权限被拒绝，请在浏览器设置中允许')
     if (name === 'NotFoundError') throw new Error('没有找到可用的麦克风')
     throw new Error('录音启动失败')
+  }
+  // The caller cancelled while the mic was still authorizing: release the
+  // stream immediately instead of handing back a recorder nobody will stop.
+  if (options?.signal?.aborted === true) {
+    for (const track of stream.getTracks()) track.stop()
+    throw new Error('录音已取消')
   }
   const AudioCtor = typeof AudioContext === 'function'
     ? AudioContext
@@ -102,6 +128,9 @@ export async function startVoiceRecording(): Promise<VoiceRecording> {
     if (total / SAMPLE_RATE * 1000 >= MAX_DURATION_MS) {
       stopped = true
       teardown()
+      // Surface the cap so the caller can auto-finish (transcribe what was
+      // captured) or show a "录音已截止" state instead of a stuck sheet.
+      options?.onTimeout?.()
     }
   }
   source.connect(processor)
@@ -119,6 +148,12 @@ export async function startVoiceRecording(): Promise<VoiceRecording> {
     try { sink.disconnect() } catch { /* already gone */ }
     for (const track of stream.getTracks()) track.stop()
     void context.close().catch(() => { /* already closed */ })
+  }
+
+  // A caller-side abort after recording started tears the recorder down the
+  // same way cancel() does (the mic is released, no further capture).
+  if (options?.signal !== undefined) {
+    options.signal.addEventListener('abort', teardown, { once: true })
   }
 
   return {

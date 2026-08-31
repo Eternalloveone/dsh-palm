@@ -115,7 +115,7 @@ describe('transcribeWav', () => {
     expect(String(second[0])).toBe('https://b.example/v1/audio/transcriptions')
   })
 
-  it('reports every failure when all services fail', async () => {
+  it('returns a stable generic error when all services fail (no internal details)', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: 'nope' }, 503))
     const result = await transcribeWav(AUDIO, [
       { name: 'A', baseURL: 'https://a.example/v1', apiKey: 'k1', model: 'm1' },
@@ -123,9 +123,40 @@ describe('transcribeWav', () => {
     ])
     expect('error' in result).toBe(true)
     const error = (result as { error: string }).error
-    expect(error).toContain('A')
-    expect(error).toContain('B')
+    // The phone sees only a stable user-facing refusal — never the service
+    // labels, the ASR response body, or the fetch exception message.
+    expect(error).toBe('转写服务不可用')
+    expect(error).not.toContain('A')
+    expect(error).not.toContain('B')
+    expect(error).not.toContain('HTTP')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('never leaks the ASR response body or the fetch exception into the error', async () => {
+    // A 500 whose body carries a secret-looking string must not reach the phone.
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'internal-secret-token-abc' }, 500))
+    const result = await transcribeWav(AUDIO, [
+      { name: 'A', baseURL: 'https://a.example/v1', apiKey: 'k1', model: 'm1' },
+    ])
+    expect('error' in result).toBe(true)
+    const error = (result as { error: string }).error
+    expect(error).toBe('转写服务不可用')
+    expect(error).not.toContain('internal-secret-token-abc')
+    expect(error).not.toContain('a.example')
+  })
+
+  it('does not leak the credential name when the host config key is missing', async () => {
+    // dsh-palm.yaml exists with a transcribe section, but the credentials layer
+    // has no value for the referenced key.
+    readFileMock
+      .mockResolvedValueOnce('transcribe:\n  baseURL: https://api.siliconflow.cn/v1\n  apiKeyEnv: SUPER_SECRET_KEY_NAME\n  model: FunAudioLLM/SenseVoiceSmall\n')
+      .mockResolvedValueOnce('refs:\n  OTHER: sk\n')
+    const result = await transcribeWav(AUDIO, [])
+    expect('error' in result).toBe(true)
+    const error = (result as { error: string }).error
+    // The credential NAME must never reach the phone.
+    expect(error).not.toContain('SUPER_SECRET_KEY_NAME')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('filters malformed services and falls back to the plugin config service', async () => {
