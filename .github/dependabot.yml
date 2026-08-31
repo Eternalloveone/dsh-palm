@@ -1,0 +1,23 @@
+# Automated dependency updates (GitHub Dependabot):
+# - npm ecosystem reads the workspace pnpm-lock.yaml at the repo root
+#   and opens grouped PRs (production vs development dependencies)
+# - github-actions keeps the workflows themselves current
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      production-dependencies:
+        dependency-type: production
+      development-dependencies:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

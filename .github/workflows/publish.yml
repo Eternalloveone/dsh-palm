@@ -1,7 +1,8 @@
 name: publish
 
 # Publish @eternalloveone/dsh-palm when a version tag is pushed:
-# - npmjs.com (the primary channel) via the NPM_TOKEN repository secret
+# - npmjs.com (the primary channel) via the NPM_TOKEN repository secret,
+#   with SLSA provenance (OIDC id-token) attached to the published package
 # - GitHub Packages (npm.pkg.github.com, shows in the repo Packages area)
 #   via the automatically provided GITHUB_TOKEN
 # Manual dispatch (channel input) allows back-filling a version that was
@@ -25,6 +26,11 @@ jobs:
   publish:
     if: github.event_name == 'push' || inputs.channel == 'auto' || inputs.channel == 'npmjs'
     runs-on: ubuntu-latest
+    # Provenance publishing mints an OIDC token so npm can attest the
+    # build source (SLSA level 1) — the industry-standard supply-chain
+    # marker, shown as "Provenance" on the npmjs page.
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -42,7 +48,9 @@ jobs:
         run: pnpm build && pnpm test && pnpm typecheck
       - name: Publish
         working-directory: packages/dsh-palm
-        run: pnpm publish
+        # --provenance mints the SLSA provenance attestation at publish
+        # time (requires the id-token permission above).
+        run: pnpm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
