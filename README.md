@@ -12,9 +12,16 @@ dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1
 
 ## Screenshots
 
+> The captures below are rendered by the real `/m/` UI against **fictional
+> demo data** (workspace names, session titles and chat content are made up),
+> so nothing private leaks into the repository.
+
 | | |
 |---|---|
-| ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown with syntax-highlighted code blocks and line numbers |
+|---|---|
+| ![Workspace](docs/screenshots/workspace.png) | **Workspace** — project roster with search, pin and recent |
+| ![Session list](docs/screenshots/sessions.png) | **Session list** — per-project sessions grouped by day, with a new-session button |
+| ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown with tool tags, interactive diff cards and syntax-highlighted code blocks |
 | ![Diff cards](docs/screenshots/diff.png) | **Diff cards** — `diff` fences render as interactive cards with accept / reject actions |
 | ![Image attach](docs/screenshots/attach.png) | **Image attach** — paste or pick images, auto-compressed before send |
 | ![Settings](docs/screenshots/settings.png) | **Settings** — display, theme and message-visibility preferences |
@@ -33,25 +40,27 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 **Realtime**
 
 - **Desktop-phone live sync** — both surfaces share one host event stream; measured end-to-end latency (desktop trigger → phone mux frame): loopback median 4 ms, public tunnel median 9 ms, Tailscale median 13 ms, weak network (200 ms simulated latency) median 246 ms
-- **SSE mux bridge with polling fallback** — stall detection (36 s for a live stream) arms adaptive history polling; events are never lost and the stream switches back the moment SSE delivers again
+- **SSE mux bridge with polling fallback** — stall detection (36 s for a live stream) arms adaptive history polling; events are never lost and the stream switches back the moment SSE delivers again; a revoked device stops polling and returns to the pairing page instead of polling forever
 - **Windowed streaming renderer** — only the visible prefix renders; long replies stay smooth
-- **Inline-markdown tail preview** — the streaming tail renders markdown live, no typewriter cursor
+- **Incremental streaming preview** — the open tail renders as escaped text grown per chunk (O(chunk) per frame, no per-chunk full re-scan), with inline markdown promoted on short blocks; no typewriter cursor
 - **Collapsible reasoning blocks** — in-body thinking folds into a disclosure
 
 **Interaction**
 
-- **Diff cards** — tolerant unified-diff parsing with word-level LCS marking, accept / reject / review actions, multi-file edits merged at their call-time points
+- **Diff cards** — tolerant unified-diff parsing with word-level LCS marking, accept / reject / review actions, multi-file edits merged at their call-time points; stable references across streaming chunks (no per-token reflow)
 - **Code actions** — copy, insert into editor, open, download, sandbox run; file-path tokens link to the host opener
 - **Command cards** — slash-command discovery and execution with running / success / error lifecycle
-- **Approval & question panels** — tool approvals stream in realtime and resolve in place
-- **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget
-- **Voice input & transcription** — in-browser WAV recording, OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list
+- **Approval & question panels** — tool approvals stream in realtime and resolve in place; answers are bound to the owning device session (no cross-device stealing)
+- **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget; over-limit and decode failures surface as toasts instead of silent drops
+- **Voice input & transcription** — in-browser WAV recording (auto-finishes at 60 s, cleans up on leave), OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list; host-configured services are shown as display facts only — host API keys never leave the host
 - **Plugin market** — browse, search and install plugins from the phone
+- **Session management** — delete sessions from the chat menu or a long-press on the roster; the offline outbox is cleared with the session
+- **IME-safe composer** — Chinese input-method composition never sends half-typed text
 
 **Offline & weak networks**
 
 - **PWA** — installable, versioned service worker, offline-capable bundle
-- **Offline outbox** — prompts queue in IndexedDB (memory fallback) and flush automatically on reconnect, never lost or duplicated
+- **Offline outbox** — prompts queue in IndexedDB (memory fallback) and flush automatically on reconnect; a sending flag prevents duplicate delivery after a crash; individual entries can be removed, permanently-failed entries are dropped
 - **gzip-compressed API responses** — weak-link friendly
 - **On-demand loading** — thin roster fetch; sessions load only when opened
 
@@ -69,7 +78,7 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 - **`/m/` phone UI** — chat, workspace, approvals, image upload; code blocks with syntax highlighting, line numbers and diff cards
 - **`/m/api` RPC channel** — method whitelist + channel rules, with an `events.mux` SSE bridge for realtime updates
 - **Desktop-phone live sync** — one shared event stream; measured end-to-end latency: loopback 4 ms, public tunnel 9 ms, Tailscale 13 ms (median)
-- **Clean streaming output** — windowed prefix rendering, inline-markdown tail preview, no typewriter cursor
+- **Clean streaming output** — windowed prefix rendering, incremental escaped-tail preview, no typewriter cursor
 - **Collapsible reasoning blocks** — in-body thinking folds into a disclosure
 - **Diff cards** — `diff` fences render as interactive cards with accept / reject / review actions
 - **Code actions** — copy, insert into editor, open, download, sandbox run; file-path tokens link to the host opener
@@ -78,8 +87,9 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 - **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget
 - **Voice input & transcription** — in-browser WAV recording, OpenAI-compatible multi-service fallback (SenseVoiceSmall first)
 - **Plugin market** — browse, search and install plugins from the phone
+- **Session delete** — from the chat 更多 menu or a long-press on the roster; clears the offline outbox for that session
 - **PWA** — installable, versioned service worker, offline-capable bundle
-- **Offline outbox** — prompts queue in IndexedDB and flush automatically on reconnect
+- **Offline outbox** — prompts queue in IndexedDB and flush automatically on reconnect; crash-safe (sending flag), per-entry removal
 - **gzip-compressed API responses** — weak-link friendly
 - **On-demand loading** — thin roster fetch; sessions load only when opened
 - **Desktop-parity settings** — phone settings sync with the desktop (schema forms, cascading model picker, permission presets)
@@ -123,7 +133,7 @@ pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
 
 ## Security
 
-Device trust is established by scan-to-pair; every `/m/api` call is gated by the pairing cookie and the method whitelist. See the pairing and gate sources for details, and [SECURITY.md](SECURITY.md) for the vulnerability reporting process and deployment notes.
+Device trust is established by scan-to-pair; every `/m/api` call is gated by the pairing cookie and the method whitelist. The `/m/` surface serves a strict Content-Security-Policy as the last line of defense behind the renderer, host voice-transcription API keys never leave the host (the phone sees display facts only), approval answers are bound to the owning device session, and host error details are never echoed to the phone. See the pairing and gate sources for details, and [SECURITY.md](SECURITY.md) for the vulnerability reporting process and deployment notes.
 
 ## Project docs
 
