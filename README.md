@@ -136,3 +136,4 @@ Device trust is established by scan-to-pair; every `/m/api` call is gated by the
 Apache-2.0 — see [LICENSE](LICENSE). This is a derivative work of
 [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web); see
 [NOTICE](packages/dsh-palm/NOTICE).
+<!-- protection-check -->
