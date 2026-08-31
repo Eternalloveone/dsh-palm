@@ -4,12 +4,27 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-31
+
+### Added
+
+- **Jump-to-latest affordance** — a floating button appears once the reader scrolls away from the tail, with an unread-message badge accumulated while away; clicking pins the real tail and clears the tally
+- **Persisted session delete (desktop parity)** — the phone's 删除会话 now issues the host archive write (`workspace.archiveSession`, the exact RPC the desktop's delete uses): the session leaves every roster forever while its log stays on the computer, restorable from the desktop; confirm dialogs state the real semantics, and a failed write keeps the old local removal and surfaces a toast
+- **Release infrastructure** — GitHub Actions CI (pnpm + node 22 matrix, required `check`), dependabot config, npmjs + GitHub Packages publish workflows triggered by a tag push, commitlint, bilingual README with refreshed screenshots
+
 ### Fixed
+
+- **Opening a long session no longer strands mid-history** — the opening auto-extend prepend re-follows at commit time instead of a rAF that can read the pre-commit height and pin to the stale tail (measured: 6/6 opens showed stray frames and 1/3 ended far from the bottom; now 0/8 with a frame-level sampler); the opening follower pins before the first paint, removing the top-of-history flash; the windowed height correction converges into the prefix sum instead of drifting every pass
+- **Windowed locate keeps the tail window** — while the reader sits at the bottom the locate no longer yanks the window when measured row heights land; the opening tail window is shaped like locateWindow (VISIBLE + OVERSCAN)
+
+### Fixed (full review remediation, from this cycle)
 
 - **Phone session list hides deleted/archived sessions** — the host `session.list` still returns a deleted session while its attached live entry survives in memory; the phone now merges the `workspace.list` archive set and filters archived rows before paging
 - **Full review remediation (security)** — the `/m/` surface now serves a strict Content-Security-Policy (last line of defense behind the renderer for the full-control pairing cookie); host voice-transcription API keys never leave the host (display facts only, stale host imports dropped from the phone list); oversized request bodies are drained so keep-alive connections cannot misalign; `mobile.respond` validates rpcId ownership (unknown → not-found, foreign session → conflict); the polling fallback stops on terminal unpaired errors and the UI returns to the pairing page; outbox entries carry a sending flag so a crash cannot duplicate a prompt; accept rate limiting uses a shared socket-IP bucket that XFF rotation cannot drain; host error details no longer leak to the phone
 - **Full review remediation (streaming/perf)** — long open paragraphs stream through an incremental plain-escape path (O(chunk) per frame instead of O(n²) regex rescans); diff artifact cards keep a stable merged view across chunks (no per-token reflow or re-derive); the sticky header drops backdrop-filter for a near-opaque background; shiki sync highlighting is cached by (lang, code); the SSE-live pending poll slows to 60 s
 - **Full review remediation (functionality)** — voice recording cleans up on unmount (mic/stream released, no setState after unmount) and auto-finishes at 60 s; session delete added to the chat 更多 menu and the roster long-press (clears the offline outbox); search notes it only covers loaded pages; read-only settings groups no longer show a fake save; IME composition no longer sends half-typed Chinese; image over-limit and decode failures surface as toasts; the market list shows the 300-cap; offline banner entries can be removed individually and permanently-failed entries are dropped; the About version comes from package.json; deleting the recent workspace clears recentId; empty number inputs do not write back 0
+- **Session roster filtered by workspace attach ids** — the roster resolves rows against the workspace's attach relation so orphan standalone sessions no longer leak in and both surfaces agree on ownership
+- **Session delete now actually deletes** — the previous local-only removal resurrected the session on the next roster fetch (see Added: persisted delete via the host archive)
 
 ## [0.1.0] - 2026-08-30
 
@@ -76,4 +91,5 @@ First open-source release: the standalone mobile surface for the dsh web GUI, ex
 - Highlights rewritten with the full innovation list, Features expanded to the full feature set, innovations marked against upstream
 - Measured sync/stall/weak-network data in the Highlights
 
+[0.2.0]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v0.1.0
