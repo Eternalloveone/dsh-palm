@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** MarketView: registry truncation hint when more than 300 plugins match. */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MarketView } from './MarketView.tsx'
 
@@ -19,6 +19,13 @@ function stubFetch(plugins: unknown[]): void {
     return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
   }))
 }
+
+beforeEach(() => {
+  // MarketView caches the registry in localStorage; clear it so one test's
+  // payload (e.g. the 301-plugin truncation case) cannot leak into the next.
+  // jsdom may not provide localStorage (node 26 without --localstorage-file).
+  try { localStorage.clear() } catch { /* no storage in this environment */ }
+})
 
 afterEach(() => {
   cleanup()

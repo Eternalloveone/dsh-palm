@@ -33,7 +33,10 @@ vi.mock('../voice-input.ts', () => ({
 }))
 vi.mock('../offline.ts', () => ({
   enqueuePrompt: vi.fn(),
-  flushOutbox: vi.fn(),
+  // Real flushOutbox is async and always resolves a FlushResult; the mock
+  // must return a promise too, or ChatView's `void flushOutbox(...).then`
+  // throws on the offline-banner path.
+  flushOutbox: vi.fn(async () => ({ sent: 0, failed: 0 })),
   listOutbox: vi.fn(async () => []),
   removeFromOutbox: vi.fn(),
   removeOutboxForSession: vi.fn(),
