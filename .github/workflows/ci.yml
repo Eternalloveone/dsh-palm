@@ -23,10 +23,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Commit lint
         # Conventional Commits gate (release commits vX.Y.Z: ... are exempt
-        # via commitlint.config.js ignores).
+        # via commitlint.config.mjs ignores). The action requires an ESM
+        # config file (.mjs).
         uses: wagoid/commitlint-github-action@v6
         with:
-          configFile: commitlint.config.js
+          configFile: commitlint.config.mjs
           failOnErrors: true
       - name: Build
         working-directory: packages/dsh-palm
