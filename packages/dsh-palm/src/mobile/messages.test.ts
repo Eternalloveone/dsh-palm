@@ -641,6 +641,19 @@ describe('coalesceTurnMessages', () => {
     expect(merged.map(m => m.text)).toEqual(['回复', '打断', '继续'])
   })
 
+  it('keeps the FIRST row step on the merged row (stable streaming key)', () => {
+    // ChatView keys rows by (turn, step); the merged row must keep the first
+    // step so the key does not change when a new step opens mid-stream —
+    // otherwise the whole turn message remounts at every step boundary.
+    const merged = coalesceTurnMessages([
+      step('a-1', 7, '第一步', 1, { step: 0 }),
+      step('a-2', 7, '第二步', 2, { step: 1 }),
+      step('a-3', 7, '第三步', 3, { step: 2 }),
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({ id: 'a-1', turn: 7, step: 0 })
+  })
+
   it('leaves a single message and turn-less rows untouched', () => {
     expect(coalesceTurnMessages([step('a-1', 7, '单一', 1)])).toHaveLength(1)
     const unturned = step('a-1', undefined as never, '无 turn', 1) as RenderMessage

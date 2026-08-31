@@ -227,6 +227,9 @@ export function MarketView({ onBack }: MarketViewProps) {
                 </li>
               )
             })}
+            {plugins.length > 300 && (
+              <li className="settings-note">仅显示前 300 个插件，请用搜索缩小范围</li>
+            )}
             {plugins.length === 0 && <li className="settings-note">没有匹配的插件。</li>}
           </ul>
         )}

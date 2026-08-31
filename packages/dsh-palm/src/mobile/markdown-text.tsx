@@ -32,6 +32,14 @@ import { ChevronUpIcon, SearchIcon } from './icons.tsx'
 export const LONG_TEXT_LIMIT = 6000
 /** Preview length for collapsed long text (exported for height estimation). */
 export const LONG_TEXT_PREVIEW = 800
+/**
+ * Open paragraphs longer than this skip the inline-markdown promotion in
+ * the streaming preview and render as plain escaped text instead. The
+ * promotion runs five regexes over the whole open block per chunk, which
+ * is O(n²) over a long no-blank-line reply; the plain path is incremental
+ * (see {@link previewPlain}) and stays O(chunk) per frame.
+ */
+const PREVIEW_INLINE_LIMIT = 2000
 
 /** Latest non-empty line of a streaming reasoning buffer. */
 function lastLine(text: string): string {
@@ -106,18 +114,40 @@ export function ReasoningDisclosure({ text, pending, label = '深度思考' }: {
 
 export function MarkdownText({ text, pending }: { text: string; pending: boolean }) {
   const [open, setOpen] = useState(false)
-  // Live-preview builder: escaped plain text with newlines as <br />, plus
-  // the common inline markdown promoted to real tags while streaming —
-  // paired single backticks to inline-code chips, **bold**, *italic*,
-  // ~~strikethrough~~ and [links](url). A tick adjacent to another tick is
-  // never a pair (``doubles`` and fence openers stay literal). Blank-line-
-  // separated blocks render as <p> exactly like the settled parse, so a
-  // block stabilizing never changes the line rhythm (the old flat <br />
-  // preview jumped 0 → 16px per paragraph). Inline tags keep the preview
-  // visually identical to the terminal markdown, so a paragraph falling
-  // back into the tail (text-rewrite reset, multi-step merge) no longer
-  // flashes its **bold** / `code` back to literal text.
+  // Streaming state: blocks that became stable plus the stable prefix
+  // length, so every frame re-parses only the newly-arrived tail. The
+  // first pending frame renders the whole text as an escaped preview to
+  // avoid a blank first paint; the effect below immediately upgrades the
+  // stable parts to structured segments.
+  const streamRef = useRef<{ blocks: Array<{ id: number; block: StreamBlock }>; stableLen: number } | null>(null)
+  const streamIdRef = useRef(0)
+  /** Text of the previous stream frame (for the text-rewrite guard). */
+  const streamPrevTextRef = useRef<string | null>(null)
+  /**
+   * Incremental plain-preview cache: escaped text + <br /> newlines, grown
+   * by the newly-arrived suffix each frame. Escaping is stateless per
+   * character, so a prefix-stable text costs O(chunk) per frame instead of
+   * O(n) — the long-open-paragraph path would otherwise re-escape the whole
+   * block on every chunk (O(n²) over a long reply). A text rewrite (prefix
+   * mismatch) rebuilds from scratch automatically.
+   */
+  const previewCacheRef = useRef<{ text: string; html: string } | null>(null)
+  const previewPlain = (value: string): string => {
+    const cache = previewCacheRef.current
+    if (cache !== null && value.startsWith(cache.text)) {
+      const tail = value.slice(cache.text.length)
+      const html = cache.html + escapeHtml(tail).replace(/\n/g, '<br />')
+      previewCacheRef.current = { text: value, html }
+      return html
+    }
+    const html = escapeHtml(value).replace(/\n/g, '<br />')
+    previewCacheRef.current = { text: value, html }
+    return html
+  }
+  /** Inline-promoting preview for short open blocks (visual parity with the
+   *  settled parse); long blocks fall back to {@link previewPlain}. */
   const previewOf = (value: string): string => {
+    if (value.length > PREVIEW_INLINE_LIMIT) return previewPlain(value)
     const escaped = escapeHtml(value)
       .replace(/(^|[^`])`([^`\n]+)`(?=$|[^`])/g, '$1<code>$2</code>')
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -129,15 +159,6 @@ export function MarkdownText({ text, pending }: { text: string; pending: boolean
       })
     return escaped.split(/\n{2,}/).map(block => `<p>${block.replace(/\n/g, '<br />')}</p>`).join('')
   }
-  // Streaming state: blocks that became stable plus the stable prefix
-  // length, so every frame re-parses only the newly-arrived tail. The
-  // first pending frame renders the whole text as an escaped preview to
-  // avoid a blank first paint; the effect below immediately upgrades the
-  // stable parts to structured segments.
-  const streamRef = useRef<{ blocks: Array<{ id: number; block: StreamBlock }>; stableLen: number } | null>(null)
-  const streamIdRef = useRef(0)
-  /** Text of the previous stream frame (for the text-rewrite guard). */
-  const streamPrevTextRef = useRef<string | null>(null)
   const [segments, setSegments] = useState<MarkdownSegment[]>(() => pending
     ? [{ kind: 'html', id: 0, html: previewOf(text) }]
     : parseSegments(text))

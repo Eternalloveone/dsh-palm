@@ -11,6 +11,7 @@
 
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/settings'
+import pkg from '../../../package.json'
 import { fetchHostVoiceServices, mutateSettings, readSettings } from '../api.ts'
 import { errorText } from './App.tsx'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
@@ -326,14 +327,15 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               action={<RowChevron />}
               onClick={() => {
                 setVoiceSheet('list')
-                // Sync the phone list with the host-side services
-                // (dsh-palm.yaml) on every open: host entries refresh by
-                // name, stale imports drop, user-added services stay.
+                // Host-side services (dsh-palm.yaml) are configured on the
+                // desktop and used by the host as a fallback; their keys
+                // never reach the phone, so they are not merged into the
+                // local list — this call only drops stale host imports.
                 void fetchHostVoiceServices().then(
                   (services) => {
                     if (services.length === 0) return
                     syncHostVoiceServices(services)
-                    toast(`已同步 host 配置的语音服务（${services.length} 个）`)
+                    toast(`host 语音服务在桌面端配置（${services.length} 个）`)
                   },
                   () => { /* 拉取失败保持现状，用户可手动添加 */ },
                 )
@@ -465,7 +467,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
       {sheet === 'about' && (
         <Sheet title="关于" onClose={() => { setSheet(null) }}>
           <p className="sheet-confirm-desc">
-            掌上 DSH（dsh-palm）· 版本 0.1.0
+            掌上 DSH（dsh-palm）· 版本 {pkg.version}
             <br />
             DSH 移动端界面：扫码配对、工作区、会话与实时对话。
           </p>

@@ -192,12 +192,13 @@ export async function transcribeVoice(audio: string, services: VoiceService[]): 
 }
 
 /**
- * The host-side fallback transcription service (dsh-palm.yaml `transcribe:`),
- * if any — the phone imports it into its own service list so the desktop
- * config shows up in the settings card without retyping the key.
+ * The host-side fallback transcription services (dsh-palm.yaml `transcribe:`),
+ * if any — display facts only. The host API keys never leave the host, so
+ * these services cannot be used from the phone and are not merged into the
+ * local service list (see syncHostVoiceServices).
  */
-export async function fetchHostVoiceServices(): Promise<Array<Omit<VoiceService, 'id'>>> {
-  const response = await callUnary<{ services: Array<Omit<VoiceService, 'id'>> }>('mobile.voiceServices', {})
+export async function fetchHostVoiceServices(): Promise<Array<{ name: string; baseURL: string; model: string }>> {
+  const response = await callUnary<{ services: Array<{ name: string; baseURL: string; model: string }> }>('mobile.voiceServices', {})
   return response.services
 }
 

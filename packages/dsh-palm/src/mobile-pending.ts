@@ -149,4 +149,24 @@ export class PendingTracker {
   clear(sessionId: string): void {
     this.sessions.delete(sessionId)
   }
+
+  /**
+   * The session that owns a pending rpcId (an approval or question awaiting
+   * a response), or undefined when the rpcId is not pending. The mobile
+   * respond channel uses this to bind an answer to the session that actually
+   * owns the pending item: a phone must not be able to answer an approval or
+   * question that belongs to another session (or that another device already
+   * resolved). An rpcId can only ever be pending under one session — the
+   * tracker keys approvals and questions by session, and each frame's rpcId is
+   * recorded under the session it was requested for.
+   */
+  ownerOfRpcId(rpcId: string): string | undefined {
+    for (const [sessionId, state] of this.sessions) {
+      for (const approval of state.approvals.values()) {
+        if (approval.rpcId === rpcId) return sessionId
+      }
+      if (state.questions.some(question => question.rpcId === rpcId)) return sessionId
+    }
+    return undefined
+  }
 }

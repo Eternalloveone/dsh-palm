@@ -83,3 +83,42 @@ describe('PendingTracker question shape (mobile.pending polling fallback)', () =
     expect(tracker.pending('s1').questions).toHaveLength(0)
   })
 })
+
+describe('PendingTracker.ownerOfRpcId (mobile.respond ownership binding)', () => {
+  it('returns the session that owns a pending question rpcId', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // rpc-ask-1 under s1
+    expect(tracker.ownerOfRpcId('rpc-ask-1')).toBe('s1')
+  })
+
+  it('returns the session that owns a pending approval rpcId', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame({
+      rpcId: 'rpc-approve-1',
+      payload: { type: 'approval/requested', sessionId: 's2', approvalId: 'a1', toolName: 'bash' },
+    } as never)
+    expect(tracker.ownerOfRpcId('rpc-approve-1')).toBe('s2')
+  })
+
+  it('distinguishes sessions: the same rpcId never spans two sessions', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // rpc-ask-1 under s1
+    tracker.onFrame({
+      rpcId: 'rpc-ask-2',
+      payload: { type: 'question/requested', sessionId: 's2', questions: [{ id: 'q1', question: 'x' }] },
+    } as never)
+    expect(tracker.ownerOfRpcId('rpc-ask-1')).toBe('s1')
+    expect(tracker.ownerOfRpcId('rpc-ask-2')).toBe('s2')
+  })
+
+  it('returns undefined for an rpcId that is not pending (resolved or never tracked)', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never)
+    tracker.onFrame({
+      rpcId: 'rpc-resolve-1',
+      payload: { type: 'question/resolved', sessionId: 's1', questionRpcId: 'rpc-ask-1' },
+    } as never)
+    expect(tracker.ownerOfRpcId('rpc-ask-1')).toBeUndefined()
+    expect(tracker.ownerOfRpcId('rpc-never')).toBeUndefined()
+  })
+})

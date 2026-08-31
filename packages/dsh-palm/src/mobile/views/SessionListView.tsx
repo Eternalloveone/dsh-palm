@@ -15,7 +15,7 @@
  * status dot on running sessions; the raw session-id tail is gone.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
@@ -23,8 +23,10 @@ import { createSession, history, listAgentPresets, listSessions } from '../api.t
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
+import { removeOutboxForSession } from '../offline.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
+import { ConfirmDialog } from '../dialog.tsx'
 import { ChatBubbleIcon, CheckIcon, ChevronUpIcon, CloseIcon, HelpIcon, SearchIcon } from '../icons.tsx'
 
 /** Props for the session list. */
@@ -146,6 +148,11 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
   useEffect(() => () => { aliveRef.current = false }, [])
   /** Backoff gate after a failed next-page load (sentinel retry storm). */
   const retryBlockedAtRef = useRef(0)
+  /** Long-press row menu (delete session) + its confirm dialog. */
+  const [menuSession, setMenuSession] = useState<SessionView | undefined>(undefined)
+  const [deleting, setDeleting] = useState<SessionView | undefined>(undefined)
+  const pressTimerRef = useRef<number | undefined>(undefined)
+  const pressConsumedRef = useRef<string | undefined>(undefined)
 
   /** Pull previews for the newest page's sessions (bounded, best effort). */
   const loadPreviews = useCallback((rows: SessionView[]): void => {
@@ -285,6 +292,59 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
       },
     )
   }, [creating, workspace, onPick, selectedPreset])
+
+  /** Clear the long-press timer (touch move/end cancels a pending press). */
+  const clearPressTimer = useCallback(() => {
+    if (pressTimerRef.current !== undefined) {
+      clearTimeout(pressTimerRef.current)
+      pressTimerRef.current = undefined
+    }
+  }, [])
+
+  useEffect(() => () => { clearPressTimer() }, [clearPressTimer])
+
+  /**
+   * Long-press (touch) opens the row action menu; contextmenu covers mouse.
+   * The trailing click after a long-press is swallowed so the row does not
+   * navigate AND open the menu at once.
+   */
+  const pressHandlers = (row: SessionView) => ({
+    onTouchStart: () => {
+      clearPressTimer()
+      pressConsumedRef.current = undefined
+      pressTimerRef.current = window.setTimeout(() => {
+        pressTimerRef.current = undefined
+        pressConsumedRef.current = row.sessionId
+        setMenuSession(row)
+      }, 500)
+    },
+    onTouchMove: clearPressTimer,
+    onTouchEnd: clearPressTimer,
+    onClick: (event: ReactMouseEvent) => {
+      if (pressConsumedRef.current === row.sessionId) {
+        pressConsumedRef.current = undefined
+        event.preventDefault()
+        return
+      }
+      onPick(row)
+    },
+    onContextMenu: (event: ReactMouseEvent) => {
+      event.preventDefault()
+      setMenuSession(row)
+    },
+  })
+
+  /**
+   * Delete a session (UI-layer: the host exposes no session-delete RPC on the
+   * mobile channel, so this removes the row locally and drops its outbox
+   * entries; the roster re-fetches on the next visit).
+   */
+  const handleDeleteSession = useCallback((row: SessionView): void => {
+    setDeleting(undefined)
+    setMenuSession(undefined)
+    setRows(previous => previous.filter(item => item.sessionId !== row.sessionId))
+    void removeOutboxForSession(row.sessionId)
+  }, [])
 
   const createHint = createError !== undefined ? staleHostHint(createError) : undefined
   const selectedPresetEntry = presets.find(preset => preset.id === selectedPreset)
@@ -436,7 +496,7 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
               const preview = row.preview ?? previewCacheRef.current.get(row.sessionId)
                 ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)
               return (
-                <button type="button" key={row.sessionId} className="mobile-row" onClick={() => { onPick(row) }}>
+                <button type="button" key={row.sessionId} className="mobile-row" {...pressHandlers(row)}>
                   <span className="card-icon">
                     {row.running ? (
                       <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
@@ -462,6 +522,13 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
             })}
           </li>
         ))}
+        {!loading && search.trim() !== '' && hasMore && (
+          <li style={{ listStyle: 'none' }}>
+            <p className="mobile-muted mobile-pad" role="note">
+              搜索仅覆盖已加载的 {rows.length} 条会话，继续加载可搜索更多
+            </p>
+          </li>
+        )}
         {!loading && search.trim() !== '' && groups.length === 0 && (
           <div className="mobile-empty">
             <div className="empty-icon"><SearchIcon /></div>
@@ -532,6 +599,33 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
             {presetDescription !== undefined ? '：' + presetDescription : ''}
           </p>
         </Sheet>
+      )}
+      {menuSession !== undefined && (
+        <Sheet title={menuSession.title} onClose={() => { setMenuSession(undefined) }}>
+          <div role="menu" aria-label="会话操作">
+            <div className="sheet-option-divider" aria-hidden />
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setMenuSession(undefined); setDeleting(menuSession) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title" style={{ color: 'var(--danger)' }}>删除会话</span>
+              </span>
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {deleting !== undefined && (
+        <ConfirmDialog
+          title="删除会话"
+          body={<>确定删除「{deleting.title}」吗？本机会话记录与待发送消息将被移除。</>}
+          confirmLabel="删除"
+          tone="danger"
+          onCancel={() => { setDeleting(undefined) }}
+          onConfirm={() => { handleDeleteSession(deleting) }}
+        />
       )}
     </div>
   )

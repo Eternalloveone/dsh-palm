@@ -102,21 +102,17 @@ export function moveVoiceServiceDown(id: string): void {
 }
 
 /**
- * Sync the phone list with the host-side services (dsh-palm.yaml): host
- * entries are refreshed by name, stale host imports (including the legacy
- * single 'host 配置' entry) are dropped, and user-added services are kept.
+ * Sync the phone list with the host-side services (dsh-palm.yaml). Host
+ * services carry NO api key on the phone (the key never leaves the host —
+ * transcription rides the host channel, which falls back to the host config
+ * when the phone sends no services), so they cannot be used from the phone
+ * and are NOT merged into the local list. This call only drops stale host
+ * imports (including the legacy single 'host 配置' entry) that earlier
+ * versions may have persisted; user-added services are kept.
  */
-export function syncHostVoiceServices(services: Array<Omit<VoiceService, 'id'>>): void {
+export function syncHostVoiceServices(services: Array<{ name: string }>): void {
   const hostNames = new Set(services.map(service => service.name))
   const current = readStored().filter(entry => !(hostNames.has(entry.name) || entry.name === 'host 配置'))
-  for (const service of services) {
-    current.push({
-      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `svc-${Date.now()}-${current.length}`,
-      ...service,
-    })
-  }
   writeStored(current.slice(0, MAX_VOICE_SERVICES))
   emitChange()
 }

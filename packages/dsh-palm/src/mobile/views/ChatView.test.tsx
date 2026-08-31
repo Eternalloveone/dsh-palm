@@ -27,8 +27,21 @@ vi.mock('./App.tsx', async importOriginal => {
     prompt: vi.fn(async () => {}),
   }
 })
+vi.mock('../voice-input.ts', () => ({
+  startVoiceRecording: vi.fn(),
+  voiceSupported: vi.fn(() => false),
+}))
+vi.mock('../offline.ts', () => ({
+  enqueuePrompt: vi.fn(),
+  flushOutbox: vi.fn(),
+  listOutbox: vi.fn(async () => []),
+  removeFromOutbox: vi.fn(),
+  removeOutboxForSession: vi.fn(),
+}))
 import { fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
 import { loadHistory, prompt } from './App.tsx'
+import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
+import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
 
 const session: SessionView = {
   sessionId: 's-1',
@@ -99,6 +112,11 @@ const cancelSessionMock = vi.mocked(cancelSession)
 const fetchPendingMock = vi.mocked(fetchPending)
 const loadHistoryMock = vi.mocked(loadHistory)
 const promptMock = vi.mocked(prompt)
+const startVoiceRecordingMock = vi.mocked(startVoiceRecording)
+const voiceSupportedMock = vi.mocked(voiceSupported)
+const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
+const listOutboxMock = vi.mocked(listOutbox)
+const removeFromOutboxMock = vi.mocked(removeFromOutbox)
 
 beforeEach(() => {
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
@@ -1402,5 +1420,72 @@ describe('ChatView streaming preview', () => {
     expect(bolds.length).toBeGreaterThan(0)
     expect(bolds[0]!.tagName).toBe('STRONG')
     expect(screen.queryByText('**加粗**')).toBeNull()
+  })
+})
+
+describe('ChatView voice cleanup', () => {
+  it('releases the mic when the chat unmounts during mic authorization', async () => {
+    const trackStop = vi.fn()
+    const cancel = vi.fn(() => { trackStop() })
+    let resolveRecorder: ((recorder: VoiceRecording) => void) | undefined
+    startVoiceRecordingMock.mockReturnValue(new Promise(resolve => { resolveRecorder = resolve }))
+    voiceSupportedMock.mockReturnValue(true)
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    const { unmount } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // Open the mic; getUserMedia is still authorizing (the promise is pending).
+    fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+    // The user leaves the chat before authorization resolves.
+    unmount()
+    // Authorization resolves after unmount: the recorder must be cancelled so
+    // the MediaStream tracks are stopped (no mic leak, no stuck indicator).
+    await act(async () => { resolveRecorder!({ stop: vi.fn(), cancel }) })
+    expect(cancel).toHaveBeenCalled()
+    expect(trackStop).toHaveBeenCalled()
+  })
+})
+
+describe('ChatView delete session', () => {
+  it('clears the outbox and returns to the list after confirming delete', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    removeOutboxForSessionMock.mockResolvedValue(undefined)
+    const onBack = vi.fn()
+    render(<ChatView session={session} onBack={onBack} showToolCalls={true} showSystemMessages={false} />)
+    // Open the 更多 menu and pick 删除会话.
+    fireEvent.click(await screen.findByRole('button', { name: '更多' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /删除会话/ }))
+    // Confirm the destructive action.
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
+    await waitFor(() => {
+      expect(removeOutboxForSessionMock).toHaveBeenCalledWith('s-1')
+      expect(onBack).toHaveBeenCalled()
+    })
+  })
+})
+
+describe('ChatView composer IME guard', () => {
+  it('does not send on Enter while a Chinese IME is composing', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...')
+    fireEvent.change(input, { target: { value: '你好' } })
+    // IME composition Enter (isComposing true) must not fire a send.
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: true })
+    expect(promptMock).not.toHaveBeenCalled()
+    // A normal Enter sends.
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false })
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+  })
+})
+
+describe('ChatView offline banner', () => {
+  it('removes an individual queued entry from the banner', async () => {
+    listOutboxMock.mockResolvedValue([{ id: 'o1', sessionId: 's-1', text: '离线消息', queuedAt: 1 }])
+    removeFromOutboxMock.mockResolvedValue(undefined)
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // The banner lists the queued entry.
+    expect(await screen.findByText('离线消息')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '移除待发送消息' }))
+    await waitFor(() => { expect(removeFromOutboxMock).toHaveBeenCalledWith('o1') })
   })
 })
