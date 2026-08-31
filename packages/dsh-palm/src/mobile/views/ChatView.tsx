@@ -47,7 +47,7 @@ import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
-import { CheckIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SendIcon, ShieldIcon } from '../icons.tsx'
+import { CheckIcon, ChevronDownIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SendIcon, ShieldIcon } from '../icons.tsx'
 import { MessageRow } from '../message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
 import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
@@ -750,7 +750,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     const el = scrollRef.current
     if (el === undefined) return
     scrollTopRef.current = el.scrollTop
-    bottomGapAtUserScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+    bottomGapAtUserScrollRef.current = gap
+    // The jump-to-latest button appears once the reader scrolled away from
+    // the bottom (same threshold the auto-follower uses); React bails out on
+    // unchanged values, so this costs nothing while scrolling.
+    setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
     scheduleLocate()
   }, [scheduleLocate])
 
@@ -787,6 +792,20 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
    * streaming output never yanks a reader who scrolled up through history.
    */
   const followedBottomRef = useRef(false)
+  /** Whether the reader scrolled away from the bottom (jump-to-latest button). */
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  /** New messages that arrived while the reader was away (badge count). */
+  const [unreadCount, setUnreadCount] = useState(0)
+  /** Highest seq the reader has seen; the unread tally counts above it. */
+  const lastSeenSeqRef = useRef(0)
+
+  /** Jump back to the newest message and re-arm the auto-follower. */
+  const jumpToLatest = useCallback(() => {
+    bottomGapAtUserScrollRef.current = 0
+    setShowJumpToLatest(false)
+    setUnreadCount(0)
+    scrollToBottom()
+  }, [scrollToBottom])
 
   // Keep the newest content visible. This covers the initial tail page (the
   // effect runs after commit, fixing the stale scrollHeight from the old
@@ -806,10 +825,21 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     if (!followedBottomRef.current) {
       // First tail of this session: always follow (the chat opens at the
       // newest message, whatever the scroll position left by a previous
-      // session).
+      // session). The opening baseline also seeds the unread tally.
       followedBottomRef.current = true
+      lastSeenSeqRef.current = last.seq
       scrollToBottom()
       return
+    }
+    // Unread tally: count messages that arrived after the reader's last seen
+    // seq while they were away from the bottom. A following reader sees the
+    // content immediately and never accumulates a badge; loadOlder prepends
+    // leave the last seq untouched, so they never count.
+    if (last.seq > lastSeenSeqRef.current) {
+      lastSeenSeqRef.current = last.seq
+      if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) {
+        setUnreadCount(count => count + 1)
+      }
     }
     // 自动滚动 off (settings): the reader drives the scroll position.
     if (!autoScroll) return
@@ -1659,6 +1689,17 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
             sessionId={session.sessionId}
             onResolved={() => { setPendingQuestions([]) }}
           />
+        )}
+        {showJumpToLatest && (
+          <button
+            type="button"
+            className={'chat-jump-latest' + (unreadCount > 0 ? ' chat-jump-latest-hot' : '')}
+            aria-label="回到最新消息"
+            onClick={jumpToLatest}
+          >
+            <ChevronDownIcon width={20} height={20} />
+            {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount}</span>}
+          </button>
         )}
       </div>
       <div className="chat-tools">

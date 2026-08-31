@@ -660,6 +660,57 @@ describe('ChatView scrolling', () => {
     expect(anchored).not.toBe(900)
   })
 
+  it('shows the jump-to-latest button once the reader scrolls away from the bottom', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    // At the bottom (opening position) the button stays hidden.
+    expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
+    // Scrolling up through history (gap 20_000 − 5_000 − 600 ≫ threshold) reveals it.
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    expect(screen.getByRole('button', { name: '回到最新消息' })).toBeTruthy()
+  })
+
+  it('jumps to the bottom and hides the button on click', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    fireEvent.click(screen.getByRole('button', { name: '回到最新消息' }))
+    // The view pins to the new bottom and the button disappears.
+    expect(scrollWrites.at(-1)).toBe(20_000)
+    expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
+  })
+
+  it('counts messages that arrive while away and clears the badge on jump', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    // Two live messages arrive while the reader is away from the bottom.
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
+    })
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7).event })
+    })
+    const badge = await screen.findByText('2', { selector: '.chat-jump-badge' })
+    expect(badge).toBeTruthy()
+    // Jumping clears the tally.
+    fireEvent.click(screen.getByRole('button', { name: '回到最新消息' }))
+    expect(screen.queryByText('2', { selector: '.chat-jump-badge' })).toBeNull()
+  })
+
   it('windowed: past the threshold only the rows around the scroll position render, and the window follows scrolls', async () => {
     // 130 short user messages: above WINDOW_THRESHOLD, so the list renders
     // as an estimated-height spacer + a slice instead of the full list.

@@ -1638,6 +1638,62 @@ button.settings-row:focus-visible {
   gap: var(--space-2);
 }
 
+/* Jump-to-latest: a floating round button pinned to the bottom-right of
+   the message viewport (sticky inside the scroll container, so it never
+   rides the content). Appears once the reader scrolled away from the
+   bottom; the badge counts messages that arrived while away. */
+.chat-jump-latest {
+  position: sticky;
+  bottom: 12px;
+  align-self: flex-end;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  animation: chat-jump-in 160ms ease-out;
+}
+.chat-jump-latest:active {
+  transform: scale(0.92);
+}
+/* New messages arrived while away: pulse the button to draw the eye. */
+.chat-jump-latest-hot {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: chat-jump-in 160ms ease-out, chat-jump-pulse 1.6s ease-in-out infinite;
+}
+.chat-jump-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+@keyframes chat-jump-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes chat-jump-pulse {
+  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
+  50% { box-shadow: 0 2px 18px var(--accent-soft, rgba(124, 108, 255, 0.45)); }
+}
+
 /* Font-size preference: 小 / 标准 / 大 on message text. */
 [data-font-scale='small'] .chat-msg {
   font-size: 14px;
