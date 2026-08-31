@@ -41,6 +41,7 @@ const mobileEnterToSend = () => true
 const apiProxy = {
   workspace: {
     list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [], archivedSessionIds: [] } } }),
+    archiveSession: async () => ({ rpcId: 'r', result: { ok: true, value: { archivedSessionIds: ['s-1'] } } }),
   },
   agentPresets: {
     list: async () => ({ rpcId: 'r', result: { ok: true, value: { presets: [], authorable: false, hasDocument: false } } }),
@@ -493,6 +494,7 @@ describe('mobile api envelope', () => {
     try {
       for (const method of [
         'workspace.list',
+        'workspace.archiveSession',
         'agentPreset.list',
         'session.create',
         'session.list',
