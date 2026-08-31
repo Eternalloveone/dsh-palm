@@ -1,0 +1,88 @@
+name: publish
+
+# Publish @eternalloveone/dsh-palm when a version tag is pushed:
+# - npmjs.com (the primary channel) via the NPM_TOKEN repository secret,
+#   with SLSA provenance (OIDC id-token) attached to the published package
+# - GitHub Packages (npm.pkg.github.com, shows in the repo Packages area)
+#   via the automatically provided GITHUB_TOKEN
+# Manual dispatch (channel input) allows back-filling a version that was
+# released before this workflow existed, without re-publishing npmjs.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Channel to publish (auto = both, as on a tag push)'
+        type: choice
+        options:
+          - auto
+          - npmjs
+          - gh
+        default: auto
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || inputs.channel == 'auto' || inputs.channel == 'npmjs'
+    runs-on: ubuntu-latest
+    # Provenance publishing mints an OIDC token so npm can attest the
+    # build source (SLSA level 1) — the industry-standard supply-chain
+    # marker, shown as "Provenance" on the npmjs page.
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Quality gate
+        working-directory: packages/dsh-palm
+        # Build first: mobile-routes tests serve the real lib/mobile.js bundle.
+        run: pnpm build && pnpm test && pnpm typecheck
+      - name: Resolve dist-tag
+        # Prerelease tags (v0.2.0-beta.1) publish to the beta channel so the
+        # stable latest tag never points at a prerelease; normal tags -> latest.
+        id: disttag
+        run: |
+          tag="latest"
+          if [[ "${{ github.ref_name }}" == *-* ]]; then tag="beta"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Publish
+        working-directory: packages/dsh-palm
+        # --provenance mints the SLSA provenance attestation at publish
+        # time (requires the id-token permission above).
+        run: pnpm publish --provenance --tag ${{ steps.disttag.outputs.tag }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-gh:
+    if: github.event_name == 'push' || inputs.channel == 'auto' || inputs.channel == 'gh'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: 'https://npm.pkg.github.com'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        working-directory: packages/dsh-palm
+        run: pnpm build
+      - name: Publish to GitHub Packages
+        working-directory: packages/dsh-palm
+        run: pnpm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

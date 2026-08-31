@@ -27,5 +27,18 @@ export default defineConfig({
         inline: [/@deepseek-ai\//],
       },
     },
+    coverage: {
+      provider: 'v8',
+      // Thresholds sit ~3 points under the measured baseline (2026-08-31:
+      // stmts 70.7 / branch 65.4 / funcs 66.5 / lines 73.8) so the gate
+      // catches regressions without blocking normal progress.
+      thresholds: {
+        statements: 68,
+        branches: 62,
+        functions: 63,
+        lines: 70,
+      },
+      include: ['src/**/*.{ts,tsx}'],
+    },
   },
 })

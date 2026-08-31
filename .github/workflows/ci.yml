@@ -1,0 +1,45 @@
+name: ci
+
+# Quality gate on every push to main and every pull request: full test
+# suite, typecheck, build and a production dependency audit. No secrets
+# involved.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Commit lint
+        # Conventional Commits gate (release commits vX.Y.Z: ... are exempt
+        # via commitlint.config.mjs ignores). The action requires an ESM
+        # config file (.mjs).
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: commitlint.config.mjs
+          failOnErrors: true
+      - name: Build
+        working-directory: packages/dsh-palm
+        run: pnpm build
+      - name: Test with coverage gate
+        working-directory: packages/dsh-palm
+        # Thresholds in vitest.config.ts fail the run on coverage regressions.
+        run: pnpm vitest run --coverage
+      - name: Typecheck
+        working-directory: packages/dsh-palm
+        run: pnpm typecheck
+      - name: Audit production dependencies
+        # Fails the gate on any known vulnerability in the runtime tree
+        # (workspace root lockfile; dev tooling excluded).
+        run: pnpm audit --prod

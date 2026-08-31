@@ -5,3 +5,6 @@ lib/
 # debug probe scripts (may contain pairing cookies)
 probe-watch.mjs
 probe-ask.mjs
+
+# test coverage output
+coverage/

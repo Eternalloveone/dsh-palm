@@ -16,8 +16,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
 import { loadHistory, prompt, type SessionView } from './App.tsx'
-import { errorText } from './App.tsx'
-import { fetchMobilePreferences, models, renameSession, sendCommand, cancelSession, fetchPending, listCommands, transcribeVoice, type CommandDescriptor } from '../api.ts'
+import { errorText, staleHostHint } from './App.tsx'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, fetchPending, listCommands, transcribeVoice, type CommandDescriptor } from '../api.ts'
+import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage, type WireEvent } from '../messages.ts'
@@ -46,7 +47,7 @@ import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
 import { PromptDialog } from '../dialog.tsx'
-import { CheckIcon, CloseIcon, MicIcon, MoreIcon, PencilIcon, PlusIcon, SendIcon } from '../icons.tsx'
+import { CheckIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SendIcon, ShieldIcon } from '../icons.tsx'
 import { MessageRow } from '../message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
 import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
@@ -69,6 +70,37 @@ export interface ChatViewProps {
  * history tail re-pull closes the seam.
  */
 export const MAX_TAIL_BUFFER_EVENTS = 500
+
+/** Compact token count for the context meter: 800 → "800", 30k, 1.2M. */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  return String(n)
+}
+
+/** Lazy in-place model-catalog state for the quick picker strip. */
+type ModelPickerCatalog =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: SessionModels }
+
+/** Compact model label for the pill: drop a provider-y prefix, keep the
+ *  last two dash segments (x-preview-f-free → f-free, deepseek-v4-flash →
+ *  v4-flash); short ids stay verbatim. The full id lives in the title. */
+function compactModelName(id: string): string {
+  const parts = id.split('-').filter(Boolean)
+  return parts.length <= 2 ? id : parts.slice(-2).join('-')
+}
+
+/** Permission tone for the shield pill: read = neutral, write = accent,
+ *  full access = danger (the human-vision status channel). */
+function permissionTone(value: string): 'read' | 'write' | 'full' | undefined {
+  if (value === 'danger-full-access') return 'full'
+  if (value.includes('write')) return 'write'
+  if (value.includes('read')) return 'read'
+  return undefined
+}
 
 /**
  * Distance from the bottom (px) within which streaming output still auto-follows.
@@ -240,6 +272,17 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [currentModel, setCurrentModel] = useState<{ provider: string; model: string; reasoningEffort?: string } | undefined>(undefined)
   /** Which bottom sheet is open. */
   const [sheet, setSheet] = useState<'model' | 'permission' | null>(null)
+  /** Which in-place quick picker strip is open below the toolbar. */
+  const [picker, setPicker] = useState<'model' | 'permission' | null>(null)
+  /** Whether the context-usage popover (ring tap) is open. */
+  const [contextOpen, setContextOpen] = useState(false)
+  /** In-flight guard for one-shot picker actions. */
+  const [pickerBusy, setPickerBusy] = useState(false)
+  /** Lazily cached model directory backing the quick picker (fresh per open
+   *  until it loads once; the full sheet re-fetches on its own). */
+  const [modelCatalog, setModelCatalog] = useState<ModelPickerCatalog>({ status: 'idle' })
+  /** Model-picker search query (reset on open; filter-as-you-type). */
+  const [modelQuery, setModelQuery] = useState('')
   /** Whether the composer's + menu is open (图片 / 命令). */
   const [plusOpen, setPlusOpen] = useState(false)
   /** Images picked or pasted into the composer, awaiting send (community-style attach). */
@@ -477,12 +520,19 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       },
     )
     // Best-effort current-model label for the toolbar chip; the sheet
-    // always re-reads a fresh directory on open.
+    // always re-reads a fresh directory on open. The same fetch seeds the
+    // quick-picker catalog, so opening the strip right after mount never
+    // issues a duplicate request.
     void models(session.sessionId).then(
       (directory) => {
-        if (!cancelled) setCurrentModel(directory.current)
+        if (cancelled) return
+        setCurrentModel(directory.current)
+        setModelCatalog(previous => previous.status === 'idle' ? { status: 'ready', data: directory } : previous)
       },
-      () => { /* chip falls back to a plain label */ },
+      (reason: unknown) => {
+        if (cancelled) return
+        setModelCatalog(previous => previous.status === 'idle' ? { status: 'error', message: errorText(reason) } : previous)
+      },
     )
     return () => {
       cancelled = true
@@ -1205,8 +1255,89 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     const pressure = contextPressure?.pressureTokens
     if (window === undefined || window <= 0 || pressure === undefined || pressure < 0) return undefined
     const pct = Math.min(100, Math.max(0, Math.round(pressure / window * 100)))
-    return { pct }
+    return { pct, window, pressure }
   }, [contextPressure])
+
+  /* ── in-place quick picker (model / permission) ──────────────────────
+     Opens the horizontal option strip below the toolbar; the full bottom
+     sheet stays reachable through the trailing "全部…" card. */
+  const loadModelCatalog = useCallback(() => {
+    setModelCatalog(previous => previous.status === 'ready' ? previous : { status: 'loading' })
+    void models(session.sessionId).then(
+      (data) => { setModelCatalog({ status: 'ready', data }) },
+      (reason: unknown) => { setModelCatalog({ status: 'error', message: errorText(reason) }) },
+    )
+  }, [session.sessionId])
+
+  const openModelPicker = (): void => {
+    setSheet(null)
+    setModelQuery('')
+    setContextOpen(false)
+    setPicker('model')
+    if (modelCatalog.status === 'idle') loadModelCatalog()
+  }
+
+  const openPermissionPicker = (): void => {
+    setSheet(null)
+    setContextOpen(false)
+    setPicker('permission')
+  }
+
+  /** Toggle the context-usage popover on the ring. */
+  const toggleContextPop = (): void => {
+    if (contextUsage === undefined) return
+    setSheet(null)
+    setPicker(null)
+    setContextOpen(previous => !previous)
+  }
+
+  /** One-shot model switch from the strip; the chip label follows the result. */
+  const applyModel = useCallback((selection: { provider: string; model: string; reasoningEffort?: string }): void => {
+    if (pickerBusy) return
+    setPickerBusy(true)
+    void selectModel(session.sessionId, selection).then(
+      (result) => {
+        setPickerBusy(false)
+        setCurrentModel(result.selected)
+        setPicker(null)
+      },
+      (reason: unknown) => {
+        setPickerBusy(false)
+        setError(errorText(reason))
+      },
+    )
+  }, [pickerBusy, session.sessionId])
+
+  /** One-shot permission switch; full access keeps its explicit confirm by
+   *  routing through the sheet (the strip never applies it directly). */
+  const applyPermission = useCallback((next: string): void => {
+    if (next === permissions?.currentValue) {
+      setPicker(null)
+      return
+    }
+    if (next === 'danger-full-access') {
+      setPicker(null)
+      setSheet('permission')
+      return
+    }
+    if (pickerBusy) return
+    setPickerBusy(true)
+    void sendCommand(session.sessionId, `/permission ${next}`).then(
+      (outcome) => {
+        setPickerBusy(false)
+        if (!outcome.matched) {
+          setError('权限命令未在宿主注册，无法切换')
+          return
+        }
+        setPermissions(previous => previous === undefined ? previous : { ...previous, currentValue: next })
+        setPicker(null)
+      },
+      (reason: unknown) => {
+        setPickerBusy(false)
+        setError(errorText(reason))
+      },
+    )
+  }, [pickerBusy, permissions, session.sessionId])
 
   // Timestamp de-dup: each minute bucket shows only its LAST row's clock
   // (computed over the full list so windowed slices stay consistent).
@@ -1436,22 +1567,175 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         )}
       </div>
       <div className="chat-tools">
-        <button type="button" className="chat-chip" onClick={() => { setSheet('model') }} aria-haspopup="dialog">
-          <span className="chat-chip-label">模型</span>
-          <span className="chat-chip-value">{modelLabel}</span>
-          <span className="chat-chip-chevron" aria-hidden>›</span>
-        </button>
-        {permissionLabel !== undefined && (
-          <button type="button" className="chat-chip" onClick={() => { setSheet('permission') }} aria-haspopup="dialog">
-            <span className="chat-chip-label">权限</span>
-            <span className="chat-chip-value">{permissionLabel}</span>
-            <span className="chat-chip-chevron" aria-hidden>›</span>
+        <div className="chat-tools-actions">
+          <button
+            type="button"
+            className="chat-pill"
+            onClick={openModelPicker}
+            aria-haspopup="listbox"
+            aria-label={currentModel === undefined ? '切换模型' : `切换模型：${compactModelName(currentModel.model)}`}
+            title={currentModel === undefined ? undefined : `${currentModel.provider}/${currentModel.model}`}
+          >
+            <ModelIcon width={16} height={16} />
+            <span className="chat-pill-name">{currentModel === undefined ? '模型' : compactModelName(currentModel.model)}</span>
+            <span className="chat-pill-chevron" aria-hidden>▾</span>
           </button>
-        )}
-        <div className={"chat-context" + (contextUsage !== undefined && contextUsage.pct >= 80 ? " chat-context-warn" : "")}>
-          上下文 {contextUsage === undefined ? '--' : `${contextUsage.pct}%`}
+          {permissionLabel !== undefined && permissions !== undefined && (
+            <button
+              type="button"
+              className={'chat-pill chat-pill-perm chat-pill-perm-' + (permissionTone(permissions.currentValue) ?? 'read')}
+              onClick={openPermissionPicker}
+              aria-haspopup="listbox"
+              aria-label={`切换权限：${permissionLabel}`}
+              title={permissionLabel}
+            >
+              <ShieldIcon width={16} height={16} />
+              <span className="chat-pill-name">{permissionLabel}</span>
+            </button>
+          )}
         </div>
+        <div
+          className={"chat-context" + (contextUsage !== undefined && contextUsage.pct >= 80 ? " chat-context-warn" : "")}
+          role="status"
+          onClick={toggleContextPop}
+          aria-expanded={contextOpen}
+        >
+          {contextUsage === undefined ? (
+            <>上下文 --</>
+          ) : (
+            <>
+              <svg className="chat-context-ring" width="26" height="26" viewBox="0 0 26 26" aria-hidden>
+                <circle className="chat-context-ring-track" cx="13" cy="13" r="10.5" fill="none" strokeWidth="3.5" />
+                <circle
+                  className="chat-context-ring-fill"
+                  cx="13" cy="13" r="10.5" fill="none" strokeWidth="3.5"
+                  strokeDasharray={`${contextUsage.pct / 100 * 65.97} 65.97`}
+                  transform="rotate(-90 13 13)"
+                />
+              </svg>
+              <span
+                className="chat-context-text"
+                title={`${fmtTokens(contextUsage.pressure)}/${fmtTokens(contextUsage.window)}`}
+              >{contextUsage.pct}%</span>
+            </>
+          )}
+        </div>
+        {contextOpen && contextUsage !== undefined && (
+          <div className="chat-context-pop" role="tooltip">
+            <div className="chat-context-pop-title">上下文用量</div>
+            <div className="chat-context-pop-figures">
+              {fmtTokens(contextUsage.pressure)}<span>/</span>{fmtTokens(contextUsage.window)}
+            </div>
+            <div className="chat-context-pop-sub">已使用 {contextUsage.pct}%</div>
+          </div>
+        )}
       </div>
+      {contextOpen && <div className="chat-context-pop-scrim" onClick={() => { setContextOpen(false) }} />}
+      {picker !== null && <div className="chat-picker-scrim" onClick={() => { setPicker(null) }} />}
+      {picker === 'model' && (
+        <div className="chat-picker-panel" role="menu" aria-label="选择模型">
+          {modelCatalog.status === 'loading' && <span className="chat-picker-status">正在加载模型目录…</span>}
+          {modelCatalog.status === 'error' && (
+            <>
+              <span className="chat-picker-status chat-picker-error">{modelCatalog.message}</span>
+              {staleHostHint(modelCatalog.message) !== undefined && (
+                <span className="chat-picker-status chat-picker-hint">{staleHostHint(modelCatalog.message)}</span>
+              )}
+              <button type="button" className="chat-picker-more" onClick={loadModelCatalog}>重试</button>
+            </>
+          )}
+          {modelCatalog.status === 'ready' && (
+            <>
+              <input
+                type="search"
+                className="chat-picker-search"
+                placeholder="搜索模型…"
+                value={modelQuery}
+                onChange={(event) => { setModelQuery(event.target.value) }}
+                aria-label="搜索模型"
+                autoFocus
+              />
+              {(() => {
+                const query = modelQuery.trim().toLowerCase()
+                const choices = modelCatalog.data.groups.flatMap(group => group.models.map(model => ({ group, model })))
+                const filtered = query === ''
+                  ? choices
+                  : choices.filter(choice => (choice.group.name + ' ' + choice.group.id + ' ' + choice.model.name + ' ' + choice.model.id).toLowerCase().includes(query))
+                if (filtered.length === 0) {
+                  return <span className="chat-picker-status">没有匹配的模型</span>
+                }
+                const current = currentModel ?? modelCatalog.data.current
+                const modelRow = (group: { id: string; name: string }, model: SessionModels['groups'][number]['models'][number]): ReactNode => {
+                  const isSelected = current !== undefined && current.provider === group.id && current.model === model.id
+                  return (
+                    <button
+                      type="button"
+                      key={`${group.id}:${model.id}`}
+                      className={'chat-picker-row' + (isSelected ? ' chat-picker-row-selected' : '')}
+                      disabled={pickerBusy}
+                      onClick={() => {
+                        applyModel({
+                          provider: group.id,
+                          model: model.id,
+                          ...(model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: model.reasoning.defaultEffort }),
+                        })
+                      }}
+                    >
+                      <span className="chat-picker-row-check" aria-hidden>
+                        {isSelected ? <CheckIcon width={14} height={14} /> : null}
+                      </span>
+                      <span className="chat-picker-row-copy">
+                        <span className="chat-picker-row-title">{model.name}</span>
+                        {query !== '' && <span className="chat-picker-row-sub">{group.name}</span>}
+                      </span>
+                    </button>
+                  )
+                }
+                return query === '' ? (
+                  modelCatalog.data.groups.map(group => (
+                    <div className="chat-picker-group" key={group.id}>
+                      <div className="chat-picker-group-title">{group.name}</div>
+                      {group.models.map(model => modelRow(group, model))}
+                    </div>
+                  ))
+                ) : (
+                  filtered.map(choice => modelRow(choice.group, choice.model))
+                )
+              })()}
+              {modelQuery.trim() === '' && (
+                <button type="button" className="chat-picker-more" onClick={() => { setPicker(null); setSheet('model') }}>全部…</button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {picker === 'permission' && permissions !== undefined && (
+        <div className="chat-picker-panel" role="menu" aria-label="选择权限">
+          {permissions.options.map(option => {
+            const isSelected = option.value === permissions.currentValue
+            return (
+              <button
+                type="button"
+                key={option.value}
+                className={'chat-picker-row'
+                  + (isSelected ? ' chat-picker-row-selected' : '')
+                  + (option.value === 'danger-full-access' ? ' chat-picker-row-danger' : '')}
+                disabled={pickerBusy}
+                onClick={() => { applyPermission(option.value) }}
+              >
+                <span className="chat-picker-row-check" aria-hidden>
+                  {isSelected ? <CheckIcon width={14} height={14} /> : null}
+                </span>
+                <span className="chat-picker-row-copy">
+                  <span className="chat-picker-row-title">{option.name}</span>
+                  {option.description !== undefined && <span className="chat-picker-row-sub">{option.description}</span>}
+                </span>
+              </button>
+            )
+          })}
+          <button type="button" className="chat-picker-more" onClick={() => { setPicker(null); setSheet('permission') }}>全部…</button>
+        </div>
+      )}
       <div className="chat-composer">
         {quoted !== undefined && (
           <div className="chat-quote-bar" role="note" aria-label="引用消息">
