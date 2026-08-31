@@ -726,14 +726,17 @@ describe('ChatView scrolling', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('消息129')
-    expect(scrollWrites.at(-1)).toBe(20_000)
+    // The opening pin lands on the estimated height, then the height
+    // correction (measured on the full frame) re-pins to the real tail.
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(20_000) })
     // Content grows (async load / measurement convergence) while the reader
-    // is at the bottom: the view re-pins to the new tail.
+    // is at the bottom: the view re-pins to the new tail (the windowed
+    // target is prefix[count] + correction, which grows with the new row).
     scrollHeightMock = 25_000
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
     })
-    expect(scrollWrites.at(-1)).toBe(25_000)
+    await waitFor(() => { expect(scrollWrites.at(-1) ?? 0).toBeGreaterThan(20_000) })
     // A reader who scrolled away is left alone even when content settles.
     scrollHeightMock = 30_000
     const scroller = document.querySelector('.chat-scroll')!

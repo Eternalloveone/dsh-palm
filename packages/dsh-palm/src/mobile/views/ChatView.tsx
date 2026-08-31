@@ -780,6 +780,18 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     scheduleLocate()
   }, [scheduleLocate])
 
+  /** Pin the viewport to the tail WITHOUT re-anchoring the window. Used by
+   * the re-pin effects, which fire while the reader is already at the bottom
+   * and the window is already at the tail — a scrollToBottom-style setWin
+   * would be a no-op, and the locate keeps the window on the new position. */
+  const pinToRealBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (el === undefined) return
+    el.scrollTop = el.scrollHeight
+    scrollTopRef.current = el.scrollTop
+    scheduleLocate()
+  }, [scheduleLocate])
+
   // Track the last message's fold key so scrolling only fires when the
   // newest message actually changes (seq bump and/or pending flip). Runs
   // after React has committed the render, so scrollHeight reflects the
@@ -1470,13 +1482,21 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // away follows the settled tail; one who scrolled up through history is
   // left alone (same gap guard). Non-windowed sessions render in full, so
   // their opening scrollHeight is exact and this re-pin is unnecessary.
+  // The re-pin defers to the next frame: the measurement just landed in
+  // state, and the DOM height only reflects it after React commits —
+  // reading it synchronously would pin to the PREVIOUS (estimated) height
+  // and yank the view away from the real tail.
   useEffect(() => {
     if (!windowed) return
     if (!followedBottomRef.current) return
     if (!autoScroll) return
     if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
-    scrollToBottom()
-  }, [messages, measuredTick, scrollToBottom, autoScroll, windowed])
+    const frame = requestAnimationFrame(() => {
+      if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
+      pinToRealBottom()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [messages, measuredTick, pinToRealBottom, autoScroll, windowed])
   // The top spacer carries the height correction measured on the last full
   // render frame, so the windowed total height equals the real content
   // height (see heightCorrectionRef).
@@ -1525,8 +1545,24 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     const el = scrollRef.current
     if (el === undefined) return
     const estimated = prefixRef.current?.[messages.length] ?? 0
-    heightCorrectionRef.current = el.scrollHeight === 0 ? 0 : el.scrollHeight - estimated
-  }, [windowed, located, messages])
+    const correction = el.scrollHeight === 0 ? 0 : el.scrollHeight - estimated
+    if (correction === heightCorrectionRef.current) return
+    heightCorrectionRef.current = correction
+    // The opening scrollToBottom ran BEFORE this measurement (the follower
+    // effect is declared earlier), so it pinned to the ESTIMATED height.
+    // Re-pin to the real tail now that the correction is known — unless the
+    // reader already scrolled away. Deferred to the next frame so the DOM
+    // reflects the committed render. Non-windowed sessions pin to the exact
+    // DOM height already, so the re-pin is unnecessary there.
+    if (prefixRef.current === undefined) return
+    if (!followedBottomRef.current) return
+    if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
+    const frame = requestAnimationFrame(() => {
+      if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
+      pinToRealBottom()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [windowed, located, messages, pinToRealBottom])
 
   return (
     <div className="chat">
