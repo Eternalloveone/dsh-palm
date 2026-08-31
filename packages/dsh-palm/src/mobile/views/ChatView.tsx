@@ -1461,6 +1461,22 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const winStart = located ? win.start : 0
   const winEnd = located ? win.end : messages.length
   const prefix = prefixRef.current
+
+  // Re-pin to the tail while the reader is at the bottom and the content
+  // height settles. The opening scrollToBottom lands on an ESTIMATED height
+  // in windowed mode (rows are measured after the first paint), and the
+  // last-message key never changes when the measurement converges, so the
+  // stream follower above would never re-fire. A reader who never scrolled
+  // away follows the settled tail; one who scrolled up through history is
+  // left alone (same gap guard). Non-windowed sessions render in full, so
+  // their opening scrollHeight is exact and this re-pin is unnecessary.
+  useEffect(() => {
+    if (!windowed) return
+    if (!followedBottomRef.current) return
+    if (!autoScroll) return
+    if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
+    scrollToBottom()
+  }, [messages, measuredTick, scrollToBottom, autoScroll, windowed])
   // The top spacer carries the height correction measured on the last full
   // render frame, so the windowed total height equals the real content
   // height (see heightCorrectionRef).

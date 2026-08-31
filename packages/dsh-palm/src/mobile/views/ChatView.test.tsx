@@ -711,6 +711,40 @@ describe('ChatView scrolling', () => {
     expect(screen.queryByText('2', { selector: '.chat-jump-badge' })).toBeNull()
   })
 
+  it('windowed: re-pins to the tail when content settles while at the bottom, and leaves a scrolled-away reader alone', async () => {
+    // 130 messages: above WINDOW_THRESHOLD, so the opening scrollToBottom
+    // lands on an ESTIMATED height and the measurement convergence must
+    // re-pin the view to the true tail.
+    const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
+      id: `u-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `消息${i}` }],
+    }, i))
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(many))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('消息129')
+    expect(scrollWrites.at(-1)).toBe(20_000)
+    // Content grows (async load / measurement convergence) while the reader
+    // is at the bottom: the view re-pins to the new tail.
+    scrollHeightMock = 25_000
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
+    })
+    expect(scrollWrites.at(-1)).toBe(25_000)
+    // A reader who scrolled away is left alone even when content settles.
+    scrollHeightMock = 30_000
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    const writesBefore = scrollWrites.length
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7).event })
+    })
+    expect(scrollWrites.length).toBe(writesBefore)
+  })
+
   it('windowed: past the threshold only the rows around the scroll position render, and the window follows scrolls', async () => {
     // 130 short user messages: above WINDOW_THRESHOLD, so the list renders
     // as an estimated-height spacer + a slice instead of the full list.
