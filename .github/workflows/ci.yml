@@ -1,7 +1,8 @@
 name: ci
 
 # Quality gate on every push to main and every pull request: full test
-# suite, typecheck and build. No secrets involved.
+# suite, typecheck, build and a production dependency audit. No secrets
+# involved.
 on:
   push:
     branches: [main]
@@ -29,3 +30,7 @@ jobs:
       - name: Typecheck
         working-directory: packages/dsh-palm
         run: pnpm typecheck
+      - name: Audit production dependencies
+        # Fails the gate on any known vulnerability in the runtime tree
+        # (workspace root lockfile; dev tooling excluded).
+        run: pnpm audit --prod
