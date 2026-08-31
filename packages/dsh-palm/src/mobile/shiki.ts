@@ -198,13 +198,27 @@ function highlightLine(line: string, kind: LanguageKind, hashIsComment: boolean)
 }
 
 /**
+ * (lang, code) → highlighted HTML cache. Windowed scrolling remounts the
+ * same code block repeatedly (the same (lang, code) re-tokenizes on every
+ * scroll-back); tokenizing is pure string work but not free on large
+ * blocks. Bounded by a simple size cap — a full clear on overflow keeps
+ * the memory footprint flat.
+ */
+const SYNC_CACHE = new Map<string, string>()
+const SYNC_CACHE_MAX = 200
+
+/**
  * Highlight one code block synchronously. The tokenizer is pure string
  * work with no I/O, so CodeBlock can paint the highlighted HTML on the
  * very first frame (no plain-text flash) while the async wrapper below
  * keeps the pre-existing API.
  */
 export function highlightCodeSync(code: string, lang: string): string | null {
-  const info = LANG_MAP[lang.trim().toLowerCase()]
+  const normalizedLang = lang.trim().toLowerCase()
+  const key = normalizedLang + '\u0000' + code
+  const cached = SYNC_CACHE.get(key)
+  if (cached !== undefined) return cached
+  const info = LANG_MAP[normalizedLang]
   if (info === undefined || info.kind === 'config') return null
   const hashIsComment = info.kind === 'python' || info.kind === 'bash' || info.kind === 'sql'
   const lines = code.split('\n')
@@ -212,7 +226,10 @@ export function highlightCodeSync(code: string, lang: string): string | null {
     const content = highlightLine(line, info.kind, hashIsComment)
     return `<span class="line">${content}</span>`
   }).join('\n')
-  return `<pre class="shiki" tabindex="0"><code>${inner}</code></pre>`
+  const html = `<pre class="shiki" tabindex="0"><code>${inner}</code></pre>`
+  if (SYNC_CACHE.size >= SYNC_CACHE_MAX) SYNC_CACHE.clear()
+  SYNC_CACHE.set(key, html)
+  return html
 }
 
 /**
@@ -223,7 +240,7 @@ export async function highlightCode(code: string, lang: string): Promise<string 
   return highlightCodeSync(code, lang)
 }
 
-/** Test hook: kept for API parity with the old shiki loader. */
+/** Test hook: clears the sync highlight cache (kept for API parity). */
 export function resetHighlighterForTest(): void {
-  /* no-op: the lightweight highlighter has no cache */
+  SYNC_CACHE.clear()
 }

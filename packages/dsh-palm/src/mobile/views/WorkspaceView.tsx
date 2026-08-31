@@ -58,6 +58,11 @@ function writeRecent(id: string): void {
   try { localStorage.setItem(RECENT_KEY, id) } catch { /* non-fatal */ }
 }
 
+/** Clear the stored recent workspace (readRecent maps '' back to undefined). */
+function clearRecent(): void {
+  try { localStorage.setItem(RECENT_KEY, '') } catch { /* non-fatal */ }
+}
+
 /* ── project-kind classification ─────────────────────────────────────── */
 
 /** Project kind driving icon tint + roster grouping. */
@@ -436,6 +441,12 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
     try {
       await deleteWorkspace(workspace.workspaceId)
       setItems(previous => previous?.filter(row => row.workspaceId !== workspace.workspaceId) ?? previous)
+      // Deleting the recent/active workspace must not leave a dangling recentId
+      // (the jump chip would point at a workspace that no longer exists).
+      if (recentId === workspace.workspaceId) {
+        setRecentId(undefined)
+        clearRecent()
+      }
       setDeleting(undefined)
       toast('已删除工作区（目录与会话保留）')
     } catch (reason: unknown) {
@@ -443,7 +454,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [recentId])
 
   if (isCreating) {
     return (

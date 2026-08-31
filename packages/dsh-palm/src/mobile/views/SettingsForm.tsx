@@ -167,7 +167,11 @@ function FieldControl({ ns, field, node, value, options, ownerHint, onChange }: 
           disabled={!writable}
           className="settings-input"
           onChange={(event) => {
-            const parsed = Number(event.target.value)
+            const raw = event.target.value
+            // A cleared input must not write back 0 (Number('') === 0): keep
+            // the previous value until the user types a real number.
+            if (raw === '') return
+            const parsed = Number(raw)
             onChange(Number.isFinite(parsed) ? parsed : value)
           }}
         />
@@ -390,9 +394,6 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
 
   const save = () => {
     if (saving) return
-    setSaving(true)
-    setError(undefined)
-    setSaved(false)
     const writes = namespaces
       .map(entry => ({
         ns: entry.ns,
@@ -402,6 +403,12 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
           .map(([field, fieldValue]) => ({ op: 'set' as const, path: [field], value: fieldValue })),
       }))
       .filter(write => write.ops.length > 0)
+    // Nothing writable in this card: a save would be a no-op, so do not show
+    // a fake "已保存" (Promise.all([]) resolves immediately).
+    if (writes.length === 0) return
+    setSaving(true)
+    setError(undefined)
+    setSaved(false)
     void Promise.all(writes.map(write => mutateSettings(write.ns, write.ops, write.revision))).then(
       () => {
         setSaving(false)
@@ -415,8 +422,11 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
   }
 
   const hasMarket = namespaces.some(entry => entry.ns === 'dsh-market')
+  // Count only the fields the phone can actually write — a read-only group
+  // must not show a save button.
   const writableCount = namespaces.reduce((count, entry) => count
-    + Object.keys((entry.value as Record<string, unknown> | undefined) ?? {}).length, 0)
+    + Object.keys((entry.value as Record<string, unknown> | undefined) ?? {})
+      .filter(field => isWritableField(entry.ns, field)).length, 0)
 
   return (
     <div className="mobile">

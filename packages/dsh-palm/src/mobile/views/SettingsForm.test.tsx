@@ -159,6 +159,34 @@ describe('SettingsForm schema rendering', () => {
     fireEvent.change(modelInput, { target: { value: 'my-custom-model' } })
     expect(modelInput.value).toBe('my-custom-model')
   })
+
+  it('hides the save button for a read-only namespace (no fake save)', async () => {
+    const ns = namespace('llm-pi-ai', { providers: {} }, envelope({
+      providers: { type: 'string' },
+    }))
+    render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
+    await screen.findByText('桌面端修改')
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull()
+  })
+
+  it('does not write back 0 when a number input is cleared', async () => {
+    const ns = namespace('agent-loop', { maxParallelToolCalls: 4 }, envelope({
+      maxParallelToolCalls: { type: 'number' },
+    }))
+    render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
+    const input = await screen.findByLabelText('maxParallelToolCalls') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '' } })
+    // Clearing the field keeps the previous value instead of writing 0.
+    expect(input.value).toBe('4')
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => {
+      expect(mutateSettingsMock).toHaveBeenCalledWith(
+        'agent-loop',
+        [{ op: 'set', path: ['maxParallelToolCalls'], value: 4 }],
+        3,
+      )
+    })
+  })
 })
 
 describe('SettingsForm helpers', () => {

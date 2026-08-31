@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MuxClient, type EventSourceLike } from './mux.ts'
 import { EventFolder, type WireEvent } from './messages.ts'
+import { RpcTransportError } from './rpc.ts'
 import type { HistoryPage } from './api.ts'
 
 /** A recorded fake EventSource (delivery driven by the test). */
@@ -411,6 +412,87 @@ describe('MuxClient polling fallback', () => {
     client.poke()
     await vi.advanceTimersByTimeAsync(450)
     expect(pollLatest.mock.calls.length).toBeGreaterThan(pollsBefore)
+    client.stop()
+  })
+
+  it('stops polling and notifies onUnpaired when a poll hits a terminal 403 (unpaired)', async () => {
+    const { factory, sources } = makeSources()
+    const onUnpaired = vi.fn()
+    const pollLatest = vi.fn(async (_sessionId: string) => {
+      throw new RpcTransportError('HTTP 403')
+    })
+    const client = new MuxClient('/m/api/events.mux', {
+      sourceFactory: factory,
+      pollLatest,
+      stallThresholdMs: 800,
+      pollIntervalMs: 400,
+      onUnpaired,
+    })
+    client.start()
+    client.observe('s1')
+
+    // Stall into polling; the first poll throws 403 (device revoked/stopped).
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(pollLatest).toHaveBeenCalledTimes(1)
+    expect(onUnpaired).toHaveBeenCalledTimes(1)
+
+    // The client stopped itself: no further polls, and the source is closed —
+    // no zombie polling into a 60 s backoff after revoke/stop.
+    const callsAfter = pollLatest.mock.calls.length
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(pollLatest.mock.calls.length).toBe(callsAfter)
+    expect(sources[0]?.closed).toBe(true)
+    client.stop()
+  })
+
+  it('treats a 401 as terminal too (unpaired), stopping the poller', async () => {
+    const { factory, sources } = makeSources()
+    const onUnpaired = vi.fn()
+    const pollLatest = vi.fn(async (_sessionId: string) => {
+      throw new RpcTransportError('HTTP 401')
+    })
+    const client = new MuxClient('/m/api/events.mux', {
+      sourceFactory: factory,
+      pollLatest,
+      stallThresholdMs: 800,
+      pollIntervalMs: 400,
+      onUnpaired,
+    })
+    client.start()
+    client.observe('s1')
+
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(onUnpaired).toHaveBeenCalledTimes(1)
+    const callsAfter = pollLatest.mock.calls.length
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(pollLatest.mock.calls.length).toBe(callsAfter)
+    expect(sources[0]?.closed).toBe(true)
+    client.stop()
+  })
+
+  it('keeps polling (backoff) on a transient error, not a terminal one', async () => {
+    const { factory } = makeSources()
+    const onUnpaired = vi.fn()
+    const pollLatest = vi.fn(async (_sessionId: string) => {
+      throw new RpcTransportError('HTTP 503')
+    })
+    const client = new MuxClient('/m/api/events.mux', {
+      sourceFactory: factory,
+      pollLatest,
+      stallThresholdMs: 800,
+      pollIntervalMs: 400,
+      onUnpaired,
+    })
+    client.start()
+    client.observe('s1')
+
+    // A 503 is transient: the poller stays alive (backing off) and the UI is
+    // NOT told the device is unpaired.
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(pollLatest).toHaveBeenCalledTimes(1)
+    expect(onUnpaired).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(pollLatest.mock.calls.length).toBeGreaterThan(1)
     client.stop()
   })
 })

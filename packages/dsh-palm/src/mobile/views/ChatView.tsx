@@ -41,12 +41,12 @@ import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll } from '../display-prefs.ts'
 import { timeVisibility } from '../ui-text.ts'
-import { enqueuePrompt, flushOutbox, listOutbox } from '../offline.ts'
+import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../offline.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
-import { PromptDialog } from '../dialog.tsx'
+import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import { CheckIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SendIcon, ShieldIcon } from '../icons.tsx'
 import { MessageRow } from '../message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
@@ -287,6 +287,9 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [plusOpen, setPlusOpen] = useState(false)
   /** Images picked or pasted into the composer, awaiting send (community-style attach). */
   const [attachImages, setAttachImages] = useState<AttachedImage[]>([])
+  /** Live mirror of attachImages for the async addImage cap check (no stale closure). */
+  const attachImagesRef = useRef(attachImages)
+  useEffect(() => { attachImagesRef.current = attachImages }, [attachImages])
   /** Hidden file chooser backing the + menu's 图片 entry. */
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   /** Host slash-command directory (fetched lazily when the + menu opens). */
@@ -298,11 +301,15 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   /** Offline state + queued-prompt count (banner above the chat). */
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false)
   const [queuedCount, setQueuedCount] = useState(0)
+  /** The queued outbox entries (banner lets the user remove one at a time). */
+  const [queuedEntries, setQueuedEntries] = useState<OutboxEntry[]>([])
   /** Voice recording sheet + the live recorder handle and its phase. */
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [voicePartial, setVoicePartial] = useState('')
   const [voicePhase, setVoicePhase] = useState<'recording' | 'transcribing'>('recording')
   const voiceRef = useRef<VoiceRecording | undefined>(undefined)
+  /** True while the chat is mounted; guards async voice callbacks after unmount. */
+  const mountedRef = useRef(true)
   /** Pinch-zoom state for code blocks (one active gesture at a time). */
   const pinchRef = useRef<{ block: HTMLElement; dist0: number; scale0: number } | undefined>(undefined)
   /**
@@ -324,6 +331,8 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [moreOpen, setMoreOpen] = useState(false)
   /** Rename dialog visibility. */
   const [renaming, setRenaming] = useState(false)
+  /** Delete-session confirm dialog visibility. */
+  const [deleting, setDeleting] = useState(false)
   /** Long-press message menu: viewport position + the bubble's plain text. */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | undefined>(undefined)
   /** Auto-scroll preference (设置 → 自动滚动); read once per mount. */
@@ -344,12 +353,20 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
 
   /* ── offline mode ──────────────────────────────────────────────────── */
 
+  /** Refresh the queued count + entry list (banner reads both). */
+  const refreshOutbox = useCallback((): void => {
+    void listOutbox().then(entries => {
+      setQueuedCount(entries.length)
+      setQueuedEntries(entries)
+    })
+  }, [])
+
   // Track the connection and refresh the queued count alongside it; the
   // banner and the composer's queueing logic both read these.
   useEffect(() => {
     const update = (): void => {
       setOffline(typeof navigator !== 'undefined' && navigator.onLine === false)
-      void listOutbox().then(entries => { setQueuedCount(entries.length) })
+      refreshOutbox()
     }
     update()
     window.addEventListener('online', update)
@@ -358,18 +375,23 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       window.removeEventListener('online', update)
       window.removeEventListener('offline', update)
     }
-  }, [])
+  }, [refreshOutbox])
+
+  /** Drop one queued prompt (the banner's per-entry remove button). */
+  const removeQueuedEntry = useCallback((id: string): void => {
+    void removeFromOutbox(id).then(() => { refreshOutbox() })
+  }, [refreshOutbox])
 
   /** Deliver the queued prompts once the connection is back. */
   const flushQueue = useCallback((): void => {
     void flushOutbox(entry => prompt(entry.sessionId, textParts(entry.text))).then(
       ({ sent, failed }) => {
         if (sent > 0) toast(failed > 0 ? `已同步 ${sent} 条，${failed} 条待重试` : `已同步 ${sent} 条消息`)
-        void listOutbox().then(entries => { setQueuedCount(entries.length) })
+        refreshOutbox()
         if (sent > 0) mux?.poke()
       },
     )
-  }, [mux])
+  }, [mux, refreshOutbox])
 
   // Connection restored: drain the outbox automatically.
   useEffect(() => {
@@ -649,7 +671,11 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         () => { /* transient; next tick retries */ },
       )
       const live = mux?.isSseLive() ?? true
-      timer = setTimeout(tick, live ? PENDING_POLL_IDLE_MS : PENDING_POLL_FAST_MS)
+      // While SSE is delivering, pending items also arrive as frames — the
+      // poll is only a safety net for dropped frames, so it runs at a long
+      // cadence (4× the idle interval) instead of adding a request every
+      // 15 s on a weak link. Only a stalled SSE goes fast.
+      timer = setTimeout(tick, live ? PENDING_POLL_IDLE_MS * 4 : PENDING_POLL_FAST_MS)
     }
     tick()
     return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
@@ -924,6 +950,20 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     }
   }, [session.sessionId])
 
+  /**
+   * Delete the session. The host exposes no session-delete RPC on the mobile
+   * channel (verified: no `session.delete`/`archiveSession` in the /m/api
+   * allowlist), so this is a UI-layer removal: clear the local messages and
+   * drop the session's outbox entries, then return to the session list. The
+   * roster re-fetches on the next visit.
+   */
+  const handleDeleteSession = useCallback((): void => {
+    setDeleting(false)
+    setMessages([])
+    void removeOutboxForSession(session.sessionId).then(() => { refreshOutbox() })
+    onBack()
+  }, [session.sessionId, onBack, refreshOutbox])
+
   /** Long-press / right-click on a bubble opens the context menu. The copied
    * text comes from the render state (full text, or the full reasoning for
    * thinking-only turns) — not from the DOM, where folded bodies are absent.
@@ -1082,10 +1122,19 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
 
   /** Add a picked/pasted image: compress it, then append to the attach list. */
   const addImage = useCallback((file: File) => {
-    void compressImageFile(file).then(({ image }) => {
-      setAttachImages(previous =>
-        previous.length >= MAX_ATTACHED_IMAGES ? previous : [...previous, image],
-      )
+    void compressImageFile(file).then(({ image, failed }) => {
+      // A decode failure (HEIC etc.) can't be sent: drop it and tell the user
+      // instead of silently keeping an unusable attachment.
+      if (failed) {
+        toast('该图片无法解码，已忽略')
+        return
+      }
+      // Over the cap: refuse loudly rather than silently dropping the image.
+      if (attachImagesRef.current.length >= MAX_ATTACHED_IMAGES) {
+        toast(`最多附加 ${MAX_ATTACHED_IMAGES} 张图片`)
+        return
+      }
+      setAttachImages(previous => [...previous, image])
     })
   }, [])
 
@@ -1114,7 +1163,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           setQuoted(undefined)
           setAttachImages([])
           toast('已离线保存，恢复网络后自动发送')
-          void listOutbox().then(entries => { setQueuedCount(entries.length) })
+          refreshOutbox()
         })
       return
     }
@@ -1160,6 +1209,17 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
 
   const voicePartialRef = useRef('')
 
+  // Release the mic when the chat unmounts (session switch / back): a pending
+  // getUserMedia authorization or a live recorder must never leak the
+  // MediaStream (the browser's recording indicator would stay on). The
+  // mountedRef guard also stops the async openVoice callback from setting
+  // state on an unmounted component.
+  useEffect(() => () => {
+    mountedRef.current = false
+    voiceRef.current?.cancel()
+    voiceRef.current = undefined
+  }, [])
+
   /** Discard the current recording and close the sheet. */
   const closeVoice = useCallback((): void => {
     voiceRef.current?.cancel()
@@ -1168,19 +1228,6 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     setVoicePartial('')
     setVoiceOpen(false)
     setVoicePhase('recording')
-  }, [])
-
-  /** Open the recording sheet and start capturing audio. */
-  const openVoice = useCallback((): void => {
-    voicePartialRef.current = ''
-    setVoicePhase('recording')
-    void startVoiceRecording().then(
-      (recorder) => {
-        voiceRef.current = recorder
-        setVoiceOpen(true)
-      },
-      (message: unknown) => { toast(message instanceof Error ? message.message : String(message)) },
-    )
   }, [])
 
   /** Finish recording → upload the WAV → transcribe → fill the composer. */
@@ -1220,6 +1267,31 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       },
     )
   }, [])
+
+  /** Open the recording sheet and start capturing audio. */
+  const openVoice = useCallback((): void => {
+    voicePartialRef.current = ''
+    setVoicePhase('recording')
+    void startVoiceRecording({
+      // The 60 s hard cap is reached: auto-finish so the sheet transcribes
+      // what was captured instead of sitting on "正在听..." forever.
+      onTimeout: () => { finishVoice() },
+    }).then(
+      (recorder) => {
+        // The chat unmounted while the mic was still authorizing: release
+        // the stream instead of opening a sheet on a dead component.
+        if (!mountedRef.current) {
+          recorder.cancel()
+          return
+        }
+        voiceRef.current = recorder
+        setVoiceOpen(true)
+      },
+      (message: unknown) => {
+        if (mountedRef.current) toast(message instanceof Error ? message.message : String(message))
+      },
+    )
+  }, [finishVoice])
 
   /**
    * Stop the active turn (desktop parity: the composer's primary button
@@ -1428,16 +1500,39 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       </header>
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
       {(offline || queuedCount > 0) && (
-        <div className="chat-offline-banner" role="status">
-          <span>
-            {offline
-              ? '网络已断开，消息将在恢复后发送'
-              : queuedCount > 0
-                ? `${queuedCount} 条离线消息待发送`
-                : ''}
-          </span>
-          {!offline && queuedCount > 0 && (
-            <button type="button" className="chat-offline-retry" onClick={flushQueue}>重试</button>
+        <div
+          className="chat-offline-banner"
+          role="status"
+          style={{ flexDirection: 'column', alignItems: 'stretch', padding: '8px 16px' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span>
+              {offline
+                ? '网络已断开，消息将在恢复后发送'
+                : queuedCount > 0
+                  ? `${queuedCount} 条离线消息待发送`
+                  : ''}
+            </span>
+            {!offline && queuedCount > 0 && (
+              <button type="button" className="chat-offline-retry" onClick={flushQueue}>重试</button>
+            )}
+          </div>
+          {queuedEntries.length > 0 && (
+            <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {queuedEntries.map(entry => (
+                <li key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)' }}>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.text}</span>
+                  <button
+                    type="button"
+                    className="chat-offline-retry"
+                    aria-label="移除待发送消息"
+                    onClick={() => { removeQueuedEntry(entry.id) }}
+                  >
+                    移除
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
@@ -1797,7 +1892,9 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
               }
             }}
             onKeyDown={(event) => {
-              if (mobileEnterToSend && event.key === 'Enter' && !event.shiftKey) {
+              // isComposing: skip Enter while a Chinese IME is composing, so
+              // confirming a candidate never fires a send mid-composition.
+              if (mobileEnterToSend && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 void send()
               }
@@ -1885,6 +1982,17 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
                 <span className="sheet-option-title">复制会话 ID</span>
               </span>
             </button>
+            <div className="sheet-option-divider" aria-hidden />
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setMoreOpen(false); setDeleting(true) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title" style={{ color: 'var(--danger)' }}>删除会话</span>
+              </span>
+            </button>
           </div>
         </Sheet>
       )}
@@ -1895,6 +2003,16 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           confirmLabel="保存"
           onCancel={() => { setRenaming(false) }}
           onConfirm={(value) => { void handleRename(value) }}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog
+          title="删除会话"
+          body={<>确定删除「{title}」吗？本机会话记录与待发送消息将被移除。</>}
+          confirmLabel="删除"
+          tone="danger"
+          onCancel={() => { setDeleting(false) }}
+          onConfirm={handleDeleteSession}
         />
       )}
       {voiceOpen && (

@@ -176,16 +176,24 @@ function FlowBody({ message }: { message: RenderMessage }) {
  * multi-file edit no longer stacks one folded card per write call.
  */
 function ArtifactCards({ tools }: { tools: ToolCallInfo[] }) {
-  const cards = tools.filter(tool => tool.view !== undefined)
-  if (cards.length === 0) return null
-  const merged: ToolDiffView = {
-    card: 'diff',
-    title: cards.length === 1
-      ? (cards[0]?.view?.title ?? cards[0]?.name ?? '')
-      : `编辑了 ${cards.length} 个文件`,
-    diffs: cards.flatMap(card => card.view?.diffs ?? []),
-  }
-  return <ArtifactCard tool={{ ...cards[0]!, view: merged }} />
+  // The merged view must keep a STABLE reference across streaming chunks:
+  // the fold keeps the tools array identity while only the text grows, so
+  // memoizing on `tools` lets ArtifactCard's tally and ToolDiffCard's rows
+  // survive the per-chunk re-render instead of re-deriving the whole diff
+  // (and re-reading scrollHeight) on every token.
+  const merged = useMemo(() => {
+    const cards = tools.filter(tool => tool.view !== undefined)
+    if (cards.length === 0) return undefined
+    return {
+      card: 'diff' as const,
+      title: cards.length === 1
+        ? (cards[0]?.view?.title ?? cards[0]?.name ?? '')
+        : `编辑了 ${cards.length} 个文件`,
+      diffs: cards.flatMap(card => card.view?.diffs ?? []),
+    }
+  }, [tools])
+  if (merged === undefined) return null
+  return <ArtifactCard tool={{ ...tools.find(tool => tool.view !== undefined)!, view: merged }} />
 }
 
 /**
@@ -210,12 +218,13 @@ function ArtifactCard({ tool }: { tool: ToolCallInfo }) {
   // Clamp the diff body to its actual content height with a max-height
   // transition: expanding, collapsing and streamed growth (more files
   // landing mid-turn — "edited N files" 3 → 11) animate smoothly instead
-  // of snapping, so the paragraph below the card never jumps. Runs after
-  // every commit; re-assigning the same value is a style no-op.
+  // of snapping, so the paragraph below the card never jumps. Runs when
+  // the open state or the view content changes; a stable view across
+  // streaming chunks skips the (synchronous reflow) scrollHeight read.
   useEffect(() => {
     const el = diffRef.current
     if (el !== null) el.style.maxHeight = open ? `${el.scrollHeight}px` : '0px'
-  })
+  }, [open, view])
   if (view === undefined) return null
   return (
     <div className="chat-artifact">

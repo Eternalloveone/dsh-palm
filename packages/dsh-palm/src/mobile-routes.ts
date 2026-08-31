@@ -89,12 +89,36 @@ function offlineHtml(): string {
   ].join('')
 }
 
+/**
+ * Content-Security-Policy for the /m/ surface. The page holds a full host
+ * control cookie (paired device), so the CSP is the last line of defense
+ * behind the renderer: even if a future rendering bug turns agent markdown
+ * into script, the browser refuses it. Inline styles stay allowed (the
+ * bundle injects one static <style>); images may come from anywhere the
+ * markdown renderer allows (data:/blob: for pasted/compressed images,
+ * https:/http: for model-referenced URLs); everything else is same-origin.
+ */
+const MOBILE_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https: http:",
+  "connect-src 'self'",
+  "font-src 'self' data:",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ')
+
 /** Send a small static UTF-8 body with revalidation headers. */
 function writeStatic(res: ServerResponse, status: number, type: string, body: string): void {
   res.writeHead(status, {
     'content-type': type + '; charset=utf-8',
     'cache-control': 'no-cache',
     'referrer-policy': 'no-referrer',
+    'content-security-policy': MOBILE_CSP,
   })
   res.end(body)
 }

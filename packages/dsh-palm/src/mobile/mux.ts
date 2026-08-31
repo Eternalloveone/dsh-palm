@@ -28,6 +28,7 @@ import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
 import { muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { history as fetchHistory, type HistoryPage } from './api.ts'
+import { RpcTransportError } from './rpc.ts'
 import type { HistoryEntry } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 
 /** Injectable seams for tests. */
@@ -50,6 +51,13 @@ export interface MuxClientOptions {
   stallThresholdMs?: number
   /** Clock seam for tests (defaults to Date.now). */
   now?: () => number
+  /**
+   * Called when the polling fallback hits a terminal (unpaired) error — the
+   * device was revoked or remote control was stopped. The client has already
+   * stopped itself (no more polling, no more SSE); the UI uses this to enter
+   * the unpaired state instead of silently polling forever into a 60 s backoff.
+   */
+  onUnpaired?: () => void
 }
 
 /** The EventSource subset this client uses (browser EventSource fits). */
@@ -83,6 +91,20 @@ const STALL_CHECK_MS = 1000
 const DEFAULT_POLL_PAGE_SIZE = 50
 
 /**
+ * Whether a polling error is terminal — the device is no longer paired. The
+ * mobile RPC carrier maps the pairing gate's 403 (and any 401) to an
+ * RpcTransportError whose message is the HTTP status literal; a business
+ * 'unpaired' message is the same condition. Any other error (network, 5xx,
+ * history paging) is transient and must keep the backoff loop alive.
+ */
+function isTerminalPollError(error: unknown): boolean {
+  if (!(error instanceof RpcTransportError)) return false
+  return error.message === 'HTTP 403'
+    || error.message === 'HTTP 401'
+    || error.message.includes('unpaired')
+}
+
+/**
  * Keep one SSE subscription open, fanning validated frames out to
  * subscribers. EventSource owns reconnection (with its own backoff); this
  * class only manages the subscription lifecycle, plus a polling fallback
@@ -94,6 +116,7 @@ export class MuxClient {
   private readonly pollIntervalMs: number
   private readonly stallThresholdMs: number
   private readonly now: () => number
+  private readonly onUnpaired: (() => void) | undefined
   private readonly listeners = new Set<(frame: MuxFrame, rpcId?: string) => void>()
   private source: EventSourceLike | undefined
   private stopped = false
@@ -131,6 +154,7 @@ export class MuxClient {
     this.pollDelayMs = this.pollIntervalMs
     this.stallThresholdMs = options.stallThresholdMs ?? DEFAULT_STALL_THRESHOLD_MS
     this.now = options.now ?? (() => Date.now())
+    this.onUnpaired = options.onUnpaired
   }
 
   /** Open the stream (idempotent; EventSource reconnects until {@link stop}). */
@@ -389,8 +413,19 @@ export class MuxClient {
       // it yet (see the pending collection note above).
       pending.sort((left, right) => left.seq - right.seq)
       for (const item of pending) this.emit(item.frame)
-    } catch {
-      // Transient (network, pairing, history paging); retry with backoff.
+    } catch (error) {
+      // A terminal error means the device is no longer paired (revoked, or
+      // remote control stopped): the host refuses every gated request with
+      // 403/401. Without this, the catch would swallow it and the fallback
+      // would keep polling into a 60 s backoff forever — a zombie poller
+      // after revoke/stop. Stop the client and notify the UI so it can enter
+      // the unpaired state. Everything else stays transient and backs off.
+      if (isTerminalPollError(error)) {
+        this.stop()
+        this.onUnpaired?.()
+        return
+      }
+      // Transient (network, history paging); retry with backoff.
     } finally {
       if (emitted > 0) {
         this.pollDelayMs = this.pollIntervalMs

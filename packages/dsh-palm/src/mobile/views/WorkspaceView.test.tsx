@@ -13,11 +13,12 @@ vi.mock('../api.ts', () => ({
   renameWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
 }))
-import { listWorkspaces, listDirectory, createWorkspace } from '../api.ts'
+import { listWorkspaces, listDirectory, createWorkspace, deleteWorkspace } from '../api.ts'
 
 const listWorkspacesMock = vi.mocked(listWorkspaces)
 const listDirectoryMock = vi.mocked(listDirectory)
 const createWorkspaceMock = vi.mocked(createWorkspace)
+const deleteWorkspaceMock = vi.mocked(deleteWorkspace)
 
 const workspaces: WorkspaceRow[] = [
   {
@@ -225,5 +226,35 @@ describe('mobile workspace creation', () => {
     fireEvent.click(selectBtn)
 
     expect(await screen.findByText('Already exists')).toBeTruthy()
+  })
+})
+
+describe('mobile workspace recentId', () => {
+  it('clears the recent workspace id when the recent workspace is deleted', async () => {
+    const store = new Map<string, string>()
+    store.set('dsh.palm.recentWorkspace', 'ws-1')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value) },
+        removeItem: (key: string) => { store.delete(key) },
+        clear: () => { store.clear() },
+      },
+    })
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    deleteWorkspaceMock.mockResolvedValue({ deleted: true })
+    render(<WorkspaceView onPick={() => {}} />)
+    await screen.findByText('First')
+    // Open the delete menu for the recent workspace (ws-1 = First).
+    const row = screen.getByText('First').closest('button')!
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /删除工作区/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
+    await waitFor(() => {
+      expect(deleteWorkspaceMock).toHaveBeenCalledWith('ws-1')
+    })
+    // The recent id is cleared from storage (no dangling pointer).
+    expect(store.get('dsh.palm.recentWorkspace')).toBe('')
   })
 })

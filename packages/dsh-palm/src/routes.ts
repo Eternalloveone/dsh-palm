@@ -222,39 +222,63 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
 
   /** Per-source-IP accept rate limit (brute-force defense in depth). */
   const acceptAttempts = new Map<string, { count: number; windowStart: number }>()
+  /** Per-(socket-IP, XFF-hop) accept rate limit: partitions the shared quota. */
+  const acceptXffAttempts = new Map<string, { count: number; windowStart: number }>()
   const ACCEPT_MAX_ATTEMPTS = 10
+  /** The shared socket-IP total cap: XFF rotation can never clear this. */
+  const ACCEPT_TOTAL_MAX_ATTEMPTS = 40
   const ACCEPT_WINDOW_MS = 30_000
   const rateLimitAccept = (req: IncomingMessage): boolean => {
     const socketIp = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress ?? 'unknown'
-    // Behind the auto-tunnel every internet client arrives from 127.0.0.1,
-    // so a single shared bucket would let one attacker keep the legitimate
-    // owner rate-limited. Partition the availability bucket by the first
-    // client-visible XFF hop (set by the tunnel edge): XFF is untrusted for
-    // authentication and only separates buckets, it never grants access.
-    // The socket IP always participates in the key, so swapping XFF cannot
-    // rotate an attacker out of a throttled bucket on a direct (non-tunnel)
-    // connection; the hop value is length-capped so oversized forged headers
-    // cannot bloat the table.
+    // The first client-visible XFF hop (set by the tunnel edge). XFF is
+    // untrusted for authentication and only partitions the shared quota; it
+    // never grants access. The hop value is length-capped so oversized forged
+    // headers cannot bloat the table.
     const forwarded = typeof req.headers['x-forwarded-for'] === 'string'
       ? (req.headers['x-forwarded-for'].split(',')[0] ?? '').trim().slice(0, 64)
       : undefined
-    const ip = forwarded === undefined || forwarded === '' ? socketIp : socketIp + '|' + forwarded
     const nowMs = Date.now()
-    // The map lives as long as the plugin: prune expired windows once the
+    // The maps live as long as the plugin: prune expired windows once either
     // table grows past a modest size so distinct source IPs (LAN clients,
     // brute-force scans) cannot accumulate forever.
-    if (acceptAttempts.size > 256) {
+    if (acceptAttempts.size > 256 || acceptXffAttempts.size > 256) {
       for (const [key, attempt] of acceptAttempts) {
         if (nowMs - attempt.windowStart > ACCEPT_WINDOW_MS) acceptAttempts.delete(key)
       }
+      for (const [key, attempt] of acceptXffAttempts) {
+        if (nowMs - attempt.windowStart > ACCEPT_WINDOW_MS) acceptXffAttempts.delete(key)
+      }
     }
-    const entry = acceptAttempts.get(ip)
-    if (entry === undefined || nowMs - entry.windowStart > ACCEPT_WINDOW_MS) {
-      acceptAttempts.set(ip, { count: 1, windowStart: nowMs })
-      return false
+    // Shared socket-IP bucket: the hard TOTAL cap. Behind the auto-tunnel
+    // every internet client arrives from 127.0.0.1, so this is the real
+    // throttle — and because it is keyed by socket IP alone, an attacker
+    // rotating XFF can never clear it (the old key included the XFF hop, so
+    // a fresh XFF value minted a fresh bucket and bypassed the limit). The
+    // per-XFF bucket below only partitions this total.
+    let shared = acceptAttempts.get(socketIp)
+    if (shared === undefined || nowMs - shared.windowStart > ACCEPT_WINDOW_MS) {
+      shared = { count: 1, windowStart: nowMs }
+      acceptAttempts.set(socketIp, shared)
+    } else {
+      shared.count += 1
     }
-    entry.count += 1
-    return entry.count > ACCEPT_MAX_ATTEMPTS
+    if (shared.count > ACCEPT_TOTAL_MAX_ATTEMPTS) return true
+    // Per-XFF bucket: only takes effect while the shared total is not
+    // exhausted. It partitions the shared quota among distinct XFF hops (so
+    // one attacker's XFF rotation does not starve the legitimate owner), but
+    // XFF changes can never raise the total above the socket-IP cap.
+    if (forwarded !== undefined && forwarded !== '') {
+      const xffKey = socketIp + '|' + forwarded
+      let xff = acceptXffAttempts.get(xffKey)
+      if (xff === undefined || nowMs - xff.windowStart > ACCEPT_WINDOW_MS) {
+        xff = { count: 1, windowStart: nowMs }
+        acceptXffAttempts.set(xffKey, xff)
+      } else {
+        xff.count += 1
+      }
+      if (xff.count > ACCEPT_MAX_ATTEMPTS) return true
+    }
+    return false
   }
 
   const handleIssue = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {

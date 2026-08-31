@@ -34,11 +34,13 @@ vi.mock('../image.ts', async importOriginal => {
     })),
   }
 })
+vi.mock('../toast.tsx', () => ({ toast: vi.fn() }))
 
 import { fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
 import { loadHistory, prompt } from './App.tsx'
 import { imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage } from '../image.ts'
-import { buildPromptParts } from '../image.ts'
+import { buildPromptParts, compressImageFile } from '../image.ts'
+import { toast } from '../toast.tsx'
 
 const session: SessionView = {
   sessionId: 's-1',
@@ -53,6 +55,8 @@ const modelsMock = vi.mocked(models)
 const fetchPendingMock = vi.mocked(fetchPending)
 const loadHistoryMock = vi.mocked(loadHistory)
 const promptMock = vi.mocked(prompt)
+const compressImageFileMock = vi.mocked(compressImageFile)
+const toastMock = vi.mocked(toast)
 
 beforeEach(() => {
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
@@ -138,5 +142,40 @@ describe('ChatView image attach', () => {
     fireEvent.click(screen.getByRole('button', { name: '移除图片' }))
     await waitFor(() => expect(screen.queryByAltText('待发送图片')).toBeNull())
     expect(promptMock).not.toHaveBeenCalled()
+  })
+
+  it('shows a toast instead of silently dropping an image past the cap', async () => {
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    // Fill the attach list to the cap, one at a time (each preview settles first).
+    for (let index = 0; index < MAX_ATTACHED_IMAGES; index++) {
+      const pasted = new File(['x'], `pic${index}.png`, { type: 'image/png' })
+      fireEvent.paste(textarea, {
+        clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => pasted }] },
+      })
+      await waitFor(() => expect(screen.getAllByAltText('待发送图片').length).toBe(index + 1))
+    }
+    // One more pasted image is refused loudly, not silently dropped.
+    const extra = new File(['x'], 'extra.png', { type: 'image/png' })
+    fireEvent.paste(textarea, {
+      clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => extra }] },
+    })
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(`最多附加 ${MAX_ATTACHED_IMAGES} 张图片`))
+    expect(screen.getAllByAltText('待发送图片').length).toBe(MAX_ATTACHED_IMAGES)
+  })
+
+  it('drops a decode-failed image and shows a toast', async () => {
+    compressImageFileMock.mockResolvedValue({
+      image: { dataUrl: 'data:image/heic;base64,QUFB', mediaType: 'image/heic', name: 'x.heic' },
+      failed: true,
+    })
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    const pasted = new File(['x'], 'x.heic', { type: 'image/heic' })
+    fireEvent.paste(textarea, {
+      clipboardData: { items: [{ kind: 'file', type: 'image/heic', getAsFile: () => pasted }] },
+    })
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('该图片无法解码，已忽略'))
+    expect(screen.queryByAltText('待发送图片')).toBeNull()
   })
 })

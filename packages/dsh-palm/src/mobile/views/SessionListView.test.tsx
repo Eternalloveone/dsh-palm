@@ -13,11 +13,16 @@ vi.mock('../api.ts', () => ({
   listAgentPresets: vi.fn(),
   createSession: vi.fn(),
 }))
+vi.mock('../offline.ts', () => ({
+  removeOutboxForSession: vi.fn(),
+}))
 import { createSession, listAgentPresets, listSessions } from '../api.ts'
+import { removeOutboxForSession } from '../offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const createSessionMock = vi.mocked(createSession)
+const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
 
 const workspace: WorkspaceRow = {
   workspaceId: 'w-1' as never,
@@ -241,5 +246,42 @@ describe('SessionListView creation', () => {
     expect(await screen.findByText(/HTTP 403/)).toBeTruthy()
     expect(await screen.findByText(/重启 dsh web/)).toBeTruthy()
     expect(picked).toBeUndefined()
+  })
+})
+
+describe('SessionListView search scope', () => {
+  it('shows a hint that search only covers loaded rows when more pages exist', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: true,
+      nextCursor: 'c1',
+    })
+    renderList()
+    await screen.findByText('改造移动端')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索标题或内容…'), { target: { value: 'xyz' } })
+    expect(await screen.findByText(/搜索仅覆盖已加载的 1 条会话/)).toBeTruthy()
+  })
+})
+
+describe('SessionListView delete', () => {
+  it('deletes a session from the row menu and clears its outbox', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    removeOutboxForSessionMock.mockResolvedValue(undefined)
+    renderList()
+    await screen.findByText('改造移动端')
+    // Open the row action menu (contextmenu covers mouse; long-press covers touch).
+    const row = screen.getByText('改造移动端').closest('button')!
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /删除会话/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
+    await waitFor(() => {
+      expect(removeOutboxForSessionMock).toHaveBeenCalledWith('s-1')
+    })
+    // The row is removed from the local list.
+    expect(screen.queryByText('改造移动端')).toBeNull()
   })
 })

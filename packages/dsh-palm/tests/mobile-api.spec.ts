@@ -10,6 +10,7 @@ import type { AddressInfo } from 'node:net'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { makeMobileApiRoutes } from '../src/mobile-api.ts'
+import { PendingTracker } from '../src/mobile-pending.ts'
 
 // The voice-services method reads the host config files; stub the resolver
 // so the test never depends on the real machine's dsh-palm.yaml.
@@ -61,6 +62,16 @@ const apiProxy = {
     mutate: async () => ({ rpcId: 'r', result: { ok: true, value: { ns: 'ui-theme', schema: {}, value: { preference: 'dark' }, applies: 'live', secrets: [], revision: 2 } } }),
   },
 } as unknown as ApiProxy
+
+/** A pending tracker holding one question/requested frame for a session. */
+function trackerWithQuestion(rpcId: string, sessionId: string): PendingTracker {
+  const tracker = new PendingTracker()
+  tracker.onFrame({
+    rpcId,
+    payload: { type: 'question/requested', sessionId, questions: [{ id: 'q-1', question: '继续？' }] },
+  } as never)
+  return tracker
+}
 
 async function serve(routes: WebRoute[]): Promise<TestServer> {
   const server = createServer((request, response) => {
@@ -301,7 +312,10 @@ describe('mobile api envelope', () => {
         return { rpcId: 'r', result: { ok: true, value: { accepted: true } } }
       },
     } as unknown as ApiProxy
-    const server = await serve(makeMobileApiRoutes({ service, apiProxy: respondingProxy, mobileEnterToSend }))
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: respondingProxy, mobileEnterToSend,
+      pendingTracker: trackerWithQuestion('q-1', 's-1'),
+    }))
     try {
       const body = JSON.stringify({
         type: 'client-request', rpcId: 'probe-resp', method: 'mobile.respond',
@@ -328,6 +342,78 @@ describe('mobile api envelope', () => {
       expect(forwarded.type).toBe('client-response')
       expect(forwarded.rpcId).toBe('q-1')
       expect(forwarded.result.value).toEqual({ sessionId: 's-1', answer: { answers: [{ id: 'q-1', selected: ['继续'] }] } })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('refuses mobile.respond when the rpcId is not pending (404, not silent)', async () => {
+    const respondingProxy = {
+      ...apiProxy,
+      respond: vi.fn(async () => ({ rpcId: 'r', result: { ok: true, value: { accepted: true } } })),
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: respondingProxy, mobileEnterToSend,
+      pendingTracker: new PendingTracker(), // nothing pending
+    }))
+    try {
+      const body = JSON.stringify({
+        type: 'client-request', rpcId: 'probe-resp', method: 'mobile.respond',
+        payload: { rpcId: 'q-unknown', response: { sessionId: 's-1', answer: { answers: [] } } },
+      })
+      const result = await new Promise<{ body: string }>((resolve, reject) => {
+        const req = httpRequest({
+          host: '127.0.0.1', port: server.port, path: '/m/api/mobile.respond', method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: `${cookieName}=device-1`, 'content-length': Buffer.byteLength(body) },
+        }, (response) => {
+          const chunks: Buffer[] = []
+          response.on('data', chunk => { chunks.push(chunk as Buffer) })
+          response.on('end', () => resolve({ body: Buffer.concat(chunks).toString('utf8') }))
+        })
+        req.on('error', reject)
+        req.end(body)
+      })
+      const envelope = JSON.parse(result.body) as { result: { ok: boolean; error?: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error?.code).toBe('not-found')
+      // The host respond must never be reached for an unknown rpcId.
+      expect(respondingProxy.respond).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('refuses mobile.respond when the claimed session does not own the rpcId (409 conflict)', async () => {
+    const respondingProxy = {
+      ...apiProxy,
+      respond: vi.fn(async () => ({ rpcId: 'r', result: { ok: true, value: { accepted: true } } })),
+    } as unknown as ApiProxy
+    // The pending question belongs to session s-1; the phone claims s-2.
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: respondingProxy, mobileEnterToSend,
+      pendingTracker: trackerWithQuestion('q-1', 's-1'),
+    }))
+    try {
+      const body = JSON.stringify({
+        type: 'client-request', rpcId: 'probe-resp', method: 'mobile.respond',
+        payload: { rpcId: 'q-1', response: { sessionId: 's-2', answer: { answers: [] } } },
+      })
+      const result = await new Promise<{ body: string }>((resolve, reject) => {
+        const req = httpRequest({
+          host: '127.0.0.1', port: server.port, path: '/m/api/mobile.respond', method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: `${cookieName}=device-1`, 'content-length': Buffer.byteLength(body) },
+        }, (response) => {
+          const chunks: Buffer[] = []
+          response.on('data', chunk => { chunks.push(chunk as Buffer) })
+          response.on('end', () => resolve({ body: Buffer.concat(chunks).toString('utf8') }))
+        })
+        req.on('error', reject)
+        req.end(body)
+      })
+      const envelope = JSON.parse(result.body) as { result: { ok: boolean; error?: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error?.code).toBe('conflict')
+      expect(respondingProxy.respond).not.toHaveBeenCalled()
     } finally {
       await server.close()
     }
@@ -900,6 +986,29 @@ describe('mobile.commandExec', () => {
     }
   })
 
+  it('does not leak the host command error message to the phone', async () => {
+    const execute = vi.fn(async () => {
+      throw new Error('/etc/dsh/secret-config.yaml: permission denied')
+    })
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy, mobileEnterToSend,
+      commands: { list: () => [], execute },
+      agents: { get: () => agent },
+    }))
+    try {
+      const outcome = await callExec(server.port, { sessionId: 's-1', line: '/compact' })
+      expect(outcome.status).toBe(200)
+      // A stable user-facing refusal; the internal path/message never reaches
+      // the phone.
+      expect(outcome.error?.code).toBe('command-failed')
+      expect(outcome.error?.message).toBe('命令执行失败，请稍后重试')
+      expect(outcome.error?.message).not.toContain('secret-config')
+      expect(outcome.error?.message).not.toContain('/etc')
+    } finally {
+      await server.close()
+    }
+  })
+
   it('returns the host-side fallback transcription services for phone import', async () => {
     vi.mocked(resolveTranscribeServices).mockResolvedValue([
       {
@@ -915,11 +1024,14 @@ describe('mobile.commandExec', () => {
     try {
       const { status, body } = await call(server.port, 'mobile.voiceServices')
       expect(status).toBe(200)
-      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { services: Array<{ name: string; baseURL: string; apiKey: string; model: string }> } } }
+      // The host API key NEVER leaves the host: the phone cannot use these
+      // services directly (transcription rides the host channel), so only the
+      // display facts are returned — no apiKey.
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { services: Array<{ name: string; baseURL: string; model: string }> } } }
       expect(envelope.result.ok).toBe(true)
       expect(envelope.result.value.services).toEqual([
-        { name: 'SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', apiKey: 'sk-host', model: 'FunAudioLLM/SenseVoiceSmall' },
-        { name: 'TeleASR', baseURL: 'https://api.siliconflow.cn/v1', apiKey: 'sk-host', model: 'TeleAI/TeleSpeechASR' },
+        { name: 'SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
+        { name: 'TeleASR', baseURL: 'https://api.siliconflow.cn/v1', model: 'TeleAI/TeleSpeechASR' },
       ])
     } finally {
       await server.close()

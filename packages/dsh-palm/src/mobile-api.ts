@@ -417,6 +417,10 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       envelope = await readBoundedJson(req, isTranscribe ? 12 * 1024 * 1024 : isPrompt ? 2 * 1024 * 1024 : 64 * 1024)
     } catch (error) {
       if (error instanceof Error && error.message === 'body too large') {
+        // Drain whatever the client still has in flight so the keep-alive
+        // connection is released (the strict reader stops mid-stream on
+        // overflow; an undrained body would misalign the next request).
+        req.resume()
         // The message rides back through callUnary and shows verbatim on the
         // phone, so it must match the failing channel: a long recording vs an
         // oversized image payload are different problems.
@@ -453,10 +457,37 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         })
       } else if (method === MOBILE_RESPOND_METHOD) {
         const payload = parsed.payload as any
+        // Ownership binding: the rpcId must be a pending item, and it must
+        // belong to the session the phone claims. Without this, a phone could
+        // answer any rpcId it guesses — and with desktop + phone both online,
+        // either could pre-empt the other's approval/question. The pending
+        // tracker records each pending rpcId under the session that requested
+        // it, so the answer is bound to that session before it reaches the
+        // host. An rpcId that is not pending (already resolved elsewhere, or
+        // never tracked) is refused rather than silently forwarded.
+        const targetRpcId = typeof payload?.rpcId === 'string' ? payload.rpcId : ''
+        const claimedSessionId = typeof payload?.response?.sessionId === 'string' ? payload.response.sessionId : undefined
+        const ownerSession = deps.pendingTracker.ownerOfRpcId(targetRpcId)
+        if (ownerSession === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'not-found', message: '待处理项不存在或已处理' } },
+          })
+          return
+        }
+        if (claimedSessionId !== ownerSession) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'conflict', message: '待处理项不属于当前会话' } },
+          })
+          return
+        }
         try {
           const receipt = await apiProxy.respond({
             type: 'client-response',
-            rpcId: RpcId(payload.rpcId),
+            rpcId: RpcId(targetRpcId),
             result: { ok: true, value: payload.response },
           })
           writeJson(res, 200, {
@@ -465,11 +496,14 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: true, value: receipt },
           })
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
+          // The host's respond error is internal (e.g. the item was already
+          // resolved); the phone only needs a stable refusal, never the
+          // host's message.
+          console.error('mobile.respond failed', error)
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
-            result: { ok: false, error: { code: 'internal', message } },
+            result: { ok: false, error: { code: 'internal', message: '应答失败，请重试' } },
           })
         }
       } else if (method === MOBILE_LIST_DIRECTORY_METHOD) {
@@ -537,13 +571,15 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             : await deps.commands.execute(agent, line, [], abort.signal)
         } catch (error) {
           // Aborted device or a handler crash: the lifecycle is already logged
-          // host-side; the phone only needs a terminal envelope.
+          // host-side; the phone only needs a terminal envelope. The host's
+          // error message is internal and never echoed to the phone.
+          console.error('mobile.commandExec failed', error)
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
             result: {
               ok: false,
-              error: { code: 'command-failed', message: error instanceof Error ? error.message : '命令执行失败' },
+              error: { code: 'command-failed', message: '命令执行失败，请稍后重试' },
             },
           })
           return
@@ -560,7 +596,11 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         })
       } else if (method === MOBILE_VOICE_SERVICES_METHOD) {
         // The host-side fallback services (dsh-palm.yaml `transcribe:`), so
-        // the phone can seed its own service list from the desktop config.
+        // the phone can show what the desktop config provides. The host API
+        // key NEVER leaves the host: the phone cannot use these services
+        // directly (transcription rides the host channel, which falls back
+        // to this config when the phone sends no services), so only the
+        // display facts are returned.
         const dedicated = await resolveTranscribeServices()
         const services = dedicated === undefined
           ? []
@@ -569,7 +609,6 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             : [{
               name: entry.service.name ?? 'host 配置',
               baseURL: entry.service.baseURL.replace(/\/+$/, ''),
-              apiKey: entry.apiKey,
               model: entry.service.model,
             }])
         writeJson(res, 200, {

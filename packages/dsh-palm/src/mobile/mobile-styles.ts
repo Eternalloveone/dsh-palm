@@ -74,7 +74,7 @@ export const mobileCss = `/* ── design tokens ──────────
   --diff-del-word: rgba(239, 68, 68, 0.22);
   /* chrome */
   --backdrop: rgba(15, 18, 34, 0.45);
-  --header-bg: rgba(245, 245, 247, 0.8);
+  --header-bg: rgba(245, 245, 247, 0.97);
   /* type */
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Noto Sans SC', 'Segoe UI', sans-serif;
   --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -152,7 +152,7 @@ export const mobileCss = `/* ── design tokens ──────────
   --diff-add-word: rgba(74, 222, 128, 0.25);
   --diff-del-word: rgba(248, 113, 113, 0.25);
   --backdrop: rgba(0, 0, 0, 0.6);
-  --header-bg: rgba(10, 10, 15, 0.72);
+  --header-bg: rgba(10, 10, 15, 0.96);
 }
 
 /* System mode: the OS scheme decides while no palette is pinned. */
@@ -207,7 +207,7 @@ export const mobileCss = `/* ── design tokens ──────────
     --diff-add-word: rgba(74, 222, 128, 0.25);
     --diff-del-word: rgba(248, 113, 113, 0.25);
     --backdrop: rgba(0, 0, 0, 0.6);
-    --header-bg: rgba(10, 10, 15, 0.72);
+    --header-bg: rgba(10, 10, 15, 0.96);
   }
 }
 
@@ -414,8 +414,11 @@ body,
   padding: calc(env(safe-area-inset-top, 0px) + 4px) 4px 4px;
   min-height: calc(48px + env(safe-area-inset-top, 0px));
   background: var(--header-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  /* No backdrop-filter here: the sticky header sits over the scrolling
+     message list, and blur is the most expensive compositing operation on
+     mobile — every scroll frame would re-sample the background. The header
+     background is near-opaque instead (see --header-bg), which reads the
+     same while scrolling stays cheap. */
   border-bottom: 1px solid var(--border-subtle);
 }
 
