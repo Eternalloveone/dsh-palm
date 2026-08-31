@@ -12,7 +12,12 @@ dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1
 
 ## Screenshots
 
+> The captures below are rendered by the real `/m/` UI against **fictional
+> demo data** (workspace names, session titles and chat content are made up),
+> so nothing private leaks into the repository.
+
 | | |
+|---|---|
 |---|---|
 | ![Workspace](docs/screenshots/workspace.png) | **Workspace** — project roster with search, pin and recent |
 | ![Session list](docs/screenshots/sessions.png) | **Session list** — per-project sessions grouped by day, with a new-session button |

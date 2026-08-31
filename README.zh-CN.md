@@ -12,6 +12,8 @@ dsh-palm 是 [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web)（`@l
 
 ## 截图
 
+> 以下截图由真实 `/m/` UI 渲染**虚构演示数据**（项目名、会话标题与聊天内容均为编造），仓库中不会泄露任何真实信息。
+
 | | |
 |---|---|
 | ![工作区](docs/screenshots/workspace.png) | **工作区** —— 项目列表，支持搜索、固定与最近访问 |
