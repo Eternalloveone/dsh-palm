@@ -303,3 +303,24 @@ export function PlayIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+/** CPU chip (model selector pill). */
+export function ModelIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)} strokeWidth={1.7}>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <rect x="10" y="10" width="4" height="4" rx="0.5" />
+      <path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3" />
+    </svg>
+  )
+}
+
+/** Shield (permission pill; tone applied by the wrapper color). */
+export function ShieldIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)} strokeWidth={1.7}>
+      <path d="M12 3 5 5.5v5.2c0 4.3 2.9 7.6 7 9.3 4.1-1.7 7-5 7-9.3V5.5Z" />
+      <path d="m9 11.5 2.2 2.2L15.5 9" />
+    </svg>
+  )
+}

@@ -209,7 +209,9 @@ describe('ChatView message folds', () => {
 
     // The chip shows the derived label for the unmatched current value.
     fireEvent.click(await screen.findByRole('button', { name: /Workspace Write/ }))
-    // Picking full access opens the confirmation sheet instead of submitting.
+    // The strip's full-access card routes into the sheet (never a direct submit).
+    fireEvent.click(await screen.findByRole('button', { name: /完全权限/ }))
+    // Picking full access in the sheet opens the confirmation instead of submitting.
     fireEvent.click(await screen.findByRole('button', { name: /完全权限/ }))
     expect(await screen.findByText(/确认完全权限/)).toBeTruthy()
     expect(sendCommandMock).not.toHaveBeenCalled()
@@ -403,7 +405,7 @@ describe('ChatView model sheet', () => {
     loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const chip = await screen.findByRole('button', { name: /模型/ })
+    const chip = await screen.findByRole('button', { name: /切换模型/ })
     expect(chip.textContent).toContain('fx-1')
 
     fireEvent.click(chip)
@@ -434,7 +436,9 @@ describe('ChatView model sheet', () => {
     } satisfies SessionModels)
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /切换模型/ }))
+    // The strip only lists models; effort lives in the full sheet.
+    fireEvent.click(await screen.findByRole('button', { name: /全部…/ }))
     const effort = await screen.findByRole('button', { name: /^高/ })
     fireEvent.click(effort)
     await waitFor(() => {
@@ -446,7 +450,7 @@ describe('ChatView model sheet', () => {
     modelsMock.mockRejectedValue(new Error('HTTP 403'))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /切换模型/ }))
     expect(await screen.findByText(/HTTP 403/)).toBeTruthy()
     expect(await screen.findByText(/重启 dsh web/)).toBeTruthy()
   })
@@ -855,14 +859,35 @@ describe('ChatView display toggles and context usage', () => {
     expect(lastText).toBeGreaterThan(artifact)
   })
 
-  it('renders the context usage chip from the contextPressure projection', async () => {
+  it('renders the context meter from the contextPressure projection', async () => {
     loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
       projections: {
         values: { contextPressure: { contextWindow: 100_000, pressureTokens: 30_000, projectedTokens: 30_000 } },
       },
     }))
-    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    expect(await screen.findByText('上下文 30%')).toBeTruthy()
+    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(await screen.findByText('30%')).toBeTruthy()
+    // The ring arc matches the figure exactly (C = 2π·10.5 ≈ 65.97).
+    const fill = container.querySelector('.chat-context-ring-fill')
+    expect(fill?.getAttribute('stroke-dasharray')).toBe('19.791 65.97')
+  })
+
+  it('shows the exact usage figures when the ring is tapped and closes again', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
+      projections: {
+        values: { contextPressure: { contextWindow: 100_000, pressureTokens: 30_000, projectedTokens: 30_000 } },
+      },
+    }))
+    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const ring = await screen.findByText('30%')
+    fireEvent.click(ring)
+    expect(await screen.findByText('上下文用量')).toBeTruthy()
+    expect(screen.getByText(/30k/)).toBeTruthy()
+    expect(screen.getByText(/100k/)).toBeTruthy()
+    expect(screen.getByText(/已使用 30%/)).toBeTruthy()
+    // Tapping outside (the pop scrim) closes it again.
+    fireEvent.click(container.querySelector('.chat-context-pop-scrim') as Element)
+    await waitFor(() => expect(screen.queryByText('上下文用量')).toBeNull())
   })
 
   it('adds the warn class when context pressure is at or above 80%', async () => {
@@ -872,8 +897,8 @@ describe('ChatView display toggles and context usage', () => {
       },
     }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const chip = await screen.findByText('上下文 80%')
-    expect(chip.className).toContain('chat-context-warn')
+    const meter = await screen.findByText('80%')
+    expect(meter.closest('.chat-context')?.className).toContain('chat-context-warn')
   })
 
   it('renders a persistent context chip with a dash placeholder when there is no usage/context data', async () => {
@@ -882,6 +907,119 @@ describe('ChatView display toggles and context usage', () => {
     await screen.findByText('已完成修改')
     const chip = await screen.findByText('上下文 --')
     expect(chip.className).not.toContain('chat-context-warn')
+  })
+})
+
+describe('ChatView in-place quick picker strips', () => {
+  /** History with the permissions projection (readonly / workspace-write / full). */
+  function permissionHistory(): HistoryPage {
+    return historyPage(turnEvents(), {
+      projections: {
+        values: {
+          permissions: {
+            currentValue: 'readonly',
+            options: [
+              { value: 'readonly', name: '只读' },
+              { value: 'workspace-write', name: '工作区写入', description: '改文件需授权' },
+              { value: 'danger-full-access', name: '完全权限', description: '全部操作' },
+            ],
+          },
+        },
+      },
+    })
+  }
+
+  it('opens the model panel on the model pill and highlights the current model', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    expect(await screen.findByText('FX 标准')).toBeTruthy()
+    expect(screen.getByText('FX 深度')).toBeTruthy()
+    const selected = screen.getByText('FX 标准').closest('.chat-picker-row')
+    expect(selected?.className).toContain('chat-picker-row-selected')
+    // The search field is the primary discovery path; the full sheet
+    // stays reachable from the panel.
+    expect(screen.getByRole('searchbox', { name: '搜索模型' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '全部…' })).toBeTruthy()
+  })
+
+  it('filters the model list as the search query narrows it', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    const search = await screen.findByRole('searchbox', { name: '搜索模型' })
+    fireEvent.change(search, { target: { value: '深度' } })
+    expect(screen.getByText('FX 深度')).toBeTruthy()
+    expect(screen.queryByText('FX 标准')).toBeNull()
+    fireEvent.change(search, { target: { value: '不存在的模型' } })
+    expect(await screen.findByText('没有匹配的模型')).toBeTruthy()
+  })
+
+  it('switches the model directly from the strip and closes it', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    const card = await screen.findByText('FX 深度')
+    fireEvent.click(card)
+    expect(selectModelMock).toHaveBeenCalledWith('s-1', { provider: 'fx', model: 'fx-2', reasoningEffort: 'high' })
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择模型' })).toBeNull())
+    // The chip label follows the model id returned by the host.
+    expect(await screen.findByText('fx-2')).toBeTruthy()
+  })
+
+  it('shows a retry when the model catalog fails to load', async () => {
+    modelsMock.mockRejectedValueOnce(new Error('HTTP 500'))
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    expect(await screen.findByText('重试')).toBeTruthy()
+    fireEvent.click(screen.getByText('重试'))
+    expect(await screen.findByText('FX 标准')).toBeTruthy()
+  })
+
+  it('dismisses the strip when the scrim is tapped', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    await screen.findByText('FX 标准')
+    const scrim = container.querySelector('.chat-picker-scrim')
+    expect(scrim).not.toBeNull()
+    fireEvent.click(scrim as Element)
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择模型' })).toBeNull())
+  })
+
+  it('opens the permission strip and switches through /permission', async () => {
+    loadHistoryMock.mockResolvedValue(permissionHistory())
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换权限/ }))
+    expect(await screen.findByText('工作区写入')).toBeTruthy()
+    fireEvent.click(screen.getByText('工作区写入'))
+    expect(sendCommandMock).toHaveBeenCalledWith('s-1', '/permission workspace-write')
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择权限' })).toBeNull())
+    expect(await screen.findByText('工作区写入')).toBeTruthy()
+  })
+
+  it('routes the full-access preset through the confirming sheet, never directly', async () => {
+    loadHistoryMock.mockResolvedValue(permissionHistory())
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换权限/ }))
+    const dangerCard = await screen.findByText('完全权限')
+    expect(dangerCard.closest('.chat-picker-row')?.className).toContain('chat-picker-row-danger')
+    fireEvent.click(dangerCard)
+    expect(sendCommandMock).not.toHaveBeenCalled()
+    // The strip routes full access into the sheet, which owns the explicit
+    // confirm — the strip itself never applies it directly.
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择权限' })).toBeNull())
+    fireEvent.click(screen.getByText('完全权限'))
+    expect(await screen.findByText('确认完全权限')).toBeTruthy()
+    expect(screen.getByText(/开启完全权限后/)).toBeTruthy()
   })
 })
 

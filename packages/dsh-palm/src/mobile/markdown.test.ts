@@ -116,7 +116,9 @@ describe('renderMarkdown', () => {
   })
 
   it('normalizes CRLF and keeps user-visible text intact', () => {
-    expect(renderMarkdown('a\r\nb')).toBe('<p>a\nb</p>')
+    // Hard line breaks render as <br /> (the streaming preview uses the
+    // same form, so a turn closing never collapses a multi-line paragraph).
+    expect(renderMarkdown('a\r\nb')).toBe('<p>a<br />b</p>')
   })
 })
 

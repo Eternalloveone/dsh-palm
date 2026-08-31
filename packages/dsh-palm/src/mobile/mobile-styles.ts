@@ -1812,6 +1812,12 @@ button.settings-row:focus-visible {
    cards (12px); the message row gap owns the tail spacing. */
 .chat-md-body p { margin: 0; }
 .chat-md-body p + p { margin-top: 16px; }
+/* While a turn streams, the open tail lives in its own .md-html run next
+   to the stable run(s); a blank line between two paragraphs then splits
+   them across runs and the p + p rule above stops matching — the gap
+   would collapse to 0 while streaming and pop to 16px the moment the
+   tail closes into the same run. Keep the same rhythm across runs. */
+.chat-md .md-html + .md-html { margin-top: 16px; }
 /* A flow splits one message into several MarkdownText bodies (tool calls
    interleave text runs): adjacent bodies must keep the same paragraph
    rhythm, or the paragraph gap collapses to 0 the moment a tool lands.
@@ -2946,63 +2952,351 @@ button.settings-row:focus-visible {
   transform: none;
 }
 
-/* ── composer toolbar chips ──────────────────────────────────────────── */
+/* ── composer toolbar pills ──────────────────────────────────────────── */
 
+/* One row, two zones: the icon pills (model/permission) on the left, the
+   context ring pinned on the right (flex: none) so the session's
+   occupancy never scrolls out of view. The row never scrolls: the model
+   pill (the only elastic one) shrinks with an ellipsis while the
+   permission pill and the ring stay fixed and always visible. */
 .chat-tools {
   display: flex;
-  gap: var(--space-2);
+  align-items: center;
+  gap: 10px;
   padding: 8px 16px 0;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.chat-tools::-webkit-scrollbar {
-  display: none;
+.chat-tools-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.chat-chip {
-  flex: none;
+.chat-pill {
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 36px;
-  padding: 0 12px;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--border-default);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--card-bg);
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-sm);
-  font-weight: 400;
+  font-weight: 500;
   cursor: pointer;
   transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
 }
 
-.chat-chip:active {
+.chat-pill > svg {
+  color: var(--accent);
+}
+
+.chat-pill:active {
   transform: scale(0.96);
   border-color: var(--border-focus);
+  background: var(--accent-soft);
+}
+
+.chat-pill-name {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-pill-chevron {
+  flex: none;
+  color: var(--text-quaternary);
+  font-size: 10px;
+}
+
+/* Permission pills never shrink: their text is short and stays visible. */
+.chat-pill-perm {
+  flex: none;
+}
+
+/* Permission level colors ride the shield icon (and the pill edge for the
+   full-access level) — color is the status channel. */
+.chat-pill-perm-read > svg {
+  color: var(--text-tertiary);
+}
+
+.chat-pill-perm-write > svg {
+  color: var(--accent);
+}
+
+.chat-pill-perm-full {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-default));
+  color: var(--danger);
+}
+
+.chat-pill-perm-full > svg {
+  color: var(--danger);
+}
+
+/* Context meter (status zone): an SVG occupancy ring + the percentage;
+   the exact counts live in the title. ≥80% flips ring and figures to the
+   danger color. */
+.chat-context {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-default);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.chat-context-ring {
+  flex: none;
+  display: block;
+}
+
+.chat-context-ring-track {
+  stroke: var(--fill);
+}
+
+.chat-context-ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.chat-context-warn {
+  color: var(--danger);
+}
+
+.chat-context-warn .chat-context-ring-fill {
+  stroke: var(--danger);
+}
+
+/* Context-usage popover: tap the ring to see the exact figures. Anchored
+   to the toolbar (its stacking context), floating above the message
+   list; an invisible fixed scrim closes it on outside taps. */
+.chat-context-pop {
+  position: absolute;
+  right: 16px;
+  bottom: calc(100% + 10px);
+  z-index: 45;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.chat-context-pop-title {
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
+}
+
+.chat-context-pop-figures {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-context-pop-figures span {
+  margin: 0 3px;
+  color: var(--text-quaternary);
+  font-weight: 400;
+}
+
+.chat-context-pop-sub {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.chat-context-pop-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+}
+
+/* ── in-place quick picker (model search panel / permission list) ────── */
+
+/* Full-screen transparent scrim above the message list; tapping it (or the
+   header) dismisses the panel. The toolbar/composer/panel rows sit above
+   it (z 50) so the input stays usable while picking — tapping the field
+   does not dismiss the panel. */
+.chat-picker-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 15, 25, 0.2);
+}
+
+.chat-tools,
+.chat-composer {
+  position: relative;
+  z-index: 50;
+}
+
+/* Vertical panel: search field on top, then grouped rows (model) or the
+   full preset list (permission). Scrolling is the fallback, not the
+   primary discovery path — the search field narrows the list first. */
+.chat-picker-panel {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 16px 0;
+  padding: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  max-height: 42vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.chat-picker-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-picker-search {
+  flex: none;
+  width: 100%;
+  height: 40px;
+  margin-bottom: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.chat-picker-search:focus {
+  border-color: var(--accent);
+  background: var(--card-bg);
+}
+
+.chat-picker-group-title {
+  padding: 8px 10px 4px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-quaternary);
+}
+
+/* One option row: 44px touch target, leading check column, title + sub. */
+.chat-picker-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-picker-row:active {
+  background: var(--fill);
+}
+
+.chat-picker-row-selected {
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.chat-chip-label {
+.chat-picker-row-check {
   flex: none;
-  color: var(--text-tertiary);
+  width: 16px;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
 }
 
-.chat-chip-value {
-  flex: 1;
+.chat-picker-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
+}
+
+.chat-picker-row-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 132px;
 }
 
-.chat-chip-chevron {
-  flex: none;
+.chat-picker-row-sub {
+  font-size: var(--text-xs);
   color: var(--text-quaternary);
-  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-picker-row-selected .chat-picker-row-sub {
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+.chat-picker-row-danger {
+  color: var(--danger);
+}
+
+.chat-picker-row-danger .chat-picker-row-sub {
+  color: var(--danger);
+  opacity: 0.75;
+}
+
+.chat-picker-more {
+  flex: none;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px dashed var(--border-default);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.chat-picker-status {
+  padding: 10px 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.chat-picker-error {
+  color: var(--danger);
+}
+
+.chat-picker-hint {
+  color: var(--text-tertiary);
 }
 
 /* ── bottom input bar: capsule field + circular send ─────────────────── */
@@ -3194,27 +3488,6 @@ button.settings-row:focus-visible {
 
 .chat-load-older:disabled {
   opacity: 0.6;
-}
-
-.chat-context {
-  flex: none;
-  align-self: center;
-  padding: 3px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-chip);
-  background: var(--fill);
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-weight: 400;
-  line-height: 1.6;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.chat-context-warn {
-  border-color: transparent;
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 .chat-meta {
