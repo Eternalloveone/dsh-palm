@@ -28,7 +28,7 @@ const workspace: WorkspaceRow = {
   workspaceId: 'w-1' as never,
   path: '/tmp/demo',
   title: '演示项目',
-  sessionIds: ['s-1'] as never,
+  sessionIds: ['s-1', 's-sub', 's-case'] as never,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
@@ -65,12 +65,16 @@ afterEach(() => {
 })
 
 describe('SessionListView roster', () => {
-  it('shows only the sessions that belong to the workspace directory', async () => {
+  it('shows only the sessions attached to the workspace (desktop parity)', async () => {
     listSessionsMock.mockResolvedValue({
       items: [
         summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } }),
         summary('s-sub', 1_650_000_000_000, { cwd: '/tmp/demo/sub', projections: { values: { title: '子目录会话' } } }),
         summary('s-case', 1_640_000_000_000, { cwd: '/TMP/DEMO', projections: { values: { title: '大小写路径' } } }),
+        // A standalone session whose cwd happens to live under the workspace
+        // directory is NOT attached — the desktop GUI keeps it out of the
+        // roster (未分组), and the phone must match.
+        summary('s-orphan', 1_630_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '未挂载会话' } } }),
         summary('s-other', 1_600_000_000_000, { cwd: '/tmp/foreign' }),
         summary('s-nocwd', 1_590_000_000_000),
       ],
@@ -81,8 +85,10 @@ describe('SessionListView roster', () => {
     expect(await screen.findByText('改造移动端')).toBeTruthy()
     expect(screen.queryByText('子目录会话')).not.toBeNull()
     expect(screen.queryByText('大小写路径')).not.toBeNull()
-    // Sessions outside the workspace directory (or without a recorded cwd)
-    // must stay hidden — the list is the project's, not the global history.
+    // Sessions outside the owned id set must stay hidden — the list is the
+    // project's, not the global history, and standalone sessions never
+    // reappear (they would otherwise show on the phone but not the desktop).
+    expect(screen.queryByText(/未挂载会话/)).toBeNull()
     expect(screen.queryByText(/foreign/)).toBeNull()
     expect(screen.queryByText(/nocwd/)).toBeNull()
   })
@@ -105,7 +111,9 @@ describe('SessionListView roster', () => {
       ],
       hasMore: false,
     })
-    renderList()
+    // s-2 is attached on the second page; s-foreign is not owned.
+    const pagedWorkspace: WorkspaceRow = { ...workspace, sessionIds: ['s-1', 's-2'] as never }
+    renderList({ workspace: pagedWorkspace })
     await screen.findByText('demo')
     fireEvent.click(screen.getByRole('button', { name: /加载更多会话/ }))
     expect(await screen.findByText('第二页会话')).toBeTruthy()
@@ -118,7 +126,8 @@ describe('SessionListView roster', () => {
       items: [summary('session-abcdef12-3456-7890-abcd-1234567890ab', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '同名任务' } } })],
       hasMore: false,
     })
-    renderList()
+    const longIdWorkspace: WorkspaceRow = { ...workspace, sessionIds: ['session-abcdef12-3456-7890-abcd-1234567890ab'] as never }
+    renderList({ workspace: longIdWorkspace })
     await screen.findByText('同名任务')
     // Full date+clock (timezone-agnostic shape), and no "#tail" id suffix.
     expect(screen.getByText(/\d{2}-\d{2} \d{2}:\d{2}/)).toBeTruthy()

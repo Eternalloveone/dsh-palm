@@ -38,23 +38,14 @@ export interface SessionListViewProps {
   onOpenSettings(): void
 }
 
-/** Whether a session belongs to the opened workspace. Sessions carry their
- * working directory (cwd), which is the reliable owner signal — the
- * workspace roster's owned-id set only covers sessions attached through
- * workspace.create and silently drops the rest. Matching is on the
- * workspace directory itself and its children, case-insensitively (Windows
- * paths), so every session created inside the project shows up. */
-function belongsToWorkspace(cwd: string | undefined, workspacePath: string): boolean {
-  if (typeof cwd !== 'string' || cwd === '') return false
-  const path = workspacePath.replace(/[\\/]+$/, '').toLowerCase()
-  const normalized = cwd.replace(/[\\/]+$/, '').toLowerCase()
-  return normalized === path || normalized.startsWith(path + '\\') || normalized.startsWith(path + '/')
-}
-
-/** Rows shown for the opened workspace: its sessions, paged. */
-function pageItems(page: SessionSummary[], workspacePath: string): SessionView[] {
+/** Rows shown for the opened workspace: its sessions, paged. The roster
+ * filters by the workspace's OWNED id set (workspace.sessionIds) — the same
+ * attach relationship the desktop GUI uses — so sessions created without a
+ * workspace attach (standalone sessions) never appear here, keeping the
+ * phone and desktop rosters identical. */
+function pageItems(page: SessionSummary[], ownedIds: ReadonlySet<string>): SessionView[] {
   return page
-    .filter(item => belongsToWorkspace(item.cwd, workspacePath))
+    .filter(item => ownedIds.has(String(item.sessionId)))
     .map(item => toSessionView(item))
 }
 
@@ -127,6 +118,8 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
+  /** The workspace's owned session ids (attach relationship, desktop parity). */
+  const ownedIds = useMemo(() => new Set(workspace.sessionIds.map(String)), [workspace])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | undefined>(undefined)
   const [presets, setPresets] = useState<readonly AgentPresetEntry[]>([])
@@ -183,7 +176,7 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
     void listSessions().then(
       (page) => {
         if (cancelled) return
-        const rows = pageItems(page.items, workspace.path)
+        const rows = pageItems(page.items, ownedIds)
         setRows(rows)
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
@@ -236,7 +229,7 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
         setLoading(false)
         cursorRef.current = page.nextCursor
         setHasMore(page.hasMore)
-        const appended = pageItems(page.items, workspace.path)
+        const appended = pageItems(page.items, ownedIds)
         setRows(previous => [...previous, ...appended])
         loadPreviews(appended)
       },

@@ -97,6 +97,15 @@ export function ChevronUpIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** Down chevron (jump-to-latest button). */
+export function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <path d="m6 10 6 6 6-6" />
+    </svg>
+  )
+}
+
 /** Right arrow (send). */
 export function SendIcon(props: SVGProps<SVGSVGElement>) {
   return (

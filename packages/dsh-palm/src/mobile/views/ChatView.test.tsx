@@ -660,6 +660,120 @@ describe('ChatView scrolling', () => {
     expect(anchored).not.toBe(900)
   })
 
+  it('re-follows to the REAL bottom after the silent auto-extend prepend commits', async () => {
+    // The real-browser bug: the silent auto-extend's re-follow used to run in
+    // a rAF that read the PRE-commit scrollHeight (the prepend rows were not
+    // in the DOM yet), pinned to the OLD tail, and left the view stranded
+    // mid-history once the prepend landed — with no corrector left (the
+    // stream follower key is unchanged by a prepend, and neither re-pin
+    // effect runs below the window threshold). The follow must read the
+    // POST-commit height: the last write lands on the real bottom.
+    scrollHeightMock = 400
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValueOnce(historyPage(turnEvents(), { hasMore: true }))
+    let release!: (page: HistoryPage) => void
+    loadHistoryMock.mockReturnValueOnce(new Promise<HistoryPage>(resolve => { release = resolve }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(400) })
+    // The older page resolves as one commit that grows the real height far
+    // beyond the stale tail (12 heavy rows → 2000px). The re-follow must
+    // observe the committed height, never the pre-commit one.
+    scrollHeightMock = 2000
+    await act(async () => { release?.(historyPage(turnEvents(), { hasMore: false })) })
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(2000) })
+    // And it must NOT strand: the view never rests on the stale tail value.
+    expect(scrollWrites.at(-1)).not.toBe(400)
+  })
+
+  it('shows the jump-to-latest button once the reader scrolls away from the bottom', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    // At the bottom (opening position) the button stays hidden.
+    expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
+    // Scrolling up through history (gap 20_000 − 5_000 − 600 ≫ threshold) reveals it.
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    expect(screen.getByRole('button', { name: '回到最新消息' })).toBeTruthy()
+  })
+
+  it('jumps to the bottom and hides the button on click', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    fireEvent.click(screen.getByRole('button', { name: '回到最新消息' }))
+    // The view pins to the new bottom and the button disappears.
+    expect(scrollWrites.at(-1)).toBe(20_000)
+    expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
+  })
+
+  it('counts messages that arrive while away and clears the badge on jump', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    // Two live messages arrive while the reader is away from the bottom.
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
+    })
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7).event })
+    })
+    const badge = await screen.findByText('2', { selector: '.chat-jump-badge' })
+    expect(badge).toBeTruthy()
+    // Jumping clears the tally.
+    fireEvent.click(screen.getByRole('button', { name: '回到最新消息' }))
+    expect(screen.queryByText('2', { selector: '.chat-jump-badge' })).toBeNull()
+  })
+
+  it('windowed: re-pins to the tail when content settles while at the bottom, and leaves a scrolled-away reader alone', async () => {
+    // 130 messages: above WINDOW_THRESHOLD, so the opening scrollToBottom
+    // lands on an ESTIMATED height and the measurement convergence must
+    // re-pin the view to the true tail.
+    const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
+      id: `u-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `消息${i}` }],
+    }, i))
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(many))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('消息129')
+    // The opening pin lands on the estimated height, then the height
+    // correction (measured on the full frame) re-pins to the real tail.
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(20_000) })
+    // Content grows (async load / measurement convergence) while the reader
+    // is at the bottom: the view re-pins to the new tail (the windowed
+    // target is prefix[count] + correction, which grows with the new row).
+    scrollHeightMock = 25_000
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
+    })
+    await waitFor(() => { expect(scrollWrites.at(-1) ?? 0).toBeGreaterThan(20_000) })
+    // A reader who scrolled away is left alone even when content settles.
+    scrollHeightMock = 30_000
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    const writesBefore = scrollWrites.length
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7).event })
+    })
+    expect(scrollWrites.length).toBe(writesBefore)
+  })
+
   it('windowed: past the threshold only the rows around the scroll position render, and the window follows scrolls', async () => {
     // 130 short user messages: above WINDOW_THRESHOLD, so the list renders
     // as an estimated-height spacer + a slice instead of the full list.
@@ -719,14 +833,19 @@ describe('ChatView scrolling', () => {
       await waitFor(() => { expect(screen.queryByText('消息0')).toBeNull() })
       // Let the measurement effect run and the prefix rebuild + locate land.
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
-      // The bottom spacer now uses MEASURED heights (100px/row): the window
-      // lands at [45,109] after the open-time scrollToBottom, so the spacer
-      // is prefix[130] − prefix[109] = 13000 − 10900 = 2100px. The pure
-      // estimate (50px/row) would be 6500 − 5450 = 1050px — the measured
-      // value is exactly double, proving the real heights entered the sum.
+      // The window lands at the tail after the open-time re-pin, so the
+      // bottom spacer is 0 and the TOP spacer carries the measured prefix
+      // (100px/row) plus the height correction (scrollHeightMock 20000 −
+      // measured prefix) — the pure estimate (50px/row) would be far
+      // smaller, proving the real heights entered the prefix sum. The
+      // opening tail window spans WINDOW_VISIBLE + WINDOW_OVERSCAN = 44 rows
+      // (matches locateWindow), so its measured height is 4400px and the
+      // top spacer is 20000 − 4400 = 15600. The correction re-render
+      // (correctionTick) must have landed for the spacer to reflect the
+      // final correction, not the opening estimate.
       const spacers = container.querySelectorAll('.chat-scroll > div[aria-hidden="true"]')
-      const bottom = spacers[spacers.length - 1] as HTMLElement | undefined
-      expect(bottom?.style.height).toBe('2100px')
+      const top = spacers[0] as HTMLElement | undefined
+      expect(top?.style.height).toBe('15600px')
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original!)
     }
@@ -1492,3 +1611,11 @@ describe('ChatView offline banner', () => {
     await waitFor(() => { expect(removeFromOutboxMock).toHaveBeenCalledWith('o1') })
   })
 })
+
+
+
+
+
+
+
+
