@@ -1,0 +1,31 @@
+name: ci
+
+# Quality gate on every push to main and every pull request: full test
+# suite, typecheck and build. No secrets involved.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        working-directory: packages/dsh-palm
+        run: pnpm build
+      - name: Test
+        working-directory: packages/dsh-palm
+        run: pnpm test
+      - name: Typecheck
+        working-directory: packages/dsh-palm
+        run: pnpm typecheck

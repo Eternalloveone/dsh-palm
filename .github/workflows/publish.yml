@@ -1,0 +1,72 @@
+name: publish
+
+# Publish @eternalloveone/dsh-palm when a version tag is pushed:
+# - npmjs.com (the primary channel) via the NPM_TOKEN repository secret
+# - GitHub Packages (npm.pkg.github.com, shows in the repo Packages area)
+#   via the automatically provided GITHUB_TOKEN
+# Manual dispatch (channel input) allows back-filling a version that was
+# released before this workflow existed, without re-publishing npmjs.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Channel to publish (auto = both, as on a tag push)'
+        type: choice
+        options:
+          - auto
+          - npmjs
+          - gh
+        default: auto
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || inputs.channel == 'auto' || inputs.channel == 'npmjs'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Quality gate
+        working-directory: packages/dsh-palm
+        # Build first: mobile-routes tests serve the real lib/mobile.js bundle.
+        run: pnpm build && pnpm test && pnpm typecheck
+      - name: Publish
+        working-directory: packages/dsh-palm
+        run: pnpm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-gh:
+    if: github.event_name == 'push' || inputs.channel == 'auto' || inputs.channel == 'gh'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://npm.pkg.github.com'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        working-directory: packages/dsh-palm
+        run: pnpm build
+      - name: Publish to GitHub Packages
+        working-directory: packages/dsh-palm
+        run: pnpm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

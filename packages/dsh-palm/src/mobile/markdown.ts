@@ -196,6 +196,15 @@ export function renderInline(text: string): string {
         continue
       }
     }
+    // Hard line break: keep the settled DOM identical to the streaming
+    // preview (previewOf renders \n as <br />), or a multi-line paragraph
+    // collapses into a single space (and its 6px line gap vanishes) the
+    // moment the turn closes.
+    if (char === '\n') {
+      out += '<br />'
+      i += 1
+      continue
+    }
     out += escapeHtml(char)
     i += 1
   }
