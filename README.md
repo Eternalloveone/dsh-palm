@@ -14,6 +14,8 @@ dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1
 
 | | |
 |---|---|
+| ![Workspace](docs/screenshots/workspace.png) | **Workspace** — project roster with search, pin and recent |
+| ![Session list](docs/screenshots/sessions.png) | **Session list** — per-project sessions grouped by day, with a new-session button |
 | ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown with tool tags, interactive diff cards and syntax-highlighted code blocks |
 | ![Diff cards](docs/screenshots/diff.png) | **Diff cards** — `diff` fences render as interactive cards with accept / reject actions |
 | ![Image attach](docs/screenshots/attach.png) | **Image attach** — paste or pick images, auto-compressed before send |

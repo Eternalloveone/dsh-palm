@@ -14,6 +14,8 @@ dsh-palm 是 [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web)（`@l
 
 | | |
 |---|---|
+| ![工作区](docs/screenshots/workspace.png) | **工作区** —— 项目列表，支持搜索、固定与最近访问 |
+| ![会话列表](docs/screenshots/sessions.png) | **会话列表** —— 项目内会话按天分组，带新建会话按钮 |
 | ![聊天](docs/screenshots/chat.png) | **聊天** —— 流式 Markdown，带工具标签、可交互 diff 卡片与语法高亮代码块 |
 | ![Diff 卡片](docs/screenshots/diff.png) | **Diff 卡片** —— `diff` 代码块渲染为可交互卡片，支持接受 / 拒绝 |
 | ![图片上传](docs/screenshots/attach.png) | **图片上传** —— 粘贴或选择图片，发送前自动压缩 |
