@@ -50,6 +50,9 @@ const MOBILE_ALLOWLIST = new Set([
   'workspace.list',
   'workspace.rename',
   'workspace.delete',
+  // Session delete (the desktop's archive semantics): idempotent, reversible,
+  // single-id — makes the phone's delete persist across refreshes.
+  'workspace.archiveSession',
   'agentPreset.list',
   'session.create',
   'session.list',
@@ -851,6 +854,12 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   if (method === 'workspace.create') return wrap(await apiProxy.workspace.create(request as never))
   if (method === 'workspace.rename') return wrap(await apiProxy.workspace.rename(request as never))
   if (method === 'workspace.delete') return wrap(await apiProxy.workspace.delete(request as never))
+  // Session delete (= the desktop's archive semantics): the row leaves every
+  // roster and never reappears after a refresh, while the session log stays
+  // on disk (restorable from the desktop). Without this the phone's delete
+  // was a local-only removal and the session resurrected on the next roster
+  // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
+  if (method === 'workspace.archiveSession') return wrap(await apiProxy.workspace.archiveSession(request as never))
   if (method === 'agentPreset.list') return wrap(await apiProxy.agentPresets.list(request as never))
   if (method === 'session.create') return wrap(await apiProxy.sessions.create(request as never))
   if (method === 'session.history') return wrap(await apiProxy.sessions.history(request as never))

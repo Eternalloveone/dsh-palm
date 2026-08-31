@@ -19,11 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import { createSession, history, listAgentPresets, listSessions } from '../api.ts'
+import { archiveSession, createSession, history, listAgentPresets, listSessions } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
 import { removeOutboxForSession } from '../offline.ts'
+import { toast } from '../toast.tsx'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog } from '../dialog.tsx'
@@ -328,15 +329,21 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
   })
 
   /**
-   * Delete a session (UI-layer: the host exposes no session-delete RPC on the
-   * mobile channel, so this removes the row locally and drops its outbox
-   * entries; the roster re-fetches on the next visit).
+   * Delete a session through the host archive RPC (desktop parity): the row
+   * leaves the roster and never reappears after a refresh or a re-fetch —
+   * the archive set rides workspace.list and this surface's session.list
+   * already filters it. The session log stays on disk (restorable from the
+   * desktop). The local row drop + outbox cleanup run either way; if the RPC
+   * fails the session would otherwise resurrect on reload, so surface why.
    */
   const handleDeleteSession = useCallback((row: SessionView): void => {
     setDeleting(undefined)
     setMenuSession(undefined)
     setRows(previous => previous.filter(item => item.sessionId !== row.sessionId))
     void removeOutboxForSession(row.sessionId)
+    void archiveSession(row.sessionId).catch((reason: unknown) => {
+      toast(`删除未生效：${errorText(reason)}`)
+    })
   }, [])
 
   const createHint = createError !== undefined ? staleHostHint(createError) : undefined
@@ -613,7 +620,7 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
       {deleting !== undefined && (
         <ConfirmDialog
           title="删除会话"
-          body={<>确定删除「{deleting.title}」吗？本机会话记录与待发送消息将被移除。</>}
+          body={<>确定删除「{deleting.title}」吗？该会话将从所有设备消失（电脑上的会话记录保留，可从桌面找回）。</>}
           confirmLabel="删除"
           tone="danger"
           onCancel={() => { setDeleting(undefined) }}

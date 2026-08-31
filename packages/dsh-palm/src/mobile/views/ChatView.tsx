@@ -17,7 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
 import { loadHistory, prompt, type SessionView } from './App.tsx'
 import { errorText, staleHostHint } from './App.tsx'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, fetchPending, listCommands, transcribeVoice, type CommandDescriptor } from '../api.ts'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, type CommandDescriptor } from '../api.ts'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
@@ -1056,16 +1056,20 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   }, [session.sessionId])
 
   /**
-   * Delete the session. The host exposes no session-delete RPC on the mobile
-   * channel (verified: no `session.delete`/`archiveSession` in the /m/api
-   * allowlist), so this is a UI-layer removal: clear the local messages and
-   * drop the session's outbox entries, then return to the session list. The
-   * roster re-fetches on the next visit.
+   * Delete the session through the host archive RPC (the same semantics the
+   * desktop's delete uses): the workspace-side row leaves every roster and
+   * never reappears after a refresh, while the session log stays on disk and
+   * remains restorable from the desktop. The local cleanup runs either way;
+   * an RPC failure keeps the previously-local-only removal (the chat would
+   * reappear on reload) and surfaces why.
    */
   const handleDeleteSession = useCallback((): void => {
     setDeleting(false)
     setMessages([])
     void removeOutboxForSession(session.sessionId).then(() => { refreshOutbox() })
+    void archiveSession(session.sessionId).catch((reason: unknown) => {
+      toast(`删除未生效：${errorText(reason)}`)
+    })
     onBack()
   }, [session.sessionId, onBack, refreshOutbox])
 
@@ -2179,7 +2183,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       {deleting && (
         <ConfirmDialog
           title="删除会话"
-          body={<>确定删除「{title}」吗？本机会话记录与待发送消息将被移除。</>}
+          body={<>确定删除「{title}」吗？该会话将从所有设备消失（电脑上的会话记录保留，可从桌面找回）。</>}
           confirmLabel="删除"
           tone="danger"
           onCancel={() => { setDeleting(false) }}

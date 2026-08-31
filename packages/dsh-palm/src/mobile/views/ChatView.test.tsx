@@ -18,6 +18,8 @@ vi.mock('../api.ts', () => ({
   sendCommand: vi.fn(),
   cancelSession: vi.fn(),
   fetchPending: vi.fn(),
+  renameSession: vi.fn(),
+  archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
 }))
 vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
@@ -41,7 +43,7 @@ vi.mock('../offline.ts', () => ({
   removeFromOutbox: vi.fn(),
   removeOutboxForSession: vi.fn(),
 }))
-import { fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
+import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
 import { loadHistory, prompt } from './App.tsx'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
@@ -1567,7 +1569,7 @@ describe('ChatView voice cleanup', () => {
 })
 
 describe('ChatView delete session', () => {
-  it('clears the outbox and returns to the list after confirming delete', async () => {
+  it('archives the session on the host, clears the outbox, and returns to the list', async () => {
     loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
     removeOutboxForSessionMock.mockResolvedValue(undefined)
     const onBack = vi.fn()
@@ -1579,6 +1581,9 @@ describe('ChatView delete session', () => {
     fireEvent.click(await screen.findByRole('button', { name: '删除' }))
     await waitFor(() => {
       expect(removeOutboxForSessionMock).toHaveBeenCalledWith('s-1')
+      // The delete is REAL (host archive write): the session cannot
+      // resurrect on the next roster fetch.
+      expect(archiveSessionApiMock).toHaveBeenCalledWith('s-1')
       expect(onBack).toHaveBeenCalled()
     })
   })

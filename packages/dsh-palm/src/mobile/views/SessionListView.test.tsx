@@ -12,16 +12,18 @@ vi.mock('../api.ts', () => ({
   listWorkspaces: vi.fn(),
   listAgentPresets: vi.fn(),
   createSession: vi.fn(),
+  archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
 }))
 vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
-import { createSession, listAgentPresets, listSessions } from '../api.ts'
+import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions } from '../api.ts'
 import { removeOutboxForSession } from '../offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const createSessionMock = vi.mocked(createSession)
+const archiveSessionMock = vi.mocked(archiveSessionApi)
 const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
 
 const workspace: WorkspaceRow = {
@@ -274,7 +276,7 @@ describe('SessionListView search scope', () => {
 })
 
 describe('SessionListView delete', () => {
-  it('deletes a session from the row menu and clears its outbox', async () => {
+  it('deletes a session from the row menu, archives it on the host, and clears its outbox', async () => {
     listSessionsMock.mockResolvedValue({
       items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
       hasMore: false,
@@ -289,6 +291,10 @@ describe('SessionListView delete', () => {
     fireEvent.click(await screen.findByRole('button', { name: '删除' }))
     await waitFor(() => {
       expect(removeOutboxForSessionMock).toHaveBeenCalledWith('s-1')
+      // The delete is REAL: the host archive write fires, so the row cannot
+      // resurrect on the next roster fetch (the archive set rides
+      // workspace.list and session.list filters it).
+      expect(archiveSessionMock).toHaveBeenCalledWith('s-1')
     })
     // The row is removed from the local list.
     expect(screen.queryByText('改造移动端')).toBeNull()

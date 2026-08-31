@@ -340,3 +340,13 @@ export async function renameWorkspace(workspaceId: string, title: string): Promi
 export async function deleteWorkspace(workspaceId: string): Promise<{ deleted: true }> {
   return await callUnary<{ deleted: true }>('workspace.delete', { workspaceId })
 }
+
+/**
+ * Delete one session the way the desktop does: an archive-set write that
+ * removes it from every roster forever (the phone filters the archive set in
+ * its session.list already), while the session log stays on disk — the
+ * desktop can still surface it (unarchive). Idempotent; unknown id errors.
+ */
+export async function archiveSession(sessionId: string): Promise<{ archivedSessionIds: string[] }> {
+  return await callUnary<{ archivedSessionIds: string[] }>('workspace.archiveSession', { sessionId })
+}
