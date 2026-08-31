@@ -21,12 +21,20 @@ jobs:
           node-version: 22
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Commit lint
+        # Conventional Commits gate (release commits vX.Y.Z: ... are exempt
+        # via commitlint.config.js ignores).
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: commitlint.config.js
+          failOnErrors: true
       - name: Build
         working-directory: packages/dsh-palm
         run: pnpm build
-      - name: Test
+      - name: Test with coverage gate
         working-directory: packages/dsh-palm
-        run: pnpm test
+        # Thresholds in vitest.config.ts fail the run on coverage regressions.
+        run: pnpm vitest run --coverage
       - name: Typecheck
         working-directory: packages/dsh-palm
         run: pnpm typecheck
