@@ -46,11 +46,19 @@ jobs:
         working-directory: packages/dsh-palm
         # Build first: mobile-routes tests serve the real lib/mobile.js bundle.
         run: pnpm build && pnpm test && pnpm typecheck
+      - name: Resolve dist-tag
+        # Prerelease tags (v0.2.0-beta.1) publish to the beta channel so the
+        # stable latest tag never points at a prerelease; normal tags -> latest.
+        id: disttag
+        run: |
+          tag="latest"
+          if [[ "${{ github.ref_name }}" == *-* ]]; then tag="beta"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Publish
         working-directory: packages/dsh-palm
         # --provenance mints the SLSA provenance attestation at publish
         # time (requires the id-token permission above).
-        run: pnpm publish --provenance
+        run: pnpm publish --provenance --tag ${{ steps.disttag.outputs.tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
