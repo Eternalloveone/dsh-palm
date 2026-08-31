@@ -13,7 +13,7 @@
  *   permission pickers, both as bottom sheets.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
 import { loadHistory, prompt, type SessionView } from './App.tsx'
 import { errorText, staleHostHint } from './App.tsx'
@@ -216,8 +216,25 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // created with.
   const messagesRef = useRef(messages)
   const [win, setWin] = useState<{ start: number; end: number }>({ start: 0, end: 0 })
+  // Live mirror of `win` for the rAF locate callback (the callback may run
+  // long after it was scheduled, so it must read the CURRENT window).
+  const winRef = useRef(win)
+  winRef.current = win
   const rafRef = useRef<number | undefined>(undefined)
   const scrollTopRef = useRef(0)
+  /**
+   * One deferred re-follow after the silent auto-extend prepend (open-time
+   * older page). The old implementation re-followed from a rAF that reads
+   * `el.scrollHeight` — but on a real browser the rAF can run BEFORE React
+   * commits the prepended rows (each heavy row is expensive to render), so
+   * the follow read the STALE height, pinned to the old tail, and — with the
+   * prepend committed on top of it — the view stranded mid-history with no
+   * corrector left (the stream follower key is unchanged by a prepend, the
+   * windowed re-pin effect is gated on `windowed`, and the correction effect
+   * returns on a missing prefix). Pinned instead by the commit-time effect
+   * below, where the DOM already contains the new rows.
+   */
+  const followAfterPrependRef = useRef(false)
   // The bottom gap at the USER's last gesture (recorded on every scroll
   // event). Passive content growth — a pending message finalizing into
   // taller markdown, an appended reply — changes scrollHeight without firing
@@ -685,6 +702,10 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // message list changes (or a row measurement lands), then keep the window
   // around the scroll position. Measured rows use their real height; the
   // estimate only stands in for rows that are not currently rendered.
+  // correctionTick is a dependency so a correction re-render rebuilds the
+  // prefix from the CURRENT measured rows — otherwise the correction loop
+  // would keep reading the stale (estimated) prefix and drift every pass.
+  const [correctionTick, setCorrectionTick] = useState(0)
   useEffect(() => {
     if (messages.length < WINDOW_THRESHOLD) {
       prefixRef.current = undefined
@@ -702,12 +723,24 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       prefix.push(acc)
     }
     prefixRef.current = prefix
-  }, [messages, measuredTick])
+  }, [messages, measuredTick, correctionTick])
 
   const locateWindow = useCallback(() => {
     const prefix = prefixRef.current
     if (prefix === undefined) return
     const el = scrollRef.current
+    const count = messagesRef.current.length
+    // The window is already at the tail and the reader never left the
+    // bottom: keep it. The scrollTop→row conversion subtracts the height
+    // correction, which is only exact while the prefix is purely estimated —
+    // once the windowed rows are measured the conversion drifts and would
+    // yank the window mid-history (a tall bottom spacer appears, and the
+    // view strands there until the measurement settles). The opening
+    // scrollToBottom already pinned the window to the tail, so re-locating
+    // here buys nothing while the reader is at the bottom.
+    if (winRef.current.end === count && bottomGapAtUserScrollRef.current <= BOTTOM_FOLLOW_THRESHOLD_PX) {
+      return
+    }
     // The windowed DOM's scrollHeight is corrected to the real content
     // height (top spacer += heightCorrection), so scrollTop lives in real
     // space; the prefix sum is estimated space — subtract the correction
@@ -716,7 +749,6 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     // Binary-search the row whose estimated top is at/below the scroll top.
     // Reads the live message count via the ref: the callback can run after
     // the list changed since it was scheduled.
-    const count = messagesRef.current.length
     let low = 0
     let high = count - 1
     while (low < high) {
@@ -771,10 +803,13 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     // Windowed mode: pin the window to the tail right away. The follow-up
     // rAF locate would land on the current scroll position, which can still
     // be 0 here (jsdom, or the very first frames) — the chat opens at the
-    // newest content, so the tail window is the correct target.
+    // newest content, so the tail window is the correct target. The window
+    // shape matches locateWindow's (VISIBLE + OVERSCAN above the tail) so a
+    // reader who immediately scrolls up a few rows still has rendered rows
+    // while the locate catches up.
     const count = messagesRef.current.length
     if (count > 0) {
-      const start = Math.max(0, count - WINDOW_OVERSCAN)
+      const start = Math.max(0, count - WINDOW_VISIBLE - WINDOW_OVERSCAN)
       setWin(previous => previous.start === start && previous.end === count ? previous : { start, end: count })
     }
     scheduleLocate()
@@ -833,7 +868,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // leaves the last message untouched, so it never disturbs the scroll
   // position. A reader who scrolled away from the bottom is left alone:
   // follow only within {@link BOTTOM_FOLLOW_THRESHOLD_PX} of the bottom.
-  useEffect(() => {
+  // Layout (not passive) so the OPENING tail pins BEFORE the first paint —
+  // a passive effect fires after paint, leaving the opening frame painted at
+  // the top of history before the jump (observed as a top-of-history flash
+  // on open). Steady-state streaming keeps the same code path, and its DOM
+  // writes stay in the same phase they always were.
+  useLayoutEffect(() => {
     const last = messages[messages.length - 1]
     if (last === undefined) return
     const key = last.seq + ':' + (last.pending === true ? 'p' : 'f')
@@ -870,6 +910,22 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
     scrollToBottom()
   }, [messages, scrollToBottom, autoScroll])
+
+  // Silent prepend re-follow, run at COMMIT time: this fires right after
+  // React has committed the prepended auto-extend page (before the next
+  // paint), so scrollToBottom reads the real post-prepend scrollHeight.
+  // See followAfterPrependRef for why the follow cannot run from loadOlder's
+  // own rAF — that can land before the commit and strand the view in
+  // history with nothing left to correct it.
+  useLayoutEffect(() => {
+    if (!followAfterPrependRef.current) return
+    followAfterPrependRef.current = false
+    // The consumer checked the reader was near the bottom when the page
+    // resolved; that snapshot cannot have moved without a scroll event in
+    // between, but re-check anyway so a stray flag never yanks a reader.
+    if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
+    scrollToBottom()
+  }, [messages, scrollToBottom])
 
   // The question/approval panels mount below the message list; when one
   // appears, bring it into view — the reader is usually watching the turn and
@@ -1139,10 +1195,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
             // tail page already followed to the bottom, and a plain anchor
             // shift would strand the view mid-history (the last message's
             // key never changes, so the stream follower never re-fires).
-            // setMessages is async — scrollHeight still reflects the
-            // pre-prepend content — so defer the re-follow to the next
-            // frame, after React has committed the prepend.
-            requestAnimationFrame(() => scrollToBottom())
+            // Defer the re-follow to the commit-time effect (see
+            // followAfterPrependRef): a rAF here can run before React has
+            // committed the prepend, and a scrollToBottom that reads the
+            // pre-commit scrollHeight pins to the OLD tail — leaving the
+            // view stranded in history once the prepend lands.
+            followAfterPrependRef.current = true
           } else {
             const inserted = older.reduce((acc, row) => acc + estimateMessageHeight(row), 0)
             // Set from the recorded anchor, not the live scrollTop: React's
@@ -1521,7 +1579,10 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // the prefix sum (measuredTick re-runs the prefix rebuild + locate). The
   // measurement is idempotent: unchanged heights leave measuredTick alone,
   // so the loop settles after one pass. jsdom reports no layout (0), where
-  // the estimate path stays authoritative.
+  // the estimate path stays authoritative. `located` is a dependency so the
+  // windowed rows are measured the moment the window locates — the windowed
+  // DOM height only equals the real total once they are (the correction is
+  // frozen at the full-frame value).
   useEffect(() => {
     if (!windowed) return
     const el = scrollRef.current
@@ -1540,16 +1601,23 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       }
     }
     if (changed) setMeasuredTick(tick => tick + 1)
-  }, [windowed, messages, measuredTick])
+  }, [windowed, located, messages, measuredTick, correctionTick])
 
   // Measure the real content height and refresh the windowed height
   // correction. The opening tail page renders in full before the window
-  // locates, so the correction is exact from the start; afterwards the
-  // windowed DOM height is an estimate, but el.scrollHeight − prefix[count]
-  // still tracks the estimate↔real gap (the top spacer carries the previous
-  // correction, and the windowed rows' measured heights blend into the
-  // prefix), so the correction stays consistent with the prefix rebuild.
-  // jsdom reports no layout (scrollHeight 0), where the correction stays 0.
+  // locates, so the correction is exact from the start. Once the window
+  // locates, el.scrollHeight is the windowed DOM height (top spacer carries
+  // the previous correction), so correction_new = correction_old + the
+  // windowed rows' estimate↔real delta. That delta is zero once the
+  // windowed rows are measured — the measurement effect above runs on
+  // `located` and folds their real heights into the prefix BEFORE this
+  // effect re-derives the correction — so the correction settles at the
+  // fixed point where the windowed total equals the real total, and the
+  // pin target (prefix[count] + correction) equals el.scrollHeight. The
+  // correction lives in a ref (the pin target reads it), but the top
+  // spacer's DOM height is rendered from it — a ref write alone would
+  // leave the rendered height stale, so correctionTick forces the
+  // re-render. jsdom reports no layout (scrollHeight 0), correction 0.
   useEffect(() => {
     const el = scrollRef.current
     if (el === undefined) return
@@ -1557,6 +1625,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     const correction = el.scrollHeight === 0 ? 0 : el.scrollHeight - estimated
     if (correction === heightCorrectionRef.current) return
     heightCorrectionRef.current = correction
+    setCorrectionTick(tick => tick + 1)
     // The opening scrollToBottom ran BEFORE this measurement (the follower
     // effect is declared earlier), so it pinned to the ESTIMATED height.
     // Re-pin to the real tail now that the correction is known — unless the
@@ -1571,7 +1640,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       pinToRealBottom()
     })
     return () => cancelAnimationFrame(frame)
-  }, [windowed, located, messages, measuredTick, pinToRealBottom])
+  }, [windowed, located, messages, measuredTick, correctionTick, pinToRealBottom])
 
   return (
     <div className="chat">

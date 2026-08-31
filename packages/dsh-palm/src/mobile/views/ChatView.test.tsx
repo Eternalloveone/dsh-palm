@@ -660,6 +660,32 @@ describe('ChatView scrolling', () => {
     expect(anchored).not.toBe(900)
   })
 
+  it('re-follows to the REAL bottom after the silent auto-extend prepend commits', async () => {
+    // The real-browser bug: the silent auto-extend's re-follow used to run in
+    // a rAF that read the PRE-commit scrollHeight (the prepend rows were not
+    // in the DOM yet), pinned to the OLD tail, and left the view stranded
+    // mid-history once the prepend landed — with no corrector left (the
+    // stream follower key is unchanged by a prepend, and neither re-pin
+    // effect runs below the window threshold). The follow must read the
+    // POST-commit height: the last write lands on the real bottom.
+    scrollHeightMock = 400
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValueOnce(historyPage(turnEvents(), { hasMore: true }))
+    let release!: (page: HistoryPage) => void
+    loadHistoryMock.mockReturnValueOnce(new Promise<HistoryPage>(resolve => { release = resolve }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(400) })
+    // The older page resolves as one commit that grows the real height far
+    // beyond the stale tail (12 heavy rows → 2000px). The re-follow must
+    // observe the committed height, never the pre-commit one.
+    scrollHeightMock = 2000
+    await act(async () => { release?.(historyPage(turnEvents(), { hasMore: false })) })
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(2000) })
+    // And it must NOT strand: the view never rests on the stale tail value.
+    expect(scrollWrites.at(-1)).not.toBe(400)
+  })
+
   it('shows the jump-to-latest button once the reader scrolls away from the bottom', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
@@ -811,10 +837,15 @@ describe('ChatView scrolling', () => {
       // bottom spacer is 0 and the TOP spacer carries the measured prefix
       // (100px/row) plus the height correction (scrollHeightMock 20000 −
       // measured prefix) — the pure estimate (50px/row) would be far
-      // smaller, proving the real heights entered the prefix sum.
+      // smaller, proving the real heights entered the prefix sum. The
+      // opening tail window spans WINDOW_VISIBLE + WINDOW_OVERSCAN = 44 rows
+      // (matches locateWindow), so its measured height is 4400px and the
+      // top spacer is 20000 − 4400 = 15600. The correction re-render
+      // (correctionTick) must have landed for the spacer to reflect the
+      // final correction, not the opening estimate.
       const spacers = container.querySelectorAll('.chat-scroll > div[aria-hidden="true"]')
       const top = spacers[0] as HTMLElement | undefined
-      expect(top?.style.height).toBe('17900px')
+      expect(top?.style.height).toBe('15600px')
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original!)
     }
@@ -1580,3 +1611,11 @@ describe('ChatView offline banner', () => {
     await waitFor(() => { expect(removeFromOutboxMock).toHaveBeenCalledWith('o1') })
   })
 })
+
+
+
+
+
+
+
+
