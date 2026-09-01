@@ -41,3 +41,19 @@ if (typeof window !== 'undefined') {
     writable: true,
   })
 }
+
+// jsdom 29 does not provide localStorage on the default about:blank origin;
+// the client half reads it for the first-run welcome banner. Inject a
+// minimal in-memory implementation when the environment lacks one.
+if (typeof window !== 'undefined' && window.localStorage === undefined) {
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    value: {
+      getItem: (key: string): string | null => store.get(key) ?? null,
+      setItem: (key: string, value: string): void => { store.set(key, value) },
+      removeItem: (key: string): void => { store.delete(key) },
+      clear: (): void => { store.clear() },
+    },
+    configurable: true,
+  })
+}

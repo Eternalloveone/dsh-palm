@@ -313,9 +313,12 @@ export interface MobileApiDeps {
 
 /**
  * Minimal command-registry surface the mobile directory needs. The host
- * `CommandRuntime.list(agent)` resolves the effective view for one agent;
- * passing `undefined` yields the global (plain-context) registrations, which
- * is exactly the directory a phone should see.
+ * `CommandRuntime.list(agent)` resolves the effective view for one agent —
+ * the same catalog the desktop composer's `/` popup shows. Passing the
+ * session's agent is required for Web deployments, where per-agent rows
+ * (plan-mode, command-compact) live in agent presets and are invisible to
+ * the plain-context view; `undefined` (the global view) is only the
+ * fallback when no agent resolves.
  */
 export interface CommandRegistry {
   list(agent: unknown): readonly { name: string; description: string; input?: { hint?: string } }[]
@@ -336,6 +339,38 @@ export interface CommandRegistry {
 /** Minimal live-agent lookup (`ctx.agents.get(sessionId)`). */
 export interface AgentLookup {
   get(sessionId: string): unknown
+}
+
+/**
+ * Resolve the command directory the phone's + menu shows for one session.
+ *
+ * The host `CommandRuntime.list(agent)` resolves the effective view for one
+ * agent — the same catalog the desktop composer's `/` popup lists. The Web
+ * deployment moves per-agent rows (plan-mode, command-compact) into agent
+ * presets, so the plain-context view (`list(undefined)`) would silently miss
+ * `/plan` and `/compact`; the session's agent view is the correct directory.
+ * A session that resolves no agent (unknown id, or the agent service is not
+ * composed) falls back to the plain-context view.
+ *
+ * @param registry - the host command registry (absent when not composed).
+ * @param agents - the live agent lookup (absent when not composed).
+ * @param sessionId - the session whose agent view to resolve.
+ * @returns the name-sorted effective command descriptors.
+ */
+export function resolveCommandDirectory(
+  registry: CommandRegistry | undefined,
+  agents: AgentLookup | undefined,
+  sessionId: string | undefined,
+): readonly { name: string; description: string; input?: { hint?: string } }[] {
+  if (registry === undefined) return []
+  const agent = sessionId === undefined || agents === undefined
+    ? undefined
+    : agents.get(sessionId)
+  return registry.list(agent).map(command => ({
+    name: command.name,
+    description: command.description,
+    ...(command.input !== undefined ? { input: command.input } : {}),
+  }))
 }
 
 /** Mobile API route paths. */
@@ -529,23 +564,16 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
       } else if (method === MOBILE_COMMANDS_METHOD) {
         // The host command registry is a plugin service, not an ApiProxy
-        // domain: answer locally. `list(undefined)` resolves the global
-        // (plain-context) registrations — the directory a phone should see.
-        const registry = deps.commands
-        const items = registry === undefined
-          ? []
-          : registry.list(undefined).map(command => ({
-            name: command.name,
-            description: command.description,
-            ...(command.input !== undefined ? { input: command.input } : {}),
-          }))
-        // /compact registers in the agent context, so the plain-context
-        // listing misses it; the phone surfaces it explicitly. Execution does
-        // NOT ride session.prompt (the host prompt channel never dispatches
-        // commands) — the composer calls mobile.commandExec for the line.
-        if (!items.some(command => command.name === 'compact')) {
-          items.unshift({ name: 'compact', description: '压缩会话上下文：生成摘要并截断历史' })
-        }
+        // domain: answer locally. The phone's + menu is session-scoped, so the
+        // directory resolves the SESSION's agent view — the same effective
+        // catalog the desktop composer's `/` popup shows. That matters because
+        // the Web deployment moves per-agent rows (plan-mode, command-compact)
+        // into agent presets: the plain-context view would silently miss
+        // `/plan` and `/compact`. A session that resolves no agent falls back
+        // to the plain-context view.
+        const body = parsed.payload as { sessionId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined
+        const items = resolveCommandDirectory(deps.commands, deps.agents, sessionId)
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,

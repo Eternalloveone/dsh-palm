@@ -604,10 +604,10 @@ beforeEach(() => { scrollHeightMock = 0; scrollWrites = []; clientHeightMock = 6
 
 describe('ChatView scrolling', () => {
   /** A final assistant/message event (non-pending) appended live after the history turn. */
-  const liveFinalEvent = (seq: number) => makeEntry('assistant/message', {
-    turn: 1,
+  const liveFinalEvent = (seq: number, turn = 1) => makeEntry('assistant/message', {
+    turn,
     step: 0,
-    message: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '实时新消息' }] },
+    message: { id: `a-${seq}`, role: 'assistant', content: [{ type: 'text', text: '实时新消息' }] },
   }, seq)
 
   it('positions to the latest message when a session is opened', async () => {
@@ -733,7 +733,7 @@ describe('ChatView scrolling', () => {
     expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
   })
 
-  it('counts messages that arrive while away and clears the badge on jump', async () => {
+  it('counts turns that arrive while away and clears the badge on jump', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
     loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
@@ -742,18 +742,70 @@ describe('ChatView scrolling', () => {
     await screen.findByText('已完成修改')
     const scroller = document.querySelector('.chat-scroll')!
     fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
-    // Two live messages arrive while the reader is away from the bottom.
+    // Two new turns arrive while the reader is away from the bottom.
     await act(async () => {
-      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
     })
     await act(async () => {
-      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7).event })
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7, 2).event })
     })
     const badge = await screen.findByText('2', { selector: '.chat-jump-badge' })
     expect(badge).toBeTruthy()
     // Jumping clears the tally.
     fireEvent.click(screen.getByRole('button', { name: '回到最新消息' }))
     expect(screen.queryByText('2', { selector: '.chat-jump-badge' })).toBeNull()
+  })
+
+  it('clears the unread badge when the reader manually scrolls back to the bottom', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    // Two new turns arrive while the reader is away from the bottom.
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
+    })
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7, 2).event })
+    })
+    const badge = await screen.findByText('2', { selector: '.chat-jump-badge' })
+    expect(badge).toBeTruthy()
+    // Manually scrolling back to the bottom clears the tally (no tap needed).
+    fireEvent.scroll(scroller, { target: { scrollTop: 19_400 } })
+    expect(screen.queryByText('2', { selector: '.chat-jump-badge' })).toBeNull()
+    // The seen baseline advanced: a later turn while still at the bottom
+    // does not re-arm the badge.
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(8, 3).event })
+    })
+    expect(screen.queryByText('1', { selector: '.chat-jump-badge' })).toBeNull()
+  })
+
+  it('counts one badge per turn, not per message', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    // Three messages of the SAME turn (tool call + follow-up chunks) count once.
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
+    })
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7, 1).event })
+    })
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(8, 1).event })
+    })
+    const badge = await screen.findByText('1', { selector: '.chat-jump-badge' })
+    expect(badge).toBeTruthy()
   })
 
   it('windowed: re-pins to the tail when content settles while at the bottom, and leaves a scrolled-away reader alone', async () => {
@@ -2004,6 +2056,28 @@ describe('ChatView run-status strip (todo/write)', () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: 'bad' }, 41).event })
     })
     expect(screen.getByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
+  })
+
+  it('normalizes in_progress leftovers to completed on turn/end', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    act(() => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: TODOS }, 40).event })
+    })
+    expect(screen.getByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
+
+    // The turn ends while '写代码' is still in_progress: it reads as completed
+    // (the host normalizes the projection the same way), so the strip counts
+    // 2/2 until the next turn/start clears the whole plan.
+    emitSessionEvent(mux, 'turn/end', 41)
+    const strip = screen.getByRole('button', { name: /任务 2\/2/ })
+    fireEvent.click(strip)
+    expect(screen.getByRole('dialog', { name: '运行状态' })).toBeTruthy()
+    expect(screen.getByText('写代码')).toBeTruthy()
+    expect(screen.getByText('发版')).toBeTruthy()
   })
 })
 

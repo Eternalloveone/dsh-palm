@@ -13,6 +13,7 @@ function makeService(overrides: Partial<PairingConfig> = {}) {
   }, {
     now: () => now,
     randomToken: () => `tok-${String(++counter).padStart(4, '0')}`,
+    randomCode: () => `4829${String(counter % 10)}${String((counter + 1) % 10)}`,
   })
   service.setLanBases([{ address: '192.168.1.5', base: 'http://192.168.1.5:3080' }])
   return service

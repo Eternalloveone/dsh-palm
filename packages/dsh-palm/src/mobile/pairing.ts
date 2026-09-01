@@ -2,7 +2,9 @@
 export type PairFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 export interface MobilePairInput {
-  token: string
+  token?: string
+  /** Six-digit pairing code shown on the desktop panel. */
+  code?: string
   workspaceId?: string
 }
 
@@ -21,10 +23,16 @@ const MOBILE_ROOT = '/m/'
  * app renders) with no way to recover. */
 const PAIR_ACCEPT_TIMEOUT_MS = 15_000
 
-/** Parse a pairing token or a copied pairing link without following its origin. */
+/** A six-digit numeric pairing code (leading zeros allowed). */
+const CODE_PATTERN = /^\d{6}$/
+
+/** Parse a pairing token, a six-digit pairing code, or a copied pairing link without following its origin. */
 export function parseMobilePairInput(value: string): MobilePairInput | undefined {
   const trimmed = value.trim()
   if (trimmed === '') return undefined
+
+  // A bare six-digit number is the desktop panel's pairing code.
+  if (CODE_PATTERN.test(trimmed)) return { code: trimmed }
 
   try {
     const url = new URL(trimmed)
@@ -45,15 +53,15 @@ export function mobilePairPath(workspaceId?: string): string {
   return workspaceId === undefined ? MOBILE_ROOT : MOBILE_ROOT + '?workspace=' + encodeURIComponent(workspaceId)
 }
 
-/** Accept one pairing token on this exact browser or installed-web-app context. */
-export async function acceptMobilePair(token: string, fetcher: PairFetch = fetch): Promise<MobilePairAccept> {
+/** Accept one pairing token or six-digit code on this exact browser or installed-web-app context. */
+export async function acceptMobilePair(secret: string, fetcher: PairFetch = fetch): Promise<MobilePairAccept> {
   const controller = new AbortController()
   const timeout = setTimeout(() => { controller.abort() }, PAIR_ACCEPT_TIMEOUT_MS)
   try {
     const response = await fetcher('/api/pair/accept', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify(CODE_PATTERN.test(secret) ? { code: secret } : { token: secret }),
       signal: controller.signal,
     })
     if (response.ok) return { ok: true }
@@ -67,7 +75,7 @@ export async function acceptMobilePair(token: string, fetcher: PairFetch = fetch
   }
 }
 
-/** Consume a QR pairing token before the mobile application starts making RPC calls. */
+/** Consume a QR pairing token or a ?code= pairing code before the mobile application starts making RPC calls. */
 export async function consumeMobilePairUrl(href: string, fetcher: PairFetch = fetch): Promise<MobilePairBootstrap> {
   let url: URL
   try {
@@ -77,10 +85,12 @@ export async function consumeMobilePairUrl(href: string, fetcher: PairFetch = fe
   }
 
   const token = url.searchParams.get('pair')
-  if (token === null || token === '') return { kind: 'none' }
+  const code = url.searchParams.get('code')
+  if ((token === null || token === '') && (code === null || code === '')) return { kind: 'none' }
 
   const workspaceId = url.searchParams.get('workspace')
   const path = mobilePairPath(workspaceId === null || workspaceId === '' ? undefined : workspaceId)
-  const result = await acceptMobilePair(token, fetcher)
+  const secret = code !== null && code !== '' ? code : token ?? ''
+  const result = await acceptMobilePair(secret, fetcher)
   return result.ok ? { kind: 'accepted', path } : { kind: 'failed', path, message: result.message }
 }

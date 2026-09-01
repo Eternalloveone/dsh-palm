@@ -45,7 +45,7 @@ type MockIssue = {
 }
 
 /** fetch stub answering the pair endpoints; a list answers issue() in order. */
-function mockFetch(issue: MockIssue | MockIssue[]) {
+function mockFetch(issue: MockIssue | MockIssue[], statusConfigured = true) {
   const issues = Array.isArray(issue) ? [...issue] : [issue]
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -56,19 +56,22 @@ function mockFetch(issue: MockIssue | MockIssue[]) {
           ok: true,
           url: current.url,
           token: current.token,
+          code: current.code ?? '200785',
           expiresAt: current.expiresAt,
           lanAddresses: current.lanAddresses ?? ['192.168.1.5'],
           ...(current.publicBaseUrl !== undefined ? { publicBaseUrl: current.publicBaseUrl } : {}),
         }
       : url === '/api/pair/issue'
         ? { ok: false, code: current.code }
-        : { ok: true }
+        : url === '/api/pair/status'
+          ? { ok: true, paired: false, configured: statusConfigured }
+          : { ok: true }
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   })
 }
 
-function mount(issue: MockIssue | MockIssue[] = { ok: true, url: 'http://192.168.1.5:3080/m/?pair=tok-1', token: 'tok-1', expiresAt: Date.now() + 60_000, lanAddresses: ['192.168.1.5'] }) {
-  const fetch = mockFetch(issue)
+function mount(issue: MockIssue | MockIssue[] = { ok: true, url: 'http://192.168.1.5:3080/m/?pair=tok-1', token: 'tok-1', expiresAt: Date.now() + 60_000, lanAddresses: ['192.168.1.5'] }, statusConfigured = true) {
+  const fetch = mockFetch(issue, statusConfigured)
   vi.stubGlobal('fetch', fetch)
   vi.stubGlobal('EventSource', FakeEventSource)
   const view = render(
@@ -87,6 +90,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   FakeEventSource.instances = []
   vi.useRealTimers()
+  window.localStorage.clear()
 })
 
 describe('RemoteEntry', () => {
@@ -105,11 +109,17 @@ describe('RemoteEntry', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Remote access' })).toBeTruthy())
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Pair a phone or another computer to access this workspace remotely')).toBeTruthy()
-    expect(screen.getByText('Pair a device')).toBeTruthy()
     expect(screen.getByText('Waiting for a device')).toBeTruthy()
+    // The onboarding steps render with the pair step active (configure done).
+    expect(screen.getByText('Configure')).toBeTruthy()
+    expect(screen.getByText('Pair')).toBeTruthy()
+    expect(screen.getByText('Use')).toBeTruthy()
     // The QR svg renders from the issued URL (the trigger's phone icon is a
     // separate svg; the QR carries its own test id).
     expect(document.querySelector('[data-testid="remote-qr"]')).not.toBeNull()
+    // The six-digit pairing code renders grouped ("200 785").
+    expect(screen.getByText('Pairing code')).toBeTruthy()
+    expect(screen.getByText('200 785')).toBeTruthy()
     expect(screen.getByText('Cannot scan? Open one of the pairing links below')).toBeTruthy()
     expect(screen.getByText('http://192.168.1.5:3080/m/?pair=tok-1')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
@@ -127,13 +137,41 @@ describe('RemoteEntry', () => {
   it('shows the lan-required banner instead of a QR when the bind is loopback-only', async () => {
     mount({ ok: false, code: 'lan-required' })
     fireEvent.click(screen.getByRole('button', { name: 'Remote access' }))
-    await waitFor(() => expect(screen.getByText('This feature needs dsh web started with --host 0.0.0.0, or a configured public address')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Your phone cannot reach this computer')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull()
+    // The banner points at the public-address card, so the input must be
+    // right below it even in the lan-required state.
+    expect(screen.getByLabelText('Public address (tunnel)')).toBeTruthy()
     // No status stream on the banner: without an issued QR there is nothing
     // to follow (the auto-tunnel feature is not part of dsh-palm), and the
     // events endpoint sits behind the loopback fence anyway.
     expect(FakeEventSource.instances).toHaveLength(0)
+  })
+
+  it('shows the unconfigured dot when the loopback status reports no address', async () => {
+    mount(undefined, false)
+    await waitFor(() => expect(document.querySelector('[data-testid="remote-unconfigured-dot"]')).not.toBeNull())
+  })
+
+  it('shows the first-run welcome banner and dismisses it once', async () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Remote access' }))
+    await waitFor(() => expect(screen.getByText('Remote access is installed. Follow the steps in this panel to reach this computer from your phone.')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+    expect(screen.queryByText('Remote access is installed. Follow the steps in this panel to reach this computer from your phone.')).toBeNull()
+    // A remount (fresh entry) keeps the banner hidden: the choice persisted.
+    cleanup()
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Remote access' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Remote access' })).toBeTruthy())
+    expect(screen.queryByText('Remote access is installed. Follow the steps in this panel to reach this computer from your phone.')).toBeNull()
+  })
+
+  it('hides the unconfigured dot when the loopback status reports an address', async () => {
+    mount(undefined, true)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remote access' })).toBeTruthy())
+    expect(document.querySelector('[data-testid="remote-unconfigured-dot"]')).toBeNull()
   })
 
   it('shows the loopback-required banner when the loopback-only fence rejects the mint', async () => {
@@ -146,6 +184,8 @@ describe('RemoteEntry', () => {
     await waitFor(() => expect(screen.getByText('The pairing panel works on this machine only')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull()
+    // Access problems are not onboarding steps: the indicator stays hidden.
+    expect(screen.queryByText('Configure')).toBeNull()
     // No status stream on a failure banner: the events endpoint sits behind
     // the same loopback fence, so opening it would only start a doomed
     // reconnect loop.
@@ -154,7 +194,11 @@ describe('RemoteEntry', () => {
 
   it('shows the unreachable banner when the issue fetch fails', async () => {
     const { fetch } = mount()
-    fetch.mockRejectedValueOnce(new Error('network down'))
+    // Only the issue call fails; the tunnel-detection probe still answers.
+    fetch.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/pair/issue') throw new Error('network down')
+      return new Response(JSON.stringify({ ok: true }), { status: 200 })
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Remote access' }))
     await waitFor(() => expect(screen.getByText('Cannot reach the pairing service')).toBeTruthy())
     expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull()
@@ -261,6 +305,51 @@ describe('RemoteEntry', () => {
     await waitFor(() => expect(screen.getByText('Copied')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Copy computer link' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://192.168.1.5:3080/?pair=tok-1'))
+  })
+
+  it('switches to the use view once a device connects, hiding the pairing controls', async () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Remote access' }))
+    await waitFor(() => expect(document.querySelector('[data-testid="remote-qr"]')).not.toBeNull())
+    const source = FakeEventSource.instances[0]
+    source?.emit({
+      type: 'state',
+      phase: 'connected',
+      lanAvailable: true,
+      tokenId: 'tok-1',
+      tokenExpiresAt: Date.now() + 60_000,
+      deviceCount: 1,
+      onlineCount: 1,
+      devices: [{
+        id: 'dev-1',
+        createdAt: Date.now() - 10_000,
+        lastSeenAt: Date.now(),
+        online: true,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36',
+      }],
+    })
+    // The use view hides the QR and pairing links; the status card and the
+    // device roster take over.
+    await waitFor(() => expect(screen.getByText('1 device(s) connected')).toBeTruthy())
+    expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy phone link' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Re-pair' })).toBeTruthy()
+    // Re-pair jumps back to the pair view with the QR restored.
+    fireEvent.click(screen.getByRole('button', { name: 'Re-pair' }))
+    await waitFor(() => expect(document.querySelector('[data-testid="remote-qr"]')).not.toBeNull())
+  })
+
+  it('lets a paired user navigate back to the configure view', async () => {
+    mount({ ok: true, url: 'http://192.168.1.5:3080/m/?pair=tok-1', token: 'tok-1', expiresAt: Date.now() + 60_000, lanAddresses: ['192.168.1.5'], publicBaseUrl: 'https://tunnel.example.com' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remote access' }))
+    await waitFor(() => expect(screen.getByText('Waiting for a device')).toBeTruthy())
+    // Step 1 is completed and clickable; it explains the current address and
+    // shows the public-address card.
+    fireEvent.click(screen.getByRole('button', { name: 'Configure' }))
+    await waitFor(() => expect(screen.getByText('Configure the public address')).toBeTruthy())
+    expect(screen.getByText(/Current: https:\/\/tunnel\.example\.com/)).toBeTruthy()
+    expect(screen.getByLabelText('Public address (tunnel)')).toBeTruthy()
+    expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull()
   })
 })
 

@@ -4,7 +4,35 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-## [0.3.0]
+## [0.4.0] - 2026-09-02
+
+### Added
+
+- **In-panel public address configuration** — the desktop pairing panel now edits the tunneled public base URL (the `remote-web-ui` settings section) directly: paste your frp / relay / Cloudflare Tunnel address, save, and the QR re-mints against it; no more hunting through the settings surface
+- **Six-digit pairing code** — `issue()` mints a human-readable code bound to the token; the panel shows it beside the QR and the phone can type it (or paste the link) to pair. Codes are one-time, expire with the token, and die on re-issue or stop
+- **Phone-side server address switch** — the mobile pairing gate shows the server address (default: current origin) and accepts a switched tunneled address: a pasted link from another origin is followed verbatim, and a bare code/token deep-links to the new origin via `?code=` / `?pair=`
+- **First-time onboarding** — the panel walks a new user through configure → pair → use with a step indicator, a dismissible welcome banner, an unconfigured dot on the sidebar trigger, tunnel detection (Tailscale tailnet domain with one-click apply, frp / Cloudflare Tunnel hints), and a reachability probe that blocks saving a dead public address with a plain-language hint
+
+### Fixed
+
+- **Task plan no longer sticks on an intermediate state** — a task still `in_progress` when a turn ends now reads as completed on the run-status strip and sheet (mirroring the host projection normalization), so the plan never sits stuck when the agent skips the final all-done write; `pending` items stay untouched and the next turn/start still clears the list
+- **The + menu now lists every command the desktop `/` popup shows** — the command directory resolves the session's agent view instead of the plain-context one, so per-agent rows that the Web deployment mounts through agent presets (`/plan`, `/compact`) appear on the phone; a session that resolves no agent falls back to the plain-context view
+- **The unread badge counts turns, not messages** — one agent reply, however many messages and tool calls it spans, grows the jump-to-latest badge by one; the badge clears as soon as the reader scrolls back to the bottom (or taps the jump button), so a manual scroll-down no longer leaves a stale count
+- **Bare tool-result echoes render as code blocks** — a raw `tool_result<` payload that reaches the message list is wrapped in a monospace block instead of showing as unformatted text
+
+### Changed
+
+- **Publish workflow** — both publish jobs run with `--no-git-checks` so tag-triggered releases work from the detached-HEAD checkout
+
+### CI
+
+- **Release preflight job** — every push runs a hygiene grep over the sensitive-identifier list, a gitleaks scan, and an `npm pack` content check alongside the test suite, so a leak or a stray fixture path fails CI before it can ship
+- **Local pre-push gate** — the repository hook runs the same hygiene grep, the full test suite, and commitlint before a push leaves the machine
+
+### Docs
+
+- Bundle-size figures refreshed (888 KB / 209 KB gzip)
+- Highlights now describe the `/m/` surface as a native narrow-screen phone UI (touch-first interactions, safe-area and dynamic-viewport handling, thumb-sized touch targets, zero horizontal scrolling) rather than a desktop adaptation
 
 ## [0.3.0] - 2026-09-01
 

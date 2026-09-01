@@ -5,12 +5,12 @@ import { commonPathPrefix, compactPath, dominantPathPrefix, previewSummary, time
 
 describe('commonPathPrefix', () => {
   it('finds the longest shared segment prefix (Windows backslashes)', () => {
-    expect(commonPathPrefix(['D:\\work\\a', 'D:\\work\\b\\c'])).toBe('D:/work')
+    expect(commonPathPrefix(['D:\\demo\\a', 'D:\\demo\\b\\c'])).toBe('D:/demo')
   })
 
   it('needs at least two paths and two shared segments', () => {
-    expect(commonPathPrefix(['D:\\work\\a'])).toBe('')
-    expect(commonPathPrefix(['D:\\work', 'D:\\other'])).toBe('D:')
+    expect(commonPathPrefix(['D:\\demo\\a'])).toBe('')
+    expect(commonPathPrefix(['D:\\demo', 'D:\\other'])).toBe('D:')
   })
 
   it('returns empty when nothing is shared', () => {
@@ -20,17 +20,17 @@ describe('commonPathPrefix', () => {
 
 describe('compactPath', () => {
   it('hides the common prefix with an ellipsis', () => {
-    expect(compactPath('D:\\work\\dsh-palm', 'D:/work')).toBe('…dsh-palm')
-    expect(compactPath('D:\\work\\demo\\app', 'D:/work')).toBe('…demo\\app')
+    expect(compactPath('D:\\demo\\dsh-palm', 'D:/demo')).toBe('…dsh-palm')
+    expect(compactPath('D:\\demo\\demo\\app', 'D:/demo')).toBe('…demo\\app')
   })
 
   it('keeps short paths untouched when no prefix is shared', () => {
-    expect(compactPath('D:\\work\\x', '')).toBe('D:\\work\\x')
+    expect(compactPath('D:\\demo\\x', '')).toBe('D:\\demo\\x')
   })
 
   it('middle-truncates long remainders to first…last', () => {
-    const full = 'D:\\work\\demo\\packages\\pkg\\pkg_20260729_01_build_Short_Debug - 副本'
-    const out = compactPath(full, 'D:/work')
+    const full = 'D:\\demo\\demo\\packages\\pkg\\pkg_20260729_01_build_Short_Debug - 副本'
+    const out = compactPath(full, 'D:/demo')
     expect(out.startsWith('…demo…')).toBe(true)
     expect(out.length).toBeLessThanOrEqual(40)
   })
@@ -71,19 +71,19 @@ describe('timeVisibility', () => {
 describe('dominantPathPrefix', () => {
   it('returns the majority prefix even with off-drive stragglers', () => {
     const paths = [
-      'D:\\work\\dsh-palm',
-      'D:\\work\\demo\\app',
-      'D:\\work\\demo\\lib',
+      'D:\\demo\\dsh-palm',
+      'D:\\demo\\demo\\app',
+      'D:\\demo\\demo\\lib',
       'C:\\Users\\alice\\.dsh\\workspace',
     ]
-    expect(dominantPathPrefix(paths)).toBe('D:/work')
+    expect(dominantPathPrefix(paths)).toBe('D:/demo')
   })
 
   it('needs at least two matching paths', () => {
-    expect(dominantPathPrefix(['D:\\work\\a', 'C:\\other\\b'])).toBe('')
+    expect(dominantPathPrefix(['D:\\demo\\a', 'C:\\other\\b'])).toBe('')
   })
 
   it('keeps commonPathPrefix semantics for uniform lists', () => {
-    expect(commonPathPrefix(['D:\\work\\a', 'D:\\work\\b'])).toBe('D:/work')
+    expect(commonPathPrefix(['D:\\demo\\a', 'D:\\demo\\b'])).toBe('D:/demo')
   })
 })

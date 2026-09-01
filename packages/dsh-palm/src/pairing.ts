@@ -17,7 +17,7 @@
  *   `idleExpireMs` are deleted on sweep, load, and the next gated request.
  */
 
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomInt } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -48,6 +48,8 @@ export interface TokenRecord {
   workspaceId?: string
   /** LAN IP literal the QR link was built from (optional; default first). */
   address?: string
+  /** Six-digit human-readable pairing code bound to this token (optional). */
+  code?: string
 }
 
 /** Default idle-expiry window: 7 days without heartbeat or a gated request. */
@@ -145,12 +147,15 @@ export class UnknownLanAddressError extends Error {
 export interface PairingClock {
   now(): number
   randomToken(): string
+  /** Six-digit numeric pairing code (leading zeros allowed). */
+  randomCode(): string
 }
 
-/** Real clock/entropy: 32 random hex chars per token. */
+/** Real clock/entropy: 32 random hex chars per token, 6 random digits per code. */
 export const defaultClock: PairingClock = {
   now: () => Date.now(),
   randomToken: () => randomBytes(16).toString('hex'),
+  randomCode: () => String(randomInt(0, 1_000_000)).padStart(6, '0'),
 }
 
 /**
@@ -164,6 +169,8 @@ export const defaultClock: PairingClock = {
  */
 export class PairingService {
   private readonly tokens = new Map<string, TokenRecord>()
+  /** Six-digit pairing-code index: code → token secret (one live code at a time). */
+  private readonly codeIndex = new Map<string, string>()
   private readonly devices = new Map<string, DeviceSession>()
   private readonly listeners = new Set<(snapshot: PairingSnapshot) => void>()
   private lastEmitted: PairingSnapshot | undefined
@@ -315,7 +322,7 @@ export class PairingService {
    * no public base) — callers surface this as the lan-required state instead
    * of minting an unusable QR.
    */
-  issue(workspaceId?: string, address?: string): { token: string; expiresAt: number } {
+  issue(workspaceId?: string, address?: string): { token: string; code: string; expiresAt: number } {
     if (this.lanBases.size === 0 && this.publicBase === undefined) {
       throw new Error('remote-web-ui: pairing requires a reachable bind (--host 0.0.0.0 or publicBaseUrl)')
     }
@@ -324,7 +331,9 @@ export class PairingService {
     }
     const now = this.clock.now()
     const token = this.clock.randomToken()
+    const code = this.clock.randomCode()
     this.tokens.clear()
+    this.codeIndex.clear()
     this.stopped = false
     this.tokenSerial += 1
     this.tokens.set(token, {
@@ -332,23 +341,27 @@ export class PairingService {
       issuedAt: now,
       expiresAt: now + this.config.tokenTtlMs,
       consumed: false,
+      code,
       ...(workspaceId !== undefined ? { workspaceId } : {}),
       ...(address !== undefined ? { address } : {}),
     })
+    this.codeIndex.set(code, token)
     this.notify()
-    return { token, expiresAt: now + this.config.tokenTtlMs }
+    return { token, code, expiresAt: now + this.config.tokenTtlMs }
   }
 
   /**
-   * Consume a token and bind a device session. One-time: the second
-   * successful call for the same token is impossible because the first
-   * consumes it.
-   * @param token - the token secret from the QR link.
+   * Consume a token or its six-digit pairing code and bind a device session.
+   * One-time: the second successful call for the same secret is impossible
+   * because the first consumes it.
+   * @param secret - the token secret from the QR link, or the six-digit code
+   * shown on the desktop panel.
    * @param userAgent - optional User-Agent header captured at accept.
    * @returns the new device id, or a refusal code.
    */
-  accept(token: string, userAgent?: string): AcceptResult {
-    const record = this.tokens.get(token)
+  accept(secret: string, userAgent?: string): AcceptResult {
+    const token = this.tokens.has(secret) ? secret : this.codeIndex.get(secret)
+    const record = token === undefined ? undefined : this.tokens.get(token)
     if (record === undefined || record.consumed || this.stopped || this.clock.now() > record.expiresAt) {
       return { ok: false, code: record?.consumed === true ? 'used' : 'invalid' }
     }
@@ -381,6 +394,7 @@ export class PairingService {
    */
   stop(): void {
     this.tokens.clear()
+    this.codeIndex.clear()
     this.devices.clear()
     this.persist()
     this.stopped = true

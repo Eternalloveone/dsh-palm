@@ -151,9 +151,13 @@ export interface CommandDescriptor {
   input?: { hint?: string }
 }
 
-/** List the host's registered slash commands (read-only discovery). */
-export async function listCommands(): Promise<CommandDescriptor[]> {
-  const response = await callUnary<{ items?: CommandDescriptor[] }>('mobile.commands', {})
+/**
+ * List the host's registered slash commands for one session (read-only
+ * discovery). The session id resolves the agent whose effective command view
+ * the phone shows — the same catalog the desktop composer's `/` popup lists.
+ */
+export async function listCommands(sessionId: string): Promise<CommandDescriptor[]> {
+  const response = await callUnary<{ items?: CommandDescriptor[] }>('mobile.commands', { sessionId })
   return response.items ?? []
 }
 

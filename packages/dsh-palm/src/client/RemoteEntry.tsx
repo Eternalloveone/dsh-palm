@@ -10,12 +10,20 @@ import { createPortal } from 'react-dom'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PairingPhase } from '../pairing.ts'
 import { RemotePanel, type PanelState } from './RemotePanel.tsx'
-import { copyText, issuePair, revokePair, stopPair, type DeviceFrame, type IssueResponse, type PairStateFrame } from './pair-api.ts'
+import { copyText, fetchPairStatus, fetchTunnelDetection, issuePair, revokePair, stopPair, type DeviceFrame, type IssueResponse, type PairStateFrame, type TunnelDetection } from './pair-api.ts'
 import { PhoneIcon } from './PhoneIcon.tsx'
 import css from './remote.module.css'
 
 /** Entry props: the sidebar column state + the standard locale seat. */
-export type RemoteEntryProps = PropsRuntime<'sidebar.remote'> & PropsLocale<'remote'>
+export type RemoteEntryProps = PropsRuntime<'sidebar.remote'> & PropsLocale<'remote'> & {
+  /** Persist a new public (tunneled) base URL (writes the settings section). */
+  onSavePublicUrl(url: string): Promise<void>
+  /** Clear the configured public (tunneled) base URL. */
+  onClearPublicUrl(): Promise<void>
+}
+
+/** localStorage key marking the first-run welcome as seen. */
+const WELCOME_SEEN_KEY = 'dsh-palm:welcome-seen'
 
 /**
  * Apply one status frame onto the current state: the ready state mirrors
@@ -42,10 +50,24 @@ function mergeFrame(state: PanelState, frame: PairStateFrame): PanelState {
  * @param props - composed slot props (contract in this package).
  * @returns the entry element tree.
  */
-export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
+export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPublicUrl }: RemoteEntryProps) {
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<PanelState>({ kind: 'lan-required' })
   const [copied, setCopied] = useState<'phone' | 'desktop' | undefined>(undefined)
+  // Whether a phone-reachable address exists (drives the trigger's
+  // unconfigured dot). Defaults to configured so the dot never blinks on
+  // mount; the loopback status query corrects it right after.
+  const [configured, setConfigured] = useState(true)
+  // Tunnel hints for the onboarding card (Tailscale / frp / Cloudflare).
+  const [detection, setDetection] = useState<TunnelDetection>({ frpc: false, cloudflared: false })
+  // First-run welcome banner: shown until dismissed once (localStorage).
+  const [showWelcome, setShowWelcome] = useState(() => {
+    try {
+      return window.localStorage.getItem(WELCOME_SEEN_KEY) === null
+    } catch {
+      return false
+    }
+  })
   const eventSource = useRef<EventSource | undefined>(undefined)
   // Generation counter for the open flow: closing (or re-opening) the panel
   // bumps it, so an in-flight issue() that resolves after a close does not
@@ -55,6 +77,16 @@ export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
   // The current workspace (the recent-workspace projection the shell's New
   // Session flow targets) — the deep-link target for the phone.
   const workspaceId = useWorkspaces(s => s.recentWorkspaceId)
+
+  // Unconfigured dot: read the loopback status once on mount so the trigger
+  // reflects the real configuration state without opening the panel.
+  useEffect(() => {
+    let cancelled = false
+    void fetchPairStatus().then(({ configured: ready }) => {
+      if (!cancelled) setConfigured(ready)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const closeEventSource = useCallback(() => {
     eventSource.current?.close()
@@ -76,12 +108,15 @@ export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
       // 400 means the requested LAN literal is no longer constructible.
       if (result.code === 'forbidden') return { kind: 'loopback-required' }
       if (result.code === 'unknown-address') return { kind: 'unreachable' }
+      setConfigured(false)
       return { kind: 'lan-required' }
     }
+    setConfigured(true)
     const publicBaseUrl = result.publicBaseUrl
     return {
       kind: 'ready',
       url: result.url,
+      code: result.code ?? '',
       expiresAt: result.expiresAt,
       expired: Date.now() > result.expiresAt,
       phase: 'waiting',
@@ -101,6 +136,10 @@ export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
   const openPanel = useCallback(async (): Promise<void> => {
     const seq = ++openSeq.current
     setOpen(true)
+    // Tunnel hints refresh on every open so a tunnel started meanwhile shows up.
+    void fetchTunnelDetection().then((frame) => {
+      if (seq === openSeq.current) setDetection(frame)
+    }).catch(() => {})
     const next = await mint()
     // A close (or re-open) during the await invalidates this issue: skip the
     // state write and the stream so a panel closed mid-mint neither leaks an
@@ -188,18 +227,41 @@ export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
     void mint().then(setState)
   }, [mint])
 
+  /** Persist a new public base URL, then re-mint so the QR reflects it. */
+  const handleSavePublicUrl = useCallback(async (url: string): Promise<void> => {
+    await onSavePublicUrl(url)
+    const next = await mint()
+    setState(next)
+  }, [onSavePublicUrl, mint])
+
+  /** Clear the public base URL, then re-mint on the LAN base. */
+  const handleClearPublicUrl = useCallback(async (): Promise<void> => {
+    await onClearPublicUrl()
+    const next = await mint()
+    setState(next)
+  }, [onClearPublicUrl, mint])
+
   const handleCopy = useCallback((target: 'phone' | 'desktop', url: string) => {
     void copyText(url).then((ok) => {
       if (!ok) return
       setCopied(target)
-      window.setTimeout(() => { setCopied(undefined) }, 1500)
+      window.setTimeout(() => { setCopied(undefined) }, 2000)
     })
+  }, [])
+
+  const dismissWelcome = useCallback(() => {
+    try {
+      window.localStorage.setItem(WELCOME_SEEN_KEY, '1')
+    } catch {
+      // Storage unavailable: the banner simply reappears next time.
+    }
+    setShowWelcome(false)
   }, [])
 
   return (
     <>
       <div className={css.entryRow} data-rail={wide ? undefined : 'rail'}>
-        <TooltipAnchor wide={wide} label={t('entry.label')} onClick={openPanel} expanded={open} />
+        <TooltipAnchor wide={wide} label={t('entry.label')} onClick={openPanel} expanded={open} unconfigured={!configured} />
       </div>
       {open && createPortal((
         <div className={css.overlay} role="presentation">
@@ -208,12 +270,17 @@ export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
             t={t}
             state={state}
             copied={copied}
+            detection={detection}
+            showWelcome={showWelcome}
+            onDismissWelcome={dismissWelcome}
             onClose={closePanel}
             onStop={handleStop}
             onRefresh={handleRefresh}
             onCopy={handleCopy}
             onPickAddress={handlePickAddress}
             onPickPublic={handlePickPublic}
+            onSavePublicUrl={handleSavePublicUrl}
+            onClearPublicUrl={handleClearPublicUrl}
             onRevoke={handleRevoke}
           />
         </div>
@@ -223,7 +290,7 @@ export function RemoteEntry({ wide, useWorkspaces, t }: RemoteEntryProps) {
 }
 
 /** The trigger: an icon-only control with a persistent accessible label. */
-function TooltipAnchor({ wide, label, onClick, expanded }: { wide: boolean; label: string; onClick: () => void; expanded: boolean }) {
+function TooltipAnchor({ wide, label, onClick, expanded, unconfigured }: { wide: boolean; label: string; onClick: () => void; expanded: boolean; unconfigured: boolean }) {
   return (
     <button
       type="button"
@@ -235,6 +302,7 @@ function TooltipAnchor({ wide, label, onClick, expanded }: { wide: boolean; labe
       onClick={onClick}
     >
       <PhoneIcon size={wide ? 16 : 18} />
+      {unconfigured && <span className={css.triggerDot} data-testid="remote-unconfigured-dot" aria-hidden="true" />}
     </button>
   )
 }

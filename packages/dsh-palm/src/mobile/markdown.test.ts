@@ -120,6 +120,38 @@ describe('renderMarkdown', () => {
     // same form, so a turn closing never collapses a multi-line paragraph).
     expect(renderMarkdown('a\r\nb')).toBe('<p>a<br />b</p>')
   })
+
+  it('wraps bare tool-result text in a code block', () => {
+    const html = renderMarkdown('tool_result<C:\\src\\a.ts</ | DSML | parameter>')
+    // An empty language renders with the default "text" label.
+    expect(html).toContain('<div class="code-block" data-lang="text">')
+    expect(html).toContain('<span class="code-line">tool_result&lt;C:\\src\\a.ts&lt;/ | DSML | parameter&gt;</span>')
+    // The echo is data, not prose: no paragraph wrapper.
+    expect(html).not.toContain('<p>tool_result')
+  })
+
+  it('consumes the closing-tag lines of a tool-result echo', () => {
+    const source = [
+      'tool_result<C:\\src\\a.ts</ | DSML | parameter>',
+      '</ | DSML | invoke>',
+      '</ | DSML | tool_calls>',
+      '',
+      '后续正文',
+    ].join('\n')
+    const segments = parseSegments(source)
+    expect(segments[0]?.kind).toBe('code')
+    if (segments[0]?.kind === 'code') {
+      expect(segments[0].code).toContain('</ | DSML | tool_calls>')
+    }
+    // The following paragraph still renders normally.
+    expect(segments.some(segment => segment.kind === 'html' && segment.html.includes('后续正文'))).toBe(true)
+  })
+
+  it('leaves ordinary prose untouched', () => {
+    const html = renderMarkdown('tool_result 这个词出现在普通句子里')
+    expect(html).toContain('<p>')
+    expect(html).not.toContain('code-block')
+  })
 })
 
 describe('escapeHtml', () => {

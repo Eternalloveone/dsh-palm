@@ -12,7 +12,12 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { RemoteEntry } from './RemoteEntry.tsx'
 
 /** Entry props: the footer seat's column state + the standard locale seat. */
-export type FooterRemoteEntryProps = PropsLocale<'remote'> & { wide: boolean }
+export type FooterRemoteEntryProps = PropsLocale<'remote'> & { wide: boolean } & {
+  /** Persist a new public (tunneled) base URL (writes the settings section). */
+  onSavePublicUrl(url: string): Promise<void>
+  /** Clear the configured public (tunneled) base URL. */
+  onClearPublicUrl(): Promise<void>
+}
 
 /**
  * Render the remote-control trigger + pairing panel from the footer seat.
@@ -26,6 +31,8 @@ export function FooterRemoteEntry(props: FooterRemoteEntryProps) {
       useWorkspaces={() => undefined as never}
       useSessions={() => undefined as never}
       t={props.t}
+      onSavePublicUrl={props.onSavePublicUrl}
+      onClearPublicUrl={props.onClearPublicUrl}
     />
   )
 }

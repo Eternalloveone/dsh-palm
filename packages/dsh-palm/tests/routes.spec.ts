@@ -1,11 +1,23 @@
 /** The /api/pair route family over a real HTTP server: fences, token flow, cookies. */
 import { createServer, request as httpRequest } from 'node:http'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { PairingService } from '../src/pairing.ts'
 import { makeRoutes } from '../src/routes.ts'
+import { detectTunnels } from '../src/detect-tunnel.ts'
+
+// The detect endpoint runs host commands; stub the detection module.
+vi.mock('../src/detect-tunnel.ts', () => ({
+  detectTunnels: vi.fn(),
+}))
+
+const detectTunnelsMock = vi.mocked(detectTunnels)
+
+beforeEach(() => {
+  detectTunnelsMock.mockResolvedValue({ frpc: false, cloudflared: false })
+})
 
 function makeService(): PairingService {
   const service = new PairingService({
@@ -16,6 +28,7 @@ function makeService(): PairingService {
   }, {
     now: () => 1_000_000,
     randomToken: () => 'tok-1',
+    randomCode: () => '482913',
   })
   service.setLanBases([{ address: '192.168.1.5', base: 'http://192.168.1.5:3080' }])
   return service
@@ -305,7 +318,7 @@ describe('/api/pair routes', () => {
       // No cookie: only pairing-relevant fields, no token/device/tunnel oracle.
       const unpaired = await call(port, 'GET', '/api/pair/status', { host: '192.168.1.5:3080' })
       expect(unpaired.status).toBe(200)
-      expect(unpaired.body).toMatchObject({ ok: true, paired: false, requirePairingForLan: true, phase: 'waiting', lanAvailable: true })
+      expect(unpaired.body).toMatchObject({ ok: true, paired: false, requirePairingForLan: true, phase: 'waiting', lanAvailable: true, configured: true })
       expect(unpaired.body).not.toHaveProperty('tokenId')
       expect(unpaired.body).not.toHaveProperty('tokenExpiresAt')
       expect(unpaired.body).not.toHaveProperty('deviceCount')
@@ -496,6 +509,20 @@ describe('/api/pair body failure contract (shared readJsonBody)', () => {
     })
   }
 
+  it('reports configured:false to unpaired callers when no address exists', async () => {
+    const service = makeService()
+    // No LAN bases and no public base: the service is in the lan-required phase.
+    service.setLanBases([])
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: [] }))
+    try {
+      const status = await call(port, 'GET', '/api/pair/status')
+      expect(status.status).toBe(200)
+      expect(status.body).toMatchObject({ ok: true, paired: false, phase: 'lan-required', configured: false })
+    } finally {
+      await close()
+    }
+  })
+
   it('locks the lenient absent-body contract: empty or unparseable bodies act as an empty object', async () => {
     const service = makeService()
     const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
@@ -526,8 +553,109 @@ describe('/api/pair body failure contract (shared readJsonBody)', () => {
     const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
     try {
       const outcome = await rawPost(port, '/api/pair/issue', JSON.stringify({ workspaceId: 'x'.repeat(5000) }))
-      expect(outcome.status).toBeNull()
-      expect(outcome.error).toMatch(/socket hang up|ECONNRESET/)
+      // The reader destroys the request socket on oversize. The client sees
+      // either the connection reset or — in the race where the handler's 400
+      // lands before the destroy takes effect — a plain 400. Both prove the
+      // oversized body was never parsed, so accept either outcome.
+      if (outcome.status === null) {
+        expect(outcome.error).toMatch(/socket hang up|ECONNRESET/)
+      } else {
+        expect(outcome.status).toBe(400)
+      }
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('/api/pair/probe', () => {
+  it('reports a reachable target with its HTTP status', async () => {
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    // A second server stands in for the tunneled dsh web being probed.
+    const target = createServer((_req, res) => { res.writeHead(200); res.end('{}') })
+    await new Promise<void>(resolve => target.listen(0, '127.0.0.1', resolve))
+    const targetPort = (target.address() as AddressInfo).port
+    try {
+      const result = await call(port, 'POST', '/api/pair/probe', { body: { url: `http://127.0.0.1:${String(targetPort)}` } })
+      expect(result.status).toBe(200)
+      expect(result.body).toEqual({ ok: true, status: 200 })
+    } finally {
+      await close()
+      await new Promise<void>(resolve => target.close(() => resolve()))
+    }
+  })
+
+  it('reports an unreachable target without throwing', async () => {
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    try {
+      // Port 1 is not listening anywhere; the probe must answer, not hang.
+      const result = await call(port, 'POST', '/api/pair/probe', { body: { url: 'http://127.0.0.1:1' } })
+      expect(result.status).toBe(200)
+      expect(result.body).toEqual({ ok: false, code: 'unreachable' })
+    } finally {
+      await close()
+    }
+  })
+
+  it('rejects malformed and non-http targets', async () => {
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    try {
+      const malformed = await call(port, 'POST', '/api/pair/probe', { body: { url: 'not a url' } })
+      expect(malformed.status).toBe(400)
+      expect(malformed.body).toEqual({ ok: false, code: 'invalid' })
+      const ftp = await call(port, 'POST', '/api/pair/probe', { body: { url: 'ftp://example.com' } })
+      expect(ftp.status).toBe(400)
+      expect(ftp.body).toEqual({ ok: false, code: 'invalid' })
+    } finally {
+      await close()
+    }
+  })
+
+  it('refuses non-loopback callers like the other control endpoints', async () => {
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    try {
+      const result = await call(port, 'POST', '/api/pair/probe', {
+        host: '192.168.1.5',
+        body: { url: 'http://127.0.0.1:1' },
+      })
+      expect(result.status).toBe(403)
+      expect(result.body).toEqual({ ok: false, code: 'forbidden' })
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('/api/pair/detect', () => {
+  it('returns the tunnel detection frame to loopback callers', async () => {
+    detectTunnelsMock.mockResolvedValue({ tailnetDomain: 'alice.tail1234.ts.net', frpc: true, cloudflared: false })
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    try {
+      const result = await call(port, 'GET', '/api/pair/detect')
+      expect(result.status).toBe(200)
+      expect(result.body).toEqual({
+        ok: true,
+        tailnetDomain: 'alice.tail1234.ts.net',
+        frpc: true,
+        cloudflared: false,
+      })
+    } finally {
+      await close()
+    }
+  })
+
+  it('refuses non-loopback callers', async () => {
+    const service = makeService()
+    const { port, close } = await serve(makeRoutes({ service, lanAddresses: ['192.168.1.5'] }))
+    try {
+      const result = await call(port, 'GET', '/api/pair/detect', { host: '192.168.1.5' })
+      expect(result.status).toBe(403)
+      expect(result.body).toEqual({ ok: false, code: 'forbidden' })
     } finally {
       await close()
     }

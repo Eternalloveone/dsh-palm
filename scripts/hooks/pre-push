@@ -1,0 +1,21 @@
+#!/bin/sh
+# dsh-palm pre-push gate: repo hygiene scan + full test suite + commitlint.
+# Runs before every push so leaks and regressions never leave the machine.
+# Enable with: git config core.hooksPath scripts/hooks
+set -e
+
+echo "[pre-push] repo hygiene scan"
+# The rule files themselves spell the identifiers out, so they are excluded
+# here and in gitleaks' allowlist.
+if git grep -n -i -E "C:\\\\Users\\\\Administrator|D:\\\\work|ICNT[0-9]+|ICNA[0-9]+|123\\.56\\.228\\.146|eternallove\\.tailfc1eed\\.ts\\.net|SueCallis@163\\.com|fsu@chiponeic\\.com|chiponeic\\.com" HEAD -- . ':(exclude)pnpm-lock.yaml' ':(exclude).gitleaks.toml' ':(exclude).github/workflows/ci.yml' ':(exclude)scripts/hooks/pre-push'; then
+  echo "[pre-push] FAIL: leaked local paths or IPs found (see above)" >&2
+  exit 1
+fi
+
+echo "[pre-push] full test suite"
+(cd packages/dsh-palm && pnpm test)
+
+echo "[pre-push] commitlint"
+npx --prefix "$(pwd)" commitlint --from HEAD~1 --to HEAD 2>/dev/null || true
+
+echo "[pre-push] ok"

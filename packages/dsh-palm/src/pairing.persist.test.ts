@@ -25,6 +25,7 @@ function makeClock(): PairingClock {
   return {
     now: () => 1_000_000 + n,
     randomToken: () => `tok${(n++).toString().padStart(6, '0')}`,
+    randomCode: () => `4829${String(n % 10)}${String((n + 1) % 10)}`,
   }
 }
 
@@ -157,6 +158,7 @@ describe('PairingService device persistence', () => {
     const clock: PairingClock = {
       now: () => now.value,
       randomToken: () => `tok${(n++).toString().padStart(6, '0')}`,
+      randomCode: () => `4829${String(n % 10)}${String((n + 1) % 10)}`,
     }
     const first = new PairingService({ ...BASE_CONFIG, devicesFile: file }, clock)
     const deviceId = pairDevice(first)
@@ -183,6 +185,7 @@ describe('PairingService device persistence', () => {
     const clock: PairingClock = {
       now: () => 1 + DEFAULT_IDLE_EXPIRE_MS + 1,
       randomToken: () => 'tok',
+      randomCode: () => '482913',
     }
     const service = new PairingService({ ...BASE_CONFIG, devicesFile: file }, clock)
     expect(service.hasDevice('stale')).toBe(false)

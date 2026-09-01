@@ -25,6 +25,8 @@ dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1
 | ![Run status](docs/screenshots/run-status.png) | **Run status** — the todo plan and background jobs share a live strip above the toolbar (2 of 6 tasks done, 1 background job running) |
 | ![Task sheet](docs/screenshots/tasks.png) | **Task sheet** — tapping the strip opens both lists: the task list (✓/●/○, struck-through when done) and background jobs (kind, status, timing) |
 | ![Pairing](docs/screenshots/pair.png) | **Pairing** — scan-to-pair device trust |
+| ![Pairing panel — use view](docs/screenshots/panel.png) | **Pairing panel (use view)** — the desktop wizard lands on a clean device-management view once a phone is paired: status card, device roster, stop / refresh / re-pair |
+| ![Pairing panel — pair view](docs/screenshots/panel-pair.png) | **Pairing panel (pair view)** — QR code plus a six-digit pairing code the phone can type, phone/computer links, and the in-panel public-address editor |
 
 ## Highlights
 
@@ -32,8 +34,8 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 
 **Architecture**
 
-- **Standalone mobile surface (`/m/`)** — an independent phone bundle instead of CSS-injected adaptation over the desktop GUI; upstream UI refactors never break the phone
-- **Zero-dependency render stack** — hand-rolled GFM-subset markdown renderer (escape-first, protocol allow-list), lightweight syntax highlighter, unified-diff parser; ~835 KB bundle (195 KB gzip)
+- **Native phone UI (`/m/`)** — a standalone mobile bundle designed for narrow screens from the ground up, not a CSS adaptation of the desktop GUI: touch-first interactions (draggable bottom sheets with pull-up expand and tap-outside dismiss), safe-area and dynamic-viewport handling, thumb-sized touch targets, zero horizontal scrolling; upstream desktop UI refactors never break the phone
+- **Zero-dependency render stack** — hand-rolled GFM-subset markdown renderer (escape-first, protocol allow-list), lightweight syntax highlighter, unified-diff parser; ~888 KB bundle (209 KB gzip)
 - **Method-level whitelisted RPC** — `/m/api` exposes an explicit allow-list plus phone-local methods; errors never leak host paths or method names
 
 **Realtime**
@@ -70,6 +72,17 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 - **Display preferences** — font scale, density, line numbers, auto-scroll
 - **Theme sync** — the desktop theme preference applies on the phone
 - **Session roster** — full project names, cwd-filtered, full timestamps
+
+**Pairing & onboarding**
+
+- **Six-digit pairing code** — the desktop panel shows a human-readable code beside the QR; the phone can type it instead of scanning (codes are one-time, expire with the token, and die on re-issue or stop)
+- **In-panel public-address editor** — configure your tunneled address (frp / Cloudflare Tunnel / Tailscale) right in the pairing panel; saving probes reachability first, so a dead tunnel is caught before it is persisted
+- **Three-step wizard** — the panel is a configure → pair → use wizard; the step indicator doubles as navigation (completed steps are clickable), and paired users land directly on a clean device-management view
+- **Tunnel detection** — the host probes for Tailscale (tailnet domain, one-click apply), parses `frpc.toml` for the concrete frp entry, and spots Cloudflare Tunnel clients; a first-time user with no tunnel gets a LAN / create-a-tunnel fork instead of a blank wall
+- **First-run guidance** — a dismissible welcome banner, an unconfigured dot on the sidebar trigger, and plain-language copy ("Your phone cannot reach this computer") with the action right below it
+- **Workspace-native theming** — the panel follows the system light/dark scheme via `prefers-color-scheme` (no manual toggle), with a 0.2s ease transition on every color
+- **Phone-side server switch** — the mobile pairing gate shows the server address and deep-links a code/token to a switched tunneled origin via `?code=` / `?pair=`
+- **Desktop-parity command menu** — the phone's `+` menu resolves the session's agent view, so per-agent commands (`/plan`, `/compact`) match the desktop `/` popup
 
 ## Features
 
@@ -117,6 +130,16 @@ dsh plugin --profile web add link:/path/to/dsh-palm/packages/dsh-palm
 
 Already-paired devices keep working after switching install sources (same format as dsh-remote-web-ui).
 
+## Remote access setup
+
+Open the pairing panel from the sidebar phone icon. It walks you through three steps: **configure → pair → use**.
+
+1. **Configure** — enter a public address the phone can reach (frp / Cloudflare Tunnel / Tailscale). The panel detects tunnels on your machine and suggests concrete entries; saving verifies reachability first.
+2. **Pair** — scan the QR or type the six-digit pairing code on the phone.
+3. **Use** — paired devices are managed from a clean status view.
+
+A full walkthrough with a worked frp topology (server frps + nginx TLS, client frpc, panel configuration, verification, FAQ) lives in the [remote access guide](packages/dsh-palm/docs/remote-access-guide.md).
+
 ## Development
 
 ```sh
@@ -124,6 +147,12 @@ pnpm install        # in packages/dsh-palm
 pnpm test           # vitest full suite
 pnpm typecheck      # tsc -b
 pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
+```
+
+Local push gate (repo hygiene + tests + commitlint before every push):
+
+```sh
+git config core.hooksPath scripts/hooks
 ```
 
 ## Architecture

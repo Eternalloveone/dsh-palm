@@ -14,6 +14,7 @@ import { z, type ZodType } from 'zod'
 import { UnknownLanAddressError, type PairingService, type PairingSnapshot } from './pairing.ts'
 import { isLoopbackClient, readCookie } from './gate.ts'
 import { readJsonBody, writeJson } from './http.ts'
+import { detectTunnels } from './detect-tunnel.ts'
 
 /**
  * Browser-trust fence for the /api/pair routes, mirroring the connection
@@ -95,6 +96,8 @@ export const PAIR_PATHS = {
   heartbeat: '/api/pair/heartbeat',
   status: '/api/pair/status',
   events: '/api/pair/events',
+  probe: '/api/pair/probe',
+  detect: '/api/pair/detect',
 } as const
 
 /**
@@ -111,9 +114,14 @@ export const issuePayloadSchema = z.object({
 })
 export const acceptPayloadSchema = z.object({
   token: z.string().default(''),
+  /** Six-digit pairing code shown on the desktop panel (alternative to token). */
+  code: z.string().optional(),
 })
 export const revokePayloadSchema = z.object({
   deviceId: z.string().min(1),
+})
+export const probePayloadSchema = z.object({
+  url: z.string().min(1),
 })
 export const pairActionPayloadSchema = z.object({}).passthrough()
 
@@ -295,7 +303,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     }
     const { workspaceId, address } = payload
     try {
-      const { token, expiresAt } = service.issue(workspaceId, address)
+      const { token, code, expiresAt } = service.issue(workspaceId, address)
       // The default base is the public (tunneled) URL when configured — a
       // phone anywhere can reach it — and the first LAN interface otherwise.
       // An explicit address always names a LAN literal.
@@ -306,6 +314,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
         ok: true,
         url: `${base}/m/?pair=${token}${workspaceQuery}`,
         token,
+        code,
         expiresAt,
         // Every constructible base, so a multi-homed panel can switch the
         // advertised network without a second round trip.
@@ -342,7 +351,8 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       return
     }
     const ua = req.headers['user-agent']
-    const result = service.accept(payload.token, typeof ua === 'string' ? ua : undefined)
+    const secret = payload.code !== undefined && payload.code !== '' ? payload.code : payload.token
+    const result = service.accept(secret, typeof ua === 'string' ? ua : undefined)
     if (!result.ok) {
       // One uniform refusal for invalid and already-used tokens: the
       // distinction is a token-validity oracle for unauthenticated probing
@@ -433,7 +443,13 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     const { devices: _devices, lanAddresses: _lanAddresses, ...rest } = snapshot
     const visible = paired
       ? rest
-      : { phase: snapshot.phase, lanAvailable: snapshot.lanAvailable }
+      : {
+          phase: snapshot.phase,
+          lanAvailable: snapshot.lanAvailable,
+          // Whether a phone-reachable address exists (LAN bind or public
+          // base) — the sidebar trigger's unconfigured dot reads this.
+          configured: snapshot.phase !== 'lan-required',
+        }
     writeJson(res, 200, { ok: true, paired, requirePairingForLan: pairingRequired(), ...visible })
   }
 
@@ -448,6 +464,66 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     events.push(service.snapshot())
   }
 
+  /** Probe timeout: a hung tunnel must not hold the panel's save button. */
+  const PROBE_TIMEOUT_MS = 5_000
+
+  /**
+   * Reachability probe for a candidate public base URL. The browser cannot
+   * fetch a cross-origin tunnel address (CORS), so the loopback panel asks
+   * the host to probe it: any HTTP response counts as reachable (a 403 from
+   * the pairing fence still proves the tunnel terminates at a dsh web), and
+   * a network error or timeout is reported as unreachable.
+   */
+  const handleProbe = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'POST')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    const body = await readJsonBody(req, { maxBytes: MAX_BODY_BYTES, objectOnly: true })
+    const payload = parsePairPayload(probePayloadSchema, body)
+    if (payload === undefined) {
+      writeJson(res, 400, { ok: false, code: 'bad-payload' })
+      return
+    }
+    let target: URL
+    try {
+      target = new URL(payload.url)
+    } catch {
+      writeJson(res, 400, { ok: false, code: 'invalid' })
+      return
+    }
+    if ((target.protocol !== 'http:' && target.protocol !== 'https:') || target.hostname === '') {
+      writeJson(res, 400, { ok: false, code: 'invalid' })
+      return
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => { controller.abort() }, PROBE_TIMEOUT_MS)
+    try {
+      const response = await fetch(`${target.origin}/api/pair/status`, { signal: controller.signal })
+      writeJson(res, 200, { ok: true, status: response.status })
+    } catch {
+      writeJson(res, 200, { ok: false, code: 'unreachable' })
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * Tunnel detection for the onboarding hints: Tailscale tailnet domain and
+   * running frp / Cloudflare Tunnel clients. Loopback-only (the probes run
+   * host commands); every probe fails closed and is timeout-bounded.
+   */
+  const handleDetect = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'GET')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    const detection = await detectTunnels()
+    writeJson(res, 200, { ok: true, ...detection })
+  }
+
   return [
     { kind: 'exact', path: PAIR_PATHS.issue, handler: handleIssue },
     { kind: 'exact', path: PAIR_PATHS.accept, handler: handleAccept },
@@ -456,5 +532,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     { kind: 'exact', path: PAIR_PATHS.heartbeat, handler: handleHeartbeat },
     { kind: 'exact', path: PAIR_PATHS.status, handler: handleStatus },
     { kind: 'exact', path: PAIR_PATHS.events, handler: handleEvents },
+    { kind: 'exact', path: PAIR_PATHS.probe, handler: handleProbe },
+    { kind: 'exact', path: PAIR_PATHS.detect, handler: handleDetect },
   ]
 }

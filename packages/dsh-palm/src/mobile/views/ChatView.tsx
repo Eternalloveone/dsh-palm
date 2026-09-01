@@ -385,6 +385,19 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     if (items === undefined) return
     adoptTodo({ seq: event.seq, items })
   }, [adoptTodo])
+  /** On turn/end, mirror the host projection's normalization: a task still
+   * `in_progress` when the turn ends reads as completed (agents routinely skip
+   * the final all-done write, which would otherwise leave the strip stuck on an
+   * intermediate state until the next turn/start). `pending` items were never
+   * started and stay untouched; the next turn/start clears the whole list. */
+  const normalizeTurnEndTodo = useCallback((): void => {
+    setTodo(previous => previous === undefined ? previous : {
+      seq: previous.seq,
+      items: previous.items.map(item => item.status === 'in_progress'
+        ? { ...item, status: 'completed' }
+        : item),
+    })
+  }, [])
   /** Foreground-subagent tree for this session (the live delegation chain).
    * Built from `subagents.list` and overlaid with host/session-status flips. */
   const [subagents, setSubagents] = useState<SubagentNode[]>([])
@@ -476,16 +489,18 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   }, [offline, flushQueue])
 
   // The + menu's command directory loads lazily on first open (weak links
-  // never pay for it up front); a failure degrades to an empty list.
+  // never pay for it up front); a failure degrades to an empty list. The
+  // session id resolves the agent's effective command view (per-agent rows
+  // like /plan and /compact live in agent presets on the Web deployment).
   useEffect(() => {
     if (!plusOpen || commands !== undefined) return
     let cancelled = false
-    void listCommands().then(
+    void listCommands(session.sessionId).then(
       (items) => { if (!cancelled) setCommands(items) },
       () => { if (!cancelled) setCommands([]) },
     )
     return () => { cancelled = true }
-  }, [plusOpen, commands])
+  }, [plusOpen, commands, session.sessionId])
 
   /** Refill a dropped seq window (tail overflow) page by page, from its
    * newest edge backwards, trimming rows already present in the fold (the
@@ -669,7 +684,11 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
             // a stale plan never outlives the turn that wrote it.
             setTodo(undefined)
           }
-          if (event.type === 'turn/end') setRunning(false)
+          if (event.type === 'turn/end') {
+            setRunning(false)
+            // Mirror the host's turn/end normalization (see normalizeTurnEndTodo).
+            normalizeTurnEndTodo()
+          }
           // todo/write is a full-list snapshot (last-write-wins): adopt it
           // into the plan strip. It keeps flowing into the fold below, which
           // ignores unknown types, so the message stream is unaffected.
@@ -962,6 +981,16 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     })
   }, [locateWindow])
 
+  /** Mark everything seen: advance the seen-turn baseline to the newest
+   * turn and clear the unread badge. */
+  const markSeen = useCallback(() => {
+    const last = messagesRef.current[messagesRef.current.length - 1]
+    if (last !== undefined) {
+      lastSeenTurnRef.current = Math.max(lastSeenTurnRef.current, last.turn ?? 0)
+    }
+    setUnreadCount(0)
+  }, [])
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (el === undefined) return
@@ -972,8 +1001,14 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     // the bottom (same threshold the auto-follower uses); React bails out on
     // unchanged values, so this costs nothing while scrolling.
     setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
+    // Scrolling back to the bottom counts as reading: clear the unread
+    // badge and advance the seen-turn baseline, so a reader who manually
+    // scrolls down (instead of tapping the jump button) also clears the
+    // tally. React bails out on an unchanged count, so this is free while
+    // the reader is already at the bottom.
+    if (gap <= BOTTOM_FOLLOW_THRESHOLD_PX) markSeen()
     scheduleLocate()
-  }, [scheduleLocate])
+  }, [markSeen, scheduleLocate])
 
   useEffect(() => () => {
     if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
@@ -1032,18 +1067,20 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const followedBottomRef = useRef(false)
   /** Whether the reader scrolled away from the bottom (jump-to-latest button). */
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
-  /** New messages that arrived while the reader was away (badge count). */
+  /** New turns that arrived while the reader was away (badge count). One
+   * agent reply — however many messages and tool calls it spans — counts as
+   * one, so the badge grows at reply pace, not message pace. */
   const [unreadCount, setUnreadCount] = useState(0)
-  /** Highest seq the reader has seen; the unread tally counts above it. */
-  const lastSeenSeqRef = useRef(0)
+  /** Highest turn the reader has seen; the unread tally counts above it. */
+  const lastSeenTurnRef = useRef(0)
 
   /** Jump back to the newest message and re-arm the auto-follower. */
   const jumpToLatest = useCallback(() => {
     bottomGapAtUserScrollRef.current = 0
     setShowJumpToLatest(false)
-    setUnreadCount(0)
+    markSeen()
     scrollToBottom()
-  }, [scrollToBottom])
+  }, [markSeen, scrollToBottom])
 
   // Keep the newest content visible. This covers the initial tail page (the
   // effect runs after commit, fixing the stale scrollHeight from the old
@@ -1070,16 +1107,17 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       // newest message, whatever the scroll position left by a previous
       // session). The opening baseline also seeds the unread tally.
       followedBottomRef.current = true
-      lastSeenSeqRef.current = last.seq
+      lastSeenTurnRef.current = last.turn ?? 0
       scrollToBottom()
       return
     }
-    // Unread tally: count messages that arrived after the reader's last seen
-    // seq while they were away from the bottom. A following reader sees the
+    // Unread tally: count turns that arrived after the reader's last seen
+    // turn while they were away from the bottom. A following reader sees the
     // content immediately and never accumulates a badge; loadOlder prepends
-    // leave the last seq untouched, so they never count.
-    if (last.seq > lastSeenSeqRef.current) {
-      lastSeenSeqRef.current = last.seq
+    // leave the last turn untouched, so they never count. Messages within
+    // one turn (tool calls, follow-up chunks) share the turn and count once.
+    if ((last.turn ?? 0) > lastSeenTurnRef.current) {
+      lastSeenTurnRef.current = last.turn ?? 0
       if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) {
         setUnreadCount(count => count + 1)
       }
@@ -2028,7 +2066,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
             onClick={jumpToLatest}
           >
             <ChevronDownIcon width={20} height={20} />
-            {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount}</span>}
+            {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
           </button>
         )}
       </div>

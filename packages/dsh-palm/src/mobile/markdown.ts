@@ -350,6 +350,22 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
       continue
     }
 
+    // Bare tool-result text: the model sometimes echoes tool output without
+    // a fence (e.g. `tool_result<...` followed by closing-tag lines). Wrap
+    // the run in a code block so it reads as data with the copy chrome
+    // instead of raw prose. Bounded so a stray match cannot swallow prose.
+    if (/^tool_result</.test(line)) {
+      flushParagraph(paragraph)
+      const code: string[] = [line]
+      i += 1
+      while (i < n && code.length < 12 && /^(<\/|\s*\|)/.test(lines[i])) {
+        code.push(lines[i])
+        i += 1
+      }
+      blocks.push({ type: 'code', lang: '', code: code.join('\n'), diff: false })
+      continue
+    }
+
     // Inline thinking tag ` thinking… response` → a collapsed think block.
     // Extraction happens at the block level only (never inside code fences,
     // which the branch above consumes whole). A tag without a matching

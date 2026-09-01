@@ -9,6 +9,8 @@ export interface IssueResult {
   ok: true
   url: string
   token: string
+  /** Six-digit pairing code shown on the desktop panel. */
+  code: string
   expiresAt: number
   /** Every constructible LAN base address (interface order). */
   lanAddresses: string[]
@@ -140,6 +142,77 @@ export async function revokePair(deviceId: string): Promise<void> {
 /** Presence heartbeat from a paired phone (unpaired heartbeats 401 harmlessly). */
 export async function sendHeartbeat(): Promise<void> {
   await fetch('/api/pair/heartbeat', { method: 'POST' })
+}
+
+/**
+ * Read the pairing status from the loopback desktop. The unpaired view
+ * carries `configured` (whether a phone-reachable address exists) for the
+ * sidebar trigger's unconfigured dot.
+ * @returns the configured flag; failures default to configured so the dot
+ * never blinks on a transient network error.
+ */
+export async function fetchPairStatus(): Promise<{ configured: boolean }> {
+  try {
+    const response = await fetch('/api/pair/status')
+    if (!response.ok) return { configured: true }
+    const body = await response.json() as { configured?: boolean }
+    return { configured: body.configured ?? true }
+  } catch {
+    return { configured: true }
+  }
+}
+
+/** Tunnel detection frame from the loopback /api/pair/detect endpoint. */
+export interface TunnelDetection {
+  tailnetDomain?: string
+  frpc: boolean
+  cloudflared: boolean
+  /** The frp public entry from frpc.toml (`http://serverAddr:remotePort`). */
+  frpEntry?: string
+}
+
+/**
+ * Ask the host which tunnels are available (Tailscale tailnet domain, frp /
+ * Cloudflare Tunnel clients) for the onboarding hints. Failures yield an
+ * empty frame so the panel never blocks on the probe.
+ */
+export async function fetchTunnelDetection(): Promise<TunnelDetection> {
+  try {
+    const response = await fetch('/api/pair/detect')
+    if (!response.ok) return { frpc: false, cloudflared: false }
+    const body = await response.json() as Partial<TunnelDetection>
+    return {
+      ...(typeof body.tailnetDomain === 'string' ? { tailnetDomain: body.tailnetDomain } : {}),
+      frpc: body.frpc === true,
+      cloudflared: body.cloudflared === true,
+      ...(typeof body.frpEntry === 'string' ? { frpEntry: body.frpEntry } : {}),
+    }
+  } catch {
+    return { frpc: false, cloudflared: false }
+  }
+}
+
+/** probe() result: reachable (any HTTP status) or refused. */
+export type ProbeResult =
+  | { ok: true; status: number }
+  | { ok: false; code: 'invalid' | 'unreachable' | 'forbidden' }
+
+/**
+ * Ask the host to probe a candidate public base URL for reachability. The
+ * browser cannot fetch a cross-origin tunnel address (CORS), so the panel
+ * delegates to the loopback-only /api/pair/probe endpoint.
+ * @param url - the candidate public (tunneled) base URL.
+ * @returns reachability, or the refusal codes.
+ */
+export async function probePublicUrl(url: string): Promise<ProbeResult> {
+  const response = await fetch('/api/pair/probe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+  if (response.status === 403) return { ok: false, code: 'forbidden' }
+  if (response.status === 400) return { ok: false, code: 'invalid' }
+  return await response.json() as ProbeResult
 }
 
 /** Whether the current page URL carries a pairing token / workspace target. */

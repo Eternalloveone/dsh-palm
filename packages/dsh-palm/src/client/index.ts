@@ -65,6 +65,8 @@ declare module '@deepseek-ai/cordis' {
 interface RemoteSettings {
   /** Master switch for the plugin. */
   enabled?: boolean
+  /** Public (tunneled) base URL in front of this server. */
+  publicBaseUrl?: string
 }
 
 /** Dictionary namespace owned by this plugin. */
@@ -102,6 +104,18 @@ export function apply(ctx: ClientContext): void {
       : snapshot.status === 'unavailable'
   }
 
+  // In-panel public-address persistence: the pairing panel writes the
+  // remote-web-ui settings section directly (loopback-only settings RPCs —
+  // the panel is a desktop control surface, so this is always reachable).
+  // The host's settings sync re-applies the value to the pairing service,
+  // and the entry re-mints the QR against the new base.
+  const savePublicUrl = async (url: string): Promise<void> => {
+    await settingsScope.set('publicBaseUrl', url)
+  }
+  const clearPublicUrl = async (): Promise<void> => {
+    await settingsScope.unset('publicBaseUrl')
+  }
+
   // Sidebar entries: the legacy `sidebar.remote` seat (declaration-aware
   // registration that waits on the declaration, removes the contribution
   // when it collapses, and re-runs after a redeclaration) plus the current
@@ -114,7 +128,11 @@ export function apply(ctx: ClientContext): void {
     const syncEntry = (): void => {
       if (enabled() && disposeEntry === undefined) {
         try {
-          disposeEntry = ctx.slots.register({ name: 'sidebar.remote', locale: NS }, RemoteEntry)
+          disposeEntry = ctx.slots.register({
+            name: 'sidebar.remote',
+            locale: NS,
+            inject: () => ({ onSavePublicUrl: savePublicUrl, onClearPublicUrl: clearPublicUrl }),
+          }, RemoteEntry)
         } catch {
           // ignore registration collision
         }
@@ -136,7 +154,12 @@ export function apply(ctx: ClientContext): void {
     const syncEntry = (): void => {
       if (enabled() && disposeEntry === undefined) {
         try {
-          disposeEntry = ctx.slots.register({ name: 'sidebar.footer.action', id: 'dsh-palm', locale: NS }, FooterRemoteEntry)
+          disposeEntry = ctx.slots.register({
+            name: 'sidebar.footer.action',
+            id: 'dsh-palm',
+            locale: NS,
+            inject: () => ({ onSavePublicUrl: savePublicUrl, onClearPublicUrl: clearPublicUrl }),
+          }, FooterRemoteEntry)
         } catch {
           // ignore registration collision
         }

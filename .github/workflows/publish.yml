@@ -57,8 +57,10 @@ jobs:
       - name: Publish
         working-directory: packages/dsh-palm
         # --provenance mints the SLSA provenance attestation at publish
-        # time (requires the id-token permission above).
-        run: pnpm publish --provenance --tag ${{ steps.disttag.outputs.tag }}
+        # time (requires the id-token permission above). --no-git-checks:
+        # a tag push checks out a detached HEAD, and pnpm's git-checks
+        # ("publish-branch" must be main/master) then rejects the publish.
+        run: pnpm publish --provenance --tag ${{ steps.disttag.outputs.tag }} --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -85,7 +87,8 @@ jobs:
         working-directory: packages/dsh-palm
         # --registry is required: setup-node's registry-url only writes the
         # auth token line, it does not map the scope; without it pnpm publish
-        # targets the default registry (npmjs) and 401s here.
-        run: pnpm publish --registry https://npm.pkg.github.com --access public
+        # targets the default registry (npmjs) and 401s here. --no-git-checks
+        # for the detached-HEAD checkouts of tag pushes (see publish job).
+        run: pnpm publish --registry https://npm.pkg.github.com --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
