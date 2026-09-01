@@ -17,10 +17,11 @@ vi.mock('../api.ts', () => ({
 vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions } from '../api.ts'
+import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions, listWorkspaces } from '../api.ts'
 import { removeOutboxForSession } from '../offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
+const listWorkspacesMock = vi.mocked(listWorkspaces)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const createSessionMock = vi.mocked(createSession)
 const archiveSessionMock = vi.mocked(archiveSessionApi)
@@ -57,6 +58,7 @@ function renderList(props: Partial<SessionListViewProps> = {}): void {
 
 beforeEach(() => {
   listSessionsMock.mockResolvedValue({ items: [], hasMore: false })
+  listWorkspacesMock.mockResolvedValue([workspace])
   listAgentPresetsMock.mockResolvedValue({ presets: [], authorable: false, hasDocument: false })
   createSessionMock.mockResolvedValue({ sessionId: 's-new' })
 })
@@ -100,6 +102,30 @@ describe('SessionListView roster', () => {
     expect(await screen.findByText(/还没有会话/)).toBeTruthy()
   })
 
+  it('shows a session created after the list last mounted (back-from-chat remount)', async () => {
+    // The workspace prop snapshot predates the new session; the refreshed
+    // roster carries it, so the owned-row filter must not drop the row.
+    listWorkspacesMock.mockResolvedValue([{ ...workspace, sessionIds: ['s-1', 's-new'] } as never])
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo' }), summary('s-new', 1_800_000_000_000)],
+      hasMore: false,
+    })
+    renderList()
+    expect(await screen.findByText('新会话')).toBeTruthy()
+  })
+
+  it('falls back to the workspace snapshot when the roster refresh fails', async () => {
+    listWorkspacesMock.mockRejectedValue(new Error('network down'))
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo' })],
+      hasMore: false,
+    })
+    renderList()
+    // The list still renders from the snapshot's owned ids — the refresh is
+    // best-effort and must never block the roster.
+    expect(await screen.findByText('demo')).toBeTruthy()
+  })
+
   it('appends further pages through the cursor, still filtered to the workspace', async () => {
     listSessionsMock.mockResolvedValueOnce({
       items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo' })],
@@ -115,6 +141,7 @@ describe('SessionListView roster', () => {
     })
     // s-2 is attached on the second page; s-foreign is not owned.
     const pagedWorkspace: WorkspaceRow = { ...workspace, sessionIds: ['s-1', 's-2'] as never }
+    listWorkspacesMock.mockResolvedValue([pagedWorkspace])
     renderList({ workspace: pagedWorkspace })
     await screen.findByText('demo')
     fireEvent.click(screen.getByRole('button', { name: /加载更多会话/ }))
@@ -129,6 +156,7 @@ describe('SessionListView roster', () => {
       hasMore: false,
     })
     const longIdWorkspace: WorkspaceRow = { ...workspace, sessionIds: ['session-abcdef12-3456-7890-abcd-1234567890ab'] as never }
+    listWorkspacesMock.mockResolvedValue([longIdWorkspace])
     renderList({ workspace: longIdWorkspace })
     await screen.findByText('同名任务')
     // Full date+clock (timezone-agnostic shape), and no "#tail" id suffix.

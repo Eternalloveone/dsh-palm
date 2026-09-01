@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-02
+
+### Fixed
+
+- **A freshly created session now survives the back-from-chat remount** — the session list refreshes the workspace's attach roster alongside the first page, so a session created since the list last mounted is no longer dropped by the owned-row filter (previously it only appeared after a manual page reload); a roster refresh failure falls back to the snapshot and never blocks the list
+
+### Docs
+
+- **README badges** — npm version / downloads, CI and license shields on both language variants
+- **Demo GIF** — a 30-second capture of the real `/m/` UI (pair → browse → stream → tasks → dark theme) against fictional data, embedded at the top of both READMEs; regenerable via `scripts/capture-gif.mjs` (CDP frame capture + ffmpeg palette-optimized GIF)
+
 ## [0.4.0] - 2026-09-02
 
 ### Added

@@ -2,6 +2,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[![npm version](https://img.shields.io/npm/v/@eternalloveone/dsh-palm)](https://www.npmjs.com/package/@eternalloveone/dsh-palm)
+[![npm downloads](https://img.shields.io/npm/dm/@eternalloveone/dsh-palm)](https://www.npmjs.com/package/@eternalloveone/dsh-palm)
+[![CI](https://img.shields.io/github/actions/workflow/status/Eternalloveone/dsh-palm/ci.yml)](https://github.com/Eternalloveone/dsh-palm/actions)
+[![License](https://img.shields.io/github/license/Eternalloveone/dsh-palm)](https://github.com/Eternalloveone/dsh-palm/blob/main/LICENSE)
+
+![dsh-palm 演示](docs/screenshots/demo.gif)
+
 掌上 dsh —— dsh web GUI 的独立移动端界面。
 
 [dsh](https://github.com/deepseek-ai/deepseek-harness) web GUI 的独立移动端界面：扫码配对设备信任、`/m/` 手机端 UI、带实时 SSE mux 桥的 `/m/api` RPC 通道，以及桌面端配对面板。

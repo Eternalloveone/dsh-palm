@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import { archiveSession, createSession, history, listAgentPresets, listSessions } from '../api.ts'
+import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
@@ -169,15 +169,25 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
     }).then(() => { setPreviewTick(tick => tick + 1) })
   }, [])
 
-  // First page on mount (this workspace's sessions, paged).
+  // First page on mount (this workspace's sessions, paged). The workspace
+  // prop's sessionIds snapshot predates any session created since this list
+  // last mounted (create -> chat -> back remounts the list), so the attach
+  // roster is refreshed alongside the page: a freshly created session must
+  // survive the owned-row filter without a manual reload. A roster refresh
+  // failure falls back to the snapshot — it must never block the list.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(undefined)
-    void listSessions().then(
-      (page) => {
+    void Promise.all([
+      listSessions(),
+      listWorkspaces().catch(() => [] as WorkspaceRow[]),
+    ]).then(
+      ([page, workspaces]) => {
         if (cancelled) return
-        const rows = pageItems(page.items, ownedIds)
+        const fresh = workspaces.find(item => item.workspaceId === workspace.workspaceId)
+        const owned = new Set((fresh?.sessionIds ?? workspace.sessionIds).map(String))
+        const rows = pageItems(page.items, owned)
         setRows(rows)
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
