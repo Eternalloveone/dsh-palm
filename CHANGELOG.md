@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.3.0]
+
+## [0.3.0] - 2026-09-01
+
+### Added
+
+- **Task plan (todo) on the phone** — `todo/write` snapshots render as a live strip above the chat toolbar (`任务 2/6 · 后台任务 1 个运行中`) that opens a bottom sheet with the full plan: ✓/●/○ rows, completed items struck through, last-write-wins by seq, cleared on a new turn and seeded from the history tail (desktop TodoPanel parity)
+- **Background-task strip** — `session/jobs` snapshots surface subagent delegations and command runs with live kind / status / timing; pending in-flight jobs come first
+- **Run-status sheet** — tapping the strip opens both lists (task plan + background jobs) in one bottom sheet with a drag handle and pull-up expand gesture
+- **README screenshots** — run-status strip and task sheet captures rendered by the real `/m/` UI against fictional demo data; highlights and feature lists kept in sync across both languages
+
+### Fixed
+
+- **The sheet no longer hides its last rows behind the composer** — the sheet backdrop and the composer both stacked at z-index 50 and the sheet renders earlier in the DOM, so the input bar covered the bottom ~10% of the panel (the final todo row looked cut off and the list appeared unscrollable); the backdrop now stacks at 60
+- **Pull-up expand survives fast swipes** — the drag distance is tracked in a ref, so a quick swipe whose touchend lands on the same frame as the last touchmove no longer reads stale state and swallows the gesture
+- **Sheet handle centered; overlays explicit** — the grab header is a centered column flex, and every overlay uses explicit top/right/bottom/left instead of the `inset` shorthand
+- **Sheets fit their content** — the sheet body is content-sized (no fixed-height scroll region), so ordinary lists render in full with nothing to scroll; vh fallbacks accompany every dynamic-viewport unit
+- **Backoffice turn indicator hardening** — the output indicator self-heals against a lost turn/end frame, distinguishes the back-office turn from the typing turn, and stays visible while the agent is parked on a subagent
+
 ## [0.2.1] - 2026-08-31
 
 ### Fixed

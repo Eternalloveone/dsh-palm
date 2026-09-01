@@ -25,6 +25,7 @@
  */
 
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
+import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
 import { muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { history as fetchHistory, type HistoryPage } from './api.ts'
@@ -89,6 +90,13 @@ const MAX_POLL_BACKOFF_MS = 60000
 const STALL_CHECK_MS = 1000
 /** Poll window: enough recent events to cover a few seconds of agent output. */
 const DEFAULT_POLL_PAGE_SIZE = 50
+/**
+ * Cap on retained per-session background-task snapshots. The mux stream opens
+ * at app boot and runs for the page lifetime, so a `session/jobs` frame for a
+ * session the user never opens would otherwise be cached forever; the bound
+ * keeps the map from growing without limit across the roster.
+ */
+const MAX_CACHED_JOBS_SESSION = 64
 
 /**
  * Whether a polling error is terminal — the device is no longer paired. The
@@ -118,6 +126,16 @@ export class MuxClient {
   private readonly now: () => number
   private readonly onUnpaired: (() => void) | undefined
   private readonly listeners = new Set<(frame: MuxFrame, rpcId?: string) => void>()
+  /**
+   * Latest `session/jobs` snapshot per session, retained regardless of whether
+   * a {@link ChatView} listener was mounted when the frame arrived. The mux
+   * stream opens once at app boot and the host's jobs baseline rides that
+   * opening, so without this a background task running before the user opens a
+   * chat would never appear — the baseline arrives with zero listeners and is
+   * otherwise dropped. Kept at the client (not per-view) so a freshly mounted
+   * chat can replay its session's last known tasks on entry.
+   */
+  private readonly cachedJobsBySession = new Map<string, JobView[]>()
   private source: EventSourceLike | undefined
   private stopped = false
   private readonly url: string
@@ -458,7 +476,32 @@ export class MuxClient {
     this.sseAlive = true
     this.lastDataAt = this.now()
     if (this.polling) this.stopPolling()
+    if (frame.data.type === 'session/jobs') this.rememberJobs(frame.data)
     this.emit(frame.data, envelope.data.rpcId)
+  }
+
+  /**
+   * Retain the snapshot for one session. The jobs baseline (and every later
+   * change push) rides the mux stream, which opens at app boot — before any
+   * chat is mounted — so a freshly opened chat must be able to replay the last
+   * known tasks instead of starting empty until the next registry change.
+   */
+  private rememberJobs(frame: Extract<MuxFrame, { type: 'session/jobs' }>): void {
+    const sessionId = String(frame.sessionId)
+    if (this.cachedJobsBySession.size >= MAX_CACHED_JOBS_SESSION && !this.cachedJobsBySession.has(sessionId)) {
+      const oldest = this.cachedJobsBySession.keys().next().value
+      if (oldest !== undefined) this.cachedJobsBySession.delete(oldest)
+    }
+    this.cachedJobsBySession.set(sessionId, frame.jobs)
+  }
+
+  /**
+   * Last known background-task snapshot for a session, or undefined if none
+   * has been seen on this mux stream. A chat view seeds its task bar from
+   * this on mount so tasks already running are visible as soon as it opens.
+   */
+  cachedJobsFor(sessionId: string): JobView[] | undefined {
+    return this.cachedJobsBySession.get(sessionId)
   }
 
   private emit(frame: MuxFrame, rpcId?: string): void {

@@ -869,6 +869,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   if (method === 'session.selectModel') return wrap(await apiProxy.sessions.selectModel(request as never))
   if (method === 'session.rename') return wrap(await apiProxy.sessions.rename(request as never))
   if (method === 'session.cancel') return wrap(await apiProxy.sessions.cancel(request as never))
+  if (method === 'subagent.list') return wrap(await apiProxy.subagents.list(request as never))
   if (method === 'settings.read') {
     // The full redacted settings surface (namespace schemas + values, secrets
     // stripped by the host seam) — the phone renders the same configuration

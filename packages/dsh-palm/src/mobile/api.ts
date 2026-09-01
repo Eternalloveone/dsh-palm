@@ -8,6 +8,7 @@
 import type { WorkspaceView } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { SubagentCatalog } from '@deepseek-ai/dsh-host-apiproxy/api/subagents'
 import { callUnary } from './rpc.ts'
 import type { PromptPart } from './image.ts'
 import type { VoiceService } from './voice-services.ts'
@@ -213,6 +214,11 @@ export async function renameSession(sessionId: string, title: string): Promise<u
  */
 export async function cancelSession(sessionId: string): Promise<{ accepted: true }> {
   return await callUnary<{ accepted: true }>('session.cancel', { sessionId })
+}
+
+/** Direct-child subagent catalog for one parent (labels + activity + hasChildren). */
+export async function subagentsList(parentSessionId: string): Promise<SubagentCatalog> {
+  return await callUnary<SubagentCatalog>('subagent.list', { parentSessionId })
 }
 
 /** Fresh advisory model directory for one session (current + groups + failures). */

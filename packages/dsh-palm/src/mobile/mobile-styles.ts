@@ -272,8 +272,11 @@ body,
 }
 
 /* The app fills exactly one viewport: the page itself never scrolls, each
-   view owns its scroll region and the chat composer stays pinned. */
+   view owns its scroll region and the chat composer stays pinned. vh first:
+   dynamic-viewport units are not supported by older WebViews (WeChat etc.),
+   where the vh fallback keeps the layout intact. */
 #root {
+  height: 100vh;
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -340,7 +343,10 @@ body,
 
 .page-exit-fwd {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
   animation: page-out-fwd 0.25s ease-out both;
 }
@@ -351,7 +357,10 @@ body,
 
 .page-exit-back {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
   animation: page-out-back 0.25s ease-out both;
 }
@@ -2807,6 +2816,317 @@ button.settings-row:focus-visible {
   animation-delay: 0.4s;
 }
 
+/* Foreground-subagent count badge on the turn-status bar. */
+.chat-subagent-badge {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chat-subagent-badge:active {
+  background: var(--fill);
+}
+
+/* ── run-status strip + sheet (todo plan / background jobs) ───────────── */
+
+.chat-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 12px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-status-strip:active {
+  color: var(--text-primary);
+}
+
+.chat-status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--text-quaternary);
+}
+
+.chat-status-dot-live {
+  background: var(--accent);
+  animation: breathe 1.6s infinite ease-in-out;
+}
+
+.chat-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One content section inside the run-status sheet. */
+.chat-run-section {
+  padding: 2px 0 6px;
+}
+
+.chat-run-section + .chat-run-section {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 8px;
+  padding-top: 10px;
+}
+
+.chat-run-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+
+.chat-run-section-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chat-run-section-count {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-quaternary);
+}
+
+.chat-run-todo-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-run-todo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.chat-run-todo.chat-run-todo-completed .chat-run-todo-content {
+  color: var(--text-quaternary);
+  text-decoration: line-through;
+}
+
+.chat-run-todo-mark {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--text-quaternary);
+}
+
+.chat-run-todo.chat-run-todo-in_progress .chat-run-todo-mark {
+  color: var(--accent);
+}
+
+.chat-run-todo.chat-run-todo-completed .chat-run-todo-mark {
+  color: var(--success, var(--accent));
+}
+
+.chat-run-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── background-task status bar (session/jobs) ───────────────────────── */
+
+.chat-taskbar {
+  margin: 0 12px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.chat-taskbar-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-taskbar-head:active {
+  background: var(--fill);
+}
+
+.chat-taskbar-label {
+  flex: none;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.chat-taskbar-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
+.chat-taskbar-open .chat-disclosure-caret {
+  transform: rotate(180deg);
+}
+
+.chat-taskbar-body {
+  padding: 4px 12px 10px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-task-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: var(--radius-full);
+  background: var(--text-quaternary);
+}
+
+.chat-task-dot-running {
+  background: var(--accent);
+  animation: breathe 1.4s infinite ease-in-out;
+}
+
+.chat-task-dot-stopping {
+  background: var(--warning, #d9a13b);
+}
+
+.chat-task-dot-completed {
+  background: var(--success, #3fae6a);
+}
+
+.chat-task-dot-killed {
+  background: var(--text-quaternary);
+}
+
+.chat-task-dot-failed {
+  background: var(--danger, #d9534f);
+}
+
+.chat-task-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-task-label {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-task-meta {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.chat-task-time {
+  color: var(--text-quaternary);
+  font-size: var(--text-xs);
+}
+
+/* ── foreground-subagent tree sheet ────────────────────────────────────── */
+
+.chat-subagent-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-subagent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-subagent-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: var(--radius-full);
+  background: var(--text-quaternary);
+}
+
+.chat-subagent-dot-running {
+  background: var(--accent);
+  animation: breathe 1.4s infinite ease-in-out;
+}
+
+.chat-subagent-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-subagent-label {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-subagent-meta {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.chat-subagent-empty {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+}
+
 /* ── approval / question panels ──────────────────────────────────────── */
 
 .chat-approval-panel {
@@ -3184,7 +3504,10 @@ button.settings-row:focus-visible {
 
 .chat-context-pop-scrim {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 40;
   background: transparent;
 }
@@ -3197,7 +3520,10 @@ button.settings-row:focus-visible {
    does not dismiss the panel. */
 .chat-picker-scrim {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 40;
   background: rgba(15, 15, 25, 0.2);
 }
@@ -3565,7 +3891,10 @@ button.settings-row:focus-visible {
 
 .ctx-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 70;
 }
 
@@ -3621,8 +3950,15 @@ button.settings-row:focus-visible {
 
 .sheet-backdrop {
   position: fixed;
-  inset: 0;
-  z-index: 50;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  /* Above the composer: the composer carries z-index 50 (so the picker
+     scrim at 40 never covers it), and the sheet renders BEFORE the
+     composer in the DOM - at the same stacking level the later sibling
+     wins, which put the input bar over the panel's bottom. */
+  z-index: 60;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -3640,16 +3976,27 @@ button.settings-row:focus-visible {
 }
 
 .sheet {
-  max-height: 74dvh;
-  display: flex;
-  flex-direction: column;
+  /* Content-sized sheet: no height cap by default, so every list item is
+     always fully visible - nothing to scroll for ordinary content. Only
+     extreme content (a hundred tasks) is bounded, and the sheet then
+     overflows the top of the screen while its bottom stays visible (the
+     list's last item is never silently clipped). */
+  max-height: 100vh;
+  display: block;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-bottom: none;
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   box-shadow: var(--shadow-lg);
+  /* Clip any overflow to the rounded sheet. */
+  overflow: hidden;
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   animation: sheet-up 0.3s ease-out both;
+}
+
+/* Expanded (pulled up past the expand threshold): full viewport height. */
+.sheet-full {
+  max-height: 100vh;
 }
 
 @keyframes sheet-up {
@@ -3661,6 +4008,19 @@ button.settings-row:focus-visible {
   }
 }
 
+/* Grab header: the only place drag gestures are captured (touch-action:
+   none), so the scrollable body below owns every other vertical gesture.
+   Column flex centers the handle and title (a plain block container would
+   keep the handle flush left - align-self needs a flex/grid context). */
+.sheet-grab {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  touch-action: none;
+  cursor: grab;
+}
+
 .sheet-handle {
   flex: none;
   align-self: center;
@@ -3669,8 +4029,6 @@ button.settings-row:focus-visible {
   margin: 8px 0 2px;
   border-radius: 2px;
   background: var(--text-muted);
-  cursor: grab;
-  touch-action: none;
 }
 
 .sheet-title {
@@ -3683,11 +4041,19 @@ button.settings-row:focus-visible {
 }
 
 .sheet-body {
-  flex: 1;
-  min-height: 0;
+  /* Content-sized (height auto): an ordinary task list fits entirely and is
+     always fully visible with nothing to scroll. The generous max-height
+     only engages for extreme content, and the sheet above overflows the top
+     of the viewport before this cap is ever hit. */
+  height: auto;
+  max-height: calc(100vh - 110px);
   overflow-y: auto;
-  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 0 12px 8px;
+}
+
+.sheet-full .sheet-body {
+  max-height: calc(100vh - 96px);
 }
 
 .sheet-status {
@@ -4021,7 +4387,10 @@ button.settings-row:focus-visible {
 
 .dialog-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 60;
   display: flex;
   align-items: center;
@@ -4226,6 +4595,7 @@ button.settings-row:focus-visible {
 /* ── installed-app pairing ───────────────────────────────────────────── */
 
 .mobile-pair {
+  min-height: 100vh;
   min-height: 100dvh;
   display: grid;
   place-items: center;
@@ -4703,7 +5073,10 @@ button.settings-row:focus-visible {
 /* Voice recording sheet: 200px, waveform bars, live transcript. */
 .voice-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 55;
   display: flex;
   flex-direction: column;

@@ -17,11 +17,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
 import { loadHistory, prompt, type SessionView } from './App.tsx'
 import { errorText, staleHostHint } from './App.tsx'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, type CommandDescriptor } from '../api.ts'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, type CommandDescriptor } from '../api.ts'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
-import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage, type WireEvent } from '../messages.ts'
+import { coalesceTurnMessages, EventFolder, foldEvents, latestTodoSnapshot, parseTodoList, type RenderMessage, type TodoItem, type TodoSnapshot, type WireEvent } from '../messages.ts'
 
 /**
  * Stable row key: (turn, step) when the row carries them, else the id.
@@ -36,6 +36,7 @@ function messageKey(message: RenderMessage): string {
     ? `t${message.turn}.${message.step}`
     : message.id
 }
+import { RunStatusBar, RunStatusSheet } from '../run-status.tsx'
 import { copyText, openFilePath } from '../code-actions.ts'
 import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
@@ -51,6 +52,10 @@ import { CheckIcon, ChevronDownIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, Pe
 import { MessageRow } from '../message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
 import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
+import { TaskStatusBar } from '../task-status.tsx'
+import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
+import { SubagentTreeSheet } from '../subagent-tree-sheet.tsx'
+import { countRunningSubagents, fetchSubagentTree, type SubagentNode } from '../subagent-tree.ts'
 
 /** Props for the chat view. */
 export interface ChatViewProps {
@@ -113,6 +118,22 @@ export const BOTTOM_FOLLOW_THRESHOLD_PX = 80
 export const PENDING_POLL_IDLE_MS = 15_000
 /** Pending-item poll cadence while the SSE stream is stalled (fast coverage). */
 export const PENDING_POLL_FAST_MS = 1_500
+/** Host running-reconciliation cadence while the indicator is on (self-heals a lost turn/end). */
+export const RUNNING_RECONCILE_MS = 10_000
+/** Consecutive listSessions failures (each RUNNING_RECONCILE_MS apart) that
+ * prove the host is unreachable - the process stopped or the link is down.
+ * The reconciliation can only self-heal a lost turn/end while the host answers;
+ * once it has been silent this long, the indicator can never clear on its own,
+ * so drop it instead of showing 输出中 for a host that is no longer running. */
+export const RECONCILE_FAILURE_LIMIT = 3
+/** Frame silence that flips the indicator from 输出中 to 后台处理中 (the turn
+ * is still open but nothing visible is streaming - subagent memory upkeep
+ * and other back-office work the phone does not render). */
+export const TURN_QUIET_MS = 6_000
+/** Foreground-subagent tree poll cadence while the turn is open. The host
+ * stream (host/session-status) does not reach the phone, so subagents.list is
+ * polled at this rate to keep the count badge and tree fresh. */
+export const SUBAGENT_POLL_MS = 8_000
 
 /** Ceiling for one "load older messages" request before it aborts and errors. */
 export const LOAD_OLDER_TIMEOUT_MS = 15_000
@@ -336,6 +357,41 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   const [running, setRunning] = useState(false)
+  /** Wall-clock of the last mux frame of ANY kind (the activity probe behind
+   * the quiet-state wording - subagent sessions stream on the same mux). */
+  const lastFrameAtRef = useRef(Date.now())
+  /** Running but nothing has streamed for TURN_QUIET_MS: the host is in
+   * invisible back-office work (subagent memory upkeep etc.). */
+  const [turnQuiet, setTurnQuiet] = useState(false)
+  /** Latest `session/jobs` snapshot for this session (background tasks the
+   * parent owns: subagent delegations, bash/pwsh runs, …). The host pushes a
+   * full snapshot after every registry commit; empty = no tasks. The initial
+   * value replays the mux client's cached snapshot so tasks already running
+   * when this chat opens are visible immediately (the mux baseline arrives at
+   * app boot, before any chat is mounted). */
+  const [jobs, setJobs] = useState<JobView[]>(() => mux?.cachedJobsFor(session.sessionId) ?? [])
+  /** Latest `todo/write` snapshot for this session (the plan strip above the
+   * newest message). Adoption is last-write-wins by seq: history pages and
+   * live frames can race, and an older page must never clobber a newer live
+   * snapshot. Cleared on turn/start (the host clears the projection there). */
+  const [todo, setTodo] = useState<TodoSnapshot | undefined>(undefined)
+  const adoptTodo = useCallback((next: TodoSnapshot | undefined): void => {
+    if (next === undefined) return
+    setTodo(previous => (previous !== undefined && next.seq <= previous.seq ? previous : next))
+  }, [])
+  /** Adopt one live `todo/write` event into the plan strip (malformed → keep). */
+  const adoptTodoLatest = useCallback((event: WireEvent): void => {
+    const items = parseTodoList(event.data)
+    if (items === undefined) return
+    adoptTodo({ seq: event.seq, items })
+  }, [adoptTodo])
+  /** Foreground-subagent tree for this session (the live delegation chain).
+   * Built from `subagents.list` and overlaid with host/session-status flips. */
+  const [subagents, setSubagents] = useState<SubagentNode[]>([])
+  /** Whether the subagent-tree sheet is open (tapped from the count badge). */
+  const [subagentSheetOpen, setSubagentSheetOpen] = useState(false)
+  /** Whether the run-status bottom sheet (todo plan + background jobs) is up. */
+  const [runStatusOpen, setRunStatusOpen] = useState(false)
   /** Whether a stop request is in flight (guards the composer's stop button). */
   const [stopping, setStopping] = useState(false)
   /** Pending tool approvals awaiting user decision (#1025). */
@@ -501,6 +557,8 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     setPendingApprovals([])
     setPendingQuestions([])
     setContextPressure(undefined)
+    // The plan strip is per-session state too (the loaded tail re-seeds it).
+    setTodo(undefined)
     // The turn indicator starts from the list page's last-known state; the
     // live turn/start frame corrects it as soon as the agent emits anything.
     setRunning(session.running === true)
@@ -512,10 +570,16 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         const buffered = liveBufferRef.current
         liveBufferRef.current = []
         tailLoadingRef.current = false
-        const folder = new EventFolder(foldEvents(page.events.map(eventOf)))
+        const pageEvents = page.events.map(eventOf)
+        const folder = new EventFolder(foldEvents(pageEvents))
         folderRef.current = folder
         applyMessages(folder.fold(buffered))
         setHasOlder(page.hasMore)
+        // Seed the plan strip from the loaded tail (newest todo/write in the
+        // page wins; live frames adopt above it by seq). Buffered live events
+        // already adopted on arrival.
+        const seeded = latestTodoSnapshot(pageEvents)
+        if (seeded !== undefined) adoptTodo(seeded)
         // Auto-extend the opening context: pull one more page silently so the
         // first screen shows ~50 messages without a manual tap. Best-effort —
         // a failure keeps the loaded tail and the manual button.
@@ -584,6 +648,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   useEffect(() => {
     if (mux === undefined) return
     return mux.onFrame((frame: MuxFrame, frameRpcId?: string) => {
+      // Any frame at all (other sessions' too - the memory-upkeep subagent
+      // streams on this same mux) proves the host is actively working; it
+      // keeps the indicator in the 输出中 wording. First touch, before the
+      // per-session filters below.
+      lastFrameAtRef.current = Date.now()
+      setTurnQuiet(false)
       if (frame.type === 'session/event') {
         if (frame.sessionId !== session.sessionId) return
         const event = frame.view === undefined
@@ -591,8 +661,19 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           : { ...frame.event, view: frame.view } as WireEvent
         // Track the turn running state for the "outputting" indicator (#1017).
         if (typeof event.type === 'string') {
-          if (event.type === 'turn/start') setRunning(true)
+          if (event.type === 'turn/start') {
+            setRunning(true); setTurnQuiet(false)
+            // A turn start is when subagents spawn; refresh the tree.
+            refreshSubagentsRef.current()
+            // The host clears the todo projection at turn/start; mirror it so
+            // a stale plan never outlives the turn that wrote it.
+            setTodo(undefined)
+          }
           if (event.type === 'turn/end') setRunning(false)
+          // todo/write is a full-list snapshot (last-write-wins): adopt it
+          // into the plan strip. It keeps flowing into the fold below, which
+          // ignores unknown types, so the message stream is unaffected.
+          if (event.type === 'todo/write') adoptTodoLatest(event)
         }
         if (tailLoadingRef.current) {
           if (liveBufferRef.current.length >= MAX_TAIL_BUFFER_EVENTS) {
@@ -628,6 +709,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       if (frame.type === 'session/projection' && frame.sessionId === session.sessionId) {
         if (frame.key === 'permissions') setPermissions(parsePermissionSelect(frame.value))
         if (frame.key === 'contextPressure') setContextPressure(parseContextPressure(frame.value))
+        return
+      }
+      // Background-task snapshot for this session (subagent delegations etc.).
+      // The host sends a full set after every registry commit; adopt it whole.
+      if (frame.type === 'session/jobs' && frame.sessionId === session.sessionId) {
+        setJobs(frame.jobs)
         return
       }
       // Approval/question frames for this session (#1025).
@@ -697,6 +784,103 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     tick()
     return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
   }, [running, session.sessionId, mux])
+
+  // Running reconciliation: the live turn/end frame can be lost to a tunnel
+  // blip - the EventSource reconnects, its keep-alives resume, the polling
+  // fallback never arms, and the indicator would stay on for a finished turn
+  // until the next full reload. While running, re-check the host's own view
+  // of this session on a slow cadence and adopt it (the host answer is
+  // authoritative - it also covers a dropped stopTurn ack the same way).
+  useEffect(() => {
+    if (!running) return
+    let cancelled = false
+    let failures = 0
+    const id = setInterval(() => {
+      void listSessions().then(
+        (page) => {
+          if (cancelled) return
+          // A successful answer proves the host is reachable; reset the
+          // unreachable streak so a single blip never clears the indicator.
+          failures = 0
+          const row = page.items.find(item => item.sessionId === session.sessionId)
+          // Only a row that explicitly says the agent is running short-circuits
+          // the history scan. A MISSING row is deliberately NOT a short-circuit:
+          // the phone's /m/api session.list sorts by updatedAt (= max(createdAt,
+          // lastPromptAt), not activity) and pages, so a session that has been
+          // quiet for a while can fall off the first page while its turn is (or
+          // was) open. Treating "not on this page" as "skip" made the indicator
+          // stick forever for exactly those sessions.
+          if (row !== undefined && row.running !== false) return
+          // The list's running flag is AGENT liveness (agent?.status ===
+          // 'running'), which can be false while the turn is still open: the
+          // agent parks while a subagent runs and resumes when it returns.
+          // Only clear the indicator when the turn itself has ended - scan
+          // the history tail for the last turn boundary. One message's tail
+          // window is enough: turn/end follows the closing assistant message
+          // (turn/start precedes the opening user message), so the scan sees
+          // the boundary when the turn ended and finds nothing to act on while
+          // a turn is open - keeping the indicator either way.
+          void history(session.sessionId, undefined, 1).then(
+            (hpage) => {
+              if (cancelled) return
+              for (let i = hpage.events.length - 1; i >= 0; i--) {
+                const t = hpage.events[i]?.event?.type
+                if (t === 'turn/end') { setRunning(false); return }
+                if (t === 'turn/start') return // still open - agent parked on a subagent
+              }
+            },
+            () => { /* transient; the next interval retries */ },
+          )
+        },
+        () => {
+          // The host is unreachable (process stopped / link down). A single
+          // blip is transient, but sustained failure means the live channel
+          // is gone and the indicator can never self-heal - clear it so the
+          // phone does not show 输出中 for a host that is no longer running.
+          if (cancelled) return
+          failures += 1
+          if (failures >= RECONCILE_FAILURE_LIMIT) setRunning(false)
+        },
+      )
+    }, RUNNING_RECONCILE_MS)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [running, session.sessionId])
+
+  // Foreground-subagent tree: fetch on mount/session-switch, and refetch on
+  // turn/start and on a descendant session-added (see onFrame). The live
+  // host/session-status overlay keeps running flips instant between fetches.
+  const refreshSubagents = useCallback(() => {
+    void fetchSubagentTree(session.sessionId).then(
+      (nodes) => { setSubagents(nodes) },
+      () => { /* transient; the next trigger retries */ },
+    )
+  }, [session.sessionId])
+  const refreshSubagentsRef = useRef(refreshSubagents)
+  refreshSubagentsRef.current = refreshSubagents
+  useEffect(() => {
+    refreshSubagents()
+  }, [refreshSubagents])
+  // While the turn is open, poll the tree so the count badge and sheet stay
+  // fresh (new subagents spawn mid-turn; the host stream is not forwarded).
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => { refreshSubagentsRef.current() }, SUBAGENT_POLL_MS)
+    return () => { clearInterval(id) }
+  }, [running])
+
+  // Quiet flip: while the turn is open but the mux has been silent past
+  // TURN_QUIET_MS, the wording flips from 输出中 to 后台处理中 — the host is
+  // still on the turn though nothing visible is streaming (subagent memory
+  // upkeep and other back-office work the phone does not render). One cheap
+  // interval; setQuiet with an unchanged value does not re-render.
+  useEffect(() => {
+    if (!running) { setTurnQuiet(false); return }
+    const id = setInterval(() => {
+      const quiet = Date.now() - lastFrameAtRef.current > TURN_QUIET_MS
+      setTurnQuiet(prev => prev === quiet ? prev : quiet)
+    }, 1_000)
+    return () => clearInterval(id)
+  }, [running])
 
   // Windowed rendering: rebuild the estimated-height prefix whenever the
   // message list changes (or a row measurement lands), then keep the window
@@ -1646,6 +1830,8 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     return () => cancelAnimationFrame(frame)
   }, [windowed, located, messages, measuredTick, correctionTick, pinToRealBottom])
 
+  const runningSubagents = countRunningSubagents(subagents)
+
   return (
     <div className="chat">
       <header className="mobile-header">
@@ -1805,8 +1991,18 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
         {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
         {running && (
-          <div className="chat-turn-status" role="status" aria-label="输出中">
-            输出中<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
+          <div className="chat-turn-status" role="status" aria-label={turnQuiet ? '后台处理中' : '输出中'}>
+            {turnQuiet ? '后台处理中' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
+            {runningSubagents > 0 && (
+              <button
+                type="button"
+                className="chat-subagent-badge"
+                aria-label={`${runningSubagents} 个子代理运行中`}
+                onClick={() => { setSubagentSheetOpen(true) }}
+              >
+                {runningSubagents} 子代理
+              </button>
+            )}
           </div>
         )}
         {pendingApprovals.map(approval => (
@@ -1836,6 +2032,11 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           </button>
         )}
       </div>
+      <RunStatusBar
+        todo={todo}
+        jobs={jobs}
+        onOpen={() => { setRunStatusOpen(true) }}
+      />
       <div className="chat-tools">
         <div className="chat-tools-actions">
           <button
@@ -2006,6 +2207,13 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           <button type="button" className="chat-picker-more" onClick={() => { setPicker(null); setSheet('permission') }}>全部…</button>
         </div>
       )}
+      {runStatusOpen && (
+        <RunStatusSheet
+          todo={todo}
+          jobs={jobs}
+          onClose={() => { setRunStatusOpen(false) }}
+        />
+      )}
       <div className="chat-composer">
         {quoted !== undefined && (
           <div className="chat-quote-bar" role="note" aria-label="引用消息">
@@ -2132,6 +2340,9 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           }}
           onClose={() => { setSheet(null) }}
         />
+      )}
+      {subagentSheetOpen && (
+        <SubagentTreeSheet nodes={subagents} onClose={() => { setSubagentSheetOpen(false) }} />
       )}
       {moreOpen && (
         <Sheet title={title} onClose={() => { setMoreOpen(false) }}>

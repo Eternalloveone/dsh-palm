@@ -1,6 +1,6 @@
 # dsh-palm
 
-**掌上 dsh** — the standalone mobile surface for the [dsh](https://github.com/deepseek-ai/deepseek-harness) web GUI: scan-to-pair device trust, the `/m/` phone UI, the `/m/api` RPC channel with a realtime SSE mux bridge, and a polished desktop pairing panel.
+**dsh in your palm** — the standalone mobile surface for the [dsh](https://github.com/deepseek-ai/deepseek-harness) web GUI: scan-to-pair device trust, the `/m/` phone UI, the `/m/api` RPC channel with a realtime SSE mux bridge, and a polished desktop pairing panel.
 
 Derived from [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web) — see [NOTICE](NOTICE) for attribution.
 

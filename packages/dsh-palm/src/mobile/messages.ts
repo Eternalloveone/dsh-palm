@@ -203,6 +203,60 @@ function pickNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+/** One plan item carried by a `todo/write` snapshot (host TodoItem shape). */
+export interface TodoItem {
+  /** What this task is — a short imperative line shown in the UI. */
+  readonly content: string
+  /** Lifecycle state; parallel work may mark several `in_progress`. */
+  readonly status: 'pending' | 'in_progress' | 'completed'
+}
+
+const TODO_STATUSES: readonly string[] = ['pending', 'in_progress', 'completed']
+
+/**
+ * Parse a `todo/write` payload (`{ todos: TodoItem[] }`) into a validated
+ * list. Malformed snapshots (wrong root, non-array, null items, bad status)
+ * yield `undefined` — the caller keeps showing the previous list rather than
+ * blanking the plan strip on one bad write.
+ */
+export function parseTodoList(data: unknown): TodoItem[] | undefined {
+  if (!isRecord(data)) return undefined
+  const todos = data['todos']
+  if (!Array.isArray(todos)) return undefined
+  const items: TodoItem[] = []
+  for (const raw of todos) {
+    if (!isRecord(raw)) return undefined
+    const content = pickString(raw['content'])
+    const status = pickString(raw['status'])
+    if (content === undefined || status === undefined) return undefined
+    if (!TODO_STATUSES.includes(status)) return undefined
+    items.push({ content, status: status as TodoItem['status'] })
+  }
+  return items
+}
+
+/** Todo snapshot type with its event seq (adoption is last-write-wins). */
+export interface TodoSnapshot {
+  readonly seq: number
+  readonly items: TodoItem[]
+}
+
+/**
+ * The newest valid `todo/write` snapshot across events, or undefined when
+ * none exists. Scans from the tail (later writes win); a malformed newest
+ * snapshot falls through to an older valid one.
+ */
+export function latestTodoSnapshot(events: readonly WireEvent[]): TodoSnapshot | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.type !== 'todo/write') continue
+    const items = parseTodoList(event.data)
+    if (items === undefined) continue
+    return { seq: event.seq, items }
+  }
+  return undefined
+}
+
 /** Fallback message id for events without a stable wire id. */
 function syntheticId(prefix: string, seq: number): string {
   return `${prefix}#${String(seq)}`

@@ -6,7 +6,7 @@ import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { ChatView, estimateMessageHeight, MAX_TAIL_BUFFER_EVENTS } from './ChatView.tsx'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
 import { type SessionView } from './App.tsx'
-import type { HistoryPage } from '../api.ts'
+import type { HistoryPage, SessionPage } from '../api.ts'
 import type { RenderMessage, WireEvent } from '../messages.ts'
 
 // The api module is fully mocked; App.tsx's history wrapper is overridden to
@@ -20,6 +20,9 @@ vi.mock('../api.ts', () => ({
   fetchPending: vi.fn(),
   renameSession: vi.fn(),
   archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
+  listSessions: vi.fn(),
+  history: vi.fn(),
+  subagentsList: vi.fn(),
 }))
 vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
@@ -43,7 +46,7 @@ vi.mock('../offline.ts', () => ({
   removeFromOutbox: vi.fn(),
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
+import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, listSessions, history, subagentsList } from '../api.ts'
 import { loadHistory, prompt } from './App.tsx'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
@@ -74,6 +77,10 @@ function historyPage(events: Array<{ event: WireEvent }>, extra: Record<string, 
 /** Minimal mux stand-in: captures the ChatView's frame listener for hand-off. */
 class FakeMux {
   listeners = new Set<(frame: unknown) => void>()
+  cached: Record<string, unknown[]> = {}
+  cachedJobsFor(sessionId: string): unknown[] | undefined {
+    return this.cached[sessionId]
+  }
   onFrame(listener: (frame: unknown) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -115,7 +122,10 @@ const selectModelMock = vi.mocked(selectModel)
 const sendCommandMock = vi.mocked(sendCommand)
 const cancelSessionMock = vi.mocked(cancelSession)
 const fetchPendingMock = vi.mocked(fetchPending)
+const listSessionsMock = vi.mocked(listSessions)
+const historyMock = vi.mocked(history)
 const loadHistoryMock = vi.mocked(loadHistory)
+const subagentsListMock = vi.mocked(subagentsList)
 const promptMock = vi.mocked(prompt)
 const startVoiceRecordingMock = vi.mocked(startVoiceRecording)
 const voiceSupportedMock = vi.mocked(voiceSupported)
@@ -145,6 +155,10 @@ beforeEach(() => {
   sendCommandMock.mockResolvedValue({ matched: true })
   cancelSessionMock.mockResolvedValue({ accepted: true })
   fetchPendingMock.mockResolvedValue({ approvals: [], questions: [] })
+  listSessionsMock.mockResolvedValue({ items: [], hasMore: false })
+  // Default history tail: the turn has ended (so reconciliation may clear).
+  historyMock.mockResolvedValue(historyPage([makeEntry('turn/end', {}, 99)]))
+  subagentsListMock.mockResolvedValue({ entries: [], parentAvailable: true })
 })
 
 afterEach(() => {
@@ -252,6 +266,9 @@ describe('ChatView initial-load race', () => {
   /** Minimal mux stand-in: captures the ChatView's frame listener for hand-off. */
   class FakeMux {
     listeners = new Set<(frame: unknown) => void>()
+    cachedJobsFor(): unknown[] | undefined {
+      return undefined
+    }
     onFrame(listener: (frame: unknown) => void): () => void {
       this.listeners.add(listener)
       return () => { this.listeners.delete(listener) }
@@ -1165,14 +1182,15 @@ describe('ChatView in-place quick picker strips', () => {
   })
 })
 
-describe('ChatView stop button (#1041)', () => {
-  /** Emit one session lifecycle frame for the chat's session. */
-  function emitSessionEvent(mux: FakeMux, type: string, seq: number): void {
-    act(() => {
-      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry(type, {}, seq).event })
-    })
-  }
+/** Emit one session lifecycle frame for the chat's session (file-level: the
+ * stop-button suite and the plan-strip suite both use it). */
+function emitSessionEvent(mux: FakeMux, type: string, seq: number): void {
+  act(() => {
+    mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry(type, {}, seq).event })
+  })
+}
 
+describe('ChatView stop button (#1041)', () => {
   it('switches the composer primary to a stop button while running and cancels the turn', async () => {
     loadHistoryMock.mockResolvedValue(historyPage([]))
     const mux = new FakeMux()
@@ -1230,6 +1248,310 @@ describe('ChatView stop button (#1041)', () => {
     emitSessionEvent(mux, 'turn/start', 1)
     fireEvent.click(await screen.findByRole('button', { name: '停止' }))
     expect(await screen.findByText(/cancel exploded/)).toBeTruthy()
+  })
+
+  it('reconciles a lost turn/end frame against the host running state', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      // Turn starts over the live stream, but the turn/end frame is lost to
+      // the reconnect (no correction ever arrives over SSE).
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // The host's own view is authoritative: while it still runs, the
+      // reconciliation must not clobber the indicator.
+      listSessionsMock.mockResolvedValue({
+        items: [{ sessionId: 's-1', running: true } as never],
+        hasMore: false,
+      } as SessionPage)
+      await vi.advanceTimersByTimeAsync(10_000)
+      // Ten silent seconds in, the wording is 后台处理中; reconciliation
+      // with a still-running host must NOT clear the row.
+      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+
+      // The host reports the turn finished: the indicator self-heals.
+      listSessionsMock.mockResolvedValue({
+        items: [{ sessionId: 's-1', running: false } as never],
+        hasMore: false,
+      } as SessionPage)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the indicator even when the session is off the first list page (missing row)', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // The phone's session.list pages by updatedAt (NOT activity): a session
+      // that has been quiet for a while falls off the first page even while
+      // its turn is open. The list therefore has no row for it - the old
+      // "row missing => skip" gate stuck the indicator forever. The history
+      // tail is authoritative: a finished turn still self-heals.
+      listSessionsMock.mockResolvedValue({
+        items: [{ sessionId: 'other-session', running: false } as never],
+        hasMore: false,
+      } as SessionPage)
+      historyMock.mockResolvedValue(historyPage([makeEntry('turn/end', {}, 60)]))
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(historyMock).toHaveBeenCalled()
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the indicator when the session is off the first list page but the turn is open (missing row)', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // Same missing-row situation, but the turn is still open (history tail
+      // ends in turn/start, e.g. the agent parked on a subagent): the scan
+      // must NOT clear the indicator.
+      listSessionsMock.mockResolvedValue({
+        items: [{ sessionId: 'other-session', running: false } as never],
+        hasMore: false,
+      } as SessionPage)
+      historyMock.mockResolvedValue(historyPage([makeEntry('turn/start', {}, 60)]))
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the indicator when the host is unreachable (sustained listSessions failure)', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // The host process is dead: every reconciliation probe fails. A single
+      // blip must not clear the row, but sustained failure (the host can
+      // never answer) must drop the indicator instead of showing 输出中 forever.
+      listSessionsMock.mockRejectedValue(new Error('host unreachable'))
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      // Third consecutive failure (30 s of unreachability): the indicator clears.
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('status', { name: '后台处理中' })).toBeNull()
+      expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the indicator when the agent is parked on a subagent (list running=false, turn open)', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // The list says the agent is not running (it parks while a subagent
+      // runs), but the turn is still open - the history tail ends in
+      // turn/start, not turn/end. Reconciliation must NOT clear the row.
+      listSessionsMock.mockResolvedValue({
+        items: [{ sessionId: 's-1', running: false } as never],
+        hasMore: false,
+      } as SessionPage)
+      historyMock.mockResolvedValue(historyPage([makeEntry('turn/start', {}, 50)]))
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flips the indicator wording to 后台处理中 while frames go silent', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    // The agent is genuinely running throughout this test: reconciliation
+    // must not consult history (its default turn/end mock would clear the
+    // indicator) while the frame stream just goes quiet.
+    listSessionsMock.mockResolvedValue({
+      items: [{ sessionId: 's-1', running: true } as never],
+      hasMore: false,
+    } as SessionPage)
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // Frames keep flowing for a while: the wording stays 输出中.
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // The stream stops but the turn is still open: back-office wording.
+      await vi.advanceTimersByTimeAsync(7_000)
+      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+
+      // Any frame at all - even another session's (the memory-upkeep
+      // subagent streams on the same mux) - restores the typing wording.
+      act(() => { mux.emit({ type: 'session/event', sessionId: 's-sub', event: makeEntry('assistant/message', {}, 5).event }) })
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      emitSessionEvent(mux, 'turn/end', 9)
+      // The status row is gone (the context ring keeps its own role=status,
+      // so assert on the wording, not the bare role).
+      expect(screen.queryByText('后台处理中')).toBeNull()
+      expect(screen.queryByText('输出中')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('ChatView run-status strip (session/jobs)', () => {
+  const job = (id: string, status: string, label = '整理记忆'): never => ({
+    id, kind: 'subagent', label, status, startedAt: 1_700_000_000_000,
+  }) as never
+
+  it('shows a strip from a session/jobs frame and lists jobs in the sheet', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    // No jobs yet: the strip is absent.
+    expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull()
+
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [job('subagent-1', 'running', '整理记忆')] }) })
+    const strip = screen.getByRole('button', { name: /后台任务 1 个运行中/ })
+    expect(strip).toBeTruthy()
+
+    // Open the run-status sheet: the job row is listed there.
+    fireEvent.click(strip)
+    expect(screen.getByRole('dialog', { name: '运行状态' })).toBeTruthy()
+    expect(screen.getByText('整理记忆')).toBeTruthy()
+    expect(screen.getByText(/子代理 · 运行中/)).toBeTruthy()
+  })
+
+  it('ignores session/jobs frames for other sessions', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-other', jobs: [job('subagent-9', 'running')] }) })
+    expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull()
+  })
+
+  it('hides the strip when the jobs snapshot empties', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [job('subagent-1', 'running')] }) })
+    expect(screen.getByRole('button', { name: /后台任务/ })).toBeTruthy()
+
+    // The host sends [] when the last task settles: the strip disappears.
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [] }) })
+    expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull()
+  })
+
+  it('seeds the strip from the mux-cached snapshot when a chat opens', async () => {
+    // The mux baseline arrived at app boot, before this chat was mounted; the
+    // tasks were cached by the client and replay on mount.
+    const mux = new FakeMux()
+    mux.cached['s-1'] = [job('pwsh-7', 'running', '后台构建')]
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    // No frame has arrived yet — the strip already reflects the cached task.
+    expect(screen.getByRole('button', { name: /后台任务 1 个运行中/ })).toBeTruthy()
+  })
+
+  it('keeps the strip absent when the mux has no cached snapshot', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull()
+  })
+})
+
+describe('ChatView foreground-subagent badge + tree sheet', () => {
+  const runningChild = (): never => ({
+    kind: 'child', id: 's-sub', mode: 'one-shot', activity: 'running', hasChildren: false, label: '整理记忆',
+  }) as never
+
+  it('shows a count badge for running subagents and opens the tree sheet', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    subagentsListMock.mockResolvedValue({ entries: [runningChild()], parentAvailable: true })
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    // No running turn yet: no badge.
+    expect(screen.queryByRole('button', { name: /个子代理运行中/ })).toBeNull()
+
+    // Turn starts; the tree fetch reports one running subagent → badge appears.
+    act(() => { mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('turn/start', {}, 1).event }) })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '1 个子代理运行中' })).toBeTruthy()
+    })
+
+    // Tapping the badge opens the tree sheet with the subagent label.
+    fireEvent.click(screen.getByRole('button', { name: '1 个子代理运行中' }))
+    expect(screen.getByRole('dialog', { name: '子代理' })).toBeTruthy()
+    expect(screen.getByText('整理记忆')).toBeTruthy()
+    expect(screen.getByText('运行中')).toBeTruthy()
+  })
+
+  it('hides the badge when no subagent is running', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    subagentsListMock.mockResolvedValue({
+      entries: [{ kind: 'child', id: 's-sub', mode: 'one-shot', activity: 'inactive', hasChildren: false, label: '整理记忆' } as never],
+      parentAvailable: true,
+    })
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    act(() => { mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('turn/start', {}, 1).event }) })
+    await waitFor(() => { expect(subagentsListMock).toHaveBeenCalled() })
+    expect(screen.queryByRole('button', { name: /个子代理运行中/ })).toBeNull()
   })
 })
 
@@ -1614,6 +1936,74 @@ describe('ChatView offline banner', () => {
     expect(await screen.findByText('离线消息')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '移除待发送消息' }))
     await waitFor(() => { expect(removeFromOutboxMock).toHaveBeenCalledWith('o1') })
+  })
+})
+
+describe('ChatView run-status strip (todo/write)', () => {
+  const TODOS = [{ content: '写代码', status: 'in_progress' as const }, { content: '发版', status: 'completed' as const }]
+
+  it('shows a strip from a live todo/write frame and lists items in the sheet', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    // No todo yet: no strip.
+    expect(screen.queryByRole('button', { name: /任务 / })).toBeNull()
+    act(() => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: TODOS }, 40).event })
+    })
+    const strip = screen.getByRole('button', { name: /任务 1\/2/ })
+    expect(strip).toBeTruthy()
+
+    // Open the run-status sheet: the plan items are listed there.
+    fireEvent.click(strip)
+    expect(screen.getByRole('dialog', { name: '运行状态' })).toBeTruthy()
+    expect(screen.getByText('写代码')).toBeTruthy()
+    expect(screen.getByText('发版')).toBeTruthy()
+  })
+
+  it('seeds the strip from the history tail (newest todo/write wins)', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([
+      makeEntry('todo/write', { todos: [{ content: '旧任务', status: 'pending' }] }, 10),
+      ...turnEvents(),
+      makeEntry('todo/write', { todos: TODOS }, 30),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(await screen.findByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
+  })
+
+  it('clears the strip on turn/start (no jobs) and re-adopts later snapshots', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([makeEntry('todo/write', { todos: TODOS }, 10)]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(await screen.findByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
+
+    // A new turn starts: the host clears the projection; the strip leaves.
+    emitSessionEvent(mux, 'turn/start', 20)
+    expect(screen.queryByRole('button', { name: /任务 / })).toBeNull()
+
+    // The new turn writes its own plan.
+    act(() => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: [{ content: '新一轮', status: 'in_progress' }] }, 21).event })
+    })
+    expect(screen.getByRole('button', { name: /任务 0\/1/ })).toBeTruthy()
+  })
+
+  it('ignores malformed todo snapshots and keeps the previous strip', async () => {
+    loadHistoryMock.mockResolvedValue(historyPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    act(() => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: TODOS }, 40).event })
+    })
+    expect(screen.getByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
+    act(() => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: 'bad' }, 41).event })
+    })
+    expect(screen.getByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
   })
 })
 

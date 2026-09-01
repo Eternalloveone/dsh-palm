@@ -496,3 +496,58 @@ describe('MuxClient polling fallback', () => {
     client.stop()
   })
 })
+
+describe('MuxClient background-task cache', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  /** A one-line JobView as the session/jobs payload. */
+  function jobsPayload(jobs: unknown[]): unknown {
+    return { type: 'session/jobs', sessionId: 's1', jobs }
+  }
+
+  it('retains a session/jobs frame even when delivered with no listeners mounted', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    // The jobs baseline arrives at app boot — before any chat view subscribes.
+    sources[0]?.onmessage?.({
+      data: envelopeWith(jobsPayload([{ id: 'pwsh-1', kind: 'pwsh', label: 'sleep 120', status: 'running', startedAt: 5 }])),
+    })
+    expect(client.cachedJobsFor('s1')?.map(job => job.id)).toEqual(['pwsh-1'])
+    expect(client.cachedJobsFor('other')).toBeUndefined()
+    client.stop()
+  })
+
+  it('lets a freshly mounted view replay the last known tasks via cachedJobsFor', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    sources[0]?.onmessage?.({
+      data: envelopeWith(jobsPayload([{ id: 'pwsh-1', kind: 'pwsh', label: 'build', status: 'completed', startedAt: 5, finishedAt: 9 }])),
+    })
+    // A newer live push supersedes the cached snapshot.
+    sources[0]?.onmessage?.({
+      data: envelopeWith(jobsPayload([])),
+    })
+    expect(client.cachedJobsFor('s1')).toEqual([])
+    client.stop()
+  })
+
+  it('keeps the cache bounded to MAX_CACHED_JOBS_SESSION sessions', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    for (let index = 0; index < 70; index += 1) {
+      const payload = { type: 'session/jobs', sessionId: `s${index}`, jobs: [] }
+      sources[0]?.onmessage?.({ data: envelopeWith(payload) })
+    }
+    // The oldest 6 (s0..s5) were evicted once the cap was reached.
+    expect(client.cachedJobsFor('s69')).toEqual([])
+    expect(client.cachedJobsFor('s60')).toEqual([])
+    expect(client.cachedJobsFor('s5')).toBeUndefined()
+    expect(client.cachedJobsFor('s0')).toBeUndefined()
+    client.stop()
+  })
+})

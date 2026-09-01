@@ -1,6 +1,6 @@
 /** foldEvents: message-list folding from a session event stream. */
 import { describe, expect, it } from 'vitest'
-import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage, type WireEvent } from './messages.ts'
+import { coalesceTurnMessages, EventFolder, foldEvents, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
 
 /** Assemble one event with an auto-incrementing seq / time. */
 function makeEvent(
@@ -659,5 +659,51 @@ describe('coalesceTurnMessages', () => {
     const unturned = step('a-1', undefined as never, '无 turn', 1) as RenderMessage
     const without = coalesceTurnMessages([unturned, unturned])
     expect(without).toHaveLength(2)
+  })
+})
+
+describe('todo plan snapshots (todo/write)', () => {
+  it('parses a valid todo/write payload', () => {
+    const parsed = parseTodoList({
+      todos: [
+        { content: '写代码', status: 'in_progress' },
+        { content: '跑测试', status: 'pending' },
+        { content: '发版', status: 'completed' },
+      ],
+    })
+    expect(parsed).toEqual([
+      { content: '写代码', status: 'in_progress' },
+      { content: '跑测试', status: 'pending' },
+      { content: '发版', status: 'completed' },
+    ])
+  })
+
+  it('rejects malformed snapshots (root, array, item, status)', () => {
+    expect(parseTodoList(null)).toBeUndefined()
+    expect(parseTodoList({})).toBeUndefined()
+    expect(parseTodoList({ todos: 'nope' })).toBeUndefined()
+    expect(parseTodoList({ todos: [null] })).toBeUndefined()
+    expect(parseTodoList({ todos: [{ content: 'x', status: 'done' }] })).toBeUndefined()
+    expect(parseTodoList({ todos: [{ status: 'pending' }] })).toBeUndefined()
+    expect(parseTodoList({ todos: [{ content: 'x' }] })).toBeUndefined()
+  })
+
+  it('returns the newest valid snapshot across events (last-write-wins, malformed newer falls through)', () => {
+    const events: WireEvent[] = [
+      makeEvent('todo/write', { todos: [{ content: '旧', status: 'pending' }] }, 10),
+      makeEvent('assistant/message', assistantMessageData('a-1', 1, 0, 'hi'), 11),
+      makeEvent('todo/write', { todos: [{ content: '新', status: 'completed' }] }, 12),
+    ]
+    expect(latestTodoSnapshot(events)).toEqual({ seq: 12, items: [{ content: '新', status: 'completed' }] })
+    const malformed: WireEvent[] = [
+      ...events,
+      makeEvent('todo/write', { todos: 'bad' }, 13),
+    ]
+    expect(latestTodoSnapshot(malformed)).toEqual({ seq: 12, items: [{ content: '新', status: 'completed' }] })
+  })
+
+  it('returns undefined when no valid todo/write exists', () => {
+    expect(latestTodoSnapshot([])).toBeUndefined()
+    expect(latestTodoSnapshot([makeEvent('turn/start', {}, 1)])).toBeUndefined()
   })
 })

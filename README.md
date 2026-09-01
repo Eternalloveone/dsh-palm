@@ -2,8 +2,6 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-掌上 dsh —— dsh web GUI 的独立移动端界面。
-
 The standalone mobile surface for the [dsh](https://github.com/deepseek-ai/deepseek-harness) web GUI: scan-to-pair device trust, the `/m/` phone UI, the `/m/api` RPC channel with a realtime SSE mux bridge, and a desktop pairing panel.
 
 ## Attribution
@@ -18,13 +16,14 @@ dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1
 
 | | |
 |---|---|
-|---|---|
 | ![Workspace](docs/screenshots/workspace.png) | **Workspace** — project roster with search, pin and recent |
 | ![Session list](docs/screenshots/sessions.png) | **Session list** — per-project sessions grouped by day, with a new-session button |
 | ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown with tool tags, interactive diff cards and syntax-highlighted code blocks |
 | ![Diff cards](docs/screenshots/diff.png) | **Diff cards** — `diff` fences render as interactive cards with accept / reject actions |
 | ![Image attach](docs/screenshots/attach.png) | **Image attach** — paste or pick images, auto-compressed before send |
 | ![Settings](docs/screenshots/settings.png) | **Settings** — display, theme and message-visibility preferences |
+| ![Run status](docs/screenshots/run-status.png) | **Run status** — the todo plan and background jobs share a live strip above the toolbar (2 of 6 tasks done, 1 background job running) |
+| ![Task sheet](docs/screenshots/tasks.png) | **Task sheet** — tapping the strip opens both lists: the task list (✓/●/○, struck-through when done) and background jobs (kind, status, timing) |
 | ![Pairing](docs/screenshots/pair.png) | **Pairing** — scan-to-pair device trust |
 
 ## Highlights
@@ -51,6 +50,7 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 - **Code actions** — copy, insert into editor, open, download, sandbox run; file-path tokens link to the host opener
 - **Command cards** — slash-command discovery and execution with running / success / error lifecycle
 - **Approval & question panels** — tool approvals stream in realtime and resolve in place; answers are bound to the owning device session (no cross-device stealing)
+- **Run-status strip & task sheet** — todo plans (`todo/write` snapshots) and background jobs (`session/jobs`) collapse into one compact strip above the toolbar; tapping opens a bottom sheet with both lists — plan rows (✓/●/○, completed struck through) and job rows (kind, live status, start/end timing), in-flight first
 - **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget; over-limit and decode failures surface as toasts instead of silent drops
 - **Voice input & transcription** — in-browser WAV recording (auto-finishes at 60 s, cleans up on leave), OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list; host-configured services are shown as display facts only — host API keys never leave the host
 - **Plugin market** — browse, search and install plugins from the phone
@@ -77,6 +77,7 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 - **Desktop pairing panel** — manage paired devices from the dsh web GUI
 - **`/m/` phone UI** — chat, workspace, approvals, image upload; code blocks with syntax highlighting, line numbers and diff cards
 - **`/m/api` RPC channel** — method whitelist + channel rules, with an `events.mux` SSE bridge for realtime updates
+- **Run-status strip & task panel** — the todo plan and background jobs share one entry point above the composer; both stream live from host snapshots
 - **Desktop-phone live sync** — one shared event stream; measured end-to-end latency: loopback 4 ms, public tunnel 9 ms, Tailscale 13 ms (median)
 - **Clean streaming output** — windowed prefix rendering, incremental escaped-tail preview, no typewriter cursor
 - **Collapsible reasoning blocks** — in-body thinking folds into a disclosure
@@ -87,7 +88,7 @@ The following are independent innovations over the upstream [dsh-remote-web-ui](
 - **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget
 - **Voice input & transcription** — in-browser WAV recording, OpenAI-compatible multi-service fallback (SenseVoiceSmall first)
 - **Plugin market** — browse, search and install plugins from the phone
-- **Session delete** — from the chat 更多 menu or a long-press on the roster; clears the offline outbox for that session
+- **Session delete** — from the chat overflow menu or a long-press on the roster; clears the offline outbox for that session
 - **PWA** — installable, versioned service worker, offline-capable bundle
 - **Offline outbox** — prompts queue in IndexedDB and flush automatically on reconnect; crash-safe (sending flag), per-entry removal
 - **gzip-compressed API responses** — weak-link friendly

@@ -63,6 +63,9 @@ const session: SessionView = {
 /** Minimal mux stand-in: captures the ChatView's frame listener for hand-off. */
 class FakeMux {
   listeners = new Set<(frame: unknown, rpcId?: string) => void>()
+  cachedJobsFor(): unknown[] | undefined {
+    return undefined
+  }
   onFrame(listener: (frame: unknown, rpcId?: string) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
