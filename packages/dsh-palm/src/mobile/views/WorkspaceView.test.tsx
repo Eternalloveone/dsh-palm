@@ -91,7 +91,7 @@ describe('mobile workspace creation', () => {
     render(<WorkspaceView onPick={onPick} />)
 
     // Wait for workspaces to load
-    const createBtn = await screen.findByText('+ 新建工作区')
+    const createBtn = await screen.findByText('新建工作区')
     
     // Click create button
     fireEvent.click(createBtn)
@@ -123,7 +123,7 @@ describe('mobile workspace creation', () => {
     render(<WorkspaceView onPick={onPick} />)
 
     // Open dir browser
-    fireEvent.click(await screen.findByText('+ 新建工作区'))
+    fireEvent.click(await screen.findByText('新建工作区'))
     
     // Wait for first dir listing
     const projBtn = await screen.findByText('projects')
@@ -184,7 +184,7 @@ describe('mobile workspace creation', () => {
     const onPick = vi.fn()
     render(<WorkspaceView onPick={onPick} />)
 
-    fireEvent.click(await screen.findByText('+ 新建工作区'))
+    fireEvent.click(await screen.findByText('新建工作区'))
     
     const selectBtn = await screen.findByText('选择此目录')
     fireEvent.click(selectBtn)
@@ -204,7 +204,7 @@ describe('mobile workspace creation', () => {
     const onPick = vi.fn()
     render(<WorkspaceView onPick={onPick} />)
 
-    fireEvent.click(await screen.findByText('+ 新建工作区'))
+    fireEvent.click(await screen.findByText('新建工作区'))
 
     // Verify error from listing
     expect(await screen.findByText('Permission denied')).toBeTruthy()

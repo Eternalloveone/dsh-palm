@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-02
+
+### Fixed
+
+- **The create-workspace card no longer doubles the plus sign** — the icon and the label both carried a `+`, so the button read `+ + 新建工作区`; the label now stands alone next to the icon
+- **The sidebar phone trigger is a smartphone again** — the remote-control icon was an old handset silhouette; it is redrawn as a modern rounded phone with an earpiece line and home bar, matching the desktop icon set's outline style
+
 ## [0.4.1] - 2026-09-02
 
 ### Fixed

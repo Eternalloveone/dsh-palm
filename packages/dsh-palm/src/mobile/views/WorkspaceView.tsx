@@ -579,7 +579,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
           <li style={{ listStyle: 'none' }}>
             <button type="button" className="mobile-createCard" onClick={() => setIsCreating(true)}>
               <PlusIcon />
-              + 新建工作区
+              新建工作区
             </button>
           </li>
         )}
