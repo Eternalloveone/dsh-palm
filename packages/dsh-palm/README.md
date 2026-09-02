@@ -22,6 +22,7 @@ Already-paired devices keep working after switching install sources.
 - **Windowed streaming renderer** — inline-markdown tail preview, no typewriter cursor, collapsible reasoning blocks
 - **Interactive diff cards, code actions, command cards, realtime approval panels, image attach, voice transcription, plugin market**
 - **PWA + offline outbox + gzip-compressed API responses** — weak-network friendly
+- **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (Server酱 / Bark / Telegram) for when the app is closed; thresholds and cooldowns are configurable from the phone
 - **Six-digit pairing code** — type a code on the phone instead of scanning
 - **Three-step pairing wizard** — configure → pair → use, with tunnel detection (Tailscale one-click, frp entry from `frpc.toml`), reachability-checked saving, and a clean device-management view once paired
 - **Workspace-native theming** — the panel follows the system light/dark scheme via `prefers-color-scheme`

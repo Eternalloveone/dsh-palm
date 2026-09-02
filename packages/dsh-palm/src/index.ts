@@ -25,6 +25,9 @@ import { RemoteWebUiPairing } from './pairing-access.ts'
 import { makeRoutes } from './routes.ts'
 import { makeMobileRoutes } from './mobile-routes.ts'
 import { makeMobileApiRoutes } from './mobile-api.ts'
+import { NotifyEngine, type NotifyService } from './notify/notify-engine.ts'
+import { NotifyStore } from './notify/notify-store.ts'
+import { deliverL2, deliverL3 } from './notify/notify-deliver.ts'
 import { PendingTracker } from './mobile-pending.ts'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { mountOnce } from './mount-once.ts'
@@ -244,6 +247,28 @@ function applyImpl(ctx: Context, config?: Config): void {
   if (apiProxy === undefined) {
     console.warn('dsh-palm: apiProxy service unavailable — the mobile data channel is disabled')
   }
+  // The completion-notify feature: one store (config + push subscriptions)
+  // and one decision engine per plugin lifetime. The engine's host mux watch
+  // is the same pattern as the pending tracker below; it starts with the
+  // routes and stops when the plugin is disabled.
+  const notify: NotifyService | undefined = apiProxy === undefined
+    ? undefined
+    : (() => {
+      const store = new NotifyStore(join(dshHome(), 'dsh-palm-notify.json'))
+      const engine = new NotifyEngine(apiProxy as never, store)
+      // L3 delivery rides the same decisions as the L1 SSE channel: every
+      // engine event goes to the configured third-party channels (Server酱 /
+      // Bark / Telegram) as best-effort outbound webhooks.
+      engine.subscribe((event) => {
+        void deliverL3(store.getConfig(), event)
+      })
+      // L2 (Web Push) rides the same decisions: every event goes to the
+      // stored push subscriptions; dead subscriptions are cleaned up on 410.
+      engine.subscribe((event) => {
+        void deliverL2(store, event)
+      })
+      return { store, engine }
+    })()
   const routes = [
     ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan }),
     ...makeMobileRoutes(),
@@ -276,6 +301,7 @@ function applyImpl(ctx: Context, config?: Config): void {
           mobileEnterToSend: () => resolve().mobileEnterToSend,
           commands: ctx.get('commands'),
           agents: ctx.get('agents'),
+          notify,
         })
       })()
       : []),
@@ -302,6 +328,7 @@ function applyImpl(ctx: Context, config?: Config): void {
     const enabled = value.enabled
     if (!enabled) service.stop()
     if (disposeRoutes === undefined && enabled) {
+      notify?.engine.start()
       disposeRoutes = ctx.effect(
         () => {
           const disposers = routes.map(route => ctx.webServer.register(route))
@@ -310,6 +337,7 @@ function applyImpl(ctx: Context, config?: Config): void {
         'dsh-palm: pairing routes',
       )
     } else if (disposeRoutes !== undefined && !enabled) {
+      notify?.engine.stop()
       disposeRoutes()
       disposeRoutes = undefined
     }

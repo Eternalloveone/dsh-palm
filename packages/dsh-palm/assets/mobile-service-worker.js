@@ -8,7 +8,10 @@
    versioned URL — repeat visits skip the ~120KB download, and an upgrade
    (new hash) fetches fresh bytes automatically. Old-version bundle entries
    are purged on activate. */
-const CACHE_NAME = 'dsh-remote-mobile-shell-v3'
+/* Local patch (2026-09-02): Web Push (L2) — push + notificationclick
+   handlers for the completion-notify feature. Bumped the cache name so the
+   new worker replaces the old one on activate. */
+const CACHE_NAME = 'dsh-remote-mobile-shell-v4'
 const OFFLINE_URL = '/m/offline.html'
 const SHELL_PATHS = new Set([
   '/m/',
@@ -42,6 +45,57 @@ self.addEventListener('activate', event => {
       }
     }
   })())
+})
+
+/* Web Push (L2): show the notification the host pushed. The payload is the
+   same shape the L1 channel delivers ({ title, body, tag, data }). */
+self.addEventListener('push', event => {
+  let title = 'DSH Remote'
+  let body = ''
+  let tag = ''
+  let data = {}
+  try {
+    const parsed = event.data ? event.data.json() : {}
+    if (typeof parsed.title === 'string' && parsed.title !== '') title = parsed.title
+    if (typeof parsed.body === 'string') body = parsed.body
+    if (typeof parsed.tag === 'string') tag = parsed.tag
+    if (parsed.data !== null && typeof parsed.data === 'object') data = parsed.data
+  } catch {
+    // Non-JSON payload: fall back to the defaults.
+  }
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    tag,
+    icon: '/m/icon-192.png',
+    data,
+  }))
+})
+
+/* Notification click: focus an existing window or open one, deep-linked to
+   the session the notification came from. */
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  const target = event.notification.data
+  const url = new URL('/m/', self.location.origin)
+  if (target !== null && typeof target === 'object') {
+    const record = target
+    if (typeof record.workspaceId === 'string' && record.workspaceId !== '') {
+      url.searchParams.set('workspace', record.workspaceId)
+    }
+    if (typeof record.sessionId === 'string' && record.sessionId !== '') {
+      url.searchParams.set('session', record.sessionId)
+    }
+  }
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+    for (const client of windowClients) {
+      if ('focus' in client) {
+        client.focus()
+        if ('navigate' in client) client.navigate(url.toString())
+        return
+      }
+    }
+    return clients.openWindow(url.toString())
+  }))
 })
 
 self.addEventListener('fetch', event => {

@@ -3558,28 +3558,6 @@ button.settings-row:focus-visible {
   display: none;
 }
 
-.chat-picker-search {
-  flex: none;
-  width: 100%;
-  height: 40px;
-  margin-bottom: 6px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  background: var(--fill);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-sm);
-  outline: none;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.chat-picker-search:focus {
-  border-color: var(--accent);
-  background: var(--card-bg);
-}
-
 .chat-picker-group-title {
   padding: 8px 10px 4px;
   font-size: var(--text-xs);

@@ -50,7 +50,11 @@ jobs:
   release-preflight:
     runs-on: ubuntu-latest
     steps:
+      # Full history: gitleaks scans the pushed commit range (parent^..HEAD),
+      # which a shallow checkout cannot resolve.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Repo hygiene scan
         # Same pattern set as release.mjs's HYGIENE: local machine paths,
         # project codenames, the frp server IP, the tailnet domain, and the

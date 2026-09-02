@@ -9,12 +9,15 @@ vi.mock('../api.ts', () => ({
   mutateSettings: vi.fn(),
   listAgentPresets: vi.fn(),
   fetchHostVoiceServices: vi.fn(),
+  readNotifyConfig: vi.fn(),
+  writeNotifyConfig: vi.fn(),
 }))
-import { fetchHostVoiceServices, listAgentPresets, readSettings } from '../api.ts'
+import { fetchHostVoiceServices, listAgentPresets, readNotifyConfig, readSettings } from '../api.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const fetchHostVoiceServicesMock = vi.mocked(fetchHostVoiceServices)
+const readNotifyConfigMock = vi.mocked(readNotifyConfig)
 
 /** A minimal namespace view (schema envelope with string fields). */
 function namespace(ns: string, value: Record<string, unknown>): never {
@@ -74,6 +77,11 @@ describe('SettingsView card list', () => {
     })
     listAgentPresetsMock.mockResolvedValue({ presets: [], authorable: false, hasDocument: false })
     fetchHostVoiceServicesMock.mockResolvedValue([])
+    readNotifyConfigMock.mockResolvedValue({
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false } },
+    })
   })
 
   it('renders merged group cards with their member summary', async () => {

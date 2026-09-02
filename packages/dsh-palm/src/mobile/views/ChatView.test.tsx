@@ -1149,23 +1149,35 @@ describe('ChatView in-place quick picker strips', () => {
     expect(screen.getByText('FX 深度')).toBeTruthy()
     const selected = screen.getByText('FX 标准').closest('.chat-picker-row')
     expect(selected?.className).toContain('chat-picker-row-selected')
-    // The search field is the primary discovery path; the full sheet
+    // The panel lists every model directly (no search box); the full sheet
     // stays reachable from the panel.
-    expect(screen.getByRole('searchbox', { name: '搜索模型' })).toBeTruthy()
+    expect(screen.queryByRole('searchbox', { name: '搜索模型' })).toBeNull()
     expect(screen.getByRole('button', { name: '全部…' })).toBeTruthy()
   })
 
-  it('filters the model list as the search query narrows it', async () => {
+  it('shows thinking-effort choices for the current model right in the panel', async () => {
+    modelsMock.mockResolvedValue({
+      current: { provider: 'fx', model: 'fx-2', reasoningEffort: 'high' },
+      routable: true,
+      groups: [
+        {
+          id: 'fx',
+          name: 'FX',
+          models: [
+            { id: 'fx-1', name: 'FX 标准' },
+            { id: 'fx-2', name: 'FX 深度', reasoning: { efforts: [{ id: 'high', name: '高' }], defaultEffort: 'high' } },
+          ],
+        },
+      ],
+      failures: [],
+    } satisfies SessionModels)
     loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
-    const search = await screen.findByRole('searchbox', { name: '搜索模型' })
-    fireEvent.change(search, { target: { value: '深度' } })
-    expect(screen.getByText('FX 深度')).toBeTruthy()
-    expect(screen.queryByText('FX 标准')).toBeNull()
-    fireEvent.change(search, { target: { value: '不存在的模型' } })
-    expect(await screen.findByText('没有匹配的模型')).toBeTruthy()
+    expect(await screen.findByText('思考强度')).toBeTruthy()
+    const effort = screen.getByText('高').closest('.chat-picker-row')
+    expect(effort?.className).toContain('chat-picker-row-selected')
   })
 
   it('switches the model directly from the strip and closes it', async () => {

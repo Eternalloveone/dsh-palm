@@ -31,6 +31,16 @@ export function SearchIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** Bell (completion notifications). */
+export function BellIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
+      <path d="M10 19a2 2 0 0 0 4 0" />
+    </svg>
+  )
+}
+
 /** Pin (pinned-workspace badge / quick chip). */
 export function PinIcon(props: SVGProps<SVGSVGElement>) {
   return (

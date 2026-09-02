@@ -89,6 +89,54 @@ export async function fetchMobilePreferences(): Promise<MobilePreferences> {
   return await callUnary<MobilePreferences>('mobile.preferences', {})
 }
 
+/** The redacted notify config the phone may read (no credentials). */
+export interface NotifyConfigView {
+  turnThresholdMs: number
+  turnCooldownMs: number
+  vapidPublicKey?: string
+  channels: {
+    serverchan: { configured: boolean }
+    bark: { configured: boolean }
+    telegram: { configured: boolean }
+  }
+}
+
+/** Read the notify config (thresholds + channel presence, credentials redacted). */
+export async function readNotifyConfig(): Promise<NotifyConfigView> {
+  return await callUnary<NotifyConfigView>('push.config', { get: true })
+}
+
+/** Write notify config fields (thresholds; channel credentials in M2). */
+export async function writeNotifyConfig(patch: {
+  turnThresholdMs?: number
+  turnCooldownMs?: number
+  channels?: {
+    serverchan?: { sendKey: string }
+    bark?: { key: string }
+    telegram?: { botToken: string; chatId: string }
+  }
+}): Promise<void> {
+  await callUnary<unknown>('push.config', { set: patch })
+}
+
+/** Push one synthetic event through the configured L3 channels (test button). */
+export async function testNotifyChannels(): Promise<void> {
+  await callUnary<unknown>('push.config', { test: true })
+}
+
+/** Store this device's Web Push subscription host-side (L2). */
+export async function pushSubscribe(subscription: {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+}): Promise<void> {
+  await callUnary<unknown>('push.subscribe', { subscription })
+}
+
+/** Remove this device's Web Push subscription host-side (L2). */
+export async function pushUnsubscribe(): Promise<void> {
+  await callUnary<unknown>('push.unsubscribe', {})
+}
+
 /** One session.list page; omit the cursor for the first page. */
 export async function listSessions(cursor?: string): Promise<SessionPage> {
   return await callUnary<SessionPage>('session.list', cursor === undefined ? {} : { cursor })

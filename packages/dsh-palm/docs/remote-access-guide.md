@@ -12,11 +12,11 @@
 └─ 有 → 方案 C：frp 隧道（进阶，本手册有完整示例）
 ```
 
-| 方案 | 难度 | 需要什么 | 手机在哪都能用？ |
-|---|---|---|---|
-| A. Tailscale | ⭐ 最简单 | 免费账号 | ✅ |
-| B. 局域网 | ⭐ 零配置 | 同一 WiFi | ❌ 仅同一网络 |
-| C. frp 隧道 | ⭐⭐⭐ 进阶 | 公网服务器 | ✅ |
+| 方案 | 难度 | 需要什么 | 手机在哪都能用？ | 实测延迟（国内客户端） |
+|---|---|---|---|---|
+| A. Tailscale | ⭐ 最简单 | 免费账号 | ✅ | 视网络（tailnet 直连通常 <50ms） |
+| B. 局域网 | ⭐ 零配置 | 同一 WiFi | ❌ 仅同一网络 | <5ms |
+| C. frp 隧道 | ⭐⭐⭐ 进阶 | 公网服务器 | ✅ | ~15ms（nginx TLS 入口） |
 
 ---
 
@@ -31,6 +31,8 @@ Tailscale 是一个免费的内网穿透工具，装完自动组网，自带加�
 5. 手机访问 `https://你的tailnet域名/m/` 即可
 
 > 面板保存时会自动验证地址可达性，连不上会提示，不用担心填错。
+>
+> 注意：tailnet 域名默认走明文 HTTP；要 HTTPS（受信证书、可装 PWA）需在电脑上启用 `tailscale serve`（把 tailnet 流量转发到 127.0.0.1:3080，Tailscale 自动签发证书）。
 
 ---
 
@@ -113,13 +115,35 @@ allowPorts = [{ start = 7008, end = 7008 }]
 # 或注册为 systemd 服务，开机自启
 ```
 
+**申请受信证书（Let's Encrypt）**：
+
+没有域名也能申请——用 **nip.io 免注册域名**（`<服务器IP用连字符>.nip.io` 自动解析到该 IP，无需注册任何账号）：
+
+```sh
+# 1. 安装 acme.sh
+curl -sL https://get.acme.sh | sh -s email=你的邮箱
+
+# 2. 签发证书（TLS-ALPN-01 验证，走 443 端口）
+#    注意：HTTP-01 验证（80 端口）在国内云厂商常被拦截（海外 ACME 验证服务器连不上），
+#    实测 TLS-ALPN-01 走 443 可正常通过
+~/.acme.sh/acme.sh --issue -d 123-45-67-89.nip.io --alpn --tlsport 443
+
+# 3. 安装到 nginx（自动续期，续期时同样走 443）
+~/.acme.sh/acme.sh --install-cert -d 123-45-67-89.nip.io \
+  --key-file /etc/nginx/ssl/privkey.pem \
+  --fullchain-file /etc/nginx/ssl/fullchain.pem \
+  --reloadcmd "nginx -s reload"
+```
+
+> 前提：服务器安全组放行 **443**（TLS-ALPN-01 验证用，续期也依赖它）与 7001。有自有域名时把 `xxx.nip.io` 换成你的域名即可。
+
 **配置 nginx（加密入口）**：
 
 ```nginx
 server {
     listen 7001 ssl;
-    server_name 203.0.113.10;
-    ssl_certificate     /etc/nginx/ssl/fullchain.pem;   # Let's Encrypt 申请
+    server_name 123-45-67-89.nip.io;   # 域名（Let's Encrypt 不给纯 IP 签证书）
+    ssl_certificate     /etc/nginx/ssl/fullchain.pem;   # acme.sh 安装的受信证书
     ssl_certificate_key /etc/nginx/ssl/privkey.pem;
 
     location / {
@@ -177,6 +201,8 @@ remotePort = 7008
 5. 步骤 ② 配对：手机扫码，或输入面板上显示的 **6 位配对码**
 6. 配对成功 → 步骤 ③ 使用：手机打开 dsh-palm 即可远程使用
 
+> **装成 App（PWA）**：受信 HTTPS 入口下，手机 Chrome 打开 `/m/` 后菜单会出现「**安装应用**」——安装后主屏幕出现图标、全屏打开、可收推送通知。自签证书的入口不会出现该选项（浏览器要求受信证书才允许安装）。
+
 ### 第 4 步：验证
 
 ```sh
@@ -203,6 +229,15 @@ frps 的 7008 是纯 TCP 转发，**没有加密层**。浏览器对 7008 发起
 
 **Q：手机访问根路径看到的是桌面界面？**
 手机端入口是 `/m/` 路径（如 `https://203.0.113.10:7001/m/`）。配对链接本身就是 `/m/?pair=...` 格式。
+
+**Q：没有域名，怎么申请受信证书？**
+用 **nip.io 免注册域名**：`<服务器IP用连字符>.nip.io`（如 `123-45-67-89.nip.io`）自动解析到该 IP，无需注册。acme.sh 用 TLS-ALPN-01 验证签发即可（见方案 C 第 1 步）。
+
+**Q：acme.sh 的 HTTP-01 验证（80 端口）一直失败？**
+国内云厂商（如阿里云）常拦截海外 ACME 验证服务器对 80 端口的连接（本机/国内能通、验证服务器超时或 reset）。改用 **TLS-ALPN-01 验证（443 端口）** 实测可正常通过：`acme.sh --issue -d 你的域名 --alpn --tlsport 443`。
+
+**Q：自签证书为什么手机装不了 PWA？**
+浏览器要求**受信证书**（安全上下文）才允许安装 PWA 和注册 Service Worker。自签证书（浏览器显示"证书不受信任"警告）即使能打开页面，也不会出现「安装应用」选项。用 Let's Encrypt 受信证书即可。
 
 **Q：Tailscale 和 frp 能同时用吗？**
 可以。面板会同时显示检测到的入口，选一个作为主通道即可（另一个作为备用）。

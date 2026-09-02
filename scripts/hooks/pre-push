@@ -16,6 +16,14 @@ echo "[pre-push] full test suite"
 (cd packages/dsh-palm && pnpm test)
 
 echo "[pre-push] commitlint"
-npx --prefix "$(pwd)" commitlint --from HEAD~1 --to HEAD 2>/dev/null || true
+# Check every commit this push carries (not just HEAD~1..HEAD): the GitHub
+# CI runs commitlint with failOnErrors, so a message that passes locally but
+# fails remotely must never leave the machine. `|| true` was removed after
+# three pushes slipped through with over-long body lines and red CI.
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  npx --prefix "$(pwd)" commitlint --from origin/main --to HEAD
+else
+  npx --prefix "$(pwd)" commitlint --from HEAD~1 --to HEAD
+fi
 
 echo "[pre-push] ok"

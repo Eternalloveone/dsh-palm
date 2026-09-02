@@ -33,6 +33,8 @@ import { ChatBubbleIcon, CheckIcon, ChevronUpIcon, CloseIcon, HelpIcon, SearchIc
 /** Props for the session list. */
 export interface SessionListViewProps {
   workspace: WorkspaceRow
+  /** Session carried by a notification deep link; opened after the list loads. */
+  initialSessionId?: string
   onBack(): void
   onPick(session: SessionView): void
   /** Open the mobile settings page (gear in the header). */
@@ -114,7 +116,7 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
  * @param props - the workspace, back action, and pick action.
  * @returns the session list.
  */
-export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: SessionListViewProps) {
+export function SessionListView({ workspace, initialSessionId, onBack, onPick, onOpenSettings }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -188,6 +190,17 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
         const fresh = workspaces.find(item => item.workspaceId === workspace.workspaceId)
         const owned = new Set((fresh?.sessionIds ?? workspace.sessionIds).map(String))
         const rows = pageItems(page.items, owned)
+        // Notification deep link: open the target session straight away when
+        // it is on the first page (the usual case — a just-finished session
+        // is recent). A session beyond the first page stays reachable from
+        // the list.
+        const target = initialSessionId === undefined
+          ? undefined
+          : rows.find(row => row.sessionId === initialSessionId)
+        if (target !== undefined) {
+          onPick(target)
+          return
+        }
         setRows(rows)
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
@@ -201,7 +214,7 @@ export function SessionListView({ workspace, onBack, onPick, onOpenSettings }: S
       },
     )
     return () => { cancelled = true }
-  }, [workspace, loadPreviews])
+  }, [workspace, initialSessionId, onPick, loadPreviews])
 
   useEffect(() => {
     let cancelled = false

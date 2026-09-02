@@ -8,3 +8,11 @@ probe-ask.mjs
 
 # test coverage output
 coverage/
+
+# local CDP verification artifacts (Chrome user-data dirs, test reports)
+.chrome-*/
+test-report.json
+
+# local verification scripts with hardcoded deployment addresses
+scripts/check-pwa.mjs
+scripts/measure-tunnel.mjs

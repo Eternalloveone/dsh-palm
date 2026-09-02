@@ -10,6 +10,7 @@ import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apipro
 import { fetchMobilePreferences, history as fetchHistory, prompt, readSettings } from '../api.ts'
 import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
+import { startNotify } from '../notify.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { ToastHost } from '../toast.tsx'
@@ -43,6 +44,12 @@ export interface SessionView {
 /** Read the optional workspace target carried from the pairing QR flow. */
 export function mobileWorkspaceTarget(search: string): string | undefined {
   const value = new URLSearchParams(search).get('workspace')
+  return value === null || value === '' ? undefined : value
+}
+
+/** Read the optional session target carried from a notification deep link. */
+export function mobileSessionTarget(search: string): string | undefined {
+  const value = new URLSearchParams(search).get('session')
   return value === null || value === '' ? undefined : value
 }
 
@@ -187,6 +194,9 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   const [initialWorkspaceId, setInitialWorkspaceId] = useState<string | undefined>(
     () => mobileWorkspaceTarget(window.location.search),
   )
+  const [initialSessionId, setInitialSessionId] = useState<string | undefined>(
+    () => mobileSessionTarget(window.location.search),
+  )
   const muxRef = useRef<MuxClient | undefined>(undefined)
   // Message-visibility prefs live here (shared by the chat and the settings
   // page) and persist on the /m origin through display-prefs.
@@ -236,6 +246,13 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     mux.start()
     return () => { mux.stop() }
   }, [onUnpaired])
+
+  // The L1 completion-notify channel: starts once the page is paired and the
+  // browser granted notification permission (the settings page asks). The
+  // server decides what to notify; this only delivers.
+  useEffect(() => {
+    startNotify()
+  }, [])
 
   // Keep the live-event client pointed at the session currently on screen so
   // its polling fallback can keep that chat fresh over SSE-impairing tunnels
@@ -297,14 +314,16 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   }, [navigate])
 
   const openWorkspace = useCallback((workspace: WorkspaceRow) => {
-    if (initialWorkspaceId !== undefined) {
+    if (initialWorkspaceId !== undefined || initialSessionId !== undefined) {
       const url = new URL(window.location.href)
       url.searchParams.delete('workspace')
+      url.searchParams.delete('session')
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
       setInitialWorkspaceId(undefined)
+      setInitialSessionId(undefined)
     }
     navigate({ kind: 'sessions', workspace })
-  }, [initialWorkspaceId, navigate])
+  }, [initialWorkspaceId, initialSessionId, navigate])
 
   const routeKey = route.kind === 'chat'
     ? `chat:${route.session.sessionId}`
@@ -325,6 +344,7 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
       ? (
         <SessionListView
           workspace={route.workspace}
+          initialSessionId={initialSessionId}
           onBack={back}
           onPick={(session) => { openChat(session, route.workspace) }}
           onOpenSettings={() => { navigate({ kind: 'settings', workspace: route.workspace }) }}

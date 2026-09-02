@@ -12,8 +12,9 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/settings'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, mutateSettings, readSettings } from '../api.ts'
+import { fetchHostVoiceServices, mutateSettings, readNotifyConfig, readSettings, testNotifyChannels, writeNotifyConfig } from '../api.ts'
 import { errorText } from './App.tsx'
+import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
 import {
   DENSITY_LABEL, FONT_SCALE_LABEL, applyDisplayPrefs,
@@ -23,11 +24,11 @@ import {
 } from '../display-prefs.ts'
 import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
-import { ConfirmDialog } from '../dialog.tsx'
+import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
   ChatBubbleIcon, ChevronUpIcon, ContrastIcon, HashIcon, InfoIcon, MicIcon,
   PencilIcon, PlusIcon, QuoteIcon, RowsIcon, ScrollDownIcon, SlidersIcon,
-  TrashIcon, TypeIcon,
+  TrashIcon, TypeIcon, BellIcon,
 } from '../icons.tsx'
 import {
   getVoiceServices, moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService,
@@ -197,6 +198,22 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   const [formBaseURL, setFormBaseURL] = useState('')
   const [formApiKey, setFormApiKey] = useState('')
   const [formModel, setFormModel] = useState('')
+  // Completion notifications: browser permission + server-side thresholds.
+  const [notifyPermission, setNotifyPermission] = useState<NotificationPermission | 'unsupported'>(() => notificationPermission())
+  const [notifyConfig, setNotifyConfig] = useState<Awaited<ReturnType<typeof readNotifyConfig>> | undefined>(undefined)
+  const [thresholdPrompt, setThresholdPrompt] = useState(false)
+  const [cooldownPrompt, setCooldownPrompt] = useState(false)
+  const [notifyBusy, setNotifyBusy] = useState(false)
+  // L3 channel sheet: credentials are entered here and stored host-side
+  // (they never ride the settings surface; the read view only reports
+  // whether each channel is configured).
+  const [channelsOpen, setChannelsOpen] = useState(false)
+  const [serverchanKey, setServerchanKey] = useState('')
+  const [barkKey, setBarkKey] = useState('')
+  const [tgToken, setTgToken] = useState('')
+  const [tgChatId, setTgChatId] = useState('')
+  // Web Push (L2) subscription state: undefined while probing.
+  const [webPushOn, setWebPushOn] = useState<boolean | undefined>(undefined)
 
   useEffect(() => subscribeVoiceServices(() => setVoiceServicesState(getVoiceServices())), [])
 
@@ -211,6 +228,33 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
         if (cancelled) return
         setError(errorText(reason))
       },
+    )
+    return () => { cancelled = true }
+  }, [])
+
+  // The notify config (thresholds) — absent when the host runs without the
+  // notify feature; the notification rows then hide themselves.
+  useEffect(() => {
+    let cancelled = false
+    void readNotifyConfig().then(
+      (config) => {
+        if (cancelled) return
+        setNotifyConfig(config)
+      },
+      () => { /* notify unavailable: rows stay hidden */ },
+    )
+    return () => { cancelled = true }
+  }, [])
+
+  // The current Web Push subscription (L2 switch state).
+  useEffect(() => {
+    let cancelled = false
+    void webPushState().then(
+      (subscription) => {
+        if (cancelled) return
+        setWebPushOn(subscription !== undefined)
+      },
+      () => { if (!cancelled) setWebPushOn(false) },
     )
     return () => { cancelled = true }
   }, [])
@@ -251,6 +295,150 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   }
 
   const themeLabel = themeMode === 'dark' ? '深色' : themeMode === 'light' ? '浅色' : '跟随系统'
+
+  /** The completion-notify permission row: request on first tap, restart the
+   * L1 channel when already granted. */
+  const handleNotifyClick = async (): Promise<void> => {
+    if (!notificationSupported()) {
+      toast('当前浏览器不支持通知')
+      return
+    }
+    if (notifyPermission === 'granted') {
+      startNotify()
+      toast('通知已开启')
+      return
+    }
+    if (notifyPermission === 'denied') {
+      toast('通知权限被拒绝，请在浏览器设置中开启')
+      return
+    }
+    setNotifyBusy(true)
+    try {
+      const permission = await requestNotificationPermission()
+      setNotifyPermission(permission)
+      if (permission === 'granted') {
+        startNotify()
+        toast('通知已开启')
+      }
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Save the turn-duration threshold (seconds → ms). */
+  const saveThreshold = async (value: string): Promise<void> => {
+    const seconds = Number(value)
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      toast('请输入有效的秒数')
+      return
+    }
+    setNotifyBusy(true)
+    try {
+      const ms = Math.round(seconds * 1000)
+      await writeNotifyConfig({ turnThresholdMs: ms })
+      setNotifyConfig(previous => previous === undefined ? previous : { ...previous, turnThresholdMs: ms })
+      toast('已保存')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Save the per-session notify cooldown (minutes → ms). */
+  const saveCooldown = async (value: string): Promise<void> => {
+    const minutes = Number(value)
+    if (!Number.isFinite(minutes) || minutes < 0) {
+      toast('请输入有效的分钟数')
+      return
+    }
+    setNotifyBusy(true)
+    try {
+      const ms = Math.round(minutes * 60_000)
+      await writeNotifyConfig({ turnCooldownMs: ms })
+      setNotifyConfig(previous => previous === undefined ? previous : { ...previous, turnCooldownMs: ms })
+      toast('已保存')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  const notifyDesc = !notificationSupported()
+    ? '当前浏览器不支持通知'
+    : notifyPermission === 'granted'
+      ? '已授权，任务完成时提醒'
+      : notifyPermission === 'denied'
+        ? '权限被拒绝，请在浏览器设置中开启'
+        : '点击授权，任务完成时提醒'
+
+  /** Which L3 channels are configured (row summary). */
+  const channelSummary = (config: Awaited<ReturnType<typeof readNotifyConfig>>): string => {
+    const names: string[] = []
+    if (config.channels.serverchan.configured) names.push('Server酱')
+    if (config.channels.bark.configured) names.push('Bark')
+    if (config.channels.telegram.configured) names.push('Telegram')
+    return names.length === 0 ? '未配置（PWA 关闭时收不到）' : names.join(' · ')
+  }
+
+  /** Save the L3 channel credentials (empty fields clear that channel). */
+  const saveChannels = async (): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      await writeNotifyConfig({
+        channels: {
+          serverchan: { sendKey: serverchanKey.trim() },
+          bark: { key: barkKey.trim() },
+          telegram: { botToken: tgToken.trim(), chatId: tgChatId.trim() },
+        },
+      })
+      const config = await readNotifyConfig()
+      setNotifyConfig(config)
+      setChannelsOpen(false)
+      toast('渠道已保存')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Push one synthetic event through the configured L3 channels. */
+  const handleTestNotify = async (): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      await testNotifyChannels()
+      toast('测试通知已发送')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Toggle the Web Push (L2) subscription. */
+  const handleWebPushToggle = async (next: boolean): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      if (next) {
+        const ok = await enableWebPush()
+        if (!ok) {
+          toast('当前浏览器不支持 Web Push，或通知权限未开启')
+          return
+        }
+        toast('Web Push 已开启')
+      } else {
+        await disableWebPush()
+        toast('Web Push 已关闭')
+      }
+      setWebPushOn(next)
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
 
   return (
     <div className="mobile">
@@ -341,6 +529,53 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 )
               }}
             />
+          )}
+          {notifyConfig !== undefined && hit('通知', 'notify', '推送', '提醒', '阈值', '间隔') && (
+            <>
+              <SettingsRow
+                icon={<BellIcon />}
+                title="完成通知"
+                desc={notifyDesc}
+                action={<RowChevron />}
+                onClick={() => { void handleNotifyClick() }}
+              />
+              <SettingsRow
+                icon={<BellIcon />}
+                title="回复时长阈值"
+                desc="超过此时长的回复完成时通知"
+                action={<><span className="settings-rowValue">{Math.round(notifyConfig.turnThresholdMs / 1000)} 秒</span><RowChevron /></>}
+                onClick={() => { setThresholdPrompt(true) }}
+              />
+              <SettingsRow
+                icon={<BellIcon />}
+                title="通知间隔"
+                desc="同一会话两次通知的最小间隔"
+                action={<><span className="settings-rowValue">{Math.round(notifyConfig.turnCooldownMs / 60_000)} 分钟</span><RowChevron /></>}
+                onClick={() => { setCooldownPrompt(true) }}
+              />
+              <SettingsRow
+                icon={<BellIcon />}
+                title="推送渠道"
+                desc={channelSummary(notifyConfig)}
+                action={<RowChevron />}
+                onClick={() => {
+                  setServerchanKey('')
+                  setBarkKey('')
+                  setTgToken('')
+                  setTgChatId('')
+                  setChannelsOpen(true)
+                }}
+              />
+              {webPushSupported() && (
+                <ToggleRow
+                  icon={<BellIcon />}
+                  title="Web Push 推送"
+                  desc="页面关闭时也能收到推送（海外/代理网络）"
+                  value={webPushOn === true}
+                  onChange={(next) => { void handleWebPushToggle(next) }}
+                />
+              )}
+            </>
           )}
           {hit('工具调用', 'tool') && (
             <ToggleRow
@@ -615,6 +850,75 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           </div>
         </Sheet>
       )}
+      {channelsOpen && (
+        <Sheet title="推送渠道" onClose={() => { setChannelsOpen(false) }}>
+          <div className="voice-form">
+            <p className="sheet-note">PWA 关闭时通过第三方渠道推送完成通知。留空保存将清除该渠道。</p>
+            <label className="voice-form-field">
+              <span className="voice-form-label">Server酱 SendKey</span>
+              <input
+                className="voice-form-input"
+                value={serverchanKey}
+                placeholder="SCT…"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => { setServerchanKey(event.target.value) }}
+              />
+            </label>
+            <label className="voice-form-field">
+              <span className="voice-form-label">Bark Key</span>
+              <input
+                className="voice-form-input"
+                value={barkKey}
+                placeholder="…"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => { setBarkKey(event.target.value) }}
+              />
+            </label>
+            <label className="voice-form-field">
+              <span className="voice-form-label">Telegram Bot Token</span>
+              <input
+                className="voice-form-input"
+                value={tgToken}
+                placeholder="123456:ABC…"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => { setTgToken(event.target.value) }}
+              />
+            </label>
+            <label className="voice-form-field">
+              <span className="voice-form-label">Telegram Chat ID</span>
+              <input
+                className="voice-form-input"
+                value={tgChatId}
+                placeholder="…"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => { setTgChatId(event.target.value) }}
+              />
+            </label>
+            <div className="sheet-confirm-actions">
+              <button
+                type="button"
+                className="mobile-button"
+                disabled={notifyBusy}
+                onClick={() => { void handleTestNotify() }}
+              >发送测试</button>
+              <button
+                type="button"
+                className="mobile-button mobile-button-primary"
+                disabled={notifyBusy}
+                onClick={() => { void saveChannels() }}
+              >保存</button>
+            </div>
+          </div>
+        </Sheet>
+      )}
       {confirmClear && (
         <ConfirmDialog
           title="清除缓存"
@@ -623,6 +927,26 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           tone="danger"
           onCancel={() => { setConfirmClear(false) }}
           onConfirm={() => { setConfirmClear(false); void clearAppCaches() }}
+        />
+      )}
+      {thresholdPrompt && (
+        <PromptDialog
+          title="回复时长阈值"
+          initial={String(Math.round((notifyConfig?.turnThresholdMs ?? 30_000) / 1000))}
+          confirmLabel="保存"
+          busy={notifyBusy}
+          onCancel={() => { setThresholdPrompt(false) }}
+          onConfirm={(value) => { setThresholdPrompt(false); void saveThreshold(value) }}
+        />
+      )}
+      {cooldownPrompt && (
+        <PromptDialog
+          title="通知间隔"
+          initial={String(Math.round((notifyConfig?.turnCooldownMs ?? 120_000) / 60_000))}
+          confirmLabel="保存"
+          busy={notifyBusy}
+          onCancel={() => { setCooldownPrompt(false) }}
+          onConfirm={(value) => { setCooldownPrompt(false); void saveCooldown(value) }}
         />
       )}
     </div>

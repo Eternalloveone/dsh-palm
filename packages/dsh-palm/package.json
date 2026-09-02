@@ -1,7 +1,7 @@
 {
   "name": "@eternalloveone/dsh-palm",
   "description": "掌上 dsh — the standalone mobile surface for the dsh web GUI: scan-to-pair device trust, the /m/ phone UI, the /m/api RPC channel with realtime SSE mux bridge, and a polished desktop pairing panel. Extracted from dsh-remote-web-ui (M1, behavior-identical)",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
@@ -46,6 +46,7 @@
   ],
   "keywords": [
     "dsh",
+    "dsh-plugin",
     "deepseek-harness",
     "mobile",
     "phone",
@@ -79,6 +80,7 @@
     "clsx": "^2.1.1",
     "qrcode.react": "^4.2.0",
     "schemastery": "^3.18.0",
+    "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -102,6 +104,7 @@
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
+    "@types/web-push": "^3.6.4",
     "@vitest/coverage-v8": "^4.1.11",
     "jsdom": "29.1.1",
     "lightningcss": "^1.30.0",

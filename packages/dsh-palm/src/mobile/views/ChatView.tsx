@@ -319,8 +319,6 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   /** Lazily cached model directory backing the quick picker (fresh per open
    *  until it loads once; the full sheet re-fetches on its own). */
   const [modelCatalog, setModelCatalog] = useState<ModelPickerCatalog>({ status: 'idle' })
-  /** Model-picker search query (reset on open; filter-as-you-type). */
-  const [modelQuery, setModelQuery] = useState('')
   /** Whether the composer's + menu is open (图片 / 命令). */
   const [plusOpen, setPlusOpen] = useState(false)
   /** Images picked or pasted into the composer, awaiting send (community-style attach). */
@@ -1676,7 +1674,6 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
 
   const openModelPicker = (): void => {
     setSheet(null)
-    setModelQuery('')
     setContextOpen(false)
     setPicker('model')
     if (modelCatalog.status === 'idle') loadModelCatalog()
@@ -2155,24 +2152,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           )}
           {modelCatalog.status === 'ready' && (
             <>
-              <input
-                type="search"
-                className="chat-picker-search"
-                placeholder="搜索模型…"
-                value={modelQuery}
-                onChange={(event) => { setModelQuery(event.target.value) }}
-                aria-label="搜索模型"
-                autoFocus
-              />
               {(() => {
-                const query = modelQuery.trim().toLowerCase()
-                const choices = modelCatalog.data.groups.flatMap(group => group.models.map(model => ({ group, model })))
-                const filtered = query === ''
-                  ? choices
-                  : choices.filter(choice => (choice.group.name + ' ' + choice.group.id + ' ' + choice.model.name + ' ' + choice.model.id).toLowerCase().includes(query))
-                if (filtered.length === 0) {
-                  return <span className="chat-picker-status">没有匹配的模型</span>
-                }
                 const current = currentModel ?? modelCatalog.data.current
                 const modelRow = (group: { id: string; name: string }, model: SessionModels['groups'][number]['models'][number]): ReactNode => {
                   const isSelected = current !== undefined && current.provider === group.id && current.model === model.id
@@ -2195,25 +2175,70 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
                       </span>
                       <span className="chat-picker-row-copy">
                         <span className="chat-picker-row-title">{model.name}</span>
-                        {query !== '' && <span className="chat-picker-row-sub">{group.name}</span>}
                       </span>
                     </button>
                   )
                 }
-                return query === '' ? (
-                  modelCatalog.data.groups.map(group => (
-                    <div className="chat-picker-group" key={group.id}>
-                      <div className="chat-picker-group-title">{group.name}</div>
-                      {group.models.map(model => modelRow(group, model))}
-                    </div>
-                  ))
-                ) : (
-                  filtered.map(choice => modelRow(choice.group, choice.model))
+                return modelCatalog.data.groups.map(group => (
+                  <div className="chat-picker-group" key={group.id}>
+                    <div className="chat-picker-group-title">{group.name}</div>
+                    {group.models.map(model => modelRow(group, model))}
+                  </div>
+                ))
+              })()}
+              {(() => {
+                // Thinking-effort choices for the currently selected model,
+                // right in the panel (no need to open the full sheet).
+                const selected = currentModel ?? modelCatalog.data.current
+                const choices = modelCatalog.data.groups.flatMap(group => group.models.map(model => ({ group, model })))
+                const currentChoice = choices.find(choice => choice.group.id === selected.provider && choice.model.id === selected.model)
+                const reasoning = currentChoice?.model.reasoning
+                const effectiveEffort = selected.reasoningEffort ?? reasoning?.defaultEffort
+                const effortChoices = reasoning === undefined
+                  ? []
+                  : [
+                    ...(reasoning.defaultEffort === undefined
+                      ? [{ key: 'provider-default', effort: undefined as string | undefined, label: '跟随模型默认' }]
+                      : []),
+                    ...reasoning.efforts.map(effort => ({
+                      key: `effort:${effort.id}`,
+                      effort: effort.id as string | undefined,
+                      label: effort.name,
+                    })),
+                  ]
+                if (effortChoices.length === 0) return null
+                return (
+                  <div className="chat-picker-group">
+                    <div className="chat-picker-group-title">思考强度</div>
+                    {effortChoices.map(choice => {
+                      const isSelected = effectiveEffort === choice.effort
+                      return (
+                        <button
+                          type="button"
+                          key={choice.key}
+                          className={'chat-picker-row' + (isSelected ? ' chat-picker-row-selected' : '')}
+                          disabled={pickerBusy}
+                          onClick={() => {
+                            applyModel({
+                              provider: selected.provider,
+                              model: selected.model,
+                              ...(choice.effort !== undefined ? { reasoningEffort: choice.effort } : {}),
+                            })
+                          }}
+                        >
+                          <span className="chat-picker-row-check" aria-hidden>
+                            {isSelected ? <CheckIcon width={14} height={14} /> : null}
+                          </span>
+                          <span className="chat-picker-row-copy">
+                            <span className="chat-picker-row-title">{choice.label}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 )
               })()}
-              {modelQuery.trim() === '' && (
-                <button type="button" className="chat-picker-more" onClick={() => { setPicker(null); setSheet('model') }}>全部…</button>
-              )}
+              <button type="button" className="chat-picker-more" onClick={() => { setPicker(null); setSheet('model') }}>全部…</button>
             </>
           )}
         </div>

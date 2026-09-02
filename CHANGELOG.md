@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-02
+
+### Added
+
+- **Completion notifications** — the phone now alerts when a task finishes or a long reply completes, through three delivery layers:
+  - **In-app system notifications (SSE)** — a dedicated `/m/api/events.notify` stream (kept separate from the chat mux stream, whose schema drops unknown frames) delivers the host's decisions while the app is open; clicking a notification deep-links to the session
+  - **Web Push (VAPID)** — the service worker receives pushes when the app is closed; subscriptions are bound to the paired device, VAPID keys are generated on first use and stored in `$DSH_HOME/dsh-palm-notify.json`, and dead subscriptions are cleaned up on 410/404
+  - **Third-party channels** — Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed; credentials are stored host-side and never ride the settings surface
+- **One trigger, three channels** — the host watches the shared event stream and decides once (task terminal states + turns longer than a configurable threshold, with a per-session cooldown); every channel delivers the same decision
+- **Notification settings on the phone** — permission, duration threshold, cooldown, Web Push toggle and channel credentials in the settings page, with a test button that pushes one synthetic event end to end
+
+### Fixed
+
+- **Web Push now routes through a proxy when one is configured** — FCM is unreachable from some networks (mainland China), which silently dropped every L2 push; the delivery now honors `DSH_PALM_PUSH_PROXY` first, then the standard `HTTPS_PROXY` / `HTTP_PROXY` variables, and falls back to a direct connection when none is set
+- **Completion notifications now actually fire** — the notify engine read the host mux stream without unwrapping the RPC envelope (`{ rpcId, payload }`), so no job or turn event was ever seen and no notification was ever emitted; the engine now unwraps the payload before routing, and the test harness mirrors the real envelope shape
+
+### Changed
+
+- **The model picker is a picker again** — the quick model panel drops its search box and lists every model directly; thinking-effort choices for the current model appear right in the panel, so switching model + effort no longer requires opening the full sheet
+
 ## [0.4.2] - 2026-09-02
 
 ### Fixed

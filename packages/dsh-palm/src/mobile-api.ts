@@ -29,6 +29,8 @@ import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { PendingTracker } from './mobile-pending.ts'
 import type { PairingService } from './pairing.ts'
+import type { NotifyService } from './notify/notify-engine.ts'
+import { deliverL3, testNotifyEvent } from './notify/notify-deliver.ts'
 import { asJsonObject, readBoundedJson, writeJson } from './http.ts'
 import { readCookie } from './gate.ts'
 import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
@@ -114,6 +116,14 @@ const MOBILE_VOICE_SERVICES_METHOD = 'mobile.voiceServices'
  * this method is the phone's only correct way to run one.
  */
 const MOBILE_COMMAND_EXEC_METHOD = 'mobile.commandExec'
+/**
+ * Web Push subscription management (L2) + notify config (thresholds, L3
+ * channels). All three are plugin-local methods: they never proxy a host
+ * method, and the paired-device gate is the only access control.
+ */
+const MOBILE_PUSH_SUBSCRIBE_METHOD = 'push.subscribe'
+const MOBILE_PUSH_UNSUBSCRIBE_METHOD = 'push.unsubscribe'
+const MOBILE_PUSH_CONFIG_METHOD = 'push.config'
 
 /** One directory row the mobile browser can enter (directories + symlinks to dirs). */
 interface MobileDirectoryEntry {
@@ -307,6 +317,12 @@ export interface MobileApiDeps {
   commands?: CommandRegistry | undefined
   /** The live agent registry (absent when the agent service is not composed). */
   agents?: AgentLookup | undefined
+  /**
+   * The completion-notify feature (engine + store). Absent when the plugin
+   * was composed without it (older configs); the push.* methods and the
+   * events.notify stream then answer 404/403 like any unknown method.
+   */
+  notify?: NotifyService | undefined
   /** SSE keep-alive ping cadence for the mux stream (default 15000 ms; test seam). */
   eventsHeartbeatMs?: number
 }
@@ -376,6 +392,7 @@ export function resolveCommandDirectory(
 /** Mobile API route paths. */
 export const MOBILE_API_PATHS = {
   events: '/m/api/events.mux',
+  notify: '/m/api/events.notify',
 } as const
 
 /** The mobile-api prefix (every other path under it is a method name). */
@@ -440,6 +457,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_COMMANDS_METHOD
       || method === MOBILE_COMMAND_EXEC_METHOD
       || method === MOBILE_VOICE_SERVICES_METHOD
+      || method === MOBILE_PUSH_SUBSCRIBE_METHOD
+      || method === MOBILE_PUSH_UNSUBSCRIBE_METHOD
+      || method === MOBILE_PUSH_CONFIG_METHOD
       || isTranscribe
     if (!MOBILE_ALLOWLIST.has(method) && !local) {
       req.resume()
@@ -647,6 +667,147 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { services } },
         })
+      } else if (method === MOBILE_PUSH_SUBSCRIBE_METHOD) {
+        // L2: store this device's Web Push subscription. The paired-device
+        // cookie IS the device identity — the same full-trust credential the
+        // rest of /m/api rides — so the subscription is bound to it without a
+        // separate handshake. The notify feature is optional: without it the
+        // method answers 403 like any unknown local method.
+        const notify = deps.notify
+        if (notify === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } },
+          })
+          return
+        }
+        const body = parsed.payload as { subscription?: unknown } | undefined
+        const subscription = body?.subscription as { endpoint?: unknown; keys?: unknown } | undefined
+        const endpoint = typeof subscription?.endpoint === 'string' ? subscription.endpoint : ''
+        const keys = subscription?.keys as { p256dh?: unknown; auth?: unknown } | undefined
+        const p256dh = typeof keys?.p256dh === 'string' ? keys.p256dh : ''
+        const auth = typeof keys?.auth === 'string' ? keys.auth : ''
+        const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
+        if (deviceId === undefined || endpoint === '' || p256dh === '' || auth === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '订阅信息不完整' } },
+          })
+          return
+        }
+        notify.store.addSubscription(deviceId, { endpoint, keys: { p256dh, auth } })
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { stored: true } },
+        })
+      } else if (method === MOBILE_PUSH_UNSUBSCRIBE_METHOD) {
+        const notify = deps.notify
+        if (notify !== undefined) {
+          const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
+          if (deviceId !== undefined) notify.store.removeSubscription(deviceId)
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { stored: false } },
+        })
+      } else if (method === MOBILE_PUSH_CONFIG_METHOD) {
+        // Read (redacted) or write the notify config. Reads never return
+        // credentials — only whether each L3 channel is configured — while
+        // writes accept the plaintext values (the paired device is full
+        // trust, the same stance as the rest of /m/api).
+        const notify = deps.notify
+        if (notify === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } },
+          })
+          return
+        }
+        const body = parsed.payload as { get?: unknown; set?: unknown; test?: unknown } | undefined
+        if (body?.test === true) {
+          // Settings-page test button: push one synthetic event through the
+          // L3 channels so the user can verify the whole chain end to end.
+          const config = notify.store.getConfig()
+          await deliverL3(config, testNotifyEvent())
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { sent: true } },
+          })
+          return
+        }
+        if (body?.get === true) {
+          const config = notify.store.getConfig()
+          const channels = config.channels
+          // The VAPID key pair is generated on first read so the phone can
+          // subscribe to Web Push without a separate setup step.
+          const vapid = notify.store.ensureVapid()
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: {
+              ok: true,
+              value: {
+                turnThresholdMs: config.turnThresholdMs,
+                turnCooldownMs: config.turnCooldownMs,
+                vapidPublicKey: vapid.publicKey,
+                channels: {
+                  serverchan: { configured: channels?.serverchan?.sendKey !== undefined && channels.serverchan.sendKey !== '' },
+                  bark: { configured: channels?.bark?.key !== undefined && channels.bark.key !== '' },
+                  telegram: {
+                    configured: channels?.telegram?.botToken !== undefined && channels.telegram.botToken !== '' && channels.telegram.chatId !== undefined && channels.telegram.chatId !== '',
+                  },
+                },
+              },
+            },
+          })
+          return
+        }
+        const patch = body?.set as { turnThresholdMs?: unknown; turnCooldownMs?: unknown; channels?: unknown } | undefined
+        if (patch === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少配置内容' } },
+          })
+          return
+        }
+        const next: Record<string, unknown> = {}
+        if (typeof patch.turnThresholdMs === 'number' && Number.isFinite(patch.turnThresholdMs)) {
+          next.turnThresholdMs = Math.max(0, Math.round(patch.turnThresholdMs))
+        }
+        if (typeof patch.turnCooldownMs === 'number' && Number.isFinite(patch.turnCooldownMs)) {
+          next.turnCooldownMs = Math.max(0, Math.round(patch.turnCooldownMs))
+        }
+        const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown } | undefined
+        if (channels !== undefined) {
+          const current = notify.store.getConfig().channels ?? {}
+          const serverchan = channels.serverchan as { sendKey?: unknown } | undefined
+          const bark = channels.bark as { key?: unknown } | undefined
+          const telegram = channels.telegram as { botToken?: unknown; chatId?: unknown } | undefined
+          next.channels = {
+            ...(serverchan !== undefined
+              ? { serverchan: { sendKey: typeof serverchan.sendKey === 'string' ? serverchan.sendKey : '' } }
+              : current.serverchan !== undefined ? { serverchan: current.serverchan } : {}),
+            ...(bark !== undefined
+              ? { bark: { key: typeof bark.key === 'string' ? bark.key : '' } }
+              : current.bark !== undefined ? { bark: current.bark } : {}),
+            ...(telegram !== undefined
+              ? { telegram: { botToken: typeof telegram.botToken === 'string' ? telegram.botToken : '', chatId: typeof telegram.chatId === 'string' ? telegram.chatId : '' } }
+              : current.telegram !== undefined ? { telegram: current.telegram } : {}),
+          }
+        }
+        notify.store.setConfig(next as never)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { saved: true } },
+        })
       } else if (isTranscribe) {
         // Voice → text through the phone-configured speech-to-text services
         // (OpenAI-compatible /audio/transcriptions endpoints, tried in
@@ -691,6 +852,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
 
   /** Concurrent SSE mux subscriptions (each holds a host mux stream + timer). */
   let activeEvents = 0
+  /** Concurrent notify SSE subscriptions (shared budget with the mux stream). */
+  let activeNotifyEvents = 0
 
   /** Bridge the host mux stream over SSE: one `data:` frame per mux frame. */
   const handleEvents = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -798,9 +961,95 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
     if (!closed) res.end()
   }
 
+  /**
+   * The L1 completion-notify stream: one SSE connection per phone that
+   * forwards NotifyEngine decisions as `{ type: 'notify', payload }` frames.
+   * Deliberately separate from events.mux — the phone's MuxClient validates
+   * every frame against the host mux schema and drops unknown types, so a
+   * notify frame riding that stream would be silently discarded. The notify
+   * module owns this connection (reconnect + heartbeat) independently of
+   * the chat stream.
+   */
+  const handleNotifyEvents = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const notify = deps.notify
+    if (notify === undefined) {
+      writeJson(res, 403, { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } })
+      return
+    }
+    if (req.method !== 'GET') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    if (!gateOk(req)) {
+      req.resume()
+      writeJson(res, 403, { ok: false, error: { code: 'unpaired', message: 'mobile session is not paired' } })
+      return
+    }
+    if (activeNotifyEvents >= MAX_SSE_SUBSCRIBERS) {
+      writeJson(res, 429, { ok: false, error: { code: 'too-many-events', message: 'too many live streams' } })
+      return
+    }
+    activeNotifyEvents += 1
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    let closed = false
+    const deviceStillPaired = (): boolean => {
+      const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
+      return deviceId !== undefined && service.hasDevice(deviceId)
+    }
+    const endStream = (): void => {
+      if (closed) return
+      closed = true
+      clearInterval(heartbeat)
+      activeNotifyEvents -= 1
+      res.end()
+    }
+    const heartbeat = setInterval(() => {
+      if (closed) return
+      if (!deviceStillPaired()) {
+        endStream()
+        return
+      }
+      touchDeviceFor(req)
+      try {
+        res.write(': ping\n\n')
+      } catch {
+        // The write failed; the close handler tears the subscription down.
+      }
+    }, eventsHeartbeatMs)
+    const unsubscribe = notify.engine.subscribe((event) => {
+      if (closed) return
+      if (!deviceStillPaired()) {
+        endStream()
+        return
+      }
+      const wire = { type: 'notify' as const, payload: event }
+      if (!res.write(`data: ${JSON.stringify(wire)}\n\n`)) {
+        // A slow phone must not buffer unbounded frames; drop the write and
+        // let the EventSource reconnect (the decision is already delivered
+        // to the other channels).
+        res.once('drain', () => {})
+      }
+    })
+    const onClose = (): void => {
+      if (closed) return
+      closed = true
+      clearInterval(heartbeat)
+      activeNotifyEvents -= 1
+      unsubscribe()
+    }
+    res.on('close', onClose)
+    req.on('close', onClose)
+  }
+
   return [
     { kind: 'prefix', path: MOBILE_API_PREFIX, handler: handleMethod },
     { kind: 'exact', path: MOBILE_API_PATHS.events, handler: handleEvents },
+    { kind: 'exact', path: MOBILE_API_PATHS.notify, handler: handleNotifyEvents },
   ]
 }
 
