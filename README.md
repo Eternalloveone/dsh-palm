@@ -43,6 +43,7 @@ Then: `dsh plugin --profile web add @eternalloveone/dsh-palm` → open the pairi
 | ![Diff cards](docs/screenshots/diff.png) | **Diff cards** — `diff` fences render as interactive cards with accept / reject actions |
 | ![Run status](docs/screenshots/run-status.png) | **Run status** — the todo plan and background jobs share a live strip above the toolbar |
 | ![Pairing](docs/screenshots/pair.png) | **Pairing** — paste the desktop link or type the six-digit code |
+| ![Usage](docs/screenshots/usage-card.png) | **Usage** — one settings card per provider configured on the desktop: consumed-quota meters, account balances and OpenRouter's spent-vs-limit, refreshed on demand |
 
 More screenshots (workspace, sessions, image attach, settings, task sheet, pairing panel): [docs/screenshots](docs/screenshots/). All captures are rendered by the real `/m/` UI against **fictional demo data** (workspace names, session titles and chat content are made up), so nothing private leaks into the repository.
 
@@ -56,6 +57,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Run-status strip & task sheet** — the todo plan and background jobs collapse into one live strip above the toolbar
 - **Offline outbox & PWA** — prompts queue in IndexedDB and flush automatically on reconnect; installable, versioned service worker
 - **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (Server酱 / Bark / Telegram) for when the app is closed; thresholds and cooldowns are configurable from the phone
+- **Per-provider usage & balances** — one settings card for every provider configured on the desktop: consumed-quota meters (Ollama Cloud), account balances (DeepSeek, Moonshot/Kimi) and OpenRouter's spent-vs-limit, refreshed on demand; providers without a public endpoint are not shown
 - **Clean streaming output** — windowed prefix rendering keeps long replies smooth; collapsible reasoning blocks fold in-body thinking into a disclosure
 
 ## Full capability list

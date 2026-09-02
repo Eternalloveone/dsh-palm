@@ -11,13 +11,15 @@ vi.mock('../api.ts', () => ({
   fetchHostVoiceServices: vi.fn(),
   readNotifyConfig: vi.fn(),
   writeNotifyConfig: vi.fn(),
+  fetchUsage: vi.fn(),
 }))
-import { fetchHostVoiceServices, listAgentPresets, readNotifyConfig, readSettings } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, listAgentPresets, readNotifyConfig, readSettings } from '../api.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const fetchHostVoiceServicesMock = vi.mocked(fetchHostVoiceServices)
 const readNotifyConfigMock = vi.mocked(readNotifyConfig)
+const fetchUsageMock = vi.mocked(fetchUsage)
 
 /** A minimal namespace view (schema envelope with string fields). */
 function namespace(ns: string, value: Record<string, unknown>): never {
@@ -82,15 +84,16 @@ describe('SettingsView card list', () => {
       turnCooldownMs: 120_000,
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false } },
     })
+    fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
   })
 
   it('renders merged group cards with their member summary', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     // ui-theme + locale merge into the 通用 card; llm-pi-ai + agent-default-model
-    // merge into the 模型 card.
+    // merge into the 模型 card. 外观 is now a section heading on the home page.
     expect(await screen.findByText('通用')).toBeTruthy()
     expect(screen.getByText('模型')).toBeTruthy()
-    expect(screen.queryByText('外观')).toBeNull()
+    expect(screen.getByText('外观')).toBeTruthy()
     expect(screen.queryByText('模型提供方')).toBeNull()
   })
 
@@ -103,11 +106,16 @@ describe('SettingsView card list', () => {
 
   it('opens the merged form from a group card, showing each section', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
-    fireEvent.click(await screen.findByText('通用'))
-    // Both sections render inside the merged form (each has a preference field).
+    // Click the 通用 group card (a button), not the 通用 section heading.
+    fireEvent.click(await screen.findByRole('button', { name: /通用/ }))
+    // Both sections render inside the merged form: ui-theme's writable field
+    // shows its metadata title, locale's read-only field sits in the
+    // collapsible read-only block.
     expect(await screen.findByText('外观')).toBeTruthy()
     expect(screen.getByText('语言')).toBeTruthy()
-    expect((await screen.findAllByText('preference')).length).toBe(2)
+    expect(screen.getByText('主题偏好')).toBeTruthy()
+    fireEvent.click(screen.getByText('只读配置（1 项）'))
+    expect(await screen.findByText('界面语言')).toBeTruthy()
   })
 
   it('renders the tool-call and system-message switches and reports changes', async () => {
@@ -129,8 +137,9 @@ describe('SettingsView card list', () => {
   it('shows the package version in the About sheet', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     fireEvent.click(await screen.findByText('关于'))
-    // The version comes from package.json (not a hardcoded literal).
-    expect(await screen.findByText(/版本 \d+\.\d+\.\d+/)).toBeTruthy()
+    // The version comes from package.json (not a hardcoded literal); it
+    // appears both in the row description and the About sheet.
+    expect((await screen.findAllByText(/版本 \d+\.\d+\.\d+/)).length).toBeGreaterThan(0)
   })
 
   it('adds, lists, and removes a voice transcription service', async () => {
@@ -167,9 +176,10 @@ describe('SettingsView card list', () => {
     expect(save.disabled).toBe(false)
   })
 
-  it('does not merge host-side services into the phone list on open', async () => {
+  it('shows host-side services as read-only rows, not in the editable list', async () => {
     // Host services carry no api key on the phone (the key never leaves the
-    // host); they are display facts only and must not be persisted locally.
+    // host); they render as read-only display rows and are never persisted
+    // into the local (editable) list.
     fetchHostVoiceServicesMock.mockResolvedValue([
       { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
       { name: 'SiliconFlow TeleASR', baseURL: 'https://api.siliconflow.cn/v1', model: 'TeleAI/TeleSpeechASR' },
@@ -178,9 +188,12 @@ describe('SettingsView card list', () => {
 
     fireEvent.click(await screen.findByText('语音服务'))
     expect(fetchHostVoiceServicesMock).toHaveBeenCalledTimes(1)
-    // The host services are NOT added to the local (editable) list.
-    expect(screen.queryByText('SiliconFlow SenseVoice')).toBeNull()
-    expect(screen.queryByText('SiliconFlow TeleASR')).toBeNull()
+    // The host services ARE visible as read-only rows with the desktop tag.
+    expect(await screen.findByText('SiliconFlow SenseVoice')).toBeTruthy()
+    expect(screen.getByText('SiliconFlow TeleASR')).toBeTruthy()
+    expect(screen.getAllByText('桌面端').length).toBeGreaterThanOrEqual(2)
+    // The phone-local (editable) list stays empty.
+    expect(screen.getByText('尚未配置服务 — 点击下方「添加服务」。')).toBeTruthy()
   })
 
   it('drops stale host imports while keeping user services', async () => {
@@ -197,10 +210,73 @@ describe('SettingsView card list', () => {
     fireEvent.click(await screen.findByText('语音服务'))
 
     // The stale legacy import is gone; the user service survives; the host
-    // service is not merged in (no key on the phone).
+    // service shows as a read-only row (no key on the phone).
     await waitFor(() => expect(screen.queryByText('host 配置')).toBeNull())
     expect(screen.getByText('我的服务')).toBeTruthy()
-    expect(screen.queryByText('SiliconFlow SenseVoice')).toBeNull()
+    expect(screen.getByText('SiliconFlow SenseVoice')).toBeTruthy()
     expect(getVoiceServices().length).toBe(1)
+  })
+
+  it('shows the per-provider usage card collapsed, then expands/refreshes/collapses', async () => {
+    fetchUsageMock.mockResolvedValue({
+      fetchedAt: 0,
+      providers: [{
+        name: 'ollama',
+        baseURL: 'https://ollama.com/v1',
+        kind: 'usage',
+        status: 'ok',
+        plan: 'pro',
+        usedPercent: 0.459,
+        sessionUsed: 0.054,
+        fetchedAt: 0,
+        models: [{ name: 'deepseek-v4-flash:0731', requestCount: 2934 }],
+      }],
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+
+    // Collapsed: a single row whose summary shows the Ok provider's remaining quota.
+    expect(await screen.findByText(/余量 54%/)).toBeTruthy()
+    expect(screen.queryByText('45.9%')).toBeNull()
+
+    // Expand: the provider detail (weekly used / remaining, model count).
+    fireEvent.click(screen.getByRole('button', { name: /用量/ }))
+    expect(screen.getByText('45.9%')).toBeTruthy()
+    expect(screen.getByText('54.1%')).toBeTruthy()
+    expect(screen.getByText('2,934 次')).toBeTruthy()
+
+    // Refresh: re-fetches, bypassing the host cache ({ refresh: true }).
+    fetchUsageMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+    await waitFor(() => expect(fetchUsageMock).toHaveBeenCalledWith(true))
+
+    // Collapse back to the summary row.
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    expect(screen.queryByText('45.9%')).toBeNull()
+  })
+
+  it('hides providers without a queryable balance/usage endpoint', async () => {
+    fetchUsageMock.mockResolvedValue({
+      fetchedAt: 0,
+      providers: [
+        {
+          name: 'ollama',
+          baseURL: 'https://ollama.com/v1',
+          kind: 'usage',
+          status: 'ok',
+          plan: 'pro',
+          usedPercent: 0.459,
+          fetchedAt: 0,
+        },
+        { name: 'agnes-ai', baseURL: 'https://apihub.agnes-ai.com/v1', kind: 'usage', status: 'unsupported', fetchedAt: 0 },
+      ],
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+
+    // The queryable provider shows in the collapsed summary…
+    expect(await screen.findByText(/余量 54%/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /用量/ }))
+    // …and the endpoint-less provider never renders, collapsed or expanded.
+    expect(await screen.findByText('45.9%')).toBeTruthy()
+    expect(screen.queryByText('agnes-ai')).toBeNull()
   })
 })

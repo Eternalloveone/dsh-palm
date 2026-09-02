@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.6.0]
+
+## [0.6.0] - 2026-09-02
+
+### Added
+
+- **Per-provider usage / balance card in settings** — the phone lists every provider configured on the desktop and shows what each can actually query: consumed-quota meters for Ollama Cloud (weekly usage share, session usage, per-model request counts), pay-per-token balances for DeepSeek / Moonshot / Kimi, and an OpenRouter spent-vs-limit meter. The card collapses to a one-line summary and expands to the full provider list; a refresh button bypasses the host's short cache. Providers with no public balance/usage endpoint are hidden rather than shown as unsupported
+- **Moonshot/Kimi and OpenRouter adapters** — join the existing Ollama Cloud and DeepSeek adapters behind `mobile.usage`: Moonshot/Kimi through `GET /v1/users/me/balance`, OpenRouter through `GET /api/v1/auth/key` (the spent share becomes the meter when a credit ceiling exists, otherwise the spent dollars are shown)
+- **Settings form polish on the phone** — Chinese field labels driven by a metadata table, non-writable fields collapse into a read-only summary block instead of disabled controls, and voice services moved from a sheet into a full settings page with desktop-configured services listed read-only
+
+### Fixed
+
+- **Usage-card data now actually arrives on the phone** — the credential ref was passed as an object instead of the raw (branded) string, so every configured provider read "未配置"; keys now resolve through the host credentials service with the method bound to the service, and Ollama Cloud's `/api/me` is queried via POST (GET answers 405)
+
 ## [0.5.0] - 2026-09-02
 
 ### Added

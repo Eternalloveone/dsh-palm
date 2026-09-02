@@ -34,6 +34,7 @@ import { deliverL3, testNotifyEvent } from './notify/notify-deliver.ts'
 import { asJsonObject, readBoundedJson, writeJson } from './http.ts'
 import { readCookie } from './gate.ts'
 import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
+import { buildUsageView, type UsageProviderConfig, type UsageView } from './usage/usage-check.ts'
 import { opendir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -116,6 +117,13 @@ const MOBILE_VOICE_SERVICES_METHOD = 'mobile.voiceServices'
  * this method is the phone's only correct way to run one.
  */
 const MOBILE_COMMAND_EXEC_METHOD = 'mobile.commandExec'
+/**
+ * Per-provider usage/balance display (consumed quota for Ollama Cloud, balance
+ * for DeepSeek...). Answered locally by the plugin: reads the desktop's
+ * configured providers, resolves each key through the host credentials service
+ * (the key never leaves the host), and returns only display facts.
+ */
+const MOBILE_USAGE_METHOD = 'mobile.usage'
 /**
  * Web Push subscription management (L2) + notify config (thresholds, L3
  * channels). All three are plugin-local methods: they never proxy a host
@@ -256,6 +264,53 @@ async function mobileListDirectory(path: string | undefined): Promise<MobileDire
   return { path: target, home, crumbs, entries, truncated }
 }
 
+/** Short-lived cache: the phone's settings page must not hammer provider APIs. */
+let usageCache: { at: number; view: UsageView } | undefined
+const USAGE_CACHE_TTL_MS = 60_000
+
+/**
+ * Discover configured providers from the host settings surface. The phone
+ * never sees a key here: `apiKeyEnv` is a credential-ref *name* (role
+ * `credential-ref`, not `secret`, so the redactor keeps it) and the key itself
+ * is resolved host-side through `deps.resolveKey` in the handler.
+ */
+async function discoverUsageProviders(apiProxy: ApiProxy): Promise<UsageProviderConfig[]> {
+  const described = await apiProxy.settings.describe({ rpcId: RpcId('usage-discover'), payload: {} })
+  const result = described?.result as
+    | { ok?: boolean; value?: { namespaces?: Array<{ ns?: string; value?: unknown }> } }
+    | undefined
+  if (result?.ok !== true) return []
+  const namespaces = result.value?.namespaces ?? []
+  // llm-pi-ai: the OpenAI-compatible route table keyed by provider.
+  const fromRouteTable = (): UsageProviderConfig[] => {
+    const found = namespaces.find(entry => entry.ns === 'llm-pi-ai')
+    const providers = (found?.value as { providers?: Record<string, unknown> } | undefined)?.providers
+    if (providers === undefined) return []
+    return Object.entries(providers).flatMap(([route, raw]) => {
+      if (typeof raw !== 'object' || raw === null) return []
+      const rec = raw as { apiKeyEnv?: unknown; baseURL?: unknown; displayName?: unknown }
+      return [{
+        route,
+        ...typeof rec.baseURL === 'string' ? { baseURL: rec.baseURL } : {},
+        ...typeof rec.displayName === 'string' ? { displayName: rec.displayName } : {},
+        ...typeof rec.apiKeyEnv === 'string' ? { apiKeyEnv: rec.apiKeyEnv } : {},
+      }]
+    })
+  }
+  // llm-deepseek: the dedicated gateway namespace. Its apiKey is a stripped
+  // secret, so a DeepSeek row resolves to 'no-key' unless the desktop binds a
+  // ref on the machine.
+  const deepseekValue = namespaces.find(entry => entry.ns === 'llm-deepseek')?.value as
+    | { models?: unknown; baseURL?: unknown }
+    | undefined
+  const deepseekPresent = deepseekValue !== undefined
+    && (Array.isArray(deepseekValue.models) || typeof deepseekValue.baseURL === 'string')
+  const fromDeepseek: UsageProviderConfig[] = deepseekPresent
+    ? [{ route: 'deepseek', ...typeof deepseekValue.baseURL === 'string' ? { baseURL: deepseekValue.baseURL } : {} }]
+    : []
+  return [...fromRouteTable(), ...fromDeepseek]
+}
+
 /** One session.list page (thin phones load incrementally). */
 const SESSION_PAGE_SIZE = 40
 /** Concurrent SSE mux subscriptions allowed per server (reconnect-tolerant). */
@@ -323,6 +378,13 @@ export interface MobileApiDeps {
    * events.notify stream then answer 404/403 like any unknown method.
    */
   notify?: NotifyService | undefined
+  /**
+   * Resolve one credential ref name (e.g. `OLLAMA_API_KEY`) to its value. The
+   * plugin wires this to the host `credentials` service so the usage feature
+   * never touches a key on the phone — resolution happens host-side and the
+   * returned value is consumed and discarded here.
+   */
+  resolveKey?: (refName: string) => Promise<string | undefined>
   /** SSE keep-alive ping cadence for the mux stream (default 15000 ms; test seam). */
   eventsHeartbeatMs?: number
 }
@@ -460,6 +522,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_PUSH_SUBSCRIBE_METHOD
       || method === MOBILE_PUSH_UNSUBSCRIBE_METHOD
       || method === MOBILE_PUSH_CONFIG_METHOD
+      || method === MOBILE_USAGE_METHOD
       || isTranscribe
     if (!MOBILE_ALLOWLIST.has(method) && !local) {
       req.resume()
@@ -807,6 +870,51 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: { saved: true } },
+        })
+      } else if (method === MOBILE_USAGE_METHOD) {
+        // Per-provider usage/balance, synced from the desktop's configured
+        // providers. `refresh: true` bypasses the short cache. Keys resolve
+        // host-side only; the phone receives display facts alone.
+        const body = parsed.payload as { refresh?: unknown } | undefined
+        const force = body?.refresh === true
+        const cached = usageCache !== undefined
+          && !force
+          && Date.now() - usageCache.at < USAGE_CACHE_TTL_MS
+        let fresh: UsageView | undefined
+        if (!cached) {
+          try {
+            const providers = await discoverUsageProviders(apiProxy)
+            const view = await buildUsageView(providers, refName =>
+              deps.resolveKey === undefined ? Promise.resolve(undefined) : deps.resolveKey(refName))
+            usageCache = { at: Date.now(), view }
+            fresh = view
+          } catch (error) {
+            // Internal failures (a settings read glitch, a provider adapter
+            // throwing) surface as a stable refusal, never the host detail.
+            console.error('mobile.usage failed', error)
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: false, error: { code: 'internal', message: '用量查询失败，请稍后重试' } },
+            })
+            return
+          }
+        }
+        // Serve the fresh view, else the still-valid cached one (never reached
+        // without either: cached implies usageCache is populated).
+        const served: UsageView | undefined = fresh ?? usageCache?.view
+        if (served === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '用量查询失败，请稍后重试' } },
+          })
+          return
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: served },
         })
       } else if (isTranscribe) {
         // Voice → text through the phone-configured speech-to-text services

@@ -70,18 +70,22 @@ describe('SettingsForm schema rendering', () => {
       enabled: { type: 'boolean' },
     }))
     render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
-    const toggle = await screen.findByRole('switch', { name: 'enabled' })
+    const toggle = await screen.findByRole('switch', { name: '启用 @文件' })
     expect(toggle.getAttribute('aria-checked')).toBe('true')
   })
 
-  it('renders non-whitelisted fields read-only with a desktop hint', async () => {
+  it('renders non-whitelisted fields as a collapsible read-only block', async () => {
     const ns = namespace('llm-pi-ai', { providers: {} }, envelope({
       providers: { type: 'string' },
     }))
     render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
-    expect(await screen.findByText('桌面端修改')).toBeTruthy()
-    const input = screen.getByLabelText('providers') as HTMLInputElement
-    expect(input.disabled).toBe(true)
+    // The read-only field is summarized, not rendered as a disabled control.
+    expect(await screen.findByText('只读配置（1 项）')).toBeTruthy()
+    expect(screen.queryByLabelText('providers')).toBeNull()
+    // Expanding the summary shows the field title and its current value.
+    fireEvent.click(screen.getByText('只读配置（1 项）'))
+    // The title appears both as the card heading and the read-only row key.
+    expect((await screen.findAllByText('模型提供方')).length).toBeGreaterThan(0)
   })
 
   it('saves only whitelisted fields through mutateSettings with the revision', async () => {
@@ -154,7 +158,7 @@ describe('SettingsForm schema rendering', () => {
     expect(screen.queryByRole('option', { name: 'x-preview-f-free' })).toBeNull()
     expect(screen.getByText('来自 ollama')).toBeTruthy()
     // The input stays free-form for custom values.
-    const modelInput = screen.getByLabelText('model') as HTMLInputElement
+    const modelInput = screen.getByLabelText('模型') as HTMLInputElement
     expect(modelInput.disabled).toBe(false)
     fireEvent.change(modelInput, { target: { value: 'my-custom-model' } })
     expect(modelInput.value).toBe('my-custom-model')
@@ -165,7 +169,7 @@ describe('SettingsForm schema rendering', () => {
       providers: { type: 'string' },
     }))
     render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
-    await screen.findByText('桌面端修改')
+    await screen.findByText('只读配置（1 项）')
     expect(screen.queryByRole('button', { name: '保存' })).toBeNull()
   })
 
@@ -174,7 +178,7 @@ describe('SettingsForm schema rendering', () => {
       maxParallelToolCalls: { type: 'number' },
     }))
     render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
-    const input = await screen.findByLabelText('maxParallelToolCalls') as HTMLInputElement
+    const input = await screen.findByLabelText('最大并行工具调用') as HTMLInputElement
     fireEvent.change(input, { target: { value: '' } })
     // Clearing the field keeps the previous value instead of writing 0.
     expect(input.value).toBe('4')

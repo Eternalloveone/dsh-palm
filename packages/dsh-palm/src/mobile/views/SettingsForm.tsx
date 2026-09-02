@@ -12,6 +12,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/s
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import { listAgentPresets, mutateSettings } from '../api.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
+import { fieldMeta } from '../settings-meta.ts'
 import { errorText } from './App.tsx'
 
 /** One node of the schemastery schema envelope (schema.toJSON()). */
@@ -141,8 +142,9 @@ function FieldControl({ ns, field, node, value, options, ownerHint, onChange }: 
   onChange(next: unknown): void
 }) {
   const writable = isWritableField(ns, field)
-  const label = field
-  const description = node.meta?.description
+  const meta = fieldMeta(ns, field)
+  const label = meta?.title ?? field
+  const description = meta?.desc ?? node.meta?.description
 
   const control = (() => {
     if (node.type === 'boolean') {
@@ -262,15 +264,18 @@ function ObjectFields({ ns, envelope, node, value, fieldOptions, onChange }: {
   const record = typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+  const entries = Object.entries(node.dict ?? {})
+  const writableEntries = entries.filter(([field]) => isWritableField(ns, field))
+  const readOnlyEntries = entries.filter(([field]) => !isWritableField(ns, field))
   return (
     <>
-      {Object.entries(node.dict ?? {}).map(([field, ref]) => {
+      {writableEntries.map(([field, ref]) => {
         const child = resolve(envelope, ref)
         const childValue = record[field]
         if (child.type === 'object') {
           return (
             <div key={field} className="settings-subgroup">
-              <span className="settings-subgroupTitle">{field}</span>
+              <span className="settings-subgroupTitle">{fieldMeta(ns, field)?.title ?? field}</span>
               <ObjectFields
                 ns={ns}
                 envelope={envelope}
@@ -284,12 +289,10 @@ function ObjectFields({ ns, envelope, node, value, fieldOptions, onChange }: {
         }
         if (child.type === 'union' && isEnumUnion(envelope, child)) {
           const choices = unionChoices(envelope, child)
-          const writable = isWritableField(ns, field)
           return (
             <div key={field} className="settings-field">
               <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">{field}</span>
-                {!writable && <span className="settings-fieldLock">桌面端修改</span>}
+                <span className="settings-fieldLabel">{fieldMeta(ns, field)?.title ?? field}</span>
               </div>
               <div className="settings-themeOptions">
                 {choices.map(choice => (
@@ -297,7 +300,6 @@ function ObjectFields({ ns, envelope, node, value, fieldOptions, onChange }: {
                     key={String(choice.value)}
                     type="button"
                     aria-pressed={childValue === choice.value}
-                    disabled={!writable}
                     className={`settings-themeOption${childValue === choice.value ? ' settings-themeOption-on' : ''}`}
                     onClick={() => { onChange({ ...record, [field]: choice.value }) }}
                   >
@@ -329,7 +331,66 @@ function ObjectFields({ ns, envelope, node, value, fieldOptions, onChange }: {
           />
         )
       })}
+      {readOnlyEntries.length > 0 && (
+        <ReadOnlyFields ns={ns} envelope={envelope} entries={readOnlyEntries} record={record} />
+      )}
     </>
+  )
+}
+
+/** A human-readable rendering of one value (read-only summary rows). */
+function valueText(value: unknown): string {
+  if (value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? '开' : '关'
+  if (typeof value === 'string') return value === '' ? '（空）' : value
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  if (Array.isArray(value)) return value.length === 0 ? '（空）' : value.map(item => String(item)).join(' · ')
+  if (typeof value === 'object' && value !== null) {
+    const text = JSON.stringify(value)
+    return text !== undefined && text.length > 60 ? `${text.slice(0, 57)}…` : (text ?? '—')
+  }
+  return String(value)
+}
+
+/** The read-only field block: a collapsible summary instead of disabled controls. */
+function ReadOnlyFields({ ns, envelope, entries, record }: {
+  ns: string
+  envelope: SchemaEnvelope
+  entries: Array<[string, number]>
+  record: Record<string, unknown>
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="settings-roBlock">
+      <button
+        type="button"
+        className="settings-roSummary"
+        aria-expanded={open}
+        onClick={() => { setOpen(previous => !previous) }}
+      >
+        <span>只读配置（{entries.length} 项）</span>
+        <span className="settings-roToggle">{open ? '收起 ▴' : '展开 ▾'}</span>
+      </button>
+      {open && (
+        <div className="settings-roList">
+          {entries.map(([field, ref]) => {
+            const child = resolve(envelope, ref)
+            const childValue = record[field]
+            const meta = fieldMeta(ns, field)
+            const label = meta?.title ?? field
+            const text = child.type === 'secret'
+              ? (childValue === true ? '已配置' : '未配置')
+              : valueText(childValue)
+            return (
+              <div key={field} className="settings-roItem">
+                <span className="settings-roKey">{label}</span>
+                <span className="settings-roValue">{text}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -447,15 +508,18 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
         {namespaces.map(entry => {
           const envelope = entry.schema as unknown as SchemaEnvelope
           const root = resolve(envelope, envelope.uid)
-          const writable = Object.keys((entry.value as Record<string, unknown> | undefined) ?? {})
+          const record = (values[entry.ns] as Record<string, unknown> | undefined) ?? {}
+          const writable = Object.keys(record)
             .some(field => isWritableField(entry.ns, field))
+          const readOnlyEntries = Object.entries(root.dict ?? {})
+            .filter(([field]) => !isWritableField(entry.ns, field))
           return (
             <div key={entry.ns} className="settings-card">
               <div className="settings-cardHead">
                 <span className="settings-cardTitle">{namespaceTitle(entry.ns)}</span>
                 {!writable && <span className="settings-fieldLock">只读</span>}
               </div>
-              {root.type === 'object'
+              {root.type === 'object' && writable
                 ? (
                   <ObjectFields
                     ns={entry.ns}
@@ -466,7 +530,9 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
                     onChange={(next) => { setValues(previous => ({ ...previous, [entry.ns]: next })) }}
                   />
                 )
-                : <span className="settings-readonly">{JSON.stringify(values[entry.ns])}</span>}
+                : root.type === 'object' && readOnlyEntries.length > 0
+                  ? <ReadOnlyFields ns={entry.ns} envelope={envelope} entries={readOnlyEntries} record={record} />
+                  : <span className="settings-readonly">{JSON.stringify(values[entry.ns])}</span>}
             </div>
           )
         })}

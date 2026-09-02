@@ -343,3 +343,14 @@ export function ShieldIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+/** Gauge (per-provider usage/quota display icon). */
+export function GaugeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)} strokeWidth={1.7}>
+      <path d="M4.5 19a8.5 8.5 0 1 1 15 0" />
+      <path d="m12 16 2.6-3" />
+      <path d="M12 16v-3" />
+    </svg>
+  )
+}

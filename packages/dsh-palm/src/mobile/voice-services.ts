@@ -106,13 +106,14 @@ export function moveVoiceServiceDown(id: string): void {
  * services carry NO api key on the phone (the key never leaves the host —
  * transcription rides the host channel, which falls back to the host config
  * when the phone sends no services), so they cannot be used from the phone
- * and are NOT merged into the local list. This call only drops stale host
- * imports (including the legacy single 'host 配置' entry) that earlier
- * versions may have persisted; user-added services are kept.
+ * and are NOT merged into the local list. This call only drops the legacy
+ * single 'host 配置' entry that earlier versions may have persisted; the
+ * host service names are deliberately NOT matched against user-added
+ * services, so a user service that happens to share a host name survives.
  */
 export function syncHostVoiceServices(services: Array<{ name: string }>): void {
-  const hostNames = new Set(services.map(service => service.name))
-  const current = readStored().filter(entry => !(hostNames.has(entry.name) || entry.name === 'host 配置'))
+  void services
+  const current = readStored().filter(entry => entry.name !== 'host 配置')
   writeStored(current.slice(0, MAX_VOICE_SERVICES))
   emitChange()
 }

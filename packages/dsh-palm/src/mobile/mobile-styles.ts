@@ -949,6 +949,117 @@ body,
 
 /* ── settings ────────────────────────────────────────────────────────── */
 
+/* Source badges: where a setting takes effect / can be changed. */
+.settings-badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-weight: 500;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.settings-badge-phone { background: #e8f7ee; color: #1a9e5c; }
+.settings-badge-sync { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
+.settings-badge-desktop { background: #f3f4f6; color: #9aa0a8; }
+.settings-badge-ro { background: #fdf0f0; color: #e5484d; }
+
+/* Legend under the search box explaining the badges. */
+.settings-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 16px 12px;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+/* Group title trailing hint (e.g. 显示效果). */
+.settings-groupDesc {
+  font-weight: 400;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+
+/* Host-side voice services hint on the voice page. */
+.settings-hostNote {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft, #eef1ff);
+  color: var(--accent, #4d6bfe);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Section sub-heading inside a page (e.g. 桌面端配置（只读）). */
+.settings-subhead {
+  margin: 14px 16px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+/* Read-only tag on host-side rows. */
+.settings-roTag {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #9aa0a8;
+  vertical-align: middle;
+}
+
+/* Collapsible read-only field block (replaces disabled controls). */
+.settings-roBlock {
+  margin-top: 10px;
+  border-top: 1px dashed var(--card-border);
+  padding-top: 10px;
+}
+.settings-roSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 1px dashed var(--card-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-subtle, #fafbfc);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.settings-roToggle {
+  color: var(--accent, #4d6bfe);
+  font-weight: 500;
+}
+.settings-roList {
+  margin-top: 8px;
+}
+.settings-roItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 2px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--card-border);
+}
+.settings-roItem:last-child { border-bottom: none; }
+.settings-roKey { color: var(--text-tertiary); flex-shrink: 0; }
+.settings-roValue {
+  color: var(--text-primary);
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+}
+
 .settings-group {
   list-style: none;
   margin: 0 16px 16px;
@@ -1048,6 +1159,109 @@ button.settings-row:focus-visible {
   color: var(--text-tertiary);
   font-size: var(--text-sm);
   line-height: 1.5;
+}
+
+/* Per-provider usage/quota card (settings 用量 group). */
+.usage-provider {
+  padding: 14px 16px;
+  border-bottom: 1px dashed var(--card-border);
+}
+.usage-provider:last-child {
+  border-bottom: none;
+}
+.usage-providerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.usage-providerName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+.usage-providerBase {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-quaternary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 6px;
+  letter-spacing: 0.3px;
+}
+.usage-badge-ok { background: var(--accent-soft); color: var(--accent); }
+.usage-badge-no { background: rgba(245, 158, 11, 0.14); color: var(--warning); }
+.usage-badge-na { background: var(--bg-elevated); color: var(--text-quaternary); }
+.usage-badge-err { background: var(--danger-soft); color: var(--danger); }
+.usage-meter {
+  height: 8px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.usage-meterFill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  transition: width 0.4s ease;
+}
+.usage-stats {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.usage-stats b {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.usage-models {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.usage-model {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.usage-modelName {
+  min-width: 0;
+  margin-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.usage-modelCount {
+  flex: none;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.usage-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .settings-themeOptions {

@@ -302,6 +302,27 @@ function applyImpl(ctx: Context, config?: Config): void {
           commands: ctx.get('commands'),
           agents: ctx.get('agents'),
           notify,
+          // Credential resolution for the usage feature: the host credentials
+          // service is resolved per call so a rotated key is picked up without
+          // a restart, and the key is consumed host-side only. Loosely cast —
+          // dsh-palm does not depend on the credentials package's types. Two
+          // runtime constraints: the ref must be the raw string (CredentialRef
+          // is a compile-time-only brand over `string`), and resolve must be
+          // called AS A METHOD on the service — detaching it loses `this` and
+          // the provider crashes on its internal inherited() lookup.
+          resolveKey: async (refName) => {
+            const credentials: unknown = ctx.get('credentials')
+            if (typeof credentials !== 'object' || credentials === null) return undefined
+            const service = credentials as { resolve: (ref: string) => Promise<{ value?: string } | undefined> }
+            if (typeof service.resolve !== 'function') return undefined
+            try {
+              const record = await service.resolve(refName)
+              const value = record?.value
+              return typeof value === 'string' && value.length > 0 ? value : undefined
+            } catch {
+              return undefined
+            }
+          },
         })
       })()
       : []),

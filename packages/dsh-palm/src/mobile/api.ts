@@ -255,6 +255,45 @@ export async function fetchHostVoiceServices(): Promise<Array<{ name: string; ba
   return response.services
 }
 
+/* ── per-provider usage / balance display ─────────────────────────────── */
+
+/** Per-model usage inside a provider's report. */
+export interface UsageModelRow {
+  name: string
+  requestCount: number
+}
+
+/** One provider's displayed usage/balance row (display facts only, no keys). */
+export interface UsageProviderView {
+  name: string
+  baseURL?: string
+  kind: 'usage' | 'balance'
+  status: 'ok' | 'no-key' | 'unsupported' | 'error'
+  plan?: string
+  usedPercent?: number
+  sessionUsed?: number
+  models?: UsageModelRow[]
+  balance?: string
+  fetchedAt: number
+}
+
+/** The full usage surface, synced from the desktop's configured providers. */
+export interface UsageView {
+  providers: UsageProviderView[]
+  fetchedAt: number
+}
+
+/**
+ * Fetch the per-provider usage/balance surface (`mobile.usage`, answered by the
+ * plugin host-side). The desktop's configured providers drive the rows; a
+ * provider with no public balance/usage endpoint is labelled `unsupported`, one
+ * the desktop has no key for is `no-key`. Pass `refresh` to bypass the host's
+ * short cache.
+ */
+export async function fetchUsage(refresh?: boolean): Promise<UsageView> {
+  return await callUnary<UsageView>('mobile.usage', refresh === true ? { refresh: true } : {})
+}
+
 /** Rename one session (the chat page's 更多 menu). */
 export async function renameSession(sessionId: string, title: string): Promise<unknown> {
   return await callUnary<unknown>('session.rename', { sessionId, title })
