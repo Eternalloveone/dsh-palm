@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces } from '../api.ts'
+import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, previews } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
@@ -28,6 +28,17 @@ import { toast } from '../toast.tsx'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog } from '../dialog.tsx'
+import {
+  loadPersistedList,
+  loadPersistedScroll,
+  loadPersistedPreviews,
+  maintainPersistedCaches,
+  savePersistedList,
+  savePersistedPreviews,
+  savePersistedScroll,
+  sessionListCache,
+} from '../list-persist.ts'
+export { sessionListCache } from '../list-persist.ts'
 import { ChatBubbleIcon, CheckIcon, ChevronUpIcon, CloseIcon, HelpIcon, SearchIcon } from '../icons.tsx'
 
 /** Props for the session list. */
@@ -76,14 +87,50 @@ const PREVIEW_CACHE_LIMIT = 200
 /** Cooldown after a failed next-page load before the sentinel retries. */
 const LOAD_MORE_BACKOFF_MS = 10_000
 
+/** In-memory roster cache TTL (see list-persist.sessionListCache). */
+const LIST_CACHE_TTL_MS = 60_000
+
+/** Cross-mount preview cache: summaries survive a chat round-trip too
+ *  (exported for test isolation). Persisted for PWA cold starts. */
+export const sessionPreviewCache = new Map<string, string>()
+
+/** Seed caches once per page life: the persisted store covers PWA cold
+ *  starts (memory caches are gone, localStorage survives). */
+let persistedSeeded = false
+function seedPersistedCaches(): void {
+  if (persistedSeeded) return
+  persistedSeeded = true
+  if (sessionPreviewCache.size === 0) {
+    for (const [sessionId, summary] of loadPersistedPreviews()) sessionPreviewCache.set(sessionId, summary)
+  }
+  maintainPersistedCaches()
+}
+
+/** Write-through helper: memory cache + persisted store in one step. */
+function setCachedList(
+  workspaceId: string,
+  value: { rows: SessionView[]; cursor?: string; hasMore: boolean },
+): void {
+  sessionListCache.set(workspaceId, { ...value, at: Date.now() })
+  savePersistedList(workspaceId, value)
+}
+
+/** Publish the live preview map to the persisted store (cheap: bounded). */
+function syncPersistedPreviews(): void {
+  savePersistedPreviews(sessionPreviewCache)
+}
+
 /**
  * Pull the last-message preview for one session (best effort): fold the
- * history tail and summarize the newest message's text (or reasoning).
- * Returns undefined on any failure — the row falls back to its stats line.
+ * history tail's FINAL message only (maxMessages=1 — one message's whole
+ * event group, a few KB on the wire instead of the full 25-message tail
+ * page, which over weak links is the list page's dominant transfer cost)
+ * and summarize its text (or reasoning). Returns undefined on any failure —
+ * the row falls back to its stats line.
  */
 async function fetchPreview(sessionId: string, signal?: AbortSignal): Promise<string | undefined> {
   try {
-    const page = await history(sessionId, undefined, undefined, signal)
+    const page = await history(sessionId, undefined, 1, signal)
     const rendered = foldEvents(page.events.map((entry: { event: WireEvent }) => entry.event))
     for (let i = rendered.length - 1; i >= 0; i--) {
       const message = rendered[i]
@@ -133,10 +180,10 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
   // Sentinel watched for automatic next-page loading (the "load more" button
   // stays as the manual fallback).
   const sentinelRef = useRef<HTMLDivElement | undefined>(undefined)
-  // In-list search (header morphs into the input) + preview lazy cache.
+  // In-list search (header morphs into the input) + preview lazy cache
+  // (module-level: summaries survive a chat round-trip).
   const [searchActive, setSearchActive] = useState(false)
   const [search, setSearch] = useState('')
-  const previewCacheRef = useRef(new Map<string, string>())
   const [previewTick, setPreviewTick] = useState(0)
   // Unmount guard: preview fetches resolve asynchronously and must not
   // tick state (or spin the tunnel) after the view left the screen.
@@ -150,28 +197,59 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
   const pressTimerRef = useRef<number | undefined>(undefined)
   const pressConsumedRef = useRef<string | undefined>(undefined)
 
-  /** Pull previews for the newest page's sessions (bounded, best effort). */
+  /** Pull previews for the newest page's sessions (bounded, best effort).
+   *  v3.1: ONE batched `mobile.previews` call serves the whole burst from the
+   *  host's mux-fed cache (zero per-row log reads on repeat visits); when the
+   *  host lacks the method (older plugin) or the call fails, the per-row
+   *  history fallback below keeps the list working. */
   const loadPreviews = useCallback((rows: SessionView[]): void => {
     const pending = rows
-      .filter(row => !row.blank && row.preview === undefined && !previewCacheRef.current.has(row.sessionId))
+      .filter(row => !row.blank && row.preview === undefined && !sessionPreviewCache.has(row.sessionId))
       .slice(0, PREVIEW_FETCH_LIMIT)
     if (pending.length === 0) return
     const controller = new AbortController()
-    void mapLimited(pending, PREVIEW_CONCURRENCY, async (row) => {
-      if (!aliveRef.current) return
-      const summary = await fetchPreview(row.sessionId, controller.signal)
-      if (summary === undefined || !aliveRef.current) return
-      // Bounded cache: evict the oldest entry past the cap so a long-lived
-      // list never grows the map without limit.
-      if (previewCacheRef.current.size >= PREVIEW_CACHE_LIMIT) {
-        const oldest = previewCacheRef.current.keys().next().value
-        if (oldest !== undefined) previewCacheRef.current.delete(oldest)
+    const cacheSummaries = (items: ReadonlyArray<{ sessionId: string; summary: string }>): void => {
+      for (const item of items) {
+        if (item.summary === '') continue
+        // Bounded cache: evict the oldest entry past the cap so a long-lived
+        // list never grows the map without limit.
+        if (sessionPreviewCache.size >= PREVIEW_CACHE_LIMIT) {
+          const oldest = sessionPreviewCache.keys().next().value
+          if (oldest !== undefined) sessionPreviewCache.delete(oldest)
+        }
+        sessionPreviewCache.set(item.sessionId, item.summary)
       }
-      previewCacheRef.current.set(row.sessionId, summary)
-    }).then(() => { setPreviewTick(tick => tick + 1) })
+    }
+    void previews(pending.map(row => row.sessionId), controller.signal).then(
+      (items) => {
+        if (!aliveRef.current) return
+        cacheSummaries(items)
+        syncPersistedPreviews()
+        setPreviewTick(tick => tick + 1)
+      },
+      () => {
+        // Fallback: per-row tail reads (the pre-v3.1 path), same concurrency
+        // cap and cache discipline.
+        if (!aliveRef.current) return
+        void mapLimited(pending, PREVIEW_CONCURRENCY, async (row) => {
+          if (!aliveRef.current) return
+          const summary = await fetchPreview(row.sessionId, controller.signal)
+          if (summary === undefined || !aliveRef.current) return
+          cacheSummaries([{ sessionId: row.sessionId, summary }])
+        }).then(() => {
+          if (aliveRef.current) {
+            syncPersistedPreviews()
+            setPreviewTick(tick => tick + 1)
+          }
+        })
+      },
+    )
   }, [])
 
-  // First page on mount (this workspace's sessions, paged). The workspace
+  // First page on mount (this workspace's sessions, paged). v3.2: when a
+  // previous visit's rows are cached, they render IMMEDIATELY (no skeleton)
+  // and the network refresh below re-validates in the background — returning
+  // from a chat must not wait on any RPC to show the roster. The workspace
   // prop's sessionIds snapshot predates any session created since this list
   // last mounted (create -> chat -> back remounts the list), so the attach
   // roster is refreshed alongside the page: a freshly created session must
@@ -179,8 +257,30 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
   // failure falls back to the snapshot — it must never block the list.
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    setError(undefined)
+    // Cross-mount restore (v3.2) + PWA cold-start restore (v3.3): seed
+    // state from the memory cache, else the persisted store, before any
+    // network — then let the refresh below reconcile.
+    seedPersistedCaches()
+    const key = String(workspace.workspaceId)
+    let cached = sessionListCache.get(key)
+    if (cached !== undefined && Date.now() - cached.at >= LIST_CACHE_TTL_MS) cached = undefined
+    if (cached === undefined) {
+      const persisted = loadPersistedList(key)
+      if (persisted !== undefined) {
+        cached = { rows: persisted.rows, cursor: persisted.cursor, hasMore: persisted.hasMore, at: Date.now() }
+        sessionListCache.set(key, cached)
+      }
+    }
+    if (cached !== undefined) {
+      setRows(cached.rows)
+      cursorRef.current = cached.cursor
+      setHasMore(cached.hasMore)
+      setError(undefined)
+      setLoading(false)
+    } else {
+      setLoading(true)
+      setError(undefined)
+    }
     void Promise.all([
       listSessions(),
       listWorkspaces().catch(() => [] as WorkspaceRow[]),
@@ -202,6 +302,7 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
           return
         }
         setRows(rows)
+        setCachedList(key, { rows, cursor: page.nextCursor, hasMore: page.hasMore })
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
         setHasMore(page.hasMore)
@@ -209,12 +310,34 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
       },
       (reason: unknown) => {
         if (cancelled) return
-        setError(errorText(reason))
+        // With a cached roster the refresh failure stays silent (the old
+        // rows remain); only a cold first load surfaces the error.
+        if (cached === undefined) setError(errorText(reason))
         setLoading(false)
       },
     )
     return () => { cancelled = true }
   }, [workspace, initialSessionId, onPick, loadPreviews])
+
+  /**
+   * Scroll-position round-trip (v3.2, v3.3): leaving for a chat saves the
+   * list's scroll offset, returning (or relaunching the PWA) restores it
+   * after the cached rows painted — the user lands exactly where they were
+   * instead of at the top. Persisted in localStorage (survives cold start);
+   * best effort, a storage failure disables it silently.
+   */
+  useEffect(() => {
+    const key = String(workspace.workspaceId)
+    const saved = loadPersistedScroll(key)
+    if (saved > 0) {
+      requestAnimationFrame(() => {
+        try { window.scrollTo(0, saved) } catch { /* jsdom/noop */ }
+      })
+    }
+    return () => {
+      savePersistedScroll(key, window.scrollY)
+    }
+  }, [workspace.workspaceId])
 
   useEffect(() => {
     let cancelled = false
@@ -254,7 +377,15 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
         cursorRef.current = page.nextCursor
         setHasMore(page.hasMore)
         const appended = pageItems(page.items, ownedIds)
-        setRows(previous => [...previous, ...appended])
+        setRows(previous => {
+          const next = [...previous, ...appended]
+          // Keep the cross-mount/persisted caches in step with the roster.
+          const cached = sessionListCache.get(String(workspace.workspaceId))
+          if (cached !== undefined) {
+            setCachedList(String(workspace.workspaceId), { rows: next, cursor: page.nextCursor, hasMore: page.hasMore })
+          }
+          return next
+        })
         loadPreviews(appended)
       },
       (reason: unknown) => {
@@ -300,7 +431,14 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
           running: false,
           blank: true,
         }
-        setRows(previous => [view, ...previous])
+        setRows(previous => {
+          const next = [view, ...previous]
+          const cached = sessionListCache.get(String(workspace.workspaceId))
+          if (cached !== undefined) {
+            setCachedList(String(workspace.workspaceId), { rows: next, cursor: cached.cursor, hasMore: cached.hasMore })
+          }
+          return next
+        })
         onPick(view)
       },
       (reason: unknown) => {
@@ -362,12 +500,19 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
   const handleDeleteSession = useCallback((row: SessionView): void => {
     setDeleting(undefined)
     setMenuSession(undefined)
-    setRows(previous => previous.filter(item => item.sessionId !== row.sessionId))
+    setRows(previous => {
+      const next = previous.filter(item => item.sessionId !== row.sessionId)
+      const cached = sessionListCache.get(String(workspace.workspaceId))
+      if (cached !== undefined) {
+        setCachedList(String(workspace.workspaceId), { rows: next, cursor: cached.cursor, hasMore: cached.hasMore })
+      }
+      return next
+    })
     void removeOutboxForSession(row.sessionId)
     void archiveSession(row.sessionId).catch((reason: unknown) => {
       toast(`删除未生效：${errorText(reason)}`)
     })
-  }, [])
+  }, [workspace])
 
   const createHint = createError !== undefined ? staleHostHint(createError) : undefined
   const selectedPresetEntry = presets.find(preset => preset.id === selectedPreset)
@@ -383,7 +528,7 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
     // cannot reopen it from the roster.
     const visible = rows.filter(row => {
       if (term === '') return true
-      const preview = row.preview ?? previewCacheRef.current.get(row.sessionId) ?? ''
+      const preview = row.preview ?? sessionPreviewCache.get(row.sessionId) ?? ''
       return row.title.toLowerCase().includes(term) || preview.toLowerCase().includes(term)
     })
     return DAY_BUCKETS
@@ -516,7 +661,7 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
           <li key={group.bucket} style={{ listStyle: 'none' }}>
             <div className="mobile-groupTitle">{group.bucket}</div>
             {group.rows.map(row => {
-              const preview = row.preview ?? previewCacheRef.current.get(row.sessionId)
+              const preview = row.preview ?? sessionPreviewCache.get(row.sessionId)
                 ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)
               return (
                 <button type="button" key={row.sessionId} className="mobile-row" {...pressHandlers(row)}>

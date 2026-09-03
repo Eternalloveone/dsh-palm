@@ -110,6 +110,19 @@ export function previewSummary(text: string): string {
 }
 
 /**
+ * Running-turn elapsed label (desktop turn-clock parity, Chinese wording):
+ * whole seconds, minutes pad the seconds to two digits. The indicator only
+ * shows it once the turn has clearly been running (桌面/手机端 15s 阈值), so
+ * short turns never see it.
+ */
+export function formatRunDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return minutes > 0 ? `${minutes}分${String(seconds).padStart(2, '0')}秒` : `${seconds}秒`
+}
+
+/**
  * Which rows show their clock: a row shows the timestamp only when it is the
  * LAST row of its minute bucket — consecutive rows in the same minute hide
  * all but the final one.

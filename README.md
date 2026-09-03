@@ -68,7 +68,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 **Architecture**
 
 - **Method-level whitelisted RPC** — `/m/api` exposes an explicit allow-list plus phone-local methods; errors never leak host paths or method names (covered by `tests/mobile-api.spec.ts`)
-- **Hand-rolled render stack** — GFM-subset markdown renderer (escape-first, protocol allow-list), lightweight syntax highlighter, unified-diff parser — no third-party rendering dependencies; bundle under 900 KB (210 KB gzip)
+- **Hand-rolled render stack** — GFM-subset markdown renderer (escape-first, protocol allow-list), lightweight syntax highlighter, unified-diff parser — no third-party rendering dependencies; bundle under 1 MB (226 KB gzip)
 
 **Realtime**
 
@@ -91,6 +91,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **PWA** — installable, versioned service worker, offline-capable bundle
 - **gzip-compressed API responses** — weak-link friendly
 - **On-demand loading** — thin roster fetch; sessions load only when opened
+- **Instant navigation** — folded-view chat reads, batch previews and cross-mount caches make list/chat switching feel immediate, even over weak links
 
 **Notifications**
 

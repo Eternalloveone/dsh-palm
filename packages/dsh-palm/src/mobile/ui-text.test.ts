@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** ui-text: path compression, preview summaries, timestamp de-dup. */
 import { describe, expect, it } from 'vitest'
-import { commonPathPrefix, compactPath, dominantPathPrefix, previewSummary, timeVisibility } from './ui-text.ts'
+import { commonPathPrefix, compactPath, dominantPathPrefix, formatRunDuration, previewSummary, timeVisibility } from './ui-text.ts'
 
 describe('commonPathPrefix', () => {
   it('finds the longest shared segment prefix (Windows backslashes)', () => {
@@ -65,6 +65,24 @@ describe('timeVisibility', () => {
 
   it('always shows the final row', () => {
     expect(timeVisibility([base])).toEqual([true])
+  })
+})
+
+describe('formatRunDuration (turn clock)', () => {
+  it('renders whole seconds under a minute', () => {
+    expect(formatRunDuration(0)).toBe('0秒')
+    expect(formatRunDuration(45_000)).toBe('45秒')
+    expect(formatRunDuration(45_999)).toBe('45秒') // floor, not round
+  })
+
+  it('renders minutes with zero-padded seconds', () => {
+    expect(formatRunDuration(95_000)).toBe('1分35秒')
+    expect(formatRunDuration(120_000)).toBe('2分00秒')
+    expect(formatRunDuration(3_725_000)).toBe('62分05秒')
+  })
+
+  it('clamps negative durations to zero', () => {
+    expect(formatRunDuration(-5_000)).toBe('0秒')
   })
 })
 

@@ -121,8 +121,8 @@ describe('mobile routes', () => {
       expect(response.type).toContain('application/manifest+json')
       expect(JSON.parse(response.body)).toEqual(expect.objectContaining({
         id: '/m/',
-        name: 'DSH Remote',
-        short_name: 'DSH Remote',
+        name: 'Dsh Palm',
+        short_name: 'Dsh Palm',
         start_url: '/m/',
         scope: '/m/',
         display: 'standalone',

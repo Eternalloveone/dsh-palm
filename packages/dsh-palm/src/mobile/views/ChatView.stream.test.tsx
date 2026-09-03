@@ -11,10 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
-import { type SessionView } from './App.tsx'
+import { type SessionView, type ChatPageResult } from './App.tsx'
 import { escapeHtml, parseSegments, renderMarkdown, safeUrl } from '../markdown.ts'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import type { HistoryPage } from '../api.ts'
 import type { WireEvent } from '../messages.ts'
 
 // The api module is fully mocked; App.tsx's history wrapper is overridden to
@@ -33,7 +32,7 @@ vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
   return {
     ...actual,
-    loadHistory: vi.fn(),
+    loadChatPage: vi.fn(),
     prompt: vi.fn(async () => {}),
   }
 })
@@ -44,9 +43,9 @@ vi.mock('../markdown.ts', async importOriginal => {
   return { ...actual, parseSegments: vi.fn(actual.parseSegments) }
 })
 import { fetchMobilePreferences, models, respondQuestion } from '../api.ts'
-import { loadHistory } from './App.tsx'
+import { loadChatPage } from './App.tsx'
 
-const loadHistoryMock = vi.mocked(loadHistory)
+const loadChatPageMock = vi.mocked(loadChatPage)
 const fetchMobilePreferencesMock = vi.mocked(fetchMobilePreferences)
 const modelsMock = vi.mocked(models)
 const respondQuestionMock = vi.mocked(respondQuestion)
@@ -80,9 +79,9 @@ function makeEntry(type: string, data: unknown, seq: number): { event: WireEvent
   return { event: { type, seq, time: seq * 1_000, data } }
 }
 
-/** Build an empty history page (the live stream supplies all content). */
-function historyPage(): HistoryPage {
-  return { events: [] as never, hasMore: false } as HistoryPage
+/** Build an empty folded chat page (the live stream supplies all content). */
+function rowPage(): ChatPageResult {
+  return { rows: [], maxSeq: -1, hasMore: false }
 }
 
 /**
@@ -150,7 +149,7 @@ beforeEach(() => {
     groups: [],
     failures: [],
   } satisfies SessionModels)
-  loadHistoryMock.mockResolvedValue(historyPage())
+  loadChatPageMock.mockResolvedValue(rowPage())
   respondQuestionMock.mockResolvedValue(undefined)
   vi.useFakeTimers()
 })

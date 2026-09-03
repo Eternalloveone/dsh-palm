@@ -938,9 +938,9 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
         </div>
 
         <div className="settings-legend">
-          <ScopeBadge scope="phone" />仅影响本机
-          <ScopeBadge scope="sync" />改动同步到桌面端
-          <ScopeBadge scope="desktop" />请在桌面端修改
+          <ScopeBadge scope="phone" /><span>仅影响本机</span>
+          <ScopeBadge scope="sync" /><span>改动同步到桌面端</span>
+          <ScopeBadge scope="desktop" /><span>请在桌面端修改</span>
         </div>
 
         <ul className="settings-group">

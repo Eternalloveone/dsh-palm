@@ -4,7 +4,24 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-## [0.6.0]
+## [0.7.0]
+
+## [0.7.0] - 2026-09-02
+
+### Added
+
+- **Folded-view chat reads** — the host folds each session's event log into renderable message rows once per window and keeps the window live-fed by the host mux stream; `mobile.readChat` serves rows (tens of KB) instead of the raw event tail (hundreds of KB to MBs), so repeat visits to a session cost zero log reads and the wire carries far less
+- **Batch last-message previews** — `mobile.previews` serves the session list's preview burst in one call from a mux-fed cache (a cold session costs one lazy tail read over its lifetime, not one full-log read per list visit)
+- **Instant return-to-list** — the roster renders from a cross-mount cache the moment you come back from a chat, with a silent background refresh; scroll position survives the round-trip
+- **PWA cold-start persistence** — list rows, previews and scroll positions survive app relaunch via localStorage (bounded by TTL, capacity and pairing eviction)
+- **Turn clock** — the 输出中 indicator shows the running turn's elapsed time (desktop parity, 15s threshold) anchored at the logged turn/start
+- **Blank-session revocation** — leaving a newly created session that never received a message revokes it (the host is re-checked so an in-flight send is never destroyed)
+- **Composer draft persistence** — per-session drafts survive chat round-trips and cold starts (debounced writes, cleared on send)
+- **PWA renamed to Dsh Palm** — manifest / install name, iOS title and offline page
+
+### Fixed
+
+- **Settings legend alignment** — the scope badges (本机 / 同步桌面 / 桌面端) now sit in a two-column grid so every explanation starts at the same x
 
 ## [0.6.0] - 2026-09-02
 

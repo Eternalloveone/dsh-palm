@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   listSessions: vi.fn(),
   listWorkspaces: vi.fn(),
   prompt: vi.fn(),
+  readChat: vi.fn(),
   readSettings: vi.fn().mockResolvedValue({}),
   setThemePreference: vi.fn(),
 }))
@@ -61,5 +62,56 @@ describe('mobile paired-device gate', () => {
 
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('无法连接到运行中的 DSH host。'))
     expect(screen.queryByText('workspace-ready')).toBeNull()
+  })
+})
+
+describe('loadChatPage (v3 folded reads + fallback)', () => {
+  const wireEntry = (type: string, data: unknown, seq: number): { event: { type: string; seq: number; time: number; data: unknown } } =>
+    ({ event: { type, seq, time: seq * 1_000, data } })
+
+  it('serves the folded page straight from readChat (no history call)', async () => {
+    const page = {
+      rows: [{ id: 'u-1', kind: 'user', text: '你好', seq: 0, time: 0 }],
+      maxSeq: 7,
+      hasMore: true,
+      todo: { seq: 7, items: [{ content: '任务', status: 'pending' as const }] },
+      projections: { asOfSeq: 7, values: {} },
+    }
+    api.readChat.mockResolvedValue(page)
+    const { loadChatPage } = await import('./App.tsx')
+    const result = await loadChatPage('s-1', undefined, new AbortController().signal)
+    expect(result).toEqual(page)
+    expect(api.readChat).toHaveBeenCalledWith('s-1', undefined, undefined, expect.any(AbortSignal))
+    expect(api.history).not.toHaveBeenCalled()
+  })
+
+  it('falls back to session.history + local fold when readChat is unavailable', async () => {
+    api.readChat.mockRejectedValue(new RpcTransportError('HTTP 403'))
+    api.history.mockResolvedValue({
+      events: [
+        wireEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '改一下' }] }, 0),
+        wireEntry('assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', text: '正在' } }, 1),
+        wireEntry('assistant/message', {
+          turn: 0,
+          step: 0,
+          message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '已完成' }] },
+        }, 2),
+      ],
+      hasMore: false,
+    })
+    const { loadChatPage } = await import('./App.tsx')
+    const result = await loadChatPage('s-1')
+    // The two paths converge: folded rows + the event watermark.
+    expect(result.rows.map(row => row.text)).toEqual(['改一下', '已完成'])
+    expect(result.maxSeq).toBe(2)
+    expect(result.hasMore).toBe(false)
+    expect(api.history).toHaveBeenCalledWith('s-1', undefined, undefined, undefined)
+  })
+
+  it('propagates a fallback-path failure (readChat down AND history down)', async () => {
+    api.readChat.mockRejectedValue(new RpcTransportError('HTTP 403'))
+    api.history.mockRejectedValue(new RpcTransportError('transport failed: network'))
+    const { loadChatPage } = await import('./App.tsx')
+    await expect(loadChatPage('s-1')).rejects.toThrow('network')
   })
 })

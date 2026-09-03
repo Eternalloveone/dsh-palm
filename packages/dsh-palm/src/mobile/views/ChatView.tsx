@@ -15,13 +15,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
-import { loadHistory, prompt, type SessionView } from './App.tsx'
+import { loadChatPage, prompt, type SessionView } from './App.tsx'
+import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, type CommandDescriptor } from '../api.ts'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
-import { coalesceTurnMessages, EventFolder, foldEvents, latestTodoSnapshot, parseTodoList, type RenderMessage, type TodoItem, type TodoSnapshot, type WireEvent } from '../messages.ts'
+import { coalesceTurnMessages, EventFolder, foldEvents, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
 
 /**
  * Stable row key: (turn, step) when the row carries them, else the id.
@@ -41,7 +42,7 @@ import { copyText, openFilePath } from '../code-actions.ts'
 import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll } from '../display-prefs.ts'
-import { timeVisibility } from '../ui-text.ts'
+import { formatRunDuration, timeVisibility } from '../ui-text.ts'
 import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../offline.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { getVoiceServices } from '../voice-services.ts'
@@ -130,6 +131,12 @@ export const RECONCILE_FAILURE_LIMIT = 3
  * is still open but nothing visible is streaming - subagent memory upkeep
  * and other back-office work the phone does not render). */
 export const TURN_QUIET_MS = 6_000
+/** The turn clock (desktop parity) only appears once the turn has clearly
+ * been running this long; shorter turns keep the plain label. */
+export const TURN_CLOCK_THRESHOLD_MS = 15_000
+/** Composer draft debounce: localStorage writes wait this long after the
+ *  last keystroke (unmount flushes immediately regardless). */
+export const DRAFT_SAVE_DEBOUNCE_MS = 1_500
 /** Foreground-subagent tree poll cadence while the turn is open. The host
  * stream (host/session-status) does not reach the phone, so subagents.list is
  * polled at this rate to keep the count badge and tree fresh. */
@@ -187,12 +194,6 @@ export function estimateMessageHeight(message: RenderMessage): number {
   return height + 16
 }
 
-/** Extract the raw event from one history entry, carrying the host-computed
- * presentation view (if any) beside it so the fold can surface diff cards. */
-function eventOf(entry: { event: WireEvent; view?: unknown }): WireEvent {
-  return entry.view === undefined ? entry.event : { ...entry.event, view: entry.view }
-}
-
 /** One display-name transform for kebab-case machine names (web-UI parity). */
 function displayName(name: string): string {
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
@@ -224,8 +225,16 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const autoExtendedRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(() => loadDraft(session.sessionId))
+  // Live mirror of `input` for the unmount draft flush (the cleanup closure
+  // must read the CURRENT text, not the one its render captured).
+  const inputRef = useRef(input)
+  inputRef.current = input
   const [sending, setSending] = useState(false)
+  // Live mirror of `sending` for the back handler (a stale closure must not
+  // treat an in-flight send as "nothing sent yet" and revoke the session).
+  const sendingRef = useRef(sending)
+  sendingRef.current = sending
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const pendingRef = useRef(false)
   // Windowed rendering: prefix sum of estimated row heights over `messages`,
@@ -326,6 +335,28 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   /** Live mirror of attachImages for the async addImage cap check (no stale closure). */
   const attachImagesRef = useRef(attachImages)
   useEffect(() => { attachImagesRef.current = attachImages }, [attachImages])
+
+  /**
+   * Composer draft persistence: debounced writes while typing (a keystroke
+   * must not hit localStorage every key), an immediate flush on unmount /
+   * session switch, and removal once the text is sent (or emptied). The
+   * draft survives chat round-trips and PWA cold starts, per session.
+   */
+  useEffect(() => {
+    if (input === '') {
+      removeDraft(session.sessionId)
+      return
+    }
+    const id = setTimeout(() => { saveDraft(session.sessionId, input) }, DRAFT_SAVE_DEBOUNCE_MS)
+    return () => { clearTimeout(id) }
+  }, [input, session.sessionId])
+  useEffect(() => {
+    return () => {
+      // Unmount / session switch: flush the CURRENT text immediately (the
+      // debounce timer may never fire if the view is torn down first).
+      if (inputRef.current !== '') saveDraft(session.sessionId, inputRef.current)
+    }
+  }, [session.sessionId])
   /** Hidden file chooser backing the + menu's 图片 entry. */
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   /** Host slash-command directory (fetched lazily when the + menu opens). */
@@ -355,6 +386,15 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   const [running, setRunning] = useState(false)
+  /**
+   * The running turn's logged `turn/start` event time (epoch ms), the turn
+   * clock's anchor (desktop parity). Null while no turn is open or when the
+   * boundary fell outside the loaded window — the clock then falls back to
+   * the view's mount time, exactly like the desktop TurnStatus.
+   */
+  const [turnStartAt, setTurnStartAt] = useState<number | null>(null)
+  /** Turn-clock mount fallback (see turnStartAt). */
+  const mountTimeRef = useRef(Date.now())
   /** Wall-clock of the last mux frame of ANY kind (the activity probe behind
    * the quiet-state wording - subagent sessions stream on the same mux). */
   const lastFrameAtRef = useRef(Date.now())
@@ -507,11 +547,11 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const refillGap = useCallback((gap: { from: number; to: number }, signal: AbortSignal, isCancelled: () => boolean): void => {
     let beforeSeq = gap.to + 1
     const refill = (): void => {
-      void loadHistory(session.sessionId, beforeSeq, signal).then(
+      void loadChatPage(session.sessionId, beforeSeq, signal).then(
         (fresh) => {
           if (isCancelled()) return
           const folder = folderRef.current
-          const older = coalesceTurnMessages(foldEvents(fresh.events.map(eventOf)))
+          const older = coalesceTurnMessages(fresh.rows)
           // Drop rows at/below the window's bottom edge: they already live in
           // the tail snapshot and prepending them would duplicate rows.
           const trimmed = older.filter(row => (row.startSeq ?? row.seq) >= gap.from)
@@ -574,25 +614,27 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     setTodo(undefined)
     // The turn indicator starts from the list page's last-known state; the
     // live turn/start frame corrects it as soon as the agent emits anything.
+    // The clock anchor is unknown here (turn/start may sit outside the
+    // window) — null falls back to mount time, like the desktop TurnStatus.
     setRunning(session.running === true)
-    void loadHistory(session.sessionId, undefined, controller.signal).then(
+    setTurnStartAt(null)
+    void loadChatPage(session.sessionId, undefined, controller.signal).then(
       (page) => {
         if (cancelled) return
         // Buffered live events re-fold on top of the snapshot; the watermark
-        // drops any the snapshot already includes, so nothing is lost or doubled.
+        // (page.maxSeq — the host window's event floor) drops any the
+        // snapshot already includes, so nothing is lost or doubled.
         const buffered = liveBufferRef.current
         liveBufferRef.current = []
         tailLoadingRef.current = false
-        const pageEvents = page.events.map(eventOf)
-        const folder = new EventFolder(foldEvents(pageEvents))
+        const folder = new EventFolder(page.rows, page.maxSeq)
         folderRef.current = folder
         applyMessages(folder.fold(buffered))
         setHasOlder(page.hasMore)
-        // Seed the plan strip from the loaded tail (newest todo/write in the
-        // page wins; live frames adopt above it by seq). Buffered live events
-        // already adopted on arrival.
-        const seeded = latestTodoSnapshot(pageEvents)
-        if (seeded !== undefined) adoptTodo(seeded)
+        // Seed the plan strip from the page's todo snapshot (newest
+        // todo/write in the window; live frames adopt above it by seq).
+        // Buffered live events already adopted on arrival.
+        if (page.todo !== undefined) adoptTodo(page.todo)
         // Auto-extend the opening context: pull one more page silently so the
         // first screen shows ~50 messages without a manual tap. Best-effort —
         // a failure keeps the loaded tail and the manual button.
@@ -601,7 +643,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           loadOlderRef.current(true)
         }
         setLoading(false)
-        // The history-tail projection baseline seeds the permission picker.
+        // The page's projection baseline seeds the permission picker.
         // The `permissions` key is declared by the deployment's permission
         // plugin (augmentation), so the base SDK map is indexed loosely.
         const projections = page.projections?.values as Record<string, unknown> | undefined
@@ -676,6 +718,9 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         if (typeof event.type === 'string') {
           if (event.type === 'turn/start') {
             setRunning(true); setTurnQuiet(false)
+            // Anchor the turn clock at the logged start (desktop parity):
+            // a mid-turn reload keeps the real elapsed time.
+            setTurnStartAt(typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now())
             // A turn start is when subagents spawn; refresh the tree.
             refreshSubagentsRef.current()
             // The host clears the todo projection at turn/start; mirror it so
@@ -684,6 +729,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           }
           if (event.type === 'turn/end') {
             setRunning(false)
+            setTurnStartAt(null)
             // Mirror the host's turn/end normalization (see normalizeTurnEndTodo).
             normalizeTurnEndTodo()
           }
@@ -898,6 +944,21 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     }, 1_000)
     return () => clearInterval(id)
   }, [running])
+
+  // Turn clock (desktop parity): anchor at the logged turn/start (fallback:
+  // mount time) and re-compute elapsed once a second. Recomputed from the
+  // anchor rather than accumulated, so a throttled background tab snaps back
+  // to the true duration on the next tick. The clock span only renders past
+  // TURN_CLOCK_THRESHOLD_MS (short turns keep the plain label).
+  const [turnElapsedMs, setTurnElapsedMs] = useState(0)
+  useEffect(() => {
+    if (!running) { setTurnElapsedMs(0); return }
+    const anchor = turnStartAt ?? mountTimeRef.current
+    const tick = (): void => { setTurnElapsedMs(Math.max(0, Date.now() - anchor)) }
+    tick()
+    const id = setInterval(tick, 1_000)
+    return () => clearInterval(id)
+  }, [running, turnStartAt])
 
   // Windowed rendering: rebuild the estimated-height prefix whenever the
   // message list changes (or a row measurement lands), then keep the window
@@ -1204,13 +1265,13 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     const epoch = reloadEpochRef.current + 1
     reloadEpochRef.current = epoch
     tailLoadingRef.current = true
-    void loadHistory(session.sessionId, undefined, controller.signal).then(
+    void loadChatPage(session.sessionId, undefined, controller.signal).then(
       (page) => {
         if (epoch !== reloadEpochRef.current) return
         const buffered = liveBufferRef.current
         liveBufferRef.current = []
         tailLoadingRef.current = false
-        const folder = new EventFolder(foldEvents(page.events.map(eventOf)))
+        const folder = new EventFolder(page.rows, page.maxSeq)
         folderRef.current = folder
         applyMessages(folder.fold(buffered))
         setHasOlder(page.hasMore)
@@ -1292,6 +1353,31 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     })
     onBack()
   }, [session.sessionId, onBack, refreshOutbox])
+
+  /**
+   * Back with blank-session revocation: a session that was created but never
+   * received a message (blank, zero rendered rows) is revoked on exit — the
+   * desktop keeps no blank sessions either, and a "new chat" the user leaves
+   * without writing must not linger in the roster. The host is re-checked
+   * (tail 1 message) before archiving so an in-flight send whose echo has
+   * not landed yet is never destroyed; a send in progress is skipped
+   * outright. The local caches drop the row synchronously so the returning
+   * list never flashes it.
+   */
+  const handleBack = useCallback((): void => {
+    if (session.blank && messagesRef.current.length === 0 && !sendingRef.current) {
+      dropSessionFromCaches(session.sessionId)
+      void history(session.sessionId, undefined, 1).then(
+        (page) => {
+          const hasContent = page.events.some(entry =>
+            entry.event.type === 'user/message' || entry.event.type === 'assistant/message')
+          if (!hasContent) void archiveSession(session.sessionId).catch(() => { /* 撤销失败：保留会话 */ })
+        },
+        () => { /* 确认查询失败：保守不删 */ },
+      )
+    }
+    onBack()
+  }, [session, onBack])
 
   /** Long-press / right-click on a bubble opens the context menu. The copied
    * text comes from the render state (full text, or the full reasoning for
@@ -1391,12 +1477,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     // restoration can zero the container's scrollTop while the old page is
     // swapped, which would make the anchor shift below the wrong content.
     const anchorTop = silent ? undefined : (scrollRef.current?.scrollTop ?? scrollTopRef.current)
-    void loadHistory(session.sessionId, beforeSeq, controller.signal).then(
+    void loadChatPage(session.sessionId, beforeSeq, controller.signal).then(
       (page) => {
         clearTimeout(timeout)
         pendingRef.current = false
         if (!silent) setLoading(false)
-        const older = coalesceTurnMessages(foldEvents(page.events.map(eventOf)))
+        const older = coalesceTurnMessages(page.rows)
         const folder = folderRef.current
         if (folder === undefined) {
           setMessages(previous => coalesceTurnMessages([...older, ...previous]))
@@ -1491,6 +1577,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       void enqueuePrompt({ id: `outbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, sessionId: session.sessionId, text: body, queuedAt: Date.now() })
         .then(() => {
           setInput('')
+          removeDraft(session.sessionId)
           setQuoted(undefined)
           setAttachImages([])
           toast('已离线保存，恢复网络后自动发送')
@@ -1508,6 +1595,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         () => {
           setSending(false)
           setInput('')
+          removeDraft(session.sessionId)
         },
         () => { setSending(false) },
       )
@@ -1523,6 +1611,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       () => {
         setSending(false)
         setInput('')
+        removeDraft(session.sessionId)
         setAttachImages([])
         setQuoted(undefined)
         // Fresh activity just started: drop the poll backoff so the mux
@@ -1871,7 +1960,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     <div className="chat">
       <header className="mobile-header">
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+          <button type="button" className="mobile-back" aria-label="返回" onClick={handleBack}>‹</button>
         </div>
         <div className="mobile-titleWrap">
           <h1 className="mobile-title mobile-titleInline">{title}</h1>
@@ -2028,6 +2117,9 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         {running && (
           <div className="chat-turn-status" role="status" aria-label={turnQuiet ? '后台处理中' : '输出中'}>
             {turnQuiet ? '后台处理中' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
+            {turnElapsedMs >= TURN_CLOCK_THRESHOLD_MS && (
+              <span className="chat-turn-time" aria-hidden>{formatRunDuration(turnElapsedMs)}</span>
+            )}
             {runningSubagents > 0 && (
               <button
                 type="button"

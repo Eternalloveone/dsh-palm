@@ -7,12 +7,22 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
-import { fetchMobilePreferences, history as fetchHistory, prompt, readSettings } from '../api.ts'
+import {
+  fetchMobilePreferences,
+  history as fetchHistory,
+  prompt,
+  readChat,
+  readSettings,
+  type ChatPage,
+} from '../api.ts'
+import { EventFolder, foldEvents, latestTodoSnapshot, type RenderMessage, type TodoSnapshot } from '../messages.ts'
+import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
 import { startNotify } from '../notify.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
+import { clearPairingCaches } from '../list-persist.ts'
 import { ToastHost } from '../toast.tsx'
 import { ChatView } from './ChatView.tsx'
 import { SessionListView } from './SessionListView.tsx'
@@ -143,6 +153,13 @@ export function App({ initialPairError }: AppProps) {
     return () => { current = false }
   }, [])
 
+  // Pairing eviction (v3.3): a revoked/unpaired device must not keep
+  // another device's persisted sessions — clear the local caches the moment
+  // the pair state turns out to be broken (or is re-established).
+  useEffect(() => {
+    if (pairState === 'unpaired') clearPairingCaches()
+  }, [pairState])
+
   if (pairState === 'checking') {
     return (
       <main className="mobile mobile-empty" role="status">
@@ -152,7 +169,17 @@ export function App({ initialPairError }: AppProps) {
     )
   }
   if (pairState === 'unpaired') {
-    return <PairRequiredView initialError={initialPairError} onPaired={(path) => { window.location.replace(path) }} />
+    return (
+      <PairRequiredView
+        initialError={initialPairError}
+        onPaired={(path) => {
+          // A fresh pairing is a new device identity: drop the previous
+          // identity's persisted sessions before the reload lands.
+          clearPairingCaches()
+          window.location.replace(path)
+        }}
+      />
+    )
   }
   if (pairState === 'unavailable') {
     return (
@@ -411,6 +438,60 @@ export function staleHostHint(message: string): string | undefined {
 /** Fetch one history page (tail by default) — thin wrapper so views share the call shape. */
 export function loadHistory(sessionId: string, beforeSeq?: number, signal?: AbortSignal) {
   return fetchHistory(sessionId, beforeSeq, undefined, signal)
+}
+
+/** One folded chat page as the surface consumes it (any source). */
+export interface ChatPageResult {
+  rows: RenderMessage[]
+  /** Event-seq watermark (replay floor for restoring the live folder). */
+  maxSeq: number
+  hasMore: boolean
+  todo?: TodoSnapshot
+  projections?: SessionProjectionsBlock
+}
+
+/** The fallback fold of a raw history page (host lacks/refused readChat). */
+function foldHistoryPage(page: Awaited<ReturnType<typeof fetchHistory>>): ChatPageResult {
+  const events = page.events.map(entry => (
+    { ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }
+  ))
+  const folder = new EventFolder(foldEvents(events))
+  const todo = latestTodoSnapshot(events)
+  return {
+    rows: folder.snapshot(),
+    maxSeq: folder.lastSeq,
+    hasMore: page.hasMore,
+    ...(todo === undefined ? {} : { todo }),
+    ...(page.projections === undefined ? {} : { projections: page.projections }),
+  }
+}
+
+/**
+ * Fetch one folded chat page (v3): `mobile.readChat` first (host-folded
+ * rows, mux-fed window cache), with an automatic fallback to the raw
+ * `session.history` + local fold when the host answers unavailable or the
+ * read fails — the two paths converge on the same {@link ChatPageResult}
+ * shape, so the surface never has to know which one served it.
+ */
+export async function loadChatPage(
+  sessionId: string,
+  beforeSeq?: number,
+  signal?: AbortSignal,
+): Promise<ChatPageResult> {
+  try {
+    const page: ChatPage = await readChat(sessionId, beforeSeq, undefined, signal)
+    return {
+      rows: page.rows,
+      maxSeq: page.maxSeq,
+      hasMore: page.hasMore,
+      ...(page.todo === undefined ? {} : { todo: page.todo }),
+      ...(page.projections === undefined ? {} : { projections: page.projections }),
+    }
+  } catch {
+    // Fallback: the raw event page folded locally (identical shape). Any
+    // failure of THIS path propagates to the caller's own error handling.
+    return foldHistoryPage(await fetchHistory(sessionId, beforeSeq, undefined, signal))
+  }
 }
 
 export { prompt }

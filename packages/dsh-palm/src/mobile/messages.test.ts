@@ -500,6 +500,28 @@ describe('EventFolder incremental folding', () => {
     expect(settled).toMatchObject({ turn: 0, step: 0, pending: false })
   })
 
+  it('rebuilt folders re-index (turn, step) from row fields — a live chunk appends to the settled row', () => {
+    // The chat-window (v3) path restores folders from HOST-FOLDED rows, not
+    // events: the row carries the wire id (a-1), from which the synthetic
+    // "assistant,0.0#N" format cannot recover the turn/step key. The rebuild
+    // must index from the row's own turn/step fields, or the next live chunk
+    // for the same (turn, step) would mint a NEW row instead of appending.
+    const rows = foldEvents([
+      textChunk(0, 0, '你好', 1),
+      makeEvent('assistant/message', {
+        turn: 0, step: 0,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '你好' }] },
+      }, 2),
+    ])
+    const rebuilt = new EventFolder(rows)
+    expect(rebuilt.snapshot()[0]).toMatchObject({ id: 'a-1', text: '你好', turn: 0, step: 0 })
+    // A late chunk for the same step appends to the settled row, never a
+    // duplicate.
+    const after = rebuilt.fold([textChunk(0, 0, '追加', 5)])
+    expect(after).toHaveLength(1)
+    expect(after[0]).toMatchObject({ id: 'a-1', text: '你好追加', pending: false })
+  })
+
   it('tool-call placeholders carry (turn, step) too', () => {
     const folder = new EventFolder()
     folder.fold([makeEvent('tool/call', { turn: 2, step: 1, callId: 'c1', name: 'bash', arguments: '{}' }, 3)])

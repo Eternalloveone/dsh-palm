@@ -38,6 +38,10 @@ import { buildUsageView, type UsageProviderConfig, type UsageView } from './usag
 import { opendir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import type { ChatWindowService } from './chat-window.ts'
+import { READ_CHAT_DEFAULT_ROWS, READ_CHAT_MAX_ROWS, type ChatPage } from './chat-window.ts'
+import type { PreviewCacheService } from './preview-cache.ts'
+import { PREVIEWS_MAX_SESSIONS } from './preview-cache.ts'
 
 /**
  * Methods the phone surface may call. Everything else is refused HERE — but
@@ -117,6 +121,19 @@ const MOBILE_VOICE_SERVICES_METHOD = 'mobile.voiceServices'
  * this method is the phone's only correct way to run one.
  */
 const MOBILE_COMMAND_EXEC_METHOD = 'mobile.commandExec'
+/**
+ * Folded-view chat reads (v3): the host serves message rows from its
+ * mux-fed window cache instead of the raw event stream. Answered locally;
+ * the phone falls back to `session.history` when this method is absent.
+ */
+const MOBILE_READ_CHAT_METHOD = 'mobile.readChat'
+/**
+ * Batch last-message previews (v3.1): the session-list page's preview lines
+ * served from the host's mux-fed preview cache in ONE call — instead of one
+ * full-log `session.history` read per row. Answered locally; the phone falls
+ * back to per-row history reads when this method is absent.
+ */
+const MOBILE_PREVIEWS_METHOD = 'mobile.previews'
 /**
  * Per-provider usage/balance display (consumed quota for Ollama Cloud, balance
  * for DeepSeek...). Answered locally by the plugin: reads the desktop's
@@ -318,6 +335,37 @@ const MAX_SSE_SUBSCRIBERS = 8
 
 /** session.list sort cache: content key -> sorted row array (see dispatch). */
 let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
+/** Short TTL for the host session-list enumeration (v3.1+; see dispatch).
+ *  30s because the phone's list view re-renders cached rows immediately and
+ *  re-validates in the background — the TTL only bounds the background
+ *  refresh's host cost, and freshness is carried by the row-level update. */
+const SESSION_LIST_TTL_MS = 30_000
+/** The TTL cache: host rows + archive set, re-served within the window.
+ *  Bound to the apiProxy instance so independent proxies (tests spin up one
+ *  per server) never share a stale enumeration. */
+let sessionListTtlCache: {
+  at: number
+  proxy: ApiProxy
+  rawItems: Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+  archivedIds: Set<string>
+} | undefined
+/** TTL for the workspace roster / agent-preset roster caches (v3.2). */
+const ROSTER_TTL_MS = 30_000
+/** workspace.list TTL cache (see dispatch). */
+let workspaceListTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
+/** agentPreset.list TTL cache (see dispatch). */
+let agentPresetTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
+
+/**
+ * Drop the roster caches after a mutation the phone itself performed
+ * (create/rename/delete/archive): those changes must be visible on the next
+ * visit immediately, not after the TTL. MUTATING methods call this; the
+ * session-list TTL is also dropped so the new row set shows right away.
+ */
+function invalidateRosterCaches(): void {
+  sessionListTtlCache = undefined
+  workspaceListTtlCache = undefined
+}
 /** SSE keep-alive ping cadence for the live mux stream (single connection). */
 const DEFAULT_EVENTS_HEARTBEAT_MS = 15_000
 
@@ -387,6 +435,17 @@ export interface MobileApiDeps {
   resolveKey?: (refName: string) => Promise<string | undefined>
   /** SSE keep-alive ping cadence for the mux stream (default 15000 ms; test seam). */
   eventsHeartbeatMs?: number
+  /**
+   * The folded-view chat-window service (v3): `mobile.readChat` reads
+   * through it. Absent (older plugin wiring) the method answers
+   * unavailable and the phone falls back to `session.history` + local fold.
+   */
+  chatWindows?: ChatWindowService | undefined
+  /**
+   * The batch preview service (v3.1): `mobile.previews` reads through it.
+   * Absent, the phone falls back to per-row history preview reads.
+   */
+  previews?: PreviewCacheService | undefined
 }
 
 /**
@@ -523,6 +582,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_PUSH_UNSUBSCRIBE_METHOD
       || method === MOBILE_PUSH_CONFIG_METHOD
       || method === MOBILE_USAGE_METHOD
+      || method === MOBILE_READ_CHAT_METHOD
+      || method === MOBILE_PREVIEWS_METHOD
       || isTranscribe
     if (!MOBILE_ALLOWLIST.has(method) && !local) {
       req.resume()
@@ -916,6 +977,100 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: served },
         })
+      } else if (method === MOBILE_READ_CHAT_METHOD) {
+        // Folded-view chat read (v3): serve message rows from the host's
+        // mux-fed window cache. A window hit never touches the log; a cold
+        // read (or an older-page read) folds one `session.history` page. The
+        // phone falls back to `session.history` + local fold when this
+        // method is unavailable (older host) or fails.
+        const windows = deps.chatWindows
+        if (windows === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '折叠会话读取不可用' } },
+          })
+          return
+        }
+        const body = parsed.payload as { sessionId?: unknown; beforeSeq?: unknown; maxRows?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        const rawBeforeSeq = body?.beforeSeq
+        const beforeSeq = typeof rawBeforeSeq === 'number' && Number.isFinite(rawBeforeSeq) ? rawBeforeSeq : undefined
+        const rawMaxRows = body?.maxRows
+        const maxRows = typeof rawMaxRows === 'number' && Number.isFinite(rawMaxRows)
+          ? Math.min(Math.max(1, Math.round(rawMaxRows)), READ_CHAT_MAX_ROWS)
+          : READ_CHAT_DEFAULT_ROWS
+        try {
+          const page: ChatPage = beforeSeq === undefined
+            ? await windows.tail(sessionId, maxRows)
+            : await windows.before(sessionId, beforeSeq, maxRows)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: page },
+          })
+        } catch (error) {
+          // Internal failures never leak host paths or log details: a stable
+          // generic message is all the client sees (it falls back to the
+          // raw history path on this channel anyway).
+          console.error('mobile.readChat failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '会话内容读取失败，请稍后重试' } },
+          })
+        }
+      } else if (method === MOBILE_PREVIEWS_METHOD) {
+        // Batch last-message previews (v3.1): one call for the list page's
+        // preview burst, served from the host's mux-fed cache — cached rows
+        // cost zero log reads, cold rows one lazy tail read each. A session
+        // that cannot be read is answered with an empty summary (the row
+        // falls back to its stats line), never an error.
+        const previews = deps.previews
+        if (previews === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '预览服务不可用' } },
+          })
+          return
+        }
+        const body = parsed.payload as { sessionIds?: unknown } | undefined
+        const rawIds = Array.isArray(body?.sessionIds) ? body.sessionIds : []
+        const sessionIds = rawIds
+          .filter((id): id is string => typeof id === 'string' && id !== '')
+          .slice(0, PREVIEWS_MAX_SESSIONS)
+        if (sessionIds.length === 0) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { items: [] } },
+          })
+          return
+        }
+        try {
+          const items = await previews.previews(sessionIds)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { items } },
+          })
+        } catch (error) {
+          console.error('mobile.previews failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '预览读取失败，请稍后重试' } },
+          })
+        }
       } else if (isTranscribe) {
         // Voice → text through the phone-configured speech-to-text services
         // (OpenAI-compatible /audio/transcriptions endpoints, tried in
@@ -1165,24 +1320,47 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
 async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rpcId: string, signal?: AbortSignal): Promise<unknown> {
   const request: RpcRequest<unknown> = { rpcId: RpcId(rpcId), payload }
   if (method === 'session.list') {
-    const [full, wsList] = await Promise.all([
-      apiProxy.sessions.list(request as never),
-      // The archive set (workspace.deleteSession/archiveSession) rides
-      // workspace.list; a failure degrades to "no archive filter" instead of
-      // failing the roster.
-      apiProxy.workspace.list(request as never).catch(() => undefined),
-    ])
-    // The error path must carry the same 'server-response' envelope the
-    // success path builds, or the phone's callUnary throws a transport error
-    // and masks the real business error.
-    if (!full.result.ok) return { type: 'server-response' as const, rpcId, result: full.result }
-    const archivedIds = new Set(
-      wsList?.result.ok === true
-        ? (wsList.result.value.archivedSessionIds ?? []).map(id => String(id))
-        : [],
-    )
-    const rawItems = full.result.value.items as Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+    // v3.1: short-TTL the host enumeration (sessions.list + workspace.list
+    // fold every session's metadata on the HOST — hundreds of rows of stat/
+    // projection reads per call). Returning from the list page re-pages the
+    // SAME host result within seconds; the TTL serves that from memory, and
+    // a call after the TTL (or any cursor paging past the first page) still
+    // reads fresh. Freshness loss is bounded by the TTL; new sessions appear
+    // within one TTL window just like on the desktop's polling surfaces.
     const cursor = (payload as { cursor?: string } | undefined)?.cursor
+    const now = Date.now()
+    // Paging rides the same cached enumeration: within the TTL window every
+    // page (first or continuation) serves one consistent cut — a cursor
+    // request that re-read the host could straddle two different lists.
+    const ttl = sessionListTtlCache
+    const ttlFresh = ttl !== undefined
+      && ttl.proxy === apiProxy
+      && now - ttl.at < SESSION_LIST_TTL_MS
+    let rawItems: Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+    let archivedIds: Set<string>
+    if (ttlFresh) {
+      rawItems = ttl.rawItems
+      archivedIds = ttl.archivedIds
+    } else {
+      const [full, wsList] = await Promise.all([
+        apiProxy.sessions.list(request as never),
+        // The archive set (workspace.deleteSession/archiveSession) rides
+        // workspace.list; a failure degrades to "no archive filter" instead of
+        // failing the roster.
+        apiProxy.workspace.list(request as never).catch(() => undefined),
+      ])
+      // The error path must carry the same 'server-response' envelope the
+      // success path builds, or the phone's callUnary throws a transport error
+      // and masks the real business error.
+      if (!full.result.ok) return { type: 'server-response' as const, rpcId, result: full.result }
+      archivedIds = new Set(
+        wsList?.result.ok === true
+          ? (wsList.result.value.archivedSessionIds ?? []).map(id => String(id))
+          : [],
+      )
+      rawItems = full.result.value.items as Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+      sessionListTtlCache = { at: now, proxy: apiProxy, rawItems, archivedIds }
+    }
     // The phone's session picker shows main-agent sessions only: subagent
     // sessions (origin: 'subagent') are internal working sessions that would
     // clutter the roster and cost transfer bytes — and sessions archived on
@@ -1235,24 +1413,64 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     rpcId,
     result: response.result,
   })
-  if (method === 'workspace.list') return wrap(await apiProxy.workspace.list(request as never))
-  if (method === 'workspace.create') return wrap(await apiProxy.workspace.create(request as never))
-  if (method === 'workspace.rename') return wrap(await apiProxy.workspace.rename(request as never))
-  if (method === 'workspace.delete') return wrap(await apiProxy.workspace.delete(request as never))
+  if (method === 'workspace.list') {
+    // v3.2: short-TTL the workspace roster — the session list re-fetches it
+    // on every visit, and it only changes on create/rename/delete.
+    const cached = workspaceListTtlCache
+    if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
+      return wrap(cached.response)
+    }
+    const response = await apiProxy.workspace.list(request as never)
+    workspaceListTtlCache = { at: Date.now(), proxy: apiProxy, response }
+    return wrap(response)
+  }
+  if (method === 'workspace.create') {
+    invalidateRosterCaches()
+    return wrap(await apiProxy.workspace.create(request as never))
+  }
+  if (method === 'workspace.rename') {
+    invalidateRosterCaches()
+    return wrap(await apiProxy.workspace.rename(request as never))
+  }
+  if (method === 'workspace.delete') {
+    invalidateRosterCaches()
+    return wrap(await apiProxy.workspace.delete(request as never))
+  }
   // Session delete (= the desktop's archive semantics): the row leaves every
   // roster and never reappears after a refresh, while the session log stays
   // on disk (restorable from the desktop). Without this the phone's delete
   // was a local-only removal and the session resurrected on the next roster
   // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
-  if (method === 'workspace.archiveSession') return wrap(await apiProxy.workspace.archiveSession(request as never))
-  if (method === 'agentPreset.list') return wrap(await apiProxy.agentPresets.list(request as never))
-  if (method === 'session.create') return wrap(await apiProxy.sessions.create(request as never))
+  if (method === 'workspace.archiveSession') {
+    invalidateRosterCaches()
+    return wrap(await apiProxy.workspace.archiveSession(request as never))
+  }
+  if (method === 'agentPreset.list') {
+    // v3.2: the preset roster only changes on the desktop; short-TTL it.
+    const cached = agentPresetTtlCache
+    if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
+      return wrap(cached.response)
+    }
+    const response = await apiProxy.agentPresets.list(request as never)
+    agentPresetTtlCache = { at: Date.now(), proxy: apiProxy, response }
+    return wrap(response)
+  }
+  if (method === 'session.create') {
+    // The new session attaches to a workspace: the roster + list change.
+    invalidateRosterCaches()
+    return wrap(await apiProxy.sessions.create(request as never))
+  }
   if (method === 'session.history') return wrap(await apiProxy.sessions.history(request as never))
   if (method === 'session.search') return wrap(await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
   if (method === 'session.prompt') return wrap(await apiProxy.sessions.prompt(request as never))
   if (method === 'session.models') return wrap(await apiProxy.sessions.models(request as never))
   if (method === 'session.selectModel') return wrap(await apiProxy.sessions.selectModel(request as never))
-  if (method === 'session.rename') return wrap(await apiProxy.sessions.rename(request as never))
+  if (method === 'session.rename') {
+    // The list row's title comes from projections; drop the cached envelope
+    // so the renamed title shows on the next visit.
+    invalidateRosterCaches()
+    return wrap(await apiProxy.sessions.rename(request as never))
+  }
   if (method === 'session.cancel') return wrap(await apiProxy.sessions.cancel(request as never))
   if (method === 'subagent.list') return wrap(await apiProxy.subagents.list(request as never))
   if (method === 'settings.read') {

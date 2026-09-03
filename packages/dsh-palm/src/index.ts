@@ -25,6 +25,8 @@ import { RemoteWebUiPairing } from './pairing-access.ts'
 import { makeRoutes } from './routes.ts'
 import { makeMobileRoutes } from './mobile-routes.ts'
 import { makeMobileApiRoutes } from './mobile-api.ts'
+import { ChatWindowService, defaultChatHistoryFetcher } from './chat-window.ts'
+import { PreviewCacheService } from './preview-cache.ts'
 import { NotifyEngine, type NotifyService } from './notify/notify-engine.ts'
 import { NotifyStore } from './notify/notify-store.ts'
 import { deliverL2, deliverL3 } from './notify/notify-deliver.ts'
@@ -275,13 +277,29 @@ function applyImpl(ctx: Context, config?: Config): void {
     ...(apiProxy !== undefined
       ? (() => {
         const pendingTracker = new PendingTracker()
+        // Folded-view chat windows (v3): the mux-fed host cache behind
+        // `mobile.readChat`. One window per opened session, live-folded by
+        // the same background stream that feeds the pending tracker.
+        const chatWindows = new ChatWindowService(defaultChatHistoryFetcher(apiProxy))
+        // Batch last-message previews (v3.1): the session-list page's preview
+        // lines served without per-row log reads. Lazy tail reads use the
+        // history fetcher contract (tail 1 message per cold session).
+        const previews = new PreviewCacheService(async (sessionId) => {
+          const page = await apiProxy.sessions.history({
+            rpcId: RpcId('mobile-preview-read'),
+            payload: { sessionId, maxMessages: 1 },
+          } as never)
+          if (!page.result.ok) throw new Error(page.result.error.message)
+          return { events: page.result.value.events }
+        })
         // Keep the pending state fed even while no phone holds an SSE
         // subscription: the tracker is the mobile.pending polling fallback's
         // data source, and a phone whose EventSource is reconnecting (tunnel
         // blips) would otherwise see an empty pending state and miss the
         // question/approval panel entirely. One background host mux stream
-        // feeds it for the plugin lifetime; the phone's own SSE subscription
-        // stays the live path.
+        // feeds it (plus the chat windows and the preview cache) for the
+        // plugin lifetime; the phone's own SSE subscription stays the live
+        // path.
         const watch = new AbortController()
         void (async () => {
           try {
@@ -289,7 +307,11 @@ function applyImpl(ctx: Context, config?: Config): void {
               { rpcId: RpcId('mobile-pending-watch'), payload: {} },
               watch.signal,
             )
-            for await (const frame of frames) pendingTracker.onFrame(frame)
+            for await (const frame of frames) {
+              pendingTracker.onFrame(frame)
+              chatWindows.onFrame(frame)
+              previews.onFrame(frame)
+            }
           } catch {
             // The stream ended or was aborted; the watch is best-effort.
           }
@@ -298,6 +320,8 @@ function applyImpl(ctx: Context, config?: Config): void {
           service,
           apiProxy,
           pendingTracker,
+          chatWindows,
+          previews,
           mobileEnterToSend: () => resolve().mobileEnterToSend,
           commands: ctx.get('commands'),
           agents: ctx.get('agents'),

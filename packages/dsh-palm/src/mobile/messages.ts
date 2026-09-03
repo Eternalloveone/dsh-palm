@@ -262,13 +262,16 @@ function syntheticId(prefix: string, seq: number): string {
   return `${prefix}#${String(seq)}`
 }
 
-/** Concatenate the plain text of every `text` content block. */
-function textFromContent(content: unknown): string {
+/** Concatenate the plain text of every `text` content block.
+ *  Exported for host-side consumers (the preview cache) that must parse
+ *  message content identically to the fold. */
+export function textFromContent(content: unknown): string {
   return blocksOfType(content, 'text')
 }
 
-/** Concatenate the plain text of every `reasoning` content block. */
-function reasoningFromContent(content: unknown): string {
+/** Concatenate the plain text of every `reasoning` content block (host-side
+ *  consumers share this parse with the fold). */
+export function reasoningFromContent(content: unknown): string {
   return blocksOfType(content, 'reasoning')
 }
 
@@ -342,7 +345,7 @@ interface FoldState {
   maxSeq: number
 }
 
-function createState(existing: readonly RenderMessage[] | undefined): FoldState {
+function createState(existing: readonly RenderMessage[] | undefined, eventMaxSeq?: number): FoldState {
   const messages = existing === undefined ? [] : [...existing]
   const state: FoldState = {
     messages,
@@ -351,7 +354,11 @@ function createState(existing: readonly RenderMessage[] | undefined): FoldState 
     turnStepMessage: new Map(),
     messageTurn: new Map(),
     toolNames: new Map(),
-    maxSeq: -1,
+    // An explicit event watermark wins over the row-derived one: rows only
+    // carry message-level seqs, and events like turn/end never bump a row's
+    // seq, so a window restored from host-folded rows must know the true
+    // event watermark or a replay of those events would re-apply below it.
+    maxSeq: eventMaxSeq ?? -1,
   }
   for (const message of messages) {
     if (message.seq > state.maxSeq) state.maxSeq = message.seq
@@ -360,16 +367,21 @@ function createState(existing: readonly RenderMessage[] | undefined): FoldState 
     // Rebuild the (turn, step) and turn index maps lost when `existing` was
     // handed back to us as plain rows. Settled rows are indexed too: a
     // late chunk or tool/call for that step (authoritative rewrite) must
-    // bind to the existing row instead of creating a duplicate.
+    // bind to the existing row instead of creating a duplicate. The row's
+    // own turn/step fields are the primary key source — a finalized row
+    // carries a wire id (e.g. "a-0") from which the synthetic format
+    // ("assistant,0.0#4") cannot be recovered, and without this index a
+    // live chunk for the same (turn, step) would mint a NEW row instead of
+    // appending to the settled one (chat-window restores folders from
+    // host-folded rows, which is exactly this path).
     const decoded = decodePendingTurnStep(message.id)
-    const key = decoded === undefined ? undefined : tsKey(decoded.turn, decoded.step)
+    const key = tsKey(message.turn, message.step) ?? (decoded === undefined ? undefined : tsKey(decoded.turn, decoded.step))
     if (key !== undefined) {
       state.turnStepMessage.set(key, message)
       if (message.pending === true) state.pendingByTurnStep.set(key, message)
     }
-    if (decoded !== undefined) {
-      state.messageTurn.set(message.id, decoded.turn)
-    }
+    if (message.turn !== undefined) state.messageTurn.set(message.id, message.turn)
+    else if (decoded !== undefined) state.messageTurn.set(message.id, decoded.turn)
     // Rebuild the tool-name dedup set from the row's tool calls: a later
     // tool/call for this step must not re-append a name the summary already
     // shows (refillGap/prepend hand `existing` back as plain rows, so the
@@ -1076,9 +1088,21 @@ export class EventFolder {
   private state: FoldState
   private snapshotList: RenderMessage[] | undefined
 
-  /** @param initial - seed rows (history tail load); omit for an empty stream. */
-  constructor(initial?: readonly RenderMessage[]) {
-    this.state = createState(initial)
+  /**
+   * @param initial - seed rows (history tail load); omit for an empty stream.
+   * @param watermark - explicit event-seq watermark: every event at or below
+   * it is skipped as already applied. Restoring a window from host-folded
+   * rows passes the window's event watermark (see createState) so a replayed
+   * live frame can never double-apply below it.
+   */
+  constructor(initial?: readonly RenderMessage[], watermark?: number) {
+    this.state = createState(initial, watermark)
+  }
+
+  /** Event-seq watermark after the folds applied so far (readers use it to
+   *  hand a restored window its true replay floor). */
+  get lastSeq(): number {
+    return this.state.maxSeq
   }
 
   /** Fold one batch incrementally; returns the current snapshot list. */

@@ -9,6 +9,7 @@ import type { WorkspaceView } from '@deepseek-ai/dsh-host-apiproxy/api/workspace
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import type { SubagentCatalog } from '@deepseek-ai/dsh-host-apiproxy/api/subagents'
+import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
 import type { PromptPart } from './image.ts'
 import type { VoiceService } from './voice-services.ts'
@@ -177,6 +178,67 @@ export async function history(
     maxMessages,
     ...(beforeSeq !== undefined ? { beforeSeq } : {}),
   }, signal)
+}
+
+/** One folded chat page (v3 `mobile.readChat`): rows, watermark, and seeds. */
+export interface ChatPage {
+  /** Folded message rows (never coalesced — the surface coalesces at render). */
+  rows: RenderMessage[]
+  /** Event-seq watermark of the page's source window (replay floor for live
+   *  frames that may overlap a previous open of the same session). */
+  maxSeq: number
+  hasMore: boolean
+  /** Newest valid todo/write in the page's events, when any. */
+  todo?: TodoSnapshot
+  /** Tail-page projection baseline, when available. */
+  projections?: SessionProjectionsBlock
+}
+
+/**
+ * Folded-view chat read (v3): the host serves message rows from its mux-fed
+ * window cache instead of the raw event stream — a repeat visit to a session
+ * costs zero log reads, and the wire carries rows instead of the full chunk/
+ * tool event tail. Fall back to {@link history} + a local fold when the host
+ * answers unavailable (older plugin); see App.loadChatPage.
+ */
+export async function readChat(
+  sessionId: string,
+  beforeSeq?: number,
+  maxRows = 25,
+  signal?: AbortSignal,
+): Promise<ChatPage> {
+  return await callUnary<ChatPage>('mobile.readChat', {
+    sessionId,
+    ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+    ...(maxRows !== 25 ? { maxRows } : {}),
+  }, signal)
+}
+
+/** One batch preview row (summary is '' when the session has no text yet). */
+export interface SessionPreview {
+  sessionId: string
+  summary: string
+  updatedAt: number
+}
+
+/** Cap on one batch preview request (host-side limit is the same). */
+export const SESSION_PREVIEW_BATCH_LIMIT = 200
+
+/**
+ * Batch last-message previews (v3.1): the session-list page's preview lines
+ * served by the host in ONE call — cached rows cost zero host log reads; a
+ * session without a cache entry costs one lazy tail read. Fall back to
+ * per-row {@link history} reads when the host answers unavailable (older
+ * plugin); see SessionListView.loadPreviews.
+ */
+export async function previews(
+  sessionIds: readonly string[],
+  signal?: AbortSignal,
+): Promise<SessionPreview[]> {
+  const ids = sessionIds.filter(id => id !== '').slice(0, SESSION_PREVIEW_BATCH_LIMIT)
+  if (ids.length === 0) return []
+  const response = await callUnary<{ items: SessionPreview[] }>('mobile.previews', { sessionIds: ids }, signal)
+  return response.items
 }
 
 /**

@@ -965,15 +965,21 @@ body,
 .settings-badge-desktop { background: #f3f4f6; color: #9aa0a8; }
 .settings-badge-ro { background: #fdf0f0; color: #e5484d; }
 
-/* Legend under the search box explaining the badges. */
+/* Legend under the search box explaining the badges. Two-column grid:
+   badge column fixed, text column left-aligned — every explanation starts
+   at the same x, and the rows never reflow into ragged starts. */
 .settings-legend {
-  display: flex;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  column-gap: 8px;
+  row-gap: 6px;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
   margin: 0 16px 12px;
   font-size: 10.5px;
   color: var(--text-tertiary);
+}
+.settings-legend .settings-badge {
+  justify-self: start;
 }
 
 /* Group title trailing hint (e.g. 显示效果). */
@@ -3006,6 +3012,14 @@ button.settings-row:focus-visible {
   color: var(--accent);
   font-size: var(--text-md);
   font-weight: 500;
+}
+
+/* Turn clock (desktop parity): muted, tabular-ish elapsed label. */
+.chat-turn-time {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-turn-dots {

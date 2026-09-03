@@ -5,12 +5,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { ChatView, estimateMessageHeight, MAX_TAIL_BUFFER_EVENTS } from './ChatView.tsx'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
-import { type SessionView } from './App.tsx'
+import { type SessionView, type ChatPageResult } from './App.tsx'
 import type { HistoryPage, SessionPage } from '../api.ts'
+import { EventFolder, foldEvents, latestTodoSnapshot } from '../messages.ts'
 import type { RenderMessage, WireEvent } from '../messages.ts'
+import { loadDraft, sessionListCache } from '../list-persist.ts'
 
-// The api module is fully mocked; App.tsx's history wrapper is overridden to
-// feed fixed history pages, its pure helpers (errorText / formatTime) stay real.
+// The api module is fully mocked; App.tsx's chat-page loader is overridden to
+// feed fixed folded pages, its pure helpers (errorText / formatTime) stay real.
 vi.mock('../api.ts', () => ({
   fetchMobilePreferences: vi.fn(),
   models: vi.fn(),
@@ -28,7 +30,7 @@ vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
   return {
     ...actual,
-    loadHistory: vi.fn(),
+    loadChatPage: vi.fn(),
     prompt: vi.fn(async () => {}),
   }
 })
@@ -47,7 +49,7 @@ vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
 import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, listSessions, history, subagentsList } from '../api.ts'
-import { loadHistory, prompt } from './App.tsx'
+import { loadChatPage, prompt } from './App.tsx'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
 
@@ -69,9 +71,29 @@ function makeEntryWithView(type: string, data: unknown, seq: number, view: unkno
   return { event: { type, seq, time: seq * 1_000, data }, view }
 }
 
-/** Build a history page from loose wire events (the host union is strict). */
+/** Build a raw history page from loose wire events (the running-reconcile
+ *  probe consumes event shapes, not folded rows). */
 function historyPage(events: Array<{ event: WireEvent }>, extra: Record<string, unknown> = {}): HistoryPage {
   return { events: events as never, hasMore: false, ...extra } as HistoryPage
+}
+
+/** Fold raw history entries into a v3 chat page (the host-folded shape the
+ *  ChatView consumes: rows + event watermark + todo/projections seeds). The
+ *  per-entry host presentation view rides into the fold like the live mux
+ *  frames do (see ChatView's frame handling). */
+function rowPage(events: Array<{ event: WireEvent; view?: unknown }>, extra: Record<string, unknown> = {}): ChatPageResult {
+  const wireEvents = events.map(entry => (
+    { ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }
+  ))
+  const folder = new EventFolder(foldEvents(wireEvents))
+  const todo = latestTodoSnapshot(wireEvents)
+  return {
+    rows: folder.snapshot(),
+    maxSeq: folder.lastSeq,
+    hasMore: false,
+    ...(todo === undefined ? {} : { todo }),
+    ...extra,
+  } as ChatPageResult
 }
 
 /** Minimal mux stand-in: captures the ChatView's frame listener for hand-off. */
@@ -124,7 +146,7 @@ const cancelSessionMock = vi.mocked(cancelSession)
 const fetchPendingMock = vi.mocked(fetchPending)
 const listSessionsMock = vi.mocked(listSessions)
 const historyMock = vi.mocked(history)
-const loadHistoryMock = vi.mocked(loadHistory)
+const loadChatPageMock = vi.mocked(loadChatPage)
 const subagentsListMock = vi.mocked(subagentsList)
 const promptMock = vi.mocked(prompt)
 const startVoiceRecordingMock = vi.mocked(startVoiceRecording)
@@ -168,11 +190,14 @@ afterEach(() => {
   // history page (the auto-extend consumes one-shot mocks).
   vi.resetAllMocks()
   vi.restoreAllMocks()
+  // Blank-session revocation seeds the roster cache + persisted store.
+  sessionListCache.clear()
+  localStorage.clear()
 })
 
 describe('ChatView message folds', () => {
   it('hides reasoning behind a collapsed disclosure and expands on tap', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     // The folded turn renders: user bubble, assistant text, disclosures.
@@ -190,7 +215,7 @@ describe('ChatView message folds', () => {
   })
 
   it('keeps the tool disclosure collapsed with a summary, then reveals arguments', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     const head = await screen.findByRole('button', { name: /工具/ })
@@ -204,7 +229,7 @@ describe('ChatView message folds', () => {
   })
 
   it('shows the permission chip from the history-tail projection and applies via /permission', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         asOfSeq: 4,
         values: {
@@ -231,7 +256,7 @@ describe('ChatView message folds', () => {
   })
 
   it('requires an explicit confirm before enabling full access', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         asOfSeq: 4,
         values: {
@@ -279,8 +304,8 @@ describe('ChatView initial-load race', () => {
   }
 
   it('keeps live events that arrive while the tail page is still loading', async () => {
-    let resolveHistory: (page: HistoryPage) => void = () => {}
-    loadHistoryMock.mockReturnValue(new Promise<HistoryPage>((resolve) => { resolveHistory = resolve }))
+    let resolveHistory: (page: ChatPageResult) => void = () => {}
+    loadChatPageMock.mockReturnValue(new Promise<ChatPageResult>((resolve) => { resolveHistory = resolve }))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
@@ -291,7 +316,7 @@ describe('ChatView initial-load race', () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('assistant/message', { turn: 1, step: 0, message: { id: 'a-9', role: 'assistant', content: [{ type: 'text', text: '实时新消息' }] } }, 8).event })
     })
     // The snapshot predates those events; resolving it must not drop them.
-    await act(async () => { resolveHistory(historyPage(turnEvents())) })
+    await act(async () => { resolveHistory(rowPage(turnEvents())) })
 
     expect(await screen.findByText('实时新消息')).toBeTruthy()
     // The history turn's tool disclosure plus the live one both render.
@@ -299,7 +324,7 @@ describe('ChatView initial-load race', () => {
   })
 
   it('carries the host view on live mux frames into the tool diff card', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -335,7 +360,7 @@ describe('ChatView initial-load race', () => {
   })
 
   it('keeps the streaming row mounted when it settles (stable (turn, step) key)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
@@ -359,12 +384,12 @@ describe('ChatView initial-load race', () => {
 
   it('caps the tail-load live buffer and re-pulls the history tail after an overflow', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    let resolveHistory: (page: HistoryPage) => void = () => {}
-    loadHistoryMock
-      .mockReturnValueOnce(new Promise<HistoryPage>((resolve) => { resolveHistory = resolve }))
+    let resolveHistory: (page: ChatPageResult) => void = () => {}
+    loadChatPageMock
+      .mockReturnValueOnce(new Promise<ChatPageResult>((resolve) => { resolveHistory = resolve }))
       // The overflow refill page folds into the list; the mock's row sits
       // past the buffered burst so the windowed list renders it at the bottom.
-      .mockResolvedValueOnce(historyPage([
+      .mockResolvedValueOnce(rowPage([
         makeEntry('assistant/message', {
           id: 'a-gap',
           role: 'assistant',
@@ -398,7 +423,7 @@ describe('ChatView initial-load race', () => {
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(String(warnSpy.mock.calls[0]?.[0])).toContain(String(MAX_TAIL_BUFFER_EVENTS))
 
-    await act(async () => { resolveHistory(historyPage(turnEvents())) })
+    await act(async () => { resolveHistory(rowPage(turnEvents())) })
 
     // The capped buffer keeps the render bounded: the dropped oldest burst
     // message is gone from the buffered fold (it comes back via the refill).
@@ -409,29 +434,29 @@ describe('ChatView initial-load race', () => {
     // seq window's newest edge (the dropped event has seq 100 → beforeSeq 101),
     // still carrying the same abort signal as the initial load. The old flat
     // tail re-pull (beforeSeq undefined) could never return the dropped event.
-    await waitFor(() => { expect(loadHistoryMock).toHaveBeenCalledTimes(2) })
-    expect(loadHistoryMock.mock.calls[1]?.[0]).toBe('s-1')
-    expect(loadHistoryMock.mock.calls[1]?.[1]).toBe(101)
-    expect(loadHistoryMock.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal)
-    expect(loadHistoryMock.mock.calls[1]?.[2]).toBe(loadHistoryMock.mock.calls[0]?.[2])
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(2) })
+    expect(loadChatPageMock.mock.calls[1]?.[0]).toBe('s-1')
+    expect(loadChatPageMock.mock.calls[1]?.[1]).toBe(101)
+    expect(loadChatPageMock.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal)
+    expect(loadChatPageMock.mock.calls[1]?.[2]).toBe(loadChatPageMock.mock.calls[0]?.[2])
 
     // The refilled page (the dropped seq 100 event) folds back in.
     expect(await screen.findByText('补拉恢复')).toBeTruthy()
   })
 
-  it('passes an AbortSignal to loadHistory and aborts it on unmount', async () => {
+  it('passes an AbortSignal to loadChatPage and aborts it on unmount', async () => {
     let capturedSignal: AbortSignal | undefined
-    loadHistoryMock.mockImplementation((_sessionId, _beforeSeq, signal) => {
+    loadChatPageMock.mockImplementation((_sessionId, _beforeSeq, signal) => {
       capturedSignal = signal
-      return Promise.resolve(historyPage(turnEvents()))
+      return Promise.resolve(rowPage(turnEvents()))
     })
     const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     expect(await screen.findByText('已完成修改')).toBeTruthy()
-    expect(loadHistoryMock).toHaveBeenCalledTimes(1)
-    expect(loadHistoryMock.mock.calls[0]?.[0]).toBe('s-1')
-    expect(loadHistoryMock.mock.calls[0]?.[1]).toBeUndefined()
-    expect(loadHistoryMock.mock.calls[0]?.[2]).toBeInstanceOf(AbortSignal)
+    expect(loadChatPageMock).toHaveBeenCalledTimes(1)
+    expect(loadChatPageMock.mock.calls[0]?.[0]).toBe('s-1')
+    expect(loadChatPageMock.mock.calls[0]?.[1]).toBeUndefined()
+    expect(loadChatPageMock.mock.calls[0]?.[2]).toBeInstanceOf(AbortSignal)
     expect(capturedSignal).toBeInstanceOf(AbortSignal)
     expect(capturedSignal?.aborted).toBe(false)
 
@@ -442,7 +467,7 @@ describe('ChatView initial-load race', () => {
 
 describe('ChatView model sheet', () => {
   it('labels the toolbar chip with the current model and selects a new one', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     const chip = await screen.findByRole('button', { name: /切换模型/ })
@@ -457,7 +482,7 @@ describe('ChatView model sheet', () => {
   })
 
   it('offers effort choices for the current model and submits the picked effort', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     // The current model already is the effort-capable one.
     modelsMock.mockResolvedValue({
       current: { provider: 'fx', model: 'fx-2', reasoningEffort: 'high' },
@@ -486,7 +511,7 @@ describe('ChatView model sheet', () => {
     })
   })
   it('explains a transport 403 on the model channel as a stale host', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     modelsMock.mockRejectedValue(new Error('HTTP 403'))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
@@ -507,7 +532,7 @@ describe('ChatView composer', () => {
   }
 
   it('sends on Enter by default and keeps Shift+Enter inserting a newline', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
 
@@ -532,7 +557,7 @@ describe('ChatView composer', () => {
 
   it('inserts a newline on Enter and sends only from the button when the preference is false', async () => {
     fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: false })
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
 
@@ -612,7 +637,7 @@ describe('ChatView scrolling', () => {
 
   it('positions to the latest message when a session is opened', async () => {
     scrollHeightMock = 400
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     // The tail page renders, then the commit-time effect pins scrollTop to the tail.
     expect(await screen.findByText('已完成修改')).toBeTruthy()
@@ -621,7 +646,7 @@ describe('ChatView scrolling', () => {
 
   it('auto-scrolls to the bottom when a new live message arrives', async () => {
     scrollHeightMock = 400
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -637,13 +662,13 @@ describe('ChatView scrolling', () => {
   })
 
   it('auto-extends the opening tail with one silent older page when more history exists', async () => {
-    loadHistoryMock.mockResolvedValueOnce(historyPage(turnEvents(), { hasMore: true }))
-    loadHistoryMock.mockResolvedValueOnce(historyPage(turnEvents(), { hasMore: false }))
+    loadChatPageMock.mockResolvedValueOnce(rowPage(turnEvents(), { hasMore: true }))
+    loadChatPageMock.mockResolvedValueOnce(rowPage(turnEvents(), { hasMore: false }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     // The auto-extend pulled a second page (beforeSeq) without a tap.
-    await waitFor(() => { expect(loadHistoryMock).toHaveBeenCalledTimes(2) })
-    const secondCall = loadHistoryMock.mock.calls[1]
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(2) })
+    const secondCall = loadChatPageMock.mock.calls[1]
     expect(secondCall?.[0]).toBe('s-1')
     expect(secondCall?.[1]).toBeDefined()
     // The second page has no more history, so the manual button stays hidden.
@@ -652,12 +677,12 @@ describe('ChatView scrolling', () => {
 
   it('keeps the current scroll position when older messages are loaded', async () => {
     scrollHeightMock = 400
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), { hasMore: true }))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), { hasMore: true }))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     // The auto-extend consumed one older page; the button stays (hasMore).
-    await waitFor(() => { expect(loadHistoryMock).toHaveBeenCalledTimes(2) })
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(2) })
     // Move to the bottom (streaming), as a stable baseline to preserve.
     scrollHeightMock = 800
     await act(async () => {
@@ -671,7 +696,7 @@ describe('ChatView scrolling', () => {
     // the view is NOT re-pinned to the new bottom (scrollHeightMock is 900
     // and no write may hit 900).
     scrollHeightMock = 900
-    loadHistoryMock.mockResolvedValueOnce(historyPage(turnEvents(), { hasMore: false }))
+    loadChatPageMock.mockResolvedValueOnce(rowPage(turnEvents(), { hasMore: false }))
     fireEvent.click(screen.getByRole('button', { name: /加载更早的消息/ }))
     await waitFor(() => { expect(scrollWrites.length).toBe(writesBefore + 1) })
     const anchored = scrollWrites.at(-1) ?? 0
@@ -689,9 +714,9 @@ describe('ChatView scrolling', () => {
     // POST-commit height: the last write lands on the real bottom.
     scrollHeightMock = 400
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValueOnce(historyPage(turnEvents(), { hasMore: true }))
-    let release!: (page: HistoryPage) => void
-    loadHistoryMock.mockReturnValueOnce(new Promise<HistoryPage>(resolve => { release = resolve }))
+    loadChatPageMock.mockResolvedValueOnce(rowPage(turnEvents(), { hasMore: true }))
+    let release!: (page: ChatPageResult) => void
+    loadChatPageMock.mockReturnValueOnce(new Promise<ChatPageResult>(resolve => { release = resolve }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     await waitFor(() => { expect(scrollWrites.at(-1)).toBe(400) })
@@ -699,7 +724,7 @@ describe('ChatView scrolling', () => {
     // beyond the stale tail (12 heavy rows → 2000px). The re-follow must
     // observe the committed height, never the pre-commit one.
     scrollHeightMock = 2000
-    await act(async () => { release?.(historyPage(turnEvents(), { hasMore: false })) })
+    await act(async () => { release?.(rowPage(turnEvents(), { hasMore: false })) })
     await waitFor(() => { expect(scrollWrites.at(-1)).toBe(2000) })
     // And it must NOT strand: the view never rests on the stale tail value.
     expect(scrollWrites.at(-1)).not.toBe(400)
@@ -708,7 +733,7 @@ describe('ChatView scrolling', () => {
   it('shows the jump-to-latest button once the reader scrolls away from the bottom', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     // At the bottom (opening position) the button stays hidden.
@@ -722,7 +747,7 @@ describe('ChatView scrolling', () => {
   it('jumps to the bottom and hides the button on click', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     const scroller = document.querySelector('.chat-scroll')!
@@ -736,7 +761,7 @@ describe('ChatView scrolling', () => {
   it('counts turns that arrive while away and clears the badge on jump', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -759,7 +784,7 @@ describe('ChatView scrolling', () => {
   it('clears the unread badge when the reader manually scrolls back to the bottom', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -788,7 +813,7 @@ describe('ChatView scrolling', () => {
   it('counts one badge per turn, not per message', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -819,7 +844,7 @@ describe('ChatView scrolling', () => {
     }, i))
     scrollHeightMock = 20_000
     clientHeightMock = 600
-    loadHistoryMock.mockResolvedValue(historyPage(many))
+    loadChatPageMock.mockResolvedValue(rowPage(many))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('消息129')
@@ -854,7 +879,7 @@ describe('ChatView scrolling', () => {
       content: [{ type: 'text', text: `消息${i}` }],
     }, i))
     scrollHeightMock = 20_000
-    loadHistoryMock.mockResolvedValue(historyPage(many))
+    loadChatPageMock.mockResolvedValue(rowPage(many))
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('消息129')
@@ -897,7 +922,7 @@ describe('ChatView scrolling', () => {
         content: [{ type: 'text', text: `消息${i}` }],
       }, i))
       scrollHeightMock = 20_000
-      loadHistoryMock.mockResolvedValue(historyPage(many))
+      loadChatPageMock.mockResolvedValue(rowPage(many))
       const mux = new FakeMux()
       const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await screen.findByText('消息129')
@@ -967,7 +992,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('hides injected user messages by default and reveals them via the showSystemMessages prop', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(systemEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(systemEvents()))
     const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     // The plugin-injected message is hidden by default; the real user message shows.
@@ -984,7 +1009,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('hides the tool disclosure when the showToolCalls prop is off', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(toolEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(toolEvents()))
     const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     // Tool disclosure visible by default.
@@ -998,7 +1023,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('renders the host diff-card view as a collapsible artifact in the message body', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([
+    loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '改文件' }] }, 0),
       makeEntry('assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: '正在写' } }, 1),
       makeEntryWithView('tool/call', { turn: 0, step: 0, callId: 'c1', name: 'write', arguments: '{"file_path":"a.txt"}' }, 2,
@@ -1038,7 +1063,7 @@ describe('ChatView display toggles and context usage', () => {
   it('embeds the diff artifact at its call time point between the text runs', async () => {
     // Two steps of one turn: step 1 speaks then writes a file, step 2 speaks
     // after. The settled flow renders text → artifact → text in DOM order.
-    loadHistoryMock.mockResolvedValue(historyPage([
+    loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '改文件' }] }, 0),
       makeEntry('assistant/message', {
         turn: 0,
@@ -1071,7 +1096,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('renders the context meter from the contextPressure projection', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         values: { contextPressure: { contextWindow: 100_000, pressureTokens: 30_000, projectedTokens: 30_000 } },
       },
@@ -1084,7 +1109,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('shows the exact usage figures when the ring is tapped and closes again', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         values: { contextPressure: { contextWindow: 100_000, pressureTokens: 30_000, projectedTokens: 30_000 } },
       },
@@ -1102,7 +1127,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('adds the warn class when context pressure is at or above 80%', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents(), {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         values: { contextPressure: { contextWindow: 100_000, pressureTokens: 80_000, projectedTokens: 80_000 } },
       },
@@ -1113,7 +1138,7 @@ describe('ChatView display toggles and context usage', () => {
   })
 
   it('renders a persistent context chip with a dash placeholder when there is no usage/context data', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     const chip = await screen.findByText('上下文 --')
@@ -1123,9 +1148,10 @@ describe('ChatView display toggles and context usage', () => {
 
 describe('ChatView in-place quick picker strips', () => {
   /** History with the permissions projection (readonly / workspace-write / full). */
-  function permissionHistory(): HistoryPage {
-    return historyPage(turnEvents(), {
+  function permissionHistory(): ChatPageResult {
+    return rowPage(turnEvents(), {
       projections: {
+        asOfSeq: 5,
         values: {
           permissions: {
             currentValue: 'readonly',
@@ -1141,7 +1167,7 @@ describe('ChatView in-place quick picker strips', () => {
   }
 
   it('opens the model panel on the model pill and highlights the current model', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
@@ -1171,7 +1197,7 @@ describe('ChatView in-place quick picker strips', () => {
       ],
       failures: [],
     } satisfies SessionModels)
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
@@ -1181,7 +1207,7 @@ describe('ChatView in-place quick picker strips', () => {
   })
 
   it('switches the model directly from the strip and closes it', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
@@ -1195,7 +1221,7 @@ describe('ChatView in-place quick picker strips', () => {
 
   it('shows a retry when the model catalog fails to load', async () => {
     modelsMock.mockRejectedValueOnce(new Error('HTTP 500'))
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
@@ -1205,7 +1231,7 @@ describe('ChatView in-place quick picker strips', () => {
   })
 
   it('dismisses the strip when the scrim is tapped', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
@@ -1217,7 +1243,7 @@ describe('ChatView in-place quick picker strips', () => {
   })
 
   it('opens the permission strip and switches through /permission', async () => {
-    loadHistoryMock.mockResolvedValue(permissionHistory())
+    loadChatPageMock.mockResolvedValue(permissionHistory())
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换权限/ }))
@@ -1229,7 +1255,7 @@ describe('ChatView in-place quick picker strips', () => {
   })
 
   it('routes the full-access preset through the confirming sheet, never directly', async () => {
-    loadHistoryMock.mockResolvedValue(permissionHistory())
+    loadChatPageMock.mockResolvedValue(permissionHistory())
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     fireEvent.click(screen.getByRole('button', { name: /切换权限/ }))
@@ -1256,7 +1282,7 @@ function emitSessionEvent(mux: FakeMux, type: string, seq: number): void {
 
 describe('ChatView stop button (#1041)', () => {
   it('switches the composer primary to a stop button while running and cancels the turn', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
@@ -1278,7 +1304,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('disables the stop button while the cancel request is in flight', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     let resolveCancel: (() => void) | undefined
     cancelSessionMock.mockReturnValue(new Promise<{ accepted: true }>((resolve) => {
       resolveCancel = () => { resolve({ accepted: true }) }
@@ -1303,7 +1329,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('surfaces a cancel failure through the chat error line', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     cancelSessionMock.mockRejectedValue(new Error('cancel exploded'))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -1315,7 +1341,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('reconciles a lost turn/end frame against the host running state', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1352,7 +1378,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('clears the indicator even when the session is off the first list page (missing row)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1382,7 +1408,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('keeps the indicator when the session is off the first list page but the turn is open (missing row)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1408,7 +1434,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('clears the indicator when the host is unreachable (sustained listSessions failure)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1437,7 +1463,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('keeps the indicator when the agent is parked on a subagent (list running=false, turn open)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1463,7 +1489,7 @@ describe('ChatView stop button (#1041)', () => {
   })
 
   it('flips the indicator wording to 后台处理中 while frames go silent', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     // The agent is genuinely running throughout this test: reconciliation
     // must not consult history (its default turn/end mock would clear the
     // indicator) while the frame stream just goes quiet.
@@ -1510,7 +1536,7 @@ describe('ChatView run-status strip (session/jobs)', () => {
   }) as never
 
   it('shows a strip from a session/jobs frame and lists jobs in the sheet', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1530,7 +1556,7 @@ describe('ChatView run-status strip (session/jobs)', () => {
   })
 
   it('ignores session/jobs frames for other sessions', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1540,7 +1566,7 @@ describe('ChatView run-status strip (session/jobs)', () => {
   })
 
   it('hides the strip when the jobs snapshot empties', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1558,7 +1584,7 @@ describe('ChatView run-status strip (session/jobs)', () => {
     // tasks were cached by the client and replay on mount.
     const mux = new FakeMux()
     mux.cached['s-1'] = [job('pwsh-7', 'running', '后台构建')]
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
 
@@ -1567,7 +1593,7 @@ describe('ChatView run-status strip (session/jobs)', () => {
   })
 
   it('keeps the strip absent when the mux has no cached snapshot', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -1581,7 +1607,7 @@ describe('ChatView foreground-subagent badge + tree sheet', () => {
   }) as never
 
   it('shows a count badge for running subagents and opens the tree sheet', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     subagentsListMock.mockResolvedValue({ entries: [runningChild()], parentAvailable: true })
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -1604,7 +1630,7 @@ describe('ChatView foreground-subagent badge + tree sheet', () => {
   })
 
   it('hides the badge when no subagent is running', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     subagentsListMock.mockResolvedValue({
       entries: [{ kind: 'child', id: 's-sub', mode: 'one-shot', activity: 'inactive', hasChildren: false, label: '整理记忆' } as never],
       parentAvailable: true,
@@ -1631,7 +1657,7 @@ describe('ChatView message visibility and long text folding (#1065)', () => {
   ]
 
   it('hides assistant message completely (no air bubble) when only tool calls exist and showToolCalls is off', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(toolOnlyEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(toolOnlyEvents()))
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={false} showSystemMessages={false} />)
 
     expect(await screen.findByText('查询文件')).toBeTruthy()
@@ -1644,7 +1670,7 @@ describe('ChatView message visibility and long text folding (#1065)', () => {
   })
 
   it('renders failed tag even if assistant message has no text or reasoning', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([
+    loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '测试失败' }] }, 0),
       makeEntry('assistant/message', {
         turn: 0,
@@ -1661,7 +1687,7 @@ describe('ChatView message visibility and long text folding (#1065)', () => {
 
   it('collapses terminal assistant text exceeding LONG_TEXT_LIMIT and toggles open/close', async () => {
     const longText = 'A'.repeat(LONG_TEXT_LIMIT + 100)
-    loadHistoryMock.mockResolvedValue(historyPage([
+    loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '生成长文本' }] }, 0),
       makeEntry('assistant/message', {
         turn: 0,
@@ -1684,7 +1710,7 @@ describe('ChatView message visibility and long text folding (#1065)', () => {
 
   it('does not collapse terminal assistant text within LONG_TEXT_LIMIT', async () => {
     const shortText = 'B'.repeat(LONG_TEXT_LIMIT)
-    loadHistoryMock.mockResolvedValue(historyPage([
+    loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '生成中等文本' }] }, 0),
       makeEntry('assistant/message', {
         turn: 0,
@@ -1719,7 +1745,7 @@ describe('ChatView in-body think tags', () => {
         },
       }, 1),
     ]
-    loadHistoryMock.mockResolvedValue(historyPage(events))
+    loadChatPageMock.mockResolvedValue(rowPage(events))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     expect(await screen.findByText('分析一下')).toBeTruthy()
@@ -1751,7 +1777,7 @@ describe('ChatView in-body think tags', () => {
         },
       }, 1),
     ]
-    loadHistoryMock.mockResolvedValue(historyPage(events))
+    loadChatPageMock.mockResolvedValue(rowPage(events))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     const head = await screen.findByRole('button', { name: /思考过程/ })
@@ -1777,7 +1803,7 @@ describe('ChatView in-body think tags', () => {
         },
       }, 1),
     ]
-    loadHistoryMock.mockResolvedValue(historyPage(events))
+    loadChatPageMock.mockResolvedValue(rowPage(events))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     await screen.findByText('开头段')
@@ -1798,7 +1824,7 @@ describe('ChatView in-body think tags', () => {
 describe('ChatView text selection vs custom menu', () => {
   /** Render one assistant message and return { textEl, bubble }. */
   async function renderOneTurn(): Promise<{ textEl: Element; bubble: Element }> {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('改一下代码')
     const textEl = await screen.findByText('已完成修改')
@@ -1866,7 +1892,7 @@ describe('ChatView text selection vs custom menu', () => {
         },
       }, 1),
     ]
-    loadHistoryMock.mockResolvedValue(historyPage(events))
+    loadChatPageMock.mockResolvedValue(rowPage(events))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/结尾/)
     const img = document.querySelector<HTMLImageElement>('.chat-msg img')
@@ -1884,7 +1910,7 @@ describe('ChatView text selection vs custom menu', () => {
 
 describe('ChatView streaming preview', () => {
   it('keeps **bold** and `code` styled while a paragraph is still streaming (tail preview)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -1901,7 +1927,7 @@ describe('ChatView streaming preview', () => {
   })
 
   it('keeps a paragraph bold after a multi-step merge rewrites the text (guard reset → tail preview)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -1940,7 +1966,7 @@ describe('ChatView voice cleanup', () => {
     let resolveRecorder: ((recorder: VoiceRecording) => void) | undefined
     startVoiceRecordingMock.mockReturnValue(new Promise(resolve => { resolveRecorder = resolve }))
     voiceSupportedMock.mockReturnValue(true)
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const { unmount } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     // Open the mic; getUserMedia is still authorizing (the promise is pending).
     fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
@@ -1956,7 +1982,7 @@ describe('ChatView voice cleanup', () => {
 
 describe('ChatView delete session', () => {
   it('archives the session on the host, clears the outbox, and returns to the list', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     removeOutboxForSessionMock.mockResolvedValue(undefined)
     const onBack = vi.fn()
     render(<ChatView session={session} onBack={onBack} showToolCalls={true} showSystemMessages={false} />)
@@ -1977,7 +2003,7 @@ describe('ChatView delete session', () => {
 
 describe('ChatView composer IME guard', () => {
   it('does not send on Enter while a Chinese IME is composing', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     const input = await screen.findByPlaceholderText('说点什么...')
     fireEvent.change(input, { target: { value: '你好' } })
@@ -1994,7 +2020,7 @@ describe('ChatView offline banner', () => {
   it('removes an individual queued entry from the banner', async () => {
     listOutboxMock.mockResolvedValue([{ id: 'o1', sessionId: 's-1', text: '离线消息', queuedAt: 1 }])
     removeFromOutboxMock.mockResolvedValue(undefined)
-    loadHistoryMock.mockResolvedValue(historyPage(turnEvents()))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     // The banner lists the queued entry.
     expect(await screen.findByText('离线消息')).toBeTruthy()
@@ -2007,7 +2033,7 @@ describe('ChatView run-status strip (todo/write)', () => {
   const TODOS = [{ content: '写代码', status: 'in_progress' as const }, { content: '发版', status: 'completed' as const }]
 
   it('shows a strip from a live todo/write frame and lists items in the sheet', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -2028,7 +2054,7 @@ describe('ChatView run-status strip (todo/write)', () => {
   })
 
   it('seeds the strip from the history tail (newest todo/write wins)', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([
+    loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('todo/write', { todos: [{ content: '旧任务', status: 'pending' }] }, 10),
       ...turnEvents(),
       makeEntry('todo/write', { todos: TODOS }, 30),
@@ -2038,7 +2064,7 @@ describe('ChatView run-status strip (todo/write)', () => {
   })
 
   it('clears the strip on turn/start (no jobs) and re-adopts later snapshots', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([makeEntry('todo/write', { todos: TODOS }, 10)]))
+    loadChatPageMock.mockResolvedValue(rowPage([makeEntry('todo/write', { todos: TODOS }, 10)]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     expect(await screen.findByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
@@ -2055,7 +2081,7 @@ describe('ChatView run-status strip (todo/write)', () => {
   })
 
   it('ignores malformed todo snapshots and keeps the previous strip', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -2071,7 +2097,7 @@ describe('ChatView run-status strip (todo/write)', () => {
   })
 
   it('normalizes in_progress leftovers to completed on turn/end', async () => {
-    loadHistoryMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
@@ -2090,6 +2116,167 @@ describe('ChatView run-status strip (todo/write)', () => {
     expect(screen.getByRole('dialog', { name: '运行状态' })).toBeTruthy()
     expect(screen.getByText('写代码')).toBeTruthy()
     expect(screen.getByText('发版')).toBeTruthy()
+  })
+})
+
+describe('ChatView turn clock (#outputting timer)', () => {
+  /** Emit a turn/start whose logged time is `msBefore` in the past. */
+  const startTurnAgo = (mux: FakeMux, msBefore: number, seq = 60): void => {
+    act(() => {
+      mux.emit({
+        type: 'session/event',
+        sessionId: 's-1',
+        event: { type: 'turn/start', seq, time: Date.now() - msBefore, data: {} },
+      })
+    })
+  }
+
+  it('shows the elapsed clock only once the turn has run past the 15s threshold', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // Initial render under REAL timers (findBy waits on real timers), then
+    // the clock math runs on a frozen clock with synchronous assertions.
+    await screen.findByRole('button', { name: '发送' })
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      // A young turn (5s in): the plain label only, no clock.
+      startTurnAgo(mux, 5_000)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.queryByText('5秒')).toBeNull()
+
+      // A turn started 20s ago (anchor from the logged turn/start, desktop
+      // parity): the clock appears with the true elapsed duration.
+      startTurnAgo(mux, 20_000)
+      expect(screen.getByText('20秒')).toBeTruthy()
+
+      // turn/end clears the whole indicator (clock included).
+      act(() => {
+        mux.emit({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/end', seq: 61, time: Date.now(), data: {} } })
+      })
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByText('20秒')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('formats multi-minute turns like the desktop label (Xm Ys)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      startTurnAgo(mux, 95_000)
+      expect(screen.getByText('1分35秒')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('ChatView blank-session revocation', () => {
+  const blankSession: SessionView = { ...session, blank: true }
+
+  it('revokes a blank session on back: confirms empty, archives, drops caches', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+    // A previous visit cached the roster row (the just-created session).
+    sessionListCache.set('w-1', {
+      rows: [{ sessionId: 's-1', title: '新会话', updatedAt: 1, running: false, blank: true }],
+      hasMore: false,
+      at: Date.now(),
+    })
+    const onBack = vi.fn()
+    render(<ChatView session={blankSession} onBack={onBack} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    // Probe: the back handler itself must have run.
+    expect(onBack).toHaveBeenCalled()
+    await waitFor(() => {
+      // The host tail is probed (1 message, no signal — the back path has
+      // no abort source) before archiving…
+      expect(historyMock).toHaveBeenCalledWith('s-1', undefined, 1)
+      // …and the empty session is archived (revoked).
+      expect(archiveSessionApiMock).toHaveBeenCalledWith('s-1')
+    })
+    // The cached roster row is gone synchronously — the returning list
+    // never flashes the revoked session.
+    expect(sessionListCache.get('w-1')?.rows).toEqual([])
+  })
+
+  it('keeps a session that already rendered messages', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={blankSession} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    expect(historyMock).not.toHaveBeenCalled()
+    expect(archiveSessionApiMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps a session whose host tail has content (in-flight echo not yet rendered)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '刚发的' }] }, 1),
+    ]))
+    render(<ChatView session={blankSession} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(historyMock).toHaveBeenCalled())
+    // The probe found a message: the session survives.
+    expect(archiveSessionApiMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatView composer draft persistence', () => {
+  const textarea = (): HTMLTextAreaElement => screen.getByRole('textbox') as HTMLTextAreaElement
+
+  it('restores the draft after leaving and re-entering the session', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const first = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    fireEvent.change(textarea(), { target: { value: '未写完的草稿' } })
+    // Leaving the chat unmounts the view: the draft flushes immediately.
+    first.unmount()
+    // Re-entering the same session restores it.
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    expect(textarea().value).toBe('未写完的草稿')
+  })
+
+  it('clears the persisted draft once the prompt is sent', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    promptMock.mockResolvedValue(undefined)
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    fireEvent.change(textarea(), { target: { value: '要发送的' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(promptMock).toHaveBeenCalled())
+    // The emptied input removes the draft (debounce effect runs on commit).
+    expect(loadDraft('s-1')).toBe('')
+  })
+
+  it('persists the draft after the debounce window while typing', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    vi.useFakeTimers()
+    try {
+      fireEvent.change(textarea(), { target: { value: '打字中的草稿' } })
+      // Before the debounce elapses nothing is written…
+      expect(loadDraft('s-1')).toBe('')
+      await vi.advanceTimersByTimeAsync(1_500)
+      // …after it, the draft is persisted.
+      expect(loadDraft('s-1')).toBe('打字中的草稿')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

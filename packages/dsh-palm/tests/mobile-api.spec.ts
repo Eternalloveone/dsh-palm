@@ -117,6 +117,25 @@ async function call(port: number, method: string): Promise<{ status: number; bod
   })
 }
 
+/** Like call(), with an explicit payload (readChat etc. need one). */
+async function callWith(port: number, method: string, payload: unknown): Promise<{ status: number; body: string }> {
+  return await new Promise((resolve, reject) => {
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'probe-1', method, payload })
+    const req = httpRequest({
+      host: '127.0.0.1', port, path: `/m/api/${method}`, method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: `${cookieName}=device-1`, 'content-length': Buffer.byteLength(body) },
+    }, (response) => {
+      const chunks: Buffer[] = []
+      response.on('data', (chunk) => { chunks.push(chunk as Buffer) })
+      response.on('end', () => {
+        resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
+      })
+    })
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
 async function callNoCookie(port: number, method: string): Promise<{ status: number; body: string }> {
   return await new Promise((resolve, reject) => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'probe-1', method, payload: {} })
@@ -1054,3 +1073,167 @@ describe('mobile.commandExec', () => {
     }
   })
 })
+
+describe('mobile.readChat folded chat (v3)', () => {
+  it('serves a folded page from the injected window service with the phone envelope', async () => {
+    const page = {
+      rows: [{ id: 'u-1', kind: 'user', text: '你好', seq: 0, time: 0 }],
+      maxSeq: 7,
+      hasMore: true,
+      todo: { seq: 7, items: [{ content: '任务', status: 'pending' as const }] },
+      projections: { asOfSeq: 7, values: { permissions: { currentValue: 'readonly' } } },
+    }
+    const windows = {
+      tail: vi.fn(async () => page),
+      before: vi.fn(),
+    } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, chatWindows: windows }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1', maxRows: 25 })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { rpcId: string; result: { ok: boolean; value: unknown } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value).toEqual(page)
+      expect(windows.tail).toHaveBeenCalledWith('s-1', 25)
+      expect(windows.before).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('routes a beforeSeq read to the older-page path and clamps maxRows', async () => {
+    const windows = {
+      tail: vi.fn(async () => ({ rows: [], maxSeq: -1, hasMore: false })),
+      before: vi.fn(async () => ({ rows: [], maxSeq: 10, hasMore: false })),
+    } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, chatWindows: windows }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1', beforeSeq: 101, maxRows: 9999 })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { maxSeq: number } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.maxSeq).toBe(10)
+      expect(windows.before).toHaveBeenCalledWith('s-1', 101, 200)
+      expect(windows.tail).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers unavailable when the window service is not wired (the phone falls back)', async () => {
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('unavailable')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('wraps a window-service failure as a stable internal error (no host detail leaks)', async () => {
+    const windows = {
+      tail: vi.fn(async () => { throw new Error('C:\\secret\\log path parse error') }),
+      before: vi.fn(),
+    } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, chatWindows: windows }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string; message: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('internal')
+      expect(envelope.result.error.message).not.toContain('secret')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rejects a missing session id without touching the window service', async () => {
+    const windows = {
+      tail: vi.fn(),
+      before: vi.fn(),
+    } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, chatWindows: windows }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readChat', {})
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('bad-request')
+      expect(windows.tail).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('mobile.previews batch previews (v3.1)', () => {
+  it('serves the batch from the injected preview service with the phone envelope', async () => {
+    const previewService = {
+      previews: vi.fn(async (ids: readonly string[]) => ids.map(sessionId => ({ sessionId, summary: '摘要', updatedAt: 5 }))),
+    } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, previews: previewService }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.previews', { sessionIds: ['s-1', 's-2'] })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: unknown[] } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items).toEqual([
+        { sessionId: 's-1', summary: '摘要', updatedAt: 5 },
+        { sessionId: 's-2', summary: '摘要', updatedAt: 5 },
+      ])
+      expect(previewService.previews).toHaveBeenCalledWith(['s-1', 's-2'])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers an empty batch without touching the service', async () => {
+    const previewService = { previews: vi.fn() } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, previews: previewService }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.previews', {})
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: unknown[] } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items).toEqual([])
+      expect(previewService.previews).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers unavailable when the preview service is not wired (the phone falls back)', async () => {
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.previews', { sessionIds: ['s-1'] })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('unavailable')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('wraps a service failure as a stable internal error (no host detail leaks)', async () => {
+    const previewService = {
+      previews: vi.fn(async () => { throw new Error('C:\\secret\\log path parse error') }),
+    } as never
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, previews: previewService }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.previews', { sessionIds: ['s-1'] })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string; message: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('internal')
+      expect(envelope.result.error.message).not.toContain('secret')
+    } finally {
+      await server.close()
+    }
+  })
+})
+

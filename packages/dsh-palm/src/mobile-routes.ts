@@ -41,7 +41,7 @@ function pageHtml(bundleUrl: string): string {
     '<meta name="referrer" content="no-referrer">',
     '<meta name="mobile-web-app-capable" content="yes">',
     '<meta name="apple-mobile-web-app-capable" content="yes">',
-    '<meta name="apple-mobile-web-app-title" content="DSH Remote">',
+    '<meta name="apple-mobile-web-app-title" content="Dsh Palm">',
     '<link rel="manifest" href="/m/manifest.webmanifest">',
     '<link rel="apple-touch-icon" href="/m/apple-touch-icon.png">',
     '<title>远程访问</title>',
@@ -58,8 +58,8 @@ function pageHtml(bundleUrl: string): string {
 function manifestJson(): string {
   return JSON.stringify({
     id: MOBILE_ROOT,
-    name: 'DSH Remote',
-    short_name: 'DSH Remote',
+    name: 'Dsh Palm',
+    short_name: 'Dsh Palm',
     start_url: MOBILE_ROOT,
     scope: MOBILE_ROOT,
     display: 'standalone',
@@ -81,10 +81,10 @@ function offlineHtml(): string {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">',
     '<meta name="theme-color" content="#151424">',
-    '<title>DSH Remote</title>',
+    '<title>Dsh Palm</title>',
     '<style>body{margin:0;background:#151424;color:#f3f5f9;font:16px system-ui,sans-serif}main{box-sizing:border-box;display:grid;min-height:100vh;place-content:center;padding:32px;text-align:center}h1{margin:0 0 12px;font-size:24px}p{margin:0;color:#c4c7d8;line-height:1.5}</style>',
     '</head>',
-    '<body><main><h1>DSH Remote</h1><p>Cannot reach the running DSH host. Restore the connection and reopen the app.</p></main></body>',
+    '<body><main><h1>Dsh Palm</h1><p>Cannot reach the running DSH host. Restore the connection and reopen the app.</p></main></body>',
     '</html>',
   ].join('')
 }

@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
 import { type SessionView } from './App.tsx'
-import type { HistoryPage } from '../api.ts'
 
 vi.mock('../api.ts', () => ({
   fetchMobilePreferences: vi.fn(),
@@ -19,7 +18,7 @@ vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
   return {
     ...actual,
-    loadHistory: vi.fn(),
+    loadChatPage: vi.fn(),
     prompt: vi.fn(async () => {}),
   }
 })
@@ -37,7 +36,7 @@ vi.mock('../image.ts', async importOriginal => {
 vi.mock('../toast.tsx', () => ({ toast: vi.fn() }))
 
 import { fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
-import { loadHistory, prompt } from './App.tsx'
+import { loadChatPage, prompt } from './App.tsx'
 import { imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage } from '../image.ts'
 import { buildPromptParts, compressImageFile } from '../image.ts'
 import { toast } from '../toast.tsx'
@@ -53,7 +52,7 @@ const session: SessionView = {
 const fetchMobilePreferencesMock = vi.mocked(fetchMobilePreferences)
 const modelsMock = vi.mocked(models)
 const fetchPendingMock = vi.mocked(fetchPending)
-const loadHistoryMock = vi.mocked(loadHistory)
+const loadChatPageMock = vi.mocked(loadChatPage)
 const promptMock = vi.mocked(prompt)
 const compressImageFileMock = vi.mocked(compressImageFile)
 const toastMock = vi.mocked(toast)
@@ -68,7 +67,7 @@ beforeEach(() => {
     failures: [],
   })
   fetchPendingMock.mockResolvedValue({ approvals: [], questions: [] })
-  loadHistoryMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+  loadChatPageMock.mockResolvedValue({ rows: [], maxSeq: -1, hasMore: false })
 })
 
 afterEach(() => {

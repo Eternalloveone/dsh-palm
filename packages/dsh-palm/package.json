@@ -1,7 +1,7 @@
 {
   "name": "@eternalloveone/dsh-palm",
   "description": "掌上 dsh — the standalone mobile surface for the dsh web GUI: scan-to-pair device trust, the /m/ phone UI, the /m/api RPC channel with realtime SSE mux bridge, and a polished desktop pairing panel. Extracted from dsh-remote-web-ui (M1, behavior-identical)",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
@@ -35,6 +35,10 @@
     "!lib/**/*.test.js.map",
     "!lib/**/*.test.d.ts",
     "!lib/**/*.test.d.ts.map",
+    "!lib/**/*.spec.js",
+    "!lib/**/*.spec.js.map",
+    "!lib/**/*.spec.d.ts",
+    "!lib/**/*.spec.d.ts.map",
     "src",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx",
