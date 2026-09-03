@@ -964,6 +964,29 @@ body,
 .settings-badge-sync { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
 .settings-badge-desktop { background: #f3f4f6; color: #9aa0a8; }
 .settings-badge-ro { background: #fdf0f0; color: #e5484d; }
+.settings-badge-recommend { background: #fff4e5; color: #e8890c; }
+
+/* Channel-setup disclosure (PushPlus 3-step helper): native details chrome
+   kept minimal so the steps read as plain description text. */
+.settings-details {
+  margin: 6px 0 2px;
+}
+.settings-details summary {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--accent, #4d6bfe);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.settings-details summary::-webkit-details-marker { display: none; }
+.settings-details .settings-detailsBody {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.7;
+  margin: 4px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent-soft, #eef1ff);
+}
 
 /* Legend under the search box explaining the badges. Two-column grid:
    badge column fixed, text column left-aligned — every explanation starts

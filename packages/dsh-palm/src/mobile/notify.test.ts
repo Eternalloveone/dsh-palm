@@ -108,7 +108,7 @@ beforeEach(() => {
     turnThresholdMs: 30_000,
     turnCooldownMs: 120_000,
     vapidPublicKey: 'aGVsbG8',
-    channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false } },
+    channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
   })
 })
 
@@ -270,7 +270,7 @@ describe('Web Push (L2)', () => {
     readNotifyConfigMock.mockResolvedValue({
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
-      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false } },
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
     })
     expect(await enableWebPush()).toBe(false)
     expect(fake.subscribe).not.toHaveBeenCalled()

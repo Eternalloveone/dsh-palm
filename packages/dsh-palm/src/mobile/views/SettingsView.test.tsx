@@ -13,13 +13,14 @@ vi.mock('../api.ts', () => ({
   writeNotifyConfig: vi.fn(),
   fetchUsage: vi.fn(),
 }))
-import { fetchHostVoiceServices, fetchUsage, listAgentPresets, readNotifyConfig, readSettings } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, listAgentPresets, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const fetchHostVoiceServicesMock = vi.mocked(fetchHostVoiceServices)
 const readNotifyConfigMock = vi.mocked(readNotifyConfig)
 const fetchUsageMock = vi.mocked(fetchUsage)
+const writeNotifyConfigMock = vi.mocked(writeNotifyConfig)
 
 /** A minimal namespace view (schema envelope with string fields). */
 function namespace(ns: string, value: Record<string, unknown>): never {
@@ -82,7 +83,7 @@ describe('SettingsView card list', () => {
     readNotifyConfigMock.mockResolvedValue({
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
-      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false } },
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
   })
@@ -290,5 +291,75 @@ describe('SettingsView card list', () => {
     // …and the endpoint-less provider never renders, collapsed or expanded.
     expect(await screen.findByText('45.9%')).toBeTruthy()
     expect(screen.queryByText('agnes-ai')).toBeNull()
+  })
+})
+
+describe('SettingsView notification page (L3 channels)', () => {
+  beforeEach(() => {
+    writeNotifyConfigMock.mockReset()
+    // The notification page renders inside the settings shell, which reads
+    // the full settings surface on mount — mirror the card-list setup.
+    readSettingsMock.mockResolvedValue({
+      writable: true,
+      hasDocument: false,
+      namespaces: [
+        namespace('ui-theme', { preference: 'light' }),
+        namespace('locale', { preference: 'zh' }),
+      ],
+    })
+    listAgentPresetsMock.mockResolvedValue({ presets: [], authorable: false, hasDocument: false })
+    fetchHostVoiceServicesMock.mockResolvedValue([])
+    readNotifyConfigMock.mockResolvedValue({
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
+    })
+    fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
+  })
+
+  it('renders the PushPlus token field with the recommend badge and the 3-step helper', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    expect(await screen.findByPlaceholderText(/pushplus\.plus/)).toBeTruthy()
+    expect(screen.getByText('推荐')).toBeTruthy()
+    // The 3-step helper collapses; the summary line is visible without opening.
+    expect(screen.getByText('如何获取 Token（3 步）')).toBeTruthy()
+    // The legacy channels still render (no regression for existing users).
+    expect(screen.getByText('Server酱 SendKey')).toBeTruthy()
+    expect(screen.getByText('Telegram Chat ID')).toBeTruthy()
+  })
+
+  it('saves the PushPlus token with the other channel credentials', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    fireEvent.change(await screen.findByPlaceholderText(/pushplus\.plus/), { target: { value: 'pp-token-1' } })
+    // The channel card has its own save button (distinct from the triggers card).
+    fireEvent.click(await screen.findByRole('button', { name: '保存推送渠道' }))
+    await waitFor(() => {
+      expect(writeNotifyConfigMock).toHaveBeenCalledWith({
+        channels: {
+          serverchan: { sendKey: '' },
+          bark: { key: '' },
+          telegram: { botToken: '', chatId: '' },
+          pushplus: { token: 'pp-token-1' },
+        },
+      })
+    }, { timeout: 2000 })
+  })
+
+  it('clears the PushPlus channel when the field is left empty', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '保存推送渠道' }))
+    await waitFor(() => {
+      expect(writeNotifyConfigMock).toHaveBeenCalledWith({
+        channels: {
+          serverchan: { sendKey: '' },
+          bark: { key: '' },
+          telegram: { botToken: '', chatId: '' },
+          pushplus: { token: '' },
+        },
+      })
+    })
   })
 })

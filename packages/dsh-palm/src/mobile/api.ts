@@ -99,6 +99,7 @@ export interface NotifyConfigView {
     serverchan: { configured: boolean }
     bark: { configured: boolean }
     telegram: { configured: boolean }
+    pushplus: { configured: boolean }
   }
 }
 
@@ -115,6 +116,7 @@ export async function writeNotifyConfig(patch: {
     serverchan?: { sendKey: string }
     bark?: { key: string }
     telegram?: { botToken: string; chatId: string }
+    pushplus?: { token: string }
   }
 }): Promise<void> {
   await callUnary<unknown>('push.config', { set: patch })

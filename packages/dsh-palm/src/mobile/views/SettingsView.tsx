@@ -49,8 +49,8 @@ export interface SettingsViewProps {
 }
 
 /** Source badge: where a setting takes effect / can be changed. */
-function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' }) {
-  const label = scope === 'phone' ? '本机' : scope === 'sync' ? '同步桌面' : scope === 'desktop' ? '桌面端' : '只读'
+function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend' }) {
+  const label = scope === 'phone' ? '本机' : scope === 'sync' ? '同步桌面' : scope === 'desktop' ? '桌面端' : scope === 'ro' ? '只读' : '推荐'
   return <span className={`settings-badge settings-badge-${scope}`}>{label}</span>
 }
 
@@ -292,6 +292,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   const [barkKey, setBarkKey] = useState('')
   const [tgToken, setTgToken] = useState('')
   const [tgChatId, setTgChatId] = useState('')
+  const [pushplusToken, setPushplusToken] = useState('')
   // Web Push (L2) subscription state: undefined while probing.
   const [webPushOn, setWebPushOn] = useState<boolean | undefined>(undefined)
   // Per-provider usage/balance (synced from desktop): collapsed into a summary
@@ -380,6 +381,127 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
       : notifyPermission === 'denied'
         ? '权限被拒绝，请在浏览器设置中开启'
         : '点击授权，任务完成时提醒'
+
+  const themeLabel = themeMode === 'dark' ? '深色' : themeMode === 'light' ? '浅色' : '跟随系统'
+
+  /** The completion-notify permission row: request on first tap, restart the
+   * L1 channel when already granted. */
+  const handleNotifyClick = async (): Promise<void> => {
+    if (!notificationSupported()) {
+      toast('当前浏览器不支持通知')
+      return
+    }
+    if (notifyPermission === 'granted') {
+      startNotify()
+      toast('通知已开启')
+      return
+    }
+    if (notifyPermission === 'denied') {
+      toast('通知权限被拒绝，请在浏览器设置中开启')
+      return
+    }
+    setNotifyBusy(true)
+    try {
+      const permission = await requestNotificationPermission()
+      setNotifyPermission(permission)
+      if (permission === 'granted') {
+        startNotify()
+        toast('通知已开启')
+      }
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Save the L3 channel credentials (empty fields clear that channel). */
+  const saveChannels = async (): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      await writeNotifyConfig({
+        channels: {
+          serverchan: { sendKey: serverchanKey.trim() },
+          bark: { key: barkKey.trim() },
+          telegram: { botToken: tgToken.trim(), chatId: tgChatId.trim() },
+          pushplus: { token: pushplusToken.trim() },
+        },
+      })
+      const config = await readNotifyConfig()
+      setNotifyConfig(config)
+      toast('渠道已保存')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Push one synthetic event through the configured L3 channels. */
+  const handleTestNotify = async (): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      await testNotifyChannels()
+      toast('测试通知已发送')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Toggle the Web Push (L2) subscription. */
+  const handleWebPushToggle = async (next: boolean): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      if (next) {
+        const ok = await enableWebPush()
+        if (!ok) {
+          toast('当前浏览器不支持 Web Push，或通知权限未开启')
+          return
+        }
+        toast('Web Push 已开启')
+      } else {
+        await disableWebPush()
+        toast('Web Push 已关闭')
+      }
+      setWebPushOn(next)
+    } catch (reason: unknown) {
+      if (next) {
+        // pushManager.subscribe 直连 FCM；大陆网络不可达时抛网络错误。
+        // 给可操作的指引，而不是透传浏览器的原始错误文本。
+        toast('Web Push 注册失败：推送服务（FCM）在大陆网络不可直连。'
+          + '请开启代理后重试，或改用下方「推送渠道」接收通知（如 ServerChan 微信推送）。')
+      } else {
+        toast(errorText(reason))
+      }
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Save the notification trigger inputs (seconds/minutes → ms). */
+  const saveNotifyTriggers = async (): Promise<void> => {
+    const seconds = Number(thresholdInput)
+    const minutes = Number(cooldownInput)
+    if (!Number.isFinite(seconds) || seconds < 0 || !Number.isFinite(minutes) || minutes < 0) {
+      toast('请输入有效的数值')
+      return
+    }
+    setNotifyBusy(true)
+    try {
+      await writeNotifyConfig({
+        turnThresholdMs: Math.round(seconds * 1000),
+        turnCooldownMs: Math.round(minutes * 60_000),
+      })
+      setNotifyConfig(previous => previous === undefined
+        ? previous
+        : { ...previous, turnThresholdMs: Math.round(seconds * 1000), turnCooldownMs: Math.round(minutes * 60_000) })
+      toast('已保存')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
 
   // The market namespace's schema is only the allowRestart switch; the real
   // market UI lives on the plugin's own /dsh-market/* routes, so the phone
@@ -580,6 +702,22 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           <div className="mobile-headerSlot mobile-headerSlot-right" />
         </header>
         <div className="mobile-scroll">
+          {/* 引导：三种通道怎么选（先看这里） */}
+          <div className="settings-card">
+            <div className="settings-cardHead">
+              <span className="settings-cardTitle">该开哪个？</span>
+            </div>
+            <p className="settings-note">任务完成提醒有三条通道，从上到下生效范围越来越广：</p>
+            <div className="settings-field">
+              <p className="settings-fieldDesc">
+                <b>① 浏览器通知</b>：页面打开时弹提醒。必开，无需配置。<br />
+                <b>② 推送渠道</b>：页面关闭也能收，微信/iOS 直达、国内可靠。推荐任填一个（PushPlus 或 Server酱）。<br />
+                <b>③ Web Push</b>：系统级推送，但服务（FCM）在大陆不可直连，需代理才可用。大陆用户可不开。
+              </p>
+            </div>
+          </div>
+
+          {/* L1 浏览器通知（页内提醒） */}
           <div className="settings-card">
             <div className="settings-cardHead">
               <span className="settings-cardTitle">浏览器通知</span>
@@ -601,77 +739,39 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               <p className="settings-fieldDesc">{notifyDesc}</p>
             </div>
           </div>
-          {notifyConfig !== undefined && (
-            <div className="settings-card">
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">触发条件</span>
-                <ScopeBadge scope="sync" />
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">回复时长阈值（秒）</span>
-                </div>
-                <input
-                  type="number"
-                  className="settings-input"
-                  aria-label="回复时长阈值"
-                  value={thresholdInput}
-                  onChange={(event) => { setThresholdInput(event.target.value) }}
-                />
-                <p className="settings-fieldDesc">超过此时长的回复完成时通知</p>
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">通知间隔（分钟）</span>
-                </div>
-                <input
-                  type="number"
-                  className="settings-input"
-                  aria-label="通知间隔"
-                  value={cooldownInput}
-                  onChange={(event) => { setCooldownInput(event.target.value) }}
-                />
-                <p className="settings-fieldDesc">同一会话两次通知的最小间隔</p>
-              </div>
-              <div className="sheet-confirm-actions">
-                <button
-                  type="button"
-                  className="mobile-button mobile-button-primary"
-                  disabled={notifyBusy}
-                  onClick={() => { void saveNotifyTriggers() }}
-                >保存</button>
-              </div>
-            </div>
-          )}
-          {webPushSupported() && (
-            <div className="settings-card">
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">Web Push</span>
-                <ScopeBadge scope="sync" />
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">启用</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="Web Push"
-                  aria-checked={webPushOn === true}
-                  className={`settings-switch${webPushOn === true ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleWebPushToggle(!(webPushOn === true)) }}
-                />
-                <p className="settings-fieldDesc">页面关闭时也能收到推送（海外/代理网络）</p>
-              </div>
-            </div>
-          )}
+
+          {/* L3 推送渠道（重点：关页面也能收） */}
           <div className="settings-card">
             <div className="settings-cardHead">
               <span className="settings-cardTitle">推送渠道</span>
               <ScopeBadge scope="sync" />
             </div>
-            <p className="settings-note">PWA 关闭时通过第三方渠道推送完成通知。留空保存将清除该渠道。</p>
+            <p className="settings-note">页面关闭时也能收到，通过第三方应用直达（微信 / iOS / Telegram）。国内网络可用，任选其一即可；留空保存将清除该渠道。</p>
+            <div className="settings-field">
+              <div className="settings-fieldHead">
+                <span className="settings-fieldLabel">PushPlus Token</span>
+                <ScopeBadge scope="recommend" />
+              </div>
+              <input
+                type="text"
+                className="settings-input"
+                value={pushplusToken}
+                placeholder="…（到 pushplus.plus 复制）"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => { setPushplusToken(event.target.value) }}
+              />
+              <p className="settings-fieldDesc">微信直达 · 免费 · 国内直连。推荐首选。</p>
+              <details className="settings-details">
+                <summary>如何获取 Token（3 步）</summary>
+                <div className="settings-detailsBody">
+                  1. 手机微信扫码关注公众号「pushplus 推送加」<br />
+                  2. 打开 www.pushplus.plus，用微信扫码登录<br />
+                  3. 复制个人中心里的 Token，粘贴到上方并保存
+                </div>
+              </details>
+            </div>
             <div className="settings-field">
               <div className="settings-fieldHead">
                 <span className="settings-fieldLabel">Server酱 SendKey</span>
@@ -686,6 +786,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setServerchanKey(event.target.value) }}
               />
+              <p className="settings-fieldDesc">微信直达 · 国内直连（免费版每日条数有限）。</p>
             </div>
             <div className="settings-field">
               <div className="settings-fieldHead">
@@ -701,6 +802,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setBarkKey(event.target.value) }}
               />
+              <p className="settings-fieldDesc">iOS 直达：iPhone / iPad 装 Bark 应用后获取 Key。</p>
             </div>
             <div className="settings-field">
               <div className="settings-fieldHead">
@@ -731,6 +833,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setTgChatId(event.target.value) }}
               />
+              <p className="settings-fieldDesc">Telegram 需要能访问境外网络。</p>
             </div>
             <div className="sheet-confirm-actions">
               <button
@@ -742,11 +845,83 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               <button
                 type="button"
                 className="mobile-button mobile-button-primary"
+                aria-label="保存推送渠道"
                 disabled={notifyBusy}
                 onClick={() => { void saveChannels() }}
               >保存</button>
             </div>
           </div>
+
+          {/* L2 Web Push（可选，大陆受限） */}
+          {webPushSupported() && (
+            <div className="settings-card">
+              <div className="settings-cardHead">
+                <span className="settings-cardTitle">Web Push</span>
+                <ScopeBadge scope="sync" />
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">启用</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Web Push"
+                  aria-checked={webPushOn === true}
+                  className={`settings-switch${webPushOn === true ? ' settings-switch-on' : ''}`}
+                  disabled={notifyBusy}
+                  onClick={() => { void handleWebPushToggle(!(webPushOn === true)) }}
+                />
+                <p className="settings-fieldDesc">页面关闭时由浏览器系统推送。推送服务（FCM）在大陆网络不可直连，开启需要代理；大陆用户建议用上方「推送渠道」代替。</p>
+              </div>
+            </div>
+          )}
+
+          {/* 高级：触发条件 */}
+          {notifyConfig !== undefined && (
+            <div className="settings-card">
+              <div className="settings-cardHead">
+                <span className="settings-cardTitle">触发条件（可选）</span>
+                <ScopeBadge scope="sync" />
+              </div>
+              <p className="settings-note">默认：仅当回复耗时超过阈值时才提醒，避免被打断。</p>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">回复时长阈值（秒）</span>
+                </div>
+                <input
+                  type="number"
+                  className="settings-input"
+                  aria-label="回复时长阈值"
+                  value={thresholdInput}
+                  onChange={(event) => { setThresholdInput(event.target.value) }}
+                />
+                <p className="settings-fieldDesc">超过此时长的回复完成时通知</p>
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">通知间隔（分钟）</span>
+                </div>
+                <input
+                  type="number"
+                  className="settings-input"
+                  aria-label="通知间隔"
+                  value={cooldownInput}
+                  onChange={(event) => { setCooldownInput(event.target.value) }}
+                />
+                <p className="settings-fieldDesc">同一会话两次通知的最小间隔</p>
+              </div>
+              <div className="sheet-confirm-actions">
+                <button
+                  type="button"
+                  className="mobile-button mobile-button-primary"
+                  aria-label="保存触发条件"
+                  disabled={notifyBusy}
+                  onClick={() => { void saveNotifyTriggers() }}
+                >保存</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -771,94 +946,6 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           : undefined}
       />
     )
-  }
-
-  const themeLabel = themeMode === 'dark' ? '深色' : themeMode === 'light' ? '浅色' : '跟随系统'
-
-  /** The completion-notify permission row: request on first tap, restart the
-   * L1 channel when already granted. */
-  const handleNotifyClick = async (): Promise<void> => {
-    if (!notificationSupported()) {
-      toast('当前浏览器不支持通知')
-      return
-    }
-    if (notifyPermission === 'granted') {
-      startNotify()
-      toast('通知已开启')
-      return
-    }
-    if (notifyPermission === 'denied') {
-      toast('通知权限被拒绝，请在浏览器设置中开启')
-      return
-    }
-    setNotifyBusy(true)
-    try {
-      const permission = await requestNotificationPermission()
-      setNotifyPermission(permission)
-      if (permission === 'granted') {
-        startNotify()
-        toast('通知已开启')
-      }
-    } finally {
-      setNotifyBusy(false)
-    }
-  }
-
-  /** Save the L3 channel credentials (empty fields clear that channel). */
-  const saveChannels = async (): Promise<void> => {
-    setNotifyBusy(true)
-    try {
-      await writeNotifyConfig({
-        channels: {
-          serverchan: { sendKey: serverchanKey.trim() },
-          bark: { key: barkKey.trim() },
-          telegram: { botToken: tgToken.trim(), chatId: tgChatId.trim() },
-        },
-      })
-      const config = await readNotifyConfig()
-      setNotifyConfig(config)
-      toast('渠道已保存')
-    } catch (reason: unknown) {
-      toast(errorText(reason))
-    } finally {
-      setNotifyBusy(false)
-    }
-  }
-
-  /** Push one synthetic event through the configured L3 channels. */
-  const handleTestNotify = async (): Promise<void> => {
-    setNotifyBusy(true)
-    try {
-      await testNotifyChannels()
-      toast('测试通知已发送')
-    } catch (reason: unknown) {
-      toast(errorText(reason))
-    } finally {
-      setNotifyBusy(false)
-    }
-  }
-
-  /** Toggle the Web Push (L2) subscription. */
-  const handleWebPushToggle = async (next: boolean): Promise<void> => {
-    setNotifyBusy(true)
-    try {
-      if (next) {
-        const ok = await enableWebPush()
-        if (!ok) {
-          toast('当前浏览器不支持 Web Push，或通知权限未开启')
-          return
-        }
-        toast('Web Push 已开启')
-      } else {
-        await disableWebPush()
-        toast('Web Push 已关闭')
-      }
-      setWebPushOn(next)
-    } catch (reason: unknown) {
-      toast(errorText(reason))
-    } finally {
-      setNotifyBusy(false)
-    }
   }
 
   /** Open the voice page and refresh the host-side service display facts. */
@@ -886,31 +973,6 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
       toast(errorText(reason))
     } finally {
       setUsageBusy(false)
-    }
-  }
-
-  /** Save the notification trigger inputs (seconds/minutes → ms). */
-  const saveNotifyTriggers = async (): Promise<void> => {
-    const seconds = Number(thresholdInput)
-    const minutes = Number(cooldownInput)
-    if (!Number.isFinite(seconds) || seconds < 0 || !Number.isFinite(minutes) || minutes < 0) {
-      toast('请输入有效的数值')
-      return
-    }
-    setNotifyBusy(true)
-    try {
-      await writeNotifyConfig({
-        turnThresholdMs: Math.round(seconds * 1000),
-        turnCooldownMs: Math.round(minutes * 60_000),
-      })
-      setNotifyConfig(previous => previous === undefined
-        ? previous
-        : { ...previous, turnThresholdMs: Math.round(seconds * 1000), turnCooldownMs: Math.round(minutes * 60_000) })
-      toast('已保存')
-    } catch (reason: unknown) {
-      toast(errorText(reason))
-    } finally {
-      setNotifyBusy(false)
     }
   }
 

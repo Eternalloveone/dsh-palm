@@ -100,7 +100,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **One trigger, three channels** — the host watches the shared event stream and decides once (task terminal states + turns longer than a configurable threshold, with a per-session cooldown); every channel delivers the same decision
 - **In-app system notifications (SSE)** — the phone shows a system notification while the app is open; clicking it deep-links to the session
 - **Web Push (VAPID)** — the service worker receives pushes when the app is closed (Android Chrome/Edge/Firefox; iOS Safari 16.4+ for installed PWAs; mainland-China networks may not reach the FCM backend — the third-party channels cover that)
-- **Third-party channels** — Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed; credentials are stored host-side and never ride the settings surface
+- **Third-party channels** — PushPlus (WeChat, recommended for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed; credentials are stored host-side and never ride the settings surface
 - **Notification settings** — permission, duration threshold, cooldown, Web Push toggle and channel credentials all live in the phone settings page, with a test button that pushes one synthetic event end to end
 
 **Experience**

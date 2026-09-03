@@ -897,6 +897,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
                   telegram: {
                     configured: channels?.telegram?.botToken !== undefined && channels.telegram.botToken !== '' && channels.telegram.chatId !== undefined && channels.telegram.chatId !== '',
                   },
+                  pushplus: { configured: channels?.pushplus?.token !== undefined && channels.pushplus.token !== '' },
                 },
               },
             },
@@ -919,12 +920,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         if (typeof patch.turnCooldownMs === 'number' && Number.isFinite(patch.turnCooldownMs)) {
           next.turnCooldownMs = Math.max(0, Math.round(patch.turnCooldownMs))
         }
-        const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown } | undefined
+        const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown; pushplus?: unknown } | undefined
         if (channels !== undefined) {
           const current = notify.store.getConfig().channels ?? {}
           const serverchan = channels.serverchan as { sendKey?: unknown } | undefined
           const bark = channels.bark as { key?: unknown } | undefined
           const telegram = channels.telegram as { botToken?: unknown; chatId?: unknown } | undefined
+          const pushplus = channels.pushplus as { token?: unknown } | undefined
           next.channels = {
             ...(serverchan !== undefined
               ? { serverchan: { sendKey: typeof serverchan.sendKey === 'string' ? serverchan.sendKey : '' } }
@@ -935,6 +937,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             ...(telegram !== undefined
               ? { telegram: { botToken: typeof telegram.botToken === 'string' ? telegram.botToken : '', chatId: typeof telegram.chatId === 'string' ? telegram.chatId : '' } }
               : current.telegram !== undefined ? { telegram: current.telegram } : {}),
+            ...(pushplus !== undefined
+              ? { pushplus: { token: typeof pushplus.token === 'string' ? pushplus.token : '' } }
+              : current.pushplus !== undefined ? { pushplus: current.pushplus } : {}),
           }
         }
         notify.store.setConfig(next as never)

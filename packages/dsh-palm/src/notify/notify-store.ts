@@ -26,6 +26,7 @@ export interface NotifyConfig {
     serverchan?: { sendKey: string }
     bark?: { key: string }
     telegram?: { botToken: string; chatId: string }
+    pushplus?: { token: string }
   }
 }
 

@@ -1,7 +1,8 @@
 /**
- * L3 delivery: third-party push channels (Server酱 / Bark / Telegram) that
- * reach the phone even when the PWA is fully closed. All three are plain
- * outbound HTTPS webhooks — no public inbound port, no browser dependency.
+ * L3 delivery: third-party push channels (Server酱 / Bark / Telegram /
+ * PushPlus) that reach the phone even when the PWA is fully closed. All are
+ * plain outbound HTTPS webhooks — no public inbound port, no browser
+ * dependency.
  *
  * Failures are logged and swallowed: notifications are best-effort, and one
  * dead channel must never break the engine or the other channels.
@@ -14,6 +15,7 @@ import type { NotifyEvent } from './notify-engine.ts'
 const SERVERCHAN_BASE = 'https://sctapi.ftqq.com'
 const BARK_BASE = 'https://api.day.app'
 const TELEGRAM_BASE = 'https://api.telegram.org'
+const PUSHPLUS_BASE = 'https://www.pushplus.plus/send'
 
 /** One third-party channel adapter. */
 export interface ChannelAdapter {
@@ -62,6 +64,26 @@ export const CHANNEL_ADAPTERS: readonly ChannelAdapter[] = [
         body: JSON.stringify({ chat_id: chatId, text: `${event.title}\n${event.body}` }),
       })
       if (!response.ok) throw new Error(`telegram HTTP ${response.status}`)
+    },
+  },
+  {
+    name: 'pushplus',
+    async send(config, event) {
+      const token = config.channels?.pushplus?.token
+      if (token === undefined || token === '') return
+      const response = await fetch(`${PUSHPLUS_BASE}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token, title: event.title, content: event.body, template: 'txt' }),
+      })
+      if (!response.ok) throw new Error(`pushplus HTTP ${response.status}`)
+      // pushplus answers 200 even for business failures; the payload's code
+      // carries the verdict (200 = delivered). Surface its message so the
+      // settings test button can diagnose a wrong/expired token.
+      const json = await response.json().catch(() => null) as { code?: number; msg?: string } | null
+      if (json !== null && json.code !== undefined && json.code !== 200) {
+        throw new Error(`pushplus ${json.msg ?? `code ${json.code}`}`)
+      }
     },
   },
 ]

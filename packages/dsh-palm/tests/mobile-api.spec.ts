@@ -5,12 +5,17 @@
  * a dead "加载中…" mobile surface.
  */
 import { createServer, request as httpRequest } from 'node:http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { makeMobileApiRoutes } from '../src/mobile-api.ts'
 import { PendingTracker } from '../src/mobile-pending.ts'
+import { NotifyStore } from '../src/notify/notify-store.ts'
+import { NotifyEngine } from '../src/notify/notify-engine.ts'
 
 // The voice-services method reads the host config files; stub the resolver
 // so the test never depends on the real machine's dsh-palm.yaml.
@@ -1239,6 +1244,59 @@ describe('mobile.previews batch previews (v3.1)', () => {
       expect(envelope.result.error.message).not.toContain('secret')
     } finally {
       await server.close()
+    }
+  })
+})
+
+describe('push.config (L3 channel credentials)', () => {
+  it('round-trips a PushPlus token and redacts credentials on reads', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-push-config-'))
+    const store = new NotifyStore(join(dir, 'notify.json'))
+    const engine = new NotifyEngine({
+      events: { mux: () => (async function* () {})() },
+      sessions: { list: async () => ({ result: { ok: true, value: { items: [] } } }) },
+      workspace: { list: async () => ({ result: { ok: true, value: { items: [] } } }) },
+    } as never, store)
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy, mobileEnterToSend, notify: { store, engine },
+    }))
+    try {
+      // Write a PushPlus token alongside empty legacy channels.
+      const set = await callWith(server.port, 'push.config', {
+        set: {
+          channels: {
+            serverchan: { sendKey: '' },
+            bark: { key: '' },
+            telegram: { botToken: '', chatId: '' },
+            pushplus: { token: 'pp-spec-token' },
+          },
+        },
+      })
+      expect(set.status).toBe(200)
+
+      // Read back: pushplus reports configured; credentials never ride the wire.
+      const get = await callWith(server.port, 'push.config', { get: true })
+      expect(get.status).toBe(200)
+      const envelope = JSON.parse(get.body) as {
+        result: { ok: boolean; value: { channels: Record<string, { configured: boolean }> } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.channels.pushplus).toEqual({ configured: true })
+      expect(envelope.result.value.channels.serverchan).toEqual({ configured: false })
+      expect(JSON.stringify(get.body)).not.toContain('pp-spec-token')
+
+      // Clearing the token removes the channel.
+      await callWith(server.port, 'push.config', {
+        set: { channels: { pushplus: { token: '' } } },
+      })
+      const afterClear = await callWith(server.port, 'push.config', { get: true })
+      const cleared = JSON.parse(afterClear.body) as {
+        result: { ok: boolean; value: { channels: Record<string, { configured: boolean }> } }
+      }
+      expect(cleared.result.value.channels.pushplus).toEqual({ configured: false })
+    } finally {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

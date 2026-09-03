@@ -55,15 +55,19 @@ dsh-palm 最有价值的是「任务跑完时手机响一下」。三层通道�
 |---|---|---|
 | App 开着（前台/后台） | L1 应用内通知 | 无需配置，允许通知权限即可 |
 | App 关了但浏览器在 | L2 Web Push | 设置页打开「Web Push」开关 |
-| 浏览器也关了 | L3 Server酱/Bark/Telegram | 见下方 |
+| 浏览器也关了 | L3 PushPlus / Server酱 / Bark / Telegram | 见下方 |
 
-**国内用户建议直接配 L3 的 Server酱**（微信里收通知）：
+**国内用户建议直接配 L3 的 PushPlus**（微信里收通知，免费，约 3 分钟）：
 
-1. 打开 [sct.ftqq.com](https://sct.ftqq.com)，微信扫码登录，复制 SendKey（`SCT…`）
-2. 手机端 设置 → 通知 → Server酱 → 粘贴 SendKey
-3. 点「发送测试」——几秒后微信应该收到一条测试推送
+1. 手机微信扫码关注公众号「pushplus 推送加」
+2. 打开 [www.pushplus.plus](https://www.pushplus.plus)，用微信扫码登录
+3. 复制个人中心里的 Token（一串字母数字）
+4. 手机端 设置 → 通知 → 推送渠道 → 粘贴 PushPlus Token → 保存
+5. 点「发送测试」——几秒后微信应该收到一条测试推送
 
-> 为什么默认推荐 Server酱：Web Push（L2）依赖 Google FCM，国内网络经常连不上；部分国产 ROM（OPPO/vivo 实测）即使有 GMS 也会拦截推送。L3 走你自己的 webhook，国内稳定直达。
+也可以在同一入口配置 Server酱（SendKey）、Bark（iOS）或 Telegram。
+
+> 为什么推荐 PushPlus 而非 Server酱：Web Push（L2）依赖 Google FCM，国内网络经常连不上；部分国产 ROM（OPPO/vivo 实测）即使有 GMS 也会拦截推送。L3 走你自己的 webhook——PushPlus 免费额度更宽、国内直连、微信送达，配置只需要一个字段。
 
 通知触发规则（可调）：后台任务进入完成/失败状态立即通知；单次回复超过阈值（默认 30 秒，可调）完成时通知。同一会话有冷却（默认 2 分钟）防轰炸。
 

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-03
+
+### Added
+
+- **PushPlus L3 channel (recommended for mainland users)** - 设置 → 通知 → 推送渠道新增 PushPlus（微信直达 · 免费 · 国内直连），放在首位并标「推荐」徽章，附 3 步获取引导（关注公众号 → 微信登录取 Token → 粘贴保存）；host 侧 adapter 校验业务响应码（HTTP 200 但 `code != 200` 时透出平台错误信息，测试按钮可诊断 token 错误）；`push.config` 读/写均支持新通道，凭据仍只存宿主端
+- **Notification-page onboarding guide** - 通知页顶部新增「该开哪个？」引导卡（浏览器通知必开 / 推送渠道推荐 / Web Push 大陆受限需代理），卡片重排为 浏览器通知 → 推送渠道 → Web Push → 触发条件（可选）；Web Push 注册失败 toast 改为可操作中文指引（FCM 大陆不可直连 → 开代理或改用推送渠道）；两个保存按钮加 `aria-label` 供精确测试定位
+
+### Fixed
+
+- **Notification-page save/test buttons never worked** - the five notify handlers (`handleNotifyClick` / `saveChannels` / `handleTestNotify` / `handleWebPushToggle` / `saveNotifyTriggers`) were declared after the notification page's early `return`, so their `const` bindings stayed in the temporal dead zone and every click threw a ReferenceError (the notification page had zero interaction test coverage, so the bug shipped since v0.5.0); the handlers now initialize before the early returns, and the push.config round-trip gained a spec covering channel presence + credential redaction
+
 ## [0.7.2] - 2026-09-03
 
 ### Added

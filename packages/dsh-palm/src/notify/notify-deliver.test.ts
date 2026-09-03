@@ -98,6 +98,41 @@ describe('L3 adapters', () => {
     expect(body.text).toContain('任务完成')
   })
 
+  it('pushplus posts a JSON body with the token and honors a success code', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 200, msg: 'success', data: {} }),
+    } as unknown as Response)
+    const config: NotifyConfig = {
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      channels: { pushplus: { token: 'pp-token' } },
+    }
+    await CHANNEL_ADAPTERS[3]!.send(config, event)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(String(url)).toBe('https://www.pushplus.plus/send')
+    const body = JSON.parse(String(init?.body)) as { token: string; title: string; content: string; template: string }
+    expect(body.token).toBe('pp-token')
+    expect(body.title).toBe('任务完成')
+    expect(body.content).toContain('pnpm test')
+    expect(body.template).toBe('txt')
+  })
+
+  it('pushplus surfaces business failures via the payload code', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 404, msg: '用户不存在' }),
+    } as unknown as Response)
+    const config: NotifyConfig = {
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      channels: { pushplus: { token: 'pp-bad' } },
+    }
+    await expect(CHANNEL_ADAPTERS[3]!.send(config, event)).rejects.toThrow('pushplus 用户不存在')
+  })
+
   it('a channel without credentials is a no-op', async () => {
     const config: NotifyConfig = { turnThresholdMs: 30_000, turnCooldownMs: 120_000 }
     for (const adapter of CHANNEL_ADAPTERS) {
