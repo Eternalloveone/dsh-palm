@@ -41,7 +41,18 @@ const JSON_HEADERS = {
 export async function readBoundedJson(req: IncomingMessage, maxBytes: number): Promise<unknown> {
   const chunks: Buffer[] = []
   let size = 0
-  for await (const chunk of req) {
+  // destroyOnReturn: false — a 'body too large' throw must NOT destroy the
+  // request stream. The default destroys the socket the moment the iterator
+  // is abandoned, so a client that is still uploading the oversized body
+  // sees ECONNRESET on its write side (flaky, scheduling-dependent).
+  // Keeping the stream alive lets the caller drain to EOF, which keeps the
+  // connection close orderly on both sides. The option is real at runtime
+  // (node >= 22) but absent from the IncomingMessage iterator typings, so
+  // the stream passes through a minimal contract cast.
+  const iterator = (req as unknown as {
+    [Symbol.asyncIterator](options: { destroyOnReturn?: boolean }): AsyncIterableIterator<Buffer | string>
+  })[Symbol.asyncIterator]({ destroyOnReturn: false })
+  for await (const chunk of iterator) {
     const buffer = chunk as Buffer
     size += buffer.length
     if (size > maxBytes) throw new Error('body too large')

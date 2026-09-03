@@ -4,7 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-## [0.7.0]
+## [0.7.1]
+
+## [0.7.1] - 2026-09-03
+
+### Fixed
+
+- **Flaky oversized-body rejection** - the strict body reader no longer destroys the request socket the moment an over-budget upload is detected; the host drains the remainder to EOF before answering, so a client still uploading never sees ECONNRESET (the mobile-api image-budget spec passed 20/20 consecutive runs after the fix)
+- **Runtime DSH packages declared as peerDependencies** - `@deepseek-ai/cordis`, `dsh-client-ui-primitives`, `dsh-host-apiproxy` and `dsh-settings` are now peer-declared with a verified range (`>=0.1.1-rc.1 <0.1.2-0`, excluding the breaking alpha line), so a host that does not drag them in transitively gets them auto-installed instead of a runtime ERR_MODULE_NOT_FOUND; install verified on DSH 0.1.1-rc.1
 
 ## [0.7.0] - 2026-09-02
 

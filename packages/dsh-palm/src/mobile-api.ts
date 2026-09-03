@@ -599,10 +599,21 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       envelope = await readBoundedJson(req, isTranscribe ? 12 * 1024 * 1024 : isPrompt ? 2 * 1024 * 1024 : 64 * 1024)
     } catch (error) {
       if (error instanceof Error && error.message === 'body too large') {
-        // Drain whatever the client still has in flight so the keep-alive
-        // connection is released (the strict reader stops mid-stream on
-        // overflow; an undrained body would misalign the next request).
-        req.resume()
+        // Consume the remainder to EOF BEFORE answering. The strict reader
+        // stops mid-stream on overflow; replying while the request body is
+        // still in flight leaves the connection in a half-consumed state —
+        // with `connection: close` the server tears the socket down right
+        // after the response flush, and a client still uploading then hits
+        // ECONNRESET on its write side (flaky, scheduling-dependent; seen
+        // repeatedly in the image-budget spec). Draining first keeps the
+        // close orderly on both sides. The drain is bounded by the client's
+        // own upload; a client that aborts mid-drain is answered anyway
+        // (writeJson swallows a dead socket).
+        try {
+          for await (const _chunk of req) { /* discard */ }
+        } catch {
+          // The client aborted mid-upload; fall through to the response.
+        }
         // The message rides back through callUnary and shows verbatim on the
         // phone, so it must match the failing channel: a long recording vs an
         // oversized image payload are different problems.
