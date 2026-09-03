@@ -4,7 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-## [0.7.1]
+## [0.7.2] - 2026-09-03
+
+### Added
+
+- **Feedback row in mobile settings** - 设置 → 通用新增「反馈与建议」：一键打开 GitHub Issues 提交问题或想法（搜索词：反馈 / 意见 / 建议 / feedback / issue / github）
+
+### Docs
+
+- **30-second quickstart tutorial** - `packages/dsh-palm/docs/quickstart-tutorial.md` walks from install to a first phone conversation and notification setup (LAN / Tailscale / frp decision, pairing, high-frequency actions, Server酱-based L3 notifications, FAQ); linked from the Quick start section of both READMEs
 
 ## [0.7.1] - 2026-09-03
 

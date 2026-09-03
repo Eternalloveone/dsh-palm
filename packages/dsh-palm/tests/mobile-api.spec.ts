@@ -835,6 +835,12 @@ describe('mobile api body failure contract (shared readBoundedJson)', () => {
       const headers: Record<string, string> = {
         cookie: cookieName + '=device-1',
         host: '127.0.0.1:' + String(port),
+        // `connection: close` is deliberate: each probe is its own socket, so
+        // an unpaired/gate 403 or a 404 that responds with the request body
+        // still in flight can never leak into a reused keep-alive connection
+        // (the strict reader's overflow path was migrated to drain-first in
+        // 6456db4; switching this to keep-alive made the oversized case
+        // STABLY time out, so close semantics stay).
         connection: 'close',
       }
       if (payload !== undefined) {

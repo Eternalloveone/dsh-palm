@@ -28,7 +28,7 @@ import { ConfirmDialog } from '../dialog.tsx'
 import {
   ChatBubbleIcon, ChevronUpIcon, ContrastIcon, GaugeIcon, HashIcon, InfoIcon, MicIcon,
   PencilIcon, PlusIcon, QuoteIcon, RowsIcon, ScrollDownIcon, SlidersIcon,
-  TrashIcon, TypeIcon, BellIcon,
+  TrashIcon, TypeIcon, UpperRightIcon, BellIcon,
 } from '../icons.tsx'
 import {
   getVoiceServices, moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService,
@@ -1122,6 +1122,15 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               desc="清除离线壳缓存（PWA）"
               action={<RowChevron />}
               onClick={() => { setConfirmClear(true) }}
+            />
+          )}
+          {hit('反馈', '意见', '建议', 'feedback', 'issue', 'github') && (
+            <SettingsRow
+              icon={<UpperRightIcon />}
+              title="反馈与建议"
+              desc="遇到问题或想要新功能，去 GitHub 告诉我"
+              action={<RowChevron />}
+              onClick={() => { window.open('https://github.com/Eternalloveone/dsh-palm/issues/new', '_blank', 'noopener') }}
             />
           )}
           {hit('关于', 'about', '版本') && (

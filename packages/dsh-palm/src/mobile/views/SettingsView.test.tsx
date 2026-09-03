@@ -142,6 +142,18 @@ describe('SettingsView card list', () => {
     expect((await screen.findAllByText(/版本 \d+\.\d+\.\d+/)).length).toBeGreaterThan(0)
   })
 
+  it('opens the GitHub issues page from the feedback row', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+      fireEvent.click(await screen.findByText('反馈与建议'))
+      expect(open).toHaveBeenCalledWith(
+        'https://github.com/Eternalloveone/dsh-palm/issues/new', '_blank', 'noopener')
+    } finally {
+      open.mockRestore()
+    }
+  })
+
   it('adds, lists, and removes a voice transcription service', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
 

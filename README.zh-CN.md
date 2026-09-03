@@ -35,6 +35,8 @@ dsh-palm 是**窄屏优先的轻量指挥台**：手机用于查看进度、响�
 
 然后：`dsh plugin --profile web add @eternalloveone/dsh-palm` → 打开配对面板 → 手机扫码或输入 6 位配对码。
 
+初次接触？[30 秒上手教程](packages/dsh-palm/docs/quickstart-tutorial.md)带您从安装走到手机上完成一次对话，并配好让手机端真正值得用的完成通知。
+
 ## 截图
 
 | | |

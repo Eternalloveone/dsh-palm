@@ -35,6 +35,8 @@ The panel auto-detects tunnels on your machine (Tailscale tailnet domain, `frpc.
 
 Then: `dsh plugin --profile web add @eternalloveone/dsh-palm` → open the pairing panel → scan the QR or type the six-digit code on the phone.
 
+New here? The [30-second quickstart tutorial](packages/dsh-palm/docs/quickstart-tutorial.md) walks from install to a working phone conversation, and configures the completion notifications that make the phone surface worth having.
+
 ## Screenshots
 
 | | |
