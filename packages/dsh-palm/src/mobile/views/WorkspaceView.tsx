@@ -15,19 +15,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
-import { deleteWorkspace, listWorkspaces, listDirectory, createWorkspace, renameWorkspace, type DirectoryListing, type DirectoryEntry } from '../api.ts'
+import { deleteWorkspace, listWorkspaces, listDirectory, createWorkspace, renameWorkspace, searchAll, searchMessages, type DirectoryListing, type DirectoryEntry, type SessionSearchHit } from '../api.ts'
 import { errorText } from './App.tsx'
 import { compactPath, dominantPathPrefix } from '../ui-text.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import { toast } from '../toast.tsx'
-import { ClockIcon, FolderIcon, FolderPlusIcon, InboxIcon, PinIcon, PlusIcon, SearchIcon } from '../icons.tsx'
+import { CheckIcon, ClockIcon, CloseIcon, FolderIcon, FolderPlusIcon, InboxIcon, PinIcon, PlusIcon, SearchIcon } from '../icons.tsx'
 
 /* ── local preferences (pin / recent) ────────────────────────────────── */
 
 const PINNED_KEY = 'dsh.palm.pinnedWorkspaces'
 const RECENT_KEY = 'dsh.palm.recentWorkspace'
+/** First-run welcome card: shown once after pairing, dismissible. */
+const WELCOME_KEY = 'dsh.palm.welcomeSeen'
 
 /** Read the pinned workspace id list (localStorage, best effort). */
 function readPinned(): string[] {
@@ -303,6 +305,21 @@ export interface WorkspaceViewProps {
   initialWorkspaceId?: string
   /** Open one workspace's session list. */
   onPick(workspace: WorkspaceRow): void
+  /** Locate a search hit's session (in-app navigation across workspaces). */
+  onLocateSession?(sessionId: string, workspaceId: string, seq?: number, query?: string, messageId?: string, partId?: string): void
+  /** Open a search hit that belongs to NO workspace (standalone session):
+   *  the app opens the chat directly — the last resort for unattributable
+   *  hits, instead of a dead label + toast. */
+  onOpenDirect?(hit: { sessionId: string; title?: string; snippet?: string }, seq?: number, query?: string, messageId?: string, partId?: string): void
+  /** Restore the search surface when the app returns here after a search-hit
+   *  locate (open + term). Consumed once on mount. */
+  initialSearch?: { open: boolean; term: string }
+  /** Report the live search-surface state so the app can restore it the next
+   *  time the user returns from a located chat. */
+  onSearchSnapshot?(open: boolean, term: string): void
+  /** The app cleared its one-shot restore (called after initialSearch is
+   *  applied), so a later manual visit does not restore the search again. */
+  onSearchApplied?(): void
 }
 
 /**
@@ -310,7 +327,7 @@ export interface WorkspaceViewProps {
  * @param props - the pick action.
  * @returns the roster.
  */
-export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps) {
+export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onOpenDirect, initialSearch, onSearchSnapshot, onSearchApplied }: WorkspaceViewProps) {
   const [items, setItems] = useState<WorkspaceRow[] | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   // Bumped by the retry button to re-run the roster fetch effect.
@@ -319,6 +336,31 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
   // Quick-bar state: search field, pinned-only filter, recent jump.
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
+  // Restore the search surface once, when the app returns from a located chat.
+  const appliedInitialSearchRef = useRef(false)
+  useEffect(() => {
+    if (appliedInitialSearchRef.current) return
+    if (initialSearch !== undefined && initialSearch.open) {
+      appliedInitialSearchRef.current = true
+      setSearchOpen(true)
+      setSearch(initialSearch.term)
+      onSearchApplied?.()
+    }
+  }, [initialSearch, onSearchApplied])
+  // Report the live search-surface state so the app can restore it on return.
+  useEffect(() => {
+    onSearchSnapshot?.(searchOpen, search)
+  }, [searchOpen, search, onSearchSnapshot])
+  /** Global session hits (the home search spans workspaces, with attribution). */
+  const [globalHits, setGlobalHits] = useState<SessionSearchHit[]>([])
+  const [globalBusy, setGlobalBusy] = useState(false)
+  const [globalDone, setGlobalDone] = useState(false)
+  /** Result cap reached: more hits exist but are folded (refine the query). */
+  const [globalHasMore, setGlobalHasMore] = useState(false)
+  /** The host's substring backfill covered only the most recent sessions:
+   *  an empty (or short) result must not read as "not on host". */
+  const [globalPartial, setGlobalPartial] = useState(false)
+  /** The search hit currently locating its first matched message. */
   const [pinnedOnly, setPinnedOnly] = useState(false)
   const [pinned, setPinned] = useState<string[]>(() => readPinned())
   const [recentId, setRecentId] = useState<string | undefined>(() => readRecent())
@@ -329,6 +371,134 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
   const [busy, setBusy] = useState(false)
   // Long-press detection: 500ms touch hold, cancelled on move/end.
   const pressTimerRef = useRef<number | undefined>(undefined)
+
+  // First-run welcome card (dismissed once, stored on the device).
+  const [welcomeHidden, setWelcomeHidden] = useState(() => {
+    try { return localStorage.getItem(WELCOME_KEY) === '1' } catch { return false }
+  })
+  const dismissWelcome = (): void => {
+    setWelcomeHidden(true)
+    try { localStorage.setItem(WELCOME_KEY, '1') } catch { /* non-fatal */ }
+  }
+
+  // Global session search: debounced host lookup, independent of the local
+  // workspace-name filter; hits render as a second group with locate links.
+  useEffect(() => {
+    const term = search.trim()
+    if (term === '') {
+      setGlobalHits([])
+      setGlobalDone(false)
+      setGlobalBusy(false)
+      setGlobalHasMore(false)
+      setGlobalPartial(false)
+      return
+    }
+    setGlobalBusy(true)
+    setGlobalDone(false)
+    setGlobalPartial(false)
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void searchAll(term).then(
+        (result) => {
+          if (cancelled) return
+          setGlobalHits(result.items)
+          setGlobalHasMore(result.hasMore)
+          setGlobalPartial(result.partial === true)
+          setGlobalDone(true)
+          setGlobalBusy(false)
+        },
+        () => {
+          if (!cancelled) {
+            setGlobalHits([])
+            setGlobalDone(true)
+            setGlobalBusy(false)
+          }
+        },
+      )
+    }, 250)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [search])
+
+  /** Open a search hit straight to its first matched message: lazy message
+   *  locate for the seq (cached), then in-app/deep-link navigation. A missed
+   *  locate degrades to opening the session. A tap on another hit supersedes
+   *  the in-flight locate (the loser neither navigates nor clears the
+   *  indicator), and a late locate result after the degrade path never
+   *  double-fires the navigation. */
+  const locateHit = (hit: SessionSearchHit, term: string): void => {
+    if (hit.kind === 'message' && hit.seq !== undefined) {
+      locateSession(hit, hit.seq, term, hit.messageId, hit.partId)
+      return
+    }
+    // A message hit without a seq, or a TITLE hit (session name matched):
+    // resolve the first message containing the term so the tap still jumps
+    // to the relevant message instead of opening the session at the tail.
+    void searchMessages(hit.sessionId, term).then(
+      (result) => {
+        const first = result.items[0]
+        locateSession(hit, first?.seq, term, first?.messageId, first?.partId)
+      },
+      () => { locateSession(hit, undefined, term) },
+    )
+  }
+
+  /** Resolve a search hit's owning workspace: prefer the host attribution,
+   *  fall back to the LOCAL roster's attach relation (this phone already
+   *  holds every workspace with its sessionIds — immune to host
+   *  attribution gaps). The host-resolved workspace title labels the row
+   *  even before the roster finishes loading. */
+  const resolveOwner = (hit: { sessionId: string; workspaceId?: string; workspaceTitle?: string }): { workspaceId?: string; title?: string } => {
+    if (hit.workspaceId !== undefined) {
+      const byId = (items ?? []).find(workspace => workspace.workspaceId === hit.workspaceId)
+      return { workspaceId: hit.workspaceId, title: byId?.title ?? hit.workspaceTitle }
+    }
+    const byAttach = (items ?? []).find(workspace =>
+      (workspace.sessionIds ?? []).map(String).includes(hit.sessionId))
+    return byAttach === undefined
+      ? {}
+      : { workspaceId: byAttach.workspaceId, title: byAttach.title }
+  }
+
+  /** Locate a global search hit: in-app navigation when the parent offers it,
+   *  deep link as the standalone fallback. An optional message seq scrolls the
+   *  session straight to the matched message. A hit that belongs to NO
+   *  workspace (standalone session) opens directly through the parent's
+   *  onOpenDirect instead of dying with a toast. */
+  const locateSession = (hit: { sessionId: string; workspaceId?: string; title?: string; snippet?: string; messageId?: string; partId?: string }, seq?: number, query?: string, messageId?: string, partId?: string): void => {
+    const owner = resolveOwner(hit)
+    if (owner.workspaceId !== undefined && onLocateSession !== undefined) {
+      const stableMessageId = messageId ?? hit.messageId
+      const stablePartId = partId ?? hit.partId
+      onLocateSession(
+        hit.sessionId,
+        owner.workspaceId,
+        seq,
+        query,
+        ...([stableMessageId, stablePartId].some(value => value !== undefined) ? [stableMessageId, stablePartId] : []),
+      )
+      return
+    }
+    if (owner.workspaceId === undefined) {
+      if (onOpenDirect !== undefined) {
+        const stableMessageId = messageId ?? hit.messageId
+        const stablePartId = partId ?? hit.partId
+        onOpenDirect(
+          hit,
+          seq,
+          query,
+          ...([stableMessageId, stablePartId].some(value => value !== undefined) ? [stableMessageId, stablePartId] : []),
+        )
+        return
+      }
+      toast('未找到该会话所属的工作区')
+      return
+    }
+    const url = new URL(window.location.href)
+    url.searchParams.set('workspace', owner.workspaceId)
+    url.searchParams.set('session', hit.sessionId)
+    if (seq !== undefined) url.searchParams.set('seq', String(seq))
+    window.location.href = `${url.pathname}${url.search}`
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -356,8 +526,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
   const pick = useCallback((workspace: WorkspaceRow) => {
     writeRecent(workspace.workspaceId)
     setRecentId(workspace.workspaceId)
-    onPick(workspace)
-  }, [onPick])
+    onPick(workspace)  }, [onPick])
 
   /** Jump straight into the last-opened workspace. */
   const jumpRecent = useCallback(() => {
@@ -467,7 +636,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
 
   const term = search.trim().toLowerCase()
   const visible = (items ?? [])
-    .filter(workspace => term === '' || workspace.title.toLowerCase().includes(term) || workspace.path.toLowerCase().includes(term))
+    .filter(workspace => term === '' || workspace.title.toLowerCase().includes(term))
     .filter(workspace => !pinnedOnly || pinned.includes(workspace.workspaceId))
   // Path compression: hide the parent prefix most roster rows share.
   const pathPrefix = dominantPathPrefix((items ?? []).map(workspace => workspace.path))
@@ -515,21 +684,38 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
         )
       }
       if (term !== '') {
+        // The home search spans workspaces: only the empty state once the
+        // global session lookup has settled AND found nothing either.
+        if (globalBusy) {
+          return (
+            <div className="mobile-empty">
+              <div className="empty-icon"><SearchIcon /></div>
+              <p className="empty-title">正在搜索全部会话…</p>
+            </div>
+          )
+        }
+        if (globalDone && globalHits.length === 0) {
+          return (
+            <div className="mobile-empty">
+              <div className="empty-icon"><SearchIcon /></div>
+              <p className="empty-title">没有匹配的工作区或会话</p>
+              <p className="empty-desc">
+                工作区按名称匹配，会话按名称与可见正文匹配
+                {globalPartial && <>；更早的会话未在本次扫描范围内</>}
+              </p>
+            </div>
+          )
+        }
+        // 会话命中存在：落进下方列表渲染（工作区组为空，仅会话组显示）
+      } else {
         return (
           <div className="mobile-empty">
-            <div className="empty-icon"><SearchIcon /></div>
-            <p className="empty-title">没有匹配的工作区</p>
-            <p className="empty-desc">换个关键词试试，支持名称和路径搜索</p>
+            <div className="empty-icon"><FolderPlusIcon /></div>
+            <p className="empty-title">暂无工作区</p>
+            <p className="empty-desc">新建一个工作区，把项目目录挂进来就能开始会话</p>
           </div>
         )
       }
-      return (
-        <div className="mobile-empty">
-          <div className="empty-icon"><FolderPlusIcon /></div>
-          <p className="empty-title">暂无工作区</p>
-          <p className="empty-desc">新建一个工作区，把项目目录挂进来就能开始会话</p>
-        </div>
-      )
     }
     return (
       <ul className="mobile-list">
@@ -575,7 +761,55 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
             </div>
           </li>
         ))}
-        {!pinnedOnly && (
+        {term !== '' && globalBusy && (
+          <li style={{ listStyle: 'none' }}>
+            <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
+          </li>
+        )}
+        {term !== '' && !globalBusy && globalHits.length > 0 && (
+          <li style={{ listStyle: 'none' }}>
+            <div className="mobile-groupTitle">会话</div>
+            {globalHits.map(hit => {
+              const owner = resolveOwner(hit)
+              const title = (hit.title ?? hit.snippet.trim().slice(0, 24)) || '匹配会话'
+              return (
+                <li key={`${hit.kind}:${hit.sessionId}`} style={{ listStyle: 'none' }}>
+                  <button
+                    type="button"
+                    className="mobile-row"
+                    onClick={() => { void locateHit(hit, term) }}
+                  >
+                    <span className="card-icon">
+                      <span className="sess-check" aria-hidden><CheckIcon /></span>
+                    </span>
+                    <span className="card-main">
+                      <span className="sess-titleline">
+                        <span className="sess-title">{title}</span>
+                        <span className="sess-sep" aria-hidden>·</span>
+                        <span className="sess-time">{owner.title ?? '未分组'}</span>
+                      </span>
+                      <span className="card-desc">{hit.snippet}</span>
+                    </span>
+                    <span className="card-action">
+                      <span className="mobile-chevron" aria-hidden>›</span>
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+            {globalHasMore && (
+              <li style={{ listStyle: 'none' }}>
+                <p className="search-hitsNote mobile-pad">结果较多，仅显示前若干条——请细化关键词</p>
+              </li>
+            )}
+            {!globalHasMore && globalPartial && (
+              <li style={{ listStyle: 'none' }}>
+                <p className="search-hitsNote mobile-pad">已扫描最近的会话，更早的会话可能未覆盖</p>
+              </li>
+            )}
+          </li>
+        )}
+        {!pinnedOnly && term === '' && (
           <li style={{ listStyle: 'none' }}>
             <button type="button" className="mobile-createCard" onClick={() => setIsCreating(true)}>
               <PlusIcon />
@@ -590,22 +824,46 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
   return (
     <div className="mobile">
       <header className="mobile-header">
-        <div className="mobile-headerSlot" />
-        <h1 className="mobile-title">工作区</h1>
+        <div className="mobile-headerSlot">
+          {searchOpen
+            ? (
+              <button type="button" className="mobile-back" aria-label="返回" onClick={() => { setSearchOpen(false); setSearch('') }}>‹</button>
+            )
+            : (
+              <div className="mobile-headerSlot" />
+            )}
+        </div>
+        {searchOpen ? (
+          <div className="mobile-headerSearch">
+            <input
+              type="search"
+              className="mobile-headerSearchInput"
+              placeholder="搜索工作区或会话…"
+              aria-label="搜索工作区和会话"
+              autoFocus
+              value={search}
+              onChange={(event) => { setSearch(event.target.value) }}
+            />
+          </div>
+        ) : (
+          <h1 className="mobile-title">工作区</h1>
+        )}
         <div className="mobile-headerSlot mobile-headerSlot-right">
-          <ThemeToggle />
+          {searchOpen ? (
+            <button type="button" className="mobile-iconbtn" aria-label="取消搜索" onClick={() => { setSearchOpen(false); setSearch('') }}>
+              <CloseIcon />
+            </button>
+          ) : (
+            <>
+              <button type="button" className="mobile-iconbtn" aria-label="搜索工作区和会话" onClick={() => { setSearchOpen(true) }}>
+                <SearchIcon />
+              </button>
+              <ThemeToggle />
+            </>
+          )}
         </div>
       </header>
       <div className="mobile-quickbar" role="toolbar" aria-label="快捷操作">
-        <button
-          type="button"
-          className={`mobile-quickchip${searchOpen ? ' mobile-quickchip-on' : ''}`}
-          aria-pressed={searchOpen}
-          onClick={() => { setSearchOpen(value => !value); setSearch('') }}
-        >
-          <SearchIcon />
-          搜索
-        </button>
         <button
           type="button"
           className={`mobile-quickchip${pinnedOnly ? ' mobile-quickchip-on' : ''}`}
@@ -620,16 +878,17 @@ export function WorkspaceView({ initialWorkspaceId, onPick }: WorkspaceViewProps
           最近访问
         </button>
       </div>
-      {searchOpen && (
-        <div className="mobile-search">
-          <input
-            type="search"
-            className="mobile-searchInput"
-            placeholder="搜索工作区名称或路径…"
-            aria-label="搜索工作区"
-            value={search}
-            onChange={(event) => { setSearch(event.target.value) }}
-          />
+      {!welcomeHidden && (
+        <div className="mobile-welcome" role="note">
+          <div className="mobile-welcomeCopy">
+            <p className="mobile-welcomeTitle">配对成功 🎉 三步上手</p>
+            <p className="mobile-welcomeDesc">
+              ① 点一个工作区开始对话<br />
+              ② 右上角 设置 → 通知：配好任务完成提醒<br />
+              ③ 设置 → 用量：随时查看余额与配额
+            </p>
+          </div>
+          <button type="button" className="mobile-welcomeClose" onClick={dismissWelcome}>知道了</button>
         </div>
       )}
       {body}

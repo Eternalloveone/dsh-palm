@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Mobile workspace landing: roster rendering and QR deep-link selection. */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import { mobileWorkspaceTarget } from './App.tsx'
@@ -12,13 +12,17 @@ vi.mock('../api.ts', () => ({
   createWorkspace: vi.fn(),
   renameWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
+  searchAll: vi.fn(),
+  searchMessages: vi.fn(),
 }))
-import { listWorkspaces, listDirectory, createWorkspace, deleteWorkspace } from '../api.ts'
+import { listWorkspaces, listDirectory, createWorkspace, deleteWorkspace, searchAll, searchMessages } from '../api.ts'
 
 const listWorkspacesMock = vi.mocked(listWorkspaces)
 const listDirectoryMock = vi.mocked(listDirectory)
 const createWorkspaceMock = vi.mocked(createWorkspace)
 const deleteWorkspaceMock = vi.mocked(deleteWorkspace)
+const searchAllMock = vi.mocked(searchAll)
+const searchMessagesMock = vi.mocked(searchMessages)
 
 const workspaces: WorkspaceRow[] = [
   {
@@ -256,5 +260,210 @@ describe('mobile workspace recentId', () => {
     })
     // The recent id is cleared from storage (no dangling pointer).
     expect(store.get('dsh.palm.recentWorkspace')).toBe('')
+  })
+})
+
+describe('WorkspaceView first-run welcome', () => {
+  afterEach(() => {
+    try { localStorage.removeItem('dsh.palm.welcomeSeen') } catch { /* non-fatal */ }
+  })
+
+  it('shows the one-shot onboarding card on first open', async () => {
+    render(<WorkspaceView onPick={() => {}} />)
+    expect(await screen.findByText(/配对成功/)).toBeTruthy()
+    expect(screen.getByText(/三步上手/)).toBeTruthy()
+  })
+
+  it('dismisses the card forever once acknowledged', async () => {
+    const first = render(<WorkspaceView onPick={() => {}} />)
+    fireEvent.click(await first.findByRole('button', { name: '知道了' }))
+    expect(first.queryByText(/配对成功/)).toBeNull()
+    // A later mount (fresh component) stays silent: the dismissal persisted.
+    const second = render(<WorkspaceView onPick={() => {}} />)
+    expect(second.queryByText(/配对成功/)).toBeNull()
+  })
+})
+
+describe('WorkspaceView global search', () => {
+  beforeEach(() => {
+    searchAllMock.mockReset()
+    searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+    searchMessagesMock.mockReset()
+    searchMessagesMock.mockResolvedValue({ items: [] })
+  })
+
+  it('shows session hits across workspaces with their owner labels', async () => {
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-x', snippet: '支付回调里的密钥校验', workspaceId: 'ws-1', seq: 7 },
+        { kind: 'message', sessionId: 's-y', snippet: '无法归属的旧片段', seq: 8 },
+      ],
+      hasMore: false,
+    })
+    render(<WorkspaceView onPick={() => {}} />)
+    await screen.findByText('First')
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '支付' } })
+    // The sessions group renders with the owning workspace title (or a
+    // generic label when attribution is missing).
+    expect(await screen.findByText('会话')).toBeTruthy()
+    expect(screen.getAllByText('支付回调里的密钥校验').length).toBeGreaterThan(0)
+    expect(screen.getByText('First')).toBeTruthy()
+    // Attributionless hits label 未分组, not the misleading 其他工作区.
+    expect(screen.getByText('未分组')).toBeTruthy()
+    expect(searchAllMock).toHaveBeenCalledWith('支付')
+  })
+
+  it('resolves the owner from the local roster when host attribution is missing', async () => {
+    const withAttach = [
+      { ...workspaces[0]!, sessionIds: ['s-x'] as never },
+      workspaces[1]!,
+    ]
+    listWorkspacesMock.mockResolvedValue(withAttach)
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-x', snippet: '支付回调里的密钥校验', seq: 7 }],
+      hasMore: false,
+    })
+    const onLocate = vi.fn()
+    render(<WorkspaceView onPick={() => {}} onLocateSession={onLocate} />)
+    await screen.findByText('First')
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '支付' } })
+    await screen.findByText('会话')
+    // Attribution is missing on the hit, but the phone's own roster carries
+    // the attach relation: show the REAL workspace name, and locate with the
+    // resolved workspace id - no dead page reload, no misleading label.
+    expect(screen.getByText('First')).toBeTruthy()
+    expect(screen.queryByText('其他工作区')).toBeNull()
+    expect(screen.queryByText('未分组')).toBeNull()
+    fireEvent.click(screen.getAllByText(/支付回调里的密钥校验/).at(-1)!)
+    await waitFor(() => {
+      expect(onLocate).toHaveBeenCalledWith('s-x', 'ws-1', 7, '支付')
+    })
+  })
+
+  it('restores the search surface from initialSearch and reports snapshots', async () => {
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+    const onApplied = vi.fn()
+    const onSnapshot = vi.fn()
+    render(
+      <WorkspaceView
+        onPick={() => {}}
+        initialSearch={{ open: true, term: '排查' }}
+        onSearchApplied={onApplied}
+        onSearchSnapshot={onSnapshot}
+      />,
+    )
+    // The search box is open with the restored term, and the app was told the
+    // one-shot restore is consumed.
+    const input = await screen.findByPlaceholderText('搜索工作区或会话…') as HTMLInputElement
+    expect(input.value).toBe('排查')
+    expect(onApplied).toHaveBeenCalledTimes(1)
+    // Live state is reported (open + term) so the app can restore it on return.
+    expect(onSnapshot).toHaveBeenCalledWith(expect.any(Boolean), expect.any(String))
+    // It restores only once: a later render does not re-apply.
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
+  })
+
+  it('hides the create-workspace action while searching', async () => {
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+    render(<WorkspaceView onPick={() => {}} />)
+    await screen.findByText('First')
+    expect(screen.getByText('新建工作区')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '支付' } })
+    await screen.findByText('没有匹配的工作区或会话')
+    expect(screen.queryByText('新建工作区')).toBeNull()
+  })
+
+  it('labels a hit with the host-resolved workspace title before the roster loads', async () => {
+    // The roster is still loading (items undefined), but the host already
+    // resolved the owner: the row must show the real workspace title, not
+    // 未分组.
+    // The roster is empty (still loading), but the host already resolved the
+    // owner: the row must show the real workspace title, not 未分组.
+    listWorkspacesMock.mockResolvedValue([])
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-x', snippet: '支付回调里的密钥校验', workspaceId: 'ws-1', workspaceTitle: 'dsh-palm', seq: 7 }],
+      hasMore: false,
+    })
+    render(<WorkspaceView onPick={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '支付' } })
+    await screen.findByText('会话')
+    expect(screen.getByText('dsh-palm')).toBeTruthy()
+    expect(screen.queryByText('未分组')).toBeNull()
+  })
+
+  it('shows the combined empty state when nothing matches anywhere', async () => {
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+    render(<WorkspaceView onPick={() => {}} />)
+    await screen.findByText('First')
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '不存在的词' } })
+    expect(await screen.findByText('没有匹配的工作区或会话')).toBeTruthy()
+  })
+
+  it('opens a session hit straight to its first matched message', async () => {
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-x', snippet: '支付回调里的密钥校验', workspaceId: 'ws-1', seq: 7 }],
+      hasMore: false,
+    })
+    const onLocate = vi.fn()
+    render(<WorkspaceView onPick={() => {}} onLocateSession={onLocate} />)
+    await screen.findByText('First')
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '支付' } })
+    await screen.findByText('会话')
+    // The host hit already carries the exact matched sequence and is opened
+    // directly, without a second per-session search.
+    fireEvent.click(screen.getAllByText(/支付回调里的密钥校验/).at(-1)!)
+    await waitFor(() => {
+      expect(searchMessagesMock).not.toHaveBeenCalled()
+      expect(onLocate).toHaveBeenCalledWith('s-x', 'ws-1', 7, '支付')
+    })
+  })
+
+  it('opens a standalone hit directly when no workspace anywhere claims it', async () => {
+    // No host attribution and the local roster has no attach relation for
+    // the hit: the parent's onOpenDirect chat shortcut must fire, not a
+    // dead 未找到所属工作区 toast or a page reload.
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-orphan', snippet: '孤立会话的支付逻辑', seq: 7 }],
+      hasMore: false,
+    })
+    const onOpenDirect = vi.fn()
+    render(<WorkspaceView onPick={() => {}} onOpenDirect={onOpenDirect} />)
+    await screen.findByText('First')
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: '支付' } })
+    await screen.findByText('会话')
+    expect(screen.getByText('未分组')).toBeTruthy()
+    fireEvent.click(screen.getAllByText(/孤立会话的支付逻辑/).at(-1)!)
+    await waitFor(() => {
+      expect(onOpenDirect).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 's-orphan', snippet: '孤立会话的支付逻辑' }),
+        7,
+        '支付',
+      )
+    })
+  })
+
+  it('keeps the workspace filter working when the session lookup fails', async () => {
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    searchAllMock.mockRejectedValue(new Error('network down'))
+    render(<WorkspaceView onPick={() => {}} />)
+    await screen.findByText('First')
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }))
+    fireEvent.change(screen.getByPlaceholderText('搜索工作区或会话…'), { target: { value: 'Second' } })
+    // The workspace-name filter still matches locally.
+    expect(await screen.findByText('Second')).toBeTruthy()
+    expect(screen.queryByText('会话')).toBeNull()
   })
 })

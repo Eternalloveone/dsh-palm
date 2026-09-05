@@ -28,7 +28,7 @@ import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
 import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
 import { muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
-import { history as fetchHistory, type HistoryPage } from './api.ts'
+import { history as fetchHistory, queueItemViewOf, type HistoryPage, type QueueItemView } from './api.ts'
 import { RpcTransportError } from './rpc.ts'
 import type { HistoryEntry } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 
@@ -136,6 +136,14 @@ export class MuxClient {
    * chat can replay its session's last known tasks on entry.
    */
   private readonly cachedJobsBySession = new Map<string, JobView[]>()
+  /**
+   * Latest `session/queue` snapshot per session, retained regardless of
+   * whether a ChatView listener was mounted when the frame arrived (same
+   * rationale as cachedJobsBySession: the mux opens at boot, so a queue
+   * baseline arriving with zero listeners would otherwise be lost and a
+   * freshly opened chat would show an empty queue until the next change).
+   */
+  private readonly cachedQueueBySession = new Map<string, QueueItemView[]>()
   private source: EventSourceLike | undefined
   private stopped = false
   private readonly url: string
@@ -477,6 +485,8 @@ export class MuxClient {
     this.lastDataAt = this.now()
     if (this.polling) this.stopPolling()
     if (frame.data.type === 'session/jobs') this.rememberJobs(frame.data)
+    if (frame.data.type === 'session/queue') this.rememberQueue(frame.data)
+    if (frame.data.type === 'session/subscribed') this.rememberSubscribed(frame.data)
     this.emit(frame.data, envelope.data.rpcId)
   }
 
@@ -502,6 +512,38 @@ export class MuxClient {
    */
   cachedJobsFor(sessionId: string): JobView[] | undefined {
     return this.cachedJobsBySession.get(sessionId)
+  }
+
+  /** Retain the queue snapshot for one session (see cachedQueueBySession). */
+  private rememberQueue(frame: Extract<MuxFrame, { type: 'session/queue' }>): void {
+    const sessionId = String(frame.sessionId)
+    const items = (frame.items ?? []).map(item => queueItemViewOf({
+      id: String(item.id),
+      placement: item.placement,
+      message: item.message as never,
+    }))
+    this.cachedQueueBySession.set(sessionId, items)
+  }
+
+  /**
+   * New mux-generation baseline for one session: the host pushes
+   * `session/subscribed` for EVERY session on every stream (re)open, before
+   * any per-session queue/jobs baseline that follows. The host omits those
+   * baselines when the live queue/job set is empty, so a snapshot retained
+   * from the previous generation would survive as a phantom list — the same
+   * re-baseline reasoning the desktop runtime applies in its Session/manager
+   * mirrors. Drop the retained rows now; any non-empty baseline right behind
+   * this frame repopulates them, and an omitted baseline means "empty".
+   */
+  private rememberSubscribed(frame: Extract<MuxFrame, { type: 'session/subscribed' }>): void {
+    const sessionId = String(frame.sessionId)
+    this.cachedQueueBySession.delete(sessionId)
+    this.cachedJobsBySession.delete(sessionId)
+  }
+
+  /** Last known queue snapshot for a session, or undefined if none seen. */
+  cachedQueueFor(sessionId: string): QueueItemView[] | undefined {
+    return this.cachedQueueBySession.get(sessionId)
   }
 
   private emit(frame: MuxFrame, rpcId?: string): void {

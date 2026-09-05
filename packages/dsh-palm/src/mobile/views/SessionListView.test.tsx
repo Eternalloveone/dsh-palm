@@ -15,11 +15,13 @@ vi.mock('../api.ts', () => ({
   archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
   previews: vi.fn(),
   history: vi.fn(),
+  searchAll: vi.fn(),
+  searchMessages: vi.fn(),
 }))
 vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions, listWorkspaces, previews, history } from '../api.ts'
+import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions, listWorkspaces, previews, history, searchAll, searchMessages } from '../api.ts'
 import { removeOutboxForSession } from '../offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
@@ -29,6 +31,8 @@ const createSessionMock = vi.mocked(createSession)
 const archiveSessionMock = vi.mocked(archiveSessionApi)
 const previewsMock = vi.mocked(previews)
 const historyMock = vi.mocked(history)
+const searchAllMock = vi.mocked(searchAll)
+const searchMessagesMock = vi.mocked(searchMessages)
 const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
 
 const workspace: WorkspaceRow = {
@@ -68,6 +72,8 @@ beforeEach(() => {
   // The v3.1 batch preview path: empty by default (rows fall back to their
   // stats lines); per-row history fallback stays unmocked (unused).
   previewsMock.mockResolvedValue([])
+  searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+  searchMessagesMock.mockResolvedValue({ items: [] })
 })
 
 afterEach(() => {
@@ -303,17 +309,201 @@ describe('SessionListView creation', () => {
 })
 
 describe('SessionListView search scope', () => {
-  it('shows a hint that search only covers loaded rows when more pages exist', async () => {
+  it('queries the host full roster and shows extra hits outside the loaded pages', async () => {
     listSessionsMock.mockResolvedValue({
       items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
       hasMore: true,
       nextCursor: 'c1',
     })
+    searchAllMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', snippet: '改造移动端 本地命中', seq: 10 },
+        { kind: 'message', sessionId: 's-sub', snippet: '很久以前改过的支付逻辑片段', seq: 11 },
+      ],
+      hasMore: false,
+    })
     renderList()
     await screen.findByText('改造移动端')
     fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索标题或内容…'), { target: { value: 'xyz' } })
-    expect(await screen.findByText(/搜索仅覆盖已加载的 1 条会话/)).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
+    // The loaded-page hit renders in the normal groups; the owned but
+    // unloaded hit renders as an extra search row with the host snippet.
+    expect(await screen.findByText('搜索结果（未加载的会话）')).toBeTruthy()
+    // The snippet renders twice (clipped title + full description); the
+    // desc node is the click target.
+    expect(screen.getAllByText('很久以前改过的支付逻辑片段').length).toBeGreaterThan(0)
+    expect(searchAllMock).toHaveBeenCalledWith('支付')
+
+    // Clicking the extra hit opens the session (the chat loads by id). The
+    // row text renders twice (clipped title + description); hit the desc.
+    fireEvent.click(screen.getAllByText('很久以前改过的支付逻辑片段').at(-1)!)
+    await waitFor(() => {
+      expect(picked?.sessionId).toBe('s-sub')
+      expect(picked?.preview).toContain('支付逻辑')
+    })
+  })
+
+  it('hints to refine when the host search result is truncated', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-sub', snippet: '子目录里的支付逻辑', workspaceId: 'w-1', seq: 12 }],
+      hasMore: true,
+    })
+    renderList()
+    await screen.findByText('改造移动端')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
+    await screen.findByText('搜索结果（未加载的会话）')
+    // The cap hint tells the user to refine instead of silently hiding hits.
+    expect(screen.getByText(/结果较多，仅显示前若干条/)).toBeTruthy()
+  })
+
+  it('keeps the local filter when the host search fails', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockRejectedValue(new Error('network down'))
+    renderList()
+    await screen.findByText('改造移动端')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '移动端' } })
+    // Local filtering still applies (the loaded row matches).
+    expect(await screen.findByText('改造移动端')).toBeTruthy()
+    expect(screen.queryByText('搜索结果（未加载的会话）')).toBeNull()
+  })
+
+  it('narrows search to this workspace\'s owned sessions and reports folded foreign hits', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockResolvedValue({
+      items: [
+        // Owned but not loaded: must render as an extra search row.
+        { kind: 'message', sessionId: 's-sub', snippet: '子目录里的支付逻辑', workspaceId: 'w-1', seq: 13 },
+        // Foreign (other workspace) and unattributable: folded away.
+        { kind: 'message', sessionId: 's-other', snippet: '别的项目里的支付逻辑', workspaceId: 'w-9', seq: 14 },
+        { kind: 'message', sessionId: 's-unknown', snippet: '无从归属的片段', seq: 15 },
+      ],
+      hasMore: false,
+    })
+    renderList()
+    await screen.findByText('改造移动端')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
+    expect(await screen.findByText('搜索结果（未加载的会话）')).toBeTruthy()
+    // Only the owned, unloaded hit renders; the others fold into the
+    // scope note instead of leaking cross-workspace rows into this roster.
+    expect(screen.getAllByText(/子目录里的支付逻辑/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/别的项目里的支付逻辑/)).toBeNull()
+    expect(screen.getByText(/另有 2 个其他工作区的命中/)).toBeTruthy()
+    expect(screen.queryByText('其他工作区')).toBeNull()
+  })
+
+  it('opens a session hit straight to its first matched message', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-sub', snippet: '子目录里的支付逻辑', workspaceId: 'w-1', seq: 40 }],
+      hasMore: false,
+    })
+    let pickedSeq: number | undefined
+    const openChat = (session: SessionView, seq: number): void => { pickedSeq = seq }
+    renderList({ onPickSeq: openChat })
+    await screen.findByText('改造移动端')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
+    await screen.findByText('搜索结果（未加载的会话）')
+    // The host hit already carries the exact matched sequence.
+    fireEvent.click(screen.getAllByText(/子目录里的支付逻辑/).at(-1)!)
+    await waitFor(() => {
+      expect(searchMessagesMock).not.toHaveBeenCalled()
+      expect(pickedSeq).toBe(40)
+    })
+  })
+
+  it('restores the in-list search surface from initialSearch and reports snapshots', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+    const onApplied = vi.fn()
+    const onSnapshot = vi.fn()
+    renderList({ initialSearch: { open: true, term: '支付' }, onSearchApplied: onApplied, onSearchSnapshot: onSnapshot })
+    // The search box is open with the restored term, and the app was told
+    // the one-shot restore is consumed.
+    const input = await screen.findByPlaceholderText('搜索当前工作区或全部会话…') as HTMLInputElement
+    expect(input.value).toBe('支付')
+    expect(onApplied).toHaveBeenCalledTimes(1)
+    // Live state is reported (open + term) so the app can restore it on return.
+    expect(onSnapshot).toHaveBeenCalledWith(true, '支付')
+    // It restores only once: a later render does not re-apply.
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
+  })
+
+  it('opens each precise host hit without a second search', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-sub', snippet: 'A 的支付逻辑', workspaceId: 'w-1', seq: 40 },
+        { kind: 'message', sessionId: 's-case', snippet: 'B 的支付逻辑', workspaceId: 'w-1', seq: 41 },
+      ],
+      hasMore: false,
+    })
+    const opened: Array<{ sessionId: string; seq?: number }> = []
+    const openChat = (session: SessionView, seq?: number): void => { opened.push({ sessionId: session.sessionId, seq }) }
+    renderList({ onPickSeq: openChat })
+    await screen.findByText('改造移动端')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
+    await screen.findByText('搜索结果（未加载的会话）')
+    // Both rows carry their exact sequence and open immediately.
+    fireEvent.click(screen.getAllByText(/A 的支付逻辑/).at(-1)!)
+    fireEvent.click(screen.getAllByText(/B 的支付逻辑/).at(-1)!)
+    expect(searchMessagesMock).not.toHaveBeenCalled()
+    expect(opened).toEqual([
+      { sessionId: 's-sub', seq: 40 },
+      { sessionId: 's-case', seq: 41 },
+    ])
+  })
+
+  it('lazily locates a loaded row that matched only by TITLE', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '支付改造' } } })],
+      hasMore: false,
+    })
+    searchAllMock.mockResolvedValue({
+      items: [{ kind: 'title', sessionId: 's-1', snippet: '支付改造', workspaceId: 'w-1' }],
+      hasMore: false,
+    })
+    searchMessagesMock.mockResolvedValue({ items: [{ seq: 40, snippet: '支付逻辑' }] })
+    let pickedSeq: number | undefined
+    const openChat = (session: SessionView, seq?: number): void => { pickedSeq = seq }
+    renderList({ onPickSeq: openChat })
+    await screen.findByText('支付改造')
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
+    // Wait for the debounced host search to settle so the loaded row is wired
+    // through the title-hit locate path (not the plain onPick).
+    await waitFor(() => expect(searchAllMock).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText('正在搜索全部会话…')).toBeNull())
+    // The loaded row matched by TITLE only: tapping it must lazily locate the
+    // first message containing the term instead of opening at the tail.
+    fireEvent.click(screen.getByText('支付改造'))
+    await waitFor(() => {
+      expect(searchMessagesMock).toHaveBeenCalledWith('s-1', '支付')
+      expect(pickedSeq).toBe(40)
+    })
   })
 })
 

@@ -8,19 +8,23 @@
  * @module dsh-palm/mobile/message-row
  */
 
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { formatTime } from './views/App.tsx'
 import type { RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { CollapsibleText, MarkdownText, ReasoningDisclosure } from './markdown-text.tsx'
 import { ChevronUpIcon } from './icons.tsx'
 
-export const MessageRow = memo(function MessageRow({ message, showToolCalls, showSystemMessages, showTime = true }: {
+export const MessageRow = memo(function MessageRow({ message, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery }: {
   message: RenderMessage
   showToolCalls: boolean
   showSystemMessages: boolean
   /** Timestamp de-dup: hidden when a later row shares this row's minute. */
   showTime?: boolean
+  /** Search-hit locate highlight (one-shot CSS animation). */
+  focused?: boolean
+  focusedQuery?: string
 }) {
+  const focusSeqAttr = message.startSeq ?? message.seq
   // Injected user messages (sourceKind defined and not 'user') hide behind
   // the system-message toggle.
   if (message.kind === 'user'
@@ -35,7 +39,9 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
     return (
       <div
         data-mid={message.id}
-        className={'chat-command' + (message.commandPhase === 'error' ? ' chat-command-error' : '')}
+        data-message-id={message.id}
+        data-row-seq={focusSeqAttr}
+        className={'chat-command' + (message.commandPhase === 'error' ? ' chat-command-error' : '') + (focused ? ' chat-msg-focus' : '')}
         role="status"
       >
         <span className="chat-command-name">{message.commandLine ?? '命令'}</span>
@@ -56,7 +62,9 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
   return (
     <div
       data-mid={message.id}
-      className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}`}
+      data-message-id={message.id}
+      data-row-seq={focusSeqAttr}
+      className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
     >
       {message.kind === 'assistant' && message.reasoning !== undefined && message.reasoning !== '' && (
         <ReasoningDisclosure text={message.reasoning} pending={message.pending === true} />
@@ -70,14 +78,14 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
         // the streamed chunks in flow order keeps the exact DOM structure
         // that the final render will use. A pending→settled switch then
         // never re-lays the message (no tail-card→inline-card jump).
-        <FlowBody message={message} />
+        <FlowBody message={message} focusedQuery={focused ? focusedQuery : undefined} />
       ) : message.kind === 'assistant' ? (
         <>
-          <MarkdownText text={message.text} pending={message.pending === true} />
+          <MarkdownText text={message.text} pending={message.pending === true} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
           {message.tools !== undefined && <ArtifactCards tools={message.tools} />}
         </>
       ) : (
-        <CollapsibleText text={message.text} />
+        <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
       )}
       {message.failed === true && <span className="chat-msg-failtag">本次回复失败</span>}
       <span className="chat-msg-footer">
@@ -87,6 +95,14 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
   )
 })
 
+/**
+ * Per-step body of a coalesced turn: each folded step renders as its own
+ * anchored block (`data-step-seq`) so a search-hit locate can scroll to the
+ * exact step. The streaming tail (the pending current step, whose text is the
+ * part of `message.text` beyond the joined finalized steps) renders as a
+ * final pending block — keeping the same per-step DOM for pending and settled
+ * so the turn never re-lays.
+ */
 /** Collapsed-by-default tool-call disclosure: pill tag summary + card details (#529). */
 function ToolDisclosure({ tools }: { tools: ToolCallInfo[] }) {
   const [open, setOpen] = useState(false)
@@ -135,7 +151,7 @@ function ToolDisclosure({ tools }: { tools: ToolCallInfo[] }) {
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-function FlowBody({ message }: { message: RenderMessage }) {
+function FlowBody({ message, focusedQuery }: { message: RenderMessage; focusedQuery?: string }) {
   // Index tools by callId once per render: the flow can carry many tool
   // parts and a linear find per part is O(parts × tools).
   const toolsById = useMemo(
@@ -145,6 +161,7 @@ function FlowBody({ message }: { message: RenderMessage }) {
   const parts: ReactNode[] = []
   let pendingTools: ToolCallInfo[] = []
   let key = 0
+  let textIndex = 0
   const flush = (): void => {
     if (pendingTools.length > 0) {
       parts.push(<ArtifactCards key={key} tools={pendingTools} />)
@@ -155,7 +172,13 @@ function FlowBody({ message }: { message: RenderMessage }) {
   for (const part of message.flow ?? []) {
     if (part.kind === 'text') {
       flush()
-      parts.push(<MarkdownText key={key} text={part.text} pending={message.pending === true} />)
+      const stepSeq = part.seq ?? message.stepSeqs?.[textIndex]
+      const body = <MarkdownText text={part.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} />
+      const partId = part.partId ?? `text-${textIndex}`
+      parts.push(stepSeq === undefined
+        ? <Fragment key={key}>{body}</Fragment>
+        : <div key={key} data-step-seq={stepSeq} data-part-id={partId}>{body}</div>)
+      textIndex += 1
       key += 1
     } else {
       const tool = toolsById.get(part.callId)

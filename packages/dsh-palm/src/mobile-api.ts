@@ -40,8 +40,11 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { ChatWindowService } from './chat-window.ts'
 import { READ_CHAT_DEFAULT_ROWS, READ_CHAT_MAX_ROWS, type ChatPage } from './chat-window.ts'
+import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage } from './mobile/messages.ts'
 import type { PreviewCacheService } from './preview-cache.ts'
 import { PREVIEWS_MAX_SESSIONS } from './preview-cache.ts'
+import { fetchLatestVersion, isNewerVersion } from './latest-version.ts'
+import pkg from '../package.json'
 
 /**
  * Methods the phone surface may call. Everything else is refused HERE — but
@@ -66,6 +69,7 @@ const MOBILE_ALLOWLIST = new Set([
   'session.history',
   'session.search',
   'session.prompt',
+  'session.updateQueue',
   'session.models',
   'session.selectModel',
   'session.rename',
@@ -107,6 +111,14 @@ const MOBILE_RESPOND_METHOD = 'mobile.respond'
 const MOBILE_LIST_DIRECTORY_METHOD = 'mobile.listDirectory'
 const MOBILE_COMMANDS_METHOD = 'mobile.commands'
 const MOBILE_TRANSCRIBE_METHOD = 'mobile.transcribe'
+/** Recent completion-notify decisions (the phone's notification inbox). */
+const MOBILE_NOTIFY_EVENTS_METHOD = 'mobile.notifyEvents'
+/** npm registry latest-version lookup for the About sheet (host-side). */
+const MOBILE_LATEST_VERSION_METHOD = 'mobile.latestVersion'
+/** Global session search with workspace attribution (home-page search). */
+const MOBILE_SEARCH_ALL_METHOD = 'mobile.searchAll'
+/** The published package the About sheet checks against. */
+const PACKAGE_NAME = '@eternalloveone/dsh-palm'
 /**
  * The host-side fallback transcription service (dsh-palm.yaml `transcribe:`),
  * returned so the phone can import it into its own service list. The phone
@@ -141,6 +153,7 @@ const MOBILE_PREVIEWS_METHOD = 'mobile.previews'
  * (the key never leaves the host), and returns only display facts.
  */
 const MOBILE_USAGE_METHOD = 'mobile.usage'
+const MOBILE_SEARCH_MESSAGES_METHOD = 'mobile.searchMessages'
 /**
  * Web Push subscription management (L2) + notify config (thresholds, L3
  * channels). All three are plugin-local methods: they never proxy a host
@@ -314,16 +327,26 @@ async function discoverUsageProviders(apiProxy: ApiProxy): Promise<UsageProvider
       }]
     })
   }
-  // llm-deepseek: the dedicated gateway namespace. Its apiKey is a stripped
-  // secret, so a DeepSeek row resolves to 'no-key' unless the desktop binds a
-  // ref on the machine.
+  // llm-deepseek: the dedicated gateway namespace. The key itself is a
+  // stripped secret and never rides the describe view, but its credential-ref
+  // *name* is plain config (llm-deepseek's apiKeyEnv field, documented default
+  // DEEPSEEK_API_KEY) — the desktop's stored key resolves host-side through
+  // the credentials service, exactly as the provider library does at request
+  // time.
   const deepseekValue = namespaces.find(entry => entry.ns === 'llm-deepseek')?.value as
-    | { models?: unknown; baseURL?: unknown }
+    | { models?: unknown; baseURL?: unknown; apiKeyEnv?: unknown }
     | undefined
   const deepseekPresent = deepseekValue !== undefined
     && (Array.isArray(deepseekValue.models) || typeof deepseekValue.baseURL === 'string')
   const fromDeepseek: UsageProviderConfig[] = deepseekPresent
-    ? [{ route: 'deepseek', ...typeof deepseekValue.baseURL === 'string' ? { baseURL: deepseekValue.baseURL } : {} }]
+    ? [{
+        route: 'deepseek',
+        displayName: 'DeepSeek 官方',
+        ...(typeof deepseekValue.baseURL === 'string' ? { baseURL: deepseekValue.baseURL } : {}),
+        apiKeyEnv: typeof deepseekValue.apiKeyEnv === 'string' && deepseekValue.apiKeyEnv.length > 0
+          ? deepseekValue.apiKeyEnv
+          : 'DEEPSEEK_API_KEY',
+      }]
     : []
   return [...fromRouteTable(), ...fromDeepseek]
 }
@@ -365,8 +388,561 @@ let agentPresetTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: strin
 function invalidateRosterCaches(): void {
   sessionListTtlCache = undefined
   workspaceListTtlCache = undefined
+  ordinarySearchSnapshotCache = undefined
+  searchAllCache = undefined
 }
+
+function invalidateSessionSearch(sessionId?: string): void {
+  searchAllCache = undefined
+  searchMessagesCache.clear()
+  if (sessionId === undefined) searchDocumentCache.clear()
+  else searchDocumentCache.delete(sessionId)
+}
+
+/** TTL for the session→workspace/title attribution backing mobile.searchAll. */
+const LOCATE_TTL_MS = 60_000
+let locateSessionCache: {
+  at: number
+  workspace: Map<string, string>
+  title: Map<string, string>
+  workspaceTitle: Map<string, string>
+} | undefined
+
+/**
+ * sessionId → owning workspaceId + display title, from workspace.list's
+ * attach relation and session.list's title projection. Cache refreshes every
+ * LOCATE_TTL_MS; a failed enumeration returns empty maps so the search still
+ * answers (hits just lack attribution and fall back to their snippet).
+ */
+async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
+  workspace: Map<string, string>
+  title: Map<string, string>
+  workspaceTitle: Map<string, string>
+}> {
+  const now = Date.now()
+  if (locateSessionCache !== undefined && now - locateSessionCache.at < LOCATE_TTL_MS) {
+    return locateSessionCache
+  }
+  const workspace = new Map<string, string>()
+  const title = new Map<string, string>()
+  const workspaceTitle = new Map<string, string>()
+  try {
+    const [wsResponse, sessionResponse] = await Promise.all([
+      apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-locate-ws'), payload: {} } as never),
+      apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-locate-s'), payload: {} } as never),
+    ])
+    const wsValue = (wsResponse as { result?: { ok?: boolean; value?: { items?: Array<{ workspaceId: string; path?: string; title?: string; sessionIds?: string[] }> } } }).result?.value
+    const workspacePaths: Array<{ id: string; path: string }> = []
+    for (const item of wsValue?.items ?? []) {
+      if (typeof item.title === 'string' && item.title !== '') {
+        workspaceTitle.set(item.workspaceId, item.title)
+      }
+      if (typeof item.path === 'string' && item.path !== '') {
+        workspacePaths.push({ id: item.workspaceId, path: item.path })
+      }
+      for (const sessionId of item.sessionIds ?? []) {
+        workspace.set(sessionId, item.workspaceId)
+      }
+    }
+    const sessionValue = (sessionResponse as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; cwd?: string; projections?: { values?: Record<string, unknown> } }> } } }).result?.value
+    // Some sessions are not explicitly attached to a workspace, but were
+    // created under one of its directories. Longest-prefix cwd attribution
+    // recovers the owning workspace without another RPC and avoids labeling
+    // ordinary project sessions as standalone.
+    const normalizePath = (value: string): string => value.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+    for (const item of sessionValue?.items ?? []) {
+      const values = item.projections?.values
+      const itemTitle = typeof values?.title === 'string' && values.title !== '' ? values.title : undefined
+      if (itemTitle !== undefined) title.set(item.sessionId, itemTitle)
+      if (!workspace.has(item.sessionId) && typeof item.cwd === 'string' && item.cwd !== '') {
+        const cwd = normalizePath(item.cwd)
+        const owner = workspacePaths
+          .filter(entry => {
+            const path = normalizePath(entry.path)
+            return cwd === path || cwd.startsWith(`${path}/`)
+          })
+          .sort((a, b) => normalizePath(b.path).length - normalizePath(a.path).length)[0]
+        if (owner !== undefined) workspace.set(item.sessionId, owner.id)
+      }
+    }
+  } catch {
+    // best-effort attribution
+  }
+  locateSessionCache = { at: now, workspace, title, workspaceTitle }
+  return locateSessionCache
+}
+/** Message-level hits kept per expanded session hit (bounded view). */
+const SEARCH_MESSAGES_LIMIT = 8
+/**
+ * History pages scanned for an explicit message locate. Search-all remains
+ * cheap because it only reads resident tails; once the user taps a result we
+ * must walk the complete session, otherwise deep FTS hits silently open at the
+ * tail without a highlight. The cap is only a corruption/host-loop guard.
+ */
+const SEARCH_MESSAGES_PAGES = 4096
+/** Per-session message-hit cache TTL (re-expands cost nothing). */
+const SEARCH_MESSAGES_TTL_MS = 60_000
+/** Cache entry cap: searchAll pre-warms one entry per hit, so bound the map. */
+const SEARCH_MESSAGES_CACHE_LIMIT = 64
+/** Message-hit cache: (session, lowercased query) keyed, TTL'd, oldest evicted. */
+const searchMessagesCache = new Map<string, { at: number; proxy: ApiProxy; items: Array<{ seq: number; snippet: string }> }>()
+
+/**
+ * Cache key for one session+query locate. Case-normalized: the roster
+ * surface locates with a lowercased term while the list surface sends the
+ * raw one, and searchAll pre-warms with its own query — all three must
+ * land on the same entry or the pre-warm never pays off.
+ */
+function messageCacheKey(sessionId: string, query: string): string {
+  return `${sessionId}\u0000${query.toLowerCase()}`
+}
+
+/** Cached message hits for a key, or undefined when absent/expired. */
+function readMessageHits(key: string, apiProxy: ApiProxy): Array<{ seq: number; snippet: string }> | undefined {
+  const entry = searchMessagesCache.get(key)
+  if (entry === undefined) return undefined
+  if (entry.proxy !== apiProxy || Date.now() - entry.at >= SEARCH_MESSAGES_TTL_MS) {
+    searchMessagesCache.delete(key)
+    return undefined
+  }
+  return entry.items
+}
+
+/** Store one message-hit list; evicts the oldest entries past the cap. */
+function writeMessageHits(key: string, apiProxy: ApiProxy, items: Array<{ seq: number; messageId?: string; partId?: string; snippet: string }>): void {
+  searchMessagesCache.delete(key)
+  searchMessagesCache.set(key, { at: Date.now(), proxy: apiProxy, items })
+  while (searchMessagesCache.size > SEARCH_MESSAGES_CACHE_LIMIT) {
+    const oldest = searchMessagesCache.keys().next().value
+    if (oldest === undefined) break
+    searchMessagesCache.delete(oldest)
+  }
+}
+
+/**
+ * Strip fenced code blocks (```lang … ```) from a message body so a search
+ * term inside a code fence does not match — code is not conversational text.
+ */
+function stripHiddenAssistantText(text: string): string {
+  return text
+    // Both closed and interrupted fences are non-conversational surfaces.
+    .replace(/```[\s\S]*?(?:```|$)/g, '')
+    // Inline model thinking is rendered as a disclosure, not reply prose.
+    // Treat an interrupted tag as hidden through the end as well.
+    .replace(/<think(?:\s[^>]*)?>[\s\S]*?(?:<\/think>|$)/gi, '')
+}
+
+/**
+ * The text a search may match for one folded message row: the user's sent
+ * message and the assistant's reply BODY only. Reasoning (the thinking
+ * chain), tool-call arguments/results, and fenced code blocks are excluded —
+ * a search hit must be visible in the conversation, not buried in a tool
+ * payload or a collapsed disclosure.
+ */
+function searchableText(row: RenderMessage): string {
+  if (row.kind === 'user') {
+    return row.sourceKind === undefined || row.sourceKind === 'user' ? row.text : ''
+  }
+  if (row.kind === 'assistant') return stripHiddenAssistantText(row.text)
+  return ''
+}
+
+/**
+ * The NON-searchable text of one row (reasoning chain + tool-call arguments).
+ * Used to tell a hit that matched only excluded content apart from a hit that
+ * simply sits deeper than the bounded scan: the former is dropped, the latter
+ * is kept best-effort so a correct session is not lost.
+ */
+function excludedText(row: RenderMessage): string {
+  if (row.kind !== 'assistant') return ''
+  const parts: string[] = []
+  if (row.reasoning !== undefined && row.reasoning !== '') parts.push(row.reasoning)
+  for (const tool of row.tools ?? []) {
+    if (tool.arguments !== undefined && tool.arguments !== '') parts.push(tool.arguments)
+  }
+  return parts.join('\n')
+}
+
+/**
+ * Match folded message rows against a case-insensitive substring query,
+ * collecting bounded message-level hits (`startSeq`/`seq` locate the row in
+ * a chat page — the chat row covers the event range [startSeq, seq]). Only
+ * the row's SEARCHABLE text participates (see {@link searchableText}).
+ * When `userOut` is given, the seq of every hit that lives in a USER message
+ * is recorded there too, so a caller can prefer the user's own words over a
+ * generic assistant reply (the user usually remembers what THEY typed).
+ */
+function matchMessageRows(rows: readonly RenderMessage[], needle: string, out: Map<number, string>, userOut?: Set<number>): void {
+  for (const row of rows) {
+    if (out.size >= SEARCH_MESSAGES_LIMIT) return
+    // Same flow-aligned seq mapping as documentRows/FlowBody: stepTexts is
+    // per folded step but mergeFlows collapses adjacent text runs, so only
+    // the flow's text parts carry a rendered `data-step-seq` anchor.
+    const parts: Array<{ text: string; seq: number }> = []
+    if (row.kind === 'assistant' && row.flow !== undefined && row.flow.length > 0) {
+      let textIndex = 0
+      for (const part of row.flow) {
+        if (part.kind !== 'text') continue
+        const text = stripHiddenAssistantText(part.text)
+        if (text === '') { textIndex += 1; continue }
+        parts.push({ text, seq: part.seq ?? row.stepSeqs?.[textIndex] ?? row.startSeq ?? row.seq })
+        textIndex += 1
+      }
+    } else {
+      const text = searchableText(row)
+      if (text !== '') parts.push({ text, seq: row.startSeq ?? row.seq })
+    }
+    for (const part of parts) {
+      if (part.text === '') continue
+      const at = matchSearchText(part.text, needle)
+      if (at < 0 || out.has(part.seq)) continue
+      const start = Math.max(0, at - 24)
+      const end = Math.min(part.text.length, at + needle.length + 48)
+      out.set(part.seq, (start > 0 ? '…' : '') + part.text.slice(start, end) + (end < part.text.length ? '…' : ''))
+      if (userOut !== undefined && row.kind === 'user') userOut.add(part.seq)
+      if (out.size >= SEARCH_MESSAGES_LIMIT) return
+    }
+  }
+}
+
+interface OrdinarySearchSession {
+  sessionId: string
+  updatedAt: number
+  title?: string
+}
+
+interface OrdinarySearchSnapshot {
+  sessions: OrdinarySearchSession[]
+  byId: Map<string, OrdinarySearchSession>
+  workspace: Map<string, string>
+  workspaceTitle: Map<string, string>
+  rosterPartial: boolean
+}
+
+let ordinarySearchSnapshotCache: { at: number; proxy: ApiProxy; value: OrdinarySearchSnapshot } | undefined
+
+/**
+ * One authoritative roster for all search paths. Classification failures are
+ * fail-closed: an unknown session must never leak a subagent conversation.
+ */
+async function ordinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
+  const cached = ordinarySearchSnapshotCache
+  if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_LIST_TTL_MS) {
+    return cached.value
+  }
+  const [sessionResponse, workspaceResponse] = await Promise.all([
+    apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-search-roster'), payload: {} } as never),
+    apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-search-workspaces'), payload: {} } as never).catch(() => undefined),
+  ])
+  const sessionResult = (sessionResponse as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; updatedAt?: number; cwd?: string; origin?: string; projections?: { values?: Record<string, unknown> } }>; hasMore?: boolean } } }).result
+  if (sessionResult?.ok !== true) throw new Error('search session classification unavailable')
+  const workspaceResult = (workspaceResponse as { result?: { ok?: boolean; value?: { items?: Array<{ workspaceId: string; path?: string; title?: string; sessionIds?: string[] }>; archivedSessionIds?: string[] } } } | undefined)?.result
+  const archived = new Set(workspaceResult?.ok === true ? (workspaceResult.value?.archivedSessionIds ?? []).map(String) : [])
+  const workspace = new Map<string, string>()
+  const workspaceTitle = new Map<string, string>()
+  const workspacePaths: Array<{ workspaceId: string; path: string }> = []
+  const normalizePath = (value: string): string => value.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+  if (workspaceResult?.ok === true) {
+    for (const item of workspaceResult.value?.items ?? []) {
+      if (typeof item.title === 'string' && item.title !== '') workspaceTitle.set(item.workspaceId, item.title)
+      if (typeof item.path === 'string' && item.path !== '') workspacePaths.push({ workspaceId: item.workspaceId, path: normalizePath(item.path) })
+      for (const sessionId of item.sessionIds ?? []) workspace.set(String(sessionId), item.workspaceId)
+    }
+  }
+  const sessions: OrdinarySearchSession[] = []
+  for (const item of sessionResult.value?.items ?? []) {
+    const sessionId = String(item.sessionId)
+    if (item.origin === 'subagent' || archived.has(sessionId)) continue
+    const projectedTitle = item.projections?.values?.title
+    sessions.push({
+      sessionId,
+      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0,
+      ...(typeof projectedTitle === 'string' && projectedTitle !== '' ? { title: projectedTitle } : {}),
+    })
+    if (!workspace.has(sessionId) && typeof item.cwd === 'string' && item.cwd !== '') {
+      const cwd = normalizePath(item.cwd)
+      const owner = workspacePaths
+        .filter(entry => cwd === entry.path || cwd.startsWith(`${entry.path}/`))
+        .sort((a, b) => b.path.length - a.path.length)[0]
+      if (owner !== undefined) workspace.set(sessionId, owner.workspaceId)
+    }
+  }
+  const value: OrdinarySearchSnapshot = {
+    sessions,
+    byId: new Map(sessions.map(item => [item.sessionId, item])),
+    workspace,
+    workspaceTitle,
+    rosterPartial: sessionResult.value?.hasMore === true,
+  }
+  ordinarySearchSnapshotCache = { at: Date.now(), proxy: apiProxy, value }
+  return value
+}
+
+interface SearchDocumentRow {
+  seq: number
+  messageId?: string
+  partId?: string
+  text: string
+  folded: string
+  user: boolean
+}
+
+interface SearchDocument {
+  rows: SearchDocumentRow[]
+  complete: boolean
+}
+
+const SEARCH_DOCUMENT_TTL_MS = 60_000
+const SEARCH_DOCUMENT_CACHE_LIMIT = 80
+const searchDocumentCache = new Map<string, { at: number; proxy: ApiProxy; watermark: number; pages: number; value: SearchDocument }>()
+
+export function documentRows(rows: readonly RenderMessage[]): SearchDocumentRow[] {
+  const result: SearchDocumentRow[] = []
+  for (const row of rows) {
+    if (row.kind === 'assistant' && row.flow !== undefined && row.flow.length > 0) {
+      // Use the flow's text parts, seq aligned with stepSeqs — the SAME
+      // mapping FlowBody uses to render `data-step-seq`. stepTexts is one
+      // entry per folded step, but mergeFlows collapses adjacent text runs,
+      // so indexing stepTexts would return a seq that no rendered anchor
+      // carries (the locate then misses and the chat stays at the tail).
+      let textIndex = 0
+      for (const part of row.flow) {
+        if (part.kind !== 'text') continue
+        const text = stripHiddenAssistantText(part.text)
+        if (text === '') { textIndex += 1; continue }
+        const seq = part.seq ?? row.stepSeqs?.[textIndex] ?? row.startSeq ?? row.seq
+        result.push({ seq, messageId: row.id, ...(part.partId !== undefined ? { partId: part.partId } : {}), text, folded: text.toLowerCase(), user: false })
+        textIndex += 1
+      }
+    } else {
+      const text = searchableText(row)
+      if (text === '') continue
+      result.push({ seq: row.startSeq ?? row.seq, messageId: row.id, text, folded: text.toLowerCase(), user: row.kind === 'user' })
+    }
+  }
+  return result
+}
+
+/** Read/fold history once per session watermark; all queries reuse the rows. */
+async function searchDocument(
+  apiProxy: ApiProxy,
+  session: OrdinarySearchSession,
+  maxPages: number,
+  chatWindows?: ChatWindowService,
+): Promise<SearchDocument> {
+  const cached = searchDocumentCache.get(session.sessionId)
+  if (cached !== undefined
+    && cached.proxy === apiProxy
+    && cached.watermark === session.updatedAt
+    && Date.now() - cached.at < SEARCH_DOCUMENT_TTL_MS
+    && (cached.value.complete || cached.pages >= maxPages)) {
+    searchDocumentCache.delete(session.sessionId)
+    searchDocumentCache.set(session.sessionId, cached)
+    return cached.value
+  }
+  const bySeq = new Map<number, SearchDocumentRow>()
+  let beforeSeq: number | undefined
+  let complete = false
+  let pages = 0
+  if (chatWindows !== undefined) {
+    try {
+      const page = await chatWindows.tail(session.sessionId, READ_CHAT_MAX_ROWS)
+      // Coalesce the same way ChatView renders (coalesceTurnMessages), so the
+      // seqs we return match the `data-step-seq` anchors the chat actually
+      // renders. chatWindows.tail returns never-coalesced per-step rows.
+      const rows = coalesceTurnMessages(page.rows)
+      for (const row of documentRows(rows)) bySeq.set(row.seq, row)
+      pages = 1
+      complete = !page.hasMore
+      const first = rows[0]
+      beforeSeq = first === undefined ? undefined : first.startSeq ?? first.seq
+    } catch {
+      // Fall through to the direct history path.
+    }
+  }
+  for (; !complete && pages < maxPages; pages++) {
+    if (beforeSeq === undefined && bySeq.size > 0) break
+    const request: RpcRequest<{ sessionId: string; beforeSeq?: number; maxMessages: number }> = {
+      rpcId: RpcId('dsh-palm-search-doc'),
+      payload: { sessionId: session.sessionId, maxMessages: 25, ...(beforeSeq === undefined ? {} : { beforeSeq }) },
+    }
+    const response = await apiProxy.sessions.history(request as never)
+    if (!response.result.ok) break
+    const rawEvents = response.result.value?.events ?? []
+    if (rawEvents.length === 0) { complete = true; break }
+    const events = rawEvents.map(entry => ({ ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }))
+    const folded = coalesceTurnMessages(new EventFolder(foldEvents(events)).snapshot())
+    for (const row of documentRows(folded)) bySeq.set(row.seq, row)
+    if (!response.result.value.hasMore) { complete = true; pages += 1; break }
+    const first = folded[0]
+    if (first === undefined) break
+    beforeSeq = first.startSeq ?? first.seq
+  }
+  const value = { rows: [...bySeq.values()], complete }
+  searchDocumentCache.delete(session.sessionId)
+  searchDocumentCache.set(session.sessionId, { at: Date.now(), proxy: apiProxy, watermark: session.updatedAt, pages, value })
+  while (searchDocumentCache.size > SEARCH_DOCUMENT_CACHE_LIMIT) {
+    const oldest = searchDocumentCache.keys().next().value
+    if (oldest === undefined) break
+    searchDocumentCache.delete(oldest)
+  }
+  return value
+}
+
+function searchNeedles(query: string): string[] {
+  // Match the useful FTS token shape: letters/numbers are terms, while
+  // punctuation and whitespace are separators. A contiguous CJK query stays
+  // one term so the phrase path still handles CJK substring matches.
+  return (query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter(Boolean)
+}
+
+function matchSearchText(text: string, query: string): number {
+  const folded = text.toLowerCase()
+  const phraseAt = folded.indexOf(query.toLowerCase())
+  if (phraseAt >= 0) return phraseAt
+  const needles = searchNeedles(query)
+  if (needles.length === 0 || !needles.every(needle => folded.includes(needle))) return -1
+  return folded.indexOf(needles[0] ?? '')
+}
+
+function snippetForRow(row: SearchDocumentRow, query: string): string {
+  const at = matchSearchText(row.folded, query)
+  const start = Math.max(0, at - 24)
+  const end = Math.min(row.text.length, at + query.length + 48)
+  return (start > 0 ? '…' : '') + row.text.slice(start, end) + (end < row.text.length ? '…' : '')
+}
+
+function hitsInDocument(document: SearchDocument, needle: string): Array<{ seq: number; messageId?: string; partId?: string; snippet: string; user: boolean }> {
+  const hits: Array<{ seq: number; messageId?: string; partId?: string; snippet: string; user: boolean }> = []
+  for (const row of document.rows) {
+    const at = matchSearchText(row.folded, needle)
+    if (at < 0) continue
+    const start = Math.max(0, at - 24)
+    const end = Math.min(row.text.length, at + needle.length + 48)
+    hits.push({
+      seq: row.seq,
+      messageId: row.messageId,
+      ...(row.partId !== undefined ? { partId: row.partId } : {}),
+      snippet: (start > 0 ? '…' : '') + row.text.slice(start, end) + (end < row.text.length ? '…' : ''),
+      user: row.user,
+    })
+    if (hits.length >= SEARCH_MESSAGES_LIMIT) break
+  }
+  hits.sort((a, b) => a.user === b.user ? 0 : a.user ? -1 : 1)
+  return hits
+}
+
+/**
+ * Best-effort match of a host FTS snippet to the exact document row that
+ * produced it, so a tap lands on the FTS-matched message rather than the
+ * first occurrence of the term (which can be a different, earlier message
+ * when the term appears several times). The snippet is a window around the
+ * matched token; strip the leading/trailing ellipsis and look for a row whose
+ * folded text contains the core. Falls back to undefined when the snippet is
+ * truncated past a clean match (the caller then uses the first occurrence).
+ */
+export function findRowForSnippet(document: SearchDocument, snippet: string): SearchDocumentRow | undefined {
+  const core = snippet.replace(/^…/, '').replace(/…$/, '').trim()
+  if (core === '') return undefined
+  const foldedCore = core.toLowerCase()
+  for (const row of document.rows) {
+    if (row.folded.includes(foldedCore)) return row
+  }
+  return undefined
+}
+
 /** SSE keep-alive ping cadence for the live mux stream (single connection). */
+
+/** How many recent sessions the substring backfill may scan for one query. */
+const SEARCH_BACKFILL_SESSIONS = 12
+/** History pages scanned per backfill session (a hit can sit in an old message). */
+const SEARCH_BACKFILL_PAGES = 1
+/** How many backfill hits to return at most (reaching it sets hasMore). */
+const SEARCH_BACKFILL_HITS = 8
+/** Concurrent history reads inside the backfill (weak links stay snappy). */
+const SEARCH_BACKFILL_CONCURRENCY = 6
+/** Whole-search result cache TTL (repeat queries cost nothing). */
+const SEARCH_ALL_TTL_MS = 60_000
+/** Short-lived cache for mobile.searchAll (query keyed). */
+type SearchAllHit = {
+  kind: 'title' | 'message'
+  sessionId: string
+  messageId?: string
+  partId?: string
+  snippet: string
+  title?: string
+  workspaceId?: string
+  workspaceTitle?: string
+  seq?: number
+}
+let searchAllCache: { key: string; at: number; proxy: ApiProxy; items: SearchAllHit[]; hasMore: boolean; partial?: boolean } | undefined
+
+/**
+ * Substring backfill for the host's token/phrase search. The FTS5
+ * `unicode61` index treats contiguous CJK as ONE token, so a query like
+ * 支付 does not match 支付专项 inside a session body — the token search
+ * can answer nothing for a term that is plainly present (the desktop
+ * surface has the same limit; the phone cannot afford the same). When
+ * the token hits are sparse, scan the most recent sessions' history
+ * tails (one page each, bounded, best-effort, CONCURRENCY parallel) for
+ * a plain case-insensitive substring so short Chinese terms still find
+ * their sessions. Resident chat windows answer first (zero log reads).
+ * Hits stay display facts: snippet only. `scannedAll` reports whether the
+ * scan covered the whole session roster (false → the phone hints that
+ * older sessions were not covered).
+ */
+async function substringBackfill(
+  apiProxy: ApiProxy,
+  needle: string,
+  sessions: readonly OrdinarySearchSession[],
+  exclude: ReadonlySet<string>,
+  chatWindows?: ChatWindowService,
+): Promise<{ hits: Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string }>; scannedAll: boolean }> {
+  const candidates = sessions
+    .filter(item => !exclude.has(item.sessionId))
+    .slice(0, SEARCH_BACKFILL_SESSIONS)
+  // Covered everything only when the roster list said there are no further
+  // pages (the first page then holds the whole roster, and `candidates`
+  // covers every non-excluded session). When hasMore is true there are
+  // sessions beyond this page that neither FTS nor the backfill scanned, so
+  // the scan is partial regardless of how many candidates were excluded.
+  let scannedAll = candidates.length === sessions.filter(item => !exclude.has(item.sessionId)).length
+  const results: Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string; user: boolean }> = []
+  const scanOne = async (session: OrdinarySearchSession): Promise<void> => {
+    try {
+      const document = await searchDocument(apiProxy, session, SEARCH_BACKFILL_PAGES, chatWindows)
+      const hits = hitsInDocument(document, needle)
+      if (!document.complete) scannedAll = false
+      const first = hits[0]
+      if (first !== undefined) results.push({ sessionId: session.sessionId, snippet: first.snippet, seq: first.seq, messageId: first.messageId, ...(first.partId !== undefined ? { partId: first.partId } : {}), user: first.user })
+    } catch {
+      scannedAll = false
+      return
+    }
+  }
+  // Bounded worker pool: never more than CONCURRENCY history reads at once.
+  // Every candidate is scanned (each stops at its first hit) so the results
+  // can be ranked — user-message hits first — instead of returning whatever
+  // the scan order happened to reach first.
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < candidates.length) {
+      const index = next
+      next += 1
+      await scanOne(candidates[index])
+    }
+  }
+  await Promise.all(Array.from(
+    { length: Math.min(SEARCH_BACKFILL_CONCURRENCY, candidates.length) },
+    () => worker(),
+  ))
+  // Rank user-message hits first (the user's own words are the relevant
+  // ones), then cap to the display limit.
+  results.sort((a, b) => (a.user === b.user ? 0 : a.user ? -1 : 1))
+  const hits = results.slice(0, SEARCH_BACKFILL_HITS).map(({ sessionId, snippet, seq, messageId, partId }) => ({ sessionId, snippet, seq, ...(messageId !== undefined ? { messageId } : {}), ...(partId !== undefined ? { partId } : {}) }))
+  return { hits, scannedAll }
+}
+
 const DEFAULT_EVENTS_HEARTBEAT_MS = 15_000
 
 /** Encode one list position as an opaque continuation cursor. */
@@ -404,6 +980,27 @@ export function visibleSessionRows(
   archivedSessionIds: ReadonlySet<string>,
 ): Array<{ updatedAt: number; sessionId: string }> {
   return rawItems.filter(item => item.origin !== 'subagent' && !archivedSessionIds.has(String(item.sessionId)))
+}
+
+/**
+ * The set of subagent session ids (origin: 'subagent'). Search must exclude
+ * them the same way the session roster does — subagent sessions are internal
+ * working sessions, not user conversations. Reuses the session-list TTL cache
+ * when fresh; a fetch failure degrades to "no filter" (best-effort).
+ */
+async function subagentSessionIds(apiProxy: ApiProxy): Promise<Set<string>> {
+  const now = Date.now()
+  const ttl = sessionListTtlCache
+  if (ttl !== undefined && ttl.proxy === apiProxy && now - ttl.at < SESSION_LIST_TTL_MS) {
+    return new Set(ttl.rawItems.filter(item => item.origin === 'subagent').map(item => String(item.sessionId)))
+  }
+  try {
+    const response = await apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-search-subagent'), payload: {} } as never)
+    const items = (response as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; origin?: 'subagent' }> } } }).result?.value?.items ?? []
+    return new Set(items.filter(item => item.origin === 'subagent').map(item => String(item.sessionId)))
+  } catch {
+    return new Set()
+  }
 }
 
 /** Route-family dependencies. */
@@ -581,6 +1178,10 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_PUSH_SUBSCRIBE_METHOD
       || method === MOBILE_PUSH_UNSUBSCRIBE_METHOD
       || method === MOBILE_PUSH_CONFIG_METHOD
+      || method === MOBILE_NOTIFY_EVENTS_METHOD
+      || method === MOBILE_LATEST_VERSION_METHOD
+      || method === MOBILE_SEARCH_ALL_METHOD
+      || method === MOBILE_SEARCH_MESSAGES_METHOD
       || method === MOBILE_USAGE_METHOD
       || method === MOBILE_READ_CHAT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
@@ -890,6 +1491,14 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
               value: {
                 turnThresholdMs: config.turnThresholdMs,
                 turnCooldownMs: config.turnCooldownMs,
+                hideDetails: config.hideDetails === true,
+                // Effective kind gates (absent config falls back to the
+                // quiet defaults: jobs off, todo on, turns off).
+                kinds: {
+                  jobs: config.kinds?.jobs === true,
+                  todo: config.kinds?.todo !== false,
+                  turns: config.kinds?.turns === true,
+                },
                 vapidPublicKey: vapid.publicKey,
                 channels: {
                   serverchan: { configured: channels?.serverchan?.sendKey !== undefined && channels.serverchan.sendKey !== '' },
@@ -904,7 +1513,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
           return
         }
-        const patch = body?.set as { turnThresholdMs?: unknown; turnCooldownMs?: unknown; channels?: unknown } | undefined
+        const patch = body?.set as { turnThresholdMs?: unknown; turnCooldownMs?: unknown; hideDetails?: unknown; kinds?: unknown; channels?: unknown } | undefined
         if (patch === undefined) {
           writeJson(res, 200, {
             type: 'server-response',
@@ -919,6 +1528,24 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
         if (typeof patch.turnCooldownMs === 'number' && Number.isFinite(patch.turnCooldownMs)) {
           next.turnCooldownMs = Math.max(0, Math.round(patch.turnCooldownMs))
+        }
+        if (typeof patch.hideDetails === 'boolean') {
+          next.hideDetails = patch.hideDetails
+        }
+        const kinds = patch.kinds as { jobs?: unknown; todo?: unknown; turns?: unknown } | undefined
+        if (kinds !== undefined) {
+          const currentKinds = notify.store.getConfig().kinds ?? {}
+          next.kinds = {
+            ...(kinds.jobs !== undefined
+              ? { jobs: kinds.jobs === true }
+              : currentKinds.jobs !== undefined ? { jobs: currentKinds.jobs } : {}),
+            ...(kinds.todo !== undefined
+              ? { todo: kinds.todo === true }
+              : currentKinds.todo !== undefined ? { todo: currentKinds.todo } : {}),
+            ...(kinds.turns !== undefined
+              ? { turns: kinds.turns === true }
+              : currentKinds.turns !== undefined ? { turns: currentKinds.turns } : {}),
+          }
         }
         const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown; pushplus?: unknown } | undefined
         if (channels !== undefined) {
@@ -948,6 +1575,232 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { saved: true } },
         })
+      } else if (method === MOBILE_NOTIFY_EVENTS_METHOD) {
+        // The phone's notification inbox: the engine's bounded decision log
+        // (newest first). A missing notify feature answers the same refusal
+        // as push.config.
+        const notify = deps.notify
+        if (notify === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } },
+          })
+          return
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { items: notify.engine.recentEvents() } },
+        })
+      } else if (method === MOBILE_LATEST_VERSION_METHOD) {
+        // About-sheet update check. The registry may be unreachable from the
+        // host network; the phone then sees a stable refusal, never a hang.
+        const latest = await fetchLatestVersion(PACKAGE_NAME)
+        if (latest === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'network', message: '无法连接 npm registry，请稍后重试' } },
+          })
+          return
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: {
+            ok: true,
+            value: { latest, isNewer: isNewerVersion(latest, pkg.version) },
+          },
+        })
+      } else if (method === MOBILE_SEARCH_ALL_METHOD) {
+        // Global session search with workspace attribution: the home-page
+        // search needs to locate hits in whatever workspace they live in,
+        // not only the currently-open one (session.search answers across the
+        // whole host). Attribution rides workspace.list's attach relation,
+        // cached briefly; a missing attribution keeps the row usable (the
+        // phone falls back to opening it from the current workspace).
+        const body = parsed.payload as { query?: unknown } | undefined
+        const query = typeof body?.query === 'string' ? body.query.trim() : ''
+        if (query === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少搜索词' } },
+          })
+          return
+        }
+        try {
+          const cacheKey = query.toLowerCase()
+          if (searchAllCache !== undefined
+            && searchAllCache.proxy === apiProxy
+            && searchAllCache.key === cacheKey
+            && Date.now() - searchAllCache.at < SEARCH_ALL_TTL_MS) {
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: true, value: { items: searchAllCache.items, hasMore: searchAllCache.hasMore, ...(searchAllCache.partial === true ? { partial: true } : {}) } },
+            })
+            return
+          }
+          const [search, snapshot] = await Promise.all([
+            apiProxy.sessions.search(
+              { rpcId: RpcId('dsh-palm-search-all'), payload: { query } },
+              new AbortController().signal,
+            ),
+            ordinarySearchSnapshot(apiProxy),
+          ])
+          const value = (search as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; snippet: string }>; hasMore?: boolean } } }).result?.value
+          // Subagent sessions are internal working sessions, not user
+          // conversations: exclude them from search the same way the roster
+          // does (origin: 'subagent').
+          const needles = query.toLowerCase()
+          // FTS is only a candidate source. Verify every candidate against
+          // the same complete, visible-text document used by searchMessages;
+          // otherwise tool/reasoning/code hits appear in the list but cannot be
+          // located or highlighted after the tap. The document cache keeps
+          // repeated searches cheap, while this strict path guarantees that
+          // every returned message hit already has a valid render seq.
+          const rawFts = (value?.items ?? []).filter(item => snapshot.byId.has(String(item.sessionId)))
+          const ftsHits: Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string }> = []
+          let ftsNext = 0
+          const ftsWorker = async (): Promise<void> => {
+            while (ftsNext < rawFts.length) {
+              const index = ftsNext
+              ftsNext += 1
+              const item = rawFts[index]
+              const session = snapshot.byId.get(String(item.sessionId))
+              if (session === undefined) continue
+              try {
+                const doc = await searchDocument(apiProxy, session, SEARCH_MESSAGES_PAGES, deps.chatWindows)
+                const exact = findRowForSnippet(doc, item.snippet)
+                if (exact !== undefined) {
+                  ftsHits.push({ sessionId: session.sessionId, snippet: snippetForRow(exact, needles), seq: exact.seq, messageId: exact.messageId, ...(exact.partId !== undefined ? { partId: exact.partId } : {}) })
+                  continue
+                }
+                const fallback = hitsInDocument(doc, needles)[0]
+                if (fallback !== undefined) {
+                  ftsHits.push({ sessionId: session.sessionId, snippet: fallback.snippet, seq: fallback.seq, messageId: fallback.messageId, ...(fallback.partId !== undefined ? { partId: fallback.partId } : {}) })
+                }
+              } catch {
+                // An unreadable candidate is omitted; never show an unlocatable hit.
+              }
+            }
+          }
+          await Promise.all(Array.from(
+            { length: Math.min(SEARCH_BACKFILL_CONCURRENCY, rawFts.length) },
+            () => ftsWorker(),
+          ))
+          // The FTS token search cannot match a CJK SUBSTRING (unicode61
+          // keeps contiguous Chinese as one token). Only scan history when
+          // FTS found nothing — otherwise the list is already populated.
+          const titleSessionIds = new Set(snapshot.sessions.filter(item => item.title?.toLowerCase().includes(needles) === true).map(item => item.sessionId))
+          const backfillExclude = new Set([...ftsHits.map(item => item.sessionId), ...titleSessionIds])
+          const backfillScan = ftsHits.length === 0
+            ? await substringBackfill(apiProxy, needles, snapshot.sessions, backfillExclude, deps.chatWindows)
+            : { hits: [] as Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string }>, scannedAll: true }
+          const backfill = backfillScan.hits
+          const partialScan = snapshot.rosterPartial || !backfillScan.scannedAll
+          // Pre-warm the message-locate cache for backfill hits: tapping a
+          // hit then resolves INSTANTLY (zero extra RPC) and opens the
+          // session scrolled to the first matched message.
+          for (const hit of backfill) {
+            writeMessageHits(messageCacheKey(hit.sessionId, query), apiProxy, [
+              { seq: hit.seq, messageId: hit.messageId, ...(hit.partId !== undefined ? { partId: hit.partId } : {}), snippet: hit.snippet },
+            ])
+          }
+          const titleHits = snapshot.sessions
+            .filter(item => item.title?.toLowerCase().includes(needles) === true)
+            .map(item => ({ sessionId: item.sessionId, snippet: item.title ?? '', ...(item.title !== undefined ? { title: item.title } : {}), kind: 'title' as const }))
+          const messageBySession = new Map([...ftsHits, ...backfill].map(item => [item.sessionId, item]))
+          const messageHits = [...messageBySession.values()].map(item => ({ ...item, kind: 'message' as const }))
+          const items: SearchAllHit[] = [...titleHits, ...messageHits].map(item => {
+            const seqValue = 'seq' in item ? item.seq : undefined
+            const sessionId = String(item.sessionId)
+            const workspaceId = snapshot.workspace.get(sessionId)
+            const seq = typeof seqValue === 'number' ? seqValue : undefined
+            const messageId = 'messageId' in item && item.messageId !== undefined ? item.messageId : undefined
+            const partId = 'partId' in item && item.partId !== undefined ? item.partId : undefined
+            return {
+              kind: item.kind,
+              sessionId,
+              snippet: item.snippet,
+              ...(seq !== undefined ? { seq } : {}),
+              ...(messageId !== undefined ? { messageId } : {}),
+              ...(partId !== undefined ? { partId } : {}),
+              ...(snapshot.byId.get(sessionId)?.title !== undefined ? { title: snapshot.byId.get(sessionId)?.title } : {}),
+              ...(workspaceId !== undefined ? { workspaceId } : {}),
+              ...(workspaceId !== undefined && snapshot.workspaceTitle.get(workspaceId) !== undefined
+                ? { workspaceTitle: snapshot.workspaceTitle.get(workspaceId) }
+                : {}),
+            }
+          })
+          const truncated = value?.hasMore === true || backfill.length >= SEARCH_BACKFILL_HITS
+          searchAllCache = { key: cacheKey, at: Date.now(), proxy: apiProxy, items, hasMore: truncated, partial: partialScan }
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { items, hasMore: truncated, ...(partialScan ? { partial: true } : {}) } },
+          })
+        } catch (error) {
+          console.error('mobile.searchAll failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '会话搜索失败，请稍后重试' } },
+          })
+        }
+      } else if (method === MOBILE_SEARCH_MESSAGES_METHOD) {
+        // Message-level locate INSIDE one session: the lazy detail behind an
+        // expanded search-hit row. The resident chat window serves it with
+        // zero log reads when it covers the hit; otherwise a bounded history
+        // scan walks back from the tail (SEARCH_MESSAGES_PAGES pages max).
+        // Hits carry the matched message event's seq so the phone can open
+        // the session scrolled to that exact row and highlight it.
+        const body = parsed.payload as { sessionId?: unknown; query?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        const query = typeof body?.query === 'string' ? body.query.trim() : ''
+        if (sessionId === '' || query === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话或搜索词' } },
+          })
+          return
+        }
+        const needle = query.toLowerCase()
+        const cacheKey = messageCacheKey(sessionId, query)
+        const cachedHits = readMessageHits(cacheKey, apiProxy)
+        if (cachedHits !== undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { items: cachedHits } },
+          })
+          return
+        }
+        try {
+          const snapshot = await ordinarySearchSnapshot(apiProxy)
+          const session = snapshot.byId.get(sessionId)
+          const items = session === undefined
+            ? []
+            : hitsInDocument(await searchDocument(apiProxy, session, SEARCH_MESSAGES_PAGES, deps.chatWindows), needle)
+              .slice(0, SEARCH_MESSAGES_LIMIT)
+              .map(({ seq, messageId, partId, snippet }) => ({ seq, ...(messageId !== undefined ? { messageId } : {}), ...(partId !== undefined ? { partId } : {}), snippet }))
+          writeMessageHits(cacheKey, apiProxy, items)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { items } },
+          })
+        } catch (error) {
+          console.error('mobile.searchMessages failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '消息定位失败，请稍后重试' } },
+          })
+        }
       } else if (method === MOBILE_USAGE_METHOD) {
         // Per-provider usage/balance, synced from the desktop's configured
         // providers. `refresh: true` bypasses the short cache. Keys resolve
@@ -1478,7 +2331,11 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   }
   if (method === 'session.history') return wrap(await apiProxy.sessions.history(request as never))
   if (method === 'session.search') return wrap(await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
-  if (method === 'session.prompt') return wrap(await apiProxy.sessions.prompt(request as never))
+  if (method === 'session.prompt') {
+    const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
+    invalidateSessionSearch(typeof sessionId === 'string' ? sessionId : undefined)
+    return wrap(await apiProxy.sessions.prompt(request as never))
+  }
   if (method === 'session.models') return wrap(await apiProxy.sessions.models(request as never))
   if (method === 'session.selectModel') return wrap(await apiProxy.sessions.selectModel(request as never))
   if (method === 'session.rename') {
@@ -1488,6 +2345,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     return wrap(await apiProxy.sessions.rename(request as never))
   }
   if (method === 'session.cancel') return wrap(await apiProxy.sessions.cancel(request as never))
+  if (method === 'session.updateQueue') return wrap(await apiProxy.sessions.updateQueue(request as never))
   if (method === 'subagent.list') return wrap(await apiProxy.subagents.list(request as never))
   if (method === 'settings.read') {
     // The full redacted settings surface (namespace schemas + values, secrets

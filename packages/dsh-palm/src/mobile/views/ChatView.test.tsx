@@ -3,13 +3,14 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import { ChatView, estimateMessageHeight, MAX_TAIL_BUFFER_EVENTS } from './ChatView.tsx'
+import { ChatView, estimateMessageHeight, MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './ChatView.tsx'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
 import { type SessionView, type ChatPageResult } from './App.tsx'
 import type { HistoryPage, SessionPage } from '../api.ts'
 import { EventFolder, foldEvents, latestTodoSnapshot } from '../messages.ts'
 import type { RenderMessage, WireEvent } from '../messages.ts'
 import { loadDraft, sessionListCache } from '../list-persist.ts'
+import { RpcCallError } from '../rpc.ts'
 
 // The api module is fully mocked; App.tsx's chat-page loader is overridden to
 // feed fixed folded pages, its pure helpers (errorText / formatTime) stay real.
@@ -25,6 +26,19 @@ vi.mock('../api.ts', () => ({
   listSessions: vi.fn(),
   history: vi.fn(),
   subagentsList: vi.fn(),
+  updateQueue: vi.fn(async () => {}),
+  queueItemViewOf: (item: { id: string; placement: 'queued' | 'steering' | 'context'; message?: { content?: unknown } }) => {
+    const blocks = Array.isArray(item.message?.content)
+      ? (item.message.content as Array<{ type?: string; text?: string }>)
+      : []
+    const editable = blocks.length > 0 && blocks.every(block => block.type === 'text' && typeof block.text === 'string')
+    return {
+      id: item.id,
+      placement: item.placement,
+      text: editable ? (blocks as Array<{ text: string }>).map(block => block.text).join('') : '',
+      editable,
+    }
+  },
 }))
 vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
@@ -48,7 +62,7 @@ vi.mock('../offline.ts', () => ({
   removeFromOutbox: vi.fn(),
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, listSessions, history, subagentsList } from '../api.ts'
+import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, listSessions, history, subagentsList, updateQueue as updateQueueMock } from '../api.ts'
 import { loadChatPage, prompt } from './App.tsx'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
@@ -102,6 +116,9 @@ class FakeMux {
   cached: Record<string, unknown[]> = {}
   cachedJobsFor(sessionId: string): unknown[] | undefined {
     return this.cached[sessionId]
+  }
+  cachedQueueFor(): unknown[] | undefined {
+    return undefined
   }
   onFrame(listener: (frame: unknown) => void): () => void {
     this.listeners.add(listener)
@@ -292,6 +309,9 @@ describe('ChatView initial-load race', () => {
   class FakeMux {
     listeners = new Set<(frame: unknown) => void>()
     cachedJobsFor(): unknown[] | undefined {
+      return undefined
+    }
+    cachedQueueFor(): unknown[] | undefined {
       return undefined
     }
     onFrame(listener: (frame: unknown) => void): () => void {
@@ -945,6 +965,92 @@ describe('ChatView scrolling', () => {
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original!)
     }
+  })
+
+  it('windowed: a search-hit locate deep in history relocates the window to that row and marks it', async () => {
+    // 130 user messages (past WINDOW_THRESHOLD). Locating one deep row must
+    // move the render window to it and give it the focus class — not be
+    // overridden by the opening pin-to-tail window, which would window the
+    // target OUT of the DOM (the classic "search shows it but I can't see it").
+    const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
+      id: `u-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `消息${i}` }],
+    }, i))
+    scrollHeightMock = 20_000
+    loadChatPageMock.mockResolvedValue(rowPage(many))
+    const mux = new FakeMux()
+    render(<ChatView
+      session={session}
+      initialFocusMessageId="u-20"
+      initialFocusQuery="消息20"
+      mux={mux as never}
+      onBack={() => {}}
+      showToolCalls={true}
+      showSystemMessages={false}
+    />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      const row = document.querySelector('[data-message-id="u-20"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    // The target row must be RENDERED (inside the relocated window), not
+    // windowed out by a competing tail window.
+    expect(document.querySelector('[data-message-id="u-20"]')).not.toBeNull()
+    // The locate must actually SCROLL to the row (a scrollTop write), not just
+    // render it highlighted while the viewport stays at the tail — the
+    // "highlighted but never jumped" failure.
+    await waitFor(() => { expect(scrollWrites.length).toBeGreaterThan(0) })
+  })
+
+  it('locates a search hit that lives in OLDER history by paging back to it', async () => {
+    // The target message is not in the opening tail page; the locate must
+    // page older history until the row surfaces, then land on it. This is the
+    // "search found it but the chat opened at the tail" scenario.
+    const tail = Array.from({ length: 10 }, (_, i) => makeEntry('user/message', {
+      id: `u-tail-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `尾部消息${i}` }],
+    }, 100 + i))
+    const mid = Array.from({ length: 10 }, (_, i) => makeEntry('user/message', {
+      id: `u-mid-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `中间消息${i}` }],
+    }, 50 + i))
+    const older = Array.from({ length: 10 }, (_, i) => makeEntry('user/message', {
+      id: `u-old-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `旧消息${i}` }],
+    }, i))
+    // call 1 = opening tail (hasMore true, no target). call 2 = the silent
+    // auto-extend page (still no target). call 3 = the locate's direct jump
+    // to the target's page (beforeSeq = target+1 = 6), which contains it.
+    loadChatPageMock
+      .mockResolvedValueOnce(rowPage(tail, { hasMore: true }))
+      .mockResolvedValueOnce(rowPage(mid, { hasMore: true }))
+      .mockResolvedValueOnce(rowPage(older, { hasMore: false }))
+    const mux = new FakeMux()
+    render(<ChatView
+      session={session}
+      initialFocusMessageId="u-old-5"
+      initialFocusSeq={5}
+      initialFocusQuery="旧消息5"
+      mux={mux as never}
+      onBack={() => {}}
+      showToolCalls={true}
+      showSystemMessages={false}
+    />)
+    await screen.findByRole('button', { name: '发送' })
+    // The locate jumps straight to the target's page (beforeSeq = target+1)
+    // instead of paging back one page at a time through deep history.
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(3) })
+    expect(loadChatPageMock.mock.calls[2]?.[1]).toBe(6)
+    await waitFor(() => {
+      const row = document.querySelector('[data-message-id="u-old-5"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
   })
 })
 
@@ -2016,6 +2122,24 @@ describe('ChatView composer IME guard', () => {
   })
 })
 
+describe('ChatView send failure', () => {
+  it('keeps the draft on a failed send and surfaces the error line', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '这条没发出去' } })
+    // The host rejects the prompt.
+    vi.mocked(promptMock).mockRejectedValueOnce(new Error('HTTP 403'))
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false })
+    // The draft survives so the user can retry (the draft is only wiped on
+    // success), and the chat error line explains why the send failed.
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText('说点什么...') as HTMLInputElement).value).toBe('这条没发出去')
+      expect(screen.getByText(/HTTP 403/)).toBeTruthy()
+    })
+  })
+})
+
 describe('ChatView offline banner', () => {
   it('removes an individual queued entry from the banner', async () => {
     listOutboxMock.mockResolvedValue([{ id: 'o1', sessionId: 's-1', text: '离线消息', queuedAt: 1 }])
@@ -2026,6 +2150,164 @@ describe('ChatView offline banner', () => {
     expect(await screen.findByText('离线消息')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '移除待发送消息' }))
     await waitFor(() => { expect(removeFromOutboxMock).toHaveBeenCalledWith('o1') })
+  })
+})
+
+describe('ChatView pending-message queue dock', () => {
+  it('renders the queue from a session/queue snapshot and mutates it', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    // No queue yet: no dock.
+    expect(screen.queryByText('排队消息')).toBeNull()
+    // A queue snapshot arrives → the dock shows the queued message.
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    expect(await screen.findByText('排队消息')).toBeTruthy()
+    // Remove calls updateQueue.
+    fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
+    await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'remove' }) })
+  })
+
+  it('steers a queued message into the running turn', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    // A running turn enables the steer action.
+    emitSessionEvent(mux, 'turn/start', 1)
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '插话消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('插话消息')
+    fireEvent.click(screen.getByRole('button', { name: '插话发送' }))
+    await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'steer' }) })
+  })
+
+  it('flips running off when a steer is rejected but keeps the queue dock', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    // A running turn enables the steer action.
+    emitSessionEvent(mux, 'turn/start', 1)
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '插话消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('插话消息')
+    // The host rejects the steer because the agent is no longer running.
+    vi.mocked(updateQueueMock).mockRejectedValueOnce(new RpcCallError({ code: 'steer-unavailable', message: 'current turn no longer accepts steering' }))
+    fireEvent.click(screen.getByRole('button', { name: '插话发送' }))
+    await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'steer' }) })
+    // The running indicator flips off (steer is only offered while running),
+    // but the queue row itself stays: the view is authoritative host data and
+    // converges via the next session/queue frame or the session/subscribed
+    // re-baseline, never by a local clear on failure.
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '插话发送' }) as HTMLButtonElement).disabled).toBe(true)
+    })
+    expect(screen.queryByText('插话消息')).not.toBeNull()
+  })
+
+  it('keeps the queue dock when a mutation is rejected (convergence arrives by frame)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('排队消息')
+    // The host rejects the remove (agent detached / item already claimed).
+    vi.mocked(updateQueueMock).mockRejectedValueOnce(new RpcCallError({ code: 'queue-item-not-found', message: 'queued item is no longer pending' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
+    await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'remove' }) })
+    // The queue row remains visible: the dock mirrors authoritative host
+    // snapshots, so a rejected mutation never clears it locally — the next
+    // session/queue frame (or the session/subscribed re-baseline after a
+    // reconnect) brings the true state.
+    expect(screen.queryByText('排队消息')).not.toBeNull()
+  })
+
+  it('clears the queue dock on turn/start (claimed messages must not linger)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('排队消息')
+    // A turn start claims the pending queue; the local queue view is cleared
+    // so a claimed message never lingers as a phantom row.
+    emitSessionEvent(mux, 'turn/start', 1)
+    await waitFor(() => { expect(screen.queryByText('排队消息')).toBeNull() })
+  })
+
+  it('drops the queue dock on session/subscribed (mux-generation re-baseline)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('排队消息')
+    // A reconnect opens a new mux generation: the host re-subscribes this
+    // session and only re-pushes a queue baseline when non-empty. The local
+    // view must drop first so an empty (omitted) baseline reads as "no queue"
+    // instead of replaying the previous generation's phantom rows.
+    act(() => { mux.emit({ type: 'session/subscribed', sessionId: 's-1', lastSeq: 42 }) })
+    await waitFor(() => { expect(screen.queryByText('排队消息')).toBeNull() })
+    // The same generation then re-baselines a still-pending queue → it shows
+    // again; the drop was the reset, not a deletion.
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q2', placement: 'queued', message: { id: 'm2', role: 'user', content: [{ type: 'text', text: '重新排队' }], source: { kind: 'user' } } }],
+      })
+    })
+    expect(await screen.findByText('重新排队')).toBeTruthy()
+  })
+
+  it('drops jobs on session/subscribed alongside the queue dock', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [{ id: 'subagent-1', kind: 'subagent', label: '整理记忆', status: 'running', startedAt: 1 }] as never }) })
+    expect(screen.getByRole('button', { name: /后台任务 1 个运行中/ })).toBeTruthy()
+    // Same generation reset as the queue: the jobs mirror drops so an omitted
+    // (empty) baseline cannot replay a phantom task list.
+    act(() => { mux.emit({ type: 'session/subscribed', sessionId: 's-1', lastSeq: 42 }) })
+    await waitFor(() => { expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull() })
   })
 })
 
@@ -2157,6 +2439,303 @@ describe('ChatView turn clock (#outputting timer)', () => {
       })
       expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
       expect(screen.queryByText('20秒')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restores the clock anchor from the loaded tail page (mid-turn reload keeps the real elapsed)', async () => {
+    // The window carries the open turn/start's logged time (desktop parity):
+    // an entry into an already-running turn counts from the true start.
+    // Fake timers come up BEFORE render so the page's microtask resolution
+    // lands inside the fake time zone and the clock effect re-anchors there.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+      loadChatPageMock.mockResolvedValue(rowPage([], { turnStartAt: 1_700_000_000_000 - 90_000 }))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      // Flush the page promise (microtask): the anchor lands, the effect
+      // ticks once on the frozen clock — 90s of real elapsed, not mount time.
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByText('1分30秒')).toBeTruthy()
+
+      // A live turn/end clears the indicator; a fresh turn/start re-anchors.
+      act(() => {
+        mux.emit({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/end', seq: 60, time: Date.now(), data: {} } })
+      })
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      act(() => {
+        mux.emit({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/start', seq: 61, time: Date.now() - 5_000, data: {} } })
+      })
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.queryByText('1分30秒')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('recovers the clock anchor from the reconcile probe when the page lacks it', async () => {
+    // A turn started before the loaded window (the tail page carries no
+    // boundary): the running-reconcile history probe surfaces it and anchors
+    // the clock at the logged start — the desktop timeline equivalent.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      historyMock.mockResolvedValue(historyPage([
+        makeEntry('turn/start', {}, 1_699_999_910),
+      ]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await act(async () => { await Promise.resolve() })
+      // No anchor yet: the clock counts from mount (elapsed 0, below the
+      // 15s threshold) and shows no clock.
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.queryByText('1分30秒')).toBeNull()
+      // The running-reconcile probe (RUNNING_RECONCILE_MS) reads the tail
+      // and re-anchors at the logged turn/start.
+      act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
+      // advanceTimersByTime also advanced the fake clock; reset it so the
+      // anchor's elapsed recomputes to exactly 90s of logged runtime.
+      vi.setSystemTime(1_700_000_000_000)
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByText('1分30秒')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('locates and highlights the focused message on open (search-hit locate)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '先看这个' }] }, 30),
+      makeEntry('assistant/message', { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '收到' }] } }, 31),
+    ]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} initialFocusSeq={30} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    // The located row carries the one-shot highlight class.
+    await waitFor(() => {
+      const row = document.querySelector('[data-row-seq="30"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    // Rows untouched by the locate stay unhighlighted.
+    expect(document.querySelector('[data-row-seq="31"]')?.classList.contains('chat-msg-focus')).toBe(false)
+  })
+
+  it('locates by stable messageId (search-hit identity path)', async () => {
+    // A workspace-search hit forwards messageId, NOT a sequence. Locate must
+    // land on the exact row carrying that data-message-id even though its seq
+    // is unrelated, and must ignore the earlier/surrounding rows.
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '先看这个' }] }, 30),
+      makeEntry('user/message', { id: 'u-2', role: 'user', content: [{ type: 'text', text: '再看那个' }] }, 40),
+      makeEntry('assistant/message', { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '已定位到这句' }] } }, 50),
+    ]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} initialFocusMessageId="a-1" initialFocusQuery="已定位到这句" mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      const row = document.querySelector('[data-message-id="a-1"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    // The identity locate must not highlight an unrelated row.
+    expect(document.querySelector('[data-message-id="u-1"]')?.classList.contains('chat-msg-focus')).toBe(false)
+    expect(document.querySelector('[data-message-id="u-2"]')?.classList.contains('chat-msg-focus')).toBe(false)
+  })
+
+  it('re-arms and locates a different messageId when ChatView is reused for the same session', async () => {
+    // App routes chats keyed by session, so a second locate in the same
+    // session reuses this component. The stable-identity target must be
+    // re-armed from the NEW prop, not frozen at the first open.
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '第一' }] }, 30),
+      makeEntry('user/message', { id: 'u-2', role: 'user', content: [{ type: 'text', text: '第二' }] }, 40),
+    ]))
+    const mux = new FakeMux()
+    const { rerender } = render(<ChatView session={session} initialFocusMessageId="u-1" mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      expect(document.querySelector('[data-message-id="u-1"]')?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    rerender(<ChatView session={session} initialFocusMessageId="u-2" mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await waitFor(() => {
+      expect(document.querySelector('[data-message-id="u-2"]')?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    expect(document.querySelector('[data-message-id="u-1"]')?.classList.contains('chat-msg-focus')).toBe(false)
+  })
+
+  it('does not fall back to a duplicate keyword while an authoritative target is in older history', async () => {
+    loadChatPageMock
+      .mockResolvedValueOnce(rowPage([
+        makeEntry('user/message', { id: 'old-match', role: 'user', content: [{ type: 'text', text: '相同关键词' }] }, 90),
+      ], { hasMore: true }))
+      .mockResolvedValueOnce(rowPage([
+        makeEntry('user/message', { id: 'real-target', role: 'user', content: [{ type: 'text', text: '真正的相同关键词' }] }, 40),
+      ], { hasMore: false }))
+    const mux = new FakeMux()
+    render(<ChatView
+      session={session}
+      initialFocusSeq={40}
+      initialFocusMessageId="real-target"
+      initialFocusQuery="相同关键词"
+      mux={mux as never}
+      onBack={() => {}}
+      showToolCalls={true}
+      showSystemMessages={false}
+    />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      const row = document.querySelector('[data-message-id="real-target"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    expect(document.querySelector('[data-message-id="old-match"]')?.classList.contains('chat-msg-focus')).toBe(false)
+  })
+
+  it('locates a finalized single-step row when the search hit came from an earlier chunk seq', async () => {
+    // Real assistant/chunk events have no messageId. The search index can
+    // therefore retain the chunk seq while the finalized row gets a later
+    // assistant/message seq and a different stable id. The seq fallback must
+    // choose that row, rather than the first older row containing the keyword.
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-old', role: 'user', content: [{ type: 'text', text: '重复关键词' }] }, 20),
+      makeEntry('assistant/message', { turn: 0, step: 0, message: { id: 'a-final', role: 'assistant', content: [{ type: 'text', text: '最新重复关键词' }] } }, 31),
+    ]))
+    const mux = new FakeMux()
+    render(<ChatView
+      session={session}
+      initialFocusSeq={30}
+      initialFocusMessageId="assistant,0.0#30"
+      initialFocusQuery="重复关键词"
+      mux={mux as never}
+      onBack={() => {}}
+      showToolCalls={true}
+      showSystemMessages={false}
+    />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      const row = document.querySelector('[data-message-id="a-final"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    expect(document.querySelector('[data-message-id="u-old"]')?.classList.contains('chat-msg-focus')).toBe(false)
+    await waitFor(() => { expect(scrollWrites.length).toBeGreaterThan(0) })
+  })
+
+  it('falls back to the paired query when the target seq matches no row', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '先看这个' }] }, 30),
+      makeEntry('assistant/message', { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '收到' }] } }, 31),
+    ]))
+    const mux = new FakeMux()
+    // A stale/mismatched seq (999) that no row covers: the paired query must
+    // still land the chat on the first message containing it, not the tail.
+    render(<ChatView session={session} initialFocusSeq={999} initialFocusQuery="先看这个" mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      const row = document.querySelector('[data-row-seq="30"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    // The locate must SCROLL to the found row even though the target seq (999)
+    // matches no anchor: the rendered row (focusMsgId) is the scroll target.
+    await waitFor(() => { expect(scrollWrites.length).toBeGreaterThan(0) })
+  })
+
+  it('re-arms locating when the same chat receives a new target', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '第一个结果' }] }, 30),
+      makeEntry('assistant/message', { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '第二个结果' }] } }, 40),
+    ]))
+    const mux = new FakeMux()
+    const first = { session, initialFocusSeq: 30, initialFocusQuery: '第一个结果', mux: mux as never, onBack: () => {}, showToolCalls: true, showSystemMessages: false }
+    const { rerender } = render(<ChatView {...first} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => expect(document.querySelector('[data-row-seq="30"]')?.classList.contains('chat-msg-focus')).toBe(true))
+
+    rerender(<ChatView {...first} initialFocusSeq={40} initialFocusQuery="第二个结果" />)
+    await waitFor(() => expect(document.querySelector('[data-row-seq="40"]')?.classList.contains('chat-msg-focus')).toBe(true))
+    expect(document.querySelector('[data-row-seq="30"]')?.classList.contains('chat-msg-focus')).toBe(false)
+  })
+
+  it('anchors a folded step, expands long prose, and marks only visible reply text', async () => {
+    const hiddenNeedle = 'needle'
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('assistant/message', {
+        turn: 0,
+        step: 0,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: 'A'.repeat(LONG_TEXT_LIMIT + 10) }] },
+      }, 30),
+      makeEntry('tool/call', {
+        turn: 0,
+        step: 0,
+        callId: 'c-1',
+        name: 'bash',
+        arguments: `{"cmd":"echo ${hiddenNeedle}"}`,
+      }, 31),
+      makeEntry('assistant/message', {
+        turn: 0,
+        step: 1,
+        message: {
+          id: 'a-2',
+          role: 'assistant',
+          content: [{ type: 'text', text: `可见 ${hiddenNeedle}\n\n\`\`\`txt\n${hiddenNeedle}\n\`\`\`\n\n<think>${hiddenNeedle}</think>` }],
+        },
+      }, 40),
+    ]))
+
+    render(<ChatView
+      session={session}
+      initialFocusSeq={40}
+      initialFocusQuery={hiddenNeedle}
+      onBack={() => {}}
+      showToolCalls={true}
+      showSystemMessages={false}
+    />)
+
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => {
+      expect(document.querySelector('[data-step-seq="40"]')).not.toBeNull()
+      expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(1)
+    })
+    expect(document.querySelector('.chat-search-mark')?.textContent).toBe(hiddenNeedle)
+    expect(screen.getByRole('button', { name: '收起' })).toBeTruthy()
+  })
+
+  it('counts elapsed on HOST time so device NTP skew does not drift the clock', async () => {
+    // Host clock anchors the turn (60s logged). Over a public link the phone
+    // typically runs a few seconds different from the host clock; a live
+    // content frame's host timestamp calibrates the skew so the running
+    // clock matches the desktop instead of drifting.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      loadChatPageMock.mockResolvedValue(rowPage([], { turnStartAt: 1_700_000_000_000 - 60_000 }))
+      historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await act(async () => { await Promise.resolve() })
+      // Anchor from the page: 60s elapsed on the (uncalibrated) phone clock.
+      expect(screen.getByText('1分00秒')).toBeTruthy()
+      // The host clock is 3s AHEAD of the phone: a live content frame
+      // reports host time 1_700_000_000_003.
+      act(() => {
+        mux.emit({
+          type: 'session/event',
+          sessionId: 's-1',
+          event: { type: 'assistant/chunk', seq: 80, time: 1_700_000_000_000 + 3_000, data: {} },
+        })
+      })
+      // One tick later (fake now advanced 1s): elapsed counts on HOST time,
+      // exactly what the desktop would show (1分04秒) - not the phone's
+      // fast/slow guess.
+      act(() => { vi.advanceTimersByTime(1_000) })
+      expect(screen.getByText('1分04秒')).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }

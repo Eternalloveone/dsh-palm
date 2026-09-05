@@ -58,8 +58,10 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Diff cards & code actions** — tolerant unified-diff parsing with accept / reject / review actions; copy, insert into editor, open, download, sandbox run
 - **Run-status strip & task sheet** — the todo plan and background jobs collapse into one live strip above the toolbar
 - **Offline outbox & PWA** — prompts queue in IndexedDB and flush automatically on reconnect; installable, versioned service worker
-- **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (Server酱 / Bark / Telegram) for when the app is closed; thresholds and cooldowns are configurable from the phone
+- **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (Server酱 / Bark / Telegram) for when the app is closed; thresholds and cooldowns are configurable from the phone. Per-kind gates (plan-complete / background-task / long-reply) toggle each event type independently, defaulting to quiet for background tasks and long replies
 - **Per-provider usage & balances** — one settings card for every provider configured on the desktop: consumed-quota meters (Ollama Cloud), account balances (DeepSeek, Moonshot/Kimi) and OpenRouter's spent-vs-limit, refreshed on demand; providers without a public endpoint are not shown
+- **Global search with message-level locate** — search the workspace and every session from the home page, or the current workspace from the session list; hits group by workspace with real session titles, and tapping one opens the chat and scrolls to the matched message with a one-shot highlight. Chinese short words are covered by a bounded substring backfill (SQLite FTS tokenizes contiguous CJK as one token)
+- **Pending-message queue dock** — messages sent while a turn is running enter the host queue and show as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header, each editable (plain text), removable, or steered in as an interrupt; the dock mirrors the host snapshot and clears on session stop
 - **Clean streaming output** — windowed prefix rendering keeps long replies smooth; collapsible reasoning blocks fold in-body thinking into a disclosure
 
 ## Full capability list
@@ -85,8 +87,11 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget; over-limit and decode failures surface as toasts instead of silent drops
 - **Voice input & transcription** — in-browser WAV recording (auto-finishes at 60 s, cleans up on leave), OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list; host-configured services are shown as display facts only — host API keys never leave the host
 - **Session management** — delete sessions from the chat menu or a long-press on the roster; the offline outbox is cleared with the session
+- **Global search** — the home-page search is a global search over workspaces and every session's content, grouped by workspace with real session titles; the session-list search narrows to the current workspace. Hits open the chat and scroll to the matched message (deep-link `?session=&seq=`), with a one-shot highlight; CJK short words are covered by a bounded substring backfill
+- **Pending-message queue dock** — messages sent while a turn is running queue in the host and render as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header; each row is editable (plain text only), removable, or steered in as an interrupt while the agent is running; the dock mirrors the host snapshot and clears on session stop
 - **Plugin market** — browse, search and install plugins from the phone (best done on the desktop)
 - **Desktop-parity settings** — phone settings sync with the desktop (schema forms, cascading model picker, permission presets; complex presets are best edited on the desktop)
+- **Settings search** — the settings page search also indexes sub-configuration entries (notification gates, push channels, Web Push, voice services), opening the owning sub-page and scrolling to the match
 
 **Offline & weak networks**
 
@@ -98,16 +103,20 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 **Notifications**
 
 - **One trigger, three channels** — the host watches the shared event stream and decides once (task terminal states + turns longer than a configurable threshold, with a per-session cooldown); every channel delivers the same decision
+- **Per-kind notification gates** — plan-complete / background-task / long-reply each have an independent toggle in the settings page; existing configs default to quiet for background tasks and long replies (breaking change)
 - **In-app system notifications (SSE)** — the phone shows a system notification while the app is open; clicking it deep-links to the session
+- **Notification inbox** — the notifications page lists the host engine's recent decisions (last 50), so a missed notification can be reviewed and tapped through to its session
+- **Lock-screen privacy** — a toggle downgrades every channel's notification to a generic message (no session title or task name) when the phone is locked
 - **Web Push (VAPID)** — the service worker receives pushes when the app is closed (Android Chrome/Edge/Firefox; iOS Safari 16.4+ for installed PWAs; mainland-China networks may not reach the FCM backend — the third-party channels cover that)
 - **Third-party channels** — PushPlus (WeChat, recommended for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed; credentials are stored host-side and never ride the settings surface
-- **Notification settings** — permission, duration threshold, cooldown, Web Push toggle and channel credentials all live in the phone settings page, with a test button that pushes one synthetic event end to end
+- **Notification settings** — permission, duration threshold, cooldown, Web Push toggle and channel credentials all live in the phone settings page, with a test button that pushes one synthetic event end to end; each channel shows its credential state (configured / not) so a restart never looks like a lost key
 
 **Experience**
 
 - **Display preferences** — font scale, density, line numbers, auto-scroll
 - **Theme sync** — the desktop theme preference applies on the phone
 - **Session roster** — full project names, cwd-filtered, full timestamps
+- **Update check** — the about sheet checks the npm registry for a newer version (host-side, since the phone's CSP blocks direct registry access) and reports "new version available" or "up to date"
 
 **Pairing & onboarding**
 
@@ -116,6 +125,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Three-step wizard** — the panel is a configure → pair → use wizard; the step indicator doubles as navigation (completed steps are clickable), and paired users land directly on a clean device-management view
 - **Tunnel detection** — the host probes for Tailscale (tailnet domain, one-click apply), parses `frpc.toml` for the concrete frp entry, and spots Cloudflare Tunnel clients; a first-time user with no tunnel gets a LAN / create-a-tunnel fork instead of a blank wall
 - **First-run guidance** — a dismissible welcome banner, an unconfigured dot on the sidebar trigger, and plain-language copy ("Your phone cannot reach this computer") with the action right below it
+- **First-run welcome card** — after pairing, the workspace home shows a one-time three-step onboarding card (start a chat / configure notifications / view usage), dismissible and shown only once
 - **Workspace-native theming** — the panel follows the system light/dark scheme via `prefers-color-scheme` (no manual toggle), with a 0.2s ease transition on every color
 - **Phone-side server switch** — the mobile pairing gate shows the server address and deep-links a code/token to a switched tunneled origin via `?code=` / `?pair=`; the code is consumed immediately and the URL is replaced with a clean path, and every response carries `Referrer-Policy: no-referrer`
 - **Desktop-parity command menu** — the phone's `+` menu resolves the session's agent view, so per-agent commands (`/plan`, `/compact`) match the desktop `/` popup

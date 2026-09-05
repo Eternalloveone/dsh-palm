@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-05
+
+### Added
+
+- **Per-kind notification gates** - 通知页新增「通知内容」卡片（浏览器通知之后、推送渠道之前），三类事件独立开关：规划完成（todo plan 全部完成）、后台任务（命令/子任务终态）、长回复（超过阈值）。引擎新增 todo/write 快照检测（非空 → 全部 completed 发「规划完成」，会话级冷却防重复），`NotifyConfig.kinds` 三布尔经 `push.config` 读写。**默认行为变更（安静模式）**：存量配置无 `kinds` 时按 jobs=关 / todo=开 / turns=关 生效——后台任务与长回复不再默认推送，此前依赖这两种通知的用户需在设置中手动开启
+- **Global search with locate** - 搜索收敛为统一心智：首页（工作区页）搜索升级为全局搜索器（header 搜索图标变形，与会话页一致的交互形态，自带取消按钮）——输入词同时匹配工作区（名称/路径）与全部会话（内容全文），会话命中分组展示**真实会话标题**（未解析到标题时降级为内容片段）并标注所属工作区，点击**应用内平滑定位**到目标工作区并打开该会话（无整页刷新）；会话列表页搜索保留 host 全量检索，命中行按归属分流——本工作区平滑打开，其他工作区标「其他工作区」并平滑定位（此前跨区命中会用当前工作区错误打开）。host 新增 `mobile.searchAll`（session.search + workspace.list 归属映射 + session.list 标题映射，60s 缓存）
+- **Notification inbox** - 通知页新增「最近通知」列表：host 引擎的判定日志（最近 50 条，最新在前），错过即丢的通知可回看，点击直达所属会话；`mobile.notifyEvents` 新本地方法
+- **Lock-screen privacy** - 通知页新增「锁屏隐藏通知详情」开关：开启后所有通道（L1/L2/L3 与收件箱）的通知统一降级为通用文案，不再携带会话标题与任务名
+- **First-run welcome card** - 配对成功后工作区首页展示一次性三步上手引导（开始对话 / 配通知 / 看用量），可关闭且仅显示一次
+- **About-sheet update check** - 关于页新增「检查更新」：host 代查 npm registry（CSP connect-src 'self' 下手机端无法直连），对比本地版本提示「发现新版本」或「已是最新」；`mobile.latestVersion` 新本地方法
+- **Usage-page DeepSeek balance via desktop credential** - 用量页 deepseek 行不再误报「未配置」：host 从 `llm-deepseek` 设置段读取凭据引用名（该段的 `apiKeyEnv`，缺省 `DEEPSEEK_API_KEY`，与桌面端 provider 运行时解析完全一致），经凭据服务解析后查询官方余额接口——桌面端配过 key 即显示账户余额，key 仍只存宿主端、手机端只见展示事实；此前该分支忽略凭据引用、且零测试覆盖
+- **Push-channel state visibility + clear guard** - 推送渠道各输入框旁显示凭据状态（「已配置 ✓（凭据存于电脑端）」/「未配置」），重启/升级后不再误以为 key 丢失；通道全空时若已有已配置通道，保存会先弹确认「清除已配置的推送渠道？」（此前全空保存会静默清空全部已配置通道）
+- **Message-level search hits with one-tap locate** - 搜索结果升级为「工作区 → 会话 → 历史消息位置」的层级视图：会话命中行配「命中」展开按钮（手风琴，同屏只展开一个），展开时 host 懒加载定位该会话内的消息级命中（`mobile.searchMessages`：优先复用内存中的会话窗口零额外日志读取，窗口未覆盖时向后有界扫描 ≤3 页，每会话 ≤8 条、60s 缓存——展开一次的成本与打开该会话相当），命中的消息片段逐条展示，点击**直达并高亮**该条消息（深链 `?session=&seq=` 与应用内导航都支持，聊天页自动翻页定位到该消息行 + 一次性高亮动画）；会话列表页搜索**收窄到当前工作区**（所见即所搜，消除跨区误开），命中其他工作区的内容折叠为一行提示「另有 N 个其他工作区的命中，首页搜索可查全部」
+- **Settings search covers sub-configuration entries** - 设置页搜索不再只过滤主页行：新增「配置项」索引，能搜到藏在通知页/语音页里的子配置（浏览器通知、通知内容三类开关、推送渠道四个通道、Web Push、触发条件、锁屏隐私、语音服务添加/管理），支持中英文关键词（如 serverchan / sendkey / pushplus / token / baseurl）；点击命中项自动打开所属子页并滚动定位到该配置，配一次性高亮动画
+- **Usage card: 5-hour + weekly quota windows with reset notes** - 用量卡片（Ollama 类提供方）展开后显示**两条**配额进度条：近 5 小时（session 窗口）与本周（weekly 窗口），各自带已用/余量百分比；两条下方小字如实标注 reset 性质——Ollama usage API 只返回用量比率、不含重置时刻，故标明「按最近 5 小时 / 7 天滚动统计，窗口随请求持续滑动、无固定重置时刻」，不虚造固定时间
+- **Search: CJK substring backfill + truncation hint** - 修复「搜中文短词搜不到会话」：宿主会话检索是 SQLite FTS5 + unicode61 分词，连续中文被当作**一个 token**——搜「支付」匹配不到正文里的「支付专项」（token≠子串），中文短词几乎必然空结果（桌面端同样受限）。`mobile.searchAll` 在 token 命中稀疏时对最近若干会话的历史尾部做**有界子串扫描**（每会话 1 页、最多 10 会话、≤8 条补回，best-effort 失败跳过；**并行读取并发上限 4、优先复用内存会话窗口零日志读取**，弱网下不再串行拖拉），中文短词也能列出所有包含该词的工作区与会话；首页与会话列表页搜索在结果达到上限时提示「结果较多，仅显示前若干条——请细化关键词」，不再静默截断
+- **Search hits open straight to the matched message** - 搜索结果交互简化为「点击即达」：移除「命中」展开按钮与消息命中列表（不再显示命中明细），搜索命中行点击时懒定位该会话内第一条命中消息（`mobile.searchMessages`，60s 缓存），**直接打开会话并滚动高亮到那条消息**——首页/列表页统一，定位失败自动降级为普通打开；同时修复深链跳转不到会话：目标会话不在列表第一页时自动向后翻页（有界 ≤8 页）找到并打开；聊天页消息定位翻页上限 3→5 页，更老的历史消息也能直达
+- **Search: instant tap-to-locate + whole-search cache** - 修复「点击跳转不了会话」与「搜索慢」：① 子串兜底命中时 host 直接把**第一条命中消息的 seq 随结果返回**并预填消息定位缓存——点击命中行**零额外 RPC 立即跳转**并定位到该消息（此前每次点击都要再等一次消息定位调用，弱网下卡在「定位中」）；② 点击定位加 **1.5s 超时降级**：慢链路超时立即以普通方式打开会话，行不再被锁死点不动；③ 搜索整体结果按关键词缓存 60s（重复搜索零成本），兜底扫描候选 10→6 会话，弱网下搜索更快
+- **Search: roster-attribution fallback for labels and taps** - 修复「命中行全显示其他工作区、点击跳回首页」：此前负责人名与跳转的 host 归属映射在部分环境为空，命中行全部 fallback 到「其他工作区」，点击走了深链、刷新回工作区首页。现在手机端**用自己已持有的工作区列表（含会话归属关系）直接反查**每个命中会话——归属缺失时照常显示**真实工作区名**并以**应用内导航定位**（不再整页刷新）；实在无法归属的命中改标「未分组」并 toast 提示，而不是无声刷新回首页
+- **Search: standalone hits open the chat directly** - 搜索命中「未分组」会话（不 attach 任何工作区的独立/子代理历史会话）时不再止步于提示：点击**直接在应用内打开该会话**（聊天页只依赖会话本身），消息定位（seq）照常生效，返回回到工作区首页；归属到工作区的命中仍走原工作区定位链路
+- **Search: cwd-prefix attribution + host-resolved owner title** - 修复「搜索结果几乎全显示未分组」：很多会话虽未显式挂载到工作区，但创建于某工作区目录下——host 现在用 `session.cwd` 与 `workspace.path` 做**最长路径前缀归属推断**（无额外 RPC），并随结果返回**工作区标题**；手机端命中行在本地工作区列表尚未加载时也能直接显示真实工作区名，不再退回「未分组」；同时**搜索态隐藏「新建工作区」入口**（搜索结果界面不再混入创建操作）
+- **Search: message-locate survives the workspace hop** - 修复「点击命中跳不到具体某一行」：应用内定位把目标消息 seq 暂存在 `focusSeqRef`，但 roster 自动打开目标工作区时 `openWorkspace` 的深链清理把该 ref 一并清空，导致随后打开会话时 seq 丢失、聊天页不定位。现在 `openWorkspace` 只清深链 URL 状态、**保留应用内 locate 的 seq**，命中点击后能正确打开会话并滚动高亮到那条消息
+- **Search: every hit carries its first matched message seq** - 修复「点击命中仍定位不到某一行」：token 命中（`session.search`）本不带消息 seq，点击时才冷调 `mobile.searchMessages`，而它只向后扫 ≤3 页——命中消息在更老历史时拿不到 seq，打开会话却不定位。现在 `searchAll` 对每个命中**预取第一条命中消息的 seq**（窗口优先 + 1 页尾部扫描，并行、失败跳过），所有展示的命中都带 seq，点击**零额外 RPC 立即定位**；消息定位扫描页数 3→5、聊天页定位翻页 5→8，更老的历史消息也能直达
+- **Search: back returns to the search results** - 从工作区搜索点击命中跳转到消息后，点返回**直接回到搜索结果界面**（搜索框+关键词+命中列表照常保留，一步到位），不再分步退回工作区首页且丢失搜索状态：工作区页把搜索界面状态上报 App 保存快照，命中跳转时冻结；定位来源的聊天返回时一步回退并恢复搜索界面（一次性，消费后清空，不影响后续手动导航）
+- **Fix: forward navigation no longer double-imaging** - 修复跳转到命中行时 UI 重叠/双影：前进方向（搜索→跳转）的旧页离场动画 `page-out-fwd` 终帧只淡到 **opacity 0.8**（fill-mode both 保持），配合半透明磨砂顶栏让旧页面内容「鬼影」透过新页面叠加；改为与返回方向一致**完全透明并移出视口**，跳转过程不再重叠错位
+- **Pending-message queue dock (desktop parity)** - 手机端新增「发送消息队列」：当前 turn 运行时发送的消息进入 host 队列，在输入区上方显示队列条（桌面 QueueDock 等价物）——单条显示为条、多条折叠为计数头可展开；每条可**编辑**（inline 改文本）、**删除**、**插话发送**（steer，仅运行中可用）；turn 结束后 host 自动按序发送。数据来自 host 的 `session/queue` 快照（mux 流已携带，新增缓存供聊天页挂载即回放），操作走 `session.updateQueue` RPC；与离线 outbox 分开显示（outbox=网络层，dock=turn 队列）
+- **Queue dock mirror (desktop runtime parity)** - 队列 dock 重构为 host 快照的权威镜像：消费 `session/subscribed` 代际重置（SSE 重连即清空旧快照，根治「删不掉的幽灵行」）；dock 只渲染 `queued` 档（steering/context 注入内容不再显示、不可删改）；编辑仅纯文本消息可用（含图/命令行禁用）；操作在途 busy 防重（RPC 完成前按钮禁用）；删除失败不再猜测清空 dock（由下一帧/重连收敛）；发送失败保留草稿 + 明确错误原因 + 可手动重发
+- **Search: message-level locate via stable messageId/partId** - 搜索定位升级为按 `messageId`/`partId` 精确定位：流式 pending 行保留真实 uuid id（finalize 后不换 id），搜索命中在流式期间索引的 messageId 仍能匹配最终行；命中携带 messageId/partId/seq，聊天页滚动到精确 step/part 并高亮关键词（`<mark>`），不再回退到「首次出现」导致落错位置
+
+### Fixed
+
+- **Long-token overflow on narrow phones** - 长文本在窄屏手机不再横向溢出：通知页说明与字段描述、设置表单选项说明、最近通知收件箱行、欢迎卡片、错误/空态提示等统一 `overflow-wrap: anywhere` 兜底（聊天消息区此前已有覆盖），收件箱行另加两行截断
+- **Turn-clock anchor sync with the desktop** - 「输出中」计时与桌面端完全同源：进入一个正在运行的会话时，时钟锚点直接取日志里 `turn/start` 的登录时间（host 折叠窗口携带 open-turn 边界，`mobile.readChat` 页面新增 `turnStartAt`；raw-history 兜底路径与手机端 running-reconcile 探测同样恢复该锚点），不再从本机挂载时刻起算——中途进出会话后耗时与桌面一致，也不再出现「计着计着突然跳到别的数值」的锚点切换；窗口内没有边界时才回退到挂载时刻（与桌面 TurnStatus 的 fallback 行为相同）
+- **Turn clock counts on HOST time (NTP-skew fix)** - 修复手机端计时比桌面快/慢几秒：锚点修复后手机仍用自己的本地时钟做 `now`，而公网访问下手机与电脑各自 NTP 同步、常态差 1~5 秒——偏差直接进入 elapsed。现在每条 live 事件帧的 host 时间戳会实时校准「host−手机」时钟偏移（turn/start 边界帧除外，它锚定时钟且可能携带旧时刻），elapsed 改按 host 时间计，与桌面端逐秒一致
+- **Queue operations now reach the host (dispatch gap)** - 修复手机端队列 dock 的编辑/删除/插话**从未真正到达 host**：`mobile-api.ts` 的 allowlist 代理层 `dispatch()` 漏了 `session.updateQueue` 转发分支，请求落到 `unhandled allowlisted method` → 手机端永远收到 `internal`（被固定友好文案掩盖）。补上转发后，host 的 `queue-item-not-found` / `steer-unavailable` 语义才第一次真正在手机端生效
+
 ## [0.7.3] - 2026-09-03
 
 ### Added

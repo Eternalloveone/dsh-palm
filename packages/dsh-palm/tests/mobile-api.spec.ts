@@ -13,6 +13,7 @@ import type { AddressInfo } from 'node:net'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { makeMobileApiRoutes } from '../src/mobile-api.ts'
+import { ChatWindowService } from '../src/chat-window.ts'
 import { PendingTracker } from '../src/mobile-pending.ts'
 import { NotifyStore } from '../src/notify/notify-store.ts'
 import { NotifyEngine } from '../src/notify/notify-engine.ts'
@@ -61,6 +62,7 @@ const apiProxy = {
     selectModel: async () => ({ rpcId: 'r', result: { ok: true, value: { ok: true } } }),
     rename: async () => ({ rpcId: 'r', result: { ok: true, value: { ok: true } } }),
     cancel: async () => ({ rpcId: 'r', result: { ok: true, value: { accepted: true } } }),
+    updateQueue: async () => ({ rpcId: 'r', result: { ok: true, value: { accepted: true } } }),
   },
   events: { mux: () => (async function* () {})() },
   settings: {
@@ -529,6 +531,7 @@ describe('mobile api envelope', () => {
         'session.selectModel',
         'session.rename',
         'session.cancel',
+        'session.updateQueue',
       ]) {
         const { status, body } = await call(server.port, method)
         expect(status).toBe(200)
@@ -1179,6 +1182,41 @@ describe('mobile.readChat folded chat (v3)', () => {
       await server.close()
     }
   })
+
+  it('serves the open turn/start anchor (turn-clock, desktop parity) and keeps it live', async () => {
+    const fetcher = vi.fn(async () => ({
+      events: [
+        { event: { type: 'turn/start', seq: 40, time: 400_000, data: {} } },
+        { event: { type: 'user/message', seq: 41, time: 401_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: 'hi' }] } } },
+        { event: { type: 'assistant/message', seq: 42, time: 402_000, data: { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: 'ok' }] } } } },
+      ],
+      hasMore: false,
+    }))
+    const windows = new ChatWindowService(fetcher as never)
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend, chatWindows: windows }))
+    try {
+      // Installed from the tail page: the open turn/start rides the page.
+      const first = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1', maxRows: 25 })
+      const firstView = JSON.parse(first.body) as { result: { ok: boolean; value: { turnStartAt?: number } } }
+      expect(firstView.result.ok).toBe(true)
+      expect(firstView.result.value.turnStartAt).toBe(400_000)
+
+      // A live turn/end clears the anchor; the next tail read omits it.
+      windows.handleEvent('s-1', { type: 'turn/end', seq: 43, time: 403_000, data: {} })
+      const second = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1', maxRows: 25 })
+      const secondView = JSON.parse(second.body) as { result: { ok: boolean; value: { turnStartAt?: number } } }
+      expect(secondView.result.ok).toBe(true)
+      expect('turnStartAt' in (secondView.result.value ?? {})).toBe(false)
+
+      // A new turn/start re-anchors it at its own logged time.
+      windows.handleEvent('s-1', { type: 'turn/start', seq: 44, time: 500_000, data: {} })
+      const third = await callWith(server.port, 'mobile.readChat', { sessionId: 's-1', maxRows: 25 })
+      const thirdView = JSON.parse(third.body) as { result: { ok: boolean; value: { turnStartAt?: number } } }
+      expect(thirdView.result.value.turnStartAt).toBe(500_000)
+    } finally {
+      await server.close()
+    }
+  })
 })
 
 describe('mobile.previews batch previews (v3.1)', () => {
@@ -1278,12 +1316,24 @@ describe('push.config (L3 channel credentials)', () => {
       const get = await callWith(server.port, 'push.config', { get: true })
       expect(get.status).toBe(200)
       const envelope = JSON.parse(get.body) as {
-        result: { ok: boolean; value: { channels: Record<string, { configured: boolean }> } }
+        result: { ok: boolean; value: { channels: Record<string, { configured: boolean }>; kinds: { jobs: boolean; todo: boolean; turns: boolean } } }
       }
       expect(envelope.result.ok).toBe(true)
       expect(envelope.result.value.channels.pushplus).toEqual({ configured: true })
       expect(envelope.result.value.channels.serverchan).toEqual({ configured: false })
       expect(JSON.stringify(get.body)).not.toContain('pp-spec-token')
+      // Kind gates default to the quiet stance (jobs/turns off, todo on).
+      expect(envelope.result.value.kinds).toEqual({ jobs: false, todo: true, turns: false })
+
+      // Kind gates persist through a write.
+      await callWith(server.port, 'push.config', {
+        set: { kinds: { jobs: true, turns: true } },
+      })
+      const afterKinds = await callWith(server.port, 'push.config', { get: true })
+      const kindsView = JSON.parse(afterKinds.body) as {
+        result: { ok: boolean; value: { kinds: { jobs: boolean; todo: boolean; turns: boolean } } }
+      }
+      expect(kindsView.result.value.kinds).toEqual({ jobs: true, todo: true, turns: true })
 
       // Clearing the token removes the channel.
       await callWith(server.port, 'push.config', {
@@ -1297,6 +1347,765 @@ describe('push.config (L3 channel credentials)', () => {
     } finally {
       await server.close()
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('mobile.usage (per-provider usage/balance)', () => {
+  /** Stub global fetch so the balance adapter never leaves the machine. */
+  function stubBalanceFetch(): typeof globalThis.fetch {
+    const original = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      is_available: true,
+      balance_infos: [{ currency: 'CNY', total_balance: '12.00', granted_balance: '0.00', topped_up_balance: '12.00' }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never
+    return original
+  }
+
+  it('resolves the llm-deepseek credential ref (default DEEPSEEK_API_KEY) into a balance row', async () => {
+    const originalFetch = stubBalanceFetch()
+    const resolved: string[] = []
+    const usageProxy = {
+      ...apiProxy,
+      settings: {
+        ...apiProxy.settings,
+        describe: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { writable: true, hasDocument: true, namespaces: [
+            { ns: 'llm-deepseek', value: { baseURL: 'https://api.deepseek.com' } },
+          ] } },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: usageProxy, mobileEnterToSend,
+      resolveKey: async (refName: string) => { resolved.push(refName); return 'sk-test' },
+    }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.usage', { refresh: true })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        result: { ok: boolean; value: { providers: Array<Record<string, unknown>> } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.providers).toEqual([
+        {
+          name: 'DeepSeek 官方',
+          baseURL: 'https://api.deepseek.com',
+          kind: 'balance',
+          status: 'ok',
+          balance: '12.00 CNY',
+          fetchedAt: expect.any(Number),
+        },
+      ])
+      // The phone's key resolution went through the host credentials service
+      // under the dedicated gateway's documented default ref.
+      expect(resolved).toEqual(['DEEPSEEK_API_KEY'])
+    } finally {
+      globalThis.fetch = originalFetch
+      await server.close()
+    }
+  })
+
+  it('honours a custom llm-deepseek apiKeyEnv ref', async () => {
+    const originalFetch = stubBalanceFetch()
+    const resolved: string[] = []
+    const usageProxy = {
+      ...apiProxy,
+      settings: {
+        ...apiProxy.settings,
+        describe: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { writable: true, hasDocument: true, namespaces: [
+            { ns: 'llm-deepseek', value: { models: [{ id: 'deepseek-v4-flash:0731' }], apiKeyEnv: 'MY_DEEPSEEK_KEY' } },
+          ] } },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: usageProxy, mobileEnterToSend,
+      resolveKey: async (refName: string) => { resolved.push(refName); return 'sk-test' },
+    }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.usage', { refresh: true })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        result: { ok: boolean; value: { providers: Array<Record<string, unknown>> } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.providers[0]?.status).toBe('ok')
+      expect(resolved).toEqual(['MY_DEEPSEEK_KEY'])
+    } finally {
+      globalThis.fetch = originalFetch
+      await server.close()
+    }
+  })
+})
+
+describe('mobile.searchMessages (lazy message-level locate)', () => {
+  it('locates visible message hits inside one ordinary session', async () => {
+    const fetcher = vi.fn(async () => ({
+      events: [
+        { event: { type: 'user/message', seq: 10, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '帮我修好 支付专项 的 bug' }] } } },
+        { event: { type: 'assistant/message', seq: 11, time: 11_000, data: { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '正在处理 支付专项 问题' }] } } } },
+      ],
+      hasMore: false,
+    }))
+    const ordinaryProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-1', updatedAt: 1 }], hasMore: false } } }),
+        history: async () => ({ rpcId: 'r', result: { ok: true, value: await fetcher() } }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: ordinaryProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchMessages', { sessionId: 's-1', query: '支付专项' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<{ seq: number; snippet: string }> } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items.map(item => item.seq)).toEqual([10, 11])
+      expect(envelope.result.value.items[0]?.snippet).toContain('支付专项')
+      expect(envelope.result.value.items[1]?.snippet).toContain('支付专项')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rejects an empty session id or query', async () => {
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      for (const payload of [{ sessionId: '', query: 'x' }, { sessionId: 's-1', query: '  ' }, {}]) {
+        const { status, body } = await callWith(server.port, 'mobile.searchMessages', payload)
+        expect(status).toBe(200)
+        const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string } } }
+        expect(envelope.result.ok).toBe(false)
+        expect(envelope.result.error.code).toBe('bad-request')
+      }
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('mobile.searchAll (global search with attribution)', () => {
+  it('attributes hits to the owning workspace from workspace.list', async () => {
+    const locateProxy = {
+      ...apiProxy,
+      workspace: {
+        ...apiProxy.workspace,
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: { items: [{ workspaceId: 'w-1', sessionIds: ['s-hit', 's-other'] }] },
+          },
+        }),
+      },
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              items: [
+                { sessionId: 's-hit', updatedAt: 0, running: false, blank: false, projections: { values: { title: '支付专项' } } },
+              ],
+            },
+          },
+        }),
+        search: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 's-hit', snippet: '支付片段' }], hasMore: false },
+          },
+        }),
+        // The FTS hit must also be present in the session's SEARCHABLE text
+        // (a user message here) or the searchable-text filter drops it.
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              events: [{ event: { type: 'user/message', seq: 10, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '支付专项 的回调' }] } } }],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: locateProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: '支付' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        result: { ok: boolean; value: { items: Array<{ sessionId: string; snippet: string; title?: string; workspaceId?: string }> } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items).toEqual([
+        { kind: 'title', sessionId: 's-hit', snippet: '支付专项', title: '支付专项', workspaceId: 'w-1' },
+        { kind: 'message', sessionId: 's-hit', snippet: '支付专项 的回调', seq: 10, messageId: 'u-1', title: '支付专项', workspaceId: 'w-1' },
+      ])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers bad-request for an empty query', async () => {
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: '  ' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('bad-request')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('attributes hits by cwd prefix when the session is not explicitly attached', async () => {
+    // A session created under a workspace directory but not in its
+    // sessionIds: longest-prefix cwd attribution recovers the owner and its
+    // title, so the phone never labels it 未分组.
+    const cwdProxy = {
+      ...apiProxy,
+      workspace: {
+        ...apiProxy.workspace,
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              items: [
+                { workspaceId: 'w-1', path: 'D:\\work\\dsh-palm', title: 'dsh-palm', sessionIds: [] },
+                { workspaceId: 'w-2', path: 'D:\\work\\other', title: 'other', sessionIds: [] },
+              ],
+            },
+          },
+        }),
+      },
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              items: [
+                { sessionId: 's-1', updatedAt: 0, running: false, blank: false, cwd: 'D:\\work\\dsh-palm\\packages\\dsh-palm' },
+              ],
+            },
+          },
+        }),
+        search: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 's-1', snippet: '支付片段' }], hasMore: false },
+          },
+        }),
+        // The FTS hit must also be present in the session's SEARCHABLE text
+        // (a user message here) or the searchable-text filter drops it.
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              events: [{ event: { type: 'user/message', seq: 10, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '支付回调 的片段' }] } } }],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: cwdProxy, mobileEnterToSend }))
+    // A distinct query: the module-level searchAll cache is keyed by query.
+    // The module-level locateSessionMeta cache is also keyed by time (60s),
+    // so advance the clock past it to force a fresh attribution build.
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 61_000)
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: '支付回调' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        result: { ok: boolean; value: { items: Array<{ sessionId: string; workspaceId?: string; workspaceTitle?: string }> } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items[0]).toMatchObject({
+        sessionId: 's-1',
+        workspaceId: 'w-1',
+        workspaceTitle: 'dsh-palm',
+      })
+    } finally {
+      vi.useRealTimers()
+      await server.close()
+    }
+  })
+
+  it('verifies FTS token hits against history and returns a locatable seq', async () => {
+    // FTS is only a candidate source. The list must return a hit only after
+    // the same visible-text document used by searchMessages confirms it.
+    const history = vi.fn(async () => ({
+      rpcId: 'r',
+      result: { ok: true, value: { events: [{ event: { type: 'user/message', seq: 10, time: 10_000, data: { id: 'u-t', role: 'user', content: [{ type: 'text', text: 'token命中片段' }] } } }], hasMore: false } },
+    }))
+    const fastProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-t', updatedAt: 1 }] } } }),
+        search: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: [{ sessionId: 's-t', snippet: 'token命中片段' }], hasMore: false } },
+        }),
+        history,
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: fastProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: 'token命中' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<{ sessionId: string; seq?: number; snippet: string }> } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items[0]).toMatchObject({
+        kind: 'message',
+        sessionId: 's-t',
+        seq: 10,
+        snippet: 'token命中片段',
+      })
+      expect(history).toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('drops FTS hits whose term is only in a tool call, reasoning, or code block', async () => {
+    // The host FTS index also matches tool-call arguments, tool results, and
+    // code fences. A hit whose term is NOT in the session's SEARCHABLE text
+    // (user message / assistant reply body) must not surface — it would open
+    // a chat where the term is not visible.
+    const toolOnlyProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [] } } }),
+        search: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: [{ sessionId: 's-tool', snippet: 'toolonly 在工具参数里' }], hasMore: false } },
+        }),
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              events: [
+                // Term only in a tool-call argument.
+                { event: { type: 'tool/call', seq: 5, time: 10_000, data: { turn: 1, step: 1, callId: 'c-1', name: 'bash', arguments: '{"cmd":"echo toolonly"}' } } },
+                // Term only in a reasoning (thinking) block.
+                { event: { type: 'assistant/message', seq: 6, time: 11_000, data: { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'reasoning', text: 'toolonly 思考链' }] } } } },
+                // Term only inside a fenced code block.
+                { event: { type: 'assistant/message', seq: 7, time: 12_000, data: { turn: 1, step: 3, message: { role: 'assistant', content: [{ type: 'text', text: '```\ntoolonly\n```' }] } } } },
+              ],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: toolOnlyProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: 'toolonly' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<{ sessionId: string }> } } }
+      expect(envelope.result.ok).toBe(true)
+      // None of the three excluded surfaces is searchable, so the hit is
+      // filtered out entirely.
+      expect(envelope.result.value.items).toEqual([])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('carries stable messageId/partId on an assistant flow message hit', async () => {
+    // A workspace-search hit must forward the stable folded-message identity
+    // (messageId + partId) so ChatView can locate by identity instead of the
+    // coalescing-shifted seq. Dropping these re-introduces the "sometimes
+    // lands on the wrong message" failure.
+    const flowProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-flow', updatedAt: 2 }], hasMore: false } } }),
+        search: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-flow', snippet: '支付专项 的回调' }], hasMore: false } } }),
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              events: [
+                { event: { type: 'assistant/message', seq: 10, time: 10_000, data: { turn: 1, step: 1, message: { id: 'a-flow', role: 'assistant', content: [{ type: 'text', text: '支付专项 的回调结果如下' }] } } } },
+              ],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: flowProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: '支付专项' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<Record<string, unknown>> } } }
+      expect(envelope.result.ok).toBe(true)
+      const messageHit = envelope.result.value.items.find(item => item.kind === 'message')
+      expect(messageHit).toMatchObject({ sessionId: 's-flow', messageId: expect.any(String) })
+      // Part id is present only when the folded part carries one; both are
+      // optional, but the ROW identity must survive to the hit.
+      expect(messageHit?.partId === undefined || typeof messageHit.partId === 'string').toBe(true)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('drops an FTS hit that cannot be verified and located in visible text', async () => {
+    // Raw FTS snippets may come from tools, hidden reasoning, code, or stale
+    // index content. A result without a canonical visible-text match and seq
+    // must not be shown because tapping it cannot reveal the searched word.
+    const deepProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [] } } }),
+        search: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: [{ sessionId: 's-deep', snippet: 'deepterm 在更早的正文里' }], hasMore: false } },
+        }),
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              // The scanned pages carry no trace of the term (neither in
+              // searchable text nor in excluded content) — it is deeper.
+              events: [
+                { event: { type: 'user/message', seq: 5, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '无关内容' }] } } },
+                { event: { type: 'assistant/message', seq: 6, time: 11_000, data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '无关回复' }] } } } },
+              ],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: deepProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: 'deepterm' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<{ sessionId: string; seq?: number }> } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items).toEqual([])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('fails closed when the ordinary-session roster cannot be classified', async () => {
+    const unavailableProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: false as const, error: { code: 'unavailable', message: 'offline' } } }),
+        search: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-sub', snippet: '不应泄漏' }], hasMore: false } } }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: unavailableProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: '不应泄漏' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error?: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error?.code).toBe('internal')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('finds a normal session by title without reading its history', async () => {
+    const titleProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: [{ sessionId: 's-title', updatedAt: 7, projections: { values: { title: '支付专项复盘' } } }], hasMore: false } },
+        }),
+        search: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [], hasMore: false } } }),
+        history: vi.fn(async () => ({ rpcId: 'r', result: { ok: true, value: { events: [], hasMore: false } } })),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: titleProxy, mobileEnterToSend }))
+    try {
+      const { body } = await callWith(server.port, 'mobile.searchAll', { query: '专项复盘' })
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<Record<string, unknown>> } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items).toEqual([
+        expect.objectContaining({ kind: 'title', sessionId: 's-title', title: '支付专项复盘' }),
+      ])
+      expect(titleProxy.sessions.history).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('does not locate command cards, injected messages, inline think, or incomplete code fences', async () => {
+    const hiddenProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-hidden', updatedAt: 8 }], hasMore: false } } }),
+        search: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-hidden', snippet: 'hiddenneedle' }], hasMore: false } } }),
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              events: [
+                { event: { type: 'command/run', seq: 1, time: 1, data: { id: 'cmd', name: 'hiddenneedle', args: '' } } },
+                { event: { type: 'user/message', seq: 2, time: 2, data: { id: 'injected', role: 'user', source: { kind: 'plugin' }, content: [{ type: 'text', text: 'hiddenneedle' }] } } },
+                { event: { type: 'assistant/message', seq: 3, time: 3, data: { turn: 0, step: 0, message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '<think>hiddenneedle</think>公开回答' }] } } } },
+                { event: { type: 'assistant/message', seq: 4, time: 4, data: { turn: 0, step: 1, message: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '```ts\nhiddenneedle' }] } } } },
+              ],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: hiddenProxy, mobileEnterToSend }))
+    try {
+      const locate = await callWith(server.port, 'mobile.searchMessages', { sessionId: 's-hidden', query: 'hiddenneedle' })
+      const envelope = JSON.parse(locate.body) as { result: { value: { items: unknown[] } } }
+      expect(envelope.result.value.items).toEqual([])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('excludes subagent sessions from search results', async () => {
+    // Subagent sessions (origin: 'subagent') are internal working sessions,
+    // not user conversations — they must not surface in search, matching the
+    // roster filter. A normal session with the term still shows.
+    const subagentProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              items: [
+                { sessionId: 's-sub', origin: 'subagent' },
+                { sessionId: 's-main', origin: 'main' },
+              ],
+            },
+          },
+        }),
+        search: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              items: [
+                { sessionId: 's-sub', snippet: 'subterm 在子代理会话里' },
+                { sessionId: 's-main', snippet: 'subterm 在主会话里' },
+              ],
+              hasMore: false,
+            },
+          },
+        }),
+        history: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              events: [
+                { event: { type: 'user/message', seq: 5, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: 'subterm 正文' }] } } },
+              ],
+              hasMore: false,
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: subagentProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: 'subterm' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value: { items: Array<{ sessionId: string }> } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.items.map(item => item.sessionId)).toEqual(['s-main'])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('backfills CJK substring hits when the token search answers nothing', async () => {
+    // The FTS token index cannot match 支付 inside 支付专项 (contiguous CJK
+    // is one token), so the token search returns zero — the substring
+    // backfill must find the session in its history tail.
+    const backfillProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        search: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: [], hasMore: false } },
+        }),
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true,
+            value: {
+              items: [
+                { sessionId: 's-1', updatedAt: 3, running: false, blank: false },
+                { sessionId: 's-2', updatedAt: 2, running: false, blank: false },
+              ],
+            },
+          },
+        }),
+        history: vi.fn(async (request: unknown) => {
+          const id = (request as { payload?: { sessionId?: string } }).payload?.sessionId
+          return {
+            rpcId: 'r',
+            result: {
+              ok: true,
+              value: {
+                events: id === 's-1'
+                  ? [{ event: { type: 'user/message', seq: 10, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '修一下 支付专项 的回调' }] } } }]
+                  : [],
+                hasMore: false,
+              },
+            },
+          }
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: backfillProxy, mobileEnterToSend }))
+    try {
+      // A distinct query: the module-level searchAll cache is keyed by query
+      // and earlier cases already searched 支付.
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query: '支付专项' })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        result: { ok: boolean; value: { items: Array<{ sessionId: string; snippet: string }> } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      // s-1 matches the substring in its tail (with its first message seq,
+      // so tapping can open scrolled to it with zero extra RPC); s-2 does not.
+      expect(envelope.result.value.items).toEqual([
+        expect.objectContaining({ sessionId: 's-1', snippet: expect.stringContaining('支付专项'), seq: 10 }),
+      ])
+
+      // The backfill pre-warmed the message-locate cache: a follow-up
+      // mobile.searchMessages for the same session+query answers instantly
+      // from the cache (no extra history read).
+      const historyMock = backfillProxy.sessions.history as ReturnType<typeof vi.fn>
+      const historyCalls = historyMock.mock.calls.length
+      const locate = await callWith(server.port, 'mobile.searchMessages', { sessionId: 's-1', query: '支付专项' })
+      const locateView = JSON.parse(locate.body) as { result: { ok: boolean; value: { items: Array<{ seq: number }> } } }
+      expect(locateView.result.ok).toBe(true)
+      expect(locateView.result.value.items[0]?.seq).toBe(10)
+      expect(historyMock.mock.calls.length).toBe(historyCalls)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('reuses one folded search document across different queries for the same session', async () => {
+    const history = vi.fn(async () => ({
+      rpcId: 'r',
+      result: {
+        ok: true,
+        value: {
+          events: [{ event: { type: 'user/message', seq: 10, time: 10_000, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '支付专项回调' }] } } }],
+          hasMore: false,
+        },
+      },
+    }))
+    const cacheProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-cache', updatedAt: 99, running: false, blank: false }] } } }),
+        search: async () => ({ rpcId: 'r', result: { ok: true, value: { items: [], hasMore: false } } }),
+        history,
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: cacheProxy, mobileEnterToSend }))
+    try {
+      const first = await callWith(server.port, 'mobile.searchAll', { query: '支付' })
+      const second = await callWith(server.port, 'mobile.searchAll', { query: '回调' })
+      expect(JSON.parse(first.body).result.value.items[0]).toMatchObject({ sessionId: 's-cache', seq: 10 })
+      expect(JSON.parse(second.body).result.value.items[0]).toMatchObject({ sessionId: 's-cache', seq: 10 })
+      expect(history).toHaveBeenCalledTimes(1)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('flags a partial scan when the roster has more pages than the backfill window', async () => {
+    // The substring backfill only scans the first page of the roster. When
+    // the roster has more pages (hasMore) the scan is partial even if FTS
+    // hits excluded some candidates — the phone must be told so an empty
+    // result is not read as "not on host".
+    const roster = Array.from({ length: 24 }, (_, i) => ({
+      sessionId: `s-${i}`, updatedAt: 24 - i, running: false, blank: false,
+    }))
+    const partialProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        search: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: [{ sessionId: 's-0', snippet: '命中' }], hasMore: false } },
+        }),
+        list: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { items: roster, hasMore: true } },
+        }),
+        history: async () => ({
+          rpcId: 'r',
+          result: { ok: true, value: { events: [], hasMore: false } },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: partialProxy, mobileEnterToSend }))
+    try {
+      const query = '部分扫描'
+      const { status, body } = await callWith(server.port, 'mobile.searchAll', { query })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        result: { ok: boolean; value: { items: Array<{ sessionId: string }>; partial?: boolean } }
+      }
+      expect(envelope.result.ok).toBe(true)
+      // The FTS hit (s-0) is excluded from the backfill, so only 23 of the 24
+      // first-page sessions are scanned, and hasMore means more pages exist —
+      // the scan is partial.
+      expect(envelope.result.value.partial).toBe(true)
+      // The 60s whole-search cache must preserve the partial flag: a repeat
+      // search (cache hit) still tells the phone the scan was partial.
+      const cached = await callWith(server.port, 'mobile.searchAll', { query })
+      const cachedView = JSON.parse(cached.body) as {
+        result: { ok: boolean; value: { items: Array<{ sessionId: string }>; partial?: boolean } }
+      }
+      expect(cachedView.result.value.partial).toBe(true)
+    } finally {
+      await server.close()
     }
   })
 })

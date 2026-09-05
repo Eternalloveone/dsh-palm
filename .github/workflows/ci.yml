@@ -59,10 +59,11 @@ jobs:
         # Same pattern set as release.mjs's HYGIENE: local machine paths,
         # project codenames, the frp server IP, the tailnet domain, and the
         # maintainer's email addresses must never land in the repository
-        # (docs/screenshots/tests included). The rule files themselves spell
-        # the identifiers out, so they are excluded here and in gitleaks.
+        # (docs/screenshots/tests included). The pattern list is injected via
+        # the REAL_IDS_REGEX repository secret so the values never appear in
+        # the repository itself.
         run: |
-          if git grep -n -i -E "C:\\\\Users\\\\Administrator|D:\\\\work|ICNT[0-9]+|ICNA[0-9]+|123\\.56\\.228\\.146|eternallove\\.tailfc1eed\\.ts\\.net|SueCallis@163\\.com|fsu@chiponeic\\.com|chiponeic\\.com" HEAD -- . ':(exclude)pnpm-lock.yaml' ':(exclude).gitleaks.toml' ':(exclude).github/workflows/ci.yml' ':(exclude)scripts/hooks/pre-push'; then
+          if git grep -n -i -E '${{ secrets.REAL_IDS_REGEX }}' HEAD -- . ':(exclude)pnpm-lock.yaml' ':(exclude).gitleaks.toml' ':(exclude).github/workflows/ci.yml' ':(exclude)scripts/hooks/pre-push'; then
             echo "::error::repo hygiene scan found leaked local paths or IPs"
             exit 1
           fi

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveCommandDirectory, visibleSessionRows, type CommandRegistry, type AgentLookup } from './mobile-api.ts'
+import { findRowForSnippet, resolveCommandDirectory, visibleSessionRows, type CommandRegistry, type AgentLookup } from './mobile-api.ts'
 
 /**
  * The phone's session.list page slices come from this filtered array: the
@@ -95,5 +95,32 @@ describe('resolveCommandDirectory', () => {
 
   it('returns an empty directory when the command registry is not composed', () => {
     expect(resolveCommandDirectory(undefined, agents(), 's-live')).toEqual([])
+  })
+})
+
+describe('findRowForSnippet', () => {
+  const doc = (rows: Array<{ seq: number; text: string }>) => ({
+    rows: rows.map(row => ({ seq: row.seq, text: row.text, folded: row.text.toLowerCase(), user: false })),
+    complete: true,
+  })
+
+  it('matches the exact row whose text contains the snippet core', () => {
+    const document = doc([
+      { seq: 10, text: '先看支付逻辑再改' },
+      { seq: 20, text: '这里也提到支付逻辑' },
+    ])
+    // The FTS snippet points at the SECOND occurrence; the first-occurrence
+    // heuristic would pick seq 10, but the snippet match must pick seq 20.
+    expect(findRowForSnippet(document, '…这里也提到支付逻辑…')?.seq).toBe(20)
+  })
+
+  it('returns undefined for a snippet with no clean row match', () => {
+    const document = doc([{ seq: 10, text: '完全无关的内容' }])
+    expect(findRowForSnippet(document, '…支付逻辑…')).toBeUndefined()
+  })
+
+  it('returns undefined for an empty snippet', () => {
+    const document = doc([{ seq: 10, text: '支付逻辑' }])
+    expect(findRowForSnippet(document, '')).toBeUndefined()
   })
 })

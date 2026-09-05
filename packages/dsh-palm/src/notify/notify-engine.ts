@@ -12,7 +12,7 @@ import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { NotifyStore } from './notify-store.ts'
 
 /** What happened; drives the notification copy. */
-export type NotifyKind = 'task-done' | 'task-failed' | 'turn-done'
+export type NotifyKind = 'task-done' | 'task-failed' | 'turn-done' | 'todo-done'
 
 /** One notification decision, ready for any delivery channel. */
 export interface NotifyEvent {
@@ -59,6 +59,9 @@ export interface NotifyService {
 /** Session index refresh cadence (title + workspace lookup for copy/deep links). */
 const INDEX_REFRESH_MS = 5 * 60_000
 
+/** Bounded in-memory decision log (the phone's notification inbox). */
+const RECENT_EVENTS_LIMIT = 50
+
 /**
  * The notify decision engine. One instance per plugin lifetime; start() opens
  * the host mux watch, subscribe() attaches delivery listeners.
@@ -71,8 +74,12 @@ export class NotifyEngine {
   private readonly turnStartedAt = new Map<string, number>()
   /** sessionId → last turn-done notify epoch (cooldown). */
   private readonly lastTurnNotifyAt = new Map<string, number>()
+  /** sessionId → last todo-done notify epoch (cooldown). */
+  private readonly lastTodoNotifyAt = new Map<string, number>()
   /** sessionId → { title, workspaceId } (best-effort, refreshed). */
   private readonly sessionIndex = new Map<string, { title?: string; workspaceId?: string }>()
+  /** Recent decisions, oldest first (the phone's inbox; bounded). */
+  private readonly recent: NotifyEvent[] = []
   private controller: AbortController | undefined
   private indexTimer: ReturnType<typeof setInterval> | undefined
 
@@ -137,6 +144,8 @@ export class NotifyEngine {
 
   /** Track job status; a running→terminal transition emits one notification. */
   private onJobs(sessionId: string, jobs: Array<{ id: string; status: string; label?: string; detail?: string }>): void {
+    const config = this.store.getConfig()
+    if (config.kinds?.jobs === false) return
     for (const job of jobs) {
       const previous = this.jobStatus.get(job.id)
       this.jobStatus.set(job.id, job.status)
@@ -158,10 +167,41 @@ export class NotifyEngine {
     }
   }
 
+  /** Track the todo plan; a non-empty plan reaching all-completed emits one. */
+  private onTodo(sessionId: string, payload: { todos?: unknown }): void {
+    const todos = payload.todos
+    if (!Array.isArray(todos) || todos.length === 0) return
+    const allDone = todos.every(todo =>
+      typeof todo === 'object' && todo !== null && (todo as { status?: unknown }).status === 'completed')
+    if (!allDone) return
+    const now = Date.now()
+    const config = this.store.getConfig()
+    if (config.kinds?.todo === false) return
+    const last = this.lastTodoNotifyAt.get(sessionId)
+    if (last !== undefined && now - last < config.turnCooldownMs) return
+    this.lastTodoNotifyAt.set(sessionId, now)
+    const title = this.sessionIndex.get(sessionId)?.title
+    this.emit({
+      id: `todo-${sessionId}-${now.toString(36)}`,
+      kind: 'todo-done',
+      title: '规划完成',
+      body: title !== undefined && title !== '' ? `「${title}」的任务规划已全部完成` : '任务规划已全部完成',
+      sessionId,
+      workspaceId: this.sessionIndex.get(sessionId)?.workspaceId,
+      ts: now,
+    })
+  }
+
   /** Time turns; a completed turn longer than the threshold emits one notification. */
-  private onSessionEvent(sessionId: string, event: { type?: string; turn?: number; reason?: { kind?: string } }): void {
+  private onSessionEvent(sessionId: string, event: { type?: string; turn?: number; reason?: { kind?: string }; data?: unknown }): void {
     if (event.type === 'turn/start') {
       this.turnStartedAt.set(sessionId, Date.now())
+      return
+    }
+    if (event.type === 'todo/write') {
+      // The todo/write event carries the full-list snapshot in `data`
+      // ({ todos: TodoItem[] }) — the same shape the phone's plan strip parses.
+      this.onTodo(sessionId, event.data as { todos?: unknown } | undefined ?? {})
       return
     }
     if (event.type !== 'turn/end') return
@@ -173,6 +213,7 @@ export class NotifyEngine {
     if (event.reason?.kind !== 'completed') return
     const now = Date.now()
     const config = this.store.getConfig()
+    if (config.kinds?.turns === false) return
     if (now - startedAt < config.turnThresholdMs) return
     const last = this.lastTurnNotifyAt.get(sessionId)
     if (last !== undefined && now - last < config.turnCooldownMs) return
@@ -189,11 +230,36 @@ export class NotifyEngine {
     })
   }
 
+  /** The most recent decisions, newest first (bounded at RECENT_EVENTS_LIMIT). */
+  recentEvents(): NotifyEvent[] {
+    return [...this.recent].reverse()
+  }
+
   /** Fan out to every delivery listener; a failing listener never breaks the engine. */
   private emit(event: NotifyEvent): void {
+    // Lock-screen privacy: one decision, applied before any channel sees the
+    // event — L1 (in-app), L2 (Web Push) and L3 (Server酱/Bark/Telegram/
+    // PushPlus) all deliver the same redacted copy, and the phone inbox too.
+    const config = this.store.getConfig()
+    const delivered: NotifyEvent = config.hideDetails === true
+      ? {
+          ...event,
+          title: event.kind === 'task-done' ? '任务完成'
+            : event.kind === 'task-failed' ? '任务失败'
+              : event.kind === 'todo-done' ? '规划完成' : '回复完成',
+          body: event.kind === 'task-done' ? '有后台任务已完成，点击查看'
+            : event.kind === 'task-failed' ? '有后台任务失败，点击查看'
+              : event.kind === 'todo-done' ? '有任务规划已完成，点击查看'
+                : '有新的回复已完成，点击查看',
+        }
+      : event
+    this.recent.push(delivered)
+    if (this.recent.length > RECENT_EVENTS_LIMIT) {
+      this.recent.splice(0, this.recent.length - RECENT_EVENTS_LIMIT)
+    }
     for (const listener of this.listeners) {
       try {
-        listener(event)
+        listener(delivered)
       } catch {
         // delivery errors are the listener's problem
       }

@@ -28,6 +28,19 @@ export interface NotifyConfig {
     telegram?: { botToken: string; chatId: string }
     pushplus?: { token: string }
   }
+  /** Lock-screen privacy: strip session titles and task names from every
+   *  delivered notification (all channels share one decision). */
+  hideDetails?: boolean
+  /** Per-kind notification gates (absent → defaults: jobs off, todo on,
+   *  turns off — the quiet-by-default stance). */
+  kinds?: {
+    /** Background jobs (bash/pwsh …) terminal transitions. */
+    jobs?: boolean
+    /** The todo plan reaching all-completed. */
+    todo?: boolean
+    /** Turns longer than the threshold. */
+    turns?: boolean
+  }
 }
 
 /** One Web Push subscription as the browser reported it (L2). */

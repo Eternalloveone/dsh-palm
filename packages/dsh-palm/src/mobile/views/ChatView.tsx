@@ -44,6 +44,9 @@ import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll } from '../display-prefs.ts'
 import { formatRunDuration, timeVisibility } from '../ui-text.ts'
 import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../offline.ts'
+import { QueueDock } from '../queue-dock.tsx'
+import { updateQueue, queueItemViewOf, type QueueItemView } from '../api.ts'
+import { RpcCallError } from '../rpc.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
@@ -68,6 +71,14 @@ export interface ChatViewProps {
   showToolCalls: boolean
   /** Show injected system messages (owned by the app, persisted via display-prefs). */
   showSystemMessages: boolean
+  /** Message event seq retained as a history paging fallback. */
+  initialFocusSeq?: number
+  /** Stable folded message identity for exact locate. */
+  initialFocusMessageId?: string
+  /** Stable text-part identity for exact locate. */
+  initialFocusPartId?: string
+  /** Query paired with the target: expands and marks the visible prose. */
+  initialFocusQuery?: string
 }
 
 /**
@@ -155,6 +166,10 @@ export const LOAD_OLDER_TIMEOUT_MS = 15_000
 
 /** Message count above which the chat renders windowed instead of in full. */
 export const WINDOW_THRESHOLD = 120
+/** Older pages paged for a focus-locate before giving up (bounded IO). */
+// Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
+// paging bounded, but large enough to reach any result that search can return.
+export const FOCUS_MAX_PAGES = 4096
 /** Messages rendered ahead of / behind the located row. */
 export const WINDOW_OVERSCAN = 20
 /** Target visible message rows per window. */
@@ -166,6 +181,13 @@ const ESTIMATE_LINE_HEIGHT = 22
 const ESTIMATE_CHARS_PER_LINE = 38
 /** Rows a collapsed long message clamps to (matches chat-md-collapsed). */
 const ESTIMATE_MAX_LINES = 12
+
+/** Escape a value for use inside a quoted CSS attribute selector, safe on
+ *  every runtime (no reliance on `CSS.escape`, which is missing in jsdom and
+ *  some embedded webviews). Message ids carry only `"`/`\` that need it. */
+function escapeAttr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
 /**
  * Fixed prefix height for a STREAMING (pending) row. Its real height grows
  * every chunk, so measuring it (or estimating from its growing text) would
@@ -206,7 +228,17 @@ function displayName(name: string): string {
  * @param props - the session, the mux client, and the back action.
  * @returns the chat surface.
  */
-export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessages }: ChatViewProps) {
+export function ChatView({
+  session,
+  mux,
+  onBack,
+  showToolCalls,
+  showSystemMessages,
+  initialFocusSeq,
+  initialFocusMessageId,
+  initialFocusPartId,
+  initialFocusQuery,
+}: ChatViewProps) {
   const [messages, setMessages] = useState<RenderMessage[]>([])
 
   /**
@@ -220,7 +252,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // Latest loadOlder (the tail-load effect's closure is stale by the time the
   // page lands); the auto-extend on open calls through this ref. Assigned
   // after the useCallback below (TDZ).
-  const loadOlderRef = useRef<(silent?: boolean) => void>(() => {})
+  const loadOlderRef = useRef<(silent?: boolean, beforeSeq?: number) => void>(() => {})
   // One silent auto-extend per session open (see the tail-load effect).
   const autoExtendedRef = useRef(false)
   const [loading, setLoading] = useState(true)
@@ -386,6 +418,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   const [running, setRunning] = useState(false)
+  /** Pending-message queue for this session (desktop QueueDock equivalent),
+   *  seeded from the mux's retained snapshot so a freshly opened chat shows
+   *  messages queued before it mounted. */
+  const [queueItems, setQueueItems] = useState<QueueItemView[]>(
+    () => mux?.cachedQueueFor(session.sessionId) ?? [],
+  )
   /**
    * The running turn's logged `turn/start` event time (epoch ms), the turn
    * clock's anchor (desktop parity). Null while no turn is open or when the
@@ -395,6 +433,8 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const [turnStartAt, setTurnStartAt] = useState<number | null>(null)
   /** Turn-clock mount fallback (see turnStartAt). */
   const mountTimeRef = useRef(Date.now())
+  /** Host−phone clock delta, calibrated by every live frame (see onFrame). */
+  const hostClockOffsetRef = useRef(0)
   /** Wall-clock of the last mux frame of ANY kind (the activity probe behind
    * the quiet-state wording - subagent sessions stream on the same mux). */
   const lastFrameAtRef = useRef(Date.now())
@@ -516,6 +556,57 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       },
     )
   }, [mux, refreshOutbox])
+
+  /** Edit a queued message's text on the host (desktop QueueDock parity).
+   *  Resolves when the host answers — rejected included — so the dock's
+   *  in-flight guard releases. */
+  const handleQueueEdit = useCallback(async (itemId: string, text: string): Promise<void> => {
+    try {
+      await updateQueue(session.sessionId, itemId, { kind: 'edit', content: [{ type: 'text', text }] })
+    } catch {
+      // The host rejected the mutation (item already claimed, or the agent
+      // detached so the session went cold). The queue view is authoritative
+      // host data, not local state: a rejection means the snapshot is about
+      // to change, and the next session/queue frame — or the
+      // session/subscribed re-baseline after a reconnect — converges it.
+      // Clearing here would drop rows that are still genuinely queued, so
+      // the dock is left alone and the failure is surfaced instead.
+      toast('消息已开始发送，无法编辑')
+    }
+  }, [session.sessionId])
+
+  /** Remove a queued message on the host. */
+  const handleQueueRemove = useCallback(async (itemId: string): Promise<void> => {
+    try {
+      await updateQueue(session.sessionId, itemId, { kind: 'remove' })
+    } catch {
+      toast('消息已开始发送，无法删除')
+    }
+  }, [session.sessionId])
+
+  /** Steer a queued message into the running turn (only while running). */
+  const handleQueueSteer = useCallback(async (itemId: string): Promise<void> => {
+    try {
+      await updateQueue(session.sessionId, itemId, { kind: 'steer' })
+    } catch (reason: unknown) {
+      const code = reason instanceof RpcCallError ? reason.error.code : undefined
+      if (code === 'steer-unavailable') {
+        // The host says the current turn no longer accepts steering — it
+        // ended, but the turn/end frame may have been lost to a degraded
+        // SSE channel. Mirror the host's running state so the UI stops
+        // offering steer on a finished turn.
+        toast('当前轮次已结束，无法插话')
+        setRunning(false)
+        return
+      }
+      // queue-item-not-found (already claimed / cold session) or a
+      // transport failure: the agent may still be running, so the running
+      // indicator stays untouched. The queue dock itself is authoritative
+      // host data and is never cleared here — the next session/queue frame
+      // (or the session/subscribed re-baseline) converges it.
+      toast(code === 'queue-item-not-found' ? '消息已开始发送，无法插话' : '插话失败')
+    }
+  }, [session.sessionId])
 
   // Connection restored: drain the outbox automatically.
   useEffect(() => {
@@ -643,6 +734,14 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
           loadOlderRef.current(true)
         }
         setLoading(false)
+        // Restore the turn-clock anchor from the tail window (desktop
+        // parity): the window carries the open turn/start's logged time when
+        // the boundary is within reach, so a mid-turn reload keeps the real
+        // elapsed time instead of counting from mount. A live turn/start
+        // frame already anchored it (newer) — never overwrite that.
+        if (page.turnStartAt !== undefined) {
+          setTurnStartAt(prev => prev ?? page.turnStartAt ?? null)
+        }
         // The page's projection baseline seeds the permission picker.
         // The `permissions` key is declared by the deployment's permission
         // plugin (augmentation), so the base SDK map is indexed loosely.
@@ -703,6 +802,19 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   useEffect(() => {
     if (mux === undefined) return
     return mux.onFrame((frame: MuxFrame, frameRpcId?: string) => {
+      // Every live host event frame carries a `time` the host wrote moments
+      // before dispatch, so it calibrates the host-clock offset. The running
+      // turn's elapsed math then matches the DESKTOP clock (same host)
+      // instead of drifting fast/slow by the phone's NTP skew over a public
+      // link (a few seconds is normal phone-vs-PC clock difference). The
+      // turn/start boundary frame is excluded: it anchors the clock and may
+      // legitimately carry an older logged time.
+      const frameEvent = (frame as { event?: { type?: unknown; time?: unknown } }).event
+      if (typeof frameEvent?.time === 'number'
+        && Number.isFinite(frameEvent.time)
+        && frameEvent.type !== 'turn/start') {
+        hostClockOffsetRef.current = frameEvent.time - Date.now()
+      }
       // Any frame at all (other sessions' too - the memory-upkeep subagent
       // streams on this same mux) proves the host is actively working; it
       // keeps the indicator in the 输出中 wording. First touch, before the
@@ -726,6 +838,14 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
             // The host clears the todo projection at turn/start; mirror it so
             // a stale plan never outlives the turn that wrote it.
             setTodo(undefined)
+            // A turn start claims the pending queue (the agent picks up the
+            // next queued message in FIFO order). The host broadcasts a fresh
+            // session/queue snapshot, but that frame can be lost when the SSE
+            // channel degrades to fallback polling (which does not replay
+            // session/queue). Clear the local queue view so a claimed message
+            // never lingers as a phantom row that can no longer be edited or
+            // removed.
+            setQueueItems([])
           }
           if (event.type === 'turn/end') {
             setRunning(false)
@@ -778,6 +898,28 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
       // The host sends a full set after every registry commit; adopt it whole.
       if (frame.type === 'session/jobs' && frame.sessionId === session.sessionId) {
         setJobs(frame.jobs)
+        return
+      }
+      // New mux-generation baseline: the host re-subscribes every session on
+      // each stream (re)open and pushes its queue/jobs snapshots right after —
+      // and only when non-empty. An omitted baseline means "empty", so any
+      // rows retained from the previous generation would linger as phantoms
+      // (the same re-baseline reset the desktop runtime applies to its queue
+      // mirror on session/subscribed). Drop both views; the frames that follow
+      // this one — if any — repopulate them.
+      if (frame.type === 'session/subscribed' && frame.sessionId === session.sessionId) {
+        setQueueItems([])
+        setJobs([])
+        return
+      }
+      // Pending-message queue snapshot for this session (desktop QueueDock
+      // equivalent): adopt the whole set on every change.
+      if (frame.type === 'session/queue' && frame.sessionId === session.sessionId) {
+        setQueueItems((frame.items ?? []).map(item => queueItemViewOf({
+          id: String(item.id),
+          placement: item.placement,
+          message: item.message as never,
+        })))
         return
       }
       // Approval/question frames for this session (#1025).
@@ -889,7 +1031,17 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
               for (let i = hpage.events.length - 1; i >= 0; i--) {
                 const t = hpage.events[i]?.event?.type
                 if (t === 'turn/end') { setRunning(false); return }
-                if (t === 'turn/start') return // still open - agent parked on a subagent
+                if (t === 'turn/start') {
+                  // The reconcile window is the one other place a
+                  // window-external turn/start can surface: anchor the clock
+                  // at its logged time (desktop parity) unless a live frame
+                  // already supplied a newer one.
+                  const time = hpage.events[i]?.event?.time
+                  if (typeof time === 'number' && Number.isFinite(time)) {
+                    setTurnStartAt(prev => prev ?? time)
+                  }
+                  return // still open - agent parked on a subagent
+                }
               }
             },
             () => { /* transient; the next interval retries */ },
@@ -954,7 +1106,12 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   useEffect(() => {
     if (!running) { setTurnElapsedMs(0); return }
     const anchor = turnStartAt ?? mountTimeRef.current
-    const tick = (): void => { setTurnElapsedMs(Math.max(0, Date.now() - anchor)) }
+    // Elapsed counts on HOST time (local now + the frame-calibrated skew),
+    // so the running clock agrees with the desktop instead of running fast
+    // or slow by the phone's NTP difference.
+    const tick = (): void => {
+      setTurnElapsedMs(Math.max(0, Date.now() + hostClockOffsetRef.current - anchor))
+    }
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
@@ -990,6 +1147,10 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   const locateWindow = useCallback(() => {
     const prefix = prefixRef.current
     if (prefix === undefined) return
+    // A search-locate owns the window until its anchor scrolls in; recomputing
+    // from the (still opening) scrollTop would repurpose the window to the
+    // tail and window the located row out before the anchor can render.
+    if (locatingRef.current) return
     const el = scrollRef.current
     const count = messagesRef.current.length
     // The window is already at the tail and the reader never left the
@@ -1056,6 +1217,14 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     scrollTopRef.current = el.scrollTop
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
     bottomGapAtUserScrollRef.current = gap
+    // A programmatic scroll (the locate) must not be mistaken for a user
+    // gesture: it would release the locate lock and let the follower re-pin
+    // the viewport to the tail. Only a genuine user scroll releases the lock.
+    if (programmaticScrollRef.current) {
+      programmaticScrollRef.current = false
+    } else {
+      locateLockRef.current = false
+    }
     // The jump-to-latest button appears once the reader scrolled away from
     // the bottom (same threshold the auto-follower uses); React bails out on
     // unchanged values, so this costs nothing while scrolling.
@@ -1189,6 +1358,9 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     // history is left alone even when the pending message finalizes into
     // much taller markdown.
     if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
+    // A search-locate is in flight: never re-pin to the tail until the user
+    // scrolls (the locate lock is released by a genuine user scroll).
+    if (locateLockRef.current) return
     scrollToBottom()
   }, [messages, scrollToBottom, autoScroll])
 
@@ -1450,7 +1622,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   /** Load one older page and prepend it. The fold is directional (incremental
    *  tails only), so the older page folds standalone and concatenates ahead —
    *  host page boundaries never cut a message, so the seam is exact. */
-  const loadOlder = useCallback((silent = false) => {
+  const loadOlder = useCallback((silent = false, beforeSeqOverride?: number) => {
     if (pendingRef.current) return
     pendingRef.current = true
     // The auto-extend on open must not flash the button's "加载中…" state.
@@ -1471,8 +1643,10 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     }, LOAD_OLDER_TIMEOUT_MS)
     // A coalesced turn message spans many step rows; page by its FIRST row's
     // seq, otherwise the request re-fetches already-shown steps of the same
-    // turn and prepending duplicates their text.
-    const beforeSeq = first.startSeq ?? first.seq
+    // turn and prepending duplicates their text. A search-locate may override
+    // the cursor to jump straight to the target's page (one RPC instead of
+    // paging back one page at a time through deep history).
+    const beforeSeq = beforeSeqOverride ?? (first.startSeq ?? first.seq)
     // Record the anchor BEFORE the fetch: React's commit-time focus scroll
     // restoration can zero the container's scrollTop while the old page is
     // swapped, which would make the anchor shift below the wrong content.
@@ -1536,6 +1710,340 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
     )
   }, [session.sessionId, messages, scrollToBottom])
   loadOlderRef.current = loadOlder
+
+  // Focus-locate (search-hit open): scroll the chat to the row covering the
+  // target message seq once it loads, paging back a bounded number of times
+  // when the row sits in older history. One highlight per open; a target
+  // that never surfaces gives up silently (the chat stays at the tail).
+  const focusPendingRef = useRef<number | undefined>(initialFocusSeq)
+  const focusMessageIdRef = useRef<string | undefined>(initialFocusMessageId)
+  const focusPartIdRef = useRef<string | undefined>(initialFocusPartId)
+  const focusAttemptsRef = useRef(0)
+  /** Whether the deep-history locate already jumped straight to the target's
+   *  page (one RPC) instead of paging back one page at a time. */
+  const focusJumpedRef = useRef(false)
+  const [focusMsgId, setFocusMsgId] = useState<string | undefined>(undefined)
+  /** The located step seq, paired with focusMsgId for the post-render scroll. */
+  const focusTargetRef = useRef<number | undefined>(undefined)
+  /** One-shot guard: scroll to the located step exactly once per open. */
+  const focusScrolledRef = useRef(false)
+  /** While a search-locate is active, the auto-follower must NOT re-pin the
+   *  viewport to the tail. The locate scrolls to a history row; if a message
+   *  update (prepend page, live event, initial-load follow-up) re-runs the
+   *  follower while the reader is still near the bottom, it calls
+   *  scrollToBottom() and yanks the view back to the newest message — the
+   *  "keyword highlighted but the viewport sits at the tail" failure. The
+   *  lock is released on the first genuine USER scroll. */
+  const locateLockRef = useRef(false)
+  /** True while a programmatic scroll (the locate) is in flight, so
+   *  handleScroll can tell it apart from a user gesture and not release the
+   *  locate lock. */
+  const programmaticScrollRef = useRef(false)
+  /** True while a search-locate has resolved its target row but has not yet
+   *  scrolled the anchor into view. During this window the opening tail-pin /
+   *  windowed re-locate must stand down — otherwise they repurpose the render
+   *  window to the tail and window the located row OUT of the DOM, so the
+   *  anchor never surfaces and the locate silently fails (intermittent
+   *  "search shows it but I can't see it" on long, windowed sessions). */
+  const locatingRef = useRef(false)
+  // App keeps the chat route keyed by session, so locating another hit in the
+  // same session reuses this component. Re-arm the locate state for each new
+  // target instead of treating the first open as the only one.
+  useEffect(() => {
+    focusPendingRef.current = initialFocusSeq
+    focusMessageIdRef.current = initialFocusMessageId
+    focusPartIdRef.current = initialFocusPartId
+    focusAttemptsRef.current = 0
+    focusJumpedRef.current = false
+    focusTargetRef.current = undefined
+    focusScrolledRef.current = false
+    locateLockRef.current = false
+    programmaticScrollRef.current = false
+    locatingRef.current = initialFocusSeq !== undefined || initialFocusMessageId !== undefined || initialFocusPartId !== undefined
+    setFocusMsgId(undefined)
+  }, [initialFocusSeq, initialFocusMessageId, initialFocusPartId, initialFocusQuery])
+  useEffect(() => {
+    const target = focusPendingRef.current
+    const targetMessageId = focusMessageIdRef.current
+    if ((target === undefined && targetMessageId === undefined) || loading) return
+    const messagesNow = messages
+    const query = initialFocusQuery?.trim().toLowerCase() ?? ''
+    const queryMatches = (message: RenderMessage): boolean => {
+      if (query === '') return true
+      const text = message.text.toLowerCase()
+      if (text.includes(query)) return true
+      const needles = query.match(/[\p{L}\p{N}_]+/gu) ?? []
+      return needles.length > 0 && needles.every(needle => text.includes(needle))
+    }
+    // A seq range is necessary but not sufficient after turn coalescing: a
+    // stale/shifted seq can fall inside a merged row that does not contain the
+    // searched text. Accept the range only when the row also matches query.
+    const idRowIndex = targetMessageId === undefined ? -1 : messagesNow.findIndex(message => message.id === targetMessageId)
+    const partMatches = (message: RenderMessage): boolean => {
+      if (targetMessageId !== undefined && message.id !== targetMessageId) return false
+      if (focusPartIdRef.current === undefined) return true
+      return message.flow?.some(part => part.kind === 'text' && part.partId === focusPartIdRef.current) === true
+    }
+    // The messageId is the AUTHORITATIVE identity: once it matched a rendered
+    // row, do NOT let the text-query veto it. The search index matched the
+    // flow's per-part text, while queryMatches checks the row's merged
+    // `message.text` — on a multi-step turn these can differ, so a legitimate
+    // hit would be vetoed and the locate would fall back to an OLDER row
+    // containing the keyword ("searched the newest message, landed
+    // mid-history"). queryMatches is only a guard against a stale/shifted SEQ
+    // landing in a row that lacks the text; a resolved messageId needs no such
+    // guard.
+    const stableRowIndex = idRowIndex >= 0 && partMatches(messagesNow[idRowIndex]) ? idRowIndex : -1
+    const firstLoadedSeq = messagesNow[0]?.startSeq ?? messagesNow[0]?.seq
+    const targetIsAtOrAfterLoadedStart = target === undefined || firstLoadedSeq === undefined || target >= firstLoadedSeq
+    const seqRowIndex = target === undefined || !targetIsAtOrAfterLoadedStart ? -1 : messagesNow.findIndex(message =>
+      // Search indexes the exact text-part/chunk seq, while a finalized row's
+      // public seq is the final event seq. For a single-step row startSeq is
+      // absent, so requiring target >= message.seq rejects a valid hit after
+      // pending→finalization and falls back to the first older query match.
+      target <= message.seq && queryMatches(message))
+    // An authoritative target that is not in the opening tail is not a
+    // legitimate query fallback. The tail may contain the same keyword in an
+    // older row; choosing it here both shows a misleading fallback toast and
+    // prevents the history pager from ever loading the real target. Keep the
+    // query fallback only for legacy query-only opens, or after all history is
+    // exhausted below.
+    const hasAuthoritativeTarget = targetMessageId !== undefined || target !== undefined
+    const queryFallbackIndex = hasAuthoritativeTarget && hasOlder ? -1 : messagesNow.findIndex(queryMatches)
+    const rowIndex = stableRowIndex >= 0 ? stableRowIndex : seqRowIndex >= 0 ? seqRowIndex : queryFallbackIndex
+    console.debug(`[locate] initial: msgId=${targetMessageId ?? '-'} seq=${target ?? '-'} partId=${focusPartIdRef.current ?? '-'} query=${initialFocusQuery ?? '-'}; rows=${messagesNow.length}; resolved index=${rowIndex} (stable=${stableRowIndex} seqRow=${seqRowIndex})`)
+    if (rowIndex < 0) {
+      if (hasOlder && focusAttemptsRef.current < FOCUS_MAX_PAGES) {
+        // Don't burn an attempt on a load that is already in flight (the
+        // opening auto-extend): that page still lands and re-triggers this
+        // effect, so counting it would exhaust the page budget early and a
+        // deeper target would give up before it surfaces.
+        if (!pendingRef.current) {
+          focusAttemptsRef.current += 1
+          // First miss with a known target seq: jump straight to the target's
+          // page instead of paging back one page at a time through deep
+          // history (a hit 100 pages back would otherwise take ~100 serial
+          // RPCs and read as a failed locate). Fall back to normal paging
+          // after the jump if the target still has not surfaced.
+          if (!focusJumpedRef.current && target !== undefined) {
+            focusJumpedRef.current = true
+            loadOlderRef.current(true, target + 1)
+          } else {
+            loadOlderRef.current(true)
+          }
+        }
+      } else {
+        // Give up on this locate: release the window guard so the normal
+        // follower (locateWindow / pinToRealBottom) is not left permanently
+        // blocked — otherwise every later scroll in this session stops
+        // relocating the window and the chat appears frozen mid-history.
+        focusPendingRef.current = undefined
+        locatingRef.current = false
+        locateLockRef.current = false
+      }
+      return
+    }
+    focusPendingRef.current = undefined
+    const row = messagesNow[rowIndex]
+    setFocusMsgId(row.id)
+    // Diagnostic: if a messageId came from search but the row was resolved by
+    // seq/query fallback, the target id did not match any rendered row — most
+    // likely the searched message was still streaming (pending, synthetic id)
+    // when indexed and has now finalized with a different id, so the locate
+    // lands on an older row instead of the newest one.
+    if (targetMessageId !== undefined && stableRowIndex < 0) {
+      toast(`定位回退: 目标 ${targetMessageId} 未命中，定位到 ${row.id}（消息可能在更新中）`)
+    }
+    // The target row is resolved: own the window until its anchor scrolls in
+    // (see locatingRef), so the opening tail-pin cannot repurpose the render
+    // window to the tail and window this row out before it renders.
+    locatingRef.current = true
+    // Hold the auto-follower off until the user scrolls: a message update
+    // after the locate would otherwise re-pin the viewport to the tail.
+    locateLockRef.current = true
+    bottomGapAtUserScrollRef.current = Number.MAX_SAFE_INTEGER
+    // If the seq was stale but the paired query found a loaded row, use that
+    // row's own anchor; otherwise the old target would still miss the DOM.
+    focusTargetRef.current = stableRowIndex >= 0 ? target : seqRowIndex >= 0 ? target : (row.startSeq ?? row.seq)
+    focusScrolledRef.current = false
+    // Same threshold the renderer uses (this effect runs before the
+    // render-time `windowed` binding is declared).
+    const isWindowed = messagesNow.length >= WINDOW_THRESHOLD
+    if (isWindowed) {
+      const start = Math.max(0, rowIndex - WINDOW_OVERSCAN)
+      const end = Math.min(messagesNow.length, rowIndex + WINDOW_VISIBLE + WINDOW_OVERSCAN)
+      setWin(previous => previous.start === start && previous.end === end ? previous : { start, end })
+    }
+  }, [messages, hasOlder, loading, initialFocusSeq, initialFocusMessageId, initialFocusPartId, initialFocusQuery])
+
+  // Scroll to the located step AFTER the window renders it. setWin is async,
+  // so a same-frame querySelector would miss the freshly-windowed rows; this
+  // effect runs once the focused row is in the DOM. The one-shot guard keeps
+  // a later user scroll (which also changes `win`) from re-yanking the view.
+  // useLayoutEffect instead of useEffect: it runs synchronously AFTER the DOM
+  // commit but BEFORE the browser paints, so the windowed rows are laid out and
+  // getBoundingClientRect reports their current positions — no rAF deferral is
+  // needed to escape a stale (pre-windowed or pre-reflow) layout. That stale
+  // layout is exactly why the previous rAF-based scroll left the viewport at
+  // the tail ("keyword highlighted but never jumped").
+  useLayoutEffect(() => {
+    if (focusMsgId === undefined) return
+    if (focusScrolledRef.current) return
+    const target = focusTargetRef.current
+    if (target === undefined && initialFocusMessageId === undefined && initialFocusPartId === undefined) return
+    const el = scrollRef.current
+    if (el === undefined) return
+    const scrollTo = (): void => {
+      // The locate scrolls AWAY from the bottom, but the gap ref is still
+      // stale (~0 from the opening pin-to-bottom) until the browser fires the
+      // scroll event. The windowed height-correction / pin-to-real-bottom
+      // effects run in the SAME commit, after this effect, and would read that
+      // stale gap and yank the view back to the tail. Mark the reader as away
+      // from the bottom so those effects stand down; the next real scroll
+      // event overwrites the sentinel via handleScroll.
+      bottomGapAtUserScrollRef.current = Number.MAX_SAFE_INTEGER
+      // Resolve the anchor FRESH on every frame (the windowed setWin commit
+      // replaces the row's DOM node, so a captured reference goes stale), and
+      // KEEP trying until the anchor is actually within the container's
+      // viewport — a single scroll can be clamped (windowed scrollHeight is an
+      // estimate) or overwritten by a competing effect, so verify and retry.
+      // scrollIntoView() (no options: the widest WebView compatibility) is a
+      // native backstop on top of the manual scrollTop.
+      let tries = 0
+      const run = (): void => {
+        const el2 = scrollRef.current
+        if (el2 === undefined) { console.debug('[locate] scroll container missing'); locatingRef.current = false; return }
+        const messageEl = el2.querySelector(`[data-message-id="${escapeAttr(focusMsgId)}"]`)
+        // The exact search keyword: the focused row renders it inside a
+        // <mark class="chat-search-mark"> wherever it sits in the text. Scrolling
+        // to the row/step TOP is not enough — on a long markdown (or a long
+        // coalesced turn) the matched word can be mid-bubble, off-viewport below
+        // the row root even though the root itself is in view. Scroll to the
+        // mark so the keyword is actually reached.
+        const markEl = messageEl?.querySelector<HTMLElement>('.chat-search-mark')
+        const partEl = initialFocusPartId === undefined ? null : messageEl?.querySelector(`[data-part-id="${escapeAttr(initialFocusPartId)}"]`) ?? null
+        const stepEl = target === undefined ? null : el2.querySelector(`[data-step-seq="${escapeAttr(String(target))}"]`)
+        const anchor = stepEl ?? markEl ?? partEl ?? messageEl ?? (target === undefined ? null : el2.querySelector(`[data-row-seq="${escapeAttr(String(target))}"]`))
+        if (anchor === null) {
+          if (tries >= 10) { console.debug(`[locate] anchor never surfaced (focusMsgId=${focusMsgId} seq=${target ?? '-'})`); locatingRef.current = false; return }
+          tries += 1
+          requestAnimationFrame(run)
+          return
+        }
+        // Force a synchronous reflow BEFORE reading geometry: the windowed
+        // setWin commit just landed and the spacer heights are still pending —
+        // without this, getBoundingClientRect() returns the STALE full-list (or
+        // pre-window) layout and the computed scrollTop is wrong, so the
+        // viewport lands at the tail instead of on the located row.
+        void el2.scrollHeight
+        const top = anchor.getBoundingClientRect().top - el2.getBoundingClientRect().top + el2.scrollTop - 8
+        const before = el2.scrollTop
+        // Mark this as a programmatic scroll so handleScroll does not treat it
+        // as a user gesture and release the locate lock.
+        programmaticScrollRef.current = true
+        el2.scrollTop = Math.max(0, top)
+        scrollTopRef.current = el2.scrollTop
+        try { anchor.scrollIntoView() } catch { /* older webviews */ }
+        // Verify one frame later; if the anchor is still off-viewport, retry
+        // the scroll rather than giving up (a later commit/effect may have
+        // reset it). Only surface a hint after we have genuinely exhausted it.
+        requestAnimationFrame(() => {
+          const el2b = scrollRef.current
+          if (el2b === undefined) { locatingRef.current = false; return }
+          const aTop = anchor.getBoundingClientRect().top
+          const cTop = el2b.getBoundingClientRect().top
+          const cH = el2b.clientHeight
+          // If the container reports no viewport height the layout is still
+          // unstable (or jsdom gives 0) — trust the scroll rather than report a
+          // false miss and hammer the retry loop.
+          if (cH <= 0) {
+            focusScrolledRef.current = true
+            locatingRef.current = false
+            return
+          }
+          const inView = aTop >= cTop - 1 && aTop <= cTop + cH + 1
+          if (!inView) {
+            console.debug(`[locate] verify: off-viewport anchorTop=${Math.round(aTop)} viewport=[${Math.round(cTop)},${Math.round(cTop + cH)}] scrollTop ${before}->${el2b.scrollTop} clientH=${cH} scrollH=${Math.round(el2b.scrollHeight)} tries=${tries}`)
+            if (tries < 12) {
+              tries += 1
+              requestAnimationFrame(run)
+            } else {
+              // Diagnose: report the numbers on-screen so the user can send the
+              // screenshot and we can see WHY the scroll never lands.
+              toast(`定位未成功(共${messages.length}条, 窗口${windowed ? '开' : '关'}, 目标滚动≈${Math.round(top)}, 当前${Math.round(el2b.scrollTop)}/${Math.round(el2b.scrollHeight)})`)
+              focusScrolledRef.current = true
+              locatingRef.current = false
+            }
+            return
+          }
+          console.debug(`[locate] OK focusMsgId=${focusMsgId} seq=${target ?? '-'} scrollTop ->${Math.round(el2b.scrollTop)} after ${tries} try/tries`)
+          focusScrolledRef.current = true
+          locatingRef.current = false
+        })
+      }
+      // Run synchronously inside the layout effect (before paint) so the layout
+      // is the committed windowed one; the verify step still re-runs on later
+      // frames if a competing effect pushed the row back off-screen.
+      run()
+    }
+    // Prefer the exact step anchor; fall back to the row itself (non-flow
+    // rows render no per-step anchor, and their seq equals the row seq).
+    const findAnchor = (): Element | null => {
+      // Prefer the RENDERED row (focusMsgId) over the raw target: the locate
+      // effect already resolved focusMsgId to a row that IS in the DOM (its
+      // highlight is showing). When the search hit carried only a seq (no
+      // messageId), the target seq may be a flow-part seq that matches no
+      // data-step-seq/data-row-seq — but the row root always carries
+      // data-message-id=focusMsgId, so scrolling to it is always possible.
+      const messageEl = el.querySelector(`[data-message-id="${escapeAttr(focusMsgId)}"]`)
+      const markEl = messageEl?.querySelector<HTMLElement>('.chat-search-mark')
+      const partEl = initialFocusPartId === undefined ? null : messageEl?.querySelector(`[data-part-id="${escapeAttr(initialFocusPartId)}"]`) ?? null
+      // Prefer the EXACT step anchor over the message root. A search hit
+      // carries a seq that maps to one text part's `data-step-seq`; scrolling
+      // to the root instead lands at the TOP of a long coalesced turn where
+      // the matched keyword (buried mid-bubble) is off-screen — the user then
+      // reports "the keyword isn't in the history". Fall back to the root only
+      // when no precise anchor exists (non-flow rows have only data-row-seq).
+      const stepEl = target === undefined ? null : el.querySelector(`[data-step-seq="${escapeAttr(String(target))}"]`)
+      return stepEl ?? markEl ?? partEl ?? messageEl ?? (target === undefined ? null : el.querySelector(`[data-row-seq="${escapeAttr(String(target))}"]`))
+    }
+    const anchor = findAnchor()
+    if (anchor !== null) {
+      scrollTo()
+      return
+    }
+    // The window may not have rendered the target row yet (setWin is async
+    // and React commits after this effect). Mobile history paging and Markdown
+    // parsing can exceed a few hundred milliseconds, so keep waiting for the
+    // actual anchor instead of silently abandoning a valid search hit.
+    let attempts = 0
+    let timer: ReturnType<typeof setTimeout>
+    const retry = (): void => {
+      attempts += 1
+      if (attempts > 120) {
+        // Last resort: scroll to the focused row by its id even if the exact
+        // step anchor never surfaced (a coalescing edge case) — better than
+        // leaving the chat at the tail.
+        const rowEl = el.querySelector(`[data-mid="${focusMsgId}"]`)
+        if (rowEl !== null) scrollTo()
+        // Give up: release the window guard so later scrolls/locates still work.
+        locatingRef.current = false
+        return
+      }
+      const el2 = scrollRef.current
+      if (el2 === undefined) return
+      // Wait only for the RENDERED row by its stable id; scrollTo internally
+      // resolves the finest anchor (step → part → row root) on the next frame.
+      const messageEl2 = el2.querySelector(`[data-message-id="${escapeAttr(focusMsgId)}"]`)
+      if (messageEl2 === null) {
+        timer = setTimeout(retry, 50)
+        return
+      }
+      scrollTo()
+    }
+    timer = setTimeout(retry, 50)
+    return () => clearTimeout(timer)
+  }, [focusMsgId, win, initialFocusMessageId, initialFocusPartId])
 
   /** Add a picked/pasted image: compress it, then append to the attach list. */
   const addImage = useCallback((file: File) => {
@@ -1619,8 +2127,16 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         mux?.poke()
       },
       (reason: unknown) => {
+        // The draft is deliberately NOT cleared on failure (only the success
+        // path wipes it), so the user's text/images survive to be retried —
+        // retry is just pressing send again. Surface the real reason (and the
+        // stale-host hint when the host may still run an old allowlist) so a
+        // failed send never looks silent.
         setSending(false)
-        setError(errorText(reason))
+        const message = errorText(reason)
+        const hint = staleHostHint(message)
+        setError(hint !== undefined ? `${message} ${hint}` : message)
+        toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
       },
     )
   }, [input, attachImages, sending, session.sessionId, mux, quoted, runCommand])
@@ -1865,6 +2381,7 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
   // and yank the view away from the real tail.
   useEffect(() => {
     if (!windowed) return
+    if (locatingRef.current) return
     if (!followedBottomRef.current) return
     if (!autoScroll) return
     if (bottomGapAtUserScrollRef.current > BOTTOM_FOLLOW_THRESHOLD_PX) return
@@ -2096,6 +2613,8 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
                   showToolCalls={showToolCalls}
                   showSystemMessages={showSystemMessages}
                   showTime={timeFlags[index] === true}
+                  focused={message.id === focusMsgId}
+                  focusedQuery={initialFocusQuery}
                 />
               )
             })}
@@ -2109,6 +2628,8 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
               showToolCalls={showToolCalls}
               showSystemMessages={showSystemMessages}
               showTime={timeFlags[index] === true}
+              focused={message.id === focusMsgId}
+              focusedQuery={initialFocusQuery}
             />
           ))
         )}
@@ -2370,6 +2891,13 @@ export function ChatView({ session, mux, onBack, showToolCalls, showSystemMessag
         />
       )}
       <div className="chat-composer">
+        <QueueDock
+          items={queueItems}
+          running={running}
+          onEdit={handleQueueEdit}
+          onRemove={handleQueueRemove}
+          onSteer={handleQueueSteer}
+        />
         {quoted !== undefined && (
           <div className="chat-quote-bar" role="note" aria-label="引用消息">
             <span className="chat-quote-text">{quoted.slice(0, 20)}{quoted.length > 20 ? '…' : ''}</span>

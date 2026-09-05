@@ -12,7 +12,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/settings'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, mutateSettings, readNotifyConfig, readSettings, testNotifyChannels, writeNotifyConfig, type UsageProviderView, type UsageView } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, mutateSettings, notifyEvents, readNotifyConfig, readSettings, testNotifyChannels, writeNotifyConfig, type NotifyEventView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
@@ -54,6 +54,29 @@ function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' | 'r
   return <span className={`settings-badge settings-badge-${scope}`}>{label}</span>
 }
 
+/** Channel credential presence: the host stores the value, the phone never
+ *  sees it — show the configured state instead of a deceptively empty field. */
+function ChannelState({ configured }: { configured: boolean }) {
+  return (
+    <span className={`settings-channelState${configured ? ' settings-channelState-on' : ''}`}>
+      {configured ? '已配置 ✓（凭据存于电脑端）' : '未配置'}
+    </span>
+  )
+}
+
+/** Inbox row time: today → HH:mm, otherwise MM-DD HH:mm. */
+function formatInboxTime(ts: number): string {
+  const date = new Date(ts)
+  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const now = new Date()
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate()
+  return sameDay
+    ? time
+    : `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${time}`
+}
+
 /** Merged card groups: semantically related namespaces share one card. */
 const SETTINGS_GROUPS: Array<{ id: string; title: string; namespaces: string[] }> = [
   { id: 'general', title: '通用', namespaces: ['ui-theme', 'locale', 'ui-conversation', 'ui-onboarding'] },
@@ -67,13 +90,44 @@ const SETTINGS_GROUPS: Array<{ id: string; title: string; namespaces: string[] }
   { id: 'presets', title: 'Agent 预设', namespaces: ['agent-presets'] },
 ]
 
+/** One searchable sub-configuration entry: lives INSIDE the notify / voice
+ *  sub-pages, which the main-page keyword filter cannot reach. Tapping a
+ *  search hit opens the owning sub-page and scrolls the entry into view
+ *  with a one-shot pulse (data-locate-id anchor on the rendered entry). */
+interface SettingsIndexEntry {
+  /** The entry's `data-locate-id` anchor on the rendered sub-page. */
+  id: string
+  label: string
+  group: string
+  keywords: string[]
+  open: 'notify' | 'voice'
+}
+
+const SETTINGS_INDEX: SettingsIndexEntry[] = [
+  { id: 'notify-browser', label: '浏览器通知（启用）', group: '通知', keywords: ['浏览器通知', '通知权限', 'notify', 'enable'], open: 'notify' },
+  { id: 'notify-kinds', label: '通知内容（三类事件开关）', group: '通知', keywords: ['通知内容', '规划完成', '后台任务', '长回复'], open: 'notify' },
+  { id: 'notify-pushplus', label: '推送渠道 · PushPlus Token', group: '通知', keywords: ['pushplus', 'token', '微信直达'], open: 'notify' },
+  { id: 'notify-serverchan', label: '推送渠道 · Server酱 SendKey', group: '通知', keywords: ['serverchan', 'sendkey', 'server酱', 'sct'], open: 'notify' },
+  { id: 'notify-bark', label: '推送渠道 · Bark Key', group: '通知', keywords: ['bark', 'bark key', 'ios 直达'], open: 'notify' },
+  { id: 'notify-tg', label: '推送渠道 · Telegram', group: '通知', keywords: ['telegram', 'bot token', 'chat id', 'tg'], open: 'notify' },
+  { id: 'notify-webpush', label: 'Web Push（系统推送）', group: '通知', keywords: ['web push', '系统推送', 'fcm', '代理'], open: 'notify' },
+  { id: 'notify-triggers', label: '触发条件（阈值与间隔）', group: '通知', keywords: ['触发条件', '阈值', '间隔', 'cooldown'], open: 'notify' },
+  { id: 'notify-privacy', label: '隐私（锁屏隐藏详情）', group: '通知', keywords: ['隐私', '锁屏隐藏', '隐藏详情'], open: 'notify' },
+  { id: 'voice-add', label: '语音 · 添加/编辑转写服务', group: '语音', keywords: ['添加服务', '语音服务', 'transcribe', '转写', 'baseurl'], open: 'voice' },
+  { id: 'voice-list', label: '语音 · 服务列表管理', group: '语音', keywords: ['语音列表', '排序', '上移', '下移', '删除服务'], open: 'voice' },
+]
+
 /** One row of the unified settings card: icon · title/value · control. */
-function SettingsRow({ icon, title, desc, action, onClick }: {
+function SettingsRow({ icon, title, desc, action, onClick, locateId, focused }: {
   icon: ReactNode
   title: string
   desc?: string
   action?: ReactNode
   onClick?(): void
+  /** data-locate-id anchor for the settings search (find + scroll + pulse). */
+  locateId?: string
+  /** One-shot pulse when this row is the active search target. */
+  focused?: boolean
 }) {
   const body = (
     <>
@@ -85,12 +139,14 @@ function SettingsRow({ icon, title, desc, action, onClick }: {
       <span className="card-action">{action}</span>
     </>
   )
+  const attributes = locateId === undefined ? {} : { 'data-locate-id': locateId }
+  const cls = 'settings-row' + (focused === true ? ' settings-focus' : '')
   if (onClick === undefined) {
-    return <li className="settings-row">{body}</li>
+    return <li className={cls} {...attributes}>{body}</li>
   }
   return (
     <li>
-      <button type="button" className="settings-row" onClick={onClick}>
+      <button type="button" className={cls} onClick={onClick} {...attributes}>
         {body}
       </button>
     </li>
@@ -219,12 +275,29 @@ function UsageProviderCard({ provider }: { provider: UsageProviderView }) {
       </div>
       {provider.status === 'ok' && provider.kind === 'usage' && provider.usedPercent !== undefined && (
         <>
-          <div className="usage-meter">
-            <div className="usage-meterFill" style={{ width: `${(provider.usedPercent * 100).toFixed(0)}%` }} />
-          </div>
-          <div className="usage-stats">
-            <span>周已用 <b>{(provider.usedPercent * 100).toFixed(1)}%</b></span>
-            <span>余量 <b>{((1 - provider.usedPercent) * 100).toFixed(1)}%</b></span>
+          {provider.sessionUsed !== undefined && (
+            <div className="usage-block">
+              <div className="usage-row">
+                <span className="usage-rowLabel">近 5 小时</span>
+                <span className="usage-rowValue">{(provider.sessionUsed * 100).toFixed(0)}%</span>
+              </div>
+              <div className="usage-meter">
+                <div className="usage-meterFill" style={{ width: `${(provider.sessionUsed * 100).toFixed(0)}%` }} />
+              </div>
+              <p className="usage-resetNote">按最近 5 小时滚动统计，窗口随请求持续滑动、无固定重置时刻</p>
+            </div>
+          )}
+          <div className="usage-block">
+            <div className="usage-row">
+              <span className="usage-rowLabel">本周</span>
+              <span className="usage-rowValue">
+                {(provider.usedPercent * 100).toFixed(1)}% · 余 {((1 - provider.usedPercent) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="usage-meter">
+              <div className="usage-meterFill" style={{ width: `${(provider.usedPercent * 100).toFixed(0)}%` }} />
+            </div>
+            <p className="usage-resetNote">按最近 7 天滚动统计，窗口随请求持续滑动、无固定重置时刻</p>
           </div>
         </>
       )}
@@ -309,6 +382,19 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   // Notification-page trigger inputs (synced from the loaded config).
   const [thresholdInput, setThresholdInput] = useState('30')
   const [cooldownInput, setCooldownInput] = useState('2')
+  // Notification inbox: the host engine's recent decisions (newest first).
+  const [inbox, setInbox] = useState<NotifyEventView[]>([])
+  const [inboxBusy, setInboxBusy] = useState(false)
+  // Lock-screen privacy switch (synced from the loaded config).
+  const [hideDetailsOn, setHideDetailsOn] = useState(false)
+  // Per-kind notification gates (synced from the loaded config; defaults
+  // mirror the host: jobs off, todo on, turns off).
+  const [kindsOn, setKindsOn] = useState({ jobs: false, todo: true, turns: false })
+  // Channel-clear confirmation: all-empty save with configured channels.
+  const [confirmClearChannels, setConfirmClearChannels] = useState(false)
+  // About-sheet update check state.
+  const [versionBusy, setVersionBusy] = useState(false)
+  const [versionStatus, setVersionStatus] = useState<string | undefined>(undefined)
 
   useEffect(() => subscribeVoiceServices(() => setVoiceServicesState(getVoiceServices())), [])
 
@@ -337,11 +423,39 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
         setNotifyConfig(config)
         setThresholdInput(String(Math.round(config.turnThresholdMs / 1000)))
         setCooldownInput(String(Math.round(config.turnCooldownMs / 60_000)))
+        setHideDetailsOn(config.hideDetails === true)
+        setKindsOn({
+          jobs: config.kinds.jobs,
+          todo: config.kinds.todo,
+          turns: config.kinds.turns,
+        })
       },
       () => { /* notify unavailable: rows stay hidden */ },
     )
     return () => { cancelled = true }
   }, [])
+
+  // The notification inbox: refresh every time the notification page opens
+  // (the engine's log is host-side, so a poll is cheap and always fresh).
+  useEffect(() => {
+    if (!notifyOpen) return
+    let cancelled = false
+    setInboxBusy(true)
+    void notifyEvents().then(
+      (view) => {
+        if (cancelled) return
+        setInbox(view.items)
+        setInboxBusy(false)
+      },
+      () => {
+        if (!cancelled) {
+          setInbox([])
+          setInboxBusy(false)
+        }
+      },
+    )
+    return () => { cancelled = true }
+  }, [notifyOpen])
 
   // The current Web Push subscription (L2 switch state).
   useEffect(() => {
@@ -373,6 +487,31 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   const term = query.trim().toLowerCase()
   const hit = (...texts: ReadonlyArray<string | undefined>): boolean =>
     term === '' || texts.some(text => text !== undefined && text.toLowerCase().includes(term))
+  /** Settings-search locate target: a sub-page entry's data-locate-id anchor. */
+  const [focusId, setFocusId] = useState<string | undefined>(undefined)
+  // Sub-page entries matching the term (the main-page rows already filter by
+  // keyword; this index surfaces what lives inside the notify/voice pages).
+  const indexHits = term === ''
+    ? []
+    : SETTINGS_INDEX.filter(item =>
+      item.label.toLowerCase().includes(term)
+      || item.keywords.some(keyword => keyword.toLowerCase().includes(term)))
+  /** Settings-search locate anchor props: data-locate-id + the pulse marker
+   *  when this entry is the active target (CSS pulses [data-focus]). */
+  const locateProps = (id: string): Record<string, string> =>
+    focusId === id ? { 'data-locate-id': id, 'data-focus': '' } : { 'data-locate-id': id }
+
+  // Settings-search locate: once the target sub-page renders (focusId is set
+  // together with opening it), scroll the anchored entry into view so the
+  // pulse lands on screen. A not-yet-mounted anchor is a no-op; the effect
+  // re-runs when the sub-page opens.
+  useEffect(() => {
+    if (focusId === undefined) return
+    const raf = requestAnimationFrame(() => {
+      document.querySelector(`[data-locate-id="${focusId}"]`)?.scrollIntoView({ block: 'center' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [focusId, notifyOpen, voiceOpen])
 
   const notifyDesc = !notificationSupported()
     ? '当前浏览器不支持通知'
@@ -415,6 +554,30 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
 
   /** Save the L3 channel credentials (empty fields clear that channel). */
   const saveChannels = async (): Promise<void> => {
+    const input = serverchanKey.trim()
+      + barkKey.trim()
+      + tgToken.trim()
+      + tgChatId.trim()
+      + pushplusToken.trim()
+    const channels = notifyConfig?.channels
+    const anyConfigured = channels !== undefined && (
+      channels.serverchan.configured
+      || channels.bark.configured
+      || channels.telegram.configured
+      || channels.pushplus.configured
+    )
+    if (input === '' && anyConfigured) {
+      // The credentials never render back into the fields, so an all-empty
+      // save most likely means "I opened the page and hit save", not "clear
+      // everything" — confirm before wiping working channels.
+      setConfirmClearChannels(true)
+      return
+    }
+    await persistChannels()
+  }
+
+  /** The actual write (shared by the save button and the clear confirm). */
+  const persistChannels = async (): Promise<void> => {
     setNotifyBusy(true)
     try {
       await writeNotifyConfig({
@@ -475,6 +638,49 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
       }
     } finally {
       setNotifyBusy(false)
+    }
+  }
+
+  /** Toggle lock-screen privacy (instant write, like the L1/L2 switches). */
+  const handleHideDetailsToggle = async (next: boolean): Promise<void> => {
+    setNotifyBusy(true)
+    try {
+      await writeNotifyConfig({ hideDetails: next })
+      setHideDetailsOn(next)
+      toast(next ? '通知详情已隐藏' : '通知详情已显示')
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** Toggle one notification kind gate (instant write, all three values ride). */
+  const handleKindToggle = async (kind: 'jobs' | 'todo' | 'turns', next: boolean): Promise<void> => {
+    setNotifyBusy(true)
+    const patch = { ...kindsOn, [kind]: next }
+    try {
+      await writeNotifyConfig({ kinds: patch })
+      setKindsOn(patch)
+    } catch (reason: unknown) {
+      toast(errorText(reason))
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
+
+  /** About sheet: compare the published npm version with the local one. */
+  const handleVersionCheck = async (): Promise<void> => {
+    setVersionBusy(true)
+    try {
+      const { latest, isNewer } = await latestVersion()
+      setVersionStatus(isNewer
+        ? `发现新版本 ${latest} —— 可在桌面端 dsh 升级插件`
+        : `已是最新版本（${pkg.version}）`)
+    } catch {
+      setVersionStatus('检查失败，请稍后重试')
+    } finally {
+      setVersionBusy(false)
     }
   }
 
@@ -547,7 +753,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             </>
           )}
           <div className="settings-subhead">手机端服务</div>
-          <div className="settings-card">
+          <div className="settings-card" {...locateProps('voice-list')}>
             {voiceServices.length === 0 && (
               <p className="settings-note">尚未配置服务 — 点击下方「添加服务」。</p>
             )}
@@ -595,7 +801,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               </div>
             ))}
           </div>
-          <div className="sheet-confirm-actions">
+          <div className="sheet-confirm-actions" {...locateProps('voice-add')}>
             <button
               type="button"
               className="mobile-button"
@@ -717,8 +923,46 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             </div>
           </div>
 
-          {/* L1 浏览器通知（页内提醒） */}
+          {/* 最近通知：主机的判定记录（错过即丢的兜底） */}
           <div className="settings-card">
+            <div className="settings-cardHead">
+              <span className="settings-cardTitle">最近通知</span>
+            </div>
+            {inboxBusy ? (
+              <p className="settings-note">加载中…</p>
+            ) : inbox.length === 0 ? (
+              <p className="settings-note">暂无通知——任务完成或长回复结束时，这里会留下记录可回看。</p>
+            ) : (
+              <div className="settings-inbox">
+                {inbox.slice(0, 20).map(item => (
+                  <button
+                    type="button"
+                    key={item.id}
+                    className="settings-inboxRow"
+                    disabled={item.workspaceId === undefined}
+                    onClick={() => {
+                      const url = new URL(window.location.href)
+                      url.searchParams.set('workspace', item.workspaceId ?? '')
+                      url.searchParams.set('session', item.sessionId)
+                      window.location.href = `${url.pathname}${url.search}`
+                    }}
+                  >
+                    <span className="settings-inboxLine">
+                      <span className={`settings-inboxKind settings-inboxKind-${item.kind}`}>
+                        {item.kind === 'task-done' ? '完成' : item.kind === 'task-failed' ? '失败' : item.kind === 'todo-done' ? '规划' : '回复'}
+                      </span>
+                      <span className="settings-inboxTitle">{item.title}</span>
+                      <span className="settings-inboxTime">{formatInboxTime(item.ts)}</span>
+                    </span>
+                    <span className="card-desc">{item.body}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* L1 浏览器通知（页内提醒） */}
+          <div className="settings-card" {...locateProps('notify-browser')}>
             <div className="settings-cardHead">
               <span className="settings-cardTitle">浏览器通知</span>
               <ScopeBadge scope="sync" />
@@ -740,8 +984,63 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             </div>
           </div>
 
+          {/* 通知内容：三类事件分别开关（先决定通知什么） */}
+          {notifyConfig !== undefined && (
+            <div className="settings-card" {...locateProps('notify-kinds')}>
+              <div className="settings-cardHead">
+                <span className="settings-cardTitle">通知内容</span>
+                <ScopeBadge scope="sync" />
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">规划完成</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="规划完成"
+                  aria-checked={kindsOn.todo}
+                  className={`settings-switch${kindsOn.todo ? ' settings-switch-on' : ''}`}
+                  disabled={notifyBusy}
+                  onClick={() => { void handleKindToggle('todo', !kindsOn.todo) }}
+                />
+                <p className="settings-fieldDesc">任务规划全部完成时通知（推荐开启）</p>
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">后台任务</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="后台任务"
+                  aria-checked={kindsOn.jobs}
+                  className={`settings-switch${kindsOn.jobs ? ' settings-switch-on' : ''}`}
+                  disabled={notifyBusy}
+                  onClick={() => { void handleKindToggle('jobs', !kindsOn.jobs) }}
+                />
+                <p className="settings-fieldDesc">每个命令 / 子任务完成或失败都会提醒，容易打扰（默认关闭）</p>
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">长回复</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="长回复"
+                  aria-checked={kindsOn.turns}
+                  className={`settings-switch${kindsOn.turns ? ' settings-switch-on' : ''}`}
+                  disabled={notifyBusy}
+                  onClick={() => { void handleKindToggle('turns', !kindsOn.turns) }}
+                />
+                <p className="settings-fieldDesc">超过时长阈值的回复完成时提醒（默认关闭）</p>
+              </div>
+            </div>
+          )}
+
           {/* L3 推送渠道（重点：关页面也能收） */}
-          <div className="settings-card">
+          <div className="settings-card" {...locateProps('notify-pushplus')}>
             <div className="settings-cardHead">
               <span className="settings-cardTitle">推送渠道</span>
               <ScopeBadge scope="sync" />
@@ -762,7 +1061,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setPushplusToken(event.target.value) }}
               />
-              <p className="settings-fieldDesc">微信直达 · 免费 · 国内直连。推荐首选。</p>
+              <p className="settings-fieldDesc">微信直达 · 免费 · 国内直连。推荐首选。 <ChannelState configured={notifyConfig?.channels.pushplus.configured === true} /></p>
               <details className="settings-details">
                 <summary>如何获取 Token（3 步）</summary>
                 <div className="settings-detailsBody">
@@ -772,7 +1071,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 </div>
               </details>
             </div>
-            <div className="settings-field">
+            <div className="settings-field" {...locateProps('notify-serverchan')}>
               <div className="settings-fieldHead">
                 <span className="settings-fieldLabel">Server酱 SendKey</span>
               </div>
@@ -786,9 +1085,9 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setServerchanKey(event.target.value) }}
               />
-              <p className="settings-fieldDesc">微信直达 · 国内直连（免费版每日条数有限）。</p>
+              <p className="settings-fieldDesc">微信直达 · 国内直连（免费版每日条数有限）。 <ChannelState configured={notifyConfig?.channels.serverchan.configured === true} /></p>
             </div>
-            <div className="settings-field">
+            <div className="settings-field" {...locateProps('notify-bark')}>
               <div className="settings-fieldHead">
                 <span className="settings-fieldLabel">Bark Key</span>
               </div>
@@ -802,9 +1101,9 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setBarkKey(event.target.value) }}
               />
-              <p className="settings-fieldDesc">iOS 直达：iPhone / iPad 装 Bark 应用后获取 Key。</p>
+              <p className="settings-fieldDesc">iOS 直达：iPhone / iPad 装 Bark 应用后获取 Key。 <ChannelState configured={notifyConfig?.channels.bark.configured === true} /></p>
             </div>
-            <div className="settings-field">
+            <div className="settings-field" {...locateProps('notify-tg')}>
               <div className="settings-fieldHead">
                 <span className="settings-fieldLabel">Telegram Bot Token</span>
               </div>
@@ -833,7 +1132,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 spellCheck={false}
                 onChange={(event) => { setTgChatId(event.target.value) }}
               />
-              <p className="settings-fieldDesc">Telegram 需要能访问境外网络。</p>
+              <p className="settings-fieldDesc">Telegram 需要能访问境外网络。 <ChannelState configured={notifyConfig?.channels.telegram.configured === true} /></p>
             </div>
             <div className="sheet-confirm-actions">
               <button
@@ -854,7 +1153,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
 
           {/* L2 Web Push（可选，大陆受限） */}
           {webPushSupported() && (
-            <div className="settings-card">
+            <div className="settings-card" {...locateProps('notify-webpush')}>
               <div className="settings-cardHead">
                 <span className="settings-cardTitle">Web Push</span>
                 <ScopeBadge scope="sync" />
@@ -879,7 +1178,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
 
           {/* 高级：触发条件 */}
           {notifyConfig !== undefined && (
-            <div className="settings-card">
+            <div className="settings-card" {...locateProps('notify-triggers')}>
               <div className="settings-cardHead">
                 <span className="settings-cardTitle">触发条件（可选）</span>
                 <ScopeBadge scope="sync" />
@@ -922,7 +1221,42 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               </div>
             </div>
           )}
+
+          {/* 隐私：锁屏不泄露标题/任务名 */}
+          {notifyConfig !== undefined && (
+            <div className="settings-card" {...locateProps('notify-privacy')}>
+              <div className="settings-cardHead">
+                <span className="settings-cardTitle">隐私</span>
+                <ScopeBadge scope="sync" />
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">锁屏隐藏通知详情</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="锁屏隐藏通知详情"
+                  aria-checked={hideDetailsOn}
+                  className={`settings-switch${hideDetailsOn ? ' settings-switch-on' : ''}`}
+                  disabled={notifyBusy}
+                  onClick={() => { void handleHideDetailsToggle(!hideDetailsOn) }}
+                />
+                <p className="settings-fieldDesc">通知不显示会话标题与任务名，避免锁屏时被旁人看到内容</p>
+              </div>
+            </div>
+          )}
         </div>
+        {confirmClearChannels && (
+          <ConfirmDialog
+            title="清除已配置的推送渠道？"
+            body="输入框均为空，保存将清除电脑端已保存的通道凭据（Server酱 / Bark / Telegram / PushPlus），之后这些渠道将收不到通知。如果要保留，请取消后不要点保存。"
+            confirmLabel="清除"
+            tone="danger"
+            onCancel={() => { setConfirmClearChannels(false) }}
+            onConfirm={() => { setConfirmClearChannels(false); void persistChannels() }}
+          />
+        )}
       </div>
     )
   }
@@ -964,6 +1298,13 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
     )
   }
 
+  /** Activate a sub-page search hit: open its page and pulse the entry. */
+  const activateSetting = (entry: SettingsIndexEntry): void => {
+    if (entry.open === 'notify') setNotifyOpen(true)
+    else openVoicePage()
+    setFocusId(entry.id)
+  }
+
   /** Refresh the per-provider usage surface, bypassing the host's short cache. */
   const refreshUsage = async (): Promise<void> => {
     setUsageBusy(true)
@@ -998,6 +1339,28 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             onChange={(event) => { setQuery(event.target.value) }}
           />
         </div>
+
+        {indexHits.length > 0 && (
+          <ul className="settings-group">
+            <li className="settings-groupTitle">配置项 <span className="settings-groupDesc">通知 / 语音页内</span></li>
+            {indexHits.map(item => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className="settings-row"
+                  onClick={() => { activateSetting(item) }}
+                >
+                  <span className="card-icon"><span aria-hidden><SlidersIcon /></span></span>
+                  <span className="card-main">
+                    <span className="card-title"><span className="card-titleText">{item.label}</span></span>
+                    <span className="card-desc">{item.group} · 点击定位</span>
+                  </span>
+                  <span className="card-action"><RowChevron /></span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <div className="settings-legend">
           <ScopeBadge scope="phone" /><span>仅影响本机</span>
@@ -1265,6 +1628,19 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             <br />
             DSH 移动端界面：扫码配对、工作区、会话与实时对话。
           </p>
+          <div className="sheet-confirm-actions">
+            <button
+              type="button"
+              className="mobile-button"
+              disabled={versionBusy}
+              onClick={() => { void handleVersionCheck() }}
+            >
+              {versionBusy ? '检查中…' : '检查更新'}
+            </button>
+          </div>
+          {versionStatus !== undefined && (
+            <p className="settings-fieldDesc" role="status">{versionStatus}</p>
+          )}
         </Sheet>
       )}
       {confirmClear && (

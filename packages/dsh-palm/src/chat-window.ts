@@ -37,7 +37,7 @@
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
-import { EventFolder, foldEvents, latestTodoSnapshot, parseTodoList } from './mobile/messages.ts'
+import { EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList } from './mobile/messages.ts'
 import type { RenderMessage, TodoSnapshot, WireEvent } from './mobile/messages.ts'
 import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 
@@ -68,6 +68,12 @@ export interface ChatPage {
   todo?: TodoSnapshot
   /** Tail-page projection baseline, when available. */
   projections?: SessionProjectionsBlock
+  /** The running turn's logged `turn/start` time (epoch ms) when the window
+   *  contains an open turn boundary — the phone's turn-clock anchor (desktop
+   *  parity). Absent when the last boundary is a `turn/end` or the boundary
+   *  lies outside the window (the phone then falls back to mount time, as
+   *  the desktop TurnStatus does). Tail pages carry it; older pages never do. */
+  turnStartAt?: number
 }
 
 /** The host history read the service pages through (wired by the plugin). */
@@ -84,6 +90,8 @@ interface Window {
   hasMore: boolean
   todo: TodoSnapshot | undefined
   projections: SessionProjectionsBlock | undefined
+  /** The window's open turn/start logged time (undefined: no open boundary). */
+  turnStartAt: number | undefined
   lastAccessedAt: number
 }
 
@@ -193,6 +201,13 @@ export class ChatWindowService {
     if (window === undefined) return
     window.folder.fold([event])
     window.maxSeq = window.folder.lastSeq
+    // Keep the open-turn anchor current for the turn clock (desktop parity):
+    // a live boundary corrects it long before the phone opens the session.
+    if (event.type === 'turn/start') {
+      window.turnStartAt = typeof event.time === 'number' ? event.time : undefined
+    } else if (event.type === 'turn/end') {
+      window.turnStartAt = undefined
+    }
     if (event.type === 'todo/write') {
       const items = parseTodoList(event.data)
       if (items !== undefined) window.todo = { seq: event.seq, items }
@@ -248,6 +263,7 @@ export class ChatWindowService {
       hasMore: page.hasMore,
       todo: latestTodoSnapshot(events),
       projections: page.projections,
+      turnStartAt: lastOpenTurnStartTime(events),
       lastAccessedAt: Date.now(),
     }
     this.windows.set(sessionId, window)
@@ -283,5 +299,6 @@ function pageOf(window: Window, maxRows: number): ChatPage {
     hasMore: window.hasMore,
     ...(window.todo === undefined ? {} : { todo: window.todo }),
     ...(window.projections === undefined ? {} : { projections: window.projections }),
+    ...(window.turnStartAt !== undefined ? { turnStartAt: window.turnStartAt } : {}),
   }
 }

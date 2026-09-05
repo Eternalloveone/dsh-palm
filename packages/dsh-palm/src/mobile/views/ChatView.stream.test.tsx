@@ -65,6 +65,9 @@ class FakeMux {
   cachedJobsFor(): unknown[] | undefined {
     return undefined
   }
+  cachedQueueFor(): unknown[] | undefined {
+    return undefined
+  }
   onFrame(listener: (frame: unknown, rpcId?: string) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }

@@ -12,8 +12,11 @@ vi.mock('../api.ts', () => ({
   readNotifyConfig: vi.fn(),
   writeNotifyConfig: vi.fn(),
   fetchUsage: vi.fn(),
+  notifyEvents: vi.fn(),
+  latestVersion: vi.fn(),
+  testNotifyChannels: vi.fn(),
 }))
-import { fetchHostVoiceServices, fetchUsage, listAgentPresets, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, listAgentPresets, notifyEvents, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
@@ -21,6 +24,8 @@ const fetchHostVoiceServicesMock = vi.mocked(fetchHostVoiceServices)
 const readNotifyConfigMock = vi.mocked(readNotifyConfig)
 const fetchUsageMock = vi.mocked(fetchUsage)
 const writeNotifyConfigMock = vi.mocked(writeNotifyConfig)
+const notifyEventsMock = vi.mocked(notifyEvents)
+const latestVersionMock = vi.mocked(latestVersion)
 
 /** A minimal namespace view (schema envelope with string fields). */
 function namespace(ns: string, value: Record<string, unknown>): never {
@@ -83,6 +88,8 @@ describe('SettingsView card list', () => {
     readNotifyConfigMock.mockResolvedValue({
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
+      hideDetails: false,
+      kinds: { jobs: false, todo: true, turns: false },
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
@@ -251,10 +258,11 @@ describe('SettingsView card list', () => {
     expect(await screen.findByText(/余量 54%/)).toBeTruthy()
     expect(screen.queryByText('45.9%')).toBeNull()
 
-    // Expand: the provider detail (weekly used / remaining, model count).
+    // Expand: the provider detail (5-hour + weekly windows, reset notes).
     fireEvent.click(screen.getByRole('button', { name: /用量/ }))
-    expect(screen.getByText('45.9%')).toBeTruthy()
-    expect(screen.getByText('54.1%')).toBeTruthy()
+    expect(screen.getByText(/45\.9% · 余 54\.1%/)).toBeTruthy()
+    // The weekly window's reset note reads honestly (rolling, no fixed time).
+    expect(screen.getByText(/按最近 7 天滚动统计/)).toBeTruthy()
     expect(screen.getByText('2,934 次')).toBeTruthy()
 
     // Refresh: re-fetches, bypassing the host cache ({ refresh: true }).
@@ -289,8 +297,38 @@ describe('SettingsView card list', () => {
     expect(await screen.findByText(/余量 54%/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /用量/ }))
     // …and the endpoint-less provider never renders, collapsed or expanded.
-    expect(await screen.findByText('45.9%')).toBeTruthy()
+    expect(await screen.findByText(/45\.9% · 余 54\.1%/)).toBeTruthy()
     expect(screen.queryByText('agnes-ai')).toBeNull()
+  })
+
+  it('renders the 5-hour usage window with its own meter and reset note', async () => {
+    fetchUsageMock.mockResolvedValue({
+      fetchedAt: 0,
+      providers: [
+        {
+          name: 'ollama',
+          baseURL: 'https://ollama.com/v1',
+          kind: 'usage',
+          status: 'ok',
+          plan: 'pro',
+          usedPercent: 0.879,
+          sessionUsed: 0.5,
+          models: [],
+          fetchedAt: 0,
+        },
+      ],
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    expect(await screen.findByText(/余量 12%/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /用量/ }))
+    // Both quota windows render with their own meter and honest reset note
+    // (the API reports usage ratios only, so the note states the rolling
+    // window instead of inventing a fixed reset clock).
+    expect(screen.getByText('近 5 小时')).toBeTruthy()
+    expect(screen.getByText('50%')).toBeTruthy()
+    expect(screen.getByText(/87\.9% · 余 12\.1%/)).toBeTruthy()
+    expect(screen.getAllByText(/按最近 5 小时滚动统计/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/按最近 7 天滚动统计/)).toBeTruthy()
   })
 })
 
@@ -312,9 +350,13 @@ describe('SettingsView notification page (L3 channels)', () => {
     readNotifyConfigMock.mockResolvedValue({
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
+      hideDetails: false,
+      kinds: { jobs: false, todo: true, turns: false },
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
+    notifyEventsMock.mockResolvedValue({ items: [] })
+    latestVersionMock.mockResolvedValue({ latest: '0.7.3', isNewer: false })
   })
 
   it('renders the PushPlus token field with the recommend badge and the 3-step helper', async () => {
@@ -361,5 +403,226 @@ describe('SettingsView notification page (L3 channels)', () => {
         },
       })
     })
+  })
+
+  it('shows the inbox empty state when the host has no recent decisions', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    expect(await screen.findByText('最近通知')).toBeTruthy()
+    expect(await screen.findByText(/暂无通知/)).toBeTruthy()
+  })
+
+  it('lists the recent notification decisions with kind badges', async () => {
+    notifyEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: 'job-1',
+          kind: 'task-done',
+          title: '任务完成',
+          body: '「pnpm test」已完成',
+          sessionId: 's-1',
+          workspaceId: 'w-1',
+          ts: Date.now(),
+        },
+        {
+          id: 'job-2',
+          kind: 'task-failed',
+          title: '任务失败',
+          body: '「build」失败：exit 1',
+          sessionId: 's-2',
+          workspaceId: 'w-1',
+          ts: Date.now(),
+        },
+      ],
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    expect(await screen.findByText('「pnpm test」已完成')).toBeTruthy()
+    expect(screen.getByText('「build」失败：exit 1')).toBeTruthy()
+    // Both kind pills render (完成 / 失败).
+    expect(screen.getAllByText('完成').length).toBeGreaterThan(0)
+    expect(screen.getByText('失败')).toBeTruthy()
+    // The row enables when the workspace is known (deep link target exists).
+    const row = screen.getByText('「pnpm test」已完成').closest('button')
+    expect((row as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('disables inbox rows whose session workspace is unknown', async () => {
+    notifyEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: 'job-1',
+          kind: 'turn-done',
+          title: '回复完成',
+          body: '「改造」的回复已完成',
+          sessionId: 's-orphan',
+          ts: Date.now(),
+        },
+      ],
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    const row = (await screen.findByText('「改造」的回复已完成')).closest('button')
+    expect((row as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('toggles the lock-screen privacy switch and persists it', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    const privacy = await screen.findByRole('switch', { name: '锁屏隐藏通知详情' })
+    expect(privacy.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(privacy)
+    await waitFor(() => {
+      expect(writeNotifyConfigMock).toHaveBeenCalledWith({ hideDetails: true })
+    })
+    expect(privacy.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('flags a newer published version from the About sheet', async () => {
+    latestVersionMock.mockResolvedValue({ latest: '0.7.4', isNewer: true })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByText('关于'))
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+    expect(await screen.findByText(/发现新版本 0\.7\.4/)).toBeTruthy()
+  })
+
+  it('confirms the latest version from the About sheet', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByText('关于'))
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+    expect(await screen.findByText(/已是最新版本/)).toBeTruthy()
+  })
+
+  it('shows the notification content gates with the quiet defaults', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    // 规划完成 default on; 后台任务 / 长回复 default off.
+    expect((await screen.findByRole('switch', { name: '规划完成' })).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('switch', { name: '后台任务' }).getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByRole('switch', { name: '长回复' }).getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('persists a kind gate toggle through push.config', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    fireEvent.click(await screen.findByRole('switch', { name: '后台任务' }))
+    await waitFor(() => {
+      expect(writeNotifyConfigMock).toHaveBeenCalledWith({
+        kinds: { jobs: true, todo: true, turns: false },
+      })
+    })
+    expect(screen.getByRole('switch', { name: '后台任务' }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('shows which push channels are configured (credentials stay host-side)', async () => {
+    readNotifyConfigMock.mockResolvedValue({
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      hideDetails: false,
+      kinds: { jobs: false, todo: true, turns: false },
+      channels: {
+        serverchan: { configured: true },
+        bark: { configured: false },
+        telegram: { configured: false },
+        pushplus: { configured: false },
+      },
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    expect(await screen.findByText(/已配置 ✓/)).toBeTruthy()
+    expect(screen.getAllByText('未配置').length).toBeGreaterThan(0)
+  })
+
+  it('confirms before an all-empty save wipes configured channels', async () => {
+    readNotifyConfigMock.mockResolvedValue({
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      hideDetails: false,
+      kinds: { jobs: false, todo: true, turns: false },
+      channels: {
+        serverchan: { configured: true },
+        bark: { configured: false },
+        telegram: { configured: false },
+        pushplus: { configured: false },
+      },
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    // Wait for the config load (the configured-state label renders from it)
+    // so the clear gate sees the configured channel.
+    await screen.findByText(/已配置 ✓/)
+    fireEvent.click(screen.getByRole('button', { name: '保存推送渠道' }))
+    expect(await screen.findByText(/清除已配置的推送渠道/)).toBeTruthy()
+    expect(writeNotifyConfigMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(writeNotifyConfigMock).not.toHaveBeenCalled()
+  })
+
+  it('writes the empty values once the clear confirm is accepted', async () => {
+    readNotifyConfigMock.mockResolvedValue({
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      hideDetails: false,
+      kinds: { jobs: false, todo: true, turns: false },
+      channels: {
+        serverchan: { configured: true },
+        bark: { configured: false },
+        telegram: { configured: false },
+        pushplus: { configured: false },
+      },
+    })
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+    await screen.findByText(/已配置 ✓/)
+    fireEvent.click(screen.getByRole('button', { name: '保存推送渠道' }))
+    fireEvent.click(await screen.findByRole('button', { name: '清除' }))
+    await waitFor(() => {
+      expect(writeNotifyConfigMock).toHaveBeenCalledWith({
+        channels: {
+          serverchan: { sendKey: '' },
+          bark: { key: '' },
+          telegram: { botToken: '', chatId: '' },
+          pushplus: { token: '' },
+        },
+      })
+    })
+  })
+})
+
+describe('SettingsView sub-config search', () => {
+  it('finds sub-page entries in the search index and locates them on tap', async () => {
+    // jsdom has no scrollIntoView; stub it so the locate effect runs cleanly.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+      await screen.findByText('外观')
+      fireEvent.change(screen.getByPlaceholderText('搜索设置…'), { target: { value: 'pushplus' } })
+      // The index group surfaces the sub-page entry (no such row on the
+      // main page, so it is only reachable through the search index).
+      expect(await screen.findByText('推送渠道 · PushPlus Token')).toBeTruthy()
+      expect(screen.getByText(/点击定位/)).toBeTruthy()
+      // Tapping opens the notify page with the anchored entry pulsing.
+      fireEvent.click(screen.getByText('推送渠道 · PushPlus Token'))
+      await waitFor(() => {
+        const anchor = document.querySelector('[data-locate-id="notify-pushplus"]')
+        expect(anchor).not.toBeNull()
+        expect(anchor?.hasAttribute('data-focus')).toBe(true)
+      })
+      // The locate effect scrolls it into view on the next animation frame.
+      await waitFor(() => { expect(scrollIntoView).toHaveBeenCalledTimes(1) })
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('matches sub-page entries by their English keywords too', async () => {
+    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    await screen.findByText('外观')
+    fireEvent.change(screen.getByPlaceholderText('搜索设置…'), { target: { value: 'serverchan' } })
+    expect(await screen.findByText(/Server酱 SendKey/)).toBeTruthy()
+    // The main page does not render a row for it; only the index group does.
+    expect(screen.getByText(/点击定位/)).toBeTruthy()
   })
 })

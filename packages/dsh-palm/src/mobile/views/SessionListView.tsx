@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, previews } from '../api.ts'
+import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, previews, searchAll, searchMessages, type SessionSearchHit } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
@@ -46,10 +46,23 @@ export interface SessionListViewProps {
   workspace: WorkspaceRow
   /** Session carried by a notification deep link; opened after the list loads. */
   initialSessionId?: string
+  /** Restore the in-list search surface when the app returns here after a
+   *  chat opened from that search (one-shot, consumed on apply). */
+  initialSearch?: { open: boolean; term: string }
   onBack(): void
   onPick(session: SessionView): void
   /** Open the mobile settings page (gear in the header). */
   onOpenSettings(): void
+  /** Locate a search hit living in another workspace (in-app navigation). */
+  onLocateSession?(sessionId: string, workspaceId: string, seq?: number, query?: string): void
+  /** Open a search-hit session scrolled to one of its matched messages. */
+  onPickSeq?(session: SessionView, seq: number, query?: string, messageId?: string, partId?: string): void
+  /** Report the live in-list search surface so the app can restore it when
+   *  returning from a chat opened out of this list. */
+  onSearchSnapshot?(open: boolean, term: string): void
+  /** The app cleared its one-shot restore (called after initialSearch is
+   *  applied), so a later manual visit does not restore the search again. */
+  onSearchApplied?(): void
 }
 
 /** Rows shown for the opened workspace: its sessions, paged. The roster
@@ -163,7 +176,7 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
  * @param props - the workspace, back action, and pick action.
  * @returns the session list.
  */
-export function SessionListView({ workspace, initialSessionId, onBack, onPick, onOpenSettings }: SessionListViewProps) {
+export function SessionListView({ workspace, initialSessionId, initialSearch, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq, onSearchSnapshot, onSearchApplied }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -184,6 +197,53 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
   // (module-level: summaries survive a chat round-trip).
   const [searchActive, setSearchActive] = useState(false)
   const [search, setSearch] = useState('')
+  /** Host full-roster search hits (sessions not yet in the loaded pages). */
+  const [searchHits, setSearchHits] = useState<SessionSearchHit[]>([])
+  const [searchBusy, setSearchBusy] = useState(false)
+  const [searchDone, setSearchDone] = useState(false)
+  /** How many full-roster hits live outside this workspace (folded away). */
+  const [searchForeign, setSearchForeign] = useState(0)
+  /** Result cap reached: more hits exist but are folded (refine the query). */
+  const [searchHasMore, setSearchHasMore] = useState(false)
+  /** The search hit currently locating its first matched message. */
+  /** This workspace's owned session ids (fresh roster), for scope narrowing. */
+  const ownedRef = useRef<Set<string>>(new Set())
+  /** Once per mount: paging for a deep-link target beyond the first page. */
+  const deepTargetRef = useRef(false)
+  // Restore the in-list search surface once, when the app returns here from
+  // a chat that was opened out of this search.
+  const appliedInitialSearchRef = useRef(false)
+  useEffect(() => {
+    if (appliedInitialSearchRef.current) return
+    if (initialSearch !== undefined && initialSearch.open) {
+      appliedInitialSearchRef.current = true
+      setSearchActive(true)
+      setSearch(initialSearch.term)
+      onSearchApplied?.()
+    }
+  }, [initialSearch, onSearchApplied])
+  // Report the live in-list search surface so the app can restore it on return.
+  useEffect(() => {
+    onSearchSnapshot?.(searchActive, search)
+  }, [searchActive, search, onSearchSnapshot])
+
+  /** Page forward (bounded) until the deep-link session appears, then open
+   *  it. Best-effort: a target that never surfaces leaves the list usable. */
+  const locateDeepTarget = useCallback(
+    async (targetId: string, startCursor: string | undefined, owned: ReadonlySet<string>): Promise<SessionView | undefined> => {
+      let cursor = startCursor
+      for (let pages = 0; pages < 8 && cursor !== undefined; pages++) {
+        const page = await listSessions(cursor)
+        const rows = pageItems(page.items, owned)
+        const target = rows.find(row => row.sessionId === targetId)
+        if (target !== undefined) return target
+        if (!page.hasMore) return undefined
+        cursor = page.nextCursor
+      }
+      return undefined
+    },
+    [],
+  )
   const [previewTick, setPreviewTick] = useState(0)
   // Unmount guard: preview fetches resolve asynchronously and must not
   // tick state (or spin the tunnel) after the view left the screen.
@@ -289,6 +349,7 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
         if (cancelled) return
         const fresh = workspaces.find(item => item.workspaceId === workspace.workspaceId)
         const owned = new Set((fresh?.sessionIds ?? workspace.sessionIds).map(String))
+        ownedRef.current = owned
         const rows = pageItems(page.items, owned)
         // Notification deep link: open the target session straight away when
         // it is on the first page (the usual case — a just-finished session
@@ -307,6 +368,30 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
         cursorRef.current = page.nextCursor
         setHasMore(page.hasMore)
         setLoading(false)
+        // Deep-link target (search locate / notification) not on the loaded
+        // pages: page forward (bounded) until it appears, then open it —
+        // otherwise the tap lands but the session never opens. When the
+        // target never surfaces (a stale search attribution can point at a
+        // workspace whose pages do not contain it), open it directly rather
+        // than dead-ending on a plain list.
+        if (initialSessionId !== undefined && target === undefined && !deepTargetRef.current) {
+          deepTargetRef.current = true
+          const shell = (): SessionView => ({
+            sessionId: initialSessionId,
+            title: '定位的会话',
+            updatedAt: 0,
+            running: false,
+            blank: false,
+          })
+          if (page.hasMore) {
+            void locateDeepTarget(initialSessionId, page.nextCursor, owned).then(
+              (found) => { onPick(found ?? shell()) },
+              () => { /* bounded best-effort; the list stays usable */ },
+            )
+          } else {
+            onPick(shell())
+          }
+        }
       },
       (reason: unknown) => {
         if (cancelled) return
@@ -526,20 +611,91 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
     // The optimistic blank row (just created) participates: without it the
     // fresh session is invisible in the list until a re-fetch, and the user
     // cannot reopen it from the roster.
+    const hitIds = new Set(searchHits.map(hit => hit.sessionId))
     const visible = rows.filter(row => {
       if (term === '') return true
-      const preview = row.preview ?? sessionPreviewCache.get(row.sessionId) ?? ''
-      return row.title.toLowerCase().includes(term) || preview.toLowerCase().includes(term)
+      return row.title.toLowerCase().includes(term) || hitIds.has(row.sessionId)
     })
     return DAY_BUCKETS
       .map(bucket => ({ bucket, rows: visible.filter(row => dayBucketFor(row.updatedAt) === bucket) }))
       .filter(group => group.rows.length > 0)
     // previewTick: cached previews arrive async — recompute the filter when they land.
-  }, [rows, search, previewTick])
+  }, [rows, search, searchHits, previewTick])
+
+  /** Host full-roster search: debounced, best-effort, narrowed to THIS
+   *  workspace's owned sessions (the list page searches what it shows; the
+   *  home search covers other workspaces). Hits outside the loaded pages
+   *  render as extra rows; a failure keeps the local filter. */
+  useEffect(() => {
+    const term = search.trim()
+    if (term === '') {
+      setSearchHits([])
+      setSearchForeign(0)
+      setSearchHasMore(false)
+      setSearchDone(false)
+      setSearchBusy(false)
+      return
+    }
+    setSearchBusy(true)
+    setSearchDone(false)
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void searchAll(term).then(
+        (result) => {
+          if (cancelled) return
+          const owned = ownedRef.current
+          setSearchHits(result.items.filter(hit => owned.has(hit.sessionId)))
+          setSearchForeign(result.items.filter(hit => !owned.has(hit.sessionId)).length)
+          setSearchHasMore(result.hasMore)
+          setSearchDone(true)
+          setSearchBusy(false)
+        },
+        () => {
+          if (!cancelled) {
+            setSearchDone(true)
+            setSearchBusy(false)
+          }
+        },
+      )
+    }, 250)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [search])
 
   const exitSearch = (): void => {
     setSearchActive(false)
     setSearch('')
+  }
+
+  /** Open a search hit straight to its first matched message: lazy message
+   *  locate for the seq (cached), then open scrolled to it; a missed locate
+   *  degrades to a plain session open. A tap on another hit supersedes the
+   *  in-flight locate (the loser neither opens nor clears the indicator),
+   *  and a late result after the degrade path never double-fires. */
+  const openSearchHit = (hit: SessionSearchHit, title: string): void => {
+    const session: SessionView = {
+      sessionId: hit.sessionId,
+      title,
+      ...(hit.title === undefined ? { preview: hit.snippet } : {}),
+      updatedAt: 0,
+      running: false,
+      blank: false,
+    }
+    if (hit.kind === 'message' && hit.seq !== undefined) {
+      if (onPickSeq !== undefined) onPickSeq(session, hit.seq, search.trim(), hit.messageId, hit.partId)
+      else onPick(session)
+      return
+    }
+    // A message hit without a seq, or a TITLE hit (session name matched):
+    // resolve the first message containing the term so the tap still jumps
+    // to the relevant message instead of opening the session at the tail.
+    void searchMessages(hit.sessionId, search.trim()).then(
+      (result) => {
+        const first = result.items[0]
+        if (first !== undefined && onPickSeq !== undefined) onPickSeq(session, first.seq, search.trim(), first.messageId, first.partId)
+        else onPick(session)
+      },
+      () => { onPick(session) },
+    )
   }
 
   return (
@@ -559,7 +715,7 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
             <input
               type="search"
               className="mobile-headerSearchInput"
-              placeholder="搜索标题或内容…"
+              placeholder="搜索当前工作区或全部会话…"
               aria-label="搜索会话"
               autoFocus
               value={search}
@@ -661,10 +817,11 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
           <li key={group.bucket} style={{ listStyle: 'none' }}>
             <div className="mobile-groupTitle">{group.bucket}</div>
             {group.rows.map(row => {
+              const matchedHit = searchHits.find(hit => hit.sessionId === row.sessionId && (hit.kind === 'message' || hit.kind === 'title'))
               const preview = row.preview ?? sessionPreviewCache.get(row.sessionId)
                 ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)
               return (
-                <button type="button" key={row.sessionId} className="mobile-row" {...pressHandlers(row)}>
+                <button type="button" key={row.sessionId} className="mobile-row" {...(matchedHit === undefined ? pressHandlers(row) : { onClick: () => { openSearchHit(matchedHit, row.title) } })}>
                   <span className="card-icon">
                     {row.running ? (
                       <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
@@ -690,18 +847,58 @@ export function SessionListView({ workspace, initialSessionId, onBack, onPick, o
             })}
           </li>
         ))}
-        {!loading && search.trim() !== '' && hasMore && (
+        {!loading && searchBusy && (
           <li style={{ listStyle: 'none' }}>
-            <p className="mobile-muted mobile-pad" role="note">
-              搜索仅覆盖已加载的 {rows.length} 条会话，继续加载可搜索更多
-            </p>
+            <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
           </li>
         )}
-        {!loading && search.trim() !== '' && groups.length === 0 && (
+        {!loading && search.trim() !== '' && !searchBusy && searchHits.some(hit => !rows.some(row => row.sessionId === hit.sessionId)) && (
+          <li style={{ listStyle: 'none' }}>
+            <div className="mobile-groupTitle">搜索结果（未加载的会话）</div>
+            {searchHits.filter(hit => !rows.some(row => row.sessionId === hit.sessionId)).map(hit => {
+              const title = (hit.title ?? hit.snippet.trim().slice(0, 24)) || '匹配会话'
+              return (
+                <li key={`${hit.kind}:${hit.sessionId}`} style={{ listStyle: 'none' }}>
+                  <button
+                    type="button"
+                    className="mobile-row"
+                    onClick={() => { void openSearchHit(hit, title) }}
+                  >
+                    <span className="card-icon">
+                      <span className="sess-check" aria-hidden><CheckIcon /></span>
+                    </span>
+                    <span className="card-main">
+                      <span className="sess-titleline">
+                        <span className="sess-title">{title}</span>
+                        <span className="sess-sep" aria-hidden>·</span>
+                        <span className="sess-time">命中内容</span>
+                      </span>
+                      <span className="card-desc">{hit.snippet}</span>
+                    </span>
+                    <span className="card-action">
+                      <span className="mobile-chevron" aria-hidden>›</span>
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </li>
+        )}
+        {!loading && search.trim() !== '' && !searchBusy && searchForeign > 0 && (
+          <li style={{ listStyle: 'none' }}>
+            <p className="search-hitsNote mobile-pad">另有 {searchForeign} 个其他工作区的命中未在此显示，首页搜索可查全部</p>
+          </li>
+        )}
+        {!loading && search.trim() !== '' && !searchBusy && searchHasMore && (
+          <li style={{ listStyle: 'none' }}>
+            <p className="search-hitsNote mobile-pad">结果较多，仅显示前若干条——请细化关键词</p>
+          </li>
+        )}
+        {!loading && search.trim() !== '' && !searchBusy && searchDone && groups.length === 0 && searchHits.length === 0 && (
           <div className="mobile-empty">
             <div className="empty-icon"><SearchIcon /></div>
             <p className="empty-title">未找到匹配会话</p>
-            <p className="empty-desc">换个关键词试试，支持搜索标题和内容预览</p>
+            <p className="empty-desc">已搜索全部会话的标题与内容</p>
           </div>
         )}
         {hasMore && (

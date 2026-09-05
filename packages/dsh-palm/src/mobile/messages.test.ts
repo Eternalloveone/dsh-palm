@@ -1,6 +1,6 @@
 /** foldEvents: message-list folding from a session event stream. */
 import { describe, expect, it } from 'vitest'
-import { coalesceTurnMessages, EventFolder, foldEvents, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
+import { coalesceTurnMessages, EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
 
 /** Assemble one event with an auto-incrementing seq / time. */
 function makeEvent(
@@ -230,9 +230,9 @@ describe('foldEvents', () => {
     const assistant = result.find(message => message.kind === 'assistant')
     // The text runs stay split around the call: [text before, tool, text after].
     expect(assistant?.flow).toEqual([
-      { kind: 'text', text: '先看这个' },
+      { kind: 'text', text: '先看这个', seq: 1 },
       { kind: 'tool', callId: 'c1' },
-      { kind: 'text', text: '再看那个' },
+      { kind: 'text', text: '再看那个' }
     ])
   })
 
@@ -250,7 +250,7 @@ describe('foldEvents', () => {
     // The text run collapses to the authoritative text; the tool part
     // survives (a call is an independent event, never dropped by a rewrite).
     expect(assistant?.flow).toEqual([
-      { kind: 'text', text: '权威终稿' },
+      { kind: 'text', text: '权威终稿', seq: 3 },
       { kind: 'tool', callId: 'c1' },
     ])
   })
@@ -627,18 +627,21 @@ describe('coalesceTurnMessages', () => {
     ])
     expect(merged).toHaveLength(1)
     expect(merged[0]?.flow).toEqual([
-      { kind: 'text', text: '先说' },
+      { kind: 'text', text: '先说', seq: 1 },
       { kind: 'tool', callId: 'c1' },
-      { kind: 'text', text: '后说' },
+      { kind: 'text', text: '后说', seq: 2 },
     ])
   })
 
-  it('merges adjacent text runs of two flows on a blank line', () => {
+  it('keeps adjacent text runs separate when they represent different searchable steps', () => {
     const merged = coalesceTurnMessages([
       step('a-1', 7, 'A', 1, { flow: [{ kind: 'text', text: 'A' }] }),
       step('a-2', 7, 'B', 2, { flow: [{ kind: 'text', text: 'B' }] }),
     ])
-    expect(merged[0]?.flow).toEqual([{ kind: 'text', text: 'A\n\nB' }])
+    expect(merged[0]?.flow).toEqual([
+      { kind: 'text', text: 'A', seq: 1 },
+      { kind: 'text', text: 'B', seq: 2 },
+    ])
   })
 
   it('keeps a merged row pending when every step is still streaming (interrupted turn)', () => {
@@ -727,5 +730,77 @@ describe('todo plan snapshots (todo/write)', () => {
   it('returns undefined when no valid todo/write exists', () => {
     expect(latestTodoSnapshot([])).toBeUndefined()
     expect(latestTodoSnapshot([makeEvent('turn/start', {}, 1)])).toBeUndefined()
+  })
+})
+
+describe('lastOpenTurnStartTime (turn-clock anchor from a raw window)', () => {
+  it('returns the open turn/start time when the last boundary is a turn/start', () => {
+    const events = [
+      makeEvent('user/message', {}, 1, 10_000),
+      makeEvent('turn/start', {}, 2, 20_000),
+      makeEvent('assistant/chunk', {}, 3, 25_000),
+    ]
+    expect(lastOpenTurnStartTime(events)).toBe(20_000)
+  })
+
+  it('scans backward past a closed turn to the open one before it', () => {
+    const events = [
+      makeEvent('turn/start', {}, 1, 5_000),
+      makeEvent('turn/end', {}, 2, 6_000),
+      makeEvent('turn/start', {}, 3, 7_000),
+    ]
+    expect(lastOpenTurnStartTime(events)).toBe(7_000)
+  })
+
+  it('returns undefined when the last boundary is a turn/end', () => {
+    const events = [
+      makeEvent('turn/start', {}, 1, 10_000),
+      makeEvent('turn/end', {}, 2, 20_000),
+      makeEvent('user/message', {}, 3, 25_000),
+    ]
+    expect(lastOpenTurnStartTime(events)).toBeUndefined()
+  })
+
+  it('returns undefined for a window with no turn boundary', () => {
+    expect(lastOpenTurnStartTime([makeEvent('assistant/chunk', {}, 1, 5_000)])).toBeUndefined()
+    expect(lastOpenTurnStartTime([])).toBeUndefined()
+  })
+})
+
+describe('search-locate id alignment', () => {
+  it('EventFolder.snapshot() and coalesceTurnMessages(rows) yield identical row ids', () => {
+    // The search index (documentRows) coalesces chatWindows.tail rows with
+    // coalesceTurnMessages; ChatView renders coalesceTurnMessages(EventFolder
+    // snapshot). If these two paths produced different row ids, a search hit's
+    // messageId would not match any rendered row and the locate would fall
+    // back to a query match (often the newest row) — "highlighted but wrong".
+    const events = [
+      makeEvent('user/message', userMessageData('u-1', '问题'), 1),
+      makeEvent('assistant/message', assistantMessageData('a-1', 0, 0, '第一步'), 2),
+      makeEvent('assistant/message', assistantMessageData('a-2', 0, 1, '第二步'), 3),
+      makeEvent('user/message', userMessageData('u-2', '追问'), 4),
+      makeEvent('assistant/message', assistantMessageData('a-3', 1, 0, '回复'), 5),
+    ]
+    const rows = foldEvents(events)
+    const coalesced = coalesceTurnMessages(rows)
+    const folderSnap = new EventFolder(rows).snapshot()
+    const coalescedFromFolder = coalesceTurnMessages(folderSnap)
+    expect(coalesced.map(r => r.id)).toEqual(coalescedFromFolder.map(r => r.id))
+    // The merged assistant turn keeps the FIRST step's id (stable identity).
+    expect(coalesced[1]?.id).toBe('a-1')
+  })
+
+  it('keeps a streaming assistant id stable across pending→final when the chunk carries a real id', () => {
+    // The host streams chunks WITH a stable message id. The search index sees
+    // the newest assistant message while it is still pending and records that
+    // id as the messageId. If finalizing swapped to a different event id, a
+    // locate by messageId would miss and fall back to an older row — the
+    // reported "searched the newest message but landed mid-history" bug.
+    const chunk = makeEvent('assistant/chunk', { messageId: 'uuid-A', turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: '你好' } }, 1)
+    const final = makeEvent('assistant/message', assistantMessageData('uuid-B', 0, 0, '你好'), 2)
+    const pending = foldEvents([chunk])
+    expect(pending[0]).toMatchObject({ id: 'uuid-A', pending: true })
+    const finalized = foldEvents([final], pending)
+    expect(finalized[0]).toMatchObject({ id: 'uuid-A', text: '你好', pending: false })
   })
 })

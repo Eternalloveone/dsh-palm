@@ -8,6 +8,7 @@ probe-ask.mjs
 
 # test coverage output
 coverage/
+.vitest-cache/
 
 # local CDP verification artifacts (Chrome user-data dirs, test reports)
 .chrome-*/
@@ -16,3 +17,9 @@ test-report.json
 # local verification scripts with hardcoded deployment addresses
 scripts/check-pwa.mjs
 scripts/measure-tunnel.mjs
+
+# local gitleaks config contains real network identifiers (do not publish)
+.gitleaks.toml
+
+# superpowers workflow artifacts (agentic implementation plans/specs, not shipped)
+docs/superpowers/

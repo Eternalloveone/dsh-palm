@@ -23,7 +23,7 @@
  * @module dsh-palm/mobile/markdown-text
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { escapeHtml, parseSegments, parseStreamPrefix, safeUrl, type MarkdownSegment, type StreamBlock } from './markdown.ts'
 import { CodeBlock } from './code-block.tsx'
 import { DiffView } from './diff-view.tsx'
@@ -112,8 +112,11 @@ export function ReasoningDisclosure({ text, pending, label = '深度思考' }: {
   )
 }
 
-export function MarkdownText({ text, pending }: { text: string; pending: boolean }) {
-  const [open, setOpen] = useState(false)
+export function MarkdownText({ text, pending, forceOpen = false, highlightQuery }: { text: string; pending: boolean; forceOpen?: boolean; highlightQuery?: string }) {
+  const [open, setOpen] = useState(forceOpen)
+  useEffect(() => {
+    if (forceOpen) setOpen(true)
+  }, [forceOpen])
   // Streaming state: blocks that became stable plus the stable prefix
   // length, so every frame re-parses only the newly-arrived tail. The
   // first pending frame renders the whole text as an escaped preview to
@@ -241,7 +244,7 @@ export function MarkdownText({ text, pending }: { text: string; pending: boolean
         {segments.map(segment => {
           if (segment.kind === 'think') return null
           if (segment.kind === 'html') {
-            return <div key={segment.id} className="md-html" dangerouslySetInnerHTML={{ __html: segment.html }} />
+            return <div key={segment.id} className="md-html" dangerouslySetInnerHTML={{ __html: highlightHtml(segment.html, highlightQuery) }} />
           }
           if (segment.kind === 'code') {
             return <CodeBlock key={segment.id} lang={segment.lang} code={segment.code} />
@@ -269,18 +272,54 @@ export function MarkdownText({ text, pending }: { text: string; pending: boolean
 }
 
 /** Long assistant text collapses behind an explicit expand toggle. */
-export function CollapsibleText({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
+export function CollapsibleText({ text, forceOpen = false, highlightQuery }: { text: string; forceOpen?: boolean; highlightQuery?: string }) {
+  const [open, setOpen] = useState(forceOpen)
+  useEffect(() => {
+    if (forceOpen) setOpen(true)
+  }, [forceOpen])
+  const highlighted = (value: string): ReactNode => highlightPlain(value, highlightQuery)
   if (text.length <= LONG_TEXT_LIMIT) {
-    return <span className="chat-msg-text">{text}</span>
+    return <span className="chat-msg-text">{highlighted(text)}</span>
   }
   const shown = open ? text : text.slice(0, LONG_TEXT_PREVIEW)
   return (
     <span className="chat-msg-text">
-      {shown}{!open ? '…' : ''}
+      {highlighted(shown)}{!open ? '…' : ''}
       <button type="button" className="chat-msg-toggle" onClick={() => { setOpen(value => !value) }}>
         {open ? '收起' : `展开全文（${text.length} 字）`}
       </button>
     </span>
   )
+}
+
+function escapedPattern(query: string | undefined): RegExp | undefined {
+  const value = query?.trim()
+  if (value === undefined || value === '') return undefined
+  const terms = value.split(/\s+/).filter(Boolean)
+  const escaped = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  return new RegExp(escaped.sort((a, b) => b.length - a.length).join('|'), 'gi')
+}
+
+/** Highlight only text between markup tags; fenced code/diff segments never enter here. */
+function highlightHtml(html: string, query: string | undefined): string {
+  const pattern = escapedPattern(query)
+  if (pattern === undefined) return html
+  return html.split(/(<[^>]+>)/g).map(part => part.startsWith('<')
+    ? part
+    : part.replace(pattern, match => `<mark class="chat-search-mark">${match}</mark>`)).join('')
+}
+
+function highlightPlain(text: string, query: string | undefined): ReactNode {
+  const pattern = escapedPattern(query)
+  if (pattern === undefined) return text
+  const parts: ReactNode[] = []
+  let from = 0
+  for (const match of text.matchAll(pattern)) {
+    const at = match.index
+    if (at > from) parts.push(text.slice(from, at))
+    parts.push(<mark className="chat-search-mark" key={`${at}:${match[0]}`}>{match[0]}</mark>)
+    from = at + match[0].length
+  }
+  if (from < text.length) parts.push(text.slice(from))
+  return parts
 }

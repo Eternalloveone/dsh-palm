@@ -15,7 +15,7 @@ import {
   readSettings,
   type ChatPage,
 } from '../api.ts'
-import { EventFolder, foldEvents, latestTodoSnapshot, type RenderMessage, type TodoSnapshot } from '../messages.ts'
+import { EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, type RenderMessage, type TodoSnapshot } from '../messages.ts'
 import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
@@ -35,7 +35,18 @@ type Route =
   | { kind: 'workspaces' }
   | { kind: 'sessions'; workspace: WorkspaceRow }
   | { kind: 'settings'; workspace: WorkspaceRow }
-  | { kind: 'chat'; session: SessionView; workspace: WorkspaceRow }
+  | { kind: 'chat'; session: SessionView; workspace: WorkspaceRow; focusSeq?: number; focusMessageId?: string; focusPartId?: string; focusQuery?: string }
+
+/** Placeholder workspace for standalone search hits (no attach relation):
+ *  the chat only needs the session; backing out returns to the roster. */
+const STANDALONE_WORKSPACE: WorkspaceRow = {
+  workspaceId: 'standalone' as never,
+  path: '',
+  title: '未分组',
+  sessionIds: [] as never,
+  createdAt: '',
+  updatedAt: '',
+}
 
 /** The session-list row model (list + chat share it). */
 export interface SessionView {
@@ -61,6 +72,14 @@ export function mobileWorkspaceTarget(search: string): string | undefined {
 export function mobileSessionTarget(search: string): string | undefined {
   const value = new URLSearchParams(search).get('session')
   return value === null || value === '' ? undefined : value
+}
+
+/** Read the optional message-seq target carried from a search locate link. */
+export function mobileFocusSeqTarget(search: string): number | undefined {
+  const value = new URLSearchParams(search).get('seq')
+  if (value === null || value === '') return undefined
+  const seq = Number(value)
+  return Number.isFinite(seq) && seq >= 0 ? seq : undefined
 }
 
 /** Map a list row to the surface model; the title comes from projections when present. */
@@ -224,6 +243,35 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   const [initialSessionId, setInitialSessionId] = useState<string | undefined>(
     () => mobileSessionTarget(window.location.search),
   )
+  /** Message-seq target from a locate link; consumed by the first chat open. */
+  const [initialFocusSeq, setInitialFocusSeq] = useState<number | undefined>(
+    () => mobileFocusSeqTarget(window.location.search),
+  )
+  // The seq travels through the workspace→list→chat open chain via a ref:
+  // the callbacks that consume it (openChat) are stable, so a state read
+  // there would be stale; the ref is cleared once handed to a chat route.
+  const focusSeqRef = useRef<number | undefined>(initialFocusSeq)
+  /** Search query paired with focusSeq for exact in-message highlighting. */
+  const focusQueryRef = useRef<string | undefined>(undefined)
+  const focusMessageIdRef = useRef<string | undefined>(undefined)
+  const focusPartIdRef = useRef<string | undefined>(undefined)
+  /** Live workspace-search surface state (open + term), reported by the
+   *  roster so the app can restore it when returning from a located chat. */
+  const workspaceSearchSnapRef = useRef<{ open: boolean; term: string }>({ open: false, term: '' })
+  /** Search snapshot frozen at locate time: the navigate to workspaces
+   *  mounts a fresh roster whose initial snapshot report would overwrite
+   *  the live one, so the back-restore must use this frozen copy. */
+  const locateSearchSnapRef = useRef<{ open: boolean; term: string }>({ open: false, term: '' })
+  /** One-shot restore of the workspace search surface on a located return. */
+  const [restoreSearch, setRestoreSearch] = useState<{ open: boolean; term: string } | undefined>(undefined)
+  /** Live in-list search surface, reported by the open session list (tagged
+   *  with its workspace so a different workspace's list never restores it). */
+  const listSearchSnapRef = useRef({ workspaceId: '', open: false, term: '' })
+  /** One-shot restore of the in-list search surface on returning to a list. */
+  const [restoreListSearch, setRestoreListSearch] = useState<{ open: boolean; term: string } | undefined>(undefined)
+  /** Whether the current chat was reached through a workspace-search locate,
+   *  so backing out returns to the search results instead of the plain list. */
+  const locateFromSearchRef = useRef(false)
   const muxRef = useRef<MuxClient | undefined>(undefined)
   // Message-visibility prefs live here (shared by the chat and the settings
   // page) and persist on the /m origin through display-prefs.
@@ -310,10 +358,49 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     return () => { cancelled = true }
   }, [])
 
+  /** Arm the one-shot in-list search restore for the workspace being
+   *  returned to: the snapshot must both be open and belong to that list. */
+  const armListSearchRestore = (workspaceId: string): void => {
+    const snap = listSearchSnapRef.current
+    setRestoreListSearch(snap.workspaceId === workspaceId && snap.open ? { open: true, term: snap.term } : undefined)
+  }
+
   const back = useCallback(() => {
+    // Compute the search-surface restore from the CURRENT route (a click
+    // handler runs after a render, so `route` is current) and apply it
+    // OUTSIDE the transition updater — updaters must stay pure, and calling
+    // a setter inside one is a side effect (StrictMode runs updaters twice).
+    if (locateFromSearchRef.current) {
+      // Reached from a workspace-search locate: restore the roster search.
+      setRestoreSearch({ ...locateSearchSnapRef.current })
+    } else if (route.kind === 'chat' && route.workspace.workspaceId !== STANDALONE_WORKSPACE.workspaceId) {
+      // Returning to a plain list restores that list's search surface
+      // (a chat opened out of an active search comes back to it).
+      armListSearchRestore(route.workspace.workspaceId)
+    } else if (route.kind === 'settings') {
+      armListSearchRestore(route.workspace.workspaceId)
+    }
     setTransition(previous => {
       const route = previous.current.route
       if (route.kind === 'chat') {
+        if (locateFromSearchRef.current) {
+          // Reached from a workspace-search locate: go straight back to the
+          // roster with the search surface restored (one back press), instead
+          // of stepping through the intermediate session list.
+          locateFromSearchRef.current = false
+          return {
+            current: { route: { kind: 'workspaces' }, forward: false },
+            leaving: previous.current,
+          }
+        }
+        if (route.workspace.workspaceId === STANDALONE_WORKSPACE.workspaceId) {
+          // A standalone chat has no session list behind it: return to the
+          // roster instead of a phantom empty list.
+          return {
+            current: { route: { kind: 'workspaces' }, forward: false },
+            leaving: previous.current,
+          }
+        }
         return {
           current: { route: { kind: 'sessions', workspace: route.workspace }, forward: false },
           leaving: previous.current,
@@ -334,10 +421,29 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
       return previous
     })
     scheduleExitCleanup()
-  }, [scheduleExitCleanup])
+  }, [route, scheduleExitCleanup])
 
-  const openChat = useCallback((session: SessionView, workspace: WorkspaceRow) => {
-    navigate({ kind: 'chat', session, workspace })
+  const openChat = useCallback((session: SessionView, workspace: WorkspaceRow, seq?: number, query?: string, messageId?: string, partId?: string) => {
+    navigate({
+      kind: 'chat',
+      session,
+      workspace,
+      ...(seq !== undefined ? { focusSeq: seq } : {}),
+      ...(messageId !== undefined ? { focusMessageId: messageId } : {}),
+      ...(partId !== undefined ? { focusPartId: partId } : {}),
+      ...(query !== undefined ? { focusQuery: query } : {}),
+    })
+    // Consume the search-locate targets now that the chat is opening, so a
+    // later back-to-list (or back-to-roster) does not auto-open them again.
+    setInitialSessionId(undefined)
+    setInitialFocusSeq(undefined)
+    // A normal session open must never inherit a PREVIOUS locate's stable
+    // identity: leaving the refs armed would send a stale messageId/seq into
+    // an unrelated chat and either fail to locate or jump to the wrong row.
+    if (seq !== undefined) focusSeqRef.current = undefined
+    if (query !== undefined) focusQueryRef.current = undefined
+    if (messageId !== undefined) focusMessageIdRef.current = undefined
+    if (partId !== undefined) focusPartIdRef.current = undefined
   }, [navigate])
 
   const openWorkspace = useCallback((workspace: WorkspaceRow) => {
@@ -345,12 +451,70 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
       const url = new URL(window.location.href)
       url.searchParams.delete('workspace')
       url.searchParams.delete('session')
+      url.searchParams.delete('seq')
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+      // NOTE: only initialWorkspaceId is cleared here — it prevents the
+      // roster's auto-open effect from re-firing. initialSessionId and
+      // initialFocusSeq are deliberately PRESERVED: they carry the
+      // search-locate target that the session list consumes when mounting
+      // (and openChat consumes them once the chat opens). Clearing them here
+      // dropped the target session id, so the hit opened a plain list and
+      // never reached the chat's message locate.
       setInitialWorkspaceId(undefined)
-      setInitialSessionId(undefined)
     }
     navigate({ kind: 'sessions', workspace })
   }, [initialWorkspaceId, initialSessionId, navigate])
+
+  /** Locate a search hit: in-app navigation that reuses the deep-link
+   *  targets — the roster auto-opens the target workspace, then the session
+   *  list opens the target session. An optional seq scrolls the chat to the
+   *  matched message. No full-page reload. */
+  const locateSession = useCallback((sessionId: string, workspaceId: string, seq?: number, query?: string, messageId?: string, partId?: string) => {
+    // A workspace-search locate: back from the located chat returns to the
+    // search results (restored surface) rather than the plain roster.
+    // Freeze the search snapshot NOW — the immediate navigate remounts the
+    // roster, whose fresh-instance snapshot report would overwrite the live
+    // snapshot before the user backs out.
+    locateFromSearchRef.current = true
+    locateSearchSnapRef.current = { ...workspaceSearchSnapRef.current }
+    setInitialWorkspaceId(workspaceId)
+    setInitialSessionId(sessionId)
+    // Replace the whole locate target atomically. A title hit or a cold hit
+    // may have no seq; retaining the previous seq would focus an unrelated
+    // message on the next navigation.
+    setInitialFocusSeq(seq)
+    focusSeqRef.current = seq
+    focusQueryRef.current = query
+    focusMessageIdRef.current = messageId
+    focusPartIdRef.current = partId
+    navigate({ kind: 'workspaces' })
+  }, [navigate])
+
+  /** Open a search hit that belongs to NO workspace (standalone session):
+   *  the chat only needs the session, so navigate straight there; backing
+   *  out returns to the roster with the search surface restored (same
+   *  contract as a workspace-hop locate). */
+  const openChatDirect = useCallback((hit: { sessionId: string; title?: string; snippet?: string }, seq?: number, query?: string, messageId?: string, partId?: string) => {
+    locateFromSearchRef.current = true
+    locateSearchSnapRef.current = { ...workspaceSearchSnapRef.current }
+    const session: SessionView = {
+      sessionId: hit.sessionId,
+      title: hit.title ?? '匹配会话',
+      ...(hit.snippet !== undefined && hit.snippet !== '' ? { preview: hit.snippet } : {}),
+      updatedAt: 0,
+      running: false,
+      blank: false,
+    }
+    navigate({
+      kind: 'chat',
+      session,
+      workspace: STANDALONE_WORKSPACE,
+      ...(seq !== undefined ? { focusSeq: seq } : {}),
+      ...(messageId !== undefined ? { focusMessageId: messageId } : {}),
+      ...(partId !== undefined ? { focusPartId: partId } : {}),
+      ...(query !== undefined ? { focusQuery: query } : {}),
+    })
+  }, [navigate])
 
   const routeKey = route.kind === 'chat'
     ? `chat:${route.session.sessionId}`
@@ -366,15 +530,30 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     : ''
   const dirClass = forward ? 'fwd' : 'back'
   const renderRoute = (route: Route): ReactNode => route.kind === 'workspaces'
-    ? <WorkspaceRoster initialWorkspaceId={initialWorkspaceId} onPick={openWorkspace} />
+    ? (
+      <WorkspaceRoster
+        initialWorkspaceId={initialWorkspaceId}
+        initialSearch={restoreSearch}
+        onPick={openWorkspace}
+        onLocateSession={locateSession}
+        onOpenDirect={openChatDirect}
+        onSearchSnapshot={(open, term) => { workspaceSearchSnapRef.current = { open, term } }}
+        onSearchApplied={() => { setRestoreSearch(undefined) }}
+      />
+    )
     : route.kind === 'sessions'
       ? (
         <SessionListView
           workspace={route.workspace}
           initialSessionId={initialSessionId}
+          initialSearch={restoreListSearch}
           onBack={back}
-          onPick={(session) => { openChat(session, route.workspace) }}
+          onPick={(session) => { openChat(session, route.workspace, focusSeqRef.current, focusQueryRef.current, focusMessageIdRef.current, focusPartIdRef.current) }}
           onOpenSettings={() => { navigate({ kind: 'settings', workspace: route.workspace }) }}
+          onLocateSession={locateSession}
+          onPickSeq={(session, seq, query, messageId, partId) => { openChat(session, route.workspace, seq, query, messageId, partId) }}
+          onSearchSnapshot={(open, term) => { listSearchSnapRef.current = { workspaceId: route.workspace.workspaceId, open, term } }}
+          onSearchApplied={() => { setRestoreListSearch(undefined) }}
         />
       )
       : route.kind === 'settings'
@@ -387,6 +566,10 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
         />
         : <ChatView
           session={route.session}
+          initialFocusSeq={route.focusSeq}
+          initialFocusMessageId={route.focusMessageId}
+          initialFocusPartId={route.focusPartId}
+          initialFocusQuery={route.focusQuery}
           mux={muxRef.current}
           onBack={back}
           showToolCalls={showToolCalls}
@@ -448,20 +631,27 @@ export interface ChatPageResult {
   hasMore: boolean
   todo?: TodoSnapshot
   projections?: SessionProjectionsBlock
+  /** The running turn's logged `turn/start` time (epoch ms), when the tail
+   *  window holds an open turn boundary — the turn-clock anchor (desktop
+   *  parity). Only the tail page may carry it (an older page's boundary is
+   *  not the open one). */
+  turnStartAt?: number
 }
 
 /** The fallback fold of a raw history page (host lacks/refused readChat). */
-function foldHistoryPage(page: Awaited<ReturnType<typeof fetchHistory>>): ChatPageResult {
+function foldHistoryPage(page: Awaited<ReturnType<typeof fetchHistory>>, isTail: boolean): ChatPageResult {
   const events = page.events.map(entry => (
     { ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }
   ))
   const folder = new EventFolder(foldEvents(events))
   const todo = latestTodoSnapshot(events)
+  const turnStartAt = lastOpenTurnStartTime(events)
   return {
     rows: folder.snapshot(),
     maxSeq: folder.lastSeq,
     hasMore: page.hasMore,
     ...(todo === undefined ? {} : { todo }),
+    ...(isTail && turnStartAt !== undefined ? { turnStartAt } : {}),
     ...(page.projections === undefined ? {} : { projections: page.projections }),
   }
 }
@@ -478,6 +668,7 @@ export async function loadChatPage(
   beforeSeq?: number,
   signal?: AbortSignal,
 ): Promise<ChatPageResult> {
+  const isTail = beforeSeq === undefined
   try {
     const page: ChatPage = await readChat(sessionId, beforeSeq, undefined, signal)
     return {
@@ -486,11 +677,12 @@ export async function loadChatPage(
       hasMore: page.hasMore,
       ...(page.todo === undefined ? {} : { todo: page.todo }),
       ...(page.projections === undefined ? {} : { projections: page.projections }),
+      ...(isTail && page.turnStartAt !== undefined ? { turnStartAt: page.turnStartAt } : {}),
     }
   } catch {
     // Fallback: the raw event page folded locally (identical shape). Any
     // failure of THIS path propagates to the caller's own error handling.
-    return foldHistoryPage(await fetchHistory(sessionId, beforeSeq, undefined, signal))
+    return foldHistoryPage(await fetchHistory(sessionId, beforeSeq, undefined, signal), isTail)
   }
 }
 

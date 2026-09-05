@@ -94,6 +94,9 @@ export async function fetchMobilePreferences(): Promise<MobilePreferences> {
 export interface NotifyConfigView {
   turnThresholdMs: number
   turnCooldownMs: number
+  hideDetails: boolean
+  /** Effective per-kind gates (as the host applies them). */
+  kinds: { jobs: boolean; todo: boolean; turns: boolean }
   vapidPublicKey?: string
   channels: {
     serverchan: { configured: boolean }
@@ -112,6 +115,8 @@ export async function readNotifyConfig(): Promise<NotifyConfigView> {
 export async function writeNotifyConfig(patch: {
   turnThresholdMs?: number
   turnCooldownMs?: number
+  hideDetails?: boolean
+  kinds?: { jobs?: boolean; todo?: boolean; turns?: boolean }
   channels?: {
     serverchan?: { sendKey: string }
     bark?: { key: string }
@@ -140,9 +145,78 @@ export async function pushUnsubscribe(): Promise<void> {
   await callUnary<unknown>('push.unsubscribe', {})
 }
 
+/** One completion-notification decision, as the phone's inbox renders it. */
+export interface NotifyEventView {
+  id: string
+  kind: 'task-done' | 'task-failed' | 'turn-done' | 'todo-done'
+  title: string
+  body: string
+  sessionId: string
+  workspaceId?: string
+  ts: number
+}
+
+/** The recent decisions (newest first; bounded by the host engine). */
+export async function notifyEvents(): Promise<{ items: NotifyEventView[] }> {
+  return await callUnary<{ items: NotifyEventView[] }>('mobile.notifyEvents', {})
+}
+
+/** The published latest version + whether the local one is behind. */
+export async function latestVersion(): Promise<{ latest: string; isNewer: boolean }> {
+  return await callUnary<{ latest: string; isNewer: boolean }>('mobile.latestVersion', {})
+}
+
 /** One session.list page; omit the cursor for the first page. */
 export async function listSessions(cursor?: string): Promise<SessionPage> {
   return await callUnary<SessionPage>('session.list', cursor === undefined ? {} : { cursor })
+}
+
+/** One host-side full-roster search hit (message content across sessions). */
+export interface SessionSearchHit {
+  kind: 'title' | 'message'
+  sessionId: string
+  /** The matched content window (bounded by the host). */
+  snippet: string
+  /** Session display title when the host can resolve it. */
+  title?: string
+  /** Owning workspace when the host can attribute it (home-page locate). */
+  workspaceId?: string
+  /** Owning workspace's display title (host-resolved), so the row can label
+   *  the owner even before the local roster finishes loading. */
+  workspaceTitle?: string
+  /** Stable folded message identity for exact locate. */
+  messageId?: string
+  /** Stable text-part identity inside the folded message. */
+  partId?: string
+  /** First matched message's event seq, retained for history paging fallback. */
+  seq?: number
+}
+
+/** Search every session's messages across the whole host (with attribution). */
+export async function searchAll(query: string): Promise<{ items: SessionSearchHit[]; hasMore: boolean; partial?: boolean }> {
+  return await callUnary<{ items: SessionSearchHit[]; hasMore: boolean; partial?: boolean }>('mobile.searchAll', { query })
+}
+
+/** One message-level hit inside one session (the lazy expanded view). */
+export interface SessionMessageHit {
+  /** The matched message event's seq — chat rows cover the range
+   *  [startSeq, seq], so this targets the exact row to scroll to. */
+  seq: number
+  messageId?: string
+  partId?: string
+  /** Surrounding plain-text excerpt around the match (host-clipped). */
+  snippet: string
+}
+
+/**
+ * Locate message-level hits inside ONE session (`mobile.searchMessages`,
+ * answered by the host): the lazy detail behind an expanded search-hit row.
+ * Bounded to the first 8 hits and a defensive history-page ceiling; the
+ * locate scan continues through the session so deep search results remain
+ * addressable. Results are cached for 60s.
+ */
+export async function searchMessages(sessionId: string, query: string): Promise<{ items: SessionMessageHit[] }> {
+  return await callUnary<{ items: SessionMessageHit[] }>('mobile.searchMessages', { sessionId, query })
 }
 
 /** Read the available agent compositions for a new session. */
@@ -194,6 +268,10 @@ export interface ChatPage {
   todo?: TodoSnapshot
   /** Tail-page projection baseline, when available. */
   projections?: SessionProjectionsBlock
+  /** The running turn's logged `turn/start` time (epoch ms) when the window
+   *  holds an open turn boundary — the turn-clock anchor (desktop parity).
+   *  Tail reads carry it; older-page reads never do. */
+  turnStartAt?: number
 }
 
 /**
@@ -254,6 +332,54 @@ export async function prompt(sessionId: string, parts: PromptPart[]): Promise<vo
     mode: 'queue',
     content: parts,
   })
+}
+
+/** One pending inbox occurrence in the host's `session/queue` snapshot. */
+export interface QueueItemView {
+  /** Message identity used by queue mutations. */
+  id: string
+  /** FIFO placement: queued (next turn) / steering (next step) / context. */
+  placement: 'queued' | 'steering' | 'context'
+  /** The pending message's preview text (empty for non-text content). */
+  text: string
+  /** True when the pending content is plain text (the only editable kind). */
+  editable: boolean
+}
+
+/**
+ * Map one raw host queue item (the `session/queue` frame shape) into the
+ * phone's queue row view. The host frame type is merge-extensible (content
+ * blocks carry a wide payload), so the mapper reads only the narrow fields it
+ * needs and never asserts the full shape.
+ */
+export function queueItemViewOf(item: {
+  id: string
+  placement: 'queued' | 'steering' | 'context'
+  message?: { content?: unknown }
+}): QueueItemView {
+  const blocks = Array.isArray(item.message?.content)
+    ? (item.message.content as Array<{ type?: string; text?: string }>)
+    : []
+  const editable = blocks.length > 0 && blocks.every(block => block.type === 'text' && typeof block.text === 'string')
+  const text = editable
+    ? (blocks as Array<{ text: string }>).map(block => block.text).join('')
+    : blocks
+      .map(block => block.type === 'text' && typeof block.text === 'string' ? block.text : `[${block.type ?? '内容'}]`)
+      .join(' ')
+      .trim()
+  return { id: item.id, placement: item.placement, text, editable }
+}
+
+/** A queue mutation: edit the pending text, remove it, or steer it into the
+ *  running turn (only while the agent is running). */
+export type QueueAction =
+  | { kind: 'edit'; content: Array<{ type: 'text'; text: string }> }
+  | { kind: 'remove' }
+  | { kind: 'steer' }
+
+/** Edit / remove / steer one pending queued message on the host. */
+export async function updateQueue(sessionId: string, itemId: string, action: QueueAction): Promise<void> {
+  await callUnary<{ accepted: true }>('session.updateQueue', { sessionId, itemId, action })
 }
 
 /** One slash command the host registry advertises (name + description). */

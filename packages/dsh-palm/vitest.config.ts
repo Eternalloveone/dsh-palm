@@ -2,6 +2,10 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  // Keep Vite's transform cache outside node_modules. Some Windows setups
+  // mark the pnpm store/link tree read-only, which makes Vitest fail before
+  // it can collect any tests.
+  cacheDir: '.vitest-cache',
   plugins: [tsconfigPaths({
     projects: [
       './tsconfig.vitest.json',

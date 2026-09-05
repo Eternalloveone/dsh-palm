@@ -382,8 +382,12 @@ body,
     opacity: 1;
   }
   to {
-    transform: translateX(-30%);
-    opacity: 0.8;
+    /* End fully transparent and off-stage: an opacity-only fade to 0.8 +
+       fill-mode both left the leaving page ghosting through the frost-glass
+       header on forward navigations (search-hit locate), producing a
+       stacked double-image. Match the back direction: disappear entirely. */
+    transform: translateX(-100%);
+    opacity: 0;
   }
 }
 
@@ -897,7 +901,11 @@ body,
 }
 
 .sess-time {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   font-variant-numeric: tabular-nums;
@@ -986,6 +994,126 @@ body,
   margin: 4px 0 0;
   padding-left: 12px;
   border-left: 2px solid var(--accent-soft, #eef1ff);
+}
+
+/* Notification inbox rows: kind pill + title + time on one line, body below. */
+.settings-inbox {
+  display: flex;
+  flex-direction: column;
+}
+.settings-inboxRow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  cursor: pointer;
+}
+.settings-inboxRow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.settings-inboxRow:last-child {
+  border-bottom: 0;
+}
+.settings-inboxLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+  min-width: 0;
+}
+/* Body lines may carry long unwrapped tokens (command lines, Windows
+   paths); wrap them anywhere instead of blowing the row width, and cap
+   the preview at two lines so the inbox stays visually tidy. */
+.settings-inboxRow .card-desc {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+.settings-inboxKind {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.settings-inboxKind-task-done { background: #e8f7ee; color: #1a9e5c; }
+.settings-inboxKind-task-failed { background: #fdf0f0; color: #e5484d; }
+.settings-inboxKind-todo-done { background: #eaf3ff; color: #2f6fed; }
+.settings-inboxKind-turn-done { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
+.settings-inboxTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.settings-inboxTime {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+/* Channel credential presence label (push-channel fields). */
+.settings-channelState {
+  display: inline-block;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #9aa0a8;
+  margin-top: 2px;
+}
+.settings-channelState-on {
+  background: #e8f7ee;
+  color: #1a9e5c;
+}
+
+/* First-run welcome card: one-shot onboarding hint above the roster. */
+.mobile-welcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft, #eef1ff);
+  border: 1px solid var(--accent-border, #dbe1ff);
+}
+.mobile-welcomeCopy { flex: 1; min-width: 0; }
+.mobile-welcomeTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 3px;
+}
+.mobile-welcomeDesc {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mobile-welcomeClose {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent, #4d6bfe);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 2px;
+  cursor: pointer;
 }
 
 /* Legend under the search box explaining the badges. Two-column grid:
@@ -1246,6 +1374,34 @@ button.settings-row:focus-visible {
   border-radius: 6px;
   background: linear-gradient(90deg, var(--accent), #8b5cf6);
   transition: width 0.4s ease;
+}
+/* One quota window block (5-hour / weekly): label row + meter + reset note. */
+.usage-block + .usage-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.usage-rowLabel {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.usage-rowValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.usage-resetNote {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-quaternary);
 }
 .usage-stats {
   display: flex;
@@ -1975,6 +2131,8 @@ button.settings-row:focus-visible {
 .chat-msg-plain,
 .code-block pre,
 .diff-block .diff-row-text {
+  min-width: 0;
+  max-width: 100%;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -2086,6 +2244,17 @@ button.settings-row:focus-visible {
   font-size: var(--text-md);
   font-weight: 400;
   cursor: pointer;
+}
+
+.chat-msg > .chat-msg-text,
+.chat-msg > .chat-md,
+.chat-msg > .chat-msg-plain {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  writing-mode: horizontal-tb;
+  direction: ltr;
 }
 
 .chat-md {
@@ -5203,6 +5372,100 @@ button.settings-row:focus-visible {
   flex: 1;
 }
 
+/* Pending-message queue dock (desktop QueueDock equivalent): the messages
+   queued while the current turn runs, above the composer. */
+.queue-dock {
+  flex: none;
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+}
+.queue-dockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.queue-dockCount {
+  color: var(--accent, #4f7cff);
+}
+.queue-dockChevron {
+  color: var(--text-tertiary);
+}
+.queue-dockList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.queue-dockRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+.queue-dockRow[data-placement='steering'] {
+  border-left: 2px solid var(--accent, #4f7cff);
+}
+.queue-dockText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.queue-dockActions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+.queue-dockBtn {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.queue-dockBtn-primary {
+  border-color: var(--accent, #4f7cff);
+  color: var(--accent, #4f7cff);
+}
+.queue-dockBtn:disabled {
+  opacity: 0.4;
+}
+.queue-dockEdit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.queue-dockInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
 /* Offline / queued banner (32px, warning wash, slide-down). */
 .chat-offline-banner {
   flex: none;
@@ -5448,5 +5711,50 @@ details.think-block summary {
 
 details.think-block[open] .chat-disclosure-caret {
   transform: rotate(180deg);
+}
+
+/* Long-token fallback for every multi-line text container: unwrapped
+   paths/URLs (Windows drives, command lines, service endpoints) wrap
+   anywhere instead of overflowing the row and drifting the layout. */
+.settings-note,
+.settings-fieldDesc,
+.sheet-option-desc,
+.mobile-error,
+.empty-desc,
+.mobile-muted,
+.settings-inboxRow .card-desc {
+  overflow-wrap: anywhere;
+}
+
+/* Search result notes (truncation / scope hints). */
+.search-hitsNote {
+  margin: 0;
+  padding: 4px 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+/* Focus-locate highlight: a one-shot background pulse on the located row. */
+@keyframes dshPalmFocusPulse {
+  0% { background-color: var(--focus-bg, rgba(79, 124, 255, 0.22)); }
+  100% { background-color: transparent; }
+}
+
+.chat-msg-focus {
+  animation: dshPalmFocusPulse 2.2s ease-out forwards;
+}
+
+.chat-search-mark {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* Settings-search locate: the anchored sub-page entry pulses once on
+   arrival, so the user sees which control the search found. */
+[data-locate-id][data-focus] {
+  animation: dshPalmFocusPulse 2.2s ease-out forwards;
 }
 `;

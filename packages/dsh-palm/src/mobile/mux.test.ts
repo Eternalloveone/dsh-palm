@@ -520,6 +520,61 @@ describe('MuxClient background-task cache', () => {
     client.stop()
   })
 
+  it('retains a session/queue frame and replays it via cachedQueueFor', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    // The queue baseline arrives at boot, before any chat view subscribes.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({
+        type: 'session/queue',
+        sessionId: 's1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      }),
+    })
+    expect(client.cachedQueueFor('s1')).toEqual([{ id: 'q1', placement: 'queued', text: '排队消息', editable: true }])
+    expect(client.cachedQueueFor('other')).toBeUndefined()
+    client.stop()
+  })
+
+  it('drops the queue and jobs mirrors on session/subscribed (new mux generation)', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    // Snapshots from the previous generation (a reconnect opened a new stream;
+    // the host re-subscribes every session and re-pushes baselines only when
+    // non-empty — retained rows would otherwise survive as phantoms).
+    sources[0]?.onmessage?.({
+      data: envelopeWith({
+        type: 'session/queue',
+        sessionId: 's1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      }),
+    })
+    sources[0]?.onmessage?.({
+      data: envelopeWith(jobsPayload([{ id: 'pwsh-1', kind: 'pwsh', label: 'build', status: 'running', startedAt: 5 }])),
+    })
+    expect(client.cachedQueueFor('s1')).toHaveLength(1)
+    expect(client.cachedJobsFor('s1')?.map(job => job.id)).toEqual(['pwsh-1'])
+    // The generation boundary: both mirrors reset, so an omitted (empty)
+    // baseline reads as "none" instead of replaying stale work.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/subscribed', sessionId: 's1', lastSeq: 40 }),
+    })
+    expect(client.cachedQueueFor('s1')).toBeUndefined()
+    expect(client.cachedJobsFor('s1')).toBeUndefined()
+    // A non-empty queue baseline in the SAME generation repopulates it.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({
+        type: 'session/queue',
+        sessionId: 's1',
+        items: [{ id: 'q2', placement: 'queued', message: { id: 'm2', role: 'user', content: [{ type: 'text', text: '重新排队' }], source: { kind: 'user' } } }],
+      }),
+    })
+    expect(client.cachedQueueFor('s1')).toEqual([{ id: 'q2', placement: 'queued', text: '重新排队', editable: true }])
+    client.stop()
+  })
+
   it('lets a freshly mounted view replay the last known tasks via cachedJobsFor', () => {
     const { factory, sources } = makeSources()
     const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))

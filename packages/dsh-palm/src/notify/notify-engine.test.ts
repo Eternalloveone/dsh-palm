@@ -62,12 +62,24 @@ function fakeHost(overrides: Partial<NotifyEngineHost> = {}): {
   }
 }
 
-/** A scratch store with a tunable threshold/cooldown. */
-function store(thresholdMs = 30_000, cooldownMs = 120_000): NotifyStore {
+/** A scratch store with a tunable threshold/cooldown. The legacy tests
+ *  exercise jobs/turns, so the default config keeps both gates open; kind
+ *  gate tests pass their own kinds. */
+function store(
+  thresholdMs = 30_000,
+  cooldownMs = 120_000,
+  kinds?: { jobs?: boolean; todo?: boolean; turns?: boolean },
+): NotifyStore {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-notify-'))
   const file = join(dir, 'notify.json')
   const store = new NotifyStore(file)
-  store.setConfig({ turnThresholdMs: thresholdMs, turnCooldownMs: cooldownMs })
+  store.setConfig({
+    turnThresholdMs: thresholdMs,
+    turnCooldownMs: cooldownMs,
+    ...(kinds !== undefined
+      ? { kinds }
+      : { kinds: { jobs: true, turns: true } }),
+  })
   return store
 }
 
@@ -88,6 +100,161 @@ const turnEnd = (sessionId: string, turn = 1, reason = { kind: 'completed' }) =>
   type: 'session/event',
   sessionId,
   event: { type: 'turn/end', turn, reason },
+})
+
+describe('NotifyEngine inbox (recentEvents)', () => {
+  it('records every decision newest first', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1))
+    engine.start()
+    push(jobsFrame('s-1', [{ id: 'j1', status: 'running' }]))
+    await flush()
+    push(jobsFrame('s-1', [{ id: 'j1', status: 'completed', label: '任务一' }]))
+    await flush()
+    push(jobsFrame('s-2', [{ id: 'j2', status: 'running' }]))
+    await flush()
+    push(jobsFrame('s-2', [{ id: 'j2', status: 'failed', label: '任务二', detail: '炸了' }]))
+    await flush()
+    const recent = engine.recentEvents()
+    expect(recent.length).toBe(2)
+    expect(recent.map(event => event.kind)).toEqual(['task-failed', 'task-done'])
+    expect(recent[0]?.body).toContain('任务二')
+    engine.stop()
+  })
+
+  it('caps the log at fifty entries', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1))
+    engine.start()
+    for (let index = 0; index < 60; index += 1) {
+      push(jobsFrame('s-1', [{ id: `j${index}`, status: 'running' }]))
+      await flush()
+      push(jobsFrame('s-1', [{ id: `j${index}`, status: 'completed', label: `任务${index}` }]))
+      await flush()
+    }
+    const recent = engine.recentEvents()
+    expect(recent.length).toBe(50)
+    // The oldest ten were evicted; the newest entry is j59.
+    expect(recent[0]?.body).toContain('任务59')
+    expect(recent.some(event => event.body.includes('任务9'))).toBe(false)
+    engine.stop()
+  })
+
+  it('redacts titles and task names when hideDetails is on', async () => {
+    const { host, push } = fakeHost()
+    const s = store(1, 120_000, { jobs: true })
+    s.setConfig({ turnThresholdMs: 1, turnCooldownMs: 120_000, hideDetails: true, kinds: { jobs: true } })
+    const engine = new NotifyEngine(host, s)
+    const events = collect(engine)
+    engine.start()
+    push(jobsFrame('s-1', [{ id: 'j1', status: 'running' }]))
+    await flush()
+    push(jobsFrame('s-1', [{ id: 'j1', status: 'completed', label: '秘密项目部署' }]))
+    await flush()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.body).toBe('有后台任务已完成，点击查看')
+    expect(events[0]?.body).not.toContain('秘密项目部署')
+    // The inbox log carries the same redacted copy.
+    expect(engine.recentEvents()[0]?.body).toBe('有后台任务已完成，点击查看')
+    engine.stop()
+  })
+})
+
+describe('NotifyEngine kind gates + todo completion', () => {
+  const todoFrame = (sessionId: string, todos: unknown[]) => ({
+    type: 'session/event',
+    sessionId,
+    event: { type: 'todo/write', data: { todos } },
+  })
+
+  it('suppresses job notifications when the jobs gate is off', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1, 120_000, { jobs: false }))
+    const events = collect(engine)
+    engine.start()
+    push(jobsFrame('s-1', [{ id: 'j1', status: 'running' }]))
+    await flush()
+    push(jobsFrame('s-1', [{ id: 'j1', status: 'completed', label: 'build' }]))
+    await flush()
+    expect(events).toHaveLength(0)
+    expect(engine.recentEvents()).toHaveLength(0)
+    engine.stop()
+  })
+
+  it('suppresses turn notifications when the turns gate is off', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1, 120_000, { jobs: true, turns: false }))
+    const events = collect(engine)
+    engine.start()
+    push(turnStart('s-1'))
+    await flush()
+    push(turnEnd('s-1'))
+    await flush()
+    expect(events).toHaveLength(0)
+    engine.stop()
+  })
+
+  it('emits todo-done when a non-empty plan reaches all-completed', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1))
+    const events = collect(engine)
+    engine.start()
+    push(todoFrame('s-1', [
+      { content: '改 A', status: 'in_progress' },
+      { content: '改 B', status: 'pending' },
+    ]))
+    await flush()
+    expect(events).toHaveLength(0)
+    push(todoFrame('s-1', [
+      { content: '改 A', status: 'completed' },
+      { content: '改 B', status: 'completed' },
+    ]))
+    await flush()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.kind).toBe('todo-done')
+    expect(events[0]?.title).toBe('规划完成')
+    expect(events[0]?.body).toContain('任务规划已全部完成')
+    engine.stop()
+  })
+
+  it('does not emit for an empty or partially-done plan', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1))
+    const events = collect(engine)
+    engine.start()
+    push(todoFrame('s-1', []))
+    await flush()
+    push(todoFrame('s-1', [{ content: '只剩一步', status: 'in_progress' }]))
+    await flush()
+    push(todoFrame('s-1', 'malformed' as never as unknown[]))
+    await flush()
+    expect(events).toHaveLength(0)
+    engine.stop()
+  })
+
+  it('suppresses todo-done when the todo gate is off', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1, 120_000, { todo: false }))
+    const events = collect(engine)
+    engine.start()
+    push(todoFrame('s-1', [{ content: '改 A', status: 'completed' }]))
+    await flush()
+    expect(events).toHaveLength(0)
+    engine.stop()
+  })
+
+  it('applies the cooldown to repeated all-completed plans', async () => {
+    const { host, push } = fakeHost()
+    const engine = new NotifyEngine(host, store(1, 120_000))
+    const events = collect(engine)
+    engine.start()
+    push(todoFrame('s-1', [{ content: '第一轮', status: 'completed' }]))
+    await flush()
+    push(todoFrame('s-1', [{ content: '第二轮', status: 'completed' }]))
+    await flush()
+    expect(events).toHaveLength(1)
+    engine.stop()
+  })
 })
 
 describe('NotifyEngine jobs', () => {

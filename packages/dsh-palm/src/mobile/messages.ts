@@ -106,6 +106,14 @@ export interface RenderMessage {
    * already-shown step rows of the same turn and duplicate their text.
    */
   readonly startSeq?: number
+  /**
+   * Seq of each folded step row of a coalesced turn message, in order
+   * (absent for single-step rows). Lets a search-hit locate scroll to the
+   * exact step that matched instead of the turn's first row.
+   */
+  readonly stepSeqs?: number[]
+  /** Text of each folded step row, in order (parallel to `stepSeqs`). */
+  readonly stepTexts?: string[]
   /** Plain-text tool call summary for this assistant message, e.g. "使用 bash / read". */
   readonly toolSummary?: string
   /** Set when the owning turn ended in an error. */
@@ -147,7 +155,7 @@ export interface ToolCallInfo {
  * result-time view replacement is reflected automatically).
  */
 type FlowPart =
-  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'text'; readonly text: string; readonly seq?: number; readonly partId?: string }
   | { readonly kind: 'tool'; readonly callId: string }
 
 /**
@@ -314,6 +322,10 @@ function chunkTarget(data: unknown): { text: string; kind: 'text' | 'reasoning';
     kind = chunk['type'] === 'reasoning-delta' ? 'reasoning' : 'text'
     turn = pickNumber(data['turn'])
     step = pickNumber(data['step'])
+    // The streaming envelope also carries the stable message id; honoring it
+    // keeps the pending row on the SAME id the final message uses, so a search
+    // hit indexed mid-stream (messageId) still matches the finalized row.
+    idValue = pickString(data['messageId']) ?? pickString(data['id'])
   } else {
     text = pickString(data['text'])
     kind = pickString(data['kind']) === 'reasoning' ? 'reasoning' : 'text'
@@ -530,14 +542,21 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
   if (target !== undefined) {
     const next: RenderMessage = {
       ...target,
-      id,
+      // KEEP the streaming partial's id when it already carries a real event
+      // id (chunk with a uuid): a search hit is indexed while the newest
+      // message is still streaming, so its messageId is that pending row's id;
+      // swapping to a DIFFERENT final event id here would make the messageId no
+      // longer match the rendered row and the locate would fall back to a query
+      // match, landing mid-history. Only the fallback synthetic id (no `#`)
+      // — i.e. test/edge chunks without a wire id — yields to the final id.
+      id: target.id.includes('#') ? id : target.id,
       text: finalText,
       // The final content block list is authoritative; an adapter that omits
       // reasoning from the final message keeps the streamed reasoning text.
       ...(finalReasoning !== '' ? { reasoning: finalReasoning } : {}),
       // The final text is authoritative: equal to the chunk accumulation it
       // keeps the interleaved flow; different, it collapses to one text run.
-      flow: finalizeFlow(target.flow, target.text, finalText),
+      flow: finalizeFlow(target.flow, target.text, finalText, event.seq),
       ...(usage !== undefined ? { usage } : {}),
       seq: event.seq,
       time: event.time,
@@ -549,12 +568,13 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
     if (turn !== undefined) state.messageTurn.set(next.id, turn)
     // The streaming partial's synthetic id is retired: move the per-message
     // indexes (tool-name dedup set, turn map) to the authoritative id, or
-    // late tool/call parts lose the summary updates and old ids linger.
-    if (target.id !== id) {
+    // The streaming partial's id is retained (see above), so no index needs to
+    // migrate to a different id; the guard is kept for the unused swap case.
+    if (target.id !== next.id) {
       const names = state.toolNames.get(target.id)
       if (names !== undefined) {
         state.toolNames.delete(target.id)
-        state.toolNames.set(id, names)
+        state.toolNames.set(next.id, names)
       }
       state.messageTurn.delete(target.id)
       if (key !== undefined) state.pendingByTurnStep.delete(key)
@@ -613,13 +633,13 @@ function usageFromData(data: Record<string, unknown>): { inputTokens: number; ou
 }
 
 /** Append a text run to the flow, merging into a trailing text part. */
-function appendTextFlow(flow: ReadonlyArray<FlowPart> | undefined, text: string): ReadonlyArray<FlowPart> {
-  if (flow === undefined || flow.length === 0) return [{ kind: 'text', text }]
+function appendTextFlow(flow: ReadonlyArray<FlowPart> | undefined, text: string, seq?: number): ReadonlyArray<FlowPart> {
+  if (flow === undefined || flow.length === 0) return [{ kind: 'text', text, ...(seq !== undefined ? { seq } : {}) }]
   const last = flow[flow.length - 1]
-  if (last.kind === 'text') {
-    return [...flow.slice(0, -1), { kind: 'text', text: last.text + text }]
+  if (last.kind === 'text' && (seq === undefined || last.seq === undefined || last.seq === seq)) {
+    return [...flow.slice(0, -1), { kind: 'text', text: last.text + text, ...(last.seq !== undefined || seq !== undefined ? { seq: last.seq ?? seq } : {}) }]
   }
-  return [...flow, { kind: 'text', text }]
+  return [...flow, { kind: 'text', text, ...(seq !== undefined ? { seq } : {}) }]
 }
 
 /** Append a tool call to the flow (by callId). */
@@ -633,10 +653,10 @@ function appendToolFlow(flow: ReadonlyArray<FlowPart> | undefined, callId: strin
  * the tool parts survive (a tool call is an independent event — a text
  * rewrite must not drop it); otherwise the interleaved flow is kept as-is.
  */
-function finalizeFlow(flow: ReadonlyArray<FlowPart> | undefined, accumulated: string, finalText: string): ReadonlyArray<FlowPart> {
+function finalizeFlow(flow: ReadonlyArray<FlowPart> | undefined, accumulated: string, finalText: string, seq: number): ReadonlyArray<FlowPart> {
   if (finalText === accumulated) return flow ?? []
   const tools = (flow ?? []).filter(part => part.kind === 'tool')
-  return finalText === '' ? tools : [{ kind: 'text', text: finalText }, ...tools]
+  return finalText === '' ? tools : [{ kind: 'text', text: finalText, seq }, ...tools]
 }
 
 /** Merge two "使用 A / B" summaries by tool name (deduped, order preserved). */
@@ -653,6 +673,12 @@ function mergeToolSummary(a: string | undefined, b: string | undefined): string 
   return names.size === 0 ? undefined : `使用 ${[...names].join(' / ')}`
 }
 
+/** Add a row seq only to legacy flows that have no explicit part seq. */
+function flowWithSeq(flow: ReadonlyArray<FlowPart> | undefined, seq: number): ReadonlyArray<FlowPart> | undefined {
+  if (flow === undefined || flow.some(part => part.kind === 'text' && part.seq !== undefined)) return flow
+  return flow.map(part => part.kind === 'text' ? { ...part, seq } : part)
+}
+
 /** Concatenate two flows, merging adjacent text runs on a blank line. */function mergeFlows(a: ReadonlyArray<FlowPart> | undefined, b: ReadonlyArray<FlowPart> | undefined): ReadonlyArray<FlowPart> {
   if (a === undefined) return b ?? []
   if (b === undefined) return a
@@ -660,8 +686,11 @@ function mergeToolSummary(a: string | undefined, b: string | undefined): string 
   const first = b[0]
   if (first !== undefined && first.kind === 'text') {
     const last = out[out.length - 1]
-    if (last !== undefined && last.kind === 'text') {
-      out[out.length - 1] = { kind: 'text', text: last.text + (last.text !== '' && first.text !== '' ? '\n\n' : '') + first.text }
+    // Keep distinct step seqs as distinct text parts. FlowBody exposes one
+    // data-step-seq anchor per text part; merging here would make the later
+    // step's search result impossible to locate or highlight.
+    if (last !== undefined && last.kind === 'text' && (last.seq === undefined || first.seq === undefined || last.seq === first.seq)) {
+      out[out.length - 1] = { kind: 'text', text: last.text + (last.text !== '' && first.text !== '' ? '\n\n' : '') + first.text, ...(last.seq !== undefined || first.seq !== undefined ? { seq: last.seq ?? first.seq } : {}) }
       return [...out, ...b.slice(1)]
     }
   }
@@ -698,7 +727,7 @@ function applyChunk(state: FoldState, event: WireEvent): void {
     ?? (key !== undefined ? syntheticId(`assistant,${key}`, event.seq) : syntheticId('assistant', event.seq))
   const created: RenderMessage = target.kind === 'reasoning'
     ? { id, kind: 'assistant', text: '', reasoning: target.text, seq: event.seq, time: event.time, pending: true, ...(target.turn !== undefined ? { turn: target.turn } : {}), ...(target.step !== undefined ? { step: target.step } : {}) }
-    : { id, kind: 'assistant', text: target.text, seq: event.seq, time: event.time, pending: true, flow: [{ kind: 'text', text: target.text }], ...(target.turn !== undefined ? { turn: target.turn } : {}), ...(target.step !== undefined ? { step: target.step } : {}) }
+    : { id, kind: 'assistant', text: target.text, seq: event.seq, time: event.time, pending: true, flow: [{ kind: 'text', text: target.text, seq: event.seq }], ...(target.turn !== undefined ? { turn: target.turn } : {}), ...(target.step !== undefined ? { step: target.step } : {}) }
   state.messages.push(created)
   state.byId.set(id, created)
   if (key !== undefined) {
@@ -1010,6 +1039,23 @@ export function foldEvents(events: readonly WireEvent[], existing?: readonly Ren
 }
 
 /**
+ * The running turn's logged `turn/start` time (epoch ms) for a raw event
+ * window, or undefined when the window's last turn boundary is a `turn/end`
+ * (or there is no boundary at all). Folding consumes the boundary events,
+ * so this scan runs on the raw window before folding. Desktop turn-clock
+ * parity: the anchor restored here must equal the desktop timeline's open
+ * turn start, so a mid-turn reload keeps the real elapsed time.
+ */
+export function lastOpenTurnStartTime(events: readonly WireEvent[]): number | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const type = events[i]?.type
+    if (type === 'turn/end') return undefined
+    if (type === 'turn/start') return events[i]?.time
+  }
+  return undefined
+}
+
+/**
  * Coalesce consecutive same-turn assistant rows into one turn message.
  *
  * A busy turn emits one `assistant/message` per model step (each step's
@@ -1045,7 +1091,7 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
           ? { tools: [...(previous.tools ?? []), ...(message.tools ?? [])] }
           : {}),
         ...(previous.flow !== undefined || message.flow !== undefined
-          ? { flow: mergeFlows(previous.flow, message.flow) }
+          ? { flow: mergeFlows(flowWithSeq(previous.flow, previous.seq), flowWithSeq(message.flow, message.seq)) }
           : {}),
         // Tool summaries merge by name instead of the latest step
         // overwriting earlier steps ("使用 bash" must survive "使用 read").
@@ -1057,6 +1103,8 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
         // turn (see RenderMessage.startSeq).
         startSeq: previous.startSeq ?? previous.seq,
         seq: message.seq,
+        stepSeqs: [...(previous.stepSeqs ?? [previous.startSeq ?? previous.seq]), message.seq],
+        stepTexts: [...(previous.stepTexts ?? [previous.text]), message.text],
         time: message.time,
         // The latest row's status wins: a finalized step (no pending flag)
         // clears the merged row's pending — an interrupted turn (every row

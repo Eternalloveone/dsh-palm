@@ -30,6 +30,13 @@ pnpm typecheck      # tsc -b
 pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
 ```
 
+On Windows, the package scripts run a write preflight before test/build. It
+keeps Vite's cache in `.vitest-cache/`, clears read-only bits on generated
+directories, and reports a focused error when an existing bundle is locked.
+Close dsh/node/vitest processes or add the repository to the antivirus
+exclusion list when the preflight reports a lock; do not grant write access to
+the whole pnpm store.
+
 The phone bundle (`lib/mobile.js`) is served fresh from disk per request,
 but the running dsh process caches it in memory — restart dsh after a build
 to pick changes up (the browser page itself needs a reload).

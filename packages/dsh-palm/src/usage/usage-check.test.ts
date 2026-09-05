@@ -63,6 +63,19 @@ describe('buildUsageView', () => {
     expect(view.providers[0]?.status).toBe('ok')
   })
 
+  it('maps a DeepSeek provider to a balance row', async () => {
+    mockFetch([{ status: 200, body: {
+      is_available: true,
+      balance_infos: [{ currency: 'CNY', total_balance: '42.50', granted_balance: '0.00', topped_up_balance: '42.50' }],
+    } }])
+    const view = await buildUsageView([
+      // The dedicated gateway row carries no baseURL (route alone identifies
+      // it); the ref name rides the config so the key resolves host-side.
+      { route: 'deepseek', apiKeyEnv: 'DEEPSEEK_API_KEY' },
+    ], async () => 'sk-test')
+    expect(view.providers[0]).toMatchObject({ status: 'ok', kind: 'balance', balance: '42.50 CNY' })
+  })
+
   it('maps a Moonshot/Kimi provider to a balance row', async () => {
     mockFetch([{ status: 200, body: {
       is_available: true,
