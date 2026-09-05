@@ -605,4 +605,79 @@ describe('MuxClient background-task cache', () => {
     expect(client.cachedJobsFor('s0')).toBeUndefined()
     client.stop()
   })
+
+  it('exposes every retained session snapshot via jobsSnapshot (run overview)', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/jobs', sessionId: 's1', jobs: [{ id: 'a', kind: 'subagent', label: '审查', status: 'running', startedAt: 5 }] }),
+    })
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/jobs', sessionId: 's2', jobs: [{ id: 'b', kind: 'bash', label: 'build', status: 'completed', startedAt: 1, finishedAt: 3 }] }),
+    })
+    const snapshot = client.jobsSnapshot()
+    expect(snapshot.map(row => row.sessionId).sort()).toEqual(['s1', 's2'])
+    expect(snapshot.find(row => row.sessionId === 's1')?.jobs).toHaveLength(1)
+    expect(client.liveJobCount()).toBe(1)
+    client.stop()
+  })
+
+  it('counts only in-flight jobs across sessions for the live badge', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/jobs', sessionId: 's1', jobs: [
+        { id: 'a', kind: 'subagent', label: '跑测试', status: 'running', startedAt: 5 },
+        { id: 'b', kind: 'bash', label: 'build', status: 'stopping', startedAt: 5 },
+        { id: 'c', kind: 'bash', label: 'done', status: 'completed', startedAt: 5, finishedAt: 7 },
+      ] }),
+    })
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/jobs', sessionId: 's2', jobs: [{ id: 'd', kind: 'pwsh', label: 'x', status: 'failed', startedAt: 5, finishedAt: 6 }] }),
+    })
+    expect(client.liveJobCount()).toBe(2)
+    // A jobs frame with an empty set resets that session's count contribution.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/jobs', sessionId: 's1', jobs: [] }),
+    })
+    expect(client.liveJobCount()).toBe(0)
+    client.stop()
+  })
+
+  it('tracks running sessions from turn/start and turn/end events', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    // A turn opens: the run-overview seeds its running set from this snapshot
+    // even when the overview page mounts much later (its start frame is gone).
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/event', sessionId: 's1', event: { type: 'turn/start', seq: 10, time: 10, data: { turn: 1 } } }),
+    })
+    expect(client.runningSessionsSnapshot()).toEqual(['s1'])
+    // turn/end closes it again.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 20, time: 20, data: { turn: 1, reason: { kind: 'completed' } } } }),
+    })
+    expect(client.runningSessionsSnapshot()).toEqual([])
+    client.stop()
+  })
+
+  it('keeps a running session visible across session/subscribed (generation reset)', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/event', sessionId: 's1', event: { type: 'turn/start', seq: 10, time: 10, data: { turn: 1 } } }),
+    })
+    // A reconnect re-subscribes every session; jobs/queue mirrors reset (their
+    // baselines re-push), but the turn is still open — running must survive,
+    // or the overview loses a mid-turn session until its next turn boundary.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/subscribed', sessionId: 's1', lastSeq: 15 }),
+    })
+    expect(client.runningSessionsSnapshot()).toEqual(['s1'])
+    client.stop()
+  })
 })

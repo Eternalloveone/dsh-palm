@@ -5,7 +5,7 @@
  * a dead "加载中…" mobile surface.
  */
 import { createServer, request as httpRequest } from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -604,6 +604,41 @@ describe('mobile api envelope', () => {
       const ids = envelope.result?.value?.items?.map(item => item.sessionId) ?? []
       expect(ids).toEqual(['main-1', 'main-2'])
       expect(envelope.result?.value?.hasMore).toBe(false)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers mobile.runningSessions with running main-agent session ids', async () => {
+    const mixedApiProxy = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r',
+          result: {
+            ok: true as const,
+            value: {
+              items: [
+                // A session mid-turn right now: must be listed.
+                { sessionId: 'run-1', updatedAt: 4000, origin: undefined, running: true as const, blank: false as const },
+                // Subagent working sessions are internal: excluded like the roster.
+                { sessionId: 'sub-run', updatedAt: 3500, origin: 'subagent' as const, running: true as const, blank: false as const },
+                // Blank (never conversed) or idle sessions are not "running".
+                { sessionId: 'idle-1', updatedAt: 3000, origin: undefined, running: false as const, blank: false as const },
+                { sessionId: 'blank-1', updatedAt: 2000, origin: undefined, running: false as const, blank: true as const },
+              ],
+            },
+          },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: mixedApiProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await call(server.port, 'mobile.runningSessions')
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result?: { value?: { sessionIds: string[] } } }
+      expect(envelope.result?.value?.sessionIds).toEqual(['run-1'])
     } finally {
       await server.close()
     }
@@ -1351,6 +1386,167 @@ describe('push.config (L3 channel credentials)', () => {
   })
 })
 
+describe('mobile.readFile (in-chat file preview)', () => {
+  it('reads a real UTF-8 text file back with its resolved path and name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-'))
+    const file = join(dir, 'demo.ts')
+    writeFileSync(file, 'const answer = 42\n', 'utf8')
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readFile', { path: file })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as {
+        type: string; result: { ok: boolean; value?: { path: string; name: string; text: string }; error?: { code: string } }
+      }
+      expect(envelope.type).toBe('server-response')
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value?.name).toBe('demo.ts')
+      expect(envelope.result.value?.text).toBe('const answer = 42\n')
+      // The host echoes the requested file (resolved to an absolute path).
+      expect(envelope.result.value?.path).toContain('demo.ts')
+      expect(envelope.result.value?.path.startsWith(dir)).toBe(true)
+    } finally {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a directory and a missing path without leaking host details', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-'))
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const dirCall = await callWith(server.port, 'mobile.readFile', { path: dir })
+      const dirEnvelope = JSON.parse(dirCall.body) as { result: { ok: boolean; error: { code: string } } }
+      // A directory is not a readable file: the multi-base resolver only
+      // accepts regular files, so it reports unreadable (not a path leak).
+      expect(dirEnvelope.result.ok).toBe(false)
+      expect(dirEnvelope.result.error.code).toBe('file-unreadable')
+
+      const missingCall = await callWith(server.port, 'mobile.readFile', { path: join(dir, 'nope.txt') })
+      const missingEnvelope = JSON.parse(missingCall.body) as { result: { ok: boolean; error: { code: string; message: string } } }
+      expect(missingEnvelope.result.ok).toBe(false)
+      expect(missingEnvelope.result.error.code).toBe('file-unreadable')
+      expect(missingEnvelope.result.error.message).not.toContain(dir)
+    } finally {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses binary content (NUL byte) and an empty path', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-'))
+    const bin = join(dir, 'blob.bin')
+    writeFileSync(bin, Buffer.from([0x00, 0x01, 0x02]))
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const binCall = await callWith(server.port, 'mobile.readFile', { path: bin })
+      const binEnvelope = JSON.parse(binCall.body) as { result: { ok: boolean; error: { code: string } } }
+      expect(binEnvelope.result.ok).toBe(false)
+      expect(binEnvelope.result.error.code).toBe('not-text')
+
+      const empty = await callWith(server.port, 'mobile.readFile', { path: '' })
+      const emptyEnvelope = JSON.parse(empty.body) as { result: { ok: boolean; error: { code: string } } }
+      expect(emptyEnvelope.result.ok).toBe(false)
+      expect(emptyEnvelope.result.error.code).toBe('bad-request')
+    } finally {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses oversized files (>256 KiB)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-'))
+    const big = join(dir, 'big.log')
+    writeFileSync(big, 'x'.repeat(256 * 1024 + 1), 'utf8')
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy, mobileEnterToSend }))
+    try {
+      const { body } = await callWith(server.port, 'mobile.readFile', { path: big })
+      const envelope = JSON.parse(body) as { result: { ok: boolean; error: { code: string } } }
+      expect(envelope.result.ok).toBe(false)
+      expect(envelope.result.error.code).toBe('file-too-large')
+    } finally {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves a relative path against the owning session cwd', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-'))
+    const file = join(dir, 'demo.ts')
+    writeFileSync(file, 'const x = 1\n', 'utf8')
+    const withCwd = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-cwd-1', cwd: dir }], hasMore: false } },
+        }),
+      },
+    } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: withCwd, mobileEnterToSend }))
+    try {
+      // Absolute paths still work without a session lookup.
+      const absolute = await callWith(server.port, 'mobile.readFile', { path: file })
+      const absEnvelope = JSON.parse(absolute.body) as { result: { ok: boolean; value?: { name: string; text: string } } }
+      expect(absEnvelope.result.ok).toBe(true)
+      expect(absEnvelope.result.value?.name).toBe('demo.ts')
+
+      // A relative path + sessionId resolves under that session's cwd.
+      const relative = await callWith(server.port, 'mobile.readFile', { path: 'demo.ts', sessionId: 's-cwd-1' })
+      const relEnvelope = JSON.parse(relative.body) as { result: { ok: boolean; value?: { path: string; text: string } } }
+      expect(relEnvelope.result.ok).toBe(true)
+      expect(relEnvelope.result.value?.text).toBe('const x = 1\n')
+      expect(relEnvelope.result.value?.path.startsWith(dir)).toBe(true)
+    } finally {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves a relative path from an absolute mention in the chat window', async () => {
+    // The session's cwd does NOT contain the file; the chat window's rows
+    // mention it absolutely (as an agent editing a checkout would).
+    const other = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-empty-'))
+    const repo = mkdtempSync(join(tmpdir(), 'dsh-palm-readfile-repo-'))
+    const sub = join(repo, 'packages', 'dsh-palm')
+    const src = join(sub, 'src')
+    const { mkdirSync } = require('node:fs') as typeof import('node:fs')
+    mkdirSync(src, { recursive: true })
+    const file = join(src, 'mux.ts')
+    writeFileSync(file, 'export const mux = true\n', 'utf8')
+    const withEmptyCwd = {
+      ...apiProxy,
+      sessions: {
+        ...apiProxy.sessions,
+        list: async () => ({
+          rpcId: 'r', result: { ok: true, value: { items: [{ sessionId: 's-ws-1', cwd: other }], hasMore: false } },
+        }),
+      },
+    } as unknown as ApiProxy
+    // A fake chat window whose assistant row prints the file's absolute path.
+    const windowRows = {
+      tail: async () => ({
+        rows: [{ kind: 'assistant', text: `改动在 ${file}` }],
+        maxSeq: 1, hasMore: false,
+      }),
+    } as unknown as ChatWindowService
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: withEmptyCwd, mobileEnterToSend, chatWindows: windowRows,
+    }))
+    try {
+      const relative = await callWith(server.port, 'mobile.readFile', { path: 'packages/dsh-palm/src/mux.ts', sessionId: 's-ws-1' })
+      const envelope = JSON.parse(relative.body) as { result: { ok: boolean; value?: { path: string; text: string }; error?: { code: string } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value?.text).toBe('export const mux = true\n')
+      expect(envelope.result.value?.path).toBe(file)
+    } finally {
+      await server.close()
+      rmSync(other, { recursive: true, force: true })
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('mobile.usage (per-provider usage/balance)', () => {
   /** Stub global fetch so the balance adapter never leaves the machine. */
   function stubBalanceFetch(): typeof globalThis.fetch {
@@ -1581,8 +1777,8 @@ describe('mobile.searchAll (global search with attribution)', () => {
             ok: true,
             value: {
               items: [
-                { workspaceId: 'w-1', path: 'D:\\work\\dsh-palm', title: 'dsh-palm', sessionIds: [] },
-                { workspaceId: 'w-2', path: 'D:\\work\\other', title: 'other', sessionIds: [] },
+                { workspaceId: 'w-1', path: '/home/alice/work/dsh-palm', title: 'dsh-palm', sessionIds: [] },
+                { workspaceId: 'w-2', path: '/home/alice/work/other', title: 'other', sessionIds: [] },
               ],
             },
           },
@@ -1596,7 +1792,7 @@ describe('mobile.searchAll (global search with attribution)', () => {
             ok: true,
             value: {
               items: [
-                { sessionId: 's-1', updatedAt: 0, running: false, blank: false, cwd: 'D:\\work\\dsh-palm\\packages\\dsh-palm' },
+                { sessionId: 's-1', updatedAt: 0, running: false, blank: false, cwd: '/home/alice/work/dsh-palm/packages/dsh-palm' },
               ],
             },
           },

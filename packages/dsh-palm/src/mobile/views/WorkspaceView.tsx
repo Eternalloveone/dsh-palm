@@ -27,9 +27,16 @@ import { CheckIcon, ClockIcon, CloseIcon, FolderIcon, FolderPlusIcon, InboxIcon,
 /* ── local preferences (pin / recent) ────────────────────────────────── */
 
 const PINNED_KEY = 'dsh.palm.pinnedWorkspaces'
-const RECENT_KEY = 'dsh.palm.recentWorkspace'
+/** Ordered recent-workspace ids, newest first (v2 list format). */
+const RECENTS_KEY = 'dsh.palm.recentWorkspaces'
+/** Legacy single-value key (v1); read for one-time migration then dropped. */
+const LEGACY_RECENT_KEY = 'dsh.palm.recentWorkspace'
 /** First-run welcome card: shown once after pairing, dismissible. */
 const WELCOME_KEY = 'dsh.palm.welcomeSeen'
+/** How many recents are retained in storage. */
+const RECENTS_LIMIT = 5
+/** How many recents surface as the 活跃项目 group on the roster. */
+export const ACTIVE_RECENT_LIMIT = 3
 
 /** Read the pinned workspace id list (localStorage, best effort). */
 function readPinned(): string[] {
@@ -46,23 +53,60 @@ function writePinned(ids: string[]): void {
   try { localStorage.setItem(PINNED_KEY, JSON.stringify(ids)) } catch { /* non-fatal */ }
 }
 
-/** The workspace the user opened last (drives the active rail + jump chip). */
-function readRecent(): string | undefined {
-  try {
-    const value = localStorage.getItem(RECENT_KEY)
-    return value === '' ? undefined : value ?? undefined
-  } catch {
-    return undefined
+/** Dedupe an id list preserving first-occurrence order, capped at the limit. */
+function capRecents(ids: readonly string[]): string[] {
+  const out: string[] = []
+  for (const id of ids) {
+    if (out.includes(id)) continue
+    out.push(id)
+    if (out.length >= RECENTS_LIMIT) break
   }
+  return out
 }
 
-function writeRecent(id: string): void {
-  try { localStorage.setItem(RECENT_KEY, id) } catch { /* non-fatal */ }
+/**
+ * Read the ordered recent-workspace list (newest first, bounded). The v1
+ * format was a single plain-text id under another key; a v1 value found here
+ * migrates once into the list key and the legacy key is removed.
+ */
+function readRecents(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY)
+    if (raw !== null) {
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) return capRecents(parsed.filter((id): id is string => typeof id === 'string'))
+    }
+  } catch { /* fall through to migration */ }
+  // v1 single-value migration: `recentWorkspace` held one plain id.
+  try {
+    const legacy = localStorage.getItem(LEGACY_RECENT_KEY)
+    if (legacy !== null && legacy !== '') {
+      const migrated = capRecents([legacy])
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(migrated))
+      localStorage.removeItem(LEGACY_RECENT_KEY)
+      return migrated
+    }
+  } catch { /* non-fatal */ }
+  return []
 }
 
-/** Clear the stored recent workspace (readRecent maps '' back to undefined). */
-function clearRecent(): void {
-  try { localStorage.setItem(RECENT_KEY, '') } catch { /* non-fatal */ }
+function writeRecents(ids: readonly string[]): void {
+  const capped = capRecents(ids)
+  try { localStorage.setItem(RECENTS_KEY, JSON.stringify(capped)) } catch { /* non-fatal */ }
+}
+
+/** Move one id to the front of the list (a fresh open) and persist. */
+function pushRecent(ids: readonly string[], id: string): string[] {
+  const next = capRecents([id, ...ids.filter(existing => existing !== id)])
+  writeRecents(next)
+  return next
+}
+
+/** Drop one id (workspace deleted) and persist. */
+function removeRecent(ids: readonly string[], id: string): string[] {
+  const next = ids.filter(existing => existing !== id)
+  writeRecents(next)
+  return next
 }
 
 /* ── project-kind classification ─────────────────────────────────────── */
@@ -70,11 +114,12 @@ function clearRecent(): void {
 /** Project kind driving icon tint + roster grouping. */
 type WorkspaceKind = 'active' | 'test' | 'code' | 'plain'
 
-/** Heuristic split: the last-opened workspace is "active"; paths that look
- * like test rigs (test/spec/benchmark segments) group under 测试项目;
- * workspaces without any session yet stay "plain" gray. */
-export function workspaceKind(workspace: WorkspaceRow, recentId: string | undefined): WorkspaceKind {
-  if (recentId !== undefined && workspace.workspaceId === recentId) return 'active'
+/** Heuristic split: the most-recently opened workspaces (up to
+ *  {@link ACTIVE_RECENT_LIMIT}) are "active"; paths that look like test rigs
+ *  (test/spec/benchmark segments) group under 测试项目; workspaces without
+ *  any session yet stay "plain" gray. */
+export function workspaceKind(workspace: WorkspaceRow, recents: readonly string[]): WorkspaceKind {
+  if (recents.slice(0, ACTIVE_RECENT_LIMIT).includes(workspace.workspaceId)) return 'active'
   if (/\b(test|tests|testing|spec|specs|benchmark|e2e)\b/i.test(workspace.path.replace(/[\\/]+/g, ' '))
     || /\b(test|tests|testing|spec|specs|benchmark|e2e)\b/i.test(workspace.title)) return 'test'
   if ((workspace.sessionIds ?? []).length === 0) return 'plain'
@@ -320,6 +365,11 @@ export interface WorkspaceViewProps {
   /** The app cleared its one-shot restore (called after initialSearch is
    *  applied), so a later manual visit does not restore the search again. */
   onSearchApplied?(): void
+  /** Open the global run-overview page (cross-session background tasks). */
+  onOpenRunOverview?(): void
+  /** Current live background-task count across all sessions (badge on the
+   *  run-overview quick chip; undefined hides the count). */
+  runOverviewLive?: number
 }
 
 /**
@@ -327,7 +377,7 @@ export interface WorkspaceViewProps {
  * @param props - the pick action.
  * @returns the roster.
  */
-export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onOpenDirect, initialSearch, onSearchSnapshot, onSearchApplied }: WorkspaceViewProps) {
+export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onOpenDirect, initialSearch, onSearchSnapshot, onSearchApplied, onOpenRunOverview, runOverviewLive }: WorkspaceViewProps) {
   const [items, setItems] = useState<WorkspaceRow[] | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   // Bumped by the retry button to re-run the roster fetch effect.
@@ -363,7 +413,9 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
   /** The search hit currently locating its first matched message. */
   const [pinnedOnly, setPinnedOnly] = useState(false)
   const [pinned, setPinned] = useState<string[]>(() => readPinned())
-  const [recentId, setRecentId] = useState<string | undefined>(() => readRecent())
+  /** Ordered recent workspace ids (newest first); the first few render as the
+   *  活跃项目 group and the jump chip targets the newest. */
+  const [recents, setRecents] = useState<readonly string[]>(() => readRecents())
   // Long-press menu + confirm/prompt dialogs.
   const [menu, setMenu] = useState<MenuTarget | undefined>(undefined)
   const [renaming, setRenaming] = useState<WorkspaceRow | undefined>(undefined)
@@ -522,21 +574,22 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     return () => { cancelled = true }
   }, [initialWorkspaceId, onPick, reload])
 
-  /** Open a workspace: remember it as the recent/active one first. */
+  /** Open a workspace: remember it as the most recent one first. */
   const pick = useCallback((workspace: WorkspaceRow) => {
-    writeRecent(workspace.workspaceId)
-    setRecentId(workspace.workspaceId)
-    onPick(workspace)  }, [onPick])
+    setRecents(previous => pushRecent(previous, workspace.workspaceId))
+    onPick(workspace)
+  }, [onPick])
 
-  /** Jump straight into the last-opened workspace. */
+  /** Jump straight into the newest-opened workspace. */
   const jumpRecent = useCallback(() => {
-    const target = items?.find(workspace => workspace.workspaceId === recentId)
+    const newest = recents[0]
+    const target = newest === undefined ? undefined : items?.find(workspace => workspace.workspaceId === newest)
     if (target === undefined) {
       toast('还没有访问记录')
       return
     }
     pick(target)
-  }, [items, recentId, pick])
+  }, [items, recents, pick])
 
   const clearPressTimer = useCallback(() => {
     if (pressTimerRef.current !== undefined) {
@@ -610,12 +663,9 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     try {
       await deleteWorkspace(workspace.workspaceId)
       setItems(previous => previous?.filter(row => row.workspaceId !== workspace.workspaceId) ?? previous)
-      // Deleting the recent/active workspace must not leave a dangling recentId
-      // (the jump chip would point at a workspace that no longer exists).
-      if (recentId === workspace.workspaceId) {
-        setRecentId(undefined)
-        clearRecent()
-      }
+      // Deleting a recent workspace must not leave a dangling entry (the jump
+      // chip / active group would point at a workspace that no longer exists).
+      setRecents(previous => removeRecent(previous, workspace.workspaceId))
       setDeleting(undefined)
       toast('已删除工作区（目录与会话保留）')
     } catch (reason: unknown) {
@@ -623,7 +673,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     } finally {
       setBusy(false)
     }
-  }, [recentId])
+  }, [])
 
   if (isCreating) {
     return (
@@ -646,11 +696,26 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     const pinB = pinned.includes(b.workspaceId) ? 0 : 1
     return pinA - pinB
   })
+  // The active group renders in recency order (newest first); pinned rows
+  // still lead it. Other groups keep the host's stable order.
+  const recentOrder = new Map(recents.map((id, index) => [id, index]))
   const groups: Array<{ kind: WorkspaceKind; rows: WorkspaceRow[] }> = GROUP_ORDER
-    .map(({ kind }) => ({ kind, rows: ordered.filter(workspace => workspaceKind(workspace, recentId) === kind) }))
+    .map(({ kind }) => ({
+      kind,
+      rows: kind === 'active'
+        ? ordered
+          .filter(workspace => workspaceKind(workspace, recents) === kind)
+          .sort((a, b) => {
+            const pinA = pinned.includes(a.workspaceId) ? 0 : 1
+            const pinB = pinned.includes(b.workspaceId) ? 0 : 1
+            if (pinA !== pinB) return pinA - pinB
+            return (recentOrder.get(a.workspaceId) ?? Infinity) - (recentOrder.get(b.workspaceId) ?? Infinity)
+          })
+        : ordered.filter(workspace => workspaceKind(workspace, recents) === kind),
+    }))
     .filter(group => group.rows.length > 0)
   const emptyPlaceholders = GROUP_ORDER.filter(({ kind, placeholder }) =>
-    placeholder !== null && !ordered.some(workspace => workspaceKind(workspace, recentId) === kind))
+    placeholder !== null && !ordered.some(workspace => workspaceKind(workspace, recents) === kind))
   const pinnedCount = pinned.length
 
   const body = (() => {
@@ -723,7 +788,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           <li key={group.kind} style={{ listStyle: 'none' }}>
             <div className="mobile-groupTitle">{KIND_LABEL[group.kind]}</div>
             {group.rows.map(workspace => {
-              const kind = workspaceKind(workspace, recentId)
+              const kind = workspaceKind(workspace, recents)
               const isPinned = pinned.includes(workspace.workspaceId)
               const count = (workspace.sessionIds ?? []).length
               return (
@@ -877,6 +942,20 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           <ClockIcon />
           最近访问
         </button>
+        {onOpenRunOverview !== undefined && (
+          <button
+            type="button"
+            className={'mobile-quickchip' + (runOverviewLive !== undefined && runOverviewLive > 0 ? ' mobile-quickchip-live' : '')}
+            aria-label={runOverviewLive !== undefined && runOverviewLive > 0 ? `运行中 ${runOverviewLive} 个会话` : '运行中'}
+            onClick={onOpenRunOverview}
+          >
+            <span className={runOverviewLive !== undefined && runOverviewLive > 0 ? 'quick-live-dot' : 'quick-live-dot quick-live-dot-off'} aria-hidden />
+            运行中
+            {runOverviewLive !== undefined && runOverviewLive > 0 && (
+              <span className="quick-live-count">{runOverviewLive}</span>
+            )}
+          </button>
+        )}
       </div>
       {!welcomeHidden && (
         <div className="mobile-welcome" role="note">

@@ -144,6 +144,15 @@ export class MuxClient {
    * freshly opened chat would show an empty queue until the next change).
    */
   private readonly cachedQueueBySession = new Map<string, QueueItemView[]>()
+  /**
+   * Session ids whose turn is currently open, derived from the `turn/start`
+   * and `turn/end` events every session streams over the mux. Retained for
+   * the page lifetime exactly like the jobs/queue mirrors, so a surface
+   * mounted later (the run-overview page) still sees a session that started
+   * generating before it opened — the turn/start frame itself is long gone
+   * by then, and session.list's 60 s TTL can still report running:false.
+   */
+  private readonly runningSessionIds = new Set<string>()
   private source: EventSourceLike | undefined
   private stopped = false
   private readonly url: string
@@ -487,7 +496,30 @@ export class MuxClient {
     if (frame.data.type === 'session/jobs') this.rememberJobs(frame.data)
     if (frame.data.type === 'session/queue') this.rememberQueue(frame.data)
     if (frame.data.type === 'session/subscribed') this.rememberSubscribed(frame.data)
+    this.trackTurnState(frame.data)
     this.emit(frame.data, envelope.data.rpcId)
+  }
+
+  /** Update the running-session mirror from a session/event frame's turn
+   *  boundary (turn/start opens a turn, turn/end closes it). Any other event
+   *  leaves the mirror untouched. */
+  private trackTurnState(frame: MuxFrame): void {
+    if (frame.type !== 'session/event') return
+    const event = frame.event as { type?: unknown } | undefined
+    const eventType = event?.type
+    const sessionId = String(frame.sessionId)
+    if (eventType === 'turn/start') this.runningSessionIds.add(sessionId)
+    else if (eventType === 'turn/end') this.runningSessionIds.delete(sessionId)
+  }
+
+  /**
+   * Every session whose turn is currently open, in frame-arrival order. The
+   * run-overview page seeds its running set from this so a session that
+   * started generating before the page opened still appears (the mux opens
+   * at app boot and tracks turns for the whole page lifetime).
+   */
+  runningSessionsSnapshot(): string[] {
+    return [...this.runningSessionIds]
   }
 
   /**
@@ -512,6 +544,36 @@ export class MuxClient {
    */
   cachedJobsFor(sessionId: string): JobView[] | undefined {
     return this.cachedJobsBySession.get(sessionId)
+  }
+
+  /**
+   * Every retained per-session background-task snapshot (sessions with no
+   * snapshot are absent — the host expresses "no tasks" by omitting the
+   * session/jobs frame). Stable insertion order, newest retention evicts
+   * oldest past {@link MAX_CACHED_JOBS_SESSION}. The global run-overview
+   * surface renders this as its source of truth; the arrays are the live
+   * retained JobView instances, so callers must treat them read-only.
+   */
+  jobsSnapshot(): Array<{ sessionId: string; jobs: readonly JobView[] }> {
+    const rows: Array<{ sessionId: string; jobs: readonly JobView[] }> = []
+    for (const [sessionId, jobs] of this.cachedJobsBySession) rows.push({ sessionId, jobs })
+    return rows
+  }
+
+  /**
+   * Number of in-flight (running/stopping) background jobs across every
+   * retained session snapshot — the badge count for the global run-overview
+   * entry. A settled-only set counts zero, matching the host's "no live
+   * tasks" reading.
+   */
+  liveJobCount(): number {
+    let count = 0
+    for (const jobs of this.cachedJobsBySession.values()) {
+      for (const job of jobs) {
+        if (job.status === 'running' || job.status === 'stopping') count += 1
+      }
+    }
+    return count
   }
 
   /** Retain the queue snapshot for one session (see cachedQueueBySession). */

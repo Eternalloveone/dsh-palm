@@ -13,6 +13,7 @@ import {
   prompt,
   readChat,
   readSettings,
+  runningSessions,
   type ChatPage,
 } from '../api.ts'
 import { EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, type RenderMessage, type TodoSnapshot } from '../messages.ts'
@@ -25,6 +26,7 @@ import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { clearPairingCaches } from '../list-persist.ts'
 import { ToastHost } from '../toast.tsx'
 import { ChatView } from './ChatView.tsx'
+import { RunOverviewView, fetchRoster as fetchRunRoster } from './RunOverviewView.tsx'
 import { SessionListView } from './SessionListView.tsx'
 import { SettingsView } from './SettingsView.tsx'
 import { WorkspaceView as WorkspaceRoster } from './WorkspaceView.tsx'
@@ -33,9 +35,20 @@ import { PairRequiredView } from '../PairRequiredView.tsx'
 /** One navigation level. */
 type Route =
   | { kind: 'workspaces' }
+  | { kind: 'run-overview' }
   | { kind: 'sessions'; workspace: WorkspaceRow }
   | { kind: 'settings'; workspace: WorkspaceRow }
-  | { kind: 'chat'; session: SessionView; workspace: WorkspaceRow; focusSeq?: number; focusMessageId?: string; focusPartId?: string; focusQuery?: string }
+  | {
+    kind: 'chat'
+    session: SessionView
+    workspace: WorkspaceRow
+    focusSeq?: number
+    focusMessageId?: string
+    focusPartId?: string
+    focusQuery?: string
+    /** Opened from the run-overview page: back returns there, not to a list. */
+    fromRunOverview?: boolean
+  }
 
 /** Placeholder workspace for standalone search hits (no attach relation):
  *  the chat only needs the session; backing out returns to the roster. */
@@ -144,7 +157,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, sessions: 1, settings: 2, chat: 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2 } as const
 
 /** Whether the mobile gateway rejected this browser for lack of a paired cookie. */
 export function isUnpairedMobileError(error: unknown): boolean {
@@ -272,7 +285,39 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   /** Whether the current chat was reached through a workspace-search locate,
    *  so backing out returns to the search results instead of the plain list. */
   const locateFromSearchRef = useRef(false)
+  /** Live background-task count across all sessions (run-overview badge). */
+  /** Live-activity session count for the run-overview entry: main-agent
+   *  sessions with a running turn or an in-flight background job. The mux
+   *  mirrors cover sessions whose turn/jobs frames arrived while this page
+   *  lived; {@link runningSessions} (host-side, polled on the roster) covers
+   *  sessions that were already running before the phone opened — their
+   *  turn/start frame is gone and the session.list TTL can still be stale.
+   *  Drives the entry chip's green breathing dot + numeric badge. */
+  const [runOverviewLive, setRunOverviewLive] = useState(0)
   const muxRef = useRef<MuxClient | undefined>(undefined)
+  /** Host-probed running session ids (30 s TTL, polled on the roster). Kept
+   *  separate from the mux mirrors so a mux frame refresh never drops a
+   *  session only the host knows about; recomputeActive() unions both. */
+  const hostRunningRef = useRef<ReadonlySet<string>>(new Set())
+  /** Recompute the active session count from every live source: the mux
+   *  mirrors (running sessions + sessions owning in-flight jobs) unioned with
+   *  the host-side probe. Called by the mux frame handler and the roster
+   *  probe alike, so neither source can regress the other's contribution. */
+  const recomputeActive = useCallback((): void => {
+    const mux = muxRef.current
+    if (mux === undefined) {
+      setRunOverviewLive(hostRunningRef.current.size)
+      return
+    }
+    const active = new Set<string>(mux.runningSessionsSnapshot())
+    for (const row of mux.jobsSnapshot()) {
+      if (row.jobs.some(job => job.status === 'running' || job.status === 'stopping')) {
+        active.add(row.sessionId)
+      }
+    }
+    for (const sessionId of hostRunningRef.current) active.add(sessionId)
+    setRunOverviewLive(active.size)
+  }, [])
   // Message-visibility prefs live here (shared by the chat and the settings
   // page) and persist on the /m origin through display-prefs.
   const [showToolCalls, setShowToolCallsState] = useState(() => getShowToolCalls())
@@ -319,8 +364,47 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     const mux = new MuxClient(undefined, { onUnpaired })
     muxRef.current = mux
     mux.start()
-    return () => { mux.stop() }
-  }, [onUnpaired])
+    const unsubscribe = mux.onFrame((frame) => {
+      if (frame.type === 'session/jobs' || frame.type === 'session/subscribed') {
+        recomputeActive()
+        return
+      }
+      // turn/start + turn/end move the running-session mirror; refresh so the
+      // entry dot/badge tracks a plain conversation turn too.
+      if (frame.type === 'session/event') {
+        const eventType = (frame.event as { type?: string }).type
+        if (eventType === 'turn/start' || eventType === 'turn/end') recomputeActive()
+      }
+    })
+    recomputeActive()
+    return () => { unsubscribe(); mux.stop() }
+  }, [onUnpaired, recomputeActive])
+
+  // Host-side running-session probe for the roster entry: covers sessions
+  // already running before this page (or its mux stream) opened, whose
+  // turn/start frame is unrecoverable. Polled only while the workspace
+  // roster — the surface that hosts the entry chip — is on screen, and never
+  // faster than the host's own 30 s TTL answers. The result lands in
+  // hostRunningRef so mux-frame refreshes keep including it until the next
+  // probe supersedes it.
+  useEffect(() => {
+    if (route.kind !== 'workspaces') return
+    let cancelled = false
+    let timer: ReturnType<typeof setInterval> | undefined
+    const probe = (): void => {
+      void runningSessions().then(
+        ({ sessionIds }) => {
+          if (cancelled) return
+          hostRunningRef.current = new Set(sessionIds)
+          recomputeActive()
+        },
+        () => { /* non-fatal: keep the previous probe + mux mirrors' count */ },
+      )
+    }
+    probe()
+    timer = setInterval(probe, 30_000)
+    return () => { cancelled = true; if (timer !== undefined) clearInterval(timer) }
+  }, [route.kind, recomputeActive])
 
   // The L1 completion-notify channel: starts once the page is paired and the
   // browser granted notification permission (the settings page asks). The
@@ -393,6 +477,13 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
             leaving: previous.current,
           }
         }
+        if (route.fromRunOverview === true) {
+          // Opened from the run-overview page: one back press returns there.
+          return {
+            current: { route: { kind: 'run-overview' }, forward: false },
+            leaving: previous.current,
+          }
+        }
         if (route.workspace.workspaceId === STANDALONE_WORKSPACE.workspaceId) {
           // A standalone chat has no session list behind it: return to the
           // roster instead of a phantom empty list.
@@ -403,6 +494,12 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
         }
         return {
           current: { route: { kind: 'sessions', workspace: route.workspace }, forward: false },
+          leaving: previous.current,
+        }
+      }
+      if (route.kind === 'run-overview') {
+        return {
+          current: { route: { kind: 'workspaces' }, forward: false },
           leaving: previous.current,
         }
       }
@@ -516,6 +613,25 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     })
   }, [navigate])
 
+  /** Open a session from the global run-overview: back returns to the
+   *  overview (the session may live in any workspace, so it rides the
+   *  standalone chat shape — the overview page is its own list level). */
+  const openOverviewChat = useCallback((hit: { sessionId: string; title?: string }) => {
+    const session: SessionView = {
+      sessionId: hit.sessionId,
+      title: hit.title ?? '会话',
+      updatedAt: 0,
+      running: false,
+      blank: false,
+    }
+    navigate({
+      kind: 'chat',
+      session,
+      workspace: STANDALONE_WORKSPACE,
+      fromRunOverview: true,
+    })
+  }, [navigate])
+
   const routeKey = route.kind === 'chat'
     ? `chat:${route.session.sessionId}`
     : route.kind === 'sessions'
@@ -537,12 +653,20 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
         onPick={openWorkspace}
         onLocateSession={locateSession}
         onOpenDirect={openChatDirect}
+        onOpenRunOverview={() => { navigate({ kind: 'run-overview' }) }}
+        runOverviewLive={runOverviewLive}
         onSearchSnapshot={(open, term) => { workspaceSearchSnapRef.current = { open, term } }}
         onSearchApplied={() => { setRestoreSearch(undefined) }}
       />
     )
-    : route.kind === 'sessions'
-      ? (
+    : route.kind === 'run-overview'
+      ? <RunOverviewView
+        mux={muxRef.current}
+        onBack={back}
+        onOpenSession={openOverviewChat}
+      />
+      : route.kind === 'sessions'
+        ? (
         <SessionListView
           workspace={route.workspace}
           initialSessionId={initialSessionId}

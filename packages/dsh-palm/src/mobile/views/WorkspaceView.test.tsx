@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import { mobileWorkspaceTarget } from './App.tsx'
-import { WorkspaceView } from './WorkspaceView.tsx'
+import { WorkspaceView, workspaceKind } from './WorkspaceView.tsx'
 
 vi.mock('../api.ts', () => ({
   listWorkspaces: vi.fn(),
@@ -74,6 +74,38 @@ describe('mobile workspace deep link', () => {
     expect(await screen.findByText('First')).toBeTruthy()
     expect(await screen.findByText('Second')).toBeTruthy()
     expect(onPick).not.toHaveBeenCalled()
+  })
+})
+
+describe('mobile workspace kind', () => {
+  const row = (workspaceId: string, path = '/proj/code', title = 'Code', hasSessions = true): WorkspaceRow => ({
+    workspaceId: workspaceId as never,
+    path,
+    title,
+    sessionIds: (hasSessions ? ['s-1'] : []) as never,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+
+  it('marks the three most recent workspaces as active', () => {
+    const recents = ['a', 'b', 'c', 'd']
+    expect(workspaceKind(row('a'), recents)).toBe('active')
+    expect(workspaceKind(row('b'), recents)).toBe('active')
+    expect(workspaceKind(row('c'), recents)).toBe('active')
+    // The 4th recent no longer fits the 活跃项目 group: falls back to kind.
+    expect(workspaceKind(row('d'), recents)).toBe('code')
+  })
+
+  it('is not active when the recents list is empty or the id is unknown', () => {
+    expect(workspaceKind(row('a'), [])).toBe('code')
+    expect(workspaceKind(row('x'), ['a'])).toBe('code')
+  })
+
+  it('keeps test-path and empty-session heuristics after the active check', () => {
+    expect(workspaceKind(row('t', '/rigs/spec-runner', 'Rig'), ['other'])).toBe('test')
+    expect(workspaceKind(row('plain', '/proj/plain', 'Plain', false), ['other'])).toBe('plain')
+    // A recent-but-test workspace stays active: recency wins over the path.
+    expect(workspaceKind(row('t', '/rigs/spec-runner', 'Rig'), ['t'])).toBe('active')
   })
 })
 
@@ -233,10 +265,9 @@ describe('mobile workspace creation', () => {
   })
 })
 
-describe('mobile workspace recentId', () => {
-  it('clears the recent workspace id when the recent workspace is deleted', async () => {
-    const store = new Map<string, string>()
-    store.set('dsh.palm.recentWorkspace', 'ws-1')
+describe('mobile workspace recents', () => {
+  function stubStorage(initial: Record<string, string>): Map<string, string> {
+    const store = new Map<string, string>(Object.entries(initial))
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
       value: {
@@ -246,11 +277,15 @@ describe('mobile workspace recentId', () => {
         clear: () => { store.clear() },
       },
     })
+    return store
+  }
+
+  it('removes a deleted recent workspace from the ordered list', async () => {
+    const store = stubStorage({ 'dsh.palm.recentWorkspaces': JSON.stringify(['ws-1', 'ws-2']) })
     listWorkspacesMock.mockResolvedValue(workspaces)
     deleteWorkspaceMock.mockResolvedValue({ deleted: true })
     render(<WorkspaceView onPick={() => {}} />)
     await screen.findByText('First')
-    // Open the delete menu for the recent workspace (ws-1 = First).
     const row = screen.getByText('First').closest('button')!
     fireEvent.contextMenu(row)
     fireEvent.click(await screen.findByRole('menuitem', { name: /删除工作区/ }))
@@ -258,8 +293,18 @@ describe('mobile workspace recentId', () => {
     await waitFor(() => {
       expect(deleteWorkspaceMock).toHaveBeenCalledWith('ws-1')
     })
-    // The recent id is cleared from storage (no dangling pointer).
-    expect(store.get('dsh.palm.recentWorkspace')).toBe('')
+    // The deleted id leaves the stored list; the other recent stays.
+    expect(JSON.parse(store.get('dsh.palm.recentWorkspaces') ?? '[]')).toEqual(['ws-2'])
+  })
+
+  it('migrates the legacy single-value recent key into the list format', () => {
+    const store = stubStorage({ 'dsh.palm.recentWorkspace': 'ws-1' })
+    listWorkspacesMock.mockResolvedValue(workspaces)
+    render(<WorkspaceView onPick={() => {}} />)
+    // Migration runs at read: the list key now carries the id and the legacy
+    // key is dropped (asserted synchronously after first render).
+    expect(JSON.parse(store.get('dsh.palm.recentWorkspaces') ?? '[]')).toEqual(['ws-1'])
+    expect(store.get('dsh.palm.recentWorkspace')).toBeUndefined()
   })
 })
 

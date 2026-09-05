@@ -118,7 +118,18 @@ export function renderInline(text: string): string {
     if (char === '`') {
       const end = text.indexOf('`', i + 1)
       if (end !== -1) {
-        out += '<code>' + escapeHtml(text.slice(i + 1, end)) + '</code>'
+        const span = text.slice(i + 1, end)
+        // A code span whose content is a file path stays code-styled but
+        // becomes tappable (agents conventionally wrap paths in backticks —
+        // without this, `src/main.ts` renders as inert code and the phone
+        // can never open it). Everything else keeps its inert code span.
+        const path = matchFilePath(span, 0)
+        if (path !== null && path.end === span.length) {
+          out += '<code><a class="file-link" data-path="' + escapeHtml(path.path) + '">' + escapeHtml(path.path) + '</a></code>'
+          i = end + 1
+          continue
+        }
+        out += '<code>' + escapeHtml(span) + '</code>'
         i = end + 1
         continue
       }

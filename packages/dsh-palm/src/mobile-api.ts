@@ -35,7 +35,7 @@ import { asJsonObject, readBoundedJson, writeJson } from './http.ts'
 import { readCookie } from './gate.ts'
 import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
 import { buildUsageView, type UsageProviderConfig, type UsageView } from './usage/usage-check.ts'
-import { opendir, stat } from 'node:fs/promises'
+import { opendir, stat, readFile as fsReadFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { ChatWindowService } from './chat-window.ts'
@@ -56,6 +56,7 @@ import pkg from '../package.json'
  */
 const MOBILE_ALLOWLIST = new Set([
   'mobile.listDirectory',
+  'mobile.readFile',
   'workspace.create',
   'workspace.list',
   'workspace.rename',
@@ -109,6 +110,8 @@ const MOBILE_PREFERENCES_METHOD = 'mobile.preferences'
 const MOBILE_PENDING_METHOD = 'mobile.pending'
 const MOBILE_RESPOND_METHOD = 'mobile.respond'
 const MOBILE_LIST_DIRECTORY_METHOD = 'mobile.listDirectory'
+/** Read one text file's content for the phone's file-preview sheet. */
+const MOBILE_READ_FILE_METHOD = 'mobile.readFile'
 const MOBILE_COMMANDS_METHOD = 'mobile.commands'
 const MOBILE_TRANSCRIBE_METHOD = 'mobile.transcribe'
 /** Recent completion-notify decisions (the phone's notification inbox). */
@@ -117,6 +120,14 @@ const MOBILE_NOTIFY_EVENTS_METHOD = 'mobile.notifyEvents'
 const MOBILE_LATEST_VERSION_METHOD = 'mobile.latestVersion'
 /** Global session search with workspace attribution (home-page search). */
 const MOBILE_SEARCH_ALL_METHOD = 'mobile.searchAll'
+/**
+ * One host-side running-session enumeration (the run-overview entry's badge):
+ * which main-agent sessions have an attached agent running RIGHT NOW. Unlike
+ * the mux mirrors this cannot be missed by a late page open — it reads the
+ * host's own session table directly. Bounded to the same TTL as session.list
+ * so the badge never queries faster than the roster refresh.
+ */
+const MOBILE_RUNNING_SESSIONS_METHOD = 'mobile.runningSessions'
 /** The published package the About sheet checks against. */
 const PACKAGE_NAME = '@eternalloveone/dsh-palm'
 /**
@@ -208,6 +219,126 @@ function mobileAncestryCrumbs(target: string): MobileDirectoryEntry[] {
 
 /** Sentinel path for the "This PC" drive picker (never a real filesystem path). */
 const THIS_PC = 'this-pc'
+
+/** Upper bound for one file-preview read (256 KiB: code/text files preview; huge logs refuse). */
+const MOBILE_READ_FILE_MAX_BYTES = 256 * 1024
+
+/** Upper bound for one image-preview read (8 MiB: photo/screenshot preview). */
+const MOBILE_READ_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+
+/** File extension → image media type (for base64 data URLs in previews). */
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon',
+}
+
+/** True when a path names a raster/vector image we can preview as data URL. */
+function isImagePath(value: string): boolean {
+  const base = value.split(/[\\/]/).pop() ?? ''
+  const dot = base.lastIndexOf('.')
+  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : ''
+  return IMAGE_MIME[ext] !== undefined
+}
+
+/** True for an absolute path on Windows (`C:\…` / `C:/…`) or POSIX (`/…`). */
+function isAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('\\\\')
+}
+
+/**
+ * Candidate absolute targets for one file-preview path. An absolute path
+ * resolves as-is. A relative path (the form agents usually write) is tried
+ * against every plausible base — the owning session's cwd first (the agent
+ * worked there), then the host process cwd, then every workspace path, then
+ * directories recovered from ABSOLUTE file paths that already appear in the
+ * session's chat window (an agent that writes `packages/…/mux.ts` relative
+ * to the checkout it edits has almost always also printed the same file as
+ * `C:\…\dsh-source\dsh-palm\packages\…` somewhere in the same conversation).
+ * The caller stats each candidate and uses the first that exists.
+ */
+async function readCandidates(
+  apiProxy: ApiProxy,
+  raw: string,
+  sessionId: string | undefined,
+  chatWindows: ChatWindowService | undefined,
+): Promise<string[]> {
+  if (isAbsolutePath(raw)) return [resolve(raw)]
+  const bases: string[] = []
+  /** Exact absolute targets recovered from the chat window (already full paths). */
+  const candidatesRaw: string[] = []
+  if (sessionId !== undefined) {
+    try {
+      const response = await apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-readfile'), payload: {} } as never)
+      const items = (response as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; cwd?: string }> } } }).result?.value?.items ?? []
+      const cwd = items.find(item => item.sessionId === sessionId)?.cwd
+      if (typeof cwd === 'string' && cwd !== '') bases.push(cwd)
+    } catch {
+      // session lookup failed: fall through to the remaining bases
+    }
+  }
+  try {
+    bases.push(process.cwd())
+    const response = await apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-readfile-ws'), payload: {} } as never)
+    const wsItems = (response as { result?: { ok?: boolean; value?: { items?: Array<{ path?: string }> } } }).result?.value?.items ?? []
+    for (const item of wsItems) {
+      if (typeof item.path === 'string' && item.path !== '') bases.push(item.path)
+    }
+  } catch {
+    // workspace enumeration failed: process.cwd() is already in the list
+  }
+  // Directories that already contain this path as an absolute mention in the
+  // same conversation are the most precise base for an agent-relative path.
+  if (sessionId !== undefined && chatWindows !== undefined) {
+    try {
+      const page = await chatWindows.tail(sessionId, READ_CHAT_MAX_ROWS)
+      const absPaths = new Set<string>()
+      for (const row of page.rows) {
+        const text = row.text ?? ''
+        // Match absolute Windows/POSIX paths inside the row text.
+        for (const match of text.matchAll(/(?:[A-Za-z]:[\\/]|\/)[^\s`"'<>|]+/g)) {
+          const token = match[0].trimEnd()
+          // Keep tokens that look like file paths (a separator and a
+          // dot-extension); strip trailing punctuation that the regex may
+          // have swallowed is handled by trimEnd above (paths rarely end in
+          // CJK punctuation, so a `.`/`,` boundary is not stripped here).
+          if (/[\\/]/.test(token) && /\.[A-Za-z0-9]{1,8}$/.test(token)) absPaths.add(token)
+        }
+      }
+      const rawNorm = raw.replaceAll('\\', '/')
+      // 1) An absolute path that ENDS with the raw relative path is the exact
+      //    target (agent printed it; resolve straight to it).
+      for (const abs of absPaths) {
+        if (abs.replaceAll('\\', '/').endsWith(rawNorm)) candidatesRaw.push(abs)
+      }
+      // 2) Otherwise offer each absolute path's directory as a base.
+      for (const abs of absPaths) {
+        const dir = dirname(abs)
+        if (dir !== abs && dir !== '.') bases.push(dir)
+      }
+    } catch {
+      // window unavailable: rely on the bases already collected
+    }
+  }
+  const seen = new Set<string>()
+  const candidates: string[] = []
+  // Exact absolute paths recovered from the window come first (they are the
+  // very file the agent meant when it printed the relative form).
+  for (const exact of candidatesRaw) {
+    if (exact === '') continue
+    const target = resolve(exact)
+    if (seen.has(target)) continue
+    seen.add(target)
+    candidates.push(target)
+  }
+  for (const base of bases) {
+    if (base === '') continue
+    const target = resolve(base, raw)
+    if (seen.has(target)) continue
+    seen.add(target)
+    candidates.push(target)
+  }
+  return candidates
+}
 
 /** Windows drive letters that exist (A:-Z:), rendered as the This-PC drive picker. */
 async function windowsDrives(): Promise<MobileDirectoryEntry[]> {
@@ -374,6 +505,15 @@ let sessionListTtlCache: {
 } | undefined
 /** TTL for the workspace roster / agent-preset roster caches (v3.2). */
 const ROSTER_TTL_MS = 30_000
+/** TTL for mobile.runningSessions (the badge is not latency-critical and the
+ *  host enumeration is the same session.list walk, so the caches align). */
+const RUNNING_SESSIONS_TTL_MS = 30_000
+/** Running-session cache (see dispatch). */
+let mobileRunningCache: {
+  at: number
+  proxy: ApiProxy
+  sessionIds: string[]
+} | undefined
 /** workspace.list TTL cache (see dispatch). */
 let workspaceListTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
 /** agentPreset.list TTL cache (see dispatch). */
@@ -1172,6 +1312,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_PENDING_METHOD
       || method === MOBILE_RESPOND_METHOD
       || method === MOBILE_LIST_DIRECTORY_METHOD
+      || method === MOBILE_READ_FILE_METHOD
       || method === MOBILE_COMMANDS_METHOD
       || method === MOBILE_COMMAND_EXEC_METHOD
       || method === MOBILE_VOICE_SERVICES_METHOD
@@ -1182,6 +1323,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_LATEST_VERSION_METHOD
       || method === MOBILE_SEARCH_ALL_METHOD
       || method === MOBILE_SEARCH_MESSAGES_METHOD
+      || method === MOBILE_RUNNING_SESSIONS_METHOD
       || method === MOBILE_USAGE_METHOD
       || method === MOBILE_READ_CHAT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
@@ -1316,6 +1458,96 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             type: 'server-response',
             rpcId,
             result: { ok: false, error: { code: 'directory-unreadable', message: '目录不可读' } },
+          })
+        }
+      } else if (method === MOBILE_READ_FILE_METHOD) {
+        // Text-file preview for the chat's file-path links. The phone is a
+        // paired device (full host trust, same boundary as listDirectory);
+        // the remaining guards are defensive depth, not the trust line: only
+        // a real, regular file is read, the payload is size-bounded, and the
+        // bytes must decode as UTF-8 text with no NUL — so a binary/dir
+        // answer can never ride this channel. A RELATIVE path (the usual
+        // form agents write, e.g. `packages/…/mux.ts`) resolves against the
+        // session's cwd when `sessionId` is supplied; without one it can
+        // only be read when it resolves from the host process cwd.
+        const body = parsed.payload as { path?: unknown; sessionId?: unknown } | undefined
+        const raw = typeof body?.path === 'string' ? body.path.trim() : ''
+        if (raw === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少文件路径' } },
+          })
+          return
+        }
+        try {
+          const candidates = await readCandidates(apiProxy, raw, typeof body?.sessionId === 'string' ? body.sessionId : undefined, deps.chatWindows)
+          let target: string | undefined
+          let info: Awaited<ReturnType<typeof stat>> | undefined
+          for (const candidate of candidates) {
+            try {
+              const probe = await stat(candidate)
+              if (probe.isFile()) { target = candidate; info = probe; break }
+            } catch {
+              // candidate absent: try the next base
+            }
+          }
+          if (target === undefined || info === undefined) {
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
+            })
+            return
+          }
+          const isImage = isImagePath(target)
+          if (info.size > (isImage ? MOBILE_READ_IMAGE_MAX_BYTES : MOBILE_READ_FILE_MAX_BYTES)) {
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: false, error: { code: 'file-too-large', message: isImage ? '图片过大，无法预览' : '文件过大，无法预览' } },
+            })
+            return
+          }
+          const bytes = await fsReadFile(target)
+          if (isImage) {
+            const ext = (target.split(/[\\/]/).pop() ?? '').split('.').pop()?.toLowerCase() ?? ''
+            const mediaType = IMAGE_MIME[ext] ?? 'application/octet-stream'
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: {
+                ok: true,
+                value: {
+                  kind: 'image' as const,
+                  path: target,
+                  name: basename(target),
+                  dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}`,
+                },
+              },
+            })
+            return
+          }
+          if (bytes.includes(0)) {
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: false, error: { code: 'not-text', message: '二进制文件无法预览' } },
+            })
+            return
+          }
+          const text = bytes.toString('utf8')
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { kind: 'text' as const, path: target, name: basename(target), text } },
+          })
+        } catch {
+          // Never leak host paths/errors; the phone renders a generic refusal.
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
           })
         }
       } else if (method === MOBILE_COMMANDS_METHOD) {
@@ -1613,6 +1845,47 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             value: { latest, isNewer: isNewerVersion(latest, pkg.version) },
           },
         })
+      } else if (method === MOBILE_RUNNING_SESSIONS_METHOD) {
+        // Which main-agent sessions have an attached agent running right now.
+        // The run-overview badge seeds from this so a session that started
+        // generating BEFORE the phone opened (or before this page mounted)
+        // still counts — its turn/start frame is gone and session.list's own
+        // TTL can still say running:false. One host read per TTL window; the
+        // badge is not latency-critical, so 30 s matches session.list's cache.
+        const runningCache = mobileRunningCache
+        if (runningCache !== undefined && runningCache.proxy === apiProxy && Date.now() - runningCache.at < RUNNING_SESSIONS_TTL_MS) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { sessionIds: runningCache.sessionIds } },
+          })
+          return
+        }
+        try {
+          const list = await apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-running-sessions'), payload: {} } as never)
+          const items = (list as { result?: { ok?: boolean; value?: { items?: Array<{
+            sessionId: string
+            origin?: 'subagent'
+            running?: boolean
+            blank?: boolean
+          }> } } }).result?.value?.items ?? []
+          const sessionIds = items
+            .filter(item => item.origin !== 'subagent' && item.running === true && item.blank !== true)
+            .map(item => String(item.sessionId))
+          mobileRunningCache = { at: Date.now(), proxy: apiProxy, sessionIds }
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { sessionIds } },
+          })
+        } catch (error) {
+          console.error('mobile.runningSessions failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '运行状态查询失败，请稍后重试' } },
+          })
+        }
       } else if (method === MOBILE_SEARCH_ALL_METHOD) {
         // Global session search with workspace attribution: the home-page
         // search needs to locate hits in whatever workspace they live in,

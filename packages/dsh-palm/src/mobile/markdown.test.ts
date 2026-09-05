@@ -95,6 +95,16 @@ describe('renderMarkdown', () => {
     expect(renderInline('见 https://example.com/x.ts')).not.toContain('file-link')
   })
 
+  it('turns a code-span file path into a tappable link (still code-styled)', () => {
+    expect(renderInline('改 `src/main.ts` 即可'))
+      .toBe('改 <code><a class="file-link" data-path="src/main.ts">src/main.ts</a></code> 即可')
+    expect(renderInline('内容见 `packages/dsh-palm/README.md`')).toContain('file-link')
+    expect(renderInline('运行 `npm run build` 完成')).not.toContain('file-link')
+    // A path inside fenced code (not an inline span) is untouched elsewhere;
+    // an inline span with trailing text after the path stays inert.
+    expect(renderInline('`src/main.ts 的说明`')).not.toContain('file-link')
+  })
+
   it('splits segments at code and diff fences, preserving order', () => {
     const segments = parseSegments('前文\n\n```ts\nconst a = 1\n```\n\n中段\n\n```diff\n- a\n+ b\n```\n\n后文')
     expect(segments.map(segment => segment.kind)).toEqual(['html', 'code', 'html', 'diff', 'html'])

@@ -62,6 +62,8 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Per-provider usage & balances** — one settings card for every provider configured on the desktop: consumed-quota meters (Ollama Cloud), account balances (DeepSeek, Moonshot/Kimi) and OpenRouter's spent-vs-limit, refreshed on demand; providers without a public endpoint are not shown
 - **Global search with message-level locate** — search the workspace and every session from the home page, or the current workspace from the session list; hits group by workspace with real session titles, and tapping one opens the chat and scrolls to the matched message with a one-shot highlight. Chinese short words are covered by a bounded substring backfill (SQLite FTS tokenizes contiguous CJK as one token)
 - **Pending-message queue dock** — messages sent while a turn is running enter the host queue and show as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header, each editable (plain text), removable, or steered in as an interrupt; the dock mirrors the host snapshot and clears on session stop
+- **Global run overview** — a full-screen view of everything the host is doing right now: running sessions and live background jobs across every workspace, grouped into 正在运行 / 最近结束; the home page's quick chip shows a live badge and opens the overview, and tapping a card opens that session
+- **In-chat file & image preview** — file-path links in messages (bare or backtick-wrapped) open a bottom sheet: markdown renders formatted, HTML renders in a sandboxed iframe, code highlights, images display inline; message `<img>`s open a full-screen lightbox with double-tap zoom
 - **Clean streaming output** — windowed prefix rendering keeps long replies smooth; collapsible reasoning blocks fold in-body thinking into a disclosure
 
 ## Full capability list
@@ -89,6 +91,9 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Session management** — delete sessions from the chat menu or a long-press on the roster; the offline outbox is cleared with the session
 - **Global search** — the home-page search is a global search over workspaces and every session's content, grouped by workspace with real session titles; the session-list search narrows to the current workspace. Hits open the chat and scroll to the matched message (deep-link `?session=&seq=`), with a one-shot highlight; CJK short words are covered by a bounded substring backfill
 - **Pending-message queue dock** — messages sent while a turn is running queue in the host and render as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header; each row is editable (plain text only), removable, or steered in as an interrupt while the agent is running; the dock mirrors the host snapshot and clears on session stop
+- **In-chat file preview** — file-path links (bare or backtick-wrapped) open a bottom sheet instead of the desktop-only opener: markdown renders formatted (interactive code fences / diff cards), HTML renders in a sandboxed iframe (scripts inert), other code highlights, and image paths display inline; relative paths resolve against the session's cwd, the host process cwd, every workspace, or absolute mentions already in the chat
+- **In-chat image lightbox** — message `<img>`s (remote URLs or attached data URLs) open full-screen with a double-tap fit/1:1 zoom toggle
+- **Global run overview** — a full-screen cross-session view (running sessions + live background jobs) reachable from the home quick chip; each card opens its session
 - **Plugin market** — browse, search and install plugins from the phone (best done on the desktop)
 - **Desktop-parity settings** — phone settings sync with the desktop (schema forms, cascading model picker, permission presets; complex presets are best edited on the desktop)
 - **Settings search** — the settings page search also indexes sub-configuration entries (notification gates, push channels, Web Push, voice services), opening the owning sub-page and scrolling to the match
@@ -195,6 +200,15 @@ dsh plugin --profile web add link:/path/to/dsh-palm/packages/dsh-palm
 
 Already-paired devices keep working after switching install sources (same format as dsh-remote-web-ui).
 
+### PWA platform support (device-tested)
+
+| Platform | Install PWA | Notes |
+|---|---|---|
+| Android | ✅ Chrome / Edge / Firefox | install from the browser menu (受信 HTTPS 入口 required) |
+| iOS | ✅ Safari only | **添加至主屏幕** (Add to Home Screen); Chrome and other iOS browsers cannot install a full PWA — open `/m/` in Safari |
+
+iOS Web Push (16.4+) likewise requires the Safari-installed PWA; on Android the browser's push backend (FCM) may be unreachable from mainland-China networks — use the third-party channels (L3) there.
+
 ## Remote access setup
 
 Open the pairing panel from the sidebar phone icon. It walks you through three steps: **configure → pair → use**.
@@ -260,6 +274,13 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 - **Not audited** — this project has not undergone a third-party security audit, and the upstream dsh project is itself a developer preview. Review the pairing and gate sources before exposing a deployment beyond your trusted network
 
 See [SECURITY.md](SECURITY.md) for the vulnerability reporting process and deployment notes.
+
+## API stability
+
+Starting with **1.0.0**, dsh-palm's own protocol is backward compatible:
+
+- The `/m/api` method surface and the mux/queue/jobs frame formats only ever **add** methods and frames — existing ones keep their semantics (a breaking change would require a new major version)
+- dsh-palm runs against the DSH host API (`dsh-host-apiproxy` and friends, currently the `0.1.1-rc` line). Adaptation to host API changes ships through the pre-verified upgrade flow and is **not** treated as a breaking change of dsh-palm's own protocol — the host's `rc` line does not promise stability itself
 
 ## Project docs
 

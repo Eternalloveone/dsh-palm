@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-05
+
+### Added
+
+- **Global run overview** — a full-screen, cross-session view of everything the host is doing right now: sessions delegating to subagents / compiling / running commands (live `session/jobs` snapshots) plus plain sessions whose agent is mid-turn (turn/start-end tracked live), grouped into 正在运行 / 最近结束. The home page gains a quick chip with a live badge (running sessions + live background jobs); tapping opens the overview, tapping a card opens that session. Pure projection on the phone — no host RPC beyond the roster list (60 s host TTL); the badge is backed by a new `mobile.runningSessions` host method so a late page open never misses a running session
+- **In-chat file preview** — file-path links in messages (bare or backtick-wrapped, which now render as tappable links too) open a bottom sheet instead of the desktop-only host opener. The host `mobile.readFile` resolves relative paths against the session cwd / process cwd / every workspace / absolute mentions already in the chat window, serves text up to 256 KiB and refuses binaries without leaking host paths. Markdown files render through the same segment pipeline as chat messages (headings/lists/tables, interactive code fences, diff cards); HTML files render inside a sandboxed iframe (scripts inert); code highlights with the bundled Shiki; a copy button grabs the content
+- **In-chat image preview** — image file paths (png/jpg/jpeg/gif/webp/svg/bmp/ico, ≤8 MiB) return as base64 data URLs and display in the preview sheet; markdown `<img>`s (remote URLs or attached data URLs) open a full-screen lightbox with double-tap fit/1:1 zoom
+- **API stability commitment (1.0.0)** — from this release the `/m/api` method surface and frame formats are backward compatible (additive only); adaptation to DSH host API changes ships through the pre-verified upgrade flow and is not treated as a breaking change of dsh-palm's own protocol
+
 ## [0.8.0] - 2026-09-05
 
 ### Added

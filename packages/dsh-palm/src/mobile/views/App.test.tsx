@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   prompt: vi.fn(),
   readChat: vi.fn(),
   readSettings: vi.fn().mockResolvedValue({}),
+  runningSessions: vi.fn().mockResolvedValue({ sessionIds: [] }),
   setThemePreference: vi.fn(),
 }))
 
@@ -20,6 +21,10 @@ vi.mock('../mux.ts', () => ({
     start(): void {}
     stop(): void {}
     observe(): void {}
+    onFrame(): () => void { return () => {} }
+    jobsSnapshot(): Array<{ sessionId: string; jobs: never[] }> { return [] }
+    liveJobCount(): number { return 0 }
+    runningSessionsSnapshot(): string[] { return [] }
   },
 }))
 vi.mock('./WorkspaceView.tsx', () => ({ WorkspaceView: () => <div>workspace-ready</div> }))

@@ -582,6 +582,33 @@ body,
   font-weight: 500;
 }
 
+/* Run-overview quick chip: live dot pulses while anything is running and
+   the live count rides beside the label (same chip grammar as pin/recent). */
+.mobile-quickchip-live {
+  border-color: color-mix(in srgb, var(--positive) 40%, transparent);
+  color: var(--text-primary);
+}
+
+.quick-live-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--positive);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+.quick-live-dot-off {
+  background: var(--text-quaternary);
+  animation: none;
+}
+
+.quick-live-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--positive);
+}
+
 .mobile-search {
   flex: none;
   padding: 6px 16px 8px;
@@ -4454,6 +4481,179 @@ button.settings-row:focus-visible {
   max-height: calc(100vh - 96px);
 }
 
+/* ── file preview sheet (in-chat .file-link taps) ─────────────────────── */
+
+/* The preview content needs most of the sheet: keep the body roomy and let
+   the pre scroll inside the sheet's own scroll container. */
+.fp-body {
+  margin: 0;
+  padding: 4px 2px 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The Shiki <pre class="shiki"> inside .fp-body gets its own themed colors;
+   strip default margins so it aligns with the plain-text fallback. */
+.fp-body pre.shiki {
+  margin: 0;
+}
+
+.fp-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 10px;
+}
+
+.fp-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.fp-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.fp-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.fp-loading,
+.fp-error {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+}
+
+.fp-error {
+  color: var(--danger, #d5484a);
+}
+
+/* Sandboxed HTML preview: a white canvas keeps un-styled documents readable
+   in both themes; the iframe scrolls inside the sheet like the code body. */
+.fp-html {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 230px);
+  min-height: 240px;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* Local image preview inside the sheet: fit width, auto height, scrollable. */
+.fp-image-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+.fp-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+/* ── full-screen image lightbox (in-chat <img> tap) ───────────────────── */
+
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.86);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lightbox-stage {
+  max-width: 96vw;
+  max-height: 88vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lightbox-img {
+  display: block;
+  max-width: 96vw;
+  max-height: 86vh;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Full-size zoom: no fit constraint, the stage scrolls to pan. */
+.lightbox-stage-full {
+  max-height: 88vh;
+}
+
+.lightbox-stage-full .lightbox-img {
+  max-width: none;
+  max-height: none;
+  width: auto;
+  height: auto;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: 12px;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.lightbox-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.lightbox-hint {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+
 .sheet-status {
   padding: 18px 8px;
   color: var(--text-tertiary);
@@ -4462,8 +4662,7 @@ button.settings-row:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
-}
+  gap: var(--space-2);}
 
 .sheet-status-error {
   color: var(--danger);
@@ -5756,5 +5955,187 @@ details.think-block[open] .chat-disclosure-caret {
    arrival, so the user sees which control the search found. */
 [data-locate-id][data-focus] {
   animation: dshPalmFocusPulse 2.2s ease-out forwards;
+}
+
+/* ── global run overview (cross-session background tasks) ────────────── */
+
+.runov-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.runov-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+}
+
+.runov-hero {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 16px 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+}
+
+.runov-hero-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.runov-hero-t {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.runov-hero-s {
+  margin-top: 1px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.runov-group-title {
+  padding: 16px 18px 6px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.runov-sess {
+  margin: 4px 16px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.runov-sess-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.runov-sess-head:active {
+  background: var(--fill);
+}
+
+.runov-sess-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runov-sess-sub {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runov-sess-live {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--positive) 13%, transparent);
+  color: var(--positive);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.runov-sess-chev {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-quaternary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.runov-jobs {
+  border-top: 1px solid var(--border-subtle);
+  padding: 4px 0;
+}
+
+.runov-recent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 18px 4px;
+}
+
+.runov-recent-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.runov-recent-count {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-quaternary);
+}
+
+.runov-empty {
+  margin: 26px 32px;
+  text-align: center;
+}
+
+.runov-empty-ic {
+  display: inline-flex;
+  width: 52px;
+  height: 52px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  color: var(--text-quaternary);
+  margin-bottom: 10px;
+}
+
+.runov-empty-ic svg {
+  width: 24px;
+  height: 24px;
+}
+
+.runov-empty-t {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.runov-empty-s {
+  margin: 4px auto 0;
+  max-width: 260px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  line-height: 1.55;
 }
 `;

@@ -45,6 +45,8 @@ import { getAutoScroll } from '../display-prefs.ts'
 import { formatRunDuration, timeVisibility } from '../ui-text.ts'
 import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../offline.ts'
 import { QueueDock } from '../queue-dock.tsx'
+import { FilePreviewSheet } from '../file-preview-sheet.tsx'
+import { ImageLightbox } from '../image-lightbox.tsx'
 import { updateQueue, queueItemViewOf, type QueueItemView } from '../api.ts'
 import { RpcCallError } from '../rpc.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
@@ -351,6 +353,10 @@ export function ChatView({
   const [currentModel, setCurrentModel] = useState<{ provider: string; model: string; reasoningEffort?: string } | undefined>(undefined)
   /** Which bottom sheet is open. */
   const [sheet, setSheet] = useState<'model' | 'permission' | null>(null)
+  /** File path awaiting in-chat preview (a .file-link tap without a host opener). */
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  /** In-chat <img> source opened in the full-screen lightbox (tap-to-view). */
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   /** Which in-place quick picker strip is open below the toolbar. */
   const [picker, setPicker] = useState<'model' | 'permission' | null>(null)
   /** Whether the context-usage popover (ring tap) is open. */
@@ -1591,13 +1597,36 @@ export function ChatView({
 
   /** File-path links render inside markdown HTML; delegate the click to the
    * host file opener (postMessage + window.dshOpenFile). */
+  /** File-path links render inside markdown HTML. Where the host injects a
+   *  native file opener (desktop embedding), the tap delegates to it; a
+   *  standalone phone has no such hook, so the tap opens the in-chat preview
+   *  sheet (mobile.readFile behind the scenes). */
   const handleScrollClick = useCallback((event: ReactMouseEvent<HTMLDivElement>): void => {
-    const target = event.target instanceof Element ? event.target.closest('.file-link') : null
+    const element = event.target instanceof Element ? event.target : null
+    // An in-chat markdown <img> (remote URL or attached data URL) opens the
+    // full-screen lightbox on a tap; long-press save still works (the native
+    // context menu handles it — we only intercept a plain click).
+    if (element !== null) {
+      const image = element.closest('img')
+      if (image !== null && !(element instanceof HTMLAnchorElement)) {
+        const src = image.getAttribute('src')
+        if (src !== null && src !== '' && !src.startsWith('data:image/svg')) {
+          event.preventDefault()
+          setLightboxSrc(src)
+          return
+        }
+      }
+    }
+    const target = element?.closest('.file-link') ?? null
     if (target === null) return
     const path = target.getAttribute('data-path')
     if (path === null || path === '') return
     event.preventDefault()
-    openFilePath(path)
+    if (typeof window.dshOpenFile === 'function') {
+      openFilePath(path)
+      return
+    }
+    setPreviewPath(path)
   }, [])
 
   /* ── code-block pinch zoom (two fingers, transform scale) ──────────── */
@@ -3026,6 +3055,12 @@ export function ChatView({
       )}
       {subagentSheetOpen && (
         <SubagentTreeSheet nodes={subagents} onClose={() => { setSubagentSheetOpen(false) }} />
+      )}
+      {previewPath !== null && (
+        <FilePreviewSheet path={previewPath} sessionId={session.sessionId} onClose={() => { setPreviewPath(null) }} />
+      )}
+      {lightboxSrc !== null && (
+        <ImageLightbox src={lightboxSrc} alt="聊天图片" onClose={() => { setLightboxSrc(null) }} />
       )}
       {moreOpen && (
         <Sheet title={title} onClose={() => { setMoreOpen(false) }}>

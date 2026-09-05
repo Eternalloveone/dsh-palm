@@ -166,6 +166,16 @@ export async function latestVersion(): Promise<{ latest: string; isNewer: boolea
   return await callUnary<{ latest: string; isNewer: boolean }>('mobile.latestVersion', {})
 }
 
+/**
+ * Main-agent sessions whose attached agent is running right now (host-side
+ * enumeration). The run-overview entry seeds its badge from this so a session
+ * that started generating before the phone opened still counts — its
+ * turn/start frame is gone by then and session.list's TTL may be stale.
+ */
+export async function runningSessions(): Promise<{ sessionIds: string[] }> {
+  return await callUnary<{ sessionIds: string[] }>('mobile.runningSessions', {})
+}
+
 /** One session.list page; omit the cursor for the first page. */
 export async function listSessions(cursor?: string): Promise<SessionPage> {
   return await callUnary<SessionPage>('session.list', cursor === undefined ? {} : { cursor })
@@ -611,6 +621,22 @@ export async function listDirectory(path?: string): Promise<DirectoryListing> {
   // directory-picker capability (native on Windows loopback binds), so the
   // mobile browser uses the plugin's own fs listing instead.
   return await callUnary<DirectoryListing>('mobile.listDirectory', path === undefined ? {} : { path })
+}
+
+/** One file read back from the host for the chat's preview sheet. */
+export type FilePreview =
+  | { kind: 'text'; path: string; name: string; text: string }
+  | { kind: 'image'; path: string; name: string; dataUrl: string }
+
+/** Read one host file (text/image) for preview. A relative path resolves
+ * against the owning session's cwd when `sessionId` is given. */
+export async function readFile(path: string, sessionId?: string): Promise<FilePreview> {
+  return await callUnary<FilePreview>('mobile.readFile', sessionId === undefined ? { path } : { path, sessionId })
+}
+
+/** True when a preview came back as an image data URL. */
+export function isImagePreview(preview: FilePreview | undefined): preview is Extract<FilePreview, { kind: 'image' }> {
+  return preview !== undefined && preview.kind === 'image'
 }
 
 /** Create a workspace from an existing host directory (does not mkdir). */

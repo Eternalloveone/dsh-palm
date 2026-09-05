@@ -85,6 +85,18 @@ export const FIELD_META: Record<string, Record<string, FieldMeta>> = {
   'dsh-market': {
     allowRestart: { title: '允许重启', desc: '安装插件后允许自动重启', scope: 'sync' },
   },
+  'dsh-better-sidebar': {
+    openByDefault: { title: '默认展开侧边栏', desc: '启动时侧边栏是否默认展开', scope: 'sync' },
+    defaultWidthPercent: { title: '默认宽度', desc: '侧边栏默认宽度（百分比）', scope: 'sync' },
+    autoOpenSubagent: { title: '自动展开子代理', desc: '子代理运行时自动展开其行', scope: 'sync' },
+    autoOpenJobs: { title: '自动展开任务', desc: '有后台任务时自动展开任务区', scope: 'sync' },
+    agentTerminalTools: { title: '终端工具按钮', desc: 'agent 行显示终端工具入口', scope: 'sync' },
+    bottomPanelAutoTerminal: { title: '自动打开终端面板', desc: '底部面板自动切到终端', scope: 'sync' },
+    editorExplorer: { title: '编辑器文件树', desc: '编辑器侧显示文件树', scope: 'sync' },
+    tabsEnabled: { title: '启用标签页', desc: '编辑器标签页功能', scope: 'sync' },
+    viewersEnabled: { title: '启用查看器', desc: '内嵌文档/图查看器', scope: 'sync' },
+    terminalFontSize: { title: '终端字号', desc: '终端显示字号', scope: 'sync' },
+  },
   'remote-web-ui': {
     enabled: { title: '远程访问', desc: '是否启用远程访问入口', scope: 'desktop' },
   },
