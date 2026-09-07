@@ -108,11 +108,23 @@ export function readAsDataURL(file: File): Promise<string> {
   })
 }
 
-/** Decode + re-encode through canvas, shrinking until the budget fits. */
+/** Resolve on the next timer tick so the browser can paint between passes. */
+function yieldToMainThread(): Promise<void> {
+  return new Promise(resolve => { setTimeout(resolve, 0) })
+}
+
+/**
+ * Decode + re-encode through canvas, shrinking until the budget fits.
+ * Each encode pass (drawImage + JPEG `toDataURL` at up to 1600 px) is
+ * expensive on a phone, and the worst path runs several passes — the loop
+ * yields to the browser between passes so attaching a large photo never
+ * freezes the compose UI (or a reply that happens to be streaming) in one
+ * long main-thread task.
+ */
 export function compressDataUrl(dataUrl: string, mediaType: string, maxBytes = DEFAULT_MAX_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
     const image = new Image()
-    image.onload = () => {
+    image.onload = async () => {
       try {
         const canvas = document.createElement('canvas')
         const context = canvas.getContext('2d')
@@ -143,6 +155,8 @@ export function compressDataUrl(dataUrl: string, mediaType: string, maxBytes = D
             width = Math.max(16, Math.round(width * 0.9))
             height = Math.max(16, Math.round(height * 0.9))
           }
+          // Let a frame paint before the next encode pass.
+          await yieldToMainThread()
         }
         resolve(dataUrlOut)
       } catch (error) {

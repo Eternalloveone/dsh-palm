@@ -10,13 +10,14 @@
  *
  * Long blocks (>20 lines) fold to ~15 visible lines behind a gradient mask
  * with an 展开全部 toggle; very large blocks (>1000 lines) highlight in
- * chunks so the first 100 lines paint immediately. Copy flips the button
- * to a green check + 「已复制」 for 1.5s with a toast.
+ * chunks so the first chunk paints immediately and later chunks yield the
+ * main thread between commits (a huge dump never blocks in one long task).
+ * Copy flips the button to a green check + 「已复制」 for 1.5s with a toast.
  * @module dsh-palm/mobile/code-block
  */
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { highlightCode, highlightCodeSync, languageInfo } from './shiki.ts'
+import { highlightCodeSync, languageInfo } from './shiki.ts'
 import { copyText, insertCode, openCodeInTab, runCode, type RunResult } from './code-actions.ts'
 import { toast } from './toast.tsx'
 import { escapeHtml } from './markdown.ts'
@@ -31,35 +32,9 @@ export const CHUNK_THRESHOLD = 1000
 /** Chunk size for the chunked highlight path. */
 export const CHUNK_SIZE = 300
 
-/**
- * Highlight a code string, chunked for very large blocks. Resolves the
- * accumulated `<pre class="shiki">` HTML, or null when highlighting is
- * unavailable (caller renders plain text).
- */
-async function highlightChunked(code: string, lang: string): Promise<string | null> {
-  const lines = code.split('\n')
-  if (lines.length <= CHUNK_THRESHOLD) return highlightCode(code, lang)
-  // >1000 lines: highlight in chunks and accumulate the inner <code> HTML.
-  const chunks: string[] = []
-  for (let i = 0; i < lines.length; i += CHUNK_SIZE) {
-    chunks.push(lines.slice(i, i + CHUNK_SIZE).join('\n'))
-  }
-  let inner = ''
-  let index = 0
-  for (const chunk of chunks) {
-    const part = await highlightCode(chunk, lang)
-    if (part === null) return null
-    const codeStart = part.indexOf('<code>')
-    const codeEnd = part.lastIndexOf('</code>')
-    if (codeStart === -1 || codeEnd === -1) return null
-    inner += part.slice(codeStart + '<code>'.length, codeEnd)
-    index += 1
-    // Shiki's per-line <span>s are joined with \n INSIDE a chunk; between
-    // chunks the separator must be re-added or the chunk's last line and the
-    // next chunk's first line render on the same row.
-    if (index < chunks.length) inner += '\n'
-  }
-  return '<pre class="shiki" tabindex="0"><code>' + inner + '</code></pre>'
+/** Resolve on the next timer tick, so a frame can paint between chunks. */
+function yieldToFrame(): Promise<void> {
+  return new Promise(resolve => { setTimeout(resolve, 0) })
 }
 
 /**
@@ -74,8 +49,8 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
   // Synchronous first paint: the lightweight tokenizer has no I/O, so the
   // highlighted HTML renders on the very first frame — a code block that
   // just closed in the stream never flashes as plain text. Only very large
-  // blocks (>1000 lines) keep the chunked async path (first 100 lines paint
-  // first).
+  // blocks (>1000 lines) keep the chunked path: the first chunk paints on
+  // the next frame and later chunks yield between commits (see the effect).
   const chunks = lines.length > CHUNK_THRESHOLD
   /** Highlighted HTML (null = plain fallback, until the async chunked highlight lands). */
   const [html, setHtml] = useState<string | null>(() => chunks ? null : highlightCodeSync(code, lang))
@@ -96,20 +71,43 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
   // Reset the fold when the code changes and re-highlight ALWAYS: the
   // synchronous first paint only covers the initial text, so a later code
   // change (authoritative rewrite / replay) must not keep the stale HTML.
-  // Very large blocks (>1000 lines) keep the chunked async path (first
-  // chunks paint first), everything else re-highlights synchronously.
+  // Very large blocks (>1000 lines) highlight chunk-by-chunk: each chunk
+  // commits its own HTML and then yields to the browser (a 0 ms timer lets
+  // a frame paint), so a huge dump never blocks the main thread in one long
+  // task and the visible head appears first. Everything else re-highlights
+  // synchronously (the tokenizer is cheap — measured ~µs/block).
   useEffect(() => {
     setExpanded(false)
-    if (chunks) {
-      let cancelled = false
-      setHtml(null)
-      void highlightChunked(code, lang).then(result => {
-        if (!cancelled) setHtml(result)
-      })
-      return () => { cancelled = true }
+    if (!chunks) {
+      setHtml(highlightCodeSync(code, lang))
+      return undefined
     }
-    setHtml(highlightCodeSync(code, lang))
-    return undefined
+    let cancelled = false
+    const lines = code.split('\n')
+    const steps = Math.ceil(lines.length / CHUNK_SIZE)
+    let inner = ''
+    let index = 0
+    const run = async (): Promise<void> => {
+      while (index < steps && !cancelled) {
+        const start = index * CHUNK_SIZE
+        const part = highlightCodeSync(lines.slice(start, start + CHUNK_SIZE).join('\n'), lang)
+        if (part === null || cancelled) return
+        const codeStart = part.indexOf('<code>')
+        const codeEnd = part.lastIndexOf('</code>')
+        if (codeStart === -1 || codeEnd === -1) return
+        inner += part.slice(codeStart + '<code>'.length, codeEnd)
+        index += 1
+        // Shiki's per-line <span>s are joined with \n INSIDE a chunk; between
+        // chunks the separator must be re-added or the chunk's last line and
+        // the next chunk's first line render on the same row.
+        if (index < steps) inner += '\n'
+        setHtml('<pre class="shiki" tabindex="0"><code>' + inner + '</code></pre>')
+        // Let the browser paint this chunk before tokenizing the next one.
+        await yieldToFrame()
+      }
+    }
+    void run()
+    return () => { cancelled = true }
   }, [code, lang, chunks])
 
   const handleCopy = (): void => {

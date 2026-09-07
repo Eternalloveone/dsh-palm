@@ -1,6 +1,6 @@
 /** foldEvents: message-list folding from a session event stream. */
 import { describe, expect, it } from 'vitest'
-import { coalesceTurnMessages, EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
+import { coalesceTurnMessages, EventFolder, foldEvents, foldTodoEvent, foldTodoSnapshot, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
 
 /** Assemble one event with an auto-incrementing seq / time. */
 function makeEvent(
@@ -730,6 +730,68 @@ describe('todo plan snapshots (todo/write)', () => {
   it('returns undefined when no valid todo/write exists', () => {
     expect(latestTodoSnapshot([])).toBeUndefined()
     expect(latestTodoSnapshot([makeEvent('turn/start', {}, 1)])).toBeUndefined()
+  })
+
+  it('foldTodoEvent replaces on todo/write and keeps a malformed one', () => {
+    const first = foldTodoEvent(undefined, makeEvent('todo/write', { todos: [{ content: 'A', status: 'pending' }] }, 10))
+    expect(first).toEqual({ seq: 10, items: [{ content: 'A', status: 'pending' }] })
+    const second = foldTodoEvent(first, makeEvent('todo/write', { todos: [{ content: 'B', status: 'in_progress' }] }, 11))
+    expect(second).toEqual({ seq: 11, items: [{ content: 'B', status: 'in_progress' }] })
+    const bad = foldTodoEvent(second, makeEvent('todo/write', { todos: 'bad' }, 12))
+    expect(bad).toEqual(second)
+  })
+
+  it('foldTodoEvent clears on turn/start (host projection mirror)', () => {
+    const seeded = foldTodoEvent(undefined, makeEvent('todo/write', { todos: [{ content: '旧轮', status: 'completed' }] }, 10))
+    expect(foldTodoEvent(seeded, makeEvent('turn/start', {}, 11))).toBeUndefined()
+  })
+
+  it('foldTodoEvent normalizes in_progress to completed on turn/end (pending untouched)', () => {
+    const seeded = foldTodoEvent(undefined, makeEvent('todo/write', {
+      todos: [
+        { content: '做完了', status: 'in_progress' },
+        { content: '没开始', status: 'pending' },
+        { content: '早已完成', status: 'completed' },
+      ],
+    }, 10))
+    const ended = foldTodoEvent(seeded, makeEvent('turn/end', { turn: 0, reason: { kind: 'completed' } }, 11))
+    expect(ended?.items).toEqual([
+      { content: '做完了', status: 'completed' },
+      { content: '没开始', status: 'pending' },
+      { content: '早已完成', status: 'completed' },
+    ])
+    expect(ended?.seq).toBe(10)
+    // A second turn/end must be idempotent.
+    expect(foldTodoEvent(ended, makeEvent('turn/end', { turn: 0, reason: { kind: 'completed' } }, 12))?.items).toEqual(ended?.items)
+  })
+
+  it('foldTodoSnapshot folds a whole window in seq order (no stale intermediate state survives a turn/end)', () => {
+    const events: WireEvent[] = [
+      makeEvent('todo/write', {
+        todos: [
+          { content: '文档批次', status: 'in_progress' },
+          { content: '其余完成', status: 'completed' },
+        ],
+      }, 20),
+      makeEvent('assistant/message', assistantMessageData('a-9', 1, 0, '提交完成'), 21),
+      makeEvent('turn/end', { turn: 0, reason: { kind: 'completed' } }, 22),
+    ]
+    expect(foldTodoSnapshot(events)).toEqual({
+      seq: 20,
+      items: [
+        { content: '文档批次', status: 'completed' },
+        { content: '其余完成', status: 'completed' },
+      ],
+    })
+  })
+
+  it('foldTodoSnapshot clears everything when the window opened with a later turn/start and no new write', () => {
+    const events: WireEvent[] = [
+      makeEvent('todo/write', { todos: [{ content: '上一轮', status: 'in_progress' }] }, 20),
+      makeEvent('turn/end', { turn: 0, reason: { kind: 'completed' } }, 21),
+      makeEvent('turn/start', {}, 22),
+    ]
+    expect(foldTodoSnapshot(events)).toBeUndefined()
   })
 })
 

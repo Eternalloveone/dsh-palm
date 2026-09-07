@@ -1146,7 +1146,9 @@ describe('ChatView display toggles and context usage', () => {
     // expanding the tool disclosure; the diff body is folded by default.
     const head = await screen.findByRole('button', { name: /Write a\.txt/ })
     expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(screen.getByText('+1 −1')).toBeTruthy()
+    // The +/- tally splits into green (add) and red (del) stat spans.
+    expect(screen.getByText('+1', { selector: '.chat-artifact-stat-add' })).toBeTruthy()
+    expect(screen.getByText('−1', { selector: '.chat-artifact-stat-del' })).toBeTruthy()
     expect(screen.queryByText('old line')).toBeNull()
     expect(screen.queryByText('new line')).toBeNull()
 
@@ -2398,6 +2400,37 @@ describe('ChatView run-status strip (todo/write)', () => {
     expect(screen.getByRole('dialog', { name: '运行状态' })).toBeTruthy()
     expect(screen.getByText('写代码')).toBeTruthy()
     expect(screen.getByText('发版')).toBeTruthy()
+  })
+
+  it('normalizes an in_progress leftover through the reconcile path when the live turn/end frame is lost', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      // The turn opens and writes an intermediate plan...
+      emitSessionEvent(mux, 'turn/start', 30)
+      act(() => {
+        mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: TODOS }, 31).event })
+      })
+      expect(screen.getByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
+
+      // ...but the turn/end frame never arrives (degraded SSE). The host says
+      // the session is idle; the reconcile scan finds the turn/end in the
+      // history tail and must normalize the leftover, not just clear running.
+      listSessionsMock.mockResolvedValue({
+        items: [{ sessionId: 's-1', running: false } as never],
+        hasMore: false,
+      } as SessionPage)
+      historyMock.mockResolvedValue(historyPage([makeEntry('turn/end', {}, 60)]))
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.queryByRole('status', { name: '后台处理中' })).toBeNull()
+      expect(screen.getByRole('button', { name: /任务 2\/2/ })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

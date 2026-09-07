@@ -32,13 +32,19 @@ function turnEvents(offset = 0): Array<{ event: WireEvent; view?: unknown }> {
 }
 
 /** A fetcher recording every call and serving fixed pages. */
-function fakeFetcher(pages: Array<{ beforeSeq?: number; hasMore: boolean; projections?: SessionProjectionsBlock }> = []) {
+function fakeFetcher(pages: Array<{
+  beforeSeq?: number
+  hasMore: boolean
+  projections?: SessionProjectionsBlock
+  /** Override the served events (default: a plain turn). */
+  events?: Array<{ event: WireEvent; view?: unknown }>
+}> = []) {
   const calls: Array<{ sessionId: string; beforeSeq: number | undefined; maxMessages: number }> = []
   const fetcher: ChatHistoryFetcher = async (sessionId, beforeSeq, maxMessages) => {
     calls.push({ sessionId, beforeSeq, maxMessages })
     const page = pages.shift() ?? { hasMore: false }
     return {
-      events: turnEvents(),
+      events: page.events ?? turnEvents(),
       hasMore: page.hasMore,
       ...(page.projections === undefined ? {} : { projections: page.projections }),
     }
@@ -224,5 +230,63 @@ describe('ChatWindowService', () => {
     const service = new ChatWindowService(fetcher)
     await expect(service.tail('s-1', 25)).rejects.toThrow('log read failed')
     expect(service.size).toBe(0)
+  })
+
+  it('seeds the window todo through the projection fold: an in_progress leftover after turn/end reads completed', async () => {
+    const { fetcher } = fakeFetcher([{
+      hasMore: false,
+      events: [
+        entry('todo/write', { todos: [{ content: '文档批次', status: 'in_progress' }, { content: '其余', status: 'completed' }] }, 11),
+        entry('assistant/message', { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '提交完成' }] }, 12),
+        entry('turn/end', { turn: 0, reason: { kind: 'completed' } }, 13),
+      ],
+    }])
+    const service = new ChatWindowService(fetcher)
+    const page = await service.tail('s-1', 25)
+    expect(page.todo).toEqual({
+      seq: 11,
+      items: [
+        { content: '文档批次', status: 'completed' },
+        { content: '其余', status: 'completed' },
+      ],
+    })
+  })
+
+  it('seeds no todo when the window opened with a later turn/start and no new write (no stale resurrection)', async () => {
+    const { fetcher } = fakeFetcher([{
+      hasMore: false,
+      events: [
+        entry('todo/write', { todos: [{ content: '上一轮', status: 'in_progress' }] }, 11),
+        entry('turn/end', { turn: 0, reason: { kind: 'completed' } }, 12),
+        entry('turn/start', {}, 13),
+      ],
+    }])
+    const service = new ChatWindowService(fetcher)
+    const page = await service.tail('s-1', 25)
+    expect(page.todo).toBeUndefined()
+  })
+
+  it('live turn/end normalizes the window todo (in_progress → completed)', async () => {
+    const { fetcher } = fakeFetcher()
+    const service = new ChatWindowService(fetcher)
+    await service.tail('s-1', 25)
+
+    service.handleEvent('s-1', entry('todo/write', { todos: [{ content: '任务一', status: 'in_progress' }] }, 11).event)
+    expect((await service.tail('s-1', 25)).todo).toEqual({ seq: 11, items: [{ content: '任务一', status: 'in_progress' }] })
+
+    service.handleEvent('s-1', entry('turn/end', { turn: 0, reason: { kind: 'completed' } }, 12).event)
+    expect((await service.tail('s-1', 25)).todo).toEqual({ seq: 11, items: [{ content: '任务一', status: 'completed' }] })
+  })
+
+  it('live turn/start clears the window todo (host projection mirror)', async () => {
+    const { fetcher } = fakeFetcher()
+    const service = new ChatWindowService(fetcher)
+    await service.tail('s-1', 25)
+
+    service.handleEvent('s-1', entry('todo/write', { todos: [{ content: '任务一', status: 'completed' }] }, 11).event)
+    expect((await service.tail('s-1', 25)).todo).toEqual({ seq: 11, items: [{ content: '任务一', status: 'completed' }] })
+
+    service.handleEvent('s-1', entry('turn/start', {}, 12).event)
+    expect((await service.tail('s-1', 25)).todo).toBeUndefined()
   })
 })

@@ -16,7 +16,7 @@ import {
   runningSessions,
   type ChatPage,
 } from '../api.ts'
-import { EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, type RenderMessage, type TodoSnapshot } from '../messages.ts'
+import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../messages.ts'
 import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
@@ -24,6 +24,7 @@ import { startNotify } from '../notify.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { clearPairingCaches } from '../list-persist.ts'
+import { installPerfWindowHook, startPerfSampler } from '../perf.ts'
 import { ToastHost } from '../toast.tsx'
 import { ChatView } from './ChatView.tsx'
 import { RunOverviewView, fetchRoster as fetchRunRoster } from './RunOverviewView.tsx'
@@ -175,6 +176,14 @@ export function mobilePairStateForError(error: unknown): Extract<MobilePairState
 /** Gate the independent mobile bundle until its own browser context is paired. */
 export function App({ initialPairError }: AppProps) {
   const [pairState, setPairState] = useState<MobilePairState>('checking')
+
+  // Opt-in perf instrumentation bootstraps with the app: rAF frame sampler
+  // and the window.__dshPalmPerf export. Both are no-ops unless the perf
+  // switch is on (localStorage dsh.palm.perf=1 or ?perf=1).
+  useEffect(() => {
+    installPerfWindowHook()
+    startPerfSampler()
+  }, [])
 
   useEffect(() => {
     let current = true
@@ -768,7 +777,12 @@ function foldHistoryPage(page: Awaited<ReturnType<typeof fetchHistory>>, isTail:
     { ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }
   ))
   const folder = new EventFolder(foldEvents(events))
-  const todo = latestTodoSnapshot(events)
+  // Fold the todo state under the host projection's turn-boundary rules
+  // (turn/start clears, turn/end normalizes in_progress leftovers) — the
+  // local fallback must match the host window service's seed exactly, so a
+  // reopened session never shows an intermediate snapshot the projection
+  // already resolved.
+  const todo = foldTodoSnapshot(events)
   const turnStartAt = lastOpenTurnStartTime(events)
   return {
     rows: folder.snapshot(),

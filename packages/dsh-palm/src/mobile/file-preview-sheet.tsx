@@ -19,7 +19,6 @@ import { escapeHtml, parseSegments } from './markdown.ts'
 import { CodeBlock } from './code-block.tsx'
 import { DiffView } from './diff-view.tsx'
 import { CopyIcon } from './icons.tsx'
-
 /** Extension → shiki language key (best effort; unknown → plain text). */
 const EXT_LANG: Record<string, string> = {
   ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', mjs: 'js', cjs: 'js',
@@ -102,9 +101,9 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
           <div className="fp-actions">
             <span className="fp-path" title={ready.path}>{ready.path}</span>
             {!isImage && (
-              <button type="button" className="fp-copy" onClick={() => { void copyText(ready.text, '已复制文件内容') }}>
+              <button type="button" className="fp-copy" onClick={() => { void copyText(ready.text, '已复制文件原文') }}>
                 <CopyIcon />
-                复制
+                复制原文
               </button>
             )}
           </div>
@@ -161,7 +160,42 @@ function TextPreview({ path, text }: { path: string; text: string }) {
     )
   }
   if (highlighted !== null) {
-    return <div className="fp-body" dangerouslySetInnerHTML={{ __html: highlighted }} />
+    return (
+      <FpLongText text={text}>
+        <div className="fp-body" dangerouslySetInnerHTML={{ __html: highlighted }} />
+      </FpLongText>
+    )
   }
-  return <pre className="fp-body fp-plain">{escapeHtml(text)}</pre>
+  return (
+    <FpLongText text={text}>
+      <pre className="fp-body fp-plain">{escapeHtml(text)}</pre>
+    </FpLongText>
+  )
+}
+
+/** Fold long plain/code previews (logs, dumps) so the sheet opens readable:
+ *  content taller than the fold threshold hides behind a soft gradient with
+ *  an 展开全部 toggle — the same "long content" treatment the chat body and
+ *  code blocks use. Short files never show the toggle. */
+const FP_FOLD_LINES = 60
+
+function FpLongText({ text, children }: { text: string; children: React.ReactNode }) {
+  const lineCount = useMemo(() => text.split('\n').length, [text])
+  const [expanded, setExpanded] = useState(false)
+  const foldable = lineCount > FP_FOLD_LINES
+  const folded = foldable && !expanded
+  return (
+    <>
+      <div className={'fp-scroll' + (folded ? ' fp-scroll-folded' : '')}>{children}</div>
+      {foldable && (
+        <button
+          type="button"
+          className="fp-fold-btn"
+          onClick={() => { setExpanded(value => !value) }}
+        >
+          {folded ? `展开全部（共 ${lineCount} 行）` : '收起'}
+        </button>
+      )}
+    </>
+  )
 }

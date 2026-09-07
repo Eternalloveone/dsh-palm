@@ -23,6 +23,7 @@ import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
+import { perfMark } from '../perf.ts'
 
 /**
  * Stable row key: (turn, step) when the row carries them, else the id.
@@ -503,8 +504,10 @@ export function ChatView({
   const [renaming, setRenaming] = useState(false)
   /** Delete-session confirm dialog visibility. */
   const [deleting, setDeleting] = useState(false)
-  /** Long-press message menu: viewport position + the bubble's plain text. */
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | undefined>(undefined)
+  /** Long-press message menu: viewport position + the bubble's plain text,
+   *  plus the message's RAW markdown when it differs (tool-interleaved flow
+   *  turns carry their payload in flow runs, invisible in `text`). */
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string; raw?: string } | undefined>(undefined)
   /** Auto-scroll preference (设置 → 自动滚动); read once per mount. */
   const [autoScroll] = useState(() => getAutoScroll())
 
@@ -888,6 +891,9 @@ export function ChatView({
           return
         }
         const folder = folderRef.current
+        // Opt-in perf mark: decode/fold/coalesce done, state update about to
+        // schedule (span recv→state measures the whole client pipeline).
+        perfMark('state', { seq: event.seq, frame: 'session/event', detail: event.type })
         setMessages(previous => coalesceTurnMessages(
           folder === undefined ? foldEvents([event], previous) : folder.fold([event]),
         ))
@@ -1036,7 +1042,16 @@ export function ChatView({
               if (cancelled) return
               for (let i = hpage.events.length - 1; i >= 0; i--) {
                 const t = hpage.events[i]?.event?.type
-                if (t === 'turn/end') { setRunning(false); return }
+                if (t === 'turn/end') {
+                  setRunning(false)
+                  // The reconcile path is the one place a lost turn/end frame
+                  // surfaces without the live handler: mirror the host's
+                  // normalization here too, so a plan strip seeded from the
+                  // loaded page cannot stay stuck on an in_progress leftover
+                  // after the turn actually ended.
+                  normalizeTurnEndTodo()
+                  return
+                }
                 if (t === 'turn/start') {
                   // The reconcile window is the one other place a
                   // window-external turn/start can surface: anchor the clock
@@ -1065,7 +1080,7 @@ export function ChatView({
       )
     }, RUNNING_RECONCILE_MS)
     return () => { cancelled = true; clearInterval(id) }
-  }, [running, session.sessionId])
+  }, [running, session.sessionId, normalizeTurnEndTodo])
 
   // Foreground-subagent tree: fetch on mount/session-switch, and refetch on
   // turn/start and on a descendant session-added (see onFrame). The live
@@ -1334,6 +1349,9 @@ export function ChatView({
     const key = last.seq + ':' + (last.pending === true ? 'p' : 'f')
     if (key === lastMessageKeyRef.current) return
     lastMessageKeyRef.current = key
+    // Opt-in perf mark: React committed the newest message (span recv→commit
+    // is the full client event-to-DOM latency of this frame).
+    perfMark('commit', { seq: last.seq, frame: 'session/event', detail: last.kind })
     const el = scrollRef.current
     if (el === undefined) return
     if (!followedBottomRef.current) {
@@ -1572,8 +1590,15 @@ export function ChatView({
     if (bubble === null) return false
     const mid = bubble.getAttribute('data-mid')
     const message = mid === null ? undefined : messagesRef.current.find(candidate => candidate.id === mid)
-    const text = message?.text !== undefined && message.text !== '' ? message.text : message?.reasoning ?? ''
-    if (text.trim() !== '') openCtxAt(x, y, text)
+    if (message === undefined) return true
+    // Flow turns put their markdown in the text runs; join them so a long
+    // report can be copied verbatim ("复制原文") even though `text` is empty.
+    const flowText = message.flow !== undefined && message.flow.length > 0
+      ? message.flow.filter(part => part.kind === 'text').map(part => part.text).join('\n').trim()
+      : ''
+    const text = message.text !== undefined && message.text !== '' ? message.text : message.reasoning ?? ''
+    const raw = flowText !== '' ? flowText : undefined
+    if (text.trim() !== '' || raw !== undefined) openCtxAt(x, y, text, raw)
     return true
   }
   const longPressRef = useRef<{ timer: number; x: number; y: number } | undefined>(undefined)
@@ -1585,13 +1610,14 @@ export function ChatView({
   }, [])
   useEffect(() => () => { cancelLongPress() }, [cancelLongPress])
 
-  const openCtxAt = useCallback((x: number, y: number, text: string): void => {
+  const openCtxAt = useCallback((x: number, y: number, text: string, raw?: string): void => {
     const menuWidth = 164
-    const menuHeight = 100
+    const menuHeight = 140
     setCtxMenu({
       x: Math.max(8, Math.min(x, window.innerWidth - menuWidth)),
       y: Math.max(8, Math.min(y, window.innerHeight - menuHeight)),
       text,
+      raw,
     })
   }, [])
 
@@ -3160,6 +3186,16 @@ export function ChatView({
             aria-label="消息操作"
             style={{ left: ctxMenu.x, top: ctxMenu.y }}
           >
+            {ctxMenu.raw !== undefined && (
+              <button
+                type="button"
+                role="menuitem"
+                className="ctx-item"
+                onClick={() => { const { raw } = ctxMenu; setCtxMenu(undefined); void copyText(raw ?? '', '已复制原文') }}
+              >
+                复制原文
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

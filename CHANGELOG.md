@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-07
+
+### Added
+
+- **Report card** — 结果型回复自动渲染为结构化报告卡片：条件检测（P1）+ 正文渲染器（P2/P3），工具穿插的 flow 回合也走报告卡片并统一 flow 正文；真实 agent 输出的语法适配 + golden 用例；报告卡片做成真正的卡片（surface / sections / commit 块），长 commit hash 与长状态备注在卡片内换行保留
+- **Copy raw markdown from the message menu** — 消息菜单新增「复制原始 markdown」，一键复制消息的原始 markdown 源码（而非渲染后的文本）
+- **Opt-in end-to-end performance instrumentation** — 新增 perf 模块：`localStorage dsh.palm.perf=1` 或 `?perf=1` 开启，默认零开销。recv → decode → state → commit 阶段标记、rAF 帧采样、SSE 异常计数（seq gap / poll refill）、`window.__dshPalmPerf` 导出
+- **Selectable file-preview text + copy-original** — 文件预览正文（代码 / 纯文本 / markdown）允许长按选中复制（此前 body 全局 `user-select:none` 未豁免预览区）；复制按钮改为「复制原文」，明确复制原始文件文本（markdown 复制源码而非渲染后文本）
+
+### Fixed
+
+- **Diff artifact card breathing room** — 修复 diff 工件卡贴住正文：flow 行文本 run 被 `<div data-step-seq>` 包装后，兄弟间距选择器失效，卡片与正文间距塌缩到 0；给包装 div 加 `chat-flow-text` 类并扩展选择器，恢复卡片 12px / 文本 run 16px 间距
+- **Long path tokens wrap inside markdown prose** — markdown 正文内超长路径 token 换行，不再撑出屏幕
+- **File-preview typography + long dumps** — 放宽文件预览排版，长 dump 折叠
+- **Todo seeds fold under host turn-boundary rules** — todo seeds 按 host 回合边界折叠
+
+### Changed
+
+- **Main-thread yielding for heavy passes** — 图片压缩与超大代码块（>1000 行）高亮在重 pass 间让出主线程（0 ms timer），首块先渲染，大 dump 不再阻塞主线程
+- **Artifact +/- tally colored** — diff 工件卡 head 的 +/− 行数统计：+ 用绿色（`--diff-add`）、− 用红色（`--diff-del`），与红/绿 diff 行一致，一眼可读
+
 ## [1.0.0] - 2026-09-05
 
 ### Added

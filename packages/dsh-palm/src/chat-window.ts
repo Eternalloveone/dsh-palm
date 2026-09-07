@@ -27,8 +27,12 @@
  * - Windows are bounded: WINDOW_LIMIT sessions LRU-evicted, WINDOW_ROW_LIMIT
  *   rows per window (head-trimmed; the watermark survives because trimming
  *   drops the OLDEST rows, never the newest event feed).
- * - `todo` carries the newest valid todo/write inside the window (the
- *   phone's plan strip is seeded from the page, not from raw events);
+ * - `todo` carries the projection-equivalent todo state of the window (the
+ *   phone's plan strip is seeded from the page, not from raw events): the
+ *   newest todo/write list folded under the host projection's turn-boundary
+ *   rules (turn/end normalizes a leftover in_progress to completed, turn/start
+ *   clears the whole list) — so a reopened session can never reseed an
+ *   intermediate snapshot the host projection already resolved;
  *   `projections` mirrors the projection block of the tail page plus any
  *   session/projection frames seen since (same higher-seq-wins rule the
  *   desktop client applies).
@@ -37,7 +41,7 @@
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
-import { EventFolder, foldEvents, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList } from './mobile/messages.ts'
+import { EventFolder, foldEvents, foldTodoEvent, foldTodoSnapshot, lastOpenTurnStartTime } from './mobile/messages.ts'
 import type { RenderMessage, TodoSnapshot, WireEvent } from './mobile/messages.ts'
 import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 
@@ -64,7 +68,7 @@ export interface ChatPage {
   /** Event-seq watermark of the page's source window (replay floor). */
   maxSeq: number
   hasMore: boolean
-  /** Newest valid todo/write inside the page's events, when any. */
+  /** Newest valid todo/write snapshot in the page's events, when any. */
   todo?: TodoSnapshot
   /** Tail-page projection baseline, when available. */
   projections?: SessionProjectionsBlock
@@ -88,6 +92,8 @@ interface Window {
   folder: EventFolder
   maxSeq: number
   hasMore: boolean
+  /** Projection-equivalent todo state (host turn-boundary rules folded in;
+   *  undefined = cleared or never written). */
   todo: TodoSnapshot | undefined
   projections: SessionProjectionsBlock | undefined
   /** The window's open turn/start logged time (undefined: no open boundary). */
@@ -193,8 +199,9 @@ export class ChatWindowService {
   /**
    * Feed one live session event (host mux `session/event` frame): folded
    * into the session's window when one is resident, ignored otherwise. The
-   * watermark advances with the event, and a todo/write updates the window's
-   * plan-snapshot seed.
+   * watermark advances with the event, and the window's plan snapshot folds
+   * the same turn-boundary rules the host projection applies (a todo/write
+   * replaces it, turn/end normalizes leftovers, turn/start clears it).
    */
   handleEvent(sessionId: string, event: WireEvent): void {
     const window = this.windows.get(sessionId)
@@ -208,10 +215,11 @@ export class ChatWindowService {
     } else if (event.type === 'turn/end') {
       window.turnStartAt = undefined
     }
-    if (event.type === 'todo/write') {
-      const items = parseTodoList(event.data)
-      if (items !== undefined) window.todo = { seq: event.seq, items }
-    }
+    // Fold the event into the projection-equivalent todo state (the host's
+    // own projection lives on the host session; this window keeps the phone
+    // seed in lockstep: turn/start clears, turn/end normalizes in_progress
+    // leftovers, todo/write replaces — never a raw newest-write overwrite).
+    window.todo = foldTodoEvent(window.todo, event)
     this.trimRows(window)
   }
 
@@ -261,7 +269,7 @@ export class ChatWindowService {
       folder,
       maxSeq: folder.lastSeq,
       hasMore: page.hasMore,
-      todo: latestTodoSnapshot(events),
+      todo: foldTodoSnapshot(events),
       projections: page.projections,
       turnStartAt: lastOpenTurnStartTime(events),
       lastAccessedAt: Date.now(),

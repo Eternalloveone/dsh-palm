@@ -2052,7 +2052,7 @@ button.settings-row:focus-visible {
      scroll anchoring keeps the visible region stable when frames above it
      change height (Chromium WebView supports this natively). */
   overflow-anchor: auto;
-  padding: 16px 12px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
   display: flex;
   flex-direction: column;
   /* Flat (bubble-less) rows need more air than a carded layout: 20px keeps
@@ -2181,7 +2181,7 @@ button.settings-row:focus-visible {
   max-width: 85%;
   background: var(--accent);
   color: var(--accent-contrast);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: 0 1px 3px var(--accent-glow);
 }
 
@@ -2329,8 +2329,14 @@ button.settings-row:focus-visible {
    interleave text runs): adjacent bodies must keep the same paragraph
    rhythm, or the paragraph gap collapses to 0 the moment a tool lands.
    The MarkdownText root is .chat-msg-text.chat-md (the .chat-md-body is
-   its inner wrapper), so the sibling rhythm lives on .chat-md edges. */
-.chat-md + .chat-md { margin-top: 16px; }
+   its inner wrapper), so the sibling rhythm lives on .chat-md edges. Flow
+   rows wrap each text run in a <div data-step-seq class="chat-flow-text">,
+   so the selector must also match the wrapper — otherwise adjacent runs
+   collapse to 0 while streaming. */
+.chat-md + .chat-md,
+.chat-flow-text + .chat-flow-text,
+.chat-md + .chat-flow-text,
+.chat-flow-text + .chat-md { margin-top: 16px; }
 /* Paragraph → code/diff card: the card is a sibling of the .md-html run
    (not of the <p> inside it), so the gap lives on the run boundary. */
 .chat-md .md-html + .code-block,
@@ -2338,9 +2344,14 @@ button.settings-row:focus-visible {
 /* Text run → diff artifact card (and back): FlowBody renders the card as a
    sibling of the .chat-md runs, so the 12px breathing room must live on
    those sibling edges — the old .chat-artifacts container (margin 12px 0)
-   never rendered, leaving the card glued to the text. */
-.chat-md + .chat-artifact { margin-top: 12px; }
-.chat-artifact + .chat-md { margin-top: 12px; }
+   never rendered, leaving the card glued to the text. Flow rows wrap each
+   text run in a <div data-step-seq class="chat-flow-text">, so the sibling
+   selector must match both the bare .chat-md and the .chat-flow-text wrapper
+   — otherwise the card glues to the text (gap collapses to 0). */
+.chat-md + .chat-artifact,
+.chat-flow-text + .chat-artifact { margin-top: 12px; }
+.chat-artifact + .chat-md,
+.chat-artifact + .chat-flow-text { margin-top: 12px; }
 /* Soft line breaks (single-\n markdown lists, agent status lines) render as
    <br /> inside a paragraph: give each a small air gap, or consecutive
    single-line writes read as one dense block. */
@@ -2379,11 +2390,11 @@ button.settings-row:focus-visible {
   border: none;
   box-shadow: none;
 }
-.chat-md-body ul, .chat-md-body ol { margin: 4px 0 8px; padding-left: 22px; }
-.chat-md-body li { margin: 2px 0; }
+.chat-md-body ul, .chat-md-body ol { margin: 6px 0 10px; padding-left: 20px; }
+.chat-md-body li { margin: 3px 0; }
 .chat-md-body blockquote {
-  margin: 8px 0;
-  padding: 4px 12px;
+  margin: 10px 0;
+  padding: 6px 12px;
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
   border-radius: 0 var(--radius-chip) var(--radius-chip) 0;
@@ -2398,12 +2409,30 @@ button.settings-row:focus-visible {
 }
 .chat-md-body th, .chat-md-body td {
   border: 1px solid var(--border-default);
-  padding: 4px 8px;
+  padding: 6px 10px;
 }
-.chat-md-body th { background: var(--fill); font-weight: 500; }
+.chat-md-body th { background: var(--fill); font-weight: 500; text-align: left; }
 .chat-md-body a { color: var(--accent); }
 .chat-md-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 10px 0; }
 .chat-md-body img { max-width: 100%; border-radius: var(--radius-chip); }
+/* 文档/消息正文里的超长路径（无空格的连续 token）必须在文本 run 处可折，
+   否则它会把消息或文件预览（.fp-md 没有 .chat-msg 祖先，继承不到任何
+   overflow-wrap）撑出屏幕、整屏横向漂移。作用域限定在 .md-html 文本 run：
+   代码块与 diff 卡是它的兄弟段（不是后代），横向滚动语义不受影响；而
+   .code-block/.diff-block 用 min-width: max-content / overflow-x 自行处理
+   长行。anywhere 而不是 break-word：只有 anywhere 会压低内容的 min-content
+   尺寸，flex 布局下 break-word 并不会阻止 flex 项被长 token 撑宽。 */
+.chat-md-body .md-html {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.chat-md-body .md-html p,
+.chat-md-body .md-html li,
+.chat-md-body .md-html blockquote,
+.chat-md-body .md-html th,
+.chat-md-body .md-html td {
+  min-width: 0;
+}
 
 /* ── code blocks: 12px card, 40px head bar, action buttons, Shiki body ── */
 
@@ -2412,7 +2441,7 @@ button.settings-row:focus-visible {
      (12px, margin collapse); between components the block keeps 12px. */
   margin: 0 0 12px;
   border: 1px solid var(--code-border);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background: var(--code-bg);
   overflow: hidden;
 }
@@ -2551,7 +2580,7 @@ button.settings-row:focus-visible {
   border-radius: 0;
   border: none;
   font-family: var(--font-mono);
-  font-size: var(--text-md);
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -3165,10 +3194,18 @@ button.settings-row:focus-visible {
 
 .chat-artifact-summary {
   flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
+
+/* The +/- line tally reads at a glance: additions green, deletions red,
+   reusing the diff palette so the head matches the red/green body. */
+.chat-artifact-stat-add { color: var(--diff-add); }
+.chat-artifact-stat-del { color: var(--diff-del); }
 
 .chat-artifact-caret {
   flex: none;
@@ -4490,17 +4527,75 @@ button.settings-row:focus-visible {
   padding: 4px 2px 12px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: var(--text-md);
-  line-height: 1.55;
+  line-height: 1.7;
   color: var(--text-primary);
   white-space: pre;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  /* 文件预览正文允许选中复制：body 全局 user-select:none 只豁免输入框和
+     消息正文，这里放开代码/纯文本预览，长按走系统选择复制。 */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* The Shiki <pre class="shiki"> inside .fp-body gets its own themed colors;
    strip default margins so it aligns with the plain-text fallback. */
 .fp-body pre.shiki {
   margin: 0;
+}
+
+/* Markdown previews inside the sheet have no .chat-msg ancestor to inherit
+   its 1.7 rhythm from — set the base here so prose, lists and code read the
+   same as in the chat. */
+.fp-md {
+  line-height: 1.7;
+  /* 同 .fp-body：markdown 预览正文允许选中复制（body 全局 user-select:none
+     不豁免这里，长按走系统选择复制）。 */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Long plain/code/log previews fold like chat long-text: a bounded body
+   with a soft fade and an 展开全部 toggle below. */
+.fp-scroll {
+  position: relative;
+  overflow: hidden;
+}
+
+.fp-scroll-folded {
+  max-height: 45vh;
+  overflow-y: hidden;
+}
+
+.fp-scroll-folded::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  background: linear-gradient(transparent, var(--bg-surface));
+  pointer-events: none;
+}
+
+.fp-fold-btn {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin-top: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.fp-fold-btn:active {
+  background: var(--fill);
 }
 
 .fp-actions {
@@ -6137,5 +6232,135 @@ details.think-block[open] .chat-disclosure-caret {
   font-size: var(--text-sm);
   color: var(--text-tertiary);
   line-height: 1.55;
+}
+
+/* ── conditional report card (single-view enhancement) ─────────────────
+   A settled assistant turn whose text reads like a result report gets the
+   card container; inner report segments (.rpt-*) arrive with the renderer
+   phase. Normal prose keeps the plain paragraph flow. */
+.chat-msg-report {
+  background: var(--card-bg);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 14px 16px 16px;
+  margin: 2px 0;
+}
+
+.chat-msg-report .chat-md-body p:first-child {
+  margin-top: 0;
+}
+
+/* Report segments: section rules, status rows with trailing chips, commit
+   chip + copy. Scoped to the report card so prose outside stays untouched. */
+.chat-msg-report .rpt-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 6px;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.chat-msg-report .rpt-section:first-child {
+  margin-top: 2px;
+}
+
+.chat-msg-report .rpt-section::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-default);
+}
+
+.chat-msg-report .rpt-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.chat-msg-report .rpt-line:last-child {
+  border-bottom: none;
+}
+
+.chat-msg-report .rpt-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.rpt-chip {
+  flex: none;
+  max-width: 55%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.rpt-ok {
+  color: var(--positive);
+  border-color: color-mix(in srgb, var(--positive) 55%, transparent);
+  background: color-mix(in srgb, var(--positive) 13%, transparent);
+}
+.rpt-fail {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+}
+.rpt-run {
+  color: var(--text-tertiary);
+  border-color: var(--border-default);
+  background: color-mix(in srgb, var(--text-tertiary) 10%, transparent);
+}
+
+.chat-msg-report .rpt-commit {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0 6px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-chip);
+}
+
+.rpt-commit-hash {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.rpt-copy {
+  flex: none;
+  border: 1px solid var(--border-default);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  padding: 3px 10px;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+
+.rpt-copy:active {
+  opacity: 0.8;
 }
 `;

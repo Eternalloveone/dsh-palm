@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** FilePreviewSheet: loading → ready/error states, copy action. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { FilePreviewSheet } from './file-preview-sheet.tsx'
 import { readFile } from './api.ts'
 
@@ -51,7 +51,7 @@ describe('FilePreviewSheet', () => {
     const writeText = vi.fn(async () => {})
     Object.assign(navigator, { clipboard: { writeText } })
     render(<FilePreviewSheet path="C:/proj/a.txt" sessionId={SESSION} onClose={() => {}} />)
-    const copy = await screen.findByRole('button', { name: '复制' })
+    const copy = await screen.findByRole('button', { name: '复制原文' })
     fireEvent.click(copy)
     expect(writeText).toHaveBeenCalledWith('hello world')
   })
@@ -103,6 +103,31 @@ describe('FilePreviewSheet', () => {
     expect(img?.getAttribute('src')).toBe('data:image/png;base64,QUFB')
     // No copy button / plain-text body for images.
     expect(container.querySelector('.fp-plain')).toBeNull()
-    expect(screen.queryByRole('button', { name: '复制' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '复制原文' })).toBeNull()
+  })
+
+  it('folds a long plain file behind 展开全部 and expands on tap', async () => {
+    const long = Array.from({ length: 80 }, (_, i) => `line-${i}`).join('\n')
+    readFileMock.mockResolvedValue({ kind: 'text', path: 'C:/proj/big.log', name: 'big.log', text: long })
+    const { container } = render(<FilePreviewSheet path="C:/proj/big.log" sessionId={SESSION} onClose={() => {}} />)
+    // The whole file is one pre text node, so match the folded body's text.
+    await waitFor(() => {
+      expect(container.querySelector('.fp-plain')?.textContent).toContain('line-79')
+    })
+    // Folded: the body is clamped and an expand toggle lists the line count.
+    expect(container.querySelector('.fp-scroll-folded')).toBeTruthy()
+    const expand = await screen.findByRole('button', { name: /展开全部（共 80 行）/ })
+    fireEvent.click(expand)
+    // Expanded: the clamp class goes away and the toggle flips to 收起.
+    expect(container.querySelector('.fp-scroll-folded')).toBeNull()
+    expect(screen.getByRole('button', { name: '收起' })).toBeTruthy()
+  })
+
+  it('does not fold a short file (no toggle, no clamp)', async () => {
+    readFileMock.mockResolvedValue({ kind: 'text', path: 'C:/proj/small.txt', name: 'small.txt', text: 'one line\n' })
+    const { container } = render(<FilePreviewSheet path="C:/proj/small.txt" sessionId={SESSION} onClose={() => {}} />)
+    await screen.findByText('one line', { selector: '.fp-plain' })
+    expect(container.querySelector('.fp-scroll-folded')).toBeNull()
+    expect(screen.queryByRole('button', { name: /展开全部/ })).toBeNull()
   })
 })

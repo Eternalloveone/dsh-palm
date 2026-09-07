@@ -7,7 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { CodeBlock, FOLD_THRESHOLD } from './code-block.tsx'
+import { CodeBlock, CHUNK_SIZE, CHUNK_THRESHOLD, FOLD_THRESHOLD } from './code-block.tsx'
+import { highlightCodeSync } from './shiki.ts'
 
 vi.mock('./shiki.ts', () => ({
   languageInfo: (lang: string) => {
@@ -102,6 +103,31 @@ describe('CodeBlock', () => {
   it('does not fold short blocks', () => {
     render(<CodeBlock lang="ts" code="a\nb" />)
     expect(screen.queryByRole('button', { name: '展开全部' })).toBeNull()
+  })
+
+  it('paints the first chunk of a very large block before the rest (progressive)', async () => {
+    const lines = Array.from({ length: CHUNK_THRESHOLD + 50 }, (_, i) => `line ${i}`)
+    const code = lines.join('\n')
+    render(<CodeBlock lang="ts" code={code} />)
+    const syncMock = vi.mocked(highlightCodeSync)
+    // The mount effects flush inside act: the FIRST chunk commits before any
+    // timer runs (the rest of the block waits on a yielded frame) — the
+    // visible head is highlighted while the tail is still pending.
+    expect(document.querySelector('.shiki')).not.toBeNull()
+    expect(syncMock.mock.calls.length).toBe(1)
+    // Drain the remaining chunks (each waits one 0 ms timer tick).
+    for (let i = 0; i < 8; i++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    }
+    const steps = Math.ceil(lines.length / CHUNK_SIZE)
+    expect(syncMock.mock.calls.length).toBe(steps)
+    // First call highlights only the first chunk slice, not the whole block.
+    const firstSlice = syncMock.mock.calls[0]![0]!
+    expect(firstSlice.startsWith('line 0')).toBe(true)
+    expect(firstSlice.includes('line 300')).toBe(false)
+    // The last call covers the remaining tail lines.
+    const lastSlice = syncMock.mock.calls[steps - 1]![0]!
+    expect(lastSlice.includes(`line ${lines.length - 1}`)).toBe(true)
   })
 
   it('toasts when no sandbox runner is available', async () => {

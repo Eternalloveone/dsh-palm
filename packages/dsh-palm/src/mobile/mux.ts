@@ -30,6 +30,7 @@ import { muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { history as fetchHistory, queueItemViewOf, type HistoryPage, type QueueItemView } from './api.ts'
 import { RpcTransportError } from './rpc.ts'
+import { perfAnomaly, perfEnabled, perfMark } from './perf.ts'
 import type { HistoryEntry } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 
 /** Injectable seams for tests. */
@@ -156,6 +157,8 @@ export class MuxClient {
   private source: EventSourceLike | undefined
   private stopped = false
   private readonly url: string
+  /** Last live session/event seq seen per session (perf gap detection). */
+  private readonly lastEventSeqBySession = new Map<string, number>()
 
   /** The session to keep live via fallback polling (undefined = none). */
   private observeSessionId: string | undefined
@@ -487,6 +490,28 @@ export class MuxClient {
     if (!envelope.success) return
     const frame = muxFrameSchema.safeParse(envelope.data.payload)
     if (!frame.success) return
+    // Opt-in perf mark: stamp the frame the moment it reaches the client,
+    // with its event seq when it is a session/event (later stages key spans
+    // off this mark). Seq gaps beyond +1 are the transport's own loss signal.
+    // Everything here is gated on the perf switch so the disabled hot path
+    // adds no per-frame work (no Map ops, no marks).
+    const eventSeq = (frame.data as { event?: { seq?: unknown } }).event?.seq
+    if (perfEnabled()) {
+      perfMark('recv', {
+        seq: typeof eventSeq === 'number' ? eventSeq : undefined,
+        frame: frame.data.type,
+      })
+      if (frame.data.type === 'session/event' && typeof eventSeq === 'number') {
+        const sessionId = (frame.data as { sessionId?: string }).sessionId
+        if (sessionId !== undefined) {
+          const last = this.lastEventSeqBySession.get(sessionId)
+          if (last !== undefined && eventSeq > last + 1) {
+            perfAnomaly('seq-gap', `session=${sessionId} last=${last} got=${eventSeq}`)
+          }
+          this.lastEventSeqBySession.set(sessionId, eventSeq)
+        }
+      }
+    }
     // A delivered frame proves the SSE channel is live (the tunnel forwards
     // it) and delivers again — drop any fallback polling so the live stream
     // takes over without double delivery.

@@ -7,7 +7,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/Eternalloveone/dsh-palm/ci.yml)](https://github.com/Eternalloveone/dsh-palm/actions)
 [![License](https://img.shields.io/github/license/Eternalloveone/dsh-palm)](https://github.com/Eternalloveone/dsh-palm/blob/main/LICENSE)
 
-**状态：pre-1.0** —— 插件 API 可能在版本间变化，欢迎反馈。
+**状态：1.0.0 稳定版** —— `/m/api` 方法面与帧格式向后兼容（只增不改）。欢迎反馈。
 
 ![dsh-palm 演示](docs/screenshots/demo.gif)
 
