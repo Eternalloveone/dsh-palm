@@ -205,19 +205,19 @@ export function savePersistedPreviews(map: ReadonlyMap<string, string>): void {
 
 /* ── pinned sessions (local preference) ─────────────────────────────────── */
 
-const PIN_KEY = 'dsh-palm.pin.v1'
+const PIN_STORAGE = 'dsh-palm.pin.v1'
 
 /** Load the pinned session ids (insertion order = pin order). */
 export function loadPinnedSessions(): Set<string> {
   if (!hasStorage()) return new Set()
-  const raw = readJson<string[]>(readRaw(PIN_KEY))
+  const raw = readJson<string[]>(readRaw(PIN_STORAGE))
   if (!Array.isArray(raw)) return new Set()
   return new Set(raw.filter(id => typeof id === 'string'))
 }
 
 /** Persist the pinned session ids (insertion order = pin order). */
 export function savePinnedSessions(ids: ReadonlySet<string>): void {
-  write(PIN_KEY, JSON.stringify([...ids]))
+  write(PIN_STORAGE, JSON.stringify([...ids]))
 }
 
 /* ── composer drafts (per session) ─────────────────────────────────────── */
@@ -273,7 +273,7 @@ function trimDrafts(): void {
 export function clearPairingCaches(): void {
   if (!hasStorage()) return
   const doomed = indexedKeys().filter(key =>
-    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key === PREVIEW_STORE || key === PIN_KEY)
+    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key === PREVIEW_STORE || key === PIN_STORAGE)
   removeKeys(doomed)
 }
 
