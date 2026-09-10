@@ -61,6 +61,10 @@ export interface DeviceFrame {
   lastSeenAt: number
   online: boolean
   userAgent?: string
+  /** User-assigned display name (settings → 设备管理), when set. */
+  name?: string
+  /** Whether this device is the protected primary. */
+  primary?: boolean
 }
 
 /**
@@ -137,6 +141,28 @@ export async function revokePair(deviceId: string): Promise<void> {
   })
   if (response.status === 404) return
   if (!response.ok) throw new Error(`dsh-palm: revoke failed with ${String(response.status)}`)
+}
+
+/** Assign a user-facing display name to a paired device (empty clears it). */
+export async function renamePair(deviceId: string, name: string): Promise<void> {
+  const response = await fetch('/api/pair/rename', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId, name }),
+  })
+  if (response.status === 404) return
+  if (!response.ok) throw new Error(`dsh-palm: rename failed with ${String(response.status)}`)
+}
+
+/** Promote one device to primary (demotes the previous primary). */
+export async function setPrimaryPair(deviceId: string): Promise<void> {
+  const response = await fetch('/api/pair/setPrimary', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId }),
+  })
+  if (response.status === 404) return
+  if (!response.ok) throw new Error(`dsh-palm: setPrimary failed with ${String(response.status)}`)
 }
 
 /** Presence heartbeat from a paired phone (unpaired heartbeats 401 harmlessly). */

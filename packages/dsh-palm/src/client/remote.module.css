@@ -1269,6 +1269,27 @@
   box-shadow: 0 0 0 2px var(--palm-card), 0 0 0 4px var(--palm-accent);
 }
 
+/* Wraps the per-device action buttons (rename / set-primary / revoke). */
+.deviceActions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The protected-primary badge beside a device's name. */
+.devicePrimary {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 6px;
+  margin-left: 4px;
+  border-radius: 999px;
+  color: var(--palm-accent);
+  background: var(--palm-accent-soft);
+}
+
 /* ── failed-pair toast ──────────────────────────────────────────────── */
 
 .notice {

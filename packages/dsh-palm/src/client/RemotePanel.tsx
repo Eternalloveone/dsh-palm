@@ -81,6 +81,10 @@ export interface RemotePanelProps {
   onClearPublicUrl(): Promise<void>
   /** Revoke one paired device. */
   onRevoke(deviceId: string): void
+  /** Rename one paired device (user-assigned display name). */
+  onRename(deviceId: string, name: string): void
+  /** Promote one device to primary (demotes the previous primary). */
+  onSetPrimary(deviceId: string): void
 }
 
 /** Badge text + tone per phase (ready states only). */
@@ -161,7 +165,7 @@ function Steps({ t, state, view, onStepClick }: {
  * @param props - copy, state, and actions.
  * @returns the panel element tree.
  */
-export function RemotePanel({ t, state, copied, detection, showWelcome, onDismissWelcome, onClose, onStop, onRefresh, onCopy, onPickAddress, onPickPublic, onSavePublicUrl, onClearPublicUrl, onRevoke }: RemotePanelProps) {
+export function RemotePanel({ t, state, copied, detection, showWelcome, onDismissWelcome, onClose, onStop, onRefresh, onCopy, onPickAddress, onPickPublic, onSavePublicUrl, onClearPublicUrl, onRevoke, onRename, onSetPrimary }: RemotePanelProps) {
   // The wizard view: follows the pairing state, overridable by clicking a
   // completed/current step (e.g. "re-pair" jumps back to step 2).
   const [view, setView] = useState<1 | 2 | 3>(1)
@@ -380,7 +384,10 @@ export function RemotePanel({ t, state, copied, detection, showWelcome, onDismis
                       <li key={device.id} className={css.deviceRow}>
                         <div className={css.deviceMeta}>
                           <span className={css.deviceName}>
-                            {deviceNameFromUserAgent(device.userAgent) ?? t('devices.unknown')}
+                            {device.name !== undefined && device.name !== ''
+                              ? device.name
+                              : deviceNameFromUserAgent(device.userAgent) ?? t('devices.unknown')}
+                            {device.primary === true && <span className={css.devicePrimary}>{t('devices.primary')}</span>}
                           </span>
                           <span className={clsx(css.devicePresence, device.online ? css.deviceOnline : css.deviceOffline)}>
                             {device.online ? t('devices.online') : t('devices.offline')}
@@ -389,14 +396,39 @@ export function RemotePanel({ t, state, copied, detection, showWelcome, onDismis
                             {t('devices.lastSeen', { time: formatLastSeen(device.lastSeenAt) })}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          className={css.deviceRevoke}
-                          aria-label={t('devices.revoke.label')}
-                          onClick={() => { onRevoke(device.id) }}
-                        >
-                          {t('devices.revoke')}
-                        </button>
+                        <div className={css.deviceActions}>
+                          <button
+                            type="button"
+                            className={css.deviceRevoke}
+                            aria-label={t('devices.rename.label')}
+                            title={t('devices.rename.label')}
+                            onClick={() => {
+                              const next = window.prompt(t('devices.rename.prompt'), device.name ?? '')
+                              if (next !== null) onRename(device.id, next)
+                            }}
+                          >
+                            {t('devices.rename')}
+                          </button>
+                          {device.primary !== true && (
+                            <button
+                              type="button"
+                              className={css.deviceRevoke}
+                              aria-label={t('devices.setPrimary.label')}
+                              title={t('devices.setPrimary.label')}
+                              onClick={() => { onSetPrimary(device.id) }}
+                            >
+                              {t('devices.setPrimary')}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className={css.deviceRevoke}
+                            aria-label={t('devices.revoke.label')}
+                            onClick={() => { onRevoke(device.id) }}
+                          >
+                            {t('devices.revoke')}
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>

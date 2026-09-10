@@ -2193,12 +2193,15 @@ button.settings-row:focus-visible {
   animation: msg-in 0.18s ease both;
 }
 
-/* 消息正文长按走自定义菜单（编辑/复制/引用），不选中文字；代码块/diff 仍允许
-   选择复制（body 全局 user-select:none 只豁免这里）。 */
+/* 消息正文长按走自定义菜单（编辑/复制/引用）；同时允许长按选字——一旦产生
+   选区，ChatView 的 openCtxFromTarget 会让位给系统（局部复制优先），不弹
+   自定义菜单。代码块/diff 仍允许选择复制。 */
 .chat-msg-text,
 .chat-msg-plain {
   min-width: 0;
   max-width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .code-block pre,
 .diff-block .diff-row-text {

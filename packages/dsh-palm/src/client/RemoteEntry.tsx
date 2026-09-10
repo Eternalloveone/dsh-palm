@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PairingPhase } from '../pairing.ts'
 import { RemotePanel, type PanelState } from './RemotePanel.tsx'
-import { copyText, fetchPairStatus, fetchTunnelDetection, issuePair, revokePair, stopPair, type DeviceFrame, type IssueResponse, type PairStateFrame, type TunnelDetection } from './pair-api.ts'
+import { copyText, fetchPairStatus, fetchTunnelDetection, issuePair, renamePair, revokePair, setPrimaryPair, stopPair, type DeviceFrame, type IssueResponse, type PairStateFrame, type TunnelDetection } from './pair-api.ts'
 import { PhoneIcon } from './PhoneIcon.tsx'
 import css from './remote.module.css'
 
@@ -213,6 +213,36 @@ export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPu
     })
   }, [state])
 
+  /** Rename one paired device (optimistic, rolled back on failure). */
+  const handleRename = useCallback((deviceId: string, name: string) => {
+    const snapshot = state.kind === 'ready' ? state.devices : undefined
+    setState(previous => previous.kind === 'ready'
+      ? { ...previous, devices: previous.devices.map(device => device.id === deviceId ? { ...device, name: name === '' ? undefined : name } : device) }
+      : previous)
+    void renamePair(deviceId, name).catch(() => {
+      if (snapshot !== undefined) {
+        setState(previous => previous.kind === 'ready'
+          ? { ...previous, devices: snapshot }
+          : previous)
+      }
+    })
+  }, [state])
+
+  /** Promote one device to primary (optimistic, rolled back on failure). */
+  const handleSetPrimary = useCallback((deviceId: string) => {
+    const snapshot = state.kind === 'ready' ? state.devices : undefined
+    setState(previous => previous.kind === 'ready'
+      ? { ...previous, devices: previous.devices.map(device => ({ ...device, primary: device.id === deviceId })) }
+      : previous)
+    void setPrimaryPair(deviceId).catch(() => {
+      if (snapshot !== undefined) {
+        setState(previous => previous.kind === 'ready'
+          ? { ...previous, devices: snapshot }
+          : previous)
+      }
+    })
+  }, [state])
+
   const handleRefresh = useCallback(() => {
     void mint().then(setState)
   }, [mint])
@@ -282,6 +312,8 @@ export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPu
             onSavePublicUrl={handleSavePublicUrl}
             onClearPublicUrl={handleClearPublicUrl}
             onRevoke={handleRevoke}
+            onRename={handleRename}
+            onSetPrimary={handleSetPrimary}
           />
         </div>
       ), document.body)}
