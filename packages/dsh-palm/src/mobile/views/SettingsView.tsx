@@ -12,7 +12,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/settings'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, latestVersion, mutateSettings, notifyEvents, readNotifyConfig, readSettings, testNotifyChannels, writeNotifyConfig, type NotifyEventView, type UsageProviderView, type UsageView } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
@@ -24,10 +24,10 @@ import {
 } from '../display-prefs.ts'
 import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
-import { ConfirmDialog } from '../dialog.tsx'
+import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
   ChatBubbleIcon, ChevronUpIcon, ContrastIcon, GaugeIcon, HashIcon, InfoIcon, MicIcon,
-  PencilIcon, PlusIcon, QuoteIcon, RowsIcon, ScrollDownIcon, SlidersIcon,
+  PencilIcon, PlusIcon, QuoteIcon, RowsIcon, ScrollDownIcon, ShieldIcon, SlidersIcon,
   TrashIcon, TypeIcon, UpperRightIcon, BellIcon,
 } from '../icons.tsx'
 import {
@@ -322,6 +322,154 @@ function UsageProviderCard({ provider }: { provider: UsageProviderView }) {
 }
 
 /**
+ * Paired-device management (P2/P3): list every paired device with its status,
+ * and let the user rename, promote to primary, or revoke one. The current
+ * device (this phone) is marked so the user never revokes the phone they are
+ * holding. The primary device is never auto-evicted by the device cap.
+ */
+function DeviceManagementView({ onBack }: { onBack(): void }) {
+  const [devices, setDevices] = useState<PairedDeviceView[] | undefined>(undefined)
+  const [maxDevices, setMaxDevices] = useState(4)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [busy, setBusy] = useState(false)
+  // Rename / revoke targets (undefined = no dialog open).
+  const [renameTarget, setRenameTarget] = useState<PairedDeviceView | undefined>(undefined)
+  const [revokeTarget, setRevokeTarget] = useState<PairedDeviceView | undefined>(undefined)
+
+  const refresh = (): void => {
+    setBusy(true)
+    void listDevices().then(
+      (view) => {
+        setDevices(view.devices)
+        setMaxDevices(view.maxDevices)
+        setError(undefined)
+        setBusy(false)
+      },
+      (reason: unknown) => {
+        setError(errorText(reason))
+        setBusy(false)
+      },
+    )
+  }
+  useEffect(() => { refresh() }, [])
+
+  const handleRename = (name: string): void => {
+    const target = renameTarget
+    setRenameTarget(undefined)
+    if (target === undefined) return
+    void renameDevice(target.id, name).then(
+      () => { refresh(); toast('已重命名') },
+      (reason: unknown) => { toast(errorText(reason)) },
+    )
+  }
+  const handleSetPrimary = (device: PairedDeviceView): void => {
+    void setPrimaryDevice(device.id).then(
+      () => { refresh(); toast('已设为主设备') },
+      (reason: unknown) => { toast(errorText(reason)) },
+    )
+  }
+  const handleRevoke = (): void => {
+    const target = revokeTarget
+    setRevokeTarget(undefined)
+    if (target === undefined) return
+    void revokeDevice(target.id).then(
+      () => { refresh(); toast('已移除该设备') },
+      (reason: unknown) => { toast(errorText(reason)) },
+    )
+  }
+
+  const deviceLabel = (device: PairedDeviceView): string =>
+    device.name !== undefined && device.name !== '' ? device.name : '未命名设备'
+
+  return (
+    <div className="mobile">
+      <header className="mobile-header">
+        <div className="mobile-headerSlot">
+          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+        </div>
+        <h1 className="mobile-title">设备管理</h1>
+        <div className="mobile-headerSlot mobile-headerSlot-right" />
+      </header>
+      <div className="mobile-scroll">
+        <p className="settings-note">
+          已配对 {devices?.length ?? 0} / {maxDevices} 台设备。主设备不会被自动移除；设备数满时，闲置设备会先被淘汰，在线设备不会被挤掉。
+        </p>
+        {error !== undefined && <p className="mobile-error" role="alert">{error}</p>}
+        {devices === undefined && error === undefined && <p className="settings-note">加载中…</p>}
+        {devices !== undefined && (
+          <div className="settings-card">
+            {devices.length === 0 && <p className="settings-note">暂无已配对设备。</p>}
+            {devices.map(device => (
+              <div key={device.id} className="device-row">
+                <span className="device-copy">
+                  <span className="device-name">
+                    {deviceLabel(device)}
+                    {device.primary === true && <span className="device-badge device-badge-primary">主设备</span>}
+                    {device.current === true && <span className="device-badge device-badge-current">本机</span>}
+                  </span>
+                  <span className="device-desc">
+                    <span className={`device-status${device.online ? ' device-status-on' : ''}`}>
+                      {device.online ? '在线' : '闲置'}
+                    </span>
+                    {' · '}{formatInboxTime(device.lastSeenAt)}
+                    {device.userAgent !== undefined && <span className="device-ua"> · {device.userAgent.slice(0, 40)}</span>}
+                  </span>
+                </span>
+                <span className="device-actions">
+                  <button
+                    type="button"
+                    className="device-btn"
+                    aria-label="重命名"
+                    onClick={() => { setRenameTarget(device) }}
+                  ><PencilIcon /></button>
+                  {device.primary !== true && (
+                    <button
+                      type="button"
+                      className="device-btn"
+                      aria-label="设为主设备"
+                      disabled={busy}
+                      onClick={() => { handleSetPrimary(device) }}
+                    ><ShieldIcon /></button>
+                  )}
+                  {device.current !== true && (
+                    <button
+                      type="button"
+                      className="device-btn device-btn-danger"
+                      aria-label="移除设备"
+                      disabled={busy}
+                      onClick={() => { setRevokeTarget(device) }}
+                    ><TrashIcon /></button>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {renameTarget !== undefined && (
+        <PromptDialog
+          title="重命名设备"
+          initial={renameTarget.name ?? ''}
+          confirmLabel="保存"
+          onCancel={() => { setRenameTarget(undefined) }}
+          onConfirm={handleRename}
+        />
+      )}
+      {revokeTarget !== undefined && (
+        <ConfirmDialog
+          title="移除设备？"
+          body={`移除「${deviceLabel(revokeTarget)}」后，该设备将无法再访问此电脑，需重新配对。`}
+          confirmLabel="移除"
+          tone="danger"
+          onCancel={() => { setRevokeTarget(undefined) }}
+          onConfirm={handleRevoke}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
  * Render the settings page: local preference cards, then the host
  * configuration groups, then the form.
  * @param props - the back action.
@@ -354,6 +502,9 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   // Full-page sub-views: the unified notification page and the voice page.
   const [notifyOpen, setNotifyOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
+  // Paired-device management sub-page (P2): list devices, revoke, rename,
+  // promote primary.
+  const [deviceOpen, setDeviceOpen] = useState(false)
   // Completion notifications: browser permission + server-side thresholds.
   const [notifyPermission, setNotifyPermission] = useState<NotificationPermission | 'unsupported'>(() => notificationPermission())
   const [notifyConfig, setNotifyConfig] = useState<Awaited<ReturnType<typeof readNotifyConfig>> | undefined>(undefined)
@@ -1261,6 +1412,10 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
     )
   }
 
+  if (deviceOpen) {
+    return <DeviceManagementView onBack={() => { setDeviceOpen(false) }} />
+  }
+
   const openedGroup = openGroup !== undefined
     ? SETTINGS_GROUPS.find(group => group.id === openGroup)
     : undefined
@@ -1501,6 +1656,19 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 : `${voiceServices.length} 个服务 · 按序回退`}
               action={<RowChevron />}
               onClick={() => { openVoicePage() }}
+            />
+          )}
+        </ul>
+
+        <ul className="settings-group">
+          <li className="settings-groupTitle">设备 <span className="settings-groupDesc">已配对设备管理</span></li>
+          {hit('设备管理', '配对', '设备', 'device', 'pair') && (
+            <SettingsRow
+              icon={<ShieldIcon />}
+              title="设备管理"
+              desc="查看已配对设备 · 重命名 · 设为主设备 · 移除"
+              action={<RowChevron />}
+              onClick={() => { setDeviceOpen(true) }}
             />
           )}
         </ul>

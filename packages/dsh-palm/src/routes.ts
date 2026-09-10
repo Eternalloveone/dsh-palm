@@ -93,6 +93,8 @@ export const PAIR_PATHS = {
   accept: '/api/pair/accept',
   stop: '/api/pair/stop',
   revoke: '/api/pair/revoke',
+  rename: '/api/pair/rename',
+  setPrimary: '/api/pair/setPrimary',
   heartbeat: '/api/pair/heartbeat',
   status: '/api/pair/status',
   events: '/api/pair/events',
@@ -118,6 +120,13 @@ export const acceptPayloadSchema = z.object({
   code: z.string().optional(),
 })
 export const revokePayloadSchema = z.object({
+  deviceId: z.string().min(1),
+})
+export const renamePayloadSchema = z.object({
+  deviceId: z.string().min(1),
+  name: z.string().default(''),
+})
+export const setPrimaryPayloadSchema = z.object({
   deviceId: z.string().min(1),
 })
 export const probePayloadSchema = z.object({
@@ -354,10 +363,14 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     const secret = payload.code !== undefined && payload.code !== '' ? payload.code : payload.token
     const result = service.accept(secret, typeof ua === 'string' ? ua : undefined)
     if (!result.ok) {
-      // One uniform refusal for invalid and already-used tokens: the
-      // distinction is a token-validity oracle for unauthenticated probing
-      // (the pairing screen shows the combined "invalid or already used"
-      // message). The service state machine still tracks the difference.
+      // A full device cap is a legitimate state, not a token-validity oracle:
+      // return a distinct status so the phone can guide the user to revoke a
+      // device. Invalid and already-used tokens share one uniform 404 (the
+      // distinction is a token-validity oracle for unauthenticated probing).
+      if (result.code === 'device-cap-full') {
+        writeJson(res, 409, { ok: false, code: 'device-cap-full' })
+        return
+      }
       writeJson(res, 404, { ok: false, code: 'invalid' })
       return
     }
@@ -400,6 +413,46 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     }
     const revoked = service.revoke(payload.deviceId)
     if (!revoked) {
+      writeJson(res, 404, { ok: false, code: 'unknown-device' })
+      return
+    }
+    writeJson(res, 200, { ok: true })
+  }
+
+  const handleRename = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'POST')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    const body = await readJsonBody(req, { maxBytes: MAX_BODY_BYTES, objectOnly: true })
+    const payload = parsePairPayload(renamePayloadSchema, body)
+    if (payload === undefined) {
+      writeJson(res, 400, { ok: false, code: 'bad-payload' })
+      return
+    }
+    const renamed = service.renameDevice(payload.deviceId, payload.name)
+    if (!renamed) {
+      writeJson(res, 404, { ok: false, code: 'unknown-device' })
+      return
+    }
+    writeJson(res, 200, { ok: true })
+  }
+
+  const handleSetPrimary = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'POST')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    const body = await readJsonBody(req, { maxBytes: MAX_BODY_BYTES, objectOnly: true })
+    const payload = parsePairPayload(setPrimaryPayloadSchema, body)
+    if (payload === undefined) {
+      writeJson(res, 400, { ok: false, code: 'bad-payload' })
+      return
+    }
+    const promoted = service.setPrimary(payload.deviceId)
+    if (!promoted) {
       writeJson(res, 404, { ok: false, code: 'unknown-device' })
       return
     }
@@ -529,6 +582,8 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     { kind: 'exact', path: PAIR_PATHS.accept, handler: handleAccept },
     { kind: 'exact', path: PAIR_PATHS.stop, handler: handleStop },
     { kind: 'exact', path: PAIR_PATHS.revoke, handler: handleRevoke },
+    { kind: 'exact', path: PAIR_PATHS.rename, handler: handleRename },
+    { kind: 'exact', path: PAIR_PATHS.setPrimary, handler: handleSetPrimary },
     { kind: 'exact', path: PAIR_PATHS.heartbeat, handler: handleHeartbeat },
     { kind: 'exact', path: PAIR_PATHS.status, handler: handleStatus },
     { kind: 'exact', path: PAIR_PATHS.events, handler: handleEvents },

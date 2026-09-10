@@ -22,10 +22,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
+import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { listSessions } from '../api.ts'
 import { TaskRow } from '../task-status.tsx'
 import { InboxIcon } from '../icons.tsx'
-import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 
 /** Roster pages fetched at most while building the running-session baseline. */
 const ROSTER_PAGE_LIMIT = 8
@@ -289,8 +289,13 @@ export function RunOverviewView({ mux, onBack, onOpenSession }: RunOverviewViewP
   )
 }
 
-/** One session card: title head + its task rows (TaskRow visual grammar). */
+/** One session card: title head + its task rows (TaskRow visual grammar).
+ *  Running jobs stay visible; settled jobs fold behind a one-line summary so
+ *  a session with many finished tasks does not bury what is happening now. */
 function SessionCard({ row, onOpen }: { row: SessionRun; onOpen(): void }) {
+  const [showSettled, setShowSettled] = useState(false)
+  const liveJobs = row.jobs.filter(job => isLive(job))
+  const settledJobs = row.jobs.filter(job => !isLive(job))
   return (
     <div className="runov-sess">
       <button type="button" className="runov-sess-head" onClick={onOpen}>
@@ -301,10 +306,30 @@ function SessionCard({ row, onOpen }: { row: SessionRun; onOpen(): void }) {
         </span>
         <span className="runov-sess-chev">›</span>
       </button>
-      {row.jobs.length > 0 && (
+      {liveJobs.length > 0 && (
         <div className="runov-jobs" role="list" aria-label={`${row.title} 的后台任务`}>
-          {row.jobs.map(job => <TaskRow key={job.id} job={job} />)}
+          {liveJobs.map(job => <TaskRow key={job.id} job={job} />)}
         </div>
+      )}
+      {settledJobs.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="runov-jobs-fold"
+            aria-expanded={showSettled}
+            onClick={() => { setShowSettled(value => !value) }}
+          >
+            <span className="runov-jobs-fold-label">
+              {showSettled ? '收起已完成' : `${settledJobs.length} 个已完成`}
+            </span>
+            <span className="runov-jobs-fold-chev" aria-hidden>{showSettled ? '▾' : '▸'}</span>
+          </button>
+          {showSettled && (
+            <div className="runov-jobs runov-jobs-settled" role="list" aria-label={`${row.title} 的已完成任务`}>
+              {settledJobs.map(job => <TaskRow key={job.id} job={job} />)}
+            </div>
+          )}
+        </>
       )}
       {row.runningOnly && (
         <div className="runov-jobs" role="status">

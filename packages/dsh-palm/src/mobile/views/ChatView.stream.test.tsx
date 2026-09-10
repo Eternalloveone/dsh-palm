@@ -98,6 +98,9 @@ function chunk(mux: FakeMux, text: string, seq: number): void {
     sessionId: 's-1',
     event: makeEntry('assistant/chunk', { messageId: 'a-1', turn: 0, step: 0, text }, seq).event,
   })
+  // ChatView micro-batches live events on rAF; advance the fake timer so the
+  // fold lands synchronously for the test's assertions.
+  vi.advanceTimersByTime(20)
 }
 
 /** Emit the final assistant message (authoritative text, closes the turn). */
@@ -111,6 +114,7 @@ function finalMessage(mux: FakeMux, text: string, seq: number): void {
       message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text }] },
     }, seq).event,
   })
+  vi.advanceTimersByTime(20)
 }
 
 /** The exact preview HTML the component must render for live text (escaped,

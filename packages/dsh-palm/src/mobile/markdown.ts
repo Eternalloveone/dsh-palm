@@ -147,7 +147,7 @@ export function renderInline(text: string): string {
             out += escapeHtml(alt)
           } else {
             const srcEsc = escapeHtml(safe).replace(/\s+/g, '%20')
-            out += '<img alt="' + escapeHtml(alt) + '" src="' + srcEsc + '" />'
+            out += '<img alt="' + escapeHtml(alt) + '" src="' + srcEsc + '" loading="lazy" decoding="async" />'
           }
           i = parenEnd + 1
           continue

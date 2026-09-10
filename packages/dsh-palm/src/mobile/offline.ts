@@ -29,7 +29,12 @@ export interface OutboxEntry {
 }
 
 const DB_NAME = 'dsh-palm'
+const DB_VERSION = 2
 const STORE = 'outbox'
+/** The history-cache store (owned by history-cache.ts); created here too so
+ *  both modules agree on the DB version and no v1→v2 upgrade is ever blocked
+ *  by a concurrent v1 connection. */
+const HISTORY_STORE = 'history'
 
 /**
  * Entries that could not be persisted yet (IDB down; also the seam tests
@@ -48,9 +53,11 @@ function openDb(): Promise<IDBDatabase> {
       reject(new Error('indexedDB unavailable'))
       return
     }
-    const request = indexedDB.open(DB_NAME, 1)
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE, { keyPath: 'id' })
+      const db = request.result
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) db.createObjectStore(HISTORY_STORE, { keyPath: 'key' })
     }
     request.onsuccess = () => { resolve(request.result) }
     request.onerror = () => { reject(request.error ?? new Error('indexedDB open failed')) }

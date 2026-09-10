@@ -20,11 +20,20 @@ describe('mobile pairing helpers', () => {
   })
 
   it('returns a clean retry path when the pairing token is refused', async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false, code: 'used' }), { status: 409 }))
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false, code: 'used' }), { status: 404 }))
     await expect(consumeMobilePairUrl('https://phone.example/m/?pair=tok-1', fetcher)).resolves.toEqual({
       kind: 'failed',
       path: '/m/',
-      message: '配对链接已被使用。',
+      message: '配对链接无效或已过期。',
+    })
+  })
+
+  it('guides the user to revoke a device when the device cap is full', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false, code: 'device-cap-full' }), { status: 409 }))
+    await expect(consumeMobilePairUrl('https://phone.example/m/?pair=tok-1', fetcher)).resolves.toEqual({
+      kind: 'failed',
+      path: '/m/',
+      message: '设备数已满：请先在桌面端「设备管理」移除一个设备后重试。',
     })
   })
 

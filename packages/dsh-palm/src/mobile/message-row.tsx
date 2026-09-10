@@ -8,7 +8,7 @@
  * @module dsh-palm/mobile/message-row
  */
 
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
 import { formatTime } from './views/App.tsx'
 import type { RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { CollapsibleText, MarkdownText, ReasoningDisclosure } from './markdown-text.tsx'
@@ -16,7 +16,7 @@ import { ReportBody } from './report-body.tsx'
 import { detectReport } from './report.ts'
 import { ChevronUpIcon } from './icons.tsx'
 
-export const MessageRow = memo(function MessageRow({ message, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery }: {
+export const MessageRow = memo(function MessageRow({ message, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, style, onRegenerate }: {
   message: RenderMessage
   showToolCalls: boolean
   showSystemMessages: boolean
@@ -25,6 +25,10 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
   /** Search-hit locate highlight (one-shot CSS animation). */
   focused?: boolean
   focusedQuery?: string
+  /** Optional inline style on the row's root element (e.g. content-visibility). */
+  style?: CSSProperties
+  /** Regenerate affordance: shown on the last settled assistant reply. */
+  onRegenerate?: () => void
 }) {
   const focusSeqAttr = message.startSeq ?? message.seq
   // Injected user messages (sourceKind defined and not 'user') hide behind
@@ -44,6 +48,7 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
         data-message-id={message.id}
         data-row-seq={focusSeqAttr}
         className={'chat-command' + (message.commandPhase === 'error' ? ' chat-command-error' : '') + (focused ? ' chat-msg-focus' : '')}
+        style={style}
         role="status"
       >
         <span className="chat-command-name">{message.commandLine ?? '命令'}</span>
@@ -80,6 +85,7 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
       data-message-id={message.id}
       data-row-seq={focusSeqAttr}
       className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${isReport ? ' chat-msg-report' : ''}${focused ? ' chat-msg-focus' : ''}`}
+      style={style}
     >
       {message.kind === 'assistant' && message.reasoning !== undefined && message.reasoning !== '' && (
         <ReasoningDisclosure text={message.reasoning} pending={message.pending === true} />
@@ -111,8 +117,15 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
         <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
       )}
       {message.failed === true && <span className="chat-msg-failtag">本次回复失败</span>}
+      {message.maxTokens === true && <div className="chat-msg-maxtokens">已达到输出 token 上限，回答被截断。发送“继续”可让模型接着输出。</div>}
       <span className="chat-msg-footer">
         {showTime && <span className="chat-msg-time">{formatTime(message.time)}</span>}
+        {message.kind === 'assistant' && onRegenerate !== undefined && (
+          <button type="button" className="chat-msg-regenerate" onClick={onRegenerate} aria-label="重新生成回复">
+            <span className="chat-msg-regenerate-icon" aria-hidden>↻</span>
+            重新生成
+          </button>
+        )}
       </span>
     </div>
   )

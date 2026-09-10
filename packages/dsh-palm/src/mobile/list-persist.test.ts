@@ -11,12 +11,14 @@ import {
   loadPersistedList,
   loadPersistedScroll,
   loadPersistedPreviews,
+  loadPinnedSessions,
   maintainPersistedCaches,
   removeDraft,
   saveDraft,
   savePersistedList,
   savePersistedPreviews,
   savePersistedScroll,
+  savePinnedSessions,
 } from './list-persist.ts'
 import type { SessionView } from './views/App.tsx'
 
@@ -135,6 +137,31 @@ describe('list-persist', () => {
     clearPairingCaches()
     expect(loadPersistedList('w-3')).toBeUndefined()
     expect(localStorage.getItem('dsh-palm.cache-index.v1')).not.toBeNull()
+  })
+})
+
+describe('pinned sessions', () => {
+  it('round-trips the pinned id set (insertion order preserved)', () => {
+    savePinnedSessions(new Set(['s-2', 's-1']))
+    const loaded = loadPinnedSessions()
+    expect([...loaded]).toEqual(['s-2', 's-1'])
+    expect(loaded.has('s-1')).toBe(true)
+    expect(loaded.has('s-3')).toBe(false)
+  })
+
+  it('tolerates corrupt / non-array payloads', () => {
+    localStorage.setItem('dsh-palm.pin.v1', '{not json')
+    expect(loadPinnedSessions().size).toBe(0)
+    localStorage.setItem('dsh-palm.pin.v1', JSON.stringify({ bad: true }))
+    expect(loadPinnedSessions().size).toBe(0)
+    localStorage.setItem('dsh-palm.pin.v1', JSON.stringify(['s-1', 42, 's-2']))
+    expect([...loadPinnedSessions()]).toEqual(['s-1', 's-2'])
+  })
+
+  it('clearPairingCaches drops pins too', () => {
+    savePinnedSessions(new Set(['s-1']))
+    clearPairingCaches()
+    expect(loadPinnedSessions().size).toBe(0)
   })
 })
 

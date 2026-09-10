@@ -663,3 +663,44 @@ export async function deleteWorkspace(workspaceId: string): Promise<{ deleted: t
 export async function archiveSession(sessionId: string): Promise<{ archivedSessionIds: string[] }> {
   return await callUnary<{ archivedSessionIds: string[] }>('workspace.archiveSession', { sessionId })
 }
+
+/* ── paired-device management (P1/P2/P3) ─────────────────────────────── */
+
+/** One paired device as the phone's device-management screen sees it. */
+export interface PairedDeviceView {
+  id: string
+  createdAt: number
+  lastSeenAt: number
+  online: boolean
+  userAgent?: string
+  name?: string
+  primary?: boolean
+  /** Whether this row is the device the phone is currently running on. */
+  current: boolean
+}
+
+/** The paired-device roster + the cap the host enforces. */
+export interface PairedDevicesView {
+  devices: PairedDeviceView[]
+  maxDevices: number
+}
+
+/** List every paired device (the phone's device-management screen). */
+export async function listDevices(): Promise<PairedDevicesView> {
+  return await callUnary<PairedDevicesView>('pair.devices', {})
+}
+
+/** Revoke one paired device (its next gated request is refused). */
+export async function revokeDevice(deviceId: string): Promise<{ removed: boolean }> {
+  return await callUnary<{ removed: boolean }>('pair.revoke', { deviceId })
+}
+
+/** Assign a user-facing display name to a device (empty clears it). */
+export async function renameDevice(deviceId: string, name: string): Promise<{ renamed: boolean }> {
+  return await callUnary<{ renamed: boolean }>('pair.rename', { deviceId, name })
+}
+
+/** Promote one device to primary (demotes the previous primary). */
+export async function setPrimaryDevice(deviceId: string): Promise<{ promoted: boolean }> {
+  return await callUnary<{ promoted: boolean }>('pair.setPrimary', { deviceId })
+}

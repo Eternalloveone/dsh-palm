@@ -52,10 +52,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** The composer's + menu: attach an image or run a slash command. */
-export function PlusSheet({ commands, onPickImage, onPickCommand, onClose }: {
+/** The composer's + menu: attach an image (gallery or camera) or run a slash command. */
+export function PlusSheet({ commands, onPickImage, onPickCamera, onPickCommand, onClose }: {
   commands: CommandDescriptor[] | undefined
   onPickImage(): void
+  onPickCamera(): void
   onPickCommand(line: string): void
   onClose(): void
 }) {
@@ -65,12 +66,22 @@ export function PlusSheet({ commands, onPickImage, onPickCommand, onClose }: {
         <button type="button" role="menuitem" className="sheet-option" onClick={onPickImage}>
           <span className="sheet-option-copy">
             <span className="sheet-option-title">图片</span>
-            <span className="sheet-option-desc">从相册选择或拍照</span>
+            <span className="sheet-option-desc">从相册选择</span>
           </span>
           <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">
             <rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
             <circle cx="6" cy="6" r="1.6" fill="currentColor" />
             <path d="M2 11.5 L5.5 8 L8 10.5 L10.5 8 L14 11.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="menuitem" className="sheet-option" onClick={onPickCamera}>
+          <span className="sheet-option-copy">
+            <span className="sheet-option-title">拍照</span>
+            <span className="sheet-option-desc">调用相机拍摄</span>
+          </span>
+          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">
+            <path d="M2 5.5 A1.5 1.5 0 0 1 3.5 4 H5 L6 2.5 H10 L11 4 H12.5 A1.5 1.5 0 0 1 14 5.5 V12 A1.5 1.5 0 0 1 12.5 13.5 H3.5 A1.5 1.5 0 0 1 2 12 Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <circle cx="8" cy="8.75" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
           </svg>
         </button>
         <div className="sheet-option-divider" role="separator" />

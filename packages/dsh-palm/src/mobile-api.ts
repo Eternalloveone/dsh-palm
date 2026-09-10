@@ -173,6 +173,16 @@ const MOBILE_SEARCH_MESSAGES_METHOD = 'mobile.searchMessages'
 const MOBILE_PUSH_SUBSCRIBE_METHOD = 'push.subscribe'
 const MOBILE_PUSH_UNSUBSCRIBE_METHOD = 'push.unsubscribe'
 const MOBILE_PUSH_CONFIG_METHOD = 'push.config'
+/**
+ * Paired-device management (P1/P2/P3): list devices, revoke one, rename one,
+ * and promote one to primary. All four are plugin-local methods answered by
+ * the pairing service — never proxied to the host ApiProxy. The paired-device
+ * gate is the only access control (a paired phone is full trust).
+ */
+const MOBILE_PAIR_DEVICES_METHOD = 'pair.devices'
+const MOBILE_PAIR_REVOKE_METHOD = 'pair.revoke'
+const MOBILE_PAIR_RENAME_METHOD = 'pair.rename'
+const MOBILE_PAIR_SET_PRIMARY_METHOD = 'pair.setPrimary'
 
 /** One directory row the mobile browser can enter (directories + symlinks to dirs). */
 interface MobileDirectoryEntry {
@@ -1327,6 +1337,10 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_USAGE_METHOD
       || method === MOBILE_READ_CHAT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
+      || method === MOBILE_PAIR_DEVICES_METHOD
+      || method === MOBILE_PAIR_REVOKE_METHOD
+      || method === MOBILE_PAIR_RENAME_METHOD
+      || method === MOBILE_PAIR_SET_PRIMARY_METHOD
       || isTranscribe
     if (!MOBILE_ALLOWLIST.has(method) && !local) {
       req.resume()
@@ -1806,6 +1820,77 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: { saved: true } },
+        })
+      } else if (method === MOBILE_PAIR_DEVICES_METHOD) {
+        // Paired-device roster for the phone's device-management screen. The
+        // current device's id rides the cookie so the UI can mark "this phone".
+        const currentDeviceId = readCookie(req.headers.cookie, service.config.cookieName)
+        const devices = service.snapshot().devices.map(device => ({
+          id: device.id,
+          createdAt: device.createdAt,
+          lastSeenAt: device.lastSeenAt,
+          online: device.online,
+          ...(device.userAgent !== undefined ? { userAgent: device.userAgent } : {}),
+          ...(device.name !== undefined ? { name: device.name } : {}),
+          ...(device.primary === true ? { primary: true } : {}),
+          current: device.id === currentDeviceId,
+        }))
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { devices, maxDevices: service.config.maxDevices } },
+        })
+      } else if (method === MOBILE_PAIR_REVOKE_METHOD) {
+        const body = parsed.payload as { deviceId?: unknown } | undefined
+        const deviceId = typeof body?.deviceId === 'string' ? body.deviceId : ''
+        if (deviceId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少设备 id' } },
+          })
+          return
+        }
+        const removed = service.revoke(deviceId)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { removed } },
+        })
+      } else if (method === MOBILE_PAIR_RENAME_METHOD) {
+        const body = parsed.payload as { deviceId?: unknown; name?: unknown } | undefined
+        const deviceId = typeof body?.deviceId === 'string' ? body.deviceId : ''
+        const name = typeof body?.name === 'string' ? body.name : ''
+        if (deviceId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少设备 id' } },
+          })
+          return
+        }
+        const renamed = service.renameDevice(deviceId, name)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { renamed } },
+        })
+      } else if (method === MOBILE_PAIR_SET_PRIMARY_METHOD) {
+        const body = parsed.payload as { deviceId?: unknown } | undefined
+        const deviceId = typeof body?.deviceId === 'string' ? body.deviceId : ''
+        if (deviceId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少设备 id' } },
+          })
+          return
+        }
+        const promoted = service.setPrimary(deviceId)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { promoted } },
         })
       } else if (method === MOBILE_NOTIFY_EVENTS_METHOD) {
         // The phone's notification inbox: the engine's bounded decision log

@@ -96,8 +96,34 @@ describe('RunOverviewView', () => {
     render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
     await waitFor(() => expect(screen.getByText('1 个会话正在运行 · 1 个后台任务')).toBeTruthy())
     expect(screen.getByText('跑真机回归')).toBeTruthy()
-    expect(screen.getByText('收尾')).toBeTruthy()
     expect(screen.getByText('最近结束')).toBeTruthy()
+  })
+
+  it('folds a session\'s settled jobs behind a summary and expands on tap', async () => {
+    // One session with a running job and two completed jobs: the running one
+    // stays visible, the settled ones fold behind a "2 个已完成" summary.
+    const mux = muxStub([
+      {
+        sessionId: 's-live',
+        jobs: [
+          job({ id: 'j1', label: '跑真机回归' }),
+          job({ id: 'j2', status: 'completed', finishedAt: 1_700_000_100_000, label: '收尾' }),
+          job({ id: 'j3', status: 'completed', finishedAt: 1_700_000_200_000, label: '打包' }),
+        ],
+      },
+    ])
+    api.listSessions.mockResolvedValue({ items: [sessionRow('s-live', true)], nextCursor: undefined, hasMore: false })
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    // The running job is always visible; the settled ones are folded.
+    await waitFor(() => expect(screen.getByText('跑真机回归')).toBeTruthy())
+    expect(screen.getByText('2 个已完成')).toBeTruthy()
+    expect(screen.queryByText('收尾')).toBeNull()
+    expect(screen.queryByText('打包')).toBeNull()
+    // Expanding reveals the settled rows, de-emphasized.
+    fireEvent.click(screen.getByRole('button', { name: /2 个已完成/ }))
+    expect(screen.getByText('收尾')).toBeTruthy()
+    expect(screen.getByText('打包')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /收起已完成/ })).toBeTruthy()
   })
 
   it('adds a session to the running group when a live turn/start frame lands', async () => {

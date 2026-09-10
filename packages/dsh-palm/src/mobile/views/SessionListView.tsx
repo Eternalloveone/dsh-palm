@@ -15,7 +15,7 @@
  * status dot on running sessions; the raw session-id tail is gone.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
 import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
@@ -32,10 +32,12 @@ import {
   loadPersistedList,
   loadPersistedScroll,
   loadPersistedPreviews,
+  loadPinnedSessions,
   maintainPersistedCaches,
   savePersistedList,
   savePersistedPreviews,
   savePersistedScroll,
+  savePinnedSessions,
   sessionListCache,
 } from '../list-persist.ts'
 export { sessionListCache } from '../list-persist.ts'
@@ -77,7 +79,7 @@ function pageItems(page: SessionSummary[], ownedIds: ReadonlySet<string>): Sessi
 }
 
 /** Which day bucket a session row falls into (list grouping). */
-type DayBucket = '今天' | '昨天' | '更早'
+type DayBucket = '置顶' | '今天' | '昨天' | '更早'
 
 /** Bucket by the row's local calendar date. */
 export function dayBucketFor(updatedAt: number, now = new Date()): DayBucket {
@@ -102,6 +104,20 @@ const LOAD_MORE_BACKOFF_MS = 10_000
 
 /** In-memory roster cache TTL (see list-persist.sessionListCache). */
 const LIST_CACHE_TTL_MS = 60_000
+
+/**
+ * Rows at the tail that always render with real layout (no content-visibility)
+ * in the session roster. The roster is a plain scrollable list; content-
+ * visibility lets the browser skip layout/paint of off-screen rows (a big
+ * workspace renders hundreds of light rows), but the bottom must stay exact
+ * so the IntersectionObserver sentinel (and the manual 加载更多 button) stays
+ * reachable. Keeping ~1 viewport real preserves that while the rows above
+ * skip layout/paint.
+ */
+const SESSION_CV_KEEP_BOTTOM = 12
+
+/** Horizontal swipe distance (px) that opens/closes the delete action. */
+const SWIPE_TRIGGER_PX = 40
 
 /** Cross-mount preview cache: summaries survive a chat round-trip too
  *  (exported for test isolation). Persisted for PWA cold starts. */
@@ -256,6 +272,23 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
   const [deleting, setDeleting] = useState<SessionView | undefined>(undefined)
   const pressTimerRef = useRef<number | undefined>(undefined)
   const pressConsumedRef = useRef<string | undefined>(undefined)
+  /** Pinned session ids (local preference, persisted in localStorage). */
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadPinnedSessions())
+  /** The session whose delete action is currently swiped open (at most one). */
+  const [openSwipeId, setOpenSwipeId] = useState<string | undefined>(undefined)
+  /** Active swipe gesture origin (sessionId + start point). */
+  const swipeStartRef = useRef<{ sessionId: string; x: number; y: number } | undefined>(undefined)
+
+  /** Toggle one session's pin state (persisted immediately). */
+  const togglePin = useCallback((sessionId: string): void => {
+    setPinnedIds(previous => {
+      const next = new Set(previous)
+      if (next.has(sessionId)) next.delete(sessionId)
+      else next.add(sessionId)
+      savePinnedSessions(next)
+      return next
+    })
+  }, [])
 
   /** Pull previews for the newest page's sessions (bounded, best effort).
    *  v3.1: ONE batched `mobile.previews` call serves the whole burst from the
@@ -546,10 +579,12 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
   /**
    * Long-press (touch) opens the row action menu; contextmenu covers mouse.
    * The trailing click after a long-press is swallowed so the row does not
-   * navigate AND open the menu at once.
+   * navigate AND open the menu at once. A clear horizontal left swipe opens
+   * the delete action (right swipe / vertical scroll cancels it); tapping a
+   * swiped-open row closes it instead of navigating.
    */
-  const pressHandlers = (row: SessionView) => ({
-    onTouchStart: () => {
+  const rowHandlers = (row: SessionView, matchedHit: SessionSearchHit | undefined) => ({
+    onTouchStart: (event: ReactTouchEvent) => {
       clearPressTimer()
       pressConsumedRef.current = undefined
       pressTimerRef.current = window.setTimeout(() => {
@@ -557,16 +592,43 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
         pressConsumedRef.current = row.sessionId
         setMenuSession(row)
       }, 500)
+      const touch = event.touches[0]
+      if (touch !== undefined) swipeStartRef.current = { sessionId: row.sessionId, x: touch.clientX, y: touch.clientY }
     },
-    onTouchMove: clearPressTimer,
-    onTouchEnd: clearPressTimer,
+    onTouchMove: (event: ReactTouchEvent) => {
+      clearPressTimer()
+      const swipe = swipeStartRef.current
+      if (swipe === undefined || swipe.sessionId !== row.sessionId) return
+      const touch = event.touches[0]
+      if (touch === undefined) return
+      const dx = touch.clientX - swipe.x
+      const dy = touch.clientY - swipe.y
+      // A decisive horizontal left swipe opens the delete action; a right
+      // swipe closes it; a vertical scroll cancels the swipe tracking.
+      if (Math.abs(dx) > SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        setOpenSwipeId(dx < 0 ? row.sessionId : undefined)
+        swipeStartRef.current = undefined
+      } else if (Math.abs(dy) > SWIPE_TRIGGER_PX) {
+        swipeStartRef.current = undefined
+      }
+    },
+    onTouchEnd: () => {
+      clearPressTimer()
+      swipeStartRef.current = undefined
+    },
     onClick: (event: ReactMouseEvent) => {
       if (pressConsumedRef.current === row.sessionId) {
         pressConsumedRef.current = undefined
         event.preventDefault()
         return
       }
-      onPick(row)
+      if (openSwipeId === row.sessionId) {
+        setOpenSwipeId(undefined)
+        event.preventDefault()
+        return
+      }
+      if (matchedHit !== undefined) openSearchHit(matchedHit, row.title)
+      else onPick(row)
     },
     onContextMenu: (event: ReactMouseEvent) => {
       event.preventDefault()
@@ -605,7 +667,7 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
   const [presetPickerOpen, setPresetPickerOpen] = useState(false)
   const presetDescription = selectedPresetEntry?.description
 
-  // Date-grouped roster: 今天 → 昨天 → 更早, newest first inside each bucket.
+  // Date-grouped roster: 置顶 → 今天 → 昨天 → 更早, newest first inside each bucket.
   const groups = useMemo(() => {
     const term = search.trim().toLowerCase()
     // The optimistic blank row (just created) participates: without it the
@@ -616,11 +678,15 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
       if (term === '') return true
       return row.title.toLowerCase().includes(term) || hitIds.has(row.sessionId)
     })
-    return DAY_BUCKETS
-      .map(bucket => ({ bucket, rows: visible.filter(row => dayBucketFor(row.updatedAt) === bucket) }))
+    const pinned = visible.filter(row => pinnedIds.has(row.sessionId))
+    const rest = visible.filter(row => !pinnedIds.has(row.sessionId))
+    const pinnedGroup = pinned.length > 0 ? [{ bucket: '置顶' as const, rows: pinned }] : []
+    const dayGroups = DAY_BUCKETS
+      .map(bucket => ({ bucket, rows: rest.filter(row => dayBucketFor(row.updatedAt) === bucket) }))
       .filter(group => group.rows.length > 0)
+    return [...pinnedGroup, ...dayGroups]
     // previewTick: cached previews arrive async — recompute the filter when they land.
-  }, [rows, search, searchHits, previewTick])
+  }, [rows, search, searchHits, previewTick, pinnedIds])
 
   /** Host full-roster search: debounced, best-effort, narrowed to THIS
    *  workspace's owned sessions (the list page searches what it shows; the
@@ -813,40 +879,68 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
             ))}
           </div>
         )}
-        {groups.map(group => (
-          <li key={group.bucket} style={{ listStyle: 'none' }}>
-            <div className="mobile-groupTitle">{group.bucket}</div>
-            {group.rows.map(row => {
-              const matchedHit = searchHits.find(hit => hit.sessionId === row.sessionId && (hit.kind === 'message' || hit.kind === 'title'))
-              const preview = row.preview ?? sessionPreviewCache.get(row.sessionId)
-                ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)
-              return (
-                <button type="button" key={row.sessionId} className="mobile-row" {...(matchedHit === undefined ? pressHandlers(row) : { onClick: () => { openSearchHit(matchedHit, row.title) } })}>
-                  <span className="card-icon">
-                    {row.running ? (
-                      <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
-                    ) : (
-                      <span className="sess-check" aria-hidden><CheckIcon /></span>
-                    )}
-                  </span>
-                  <span className="card-main">
-                    <span className="sess-titleline">
-                      <span className="sess-title">{row.title}</span>
-                      {row.blank && <span className="sess-status">新</span>}
-                      {row.running && <span className="sess-status">进行中</span>}
-                      <span className="sess-sep" aria-hidden>·</span>
-                      <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
-                    </span>
-                    {preview !== undefined && <span className="card-desc">{preview}</span>}
-                  </span>
-                  <span className="card-action">
-                    <span className="mobile-chevron" aria-hidden>›</span>
-                  </span>
-                </button>
-              )
-            })}
-          </li>
-        ))}
+        {(() => {
+          // Flat row index across day-group buckets for the content-visibility
+          // tail keep (bottom rows must render real so the sentinel stays
+          // reachable; rows above skip layout/paint).
+          let flatIndex = 0
+          const totalRows = groups.reduce((total, group) => total + group.rows.length, 0)
+          return groups.map(group => {
+          return (
+            <li key={group.bucket} style={{ listStyle: 'none' }}>
+              <div className="mobile-groupTitle">{group.bucket}</div>
+              {group.rows.map(row => {
+                const matchedHit = searchHits.find(hit => hit.sessionId === row.sessionId && (hit.kind === 'message' || hit.kind === 'title'))
+                const preview = row.preview ?? sessionPreviewCache.get(row.sessionId)
+                  ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)
+                // content-visibility: skip layout/paint for rows far above the
+                // viewport; keep the tail real so the sentinel stays reachable.
+                const cvTail = flatIndex >= totalRows - SESSION_CV_KEEP_BOTTOM
+                const cvStyle = cvTail || totalRows < 20
+                  ? undefined
+                  : { contentVisibility: 'auto' as const, containIntrinsicSize: 'auto 72px' }
+                flatIndex += 1
+                const swiped = openSwipeId === row.sessionId
+                return (
+                  <div key={row.sessionId} className="mobile-row-swipe" style={cvStyle}>
+                    <button
+                      type="button"
+                      className="mobile-row-swipe-action"
+                      aria-label="删除会话"
+                      onClick={() => { setOpenSwipeId(undefined); setDeleting(row) }}
+                    >
+                      删除
+                    </button>
+                    <div className={'mobile-row-swipe-inner' + (swiped ? ' swiped' : '')}>
+                      <button type="button" className="mobile-row" {...rowHandlers(row, matchedHit)}>
+                        <span className="card-icon">
+                          {row.running ? (
+                            <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
+                          ) : (
+                            <span className="sess-check" aria-hidden><CheckIcon /></span>
+                          )}
+                        </span>
+                        <span className="card-main">
+                          <span className="sess-titleline">
+                            <span className="sess-title">{row.title}</span>
+                            {row.blank && <span className="sess-status">新</span>}
+                            {row.running && <span className="sess-status">进行中</span>}
+                            <span className="sess-sep" aria-hidden>·</span>
+                            <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
+                          </span>
+                          {preview !== undefined && <span className="card-desc">{preview}</span>}
+                        </span>
+                        <span className="card-action">
+                          <span className="mobile-chevron" aria-hidden>›</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </li>
+          )
+        })})()}
         {!loading && searchBusy && (
           <li style={{ listStyle: 'none' }}>
             <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
@@ -969,6 +1063,16 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
         <Sheet title={menuSession.title} onClose={() => { setMenuSession(undefined) }}>
           <div role="menu" aria-label="会话操作">
             <div className="sheet-option-divider" aria-hidden />
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { togglePin(menuSession.sessionId); setMenuSession(undefined) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">{pinnedIds.has(menuSession.sessionId) ? '取消置顶' : '置顶'}</span>
+              </span>
+            </button>
             <button
               type="button"
               role="menuitem"

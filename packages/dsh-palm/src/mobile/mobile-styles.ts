@@ -700,6 +700,47 @@ body,
   border-color: var(--border-default);
 }
 
+/* ── swipe-to-delete wrapper ────────────────────────────────────────────
+   The row lives inside a swipe wrapper: a left swipe translates the inner
+   (row) left to reveal the delete action behind it. The wrapper owns the
+   card's margin/radius; the row inside drops its own so the reveal edge
+   stays flush. The translate lives on the inner (not the row) so the row's
+   :active press-scale never fights the swipe offset. */
+.mobile-row-swipe {
+  position: relative;
+  margin: 0 16px 8px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.mobile-row-swipe .mobile-row {
+  margin: 0;
+  width: 100%;
+  border-radius: 0;
+}
+.mobile-row-swipe-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+}
+.mobile-row-swipe-inner {
+  transition: transform 0.2s ease;
+}
+.mobile-row-swipe-inner.swiped {
+  transform: translateX(-80px);
+}
+
 /* Icon zone: a fixed 48px column; the icon itself is 40px. */
 .card-icon,
 .ws-icon {
@@ -2152,10 +2193,13 @@ button.settings-row:focus-visible {
   animation: msg-in 0.18s ease both;
 }
 
-/* 消息正文允许选择文字（局部复制）：body 全局 user-select:none 只豁免
-   输入框，这里放开正文/代码块，长按走系统选择，自定义菜单让位。 */
+/* 消息正文长按走自定义菜单（编辑/复制/引用），不选中文字；代码块/diff 仍允许
+   选择复制（body 全局 user-select:none 只豁免这里）。 */
 .chat-msg-text,
-.chat-msg-plain,
+.chat-msg-plain {
+  min-width: 0;
+  max-width: 100%;
+}
 .code-block pre,
 .diff-block .diff-row-text {
   min-width: 0;
@@ -2213,6 +2257,18 @@ button.settings-row:focus-visible {
   color: var(--danger);
   font-size: var(--text-xs);
   font-weight: 400;
+}
+
+.chat-msg-maxtokens {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning, #e69641);
+  border-radius: var(--radius-card, 8px);
+  background: color-mix(in srgb, var(--warning, #e69641) 10%, transparent);
+  color: var(--warning, #e69641);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .chat-msg-time {
@@ -2862,6 +2918,36 @@ button.settings-row:focus-visible {
 
 .diff-decided {
   opacity: 0.55;
+}
+
+.diff-fold {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+}
+
+.diff-fold-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.diff-fold-btn {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
 .diff-review-foot {
@@ -3609,6 +3695,24 @@ button.settings-row:focus-visible {
   padding: 8px 0;
   color: var(--text-tertiary);
   font-size: var(--text-md);
+}
+
+/* Run-status sheet fold row: truncates long subagent lists past the visible max. */
+.chat-run-fold {
+  display: block;
+  width: 100%;
+  border: none;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.chat-run-fold:active {
+  background: var(--fill);
 }
 
 /* ── approval / question panels ──────────────────────────────────────── */
@@ -5042,6 +5146,123 @@ button.settings-row:focus-visible {
   color: var(--text-tertiary);
 }
 
+/* Paired-device management rows (settings → 设备管理). */
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 60px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-row:last-child {
+  border-bottom: none;
+}
+
+.device-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.device-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: var(--radius-chip);
+}
+
+.device-badge-primary {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.device-badge-current {
+  color: var(--text-secondary);
+  background: var(--fill);
+}
+
+.device-desc {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-status {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.device-status-on {
+  color: var(--success, #2e9e5b);
+}
+
+.device-ua {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-actions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+
+.device-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.device-btn:active {
+  transform: scale(0.94);
+  background: var(--fill);
+}
+
+.device-btn:disabled {
+  opacity: 0.35;
+  transform: none;
+}
+
+.device-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.device-btn-danger {
+  color: var(--danger);
+}
+
 .sheet-toggle-row {
   display: flex;
   align-items: center;
@@ -5666,6 +5887,31 @@ button.settings-row:focus-visible {
   flex: 1;
 }
 
+/* Regenerate affordance on the last settled assistant reply (footer, right). */
+.chat-msg-regenerate {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.chat-msg-regenerate:active {
+  background: var(--fill);
+}
+
+.chat-msg-regenerate-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
 /* Pending-message queue dock (desktop QueueDock equivalent): the messages
    queued while the current turn runs, above the composer. */
 .queue-dock {
@@ -6177,6 +6423,41 @@ details.think-block[open] .chat-disclosure-caret {
 .runov-jobs {
   border-top: 1px solid var(--border-subtle);
   padding: 4px 0;
+}
+
+/* Fold header for a session's settled (completed/failed/killed) jobs: a quiet
+   one-line summary so many finished tasks do not bury what is running now. */
+.runov-jobs-fold {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.runov-jobs-fold:active {
+  background: var(--fill);
+}
+
+.runov-jobs-fold-label {
+  font-weight: 500;
+}
+
+.runov-jobs-fold-chev {
+  color: var(--text-quaternary);
+  font-size: var(--text-xs);
+}
+
+/* Settled job rows are de-emphasized so the eye lands on live work first. */
+.runov-jobs-settled .chat-task-row {
+  opacity: 0.72;
 }
 
 .runov-recent-head {

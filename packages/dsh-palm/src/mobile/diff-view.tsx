@@ -20,6 +20,13 @@ import { copyText } from './code-actions.ts'
 import { escapeHtml } from './markdown.ts'
 import { toast } from './toast.tsx'
 
+/** Rendered-row cap for a diff card: beyond this the middle hunks fold. */
+const DIFF_MAX_LINES = 200
+/** Hunks shown at the head of a capped diff. */
+const DIFF_HEAD_HUNKS = 2
+/** Hunks shown at the tail of a capped diff. */
+const DIFF_TAIL_HUNKS = 2
+
 /** One diff card. */
 export const DiffView = memo(function DiffView({ text }: { text: string }) {
   const diff = useMemo(() => parseDiff(text), [text])
@@ -27,8 +34,23 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
   /** Review decisions, keyed `${hunkIndex}:${lineIndex}`. */
   const [accepted, setAccepted] = useState<ReadonlySet<string>>(new Set())
   const [rejected, setRejected] = useState<ReadonlySet<string>>(new Set())
+  /** Whether a capped diff is expanded to its full length. */
+  const [expanded, setExpanded] = useState(false)
 
   const filename = diff.newFile ?? diff.oldFile
+
+  // A huge diff (a whole-file rewrite, a generated-file dump) renders every
+  // row at once and janks the phone. Cap the rendered rows: show the first
+  // and last hunks (the head carries the file header + first changes, the
+  // tail the final edits) and fold the middle behind an expander. The cap
+  // counts ROWS, not hunks, so a single 500-line hunk still folds.
+  const totalLines = useMemo(() => diff.hunks.reduce((n, hunk) => n + hunk.lines.length, 0), [diff])
+  const capped = totalLines > DIFF_MAX_LINES && !expanded
+  const visibleHunks = capped
+    ? [...diff.hunks.slice(0, DIFF_HEAD_HUNKS), ...diff.hunks.slice(-DIFF_TAIL_HUNKS)]
+    : diff.hunks
+  const hiddenHunks = capped ? diff.hunks.length - DIFF_HEAD_HUNKS - DIFF_TAIL_HUNKS : 0
+  const hiddenLines = capped ? totalLines - visibleHunks.reduce((n, hunk) => n + hunk.lines.length, 0) : 0
 
   // Review tallies over every add/del line.
   const tallies = useMemo(() => {
@@ -108,7 +130,7 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
   // decision so the applied/rejected result stays visible in context).
   const body = (
     <div className={'diff-body' + (mode === 'review' ? ' diff-reviewing' : '')}>
-      {diff.hunks.map((hunk, hunkIndex) => (
+      {visibleHunks.map((hunk, hunkIndex) => (
         <div className="diff-hunk" key={hunkIndex}>
           {diff.hunks.length > 1 && (
             <div className="diff-hunk-head">
@@ -130,6 +152,16 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
           })}
         </div>
       ))}
+      {capped && (
+        <div className="diff-fold">
+          <span className="diff-fold-text">
+            … 已折叠 {hiddenHunks} 个 hunk / {hiddenLines} 行
+          </span>
+          <button type="button" className="diff-fold-btn" onClick={() => { setExpanded(true) }}>
+            展开全部
+          </button>
+        </div>
+      )}
       {mode === 'review' && (
         <div className="diff-review-foot">
           <span className="diff-review-summary">

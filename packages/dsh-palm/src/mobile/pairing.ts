@@ -66,7 +66,7 @@ export async function acceptMobilePair(secret: string, fetcher: PairFetch = fetc
     })
     if (response.ok) return { ok: true }
     if (response.status === 404) return { ok: false, message: '配对链接无效或已过期。' }
-    if (response.status === 409) return { ok: false, message: '配对链接已被使用。' }
+    if (response.status === 409) return { ok: false, message: '设备数已满：请先在桌面端「设备管理」移除一个设备后重试。' }
     return { ok: false, message: '此设备无法使用该配对链接。' }
   } catch {
     return { ok: false, message: '无法连接到配对服务。' }

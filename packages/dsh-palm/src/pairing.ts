@@ -66,6 +66,10 @@ export interface DeviceSession {
   lastSeenAt: number
   /** Sanitized User-Agent captured at accept (optional; missing on old files). */
   userAgent?: string
+  /** User-assigned display name (e.g. "我的手机"); optional. */
+  name?: string
+  /** The primary device is never auto-evicted by the device cap. */
+  primary?: boolean
 }
 
 /** One device row in a loopback snapshot (ids are session credentials). */
@@ -80,6 +84,10 @@ export interface DeviceSnapshot {
   online: boolean
   /** Sanitized User-Agent captured at accept, when known. */
   userAgent?: string
+  /** User-assigned display name, when set. */
+  name?: string
+  /** Whether this device is the protected primary. */
+  primary?: boolean
 }
 
 /** One snapshot frame pushed to desktop status streams. */
@@ -130,7 +138,10 @@ export interface PairingConfig {
 /** Result of one accept() attempt. */
 export type AcceptResult =
   | { ok: true; deviceId: string }
-  | { ok: false; code: 'invalid' | 'used' }
+  | { ok: false; code: 'invalid' | 'used' | 'device-cap-full' }
+
+/** Cap on a user-assigned device display name. */
+export const MAX_DEVICE_NAME_CHARS = 40
 
 /** Thrown by issue() for an address outside the sampled LAN literals. */
 export class UnknownLanAddressError extends Error {
@@ -210,17 +221,22 @@ export class PairingService {
       for (const [deviceId, session] of Object.entries(saved)) {
         if (typeof deviceId !== 'string') continue
         if (typeof session !== 'object' || session === null) continue
-        const { createdAt, lastSeenAt, userAgent } = session as {
+        const { createdAt, lastSeenAt, userAgent, name, primary } = session as {
           createdAt?: unknown
           lastSeenAt?: unknown
           userAgent?: unknown
+          name?: unknown
+          primary?: unknown
         }
         if (typeof createdAt !== 'number' || typeof lastSeenAt !== 'number') continue
         const label = typeof userAgent === 'string' ? sanitizeUserAgent(userAgent) : undefined
+        const deviceName = typeof name === 'string' ? name.trim().slice(0, MAX_DEVICE_NAME_CHARS) : undefined
         this.devices.set(deviceId, {
           createdAt,
           lastSeenAt,
           ...(label !== undefined ? { userAgent: label } : {}),
+          ...(deviceName !== undefined && deviceName !== '' ? { name: deviceName } : {}),
+          ...(primary === true ? { primary: true } : {}),
         })
       }
       this.clampToMaxDevices()
@@ -234,7 +250,10 @@ export class PairingService {
   private clampToMaxDevices(): void {
     if (this.devices.size <= this.config.maxDevices) return
     const overflow = this.devices.size - this.config.maxDevices
-    const ordered = [...this.devices.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)
+    // Never drop the primary; evict the oldest-created non-primary sessions.
+    const ordered = [...this.devices.entries()]
+      .filter(([, session]) => session.primary !== true)
+      .sort((a, b) => a[1].createdAt - b[1].createdAt)
     for (const [id] of ordered.slice(0, overflow)) this.devices.delete(id)
   }
 
@@ -244,6 +263,7 @@ export class PairingService {
     const limit = this.config.idleExpireMs ?? DEFAULT_IDLE_EXPIRE_MS
     let removed = false
     for (const [id, session] of [...this.devices]) {
+      if (session.primary === true) continue
       if (now - session.lastSeenAt > limit) {
         this.devices.delete(id)
         removed = true
@@ -368,18 +388,34 @@ export class PairingService {
     record.consumed = true
     const deviceId = this.clock.randomToken()
     const now = this.clock.now()
+    const isFirstDevice = this.devices.size === 0
     if (this.devices.size >= this.config.maxDevices) {
-      // Evict the oldest session (FIFO) before binding a new device.
-      let oldest: { id: string; createdAt: number } | undefined
+      // Smart eviction: never drop an online device or the primary. Prefer
+      // the idle device with the oldest lastSeenAt (least recently active).
+      // If every slot is held by an online device (or the primary), refuse
+      // the new pairing with a clear code instead of silently cutting off a
+      // live device — the UI guides the user to revoke one first.
+      const onlineWindow = this.config.offlineAfterMs
+      let evict: { id: string; lastSeenAt: number } | undefined
       for (const [id, session] of this.devices) {
-        if (oldest === undefined || session.createdAt < oldest.createdAt) oldest = { id, createdAt: session.createdAt }
+        if (session.primary === true) continue
+        if (now - session.lastSeenAt <= onlineWindow) continue // online: keep
+        if (evict === undefined || session.lastSeenAt < evict.lastSeenAt) {
+          evict = { id, lastSeenAt: session.lastSeenAt }
+        }
       }
-      if (oldest !== undefined) this.devices.delete(oldest.id)
+      if (evict === undefined) {
+        record.consumed = false // roll back: the token stays usable
+        return { ok: false, code: 'device-cap-full' }
+      }
+      this.devices.delete(evict.id)
     }
     const label = sanitizeUserAgent(userAgent)
     this.devices.set(deviceId, {
       createdAt: now,
       lastSeenAt: now,
+      // The first paired device becomes the protected primary automatically.
+      ...(isFirstDevice ? { primary: true } : {}),
       ...(label !== undefined ? { userAgent: label } : {}),
     })
     this.persist()
@@ -410,6 +446,44 @@ export class PairingService {
   revoke(deviceId: string): boolean {
     if (this.stopped) return false
     if (!this.devices.delete(deviceId)) return false
+    this.persist()
+    this.notify()
+    return true
+  }
+
+  /**
+   * Promote one device to primary, demoting the previous primary. The primary
+   * is never auto-evicted by the device cap. Unknown ids are a no-op.
+   * @param deviceId - the cookie value of the device to promote.
+   * @returns true when a live session was promoted.
+   */
+  setPrimary(deviceId: string): boolean {
+    if (this.stopped) return false
+    const session = this.devices.get(deviceId)
+    if (session === undefined) return false
+    for (const [id, other] of this.devices) {
+      if (id !== deviceId && other.primary === true) other.primary = false
+    }
+    session.primary = true
+    this.persist()
+    this.notify()
+    return true
+  }
+
+  /**
+   * Assign a user-facing display name to a device (empty clears it). Unknown
+   * ids are a no-op.
+   * @param deviceId - the cookie value of the device to rename.
+   * @param name - the new display name (trimmed, capped).
+   * @returns true when a live session was renamed.
+   */
+  renameDevice(deviceId: string, name: string): boolean {
+    if (this.stopped) return false
+    const session = this.devices.get(deviceId)
+    if (session === undefined) return false
+    const trimmed = name.trim().slice(0, MAX_DEVICE_NAME_CHARS)
+    if (trimmed === '') delete session.name
+    else session.name = trimmed
     this.persist()
     this.notify()
     return true
@@ -518,6 +592,8 @@ export class PairingService {
       lastSeenAt: session.lastSeenAt,
       online: this.isOnlineAt(session, now),
       ...(session.userAgent !== undefined ? { userAgent: session.userAgent } : {}),
+      ...(session.name !== undefined ? { name: session.name } : {}),
+      ...(session.primary === true ? { primary: true } : {}),
     }
   }
 
@@ -572,6 +648,8 @@ function devicesEqual(a: readonly DeviceSnapshot[], b: readonly DeviceSnapshot[]
       && device.lastSeenAt === other.lastSeenAt
       && device.online === other.online
       && device.userAgent === other.userAgent
+      && device.name === other.name
+      && device.primary === other.primary
   })
 }
 

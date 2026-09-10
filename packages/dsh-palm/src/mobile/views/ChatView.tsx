@@ -13,10 +13,11 @@
  *   permission pickers, both as bottom sheets.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
-import { loadChatPage, prompt, type SessionView } from './App.tsx'
+import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
 import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
+import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, type CommandDescriptor } from '../api.ts'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
@@ -61,8 +62,7 @@ import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
 import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
 import { TaskStatusBar } from '../task-status.tsx'
 import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
-import { SubagentTreeSheet } from '../subagent-tree-sheet.tsx'
-import { countRunningSubagents, fetchSubagentTree, type SubagentNode } from '../subagent-tree.ts'
+import { fetchSubagentsFlat, type SubagentFlatNode } from '../subagent-tree.ts'
 
 /** Props for the chat view. */
 export interface ChatViewProps {
@@ -169,6 +169,15 @@ export const LOAD_OLDER_TIMEOUT_MS = 15_000
 
 /** Message count above which the chat renders windowed instead of in full. */
 export const WINDOW_THRESHOLD = 120
+/**
+ * Rows at the tail that always render with real layout (no content-visibility)
+ * in the non-windowed path. The auto-follow reads `el.scrollHeight` to pin the
+ * bottom; content-visibility substitutes `contain-intrinsic-size` estimates for
+ * off-screen rows, which would make that height approximate and land the
+ * follower off the true bottom. Keeping the last ~1.5 viewports real keeps the
+ * follow exact while the rows above (history) skip layout/paint.
+ */
+export const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
 /** Older pages paged for a focus-locate before giving up (bounded IO). */
 // Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
 // paging bounded, but large enough to reach any result that search can return.
@@ -335,6 +344,38 @@ export function ChatView({
   const liveBufferRef = useRef<WireEvent[]>([])
   /** Incremental folder for this session's stream (indexes stay hot across events). */
   const folderRef = useRef<EventFolder | undefined>(undefined)
+  /**
+   * rAF micro-batch for live message events. SSE `onmessage` is a separate
+   * macrotask per frame, so folding each event straight into `setMessages`
+   * triggers one React reconcile per chunk — a fast model + many tool calls
+   * can push 30+ reconciles/sec. Events are buffered here and folded together
+   * on the next animation frame (one reconcile per frame, ~60/s). The fold is
+   * incremental and seq-idempotent, so batching is safe; the auto-follow only
+   * lags by one frame (~16ms), which is imperceptible. Non-message frames
+   * (jobs/queue/approvals) and the turn/start·end·todo side-effects stay
+   * immediate.
+   */
+  const eventBatchRef = useRef<WireEvent[]>([])
+  const eventFlushRafRef = useRef<number | undefined>(undefined)
+  /** Schedule one rAF flush of the buffered message events (idempotent). */
+  const scheduleEventFlush = useCallback((): void => {
+    if (eventFlushRafRef.current !== undefined) return
+    eventFlushRafRef.current = requestAnimationFrame(() => {
+      eventFlushRafRef.current = undefined
+      const batch = eventBatchRef.current
+      eventBatchRef.current = []
+      if (batch.length === 0) return
+      const folder = folderRef.current
+      // Opt-in perf mark: decode/fold/coalesce done, state update about to
+      // schedule (span recv→state measures the whole client pipeline). The
+      // batch is stamped with its newest event's seq.
+      const last = batch[batch.length - 1]
+      perfMark('state', { seq: last?.seq, frame: 'session/event', detail: `batch:${batch.length}` })
+      setMessages(previous => coalesceTurnMessages(
+        folder === undefined ? foldEvents(batch, previous) : folder.fold(batch),
+      ))
+    })
+  }, [])
   /** True once the live buffer hit its cap (oldest events were dropped). */
   const liveBufferOverflowRef = useRef(false)
   /** Seq window of the events dropped from the tail-load buffer (refill). */
@@ -398,6 +439,9 @@ export function ChatView({
   }, [session.sessionId])
   /** Hidden file chooser backing the + menu's 图片 entry. */
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  /** Hidden camera capture input backing the + menu's 拍照 entry (mobile
+   *  `capture` attribute opens the device camera directly). */
+  const cameraInputRef = useRef<HTMLInputElement | null>(null)
   /** Host slash-command directory (fetched lazily when the + menu opens). */
   const [commands, setCommands] = useState<CommandDescriptor[] | undefined>(undefined)
   /** Quoted message (context bar above the composer; sent as a blockquote preamble). */
@@ -483,12 +527,10 @@ export function ChatView({
         : item),
     })
   }, [])
-  /** Foreground-subagent tree for this session (the live delegation chain).
+  /** Foreground subagents for this session (the flat live delegation list).
    * Built from `subagents.list` and overlaid with host/session-status flips. */
-  const [subagents, setSubagents] = useState<SubagentNode[]>([])
-  /** Whether the subagent-tree sheet is open (tapped from the count badge). */
-  const [subagentSheetOpen, setSubagentSheetOpen] = useState(false)
-  /** Whether the run-status bottom sheet (todo plan + background jobs) is up. */
+  const [subagents, setSubagents] = useState<SubagentFlatNode[]>([])
+  /** Whether the run-status bottom sheet (subagents + todo plan + background jobs) is up. */
   const [runStatusOpen, setRunStatusOpen] = useState(false)
   /** Whether a stop request is in flight (guards the composer's stop button). */
   const [stopping, setStopping] = useState(false)
@@ -507,7 +549,17 @@ export function ChatView({
   /** Long-press message menu: viewport position + the bubble's plain text,
    *  plus the message's RAW markdown when it differs (tool-interleaved flow
    *  turns carry their payload in flow runs, invisible in `text`). */
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string; raw?: string } | undefined>(undefined)
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number
+    y: number
+    text: string
+    raw?: string
+    /** Message kind drives the message-specific actions (edit for user). */
+    kind?: RenderMessage['kind']
+    messageId?: string
+  } | undefined>(undefined)
+  /** The user message being edited-and-resent (回填后重发为新 prompt). */
+  const [editMessage, setEditMessage] = useState<{ messageId: string; text: string } | undefined>(undefined)
   /** Auto-scroll preference (设置 → 自动滚动); read once per mount. */
   const [autoScroll] = useState(() => getAutoScroll())
 
@@ -695,6 +747,14 @@ export function ChatView({
     dropWindowRef.current = undefined
     autoExtendedRef.current = false
     folderRef.current = undefined
+    // A session switch must not let a pending rAF flush fold the PREVIOUS
+    // session's buffered events into the new session's folder: drop the batch
+    // and cancel the scheduled flush.
+    eventBatchRef.current = []
+    if (eventFlushRafRef.current !== undefined) {
+      cancelAnimationFrame(eventFlushRafRef.current)
+      eventFlushRafRef.current = undefined
+    }
     setTitle(session.title)
     // A session switch starts a fresh read position: the next fold key change
     // (the new tail page) must follow to the bottom unconditionally.
@@ -718,9 +778,29 @@ export function ChatView({
     // window) — null falls back to mount time, like the desktop TurnStatus.
     setRunning(session.running === true)
     setTurnStartAt(null)
+    // Cache-first: seed the view from the cached tail page immediately so a
+    // reopen paints instantly (stale-while-revalidate); the network load
+    // below overwrites with fresh data and refreshes the cache. `networkLanded`
+    // guards the race — once the network load resolves, a late cache seed
+    // must not clobber the fresh page.
+    let networkLanded = false
+    // True when the cache-first seed painted a cached tail page. On a cache
+    // hit we skip the auto-extend (one less network page + re-render), so a
+    // reopen stays instant; the manual loadOlder button still pages further.
+    let cacheHit = false
+    void loadCachedHistory<ChatPageResult>(session.sessionId).then(cached => {
+      if (cancelled || networkLanded || cached === undefined) return
+      cacheHit = true
+      const folder = new EventFolder(cached.rows, cached.maxSeq)
+      folderRef.current = folder
+      applyMessages(folder.fold([]))
+      setHasOlder(cached.hasMore)
+      setLoading(false)
+    })
     void loadChatPage(session.sessionId, undefined, controller.signal).then(
       (page) => {
         if (cancelled) return
+        networkLanded = true
         // Buffered live events re-fold on top of the snapshot; the watermark
         // (page.maxSeq — the host window's event floor) drops any the
         // snapshot already includes, so nothing is lost or doubled.
@@ -737,8 +817,9 @@ export function ChatView({
         if (page.todo !== undefined) adoptTodo(page.todo)
         // Auto-extend the opening context: pull one more page silently so the
         // first screen shows ~50 messages without a manual tap. Best-effort —
-        // a failure keeps the loaded tail and the manual button.
-        if (page.hasMore && !autoExtendedRef.current) {
+        // a failure keeps the loaded tail and the manual button. Skipped on a
+        // cache hit (the cached tail already painted; one less page + re-render).
+        if (page.hasMore && !autoExtendedRef.current && !cacheHit) {
           autoExtendedRef.current = true
           loadOlderRef.current(true)
         }
@@ -854,7 +935,7 @@ export function ChatView({
             // session/queue). Clear the local queue view so a claimed message
             // never lingers as a phantom row that can no longer be edited or
             // removed.
-            setQueueItems([])
+            startTransition(() => { setQueueItems([]) })
           }
           if (event.type === 'turn/end') {
             setRunning(false)
@@ -865,7 +946,7 @@ export function ChatView({
           // todo/write is a full-list snapshot (last-write-wins): adopt it
           // into the plan strip. It keeps flowing into the fold below, which
           // ignores unknown types, so the message stream is unaffected.
-          if (event.type === 'todo/write') adoptTodoLatest(event)
+          if (event.type === 'todo/write') startTransition(() => { adoptTodoLatest(event) })
         }
         if (tailLoadingRef.current) {
           if (liveBufferRef.current.length >= MAX_TAIL_BUFFER_EVENTS) {
@@ -890,13 +971,13 @@ export function ChatView({
           liveBufferRef.current.push(event)
           return
         }
-        const folder = folderRef.current
-        // Opt-in perf mark: decode/fold/coalesce done, state update about to
-        // schedule (span recv→state measures the whole client pipeline).
-        perfMark('state', { seq: event.seq, frame: 'session/event', detail: event.type })
-        setMessages(previous => coalesceTurnMessages(
-          folder === undefined ? foldEvents([event], previous) : folder.fold([event]),
-        ))
+        // rAF micro-batch: buffer the event and fold all buffered events on
+        // the next animation frame (one reconcile per frame instead of one
+        // per SSE chunk). The immediate side-effects above (turn/start·end,
+        // todo/write) already ran synchronously, so the running indicator and
+        // plan strip stay responsive; only the message fold is deferred.
+        eventBatchRef.current.push(event)
+        scheduleEventFlush()
         return
       }
       // Live projection pushes keep the permission picker and the context
@@ -909,7 +990,7 @@ export function ChatView({
       // Background-task snapshot for this session (subagent delegations etc.).
       // The host sends a full set after every registry commit; adopt it whole.
       if (frame.type === 'session/jobs' && frame.sessionId === session.sessionId) {
-        setJobs(frame.jobs)
+        startTransition(() => { setJobs(frame.jobs) })
         return
       }
       // New mux-generation baseline: the host re-subscribes every session on
@@ -920,37 +1001,42 @@ export function ChatView({
       // mirror on session/subscribed). Drop both views; the frames that follow
       // this one — if any — repopulate them.
       if (frame.type === 'session/subscribed' && frame.sessionId === session.sessionId) {
-        setQueueItems([])
-        setJobs([])
+        startTransition(() => { setQueueItems([]); setJobs([]) })
         return
       }
       // Pending-message queue snapshot for this session (desktop QueueDock
       // equivalent): adopt the whole set on every change.
       if (frame.type === 'session/queue' && frame.sessionId === session.sessionId) {
-        setQueueItems((frame.items ?? []).map(item => queueItemViewOf({
-          id: String(item.id),
-          placement: item.placement,
-          message: item.message as never,
-        })))
+        startTransition(() => {
+          setQueueItems((frame.items ?? []).map(item => queueItemViewOf({
+            id: String(item.id),
+            placement: item.placement,
+            message: item.message as never,
+          })))
+        })
         return
       }
       // Approval/question frames for this session (#1025).
       if (!('sessionId' in frame) || frame.sessionId !== session.sessionId) return
       if (frame.type === 'approval/requested') {
-        setPendingApprovals(previous => {
-          if (previous.some(a => a.approvalId === frame.approvalId)) return previous
-          return [...previous, {
-            rpcId: frameRpcId ?? '',
-            approvalId: frame.approvalId as string,
-            toolName: frame.toolName,
-            callId: frame.callId as string | undefined,
-            reason: frame.reason,
-          }]
+        startTransition(() => {
+          setPendingApprovals(previous => {
+            if (previous.some(a => a.approvalId === frame.approvalId)) return previous
+            return [...previous, {
+              rpcId: frameRpcId ?? '',
+              approvalId: frame.approvalId as string,
+              toolName: frame.toolName,
+              callId: frame.callId as string | undefined,
+              reason: frame.reason,
+            }]
+          })
         })
         return
       }
       if (frame.type === 'approval/resolved') {
-        setPendingApprovals(previous => previous.filter(a => a.approvalId !== frame.approvalId))
+        startTransition(() => {
+          setPendingApprovals(previous => previous.filter(a => a.approvalId !== frame.approvalId))
+        })
         return
       }
       if (frame.type === 'question/requested') {
@@ -958,11 +1044,11 @@ export function ChatView({
           id: string; question: string; detail?: string; header?: string
           options?: Array<{ label: string; description?: string }>; multiSelect?: boolean
         }>).map(item => ({ rpcId: frameRpcId ?? '', ...item }))
-        setPendingQuestions(items)
+        startTransition(() => { setPendingQuestions(items) })
         return
       }
       if (frame.type === 'question/resolved') {
-        setPendingQuestions([])
+        startTransition(() => { setPendingQuestions([]) })
         return
       }
     })
@@ -986,8 +1072,10 @@ export function ChatView({
           // clobber a panel the live SSE stream already showed. A dropped
           // question/requested frame (tunnel blip) would otherwise make the
           // panel vanish seconds after it appears. Only adopt non-empty results.
-          setPendingApprovals(prev => state.approvals.length > 0 ? state.approvals : prev)
-          setPendingQuestions(prev => state.questions.length > 0 ? state.questions : prev)
+          startTransition(() => {
+            setPendingApprovals(prev => state.approvals.length > 0 ? state.approvals : prev)
+            setPendingQuestions(prev => state.questions.length > 0 ? state.questions : prev)
+          })
         },
         () => { /* transient; next tick retries */ },
       )
@@ -1082,12 +1170,13 @@ export function ChatView({
     return () => { cancelled = true; clearInterval(id) }
   }, [running, session.sessionId, normalizeTurnEndTodo])
 
-  // Foreground-subagent tree: fetch on mount/session-switch, and refetch on
-  // turn/start and on a descendant session-added (see onFrame). The live
-  // host/session-status overlay keeps running flips instant between fetches.
+  // Foreground subagents: fetch on mount/session-switch, and refetch on
+  // turn/start (see onFrame). One flat subagents.list call — no recursive
+  // tree walk. The live host/session-status overlay keeps running flips
+  // instant between fetches.
   const refreshSubagents = useCallback(() => {
-    void fetchSubagentTree(session.sessionId).then(
-      (nodes) => { setSubagents(nodes) },
+    void fetchSubagentsFlat(session.sessionId).then(
+      (nodes) => { startTransition(() => { setSubagents(nodes) }) },
       () => { /* transient; the next trigger retries */ },
     )
   }, [session.sessionId])
@@ -1096,7 +1185,7 @@ export function ChatView({
   useEffect(() => {
     refreshSubagents()
   }, [refreshSubagents])
-  // While the turn is open, poll the tree so the count badge and sheet stay
+  // While the turn is open, poll the flat list so the run-status sheet stays
   // fresh (new subagents spawn mid-turn; the host stream is not forwarded).
   useEffect(() => {
     if (!running) return
@@ -1261,6 +1350,7 @@ export function ChatView({
 
   useEffect(() => () => {
     if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
+    if (eventFlushRafRef.current !== undefined) cancelAnimationFrame(eventFlushRafRef.current)
   }, [])
 
   const scrollToBottom = useCallback(() => {
@@ -1447,6 +1537,42 @@ export function ChatView({
     setQuoted(text.slice(0, 200))
   }, [])
 
+  /** Resend an edited user message as a fresh prompt. The agent session is
+   *  append-only, so the edited text goes out as a new user message (with a
+   *  small note that the user revised the earlier question, so the model
+   *  re-answers against the corrected intent instead of repeating the old). */
+  const sendEditedMessage = useCallback((messageId: string, newText: string): void => {
+    setEditMessage(undefined)
+    void prompt(session.sessionId, textParts(`用户修改了之前的提问，请忽略旧提问的回复，按修改后的内容重新回答：\n\n${newText}`)).then(
+      () => { mux?.poke() },
+      () => { toast('重新发送失败，请重试') },
+    )
+  }, [session.sessionId, mux])
+
+  /** Regenerate the last assistant reply: ask the agent to re-answer the user
+   *  question that immediately preceded it. The session is append-only, so
+   *  this goes out as a fresh prompt (the old reply stays in history); the
+   *  wording tells the model to set it aside and answer anew. */
+  const handleRegenerate = useCallback((message: RenderMessage): void => {
+    const rows = messagesRef.current
+    const index = rows.findIndex(row => row.id === message.id)
+    let question = ''
+    for (let i = index - 1; i >= 0; i--) {
+      const row = rows[i]
+      if (row !== undefined && row.kind === 'user') {
+        question = row.text
+        break
+      }
+    }
+    const body = question !== ''
+      ? `请忽略上一条回答，针对原始问题重新作答：\n\n${question}`
+      : '请忽略上一条回答，重新作答刚才的问题。'
+    void prompt(session.sessionId, textParts(body)).then(
+      () => { mux?.poke() },
+      () => { toast('重新生成失败，请重试') },
+    )
+  }, [session.sessionId, mux])
+
   /** Re-pull the tail history page: a settled command may rewrite history
    * (/compact shadows older turns), which live frames alone cannot undo.
    * Live events arriving DURING the re-pull are buffered (tailLoadingRef)
@@ -1598,7 +1724,7 @@ export function ChatView({
       : ''
     const text = message.text !== undefined && message.text !== '' ? message.text : message.reasoning ?? ''
     const raw = flowText !== '' ? flowText : undefined
-    if (text.trim() !== '' || raw !== undefined) openCtxAt(x, y, text, raw)
+    if (text.trim() !== '' || raw !== undefined) openCtxAt(x, y, text, raw, message.kind, message.id)
     return true
   }
   const longPressRef = useRef<{ timer: number; x: number; y: number } | undefined>(undefined)
@@ -1610,7 +1736,7 @@ export function ChatView({
   }, [])
   useEffect(() => () => { cancelLongPress() }, [cancelLongPress])
 
-  const openCtxAt = useCallback((x: number, y: number, text: string, raw?: string): void => {
+  const openCtxAt = useCallback((x: number, y: number, text: string, raw?: string, kind?: RenderMessage['kind'], messageId?: string): void => {
     const menuWidth = 164
     const menuHeight = 140
     setCtxMenu({
@@ -1618,6 +1744,8 @@ export function ChatView({
       y: Math.max(8, Math.min(y, window.innerHeight - menuHeight)),
       text,
       raw,
+      ...(kind !== undefined ? { kind } : {}),
+      ...(messageId !== undefined ? { messageId } : {}),
     })
   }, [])
 
@@ -2526,7 +2654,16 @@ export function ChatView({
     return () => cancelAnimationFrame(frame)
   }, [windowed, located, messages, measuredTick, correctionTick, pinToRealBottom])
 
-  const runningSubagents = countRunningSubagents(subagents)
+  // Regenerate affordance: only the LAST settled assistant reply gets a
+  // ↻ button (re-running an older reply would detach from current context).
+  // `!running` gates it to the whole turn completing — a tool-interleaved
+  // turn's intermediate segments settle (pending → false) before turn/end,
+  // so without the gate the button would flash after every segment.
+  const lastMessageId = messages[messages.length - 1]?.id
+  const regenerateFor = (message: RenderMessage): (() => void) | undefined =>
+    message.id === lastMessageId && message.kind === 'assistant' && message.pending !== true && !running
+      ? () => handleRegenerate(message)
+      : undefined
 
   return (
     <div className="chat">
@@ -2624,9 +2761,9 @@ export function ChatView({
           if (touch === undefined) return
           const target = event.target instanceof Element ? event.target : null
           if (target === null || target.closest('.chat-msg') === null) return
-          // 正文/代码块/图片可选中或可长按：交给系统（文字选择 / 图片菜单），
-          // 自定义菜单只对消息空白/卡片等不可选区域保留。
-          if (target.closest('.chat-msg-text, .chat-msg-plain, .code-block pre, img') !== null) return
+          // 代码块/图片可选中或可长按：交给系统（文字选择 / 图片菜单），
+          // 自定义菜单（编辑/复制/引用）接管消息正文长按。
+          if (target.closest('.code-block pre, img') !== null) return
           const { clientX, clientY } = touch
           const timer = window.setTimeout(() => {
             longPressRef.current = undefined
@@ -2670,23 +2807,38 @@ export function ChatView({
                   showTime={timeFlags[index] === true}
                   focused={message.id === focusMsgId}
                   focusedQuery={initialFocusQuery}
+                  onRegenerate={regenerateFor(message)}
                 />
               )
             })}
             <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
           </>
         ) : (
-          messages.map((message, index) => (
-            <MessageRow
-              key={messageKey(message)}
-              message={message}
-              showToolCalls={showToolCalls}
-              showSystemMessages={showSystemMessages}
-              showTime={timeFlags[index] === true}
-              focused={message.id === focusMsgId}
-              focusedQuery={initialFocusQuery}
-            />
-          ))
+          messages.map((message, index) => {
+            // Non-windowed path: let the browser skip layout/paint of rows far
+            // above the viewport via content-visibility, with the existing
+            // height estimate as the contain-intrinsic-size fallback. The tail
+            // (CONTENT_VISIBILITY_KEEP_BOTTOM rows) stays real so the
+            // auto-follow's scrollHeight read stays exact. `auto` remembers a
+            // row's real size once it has been laid out, so the estimate only
+            // stands in for rows never scrolled into view.
+            const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
+              ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${estimateMessageHeight(message)}px` }
+              : undefined
+            return (
+              <MessageRow
+                key={messageKey(message)}
+                message={message}
+                showToolCalls={showToolCalls}
+                showSystemMessages={showSystemMessages}
+                showTime={timeFlags[index] === true}
+                focused={message.id === focusMsgId}
+                focusedQuery={initialFocusQuery}
+                style={cv}
+                onRegenerate={regenerateFor(message)}
+              />
+            )
+          })
         )}
         {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
         {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
@@ -2695,16 +2847,6 @@ export function ChatView({
             {turnQuiet ? '后台处理中' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
             {turnElapsedMs >= TURN_CLOCK_THRESHOLD_MS && (
               <span className="chat-turn-time" aria-hidden>{formatRunDuration(turnElapsedMs)}</span>
-            )}
-            {runningSubagents > 0 && (
-              <button
-                type="button"
-                className="chat-subagent-badge"
-                aria-label={`${runningSubagents} 个子代理运行中`}
-                onClick={() => { setSubagentSheetOpen(true) }}
-              >
-                {runningSubagents} 子代理
-              </button>
             )}
           </div>
         )}
@@ -2738,6 +2880,7 @@ export function ChatView({
       <RunStatusBar
         todo={todo}
         jobs={jobs}
+        subagents={subagents}
         onOpen={() => { setRunStatusOpen(true) }}
       />
       <div className="chat-tools">
@@ -2942,6 +3085,7 @@ export function ChatView({
         <RunStatusSheet
           todo={todo}
           jobs={jobs}
+          subagents={subagents}
           onClose={() => { setRunStatusOpen(false) }}
         />
       )}
@@ -3042,6 +3186,7 @@ export function ChatView({
         <PlusSheet
           commands={commands}
           onPickImage={() => { setPlusOpen(false); fileInputRef.current?.click() }}
+          onPickCamera={() => { setPlusOpen(false); cameraInputRef.current?.click() }}
           onPickCommand={(line) => {
             setPlusOpen(false)
             void runCommand(line).catch(() => { /* runCommand already surfaced the error */ })
@@ -3054,6 +3199,18 @@ export function ChatView({
         type="file"
         accept="image/*"
         multiple
+        hidden
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])]
+          for (const file of files) addImage(file)
+          event.target.value = ''
+        }}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
         hidden
         onChange={(event) => {
           const files = [...(event.target.files ?? [])]
@@ -3078,9 +3235,6 @@ export function ChatView({
           }}
           onClose={() => { setSheet(null) }}
         />
-      )}
-      {subagentSheetOpen && (
-        <SubagentTreeSheet nodes={subagents} onClose={() => { setSubagentSheetOpen(false) }} />
       )}
       {previewPath !== null && (
         <FilePreviewSheet path={previewPath} sessionId={session.sessionId} onClose={() => { setPreviewPath(null) }} />
@@ -3186,6 +3340,20 @@ export function ChatView({
             aria-label="消息操作"
             style={{ left: ctxMenu.x, top: ctxMenu.y }}
           >
+            {ctxMenu.kind === 'user' && ctxMenu.messageId !== undefined && (
+              <button
+                type="button"
+                role="menuitem"
+                className="ctx-item"
+                onClick={() => {
+                  const { text, messageId } = ctxMenu
+                  setCtxMenu(undefined)
+                  if (messageId !== undefined) setEditMessage({ messageId, text })
+                }}
+              >
+                编辑并重新发送
+              </button>
+            )}
             {ctxMenu.raw !== undefined && (
               <button
                 type="button"
@@ -3214,6 +3382,15 @@ export function ChatView({
             </button>
           </div>
         </>
+      )}
+      {editMessage !== undefined && (
+        <PromptDialog
+          title="编辑并重新发送"
+          initial={editMessage.text}
+          confirmLabel="发送"
+          onCancel={() => { setEditMessage(undefined) }}
+          onConfirm={(value) => { sendEditedMessage(editMessage.messageId, value) }}
+        />
       )}
     </div>
   )

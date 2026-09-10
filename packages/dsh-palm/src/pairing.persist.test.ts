@@ -20,12 +20,14 @@ const BASE_CONFIG: Omit<PairingConfig, 'devicesFile'> = {
 }
 
 /** Deterministic clock: tokens are issued in a fixed, readable sequence. */
-function makeClock(): PairingClock {
+function makeClock(): PairingClock & { advance(ms: number): void } {
   let n = 0
+  let time = 1_000_000
   return {
-    now: () => 1_000_000 + n,
+    now: () => time,
     randomToken: () => `tok${(n++).toString().padStart(6, '0')}`,
     randomCode: () => `4829${String(n % 10)}${String((n + 1) % 10)}`,
+    advance: (ms: number) => { time += ms },
   }
 }
 
@@ -128,18 +130,41 @@ describe('PairingService device persistence', () => {
     expect(second.hasDevice(deviceId)).toBe(false)
   })
 
-  it('persists FIFO eviction when the device cap is reached', () => {
+  it('refuses a new device when every slot is held by an online device', () => {
     const file = join(dir, 'devices.json')
     const first = new PairingService({ ...BASE_CONFIG, maxDevices: 2, devicesFile: file }, makeClock())
     const firstDevice = pairDevice(first)
     const secondDevice = pairDevice(first)
-    const thirdDevice = pairDevice(first) // evicts firstDevice
-    expect(first.hasDevice(firstDevice)).toBe(false)
+    // Both slots are held by freshly-paired (online) devices: a third pairing
+    // must be refused with device-cap-full, never silently evict an online one.
+    first.setPublicBaseUrl('https://pairing.example.trycloudflare.com')
+    const { token } = first.issue()
+    const result = first.accept(token)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.code).toBe('device-cap-full')
+    expect(first.hasDevice(firstDevice)).toBe(true)
+    expect(first.hasDevice(secondDevice)).toBe(true)
+  })
+
+  it('evicts an idle device (not the online or primary one) when the cap is reached', () => {
+    const file = join(dir, 'devices.json')
+    const clock = makeClock()
+    const first = new PairingService({ ...BASE_CONFIG, maxDevices: 2, devicesFile: file }, clock)
+    const primaryDevice = pairDevice(first) // first device becomes primary
+    const idleDevice = pairDevice(first)
+    // Age the second device past the offline window so it becomes idle; the
+    // primary stays online (its lastSeenAt is untouched).
+    clock.advance(30_000)
+    first.touchDevice(primaryDevice) // keep the primary online
+    const thirdDevice = pairDevice(first) // evicts the idle device, not the primary
+    expect(first.hasDevice(idleDevice)).toBe(false)
+    expect(first.hasDevice(primaryDevice)).toBe(true)
+    expect(first.hasDevice(thirdDevice)).toBe(true)
 
     const second = new PairingService({ ...BASE_CONFIG, maxDevices: 2, devicesFile: file }, makeClock())
-    expect(second.hasDevice(secondDevice)).toBe(true)
+    expect(second.hasDevice(primaryDevice)).toBe(true)
     expect(second.hasDevice(thirdDevice)).toBe(true)
-    expect(second.hasDevice(firstDevice)).toBe(false)
+    expect(second.hasDevice(idleDevice)).toBe(false)
   })
 
   it('tolerates a corrupt or missing file instead of refusing to boot', () => {
@@ -149,6 +174,30 @@ describe('PairingService device persistence', () => {
 
     const ghost = join(dir, 'does-not-exist.json')
     expect(() => new PairingService({ ...BASE_CONFIG, devicesFile: ghost }, makeClock())).not.toThrow()
+  })
+
+  it('promotes one device to primary and demotes the previous primary', () => {
+    const service = new PairingService({ ...BASE_CONFIG }, makeClock())
+    const firstDevice = pairDevice(service) // becomes primary automatically
+    const secondDevice = pairDevice(service)
+    expect(service.setPrimary(secondDevice)).toBe(true)
+    const snapshot = service.snapshot()
+    const first = snapshot.devices.find(device => device.id === firstDevice)
+    const second = snapshot.devices.find(device => device.id === secondDevice)
+    expect(first?.primary).toBeUndefined()
+    expect(second?.primary).toBe(true)
+    // Unknown ids are a no-op.
+    expect(service.setPrimary('nope')).toBe(false)
+  })
+
+  it('renames a device and clears the name on an empty value', () => {
+    const service = new PairingService({ ...BASE_CONFIG }, makeClock())
+    const deviceId = pairDevice(service)
+    expect(service.renameDevice(deviceId, '  我的手机  ')).toBe(true)
+    expect(service.snapshot().devices[0]?.name).toBe('我的手机')
+    expect(service.renameDevice(deviceId, '   ')).toBe(true)
+    expect(service.snapshot().devices[0]?.name).toBeUndefined()
+    expect(service.renameDevice('nope', 'x')).toBe(false)
   })
 
   it('does not persist lastSeenAt on touch; sweep flushes it', () => {

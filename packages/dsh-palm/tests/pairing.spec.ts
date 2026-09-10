@@ -196,19 +196,40 @@ describe('PairingService', () => {
     expect(seen).toEqual([1, 0])
   })
 
-  it('evicts the oldest device at the session cap', () => {
+  it('refuses a new device when every slot is held by an online device', () => {
     const service = makeService({ maxDevices: 2 })
     const first = service.issue()
     const a = service.accept(first.token)
     const second = service.issue()
     const b = service.accept(second.token)
-    const third = service.issue()
-    const c = service.accept(third.token)
     const aId = a.ok ? a.deviceId : ''
     const bId = b.ok ? b.deviceId : ''
-    const cId = c.ok ? c.deviceId : ''
-    expect(service.hasDevice(aId)).toBe(false)
+    // Both slots are held by freshly-paired (online) devices: a third pairing
+    // must be refused with device-cap-full, never silently evict an online one.
+    const third = service.issue()
+    const c = service.accept(third.token)
+    expect(c).toEqual({ ok: false, code: 'device-cap-full' })
+    expect(service.hasDevice(aId)).toBe(true)
     expect(service.hasDevice(bId)).toBe(true)
+    expect(service.snapshot().deviceCount).toBe(2)
+  })
+
+  it('evicts an idle device (not the online or primary one) at the session cap', () => {
+    const service = makeService({ maxDevices: 2 })
+    const first = service.issue()
+    const a = service.accept(first.token) // first device becomes primary
+    const second = service.issue()
+    const b = service.accept(second.token)
+    const aId = a.ok ? a.deviceId : ''
+    const bId = b.ok ? b.deviceId : ''
+    // Age device b past the offline window so it becomes idle; keep a online.
+    now += 11_000
+    service.touchDevice(aId)
+    const third = service.issue()
+    const c = service.accept(third.token)
+    const cId = c.ok ? c.deviceId : ''
+    expect(service.hasDevice(bId)).toBe(false) // idle evicted
+    expect(service.hasDevice(aId)).toBe(true) // primary stays
     expect(service.hasDevice(cId)).toBe(true)
     expect(service.snapshot().deviceCount).toBe(2)
   })

@@ -118,6 +118,8 @@ export interface RenderMessage {
   readonly toolSummary?: string
   /** Set when the owning turn ended in an error. */
   readonly failed?: boolean
+  /** Set when the owning turn ended at the per-request output-token cap. */
+  readonly maxTokens?: boolean
   /**
    * Token usage reported by the final assistant event. cacheReadTokens and
    * cacheWriteTokens are only attached when the wire carried finite values.
@@ -1038,6 +1040,7 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
   const turn = pickNumber(data['turn'])
   const reason = isRecord(data['reason']) ? data['reason'] : {}
   const failed = reason['kind'] === 'error'
+  const maxTokens = reason['kind'] === 'max-tokens'
 
   let targets: RenderMessage[]
   if (turn !== undefined) {
@@ -1060,6 +1063,7 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
       ...message,
       ...(wasPending ? { pending: false } : {}),
       ...(failed ? { failed: true } : {}),
+      ...(maxTokens ? { maxTokens: true } : {}),
       // Preserve each step's own final-event seq. Collapsing every message
       // onto turn/end makes same-turn ordering depend on arbitrary ids.
       time: event.time,
@@ -1154,6 +1158,7 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
         // set: a failed step never un-fails the turn.
         pending: message.pending === true,
         ...(message.failed === true ? { failed: true } : {}),
+        ...(message.maxTokens === true ? { maxTokens: true } : {}),
         ...(message.usage !== undefined ? { usage: message.usage } : {}),
       }
       out[out.length - 1] = merged

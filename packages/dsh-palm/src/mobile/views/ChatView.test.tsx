@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** ChatView: collapsible message folds, toolbar chips, and the bottom sheets. */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
 import { ChatView, estimateMessageHeight, MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './ChatView.tsx'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
@@ -389,6 +389,9 @@ describe('ChatView initial-load race', () => {
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'text-delta', text: '流式' } }, 6).event })
     })
+    // Let the rAF micro-batch flush so the streaming row is mounted before we
+    // capture its DOM node for the settle-in-place assertion below.
+    await new Promise(resolve => setTimeout(resolve, 20))
     const row = container.querySelector('.chat-msg-assistant')
     expect(row).not.toBeNull()
 
@@ -791,6 +794,9 @@ describe('ChatView scrolling', () => {
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
     })
+    // Let the first rAF flush fold turn 1 before emitting turn 2, so the two
+    // turns land in separate micro-batches and count as two unread turns.
+    await new Promise(resolve => setTimeout(resolve, 20))
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7, 2).event })
     })
@@ -814,6 +820,9 @@ describe('ChatView scrolling', () => {
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
     })
+    // Let the first rAF flush fold turn 1 before emitting turn 2, so the two
+    // turns land in separate micro-batches and count as two unread turns.
+    await new Promise(resolve => setTimeout(resolve, 20))
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7, 2).event })
     })
@@ -1714,30 +1723,25 @@ describe('ChatView foreground-subagent badge + tree sheet', () => {
     kind: 'child', id: 's-sub', mode: 'one-shot', activity: 'running', hasChildren: false, label: '整理记忆',
   }) as never
 
-  it('shows a count badge for running subagents and opens the tree sheet', async () => {
+  it('shows running subagents in the run-status strip and sheet', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     subagentsListMock.mockResolvedValue({ entries: [runningChild()], parentAvailable: true })
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
-
-    // No running turn yet: no badge.
-    expect(screen.queryByRole('button', { name: /个子代理运行中/ })).toBeNull()
-
-    // Turn starts; the tree fetch reports one running subagent → badge appears.
-    act(() => { mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('turn/start', {}, 1).event }) })
+    // The flat subagent fetch (mounted on open) reports one running subagent
+    // → the run-status strip mentions it.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '1 个子代理运行中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '子代理 1 个运行中' })).toBeTruthy()
     })
-
-    // Tapping the badge opens the tree sheet with the subagent label.
-    fireEvent.click(screen.getByRole('button', { name: '1 个子代理运行中' }))
-    expect(screen.getByRole('dialog', { name: '子代理' })).toBeTruthy()
+    // Tapping the strip opens the run-status sheet with the subagent section.
+    fireEvent.click(screen.getByRole('button', { name: '子代理 1 个运行中' }))
+    expect(screen.getByRole('dialog', { name: '运行状态' })).toBeTruthy()
     expect(screen.getByText('整理记忆')).toBeTruthy()
     expect(screen.getByText('运行中')).toBeTruthy()
   })
 
-  it('hides the badge when no subagent is running', async () => {
+  it('omits the run-status strip when no subagent/job/todo is live', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     subagentsListMock.mockResolvedValue({
       entries: [{ kind: 'child', id: 's-sub', mode: 'one-shot', activity: 'inactive', hasChildren: false, label: '整理记忆' } as never],
@@ -1746,10 +1750,9 @@ describe('ChatView foreground-subagent badge + tree sheet', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
-
-    act(() => { mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('turn/start', {}, 1).event }) })
     await waitFor(() => { expect(subagentsListMock).toHaveBeenCalled() })
-    expect(screen.queryByRole('button', { name: /个子代理运行中/ })).toBeNull()
+    // An idle subagent alone does not surface the run-status strip.
+    expect(screen.queryByRole('button', { name: /子代理/ })).toBeNull()
   })
 })
 
@@ -1957,17 +1960,22 @@ describe('ChatView text selection vs custom menu', () => {
     expect(await screen.findByRole('menuitem', { name: '复制' })).toBeTruthy()
   })
 
-  it('starts no long-press menu on selectable message text, but keeps it on the bubble chrome', async () => {
+  it('starts a long-press menu on message text and bubble chrome', async () => {
     const { textEl, bubble } = await renderOneTurn()
     // Clear any pending state from previous events.
     fireEvent.touchMove(bubble, { touches: [{ clientX: 10, clientY: 10 }] })
 
-    // Long-press on the rendered markdown text: no 500ms menu timer.
+    // Long-press on the rendered markdown text arms the menu timer (the
+    // custom menu now owns message text; code blocks/images still defer).
     const spy = vi.spyOn(window, 'setTimeout')
     try {
       fireEvent.touchStart(textEl, { touches: [{ clientX: 50, clientY: 50 }] })
       const timerCalls = spy.mock.calls.filter(([, ms]) => ms === 500)
-      expect(timerCalls).toHaveLength(0)
+      expect(timerCalls.length).toBeGreaterThan(0)
+      // Fire the armed timer: the custom menu opens (whole-message copy).
+      const timer = timerCalls[0]?.[0] as unknown as () => void
+      act(() => { timer() })
+      expect(await screen.findByRole('menuitem', { name: '复制' })).toBeTruthy()
     } finally {
       spy.mockRestore()
     }
@@ -1985,6 +1993,30 @@ describe('ChatView text selection vs custom menu', () => {
     } finally {
       spy2.mockRestore()
     }
+  })
+
+  it('edits and resends a user message through the context menu', async () => {
+    await renderOneTurn()
+    promptMock.mockClear()
+    const userEl = await screen.findByText('改一下代码')
+    fireEvent.contextMenu(userEl)
+    const edit = await screen.findByRole('menuitem', { name: '编辑并重新发送' })
+    fireEvent.click(edit)
+    // The edit dialog opens with the original text prefilled.
+    const input = await screen.findByRole('textbox', { name: '编辑并重新发送' })
+    fireEvent.change(input, { target: { value: '改一下代码2' } })
+    // The dialog's confirm button ("发送"), not the composer's.
+    const dialog = await screen.findByRole('dialog', { name: '编辑并重新发送' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+  })
+
+  it('regenerates the last assistant reply via its footer button', async () => {
+    await renderOneTurn()
+    promptMock.mockClear()
+    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
+    fireEvent.click(regenerate)
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
   })
 
   it('lets an image through to the native menu: contextmenu on <img> shows no custom menu', async () => {

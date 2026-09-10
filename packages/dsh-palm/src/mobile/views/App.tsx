@@ -24,6 +24,7 @@ import { startNotify } from '../notify.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { clearPairingCaches } from '../list-persist.ts'
+import { clearHistoryCache, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { installPerfWindowHook, startPerfSampler } from '../perf.ts'
 import { ToastHost } from '../toast.tsx'
 import { ChatView } from './ChatView.tsx'
@@ -198,7 +199,10 @@ export function App({ initialPairError }: AppProps) {
   // another device's persisted sessions — clear the local caches the moment
   // the pair state turns out to be broken (or is re-established).
   useEffect(() => {
-    if (pairState === 'unpaired') clearPairingCaches()
+    if (pairState === 'unpaired') {
+      clearPairingCaches()
+      void clearHistoryCache()
+    }
   }, [pairState])
 
   if (pairState === 'checking') {
@@ -217,6 +221,7 @@ export function App({ initialPairError }: AppProps) {
           // A fresh pairing is a new device identity: drop the previous
           // identity's persisted sessions before the reload lands.
           clearPairingCaches()
+          void clearHistoryCache()
           window.location.replace(path)
         }}
       />
@@ -807,9 +812,10 @@ export async function loadChatPage(
   signal?: AbortSignal,
 ): Promise<ChatPageResult> {
   const isTail = beforeSeq === undefined
+  let result: ChatPageResult
   try {
     const page: ChatPage = await readChat(sessionId, beforeSeq, undefined, signal)
-    return {
+    result = {
       rows: page.rows,
       maxSeq: page.maxSeq,
       hasMore: page.hasMore,
@@ -820,8 +826,12 @@ export async function loadChatPage(
   } catch {
     // Fallback: the raw event page folded locally (identical shape). Any
     // failure of THIS path propagates to the caller's own error handling.
-    return foldHistoryPage(await fetchHistory(sessionId, beforeSeq, undefined, signal), isTail)
+    result = foldHistoryPage(await fetchHistory(sessionId, beforeSeq, undefined, signal), isTail)
   }
+  // Cache the tail page so a reopen paints instantly (stale-while-revalidate);
+  // best-effort — a storage failure never blocks the chat.
+  if (isTail) void saveCachedHistory(sessionId, result)
+  return result
 }
 
 export { prompt }

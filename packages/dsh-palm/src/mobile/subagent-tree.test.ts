@@ -1,7 +1,7 @@
 // @vitest-environment node
-/** Foreground-subagent tree helpers: recursive fetch, running count, activity overlay. */
+/** Foreground-subagent flat list helpers: one-shot fetch, running count, sort. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { collectSubagentIds, countRunningSubagents, fetchSubagentTree, setSubagentActivity, type SubagentNode } from './subagent-tree.ts'
+import { countRunningSubagents, fetchSubagentsFlat, setSubagentActivity, sortSubagentsRunningFirst, type SubagentFlatNode } from './subagent-tree.ts'
 
 vi.mock('./api.ts', () => ({
   subagentsList: vi.fn(),
@@ -10,70 +10,67 @@ import { subagentsList } from './api.ts'
 
 const subagentsListMock = vi.mocked(subagentsList)
 
-const child = (id: string, activity: 'running' | 'inactive', hasChildren: boolean, label?: string): never => ({
-  kind: 'child', id, mode: 'one-shot', activity, hasChildren, ...(label === undefined ? {} : { label }),
+const child = (id: string, activity: 'running' | 'inactive', label?: string): never => ({
+  kind: 'child', id, mode: 'one-shot', activity, hasChildren: false, ...(label === undefined ? {} : { label }),
 }) as never
 
-const node = (id: string, activity: 'running' | 'inactive', children: SubagentNode[] = []): SubagentNode => ({
-  id, label: id, activity, children,
-})
+const node = (id: string, activity: 'running' | 'inactive'): SubagentFlatNode => ({ id, label: id, activity })
 
 beforeEach(() => { subagentsListMock.mockReset() })
 
+describe('fetchSubagentsFlat', () => {
+  it('returns the direct children in one call and fills labels', async () => {
+    subagentsListMock.mockResolvedValueOnce({
+      entries: [child('s1', 'running', '整理记忆'), child('s2', 'inactive')],
+      parentAvailable: true,
+    })
+    const nodes = await fetchSubagentsFlat('root')
+    expect(nodes).toEqual([
+      { id: 's1', label: '整理记忆', activity: 'running' },
+      { id: 's2', label: 's2', activity: 'inactive' },
+    ])
+    // One flat call — no recursive tree walk.
+    expect(subagentsListMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips diagnostic rows', async () => {
+    subagentsListMock.mockResolvedValueOnce({
+      entries: [{ kind: 'diagnostic', id: 'd1' as never, reason: 'corrupt' }, child('s1', 'inactive')],
+      parentAvailable: true,
+    })
+    expect(await fetchSubagentsFlat('root')).toEqual([{ id: 's1', label: 's1', activity: 'inactive' }])
+  })
+
+  it('returns an empty list on a failed read', async () => {
+    subagentsListMock.mockRejectedValueOnce(new Error('boom'))
+    expect(await fetchSubagentsFlat('root')).toEqual([])
+  })
+})
+
 describe('countRunningSubagents', () => {
-  it('counts running nodes across the whole tree', () => {
-    const tree = [
-      node('a', 'running', [node('a1', 'running'), node('a2', 'inactive')]),
-      node('b', 'inactive'),
-    ]
-    expect(countRunningSubagents(tree)).toBe(2)
+  it('counts running nodes across the flat list', () => {
+    expect(countRunningSubagents([node('a', 'running'), node('b', 'inactive'), node('c', 'running')])).toBe(2)
+  })
+})
+
+describe('sortSubagentsRunningFirst', () => {
+  it('keeps running first and preserves the original order within each group', () => {
+    const sorted = sortSubagentsRunningFirst([node('a', 'inactive'), node('b', 'running'), node('c', 'inactive')])
+    expect(sorted.map(n => n.id)).toEqual(['b', 'a', 'c'])
   })
 })
 
 describe('setSubagentActivity', () => {
-  it('updates a nested node immutably by id', () => {
-    const tree = [node('a', 'running', [node('a1', 'inactive')])]
-    const next = setSubagentActivity(tree, 'a1', true)
-    expect(next[0]?.children[0]?.activity).toBe('running')
+  it('updates a node immutably by id', () => {
+    const list = [node('a', 'running'), node('b', 'inactive')]
+    const next = setSubagentActivity(list, 'b', true)
+    expect(next[1]?.activity).toBe('running')
     // Original is untouched.
-    expect(tree[0]?.children[0]?.activity).toBe('inactive')
+    expect(list[1]?.activity).toBe('inactive')
   })
 
-  it('returns the same tree when the id is absent', () => {
-    const tree = [node('a', 'running')]
-    expect(setSubagentActivity(tree, 'nope', true)).toBe(tree)
-  })
-})
-
-describe('collectSubagentIds', () => {
-  it('collects every id in the tree', () => {
-    const tree = [node('a', 'running', [node('a1', 'inactive')]), node('b', 'inactive')]
-    expect(collectSubagentIds(tree)).toEqual(new Set(['a', 'a1', 'b']))
-  })
-})
-
-describe('fetchSubagentTree', () => {
-  it('walks the catalog recursively and fills labels', async () => {
-    subagentsListMock
-      .mockResolvedValueOnce({ entries: [child('s1', 'running', true, '整理记忆')], parentAvailable: true })
-      .mockResolvedValueOnce({ entries: [child('s1a', 'inactive', false, '分析结果')], parentAvailable: true })
-    const tree = await fetchSubagentTree('root')
-    expect(tree).toEqual([
-      { id: 's1', label: '整理记忆', activity: 'running', children: [
-        { id: 's1a', label: '分析结果', activity: 'inactive', children: [] },
-      ] },
-    ])
-    expect(subagentsListMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('falls back to the id when a child has no label', async () => {
-    subagentsListMock.mockResolvedValueOnce({ entries: [child('s1', 'inactive', false)], parentAvailable: true })
-    const tree = await fetchSubagentTree('root')
-    expect(tree[0]?.label).toBe('s1')
-  })
-
-  it('returns an empty tree on a failed read', async () => {
-    subagentsListMock.mockRejectedValueOnce(new Error('boom'))
-    expect(await fetchSubagentTree('root')).toEqual([])
+  it('returns the same list when the id is absent', () => {
+    const list = [node('a', 'running')]
+    expect(setSubagentActivity(list, 'nope', true)).toBe(list)
   })
 })
