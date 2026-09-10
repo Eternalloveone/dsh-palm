@@ -8,8 +8,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/settings'
-import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
+import type { SettingsNamespaceView, AgentPresetEntry } from '../../api-proxy-types'
 import { listAgentPresets, mutateSettings } from '../api.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { fieldMeta } from '../settings-meta.ts'

@@ -1,5 +1,4 @@
-import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
-import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import type { MuxFrame, RpcRequest } from './api-proxy-types.ts'
 
 export interface PendingApproval {
   rpcId: string

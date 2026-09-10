@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ChatWindowService, WINDOW_LIMIT, WINDOW_ROW_LIMIT } from './chat-window.ts'
 import type { ChatHistoryFetcher } from './chat-window.ts'
-import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { SessionProjectionsBlock } from './api-proxy-types'
 import type { WireEvent } from './mobile/messages.ts'
 
 /** One history entry in the fetcher's post-envelope shape. */

@@ -8,7 +8,7 @@
  * every delivery channel sees identical semantics.
  */
 
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import { RpcId } from '../api-proxy-types.ts'
 import type { NotifyStore } from './notify-store.ts'
 
 /** What happened; drives the notification copy. */

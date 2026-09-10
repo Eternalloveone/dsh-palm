@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy } from '../src/api-proxy-types'
 import { makeMobileApiRoutes } from '../src/mobile-api.ts'
 import { ChatWindowService } from '../src/chat-window.ts'
 import { PendingTracker } from '../src/mobile-pending.ts'
@@ -69,6 +69,7 @@ const apiProxy = {
     describe: async () => ({ rpcId: 'r', result: { ok: true, value: { writable: true, hasDocument: false, namespaces: [] } } }),
     mutate: async () => ({ rpcId: 'r', result: { ok: true, value: { ns: 'ui-theme', schema: {}, value: { preference: 'dark' }, applies: 'live', secrets: [], revision: 2 } } }),
   },
+  setPhoneConnected: () => {},
 } as unknown as ApiProxy
 
 /** A pending tracker holding one question/requested frame for a session. */

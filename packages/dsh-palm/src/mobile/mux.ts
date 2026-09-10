@@ -24,11 +24,11 @@
  * delivers again, fallback polling stops and the live stream takes over.
  */
 
-import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
-import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
-import { muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
-import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
-import type { HistoryEntry } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { MuxFrame } from '../api-proxy-types'
+import type { JobView } from '../api-proxy-types'
+import { muxFrameSchema } from '../api-proxy-types'
+import { serverRequestSchema } from '../api-proxy-types'
+import type { HistoryEntry } from '../api-proxy-types'
 import { history as fetchHistory, queueItemViewOf, type HistoryPage, type QueueItemView } from './api.ts'
 import { RpcTransportError } from './rpc.ts'
 import { perfAnomaly, perfEnabled, perfMark } from './perf.ts'

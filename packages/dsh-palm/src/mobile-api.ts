@@ -24,9 +24,9 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
-import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import type { ApiProxy, RpcRequest } from './api-proxy-types.ts'
+import { RpcId } from './api-proxy-types.ts'
+import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
 import type { PairingService } from './pairing.ts'
 import type { NotifyService } from './notify/notify-engine.ts'
@@ -921,7 +921,7 @@ async function searchDocument(
     const rawEvents = response.result.value?.events ?? []
     if (rawEvents.length === 0) { complete = true; break }
     const events = rawEvents.map(entry => ({ ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }))
-    const folded = coalesceTurnMessages(new EventFolder(foldEvents(events)).snapshot())
+    const folded = coalesceTurnMessages(new EventFolder(foldEvents(events as never)).snapshot())
     for (const row of documentRows(folded)) bySeq.set(row.seq, row)
     if (!response.result.value.hasMore) { complete = true; pages += 1; break }
     const first = folded[0]
@@ -2367,6 +2367,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       return
     }
     activeEvents += 1
+    ;(apiProxy as ApiProxyAdapter).setPhoneConnected(true)
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
@@ -2388,6 +2389,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       controller.abort()
       clearInterval(heartbeat)
       activeEvents -= 1
+      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(activeEvents > 0)
       res.end()
     }
     const heartbeat = setInterval(() => {

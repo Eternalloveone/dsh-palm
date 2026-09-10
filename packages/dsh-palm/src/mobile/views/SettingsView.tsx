@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api/settings'
+import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
 import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'

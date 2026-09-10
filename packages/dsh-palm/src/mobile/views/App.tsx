@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
+import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import {
   fetchMobilePreferences,
   history as fetchHistory,
@@ -17,7 +17,7 @@ import {
   type ChatPage,
 } from '../api.ts'
 import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../messages.ts'
-import type { SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { SessionProjectionsBlock } from '../../api-proxy-types'
 import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
 import { startNotify } from '../notify.ts'

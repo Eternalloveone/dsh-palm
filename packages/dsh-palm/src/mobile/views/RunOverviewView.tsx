@@ -20,9 +20,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
-import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
-import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { JobView } from '../../api-proxy-types'
+import type { MuxFrame } from '../../api-proxy-types'
+import type { SessionSummary } from '../../api-proxy-types'
 import { listSessions } from '../api.ts'
 import { TaskRow } from '../task-status.tsx'
 import { InboxIcon } from '../icons.tsx'

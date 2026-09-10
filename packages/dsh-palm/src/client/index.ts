@@ -1,15 +1,15 @@
 /**
  * dsh-palm — browser half of the pairing surface. Registers the `remote`
- * dictionaries, the sidebar entries (phone trigger + pairing panel) into the
- * `sidebar.remote` seat (with the current-shell `sidebar.footer.action`
- * fallback), and runs the phone-side boot flow (pair accept + workspace
- * deep-link + presence heartbeats) plus the one-time failed-pair notice.
+ * dictionaries, the sidebar foot entry (phone trigger + pairing panel) into
+ * the `sidebar.footer.action` seat, and runs the phone-side boot flow (pair
+ * accept + workspace deep-link + presence heartbeats) plus the one-time
+ * failed-pair notice.
  * Export discipline: packages/client/AGENTS.md — the /client surface carries
  * only what cordis loading needs plus types.
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { ClientContext, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) and the
 // ui-sidebar SlotMap merge (the 'sidebar.footer.action' hole).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -17,7 +17,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { FooterRemoteEntry } from './FooterRemoteEntry.tsx'
-import { RemoteEntry } from './RemoteEntry.tsx'
 import { PairFailedNotice } from './PairFailedNotice.tsx'
 import { en, zh, type RemoteKey } from './locales.ts'
 import { PAIR_FAILED_MARKER, runPairBootFlow } from './deep-link.ts'
@@ -32,32 +31,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Pairing-surface copy. */
     remote: RemoteKey
-  }
-
-  interface SlotMap {
-    /**
-     * The sidebar foot seat beside the settings trigger, declared by the
-     * sidebar shell on deployments that carry the feature seat; the shell
-     * passes only its column display state.
-     */
-    'sidebar.remote': { kind: 'single'; scope: 'root'; owner: SidebarRemoteOwnerProps }
-  }
-}
-
-/** Owner share of the sidebar remote-control seat: the column display state the trigger renders against. */
-export interface SidebarRemoteOwnerProps {
-  /** Whether the sidebar renders wide content (false = 56px rail). */
-  wide: boolean
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    /**
-     * Optional rc.6 compatibility binder provided by dsh-web-settings;
-     * absent when that group plugin is not installed, so callers fall back to
-     * the official settings scope.
-     */
-    webUiSettings?: { bind<S>(spec: SettingsScopeSpec<S>): SettingsScope<S> }
   }
 }
 
@@ -78,6 +51,22 @@ const REMOTE_WEB_UI_NS = 'remote-web-ui'
 /** Heartbeat cadence from a paired phone (presence + revocation liveness). */
 const HEARTBEAT_INTERVAL_MS = 10_000
 
+/**
+ * Minimal slot-registry face. The full `ctx.slots` type lives in
+ * `@deepseek-ai/dsh-client-ui-renderer`, which is not part of this package's
+ * dependency graph; the pairing surface only needs `inject` + `register`, so
+ * the context is narrowed structurally here.
+ */
+interface SlotsLike {
+  inject(name: string, callback: () => (() => void) | Iterable<() => void>): () => void
+  register(options: {
+    name: string
+    id?: string
+    locale?: string
+    inject?: () => Record<string, unknown>
+  }, component: unknown): () => void
+}
+
 /** Services required by this plugin. */
 export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote']
 
@@ -85,7 +74,7 @@ export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote
  * Register the pairing surface.
  * @param ctx - client root context.
  */
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   ctx.effect(() => {
     try {
       return ctx.locale.register(NS, { zh, en })
@@ -95,8 +84,8 @@ export function apply(ctx: ClientContext): void {
   }, 'dsh-palm: dictionaries')
 
   const t = ctx.locale.bind(NS)
-  const binder = ctx.get('webUiSettings') ?? ctx.settingsScope
-  const settingsScope = binder.bind<RemoteSettings>({ namespace: REMOTE_WEB_UI_NS })
+  const settingsScope = ctx.settingsScope.bind<RemoteSettings>({ namespace: REMOTE_WEB_UI_NS })
+  const slots = (ctx as unknown as { slots: SlotsLike }).slots
   const enabled = (): boolean => {
     const snapshot = settingsScope.getSnapshot()
     return snapshot.status === 'ready'
@@ -116,45 +105,16 @@ export function apply(ctx: ClientContext): void {
     await settingsScope.unset('publicBaseUrl')
   }
 
-  // Sidebar entries: the legacy `sidebar.remote` seat (declaration-aware
-  // registration that waits on the declaration, removes the contribution
-  // when it collapses, and re-runs after a redeclaration) plus the current
-  // shells' `sidebar.footer.action` fallback (only one of the two injects
-  // ever fires, so the trigger can never render twice). Both follow the
-  // plugin's enabled setting: toggling it off removes the trigger, toggling
-  // it back on re-registers it.
-  ctx.slots.inject('sidebar.remote', () => {
+  // Sidebar foot entry: the `sidebar.footer.action` seat beside the settings
+  // trigger, declared by the sidebar shell. The entry follows the plugin's
+  // enabled setting: toggling it off removes the trigger, toggling it back
+  // on re-registers it.
+  slots.inject('sidebar.footer.action', () => {
     let disposeEntry: (() => void) | undefined
     const syncEntry = (): void => {
       if (enabled() && disposeEntry === undefined) {
         try {
-          disposeEntry = ctx.slots.register({
-            name: 'sidebar.remote',
-            locale: NS,
-            inject: () => ({ onSavePublicUrl: savePublicUrl, onClearPublicUrl: clearPublicUrl }),
-          }, RemoteEntry)
-        } catch {
-          // ignore registration collision
-        }
-      } else if (!enabled() && disposeEntry !== undefined) {
-        disposeEntry()
-        disposeEntry = undefined
-      }
-    }
-    const unsubscribe = settingsScope.subscribe(syncEntry)
-    syncEntry()
-    return () => {
-      unsubscribe()
-      disposeEntry?.()
-    }
-  })
-
-  ctx.slots.inject('sidebar.footer.action', () => {
-    let disposeEntry: (() => void) | undefined
-    const syncEntry = (): void => {
-      if (enabled() && disposeEntry === undefined) {
-        try {
-          disposeEntry = ctx.slots.register({
+          disposeEntry = slots.register({
             name: 'sidebar.footer.action',
             id: 'dsh-palm',
             locale: NS,

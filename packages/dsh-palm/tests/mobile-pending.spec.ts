@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PendingTracker } from '../src/mobile-pending.ts'
-import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
-import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import type { MuxFrame } from '../src/api-proxy-types'
+import type { RpcRequest } from '../src/api-proxy-types'
+import { RpcId } from '../src/api-proxy-types'
 
 function makeFrame(payload: MuxFrame): RpcRequest<MuxFrame> {
   return {

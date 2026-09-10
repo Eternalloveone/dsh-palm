@@ -12,7 +12,7 @@
  */
 
 import { useState } from 'react'
-import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
+import type { JobView } from '../api-proxy-types'
 import { ChevronDownIcon } from './icons.tsx'
 
 /** Human wording for each job lifecycle state. */

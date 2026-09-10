@@ -14,13 +14,13 @@
  */
 
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
+import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
 import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, type CommandDescriptor } from '../api.ts'
-import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
@@ -61,7 +61,7 @@ import { MessageRow } from '../message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
 import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
 import { TaskStatusBar } from '../task-status.tsx'
-import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
+import type { JobView } from '../../api-proxy-types'
 import { fetchSubagentsFlat, type SubagentFlatNode } from '../subagent-tree.ts'
 
 /** Props for the chat view. */

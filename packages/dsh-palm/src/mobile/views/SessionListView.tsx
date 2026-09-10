@@ -16,9 +16,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react'
-import type { WorkspaceView as WorkspaceRow } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
-import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
-import type { SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
+import type { AgentPresetEntry } from '../../api-proxy-types'
+import type { SessionSummary } from '../../api-proxy-types'
 import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, previews, searchAll, searchMessages, type SessionSearchHit } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'

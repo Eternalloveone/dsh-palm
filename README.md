@@ -183,7 +183,7 @@ The decision is delivered through three independent layers:
 
 ## Install
 
-Tested against **dsh 0.1.1-rc.1**. The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing.
+Tested against **dsh 0.1.5-rc.1**. The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing.
 
 From npm:
 

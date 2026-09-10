@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { TaskStatusBar } from './task-status.tsx'
-import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
+import type { JobView } from '../api-proxy-types'
 
 afterEach(cleanup)
 

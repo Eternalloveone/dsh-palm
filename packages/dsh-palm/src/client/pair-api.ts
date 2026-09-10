@@ -39,7 +39,7 @@ export interface IssueLoopbackRequired {
 export type IssueResponse = IssueResult | IssueLanRequired | IssueUnknownAddress | IssueLoopbackRequired
 
 /** accept() refusal codes. */
-export type AcceptFailure = { ok: false; code: 'invalid' | 'used' | 'forbidden' }
+export type AcceptFailure = { ok: false; code: 'invalid' | 'used' | 'forbidden' | 'device-cap-full' }
 
 /** One /api/pair/events frame. */
 export interface PairStateFrame {
@@ -116,7 +116,7 @@ export async function acceptPair(token: string): Promise<{ ok: true } | AcceptFa
     })
     if (response.ok) return { ok: true }
     if (response.status === 404) return { ok: false, code: 'invalid' }
-    if (response.status === 409) return { ok: false, code: 'used' }
+    if (response.status === 409) return { ok: false, code: 'device-cap-full' }
     return { ok: false, code: 'forbidden' }
   } finally {
     clearTimeout(timer)
@@ -168,6 +168,36 @@ export async function setPrimaryPair(deviceId: string): Promise<void> {
 /** Presence heartbeat from a paired phone (unpaired heartbeats 401 harmlessly). */
 export async function sendHeartbeat(): Promise<void> {
   await fetch('/api/pair/heartbeat', { method: 'POST' })
+}
+
+/**
+ * Assign a user-facing display name to a device from the loopback panel.
+ * @param deviceId - the session id of the row to rename.
+ * @param name - the new display name (empty clears it).
+ */
+export async function renamePair(deviceId: string, name: string): Promise<void> {
+  const response = await fetch('/api/pair/rename', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId, name }),
+  })
+  if (response.status === 404) return
+  if (!response.ok) throw new Error(`dsh-palm: rename failed with ${String(response.status)}`)
+}
+
+/**
+ * Promote one device to primary (demotes the previous primary) from the
+ * loopback panel.
+ * @param deviceId - the session id of the row to promote.
+ */
+export async function setPrimaryPair(deviceId: string): Promise<void> {
+  const response = await fetch('/api/pair/setPrimary', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId }),
+  })
+  if (response.status === 404) return
+  if (!response.ok) throw new Error(`dsh-palm: setPrimary failed with ${String(response.status)}`)
 }
 
 /**

@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RunOverviewView, type RunOverviewMux } from './RunOverviewView.tsx'
-import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api/events'
+import type { MuxFrame } from '../../api-proxy-types'
 
 const api = vi.hoisted(() => ({
   listSessions: vi.fn(),

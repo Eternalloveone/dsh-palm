@@ -13,7 +13,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import type { JobView } from '@deepseek-ai/dsh-host-apiproxy/api/jobs'
+import type { JobView } from '../api-proxy-types'
 import { Sheet } from './sheet.tsx'
 import { TaskRow } from './task-status.tsx'
 import type { TodoItem, TodoSnapshot } from './messages.ts'

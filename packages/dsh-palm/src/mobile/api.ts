@@ -5,10 +5,7 @@
  * rpc/mux layers).
  */
 
-import type { WorkspaceView } from '@deepseek-ai/dsh-host-apiproxy/api/workspace'
-import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api/agent-presets'
-import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
-import type { SubagentCatalog } from '@deepseek-ai/dsh-host-apiproxy/api/subagents'
+import type { WorkspaceView, AgentPresetEntry, SessionSummary, SessionModels, SessionProjectionsBlock, SubagentCatalog } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
 import type { PromptPart } from './image.ts'
@@ -38,7 +35,7 @@ export interface AgentPresetRoster {
 
 /** One history page (already bounded to whole messages by the host). */
 export interface HistoryPage {
-  events: import('@deepseek-ai/dsh-host-apiproxy/api/sessions').HistoryEntry[]
+  events: import('../api-proxy-types').HistoryEntry[]
   hasMore: boolean
   /**
    * Projection baseline riding the tail page (permissions select etc.);
@@ -60,7 +57,7 @@ export type ThemePreference = 'light' | 'dark' | 'system'
 export interface MobileSettingsRead {
   writable: boolean
   hasDocument: boolean
-  namespaces: import('@deepseek-ai/dsh-host-apiproxy/api/settings').SettingsNamespaceView[]
+  namespaces: import('../api-proxy-types').SettingsNamespaceView[]
 }
 
 /** Read the full redacted settings surface (schemas + values, no secrets). */

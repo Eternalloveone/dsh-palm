@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { SessionModels } from '../api-proxy-types'
 import { errorText, staleHostHint } from './views/App.tsx'
 import { models, selectModel, sendCommand, respondApproval, respondQuestion, type CommandDescriptor } from './api.ts'
 import type { PendingApproval, PendingQuestionItem } from './api.ts'

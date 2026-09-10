@@ -13,7 +13,7 @@ import { ChatView } from './ChatView.tsx'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
 import { type SessionView, type ChatPageResult } from './App.tsx'
 import { escapeHtml, parseSegments, renderMarkdown, safeUrl } from '../markdown.ts'
-import type { SessionModels } from '@deepseek-ai/dsh-host-apiproxy/api/sessions'
+import type { SessionModels } from '../../api-proxy-types'
 import type { WireEvent } from '../messages.ts'
 
 // The api module is fully mocked; App.tsx's history wrapper is overridden to

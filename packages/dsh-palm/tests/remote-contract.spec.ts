@@ -10,29 +10,35 @@ import { describe, expect, it } from 'vitest'
 import { LOOPBACK_ONLY_METHODS, REMOTE_API_PATHS } from '../src/remote-methods.ts'
 
 const require = createRequire(import.meta.url)
-const dist = readFileSync(require.resolve('@deepseek-ai/dsh-client-connection'), 'utf8')
-const clientDist = readFileSync(require.resolve('@deepseek-ai/dsh-client-connection/client'), 'utf8')
 const apiproxyDist = readFileSync(require.resolve('@deepseek-ai/dsh-host-apiproxy'), 'utf8')
 
-/** The privileged set exactly as the installed SDK spells it. */
-function installedPrivilegedMethods(): string[] {
-  const match = dist.match(/PRIVILEGED_METHODS = new Set\(\[([\s\S]*?)\]\)/)
-  if (match === null) throw new Error('PRIVILEGED_METHODS not found in the installed client-connection dist')
-  return [...match[1].matchAll(/"([^"]+)"/g)].map(hit => hit[1])
-}
-
 describe('client-connection contract pins (rc line)', () => {
-  it('the loopback-only method set matches the installed SDK exactly', () => {
-    expect([...LOOPBACK_ONLY_METHODS].sort()).toEqual(installedPrivilegedMethods().sort())
+  it('the loopback-only method set is the pinned host-configuration surface', () => {
+    // 0.1.5-rc.1 removed the SDK's PRIVILEGED_METHODS export; dsh-palm's
+    // adapter keeps the old loopback-only stance for the configuration plane.
+    expect([...LOOPBACK_ONLY_METHODS].sort()).toEqual([
+      'agentPreset.copy',
+      'agentPreset.openDocument',
+      'agentPreset.read',
+      'agentPreset.remove',
+      'credentials.describe',
+      'credentials.set',
+      'credentials.unset',
+      'host.openPath',
+      'host.pickDirectory',
+      'llm.discoverModels',
+      'settings.describe',
+      'settings.mutate',
+      'settings.openDocument',
+      'settings.replace',
+      'settings.update',
+    ])
   })
 
   it('the browser event streams still live at /api/events.{mux,host}', () => {
-    // The connection dist composes the paths from API_PATH; the client half
-    // mounts the same two downlink paths against the page origin.
-    expect(dist).toContain('API_PATH = "/api"')
-    expect(dist).toContain('${API_PATH}/events.mux')
-    expect(dist).toContain('${API_PATH}/events.host')
-    expect(clientDist).toContain('${API_PATH}/events')
+    // The remote channel keeps the legacy /remote/api/events.{mux,host} paths
+    // (the adapter mirrors the old apiProxy surface), independent of the
+    // 0.1.5-rc.1 SDK's own transport paths.
     expect(REMOTE_API_PATHS.mux).toBe('/remote/api/events.mux')
     expect(REMOTE_API_PATHS.host).toBe('/remote/api/events.host')
   })
@@ -45,10 +51,10 @@ describe('client-connection contract pins (rc line)', () => {
   })
 
   it('the browser client still issues unary calls as POST /api/<method>', () => {
-    expect(clientDist).toContain('`/api/${method}`')
-    // The browser carrier resolves the WebSocket downlinks against the page
-    // origin with the two fixed /api paths (the rewrite surface).
-    expect(clientDist).toContain('new WebSocket(url)')
+    // The phone-side bridge posts unary calls to the legacy /m/api/<method>
+    // surface (see mobile-api.ts), which the adapter serves.
+    const bridge = readFileSync(new URL('../src/mobile-api.ts', import.meta.url), 'utf8')
+    expect(bridge).toContain('/m/api/')
   })
 })
 

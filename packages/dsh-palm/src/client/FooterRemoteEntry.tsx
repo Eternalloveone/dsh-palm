@@ -2,8 +2,7 @@
  * Sidebar footer-seat wrapper for the remote-control entry.
  *
  * Current dsh web shells declare `sidebar.footer.action` (the seat beside the
- * settings trigger) instead of the legacy `sidebar.remote` seat this plugin
- * was written against. The footer seat supplies `{ wide }` but not the
+ * settings trigger). The footer seat supplies `{ wide }` but not the
  * `useWorkspaces` projection hook, so this wrapper substitutes a
  * workspace-agnostic selector: pairing without a deep-linked workspace is
  * fully supported by the host `/api/pair` routes.
@@ -28,8 +27,6 @@ export function FooterRemoteEntry(props: FooterRemoteEntryProps) {
   return (
     <RemoteEntry
       wide={props.wide}
-      useWorkspaces={() => undefined as never}
-      useSessions={() => undefined as never}
       t={props.t}
       onSavePublicUrl={props.onSavePublicUrl}
       onClearPublicUrl={props.onClearPublicUrl}

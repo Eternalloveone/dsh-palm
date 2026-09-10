@@ -6,7 +6,7 @@ Derived from [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web) — s
 
 ## Install
 
-Requires dsh >= 0.1.1-rc.1.
+Requires dsh >= 0.1.5-rc.1.
 
 ```sh
 dsh plugin --profile web add @eternalloveone/dsh-palm

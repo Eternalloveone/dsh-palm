@@ -98,11 +98,14 @@ describe('runPairBootFlow', () => {
         if (name === 'workspaces') {
           return {
             list: { getSnapshot: () => ({ items: [{ workspaceId: 'ws-7' }] }) },
-            connectWorkspace: async (id: string) => { opened.push(id); return 'session-9' },
           }
         }
         if (name === 'sessions') {
-          return { list: { getSnapshot: () => ({ current: undefined }) }, open: (id: string) => { opened.push(id) } }
+          return {
+            list: { getSnapshot: () => ({ current: undefined }) },
+            open: (id: string) => { opened.push(id) },
+            create: async (opts?: { workspaceId?: string }) => { opened.push(opts?.workspaceId ?? ''); return 'session-9' },
+          }
         }
         return undefined
       },
@@ -121,11 +124,14 @@ describe('runPairBootFlow', () => {
         if (name === 'workspaces') {
           return {
             list: { getSnapshot: () => ({ items }) },
-            connectWorkspace: async (id: string) => { opened.push(id); return 'session-9' },
           }
         }
         if (name === 'sessions') {
-          return { list: { getSnapshot: () => ({ current: undefined }) }, open: (id: string) => { opened.push(id) } }
+          return {
+            list: { getSnapshot: () => ({ current: undefined }) },
+            open: (id: string) => { opened.push(id) },
+            create: async (opts?: { workspaceId?: string }) => { opened.push(opts?.workspaceId ?? ''); return 'session-9' },
+          }
         }
         return undefined
       },

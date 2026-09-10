@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { setInterval as nodeSetInterval } from 'node:timers'
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DEFAULT_IDLE_EXPIRE_MS, PairingService, type PairingConfig } from './pairing.ts'
@@ -25,13 +25,15 @@ import { RemoteWebUiPairing } from './pairing-access.ts'
 import { makeRoutes } from './routes.ts'
 import { makeMobileRoutes } from './mobile-routes.ts'
 import { makeMobileApiRoutes } from './mobile-api.ts'
+import { makeApiProxyAdapter } from './api-proxy-adapter.ts'
 import { ChatWindowService, defaultChatHistoryFetcher } from './chat-window.ts'
 import { PreviewCacheService } from './preview-cache.ts'
 import { NotifyEngine, type NotifyService } from './notify/notify-engine.ts'
 import { NotifyStore } from './notify/notify-store.ts'
 import { deliverL2, deliverL3 } from './notify/notify-deliver.ts'
 import { PendingTracker } from './mobile-pending.ts'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import { RpcId } from './api-proxy-types.ts'
+import type { WireEvent } from './mobile/messages.ts'
 import { mountOnce } from './mount-once.ts'
 import { UUID_POLYFILL_SCRIPT } from './uuid-polyfill.ts'
 import { lanIPv4Addresses } from './lan.ts'
@@ -57,7 +59,15 @@ declare module '@deepseek-ai/cordis' {
 export const name = 'dsh-palm'
 
 /** Services required before the pairing surfaces can mount. */
-export const inject = ['webServer', 'apiProxy']
+export const inject = [
+  'webServer',
+  // 0.1.5-rc.1 host controllers the adapter wraps into the old apiProxy shape.
+  'sessionController',
+  'workspaceController',
+  'settingsController',
+  'agentPresets',
+  'subagents',
+]
 
 /**
  * Settings namespace of the remote-control capability — the section the web
@@ -65,7 +75,7 @@ export const inject = ['webServer', 'apiProxy']
  * to dsh-remote-web-ui so a profile that already saved settings under the old
  * namespace keeps them (zero-perception switch).
  */
-export const REMOTE_WEB_UI_SETTINGS_NAMESPACE = settingsNamespace('remote-web-ui')
+export const REMOTE_WEB_UI_SETTINGS_NAMESPACE = 'remote-web-ui'
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -244,38 +254,33 @@ function applyImpl(ctx: Context, config?: Config): void {
   let disposeRoutes: (() => void) | undefined
   let disposeSweep: (() => void) | undefined
   // The phone's data channel: pairing routes + the /m page + the /m/api
-  // proxy (which needs the host ApiProxy service; the plugin injects it).
-  const apiProxy = ctx.get('apiProxy')
-  if (apiProxy === undefined) {
-    console.warn('dsh-palm: apiProxy service unavailable — the mobile data channel is disabled')
-  }
+  // proxy. The adapter wraps the host controllers (sessionController etc.)
+  // into the old apiProxy shape so the mobile data channel works on 0.1.5-rc.1.
+  const apiProxy = makeApiProxyAdapter(ctx)
   // The completion-notify feature: one store (config + push subscriptions)
   // and one decision engine per plugin lifetime. The engine's host mux watch
   // is the same pattern as the pending tracker below; it starts with the
   // routes and stops when the plugin is disabled.
-  const notify: NotifyService | undefined = apiProxy === undefined
-    ? undefined
-    : (() => {
-      const store = new NotifyStore(join(dshHome(), 'dsh-palm-notify.json'))
-      const engine = new NotifyEngine(apiProxy as never, store)
-      // L3 delivery rides the same decisions as the L1 SSE channel: every
-      // engine event goes to the configured third-party channels (Server酱 /
-      // Bark / Telegram) as best-effort outbound webhooks.
-      engine.subscribe((event) => {
-        void deliverL3(store.getConfig(), event)
-      })
-      // L2 (Web Push) rides the same decisions: every event goes to the
-      // stored push subscriptions; dead subscriptions are cleaned up on 410.
-      engine.subscribe((event) => {
-        void deliverL2(store, event)
-      })
-      return { store, engine }
-    })()
+  const notify: NotifyService = (() => {
+    const store = new NotifyStore(join(dshHome(), 'dsh-palm-notify.json'))
+    const engine = new NotifyEngine(apiProxy as never, store)
+    // L3 delivery rides the same decisions as the L1 SSE channel: every
+    // engine event goes to the configured third-party channels (Server酱 /
+    // Bark / Telegram) as best-effort outbound webhooks.
+    engine.subscribe((event) => {
+      void deliverL3(store.getConfig(), event)
+    })
+    // L2 (Web Push) rides the same decisions: every event goes to the
+    // stored push subscriptions; dead subscriptions are cleaned up on 410.
+    engine.subscribe((event) => {
+      void deliverL2(store, event)
+    })
+    return { store, engine }
+  })()
   const routes = [
     ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan }),
     ...makeMobileRoutes(),
-    ...(apiProxy !== undefined
-      ? (() => {
+    ...(() => {
         const pendingTracker = new PendingTracker()
         // Folded-view chat windows (v3): the mux-fed host cache behind
         // `mobile.readChat`. One window per opened session, live-folded by
@@ -290,7 +295,7 @@ function applyImpl(ctx: Context, config?: Config): void {
             payload: { sessionId, maxMessages: 1 },
           } as never)
           if (!page.result.ok) throw new Error(page.result.error.message)
-          return { events: page.result.value.events }
+          return { events: page.result.value.events as unknown as ReadonlyArray<{ event: WireEvent; view?: unknown }> }
         })
         // Keep the pending state fed even while no phone holds an SSE
         // subscription: the tracker is the mobile.pending polling fallback's
@@ -348,8 +353,7 @@ function applyImpl(ctx: Context, config?: Config): void {
             }
           },
         })
-      })()
-      : []),
+      })(),
   ]
   const gate = makeGateListener(service, () => resolve().requirePairingForLan, () => resolve().enabled)
   ctx.effect(() => ctx.on('api/gate', gate), 'dsh-palm: api gate')
@@ -406,12 +410,14 @@ function applyImpl(ctx: Context, config?: Config): void {
     table.push({ kind: 'script', placement: 'head', text: UUID_POLYFILL_SCRIPT })
   }), 'dsh-palm: uuid polyfill')
 
-  installSettingsSection(ctx, REMOTE_WEB_UI_SETTINGS_NAMESPACE, Config, config ?? {}, {
-    setSource: (source) => {
-      current = source
-      sync()
-    },
-    onChange: sync,
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, REMOTE_WEB_UI_SETTINGS_NAMESPACE, Config, config ?? {}, {
+      setSource: (source: () => Config) => {
+        current = source
+        sync()
+      },
+      onChange: sync,
+    })
   })
   sync()
 }
