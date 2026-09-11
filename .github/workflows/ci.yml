@@ -57,19 +57,24 @@ jobs:
         # tailnet domain and the maintainer's email addresses must never land
         # in the repository (docs/screenshots/tests included). The pattern list
         # is injected via the REAL_IDS_REGEX secret so the values never appear
-        # in the repository itself — and the scan is the same
-        # `pnpm verify --only hygiene` the maintainer runs locally, which owns
-        # the excludes and the exit semantics (a match fails the step).
+        # in the repository itself — and the scan is the same script the
+        # maintainer runs locally, which owns the excludes and the exit
+        # semantics (a match fails the step).
+        #
+        # Invoked through node, not `pnpm verify`: this job sets pnpm up
+        # nowhere (it only needs git, node and npm), and `pnpm: command not
+        # found` (exit 127) is exactly how the first version of this failed.
         env:
           DSH_PALM_GUARD_REGEX: ${{ secrets.REAL_IDS_REGEX }}
-        run: pnpm verify --only hygiene
+        run: node scripts/verify.mjs --only hygiene
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Package content check
         working-directory: packages/dsh-palm
-        # `pnpm verify --only pack` adds the two checks the release convention
-        # needs on top of the bare dry run: no test files in the tarball, and
-        # every main/types/exports target present in the file list.
-        run: pnpm verify --only pack
+        # Adds the two checks the release convention needs on top of the bare
+        # `npm pack --dry-run`: no test files in the tarball, and every
+        # main/types/exports target present in the file list. Same node
+        # invocation reason as the hygiene scan above.
+        run: node scripts/verify.mjs --only pack

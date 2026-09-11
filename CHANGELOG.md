@@ -13,7 +13,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
-- **CI, the pre-push hook and the local gate are one implementation now.** `ci.yml` calls `pnpm verify --only build,coverage,typecheck,audit` (and `--only hygiene`, the pattern list arriving through `REAL_IDS_REGEX`, and `--only pack`) instead of restating those commands, and the hook runs the mirror's `--profile push` subset, so a local pass and a green runner can no longer disagree.
+- **CI, the pre-push hook and the local gate are one implementation now.** `ci.yml` calls `pnpm verify --only build,coverage,typecheck,audit` (and `--only hygiene`, the pattern list arriving through `REAL_IDS_REGEX`, and `--only pack`) instead of restating those commands, and the hook runs the mirror's `--profile push` subset, so a local pass and a green runner can no longer disagree. The hygiene and pack steps launch the script through `node` directly: their job sets a package manager up nowhere, and `pnpm: command not found` is how the first version of this failed.
 - **A tag can no longer disagree with the declared version.** Both publish jobs assert `v<package.json version> == github.ref_name` before anything is released: npm and GitHub Packages publish the *declared* version, not the tag name, so a mislabelled tag would have shipped one version's contents under another's name.
 
 ### Fixed
