@@ -17,7 +17,7 @@ The standalone mobile surface for the [dsh](https://github.com/deepseek-ai/deeps
 
 dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web) (`@linxin666/dsh-remote-web-ui`, Apache-2.0, by zhu1090093659). See [NOTICE](packages/dsh-palm/NOTICE) for details.
 
-**Inherited:** the pairing protocol, the device-store format (`$DSH_HOME/remote-web-ui-devices.json`), and the desktop panel skeleton. **Independent:** the entire `/m/` UI, the render stack, the `/m/api` whitelist and SSE mux, and the offline layer.
+**Inherited:** the pairing protocol, the original device-store format, and the desktop panel skeleton. **Independent:** the entire `/m/` UI, the render stack, the `/m/api` whitelist and SSE mux, and the offline layer. Since **v1.3.0** all runtime contracts carry dsh-palm's own names — the device store moved to `$DSH_HOME/dsh-palm-devices.json` and the settings namespace, cordis pairing service and settings-bridge path no longer follow dsh-remote-web-ui's naming.
 
 ## Product positioning
 
@@ -51,7 +51,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 
 ## Core capabilities
 
-- **Scan-to-pair device trust** — pair a phone by scanning a QR code or typing a six-digit code; devices persist in `$DSH_HOME/remote-web-ui-devices.json` and keep working after switching install sources
+- **Scan-to-pair device trust** — pair a phone by scanning a QR code or typing a six-digit code; devices persist in `$DSH_HOME/dsh-palm-devices.json`
 - **Native phone UI (`/m/`)** — a standalone mobile bundle designed for narrow screens from the ground up, not a CSS adaptation of the desktop GUI: touch-first interactions, safe-area and dynamic-viewport handling, thumb-sized touch targets, zero horizontal scrolling
 - **Realtime desktop-phone sync** — both surfaces share one host event stream over an SSE mux bridge with polling fallback; end-to-end latency (desktop trigger → phone mux frame, median): loopback 4 ms, public tunnel 9 ms, Tailscale 13 ms, weak network 246 ms (Chrome DevTools throttling, 200 ms simulated latency, N=5–8 rounds per scenario, 2026-08)
 - **IME-safe composer** — Chinese input-method composition never sends half-typed text
@@ -183,7 +183,7 @@ The decision is delivered through three independent layers:
 
 ## Install
 
-Tested against **dsh 0.1.5-rc.1**. The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing.
+Tested against **dsh 0.1.5-rc.2**. The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing.
 
 From npm:
 
@@ -198,7 +198,7 @@ git clone https://github.com/Eternalloveone/dsh-palm.git
 dsh plugin --profile web add link:/path/to/dsh-palm/packages/dsh-palm
 ```
 
-Already-paired devices keep working after switching install sources (same format as dsh-remote-web-ui).
+> **v1.3.0 note:** devices paired by older dsh-palm / dsh-remote-web-ui versions do **not** carry over (the store moved to `dsh-palm-devices.json` and the settings namespace was renamed) — re-pair phones once after upgrading.
 
 ### PWA platform support (device-tested)
 
@@ -280,7 +280,7 @@ See [SECURITY.md](SECURITY.md) for the vulnerability reporting process and deplo
 Starting with **1.0.0**, dsh-palm's own protocol is backward compatible:
 
 - The `/m/api` method surface and the mux/queue/jobs frame formats only ever **add** methods and frames — existing ones keep their semantics (a breaking change would require a new major version)
-- dsh-palm runs against the DSH host API (`dsh-host-apiproxy` and friends, currently the `0.1.1-rc` line). Adaptation to host API changes ships through the pre-verified upgrade flow and is **not** treated as a breaking change of dsh-palm's own protocol — the host's `rc` line does not promise stability itself
+- dsh-palm runs against the DSH host API (currently the `0.1.5-rc` line). Adaptation to host API changes ships through the pre-verified upgrade flow and is **not** treated as a breaking change of dsh-palm's own protocol — the host's `rc` line does not promise stability itself
 
 ## Project docs
 

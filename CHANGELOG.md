@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-11
+
+### Added
+
+- **DSH 0.1.5-rc.2 adaptation** — devDependencies pinned to `@deepseek-ai/*` 0.1.5-rc.2; `dsh.client.inject` aligned to the 0.1.5 client-provider semantics (api-remotes / client-connection / client-locale / client-ui-renderer / client-ui-settings)
+- **Standalone build** — official host packages are now devDependencies from the npm registry; dsh-palm builds, typechecks and tests fully standalone, no DSH assembly environment required
+
+### Changed
+
+- **Client half decoupled from dsh-webui** — only `@deepseek-ai/cordis` and `dsh-client-ui-slots` (type-only) remain as official imports; locale / settings-scope / slots / connection faces are local structural types; `WorkspaceId` is a local brand; deep-link now uses `sessions.create({ workspaceId })`; the four ui-primitives icons were localised into `src/client/icons.tsx` and the platform module table was trimmed to react / react-dom / cordis / client-ui-slots
+- **Host half adapted to 0.1.5 APIs** — settings section now installed via `ctx.settings.installSection` (the old `installSettingsSection`/`settingsNamespace` helpers are gone); the api-proxy layer is wired to the 0.1.5 controllers (session / workspace / settings / agentPresets / subagents); phone-connected presence restored on the SSE mux
+- **peerDependencies narrowed** — only `cordis`, `dsh-client-ui-slots`, `dsh-settings` (+ react/react-dom); nine official packages moved to devDependencies
+- **All runtime contracts renamed to dsh-palm's own names** — settings namespace `dsh-palm`, device store `$DSH_HOME/dsh-palm-devices.json`, cordis service `dshPalmPairing`, settings-bridge `/api/dsh-palm-settings`, log prefixes and `dataset.plugin` `dsh-palm/mobile`; README/NOTICE Apache attribution to dsh-remote-web-ui kept
+
+### Breaking (one-time, v1.3.0 only)
+
+- Devices paired by older dsh-palm / dsh-remote-web-ui versions do **not** carry over — re-pair phones once after upgrading (device-store filename, settings namespace and cordis service name all changed)
+
+## [1.2.0] - 2026-09-10
+
+### Added
+
+- **Aligned industry-common first batch** — take-photo from the composer, message pinning, IndexedDB history caching, swipe-to-delete
+- **Near-instant open** — second-open optimisation for the `/m/` surface
+- **Desktop paired-device management parity + selectable message text**
+- **Regenerate-button fix**
+
+### Fixed
+
+- Regenerate button no longer misbehaves after a turn boundary
+
 ## [1.1.0] - 2026-09-07
 
 ### Added

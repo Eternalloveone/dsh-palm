@@ -6,13 +6,13 @@ Derived from [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web) — s
 
 ## Install
 
-Requires dsh >= 0.1.5-rc.1.
+Requires dsh >= 0.1.5-rc.1 (tested against 0.1.5-rc.2).
 
 ```sh
 dsh plugin --profile web add @eternalloveone/dsh-palm
 ```
 
-Already-paired devices keep working after switching install sources.
+> **v1.3.0 note:** devices paired by older dsh-palm / dsh-remote-web-ui versions do **not** carry over (the store moved to `dsh-palm-devices.json`, the settings namespace was renamed) — re-pair phones once after upgrading.
 
 ## Highlights
 

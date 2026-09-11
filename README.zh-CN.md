@@ -17,7 +17,7 @@
 
 dsh-palm 是 [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web)（`@linxin666/dsh-remote-web-ui`，Apache-2.0，作者 zhu1090093659）的**衍生作品**。详见 [NOTICE](packages/dsh-palm/NOTICE)。
 
-**继承：** 配对协议、设备存储格式（`$DSH_HOME/remote-web-ui-devices.json`）、桌面端面板骨架。**自研：** `/m/` 全部 UI、渲染栈、`/m/api` 白名单与 SSE mux、离线层。
+**继承：** 配对协议、设备存储格式原型、桌面端面板骨架。**自研：** `/m/` 全部 UI、渲染栈、`/m/api` 白名单与 SSE mux、离线层。**v1.3.0 起**全部运行时契约为 dsh-palm 自有命名——设备存储移至 `$DSH_HOME/dsh-palm-devices.json`，settings namespace、cordis 配对服务与 settings 桥路径均不再沿用 dsh-remote-web-ui 的命名。
 
 ## 产品定位
 
@@ -51,7 +51,7 @@ dsh-palm 是**窄屏优先的轻量指挥台**：手机用于查看进度、响�
 
 ## 核心能力
 
-- **扫码配对设备信任** —— 手机扫码或输入 6 位配对码完成配对；设备持久化在 `$DSH_HOME/remote-web-ui-devices.json`，切换安装来源后继续可用
+- **扫码配对设备信任** —— 手机扫码或输入 6 位配对码完成配对；设备持久化在 `$DSH_HOME/dsh-palm-devices.json`
 - **原生手机端界面（`/m/`）** —— 从零为窄屏设计的独立手机 bundle，而非桌面 GUI 的 CSS 适配层：触控优先的交互、安全区与动态视口适配、拇指友好的触控目标、零横向滚动
 - **手机端与桌面端实时同步** —— 两端共享同一条宿主事件流（SSE mux 桥 + 轮询回退）；端到端延迟（桌面触发 → 手机端 mux 帧，中位数）：本机回环 4ms、公网隧道 9ms、Tailscale 13ms、弱网 246ms（Chrome DevTools 限速，模拟 200ms 延迟，每场景 N=5–8 轮，2026-08 实测）
 - **输入法安全** —— 中文输入法组合期间不会误发半截拼音
@@ -180,7 +180,7 @@ dsh-palm 在任务完成或长回复结束时提醒手机。宿主端统一决�
 
 ## 安装
 
-**已在 dsh 0.1.5-rc.1 上测试**。rc 版本之间的插件 API 可能变化；若使用其他 dsh 版本，安装后请验证配对面板与 `/m/` 界面。
+**已在 dsh 0.1.5-rc.2 上测试**。rc 版本之间的插件 API 可能变化；若使用其他 dsh 版本，安装后请验证配对面板与 `/m/` 界面。
 
 从 npm 安装：
 
@@ -195,7 +195,7 @@ git clone https://github.com/Eternalloveone/dsh-palm.git
 dsh plugin --profile web add link:/path/to/dsh-palm/packages/dsh-palm
 ```
 
-切换安装来源后，已配对设备继续可用（格式与 dsh-remote-web-ui 一致）。
+> **v1.3.0 注意：** 旧版 dsh-palm / dsh-remote-web-ui 已配对的设备**不会**沿用（设备存储已移至 `dsh-palm-devices.json`、settings namespace 已改名）——升级后需重新扫码配对一次。
 
 ### PWA 平台支持（真机实测）
 
@@ -266,7 +266,7 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 自 **1.0.0** 起，dsh-palm 自身的协议向后兼容：
 
 - `/m/api` 方法面与 mux/queue/jobs 帧格式只会**新增**方法/帧——既有方法保持语义不变（破坏性变更需升主版本）
-- dsh-palm 运行在 DSH 宿主 API 之上（`dsh-host-apiproxy` 等，当前 `0.1.1-rc` 线）。对宿主 API 变化的适配经预验证升级流程合入，**不视为** dsh-palm 自身协议的破坏性变更——宿主 `rc` 线本身不承诺稳定
+- dsh-palm 运行在 DSH 宿主 API 之上（当前 `0.1.5-rc` 线）。对宿主 API 变化的适配经预验证升级流程合入，**不视为** dsh-palm 自身协议的破坏性变更——宿主 `rc` 线本身不承诺稳定
 
 ## 项目文档
 
