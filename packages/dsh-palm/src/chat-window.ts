@@ -38,10 +38,12 @@
  *   desktop client applies).
  */
 
-import type { ApiProxy, RpcRequest, SessionProjectionsBlock } from './api-proxy-types.ts'
-import { RpcId } from './api-proxy-types.ts'
+import type { ApiProxy } from './api-proxy-types'
+import type { RpcRequest } from './api-proxy-types'
+import { RpcId } from './api-proxy-types'
 import { EventFolder, foldEvents, foldTodoEvent, foldTodoSnapshot, lastOpenTurnStartTime } from './mobile/messages.ts'
 import type { RenderMessage, TodoSnapshot, WireEvent } from './mobile/messages.ts'
+import type { SessionProjectionsBlock } from './api-proxy-types'
 
 /** Windows kept per process (sessions a phone actually opened, worst case). */
 export const WINDOW_LIMIT = 20
@@ -119,7 +121,7 @@ export function defaultChatHistoryFetcher(apiProxy: ApiProxy): ChatHistoryFetche
     }
     const value = response.result.value
     return {
-      events: value.events as unknown as ChatHistoryPage['events'],
+      events: value.events,
       hasMore: value.hasMore,
       ...(value.projections === undefined ? {} : { projections: value.projections }),
     }

@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useState } from 'react'
-import type { SettingsNamespaceView, AgentPresetEntry } from '../../api-proxy-types'
+import type { SettingsNamespaceView } from '../../api-proxy-types'
+import type { AgentPresetEntry } from '../../api-proxy-types'
 import { listAgentPresets, mutateSettings } from '../api.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { fieldMeta } from '../settings-meta.ts'

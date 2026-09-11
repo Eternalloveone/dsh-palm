@@ -1,4 +1,5 @@
-import type { MuxFrame, RpcRequest } from './api-proxy-types.ts'
+import type { MuxFrame } from './api-proxy-types'
+import type { RpcRequest } from './api-proxy-types'
 
 export interface PendingApproval {
   rpcId: string

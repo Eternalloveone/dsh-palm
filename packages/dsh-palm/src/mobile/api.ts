@@ -5,7 +5,10 @@
  * rpc/mux layers).
  */
 
-import type { WorkspaceView, AgentPresetEntry, SessionSummary, SessionModels, SessionProjectionsBlock, SubagentCatalog } from '../api-proxy-types'
+import type { WorkspaceView } from '../api-proxy-types'
+import type { AgentPresetEntry } from '../api-proxy-types'
+import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '../api-proxy-types'
+import type { SubagentCatalog } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
 import type { PromptPart } from './image.ts'

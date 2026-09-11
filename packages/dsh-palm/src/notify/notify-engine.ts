@@ -8,7 +8,7 @@
  * every delivery channel sees identical semantics.
  */
 
-import { RpcId } from '../api-proxy-types.ts'
+import { RpcId } from '../api-proxy-types'
 import type { NotifyStore } from './notify-store.ts'
 
 /** What happened; drives the notification copy. */
