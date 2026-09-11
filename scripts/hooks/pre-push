@@ -1,33 +1,20 @@
 #!/bin/sh
 # dsh-palm pre-push gate: repo hygiene scan + full test suite + commitlint.
 # Runs before every push so leaks and regressions never leave the machine.
+#
+# The gate itself lives in packages/dsh-palm/scripts/verify.mjs — the same
+# implementation `pnpm verify` uses for the full CI mirror, so the hook and
+# the runner cannot drift apart.
+#
+#   --hygiene-rev HEAD      scan the commits being pushed, not the work tree
+#   --allow-missing-regex   let a machine without ~/.dsh/repo-guard.regex push
+#                           anyway; `pnpm verify` stays strict, so a release
+#                           can never pass silently without the scan
+#
+# The test step strips the proxy environment variables, so exporting a proxy
+# in the shell (to reach GitHub) no longer fails the suite.
+#
 # Enable with: git config core.hooksPath scripts/hooks
 set -e
 
-echo "[pre-push] repo hygiene scan"
-# Pattern list lives OUTSIDE the repository at ~/.dsh/repo-guard.regex so the
-# real identifiers never enter the tree. Without it the scan is skipped and a
-# warning is printed.
-GUARD_RE="$(cat ~/.dsh/repo-guard.regex 2>/dev/null || true)"
-if [ -z "$GUARD_RE" ]; then
-  echo "[pre-push] WARN: ~/.dsh/repo-guard.regex missing; hygiene scan skipped" >&2
-elif git grep -n -i -E "$GUARD_RE" HEAD -- . ':(exclude)pnpm-lock.yaml'; then
-  echo "[pre-push] FAIL: leaked local paths or IPs found (see above)" >&2
-  exit 1
-fi
-
-echo "[pre-push] full test suite"
-(cd packages/dsh-palm && pnpm test)
-
-echo "[pre-push] commitlint"
-# Check every commit this push carries (not just HEAD~1..HEAD): the GitHub
-# CI runs commitlint with failOnErrors, so a message that passes locally but
-# fails remotely must never leave the machine. `|| true` was removed after
-# three pushes slipped through with over-long body lines and red CI.
-if git rev-parse --verify origin/main >/dev/null 2>&1; then
-  npx --prefix "$(pwd)" commitlint --from origin/main --to HEAD
-else
-  npx --prefix "$(pwd)" commitlint --from HEAD~1 --to HEAD
-fi
-
-echo "[pre-push] ok"
+exec node packages/dsh-palm/scripts/verify.mjs --profile push --hygiene-rev HEAD --allow-missing-regex

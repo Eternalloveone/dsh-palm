@@ -82,6 +82,40 @@ describe('PendingTracker question shape (mobile.pending polling fallback)', () =
     } as never)
     expect(tracker.pending('s1').questions).toHaveLength(0)
   })
+
+  it('replaces the previous batch when a new ask arrives for the same session', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // rpc-ask-1 → q1 + q2
+    tracker.onFrame({
+      rpcId: 'rpc-ask-2',
+      payload: {
+        type: 'question/requested',
+        sessionId: 's1',
+        questions: [{ id: 'q9', question: '再确认一次？' }],
+      },
+    } as never)
+
+    // ask() blocks on the host, so a session never holds two unanswered
+    // batches. Keeping the older one would render it next to the new one and
+    // leave it unanswered forever — the panel echoes a single rpcId.
+    expect(tracker.pending('s1').questions).toEqual([
+      { rpcId: 'rpc-ask-2', id: 'q9', question: '再确认一次？' },
+    ])
+    expect(tracker.ownerOfRpcId('rpc-ask-1')).toBeUndefined()
+    expect(tracker.ownerOfRpcId('rpc-ask-2')).toBe('s1')
+  })
+
+  it('leaves another session\'s batch alone when a new ask arrives', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // s1: q1 + q2
+    tracker.onFrame({
+      rpcId: 'rpc-ask-9',
+      payload: { type: 'question/requested', sessionId: 's2', questions: [{ id: 'q1', question: '别的会话' }] },
+    } as never)
+
+    expect(tracker.pending('s1').questions).toHaveLength(2)
+    expect(tracker.pending('s2').questions).toHaveLength(1)
+  })
 })
 
 describe('PendingTracker.ownerOfRpcId (mobile.respond ownership binding)', () => {

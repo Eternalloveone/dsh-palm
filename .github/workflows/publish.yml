@@ -40,6 +40,19 @@ jobs:
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
+      - name: Check the tag matches the declared version
+        # npm publishes the version declared in package.json, not the tag name,
+        # so a tag that disagrees would ship the wrong number under a plausible
+        # name (v1.3.3 carrying 1.3.2's contents). Only a tag push can be
+        # inconsistent — workflow_dispatch exists to back-fill old versions.
+        if: github.event_name == 'push'
+        run: |
+          declared=$(node -p "require('./packages/dsh-palm/package.json').version")
+          if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the declared version v$declared"
+            exit 1
+          fi
+          echo "::notice::tag $GITHUB_REF_NAME matches the declared version v$declared"
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Quality gate
@@ -96,6 +109,17 @@ jobs:
         with:
           node-version: 22
           registry-url: 'https://npm.pkg.github.com'
+      - name: Check the tag matches the declared version
+        # Same guard as the npmjs job: GitHub Packages also publishes the
+        # declared version, and a mislabelled tag must not reach either channel.
+        if: github.event_name == 'push'
+        run: |
+          declared=$(node -p "require('./packages/dsh-palm/package.json').version")
+          if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the declared version v$declared"
+            exit 1
+          fi
+          echo "::notice::tag $GITHUB_REF_NAME matches the declared version v$declared"
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Build

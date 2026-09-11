@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-12
+
+### Added
+
+- **`pnpm verify` — the local CI mirror** (`packages/dsh-palm/scripts/verify.mjs`). One command runs the gates both CI jobs run: frozen-lockfile install, build, the coverage thresholds, typecheck, the production dependency audit, the repository hygiene scan, the package content check (no test files in the tarball, every `main`/`types`/`exports` target present) and commitlint. The test steps strip the proxy environment variables, so a proxy exported in the shell can no longer fail a suite that asserts its own direct-connection fallback.
+- **A release driver** (`scripts/release.mjs`), dry-run by default: six preflight checks (version format, `package.json` agreement, a CHANGELOG section that actually has entries, a free tag, HEAD at the previous tag, work to release), a build followed by a check that the version really is inlined into `lib/mobile.js`, the full local gate, then the plan. `--apply` commits and tags, `--apply --push` pushes, `--gh-release` creates the GitHub Release from the CHANGELOG section, and `--check <version> [--wait]` verifies CI and the registry afterwards. It supersedes the skill-side driver, which squashed, force-pushed and published by hand.
+
+### Changed
+
+- **CI, the pre-push hook and the local gate are one implementation now.** `ci.yml` calls `pnpm verify --only build,coverage,typecheck,audit` (and `--only hygiene`, the pattern list arriving through `REAL_IDS_REGEX`, and `--only pack`) instead of restating those commands, and the hook runs the mirror's `--profile push` subset, so a local pass and a green runner can no longer disagree.
+- **A tag can no longer disagree with the declared version.** Both publish jobs assert `v<package.json version> == github.ref_name` before anything is released: npm and GitHub Packages publish the *declared* version, not the tag name, so a mislabelled tag would have shipped one version's contents under another's name.
+
+### Fixed
+
+- **The phone could show two identical question panels, and the panel came back right after it was answered** — `mobile.pending` is served by a tracker that is only fed from a live phone SSE loop, so a batch answered while the page was hidden (or answered from the desktop) survived in it as a ghost. The poll then handed that batch back next to the live ask: the panel rendered both groups, and its single submit button could only echo one rpcId — the other batch stayed pending, so the panel reappeared on the next poll. A new ask now replaces that session's previous batch (the host's `ask()` blocks, so a session never holds two unanswered batches at once), the panel renders only the newest batch, and every poll adoption drops the rpcIds this phone already answered.
+
 ## [1.3.2] - 2026-09-11
 
 ### Added

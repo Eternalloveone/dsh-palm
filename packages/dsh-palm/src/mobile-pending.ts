@@ -88,6 +88,18 @@ export class PendingTracker {
       // A replayed/duplicate frame (SSE reconnect window) must not enqueue
       // the same question twice: key by the originating rpcId.
       if (state.questions.some(question => question.rpcId === frame.rpcId)) return
+      // A new ask REPLACES the session's previous batch. The host's ask() is
+      // blocking — the agent waits for the answer before it can ask again — so
+      // one session never has two unanswered batches at once, exactly like the
+      // live frame path (ChatView adopts a question/requested frame whole).
+      // Without this reset a batch that was resolved while this tracker was not
+      // listening (it is only fed by a live phone SSE loop, so a backgrounded
+      // phone or a desktop-side answer loses the resolved frame) lingers as a
+      // ghost: the poll then returns it next to the current batch, the phone
+      // renders both groups, and its single submit button only answers the
+      // first one — the panel comes back on the very next poll.
+      if (payload.questions.length === 0) return
+      state.questions = []
       // Flatten to the frame's own shape: one entry per question, rpcId
       // alongside the question fields (see PendingQuestion above).
       for (const item of payload.questions) {

@@ -11,6 +11,7 @@ import type { SessionModels } from '../api-proxy-types'
 import { errorText, staleHostHint } from './views/App.tsx'
 import { models, selectModel, sendCommand, respondApproval, respondQuestion, type CommandDescriptor } from './api.ts'
 import type { PendingApproval, PendingQuestionItem } from './api.ts'
+import { latestBatchOf } from './question-batches.ts'
 import { Sheet } from './sheet.tsx'
 
 /** One switchable permission preset (the `permissions` projection shape). */
@@ -405,16 +406,22 @@ function batchKeyOf(questions: PendingQuestionItem[]): string {
   return questions.map(q => `${q.rpcId}\u0000${q.id}`).join('|')
 }
 
-/** Question panel: renders one or more questions with option pickers and a submit button. */
+/** Question panel: renders ONE ask (all of its questions) with option pickers
+ * and a single submit button. */
 export function QuestionPanel({ questions, sessionId, onResolved }: {
   questions: PendingQuestionItem[]
   sessionId: string
-  onResolved(): void
+  onResolved(rpcId: string): void
 }) {
+  // One panel = one ask (see question-batches.ts): a stale batch from an older
+  // ask must never share the panel — its rows read as a duplicate question
+  // while the single submit button can only echo one rpcId, so the other batch
+  // would stay pending and be polled straight back in.
+  const batch = latestBatchOf(questions)
   const [selections, setSelections] = useState<Map<string, { selected: string[]; custom: string }>>(
-    () => new Map(questions.map(q => [q.id, { selected: [], custom: '' }])),
+    () => new Map(batch.map(q => [q.id, { selected: [], custom: '' }])),
   )
-  const [batchKey, setBatchKey] = useState<string>(() => batchKeyOf(questions))
+  const [batchKey, setBatchKey] = useState<string>(() => batchKeyOf(batch))
   const [busy, setBusy] = useState(false)
   const [panelError, setPanelError] = useState<string | undefined>(undefined)
 
@@ -424,11 +431,11 @@ export function QuestionPanel({ questions, sessionId, onResolved }: {
   // weak-network poll returns a fresh array every tick and must not wipe
   // the user's in-progress selections.
   useEffect(() => {
-    const key = batchKeyOf(questions)
+    const key = batchKeyOf(batch)
     if (key === batchKey) return
     setBatchKey(key)
-    setSelections(new Map(questions.map(q => [q.id, { selected: [], custom: '' }])))
-  }, [questions, batchKey])
+    setSelections(new Map(batch.map(q => [q.id, { selected: [], custom: '' }])))
+  }, [batch, batchKey])
 
   const toggle = (questionId: string, label: string, multi: boolean): void => {
     setSelections(previous => {
@@ -457,14 +464,12 @@ export function QuestionPanel({ questions, sessionId, onResolved }: {
   const submit = (): void => {
     if (busy) return
     // An empty batch (the frame/panel raced a resolution) resolves as a
-    // no-op instead of crashing on questions[0].
-    if (questions.length === 0) {
-      onResolved()
-      return
-    }
+    // no-op instead of crashing on batch[0].
+    if (batch.length === 0) return
+    const rpcId = batch[0].rpcId
     setBusy(true)
     setPanelError(undefined)
-    const answers = questions.map(q => {
+    const answers = batch.map(q => {
       const entry = selections.get(q.id) ?? { selected: [], custom: '' }
       return {
         id: q.id,
@@ -472,9 +477,10 @@ export function QuestionPanel({ questions, sessionId, onResolved }: {
         ...(entry.custom.trim() !== '' ? { custom: entry.custom.trim() } : {}),
       }
     })
-    // One batch per ask, echoing the question/requested frame's rpcId.
-    void respondQuestion(questions[0].rpcId, sessionId, { answers }).then(
-      () => { onResolved() },
+    // One batch per ask, echoing the question/requested frame's rpcId — the
+    // one this panel is actually showing.
+    void respondQuestion(rpcId, sessionId, { answers }).then(
+      () => { onResolved(rpcId) },
       (reason: unknown) => {
         setBusy(false)
         setPanelError(reason instanceof Error ? reason.message : String(reason))
@@ -484,7 +490,7 @@ export function QuestionPanel({ questions, sessionId, onResolved }: {
 
   return (
     <div className="chat-question-panel" role="form" aria-label="问题">
-      {questions.map(q => {
+      {batch.map(q => {
         const entry = selections.get(q.id) ?? { selected: [], custom: '' }
         return (
           <div className="chat-question-group" key={q.id}>

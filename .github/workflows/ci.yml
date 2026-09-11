@@ -11,6 +11,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # Mirrored locally by `pnpm verify` (packages/dsh-palm/scripts/verify.mjs),
+    # which runs these same steps before a commit instead of after a push.
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -29,24 +31,18 @@ jobs:
         with:
           configFile: commitlint.config.mjs
           failOnErrors: true
-      - name: Build
+      - name: Build, coverage gate, typecheck, audit
         working-directory: packages/dsh-palm
-        run: pnpm build
-      - name: Test with coverage gate
-        working-directory: packages/dsh-palm
-        # Thresholds in vitest.config.ts fail the run on coverage regressions.
-        run: pnpm vitest run --coverage
-      - name: Typecheck
-        working-directory: packages/dsh-palm
-        run: pnpm typecheck
-      - name: Audit production dependencies
-        # Fails the gate on any known vulnerability in the runtime tree
-        # (workspace root lockfile; dev tooling excluded).
-        run: pnpm audit --prod
+        # One step, one implementation: `pnpm verify` is the same gate the
+        # maintainer runs before a commit (packages/dsh-palm/scripts/verify.mjs),
+        # so the local check and the runner cannot drift apart. Coverage
+        # thresholds live in vitest.config.ts; the audit covers the runtime
+        # tree of the root lockfile (dev tooling excluded).
+        run: pnpm verify --only build,coverage,typecheck,audit
 
-  # Release preflight: the checks release.mjs runs at publish time, moved
-  # forward to every push so a leak or packaging problem is caught by CI
-  # long before a release is attempted.
+  # Release preflight: the checks `node scripts/release.mjs <version>` runs at
+  # release time (the same ones `pnpm verify` runs), moved forward to every
+  # push so a leak or packaging problem is caught long before a release.
   release-preflight:
     runs-on: ubuntu-latest
     steps:
@@ -56,21 +52,24 @@ jobs:
         with:
           fetch-depth: 0
       - name: Repo hygiene scan
-        # Same pattern set as release.mjs's HYGIENE: local machine paths,
-        # project codenames, the frp server IP, the tailnet domain, and the
-        # maintainer's email addresses must never land in the repository
-        # (docs/screenshots/tests included). The pattern list is injected via
-        # the REAL_IDS_REGEX repository secret so the values never appear in
-        # the repository itself.
-        run: |
-          if git grep -n -i -E '${{ secrets.REAL_IDS_REGEX }}' HEAD -- . ':(exclude)pnpm-lock.yaml' ':(exclude).gitleaks.toml' ':(exclude).github/workflows/ci.yml' ':(exclude)scripts/hooks/pre-push'; then
-            echo "::error::repo hygiene scan found leaked local paths or IPs"
-            exit 1
-          fi
+        working-directory: packages/dsh-palm
+        # Local machine paths, project codenames, the frp server IP, the
+        # tailnet domain and the maintainer's email addresses must never land
+        # in the repository (docs/screenshots/tests included). The pattern list
+        # is injected via the REAL_IDS_REGEX secret so the values never appear
+        # in the repository itself — and the scan is the same
+        # `pnpm verify --only hygiene` the maintainer runs locally, which owns
+        # the excludes and the exit semantics (a match fails the step).
+        env:
+          DSH_PALM_GUARD_REGEX: ${{ secrets.REAL_IDS_REGEX }}
+        run: pnpm verify --only hygiene
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Package content check
         working-directory: packages/dsh-palm
-        run: npm pack --dry-run
+        # `pnpm verify --only pack` adds the two checks the release convention
+        # needs on top of the bare dry run: no test files in the tarball, and
+        # every main/types/exports target present in the file list.
+        run: pnpm verify --only pack

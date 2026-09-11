@@ -75,3 +75,32 @@ and remember that the maintainer responds on a best-effort basis.
 The maintainer cuts releases from `main` with `vX.Y.Z` tags; the changelog
 lives in [CHANGELOG.md](CHANGELOG.md). If you depend on this package,
 pin a release tag rather than `main`.
+
+**One commit per version.** A version's work stays uncommitted until release,
+then becomes a single `vX.Y.Z: release dsh-palm (…)` commit plus an annotated
+tag — no history rewriting, no force pushes.
+
+```powershell
+# after bumping packages/dsh-palm/package.json and writing the CHANGELOG section
+pnpm verify                                       # the same gate CI runs, locally
+node scripts/release.mjs 1.3.3 --summary "a, b"   # dry run: checks + plan
+node scripts/release.mjs 1.3.3 --apply --push     # commit + tag + push
+node scripts/release.mjs --check 1.3.3 --wait     # CI and registry verification
+```
+
+- `pnpm verify` (`packages/dsh-palm/scripts/verify.mjs`) mirrors both CI jobs —
+  install, build, coverage thresholds, typecheck, production audit, the repo
+  hygiene scan, package contents and commitlint. **CI calls the same script**
+  (`pnpm verify --only …`), so the local gate and the runner cannot drift apart.
+  The pre-push hook runs its `--profile push` subset.
+- Pushing the tag is what publishes: `.github/workflows/publish.yml` releases to
+  npmjs and GitHub Packages. It is idempotent (a version already on the registry
+  is skipped) and refuses to publish when the tag disagrees with the version
+  declared in `package.json`.
+- `scripts/release.mjs` is dry-run by default; `--apply` commits and tags,
+  `--apply --push` pushes, `--gh-release` also creates the GitHub Release.
+  Everything it writes (commit body, tag message, release notes) comes from the
+  CHANGELOG section for that version.
+- The registry lags a publish by a few minutes, and its packument lags its
+  version document — verify with `--check`, which asks for the version document
+  and the tarball rather than `npm view versions`.
