@@ -28,6 +28,8 @@ import { makeRoutes } from './routes.ts'
 import { makeMobileRoutes } from './mobile-routes.ts'
 import { makeMobileApiRoutes } from './mobile-api.ts'
 import { makeApiProxyAdapter } from './api-proxy-adapter.ts'
+import { SessionObserverRegistry } from './api-proxy-observe.ts'
+import { DependencyDiagnostics } from './api-proxy-diag.ts'
 import { ChatWindowService, defaultChatHistoryFetcher } from './chat-window.ts'
 import { PreviewCacheService } from './preview-cache.ts'
 import { NotifyEngine, type NotifyService } from './notify/notify-engine.ts'
@@ -257,7 +259,20 @@ function applyImpl(ctx: Context, config?: Config): void {
   // (sessionController / workspaceController / settingsController /
   // agentPresets / subagents) back into the apiProxy shape every downstream
   // consumer here expects.
-  const apiProxy = makeApiProxyAdapter(ctx)
+  // 手机端"正在看哪个会话"的登记表：一条纯路由表——按设备过滤 SSE，并决定翻译
+  // 哪些会话的助手流（见 api-proxy-observe.ts）。
+  const observers = new SessionObserverRegistry()
+  // 依赖自检：palm 与宿主的耦合点都是内部契约，升级时可能静默失效（订阅都在
+  // try/catch 里降级），所以把"注册成功 + 运行期帧数"变成可见状态。
+  const diagnostics = new DependencyDiagnostics()
+  const apiProxy = makeApiProxyAdapter(ctx, observers, diagnostics)
+  // 依赖自检：注册结果立即可得，但帧计数要等运行期才有意义（control 的 baseline
+  // 也是异步到的），所以推迟 3 秒打一行——setup 瞬间打只会得到一片 0 帧，反而像坏了。
+  // unref 保证这个一次性定时器不会拖住进程退出。运行期实时数字在手机端「关于」里看。
+  const diagnosticsTimer = setTimeout(() => {
+    console.log(`[dsh-palm] 依赖自检（启动 3s）${diagnostics.summary()}`)
+  }, 3000)
+  diagnosticsTimer.unref?.()
   // The completion-notify feature: one store (config + push subscriptions)
   // and one decision engine per plugin lifetime. The engine's host mux watch
   // is the same pattern as the pending tracker below; it starts with the
@@ -325,6 +340,8 @@ function applyImpl(ctx: Context, config?: Config): void {
         return makeMobileApiRoutes({
           service,
           apiProxy,
+          observers,
+          diagnostics,
           pendingTracker,
           chatWindows,
           previews,

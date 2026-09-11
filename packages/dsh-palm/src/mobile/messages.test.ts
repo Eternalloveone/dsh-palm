@@ -405,6 +405,81 @@ describe('foldEvents', () => {
     expect(second[0]).toMatchObject({ id: 'u-1', text: '第二版', sourceKind: 'plugin' })
   })
 
+  it('folds image attachments off a user message into images', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', {
+        id: 'u-img',
+        role: 'user',
+        content: [
+          { type: 'text', text: '测试一下，这是什么东西' },
+          {
+            type: 'image',
+            attachment: {
+              attachmentId: 'sha256:abc',
+              mediaType: 'image/jpeg',
+              width: 810,
+              height: 1440,
+              bytes: 52627,
+              name: '1000244807.jpg',
+            },
+          },
+        ],
+        source: { kind: 'user' },
+      }, 0),
+    ]
+    const [message] = foldEvents(events)
+    expect(message?.text).toBe('测试一下，这是什么东西')
+    expect(message?.images).toEqual([{
+      attachmentId: 'sha256:abc',
+      mediaType: 'image/jpeg',
+      width: 810,
+      height: 1440,
+      bytes: 52627,
+      name: '1000244807.jpg',
+    }])
+  })
+
+  it('keeps an image-only user message alive with empty text', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', {
+        id: 'u-img-only',
+        role: 'user',
+        content: [{ type: 'image', attachment: { attachmentId: 'sha256:def', mediaType: 'image/png', width: 4, height: 4 } }],
+        source: { kind: 'user' },
+      }, 0),
+    ]
+    const [message] = foldEvents(events)
+    // 文本为空是正常的：渲染端靠 images 判定"这行有内容"，否则整行会被丢掉。
+    expect(message?.text).toBe('')
+    expect(message?.images).toHaveLength(1)
+    expect(message?.images?.[0]?.attachmentId).toBe('sha256:def')
+  })
+
+  it('skips image blocks without an id or media type, and leaves text-only rows without images', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', {
+        id: 'u-broken',
+        role: 'user',
+        content: [{ type: 'image', attachment: { mediaType: 'image/png' } }],
+        source: { kind: 'user' },
+      }, 0),
+      makeEvent('user/message', userMessageData('u-plain', '只有文字'), 1),
+    ]
+    const result = foldEvents(events)
+    expect(result[0]?.images).toBeUndefined()
+    expect(result[1]?.images).toBeUndefined()
+  })
+
+  it('keeps images on a replayed/replaced user/message', () => {
+    const content = [
+      { type: 'text', text: '带图' },
+      { type: 'image', attachment: { attachmentId: 'sha256:keep', mediaType: 'image/webp', width: 2, height: 2 } },
+    ]
+    const first = foldEvents([makeEvent('user/message', { id: 'u-1', role: 'user', content, source: { kind: 'user' } }, 0)])
+    const second = foldEvents([makeEvent('user/message', { id: 'u-1', role: 'user', content, source: { kind: 'user' } }, 1)], first)
+    expect(second[0]?.images?.[0]?.attachmentId).toBe('sha256:keep')
+  })
+
   it('request/context and unknown events are still ignored by the fold', () => {
     const events: WireEvent[] = [
       makeEvent('some/future-event', { nope: true }, 0),

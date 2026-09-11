@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-11
+
+### Added
+
+- **Dependency self-check** — the eleven host contracts palm depends on (three bus events, the five `api-session/*` list events, four session methods) are registered at setup and counted at runtime. One line lands in the startup log; the phone's About sheet lists them with a refresh button. Registration alone proves nothing (cordis accepts unknown event names), so a frame count that stays at 0 is the real signal — a DSH upgrade can no longer fail silently.
+- **Token-level assistant streaming** for the session the phone has open — translated off the host `agent/assistant-stream` bus into durable-shaped `assistant/chunk` events with fractional seqs, so the phone's fold and renderer needed no changes.
+- **Session-list live state** — the host's `api-session/added|removed|status|activity|error` events are mirrored onto the mux, so roster rows no longer wait for the next fetch.
+
+### Changed
+
+- **Assistant streaming reads the host bus instead of running a follow** — the session-controller's own follow branch is a filtered re-export of that event (`history.ts:166-174`), so palm was paying for a middleman: per-session follows, exponential reconnect and revision-continuity bookkeeping are all gone, and the durable cursor now comes from the live session offset.
+- **Per-device SSE filtering** — a device's stream carries only the session it has open plus control / list / approval frames, so other sessions' `tool/result` payloads no longer ride the tunnel.
+- **History cursors refresh on read** — the permanent per-session `throughSeq` cache is gone (1s TTL, forced-fresh reads, in-flight de-duplication) and chat windows revalidate when read, so a stale cursor can no longer strand the phone behind the desktop.
+
+### Fixed
+
+- **Chat images never appeared on the phone** — 0.1.5 stores an image as a durable reference (`{ type: 'image', attachment: { attachmentId, … } }`), not inline bytes; the fold kept only text, so an image-only message folded to empty text and the row's empty-guard dropped it entirely (the desktop resolves the reference separately, which is why it looked fine there). Images are now folded, rendered as tiles (tap for the full-screen view) and read on demand through `mobile.readAttachment` → the host's session-authorized `session.attachment`, cached by content-addressed id on both ends.
+- **Abandoned attempts left their half-written text on screen** — an abandoned attempt has no durable settlement, so its pending row lingered until `turn/end`; the translated stream now deletes it as soon as the attempt is abandoned.
+- **Session events could go missing** — `session/event` was not attached to the mux after the 0.1.5 adaptation, so message-level live updates silently fell back to polling.
+
 ## [1.3.0] - 2026-09-11
 
 ### Added

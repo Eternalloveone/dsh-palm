@@ -332,6 +332,14 @@ export type MuxFrame =
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   | { type: 'session/jobs'; sessionId: SessionId; jobs: JobView[] }
   | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
+  // 会话列表的实时状态：宿主 `api-session/*` 五事件的镜像（桌面端消费同一批，
+  // session-controller client/index.ts:102-110）。手机端的列表原来是拉取驱动，
+  // 于是桌面端新建/关闭的会话、running 点、活动时间要等一次列表拉取才更新。
+  | { type: 'session/added'; summary: SessionSummary }
+  | { type: 'session/removed'; sessionId: SessionId }
+  | { type: 'session/status'; sessionId: SessionId; running: boolean }
+  | { type: 'session/activity'; sessionId: SessionId; updatedAt: number }
+  | { type: 'session/error'; sessionId: SessionId; message: string }
   | { type: 'stream/error'; error: RpcError }
 
 /**
@@ -356,6 +364,11 @@ const MUX_FRAME_TYPES = new Set<string>([
   'session/queue',
   'session/jobs',
   'session/projection',
+  'session/added',
+  'session/removed',
+  'session/status',
+  'session/activity',
+  'session/error',
   'stream/error',
 ])
 
@@ -389,7 +402,7 @@ export type HostFrame =
 export interface ApiProxy {
   sessions: {
     list(request: RpcRequest<{ cursor?: string }>): Promise<RpcResponse<{ items: SessionSummary[] }>>
-    history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>): Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
+    history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number; fresh?: boolean }>): Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
     search(request: RpcRequest<{ query: string }>, signal: AbortSignal): Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>>
     create(request: RpcRequest<{ workspaceId?: string; cwd?: string; sessionId?: SessionId; agentPreset?: string }>): Promise<RpcResponse<{ sessionId: SessionId; agentPreset?: string }>>
     prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: unknown[]; clientTimeZone?: string }>): Promise<RpcResponse<{ accepted: true }>>
@@ -417,7 +430,11 @@ export interface ApiProxy {
     mutate(request: RpcRequest<{ ns: string; ops: SettingsPathOpView[]; expectedRevision?: number }>): Promise<RpcResponse<SettingsNamespaceView>>
   }
   events: {
-    mux(request: RpcRequest<{ since?: Record<SessionId, number> }>, signal: AbortSignal): AsyncIterable<RpcRequest<MuxFrame>>
+    mux(
+      request: RpcRequest<{ since?: Record<SessionId, number> }>,
+      signal: AbortSignal,
+      accept?: (frame: MuxFrame) => boolean,
+    ): AsyncIterable<RpcRequest<MuxFrame>>
   }
   respond(message: ClientResponse): Promise<RpcReceipt>
 }

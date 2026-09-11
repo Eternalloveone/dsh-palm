@@ -4,7 +4,7 @@
  * page prepend, bounds (LRU + row cap), and the mux-frame router.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { ChatWindowService, WINDOW_LIMIT, WINDOW_ROW_LIMIT } from './chat-window.ts'
+import { ChatWindowService, WINDOW_LIMIT, WINDOW_REVALIDATE_MS, WINDOW_ROW_LIMIT } from './chat-window.ts'
 import type { ChatHistoryFetcher } from './chat-window.ts'
 import type { SessionProjectionsBlock } from './api-proxy-types'
 import type { WireEvent } from './mobile/messages.ts'
@@ -40,8 +40,12 @@ function fakeFetcher(pages: Array<{
   events?: Array<{ event: WireEvent; view?: unknown }>
 }> = []) {
   const calls: Array<{ sessionId: string; beforeSeq: number | undefined; maxMessages: number }> = []
-  const fetcher: ChatHistoryFetcher = async (sessionId, beforeSeq, maxMessages) => {
+  /** The `fresh` flag of every call, recorded separately so `calls` keeps its
+   *  exact-equality shape for the older assertions. */
+  const freshFlags: boolean[] = []
+  const fetcher: ChatHistoryFetcher = async (sessionId, beforeSeq, maxMessages, fresh) => {
     calls.push({ sessionId, beforeSeq, maxMessages })
+    freshFlags.push(fresh === true)
     const page = pages.shift() ?? { hasMore: false }
     return {
       events: page.events ?? turnEvents(),
@@ -49,7 +53,7 @@ function fakeFetcher(pages: Array<{
       ...(page.projections === undefined ? {} : { projections: page.projections }),
     }
   }
-  return { fetcher, calls }
+  return { fetcher, calls, freshFlags }
 }
 
 /** The tail texts of the folded rows (assistant/user concatenation check). */
@@ -288,5 +292,101 @@ describe('ChatWindowService', () => {
 
     service.handleEvent('s-1', entry('turn/start', {}, 12).event)
     expect((await service.tail('s-1', 25)).todo).toBeUndefined()
+  })
+
+  // ── Read-time revalidation (the push feed is the fast path, not the truth) ──
+
+  it('reads the log fresh on a cold install (the install page cannot be cursor-capped)', async () => {
+    const { fetcher, freshFlags } = fakeFetcher([{ hasMore: false }])
+    const service = new ChatWindowService(fetcher)
+    await service.tail('s-1', 25)
+    expect(freshFlags).toEqual([true])
+  })
+
+  it('catches a silent window up from the log once past the revalidation window', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      // Cold install leaves the window holding seqs 0..4. The feed then dies —
+      // nothing ever calls handleEvent again — while the log grows to 100..104.
+      const { fetcher, calls, freshFlags } = fakeFetcher([
+        { hasMore: false },
+        { hasMore: false, events: turnEvents(1) },
+      ])
+      const service = new ChatWindowService(fetcher)
+      const cold = await service.tail('s-1', 25)
+      expect(cold.rows.map(row => row.seq)).toEqual([0, 4])
+
+      // Inside the window a read is still served from memory: zero log reads.
+      vi.setSystemTime(1_700_000_000_000 + WINDOW_REVALIDATE_MS - 1)
+      await service.tail('s-1', 25)
+      expect(calls).toHaveLength(1)
+
+      // Past it the read heals itself: the hole (5..99 is missing from the
+      // fresh page) rebuilds the window from that page rather than folding it.
+      vi.setSystemTime(1_700_000_000_000 + WINDOW_REVALIDATE_MS)
+      const healed = await service.tail('s-1', 25)
+      expect(calls).toHaveLength(2)
+      expect(freshFlags).toEqual([true, true])
+      expect(healed.rows.map(row => row.seq)).toEqual([100, 104])
+      expect(healed.maxSeq).toBe(104)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('folds a continuing fresh page instead of rebuilding it (older rows survive)', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      const { fetcher } = fakeFetcher([
+        { hasMore: false },
+        {
+          hasMore: false,
+          events: [
+            entry('assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: '继续' } }, 5),
+            entry('assistant/message', {
+              turn: 0,
+              step: 0,
+              message: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '新一段' }] },
+            }, 6),
+          ],
+        },
+      ])
+      const service = new ChatWindowService(fetcher)
+      await service.tail('s-1', 25)
+
+      vi.setSystemTime(1_700_000_000_000 + WINDOW_REVALIDATE_MS)
+      const page = await service.tail('s-1', 25)
+      // The window continues (5 sits directly above the watermark) — the fold
+      // path, not the rebuild path: the older user row is still there, so the
+      // page carries three rows rather than the fresh page's two.
+      expect(page.rows.map(row => row.seq)).toEqual([0, 5, 6])
+      expect(page.maxSeq).toBe(6)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves a good window intact when the revalidation read fails', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      let failing = false
+      const fetcher: ChatHistoryFetcher = async () => {
+        if (failing) throw new Error('log read failed')
+        return { events: turnEvents(), hasMore: false }
+      }
+      const service = new ChatWindowService(fetcher)
+      await service.tail('s-1', 25)
+
+      failing = true
+      vi.setSystemTime(1_700_000_000_000 + WINDOW_REVALIDATE_MS)
+      const page = await service.tail('s-1', 25)
+      expect(page.rows.map(row => row.seq)).toEqual([0, 4])
+      expect(page.maxSeq).toBe(4)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

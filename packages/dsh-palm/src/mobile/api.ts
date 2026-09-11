@@ -167,6 +167,44 @@ export async function latestVersion(): Promise<{ latest: string; isNewer: boolea
 }
 
 /**
+ * 读一张会话里引用过的图片，返回可直接放进 `<img src>` 的 data URL。
+ *
+ * 0.1.5 起图片字节不在会话事件里（事件只带 `attachmentId` 引用），宿主按
+ * "该会话确实引用过这张图"授权后才给字节；attachmentId 是内容寻址的 sha256，
+ * 宿主侧按 id 长期缓存，所以重复调用很便宜。
+ * @param sessionId - 授权与校验引用关系的会话。
+ * @param attachmentId - 事件里折出来的附件 id。
+ * @returns 媒体类型与 data URL。
+ */
+export async function readAttachment(sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }> {
+  return await callUnary<{ mediaType: string; dataUrl: string }>('mobile.readAttachment', { sessionId, attachmentId })
+}
+
+/** 一条宿主依赖的自检结果（手机端「关于」里的自检列表）。 */
+export interface DependencyCheckView {
+  /** 依赖名（总线事件名或 session 方法名）。 */
+  name: string
+  /** `event` = 宿主总线事件；`method` = 宿主 session 方法。 */
+  kind: 'event' | 'method'
+  /** setup 期：订阅是否被接受 / 方法是否存在。 */
+  ok: boolean
+  /** `ok === false` 时的原因。 */
+  reason?: string
+  /** 运行期收到过多少帧。 */
+  frames: number
+  /** 运行期最近一次收到的时刻（epoch ms）。 */
+  lastAt?: number
+}
+
+/**
+ * 依赖自检：宿主契约是否在位 + 各总线事件运行期收到过多少帧。
+ * 事件被改名或停发时订阅仍会成功，所以 `frames === 0` 才是"这条断了"的证据。
+ */
+export async function readDiagnostics(): Promise<{ checks: DependencyCheckView[]; now: number }> {
+  return await callUnary<{ checks: DependencyCheckView[]; now: number }>('mobile.diagnostics', {})
+}
+
+/**
  * Main-agent sessions whose attached agent is running right now (host-side
  * enumeration). The run-overview entry seeds its badge from this so a session
  * that started generating before the phone opened still counts — its
@@ -302,6 +340,18 @@ export async function readChat(
     ...(beforeSeq !== undefined ? { beforeSeq } : {}),
     ...(maxRows !== 25 ? { maxRows } : {}),
   }, signal)
+}
+
+/**
+ * Tell the host which session this phone has open (v3.4). The host keeps ONE
+ * `session.follow({assistantStream:true})` for the observed sessions — that is
+ * what makes the phone stream token-by-token like the desktop. The phone
+ * re-asserts on a slow cadence so a dropped SSE stream (which releases the
+ * registration host-side) heals without leaving the chat; `undefined` means
+ * the chat was left.
+ */
+export async function observeSession(sessionId: string | undefined, signal?: AbortSignal): Promise<void> {
+  await callUnary<unknown>('mobile.observe', sessionId === undefined ? {} : { sessionId }, signal)
 }
 
 /** One batch preview row (summary is '' when the session has no text yet). */

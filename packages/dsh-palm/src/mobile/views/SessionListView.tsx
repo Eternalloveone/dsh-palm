@@ -18,7 +18,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { AgentPresetEntry } from '../../api-proxy-types'
+import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
+import type { MuxClient } from '../mux.ts'
 import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, previews, searchAll, searchMessages, type SessionSearchHit } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
@@ -46,6 +48,8 @@ import { ChatBubbleIcon, CheckIcon, ChevronUpIcon, CloseIcon, HelpIcon, SearchIc
 /** Props for the session list. */
 export interface SessionListViewProps {
   workspace: WorkspaceRow
+  /** The live-event client, for the host's session-list frames. */
+  mux?: MuxClient | undefined
   /** Session carried by a notification deep link; opened after the list loads. */
   initialSessionId?: string
   /** Restore the in-list search surface when the app returns here after a
@@ -76,6 +80,111 @@ function pageItems(page: SessionSummary[], ownedIds: ReadonlySet<string>): Sessi
   return page
     .filter(item => ownedIds.has(String(item.sessionId)))
     .map(item => toSessionView(item))
+}
+
+/**
+ * Live session-list deltas, mirrored from the host's `api-session/*` events
+ * (see `session/added` … in the mux frame union). The fetched page stays the
+ * baseline; these patch it until the next fetch — without them the roster only
+ * moves when `sessions.list` is called again, so a session the desktop just
+ * created, finished or deleted would sit stale on the phone.
+ */
+interface LiveListState {
+  added: Map<string, SessionView>
+  status: Map<string, boolean>
+  activity: Map<string, number>
+  error: Map<string, string>
+  removed: Set<string>
+}
+
+function emptyLiveState(): LiveListState {
+  return { added: new Map(), status: new Map(), activity: new Map(), error: new Map(), removed: new Set() }
+}
+
+/** Whether a `session/added` summary belongs to the workspace on screen. The
+ *  roster filter is the workspace's owned id set, which predates a session
+ *  created after this list mounted — its cwd decides that case. */
+function belongsToWorkspace(summary: SessionSummary, workspace: WorkspaceRow): boolean {
+  if (workspace.sessionIds.includes(summary.sessionId)) return true
+  return summary.cwd !== undefined && summary.cwd === workspace.path
+}
+
+/** Fold one mux frame into the live deltas; false when it is not a list frame. */
+function applyListFrame(live: LiveListState, frame: MuxFrame, workspace: WorkspaceRow): boolean {
+  switch (frame.type) {
+    case 'session/added': {
+      const summary = frame.summary
+      if (summary === null || typeof summary !== 'object') return false
+      const id = String(summary.sessionId)
+      if (!belongsToWorkspace(summary, workspace)) return false
+      live.added.set(id, toSessionView(summary))
+      live.removed.delete(id)
+      return true
+    }
+    case 'session/removed': {
+      const id = String(frame.sessionId)
+      live.added.delete(id)
+      live.status.delete(id)
+      live.activity.delete(id)
+      live.error.delete(id)
+      live.removed.add(id)
+      return true
+    }
+    case 'session/status': {
+      const id = String(frame.sessionId)
+      live.status.set(id, frame.running)
+      // A session that runs again has moved past its failure.
+      if (frame.running) live.error.delete(id)
+      return true
+    }
+    case 'session/activity': {
+      live.activity.set(String(frame.sessionId), frame.updatedAt)
+      return true
+    }
+    case 'session/error': {
+      live.error.set(String(frame.sessionId), frame.message)
+      return true
+    }
+    default:
+      return false
+  }
+}
+
+/** One row with its live status/activity/error patches applied. */
+function patchRow(row: SessionView, live: LiveListState): SessionView {
+  const running = live.status.get(row.sessionId)
+  const updatedAt = live.activity.get(row.sessionId)
+  const error = live.error.get(row.sessionId)
+  // A session that runs again has moved past its failure. The mark may have
+  // been baked into the row by an earlier patch, so clearing the delta alone
+  // is not enough — this is where it gets dropped.
+  const dropError = running === true && row.error !== undefined
+  if (running === undefined && updatedAt === undefined && error === undefined && !dropError) return row
+  const next: SessionView = { ...row }
+  if (running !== undefined) next.running = running
+  if (updatedAt !== undefined) next.updatedAt = updatedAt
+  if (error !== undefined) next.error = error
+  else if (dropError) delete next.error
+  return next
+}
+
+/** Apply the live deltas to a baseline page, keeping the host's order (the
+ *  list is sorted by updatedAt desc — session-controller list.ts:142). */
+function applyLive(rows: SessionView[], live: LiveListState): SessionView[] {
+  if (live.added.size === 0 && live.removed.size === 0 && live.status.size === 0
+    && live.activity.size === 0 && live.error.size === 0) {
+    return rows
+  }
+  const out: SessionView[] = []
+  for (const row of rows) {
+    if (live.removed.has(row.sessionId)) continue
+    out.push(patchRow(row, live))
+  }
+  for (const [id, row] of live.added) {
+    if (out.some(existing => existing.sessionId === id)) continue
+    out.push(patchRow(row, live))
+  }
+  return out.sort((left, right) => right.updatedAt - left.updatedAt)
 }
 
 /** Which day bucket a session row falls into (list grouping). */
@@ -192,8 +301,10 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
  * @param props - the workspace, back action, and pick action.
  * @returns the session list.
  */
-export function SessionListView({ workspace, initialSessionId, initialSearch, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq, onSearchSnapshot, onSearchApplied }: SessionListViewProps) {
+export function SessionListView({ workspace, mux, initialSessionId, initialSearch, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq, onSearchSnapshot, onSearchApplied }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
+  /** Live list deltas (see {@link applyListFrame}), patched onto every page. */
+  const liveRef = useRef<LiveListState>(emptyLiveState())
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -339,6 +450,18 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
     )
   }, [])
 
+  // Live list frames: the host mirrors its `api-session/*` events onto the mux,
+  // so the roster tracks the desktop without a re-fetch. Registered before the
+  // first page load, so a frame landing mid-fetch is recorded and then applied
+  // on top of that page (the fetch itself stays authoritative).
+  useEffect(() => {
+    if (mux === undefined) return
+    return mux.onFrame((frame: MuxFrame) => {
+      if (!applyListFrame(liveRef.current, frame, workspace)) return
+      setRows(previous => applyLive(previous, liveRef.current))
+    })
+  }, [mux, workspace])
+
   // First page on mount (this workspace's sessions, paged). v3.2: when a
   // previous visit's rows are cached, they render IMMEDIATELY (no skeleton)
   // and the network refresh below re-validates in the background — returning
@@ -365,7 +488,7 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
       }
     }
     if (cached !== undefined) {
-      setRows(cached.rows)
+      setRows(applyLive(cached.rows, liveRef.current))
       cursorRef.current = cached.cursor
       setHasMore(cached.hasMore)
       setError(undefined)
@@ -395,7 +518,7 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
           onPick(target)
           return
         }
-        setRows(rows)
+        setRows(applyLive(rows, liveRef.current))
         setCachedList(key, { rows, cursor: page.nextCursor, hasMore: page.hasMore })
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
@@ -925,6 +1048,7 @@ export function SessionListView({ workspace, initialSessionId, initialSearch, on
                             <span className="sess-title">{row.title}</span>
                             {row.blank && <span className="sess-status">新</span>}
                             {row.running && <span className="sess-status">进行中</span>}
+                            {row.error !== undefined && <span className="sess-status" title={row.error}>出错</span>}
                             <span className="sess-sep" aria-hidden>·</span>
                             <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
                           </span>

@@ -982,8 +982,14 @@ describe('mobile api body failure contract (shared readBoundedJson)', () => {
           payload: { content: [{ type: 'image', mediaType: 'image/jpeg', data: 'A'.repeat(3 * 1024 * 1024) }] },
         }),
       )
-      expect(oversize.error).toBeNull()
-      expect(oversize.status).toBe(400)
+      // 3 MiB 的 body：服务端可能在客户端写完之前就 400 并断连，于是客户端要么拿到
+      // 干净的 400，要么拿到连接重置——两者都是"拒绝"。随后再打一次空 body 探针：
+      // 能拿回被解析过的 400 说明服务端在拒绝之后依然健康。这才是这条契约要守的
+      // 东西（原来只断言干净的 400，在全量并行跑时约每三次红一次）。
+      expect(oversize.status === 400 || oversize.error !== null).toBe(true)
+      const after = await rawPost(server.port, '/m/api/mobile.preferences', '')
+      expect(after.error).toBeNull()
+      expect(after.status).toBe(400)
     } finally {
       await server.close()
     }
@@ -1316,6 +1322,49 @@ describe('mobile.previews batch previews (v3.1)', () => {
       expect(envelope.result.ok).toBe(false)
       expect(envelope.result.error.code).toBe('internal')
       expect(envelope.result.error.message).not.toContain('secret')
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('mobile.readAttachment (chat images)', () => {
+  it('returns the data URL from the adapter for a session-authorized attachment', async () => {
+    const readAttachment = vi.fn(async () => ({ mediaType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,QUFB' }))
+    const imageProxy = { ...apiProxy, readAttachment } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: imageProxy, mobileEnterToSend }))
+    try {
+      const { status, body } = await callWith(server.port, 'mobile.readAttachment', {
+        sessionId: 's-1',
+        attachmentId: 'sha256:abc',
+      })
+      expect(status).toBe(200)
+      const envelope = JSON.parse(body) as { result: { ok: boolean; value?: { mediaType: string; dataUrl: string } } }
+      expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value).toEqual({ mediaType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,QUFB' })
+      // 宿主按会话校验"这张图确实被该会话引用过"，所以会话 id 必须原样传下去。
+      expect(readAttachment).toHaveBeenCalledWith('s-1', 'sha256:abc')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rejects a request without both ids, and never leaks a host read failure', async () => {
+    const failing = { ...apiProxy, readAttachment: vi.fn(async () => { throw new Error('C:\\secret\\blob path') }) } as unknown as ApiProxy
+    const server = await serve(makeMobileApiRoutes({ service, apiProxy: failing, mobileEnterToSend }))
+    try {
+      const missing = JSON.parse((await callWith(server.port, 'mobile.readAttachment', { sessionId: 's-1' })).body) as
+        { result: { ok: boolean; error: { code: string } } }
+      expect(missing.result.ok).toBe(false)
+      expect(missing.result.error.code).toBe('invalid-request')
+
+      const failed = JSON.parse((await callWith(server.port, 'mobile.readAttachment', {
+        sessionId: 's-1',
+        attachmentId: 'sha256:abc',
+      })).body) as { result: { ok: boolean; error: { code: string; message: string } } }
+      expect(failed.result.ok).toBe(false)
+      expect(failed.result.error.code).toBe('internal')
+      expect(failed.result.error.message).not.toContain('secret')
     } finally {
       await server.close()
     }

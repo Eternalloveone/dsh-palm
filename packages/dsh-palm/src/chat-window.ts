@@ -16,6 +16,14 @@
  *   stream is the authoritative append-only event feed, so between a window
  *   install and process exit the window is exactly "log tail + all events
  *   since" — no revision probing, no staleness window.
+ * - That assumption is load-bearing and was silently false for a while
+ *   (0.1.5 split `events.mux` and `session/event` stopped being forwarded), so
+ *   the window is now **revalidated against the log on read**
+ *   ({@link WINDOW_REVALIDATE_MS}): a read that finds the window older than the
+ *   log catches up by folding the fresh tail page, and a read that finds a hole
+ *   (the fresh page's oldest event sits above the window watermark) rebuilds the
+ *   window from that page. Correctness therefore no longer depends on the push
+ *   feed staying alive — a dead feed costs latency, never rows.
  * - `maxSeq` is the window's event watermark (EventFolder.lastSeq — above
  *   any row seq, since turn/end etc. never bump a row's seq). The phone
  *   restores its folder with (rows, maxSeq) so a live frame that a previous
@@ -53,6 +61,12 @@ export const WINDOW_ROW_LIMIT = 400
 export const READ_CHAT_MAX_ROWS = 200
 /** Default page size (matches the mobile history default of 25). */
 export const READ_CHAT_DEFAULT_ROWS = 25
+/**
+ * How long a resident window may go unverified before a read revalidates it
+ * against the log (ms). Bounds both the staleness a dead push feed can cause
+ * and the extra log reads revalidation costs.
+ */
+export const WINDOW_REVALIDATE_MS = 2000
 
 /** One host history page as the window service sees it (post-envelope mapping). */
 export interface ChatHistoryPage {
@@ -85,6 +99,8 @@ export type ChatHistoryFetcher = (
   sessionId: string,
   beforeSeq: number | undefined,
   maxMessages: number,
+  /** Bypass the adapter's cursor TTL: the read must end at the current log. */
+  fresh?: boolean,
 ) => Promise<ChatHistoryPage>
 
 /** One window: the live fold plus its metadata. */
@@ -99,6 +115,8 @@ interface Window {
   /** The window's open turn/start logged time (undefined: no open boundary). */
   turnStartAt: number | undefined
   lastAccessedAt: number
+  /** Last time this window was verified against the log (revalidation clock). */
+  verifiedAt: number
 }
 
 /**
@@ -106,13 +124,14 @@ interface Window {
  * tail/earlier pages (exactly the pagination the desktop uses).
  */
 export function defaultChatHistoryFetcher(apiProxy: ApiProxy): ChatHistoryFetcher {
-  return async (sessionId, beforeSeq, maxMessages) => {
-    const request: RpcRequest<{ sessionId: string; beforeSeq?: number; maxMessages: number }> = {
+  return async (sessionId, beforeSeq, maxMessages, fresh) => {
+    const request: RpcRequest<{ sessionId: string; beforeSeq?: number; maxMessages: number; fresh?: boolean }> = {
       rpcId: RpcId('mobile-chat-window'),
       payload: {
         sessionId,
         maxMessages,
         ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        ...(fresh === true ? { fresh: true } : {}),
       },
     }
     const response = await apiProxy.sessions.history(request as never)
@@ -156,17 +175,67 @@ export class ChatWindowService {
   /**
    * The tail page (or the cached window when one exists): rows, the window's
    * event watermark, hasMore, todo and projections. A cold read installs a
-   * window from one host history read; later tail reads never touch the log
-   * again until process restart.
+   * window from one host history read (against the current log — the read is
+   * `fresh`, so the install page cannot be capped by a stale cursor); later
+   * tail reads serve memory, revalidating against the log at most once per
+   * {@link WINDOW_REVALIDATE_MS}.
    */
   async tail(sessionId: string, maxRows: number): Promise<ChatPage> {
     const existing = this.windows.get(sessionId)
     if (existing !== undefined) {
       existing.lastAccessedAt = Date.now()
+      if (Date.now() - existing.verifiedAt >= WINDOW_REVALIDATE_MS) {
+        await this.revalidate(sessionId, existing, maxRows)
+      }
       return pageOf(existing, maxRows)
     }
-    const page = await this.fetchHistoryPage(sessionId, undefined, maxRows)
+    const page = await this.fetchHistoryPage(sessionId, undefined, maxRows, true)
     return this.installWindow(sessionId, page, maxRows)
+  }
+
+  /**
+   * Revalidate a resident window against the log and catch it up.
+   *
+   * The push feed is the fast path, not the source of truth: if it ever stops
+   * delivering (a dropped subscription, a plugin reload, a gap the bus never
+   * replayed), a window would otherwise serve stale rows for the rest of the
+   * process lifetime — the exact failure this read-time check removes.
+   *
+   * - Fresh page watermark at or below the window's → nothing to do.
+   * - Fresh page continues the window (its oldest event sits at or just above
+   *   the watermark) → fold it in; the folder's watermark makes this idempotent.
+   * - Fresh page starts above the watermark (a hole between them) → the window
+   *   cannot be repaired by folding, so it is rebuilt from the fresh page; rows
+   *   older than the page remain reachable through `before` (log reads).
+   *
+   * A failed read must not damage a good window: it only defers to the next
+   * revalidation.
+   */
+  private async revalidate(sessionId: string, window: Window, maxRows: number): Promise<void> {
+    let page: ChatHistoryPage
+    try {
+      page = await this.fetchHistoryPage(sessionId, undefined, maxRows, true)
+    } catch {
+      window.verifiedAt = Date.now()
+      return
+    }
+    const events = page.events.map(toWireEvent)
+    const fresh = new EventFolder(foldEvents(events))
+    if (fresh.lastSeq > window.maxSeq) {
+      const oldest = events.length > 0 ? (events[0]?.seq ?? -1) : -1
+      if (window.maxSeq >= 0 && oldest > window.maxSeq + 1) {
+        window.folder = fresh
+        window.todo = foldTodoSnapshot(events)
+        window.turnStartAt = lastOpenTurnStartTime(events)
+      } else {
+        for (const event of events) this.applyEvent(window, event)
+      }
+      window.maxSeq = window.folder.lastSeq
+      window.hasMore = page.hasMore
+      this.trimRows(window)
+    }
+    if (page.projections !== undefined) window.projections = page.projections
+    window.verifiedAt = Date.now()
   }
 
   /**
@@ -206,6 +275,16 @@ export class ChatWindowService {
   handleEvent(sessionId: string, event: WireEvent): void {
     const window = this.windows.get(sessionId)
     if (window === undefined) return
+    this.applyEvent(window, event)
+    this.trimRows(window)
+  }
+
+  /**
+   * Fold one event into a resident window: the row fold plus the derived state
+   * the window carries (watermark, open-turn anchor, projection-equivalent todo).
+   * Idempotent by seq, so the live feed and a revalidation page may overlap.
+   */
+  private applyEvent(window: Window, event: WireEvent): void {
     window.folder.fold([event])
     window.maxSeq = window.folder.lastSeq
     // Keep the open-turn anchor current for the turn clock (desktop parity):
@@ -220,7 +299,6 @@ export class ChatWindowService {
     // seed in lockstep: turn/start clears, turn/end normalizes in_progress
     // leftovers, todo/write replaces — never a raw newest-write overwrite).
     window.todo = foldTodoEvent(window.todo, event)
-    this.trimRows(window)
   }
 
   /**
@@ -273,6 +351,7 @@ export class ChatWindowService {
       projections: page.projections,
       turnStartAt: lastOpenTurnStartTime(events),
       lastAccessedAt: Date.now(),
+      verifiedAt: Date.now(),
     }
     this.windows.set(sessionId, window)
     if (this.windows.size > WINDOW_LIMIT) this.evictLeastRecent()

@@ -24,7 +24,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { ApiProxy, RpcRequest } from './api-proxy-types'
+import type { ApiProxy, MuxFrame, RpcRequest } from './api-proxy-types'
 import { RpcId } from './api-proxy-types'
 import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
@@ -42,6 +42,8 @@ import type { ChatWindowService } from './chat-window.ts'
 import { READ_CHAT_DEFAULT_ROWS, READ_CHAT_MAX_ROWS, type ChatPage } from './chat-window.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage } from './mobile/messages.ts'
 import type { PreviewCacheService } from './preview-cache.ts'
+import type { SessionObserverRegistry } from './api-proxy-observe.ts'
+import type { DependencyDiagnostics } from './api-proxy-diag.ts'
 import { PREVIEWS_MAX_SESSIONS } from './preview-cache.ts'
 import { fetchLatestVersion, isNewerVersion } from './latest-version.ts'
 import pkg from '../package.json'
@@ -157,6 +159,41 @@ const MOBILE_READ_CHAT_METHOD = 'mobile.readChat'
  * back to per-row history reads when this method is absent.
  */
 const MOBILE_PREVIEWS_METHOD = 'mobile.previews'
+/**
+ * Which session the phone has open (v3.4). The host opens ONE
+ * `session.follow({assistantStream:true})` for it, which is what turns on
+ * token-level streaming; the phone re-asserts on a slow cadence so a dropped
+ * SSE stream cannot leave the registration stale.
+ */
+const MOBILE_OBSERVE_METHOD = 'mobile.observe'
+/** 依赖自检（手机端「关于」里的自检列表）。 */
+const MOBILE_DIAGNOSTICS_METHOD = 'mobile.diagnostics'
+/** 会话里引用过的图片字节（事件只带 attachmentId 引用，字节按需取）。 */
+const MOBILE_READ_ATTACHMENT_METHOD = 'mobile.readAttachment'
+/**
+ * Mux frames every paired device receives regardless of which session it has
+ * open: the control mirrors (queue/jobs/projection), the session-list state,
+ * and the approval/question panels — all global surfaces that do not follow
+ * the open chat. Every other frame is session-scoped and filtered per device
+ * (see `handleEvents`), so a phone never pays tunnel traffic for sessions it
+ * is not looking at.
+ */
+const MUX_ALWAYS_FORWARDED = new Set<string>([
+  'session/subscribed',
+  'session/queue',
+  'session/jobs',
+  'session/projection',
+  'session/added',
+  'session/removed',
+  'session/status',
+  'session/activity',
+  'session/error',
+  'approval/requested',
+  'approval/resolved',
+  'question/requested',
+  'question/resolved',
+  'stream/error',
+])
 /**
  * Per-provider usage/balance display (consumed quota for Ollama Cloud, balance
  * for DeepSeek...). Answered locally by the plugin: reads the desktop's
@@ -1193,6 +1230,22 @@ export interface MobileApiDeps {
    * Absent, the phone falls back to per-row history preview reads.
    */
   previews?: PreviewCacheService | undefined
+  /**
+   * The session-observer registry (v3.4): `mobile.observe` records which
+   * session the phone has open, and the host then translates that session's
+   * token stream off the `agent/assistant-stream` host bus (see
+   * api-proxy-stream.ts) — that is what brings token-level streaming to the
+   * phone. It doubles as the routing table for per-device SSE filtering.
+   * Absent, the method answers unavailable and the phone keeps message-level
+   * live updates only.
+   */
+  observers?: SessionObserverRegistry | undefined
+  /**
+   * 依赖自检收集器。手机端「关于」里的自检列表读它：setup 期登记的各条宿主契约
+   * 是否可用，加上运行期各总线事件收到过多少帧（事件被改名/停发时注册仍会成功，
+   * 只有帧计数能证明它还活着）。
+   */
+  diagnostics?: DependencyDiagnostics | undefined
 }
 
 /**
@@ -1336,6 +1389,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_RUNNING_SESSIONS_METHOD
       || method === MOBILE_USAGE_METHOD
       || method === MOBILE_READ_CHAT_METHOD
+      || method === MOBILE_OBSERVE_METHOD
+      || method === MOBILE_DIAGNOSTICS_METHOD
+      || method === MOBILE_READ_ATTACHMENT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
       || method === MOBILE_PAIR_DEVICES_METHOD
       || method === MOBILE_PAIR_REVOKE_METHOD
@@ -2255,6 +2311,75 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '会话内容读取失败，请稍后重试' } },
           })
         }
+      } else if (method === MOBILE_OBSERVE_METHOD) {
+        // Which session the phone has open (v3.4): the host keeps exactly one
+        // assistant-stream follow for the observed sessions, so this is the
+        // signal that turns token-level streaming on for the chat on screen.
+        // An absent/empty sessionId means the phone left the chat.
+        const observers = deps.observers
+        if (observers === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '实时流服务不可用' } },
+          })
+          return
+        }
+        const body = parsed.payload as { sessionId?: unknown } | undefined
+        const raw = body?.sessionId
+        const sessionId = typeof raw === 'string' && raw !== '' ? raw : undefined
+        const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
+        if (deviceId !== undefined) observers.observe(deviceId, sessionId)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { observing: sessionId ?? null } },
+        })
+      } else if (method === MOBILE_DIAGNOSTICS_METHOD) {
+        // 依赖自检（v3.4）：palm 与宿主的耦合点都是内部契约，升级时可能静默失效
+        // （订阅都在 try/catch 里降级）。这里把 setup 期登记与运行期帧计数交出去，
+        // 让"哪条断了"在手机上一眼可见。
+        const diagnostics = deps.diagnostics
+        if (diagnostics === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '自检服务不可用' } },
+          })
+          return
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { checks: diagnostics.snapshot(), now: Date.now() } },
+        })
+      } else if (method === MOBILE_READ_ATTACHMENT_METHOD) {
+        // 图片字节（0.1.5 起事件只带 attachmentId 引用）。宿主按"该会话确实引用过
+        // 这张图"授权，所以 sessionId 必须一起带上；适配层按内容寻址的 id 长期缓存，
+        // 同一张图只过一次隧道。
+        const body = parsed.payload as { sessionId?: unknown; attachmentId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined
+        const attachmentId = typeof body?.attachmentId === 'string' && body.attachmentId !== '' ? body.attachmentId : undefined
+        if (sessionId === undefined || attachmentId === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'invalid-request', message: '缺少会话或附件标识' } },
+          })
+          return
+        }
+        try {
+          const value = await (apiProxy as ApiProxyAdapter).readAttachment(sessionId, attachmentId)
+          writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value } })
+        } catch (error) {
+          // 稳定文案，不外泄宿主细节（图片读不到只影响这一张图的显示）。
+          console.error('mobile.readAttachment failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '图片读取失败' } },
+          })
+        }
       } else if (method === MOBILE_PREVIEWS_METHOD) {
         // Batch last-message previews (v3.1): one call for the list page's
         // preview burst, served from the host's mux-fed cache — cached rows
@@ -2383,6 +2508,24 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
       return deviceId !== undefined && service.hasDevice(deviceId)
     }
+    // Per-device frame filter (v3.4): the tunnel carries the phone's mobile
+    // data, so only the session this device has open rides it. Control, list
+    // and approval/question frames are global state (task strip, roster,
+    // pending panel) and always pass. Without the registry (older wiring) the
+    // stream stays unfiltered — exactly the previous behavior.
+    const observers = deps.observers
+    const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
+    let observed = new Set(observers === undefined || deviceId === undefined ? [] : observers.sessionsFor(deviceId))
+    const disposeObserved = observers?.onChange(() => {
+      observed = new Set(deviceId === undefined ? [] : observers.sessionsFor(deviceId))
+    })
+    const acceptFrame = observers === undefined
+      ? undefined
+      : (frame: MuxFrame): boolean => {
+        if (MUX_ALWAYS_FORWARDED.has(frame.type)) return true
+        const sessionId = (frame as { sessionId?: unknown }).sessionId
+        return typeof sessionId === 'string' && observed.has(sessionId)
+      }
     const endStream = (): void => {
       if (closed) return
       closed = true
@@ -2390,6 +2533,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       clearInterval(heartbeat)
       activeEvents -= 1
       ;(apiProxy as ApiProxyAdapter).setPhoneConnected(activeEvents > 0)
+      // The live stream is the observation's lifetime: a device that is gone
+      // must not stay registered. A second tab on the same device re-asserts
+      // through `mobile.observe` within its refresh cadence, so this cannot
+      // leave a live chat without streaming.
+      if (deviceId !== undefined) observers?.release(deviceId)
+      disposeObserved?.()
       res.end()
     }
     const heartbeat = setInterval(() => {
@@ -2414,11 +2563,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       controller.abort()
       clearInterval(heartbeat)
       activeEvents -= 1
+      disposeObserved?.()
     }
     res.on('close', onClose)
     req.on('close', onClose)
     try {
-      const frames = apiProxy.events.mux({ rpcId: RpcId(`mobile-mux-${Date.now().toString(36)}`), payload: {} }, controller.signal)
+      const frames = apiProxy.events.mux({ rpcId: RpcId(`mobile-mux-${Date.now().toString(36)}`), payload: {} }, controller.signal, acceptFrame)
       for await (const frame of frames) {
         if (closed) break
         // Revocation takes effect on the next frame, not the next reconnect.

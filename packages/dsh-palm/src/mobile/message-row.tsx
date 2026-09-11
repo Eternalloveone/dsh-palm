@@ -10,14 +10,20 @@
 
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
 import { formatTime } from './views/App.tsx'
-import type { RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
+import type { MessageImage, RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
+import { cachedAttachmentUrl, loadAttachmentUrl } from './attachment-images.ts'
 import { CollapsibleText, MarkdownText, ReasoningDisclosure } from './markdown-text.tsx'
 import { ReportBody } from './report-body.tsx'
 import { detectReport } from './report.ts'
 import { ChevronUpIcon } from './icons.tsx'
 
-export const MessageRow = memo(function MessageRow({ message, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, style, onRegenerate }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, style, onRegenerate }: {
   message: RenderMessage
+  /**
+   * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
+   * （ChatView）都传；缺省时带图片的消息只显示文本——测试里折叠图片需显式传。
+   */
+  sessionId?: string
   showToolCalls: boolean
   showSystemMessages: boolean
   /** Timestamp de-dup: hidden when a later row shares this row's minute. */
@@ -62,6 +68,11 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
   const hasTools = showToolCalls && message.kind === 'assistant' && message.tools !== undefined && message.tools.length > 0
   const hasText = message.text !== ''
   const hasFailTag = message.failed === true
+  // 图片：纯图片消息文本为空，若不算进"有内容"这一关，整行会被下面的空行守卫丢掉。
+  const images = sessionId !== undefined && message.images !== undefined && message.images.length > 0
+    ? message.images
+    : undefined
+  const hasImages = images !== undefined
   // Flow rows with at least one non-empty text run carry visible content even
   // when `text` is empty (tool-interleaved turns put their payload in flow).
   const hasFlowText = message.flow !== undefined
@@ -76,7 +87,7 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
     : message.text
   const isReport = message.kind === 'assistant' && message.pending !== true && reportSource !== '' && detectReport(reportSource)
 
-  if (!hasReasoning && !hasTools && !hasText && !hasFailTag && !hasFlowText) {
+  if (!hasReasoning && !hasTools && !hasText && !hasFailTag && !hasFlowText && !hasImages) {
     return null
   }
   return (
@@ -114,7 +125,12 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
           {message.tools !== undefined && <ArtifactCards tools={message.tools} />}
         </>
       ) : (
-        <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
+        <>
+          <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
+          {images !== undefined && sessionId !== undefined && (
+            <MessageImages sessionId={sessionId} images={images} />
+          )}
+        </>
       )}
       {message.failed === true && <span className="chat-msg-failtag">本次回复失败</span>}
       {message.maxTokens === true && <div className="chat-msg-maxtokens">已达到输出 token 上限，回答被截断。发送“继续”可让模型接着输出。</div>}
@@ -130,6 +146,71 @@ export const MessageRow = memo(function MessageRow({ message, showToolCalls, sho
     </div>
   )
 })
+
+/**
+ * 一条消息里的图片组。
+ *
+ * 事件里只有引用，字节挂载时按需取（内容寻址缓存，重挂不再请求）。取字节失败
+ * 只影响这一张图：显示可点重试的占位，而不是让整行消失。
+ */
+function MessageImages({ sessionId, images }: { sessionId: string; images: readonly MessageImage[] }) {
+  return (
+    <div className="chat-msg-images" role="list" aria-label="消息图片">
+      {images.map(image => <MessageImageTile key={image.attachmentId} sessionId={sessionId} image={image} />)}
+    </div>
+  )
+}
+
+/** 单张图片：占位 → data URL；点一下由 ChatView 的滚动点击处理开全屏。 */
+function MessageImageTile({ sessionId, image }: { sessionId: string; image: MessageImage }) {
+  const [url, setUrl] = useState<string | undefined>(() => cachedAttachmentUrl(image.attachmentId))
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const label = image.name !== undefined && image.name !== '' ? image.name : '图片'
+
+  useEffect(() => {
+    if (url !== undefined) return
+    let cancelled = false
+    void loadAttachmentUrl(sessionId, image.attachmentId).then((loaded) => {
+      if (cancelled) return
+      if (loaded === undefined) setFailed(true)
+      else {
+        setFailed(false)
+        setUrl(loaded)
+      }
+    })
+    return () => { cancelled = true }
+  }, [sessionId, image.attachmentId, url, attempt])
+
+  if (url === undefined) {
+    return (
+      <button
+        type="button"
+        role="listitem"
+        className={`chat-msg-image chat-msg-image-placeholder${failed ? ' chat-msg-image-failed' : ''}`}
+        aria-label={failed ? `${label}，加载失败，点击重试` : `${label}，加载中`}
+        onClick={() => {
+          if (!failed) return
+          setFailed(false)
+          setAttempt(value => value + 1)
+        }}
+      >
+        {failed ? '图片加载失败，点击重试' : '图片加载中…'}
+      </button>
+    )
+  }
+  return (
+    <img
+      className="chat-msg-image"
+      role="listitem"
+      src={url}
+      alt={label}
+      loading="lazy"
+      {...(image.width > 0 ? { width: image.width } : {})}
+      {...(image.height > 0 ? { height: image.height } : {})}
+    />
+  )
+}
 
 /**
  * Per-step body of a coalesced turn: each folded step renders as its own

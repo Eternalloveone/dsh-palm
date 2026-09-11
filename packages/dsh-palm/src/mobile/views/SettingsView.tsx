@@ -12,7 +12,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type DependencyCheckView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
@@ -62,6 +62,15 @@ function ChannelState({ configured }: { configured: boolean }) {
       {configured ? '已配置 ✓（凭据存于电脑端）' : '未配置'}
     </span>
   )
+}
+
+/** 依赖自检行里的"多久之前"：秒/分/时，够用就好。 */
+function sinceLabel(at: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - at) / 1000))
+  if (seconds < 60) return `${String(seconds)} 秒前`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${String(minutes)} 分钟前`
+  return `${String(Math.round(minutes / 60))} 小时前`
 }
 
 /** Inbox row time: today → HH:mm, otherwise MM-DD HH:mm. */
@@ -546,8 +555,16 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   // About-sheet update check state.
   const [versionBusy, setVersionBusy] = useState(false)
   const [versionStatus, setVersionStatus] = useState<string | undefined>(undefined)
+  // About-sheet dependency self-check state.
+  const [diagnostics, setDiagnostics] = useState<{ checks: DependencyCheckView[]; now: number } | undefined>(undefined)
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false)
 
   useEffect(() => subscribeVoiceServices(() => setVoiceServicesState(getVoiceServices())), [])
+
+  // 打开「关于」即跑一次自检：帧计数是运行期数据，每次看都得重新取。
+  useEffect(() => {
+    if (sheet === 'about') void handleDiagnostics()
+  }, [sheet])
 
   useEffect(() => {
     let cancelled = false
@@ -832,6 +849,22 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
       setVersionStatus('检查失败，请稍后重试')
     } finally {
       setVersionBusy(false)
+    }
+  }
+
+  /**
+   * About sheet: the host dependency self-check. Live frame counts are the
+   * point — a renamed or dropped bus event still registers fine, so only a
+   * count stuck at 0 proves that leg is gone.
+   */
+  const handleDiagnostics = async (): Promise<void> => {
+    setDiagnosticsBusy(true)
+    try {
+      setDiagnostics(await readDiagnostics())
+    } catch {
+      setDiagnostics(undefined)
+    } finally {
+      setDiagnosticsBusy(false)
     }
   }
 
@@ -1809,6 +1842,35 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           {versionStatus !== undefined && (
             <p className="settings-fieldDesc" role="status">{versionStatus}</p>
           )}
+          <div className="settings-field">
+            <span className="settings-fieldLabel">依赖自检</span>
+            <p className="settings-fieldDesc">
+              与宿主接口的连通性。总线事件显示自启动以来收到的帧数——事件被改名或停发时订阅仍会
+              成功，所以要看常发的那几条（session.control / session/event / agent/assistant-stream）
+              是否长期为 0；added、removed、error 本就罕见，0 帧属正常。
+            </p>
+            {diagnostics === undefined
+              ? <p className="settings-fieldDesc">{diagnosticsBusy ? '读取中…' : '未读取'}</p>
+              : diagnostics.checks.map(check => (
+                <p className="settings-fieldDesc" key={check.name}>
+                  {check.ok ? '✓' : '✗'} {check.name}
+                  {' · '}
+                  {!check.ok
+                    ? (check.reason ?? '不可用')
+                    : check.kind === 'method'
+                      ? '在位'
+                      : `${String(check.frames)} 帧${check.lastAt === undefined ? '' : ` · ${sinceLabel(check.lastAt, diagnostics.now)}`}`}
+                </p>
+              ))}
+            <button
+              type="button"
+              className="mobile-button"
+              disabled={diagnosticsBusy}
+              onClick={() => { void handleDiagnostics() }}
+            >
+              {diagnosticsBusy ? '读取中…' : '刷新自检'}
+            </button>
+          </div>
         </Sheet>
       )}
       {confirmClear && (

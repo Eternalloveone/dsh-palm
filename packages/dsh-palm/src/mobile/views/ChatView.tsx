@@ -209,11 +209,17 @@ function escapeAttr(value: string): string {
  */
 const PENDING_ROW_ESTIMATE = 96
 
+/** 一张消息图片的估算高度（缩略图上限 + 间距，见 .chat-msg-image）。 */
+const IMAGE_TILE_ESTIMATE = 220
+
 /** Estimate one message row's rendered height in px (spacers use this). */
 export function estimateMessageHeight(message: RenderMessage): number {
   if (message.kind === 'user') {
     const lines = Math.max(1, Math.ceil(message.text.length / ESTIMATE_CHARS_PER_LINE))
-    return 28 + lines * ESTIMATE_LINE_HEIGHT
+    // 图片是固定高的缩略图（.chat-msg-image 的 max-height）：按张数补高度，
+    // 否则含图的行在窗口化路径里会被低估，滚动位置会跳。
+    const imageHeight = (message.images?.length ?? 0) * IMAGE_TILE_ESTIMATE
+    return 28 + lines * ESTIMATE_LINE_HEIGHT + imageHeight
   }
   let height = 20
   if (message.reasoning !== undefined && message.reasoning !== '') height += 32
@@ -2802,6 +2808,7 @@ export function ChatView({
                 <MessageRow
                   key={messageKey(message)}
                   message={message}
+                  sessionId={session.sessionId}
                   showToolCalls={showToolCalls}
                   showSystemMessages={showSystemMessages}
                   showTime={timeFlags[index] === true}
@@ -2829,6 +2836,7 @@ export function ChatView({
               <MessageRow
                 key={messageKey(message)}
                 message={message}
+                sessionId={session.sessionId}
                 showToolCalls={showToolCalls}
                 showSystemMessages={showSystemMessages}
                 showTime={timeFlags[index] === true}

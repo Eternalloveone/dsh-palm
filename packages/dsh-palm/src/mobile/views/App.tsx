@@ -10,6 +10,7 @@ import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import {
   fetchMobilePreferences,
   history as fetchHistory,
+  observeSession,
   prompt,
   readChat,
   readSettings,
@@ -75,6 +76,8 @@ export interface SessionView {
   updatedAt: number
   running: boolean
   blank: boolean
+  /** Host-reported failure (`api-session/error`); cleared when it runs again. */
+  error?: string
 }
 
 /** Read the optional workspace target carried from the pairing QR flow. */
@@ -255,6 +258,9 @@ interface TransitionState {
 /** How long the parallax transition runs (matches the CSS animation). */
 const PAGE_TRANSITION_MS = 260
 
+/** How often the open chat re-asserts its host-side observation (v3.4). */
+const OBSERVE_REFRESH_MS = 30_000
+
 /** The existing remote mobile surface, mounted only after device pairing succeeds. */
 function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   const [transition, setTransition] = useState<TransitionState>({
@@ -432,6 +438,24 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   // (quick tunnel / Tailscale Serve do not forward Server-Sent Events).
   useEffect(() => {
     muxRef.current?.observe(route.kind === 'chat' ? route.session.sessionId : undefined)
+  }, [route])
+
+  // Tell the HOST which session is on screen (v3.4): it opens exactly one
+  // assistant-stream follow for it, and that is what makes the phone stream
+  // token-by-token like the desktop. Re-asserted on a slow cadence because the
+  // host releases the registration when the SSE stream ends (device gone), so
+  // a tunnel blip must not silently cost the chat its streaming.
+  useEffect(() => {
+    const sessionId = route.kind === 'chat' ? route.session.sessionId : undefined
+    const assert = (): void => {
+      void observeSession(sessionId).catch(() => {
+        // Non-fatal: message-level live updates (the durable bus) still work.
+      })
+    }
+    assert()
+    if (sessionId === undefined) return
+    const timer = setInterval(assert, OBSERVE_REFRESH_MS)
+    return () => { clearInterval(timer) }
   }, [route])
 
   // The desktop theme preference wins on the phone too (one setting, both
@@ -683,6 +707,7 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
         ? (
         <SessionListView
           workspace={route.workspace}
+          mux={muxRef.current}
           initialSessionId={initialSessionId}
           initialSearch={restoreListSearch}
           onBack={back}

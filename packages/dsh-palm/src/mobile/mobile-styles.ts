@@ -2232,6 +2232,43 @@ button.settings-row:focus-visible {
   box-shadow: 0 1px 3px var(--accent-glow);
 }
 
+/* 消息图片：0.1.5 起事件只带 attachmentId 引用，字节由 mobile.readAttachment
+   按需取（见 attachment-images.ts）。缩略图固定上限高度，含图的行才不会把
+   窗口化的高度估算撑爆；点一下由 ChatView 的滚动点击开全屏。 */
+.chat-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chat-msg-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 260px);
+  max-height: 220px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--surface-subtle, rgba(127, 127, 127, 0.12));
+}
+
+.chat-msg-image-placeholder {
+  min-width: 128px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-default);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted, #888);
+  font-size: 12px;
+}
+
+.chat-msg-image-failed {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 /* Assistant messages are full-width flat rows (Kimi-style, no bubble):
    the visual hierarchy comes from the content itself — code-block and
    diff cards, headings, blockquotes — not from a card frame around the

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** SessionListView: owned-row filtering, incremental pages, session creation. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testing-library/react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import { SessionListView, sessionListCache, sessionPreviewCache, type SessionListViewProps } from './SessionListView.tsx'
 import { type SessionView } from './App.tsx'
@@ -678,5 +678,141 @@ describe('SessionListView cross-mount cache (v3.2)', () => {
     expect(persisted?.v).toBe(1)
     expect(persisted?.rows[0]).toMatchObject({ sessionId: 's-1', title: '已刷新' })
     expect(Date.now() - (persisted?.savedAt ?? 0)).toBeLessThan(60_000)
+  })
+})
+
+/**
+ * Live list frames: the host mirrors its `api-session/*` events onto the mux
+ * (`session/added`, `session/removed`, `session/status`, `session/activity`,
+ * `session/error`), so the roster tracks the desktop without a re-fetch.
+ */
+describe('SessionListView live session frames', () => {
+  /** Minimal mux stand-in: captures the list's frame listener for hand-off. */
+  class FakeMux {
+    listeners = new Set<(frame: unknown) => void>()
+    onFrame(listener: (frame: unknown) => void): () => void {
+      this.listeners.add(listener)
+      return () => { this.listeners.delete(listener) }
+    }
+    emit(frame: unknown): void {
+      act(() => { for (const listener of this.listeners) listener(frame) })
+    }
+  }
+
+  /** The workspace's two rows, newest first (s-sub outranks s-1). */
+  function twoRows(): void {
+    listSessionsMock.mockResolvedValue({
+      items: [
+        summary('s-sub', 1_800_000_000_000, { cwd: '/tmp/demo/sub', projections: { values: { title: '会话二' } } }),
+        summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '会话一' } } }),
+      ],
+      hasMore: false,
+    })
+  }
+
+  /** The rendered row titles, in DOM order. */
+  function renderedTitles(): string[] {
+    return Array.from(document.querySelectorAll('.sess-title')).map(node => node.textContent ?? '')
+  }
+
+  it('flips the running badge from a session/status frame', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    expect(screen.queryByText('进行中')).toBeNull()
+
+    mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
+    expect(screen.getAllByText('进行中')).toHaveLength(1)
+
+    mux.emit({ type: 'session/status', sessionId: 's-1', running: false })
+    expect(screen.queryByText('进行中')).toBeNull()
+  })
+
+  it('re-sorts the roster from a session/activity frame', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    expect(renderedTitles()).toEqual(['会话二', '会话一'])
+
+    mux.emit({ type: 'session/activity', sessionId: 's-1', updatedAt: 1_900_000_000_000 })
+    expect(renderedTitles()).toEqual(['会话一', '会话二'])
+  })
+
+  it('drops a row on session/removed', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话二')
+
+    mux.emit({ type: 'session/removed', sessionId: 's-sub' })
+    expect(screen.queryByText('会话二')).toBeNull()
+    expect(screen.getByText('会话一')).toBeTruthy()
+  })
+
+  it('inserts a session the desktop just created in this workspace — and only that one', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+
+    // Another workspace's session: the roster filter would hide it, so a live
+    // insert must not smuggle it in.
+    mux.emit({ type: 'session/added', summary: summary('s-other', 1_950_000_000_000, { cwd: '/tmp/foreign' }) })
+    expect(screen.queryByText('foreign')).toBeNull()
+
+    mux.emit({
+      type: 'session/added',
+      summary: summary('s-fresh', 1_900_000_000_000, {
+        cwd: '/tmp/demo',
+        projections: { values: { title: '刚建的会话' } },
+      }),
+    })
+    expect(await screen.findByText('刚建的会话')).toBeTruthy()
+    // Newest activity first, matching the host's own ordering.
+    expect(renderedTitles()[0]).toBe('刚建的会话')
+  })
+
+  it('marks a failed session and clears the mark when it runs again', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+
+    mux.emit({ type: 'session/error', sessionId: 's-1', message: 'agent failed' })
+    expect(screen.getByText('出错').getAttribute('title')).toBe('agent failed')
+
+    mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
+    expect(screen.queryByText('出错')).toBeNull()
+  })
+
+  it('applies a frame that lands while the first page is still loading', async () => {
+    let release: ((page: unknown) => void) | undefined
+    listSessionsMock.mockReturnValue(new Promise((resolve) => { release = resolve }) as never)
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+
+    // The status frame beats the page: it must survive the page landing.
+    mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
+    release?.({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '会话一' } } })],
+      hasMore: false,
+    })
+
+    expect(await screen.findByText('会话一')).toBeTruthy()
+    expect(screen.getAllByText('进行中')).toHaveLength(1)
+  })
+
+  it('ignores frames that are not list state', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    const before = renderedTitles()
+
+    mux.emit({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/start', seq: 1 } })
+    mux.emit({ type: 'session/projection', sessionId: 's-1', key: 'title', value: '投影标题', seq: 2 })
+    expect(renderedTitles()).toEqual(before)
   })
 })

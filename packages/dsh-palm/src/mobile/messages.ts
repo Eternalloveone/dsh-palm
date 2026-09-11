@@ -91,6 +91,16 @@ export interface RenderMessage {
    */
   readonly turn?: number
   /**
+   * 用户消息里的图片（持久附件引用，按出现顺序）。
+   *
+   * 0.1.5 起宿主不再把图片字节内联进 `user/message`：content 里是
+   * `{ type: 'image', attachment: { attachmentId, mediaType, width, height, name? } }`，
+   * 字节要另经 `mobile.readAttachment` 取（桌面端同样如此，见 ui-conversation 的
+   * historical-images）。以前这里只折 `text`，于是图片块被整块丢掉——纯图片消息
+   * 文本为空，行渲染直接 return null，手机上什么都看不到。
+   */
+  readonly images?: readonly MessageImage[]
+  /**
    * Step within the owning turn (folded from chunk/tool-call/assistant
    * data). Together with `turn` this is the stable identity of a streaming
    * row: the synthetic id carries a seq that changes per chunk, and the
@@ -321,6 +331,52 @@ export function textFromContent(content: unknown): string {
   return blocksOfType(content, 'text')
 }
 
+/** 一条消息里的图片引用（字节不在事件里，见 {@link RenderMessage.images}）。 */
+export interface MessageImage {
+  /** 内容寻址的持久附件 id（同一张图永远同一个 id，取一次即可长期缓存）。 */
+  attachmentId: string
+  /** 图片 MIME 类型。 */
+  mediaType: string
+  /** 原图宽（宿主入库时记录的像素宽）。 */
+  width: number
+  /** 原图高。 */
+  height: number
+  /** 字节数（宿主入库时记录）。 */
+  bytes?: number
+  /** 原始文件名。 */
+  name?: string
+}
+
+/**
+ * 从 content 里取图片引用。宿主把引用嵌在 `attachment` 下
+ * （`{ type: 'image', attachment: { attachmentId, mediaType, … } }`）；也兼容
+ * 字段直接平铺在同一层的旧形态，缺 id 或 mediaType 的块跳过。
+ */
+export function imagesFromContent(content: unknown): MessageImage[] {
+  if (!Array.isArray(content)) return []
+  const images: MessageImage[] = []
+  for (const block of content) {
+    if (block === null || typeof block !== 'object') continue
+    const record = block as Record<string, unknown>
+    if (record['type'] !== 'image') continue
+    const attachment = isRecord(record['attachment']) ? record['attachment'] : record
+    const attachmentId = pickString(attachment['attachmentId'])
+    const mediaType = pickString(attachment['mediaType'])
+    if (attachmentId === undefined || mediaType === undefined) continue
+    const bytes = pickNumber(attachment['bytes'])
+    const name = pickString(attachment['name'])
+    images.push({
+      attachmentId,
+      mediaType,
+      width: pickNumber(attachment['width']) ?? 0,
+      height: pickNumber(attachment['height']) ?? 0,
+      ...(bytes === undefined ? {} : { bytes }),
+      ...(name === undefined ? {} : { name }),
+    })
+  }
+  return images
+}
+
 /** Concatenate the plain text of every `reasoning` content block (host-side
  *  consumers share this parse with the fold). */
 export function reasoningFromContent(content: unknown): string {
@@ -541,6 +597,7 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
   const data = isRecord(event.data) ? event.data : {}
   const id = pickString(data['id']) ?? syntheticId('user', event.seq)
   const text = textFromContent(data['content'])
+  const images = imagesFromContent(data['content'])
   const source = isRecord(data['source']) ? data['source'] : {}
   const sourceKind = pickString(source['kind'])
   const existing = state.byId.get(id)
@@ -549,6 +606,7 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
     replaceMessage(state, existing, {
       ...existing,
       ...(sourceKind !== undefined ? { sourceKind } : {}),
+      ...(images.length > 0 ? { images } : {}),
       text,
       seq: event.seq,
       time: event.time,
@@ -559,6 +617,7 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
     id,
     kind: 'user',
     text,
+    ...(images.length > 0 ? { images } : {}),
     ...(sourceKind !== undefined ? { sourceKind } : {}),
     seq: event.seq,
     time: event.time,

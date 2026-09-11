@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   history: vi.fn(),
   listSessions: vi.fn(),
   listWorkspaces: vi.fn(),
+  observeSession: vi.fn().mockResolvedValue(undefined),
   prompt: vi.fn(),
   readChat: vi.fn(),
   readSettings: vi.fn().mockResolvedValue({}),
