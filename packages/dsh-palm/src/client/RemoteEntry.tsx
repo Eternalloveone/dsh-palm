@@ -14,8 +14,12 @@ import { copyText, fetchPairStatus, fetchTunnelDetection, issuePair, renamePair,
 import { PhoneIcon } from './PhoneIcon.tsx'
 import css from './remote.module.css'
 
-/** Entry props: the sidebar column state + the standard locale seat. */
-export type RemoteEntryProps = PropsRuntime<'sidebar.remote'> & PropsLocale<'remote'> & {
+/** Entry props: the sidebar footer-action seat + the standard locale seat. */
+export type RemoteEntryProps = PropsRuntime<'sidebar.footer.action'> & PropsLocale<'remote'> & {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide?: boolean
+  /** Recent-workspace projection hook (the deep-link target for the phone). */
+  useWorkspaces?: (selector: (snapshot: { recentWorkspaceId?: string }) => string | undefined) => string | undefined
   /** Persist a new public (tunneled) base URL (writes the settings section). */
   onSavePublicUrl(url: string): Promise<void>
   /** Clear the configured public (tunneled) base URL. */
@@ -50,7 +54,7 @@ function mergeFrame(state: PanelState, frame: PairStateFrame): PanelState {
  * @param props - composed slot props (contract in this package).
  * @returns the entry element tree.
  */
-export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPublicUrl }: RemoteEntryProps) {
+export function RemoteEntry({ wide = true, useWorkspaces, t, onSavePublicUrl, onClearPublicUrl }: RemoteEntryProps) {
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<PanelState>({ kind: 'lan-required' })
   const [copied, setCopied] = useState<'phone' | 'desktop' | undefined>(undefined)
@@ -75,8 +79,11 @@ export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPu
   const openSeq = useRef(0)
 
   // The current workspace (the recent-workspace projection the shell's New
-  // Session flow targets) — the deep-link target for the phone.
-  const workspaceId = useWorkspaces(s => s.recentWorkspaceId)
+  // Session flow targets) — the deep-link target for the phone. Absent when
+  // the seat supplies no projection hook: pairing without a deep-linked
+  // workspace is fully supported by the host `/api/pair` routes.
+  const useWorkspacesHook = useWorkspaces ?? ((_s: { recentWorkspaceId?: string }) => undefined)
+  const workspaceId = useWorkspacesHook(s => s.recentWorkspaceId)
 
   // Unconfigured dot: read the loopback status once on mount so the trigger
   // reflects the real configuration state without opening the panel.
@@ -213,11 +220,17 @@ export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPu
     })
   }, [state])
 
-  /** Rename one paired device (optimistic, rolled back on failure). */
   const handleRename = useCallback((deviceId: string, name: string) => {
     const snapshot = state.kind === 'ready' ? state.devices : undefined
     setState(previous => previous.kind === 'ready'
-      ? { ...previous, devices: previous.devices.map(device => device.id === deviceId ? { ...device, name: name === '' ? undefined : name } : device) }
+      ? { ...previous, devices: previous.devices.map(device => {
+          if (device.id !== deviceId) return device
+          const trimmed = name.trim()
+          const next = { ...device }
+          if (trimmed === '') delete next.name
+          else next.name = trimmed
+          return next
+        }) }
       : previous)
     void renamePair(deviceId, name).catch(() => {
       if (snapshot !== undefined) {
@@ -228,11 +241,13 @@ export function RemoteEntry({ wide, useWorkspaces, t, onSavePublicUrl, onClearPu
     })
   }, [state])
 
-  /** Promote one device to primary (optimistic, rolled back on failure). */
   const handleSetPrimary = useCallback((deviceId: string) => {
     const snapshot = state.kind === 'ready' ? state.devices : undefined
     setState(previous => previous.kind === 'ready'
-      ? { ...previous, devices: previous.devices.map(device => ({ ...device, primary: device.id === deviceId })) }
+      ? { ...previous, devices: previous.devices.map(device => ({
+          ...device,
+          primary: device.id === deviceId ? true : device.primary === true ? false : undefined,
+        })) }
       : previous)
     void setPrimaryPair(deviceId).catch(() => {
       if (snapshot !== undefined) {

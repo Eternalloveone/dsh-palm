@@ -23,15 +23,16 @@ const mobileRequire = createRequire(import.meta.url)
 
 /* ── client bundle: platform module table ──────────────────────────────
    Mirrors the shell's frozen module table (dsh-web-frontend staticModules,
-   verified against the 0.1.1-rc.2 dist: react, react/jsx-runtime, react-dom,
-   react-dom/client, cordis, dsh-client-ui-slots, dsh-client-ui-primitives;
-   the rc.2 dist carries the same set with no new frozen modules). */
+   0.1.5 stance): react, react/jsx-runtime, react-dom, react-dom/client,
+   cordis, dsh-client-ui-slots. The 0.1.5 client half deliberately imports
+   no other @deepseek-ai client package (the ui-primitives icons were
+   localised into icons.tsx), so the table carries only the platform seeds
+   the shell must share. */
 
 /** The module specifiers the shell shares into the frozen module table. */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
 ] as const
 
 /** Externals resolved from the loader module table. */

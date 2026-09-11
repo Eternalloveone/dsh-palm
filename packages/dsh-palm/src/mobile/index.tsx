@@ -22,7 +22,7 @@ applyDisplayPrefs()
 
 // Inject the standalone stylesheet (the page has no shell to load it for us).
 const style = document.createElement('style')
-style.dataset.plugin = 'remote-web-ui/mobile'
+style.dataset.plugin = 'dsh-palm/mobile'
 style.textContent = mobileCss
 document.head.appendChild(style)
 

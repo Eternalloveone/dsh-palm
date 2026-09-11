@@ -33,8 +33,8 @@ export const PLUGIN_MANAGER_PATH = '/api/plugin-manager'
 /** Desktop-launcher HTTP prefix: shortcut create and host shutdown stay physically local. */
 export const DESKTOP_LAUNCHER_PATH = '/api/dsh-desktop-launcher'
 
-/** Family settings-bridge HTTP prefix: describe/mutate stay physically local. */
-export const WEB_UI_SETTINGS_BRIDGE_PATH = '/api/dsh-web-ui-settings'
+/** dsh-palm settings-bridge HTTP prefix: describe/mutate stay physically local. */
+export const DSH_PALM_SETTINGS_BRIDGE_PATH = '/api/dsh-palm-settings'
 
 /**
  * Loopback-only methods of the host API surface, mirrored from

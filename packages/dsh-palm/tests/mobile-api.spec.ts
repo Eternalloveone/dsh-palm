@@ -260,7 +260,7 @@ describe('mobile api envelope', () => {
         { ns: 'llm-pi-ai', ops: [{ op: 'set', path: ['apiKey'], value: 'x' }] },
         { ns: 'ui-conversation', ops: [{ op: 'set', path: ['busyEnter', 'extra'], value: 'x' }] },
         { ns: 'shell', ops: [{ op: 'set', path: ['timeoutMs'], value: 1 }] },
-        { ns: 'remote-web-ui', ops: [{ op: 'set', path: ['publicBaseUrl'], value: 'https://evil' }] },
+        { ns: 'dsh-palm', ops: [{ op: 'set', path: ['publicBaseUrl'], value: 'https://evil' }] },
         { ns: 'ui-theme', ops: [] },
         { ns: 'ui-theme', ops: [{ op: 'set', path: ['preference', 'extra'], value: 'x' }] },
       ]

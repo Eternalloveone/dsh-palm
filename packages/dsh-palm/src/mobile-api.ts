@@ -24,9 +24,9 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { ApiProxy } from './api-proxy-types'
-import type { RpcRequest } from './api-proxy-types'
+import type { ApiProxy, RpcRequest } from './api-proxy-types'
 import { RpcId } from './api-proxy-types'
+import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
 import type { PairingService } from './pairing.ts'
 import type { NotifyService } from './notify/notify-engine.ts'
@@ -2367,6 +2367,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       return
     }
     activeEvents += 1
+    ;(apiProxy as ApiProxyAdapter).setPhoneConnected(true)
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
@@ -2388,6 +2389,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       controller.abort()
       clearInterval(heartbeat)
       activeEvents -= 1
+      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(activeEvents > 0)
       res.end()
     }
     const heartbeat = setInterval(() => {

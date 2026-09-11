@@ -4,7 +4,7 @@
  * origin) right inside the pairing panel instead of hunting through the
  * settings surface. The input always shows the current value; "修改" saves
  * (validated), "清除" clears. Persistence is delegated to the entry through
- * the onSave/onClear callbacks (which write the remote-web-ui settings
+ * the onSave/onClear callbacks (which write the dsh-palm settings
  * section and re-mint the QR).
  */
 import { useState } from 'react'

@@ -86,7 +86,7 @@ const SETTINGS_GROUPS: Array<{ id: string; title: string; namespaces: string[] }
   { id: 'tools', title: '工具', namespaces: ['at-file', 'tool-see-image', 'agent-loop'] },
   { id: 'system', title: '系统', namespaces: ['shell', 'permission'] },
   { id: 'plugins', title: '插件', namespaces: ['dsh-market', 'dsh-better-sidebar'] },
-  { id: 'remote', title: '远程访问', namespaces: ['remote-web-ui'] },
+  { id: 'remote', title: '远程访问', namespaces: ['dsh-palm'] },
   { id: 'presets', title: 'Agent 预设', namespaces: ['agent-presets'] },
 ]
 

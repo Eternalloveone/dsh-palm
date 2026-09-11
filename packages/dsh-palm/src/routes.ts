@@ -317,7 +317,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       // phone anywhere can reach it — and the first LAN interface otherwise.
       // An explicit address always names a LAN literal.
       const base = address === undefined ? (service.publicBaseUrl ?? service.lanBaseUrl) : service.lanBaseUrlFor(address)
-      if (base === undefined) throw new Error('remote-web-ui: base unavailable')
+      if (base === undefined) throw new Error('dsh-palm: base unavailable')
       const workspaceQuery = workspaceId === undefined ? '' : `&workspace=${encodeURIComponent(workspaceId)}`
       writeJson(res, 200, {
         ok: true,

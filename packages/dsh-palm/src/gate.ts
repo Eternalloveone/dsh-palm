@@ -93,7 +93,7 @@ export function makeGateListener(
     if (!require) return next()
     // Non-loopback origin: verify paired-device cookie. Sibling plugins that
     // own their own prefixes (/pet, /git, /sidebar, …) consult the same cookie
-    // through the remoteWebUiPairing service — this listener only covers /api.
+    // through the dshPalmPairing service — this listener only covers /api.
     return isPairedDeviceRequest(service, request) ? next() : false
   }
 }
@@ -101,7 +101,7 @@ export function makeGateListener(
 /**
  * Whether a request carries a live, non-revoked paired-device cookie for
  * this service. Sibling host routes outside /api (aionui-panel, etc.) use
- * the same check via the remoteWebUiPairing service.
+ * the same check via the dshPalmPairing service.
  * @param service - the pairing service that owns the device table.
  * @param request - the incoming HTTP request.
  * @returns true when the cookie names a live session (and lastSeenAt was refreshed).

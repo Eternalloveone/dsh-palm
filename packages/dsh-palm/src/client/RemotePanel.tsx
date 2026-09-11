@@ -9,9 +9,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { QRCodeSVG } from 'qrcode.react'
+// 0.1.5 decoupling: local outline icons instead of the dsh-web-ui
+// ui-primitives set (see icons.tsx for the rationale).
 import {
   IconCloseOutline16, IconCopyOutline16, IconRefreshOutline16, IconStopFill16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+} from './icons.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PairingPhase } from '../pairing.ts'
 import {

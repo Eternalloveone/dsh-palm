@@ -149,7 +149,7 @@ export class UnknownLanAddressError extends Error {
    * @param address - the offending literal.
    */
   constructor(address: string) {
-    super(`remote-web-ui: unknown LAN address ${JSON.stringify(address)}`)
+    super(`dsh-palm: unknown LAN address ${JSON.stringify(address)}`)
     this.name = 'UnknownLanAddressError'
   }
 }
@@ -294,7 +294,7 @@ export class PairingService {
       renameSync(temp, file)
       this.dirty = false
     } catch (error) {
-      console.error('remote-web-ui: failed to persist paired devices', error)
+      console.error('dsh-palm: failed to persist paired devices', error)
     }
   }
 
@@ -344,7 +344,7 @@ export class PairingService {
    */
   issue(workspaceId?: string, address?: string): { token: string; code: string; expiresAt: number } {
     if (this.lanBases.size === 0 && this.publicBase === undefined) {
-      throw new Error('remote-web-ui: pairing requires a reachable bind (--host 0.0.0.0 or publicBaseUrl)')
+      throw new Error('dsh-palm: pairing requires a reachable bind (--host 0.0.0.0 or publicBaseUrl)')
     }
     if (address !== undefined && !this.lanBases.has(address)) {
       throw new UnknownLanAddressError(address)
@@ -619,7 +619,7 @@ export class PairingService {
         listener(snapshot)
       } catch (error) {
         // A throwing subscriber must not break the emit loop or the caller.
-        console.error('remote-web-ui: pairing state listener failed', error)
+        console.error('dsh-palm: pairing state listener failed', error)
       }
     }
   }

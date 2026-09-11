@@ -44,7 +44,7 @@ describe('PairingService device persistence', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'remote-web-ui-persist-'))
+    dir = mkdtempSync(join(tmpdir(), 'dsh-palm-persist-'))
   })
 
   afterEach(() => {

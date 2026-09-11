@@ -7,13 +7,13 @@ import type { IncomingMessage } from 'node:http'
 import { Service, type Context } from '@deepseek-ai/cordis'
 
 /** Named lookup key sibling plugins pass to ctx.get. */
-export const REMOTE_WEB_UI_PAIRING = 'remoteWebUiPairing'
+export const DSH_PALM_PAIRING = 'dshPalmPairing'
 
 /**
  * Pairing identity for one HTTP request. Structural: consumers must not
  * import this class, only the method shape.
  */
-export class RemoteWebUiPairing extends Service {
+export class DshPalmPairing extends Service {
   /**
    * @param ctx - host plugin context.
    * @param check - live cookie + session predicate (re-read per request).
@@ -22,7 +22,7 @@ export class RemoteWebUiPairing extends Service {
     ctx: Context,
     private readonly check: (request: IncomingMessage) => boolean,
   ) {
-    super(ctx, REMOTE_WEB_UI_PAIRING)
+    super(ctx, DSH_PALM_PAIRING)
   }
 
   /**

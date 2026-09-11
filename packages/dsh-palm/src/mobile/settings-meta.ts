@@ -97,7 +97,7 @@ export const FIELD_META: Record<string, Record<string, FieldMeta>> = {
     viewersEnabled: { title: '启用查看器', desc: '内嵌文档/图查看器', scope: 'sync' },
     terminalFontSize: { title: '终端字号', desc: '终端显示字号', scope: 'sync' },
   },
-  'remote-web-ui': {
+  'dsh-palm': {
     enabled: { title: '远程访问', desc: '是否启用远程访问入口', scope: 'desktop' },
   },
 }

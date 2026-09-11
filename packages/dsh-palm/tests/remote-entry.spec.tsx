@@ -378,7 +378,7 @@ describe('apply registration', () => {
       },
     }
     apply(ctx as never)
-    expect(injected).toEqual(['sidebar.remote', 'sidebar.footer.action'])
+    expect(injected).toEqual(['sidebar.footer.action'])
   })
 
   it('waits for the settings snapshot before mounting the sidebar entries and runtime', async () => {
@@ -424,6 +424,6 @@ describe('apply registration', () => {
 
     snapshot = { status: 'ready' as const, writable: true, value: { enabled: true } }
     notify()
-    expect(registered).toEqual(['sidebar.remote', 'sidebar.footer.action'])
+    expect(registered).toEqual(['sidebar.footer.action'])
   })
 })

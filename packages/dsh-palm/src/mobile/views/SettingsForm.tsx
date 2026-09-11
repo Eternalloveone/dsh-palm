@@ -50,7 +50,7 @@ const NS_TITLES: Record<string, string> = {
   'web-search-deepseek': '联网搜索',
   shell: 'Shell',
   permission: '权限',
-  'remote-web-ui': '远程访问',
+  'dsh-palm': '远程访问',
   mnemon: '记忆',
   'mnemon-ui': '记忆界面',
   'ui-onboarding': '引导',
