@@ -54,7 +54,25 @@ jobs:
           tag="latest"
           if [[ "${{ github.ref_name }}" == *-* ]]; then tag="beta"; fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Check whether this version is already on npmjs
+        id: exists
+        working-directory: packages/dsh-palm
+        # Idempotent guard. A version that is already on the registry cannot be
+        # published again — npm answers 409 "Cannot publish over previously
+        # staged version" — which turned a tag push red whenever the same
+        # version had already been published by hand (v1.2.0 and v1.3.1 both
+        # failed this way, with the quality gate green). Publishing once and
+        # skipping afterwards is the correct outcome, so skip rather than fail.
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "@eternalloveone/dsh-palm@$version" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$version is already on the registry - skipping the npmjs publish"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish
+        if: steps.exists.outputs.published == 'false'
         working-directory: packages/dsh-palm
         # --provenance mints the SLSA provenance attestation at publish
         # time (requires the id-token permission above). --no-git-checks:
@@ -83,7 +101,24 @@ jobs:
       - name: Build
         working-directory: packages/dsh-palm
         run: pnpm build
+      - name: Check whether this version is already on GitHub Packages
+        id: exists
+        working-directory: packages/dsh-palm
+        # Same idempotent guard as the npmjs job: GitHub Packages also rejects a
+        # duplicate version, and a manual publish must not turn the tag push red.
+        # The registry query authenticates through the .npmrc setup-node wrote.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "@eternalloveone/dsh-palm@$version" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$version is already on GitHub Packages - skipping"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to GitHub Packages
+        if: steps.exists.outputs.published == 'false'
         working-directory: packages/dsh-palm
         # --registry is required: setup-node's registry-url only writes the
         # auth token line, it does not map the scope; without it pnpm publish

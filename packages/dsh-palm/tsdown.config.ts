@@ -118,6 +118,10 @@ export default defineConfig([
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
+    // tsdown leaves minification off by default; the phone pays for every byte
+    // over a relayed link, and the emitted bundle is the whole app (no CDN, no
+    // module table). Measured: 1120 KB -> ~500 KB raw, 269 KB -> ~150 KB gzip.
+    minify: true,
     dts: false,
     sourcemap: true,
     clean: false,

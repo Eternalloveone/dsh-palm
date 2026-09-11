@@ -1,5 +1,6 @@
 /** PWA routes for the standalone /m mobile surface. */
 import { createServer, request as httpRequest } from 'node:http'
+import { brotliDecompressSync, gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingHttpHeaders } from 'node:http'
@@ -70,6 +71,27 @@ async function getBytes(port: number, path: string): Promise<Buffer> {
       const chunks: Buffer[] = []
       response.on('data', (chunk) => { chunks.push(chunk as Buffer) })
       response.on('end', () => resolve(Buffer.concat(chunks)))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+/** One GET with explicit request headers, returning the raw (still encoded) body. */
+async function getRaw(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }> {
+  return await new Promise((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port, path, method: 'GET', headers }, (response) => {
+      const chunks: Buffer[] = []
+      response.on('data', (chunk) => { chunks.push(chunk as Buffer) })
+      response.on('end', () => resolve({
+        status: response.statusCode ?? 0,
+        headers: response.headers,
+        body: Buffer.concat(chunks),
+      }))
     })
     req.on('error', reject)
     req.end()
@@ -147,6 +169,11 @@ describe('mobile routes', () => {
       expect(worker.body).toContain("url.pathname === '/m/api'")
       expect(worker.body).toContain("url.pathname === '/api'")
       expect(worker.body).toContain('networkFirst(request, OFFLINE_URL, false)')
+      // The versioned bundle must be cache-first: network-first re-downloaded
+      // the whole app on every open (its cache write was skipped for query
+      // URLs, so the versioned request was never stored at all).
+      expect(worker.body).toContain('async function cacheFirst(request)')
+      expect(worker.body).toContain("url.search === '' ? networkFirst(request, request) : cacheFirst(request)")
       expect(worker.body).toContain('response.status >= 500')
       expect(worker.body).not.toContain('skipWaiting')
       expect(worker.body).not.toContain('clients.claim')
@@ -177,6 +204,40 @@ describe('mobile routes', () => {
       expect(bundle.status).toBe(200)
       expect(bundle.type).toContain('text/javascript')
       expect(bundle.body.length).toBeGreaterThan(1_000)
+      // Bundle-size canary: the phone pays for these bytes over a relayed link.
+      // Minified the artifact is ~564 KB; the same sources unminified are
+      // ~1120 KB, so this catches a build that silently stopped minifying (or
+      // a dependency that doubles the app) long before a phone notices.
+      expect(bundle.body.length).toBeLessThan(900_000)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('negotiates brotli for the bundle and falls back to gzip', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      // Brotli when the phone offers it, and it must beat gzip on the wire.
+      const br = await getRaw(server.port, '/m/mobile.js', { 'accept-encoding': 'gzip, deflate, br' })
+      expect(br.status).toBe(200)
+      expect(br.headers['content-encoding']).toBe('br')
+      expect(br.headers.vary).toBe('Accept-Encoding')
+      expect(br.body.length).toBeGreaterThan(10_000)
+      const brotliText = brotliDecompressSync(br.body).toString('utf8')
+      expect(brotliText).toContain('createElement')
+
+      const gz = await getRaw(server.port, '/m/mobile.js', { 'accept-encoding': 'gzip' })
+      expect(gz.headers['content-encoding']).toBe('gzip')
+      const gzipText = gunzipSync(gz.body).toString('utf8')
+      expect(gzipText).toContain('createElement')
+      expect(br.body.length).toBeLessThan(gz.body.length)
+
+      // A client that offers neither gets identity bytes, never an encoding it
+      // did not ask for.
+      const plain = await getRaw(server.port, '/m/mobile.js', {})
+      expect(plain.headers['content-encoding']).toBeUndefined()
+      expect(plain.body.length).toBeGreaterThan(gz.body.length)
+      expect(plain.body.toString('utf8')).toBe(gzipText)
     } finally {
       await server.close()
     }

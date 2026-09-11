@@ -11,8 +11,6 @@
  * @module dsh-web-shared/host/loopback
  */
 
-import type { IncomingMessage } from 'node:http'
-
 /** IPv4 127/8 predicate (four decimal octets, first == 127). */
 export function isIPv4Loopback(v4: string): boolean {
   const parts = v4.split('.')
@@ -34,30 +32,4 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 export function isLoopbackHostname(hostname: string): boolean {
   if (hostname === 'localhost' || hostname === '[::1]') return true
   return isIPv4Loopback(hostname)
-}
-
-/**
- * Request-level trust fence: a loopback socket address AND a loopback Host
- * header, plus browser same-origin markers. The socket address is
- * authoritative; X-Forwarded-For is never trusted.
- */
-export function isLoopbackRequest(request: IncomingMessage): boolean {
-  if (!isLoopbackAddress(request.socket.remoteAddress)) return false
-  const host = request.headers.host
-  if (typeof host !== 'string') return false
-  let hostUrl: URL
-  try {
-    hostUrl = new URL('http://' + host)
-  } catch {
-    return false
-  }
-  if (!isLoopbackHostname(hostUrl.hostname)) return false
-  if (request.headers['sec-fetch-site'] === 'cross-site') return false
-  const origin = request.headers.origin
-  if (origin === undefined) return true
-  try {
-    return new URL(origin).host === hostUrl.host
-  } catch {
-    return false
-  }
 }

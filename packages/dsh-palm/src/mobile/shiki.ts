@@ -239,8 +239,3 @@ export function highlightCodeSync(code: string, lang: string): string | null {
 export async function highlightCode(code: string, lang: string): Promise<string | null> {
   return highlightCodeSync(code, lang)
 }
-
-/** Test hook: clears the sync highlight cache (kept for API parity). */
-export function resetHighlighterForTest(): void {
-  SYNC_CACHE.clear()
-}

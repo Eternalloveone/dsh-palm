@@ -21,7 +21,8 @@ import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type 
 import type { SessionProjectionsBlock } from '../../api-proxy-types'
 import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
-import { startNotify } from '../notify.ts'
+import { startNotify, stopNotify } from '../notify.ts'
+import { usePageVisible } from '../foreground.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { clearPairingCaches } from '../list-persist.ts'
@@ -263,6 +264,10 @@ const OBSERVE_REFRESH_MS = 30_000
 
 /** The existing remote mobile surface, mounted only after device pairing succeeds. */
 function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
+  // Foreground gate: every polling effect on this surface reads it, so a
+  // backgrounded (frozen) PWA schedules nothing and the host is told to stop
+  // streaming to it (see the observe effect below).
+  const foreground = usePageVisible()
   const [transition, setTransition] = useState<TransitionState>({
     current: { route: { kind: 'workspaces' }, forward: true },
     leaving: undefined,
@@ -315,6 +320,9 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
    *  Drives the entry chip's green breathing dot + numeric badge. */
   const [runOverviewLive, setRunOverviewLive] = useState(0)
   const muxRef = useRef<MuxClient | undefined>(undefined)
+  /** The current observe re-assertion, so the visibility handler can fire it
+   *  the moment the page returns instead of waiting out the 30 s cadence. */
+  const assertObserveRef = useRef<() => void>(() => {})
   /** Host-probed running session ids (30 s TTL, polled on the roster). Kept
    *  separate from the mux mirrors so a mux frame refresh never drops a
    *  session only the host knows about; recomputeActive() unions both. */
@@ -408,7 +416,7 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   // hostRunningRef so mux-frame refreshes keep including it until the next
   // probe supersedes it.
   useEffect(() => {
-    if (route.kind !== 'workspaces') return
+    if (route.kind !== 'workspaces' || !foreground) return
     let cancelled = false
     let timer: ReturnType<typeof setInterval> | undefined
     const probe = (): void => {
@@ -424,14 +432,18 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     probe()
     timer = setInterval(probe, 30_000)
     return () => { cancelled = true; if (timer !== undefined) clearInterval(timer) }
-  }, [route.kind, recomputeActive])
+  }, [route.kind, recomputeActive, foreground])
 
   // The L1 completion-notify channel: starts once the page is paired and the
   // browser granted notification permission (the settings page asks). The
-  // server decides what to notify; this only delivers.
+  // server decides what to notify; this only delivers — and delivery is
+  // suppressed while the page is visible, so the channel is only kept open
+  // while the page is hidden. Exactly one live stream exists in each state:
+  // the mux while the page is on screen, notify while it is in the background.
   useEffect(() => {
-    startNotify()
-  }, [])
+    if (!foreground) startNotify()
+    return () => { stopNotify() }
+  }, [foreground])
 
   // Keep the live-event client pointed at the session currently on screen so
   // its polling fallback can keep that chat fresh over SSE-impairing tunnels
@@ -452,11 +464,37 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
         // Non-fatal: message-level live updates (the durable bus) still work.
       })
     }
+    assertObserveRef.current = assert
+    if (!foreground) {
+      // Hidden: hand the session back. The host releases its per-session
+      // assistant-stream follow when the device stops observing, so a phone in
+      // a pocket no longer makes the host fold and push every frame to it
+      // (measured 2.4 KB/s while a turn streams). The visibility effect below
+      // re-asserts this the moment the page comes back.
+      void observeSession(undefined).catch(() => { /* non-fatal */ })
+      return
+    }
     assert()
     if (sessionId === undefined) return
     const timer = setInterval(assert, OBSERVE_REFRESH_MS)
     return () => { clearInterval(timer) }
-  }, [route])
+  }, [route, foreground])
+
+  // A backgrounded PWA is frozen by the browser: timers stop, and the SSE
+  // socket can die without the page ever seeing an error — the phone would
+  // then sit on a stale transcript until something else forced a refresh.
+  // Returning to the foreground therefore resyncs the stream (reconnect +
+  // replay the gap) and re-asserts the host-side observation at once, instead
+  // of waiting out the 30 s cadence.
+  useEffect(() => {
+    const onVisibilityChange = (): void => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+      muxRef.current?.resync()
+      assertObserveRef.current()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => { document.removeEventListener('visibilitychange', onVisibilityChange) }
+  }, [])
 
   // The desktop theme preference wins on the phone too (one setting, both
   // surfaces); the local choice applies first at boot, then this lands.
@@ -779,11 +817,6 @@ export function staleHostHint(message: string): string | undefined {
   return /^HTTP 403/.test(message)
     ? '宿主端插件可能仍在运行旧版本：请重启 dsh web 后再试。'
     : undefined
-}
-
-/** Fetch one history page (tail by default) — thin wrapper so views share the call shape. */
-export function loadHistory(sessionId: string, beforeSeq?: number, signal?: AbortSignal) {
-  return fetchHistory(sessionId, beforeSeq, undefined, signal)
 }
 
 /** One folded chat page as the surface consumes it (any source). */

@@ -335,6 +335,31 @@ describe('MuxClient polling fallback', () => {
     }
   })
 
+  it('drops the scheduler tick when nothing is observed (a hidden page schedules nothing)', async () => {
+    const { factory } = makeSources()
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    try {
+      const client = new MuxClient('/m/api/events.mux', { sourceFactory: factory, pollLatest: vi.fn() })
+      client.start()
+      client.observe('s1')
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1)
+
+      // No observed session and no polling: the 1 s tick would only wake a
+      // backgrounded phone to do nothing, so it is torn down.
+      client.observe(undefined)
+      setIntervalSpy.mockClear()
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(setIntervalSpy).not.toHaveBeenCalled()
+
+      // Returning to the foreground restarts it (resync is the resume path).
+      client.resync()
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1)
+      client.stop()
+    } finally {
+      setIntervalSpy.mockRestore()
+    }
+  })
+
   it('paces polls on the tick only after the stall phase ends', async () => {
     const { factory } = makeSources()
     const pages = [pageOf([0]), pageOf([0, 1]), pageOf([0, 1, 2]), pageOf([0, 1, 2, 3])]
@@ -678,6 +703,61 @@ describe('MuxClient background-task cache', () => {
       data: envelopeWith({ type: 'session/subscribed', sessionId: 's1', lastSeq: 15 }),
     })
     expect(client.runningSessionsSnapshot()).toEqual(['s1'])
+    client.stop()
+  })
+})
+
+describe('MuxClient foreground resync', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  /** A clock the test moves by hand, so background silence never runs timers. */
+  function clockedOptions(pollLatest: (sessionId: string) => Promise<HistoryPage>, factory: (url: string) => EventSourceLike) {
+    const state = { now: 0 }
+    return {
+      state,
+      options: { ...baseOptions(pollLatest, factory), now: () => state.now },
+    }
+  }
+
+  it('rebuilds a silent stream and replays the gap when the page returns', async () => {
+    const { factory, sources } = makeSources()
+    const pollLatest = vi.fn(async (_sessionId: string) => pageOf([]))
+    const { state, options } = clockedOptions(pollLatest, factory)
+    const client = new MuxClient('/m/api/events.mux', options)
+    client.start()
+    client.observe('s1')
+    expect(sources).toHaveLength(1)
+
+    // Frozen page: no frames arrive and no timer runs, only wall time passes.
+    state.now = 5_000
+    client.resync()
+
+    // The stale socket is replaced and the history fallback patches the gap
+    // immediately instead of waiting out the live-stream grace period.
+    expect(sources).toHaveLength(2)
+    expect(sources[0]?.closed).toBe(true)
+    expect(pollLatest).toHaveBeenCalledWith('s1')
+    client.stop()
+  })
+
+  it('keeps a stream that was still delivering and only clears the backoff', async () => {
+    const { factory, sources } = makeSources()
+    const pollLatest = vi.fn(async (_sessionId: string) => pageOf([]))
+    const { state, options } = clockedOptions(pollLatest, factory)
+    const client = new MuxClient('/m/api/events.mux', options)
+    client.start()
+    client.observe('s1')
+    sources[0]?.onmessage?.({ data: envelopeWith({ type: 'session/subscribed', sessionId: 's1', lastSeq: 3 }) })
+
+    // A short switch away: the last frame is still inside the stall window.
+    state.now = 300
+    client.resync()
+
+    expect(sources).toHaveLength(1)
+    expect(sources[0]?.closed).toBe(false)
+    expect(pollLatest).not.toHaveBeenCalled()
     client.stop()
   })
 })

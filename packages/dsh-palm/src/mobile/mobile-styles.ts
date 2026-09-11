@@ -858,13 +858,6 @@ body,
   line-height: 1;
 }
 
-.mobile-live {
-  margin-left: 6px;
-  color: var(--positive);
-  font-size: 10px;
-  vertical-align: middle;
-}
-
 /* Legacy column layout still used by a few stacked rows (settings forms). */
 .mobile-rowMain {
   grid-column: 1 / -1;
@@ -921,12 +914,6 @@ body,
 .ws-pin svg {
   width: 12px;
   height: 12px;
-}
-
-/* ── session cards ───────────────────────────────────────────────────── */
-
-.sess-row .card-main {
-  padding: 12px 0;
 }
 
 .sess-dot {
@@ -1368,10 +1355,6 @@ button.settings-row:focus-visible {
   color: var(--text-secondary);
 }
 
-.settings-rowLabel {
-  min-width: 0;
-}
-
 .settings-rowValue {
   color: var(--text-quaternary);
   font-size: var(--text-md);
@@ -1543,11 +1526,8 @@ button.settings-row:focus-visible {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 500;
-}
-
-/* Toggle switch: 44 × 24, 12px radius, accent when on. */
-.settings-switch,
-.sheet-toggle-switch {
+}/* Toggle switch: 44 × 24, 12px radius, accent when on. */
+.settings-switch{
   position: relative;
   flex: none;
   width: 44px;
@@ -1558,10 +1538,7 @@ button.settings-row:focus-visible {
   background: var(--border-default);
   cursor: pointer;
   transition: background-color 0.18s ease;
-}
-
-.settings-switch::after,
-.sheet-toggle-switch-knob {
+}.settings-switch::after{
   content: '';
   position: absolute;
   top: 2px;
@@ -1572,15 +1549,9 @@ button.settings-row:focus-visible {
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   transition: transform 0.18s ease;
-}
-
-.settings-switch-on,
-.sheet-toggle-switch-on {
+}.settings-switch-on{
   background: var(--accent);
-}
-
-.settings-switch-on::after,
-.sheet-toggle-switch-on .sheet-toggle-switch-knob {
+}.settings-switch-on::after{
   transform: translateX(20px);
 }
 
@@ -2069,13 +2040,6 @@ button.settings-row:focus-visible {
   opacity: 0.4;
 }
 
-.mobile-presetDescription {
-  margin: 0 16px 8px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  line-height: 1.5;
-}
-
 /* ── chat ────────────────────────────────────────────────────────────── */
 
 .chat {
@@ -2202,9 +2166,7 @@ button.settings-row:focus-visible {
   max-width: 100%;
   user-select: text;
   -webkit-user-select: text;
-}
-.code-block pre,
-.diff-block .diff-row-text {
+}.code-block pre{
   min-width: 0;
   max-width: 100%;
   user-select: text;
@@ -2436,16 +2398,12 @@ button.settings-row:focus-visible {
 /* Paragraph → code/diff card: the card is a sibling of the .md-html run
    (not of the <p> inside it), so the gap lives on the run boundary. */
 .chat-md .md-html + .code-block,
-.chat-md .md-html + .diff-block { margin-top: 12px; }
-/* Text run → diff artifact card (and back): FlowBody renders the card as a
-   sibling of the .chat-md runs, so the 12px breathing room must live on
-   those sibling edges — the old .chat-artifacts container (margin 12px 0)
-   never rendered, leaving the card glued to the text. Flow rows wrap each
+.chat-md .md-html + .diff-block { margin-top: 12px; }/* Text run → diff artifact card (and back): FlowBody renders the card as a
+   sibling of the .chat-md runs, leaving the card glued to the text. Flow rows wrap each
    text run in a <div data-step-seq class="chat-flow-text">, so the sibling
    selector must match both the bare .chat-md and the .chat-flow-text wrapper
    — otherwise the card glues to the text (gap collapses to 0). */
-.chat-md + .chat-artifact,
-.chat-flow-text + .chat-artifact { margin-top: 12px; }
+.chat-md + .chat-artifact, .chat-flow-text + .chat-artifact{ margin-top: 12px; }
 .chat-artifact + .chat-md,
 .chat-artifact + .chat-flow-text { margin-top: 12px; }
 /* Soft line breaks (single-\n markdown lists, agent status lines) render as
@@ -3426,25 +3384,6 @@ button.settings-row:focus-visible {
   animation-delay: 0.4s;
 }
 
-/* Foreground-subagent count badge on the turn-status bar. */
-.chat-subagent-badge {
-  flex: none;
-  margin-left: auto;
-  padding: 2px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  background: var(--bg-elevated);
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.chat-subagent-badge:active {
-  background: var(--fill);
-}
-
 /* ── run-status strip + sheet (todo plan / background jobs) ───────────── */
 
 .chat-status-strip {
@@ -3682,14 +3621,6 @@ button.settings-row:focus-visible {
   font-size: var(--text-xs);
 }
 
-/* ── foreground-subagent tree sheet ────────────────────────────────────── */
-
-.chat-subagent-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .chat-subagent-row {
   display: flex;
   align-items: flex-start;
@@ -3728,13 +3659,6 @@ button.settings-row:focus-visible {
 .chat-subagent-meta {
   color: var(--text-tertiary);
   font-size: var(--text-sm);
-}
-
-.chat-subagent-empty {
-  margin: 0;
-  padding: 8px 0;
-  color: var(--text-tertiary);
-  font-size: var(--text-md);
 }
 
 /* Run-status sheet fold row: truncates long subagent lists past the visible max. */
@@ -4026,25 +3950,6 @@ button.settings-row:focus-visible {
 /* Permission pills never shrink: their text is short and stays visible. */
 .chat-pill-perm {
   flex: none;
-}
-
-/* Permission level colors ride the shield icon (and the pill edge for the
-   full-access level) — color is the status channel. */
-.chat-pill-perm-read > svg {
-  color: var(--text-tertiary);
-}
-
-.chat-pill-perm-write > svg {
-  color: var(--accent);
-}
-
-.chat-pill-perm-full {
-  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-default));
-  color: var(--danger);
-}
-
-.chat-pill-perm-full > svg {
-  color: var(--danger);
 }
 
 /* Context meter (status zone): an SVG occupancy ring + the percentage;
@@ -4481,12 +4386,6 @@ button.settings-row:focus-visible {
   opacity: 0.6;
 }
 
-.chat-meta {
-  margin-top: 4px;
-  color: var(--text-quaternary);
-  font-size: var(--text-xs);
-}
-
 .chat-typing {
   color: var(--text-tertiary);
   font-size: var(--text-md);
@@ -4546,10 +4445,6 @@ button.settings-row:focus-visible {
 
 .ctx-item:active {
   background: var(--fill);
-}
-
-.ctx-item-danger {
-  color: var(--danger);
 }
 
 /* ── bottom sheets ───────────────────────────────────────────────────── */
@@ -5303,39 +5198,6 @@ button.settings-row:focus-visible {
   color: var(--danger);
 }
 
-.sheet-toggle-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: 56px;
-  padding: 8px 8px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.sheet-toggle-row:last-child {
-  border-bottom: none;
-}
-
-.sheet-toggle-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sheet-toggle-title {
-  font-size: 14px;
-  font-weight: 400;
-}
-
-.sheet-toggle-desc {
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  line-height: 1.4;
-}
-
 /* ── centered confirm dialog ─────────────────────────────────────────── */
 
 .dialog-backdrop {
@@ -5509,38 +5371,9 @@ button.settings-row:focus-visible {
     opacity: 0;
     transform: translateY(8px) scale(0.96);
   }
-}
+}/* ── focus rings ─────────────────────────────────────────────────────── */
 
-/* ── focus rings ─────────────────────────────────────────────────────── */
-
-.mobile-back:focus-visible,
-.mobile-theme-toggle:focus-visible,
-.mobile-iconbtn:focus-visible,
-.mobile-headerAction:focus-visible,
-.mobile-quickchip:focus-visible,
-.mobile-searchInput:focus-visible,
-.mobile-row:focus-visible,
-.mobile-createCard:focus-visible,
-.mobile-presetTrigger:focus-visible,
-.mobile-presetHelp:focus-visible,
-.mobile-button:focus-visible,
-.mobile-new:focus-visible,
-.settings-themeOption:focus-visible,
-.settings-optionChip:focus-visible,
-.settings-switch:focus-visible,
-.sheet-toggle-switch:focus-visible,
-.dialog-btn:focus-visible,
-.dialog-input:focus-visible,
-.chat-send:focus-visible,
-.chat-chip:focus-visible,
-.chat-msg-toggle:focus-visible,
-.chat-load-older:focus-visible,
-.chat-disclosure-head:focus-visible,
-.chat-question-option:focus-within,
-.ctx-item:focus-visible,
-.sheet-option:focus-visible,
-.sheet-confirm-danger:focus-visible,
-.chat-input:focus-visible {
+.mobile-back:focus-visible, .mobile-theme-toggle:focus-visible, .mobile-iconbtn:focus-visible, .mobile-headerAction:focus-visible, .mobile-quickchip:focus-visible, .mobile-searchInput:focus-visible, .mobile-row:focus-visible, .mobile-createCard:focus-visible, .mobile-presetTrigger:focus-visible, .mobile-presetHelp:focus-visible, .mobile-button:focus-visible, .mobile-new:focus-visible, .settings-themeOption:focus-visible, .settings-optionChip:focus-visible, .settings-switch:focus-visible, .dialog-btn:focus-visible, .dialog-input:focus-visible, .chat-send:focus-visible, .chat-msg-toggle:focus-visible, .chat-load-older:focus-visible, .chat-disclosure-head:focus-visible, .chat-question-option:focus-within, .ctx-item:focus-visible, .sheet-option:focus-visible, .sheet-confirm-danger:focus-visible, .chat-input:focus-visible{
   outline: none;
   box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
 }
@@ -5903,12 +5736,6 @@ button.settings-row:focus-visible {
   background: var(--fill);
 }
 
-/* Code copy success state. */
-.code-copy-done {
-  color: var(--positive);
-  font-weight: 500;
-}
-
 /* Code pre keeps pinch-zoom transforms contained. */
 .code-block pre {
   transition: transform 0.05s linear;
@@ -6234,11 +6061,8 @@ button.settings-row:focus-visible {
 /* Settings search field. */
 .settings-search {
   padding: 0 16px 12px;
-}
-
-/* Toggle knob spring (overshoot then settle, 200ms). */
-.settings-switch::after,
-.sheet-toggle-switch-knob {
+}/* Toggle knob spring (overshoot then settle, 200ms). */
+.settings-switch::after{
   transition: transform 0.2s cubic-bezier(0.34, 1.8, 0.64, 1);
 }
 
@@ -6498,61 +6322,6 @@ details.think-block[open] .chat-disclosure-caret {
 /* Settled job rows are de-emphasized so the eye lands on live work first. */
 .runov-jobs-settled .chat-task-row {
   opacity: 0.72;
-}
-
-.runov-recent-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 14px 18px 4px;
-}
-
-.runov-recent-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.runov-recent-count {
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-quaternary);
-}
-
-.runov-empty {
-  margin: 26px 32px;
-  text-align: center;
-}
-
-.runov-empty-ic {
-  display: inline-flex;
-  width: 52px;
-  height: 52px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 16px;
-  background: var(--bg-elevated);
-  color: var(--text-quaternary);
-  margin-bottom: 10px;
-}
-
-.runov-empty-ic svg {
-  width: 24px;
-  height: 24px;
-}
-
-.runov-empty-t {
-  font-size: var(--text-base);
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.runov-empty-s {
-  margin: 4px auto 0;
-  max-width: 260px;
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  line-height: 1.55;
 }
 
 /* ── conditional report card (single-view enhancement) ─────────────────

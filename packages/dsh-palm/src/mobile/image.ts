@@ -187,13 +187,4 @@ export function imageFromClipboard(dataTransfer: DataTransfer | null, max = MAX_
   }
   return files
 }
-
-/** Read an attached image's original dimensions (for the preview alt). */
-export function dataUrlDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve) => {
-    const image = new Image()
-    image.onload = () => resolve({ width: image.width, height: image.height })
-    image.onerror = () => resolve({ width: 0, height: 0 })
-    image.src = dataUrl
-  })
-}
+

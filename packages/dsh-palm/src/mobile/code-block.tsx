@@ -25,8 +25,6 @@ import { CheckIcon, CopyIcon, EnterIcon, PlayIcon, UpperRightIcon } from './icon
 
 /** Fold threshold: blocks with more lines fold; the folded view shows this many. */
 export const FOLD_THRESHOLD = 20
-/** Lines visible in the folded view. */
-export const FOLD_PREVIEW_LINES = 15
 /** Blocks at or above this line count highlight in chunks (first 100 lines paint first). */
 export const CHUNK_THRESHOLD = 1000
 /** Chunk size for the chunked highlight path. */

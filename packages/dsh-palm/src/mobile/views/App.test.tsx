@@ -16,12 +16,15 @@ const api = vi.hoisted(() => ({
   setThemePreference: vi.fn(),
 }))
 
+const mux = vi.hoisted(() => ({ resync: vi.fn(), observe: vi.fn(), start: vi.fn(), stop: vi.fn() }))
+
 vi.mock('../api.ts', () => api)
 vi.mock('../mux.ts', () => ({
   MuxClient: class {
-    start(): void {}
-    stop(): void {}
-    observe(): void {}
+    start(): void { mux.start() }
+    stop(): void { mux.stop() }
+    observe(sessionId?: string): void { mux.observe(sessionId) }
+    resync(): void { mux.resync() }
     onFrame(): () => void { return () => {} }
     jobsSnapshot(): Array<{ sessionId: string; jobs: never[] }> { return [] }
     liveJobCount(): number { return 0 }
@@ -119,5 +122,43 @@ describe('loadChatPage (v3 folded reads + fallback)', () => {
     api.history.mockRejectedValue(new RpcTransportError('transport failed: network'))
     const { loadChatPage } = await import('./App.tsx')
     await expect(loadChatPage('s-1')).rejects.toThrow('network')
+  })
+})
+
+describe('foreground resync', () => {
+  /** Drive one visibility transition with an explicit target state. */
+  function setVisibility(state: 'visible' | 'hidden'): void {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  it('resyncs the stream and re-asserts the observation when the page returns', async () => {
+    api.fetchMobilePreferences.mockResolvedValue({ mobileEnterToSend: true })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
+    mux.resync.mockClear()
+    api.observeSession.mockClear()
+
+    setVisibility('visible')
+
+    expect(mux.resync).toHaveBeenCalledTimes(1)
+    // The 30 s cadence is bypassed: the host learns the page is back at once.
+    await waitFor(() => expect(api.observeSession).toHaveBeenCalled())
+  })
+
+  it('releases the observation instead of streaming to a hidden screen', async () => {
+    api.fetchMobilePreferences.mockResolvedValue({ mobileEnterToSend: true })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
+    mux.resync.mockClear()
+    api.observeSession.mockClear()
+
+    setVisibility('hidden')
+
+    expect(mux.resync).not.toHaveBeenCalled()
+    // Handing the session back (undefined) is what makes the host release its
+    // per-session assistant-stream follow; the armed 30 s cadence is dropped
+    // with it, so a frozen page issues no further asserts.
+    await waitFor(() => expect(api.observeSession).toHaveBeenCalledWith(undefined))
   })
 })

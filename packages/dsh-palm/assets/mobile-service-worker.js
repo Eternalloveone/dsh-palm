@@ -11,7 +11,16 @@
 /* Local patch (2026-09-02): Web Push (L2) — push + notificationclick
    handlers for the completion-notify feature. Bumped the cache name so the
    new worker replaces the old one on activate. */
-const CACHE_NAME = 'dsh-remote-mobile-shell-v4'
+/* Local patch (2026-09-11): the versioned bundle is cache-FIRST. The 08-28
+   patch claimed repeat visits skipped the download, but networkFirst fetches
+   every time and its cache write is skipped for query URLs — so the page's
+   /m/mobile.js?v=<hash> request was never cached and every open re-downloaded
+   the whole bundle (~152 KB brotli, 269 KB before the minify work). The page
+   always carries the content hash and mobile-routes serves those bytes
+   unchanged for the process lifetime, so same URL means same bytes: a cache
+   hit is always correct. The unversioned URL keeps network-first. Bumped the
+   cache name so old entries are purged on activate. */
+const CACHE_NAME = 'dsh-remote-mobile-shell-v5'
 const OFFLINE_URL = '/m/offline.html'
 const SHELL_PATHS = new Set([
   '/m/',
@@ -23,7 +32,24 @@ const SHELL_PATHS = new Set([
 ])
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.add(OFFLINE_URL)))
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME)
+    await cache.add(OFFLINE_URL)
+    // Precache the exact bundle the page currently references. The page's own
+    // request cannot populate the cache until this worker controls it, so
+    // without this the first controlled load still pays the download and an
+    // offline open has no bundle at all. The URL carries the content hash, so
+    // the entry can never go stale.
+    try {
+      const page = await fetch('/m/', { cache: 'no-store' })
+      const html = await page.text()
+      const match = /src="(\/m\/mobile\.js\?v=[0-9a-f]{8})"/.exec(html)
+      if (match !== null) await cache.add(match[1])
+    } catch {
+      // Offline install or an unreachable host: the cache-first path fills the
+      // entry on the next successful load instead.
+    }
+  })())
 })
 
 self.addEventListener('activate', event => {
@@ -106,11 +132,13 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return
   if (url.pathname === '/api' || url.pathname.startsWith('/api/') || url.pathname === '/m/api' || url.pathname.startsWith('/m/api/')) return
 
-  // Versioned bundle: network-first, cached under the full URL (hash in the
-  // query). A network failure falls back to the cached copy of the SAME
-  // version — never a different one.
+  // Versioned bundle: cache-first, keyed by the full URL (the content hash in
+  // the query). A repeat open of the same version costs no network at all;
+  // an upgrade changes the page's hash (the navigation below is network-first),
+  // so the new URL misses the cache and fetches fresh bytes automatically.
+  // The unversioned URL carries no such guarantee and stays network-first.
   if (url.pathname === '/m/mobile.js') {
-    event.respondWith(networkFirst(request, request))
+    event.respondWith(url.search === '' ? networkFirst(request, request) : cacheFirst(request))
     return
   }
 
@@ -122,6 +150,24 @@ self.addEventListener('fetch', event => {
 
   if (SHELL_PATHS.has(url.pathname)) event.respondWith(networkFirst(request, url.pathname))
 })
+
+/**
+ * Serve the cached bytes for an immutable, content-hashed URL, fetching and
+ * caching them on a miss. The hash in the URL is the version, so a hit can
+ * never be stale.
+ */
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME)
+  const cached = await cache.match(request)
+  if (cached !== undefined) return cached
+  try {
+    const response = await fetch(request)
+    if (response.ok) await cache.put(request, response.clone())
+    return response
+  } catch {
+    return new Response('', { status: 503, statusText: 'Service Unavailable' })
+  }
+}
 
 async function networkFirst(request, fallbackPath, allowCachedResponse = true) {
   try {

@@ -52,9 +52,3 @@ export async function loadAttachmentUrl(sessionId: string, attachmentId: string)
   inFlight.set(attachmentId, request)
   return await request
 }
-
-/** 清空缓存（测试与会话清理用）。 */
-export function clearAttachmentImages(): void {
-  cache.clear()
-  inFlight.clear()
-}

@@ -17,6 +17,7 @@ import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useR
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
 import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
+import { usePageVisible } from '../foreground.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, type CommandDescriptor } from '../api.ts'
@@ -258,6 +259,10 @@ export function ChatView({
   initialFocusQuery,
 }: ChatViewProps) {
   const [messages, setMessages] = useState<RenderMessage[]>([])
+  // Foreground gate for every poll on this view: a frozen background PWA must
+  // not keep issuing RPCs (the stream and the host-side follow are released by
+  // App's observe effect; returning resyncs them).
+  const foreground = usePageVisible()
 
   /**
    * Surface-state wrapper for setMessages: coalesce consecutive same-turn
@@ -1066,7 +1071,7 @@ export function ChatView({
   // delivering (pending items also arrive as frames) poll slowly as a safety
   // net; only while it is stalled does the poll go fast.
   useEffect(() => {
-    if (!running) return
+    if (!running || !foreground) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const tick = (): void => {
@@ -1094,7 +1099,7 @@ export function ChatView({
     }
     tick()
     return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
-  }, [running, session.sessionId, mux])
+  }, [running, session.sessionId, mux, foreground])
 
   // Running reconciliation: the live turn/end frame can be lost to a tunnel
   // blip - the EventSource reconnects, its keep-alives resume, the polling
@@ -1103,10 +1108,16 @@ export function ChatView({
   // of this session on a slow cadence and adopt it (the host answer is
   // authoritative - it also covers a dropped stopTurn ack the same way).
   useEffect(() => {
-    if (!running) return
+    if (!running || !foreground) return
     let cancelled = false
     let failures = 0
     const id = setInterval(() => {
+      // While the live stream is delivering, this reconcile is only a safety
+      // net for a frame that was lost without the stream noticing — and a lost
+      // turn/end is exactly what makes the stream go quiet. So skip the roster
+      // read while frames are still arriving and pay it only once the chat has
+      // been silent for a full cadence (cuts ~2/3 of the RPCs on a live turn).
+      if (mux?.isSseLive() === true && Date.now() - lastFrameAtRef.current < RUNNING_RECONCILE_MS) return
       void listSessions().then(
         (page) => {
           if (cancelled) return
@@ -1174,7 +1185,7 @@ export function ChatView({
       )
     }, RUNNING_RECONCILE_MS)
     return () => { cancelled = true; clearInterval(id) }
-  }, [running, session.sessionId, normalizeTurnEndTodo])
+  }, [running, session.sessionId, normalizeTurnEndTodo, foreground])
 
   // Foreground subagents: fetch on mount/session-switch, and refetch on
   // turn/start (see onFrame). One flat subagents.list call — no recursive
@@ -1194,10 +1205,10 @@ export function ChatView({
   // While the turn is open, poll the flat list so the run-status sheet stays
   // fresh (new subagents spawn mid-turn; the host stream is not forwarded).
   useEffect(() => {
-    if (!running) return
+    if (!running || !foreground) return
     const id = setInterval(() => { refreshSubagentsRef.current() }, SUBAGENT_POLL_MS)
     return () => { clearInterval(id) }
-  }, [running])
+  }, [running, foreground])
 
   // Quiet flip: while the turn is open but the mux has been silent past
   // TURN_QUIET_MS, the wording flips from 输出中 to 后台处理中 — the host is
@@ -1206,12 +1217,13 @@ export function ChatView({
   // interval; setQuiet with an unchanged value does not re-render.
   useEffect(() => {
     if (!running) { setTurnQuiet(false); return }
+    if (!foreground) return
     const id = setInterval(() => {
       const quiet = Date.now() - lastFrameAtRef.current > TURN_QUIET_MS
       setTurnQuiet(prev => prev === quiet ? prev : quiet)
     }, 1_000)
     return () => clearInterval(id)
-  }, [running])
+  }, [running, foreground])
 
   // Turn clock (desktop parity): anchor at the logged turn/start (fallback:
   // mount time) and re-compute elapsed once a second. Recomputed from the
@@ -1221,6 +1233,7 @@ export function ChatView({
   const [turnElapsedMs, setTurnElapsedMs] = useState(0)
   useEffect(() => {
     if (!running) { setTurnElapsedMs(0); return }
+    if (!foreground) return
     const anchor = turnStartAt ?? mountTimeRef.current
     // Elapsed counts on HOST time (local now + the frame-calibrated skew),
     // so the running clock agrees with the desktop instead of running fast

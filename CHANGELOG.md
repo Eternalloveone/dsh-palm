@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-11
+
+### Added
+
+- **Brotli transport for the mobile shell** — `/m/mobile.js` now negotiates `br` first, falls back to `gzip`, then identity (125.7 KB vs 152 KB gzip on the wire). The encoded copies are built once in the background at startup: quality 11 needs ~1 s for the bundle, and paying it lazily landed on the first phone request after a restart (2.8 s end to end through the tunnel, 0.18 s warm).
+- **Foreground gate** (`mobile/foreground.ts`) — page visibility is now a first-class input for the surface: every poll reads it, and the host is told to stop streaming while the page is hidden.
+
+### Changed
+
+- **The mobile bundle is minified, and the validator is gone from it** — 1120.6 KB → 561 KB raw (269 KB → 152 KB gzip). The mux frame guard is hand-written (`MUX_FRAME_TYPES` + `parseMuxEnvelope`) instead of the zod schemas, which had pulled the whole validator into the phone bundle.
+- **Repeat opens no longer re-download the bundle** — the service worker's versioned-bundle branch was network-first *and* skipped its cache write for every URL carrying a query, so `/m/mobile.js?v=<hash>` was never cached: each open re-fetched the whole app while the comment claimed the opposite. Versioned URLs are immutable, so they are cache-first now, and the worker precaches the current bundle at install (which also makes an offline open work). Cache name bumped to v5.
+- **A hidden page stops the host from streaming to it** — leaving the chat hands the session back (`mobile.observe` with no session), and the host releases its per-session assistant-stream follow; the 1 s scheduler tick, the 30 s observe re-assert, the running-session probe and the chat's five polls (pending, subagents, reconciliation, quiet check, turn clock) all gate on visibility. Measured 2.4 KB/s while a turn streams — roughly 8.6 MB per hour pushed to a phone in a pocket.
+- **The L1 notify channel only opens while the page is hidden** — delivery is suppressed while the page is visible anyway, so an open channel there was pure overhead. Exactly one live stream exists in each state: the mux on screen, notify in the background.
+- **Running-turn reconciliation is skipped while the stream is delivering** — the roster read now runs only once the chat has been silent for a full cadence, which is exactly when a lost `turn/end` matters (cuts ~2/3 of the RPCs during a live turn).
+
+### Fixed
+
+- **A phone that came back to the foreground could sit on a stale transcript** — a backgrounded PWA is frozen (timers stop, the socket can die without the page seeing an error), so returning now resyncs the stream and re-asserts the observation immediately instead of waiting out the 30 s cadence.
+- **Two contradictory comments in the fold's synthetic-id swap** — the branch is reachable (`syntheticId` yields `prefix#seq`); the comments claimed both that indexes must migrate and that the case was unused.
+- **A proxy environment variable failed a test for the wrong reason** — the L2 delivery test asserts the code's own direct-connection fallback, but it read the ambient `HTTPS_PROXY`, so any machine or runner with a proxy exported (a normal corporate setup, and this project's own release pushes) failed there. The test now clears the proxy variables it is asserting about.
+
+### Removed
+
+- **Dead code and dead CSS** — 28 rule blocks (30 unused class names) from the mobile stylesheet, a superseded request-level loopback fence, and four unreferenced remote-channel constants left over from the 1.3.0 decoupling.
+
 ## [1.3.1] - 2026-09-11
 
 ### Added

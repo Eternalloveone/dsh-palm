@@ -261,6 +261,13 @@ describe('deliverL2', () => {
   })
 
   it('sends direct without any proxy variable', async () => {
+    // Clear the ambient proxy variables. This asserts the code's own fallback,
+    // not the shell's environment — a developer machine (or any CI runner)
+    // with HTTPS_PROXY exported would otherwise fail here for the wrong
+    // reason, which is exactly what blocked a release push once.
+    for (const name of ['DSH_PALM_PUSH_PROXY', 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) {
+      vi.stubEnv(name, undefined)
+    }
     const { store, cleanup } = storeWithSubscription()
     try {
       await deliverL2(store, event)

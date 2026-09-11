@@ -112,10 +112,16 @@ function base64Url(buffer: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-/** Start the L1 SSE channel (idempotent; requires granted permission). */
+/** Start the L1 SSE channel (idempotent; requires granted permission).
+ *
+ * Only runs while the page is hidden: {@link showNotify} drops every event
+ * while the page is visible, so an open channel there is pure overhead — the
+ * mux stream is the live connection while the page is on screen. App's
+ * visibility effect starts this on the way out and stops it on return. */
 export function startNotify(): void {
   if (source !== undefined || !notificationSupported()) return
   if (Notification.permission !== 'granted') return
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') return
   active = true
   source = new EventSource(NOTIFY_EVENTS_URL)
   source.onmessage = (event) => {

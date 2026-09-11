@@ -252,17 +252,6 @@ export function readPairParams(search: string): { pair?: string; workspace?: str
   }
 }
 
-/**
- * Strip one query parameter from the current URL without reloading.
- * @param name - the parameter to remove.
- * @returns the new search string ('' when empty).
- */
-export function stripParam(name: string): string {
-  const url = new URL(window.location.href)
-  url.searchParams.delete(name)
-  return url.search
-}
-
 /** Convert an issued `/m/` link into the desktop pairing form. */
 export function desktopPairUrl(mobileUrl: string): string {
   const url = new URL(mobileUrl)

@@ -650,8 +650,8 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
       // message is still streaming, so its messageId is that pending row's id;
       // swapping to a DIFFERENT final event id here would make the messageId no
       // longer match the rendered row and the locate would fall back to a query
-      // match, landing mid-history. Only the fallback synthetic id (no `#`)
-      // — i.e. test/edge chunks without a wire id — yields to the final id.
+      // match, landing mid-history. Only the fallback synthetic id (`prefix#seq`,
+      // i.e. test/edge chunks without a wire id) yields to the final id.
       id: target.id.includes('#') ? id : target.id,
       text: finalText,
       // The final content block list is authoritative; an adapter that omits
@@ -669,10 +669,9 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
     replaceMessage(state, target, next)
     retargetTurnStep(state, key, target, next)
     if (turn !== undefined) state.messageTurn.set(next.id, turn)
-    // The streaming partial's synthetic id is retired: move the per-message
-    // indexes (tool-name dedup set, turn map) to the authoritative id, or
-    // The streaming partial's id is retained (see above), so no index needs to
-    // migrate to a different id; the guard is kept for the unused swap case.
+    // The id only changes on the synthetic→real swap above (see the `id` field),
+    // so the per-message indexes (tool-name dedup set, turn map) must follow it;
+    // the retained-id path needs no migration and skips this block.
     if (target.id !== next.id) {
       const names = state.toolNames.get(target.id)
       if (names !== undefined) {

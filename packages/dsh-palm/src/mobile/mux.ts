@@ -26,8 +26,6 @@
 
 import type { MuxFrame } from '../api-proxy-types'
 import type { JobView } from '../api-proxy-types'
-import { muxFrameSchema } from '../api-proxy-types'
-import { serverRequestSchema } from '../api-proxy-types'
 import type { HistoryEntry } from '../api-proxy-types'
 import { history as fetchHistory, queueItemViewOf, type HistoryPage, type QueueItemView } from './api.ts'
 import { RpcTransportError } from './rpc.ts'
@@ -98,6 +96,64 @@ const DEFAULT_POLL_PAGE_SIZE = 50
  * keeps the map from growing without limit across the roster.
  */
 const MAX_CACHED_JOBS_SESSION = 64
+
+/**
+ * Known mux frame discriminants, mirroring the host's frame union. Unknown
+ * frames are dropped exactly like the schema-validated version did.
+ */
+const MUX_FRAME_TYPES = new Set<string>([
+  'session/event',
+  'session/subscribed',
+  'approval/requested',
+  'approval/resolved',
+  'question/requested',
+  'question/resolved',
+  'session/queue',
+  'session/jobs',
+  'session/projection',
+  'session/added',
+  'session/removed',
+  'session/status',
+  'session/activity',
+  'session/error',
+  'stream/error',
+])
+
+/**
+ * Structural guard for one SSE payload: a `server-request` envelope whose
+ * payload carries a known mux frame discriminant.
+ *
+ * This replaces the two zod schemas that used to validate the channel. Those
+ * schemas were the only value imports pulling zod into the phone bundle, and
+ * they measured ~60 KB raw / ~16 KB gzip for what amounts to two shape checks
+ * (the phone only ever reads `type` plus per-arm fields it narrows locally).
+ * `session/event` additionally requires an object `event`, because its readers
+ * dereference `event.type` unconditionally.
+ * @param data - one raw SSE `data:` payload.
+ * @returns the frame plus its envelope rpcId, or undefined for anything the
+ * phone must not act on.
+ */
+function parseMuxEnvelope(data: string): { frame: MuxFrame; rpcId: string } | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(data)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const envelope = parsed as { type?: unknown; rpcId?: unknown; method?: unknown; payload?: unknown }
+  if (envelope.type !== 'server-request') return undefined
+  if (typeof envelope.rpcId !== 'string' || typeof envelope.method !== 'string') return undefined
+  const frame = envelope.payload
+  if (typeof frame !== 'object' || frame === null) return undefined
+  const type = (frame as { type?: unknown }).type
+  if (typeof type !== 'string' || !MUX_FRAME_TYPES.has(type)) return undefined
+  if (type === 'session/event') {
+    const event = (frame as { event?: unknown }).event
+    if (typeof event !== 'object' || event === null) return undefined
+  }
+  return { frame: frame as MuxFrame, rpcId: envelope.rpcId }
+}
 
 /**
  * Whether a polling error is terminal — the device is no longer paired. The
@@ -241,8 +297,13 @@ export class MuxClient {
     this.observeSessionId = sessionId
     if (sessionId === undefined) {
       this.stopPolling()
+      // Nothing left to schedule (no observed session, no polling), so the 1 s
+      // tick would only wake a backgrounded phone to do nothing. `observe(id)`
+      // and `resync()` both restart it.
+      this.stopTick()
       return
     }
+    this.startTick()
     if (changed) {
       // A session switch resets the poll state: the previous session's
       // backoff (up to MAX_POLL_BACKOFF_MS of silence) says nothing about
@@ -269,6 +330,31 @@ export class MuxClient {
     if (this.stopped) return
     this.pollDelayMs = this.pollIntervalMs
     this.nextPollAt = 0
+  }
+
+  /**
+   * Force a resync when the page returns to the foreground.
+   *
+   * A backgrounded PWA is frozen by the browser: its timers stop, and a tunnel
+   * can drop the SSE socket without the page ever seeing an error — the stream
+   * then still reads "alive" while nothing arrives (exactly the failure mode a
+   * background desktop tab shows). Resume therefore shortcuts the live-stream
+   * grace period: silence that already outlived the base stall window means
+   * the socket is not delivering, so rebuild it and let the history fallback
+   * replay the gap immediately; a stream that was still delivering only needs
+   * its backoff cleared.
+   */
+  resync(): void {
+    if (this.stopped) return
+    // Idempotent: a browser that suspended the page also suspended the timer.
+    this.startTick()
+    if (this.now() - this.lastDataAt > this.stallThresholdMs) {
+      this.closeSource()
+      this.connect()
+      if (this.observeSessionId !== undefined) this.startPolling()
+      return
+    }
+    this.poke()
   }
 
   private connect(): void {
@@ -478,31 +564,24 @@ export class MuxClient {
 
   private handleMessage(data: string): void {
     if (typeof data !== 'string' || data === '') return
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(data)
-    } catch {
-      return
-    }
     // The SSE channel carries server-request envelopes whose payload is the
     // mux frame (same wire shape as the desktop mux channel).
-    const envelope = serverRequestSchema.safeParse(parsed)
-    if (!envelope.success) return
-    const frame = muxFrameSchema.safeParse(envelope.data.payload)
-    if (!frame.success) return
+    const envelope = parseMuxEnvelope(data)
+    if (envelope === undefined) return
+    const frame = envelope.frame
     // Opt-in perf mark: stamp the frame the moment it reaches the client,
     // with its event seq when it is a session/event (later stages key spans
     // off this mark). Seq gaps beyond +1 are the transport's own loss signal.
     // Everything here is gated on the perf switch so the disabled hot path
     // adds no per-frame work (no Map ops, no marks).
-    const eventSeq = (frame.data as { event?: { seq?: unknown } }).event?.seq
+    const eventSeq = (frame as { event?: { seq?: unknown } }).event?.seq
     if (perfEnabled()) {
       perfMark('recv', {
         seq: typeof eventSeq === 'number' ? eventSeq : undefined,
-        frame: frame.data.type,
+        frame: frame.type,
       })
-      if (frame.data.type === 'session/event' && typeof eventSeq === 'number') {
-        const sessionId = (frame.data as { sessionId?: string }).sessionId
+      if (frame.type === 'session/event' && typeof eventSeq === 'number') {
+        const sessionId = (frame as { sessionId?: string }).sessionId
         if (sessionId !== undefined) {
           const last = this.lastEventSeqBySession.get(sessionId)
           if (last !== undefined && eventSeq > last + 1) {
@@ -518,11 +597,11 @@ export class MuxClient {
     this.sseAlive = true
     this.lastDataAt = this.now()
     if (this.polling) this.stopPolling()
-    if (frame.data.type === 'session/jobs') this.rememberJobs(frame.data)
-    if (frame.data.type === 'session/queue') this.rememberQueue(frame.data)
-    if (frame.data.type === 'session/subscribed') this.rememberSubscribed(frame.data)
-    this.trackTurnState(frame.data)
-    this.emit(frame.data, envelope.data.rpcId)
+    if (frame.type === 'session/jobs') this.rememberJobs(frame)
+    if (frame.type === 'session/queue') this.rememberQueue(frame)
+    if (frame.type === 'session/subscribed') this.rememberSubscribed(frame)
+    this.trackTurnState(frame)
+    this.emit(frame, envelope.rpcId)
   }
 
   /** Update the running-session mirror from a session/event frame's turn

@@ -684,11 +684,6 @@ export async function readFile(path: string, sessionId?: string): Promise<FilePr
   return await callUnary<FilePreview>('mobile.readFile', sessionId === undefined ? { path } : { path, sessionId })
 }
 
-/** True when a preview came back as an image data URL. */
-export function isImagePreview(preview: FilePreview | undefined): preview is Extract<FilePreview, { kind: 'image' }> {
-  return preview !== undefined && preview.kind === 'image'
-}
-
 /** Create a workspace from an existing host directory (does not mkdir). */
 export async function createWorkspace(path: string): Promise<WorkspaceCreateResult> {
   return await callUnary<WorkspaceCreateResult>('workspace.create', { path })

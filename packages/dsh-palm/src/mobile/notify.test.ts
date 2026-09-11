@@ -99,6 +99,9 @@ beforeEach(() => {
   MockEventSource.instances = []
   MockNotification.permission = 'default'
   MockNotification.requestPermission.mockClear()
+  // The L1 channel is a hidden-page feature (delivery is suppressed while the
+  // page is visible), so every test starts from the background state.
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
   vi.stubGlobal('Notification', MockNotification)
   vi.stubGlobal('EventSource', MockEventSource)
   readNotifyConfigMock.mockReset()
@@ -136,6 +139,14 @@ describe('notification capability', () => {
 
 describe('L1 channel lifecycle', () => {
   it('does not open the SSE channel before permission is granted', () => {
+    startNotify()
+    expect(MockEventSource.instances).toHaveLength(0)
+    expect(notifyActive()).toBe(false)
+  })
+
+  it('stays closed while the page is visible (delivery would be dropped anyway)', () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    MockNotification.permission = 'granted'
     startNotify()
     expect(MockEventSource.instances).toHaveLength(0)
     expect(notifyActive()).toBe(false)
