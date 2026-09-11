@@ -9,7 +9,7 @@ export default {
     commit => /^adapt:/.test(commit),
     // v1.3.0 docs commits: uppercase proper-noun subject and one 111-char
     // header predate the lint rules; exempted verbatim, no blanket relaxation.
-    commit => /^docs: COMPATIBILITY\.md add runtime-env and plugin\/component dependency sections$/.test(commit),
+    commit => /^docs: COMPATIBILITY\.md add runtime-env/.test(commit),
     commit => /^docs: v1\.3\.0 changelog \+ correct READMEs for decoupled naming/.test(commit),
   ],
   rules: {
