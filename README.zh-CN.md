@@ -180,7 +180,7 @@ dsh-palm 在任务完成或长回复结束时提醒手机。宿主端统一决�
 
 ## 安装
 
-**已在 dsh 0.1.5-rc.2 上测试**。rc 版本之间的插件 API 可能变化；若使用其他 dsh 版本，安装后请验证配对面板与 `/m/` 界面。
+**已在 dsh 0.1.5-rc.2 上测试**（peer 范围：`cordis >=4.0.1 <5`，`dsh-client-ui-slots` / `dsh-settings` 均为 `>=0.1.5-rc.1 <0.1.6-0`）。rc 版本之间的插件 API 可能变化；若使用其他 dsh 版本，安装后请验证配对面板与 `/m/` 界面。完整版本兼容矩阵见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
 从 npm 安装：
 
@@ -271,6 +271,7 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 ## 项目文档
 
 - [CHANGELOG.md](CHANGELOG.md) —— 版本历史
+- [COMPATIBILITY.md](COMPATIBILITY.md) —— DSH 版本兼容矩阵
 - [CONTRIBUTING.md](CONTRIBUTING.md) —— 开发环境与贡献指南
 - [SECURITY.md](SECURITY.md) —— 漏洞报告
 

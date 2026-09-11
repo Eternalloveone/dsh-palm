@@ -183,7 +183,7 @@ The decision is delivered through three independent layers:
 
 ## Install
 
-Tested against **dsh 0.1.5-rc.2**. The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing.
+Tested against **dsh 0.1.5-rc.2** (peer range `cordis >=4.0.1 <5`, `dsh-client-ui-slots`/`dsh-settings  >=0.1.5-rc.1 <0.1.6-0`). The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full version matrix.
 
 From npm:
 
@@ -285,6 +285,7 @@ Starting with **1.0.0**, dsh-palm's own protocol is backward compatible:
 ## Project docs
 
 - [CHANGELOG.md](CHANGELOG.md) — release history
+- [COMPATIBILITY.md](COMPATIBILITY.md) — DSH version compatibility matrix
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and contribution guide
 - [SECURITY.md](SECURITY.md) — vulnerability reporting
 
