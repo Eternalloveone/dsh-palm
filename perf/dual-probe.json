@@ -1,0 +1,164 @@
+{
+  "base": "http://127.0.0.1:3080",
+  "sampledAt": "2026-09-06T16:29:21.572Z",
+  "surfaces": {
+    "mobile": {
+      "html": {
+        "status": 200,
+        "ms": 37.26,
+        "bytes": 725
+      },
+      "assets": {
+        "count": 1,
+        "totalBytes": 1128376
+      },
+      "assetRows": [
+        {
+          "url": "/m/mobile.js?v=5b09b82e",
+          "n": 4,
+          "bytes": 1128376,
+          "p50": 14.91,
+          "p95": 27.16,
+          "max": 27.16
+        }
+      ],
+      "largest": [
+        {
+          "url": "/m/mobile.js?v=5b09b82e",
+          "n": 4,
+          "bytes": 1128376,
+          "p50": 14.91,
+          "p95": 27.16,
+          "max": 27.16
+        }
+      ]
+    },
+    "desktop": {
+      "html": {
+        "status": 200,
+        "ms": 9.146,
+        "bytes": 18788
+      },
+      "assets": {
+        "count": 6,
+        "totalBytes": 1619320
+      },
+      "assetRows": [
+        {
+          "url": "/plugins/@deepseek-ai/dsh-client-modules/client.js?rev=7eb526320903",
+          "n": 4,
+          "bytes": 15347,
+          "p50": 13.86,
+          "p95": 15.65,
+          "max": 15.65
+        },
+        {
+          "url": "/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=5a5801901b91",
+          "n": 4,
+          "bytes": 394328,
+          "p50": 3.25,
+          "p95": 11.16,
+          "max": 11.16
+        },
+        {
+          "url": "/assets/index-ClqxG24t.js",
+          "n": 4,
+          "bytes": 399361,
+          "p50": 5.67,
+          "p95": 15.85,
+          "max": 15.85
+        },
+        {
+          "url": "/assets/vendor-D22_Mp1f.js",
+          "n": 4,
+          "bytes": 744872,
+          "p50": 8.32,
+          "p95": 15.78,
+          "max": 15.78
+        },
+        {
+          "url": "/assets/vendor-CjyC-hUb.css",
+          "n": 4,
+          "bytes": 29642,
+          "p50": 12.59,
+          "p95": 16.02,
+          "max": 16.02
+        },
+        {
+          "url": "/assets/index-C6eRlFa6.css",
+          "n": 4,
+          "bytes": 35770,
+          "p50": 1.21,
+          "p95": 15.61,
+          "max": 15.61
+        }
+      ],
+      "largest": [
+        {
+          "url": "/assets/vendor-D22_Mp1f.js",
+          "n": 4,
+          "bytes": 744872,
+          "p50": 8.32,
+          "p95": 15.78,
+          "max": 15.78
+        },
+        {
+          "url": "/assets/index-ClqxG24t.js",
+          "n": 4,
+          "bytes": 399361,
+          "p50": 5.67,
+          "p95": 15.85,
+          "max": 15.85
+        },
+        {
+          "url": "/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=5a5801901b91",
+          "n": 4,
+          "bytes": 394328,
+          "p50": 3.25,
+          "p95": 11.16,
+          "max": 11.16
+        },
+        {
+          "url": "/assets/index-C6eRlFa6.css",
+          "n": 4,
+          "bytes": 35770,
+          "p50": 1.21,
+          "p95": 15.61,
+          "max": 15.61
+        },
+        {
+          "url": "/assets/vendor-CjyC-hUb.css",
+          "n": 4,
+          "bytes": 29642,
+          "p50": 12.59,
+          "p95": 16.02,
+          "max": 16.02
+        },
+        {
+          "url": "/plugins/@deepseek-ai/dsh-client-modules/client.js?rev=7eb526320903",
+          "n": 4,
+          "bytes": 15347,
+          "p50": 13.86,
+          "p95": 15.65,
+          "max": 15.65
+        }
+      ]
+    }
+  },
+  "sse": {
+    "mobileMux": {
+      "url": "/m/api/events.mux",
+      "status": 403,
+      "bytes": 0,
+      "firstLine": "",
+      "elapsedMs": 7.048
+    },
+    "desktopMux": {
+      "url": "/api/events.mux",
+      "status": 426,
+      "bytes": 0,
+      "firstLine": "",
+      "elapsedMs": 17.018
+    }
+  }
+}

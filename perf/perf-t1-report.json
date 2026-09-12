@@ -1,0 +1,67 @@
+{
+  "typical": {
+    "events": 141,
+    "perEvent": {
+      "parse": {
+        "name": "parse+zod",
+        "n": 141,
+        "avg": 0.043,
+        "p50": 0.023,
+        "p95": 0.055,
+        "max": 1.976
+      },
+      "fold": {
+        "name": "fold",
+        "n": 141,
+        "avg": 0.016,
+        "p50": 0.006,
+        "p95": 0.022,
+        "max": 0.45
+      },
+      "coalesce": {
+        "name": "coalesce",
+        "n": 141,
+        "avg": 0.002,
+        "p50": 0.001,
+        "p95": 0.002,
+        "max": 0.096
+      },
+      "commit": {
+        "name": "commit",
+        "n": 141,
+        "avg": 0.655,
+        "p50": 0.377,
+        "p95": 0.663,
+        "max": 20.775
+      },
+      "total": {
+        "name": "total",
+        "n": 141,
+        "avg": 0.717,
+        "p50": 0.415,
+        "p95": 0.779,
+        "max": 23.046
+      }
+    },
+    "estEventToPaintP95Ms": 17.479
+  },
+  "stressParagraph": {
+    "events": 255,
+    "seededRows": 60,
+    "firstThirdAvg": 0.467,
+    "lastThirdAvg": 0.431,
+    "growthX": 0.92,
+    "perEvent": {
+      "name": "total",
+      "n": 255,
+      "avg": 0.435,
+      "p50": 0.383,
+      "p95": 0.599,
+      "max": 3.665
+    }
+  },
+  "settleJsSplitMs": {
+    "parseP50": 0.07769999999982247,
+    "highlightP50": 0.0037999999999556167
+  }
+}

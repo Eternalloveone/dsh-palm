@@ -1,0 +1,21 @@
+{
+  "finalTextBytes": 11236,
+  "fenceLines": 150,
+  "parseSegmentsMs": {
+    "avg": 0.10666000000000603,
+    "p50": 0.10070000000001755,
+    "max": 0.3523000000000138
+  },
+  "highlightSyncMs": {
+    "avg": 0.0051133333333401275,
+    "p50": 0.004200000000025739,
+    "max": 0.04570000000001073
+  },
+  "highlightFreshFirstMs": {
+    "first": 0.012499999999988631,
+    "cacheMissAvg": 0.02777499999999975
+  },
+  "detectReportMs": {
+    "avg": 0.21662500000000004
+  }
+}

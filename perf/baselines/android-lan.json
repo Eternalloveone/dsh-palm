@@ -1,0 +1,28 @@
+{
+  "label": "android-lan",
+  "capturedAt": "2026-09-12T05:12:11.655Z",
+  "frames": {
+    "sampled": 5312,
+    "long": 7
+  },
+  "anomalies": 0,
+  "marks": 2048,
+  "spans": {
+    "toState": {
+      "name": "state",
+      "n": 116,
+      "avg": 6.928,
+      "p50": 7.1,
+      "p95": 13.8,
+      "max": 15.2
+    },
+    "toCommit": {
+      "name": "commit",
+      "n": 118,
+      "avg": 177.364,
+      "p50": 10.1,
+      "p95": 17.8,
+      "max": 12527.3
+    }
+  }
+}

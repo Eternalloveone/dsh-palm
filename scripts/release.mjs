@@ -11,6 +11,7 @@
  *   node scripts/release.mjs 1.3.3 --apply        # commit + annotated tag
  *   node scripts/release.mjs 1.3.3 --apply --push # ...and push main + tag
  *   node scripts/release.mjs 1.3.3 --apply --push --gh-release
+ *   node scripts/release.mjs --from-head --apply --push   # tag an ALREADY-committed HEAD
  *   node scripts/release.mjs --check 1.3.3        # post-release verification
  *   node scripts/release.mjs --check 1.3.3 --wait # poll the registry (~4 min lag)
  *
@@ -45,7 +46,7 @@ const RELEVANT_WORKFLOWS = ['ci', 'publish']
 
 const options = parseArgs(process.argv.slice(2))
 
-if (options.help || (options.version === null && !options.check)) {
+if (options.help || (options.version === null && !options.check && !options.fromHead)) {
   process.stdout.write(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0].replace(/^#![^\n]*\n/, ''))
   process.exit(options.help ? 0 : 2)
 }
@@ -54,15 +55,17 @@ if (options.check) {
   process.exit(checkRelease(options.version) ? 0 : 1)
 }
 
-const version = options.version
+const declaredVersion = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version
+// --from-head releases whatever HEAD says it is; taking the version from
+// package.json removes a whole class of "tagged 1.3.7 but shipped 1.3.6".
+const version = options.version ?? (options.fromHead ? declaredVersion : null)
 const tag = `v${version}`
 const checks = []
 
 // ---------------------------------------------------------------- preflight
 record('version format', /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version), `"${version}" must look like 1.3.3`)
 
-const declared = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version
-record('package.json version', declared === version, `packages/dsh-palm/package.json says ${declared} - bump it before releasing ${version}`)
+record('package.json version', declaredVersion === version, `packages/dsh-palm/package.json says ${declaredVersion} - bump it before releasing ${version}`)
 
 const section = changelogSection(version)
 record('CHANGELOG section', section !== null, `CHANGELOG.md has no "## [${version}]" section`)
@@ -77,14 +80,45 @@ const head = gitCapture(['rev-parse', 'HEAD'])
 // rev-list rather than `^{commit}`: this goes through no shell, but `^` and
 // braces are still best avoided in anything a shell might see.
 const previousCommit = previousTag === '' ? '' : gitCapture(['rev-list', '-n', '1', previousTag])
-record(
-  'one commit per version',
-  previousCommit === '' || head === previousCommit,
-  `HEAD is not at ${previousTag}: the release commit would also absorb the commits in between (git reset --soft ${previousTag} first)`,
-)
-
 const dirty = gitCapture(['status', '--porcelain'])
-record('work to release', dirty !== '', 'the working tree is clean - nothing to commit for this version')
+
+if (options.fromHead) {
+  // --from-head: the release commit ALREADY exists (it was soaked on the test
+  // lane and fast-forwarded here), so nothing gets committed. The checks
+  // therefore invert — the tree must be CLEAN, and HEAD itself must be the
+  // release commit, otherwise the tag would not cover what was soaked.
+  const headSubject = gitCapture(['log', '-1', '--pretty=%s']).trim()
+  record('clean tree', dirty === '', 'uncommitted changes present - the tag would not cover them (commit them on the test lane first)')
+  record(
+    'HEAD is the release commit',
+    headSubject.startsWith(`v${version}:`),
+    `HEAD subject is "${headSubject}"; expected it to start with "v${version}:"`,
+  )
+  // `describe --tags` would return the tag sitting ON HEAD — the very release
+  // being published — so ask for the nearest tag *behind* HEAD instead.
+  const parentTag = gitCapture(['describe', '--tags', '--abbrev=0', `${head}~1`])
+  const parentCommit = parentTag === '' ? '' : gitCapture(['rev-list', '-n', '1', parentTag])
+  record(
+    'one commit per version',
+    parentCommit === '' || gitCapture(['rev-list', '-n', '1', `${head}~1`]).trim() === parentCommit,
+    `HEAD~1 is not ${parentTag}: the release commit carries more than this version's work`,
+  )
+  if (options.expectSha !== null) {
+    const expected = gitCapture(['rev-parse', options.expectSha]).trim()
+    record(
+      'release commit matches the soaked sha',
+      expected !== '' && expected === head,
+      `--expect-sha ${options.expectSha} does not match HEAD ${head}`,
+    )
+  }
+} else {
+  record(
+    'one commit per version',
+    previousCommit === '' || head === previousCommit,
+    `HEAD is not at ${previousTag}: the release commit would also absorb the commits in between (git reset --soft ${previousTag} first)`,
+  )
+  record('work to release', dirty !== '', 'the working tree is clean - nothing to commit for this version')
+}
 
 // ------------------------------------------------------------------- build
 if (allPassed()) {
@@ -108,7 +142,11 @@ const body = section?.body ?? ''
 const tagMessage = `${tag} — release\n\n${body}`
 
 process.stdout.write('\n[release] plan\n')
-process.stdout.write(`  commit : ${subject}\n`)
+process.stdout.write(
+  options.fromHead
+    ? `  commit : (none - --from-head releases the existing HEAD ${head.slice(0, 8)})\n`
+    : `  commit : ${subject}\n`,
+)
 process.stdout.write(`  tag    : ${tag} (annotated)\n`)
 process.stdout.write(`  push   : git -c http.proxy=<proxy> push origin main && git push origin ${tag}\n`)
 if (options.ghRelease) process.stdout.write(`  release: gh release create ${tag} (notes = the CHANGELOG section)\n`)
@@ -124,11 +162,15 @@ if (!options.apply) {
 }
 
 // -------------------------------------------------------------------- apply
-step(`commit ${subject}`)
-if (!run('git add -A', rootDir)) fail('git add failed')
-const commitArgs = ['commit', '-m', subject]
-if (body !== '') commitArgs.push('-m', body)
-if (!git(commitArgs).ok) fail('git commit failed')
+if (options.fromHead) {
+  step(`release already-committed HEAD ${head.slice(0, 8)} (--from-head: no new commit)`)
+} else {
+  step(`commit ${subject}`)
+  if (!run('git add -A', rootDir)) fail('git add failed')
+  const commitArgs = ['commit', '-m', subject]
+  if (body !== '') commitArgs.push('-m', body)
+  if (!git(commitArgs).ok) fail('git commit failed')
+}
 
 step(`tag ${tag}`)
 if (!git(['tag', '-a', tag, '-m', tagMessage]).ok) fail('git tag failed')
@@ -338,7 +380,7 @@ function sleep(ms) {
 }
 
 function parseArgs(argv) {
-  const parsed = { version: null, apply: false, push: false, ghRelease: false, skipVerify: false, summary: null, check: false, wait: false, help: false }
+  const parsed = { version: null, apply: false, push: false, ghRelease: false, skipVerify: false, summary: null, check: false, wait: false, help: false, fromHead: false, expectSha: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const [flag, inline] = arg.startsWith('--') && arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, null]
@@ -346,6 +388,8 @@ function parseArgs(argv) {
     switch (flag) {
       case '--apply': parsed.apply = true; break
       case '--push': parsed.push = true; break
+      case '--from-head': parsed.fromHead = true; break
+      case '--expect-sha': parsed.expectSha = value; if (inline === null) i += 1; break
       case '--gh-release': parsed.ghRelease = true; break
       case '--skip-verify': parsed.skipVerify = true; break
       case '--summary': parsed.summary = value; if (inline === null) i += 1; break

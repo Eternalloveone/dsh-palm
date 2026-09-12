@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.4.0-rc.1] - 2026-09-12
+
+### Added
+
+- **The repo gate can now emit the lifecycle report the `palm` orchestrator consumes.** `pnpm verify --report <path>` writes a self-describing `dsh-palm.lifecycle/1` document (verdict, per-step results and timings, branch/commit, bundle hash, DSH version, plus the *known* step list next to the *selected* one) so the consumer can detect gate drift instead of silently trusting an outdated mapping. Strictly additive: without `--report` nothing changes, and a report write failure is a warning that never moves the verdict.
+- **`release.mjs --from-head` tags an already-committed HEAD**, which is how a release soaked on the `test` lane gets published without re-committing it. The version is read from `packages/dsh-palm/package.json`, so a tag can no longer disagree with the package it points at; the preflight inverts accordingly — clean tree, HEAD subject `v<version>: …`, `HEAD~1` at the previous release tag, and `--expect-sha` matching the soaked commit.
+
 ## [1.3.6] - 2026-09-12
 
 ### Fixed

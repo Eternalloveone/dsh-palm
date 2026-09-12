@@ -1,0 +1,86 @@
+{
+  "typical": {
+    "parse": {
+      "name": "parse+zod",
+      "n": 142,
+      "avg": 0.028,
+      "p50": 0.023,
+      "p95": 0.053,
+      "max": 0.137
+    },
+    "fold": {
+      "name": "folder.fold",
+      "n": 142,
+      "avg": 0.013,
+      "p50": 0.006,
+      "p95": 0.026,
+      "max": 0.266
+    },
+    "coalesce": {
+      "name": "coalesce",
+      "n": 142,
+      "avg": 0.001,
+      "p50": 0.001,
+      "p95": 0.003,
+      "max": 0.013
+    },
+    "commit": {
+      "name": "react-commit",
+      "n": 142,
+      "avg": 0.93,
+      "p50": 0.385,
+      "p95": 0.786,
+      "max": 62.398
+    },
+    "total": {
+      "name": "total-per-event",
+      "n": 142,
+      "avg": 0.973,
+      "p50": 0.417,
+      "p95": 0.877,
+      "max": 62.567
+    },
+    "events": 142,
+    "finalTextBytes": 11236,
+    "textChunks": 90,
+    "reasoningChunks": 48,
+    "settleCommitMs": 62.602,
+    "estEventToPaintMs": 17.577,
+    "worstFrame": {
+      "index": 141,
+      "totalMs": 62.567,
+      "parseMs": 0.035,
+      "foldMs": 0.131,
+      "coalesceMs": 0.002,
+      "commitMs": 62.398
+    }
+  },
+  "stressParagraph": {
+    "events": 339,
+    "finalBytes": 40000,
+    "seededRows": 60,
+    "perChunkMs": {
+      "firstThird": {
+        "avg": 0.404,
+        "p95": 0.544
+      },
+      "midThird": {
+        "avg": 0.395,
+        "p95": 0.414
+      },
+      "lastThird": {
+        "avg": 0.548,
+        "p95": 0.976
+      },
+      "growthAvg": 1.36
+    },
+    "total": {
+      "name": "total-per-event",
+      "n": 339,
+      "avg": 0.449,
+      "p50": 0.383,
+      "p95": 0.827,
+      "max": 6.586
+    }
+  }
+}
