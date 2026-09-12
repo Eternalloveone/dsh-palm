@@ -40,6 +40,8 @@ const scriptsDir = fileURLToPath(new URL('.', import.meta.url))
 const rootDir = resolve(scriptsDir, '..')
 const packageDir = join(rootDir, 'packages', 'dsh-palm')
 const PACKAGE_NAME = '@eternalloveone/dsh-palm'
+/** The workflows a release actually depends on (see checkRelease). */
+const RELEVANT_WORKFLOWS = ['ci', 'publish']
 
 const options = parseArgs(process.argv.slice(2))
 
@@ -248,25 +250,52 @@ function checkRelease(wanted) {
     process.stderr.write('[release] --check needs a version\n')
     return false
   }
+  // Local, not the module-level const: --check runs before that one is
+  // initialized, so reaching for it here is a reference error.
+  const tag = `v${wanted}`
   let ok = true
 
   step(`CI runs for v${wanted}`)
-  const runs = capture(`gh run list --limit 12 --json workflowName,headBranch,conclusion,status,displayTitle`, rootDir, proxyEnv())
+  const runs = capture(`gh run list --limit 20 --json workflowName,headBranch,conclusion,status,displayTitle`, rootDir, proxyEnv())
   try {
     const parsed = JSON.parse(runs)
-    const mine = parsed.filter((r) => (r.displayTitle ?? '').includes(wanted) || r.headBranch === `v${wanted}`)
-    if (mine.length === 0) {
+    // Only the two workflows this release depends on: Dependabot's scheduled
+    // runs live in the same list and fail for reasons that have nothing to do
+    // with a release.
+    const relevant = parsed.filter((r) => RELEVANT_WORKFLOWS.includes(r.workflowName))
+    const ignored = parsed.length - relevant.length
+    // gh lists newest first. Report the tag's own run per workflow, plus the
+    // newest run of every workflow (the current state of main), keyed by
+    // workflow+branch so a historical failure for this version cannot mask the
+    // run that came after it.
+    const latestOfWorkflow = new Map()
+    for (const run of relevant) {
+      if (!latestOfWorkflow.has(run.workflowName)) latestOfWorkflow.set(run.workflowName, run)
+    }
+    const reported = new Map()
+    for (const run of relevant) {
+      const key = `${run.workflowName}@${run.headBranch}`
+      const isTagRun = run.headBranch === tag || (run.displayTitle ?? '').includes(wanted)
+      if (reported.has(key) || !(isTagRun || latestOfWorkflow.get(run.workflowName) === run)) continue
+      reported.set(key, run)
+    }
+    if (reported.size === 0) {
       process.stdout.write('  no runs found yet (CI may still be queuing)\n')
       ok = false
     }
-    for (const r of mine) {
-      const state = r.conclusion ?? r.status
-      const bad = state !== 'success'
-      if (bad) ok = false
-      process.stdout.write(`  ${bad ? 'FAIL' : 'PASS'}  ${r.workflowName} (${r.headBranch}) -> ${state}\n`)
+    for (const run of reported.values()) {
+      const settled = run.status === 'completed'
+      const state = settled ? run.conclusion : run.status
+      // A run that has not settled is neither a pass nor a failure: re-run
+      // --check once it finishes.
+      if (state !== 'success') ok = false
+      const label = state === 'success' ? 'PASS' : settled ? 'FAIL' : 'WAIT'
+      process.stdout.write(`  ${label}  ${run.workflowName} (${run.headBranch}) -> ${state}\n`)
     }
-  } catch {
-    process.stderr.write('  could not read gh run list (is gh available and HTTPS_PROXY set?)\n')
+    if (ignored > 0) process.stdout.write(`  (${ignored} unrelated workflow run(s) ignored)\n`)
+  } catch (error) {
+    process.stderr.write(`  could not read gh run list: ${error?.message ?? error}\n`)
+    process.stderr.write('  (is gh installed, authenticated, and given a proxy?)\n')
     ok = false
   }
 

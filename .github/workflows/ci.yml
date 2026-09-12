@@ -39,6 +39,12 @@ jobs:
         # thresholds live in vitest.config.ts; the audit covers the runtime
         # tree of the root lockfile (dev tooling excluded).
         run: pnpm verify --only build,coverage,typecheck,audit
+      - name: Package content check
+        working-directory: packages/dsh-palm
+        # Runs here, after the build, because the entry-target assertion needs
+        # lib/ to exist; the release-preflight job packs the source tree alone
+        # and skips that half of the check accordingly.
+        run: pnpm verify --only pack
 
   # Release preflight: the checks `node scripts/release.mjs <version>` runs at
   # release time (the same ones `pnpm verify` runs), moved forward to every
@@ -73,8 +79,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Package content check
         working-directory: packages/dsh-palm
-        # Adds the two checks the release convention needs on top of the bare
+        # Adds the release convention's two pack checks on top of the bare
         # `npm pack --dry-run`: no test files in the tarball, and every
-        # main/types/exports target present in the file list. Same node
-        # invocation reason as the hygiene scan above.
+        # main/types/exports target present in the file list. This job installs
+        # nothing, so lib/ is absent and the script reports the entry targets
+        # as unresolved-but-not-checked; the check job asserts them for real
+        # after its build. Invoked through node for the same reason as the
+        # hygiene scan above.
         run: node scripts/verify.mjs --only pack
