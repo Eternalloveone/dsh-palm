@@ -24,13 +24,15 @@
  *   pnpm verify --skip coverage,audit
  *   pnpm verify --message "v1.3.3: release dsh-palm (...)"
  *   pnpm verify --hygiene-rev HEAD    # scan a commit instead of the work tree
+ *   pnpm verify --report <path>       # also write a dsh-palm.lifecycle/1 report
  *   pnpm verify --list
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
@@ -137,6 +139,10 @@ for (const id of selected) {
 const failed = results.filter((r) => !r.ok)
 const total = ((Date.now() - started) / 1000).toFixed(1)
 
+// Strictly additive: without --report nothing below runs, and a report write
+// failure is a warning only — it must never change the gate's verdict.
+if (options.report) writeReport(options.report)
+
 process.stdout.write('\n[verify] summary\n')
 for (const r of results) {
   process.stdout.write(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.title.padEnd(32)} ${(r.ms / 1000).toFixed(1)}s\n`)
@@ -147,8 +153,70 @@ if (failed.length > 0) {
 }
 process.stdout.write(`[verify] PASS - ${results.length}/${results.length} steps in ${total}s\n`)
 
+/**
+ * Write the lifecycle report consumed by the user-level `palm` orchestrator
+ * (docs/lifecycle/2026-09-12-dsh-palm-lifecycle-design.md §7). The report is
+ * self-describing (`context.known` / `context.selected`) so the consumer can
+ * detect gate drift instead of silently trusting an outdated mapping.
+ *
+ * Fail-soft by contract: any error here is a warning, never a verdict change.
+ */
+function writeReport(path) {
+  const checks = results.map((r) => ({ id: r.id, status: r.ok ? 'pass' : 'fail', ms: r.ms, detail: '' }))
+  for (const id of selected) {
+    if (!results.some((r) => r.id === id)) {
+      checks.push({ id, status: 'skip', ms: 0, detail: 'not run (fail-fast)' })
+    }
+  }
+  const dshSettings = readJson(join(packageDir, 'node_modules', '@deepseek-ai', 'dsh-settings', 'package.json'))
+    ?? readJson(join(rootDir, 'node_modules', '@deepseek-ai', 'dsh-settings', 'package.json'))
+  const report = {
+    schema: 'dsh-palm.lifecycle/1',
+    stage: 'verify',
+    ok: failed.length === 0,
+    startedAt: new Date(started).toISOString(),
+    finishedAt: new Date().toISOString(),
+    context: {
+      pluginVersion: readJson(join(packageDir, 'package.json'))?.version ?? null,
+      dshVersion: dshSettings?.version ?? null,
+      branch: git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout || null,
+      commit: git(['rev-parse', '--short', 'HEAD']).stdout || null,
+      bundleHash: hashFile(join(packageDir, 'lib', 'mobile.js')),
+      profile: options.profile,
+      selected,
+      known: Object.keys(STEPS),
+    },
+    checks,
+    artifacts: [{ kind: 'json', path }],
+    next: failed.length === 0 ? [] : [`failed: ${failed.map((f) => f.title).join(', ')}`],
+  }
+  try {
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+    process.stdout.write(`[verify] report: ${path}\n`)
+  } catch (error) {
+    process.stderr.write(`[verify] could not write --report to ${path}: ${error?.message ?? error}\n`)
+  }
+}
+
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function hashFile(path) {
+  try {
+    return createHash('sha256').update(readFileSync(path)).digest('hex').slice(0, 8)
+  } catch {
+    return null
+  }
+}
+
 function parseArgs(argv) {
-  const parsed = { profile: 'ci', only: null, skip: [], message: null, hygieneRev: null, allowMissingRegex: false, failFast: true, help: false, list: false }
+  const parsed = { profile: 'ci', only: null, skip: [], message: null, hygieneRev: null, allowMissingRegex: false, failFast: true, help: false, list: false, report: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const [flag, inline] = arg.startsWith('--') && arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, null]
@@ -174,6 +242,7 @@ function parseArgs(argv) {
       }
       case '--message': parsed.message = value; if (inline === null) i += 1; break
       case '--hygiene-rev': parsed.hygieneRev = value; if (inline === null) i += 1; break
+      case '--report': parsed.report = value; if (inline === null) i += 1; break
       case '--allow-missing-regex': parsed.allowMissingRegex = true; break
       case '--no-fail-fast': parsed.failFast = false; break
       case '--list': parsed.list = true; break
