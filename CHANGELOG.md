@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-09-12
+
+### Fixed
+
+- **1.3.5's publish gate failed on the CI runner while the local gate was green — two runner-only defects, both in the tests this batch added.** `vi.spyOn(localStorage, 'setItem')` silently fails to intercept there (the global is a jsdom `Storage` proxy on the runner, while it intercepts locally), so the "one write per window" assertion saw zero calls and its two siblings ("must not write") were vacuously true; the deferred-write tests now count writes through a plain-object storage stub and pin no-starvation behaviourally (a second update inside the window must not postpone the write). Separately, a new test constant named `PREVIEW_KEY` tripped the preflight's secret scan — `*_KEY = '…'` matches the generic API-key rule — which no local step looks for; it is renamed for the store it holds. Both are verified on a pull request before this release (`check` and `release-preflight` green).
+- **v1.3.5 never reached npm.** Both of its workflows are red on the gate above, so the features listed under 1.3.5 first reached the registry as 1.3.6. Its tag and GitHub Release stay exactly as published — this project does not rewrite published tags.
+
 ## [1.3.5] - 2026-09-12
 
 ### Added

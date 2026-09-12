@@ -234,21 +234,51 @@ describe('composer drafts', () => {
  * outright.
  */
 describe('deferred store writes', () => {
+  /** The preview store's localStorage name (module-private in list-persist.ts). */
+  const PREVIEW_STORE = 'dsh-palm.prev.v1'
+
+  /**
+   * Swap in a plain-object storage for one test. Counting writes cannot go
+   * through `vi.spyOn(localStorage, 'setItem')`: on a CI runner the global is a
+   * storage proxy, the spy silently fails to intercept, and every assertion
+   * about writes turns vacuously true — which is how the 1.3.5 publish gate
+   * went red while the local gate was green. A plain object behaves identically
+   * everywhere and makes "how many writes" observable.
+   */
+  function installFakeStorage(): { writes: string[]; restore: () => void } {
+    const store = new Map<string, string>()
+    const writes: string[] = []
+    vi.stubGlobal('localStorage', {
+      get length() { return store.size },
+      key: (index: number) => [...store.keys()][index] ?? null,
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { writes.push(key); store.set(key, value) },
+      removeItem: (key: string) => { store.delete(key) },
+      clear: () => { store.clear() },
+    })
+    return { writes, restore: () => { vi.unstubAllGlobals() } }
+  }
+
   it('collapses a burst of preview schedules into one write of the newest map', () => {
+    const storage = installFakeStorage()
     vi.useFakeTimers()
     try {
-      const setItem = vi.spyOn(localStorage, 'setItem')
       queuePersistedPreviews(new Map([['s-1', '旧摘要']]))
       // Nothing on the interaction path: not even the stringify has happened.
       expect(loadPersistedPreviews().size).toBe(0)
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 0.6)
+      // A later update inside the same window must NOT postpone the write past
+      // it: a coalescing writer that re-arms starves and drops the newest state.
       queuePersistedPreviews(new Map([['s-1', '新摘要'], ['s-2', '另一条']]))
-      vi.advanceTimersByTime(PERSIST_COALESCE_MS)
-      expect(setItem.mock.calls.filter(call => call[0] === 'dsh-palm.prev.v1')).toHaveLength(1)
+      expect(storage.writes).toHaveLength(0)
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 0.6)
+      expect(storage.writes.filter(name => name === PREVIEW_STORE)).toHaveLength(1)
       const loaded = loadPersistedPreviews()
       expect(loaded.get('s-1')).toBe('新摘要')
       expect(loaded.get('s-2')).toBe('另一条')
     } finally {
       vi.useRealTimers()
+      storage.restore()
     }
   })
 
@@ -269,29 +299,33 @@ describe('deferred store writes', () => {
   })
 
   it('does not arm a write for an empty preview map', () => {
+    const storage = installFakeStorage()
     vi.useFakeTimers()
     try {
-      const setItem = vi.spyOn(localStorage, 'setItem')
       queuePersistedPreviews(new Map())
       vi.advanceTimersByTime(PERSIST_COALESCE_MS * 2)
-      expect(setItem).not.toHaveBeenCalled()
+      expect(storage.writes).toHaveLength(0)
+      expect(loadPersistedPreviews().size).toBe(0)
     } finally {
       vi.useRealTimers()
+      storage.restore()
     }
   })
 
   it('flushes a deferred write when the page is hidden, and cancels the timer', () => {
+    const storage = installFakeStorage()
     vi.useFakeTimers()
     try {
       queuePersistedPreviews(new Map([['s-1', '口袋里的摘要']]))
       document.dispatchEvent(new Event('pagehide'))
       expect(loadPersistedPreviews().get('s-1')).toBe('口袋里的摘要')
-      const setItem = vi.spyOn(localStorage, 'setItem')
+      expect(storage.writes.filter(name => name === PREVIEW_STORE)).toHaveLength(1)
+      // The window's timer went with the flush: advancing writes nothing more.
       vi.advanceTimersByTime(PERSIST_COALESCE_MS)
-      // The window's timer went with the flush.
-      expect(setItem).not.toHaveBeenCalled()
+      expect(storage.writes.filter(name => name === PREVIEW_STORE)).toHaveLength(1)
     } finally {
       vi.useRealTimers()
+      storage.restore()
     }
   })
 
