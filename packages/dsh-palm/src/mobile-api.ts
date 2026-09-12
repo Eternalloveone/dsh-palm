@@ -1496,6 +1496,16 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             rpcId: RpcId(targetRpcId),
             result: { ok: true, value: payload.response },
           })
+          // The answer consumed the pending item, so retire it here rather than
+          // waiting for the resolved frame to travel the mux stream: the phone
+          // routinely answers and leaves in the same breath, and a panel left in
+          // the tracker is what re-installed itself on the next visit
+          // (mobile.pending serves this tracker). Each call is a no-op for the
+          // other panel kind.
+          if (receipt.accepted) {
+            deps.pendingTracker.resolveApprovalByRpcId(targetRpcId)
+            deps.pendingTracker.resolveQuestionByRpcId(targetRpcId)
+          }
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,

@@ -741,6 +741,14 @@ body,
   transform: translateX(-80px);
 }
 
+/* 按压态：滑动行的正后方就是那条常驻的红色删除按钮（.mobile-row-swipe-action），
+   而全局的 .mobile-row:active 会把卡片缩到 98%——右缘于是漏出一条红边，每一次
+   点击都闪一下，看起来像"删除按钮冒出来了"（见 swipe-active-probe 探针）。这里
+   只取消缩放，保留上文的变亮/描边按压反馈。 */
+.mobile-row-swipe .mobile-row:active {
+  transform: none;
+}
+
 /* Icon zone: a fixed 48px column; the icon itself is 40px. */
 .card-icon,
 .ws-icon {

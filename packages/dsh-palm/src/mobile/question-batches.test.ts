@@ -9,7 +9,7 @@
  * the two.
  */
 import { describe, expect, it } from 'vitest'
-import { adoptPolledQuestions, latestBatchOf } from './question-batches.ts'
+import { adoptPolledQuestions, answeredQuestions, answeredQuestionsFor, latestBatchOf, noteAnsweredQuestion } from './question-batches.ts'
 import type { PendingQuestionItem } from './api.ts'
 
 const ask = (rpcId: string, id: string, question: string): PendingQuestionItem => ({ rpcId, id, question })
@@ -62,5 +62,26 @@ describe('adoptPolledQuestions', () => {
     const answered = new Set(['r-1'])
     const ghost = [ask('r-1', 'q-1', '已经答过')]
     expect(adoptPolledQuestions(ghost, ghost, answered)).toEqual([])
+  })
+})
+
+describe('answered question memory', () => {
+  it('remembers an answered batch outside the component, so a remount cannot forget it', () => {
+    answeredQuestions.clear()
+    expect(answeredQuestionsFor('s-1').size).toBe(0)
+    noteAnsweredQuestion('s-1', 'r-1')
+    // A freshly mounted ChatView reads this same store: module scope, not a
+    // component ref — the remount is exactly what resurrected the panel.
+    expect(answeredQuestionsFor('s-1').has('r-1')).toBe(true)
+    expect(answeredQuestionsFor('s-2').size).toBe(0)
+  })
+
+  it('caps the per-session memory, dropping the oldest answered batch first', () => {
+    answeredQuestions.clear()
+    for (let index = 0; index < 80; index++) noteAnsweredQuestion('s-1', `r-${index}`)
+    const answered = answeredQuestionsFor('s-1')
+    expect(answered.size).toBe(64)
+    expect(answered.has('r-0')).toBe(false)
+    expect(answered.has('r-79')).toBe(true)
   })
 })

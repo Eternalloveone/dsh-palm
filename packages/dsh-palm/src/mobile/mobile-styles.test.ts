@@ -39,4 +39,14 @@ describe('mobileCss long-token wrapping contract', () => {
     expect(css).toContain('.chat-artifact-stat-add { color: var(--diff-add); }')
     expect(css).toContain('.chat-artifact-stat-del { color: var(--diff-del); }')
   })
+
+  it('never scales a swipe row on press (the red delete action sits right behind it)', () => {
+    const css = compact(mobileCss)
+    // The session row rides on top of the swipe wrapper's always-present delete
+    // button. The global press scale shrank the card to 98%, so every tap let a
+    // red edge show along the right side — it read as "the delete button just
+    // appeared". The press feedback keeps the background wash; the transform is
+    // cancelled inside the swipe wrapper only.
+    expect(css).toContain('.mobile-row-swipe .mobile-row:active { transform: none; }')
+  })
 })

@@ -10,6 +10,8 @@ import type { HistoryPage, SessionPage } from '../api.ts'
 import { EventFolder, foldEvents, latestTodoSnapshot } from '../messages.ts'
 import type { RenderMessage, WireEvent } from '../messages.ts'
 import { loadDraft, sessionListCache } from '../list-persist.ts'
+import { answeredApprovals } from '../approval-batches.ts'
+import { answeredQuestions } from '../question-batches.ts'
 import { RpcCallError } from '../rpc.ts'
 
 // The api module is fully mocked; App.tsx's chat-page loader is overridden to
@@ -21,6 +23,8 @@ vi.mock('../api.ts', () => ({
   sendCommand: vi.fn(),
   cancelSession: vi.fn(),
   fetchPending: vi.fn(),
+  respondApproval: vi.fn(),
+  respondQuestion: vi.fn(),
   renameSession: vi.fn(),
   archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
   listSessions: vi.fn(),
@@ -62,7 +66,7 @@ vi.mock('../offline.ts', () => ({
   removeFromOutbox: vi.fn(),
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, listSessions, history, subagentsList, updateQueue as updateQueueMock } from '../api.ts'
+import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, respondApproval, respondQuestion, listSessions, history, subagentsList, updateQueue as updateQueueMock } from '../api.ts'
 import { loadChatPage, prompt } from './App.tsx'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
@@ -161,6 +165,8 @@ const selectModelMock = vi.mocked(selectModel)
 const sendCommandMock = vi.mocked(sendCommand)
 const cancelSessionMock = vi.mocked(cancelSession)
 const fetchPendingMock = vi.mocked(fetchPending)
+const respondApprovalMock = vi.mocked(respondApproval)
+const respondQuestionMock = vi.mocked(respondQuestion)
 const listSessionsMock = vi.mocked(listSessions)
 const historyMock = vi.mocked(history)
 const loadChatPageMock = vi.mocked(loadChatPage)
@@ -194,6 +200,8 @@ beforeEach(() => {
   sendCommandMock.mockResolvedValue({ matched: true })
   cancelSessionMock.mockResolvedValue({ accepted: true })
   fetchPendingMock.mockResolvedValue({ approvals: [], questions: [] })
+  respondApprovalMock.mockResolvedValue(undefined)
+  respondQuestionMock.mockResolvedValue(undefined)
   listSessionsMock.mockResolvedValue({ items: [], hasMore: false })
   // Default history tail: the turn has ended (so reconciliation may clear).
   historyMock.mockResolvedValue(historyPage([makeEntry('turn/end', {}, 99)]))
@@ -209,6 +217,10 @@ afterEach(() => {
   vi.restoreAllMocks()
   // Blank-session revocation seeds the roster cache + persisted store.
   sessionListCache.clear()
+  // The answered-approval memory lives at module scope (it must outlive a chat
+  // remount), so it has to be cleared between tests.
+  answeredApprovals.clear()
+  answeredQuestions.clear()
   localStorage.clear()
 })
 
@@ -2921,6 +2933,53 @@ describe('ChatView composer draft persistence', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('ChatView approval panel', () => {
+  it('never re-shows an approval this phone already answered when the session is re-entered', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const ghost = { rpcId: 'rpc-ap-1', approvalId: 'ap-1', toolName: 'bash', reason: '写入文件' }
+    // The host's pending tracker still serves the answered approval: this poll
+    // result is what put the panel back on screen after the remount.
+    fetchPendingMock.mockResolvedValue({ approvals: [ghost], questions: [] })
+    const running = { ...session, running: true }
+    const first = render(<ChatView session={running} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '允许一次' }))
+    await waitFor(() => { expect(respondApprovalMock).toHaveBeenCalledTimes(1) })
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '允许一次' })).toBeNull() })
+
+    // Leave the session and come back: a fresh ChatView against the same host.
+    first.unmount()
+    render(<ChatView session={running} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await waitFor(() => { expect(fetchPendingMock.mock.calls.length).toBeGreaterThanOrEqual(2) })
+    // Let the poll's resolved value land before asserting the panel is absent.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(screen.queryByRole('button', { name: '允许一次' })).toBeNull()
+  })
+})
+
+describe('ChatView question panel', () => {
+  it('never re-shows a question batch this phone already answered when the session is re-entered', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const ghost = { rpcId: 'rpc-ask-1', id: 'q1', question: '选哪个？', options: [{ label: 'A' }] }
+    // Same ghost shape as the approval panel: the poll still serves the batch.
+    fetchPendingMock.mockResolvedValue({ approvals: [], questions: [ghost] })
+    const running = { ...session, running: true }
+    const first = render(<ChatView session={running} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    fireEvent.click(await screen.findByRole('radio', { name: 'A' }))
+    fireEvent.click(screen.getByRole('button', { name: '提交回答' }))
+    await waitFor(() => { expect(respondQuestionMock).toHaveBeenCalledTimes(1) })
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '提交回答' })).toBeNull() })
+
+    // Leave the session and come back: a fresh ChatView against the same host.
+    first.unmount()
+    render(<ChatView session={running} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await waitFor(() => { expect(fetchPendingMock.mock.calls.length).toBeGreaterThanOrEqual(2) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(screen.queryByRole('button', { name: '提交回答' })).toBeNull()
   })
 })
 

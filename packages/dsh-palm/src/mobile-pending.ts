@@ -163,6 +163,51 @@ export class PendingTracker {
   }
 
   /**
+   * Retire the approval awaiting `rpcId`: its answer has been consumed, so the
+   * polling fallback must stop serving it.
+   *
+   * Without this the tracker only ever dropped an approval through an
+   * `approval/resolved` frame, and the phone is free to answer and leave in the
+   * same breath — the frame then travels to a stream nobody reads, the answered
+   * approval stays pending here for the plugin's lifetime, and the next visit
+   * (a fresh chat mounting over `mobile.pending`) re-installs its panel.
+   * Questions are untouched: their batch is retired by the next ask (host
+   * ask() is blocking, so a session never holds two unanswered batches).
+   * @param rpcId - the approval/requested frame's rpcId the phone answered.
+   * @returns the owning session id, or undefined when nothing matched.
+   */
+  resolveApprovalByRpcId(rpcId: string): string | undefined {
+    for (const [sessionId, state] of this.sessions) {
+      for (const [approvalId, approval] of state.approvals) {
+        if (approval.rpcId !== rpcId) continue
+        state.approvals.delete(approvalId)
+        this._pruneIfEmpty(sessionId, state)
+        return sessionId
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Retire the question batch awaiting `rpcId` — the same bookkeeping for the
+   * other panel, and for the same reason: the tracker would otherwise only learn
+   * a batch is over from a `question/resolved` frame, which the phone can miss
+   * by answering and leaving. Every question of the batch shares the ask's
+   * rpcId, so the whole batch leaves together.
+   * @param rpcId - the question/requested frame's rpcId the phone answered.
+   * @returns the owning session id, or undefined when nothing matched.
+   */
+  resolveQuestionByRpcId(rpcId: string): string | undefined {
+    for (const [sessionId, state] of this.sessions) {
+      if (!state.questions.some(question => question.rpcId === rpcId)) continue
+      state.questions = state.questions.filter(question => question.rpcId !== rpcId)
+      this._pruneIfEmpty(sessionId, state)
+      return sessionId
+    }
+    return undefined
+  }
+
+  /**
    * The session that owns a pending rpcId (an approval or question awaiting
    * a response), or undefined when the rpcId is not pending. The mobile
    * respond channel uses this to bind an answer to the session that actually

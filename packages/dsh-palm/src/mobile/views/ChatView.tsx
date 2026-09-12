@@ -26,7 +26,8 @@ import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage, type PromptPart } from '../image.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
 import { perfMark } from '../perf.ts'
-import { adoptPolledQuestions } from '../question-batches.ts'
+import { adoptPolledQuestions, answeredQuestionsFor, noteAnsweredQuestion } from '../question-batches.ts'
+import { adoptPolledApprovals, answeredApprovalsFor, noteAnsweredApproval } from '../approval-batches.ts'
 
 /**
  * Stable row key: (turn, step) when the row carries them, else the id.
@@ -550,14 +551,6 @@ export function ChatView({
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
   /** Pending questions awaiting user answer (#1025). */
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestionItem[]>([])
-  /** rpcIds this phone already answered. The mobile.pending fallback is served
-   * by the host's pending tracker, which is only fed from a live phone SSE
-   * loop — a question/resolved frame missed while the page was hidden (or
-   * answered from the desktop) leaves the answered batch in the poll result,
-   * so the panel would come back seconds after submit. Answered batches are
-   * filtered out of every adoption instead of trusting them to have vanished
-   * server-side. */
-  const answeredQuestionRpcIdsRef = useRef<Set<string>>(new Set())
   /** Displayed title (renames apply locally right away). */
   const [title, setTitle] = useState(session.title)
   /** The header 更多 menu (rename / copy session id). */
@@ -789,9 +782,9 @@ export function ChatView({
     // the new session's own items.
     setPendingApprovals([])
     setPendingQuestions([])
-    // The answered-batch memory is per session too: rpcIds never repeat across
-    // sessions, and a session's panel starts from the host's own state.
-    answeredQuestionRpcIdsRef.current.clear()
+    // The answered-item memory is per session and lives at module scope
+    // (question-batches.ts / approval-batches.ts): a switch neither leaks it into
+    // the next chat nor has to clear it — pending rpcIds are never reused.
     setContextPressure(undefined)
     // The plan strip is per-session state too (the loaded tail re-seeds it).
     setTodo(undefined)
@@ -1044,6 +1037,9 @@ export function ChatView({
       if (frame.type === 'approval/requested') {
         startTransition(() => {
           setPendingApprovals(previous => {
+            // This phone already answered it: the host replays what it still
+            // holds, and a replay must never resurrect an answered panel.
+            if (answeredApprovalsFor(session.sessionId).has(frame.approvalId as string)) return previous
             if (previous.some(a => a.approvalId === frame.approvalId)) return previous
             return [...previous, {
               rpcId: frameRpcId ?? '',
@@ -1070,7 +1066,7 @@ export function ChatView({
         // A batch this phone already answered is never re-shown: the host
         // replays every still-pending question on each mux (re)subscribe, so a
         // late replay must not resurrect an answered panel.
-        const unanswered = items.filter(q => !answeredQuestionRpcIdsRef.current.has(q.rpcId))
+        const unanswered = items.filter(q => !answeredQuestionsFor(session.sessionId).has(q.rpcId))
         startTransition(() => { setPendingQuestions(unanswered) })
         return
       }
@@ -1100,12 +1096,15 @@ export function ChatView({
           // question/requested frame (tunnel blip) would otherwise make the
           // panel vanish seconds after it appears. Only adopt non-empty results.
           startTransition(() => {
-            setPendingApprovals(prev => state.approvals.length > 0 ? state.approvals : prev)
+            // A response already in flight when the user answered still carries
+            // the retired approval: filtered out like the question batch is.
+            setPendingApprovals(prev =>
+              adoptPolledApprovals(prev, state.approvals, answeredApprovalsFor(session.sessionId)))
             // The poll is authoritative for what the host still holds, but the
             // tracker behind it can carry a batch this phone already answered
             // (its question/resolved frame was missed): see question-batches.ts.
             setPendingQuestions(prev =>
-              adoptPolledQuestions(prev, state.questions, answeredQuestionRpcIdsRef.current))
+              adoptPolledQuestions(prev, state.questions, answeredQuestionsFor(session.sessionId)))
           })
         },
         () => { /* transient; next tick retries */ },
@@ -2896,7 +2895,10 @@ export function ChatView({
             key={approval.approvalId}
             approval={approval}
             sessionId={session.sessionId}
-            onResolved={(id) => { setPendingApprovals(prev => prev.filter(a => a.approvalId !== id)) }}
+            onResolved={(id) => {
+              noteAnsweredApproval(session.sessionId, id)
+              setPendingApprovals(prev => prev.filter(a => a.approvalId !== id))
+            }}
           />
         ))}
         {pendingQuestions.length > 0 && (
@@ -2904,7 +2906,7 @@ export function ChatView({
             questions={pendingQuestions}
             sessionId={session.sessionId}
             onResolved={(rpcId) => {
-              answeredQuestionRpcIdsRef.current.add(rpcId)
+              noteAnsweredQuestion(session.sessionId, rpcId)
               setPendingQuestions(prev => prev.filter(q => q.rpcId !== rpcId))
             }}
           />

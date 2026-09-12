@@ -39,6 +39,7 @@ import type {
   SubagentCatalog,
   SettingsNamespaceView,
   MuxFrame,
+  ApprovalOutcome,
 } from './api-proxy-types.ts'
 import { RpcId } from './api-proxy-types.ts'
 import { HistoryAdapter } from './api-proxy-history.ts'
@@ -50,6 +51,17 @@ import type { DependencyCheck, DependencyDiagnostics } from './api-proxy-diag.ts
 
 /** 已读图片的缓存上限（每张最大约 256 KiB base64，够一屏来回滚动复用）。 */
 const ATTACHMENT_CACHE_LIMIT = 16
+
+/**
+ * 手机应答里带的审批结论（值跨线到达，形状必须防御性解析）。解析不出时按
+ * "允许一次" 记：这条帧只用来让各方把面板撤下，结论本身不参与宿主决策。
+ */
+function answerOutcomeOf(value: unknown): ApprovalOutcome {
+  const outcome = (value as { outcome?: unknown } | null | undefined)?.outcome
+  return outcome === 'allowed-once' || outcome === 'rejected' || outcome === 'cancelled' || outcome === 'unavailable'
+    ? outcome
+    : 'allowed-once'
+}
 
 /** 适配层：在 ApiProxy 之上暴露内部钩子（手机在线状态、图片附件、dispose）。 */
 export interface ApiProxyAdapter extends ApiProxy {
@@ -69,6 +81,21 @@ export interface ApiProxyAdapter extends ApiProxy {
   readAttachment(sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }>
   /** 插件 dispose 时清理 follow 流、mux 源、事件监听。 */
   dispose(): void
+}
+
+/** 一条已转发给手机、正在等应答的审批（宿主 approval/request waterfall 被它挡住）。 */
+interface PendingApprovalRequest {
+  sessionId: string
+  approvalId: string
+  resolve: (value: unknown) => void
+  reject: (error: unknown) => void
+}
+
+/** 一条已转发给手机、正在等应答的问题批次（同样是被 waterfall 挡住的一次 ask）。 */
+interface PendingQuestionRequest {
+  sessionId: string
+  resolve: (value: unknown) => void
+  reject: (error: unknown) => void
 }
 
 /**
@@ -136,9 +163,11 @@ export function makeApiProxyAdapter(
 
   // 手机在线状态（SSE 桥报告）。respond 桥接据此决定拦截还是委托。
   let phoneConnected = false
-  // 待应答的 approval/question：rpcId → resolve/reject。
-  const pendingApprovals = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>()
-  const pendingQuestions = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>()
+  // 待应答的 approval/question：rpcId → resolve/reject。审批条目另外记住会话与
+  // approvalId——应答之后要广播 approval/resolved，把这条审批在所有客户端与宿主
+  // tracker 上结掉（见 respond）。
+  const pendingApprovals = new Map<string, PendingApprovalRequest>()
+  const pendingQuestions = new Map<string, PendingQuestionRequest>()
 
   // ── respond 桥接：approval ─────────────────────────────────────────────
   // 前置拦截 host 的 approval/request waterfall，转发给手机，返回 Promise 等手机应答。
@@ -148,16 +177,22 @@ export function makeApiProxyAdapter(
     const sessionId = request.agent?.id
     if (sessionId === undefined) return next()
     const rpcId = RpcId(`approval-${randomUUID()}`)
+    const approvalId = RpcId(`approval-id-${randomUUID()}`)
     broadcast.emitWithRpcId(rpcId, {
       type: 'approval/requested',
       sessionId: sessionId as never,
-      approvalId: RpcId(`approval-id-${randomUUID()}`) as never,
+      approvalId: approvalId as never,
       toolName: request.toolName,
       ...(request.callId !== undefined ? { callId: request.callId } : {}),
       ...(request.reason !== undefined ? { reason: request.reason } : {}),
     })
     return new Promise<unknown>((resolve, reject) => {
-      pendingApprovals.set(rpcId, { resolve: resolve as (v: unknown) => void, reject: reject as (e: unknown) => void })
+      pendingApprovals.set(rpcId, {
+        sessionId,
+        approvalId,
+        resolve: resolve as (v: unknown) => void,
+        reject: reject as (e: unknown) => void,
+      })
     })
   }) as never, { prepend: true })
 
@@ -173,7 +208,11 @@ export function makeApiProxyAdapter(
       questions: request.questions as never,
     })
     return new Promise<unknown>((resolve, reject) => {
-      pendingQuestions.set(rpcId, { resolve: resolve as (v: unknown) => void, reject: reject as (e: unknown) => void })
+      pendingQuestions.set(rpcId, {
+        sessionId,
+        resolve: resolve as (v: unknown) => void,
+        reject: reject as (e: unknown) => void,
+      })
     })
   }) as never, { prepend: true })
 
@@ -272,6 +311,15 @@ export function makeApiProxyAdapter(
       const approval = pendingApprovals.get(rpcId)
       if (approval !== undefined) {
         pendingApprovals.delete(rpcId)
+        // 让这条审批在所有读者那里结掉：手机端的 pending tracker 与其他客户端
+        // 只能从这条帧知道审批已经结束，而此前没有任何发射点——已应答的审批会
+        // 在 tracker 里滞留到插件生命期结束，重新进会话时面板就会复活。
+        broadcast.emitWithRpcId(RpcId(`approval-resolved-${randomUUID()}`), {
+          type: 'approval/resolved',
+          sessionId: approval.sessionId as never,
+          approvalId: approval.approvalId as never,
+          outcome: message.result.ok ? answerOutcomeOf(message.result.value) : 'unavailable',
+        })
         if (message.result.ok) approval.resolve(message.result.value)
         else approval.reject(new Error(message.result.error.message))
         return { accepted: true }
@@ -279,6 +327,13 @@ export function makeApiProxyAdapter(
       const question = pendingQuestions.get(rpcId)
       if (question !== undefined) {
         pendingQuestions.delete(rpcId)
+        // 与审批同款：这条帧此前没有发射点，手机端 tracker 只能靠它才知道批次已结束。
+        broadcast.emitWithRpcId(RpcId(`question-resolved-${randomUUID()}`), {
+          type: 'question/resolved',
+          sessionId: question.sessionId as never,
+          questionRpcId: rpcId as never,
+          outcome: message.result.ok ? 'answered' : 'cancelled',
+        })
         if (message.result.ok) question.resolve(message.result.value)
         else question.reject(new Error(message.result.error.message))
         return { accepted: true }

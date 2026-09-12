@@ -156,3 +156,84 @@ describe('PendingTracker.ownerOfRpcId (mobile.respond ownership binding)', () =>
     expect(tracker.ownerOfRpcId('rpc-never')).toBeUndefined()
   })
 })
+
+describe('PendingTracker.resolveApprovalByRpcId (the answer retires the approval)', () => {
+  const approvalFrame = (rpcId: string, sessionId: string, approvalId: string) => ({
+    rpcId,
+    payload: { type: 'approval/requested', sessionId, approvalId, toolName: 'bash' },
+  })
+
+  it('drops the approval the phone just answered, so the poll stops serving it', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(approvalFrame('rpc-approve-1', 's2', 'a1') as never)
+    expect(tracker.pending('s2').approvals).toHaveLength(1)
+
+    expect(tracker.resolveApprovalByRpcId('rpc-approve-1')).toBe('s2')
+    // Without this the answered approval sat in the tracker for the plugin's
+    // lifetime and mobile.pending handed it back on the next visit — the ghost
+    // approval panel.
+    expect(tracker.pending('s2').approvals).toEqual([])
+    expect(tracker.ownerOfRpcId('rpc-approve-1')).toBeUndefined()
+  })
+
+  it("keeps a sibling approval and another session's items untouched", () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(approvalFrame('rpc-approve-1', 's2', 'a1') as never)
+    tracker.onFrame(approvalFrame('rpc-approve-2', 's2', 'a2') as never)
+    tracker.onFrame(approvalFrame('rpc-approve-3', 's3', 'a3') as never)
+
+    expect(tracker.resolveApprovalByRpcId('rpc-approve-2')).toBe('s2')
+    expect(tracker.pending('s2').approvals.map(item => item.approvalId)).toEqual(['a1'])
+    expect(tracker.pending('s3').approvals.map(item => item.approvalId)).toEqual(['a3'])
+  })
+
+  it('is a no-op for an unknown rpcId, and never touches a question batch', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // rpc-ask-1 under s1
+    expect(tracker.resolveApprovalByRpcId('rpc-never')).toBeUndefined()
+    expect(tracker.resolveApprovalByRpcId('rpc-ask-1')).toBeUndefined()
+    expect(tracker.pending('s1').questions).toHaveLength(2)
+  })
+})
+
+describe('PendingTracker.resolveQuestionByRpcId (the answer retires the batch)', () => {
+  it('drops the whole batch under the answered rpcId, so the poll stops serving it', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // rpc-ask-1: two questions under s1
+    expect(tracker.pending('s1').questions).toHaveLength(2)
+
+    expect(tracker.resolveQuestionByRpcId('rpc-ask-1')).toBe('s1')
+    // Same ghost shape as the approval panel: a batch the phone answered stayed
+    // in the tracker and came back when the session was re-entered.
+    expect(tracker.pending('s1').questions).toEqual([])
+    expect(tracker.ownerOfRpcId('rpc-ask-1')).toBeUndefined()
+  })
+
+  it("leaves another session's batch and a pending approval alone", () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame(requestedFrame as never) // rpc-ask-1 under s1
+    tracker.onFrame({
+      rpcId: 'rpc-ask-2',
+      payload: { type: 'question/requested', sessionId: 's2', questions: [{ id: 'q1', question: 'x' }] },
+    } as never)
+    tracker.onFrame({
+      rpcId: 'rpc-approve-1',
+      payload: { type: 'approval/requested', sessionId: 's2', approvalId: 'a1', toolName: 'bash' },
+    } as never)
+
+    expect(tracker.resolveQuestionByRpcId('rpc-ask-1')).toBe('s1')
+    expect(tracker.pending('s2').questions.map(item => item.rpcId)).toEqual(['rpc-ask-2'])
+    expect(tracker.pending('s2').approvals.map(item => item.approvalId)).toEqual(['a1'])
+  })
+
+  it('is a no-op for an unknown rpcId, and never touches an approval', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame({
+      rpcId: 'rpc-approve-1',
+      payload: { type: 'approval/requested', sessionId: 's2', approvalId: 'a1', toolName: 'bash' },
+    } as never)
+    expect(tracker.resolveQuestionByRpcId('rpc-never')).toBeUndefined()
+    expect(tracker.resolveQuestionByRpcId('rpc-approve-1')).toBeUndefined()
+    expect(tracker.pending('s2').approvals).toHaveLength(1)
+  })
+})

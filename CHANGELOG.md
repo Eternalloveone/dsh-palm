@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-12
+
+### Fixed
+
+- **An answered approval or question panel came back as soon as the session was re-opened** — neither `approval/resolved` nor `question/resolved` had a sender anywhere in the host (both frame types existed, and the tracker and the phone both handled them, but nothing ever emitted one), so an item this phone had already answered stayed pending in the tracker behind the polling fallback for the plugin's lifetime and the poll handed it straight back. The phone kept its own answered list in a component ref, which the very remount that reproduced the bug cleared. Both bridges now retire the pending item when the answer is consumed: the adapter broadcasts the resolved frame, the respond channel drops it from the tracker directly (the phone routinely answers and leaves in the same breath, so the frame alone is not enough), and the answered memory moved to module scope (`mobile/answered-ids.ts`, shared by `approval-batches.ts` and `question-batches.ts`) where every frame and poll adoption filters through it.
+- **The session row flashed a red edge on every tap** — the row rides on top of the swipe wrapper's always-present delete button, and the global press style scaled the card to 98%, which let that layer show along the right side on every press (it read as "the delete button just appeared"). Inside the swipe wrapper the press state now keeps the background wash and drops the transform.
+
 ## [1.3.3] - 2026-09-12
 
 ### Added
