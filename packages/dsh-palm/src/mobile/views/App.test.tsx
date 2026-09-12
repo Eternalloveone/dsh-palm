@@ -16,7 +16,7 @@ const api = vi.hoisted(() => ({
   setThemePreference: vi.fn(),
 }))
 
-const mux = vi.hoisted(() => ({ resync: vi.fn(), observe: vi.fn(), start: vi.fn(), stop: vi.fn() }))
+const mux = vi.hoisted(() => ({ resync: vi.fn(), pause: vi.fn(), observe: vi.fn(), start: vi.fn(), stop: vi.fn() }))
 
 vi.mock('../api.ts', () => api)
 vi.mock('../mux.ts', () => ({
@@ -25,6 +25,7 @@ vi.mock('../mux.ts', () => ({
     stop(): void { mux.stop() }
     observe(sessionId?: string): void { mux.observe(sessionId) }
     resync(): void { mux.resync() }
+    pause(): void { mux.pause() }
     onFrame(): () => void { return () => {} }
     jobsSnapshot(): Array<{ sessionId: string; jobs: never[] }> { return [] }
     liveJobCount(): number { return 0 }
@@ -137,11 +138,14 @@ describe('foreground resync', () => {
     render(<App />)
     await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
     mux.resync.mockClear()
+    mux.pause.mockClear()
     api.observeSession.mockClear()
 
     setVisibility('visible')
 
     expect(mux.resync).toHaveBeenCalledTimes(1)
+    // Coming back rebuilds the transport; it does not release it.
+    expect(mux.pause).not.toHaveBeenCalled()
     // The 30 s cadence is bypassed: the host learns the page is back at once.
     await waitFor(() => expect(api.observeSession).toHaveBeenCalled())
   })
@@ -151,11 +155,14 @@ describe('foreground resync', () => {
     render(<App />)
     await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
     mux.resync.mockClear()
+    mux.pause.mockClear()
     api.observeSession.mockClear()
 
     setVisibility('hidden')
 
     expect(mux.resync).not.toHaveBeenCalled()
+    // The transport goes with the screen: no idle socket in the background.
+    expect(mux.pause).toHaveBeenCalledTimes(1)
     // Handing the session back (undefined) is what makes the host release its
     // per-session assistant-stream follow; the armed 30 s cadence is dropped
     // with it, so a frozen page issues no further asserts.

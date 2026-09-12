@@ -761,3 +761,71 @@ describe('MuxClient foreground resync', () => {
     client.stop()
   })
 })
+
+/**
+ * A hidden page keeps exactly one live stream — the notify channel — and the
+ * host already stops pushing once the observation is handed back. The
+ * transport must follow the screen out: an idle socket still keeps the radio
+ * up, and a 1 s tick wakes a frozen tab for nothing.
+ */
+describe('MuxClient background pause', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('releases the socket and arms nothing while the page is hidden', () => {
+    const { factory, sources } = makeSources()
+    const pollLatest = vi.fn(async (_sessionId: string) => pageOf([]))
+    const client = new MuxClient('/m/api/events.mux', baseOptions(pollLatest, factory))
+    client.start()
+    client.observe('s1')
+    expect(sources).toHaveLength(1)
+
+    client.pause()
+
+    expect(sources[0]?.closed).toBe(true)
+    vi.advanceTimersByTime(10_000)
+    expect(pollLatest).not.toHaveBeenCalled()
+
+    // A route change while hidden must not re-arm the tick or the polls.
+    client.observe('s2')
+    vi.advanceTimersByTime(10_000)
+    expect(pollLatest).not.toHaveBeenCalled()
+    expect(sources).toHaveLength(1)
+    client.stop()
+  })
+
+  it('rebuilds the socket on the way back, even after a pause too short to look stalled', () => {
+    const { factory, sources } = makeSources()
+    const pollLatest = vi.fn(async (_sessionId: string) => pageOf([]))
+    const client = new MuxClient('/m/api/events.mux', baseOptions(pollLatest, factory))
+    client.start()
+    client.observe('s1')
+    client.pause()
+
+    // Straight back: no wall time passed, so silence alone says nothing — the
+    // released transport is what must be rebuilt.
+    client.resync()
+
+    expect(sources).toHaveLength(2)
+    expect(sources[0]?.closed).toBe(true)
+    expect(sources[1]?.closed).toBe(false)
+    // Observing again re-arms the patch path for the same session.
+    expect(pollLatest).toHaveBeenCalledWith('s1')
+    client.stop()
+  })
+
+  it('is idempotent, and a stopped client never reopens', () => {
+    const { factory, sources } = makeSources()
+    const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
+    client.start()
+    client.pause()
+    client.pause()
+    expect(sources).toHaveLength(1)
+
+    client.stop()
+    client.resync()
+    expect(sources).toHaveLength(1)
+    expect(sources[0]?.closed).toBe(true)
+  })
+})

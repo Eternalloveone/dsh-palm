@@ -1232,38 +1232,36 @@ export function ChatView({
   // Quiet flip: while the turn is open but the mux has been silent past
   // TURN_QUIET_MS, the wording flips from 输出中 to 后台处理中 — the host is
   // still on the turn though nothing visible is streaming (subagent memory
-  // upkeep and other back-office work the phone does not render). One cheap
-  // interval; setQuiet with an unchanged value does not re-render.
-  useEffect(() => {
-    if (!running) { setTurnQuiet(false); return }
-    if (!foreground) return
-    const id = setInterval(() => {
-      const quiet = Date.now() - lastFrameAtRef.current > TURN_QUIET_MS
-      setTurnQuiet(prev => prev === quiet ? prev : quiet)
-    }, 1_000)
-    return () => clearInterval(id)
-  }, [running, foreground])
-
-  // Turn clock (desktop parity): anchor at the logged turn/start (fallback:
-  // mount time) and re-compute elapsed once a second. Recomputed from the
-  // anchor rather than accumulated, so a throttled background tab snaps back
-  // to the true duration on the next tick. The clock span only renders past
-  // TURN_CLOCK_THRESHOLD_MS (short turns keep the plain label).
+  // upkeep and other back-office work the phone does not render). setQuiet
+  // with an unchanged value does not re-render.
+  //
+  // The turn clock (desktop parity) rides the SAME tick rather than owning a
+  // second 1 s interval: it anchors at the logged turn/start (fallback: mount
+  // time) and recomputes elapsed from that anchor instead of accumulating, so
+  // a throttled background tab snaps back to the true duration — and a running
+  // turn wakes the phone once a second, not twice. The clock span itself only
+  // renders past TURN_CLOCK_THRESHOLD_MS (short turns keep the plain label).
   const [turnElapsedMs, setTurnElapsedMs] = useState(0)
   useEffect(() => {
-    if (!running) { setTurnElapsedMs(0); return }
+    if (!running) {
+      setTurnQuiet(false)
+      setTurnElapsedMs(0)
+      return
+    }
     if (!foreground) return
     const anchor = turnStartAt ?? mountTimeRef.current
-    // Elapsed counts on HOST time (local now + the frame-calibrated skew),
-    // so the running clock agrees with the desktop instead of running fast
-    // or slow by the phone's NTP difference.
     const tick = (): void => {
+      const quiet = Date.now() - lastFrameAtRef.current > TURN_QUIET_MS
+      setTurnQuiet(prev => prev === quiet ? prev : quiet)
+      // Elapsed counts on HOST time (local now + the frame-calibrated skew),
+      // so the running clock agrees with the desktop instead of running fast
+      // or slow by the phone's NTP difference.
       setTurnElapsedMs(Math.max(0, Date.now() + hostClockOffsetRef.current - anchor))
     }
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
-  }, [running, turnStartAt])
+  }, [running, foreground, turnStartAt])
 
   // Windowed rendering: rebuild the estimated-height prefix whenever the
   // message list changes (or a row measurement lands), then keep the window

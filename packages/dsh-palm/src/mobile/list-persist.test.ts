@@ -6,13 +6,18 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  cancelPersistedWrites,
   clearPairingCaches,
+  flushPersistedWrites,
   loadDraft,
   loadPersistedList,
   loadPersistedScroll,
   loadPersistedPreviews,
   loadPinnedSessions,
   maintainPersistedCaches,
+  PERSIST_COALESCE_MS,
+  queuePersistedList,
+  queuePersistedPreviews,
   removeDraft,
   saveDraft,
   savePersistedList,
@@ -31,6 +36,9 @@ const row = (sessionId: string): SessionView => ({
 })
 
 beforeEach(() => {
+  // The deferred-write queue outlives a test (module scope): drop anything a
+  // previous test left armed, or its flush would resurrect data here.
+  cancelPersistedWrites()
   localStorage.clear()
   vi.restoreAllMocks()
 })
@@ -213,5 +221,122 @@ describe('composer drafts', () => {
     clearPairingCaches()
     expect(loadDraft('s-1')).toBe('')
     expect(loadPersistedList('w-1')).toBeUndefined()
+  })
+})
+
+/**
+ * Both persisted stores are whole-blob rewrites (a roster page, or up to 500
+ * preview summaries), so writing them on the interaction that produced them
+ * puts a JSON.stringify plus a synchronous localStorage write on the main
+ * thread exactly while the list is being scrolled. These pin the deferred
+ * path: a trailing window collapses a burst into one write of the newest
+ * value, the page-hide paths flush it, and a pairing eviction drops it
+ * outright.
+ */
+describe('deferred store writes', () => {
+  it('collapses a burst of preview schedules into one write of the newest map', () => {
+    vi.useFakeTimers()
+    try {
+      const setItem = vi.spyOn(localStorage, 'setItem')
+      queuePersistedPreviews(new Map([['s-1', '旧摘要']]))
+      // Nothing on the interaction path: not even the stringify has happened.
+      expect(loadPersistedPreviews().size).toBe(0)
+      queuePersistedPreviews(new Map([['s-1', '新摘要'], ['s-2', '另一条']]))
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS)
+      expect(setItem.mock.calls.filter(call => call[0] === 'dsh-palm.prev.v1')).toHaveLength(1)
+      const loaded = loadPersistedPreviews()
+      expect(loaded.get('s-1')).toBe('新摘要')
+      expect(loaded.get('s-2')).toBe('另一条')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps one deferred page per workspace, newest wins', () => {
+    vi.useFakeTimers()
+    try {
+      queuePersistedList('w-1', { rows: [row('s-1')], hasMore: true })
+      queuePersistedList('w-1', { rows: [row('s-1'), row('s-2')], hasMore: false })
+      queuePersistedList('w-2', { rows: [row('s-9')], hasMore: false })
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS)
+      const w1 = loadPersistedList('w-1')
+      expect(w1?.rows.map(entry => entry.sessionId)).toEqual(['s-1', 's-2'])
+      expect(w1?.hasMore).toBe(false)
+      expect(loadPersistedList('w-2')?.rows).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not arm a write for an empty preview map', () => {
+    vi.useFakeTimers()
+    try {
+      const setItem = vi.spyOn(localStorage, 'setItem')
+      queuePersistedPreviews(new Map())
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 2)
+      expect(setItem).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes a deferred write when the page is hidden, and cancels the timer', () => {
+    vi.useFakeTimers()
+    try {
+      queuePersistedPreviews(new Map([['s-1', '口袋里的摘要']]))
+      document.dispatchEvent(new Event('pagehide'))
+      expect(loadPersistedPreviews().get('s-1')).toBe('口袋里的摘要')
+      const setItem = vi.spyOn(localStorage, 'setItem')
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS)
+      // The window's timer went with the flush.
+      expect(setItem).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes when the page goes to the background (iOS freeze path)', () => {
+    vi.useFakeTimers()
+    try {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+      try {
+        queuePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
+        document.dispatchEvent(new Event('visibilitychange'))
+        expect(loadPersistedList('w-1')?.rows).toHaveLength(1)
+      } finally {
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an explicit flush writes now and re-arms cleanly afterwards', () => {
+    vi.useFakeTimers()
+    try {
+      queuePersistedPreviews(new Map([['s-1', 'a']]))
+      flushPersistedWrites()
+      expect(loadPersistedPreviews().get('s-1')).toBe('a')
+      queuePersistedPreviews(new Map([['s-2', 'b']]))
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS)
+      expect(loadPersistedPreviews().get('s-2')).toBe('b')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clearPairingCaches drops queued writes instead of resurrecting them', () => {
+    vi.useFakeTimers()
+    try {
+      savePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
+      queuePersistedList('w-1', { rows: [row('s-1'), row('s-2')], hasMore: false })
+      queuePersistedPreviews(new Map([['s-1', '别的设备的摘要']]))
+      clearPairingCaches()
+      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 2)
+      expect(loadPersistedList('w-1')).toBeUndefined()
+      expect(loadPersistedPreviews().size).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

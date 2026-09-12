@@ -439,7 +439,8 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   // server decides what to notify; this only delivers — and delivery is
   // suppressed while the page is visible, so the channel is only kept open
   // while the page is hidden. Exactly one live stream exists in each state:
-  // the mux while the page is on screen, notify while it is in the background.
+  // the mux while the page is on screen, notify while it is in the background
+  // (the visibility effect below releases the mux socket on the way out).
   useEffect(() => {
     if (!foreground) startNotify()
     return () => { stopNotify() }
@@ -488,8 +489,16 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   // of waiting out the 30 s cadence.
   useEffect(() => {
     const onVisibilityChange = (): void => {
-      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
-      muxRef.current?.resync()
+      const mux = muxRef.current
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
+        // Hidden: the transport goes with the screen. The observation above is
+        // handed back (the host stops folding and pushing the turn), and this
+        // releases the socket itself, so a pocketed page holds exactly one
+        // live stream — the notify channel — instead of idling two.
+        mux?.pause()
+        return
+      }
+      mux?.resync()
       assertObserveRef.current()
     }
     document.addEventListener('visibilitychange', onVisibilityChange)

@@ -16,6 +16,9 @@ import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateS
 import { errorText } from './App.tsx'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
+import { IosInstallHint } from '../ios-install-hint.tsx'
+import { PerfReportRow } from '../perf-report.tsx'
+import { BUILD_HASH } from '../build-info.ts'
 import {
   DENSITY_LABEL, FONT_SCALE_LABEL, applyDisplayPrefs,
   getAutoScroll, getDensity, getFontScale, getLineNumbers,
@@ -1695,6 +1698,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
 
         <ul className="settings-group">
           <li className="settings-groupTitle">设备 <span className="settings-groupDesc">已配对设备管理</span></li>
+          <IosInstallHint />
           {hit('设备管理', '配对', '设备', 'device', 'pair') && (
             <SettingsRow
               icon={<ShieldIcon />}
@@ -1763,11 +1767,12 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             <SettingsRow
               icon={<InfoIcon />}
               title="关于"
-              desc={`掌上 DSH · 版本 ${pkg.version}`}
+              desc={`掌上 DSH · 版本 ${pkg.version}${BUILD_HASH === undefined ? '' : ` · 构建 ${BUILD_HASH}`}`}
               action={<RowChevron />}
               onClick={() => { setSheet('about') }}
             />
           )}
+          <PerfReportRow />
         </ul>
 
         <p className="settings-note">

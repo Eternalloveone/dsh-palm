@@ -205,6 +205,17 @@ export async function readDiagnostics(): Promise<{ checks: DependencyCheckView[]
 }
 
 /**
+ * Hand one perf capture to the host (`mobile.perf`), which writes it beside its
+ * own state and answers with the file name. Write-only and host-named: the phone
+ * never chooses a path, and the host validates the shape and prunes old captures
+ * (see mobile-api.ts). Callers fall back to the clipboard when this rejects —
+ * the capture only exists in this page's memory.
+ */
+export async function reportPerf(capture: unknown, label: string): Promise<{ file: string; bytes: number }> {
+  return await callUnary<{ file: string; bytes: number }>('mobile.perf', { capture, label })
+}
+
+/**
  * Main-agent sessions whose attached agent is running right now (host-side
  * enumeration). The run-overview entry seeds its badge from this so a session
  * that started generating before the phone opened still counts — its

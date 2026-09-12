@@ -29,6 +29,13 @@ export const FOLD_THRESHOLD = 20
 export const CHUNK_THRESHOLD = 1000
 /** Chunk size for the chunked highlight path. */
 export const CHUNK_SIZE = 300
+/**
+ * Lines a FOLDED block highlights. The folded view shows ~15 lines behind the
+ * mask, so tokenizing the rest of a 900-line dump is main-thread work nobody
+ * can see; the tail stays plain text (still in the DOM, so expanding never
+ * shows a gap) and the real highlight only runs once the block is expanded.
+ */
+export const FOLD_HIGHLIGHT_LINES = 60
 
 /** Resolve on the next timer tick, so a frame can paint between chunks. */
 function yieldToFrame(): Promise<void> {
@@ -44,12 +51,6 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
   const info = useMemo(() => languageInfo(lang), [lang])
   const lines = useMemo(() => code.split('\n'), [code])
   const foldable = lines.length > FOLD_THRESHOLD
-  // Synchronous first paint: the lightweight tokenizer has no I/O, so the
-  // highlighted HTML renders on the very first frame — a code block that
-  // just closed in the stream never flashes as plain text. Only very large
-  // blocks (>1000 lines) keep the chunked path: the first chunk paints on
-  // the next frame and later chunks yield between commits (see the effect).
-  const chunks = lines.length > CHUNK_THRESHOLD
   /** Highlighted HTML (null = plain fallback, until the async highlight lands). */
   const [html, setHtml] = useState<string | null>(null)
   /** Copy feedback: true while the button shows the green check + 已复制. */
@@ -61,12 +62,35 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
   /** Sandbox run state (bash / python only). */
   const [run, setRun] = useState<{ running: boolean; result?: RunResult }>({ running: false })
   const folded = foldable && !expanded
+  // Synchronous first paint: the lightweight tokenizer has no I/O, so the
+  // highlighted HTML renders on the very first frame — a code block that
+  // just closed in the stream never flashes as plain text. Only very large
+  // blocks (>1000 lines) keep the chunked path: the first chunk paints on
+  // the next frame and later chunks yield between commits (see the effect).
+  // Chunking is pointless while folded — the head alone is all that renders.
+  const chunks = lines.length > CHUNK_THRESHOLD && !folded
+  /**
+   * Lines the highlighter is asked for right now. Folded blocks stop at the
+   * head: the rest of the dump is invisible behind the mask, so tokenizing it
+   * would be main-thread work (and battery) spent on rows nobody sees. The tail
+   * is still rendered, as plain text, so expanding never reveals a gap while
+   * the full highlight lands.
+   */
+  const headLineCount = folded ? Math.min(lines.length, FOLD_HIGHLIGHT_LINES) : lines.length
+  const highlightText = headLineCount === lines.length ? code : lines.slice(0, headLineCount).join('\n')
+  /** Folded tail (unhighlighted); undefined once the whole block is asked for. */
+  const tailLines = folded && lines.length > headLineCount ? lines.slice(headLineCount) : undefined
 
   useEffect(() => () => {
     if (copyTimerRef.current !== undefined) window.clearTimeout(copyTimerRef.current)
   }, [])
 
-  // Reset the fold when the code changes and re-highlight ALWAYS: the
+  // Fresh code resets the fold (a re-streamed block starts collapsed). This is
+  // its own effect because the highlight effect below re-runs on every fold
+  // toggle — resetting there would undo the user's 展开全部 instantly.
+  useEffect(() => { setExpanded(false) }, [code])
+
+  // Re-highlight whenever the text the highlighter is asked for changes: the
   // initial paint is plain text (fast), and the highlight lands on the next
   // idle frame so a long session's many code blocks never block the first
   // paint in one long task. Very large blocks (>1000 lines) highlight
@@ -74,10 +98,9 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
   // browser (a 0 ms timer lets a frame paint), so a huge dump never blocks
   // the main thread in one long task and the visible head appears first.
   useEffect(() => {
-    setExpanded(false)
     if (chunks) {
       let cancelled = false
-      const lines = code.split('\n')
+      const lines = highlightText.split('\n')
       const steps = Math.ceil(lines.length / CHUNK_SIZE)
       let inner = ''
       let index = 0
@@ -110,7 +133,7 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
     let idleId: number | undefined
     const run = (): void => {
       if (cancelled) return
-      setHtml(highlightCodeSync(code, lang))
+      setHtml(highlightCodeSync(highlightText, lang))
     }
     if (typeof requestIdleCallback === 'function') {
       idleId = requestIdleCallback(run)
@@ -124,7 +147,7 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
         else window.clearTimeout(idleId)
       }
     }
-  }, [code, lang, chunks])
+  }, [highlightText, lang, chunks])
 
   const handleCopy = (): void => {
     setCopied(true)
@@ -198,7 +221,18 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
           ) : (
             <pre>
               <code>
-                {lines.map((line, index) => (
+                {lines.slice(0, headLineCount).map((line, index) => (
+                  <span key={index} className="code-line">{line === '' ? ' ' : escapeHtml(line)}</span>
+                ))}
+              </code>
+            </pre>
+          )}
+          {tailLines !== undefined && (
+            // Folded tail: in the DOM (nothing goes missing if the reader
+            // expands before the highlight lands) but never tokenized.
+            <pre className="code-tail-plain">
+              <code>
+                {tailLines.map((line, index) => (
                   <span key={index} className="code-line">{line === '' ? ' ' : escapeHtml(line)}</span>
                 ))}
               </code>

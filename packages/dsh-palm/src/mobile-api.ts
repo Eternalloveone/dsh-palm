@@ -37,6 +37,7 @@ import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
 import { buildUsageView, type UsageProviderConfig, type UsageView } from './usage/usage-check.ts'
 import { opendir, stat, readFile as fsReadFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { ChatWindowService } from './chat-window.ts'
 import { READ_CHAT_DEFAULT_ROWS, READ_CHAT_MAX_ROWS, type ChatPage } from './chat-window.ts'
@@ -168,6 +169,14 @@ const MOBILE_PREVIEWS_METHOD = 'mobile.previews'
 const MOBILE_OBSERVE_METHOD = 'mobile.observe'
 /** 依赖自检（手机端「关于」里的自检列表）。 */
 const MOBILE_DIAGNOSTICS_METHOD = 'mobile.diagnostics'
+/**
+ * Write-only perf capture intake (v1.3.5). The phone's instrumentation
+ * (`window.__dshPalmPerf.stats()`, armed by `?perf=1`) is measured IN the
+ * browser, so the numbers can only come from the device — this method is how
+ * they get here without asking the user to wire up remote debugging: the phone
+ * taps a button, the host writes one JSON file, and the agent reads it.
+ */
+const MOBILE_PERF_METHOD = 'mobile.perf'
 /** 会话里引用过的图片字节（事件只带 attachmentId 引用，字节按需取）。 */
 const MOBILE_READ_ATTACHMENT_METHOD = 'mobile.readAttachment'
 /**
@@ -1246,6 +1255,108 @@ export interface MobileApiDeps {
    * 只有帧计数能证明它还活着）。
    */
   diagnostics?: DependencyDiagnostics | undefined
+  /**
+   * Directory that accepts `mobile.perf` captures (absent = the method answers
+   * unavailable). The plugin passes one next to its devices store, so a capture
+   * lands beside the rest of the plugin's own state.
+   */
+  perfDir?: string | undefined
+}
+
+/** Perf captures kept on disk: newest `PERF_CAPTURE_KEEP` win, older pruned. */
+export const PERF_CAPTURE_KEEP = 20
+
+/**
+ * Size ceiling for one aggregate capture. `stats()` is a few KB, so anything past
+ * this is a client bug or a probe — and it keeps the intake comfortably inside
+ * the route's small-JSON body budget.
+ */
+export const PERF_CAPTURE_MAX_BYTES = 64 * 1024
+
+/**
+ * Ceiling for the raw mark ring (`__dshPalmPerf.toJSON()`). A full 2048-mark
+ * buffer is ~200 KB and is the ONLY form that can locate an individual outlier
+ * span (it keeps per-mark timestamps, stage and detail), so it gets its own.
+ */
+export const PERF_RAW_MAX_BYTES = 512 * 1024
+
+/**
+ * Which of the two capture forms this is: the raw mark ring (`stamps`) or the
+ * `stats()` aggregate (`spans`). `invalid` means it is not a capture at all.
+ */
+export function perfCaptureKind(capture: unknown): 'raw' | 'aggregate' | 'invalid' {
+  if (capture === null || typeof capture !== 'object' || Array.isArray(capture)) return 'invalid'
+  return Array.isArray((capture as Record<string, unknown>).stamps) ? 'raw' : 'aggregate'
+}
+
+/**
+ * Refuse anything that is not a perf capture. The phone sends exactly what
+ * `__dshPalmPerf.stats()` or `.toJSON()` returns (timings, frame counts, event
+ * kinds — no message content, see mobile/perf.ts), so a body that cannot be that
+ * shape is a client bug or a probe, and neither belongs on disk.
+ * @returns the refusal reason, or undefined when the capture looks right.
+ */
+export function validatePerfCapture(capture: unknown): string | undefined {
+  const kind = perfCaptureKind(capture)
+  if (kind === 'invalid') return '缺少性能抓取数据'
+  const record = capture as Record<string, unknown>
+  const bytes = Buffer.byteLength(JSON.stringify(capture))
+  if (kind === 'raw') {
+    // A raw capture without marks carries nothing the aggregate does not, and
+    // would only add noise to the capture directory.
+    if ((record.stamps as unknown[]).length === 0) return '原始抓取里没有标记'
+    return bytes > PERF_RAW_MAX_BYTES ? '原始抓取超过体积上限' : undefined
+  }
+  const spans = record.spans
+  if (spans === null || typeof spans !== 'object' || Array.isArray(spans)) return '性能抓取缺少 spans 聚合'
+  const spanRecord = spans as Record<string, unknown>
+  if (spanRecord.toState === undefined && spanRecord.toCommit === undefined) return '性能抓取缺少 spans.toState/toCommit'
+  if (bytes > PERF_CAPTURE_MAX_BYTES) return '性能抓取超过体积上限'
+  return undefined
+}
+
+/**
+ * Write one capture into `dir` and return its absolute path.
+ *
+ * The file name is built HERE — clock, a sanitized label and the capture kind —
+ * so nothing from the wire can steer a path: the label keeps only
+ * `[A-Za-z0-9_-]` (no dots, no separators) and is length-capped, and the
+ * extension is fixed. Captures are pruned to the newest
+ * {@link PERF_CAPTURE_KEEP} so a measurement loop cannot fill the disk.
+ */
+export function writePerfCapture(
+  dir: string,
+  capture: unknown,
+  label: string,
+  now: number,
+  kind: 'raw' | 'aggregate' = 'aggregate',
+): string {
+  mkdirSync(dir, { recursive: true })
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
+  const safe = label.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'device'
+  const file = join(dir, `capture-${stamp}-${safe}-${kind}.json`)
+  // 0600: the capture is diagnostic detail about the host's own UI, not a
+  // shared document (the same posture as the devices store).
+  writeFileSync(file, JSON.stringify(capture), { encoding: 'utf8', mode: 0o600 })
+  prunePerfCaptures(dir, PERF_CAPTURE_KEEP)
+  return file
+}
+
+/** Keep the newest `keep` captures in `dir` (best effort: never throws). */
+export function prunePerfCaptures(dir: string, keep: number): void {
+  try {
+    // The ISO stamp leads the name, so a name sort is an age sort.
+    const files = readdirSync(dir).filter(name => name.startsWith('capture-') && name.endsWith('.json')).sort()
+    for (const stale of files.slice(0, Math.max(0, files.length - keep))) {
+      try {
+        rmSync(join(dir, stale), { force: true })
+      } catch {
+        // non-fatal: the next write tries again
+      }
+    }
+  } catch {
+    // non-fatal: an unreadable directory must not fail the capture
+  }
 }
 
 /**
@@ -1391,6 +1502,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_READ_CHAT_METHOD
       || method === MOBILE_OBSERVE_METHOD
       || method === MOBILE_DIAGNOSTICS_METHOD
+      || method === MOBILE_PERF_METHOD
       || method === MOBILE_READ_ATTACHMENT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
       || method === MOBILE_PAIR_DEVICES_METHOD
@@ -1408,8 +1520,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // Voice transcription carries a base64 WAV (~2.5 MB per 10 s of 16 kHz
       // mono); session.prompt carries attached images (up to 4 × 256 KiB of
       // base64 per the mobile image compressor, image.ts DEFAULT_MAX_BYTES);
-      // everything else stays at the small JSON budget.
-      envelope = await readBoundedJson(req, isTranscribe ? 12 * 1024 * 1024 : isPrompt ? 2 * 1024 * 1024 : 64 * 1024)
+      // a perf capture carries either a few KB of aggregates or the raw mark
+      // ring (~200 KB, see PERF_RAW_MAX_BYTES); everything else stays at the
+      // small JSON budget.
+      const bodyBudget = isTranscribe
+        ? 12 * 1024 * 1024
+        : isPrompt ? 2 * 1024 * 1024 : method === MOBILE_PERF_METHOD ? PERF_RAW_MAX_BYTES + 4096 : 64 * 1024
+      envelope = await readBoundedJson(req, bodyBudget)
     } catch (error) {
       if (error instanceof Error && error.message === 'body too large') {
         // Consume the remainder to EOF BEFORE answering. The strict reader
@@ -1448,7 +1565,50 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       return
     }
     if (local) {
-      if (method === MOBILE_PREFERENCES_METHOD) {
+      if (method === MOBILE_PERF_METHOD) {
+        const payload = parsed.payload as { capture?: unknown; label?: unknown }
+        // Write-only, inert and path-free: the name is generated host-side from
+        // the clock and a sanitized label, the body must look like a perf
+        // aggregate, and nothing in this branch can read or overwrite anything
+        // else — a phone can only ever append a capture to the capture dir.
+        const rejection = validatePerfCapture(payload?.capture)
+        if (rejection !== undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: rejection } },
+          })
+          return
+        }
+        if (deps.perfDir === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '宿主未启用性能抓取目录' } },
+          })
+          return
+        }
+        try {
+          const file = writePerfCapture(
+            deps.perfDir,
+            payload.capture,
+            typeof payload.label === 'string' ? payload.label : 'device',
+            Date.now(),
+            perfCaptureKind(payload.capture) === 'raw' ? 'raw' : 'aggregate',
+          )
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { file: basename(file), bytes: Buffer.byteLength(JSON.stringify(payload.capture)) } },
+          })
+        } catch (error) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入性能抓取失败' } },
+          })
+        }
+      } else if (method === MOBILE_PREFERENCES_METHOD) {
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,

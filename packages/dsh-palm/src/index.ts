@@ -345,6 +345,11 @@ function applyImpl(ctx: Context, config?: Config): void {
           pendingTracker,
           chatWindows,
           previews,
+          // Perf captures land beside the plugin's own state (the devices store
+          // lives in the same home). `mobile.perf` is write-only inside it: the
+          // file name is generated host-side, so nothing from the wire can
+          // steer a path.
+          perfDir: join(dshHome(), 'dsh-palm-perf'),
           mobileEnterToSend: () => resolve().mobileEnterToSend,
           commands: ctx.get('commands'),
           agents: ctx.get('agents'),

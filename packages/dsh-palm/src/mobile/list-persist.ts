@@ -34,7 +34,9 @@ export function dropSessionFromCaches(sessionId: string): void {
     const rows = entry.rows.filter(row => row.sessionId !== sessionId)
     if (rows.length !== entry.rows.length) {
       sessionListCache.set(key, { ...entry, rows })
-      savePersistedList(key, { rows, cursor: entry.cursor, hasMore: entry.hasMore })
+      // Through the queue, never straight to storage: a deferred page for this
+      // workspace could otherwise land after this drop and resurrect the row.
+      queuePersistedList(key, { rows, cursor: entry.cursor, hasMore: entry.hasMore })
     }
   }
   // A revoked blank session's draft is meaningless — drop it too.
@@ -144,6 +146,88 @@ function readRaw(key: string): string | null {
   } catch {
     return null
   }
+}
+
+/* ── deferred writes ──────────────────────────────────────────────────────── */
+
+/**
+ * Coalescing window for both whole-blob stores. Persisting the roster page or
+ * the preview map is a JSON.stringify plus a synchronous localStorage write,
+ * and doing that on the interaction that produced it puts both on the main
+ * thread exactly while the list is being scrolled. The write is deferred to a
+ * trailing window instead; a burst inside one window collapses into a single
+ * write of the newest value per store key (the store is a boot scaffold — the
+ * background refresh re-validates it within seconds — so a write that never
+ * lands costs nothing).
+ */
+export const PERSIST_COALESCE_MS = 5_000
+
+/** Queued writes: store key → the thunk that performs it (newest per key). */
+const pendingWrites = new Map<string, () => void>()
+let writeTimer: ReturnType<typeof setTimeout> | undefined
+let flushHooksInstalled = false
+
+/**
+ * Flush as the page goes away. A frozen or killed PWA never runs the timer,
+ * and the window's whole point is that the newest state still lands: `pagehide`
+ * covers navigation and close, `visibilitychange` the iOS backgrounding freeze.
+ * Both are cheap and idempotent.
+ */
+function installFlushHooks(): void {
+  if (flushHooksInstalled || typeof document === 'undefined') return
+  flushHooksInstalled = true
+  document.addEventListener('pagehide', () => { flushPersistedWrites() })
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPersistedWrites()
+  })
+}
+
+/** Queue one deferred store write (newest per key; at most one flush per window). */
+function scheduleWrite(key: string, writeNow: () => void): void {
+  pendingWrites.set(key, writeNow)
+  installFlushHooks()
+  // Never re-arm: a steady stream of updates must not postpone the write past
+  // one window (that is how a "coalescing" writer starves and loses everything).
+  if (writeTimer !== undefined) return
+  writeTimer = setTimeout(() => { flushPersistedWrites() }, PERSIST_COALESCE_MS)
+}
+
+/** Write every queued store now (the page-hide paths call this). */
+export function flushPersistedWrites(): void {
+  if (writeTimer !== undefined) {
+    clearTimeout(writeTimer)
+    writeTimer = undefined
+  }
+  if (pendingWrites.size === 0) return
+  const queued = [...pendingWrites.values()]
+  pendingWrites.clear()
+  for (const writeNow of queued) writeNow()
+}
+
+/** Drop every queued write without running it: a pairing eviction must not be
+ *  undone seconds later by a flush that was armed before it (the queued page
+ *  could be another device's roster). Also the test isolation seam. */
+export function cancelPersistedWrites(): void {
+  if (writeTimer !== undefined) {
+    clearTimeout(writeTimer)
+    writeTimer = undefined
+  }
+  pendingWrites.clear()
+}
+
+/** Defer one workspace's list page (the newest page for a workspace wins). */
+export function queuePersistedList(
+  workspaceId: string,
+  value: Parameters<typeof savePersistedList>[1],
+): void {
+  scheduleWrite(`${LIST_PREFIX}${workspaceId}`, () => { savePersistedList(workspaceId, value) })
+}
+
+/** Defer the preview map (snapshotted: the caller's map keeps mutating). */
+export function queuePersistedPreviews(map: ReadonlyMap<string, string>): void {
+  if (map.size === 0) return
+  const snapshot = new Map(map)
+  scheduleWrite(previewStoreName(), () => { savePersistedPreviews(snapshot) })
 }
 
 /** Load one workspace's persisted list (undefined when absent/expired/corrupt). */
@@ -272,6 +356,8 @@ function trimDrafts(): void {
 /** Drop every persisted cache (pairing eviction / re-pair on this device). */
 export function clearPairingCaches(): void {
   if (!hasStorage()) return
+  // Anything queued was armed before the eviction, so it must not run after it.
+  cancelPersistedWrites()
   const doomed = indexedKeys().filter(key =>
     key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key === PREVIEW_STORE || key === PIN_STORAGE)
   removeKeys(doomed)

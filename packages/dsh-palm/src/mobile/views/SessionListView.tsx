@@ -36,8 +36,8 @@ import {
   loadPersistedPreviews,
   loadPinnedSessions,
   maintainPersistedCaches,
-  savePersistedList,
-  savePersistedPreviews,
+  queuePersistedList,
+  queuePersistedPreviews,
   savePersistedScroll,
   savePinnedSessions,
   sessionListCache,
@@ -250,12 +250,15 @@ function setCachedList(
   value: { rows: SessionView[]; cursor?: string; hasMore: boolean },
 ): void {
   sessionListCache.set(workspaceId, { ...value, at: Date.now() })
-  savePersistedList(workspaceId, value)
+  // Deferred (list-persist): a roster page is a whole-blob rewrite, so it must
+  // not run on the fetch/frame that produced it.
+  queuePersistedList(workspaceId, value)
 }
 
-/** Publish the live preview map to the persisted store (cheap: bounded). */
+/** Publish the live preview map to the persisted store. Deferred and coalesced
+ *  (list-persist): the map is one blob, and the page-hide hooks flush it. */
 function syncPersistedPreviews(): void {
-  savePersistedPreviews(sessionPreviewCache)
+  queuePersistedPreviews(sessionPreviewCache)
 }
 
 /**

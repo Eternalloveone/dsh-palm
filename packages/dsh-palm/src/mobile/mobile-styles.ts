@@ -749,6 +749,33 @@ body,
   transform: none;
 }
 
+/* iOS 主屏安装提示（设置 → 设备，见 ios-install-hint.tsx）：一行说明 + 一个小
+   按钮，只在 iOS Safari 且尚未装到主屏时出现。 */
+.settings-installHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.settings-installHint-btn {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--mobile-line, rgba(128, 128, 128, 0.35));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+/* 上报性能数据（设置 → 通用，见 perf-report.tsx）：两个小按钮并排。 */
+.settings-perfActions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Icon zone: a fixed 48px column; the icon itself is 40px. */
 .card-icon,
 .ws-icon {

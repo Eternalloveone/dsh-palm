@@ -670,6 +670,10 @@ describe('SessionListView cross-mount cache (v3.2)', () => {
     })
     renderList()
     await screen.findByText('已刷新')
+    // The store write is deferred and coalesced (list-persist): the window's
+    // flush is what a cold start would have seen, and the page-hide path runs
+    // it early.
+    document.dispatchEvent(new Event('pagehide'))
     const persisted = JSON.parse(localStorage.getItem('dsh-palm.list.v1.w-1') ?? 'null') as {
       v: number
       rows: Array<{ sessionId: string; title: string }>

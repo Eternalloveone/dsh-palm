@@ -110,9 +110,13 @@ describe('CodeBlock', () => {
     const code = lines.join('\n')
     render(<CodeBlock lang="ts" code={code} />)
     const syncMock = vi.mocked(highlightCodeSync)
-    // The mount effects flush inside act: the FIRST chunk commits before any
-    // timer runs (the rest of the block waits on a yielded frame) — the
-    // visible head is highlighted while the tail is still pending.
+    // Folded, the head is all that is highlighted (FOLD_HIGHLIGHT_LINES); the
+    // chunked path belongs to the expanded block.
+    expect(document.querySelector('.code-tail-plain')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '展开全部' }))
+    // The effects flush inside act: the FIRST chunk commits before any timer
+    // runs (the rest of the block waits on a yielded frame) — the visible head
+    // is highlighted while the tail is still pending.
     expect(document.querySelector('.shiki')).not.toBeNull()
     expect(syncMock.mock.calls.length).toBe(1)
     // Drain the remaining chunks (each waits one 0 ms timer tick).
@@ -135,5 +139,22 @@ describe('CodeBlock', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '运行代码' })) })
     expect(runCodeMock).toHaveBeenCalledWith('echo hi', 'bash')
     expect(toastMock).toHaveBeenCalledWith('当前环境不支持代码执行')
+  })
+
+  it('only highlights the folded head, leaving the tail plain until 展开全部', () => {
+    const lines = Array.from({ length: 900 }, (_, i) => `line ${i}`)
+    render(<CodeBlock lang="ts" code={lines.join('\n')} />)
+
+    const tail = document.querySelector('.code-tail-plain')
+    expect(tail).not.toBeNull()
+    // The tail begins exactly at the highlight cap (FOLD_HIGHLIGHT_LINES): the
+    // rest of the dump is never tokenized while the block stays folded, and it
+    // is still rendered, so expanding reveals no gap.
+    expect(tail?.textContent?.startsWith('line 60')).toBe(true)
+    expect(tail?.textContent).toContain('line 899')
+
+    fireEvent.click(screen.getByRole('button', { name: '展开全部' }))
+    // Expanded: the whole block is one highlight again, so the plain tail goes.
+    expect(document.querySelector('.code-tail-plain')).toBeNull()
   })
 })

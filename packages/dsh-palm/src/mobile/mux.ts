@@ -212,6 +212,8 @@ export class MuxClient {
   private readonly runningSessionIds = new Set<string>()
   private source: EventSourceLike | undefined
   private stopped = false
+  /** Released on purpose because the page is hidden (see {@link pause}). */
+  private paused = false
   private readonly url: string
   /** Last live session/event seq seen per session (perf gap detection). */
   private readonly lastEventSeqBySession = new Map<string, number>()
@@ -254,6 +256,7 @@ export class MuxClient {
   /** Open the stream (idempotent; EventSource reconnects until {@link stop}). */
   start(): void {
     this.stopped = false
+    this.paused = false
     this.lastDataAt = this.now()
     if (this.source === undefined) this.connect()
     this.startTick()
@@ -267,6 +270,26 @@ export class MuxClient {
     this.closeSource()
     this.observeSessionId = undefined
     this.nextPollAt = 0
+  }
+
+  /**
+   * Release the transport because the page went to the background, keeping the
+   * client resumable — {@link resync} on the way back rebuilds the socket and
+   * replays the gap.
+   *
+   * The host already stops folding and pushing a released observation, so the
+   * frames stop; this drops the socket itself, so a pocketed page holds one
+   * live stream (the notify channel) instead of two idle ones, and no 1 s tick
+   * wakes a frozen tab. Deliberately NOT {@link stop}: nothing here is
+   * terminal, and the observation id, caches and poll watermarks all survive
+   * for the return.
+   */
+  pause(): void {
+    if (this.stopped || this.paused) return
+    this.paused = true
+    this.stopTick()
+    this.stopPolling()
+    this.closeSource()
   }
 
   /** Subscribe to validated frames; returns an unsubscribe function. The
@@ -304,6 +327,7 @@ export class MuxClient {
       return
     }
     this.startTick()
+    if (this.paused) return
     if (changed) {
       // A session switch resets the poll state: the previous session's
       // backoff (up to MAX_POLL_BACKOFF_MS of silence) says nothing about
@@ -327,7 +351,7 @@ export class MuxClient {
    * waiting out the current stall window.
    */
   poke(): void {
-    if (this.stopped) return
+    if (this.stopped || this.paused) return
     this.pollDelayMs = this.pollIntervalMs
     this.nextPollAt = 0
   }
@@ -346,9 +370,14 @@ export class MuxClient {
    */
   resync(): void {
     if (this.stopped) return
+    // A paused client has no socket to check (see pause): returning from the
+    // background always rebuilds, however short the pause was, because the
+    // elapsed silence cannot tell a released transport from a live one.
+    const wasPaused = this.paused
+    this.paused = false
     // Idempotent: a browser that suspended the page also suspended the timer.
     this.startTick()
-    if (this.now() - this.lastDataAt > this.stallThresholdMs) {
+    if (wasPaused || this.now() - this.lastDataAt > this.stallThresholdMs) {
       this.closeSource()
       this.connect()
       if (this.observeSessionId !== undefined) this.startPolling()
@@ -421,7 +450,7 @@ export class MuxClient {
   }
 
   private startPolling(): void {
-    if (this.polling || this.stopped) return
+    if (this.polling || this.stopped || this.paused) return
     this.polling = true
     this.pollDelayMs = this.pollIntervalMs
     this.nextPollAt = Number.POSITIVE_INFINITY

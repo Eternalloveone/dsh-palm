@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-09-12
+
+### Added
+
+- **「上报性能数据」 — real-device measurements no longer need a debugger.** The instrumentation was already in place (`?perf=1` arms a mark ring and a frame sampler), but a capture lived only in that page's memory: nothing was persisted and nothing was uploaded, so the numbers could only be copied out by hand through a remote-debugging session. Settings → 通用 now grows a row while — and only while — the instrumentation is armed, handing the capture to the host over a new write-only `mobile.perf` RPC: 摘要 sends `stats()` (the aggregates: per-stage p50/p95, frame samples, transport anomalies) and 原始 sends `toJSON()` (the mark ring itself, the only form that can locate one outlier span). The host names the file from its own clock, a sanitized label and the capture kind (`$DSH_HOME/dsh-palm-perf/capture-<stamp>-<label>-<kind>.json`, mode 0600, newest 20 kept), validates the shape, refuses an empty raw ring or an oversized capture (64 KB aggregate, 512 KB raw — which is why this one method widens the route's body budget), and nothing on the wire can steer a path. The payload holds timings, event kinds, frame counts and anomaly counters; it carries no message content. A failed report falls back to the clipboard, because the capture exists nowhere else.
+- **关于 shows the running build's content hash** — `版本 1.3.4 · 构建 646d98b9`, read from the tag that loaded this bundle. A stale phone (a backgrounded PWA keeps its JS, and a service-worker cache can serve the old shell) and a stale host look exactly alike from the settings screen otherwise; this is what tells them apart.
+- **An iOS home-screen install hint** (设置 → 设备): one line plus a 知道了 button, shown only on iOS Safari that is not already running from the home screen, and dismissed for good once acknowledged.
+
+### Changed
+
+- **A folded code block highlights only the head it shows.** Folding is what makes a 900-line dump cheap to scroll past, but the whole block was still tokenized behind the fold: the folded view rendered the first 60 lines while the highlight work covered every line of it. A folded block now highlights its first 60 lines and renders the remainder as plain text, and expanding it highlights everything again. The fold reset also moved to its own effect keyed on the code, so an unrelated re-render no longer re-arms the highlight, and the progressive chunk path — which exists to keep a huge block's first paint cheap — now belongs to the expanded block rather than to the folded one.
+- **The session list's storage writes left the interaction path.** Deleting a session, adopting refreshed previews or picking up a renamed row each wrote the whole persisted map synchronously, in the middle of the interaction that caused it. Writes now coalesce into one deferred flush (5 s), which also flushes when the page hides, so a burst of row updates costs one write instead of one per row.
+- **The mux stream is released while the page is hidden and rebuilt on the way back.** A backgrounded phone kept its SSE connection and its poll running — the one case where it cannot use either. Hiding the page now pauses the mux (socket closed, timers stopped, client not terminal) and returning resyncs it: if the pause was long enough to look like silence, the stream is rebuilt instead of trusted, so a resume cannot leave the conversation showing content it will never catch up on.
+- **One timer drives both the turn clock and the quiet-flip countdown** (ChatView). They were two intervals of the same period, so a running turn woke the main thread twice a second to do the same class of work.
+
 ## [1.3.4] - 2026-09-12
 
 ### Fixed
