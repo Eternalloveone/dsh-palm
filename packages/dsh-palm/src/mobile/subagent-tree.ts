@@ -1,5 +1,6 @@
 /**
- * Foreground-subagent list for the mobile run-status sheet.
+ * Foreground-subagent list for the phone: the chat's run-status sheet and the
+ * global run-overview page share these helpers.
  *
  * `subagents.list` returns the parent session's DIRECT children in one flat
  * call — no recursive tree walk. The UI shows them as a flat, running-first
@@ -20,13 +21,26 @@ export interface SubagentFlatNode {
   activity: 'running' | 'inactive'
 }
 
-/** Fetch the parent's direct children in one call (best-effort; empty on failure). */
-export async function fetchSubagentsFlat(parentId: string): Promise<SubagentFlatNode[]> {
+/** Foreground-subagent poll cadence. The host stream (`host/session-status`)
+ *  does not reach the phone, so `subagents.list` is polled at this rate to
+ *  keep the chat's count badge and the run-overview cards fresh. */
+export const SUBAGENT_POLL_MS = 8_000
+
+/**
+ * Fetch the parent's direct children in one call.
+ *
+ * A host answer always resolves to an array — possibly empty, which is how the
+ * host says "no children". `undefined` means the call itself failed, and the
+ * caller must keep that apart from an empty answer: the global run overview
+ * hides the background-job rows that describe the same delegation only once
+ * child rows are known to cover them, so an unanswered call must hide nothing.
+ */
+export async function fetchSubagents(parentId: string): Promise<SubagentFlatNode[] | undefined> {
   let catalog
   try {
     catalog = await subagentsList(parentId)
   } catch {
-    return []
+    return undefined
   }
   const nodes: SubagentFlatNode[] = []
   for (const entry of catalog.entries) {
@@ -38,6 +52,16 @@ export async function fetchSubagentsFlat(parentId: string): Promise<SubagentFlat
     })
   }
   return nodes
+}
+
+/** Fetch the parent's direct children in one call (best-effort; empty on failure). */
+export async function fetchSubagentsFlat(parentId: string): Promise<SubagentFlatNode[]> {
+  return await fetchSubagents(parentId) ?? []
+}
+
+/** The running (active) subset — what the global run-overview page shows. */
+export function runningSubagents(nodes: readonly SubagentFlatNode[]): SubagentFlatNode[] {
+  return nodes.filter(node => node.activity === 'running')
 }
 
 /** Count running (active) subagents. */

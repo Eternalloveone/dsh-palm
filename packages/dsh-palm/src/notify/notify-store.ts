@@ -26,6 +26,10 @@ export interface NotifyConfig {
     serverchan?: { sendKey: string }
     bark?: { key: string }
     telegram?: { botToken: string; chatId: string }
+    wxpusher?: { spt: string }
+    /** Demoted, not deleted: pushplus now requires paid verification, so
+     *  wxpusher took the recommended slot — but a config that already
+     *  carries a pushplus token must keep delivering. */
     pushplus?: { token: string }
   }
   /** Lock-screen privacy: strip session titles and task names from every

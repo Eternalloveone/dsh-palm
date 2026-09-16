@@ -1372,7 +1372,7 @@ describe('mobile.readAttachment (chat images)', () => {
 })
 
 describe('push.config (L3 channel credentials)', () => {
-  it('round-trips a PushPlus token and redacts credentials on reads', async () => {
+  it('round-trips WxPusher and PushPlus credentials and redacts them on reads', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-push-config-'))
     const store = new NotifyStore(join(dir, 'notify.json'))
     const engine = new NotifyEngine({
@@ -1384,28 +1384,31 @@ describe('push.config (L3 channel credentials)', () => {
       service, apiProxy, mobileEnterToSend, notify: { store, engine },
     }))
     try {
-      // Write a PushPlus token alongside empty legacy channels.
+      // Write a WxPusher SPT alongside empty legacy channels.
       const set = await callWith(server.port, 'push.config', {
         set: {
           channels: {
             serverchan: { sendKey: '' },
             bark: { key: '' },
             telegram: { botToken: '', chatId: '' },
+            wxpusher: { spt: 'SPT_spec_token' },
             pushplus: { token: 'pp-spec-token' },
           },
         },
       })
       expect(set.status).toBe(200)
 
-      // Read back: pushplus reports configured; credentials never ride the wire.
+      // Read back: wxpusher reports configured; credentials never ride the wire.
       const get = await callWith(server.port, 'push.config', { get: true })
       expect(get.status).toBe(200)
       const envelope = JSON.parse(get.body) as {
         result: { ok: boolean; value: { channels: Record<string, { configured: boolean }>; kinds: { jobs: boolean; todo: boolean; turns: boolean } } }
       }
       expect(envelope.result.ok).toBe(true)
+      expect(envelope.result.value.channels.wxpusher).toEqual({ configured: true })
       expect(envelope.result.value.channels.pushplus).toEqual({ configured: true })
       expect(envelope.result.value.channels.serverchan).toEqual({ configured: false })
+      expect(JSON.stringify(get.body)).not.toContain('SPT_spec_token')
       expect(JSON.stringify(get.body)).not.toContain('pp-spec-token')
       // Kind gates default to the quiet stance (jobs/turns off, todo on).
       expect(envelope.result.value.kinds).toEqual({ jobs: false, todo: true, turns: false })
@@ -1422,12 +1425,13 @@ describe('push.config (L3 channel credentials)', () => {
 
       // Clearing the token removes the channel.
       await callWith(server.port, 'push.config', {
-        set: { channels: { pushplus: { token: '' } } },
+        set: { channels: { wxpusher: { spt: '' }, pushplus: { token: '' } } },
       })
       const afterClear = await callWith(server.port, 'push.config', { get: true })
       const cleared = JSON.parse(afterClear.body) as {
         result: { ok: boolean; value: { channels: Record<string, { configured: boolean }> } }
       }
+      expect(cleared.result.value.channels.wxpusher).toEqual({ configured: false })
       expect(cleared.result.value.channels.pushplus).toEqual({ configured: false })
     } finally {
       await server.close()

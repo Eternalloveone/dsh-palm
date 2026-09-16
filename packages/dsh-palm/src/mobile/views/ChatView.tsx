@@ -65,7 +65,7 @@ import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
 import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
 import { TaskStatusBar } from '../task-status.tsx'
 import type { JobView } from '../../api-proxy-types'
-import { fetchSubagentsFlat, type SubagentFlatNode } from '../subagent-tree.ts'
+import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../subagent-tree.ts'
 
 /** Props for the chat view. */
 export interface ChatViewProps {
@@ -154,11 +154,6 @@ export const TURN_CLOCK_THRESHOLD_MS = 15_000
 /** Composer draft debounce: localStorage writes wait this long after the
  *  last keystroke (unmount flushes immediately regardless). */
 export const DRAFT_SAVE_DEBOUNCE_MS = 1_500
-/** Foreground-subagent tree poll cadence while the turn is open. The host
- * stream (host/session-status) does not reach the phone, so subagents.list is
- * polled at this rate to keep the count badge and tree fresh. */
-export const SUBAGENT_POLL_MS = 8_000
-
 /** Ceiling for one "load older messages" request before it aborts and errors. */
 export const LOAD_OLDER_TIMEOUT_MS = 15_000
 

@@ -1064,7 +1064,7 @@ body,
 .settings-badge-ro { background: #fdf0f0; color: #e5484d; }
 .settings-badge-recommend { background: #fff4e5; color: #e8890c; }
 
-/* Channel-setup disclosure (PushPlus 3-step helper): native details chrome
+/* Channel-setup disclosure (channel setup helper): native details chrome
    kept minimal so the steps read as plain description text. */
 .settings-details {
   margin: 6px 0 2px;
@@ -1787,6 +1787,57 @@ button.settings-row:focus-visible {
   margin: 0;
   color: var(--danger);
   font-size: 14px;
+}
+
+/* ── render-crash error page (ErrorBoundary) ─────────────────────────── */
+
+.mobile-errorpage {
+  gap: 14px;
+  padding: 32px 24px;
+}
+
+.errorpage-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.errorpage-reason {
+  margin: 0;
+  max-width: 100%;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.errorpage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.mobile-button-muted {
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease, border-color 0.1s ease;
+}
+
+.mobile-button-muted:active {
+  transform: scale(0.98);
+  background: var(--fill);
+  border-color: var(--border-focus);
 }
 
 .empty-icon {
@@ -5625,6 +5676,7 @@ button.settings-row:focus-visible {
   .mobile-row,
   .mobile-createCard,
   .mobile-button,
+  .mobile-button-muted,
   .mobile-new,
   .chat-send,
   .chat-chip,
@@ -6319,6 +6371,17 @@ details.think-block[open] .chat-disclosure-caret {
   line-height: 1;
 }
 
+/* In-card group label ("子代理" / "后台任务"): smaller than the page-level
+   .runov-group-title and flush with the rows it introduces (the card's job
+   rows carry no horizontal inset of their own). */
+.runov-subgroup-title {
+  padding: 8px 0 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
 .runov-jobs {
   border-top: 1px solid var(--border-subtle);
   padding: 4px 0;
@@ -6357,135 +6420,5 @@ details.think-block[open] .chat-disclosure-caret {
 /* Settled job rows are de-emphasized so the eye lands on live work first. */
 .runov-jobs-settled .chat-task-row {
   opacity: 0.72;
-}
-
-/* ── conditional report card (single-view enhancement) ─────────────────
-   A settled assistant turn whose text reads like a result report gets the
-   card container; inner report segments (.rpt-*) arrive with the renderer
-   phase. Normal prose keeps the plain paragraph flow. */
-.chat-msg-report {
-  background: var(--card-bg);
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  box-shadow: var(--shadow-lg);
-  padding: 14px 16px 16px;
-  margin: 2px 0;
-}
-
-.chat-msg-report .chat-md-body p:first-child {
-  margin-top: 0;
-}
-
-/* Report segments: section rules, status rows with trailing chips, commit
-   chip + copy. Scoped to the report card so prose outside stays untouched. */
-.chat-msg-report .rpt-section {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 16px 0 6px;
-  color: var(--text-primary);
-  font-size: var(--text-md);
-  font-weight: 700;
-}
-
-.chat-msg-report .rpt-section:first-child {
-  margin-top: 2px;
-}
-
-.chat-msg-report .rpt-section::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-default);
-}
-
-.chat-msg-report .rpt-line {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.chat-msg-report .rpt-line:last-child {
-  border-bottom: none;
-}
-
-.chat-msg-report .rpt-label {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-}
-
-.rpt-chip {
-  flex: none;
-  max-width: 55%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 1px 8px;
-  border: 1px solid;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  line-height: 1.4;
-  text-align: right;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.rpt-ok {
-  color: var(--positive);
-  border-color: color-mix(in srgb, var(--positive) 55%, transparent);
-  background: color-mix(in srgb, var(--positive) 13%, transparent);
-}
-.rpt-fail {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
-  background: color-mix(in srgb, var(--danger) 13%, transparent);
-}
-.rpt-run {
-  color: var(--text-tertiary);
-  border-color: var(--border-default);
-  background: color-mix(in srgb, var(--text-tertiary) 10%, transparent);
-}
-
-.chat-msg-report .rpt-commit {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 10px 0 6px;
-  padding: 8px 10px;
-  background: var(--bg-elevated);
-  border-radius: var(--radius-chip);
-}
-
-.rpt-commit-hash {
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--accent);
-  overflow-wrap: anywhere;
-  word-break: break-all;
-}
-
-.rpt-copy {
-  flex: none;
-  border: 1px solid var(--border-default);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: 3px 10px;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-}
-
-.rpt-copy:active {
-  opacity: 0.8;
 }
 `;

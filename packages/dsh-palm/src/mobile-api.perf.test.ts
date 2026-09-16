@@ -62,6 +62,25 @@ describe('mobile.perf intake', () => {
     expect(validatePerfCapture(oversized)).toBe('原始抓取超过体积上限')
   })
 
+  it('accepts a capture carrying the long-task / error / storage envelope', () => {
+    // perf.ts grew a long-task ring, a hidden-window tally, the always-on error
+    // ring and the storage picture. The intake validates the two required shapes
+    // (stamps / spans) and nothing else, so all of them ride along — the point of
+    // the envelope is that ONE capture answers "how slow" and "did it break".
+    const enriched = {
+      ...capture,
+      longTasks: { n: 2, suspended: 1, p95: 90, max: 90, recent: [{ at: 10, ms: 90, suspended: false }] },
+      suspension: { hiddenMs: 12_500, hiddenCount: 1 },
+      errors: { total: 1, kinds: { error: 1 }, recent: [{ kind: 'error', message: 'boom', at: 5, count: 1 }] },
+      storage: { persisted: true, usage: 1024, quota: 4096 },
+    }
+    expect(validatePerfCapture(enriched)).toBeUndefined()
+    expect(validatePerfCapture({
+      stamps: [{ t: 1, stage: 'recv' }],
+      errors: { total: 0, kinds: {}, recent: [] },
+    })).toBeUndefined()
+  })
+
   it('writes the capture kind into the file name', () => {
     const rawFile = writePerfCapture(dir, { stamps: [{ t: 1 }] }, 'android-lan', Date.UTC(2026, 8, 12, 2, 0, 0), 'raw')
     const aggregateFile = writePerfCapture(dir, capture, 'android-lan', Date.UTC(2026, 8, 12, 2, 1, 0))

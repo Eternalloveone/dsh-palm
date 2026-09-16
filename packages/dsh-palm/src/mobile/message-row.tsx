@@ -13,8 +13,6 @@ import { formatTime } from './views/App.tsx'
 import type { MessageImage, RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { cachedAttachmentUrl, loadAttachmentUrl } from './attachment-images.ts'
 import { CollapsibleText, MarkdownText, ReasoningDisclosure } from './markdown-text.tsx'
-import { ReportBody } from './report-body.tsx'
-import { detectReport } from './report.ts'
 import { ChevronUpIcon } from './icons.tsx'
 
 export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, style, onRegenerate }: {
@@ -77,16 +75,6 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   // when `text` is empty (tool-interleaved turns put their payload in flow).
   const hasFlowText = message.flow !== undefined
     && message.flow.some(part => part.kind === 'text' && part.text !== '')
-  // Conditional report card: settled assistant turns whose effective text
-  // (message.text, or every flow text run for tool-interleaved turns — those
-  // carry the payload in `flow` with an empty `text`) reads like a result
-  // report get the card container + structured renderer. Streaming rows and
-  // normal prose stay on the plain path.
-  const reportSource = message.flow !== undefined && message.flow.length > 0
-    ? message.flow.filter(part => part.kind === 'text').map(part => part.text).join('\n')
-    : message.text
-  const isReport = message.kind === 'assistant' && message.pending !== true && reportSource !== '' && detectReport(reportSource)
-
   if (!hasReasoning && !hasTools && !hasText && !hasFailTag && !hasFlowText && !hasImages) {
     return null
   }
@@ -95,7 +83,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       data-mid={message.id}
       data-message-id={message.id}
       data-row-seq={focusSeqAttr}
-      className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${isReport ? ' chat-msg-report' : ''}${focused ? ' chat-msg-focus' : ''}`}
+      className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
       style={style}
     >
       {message.kind === 'assistant' && message.reasoning !== undefined && message.reasoning !== '' && (
@@ -105,23 +93,10 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
         <ToolDisclosure tools={message.tools} />
       )}
       {message.kind === 'assistant' && message.flow !== undefined && message.flow.length > 0 ? (
-        // Report rows render the WHOLE joined flow text through the report
-        // renderer — per-part rendering split sections/commits across flow
-        // parts — with result artifacts (write/edit diffs) after it. Pending
-        // and non-report flows keep the interleaved per-step body below.
-        isReport ? (
-          <>
-            <ReportBody text={reportSource} />
-            {message.tools !== undefined && <ArtifactCards tools={message.tools} />}
-          </>
-        ) : (
-          <FlowBody message={message} focusedQuery={focused ? focusedQuery : undefined} report={false} />
-        )
+        <FlowBody message={message} focusedQuery={focused ? focusedQuery : undefined} />
       ) : message.kind === 'assistant' ? (
         <>
-          {isReport
-            ? <ReportBody text={message.text} />
-            : <MarkdownText text={message.text} pending={message.pending === true} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />}
+          <MarkdownText text={message.text} pending={message.pending === true} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
           {message.tools !== undefined && <ArtifactCards tools={message.tools} />}
         </>
       ) : (
@@ -268,7 +243,7 @@ function ToolDisclosure({ tools }: { tools: ToolCallInfo[] }) {
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-function FlowBody({ message, focusedQuery, report = false }: { message: RenderMessage; focusedQuery?: string; report?: boolean }) {
+function FlowBody({ message, focusedQuery }: { message: RenderMessage; focusedQuery?: string }) {
   // Index tools by callId once per render: the flow can carry many tool
   // parts and a linear find per part is O(parts × tools).
   const toolsById = useMemo(
@@ -290,11 +265,7 @@ function FlowBody({ message, focusedQuery, report = false }: { message: RenderMe
     if (part.kind === 'text') {
       flush()
       const stepSeq = part.seq ?? message.stepSeqs?.[textIndex]
-      // Report rows: each flow text run goes through the report renderer
-      // (status chips / sections / commits) — prose runs degrade to plain.
-      const body = report
-        ? <ReportBody text={part.text} />
-        : <MarkdownText text={part.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} />
+      const body = <MarkdownText text={part.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} />
       const partId = part.partId ?? `text-${textIndex}`
       parts.push(stepSeq === undefined
         ? <Fragment key={key}>{body}</Fragment>

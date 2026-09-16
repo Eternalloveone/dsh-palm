@@ -239,7 +239,7 @@ export class NotifyEngine {
   private emit(event: NotifyEvent): void {
     // Lock-screen privacy: one decision, applied before any channel sees the
     // event — L1 (in-app), L2 (Web Push) and L3 (Server酱/Bark/Telegram/
-    // PushPlus) all deliver the same redacted copy, and the phone inbox too.
+    // WxPusher) all deliver the same redacted copy, and the phone inbox too.
     const config = this.store.getConfig()
     const delivered: NotifyEvent = config.hideDetails === true
       ? {

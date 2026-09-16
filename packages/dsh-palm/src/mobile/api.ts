@@ -102,6 +102,7 @@ export interface NotifyConfigView {
     serverchan: { configured: boolean }
     bark: { configured: boolean }
     telegram: { configured: boolean }
+    wxpusher: { configured: boolean }
     pushplus: { configured: boolean }
   }
 }
@@ -121,6 +122,7 @@ export async function writeNotifyConfig(patch: {
     serverchan?: { sendKey: string }
     bark?: { key: string }
     telegram?: { botToken: string; chatId: string }
+    wxpusher?: { spt: string }
     pushplus?: { token: string }
   }
 }): Promise<void> {
@@ -213,6 +215,18 @@ export async function readDiagnostics(): Promise<{ checks: DependencyCheckView[]
  */
 export async function reportPerf(capture: unknown, label: string): Promise<{ file: string; bytes: number }> {
   return await callUnary<{ file: string; bytes: number }>('mobile.perf', { capture, label })
+}
+
+/**
+ * Hand one error record to the host (`mobile.error`), which validates its shape,
+ * writes it under `dsh-palm-errors/` and pushes on first sight. The payload is
+ * exactly the sanitized shape `errors.ts` already keeps — no full stack, no
+ * origin, no argument text — and the file name is generated host-side, so the
+ * record's strings can never steer a path. Write-only and best-effort: the
+ * errors-report outbox swallows failures by contract.
+ */
+export async function reportError(report: unknown, label: string): Promise<{ file: string; bytes: number; pushed: boolean }> {
+  return await callUnary<{ file: string; bytes: number; pushed: boolean }>('mobile.error', { report, label })
 }
 
 /**

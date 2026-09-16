@@ -350,6 +350,11 @@ function applyImpl(ctx: Context, config?: Config): void {
           // file name is generated host-side, so nothing from the wire can
           // steer a path.
           perfDir: join(dshHome(), 'dsh-palm-perf'),
+          // Error reports land beside perf captures (same plugin-owned home).
+          // `mobile.error` is write-only inside it and file names are generated
+          // host-side, so nothing from the wire can steer a path. Pushing rides
+          // the existing notify capability wired to the route deps below.
+          errorDir: join(dshHome(), 'dsh-palm-errors'),
           mobileEnterToSend: () => resolve().mobileEnterToSend,
           commands: ctx.get('commands'),
           agents: ctx.get('agents'),

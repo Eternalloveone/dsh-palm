@@ -54,8 +54,9 @@ function TodoRowItem({ item }: { item: TodoItem }) {
   )
 }
 
-/** One flat subagent row: status dot + label + activity wording. */
-function SubagentRow({ node }: { node: SubagentFlatNode }) {
+/** One flat subagent row: status dot + label + activity wording. Shared with
+ *  the global run-overview page, whose session cards reuse this exact row. */
+export function SubagentRow({ node }: { node: SubagentFlatNode }) {
   const running = node.activity === 'running'
   return (
     <div className="chat-subagent-row" role="listitem">

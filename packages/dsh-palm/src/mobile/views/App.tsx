@@ -14,6 +14,7 @@ import {
   prompt,
   readChat,
   readSettings,
+  reportError,
   runningSessions,
   type ChatPage,
 } from '../api.ts'
@@ -27,6 +28,8 @@ import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { clearPairingCaches } from '../list-persist.ts'
 import { clearHistoryCache, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
+import { installErrorCapture } from '../errors.ts'
+import { installErrorReporter } from '../errors-report.ts'
 import { installPerfWindowHook, startPerfSampler } from '../perf.ts'
 import { ToastHost } from '../toast.tsx'
 import { ChatView } from './ChatView.tsx'
@@ -165,6 +168,22 @@ export interface AppProps {
 /** Navigation depth of each route kind (drives the slide direction). */
 const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2 } as const
 
+/**
+ * A stable, non-interactive device label for automatic error reports. The
+ * perf flow asks the user for a label (android-lan / ios-lan / …) at button
+ * time, but reporting on an error CANNOT prompt — a render crash may have
+ * taken the UI with it. So this derives the same device/environment tag from
+ * the platform instead, falling back to `device` like perf does when the
+ * prompt is dismissed.
+ */
+function deviceLabelForError(): string {
+  if (typeof navigator === 'undefined') return 'device'
+  const ua = typeof navigator.userAgent === 'string' ? navigator.userAgent : ''
+  if (/android/i.test(ua)) return 'android'
+  if (/ipad|iphone|ipod/i.test(ua)) return 'ios'
+  return 'device'
+}
+
 /** Whether the mobile gateway rejected this browser for lack of a paired cookie. */
 export function isUnpairedMobileError(error: unknown): boolean {
   return error instanceof RpcTransportError && error.message === 'HTTP 403'
@@ -182,12 +201,32 @@ export function mobilePairStateForError(error: unknown): Extract<MobilePairState
 export function App({ initialPairError }: AppProps) {
   const [pairState, setPairState] = useState<MobilePairState>('checking')
 
-  // Opt-in perf instrumentation bootstraps with the app: rAF frame sampler
-  // and the window.__dshPalmPerf export. Both are no-ops unless the perf
-  // switch is on (localStorage dsh.palm.perf=1 or ?perf=1).
+  // Opt-in perf instrumentation bootstraps with the app: rAF frame sampler,
+  // Long Task observer and the window.__dshPalmPerf export. All of those are
+  // no-ops unless the perf switch is on (localStorage dsh.palm.perf=1 or ?perf=1).
+  // Error capture is NOT opt-in: a runtime throw on the phone has to be visible
+  // without anyone having armed a measurement first (see mobile/errors.ts).
   useEffect(() => {
     installPerfWindowHook()
     startPerfSampler()
+    installErrorCapture()
+    // The automatic error outbox rides the same boot: it subscribes to the
+    // always-on error ring and hands each newly-seen, debounced record to the
+    // host as `mobile.error`. Best-effort by contract — a failed send is
+    // swallowed and the record stays in the ring for the manual paths.
+    const stopReporter = installErrorReporter({
+      send: (record) => {
+        void reportError({
+          kind: record.kind,
+          message: record.message,
+          ...(record.source === undefined ? {} : { source: record.source }),
+          ...(record.frames === undefined ? {} : { frames: record.frames }),
+          count: record.count,
+          clientAt: record.at,
+        }, deviceLabelForError())
+      },
+    })
+    return stopReporter
   }, [])
 
   useEffect(() => {

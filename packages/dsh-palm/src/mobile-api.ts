@@ -30,7 +30,8 @@ import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
 import type { PairingService } from './pairing.ts'
 import type { NotifyService } from './notify/notify-engine.ts'
-import { deliverL3, testNotifyEvent } from './notify/notify-deliver.ts'
+import type { NotifyEvent } from './notify/notify-engine.ts'
+import { deliverL2, deliverL3, testNotifyEvent } from './notify/notify-deliver.ts'
 import { asJsonObject, readBoundedJson, writeJson } from './http.ts'
 import { readCookie } from './gate.ts'
 import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
@@ -39,6 +40,7 @@ import { opendir, stat, readFile as fsReadFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import type { ChatWindowService } from './chat-window.ts'
 import { READ_CHAT_DEFAULT_ROWS, READ_CHAT_MAX_ROWS, type ChatPage } from './chat-window.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage } from './mobile/messages.ts'
@@ -177,6 +179,14 @@ const MOBILE_DIAGNOSTICS_METHOD = 'mobile.diagnostics'
  * taps a button, the host writes one JSON file, and the agent reads it.
  */
 const MOBILE_PERF_METHOD = 'mobile.perf'
+/**
+ * Write-only error-report intake. The always-on mobile error ring hands each
+ * debounced record here; the host validates the (already-sanitized) shape,
+ * writes it to `dsh-palm-errors/`, and pushes on first sight of a fingerprint,
+ * gated by a 60-minute cooldown. The file name is generated host-side so the
+ * record's strings can never steer a path.
+ */
+const MOBILE_ERROR_METHOD = 'mobile.error'
 /** 会话里引用过的图片字节（事件只带 attachmentId 引用，字节按需取）。 */
 const MOBILE_READ_ATTACHMENT_METHOD = 'mobile.readAttachment'
 /**
@@ -1261,6 +1271,12 @@ export interface MobileApiDeps {
    * lands beside the rest of the plugin's own state.
    */
   perfDir?: string | undefined
+  /**
+   * Directory that accepts `mobile.error` reports (absent = the method answers
+   * unavailable, and only the memory ring keeps failures). Same posture as
+   * {@link perfDir}: the plugin passes one next to its devices store.
+   */
+  errorDir?: string | undefined
 }
 
 /** Perf captures kept on disk: newest `PERF_CAPTURE_KEEP` win, older pruned. */
@@ -1357,6 +1373,194 @@ export function prunePerfCaptures(dir: string, keep: number): void {
   } catch {
     // non-fatal: an unreadable directory must not fail the capture
   }
+}
+
+/* ── mobile.error intake ───────────────────────────────────────────────────── */
+
+/** Error reports kept on disk: newest `ERROR_REPORT_KEEP` win, older pruned. */
+export const ERROR_REPORT_KEEP = 20
+/** Size ceiling for one report's JSON body (a probe or a client bug past this). */
+export const ERROR_REPORT_BYTES_MAX = 64 * 1024
+
+/**
+ * Message ceiling, mirroring the client ring (`errors.ts` ERROR_MESSAGE_MAX).
+ * The body ceiling must NOT stand in for this one: a 5 KB "message" cannot have
+ * come from the ring, and accepting it would quietly widen the contract the
+ * design pinned (≤240 chars, longer is refused).
+ */
+export const ERROR_MESSAGE_MAX = 240
+/** First report of a fingerprint pushes; later pushes wait this long. */
+export const ERROR_PUSH_COOLDOWN_MS = 60 * 60 * 1000
+/** Allowed report kinds — mirrors the `ErrorKind` union in mobile/errors.ts. */
+const ERROR_KINDS = new Set(['error', 'rejection', 'resource'])
+
+/** `file.ext:line:col` with no path separators (basename shape). */
+const FRAME_SHAPE = /^[^/\\]+:\d+:\d+$/
+
+/**
+ * The identity of a report: `sha256(kind + "\n" + message + "\n" + source)` cut
+ * to 8 hex chars. This is the HOST-side spelling of the client ring's dedupe key
+ * (kind + message + source, see mobile/errors.ts), so the two ends cannot diverge
+ * on "is this the same error".
+ */
+export function errorFingerprint(report: { kind?: unknown; message?: unknown; source?: unknown }): string {
+  const kind = String(report.kind ?? '')
+  const message = String(report.message ?? '')
+  const source = report.source === undefined ? '' : String(report.source)
+  return createHash('sha256').update(`${kind}\n${message}\n${source}`).digest('hex').slice(0, 8)
+}
+
+/**
+ * Refuse anything that is not a well-formed error report. The phone sends the
+ * sanitized shape it ALREADY keeps (no full stack, no origin, no argument text),
+ * so a body that cannot be that shape is a client bug or a probe. The frame shape
+ * is basename only — any path separator is an attempt to carry a path, and it is
+ * refused here AND can never reach the file name.
+ * @returns the refusal reason, or undefined when the report looks right.
+ */
+export function validateErrorReport(report: unknown): string | undefined {
+  if (report === null || typeof report !== 'object' || Array.isArray(report)) return '错误报告不是对象'
+  const record = report as Record<string, unknown>
+  if (!ERROR_KINDS.has(String(record.kind))) return '错误报告 kind 非法'
+  if (typeof record.message !== 'string' || record.message === '') return '错误报告缺少 message'
+  if (record.message.length > ERROR_MESSAGE_MAX) return '错误报告 message 超过 240 字'
+  if (record.source !== undefined) {
+    if (typeof record.source !== 'string' || record.source === '') return '错误报告 source 非法'
+    if (!FRAME_SHAPE.test(record.source)) return '错误报告 source 不是 file:line:col'
+  }
+  if (record.frames !== undefined) {
+    if (!Array.isArray(record.frames)) return '错误报告 frames 不是数组'
+    if (record.frames.length > 3) return '错误报告帧数超过 3 条'
+    for (const frame of record.frames) {
+      if (typeof frame !== 'string' || !FRAME_SHAPE.test(frame)) return '错误报告帧不是 basename:line:col'
+    }
+  }
+  if (typeof record.count !== 'number' || !Number.isInteger(record.count) || record.count < 1) return '错误报告 count 非法'
+  // The whole-report ceiling is still enforced: a frame string is a basename
+  // shape but has no length bound of its own.
+  if (Buffer.byteLength(JSON.stringify(report)) > ERROR_REPORT_BYTES_MAX) return '错误报告超过体积上限'
+  return undefined
+}
+
+/**
+ * Write one report into `dir` and return its absolute path.
+ *
+ * The file name is built HERE — clock and the fingerprint — so nothing from the
+ * wire can steer a path: the fingerprint is 8 hex chars and the clock is the
+ * host's own. Reports are pruned to the newest {@link ERROR_REPORT_KEEP}, and
+ * the fingerprint rides the name so the intake can tell whether it has seen this
+ * error before by scanning the directory.
+ */
+export function writeErrorReport(dir: string, report: unknown, now: number): string {
+  mkdirSync(dir, { recursive: true })
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
+  const fingerprint = errorFingerprint(report as { kind?: unknown; message?: unknown; source?: unknown })
+  const file = join(dir, `error-${stamp}-${fingerprint}.json`)
+  // 0600: reports are diagnostic detail about the host's own device, not
+  // shared documents (the same posture as the devices store and perf captures).
+  writeFileSync(file, JSON.stringify(report), { encoding: 'utf8', mode: 0o600 })
+  pruneErrorReports(dir, ERROR_REPORT_KEEP)
+  return file
+}
+
+/** Keep the newest `keep` reports in `dir` (best effort: never throws). */
+export function pruneErrorReports(dir: string, keep: number): void {
+  try {
+    const files = readdirSync(dir).filter(name => name.startsWith('error-') && name.endsWith('.json')).sort()
+    for (const stale of files.slice(0, Math.max(0, files.length - keep))) {
+      try {
+        rmSync(join(dir, stale), { force: true })
+      } catch {
+        // non-fatal: the next write tries again
+      }
+    }
+  } catch {
+    // non-fatal: an unreadable directory must not fail the report
+  }
+}
+
+/** Whether a report for this fingerprint already sits in `dir`. */
+export function errorSeen(dir: string, fingerprint: string): boolean {
+  try {
+    return readdirSync(dir).some(name => name.endsWith(`-${fingerprint}.json`))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The push policy for one report. A fingerprint is pushed on first SIGHT —
+ * i.e. only when its report does not already sit in the directory — and even
+ * that waits out the 60-minute cooldown since the last push. A fingerprint that
+ * already exists is a repeat and is never pushed (it is still written/pruned).
+ * The result is a policy, not a delivery guarantee — delivery is best-effort
+ * and channel failures never undo the write.
+ */
+export function errorPushDecision(args: { exists: boolean; lastPushAt: number | undefined; now: number }): { push: boolean; reason: 'first-seen' | 'cooldown' | 'repeat' } {
+  if (args.exists) return { push: false, reason: 'repeat' }
+  const withinCooldown = args.lastPushAt !== undefined && args.now - args.lastPushAt < ERROR_PUSH_COOLDOWN_MS
+  return withinCooldown ? { push: false, reason: 'cooldown' } : { push: true, reason: 'first-seen' }
+}
+
+/** Cooldown clock for error pushes, one per plugin lifetime. */
+let lastErrorPushAt: number | undefined = undefined
+
+/** Time-travel/reset seam for the intake unit test (not part of the contract). */
+export function resetErrorPushCooldown(): void {
+  lastErrorPushAt = undefined
+}
+
+/** The in-memory cooldown clock (reads, never mutates). */
+function currentCooldown(): number | undefined {
+  return lastErrorPushAt
+}
+
+/**
+ * Push one error report once, reusing the existing L3/L2 delivery. Built as a
+ * distinct helper so the intake branch stays thin and the notify capability is
+ * optional: when `notify` is absent the intake simply writes and returns — it
+ * never constructs a failure out of a missing notifier.
+ */
+export function pushErrorOnce(notify: NotifyService | undefined, report: { message?: unknown; kind?: unknown }, fingerprint: string): void {
+  if (notify === undefined) return
+  const message = String(report.message ?? 'unknown error')
+  const event: NotifyEvent = {
+    id: `error-${fingerprint}`,
+    kind: 'task-failed',
+    title: '手机端出错',
+    body: `[${String(report.kind ?? 'error')}] ${message.slice(0, 120)}`,
+    sessionId: '',
+    ts: Date.now(),
+  }
+  void deliverL3(notify.store.getConfig(), event)
+  void deliverL2(notify.store, event)
+}
+
+/**
+ * The intake branch for `mobile.error`: validate → write (which prunes) →
+ * decide whether to push on first sight (cooldown-gated) → report the verdict.
+ * `exists` is computed BEFORE the write (a first sight of a fingerprint must see
+ * the pre-write directory), so the sequence is read-exists → write → push. The
+ * cooldown clock is the module-level in-memory value, one per plugin lifetime;
+ * `resetCooldown` is a test-only seam to bring it back to a known state.
+ */
+export function ingestErrorReport(input: {
+  dir: string
+  report: unknown
+  notify: NotifyService | undefined
+  now: number
+  hasSeen?: (dir: string, f: string) => boolean
+  push?: (n: NotifyService | undefined, r: { message?: unknown; kind?: unknown }, f: string) => void
+}): { file: string; bytes: number; pushed: boolean } {
+  const fingerprint = errorFingerprint(input.report as { kind?: unknown; message?: unknown; source?: unknown })
+  const exists = (input.hasSeen ?? errorSeen)(input.dir, fingerprint)
+  const decision = errorPushDecision({ exists, lastPushAt: currentCooldown(), now: input.now })
+  const file = writeErrorReport(input.dir, input.report, input.now)
+  if (decision.push) {
+    lastErrorPushAt = input.now
+    ;(input.push ?? pushErrorOnce)(input.notify, input.report as { message?: unknown; kind?: unknown }, fingerprint)
+  }
+  return { file, bytes: Buffer.byteLength(JSON.stringify(input.report)), pushed: decision.push }
 }
 
 /**
@@ -1503,6 +1707,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_OBSERVE_METHOD
       || method === MOBILE_DIAGNOSTICS_METHOD
       || method === MOBILE_PERF_METHOD
+      || method === MOBILE_ERROR_METHOD
       || method === MOBILE_READ_ATTACHMENT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
       || method === MOBILE_PAIR_DEVICES_METHOD
@@ -1606,6 +1811,46 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             type: 'server-response',
             rpcId,
             result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入性能抓取失败' } },
+          })
+        }
+      } else if (method === MOBILE_ERROR_METHOD) {
+        const payload = parsed.payload as { report?: unknown; label?: unknown }
+        // Write-only, inert and path-free, exactly like mobile.perf: the file
+        // name is generated host-side from the clock and the fingerprint, the
+        // body must pass strict shape validation (including basename-only frames
+        // — a path separator is refused), and nothing here can read or
+        // overwrite anything else. On first sight of a fingerprint the intake
+        // pushes once (cooldown-gated); a missing notify feature writes and
+        // returns without pushing, never an error.
+        const rejection = validateErrorReport(payload?.report)
+        if (rejection !== undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: rejection } },
+          })
+          return
+        }
+        if (deps.errorDir === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '宿主未启用错误上报目录' } },
+          })
+          return
+        }
+        try {
+          const result = ingestErrorReport({ dir: deps.errorDir, report: payload?.report, notify: deps.notify, now: Date.now() })
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { file: basename(result.file), bytes: result.bytes, pushed: result.pushed } },
+          })
+        } catch (error) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入错误上报失败' } },
           })
         }
       } else if (method === MOBILE_PREFERENCES_METHOD) {
@@ -1978,6 +2223,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
                   telegram: {
                     configured: channels?.telegram?.botToken !== undefined && channels.telegram.botToken !== '' && channels.telegram.chatId !== undefined && channels.telegram.chatId !== '',
                   },
+                  wxpusher: { configured: channels?.wxpusher?.spt !== undefined && channels.wxpusher.spt !== '' },
                   pushplus: { configured: channels?.pushplus?.token !== undefined && channels.pushplus.token !== '' },
                 },
               },
@@ -2019,12 +2265,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
               : currentKinds.turns !== undefined ? { turns: currentKinds.turns } : {}),
           }
         }
-        const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown; pushplus?: unknown } | undefined
+        const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown; wxpusher?: unknown; pushplus?: unknown } | undefined
         if (channels !== undefined) {
           const current = notify.store.getConfig().channels ?? {}
           const serverchan = channels.serverchan as { sendKey?: unknown } | undefined
           const bark = channels.bark as { key?: unknown } | undefined
           const telegram = channels.telegram as { botToken?: unknown; chatId?: unknown } | undefined
+          const wxpusher = channels.wxpusher as { spt?: unknown } | undefined
           const pushplus = channels.pushplus as { token?: unknown } | undefined
           next.channels = {
             ...(serverchan !== undefined
@@ -2036,6 +2283,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             ...(telegram !== undefined
               ? { telegram: { botToken: typeof telegram.botToken === 'string' ? telegram.botToken : '', chatId: typeof telegram.chatId === 'string' ? telegram.chatId : '' } }
               : current.telegram !== undefined ? { telegram: current.telegram } : {}),
+            ...(wxpusher !== undefined
+              ? { wxpusher: { spt: typeof wxpusher.spt === 'string' ? wxpusher.spt : '' } }
+              : current.wxpusher !== undefined ? { wxpusher: current.wxpusher } : {}),
             ...(pushplus !== undefined
               ? { pushplus: { token: typeof pushplus.token === 'string' ? pushplus.token : '' } }
               : current.pushplus !== undefined ? { pushplus: current.pushplus } : {}),

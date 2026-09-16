@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-16
+
+### Added
+
+- **Runtime failures stop being invisible on the phone.** Errors were only visible if someone had armed the perf switch first. Now an always-on ring records `error` / `unhandledrejection` / failed-resource events (deduplicated by kind + message + location, capped, no stack and no origin kept), a render crash lands on a readable page with 重试 / 重新加载 instead of a white screen, and each newly-seen record is handed to the host as `mobile.error`. The host validates the shape (message ≤240 chars, frame shape `file:line:col`, whole body ≤64 KB), writes it to `$DSH_HOME/dsh-palm-errors/` (mode 0600, newest 20 kept), and pushes on the first sight of a fingerprint, then at most once an hour. Settings → 通用 shows the error count and a copy button even when the instrumentation is not armed.
+- **`navigator.storage.persist()` is requested once there is something worth protecting.** The history cache and the offline outbox live in IndexedDB, which the browser may evict silently; the request now fires after the first successful cache write (never on first paint, never awaited), and the outcome rides every perf capture.
+- **WxPusher is the recommended third-party channel.** WxPusher's simple-push takes an `SPT_` token and answers HTTP 200 even for business failures, so the adapter judges `body.code === 1000` and surfaces the message — which is what lets the settings test button diagnose a wrong or expired token. Settings → 通知 leads with the WxPusher card. PushPlus is *demoted, not deleted*: it now requires paid verification, so it moves to the end of the card and is marked 已降级, while a config that already carries a token keeps delivering.
+- **The perf instrumentation separates jank from process suspension.** A Long Task observer (`longtask`) plus hidden-window bookkeeping flag any task that *began* while the page was hidden, and report `suspension.hiddenMs` — the difference between "the app stuttered" and "the phone froze us" that used to require reading raw marks by hand. Captures now also carry the error ring and the storage picture, so one report answers "how slow was it" and "did it break" together.
+- **The 运行中 page names the subagents a session is waiting for.** A session parked on a foreground subagent owns no background job, so its card could only say 回合中. Each running session now gets a 子代理 group (running children first, folded past three), the hero line counts them, and the page polls `subagents.list` for the running sessions only — at most four sessions, every 8 s, stopped when the page closes or nothing is running. A live `subagent` job row is dropped only once the child rows cover every live delegation, so a partial answer never hides work.
+- **`release.mjs` reports honestly.** `--check` now has three exit codes (0 published / 1 failed / 2 not finished — it used to exit 1 while a publish it was watching went green), prerelease tags get `--prerelease` on the GitHub Release so an rc never masquerades as the latest release, the tag preflight also asks origin, and the missing `spawnSync` import is fixed.
+
+### Removed
+
+- **The conditional "report card" for settled assistant turns.** Turns whose text looked like a result report were re-rendered as a card (status chips, section headings, commit chips) through `report.ts` / `report-body.tsx` / `report-card.tsx`. Those modules and their tests are gone; a settled turn renders as ordinary markdown, like everything else.
+
 ## [1.4.0-rc.1] - 2026-09-12
 
 ### Added

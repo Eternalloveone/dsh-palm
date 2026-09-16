@@ -11,6 +11,8 @@
  * @module dsh-palm/mobile/history-cache
  */
 
+import { ensurePersistentStorage } from './storage.ts'
+
 const DB_NAME = 'dsh-palm'
 const DB_VERSION = 2
 const STORE = 'history'
@@ -74,6 +76,7 @@ export async function loadCachedHistory<T>(sessionId: string): Promise<T | undef
 
 /** Persist one session's tail page (best-effort; LRU-trimmed past the cap). */
 export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<void> {
+  let saved = false
   try {
     const db = await openDb()
     try {
@@ -86,12 +89,18 @@ export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<
         tx.onabort = () => { reject(tx.error ?? new Error('indexedDB write aborted')) }
       })
       await trimHistory(db)
+      saved = true
     } finally {
       db.close()
     }
   } catch {
     // quota / private mode: cache silently off
   }
+  // Lazy on purpose: the first successful write is the moment there is something
+  // worth protecting, so the persistent-storage request (which some browsers may
+  // prompt for) happens here rather than on first paint. Deliberately not awaited
+  // — a prompt must never hold up the chat.
+  if (saved) void ensurePersistentStorage()
 }
 
 /** Evict the oldest entries past the cap (by savedAt). */

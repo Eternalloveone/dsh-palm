@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /** RunOverviewView: cross-session jobs + running-session projection. */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { RunOverviewView, type RunOverviewMux } from './RunOverviewView.tsx'
+import { RunOverviewView, SUBAGENT_SESSION_MAX, type RunOverviewMux } from './RunOverviewView.tsx'
 import type { MuxFrame } from '../../api-proxy-types'
 
 const api = vi.hoisted(() => ({
   listSessions: vi.fn(),
+  subagentsList: vi.fn(),
 }))
 
 vi.mock('../api.ts', () => api)
@@ -62,7 +63,22 @@ function sessionRow(sessionId: string, running: boolean): Record<string, unknown
   return { sessionId, updatedAt: 1_700_000_000_000, running, blank: false, projections: {} }
 }
 
+/** One subagents.list child entry. */
+function child(id: string, label: string, activity: 'running' | 'inactive' = 'running'): Record<string, unknown> {
+  return { kind: 'child', id, activity, hasChildren: false, mode: 'one-shot', label }
+}
+
+/** A catalog answer carrying the given children. */
+function catalog(entries: Array<Record<string, unknown>>): Record<string, unknown> {
+  return { entries, parentAvailable: true }
+}
+
 const emptyPage = { items: [], nextCursor: undefined, hasMore: false }
+
+beforeEach(() => {
+  // Default: the host answers "no children" (an empty catalog, not a failure).
+  api.subagentsList.mockResolvedValue(catalog([]))
+})
 
 afterEach(() => {
   cleanup()
@@ -164,5 +180,83 @@ describe('RunOverviewView', () => {
     render(<RunOverviewView mux={mux} onBack={onBack} onOpenSession={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
     expect(onBack).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('RunOverviewView foreground subagents', () => {
+  it('names a live session\'s running subagents and folds the rest', async () => {
+    const mux = muxStub()
+    api.listSessions.mockResolvedValue({ items: [sessionRow('s-live', true)], nextCursor: undefined, hasMore: false })
+    api.subagentsList.mockResolvedValue(catalog([
+      child('c1', '整理记忆'),
+      child('c2', '跑真机回归'),
+      child('c3', '写报告'),
+      child('c4', '查日志'),
+      child('c5', '收尾'),
+    ]))
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => expect(screen.getByText('子代理')).toBeTruthy())
+    // The hero counts them; the card names the first three.
+    expect(screen.getByText('1 个会话正在运行 · 0 个后台任务 · 5 个子代理')).toBeTruthy()
+    expect(screen.getByText('整理记忆')).toBeTruthy()
+    expect(screen.queryByText('查日志')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /还有 2 个子代理/ }))
+    expect(screen.getByText('查日志')).toBeTruthy()
+    expect(screen.getByText('收尾')).toBeTruthy()
+  })
+
+  it('lists only running children of a live session', async () => {
+    const mux = muxStub()
+    api.listSessions.mockResolvedValue({ items: [sessionRow('s-live', true)], nextCursor: undefined, hasMore: false })
+    api.subagentsList.mockResolvedValue(catalog([
+      child('c1', '刚跑完', 'inactive'),
+      child('c2', '在跑'),
+    ]))
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => expect(screen.getByText('在跑')).toBeTruthy())
+    expect(screen.queryByText('刚跑完')).toBeNull()
+    expect(screen.getByText('1 个会话正在运行 · 0 个后台任务 · 1 个子代理')).toBeTruthy()
+  })
+
+  it('drops the live subagent job row once the child rows cover it', async () => {
+    // The same delegation otherwise appears twice: as a background-job row
+    // (kind subagent) and as a 子代理 row.
+    const mux = muxStub([{ sessionId: 's-live', jobs: [job({ id: 'j1', label: '整理记忆' })] }])
+    api.listSessions.mockResolvedValue({ items: [sessionRow('s-live', true)], nextCursor: undefined, hasMore: false })
+    api.subagentsList.mockResolvedValue(catalog([child('c1', '整理记忆')]))
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => expect(screen.getByText('子代理')).toBeTruthy())
+    expect(screen.getAllByText('整理记忆')).toHaveLength(1)
+    expect(screen.queryByText('后台任务')).toBeNull()
+  })
+
+  it('keeps the job row when the host does not answer', async () => {
+    const mux = muxStub([{ sessionId: 's-live', jobs: [job({ id: 'j1', label: '整理记忆' })] }])
+    api.listSessions.mockResolvedValue({ items: [sessionRow('s-live', true)], nextCursor: undefined, hasMore: false })
+    api.subagentsList.mockRejectedValue(new Error('boom'))
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => expect(screen.getByText('1 个会话正在运行 · 1 个后台任务')).toBeTruthy())
+    expect(screen.getByText('整理记忆')).toBeTruthy()
+    expect(screen.queryByText('子代理')).toBeNull()
+  })
+
+  it('never asks for subagents of a session that is not running', async () => {
+    const mux = muxStub([
+      { sessionId: 's-settled', jobs: [job({ id: 'j2', status: 'completed', finishedAt: 1_700_000_100_000, label: '收尾' })] },
+    ])
+    api.listSessions.mockResolvedValue({ items: [sessionRow('s-settled', false)], nextCursor: undefined, hasMore: false })
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => expect(screen.getByText('最近结束')).toBeTruthy())
+    expect(api.subagentsList).not.toHaveBeenCalled()
+  })
+
+  it('bounds the poll to the first live sessions', async () => {
+    const mux = muxStub()
+    const rows = Array.from({ length: SUBAGENT_SESSION_MAX + 1 }, (_, index) => sessionRow(`s-${index}`, true))
+    api.listSessions.mockResolvedValue({ items: rows, nextCursor: undefined, hasMore: false })
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => expect(api.subagentsList).toHaveBeenCalledTimes(SUBAGENT_SESSION_MAX))
+    expect(api.subagentsList).toHaveBeenCalledWith('s-0')
+    expect(api.subagentsList).not.toHaveBeenCalledWith(`s-${SUBAGENT_SESSION_MAX}`)
   })
 })

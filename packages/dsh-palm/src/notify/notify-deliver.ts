@@ -1,8 +1,12 @@
 /**
  * L3 delivery: third-party push channels (Server酱 / Bark / Telegram /
- * PushPlus) that reach the phone even when the PWA is fully closed. All are
- * plain outbound HTTPS webhooks — no public inbound port, no browser
- * dependency.
+ * WxPusher / PushPlus) that reach the phone even when the PWA is fully
+ * closed. All are plain outbound HTTPS webhooks — no public inbound port,
+ * no browser dependency.
+ *
+ * PushPlus is demoted, not deleted: it now requires paid verification, so
+ * WxPusher took the recommended slot, but a config that already carries a
+ * pushplus token must keep delivering instead of failing silently.
  *
  * Failures are logged and swallowed: notifications are best-effort, and one
  * dead channel must never break the engine or the other channels.
@@ -15,6 +19,8 @@ import type { NotifyEvent } from './notify-engine.ts'
 const SERVERCHAN_BASE = 'https://sctapi.ftqq.com'
 const BARK_BASE = 'https://api.day.app'
 const TELEGRAM_BASE = 'https://api.telegram.org'
+const WXPUSHER_SIMPLE_PUSH = 'https://wxpusher.zjiecode.com/api/send/message/simple-push'
+/** Legacy channel (demoted): wired only for configs that already carry a token. */
 const PUSHPLUS_BASE = 'https://www.pushplus.plus/send'
 
 /** One third-party channel adapter. */
@@ -24,7 +30,7 @@ export interface ChannelAdapter {
   send(config: NotifyConfig, event: NotifyEvent): Promise<void>
 }
 
-/** The three built-in L3 adapters. */
+/** The built-in L3 adapters. */
 export const CHANNEL_ADAPTERS: readonly ChannelAdapter[] = [
   {
     name: 'serverchan',
@@ -64,6 +70,33 @@ export const CHANNEL_ADAPTERS: readonly ChannelAdapter[] = [
         body: JSON.stringify({ chat_id: chatId, text: `${event.title}\n${event.body}` }),
       })
       if (!response.ok) throw new Error(`telegram HTTP ${response.status}`)
+    },
+  },
+  {
+    name: 'wxpusher',
+    async send(config, event) {
+      const spt = config.channels?.wxpusher?.spt
+      if (spt === undefined || spt === '') return
+      const response = await fetch(WXPUSHER_SIMPLE_PUSH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          spt,
+          content: event.body,
+          // WxPusher caps the notification summary at 100 characters; the full
+          // text is already in the body, so truncating loses nothing.
+          summary: event.title.slice(0, 100),
+          contentType: 1,
+        }),
+      })
+      if (!response.ok) throw new Error(`wxpusher HTTP ${response.status}`)
+      // WxPusher answers 200 even for business failures; the body's code
+      // carries the verdict (1000 = accepted). Surface its message so the
+      // settings test button can diagnose a wrong/expired SPT.
+      const json = await response.json().catch(() => null) as { code?: number; msg?: string } | null
+      if (json !== null && json.code !== undefined && json.code !== 1000) {
+        throw new Error(`wxpusher ${json.msg ?? `code ${json.code}`}`)
+      }
     },
   },
   {

@@ -113,7 +113,7 @@ beforeEach(() => {
     hideDetails: false,
     kinds: { jobs: false, todo: true, turns: false },
     vapidPublicKey: 'aGVsbG8',
-    channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
+    channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
   })
 })
 
@@ -285,7 +285,7 @@ describe('Web Push (L2)', () => {
       turnCooldownMs: 120_000,
       hideDetails: false,
       kinds: { jobs: false, todo: true, turns: false },
-      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
     expect(await enableWebPush()).toBe(false)
     expect(fake.subscribe).not.toHaveBeenCalled()

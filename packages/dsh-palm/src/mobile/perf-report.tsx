@@ -1,9 +1,11 @@
 /**
  * 「上报性能数据」 row for 设置 → 通用.
  *
- * Rendered ONLY while the instrumentation is armed (`?perf=1`, or the
- * `dsh.palm.perf` flag): this is a measurement affordance, not a feature, and an
- * unarmed page has nothing worth sending. Two forms, deliberately:
+ * Rendered while the instrumentation is armed (`?perf=1`, or the `dsh.palm.perf`
+ * flag) — a measurement affordance, not a feature — and ALSO whenever the
+ * always-on error ring has something in it, because a page that has been throwing
+ * must say so without anyone having opted into measuring first. Two forms,
+ * deliberately:
  *
  * - 摘要 hands over `stats()` — the aggregates that answer "how slow is the
  *   typical batch" (a few KB);
@@ -20,6 +22,7 @@
 
 import { useState } from 'react'
 import { reportPerf } from './api.ts'
+import { errorStats } from './errors.ts'
 import { perfEnabled } from './perf.ts'
 import { toast } from './toast.tsx'
 
@@ -76,7 +79,12 @@ function askLabel(): string {
 export function PerfReportRow() {
   const [busy, setBusy] = useState(false)
   const [reported, setReported] = useState<string | undefined>(undefined)
-  if (!perfEnabled()) return null
+  const errors = errorStats()
+  const armed = perfEnabled()
+  // Rendered while measuring OR whenever the page has actually failed: the error
+  // list is the one part of this row that must be visible WITHOUT opting in —
+  // that is the whole point of capturing failures unconditionally.
+  if (!armed && errors.total === 0) return null
   const hook = perfHook()
   const snapshot = hook?.stats()
   const marks = snapshot === undefined ? 0 : markCount(snapshot)
@@ -113,28 +121,53 @@ export function PerfReportRow() {
     )
   }
 
+  /** Hand the error ring over on its own — the one thing worth sending unarmed. */
+  const copyErrors = (): void => {
+    void copyCapture(errors).then(
+      (copied) => { toast(copied ? '运行错误已复制到剪贴板（粘给我即可）' : '复制失败') },
+      () => { toast('复制失败') },
+    )
+  }
+
   return (
     <li className="settings-note settings-installHint">
       <span>
-        性能数据：已采集 {marks} 标记 · {sampled} 帧{reported === undefined ? '' : ' · 已上报'}
+        {armed
+          ? `性能数据：已采集 ${marks} 标记 · ${sampled} 帧`
+          : `运行错误 ${errors.total} 条`}
+        {armed && errors.total > 0 ? ` · 运行错误 ${errors.total} 条` : ''}
+        {reported === undefined ? '' : ' · 已上报'}
       </span>
       <span className="settings-perfActions">
-        <button
-          type="button"
-          className="settings-installHint-btn"
-          disabled={busy || hook === undefined}
-          onClick={() => { submit(false) }}
-        >
-          {busy ? '上报中…' : '上报摘要'}
-        </button>
-        <button
-          type="button"
-          className="settings-installHint-btn"
-          disabled={busy || hook === undefined}
-          onClick={() => { submit(true) }}
-        >
-          上报原始
-        </button>
+        {armed && (
+          <>
+            <button
+              type="button"
+              className="settings-installHint-btn"
+              disabled={busy || hook === undefined}
+              onClick={() => { submit(false) }}
+            >
+              {busy ? '上报中…' : '上报摘要'}
+            </button>
+            <button
+              type="button"
+              className="settings-installHint-btn"
+              disabled={busy || hook === undefined}
+              onClick={() => { submit(true) }}
+            >
+              上报原始
+            </button>
+          </>
+        )}
+        {errors.total > 0 && (
+          <button
+            type="button"
+            className="settings-installHint-btn"
+            onClick={copyErrors}
+          >
+            复制错误
+          </button>
+        )}
       </span>
     </li>
   )

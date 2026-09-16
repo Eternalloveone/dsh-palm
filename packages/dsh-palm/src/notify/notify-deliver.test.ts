@@ -98,7 +98,42 @@ describe('L3 adapters', () => {
     expect(body.text).toContain('任务完成')
   })
 
-  it('pushplus posts a JSON body with the token and honors a success code', async () => {
+  it('wxpusher posts the SPT with the message and honors the success code', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 1000, msg: 'ok', data: null, success: true }),
+    } as unknown as Response)
+    const config: NotifyConfig = {
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      channels: { wxpusher: { spt: 'SPT_token' } },
+    }
+    await CHANNEL_ADAPTERS[3]!.send(config, event)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(String(url)).toBe('https://wxpusher.zjiecode.com/api/send/message/simple-push')
+    const body = JSON.parse(String(init?.body)) as { spt: string; content: string; summary: string; contentType: number }
+    expect(body.spt).toBe('SPT_token')
+    expect(body.content).toContain('pnpm test')
+    expect(body.summary).toBe('任务完成')
+    expect(body.contentType).toBe(1)
+  })
+
+  it('wxpusher surfaces business failures via the payload code', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 1001, msg: '用户不存在，请检查你的SPT' }),
+    } as unknown as Response)
+    const config: NotifyConfig = {
+      turnThresholdMs: 30_000,
+      turnCooldownMs: 120_000,
+      channels: { wxpusher: { spt: 'SPT_bad' } },
+    }
+    await expect(CHANNEL_ADAPTERS[3]!.send(config, event)).rejects.toThrow('wxpusher 用户不存在，请检查你的SPT')
+  })
+
+  it('pushplus (demoted) still posts its token and honors the success code', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
@@ -109,7 +144,7 @@ describe('L3 adapters', () => {
       turnCooldownMs: 120_000,
       channels: { pushplus: { token: 'pp-token' } },
     }
-    await CHANNEL_ADAPTERS[3]!.send(config, event)
+    await CHANNEL_ADAPTERS[4]!.send(config, event)
     const [url, init] = fetchMock.mock.calls[0]!
     expect(String(url)).toBe('https://www.pushplus.plus/send')
     const body = JSON.parse(String(init?.body)) as { token: string; title: string; content: string; template: string }
@@ -130,7 +165,7 @@ describe('L3 adapters', () => {
       turnCooldownMs: 120_000,
       channels: { pushplus: { token: 'pp-bad' } },
     }
-    await expect(CHANNEL_ADAPTERS[3]!.send(config, event)).rejects.toThrow('pushplus 用户不存在')
+    await expect(CHANNEL_ADAPTERS[4]!.send(config, event)).rejects.toThrow('pushplus 用户不存在')
   })
 
   it('a channel without credentials is a no-op', async () => {

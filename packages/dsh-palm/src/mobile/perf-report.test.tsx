@@ -15,6 +15,7 @@ vi.mock('./perf.ts', () => ({ perfEnabled: () => perf.enabled }))
 const toastMock = vi.hoisted(() => vi.fn())
 vi.mock('./toast.tsx', () => ({ toast: toastMock }))
 
+import { errorClear, recordError } from './errors.ts'
 import { PerfReportRow } from './perf-report.tsx'
 
 const aggregate = {
@@ -36,6 +37,7 @@ function armHook(stats: unknown = aggregate, toJSON: unknown = raw): void {
 
 describe('perf report row', () => {
   beforeEach(() => {
+    errorClear()
     perf.enabled = true
     api.reportPerf.mockReset()
     toastMock.mockReset()
@@ -115,5 +117,28 @@ describe('perf report row', () => {
 
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(JSON.stringify(aggregate)))
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('剪贴板')))
+  })
+
+  it('shows the error ring even while the instrumentation is off', async () => {
+    perf.enabled = false
+    recordError({ kind: 'error', message: 'boom in the wild' })
+    render(<PerfReportRow />)
+
+    // This is the one part of the row that must NOT need opting in.
+    expect(screen.getByText(/运行错误 1 条/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '上报摘要' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '复制错误' }))
+    await waitFor(() => expect(navigator.clipboard.writeText)
+      .toHaveBeenCalledWith(expect.stringContaining('boom in the wild')))
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('剪贴板')))
+  })
+
+  it('reports the failure count beside the perf totals once armed', () => {
+    recordError({ kind: 'rejection', message: 'unhandled thing' })
+    render(<PerfReportRow />)
+
+    expect(screen.getByText(/已采集 118 标记 · 900 帧 · 运行错误 1 条/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '复制错误' })).toBeTruthy()
   })
 })

@@ -9,17 +9,26 @@
  *  - stamps the hot path with lightweight marks (receive → decode → state →
  *    commit, see the anchor call sites) into a bounded ring buffer;
  *  - samples frame cadence with requestAnimationFrame and reports long
- *    frames (the browser's own Long Tasks where supported);
+ *    frames, plus the browser's own Long Tasks (>50ms) — each entry flagged
+ *    when it BEGAN inside a hidden window, because that is process suspension
+ *    rather than jank, which is the difference between "the app stuttered" and
+ *    "the phone froze us" (the 12.5s toCommit outlier is exactly that case);
  *  - counts SSE anomalies the transport layer already knows about
  *    (seq gaps, poll refills — counters fed by mux / ChatView);
- *  - exposes window.__dshPalmPerf = { toJSON, toCSV, clear } so a phone or a
- *    Playwright/CDP run can export one session's measurements.
+ *  - carries the always-on error ring (mobile/errors.ts) and the storage
+ *    picture (mobile/storage.ts) inside every capture, so one report answers
+ *    "how slow was it" and "did it break" together;
+ *  - exposes window.__dshPalmPerf = { toJSON, stats, clear, refresh } so a phone
+ *    or a Playwright/CDP run can export one session's measurements.
  *
  * Timings are deliberately NOT asserted in vitest (timing tests flake under
  * load). The structural guarantees (no-op when off, bounded buffer, export
  * shape) are covered by perf.test.ts instead.
  * @module dsh-palm/mobile/perf
  */
+
+import { errorClear, errorStats, type ErrorKind, type ErrorRecord } from './errors.ts'
+import { storageInfo, type StorageInfo } from './storage.ts'
 
 /** Storage key that arms the instrumentation. */
 export const PERF_KEY = 'dsh.palm.perf'
@@ -103,6 +112,86 @@ export function perfAnomaly(kind: PerfAnomaly['kind'], detail?: string): void {
   if (anomalies.length > 256) anomalies.shift()
 }
 
+/* ── long tasks + process suspension (armed only) ───────────────────── */
+
+/** Newest-first ring of Long Task entries. */
+export const LONG_TASK_RING_CAP = 64
+
+export interface LongTaskRecord {
+  /** performance.now() at the task's start (same time origin as the marks). */
+  at: number
+  /** Task duration; the API only reports tasks over 50ms. */
+  ms: number
+  /** True when the task BEGAN inside a hidden window — see isSuspended(). */
+  suspended: boolean
+}
+
+const longTasks: LongTaskRecord[] = []
+/** Hidden intervals, so a task delivered after the fact is still classifiable. */
+const hiddenWindows: Array<{ from: number; to: number }> = []
+let hiddenAt: number | null = null
+let hiddenMs = 0
+let hiddenCount = 0
+let longTaskObserver: PerformanceObserver | undefined
+let visibilityInstalled = false
+
+function markHidden(now: number): void {
+  if (hiddenAt !== null) return
+  hiddenAt = now
+}
+
+function markVisible(now: number): void {
+  if (hiddenAt === null) return
+  const from = hiddenAt
+  hiddenAt = null
+  hiddenMs += Math.max(0, now - from)
+  hiddenCount += 1
+  hiddenWindows.push({ from, to: now })
+  if (hiddenWindows.length > 32) hiddenWindows.shift()
+}
+
+/**
+ * A task that started while the page was hidden is a suspension artifact, not
+ * jank: the process was frozen (a backgrounded phone) and the browser charges the
+ * wall-clock gap to whatever was in flight. Separating the two is what makes a
+ * `toCommit` outlier attributable instead of mysterious.
+ */
+function isSuspended(at: number): boolean {
+  if (hiddenAt !== null && at >= hiddenAt) return true
+  return hiddenWindows.some(window => at >= window.from && at <= window.to)
+}
+
+/** Track hidden windows. rAF already stops while hidden; this names the gap. */
+function installVisibilityTracking(): void {
+  if (visibilityInstalled || typeof document === 'undefined') return
+  visibilityInstalled = true
+  if (document.hidden) markHidden(performance.now())
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) markHidden(performance.now())
+    else markVisible(performance.now())
+  })
+}
+
+/** Observe Long Tasks where the browser has them (Chromium; not Safari). */
+function installLongTaskObserver(): void {
+  if (longTaskObserver !== undefined) return
+  const Observer = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
+  if (Observer === undefined) return
+  try {
+    const observer = new Observer((list) => {
+      for (const entry of list.getEntries()) {
+        longTasks.unshift({ at: entry.startTime, ms: entry.duration, suspended: isSuspended(entry.startTime) })
+      }
+      if (longTasks.length > LONG_TASK_RING_CAP) longTasks.length = LONG_TASK_RING_CAP
+    })
+    observer.observe({ entryTypes: ['longtask'] })
+    longTaskObserver = observer
+  } catch {
+    // Unsupported entry type: frame sampling still runs, longTasks stays empty.
+    longTaskObserver = undefined
+  }
+}
+
 /* ── frame cadence sampler (armed only) ─────────────────────────────── */
 
 let samplerRunning = false
@@ -114,6 +203,8 @@ let lastRaf = 0
 export function startPerfSampler(): void {
   if (samplerRunning || !armed()) return
   samplerRunning = true
+  installVisibilityTracking()
+  installLongTaskObserver()
   const tick = (now: number): void => {
     if (!armed()) { samplerRunning = false; return }
     if (lastRaf !== 0) {
@@ -137,6 +228,14 @@ export interface PerfSnapshot {
   frames: { sampled: number; long: number }
   /** recv→state (decode+fold+coalesce) and recv→commit (full client path). */
   spansMs: { state: number[]; commit: number[] }
+  /** Long tasks (>50ms), newest first, hidden-window artifacts flagged. */
+  longTasks: LongTaskRecord[]
+  /** Wall time spent hidden — the interval rAF sampling cannot see. */
+  suspension: { hiddenMs: number; hiddenCount: number }
+  /** The always-on error ring: errors.ts is NOT gated by this switch. */
+  errors: { total: number; kinds: Partial<Record<ErrorKind, number>>; recent: ErrorRecord[] }
+  /** Persistent-storage picture (mobile/storage.ts). */
+  storage: StorageInfo
 }
 
 function pct(sorted: number[], p: number): number {
@@ -180,6 +279,10 @@ export function perfSnapshot(): PerfSnapshot {
       state: spansFor('state'),
       commit: spansFor('commit'),
     },
+    longTasks: [...longTasks],
+    suspension: { hiddenMs: Math.round(hiddenMs), hiddenCount },
+    errors: errorStats(),
+    storage: storageInfo(),
   }
 }
 
@@ -195,10 +298,25 @@ export function perfStats(): Record<string, unknown> {
       toState: spanStats('state', s.spansMs.state),
       toCommit: spanStats('commit', s.spansMs.commit),
     },
+    // Suspended entries are counted apart from the statistics on purpose: mixing
+    // a frozen process into the jank distribution would invent a regression that
+    // no code change caused.
+    longTasks: {
+      ...spanStats('longTask', s.longTasks.filter(task => !task.suspended).map(task => task.ms)),
+      suspended: s.longTasks.filter(task => task.suspended).length,
+      recent: s.longTasks.slice(0, 8),
+    },
+    suspension: s.suspension,
+    errors: { total: s.errors.total, kinds: s.errors.kinds, recent: s.errors.recent.slice(0, 5) },
+    storage: s.storage,
   }
 }
 
-/** Clear all collected data (start a fresh measurement window). */
+/**
+ * Clear all collected data — a fresh measurement window. The always-on error ring
+ * is cleared too: a window that still reports failures from before it started
+ * would misattribute them.
+ */
 export function perfClear(): void {
   stamps.length = 0
   anomalies.length = 0
@@ -206,6 +324,12 @@ export function perfClear(): void {
   frames = 0
   longFrames = 0
   lastRaf = 0
+  longTasks.length = 0
+  hiddenWindows.length = 0
+  hiddenAt = null
+  hiddenMs = 0
+  hiddenCount = 0
+  errorClear()
   armedCache = null
 }
 

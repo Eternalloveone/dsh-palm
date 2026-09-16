@@ -90,7 +90,7 @@ describe('SettingsView card list', () => {
       turnCooldownMs: 120_000,
       hideDetails: false,
       kinds: { jobs: false, todo: true, turns: false },
-      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
   })
@@ -352,29 +352,32 @@ describe('SettingsView notification page (L3 channels)', () => {
       turnCooldownMs: 120_000,
       hideDetails: false,
       kinds: { jobs: false, todo: true, turns: false },
-      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, pushplus: { configured: false } },
+      channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
     notifyEventsMock.mockResolvedValue({ items: [] })
     latestVersionMock.mockResolvedValue({ latest: '0.7.3', isNewer: false })
   })
 
-  it('renders the PushPlus token field with the recommend badge and the 3-step helper', async () => {
+  it('renders the WxPusher SPT field with the recommend badge and the 2-step helper', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
-    expect(await screen.findByPlaceholderText(/pushplus\.plus/)).toBeTruthy()
+    expect(await screen.findByPlaceholderText(/^SPT_/)).toBeTruthy()
     expect(screen.getByText('推荐')).toBeTruthy()
-    // The 3-step helper collapses; the summary line is visible without opening.
-    expect(screen.getByText('如何获取 Token（3 步）')).toBeTruthy()
+    // PushPlus is demoted: it still renders so existing tokens keep working,
+    // but it must NOT carry the recommend badge (only one badge exists).
+    expect(screen.getByText('PushPlus Token（已降级）')).toBeTruthy()
+    // The 2-step helper collapses; the summary line is visible without opening.
+    expect(screen.getByText('如何获取 SPT（2 步）')).toBeTruthy()
     // The legacy channels still render (no regression for existing users).
     expect(screen.getByText('Server酱 SendKey')).toBeTruthy()
     expect(screen.getByText('Telegram Chat ID')).toBeTruthy()
   })
 
-  it('saves the PushPlus token with the other channel credentials', async () => {
+  it('saves the WxPusher SPT with the other channel credentials', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
-    fireEvent.change(await screen.findByPlaceholderText(/pushplus\.plus/), { target: { value: 'pp-token-1' } })
+    fireEvent.change(await screen.findByPlaceholderText(/^SPT_/), { target: { value: 'SPT_test_1' } })
     // The channel card has its own save button (distinct from the triggers card).
     fireEvent.click(await screen.findByRole('button', { name: '保存推送渠道' }))
     await waitFor(() => {
@@ -383,13 +386,14 @@ describe('SettingsView notification page (L3 channels)', () => {
           serverchan: { sendKey: '' },
           bark: { key: '' },
           telegram: { botToken: '', chatId: '' },
-          pushplus: { token: 'pp-token-1' },
+          wxpusher: { spt: 'SPT_test_1' },
+          pushplus: { token: '' },
         },
       })
     }, { timeout: 2000 })
   })
 
-  it('clears the PushPlus channel when the field is left empty', async () => {
+  it('clears the WxPusher channel when the field is left empty', async () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     fireEvent.click(await screen.findByRole('button', { name: '保存推送渠道' }))
@@ -399,6 +403,7 @@ describe('SettingsView notification page (L3 channels)', () => {
           serverchan: { sendKey: '' },
           bark: { key: '' },
           telegram: { botToken: '', chatId: '' },
+          wxpusher: { spt: '' },
           pushplus: { token: '' },
         },
       })
@@ -524,6 +529,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         serverchan: { configured: true },
         bark: { configured: false },
         telegram: { configured: false },
+        wxpusher: { configured: false },
         pushplus: { configured: false },
       },
     })
@@ -543,6 +549,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         serverchan: { configured: true },
         bark: { configured: false },
         telegram: { configured: false },
+        wxpusher: { configured: false },
         pushplus: { configured: false },
       },
     })
@@ -568,6 +575,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         serverchan: { configured: true },
         bark: { configured: false },
         telegram: { configured: false },
+        wxpusher: { configured: false },
         pushplus: { configured: false },
       },
     })
@@ -582,6 +590,7 @@ describe('SettingsView notification page (L3 channels)', () => {
           serverchan: { sendKey: '' },
           bark: { key: '' },
           telegram: { botToken: '', chatId: '' },
+          wxpusher: { spt: '' },
           pushplus: { token: '' },
         },
       })
@@ -598,15 +607,15 @@ describe('SettingsView sub-config search', () => {
     try {
       render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
       await screen.findByText('外观')
-      fireEvent.change(screen.getByPlaceholderText('搜索设置…'), { target: { value: 'pushplus' } })
+      fireEvent.change(screen.getByPlaceholderText('搜索设置…'), { target: { value: 'wxpusher' } })
       // The index group surfaces the sub-page entry (no such row on the
       // main page, so it is only reachable through the search index).
-      expect(await screen.findByText('推送渠道 · PushPlus Token')).toBeTruthy()
+      expect(await screen.findByText('推送渠道 · WxPusher SPT')).toBeTruthy()
       expect(screen.getByText(/点击定位/)).toBeTruthy()
       // Tapping opens the notify page with the anchored entry pulsing.
-      fireEvent.click(screen.getByText('推送渠道 · PushPlus Token'))
+      fireEvent.click(screen.getByText('推送渠道 · WxPusher SPT'))
       await waitFor(() => {
-        const anchor = document.querySelector('[data-locate-id="notify-pushplus"]')
+        const anchor = document.querySelector('[data-locate-id="notify-wxpusher"]')
         expect(anchor).not.toBeNull()
         expect(anchor?.hasAttribute('data-focus')).toBe(true)
       })

@@ -52,7 +52,7 @@ if (options.help || (options.version === null && !options.check && !options.from
 }
 
 if (options.check) {
-  process.exit(checkRelease(options.version) ? 0 : 1)
+  process.exit(checkRelease(options.version))
 }
 
 const declaredVersion = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version
@@ -60,6 +60,10 @@ const declaredVersion = JSON.parse(readFileSync(join(packageDir, 'package.json')
 // package.json removes a whole class of "tagged 1.3.7 but shipped 1.3.6".
 const version = options.version ?? (options.fromHead ? declaredVersion : null)
 const tag = `v${version}`
+// A prerelease must not masquerade as the latest release on the repository page: npm keeps an rc
+// off `latest`, and GitHub has to match, or the two channels say different things to the same
+// person. Anything after the first hyphen is a prerelease identifier in semver.
+const prereleaseFlag = version.includes('-') ? ' --prerelease' : ''
 const checks = []
 
 // ---------------------------------------------------------------- preflight
@@ -74,7 +78,7 @@ record('CHANGELOG section', section !== null, `CHANGELOG.md has no "## [${versio
 record('CHANGELOG has entries', section !== null && /^- /m.test(section.body), `the "## [${version}]" section has no "- " entries yet`)
 
 const previousTag = gitCapture(['describe', '--tags', '--abbrev=0'])
-record('tag is free', tag !== previousTag && !tagExists(tag), `${tag} already exists (${previousTag} is the previous release)`)
+record('tag is free', tag !== previousTag && !tagExists(tag) && remoteTagExists(tag) !== true, `${tag} already exists (${previousTag} is the previous release)`)
 
 const head = gitCapture(['rev-parse', 'HEAD'])
 // rev-list rather than `^{commit}`: this goes through no shell, but `^` and
@@ -191,7 +195,7 @@ if (options.ghRelease) {
   const notes = join(tmpdir(), `dsh-palm-${tag}-notes.md`)
   writeFileSync(notes, `${body}\n`)
   try {
-    if (!run(`gh release create ${tag} --title "${tag}" --notes-file "${notes}"`, rootDir, proxyEnv())) {
+    if (!run(`gh release create ${tag} --title "${tag}" --notes-file "${notes}"${prereleaseFlag}`, rootDir, proxyEnv())) {
       fail('gh release create failed')
     }
   } finally {
@@ -263,6 +267,18 @@ function tagExists(name) {
   return git(['rev-parse', '--verify', `refs/tags/${name}`]).ok
 }
 
+/**
+ * Does the tag already exist on origin? `null` means "the question could not be asked" (no
+ * network/proxy), which is deliberately not the same as "no". Failing open here cannot do damage:
+ * the push is the very next step and a duplicate tag is rejected there, before anything
+ * irreversible. Failing closed on a flaky network would be the worse trade.
+ */
+function remoteTagExists(name) {
+  const result = spawnSync('git', [...gitProxyArgs(), 'ls-remote', '--tags', 'origin', name], { cwd: rootDir, encoding: 'utf8' })
+  if (result.status !== 0) return null
+  return (result.stdout ?? '').trim() !== ''
+}
+
 /** The `## [x.y.z] - date` section, whose body becomes the commit and tag text. */
 function changelogSection(wanted) {
   if (!existsSync(join(rootDir, 'CHANGELOG.md'))) return null
@@ -295,7 +311,12 @@ function checkRelease(wanted) {
   // Local, not the module-level const: --check runs before that one is
   // initialized, so reaching for it here is a reference error.
   const tag = `v${wanted}`
-  let ok = true
+  // Three outcomes, three exit codes: published (0), failed (1), not finished yet (2). Reporting
+  // "not finished" as a failure is how a check gets ignored — this one exited 1 while the publish
+  // it was watching went green a minute later, because the registry already had the version.
+  let sawFailure = false
+  let sawPending = false
+  let ghReadable = true
 
   step(`CI runs for v${wanted}`)
   const runs = capture(`gh run list --limit 20 --json workflowName,headBranch,conclusion,status,displayTitle`, rootDir, proxyEnv())
@@ -323,14 +344,17 @@ function checkRelease(wanted) {
     }
     if (reported.size === 0) {
       process.stdout.write('  no runs found yet (CI may still be queuing)\n')
-      ok = false
+      sawPending = true
     }
     for (const run of reported.values()) {
       const settled = run.status === 'completed'
       const state = settled ? run.conclusion : run.status
-      // A run that has not settled is neither a pass nor a failure: re-run
-      // --check once it finishes.
-      if (state !== 'success') ok = false
+      // A run that has not settled is not a failure: remember it separately and decide at the end
+      // by asking whether the artifact exists. The registry is the authority on "published".
+      if (state !== 'success') {
+        if (settled) sawFailure = true
+        else sawPending = true
+      }
       const label = state === 'success' ? 'PASS' : settled ? 'FAIL' : 'WAIT'
       process.stdout.write(`  ${label}  ${run.workflowName} (${run.headBranch}) -> ${state}\n`)
     }
@@ -338,7 +362,7 @@ function checkRelease(wanted) {
   } catch (error) {
     process.stderr.write(`  could not read gh run list: ${error?.message ?? error}\n`)
     process.stderr.write('  (is gh installed, authenticated, and given a proxy?)\n')
-    ok = false
+    ghReadable = false
   }
 
   step(`registry ${PACKAGE_NAME}@${wanted}`)
@@ -365,12 +389,27 @@ function checkRelease(wanted) {
   if (versionDoc === wanted) {
     process.stdout.write(`  PASS  version document resolves (${tarball || 'tarball url not reported'})\n`)
   } else {
-    process.stderr.write(`  FAIL  version document does not resolve yet; if the publish job was green, wait a few minutes and re-run\n`)
-    ok = false
+    process.stderr.write(`  WAIT  version document does not resolve yet; if the publish job was green, wait a few minutes and re-run\n`)
   }
   const latest = capture(`npm view ${PACKAGE_NAME} dist-tags.latest`, rootDir, proxyEnv()).trim()
   process.stdout.write(`  ${latest === wanted ? 'PASS' : 'WARN'}  dist-tags.latest = ${latest || '(unknown)'}\n`)
-  return ok
+  // The registry decides. A version document that resolves *is* a published release, whatever the
+  // workflow list said a moment earlier; a failed workflow plus a missing document is a failure;
+  // anything else is simply not finished yet, and says so with its own exit code.
+  if (versionDoc === wanted) {
+    if (sawPending) process.stdout.write('  (a publish run was still going, but the version is on the registry - that settles it)\n')
+    return 0
+  }
+  if (sawFailure) {
+    process.stderr.write('[release] 发布失败：有工作流失败，且注册表上没有该版本\n')
+    return 1
+  }
+  process.stderr.write(
+    ghReadable
+      ? '[release] 未完成：注册表还没这个版本，也没有失败的任务 —— 几分钟后重跑同一命令\n'
+      : '[release] 未完成：读不到 gh 的运行状态，注册表也还没有该版本 —— 无法判定，稍后重跑\n',
+  )
+  return 2
 }
 
 function sleep(ms) {

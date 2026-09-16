@@ -1,6 +1,6 @@
 /**
  * Global run overview: a full-screen, cross-session view of everything the
- * host is doing right now. Two signals feed it:
+ * host is doing right now. Three signals feed it:
  *
  *  1. Background jobs — the per-session `session/jobs` snapshots the mux
  *     stream retains. Sessions delegating to subagents, compiling, or running
@@ -10,11 +10,15 @@
  *     frames). A plain conversation that is generating but owns no background
  *     job still shows up as a running session, so "what is happening on the
  *     host" is complete even when nothing is delegating.
+ *  3. Foreground subagents — `subagents.list` for the running sessions only,
+ *     polled while this page is open. A session parked on a foreground
+ *     subagent owns no background job, so without this the card could only
+ *     say "回合中" and never *what* it is waiting for.
  *
- * Pure projection on the phone: no host method, no new RPC beyond the roster
- * list (60 s host TTL) and the page-lifetime mux stream. Rows are read-only;
- * tapping a session opens it (the chat's own run-status sheet shows the
- * fine-grained todo/task detail).
+ * Pure projection on the phone: no new RPC beyond the roster list (60 s host
+ * TTL), the page-lifetime mux stream, and the subagent poll below. Rows are
+ * read-only; tapping a session opens it (the chat's own run-status sheet shows
+ * the same subagents with the todo/task detail).
  *
  * @module dsh-palm/mobile/views/RunOverviewView
  */
@@ -24,11 +28,20 @@ import type { JobView } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
 import { listSessions } from '../api.ts'
+import { SUBAGENT_POLL_MS, fetchSubagents, runningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from '../subagent-tree.ts'
+import { SubagentRow } from '../run-status.tsx'
 import { TaskRow } from '../task-status.tsx'
 import { InboxIcon } from '../icons.tsx'
 
 /** Roster pages fetched at most while building the running-session baseline. */
 const ROSTER_PAGE_LIMIT = 8
+
+/** Live sessions this page asks for subagents (bounded fan-out: one
+ *  `subagents.list` per live session per tick, at most this many sessions). */
+export const SUBAGENT_SESSION_MAX = 4
+
+/** Running subagent rows one card shows before the fold (phone-friendly). */
+export const SUBAGENT_VISIBLE_MAX = 3
 
 /** Lifecycle states that count as "in flight" (hero count + live grouping). */
 const LIVE_STATUSES: ReadonlySet<JobView['status']> = new Set(['running', 'stopping'])
@@ -175,6 +188,11 @@ export function RunOverviewView({ mux, onBack, onOpenSession }: RunOverviewViewP
     return initial
   })
   const liveRef = useRef<Set<string>>(new Set(mux?.runningSessionsSnapshot() ?? []))
+  /** Foreground children per session. A missing key means "the host has not
+   *  answered yet" — the card must then keep its background-job rows. */
+  const [childrenBySession, setChildrenBySession] = useState<ReadonlyMap<string, readonly SubagentFlatNode[]>>(
+    () => new Map(),
+  )
   const updateLive = (sessionId: string, running: boolean): void => {
     const next = new Set(liveRef.current)
     if (running) next.add(sessionId)
@@ -228,6 +246,37 @@ export function RunOverviewView({ mux, onBack, onOpenSession }: RunOverviewViewP
   }, [mux])
 
   const rows = buildRows(snapshot, roster, liveSessions)
+
+  // Foreground subagents: asked for the running sessions only, while this page
+  // is mounted. One `subagents.list` per live session per tick (bounded by
+  // SUBAGENT_SESSION_MAX); the effect restarts whenever the live set changes,
+  // so a session that starts or stops mid-view is picked up — and a page with
+  // nothing running makes no request at all.
+  const pollSessionIds = rows.filter(row => row.live).map(row => row.sessionId).slice(0, SUBAGENT_SESSION_MAX)
+  const pollKey = pollSessionIds.join('|')
+  useEffect(() => {
+    if (pollKey === '') return
+    const ids = pollKey.split('|')
+    let cancelled = false
+    const load = (): void => {
+      for (const id of ids) {
+        void fetchSubagents(id).then(
+          (nodes) => {
+            if (cancelled || nodes === undefined) return
+            setChildrenBySession(previous => new Map(previous).set(id, nodes))
+          },
+        )
+      }
+    }
+    load()
+    const timer = setInterval(load, SUBAGENT_POLL_MS)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [pollKey])
+
+  const runningSubagentCount = pollSessionIds.reduce(
+    (sum, id) => sum + runningSubagents(childrenBySession.get(id) ?? []).length,
+    0,
+  )
   const liveCount = rows.reduce((sum, row) => sum + row.jobs.filter(job => isLive(job)).length, 0)
   const runningSessionCount = rows.filter(row => row.live).length
   const liveRows = rows.filter(row => row.live)
@@ -259,6 +308,7 @@ export function RunOverviewView({ mux, onBack, onOpenSession }: RunOverviewViewP
                 <span className="runov-hero-t">
                   {liveCount > 0 || runningSessionCount > 0
                     ? `${runningSessionCount} 个会话正在运行 · ${liveCount} 个后台任务`
+                      + (runningSubagentCount > 0 ? ` · ${runningSubagentCount} 个子代理` : '')
                     : `${rows.length} 个会话有近期后台任务`}
                 </span>
                 <span className="runov-hero-s">跨全部工作区 · 实时同步</span>
@@ -269,7 +319,12 @@ export function RunOverviewView({ mux, onBack, onOpenSession }: RunOverviewViewP
               <>
                 <div className="runov-group-title">正在运行 · {runningSessionCount}</div>
                 {liveRows.map(row => (
-                  <SessionCard key={row.sessionId} row={row} onOpen={() => { onOpenSession({ sessionId: row.sessionId, title: row.title }) }} />
+                  <SessionCard
+                    key={row.sessionId}
+                    row={row}
+                    children={childrenBySession.get(row.sessionId)}
+                    onOpen={() => { onOpenSession({ sessionId: row.sessionId, title: row.title }) }}
+                  />
                 ))}
               </>
             )}
@@ -291,11 +346,32 @@ export function RunOverviewView({ mux, onBack, onOpenSession }: RunOverviewViewP
 
 /** One session card: title head + its task rows (TaskRow visual grammar).
  *  Running jobs stay visible; settled jobs fold behind a one-line summary so
- *  a session with many finished tasks does not bury what is happening now. */
-function SessionCard({ row, onOpen }: { row: SessionRun; onOpen(): void }) {
+ *  a session with many finished tasks does not bury what is happening now.
+ *
+ *  `children` are the session's foreground subagents when the host has
+ *  answered (undefined = not asked / no answer). The running ones get their own
+ *  group above the job rows, because a session parked on a subagent usually
+ *  owns no background job at all — the card must still say what it waits for. */
+function SessionCard({ row, children, onOpen }: {
+  row: SessionRun
+  children?: readonly SubagentFlatNode[] | undefined
+  onOpen(): void
+}) {
   const [showSettled, setShowSettled] = useState(false)
+  const [showAllSubagents, setShowAllSubagents] = useState(false)
   const liveJobs = row.jobs.filter(job => isLive(job))
   const settledJobs = row.jobs.filter(job => !isLive(job))
+  const runningChildren = row.live ? sortSubagentsRunningFirst(runningSubagents(children ?? [])) : []
+  const hiddenChildren = Math.max(0, runningChildren.length - SUBAGENT_VISIBLE_MAX)
+  const visibleChildren = showAllSubagents || hiddenChildren === 0
+    ? runningChildren
+    : runningChildren.slice(0, SUBAGENT_VISIBLE_MAX)
+  // A live subagent delegation is already named by the 子代理 group, so its job
+  // row would be the same thing twice. It is dropped only once the child rows
+  // cover every live delegation — a partial answer must never hide work.
+  const liveSubagentJobs = liveJobs.filter(job => job.kind === 'subagent')
+  const hideSubagentJobs = liveSubagentJobs.length > 0 && runningChildren.length >= liveSubagentJobs.length
+  const shownLiveJobs = hideSubagentJobs ? liveJobs.filter(job => job.kind !== 'subagent') : liveJobs
   return (
     <div className="runov-sess">
       <button type="button" className="runov-sess-head" onClick={onOpen}>
@@ -306,9 +382,33 @@ function SessionCard({ row, onOpen }: { row: SessionRun; onOpen(): void }) {
         </span>
         <span className="runov-sess-chev">›</span>
       </button>
-      {liveJobs.length > 0 && (
-        <div className="runov-jobs" role="list" aria-label={`${row.title} 的后台任务`}>
-          {liveJobs.map(job => <TaskRow key={job.id} job={job} />)}
+      {visibleChildren.length > 0 && (
+        <div className="runov-jobs">
+          <div className="runov-subgroup-title">子代理</div>
+          <div role="list" aria-label={`${row.title} 的子代理`}>
+            {visibleChildren.map(node => <SubagentRow key={node.id} node={node} />)}
+          </div>
+        </div>
+      )}
+      {hiddenChildren > 0 && (
+        <button
+          type="button"
+          className="runov-jobs-fold"
+          aria-expanded={showAllSubagents}
+          onClick={() => { setShowAllSubagents(value => !value) }}
+        >
+          <span className="runov-jobs-fold-label">
+            {showAllSubagents ? '收起子代理' : `… 还有 ${hiddenChildren} 个子代理`}
+          </span>
+          <span className="runov-jobs-fold-chev" aria-hidden>{showAllSubagents ? '▾' : '▸'}</span>
+        </button>
+      )}
+      {shownLiveJobs.length > 0 && (
+        <div className="runov-jobs">
+          {visibleChildren.length > 0 && <div className="runov-subgroup-title">后台任务</div>}
+          <div role="list" aria-label={`${row.title} 的后台任务`}>
+            {shownLiveJobs.map(job => <TaskRow key={job.id} job={job} />)}
+          </div>
         </div>
       )}
       {settledJobs.length > 0 && (

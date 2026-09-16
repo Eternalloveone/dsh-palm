@@ -9,6 +9,7 @@
 
 import { createRoot } from 'react-dom/client'
 import { App } from './views/App.tsx'
+import { ErrorBoundary } from './error-boundary.tsx'
 import { mobileCss } from './mobile-styles.ts'
 import { initMobileTheme } from './mobile-theme.ts'
 import { applyDisplayPrefs } from './display-prefs.ts'
@@ -39,5 +40,9 @@ async function bootMobile(mount: HTMLElement): Promise<void> {
   if (pair.kind === 'failed') window.history.replaceState(null, '', pair.path)
 
   void registerMobilePwa()
-  createRoot(mount).render(<App initialPairError={pair.kind === 'failed' ? pair.message : undefined} />)
+  createRoot(mount).render(
+    <ErrorBoundary>
+      <App initialPairError={pair.kind === 'failed' ? pair.message : undefined} />
+    </ErrorBoundary>,
+  )
 }

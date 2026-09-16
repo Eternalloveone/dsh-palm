@@ -118,7 +118,8 @@ interface SettingsIndexEntry {
 const SETTINGS_INDEX: SettingsIndexEntry[] = [
   { id: 'notify-browser', label: '浏览器通知（启用）', group: '通知', keywords: ['浏览器通知', '通知权限', 'notify', 'enable'], open: 'notify' },
   { id: 'notify-kinds', label: '通知内容（三类事件开关）', group: '通知', keywords: ['通知内容', '规划完成', '后台任务', '长回复'], open: 'notify' },
-  { id: 'notify-pushplus', label: '推送渠道 · PushPlus Token', group: '通知', keywords: ['pushplus', 'token', '微信直达'], open: 'notify' },
+  { id: 'notify-wxpusher', label: '推送渠道 · WxPusher SPT', group: '通知', keywords: ['wxpusher', 'spt', '微信推送', '微信直达'], open: 'notify' },
+  { id: 'notify-pushplus', label: '推送渠道 · PushPlus（已降级）', group: '通知', keywords: ['pushplus', 'token', '微信直达', '已降级'], open: 'notify' },
   { id: 'notify-serverchan', label: '推送渠道 · Server酱 SendKey', group: '通知', keywords: ['serverchan', 'sendkey', 'server酱', 'sct'], open: 'notify' },
   { id: 'notify-bark', label: '推送渠道 · Bark Key', group: '通知', keywords: ['bark', 'bark key', 'ios 直达'], open: 'notify' },
   { id: 'notify-tg', label: '推送渠道 · Telegram', group: '通知', keywords: ['telegram', 'bot token', 'chat id', 'tg'], open: 'notify' },
@@ -528,6 +529,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   const [barkKey, setBarkKey] = useState('')
   const [tgToken, setTgToken] = useState('')
   const [tgChatId, setTgChatId] = useState('')
+  const [wxpusherSpt, setWxpusherSpt] = useState('')
   const [pushplusToken, setPushplusToken] = useState('')
   // Web Push (L2) subscription state: undefined while probing.
   const [webPushOn, setWebPushOn] = useState<boolean | undefined>(undefined)
@@ -729,12 +731,14 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
       + barkKey.trim()
       + tgToken.trim()
       + tgChatId.trim()
+      + wxpusherSpt.trim()
       + pushplusToken.trim()
     const channels = notifyConfig?.channels
     const anyConfigured = channels !== undefined && (
       channels.serverchan.configured
       || channels.bark.configured
       || channels.telegram.configured
+      || channels.wxpusher.configured
       || channels.pushplus.configured
     )
     if (input === '' && anyConfigured) {
@@ -756,6 +760,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           serverchan: { sendKey: serverchanKey.trim() },
           bark: { key: barkKey.trim() },
           telegram: { botToken: tgToken.trim(), chatId: tgChatId.trim() },
+          wxpusher: { spt: wxpusherSpt.trim() },
           pushplus: { token: pushplusToken.trim() },
         },
       })
@@ -1104,7 +1109,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             <div className="settings-field">
               <p className="settings-fieldDesc">
                 <b>① 浏览器通知</b>：页面打开时弹提醒。必开，无需配置。<br />
-                <b>② 推送渠道</b>：页面关闭也能收，微信/iOS 直达、国内可靠。推荐任填一个（PushPlus 或 Server酱）。<br />
+                <b>② 推送渠道</b>：页面关闭也能收，微信/iOS 直达、国内可靠。推荐任填一个（WxPusher 或 Server酱）。<br />
                 <b>③ Web Push</b>：系统级推送，但服务（FCM）在大陆不可直连，需代理才可用。大陆用户可不开。
               </p>
             </div>
@@ -1227,7 +1232,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
           )}
 
           {/* L3 推送渠道（重点：关页面也能收） */}
-          <div className="settings-card" {...locateProps('notify-pushplus')}>
+          <div className="settings-card" {...locateProps('notify-wxpusher')}>
             <div className="settings-cardHead">
               <span className="settings-cardTitle">推送渠道</span>
               <ScopeBadge scope="sync" />
@@ -1235,26 +1240,25 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
             <p className="settings-note">页面关闭时也能收到，通过第三方应用直达（微信 / iOS / Telegram）。国内网络可用，任选其一即可；留空保存将清除该渠道。</p>
             <div className="settings-field">
               <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">PushPlus Token</span>
+                <span className="settings-fieldLabel">WxPusher SPT</span>
                 <ScopeBadge scope="recommend" />
               </div>
               <input
                 type="text"
                 className="settings-input"
-                value={pushplusToken}
-                placeholder="…（到 pushplus.plus 复制）"
+                value={wxpusherSpt}
+                placeholder="SPT_…"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                onChange={(event) => { setPushplusToken(event.target.value) }}
+                onChange={(event) => { setWxpusherSpt(event.target.value) }}
               />
-              <p className="settings-fieldDesc">微信直达 · 免费 · 国内直连。推荐首选。 <ChannelState configured={notifyConfig?.channels.pushplus.configured === true} /></p>
+              <p className="settings-fieldDesc">微信直达 · 免费 · 国内直连。推荐首选。 <ChannelState configured={notifyConfig?.channels.wxpusher.configured === true} /></p>
               <details className="settings-details">
-                <summary>如何获取 Token（3 步）</summary>
+                <summary>如何获取 SPT（2 步）</summary>
                 <div className="settings-detailsBody">
-                  1. 手机微信扫码关注公众号「pushplus 推送加」<br />
-                  2. 打开 www.pushplus.plus，用微信扫码登录<br />
-                  3. 复制个人中心里的 Token，粘贴到上方并保存
+                  1. 打开 wxpusher.zjiecode.com/docs 的「极简推送 SPT」一节，手机微信扫码<br />
+                  2. 复制 SPT_ 开头的令牌，粘贴到上方并保存
                 </div>
               </details>
             </div>
@@ -1320,6 +1324,23 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
                 onChange={(event) => { setTgChatId(event.target.value) }}
               />
               <p className="settings-fieldDesc">Telegram 需要能访问境外网络。 <ChannelState configured={notifyConfig?.channels.telegram.configured === true} /></p>
+            </div>
+            {/* 降级渠道：放在最后，不给推荐徽章，仅保证旧 Token 继续能发 */}
+            <div className="settings-field" {...locateProps('notify-pushplus')}>
+              <div className="settings-fieldHead">
+                <span className="settings-fieldLabel">PushPlus Token（已降级）</span>
+              </div>
+              <input
+                type="text"
+                className="settings-input"
+                value={pushplusToken}
+                placeholder="…（到 pushplus.plus 复制）"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => { setPushplusToken(event.target.value) }}
+              />
+              <p className="settings-fieldDesc">微信直达 · 国内直连。pushplus 现已要求付费认证，故降级为兼容保留（旧 Token 仍可发）；新配置请用上方 WxPusher。 <ChannelState configured={notifyConfig?.channels.pushplus.configured === true} /></p>
             </div>
             <div className="sheet-confirm-actions">
               <button
@@ -1437,7 +1458,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
         {confirmClearChannels && (
           <ConfirmDialog
             title="清除已配置的推送渠道？"
-            body="输入框均为空，保存将清除电脑端已保存的通道凭据（Server酱 / Bark / Telegram / PushPlus），之后这些渠道将收不到通知。如果要保留，请取消后不要点保存。"
+            body="输入框均为空，保存将清除电脑端已保存的通道凭据（Server酱 / Bark / Telegram / WxPusher / PushPlus），之后这些渠道将收不到通知。如果要保留，请取消后不要点保存。"
             confirmLabel="清除"
             tone="danger"
             onCancel={() => { setConfirmClearChannels(false) }}

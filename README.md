@@ -113,7 +113,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Notification inbox** — the notifications page lists the host engine's recent decisions (last 50), so a missed notification can be reviewed and tapped through to its session
 - **Lock-screen privacy** — a toggle downgrades every channel's notification to a generic message (no session title or task name) when the phone is locked
 - **Web Push (VAPID)** — the service worker receives pushes when the app is closed (Android Chrome/Edge/Firefox; iOS Safari 16.4+ for installed PWAs; mainland-China networks may not reach the FCM backend — the third-party channels cover that)
-- **Third-party channels** — PushPlus (WeChat, recommended for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed; credentials are stored host-side and never ride the settings surface
+- **Third-party channels** — WxPusher (WeChat, recommended for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed (PushPlus is kept as a demoted legacy channel — it now requires paid verification); credentials are stored host-side and never ride the settings surface
 - **Notification settings** — permission, duration threshold, cooldown, Web Push toggle and channel credentials all live in the phone settings page, with a test button that pushes one synthetic event end to end; each channel shows its credential state (configured / not) so a restart never looks like a lost key
 
 **Experience**
