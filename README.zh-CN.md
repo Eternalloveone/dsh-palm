@@ -69,7 +69,7 @@ dsh-palm 是**窄屏优先的轻量指挥台**：手机用于查看进度、响�
 ## 完整能力列表
 
 <details>
-<summary>架构、实时、交互、离线、体验、配对与引导 —— 完整列表</summary>
+<summary>架构、实时、交互、离线、韧性、体验、配对与引导 —— 完整列表</summary>
 
 **架构**
 
@@ -91,6 +91,9 @@ dsh-palm 是**窄屏优先的轻量指挥台**：手机用于查看进度、响�
 - **会话管理** —— 聊天更多菜单或列表长按删除会话；离线发件箱随会话一并清理
 - **全局搜索** —— 首页搜索覆盖工作区与全部会话内容，按工作区分组并显示真实会话标题；会话列表页搜索收窄到当前工作区。命中点击直达并滚动高亮到匹配消息（深链 `?session=&seq=`）；中文短词由有界子串回填兜底
 - **待发消息队列 dock** —— turn 运行期间发送的消息进入 host 队列，在输入区上方显示队列条（桌面 QueueDock 对齐）：单条或可折叠的「N 条排队」头；每条可编辑（仅纯文本）、删除、或插话发送（agent 运行中）；dock 镜像 host 快照，会话停止后自动消失
+- **会话内文件预览** —— 消息里的文件路径链接（裸路径或反引号包裹）打开底部面板，而非仅桌面可用的打开器：markdown 格式化渲染（可交互代码围栏 / diff 卡片）、HTML 在沙箱 iframe 中渲染（脚本失效）、其他代码高亮、图片路径内嵌显示；相对路径按会话 cwd、宿主进程 cwd、各工作区或聊天中已有的绝对路径解析
+- **会话内图片灯箱** —— 消息中的 `<img>`（远程 URL 或附件 data URL）全屏打开，双击切换「适应 / 1:1」缩放
+- **全局运行总览** —— 全屏跨会话视图：跨工作区的运行中会话、实时后台任务，以及各会话正在等待的子代理；从首页快捷 chip 进入（带实时徽标），每张卡片可直达该会话
 - **插件市场** —— 手机端浏览、搜索、安装插件（建议在桌面端执行）
 - **桌面级设置同步** —— 手机端设置与桌面同步（schema 表单、级联模型选择、权限预设；复杂预设建议在桌面端编辑）
 - **设置搜索** —— 设置页搜索同时索引子配置项（通知门控、推送渠道、Web Push、语音服务），点击自动打开所属子页并滚动定位
@@ -101,6 +104,12 @@ dsh-palm 是**窄屏优先的轻量指挥台**：手机用于查看进度、响�
 - **gzip 压缩 API 响应** —— 弱网友好
 - **按需加载** —— 工作区列表轻量拉取；会话只在打开时加载
 - **瞬时切换** —— 折叠视图读取、批量预览与跨挂载缓存让列表/聊天切换近乎即时，弱网下同样流畅
+
+**韧性与诊断**
+
+- **错误不再留白屏** —— React 错误边界渲染可读错误页（重试 / 重新加载）；window 错误、未处理的 Promise 拒绝与资源加载失败进入有界错误环（存宿主侧），宿主可把报告转发到你配置的渠道——手机自己崩了是发不出消息的
+- **缓存不会被系统悄悄清掉** —— 首次写缓存后请求持久化存储，长时间后台的 PWA 不会静默丢失历史缓存
+- **卡顿与进程挂起可分辨** —— Long Tasks 观测 + 隐藏窗口记录：起始于隐藏期间的任务单独标记，并给出 `suspension.hiddenMs`——「应用卡了」与「系统把我们冻住了」不再产生同一个数字
 
 **通知**
 
@@ -165,10 +174,12 @@ dsh-palm 在任务完成或长回复结束时提醒手机。宿主端统一决�
 2. 按提示允许通知权限
 3. 调整**时长阈值**（长回复触发）与**冷却间隔**（同会话节流）
 4. 打开 **Web Push** 开关订阅当前浏览器（L2）
-5. 可选配置 **L3 渠道**：
+5. 可选配置 **L3 渠道**（设置 → 通知 以 WxPusher 卡片打头）：
+   - **WxPusher** —— 按 [WxPusher 文档「极简推送 SPT」](https://wxpusher.zjiecode.com/docs/#/?id=spt) 微信扫码拿一个 `SPT…` 令牌填进去；免费、不用注册应用、国内直连
    - **Server酱** —— 在 [sct.ftqq.com](https://sct.ftqq.com) 注册（微信扫码），把 SendKey（`SCT…`）填入设置页
    - **Bark** —— 安装 Bark 应用（iOS），复制设备 key
    - **Telegram** —— 通过 @BotFather 创建机器人，获取 bot token 与 chat id
+   - **PushPlus** —— 旧渠道，现已需付费认证；已填旧 Token 的配置继续可用
 6. 点**「发送测试」**把一条合成事件端到端推过已配置的 L3 渠道
 
 ### 注意事项
@@ -274,6 +285,10 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 - [COMPATIBILITY.md](COMPATIBILITY.md) —— DSH 版本兼容矩阵
 - [CONTRIBUTING.md](CONTRIBUTING.md) —— 开发环境与贡献指南
 - [SECURITY.md](SECURITY.md) —— 漏洞报告
+- [packages/dsh-palm/docs/quickstart-tutorial.md](packages/dsh-palm/docs/quickstart-tutorial.md) —— 三步上手
+- [packages/dsh-palm/docs/remote-access-guide.md](packages/dsh-palm/docs/remote-access-guide.md) —— 手机如何连上宿主（含完整 frp 拓扑）
+- [perf/PERFORMANCE-REPORT.md](perf/PERFORMANCE-REPORT.md) —— 真机延迟实测、基线与抓取方法
+- [docs/lifecycle](docs/lifecycle) —— 带日期的设计文档与发布复盘
 
 ## 许可证
 

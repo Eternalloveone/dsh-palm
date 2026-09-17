@@ -318,4 +318,4 @@ palm cutover                 # 生产切换（时间窗 + 无活动会话）
 
 ## 15. 附录 A：顺带发现（不在本设计范围，独立小修）
 
-`~/.dsh/skills/key-audit/run-key-audit-scan.cmd` 的 `--npm "@eternalloveone/dsh-palm@0.1.0"` 把"扫线上 tarball"钉死在 **0.1.0**（当前 1.3.6），该检查实际已失效。建议改为动态取 `dist-tags.latest`（或每次发布后手动更新）。**本设计不修改它**，仅记录，避免与安全工具链的其他改动混在一起。
+`~/.dsh/skills/key-audit` 的 `--npm` 一度把"扫线上 tarball"钉死在 **`@eternalloveone/dsh-palm@0.1.0`**，该检查曾实际失效（扫的是远古 tarball）。**2026-09-17 复查已闭环**：计划任务实际调用的 `run-key-audit-scan.cmd` 早已改成 `@latest`（动态取 latest，扫的就是当前线上包）；同日把 `SKILL.md` 里那份仍写着 `@0.1.0` 的示例也改为 `@latest`。本设计不修改安全工具链本身，仅记录这条顺带发现及其闭环时间。

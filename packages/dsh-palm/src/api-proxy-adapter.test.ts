@@ -7,6 +7,13 @@
  * frame arrives, so an answered panel stayed "pending" for the plugin's lifetime
  * and the polling fallback handed it back — the panel returned after the session
  * was re-entered.
+ *
+ * Second contract, same bridge: the phone sends its answer inside a
+ * client-response envelope (`{sessionId, outcome}` for approvals,
+ * `{sessionId, answer}` for questions), while the host waterfalls take the
+ * PAYLOAD — a bare `ApprovalOutcome` and `{answers}`. Resolving with the envelope
+ * made DSH normalize every approval to `unavailable` and made the ask-user tool
+ * throw on `answers.map`: an answer that looked submitted never reached the agent.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { makeApiProxyAdapter } from './api-proxy-adapter.ts'
@@ -106,8 +113,11 @@ describe('approval bridge over the mux', () => {
       approvalId: frames[0]!.payload.approvalId,
       outcome: 'allowed-once',
     })
-    // Unchanged: the blocked waterfall resolves with the phone's own answer.
-    await expect(answered).resolves.toMatchObject({ outcome: 'allowed-once' })
+    // The waterfall takes the OUTCOME ITSELF, not the phone's envelope: DSH
+    // normalizes any return value outside the vocabulary to `unavailable` (fail
+    // closed), so resolving with `{sessionId, approvalId, outcome}` refused every
+    // approval the phone granted.
+    await expect(answered).resolves.toBe('allowed-once')
     controller.abort()
   })
 
@@ -148,7 +158,9 @@ describe('question bridge over the mux', () => {
     await adapter.respond({
       type: 'client-response',
       rpcId: frames[0]!.rpcId,
-      result: { ok: true, value: { sessionId: 's-1', answers: [{ id: 'q1', selected: ['A'] }] } },
+      // What the phone actually sends: the answer rides INSIDE the client-response
+      // envelope, whose sessionId the host checks for ownership.
+      result: { ok: true, value: { sessionId: 's-1', answer: { answers: [{ id: 'q1', selected: ['A'] }] } } },
     } as never)
 
     await until(() => { expect(frames).toHaveLength(2) })
@@ -159,7 +171,9 @@ describe('question bridge over the mux', () => {
       questionRpcId: frames[0]!.rpcId,
       outcome: 'answered',
     })
-    await expect(answered).resolves.toMatchObject({ sessionId: 's-1' })
+    // DSH's ask-user tool reads `.answers` straight off the waterfall result, so
+    // the bridge must hand over the payload rather than the envelope.
+    await expect(answered).resolves.toEqual({ answers: [{ id: 'q1', selected: ['A'] }] })
     controller.abort()
   })
 
@@ -176,6 +190,44 @@ describe('question bridge over the mux', () => {
 
     await until(() => { expect(frames).toHaveLength(2) })
     expect(frames[1]!.payload).toMatchObject({ type: 'question/resolved', outcome: 'cancelled' })
+    controller.abort()
+  })
+})
+
+describe('answer shape handed to the host waterfall', () => {
+  it('never grants an approval whose outcome is missing', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    const answered = fireRequest(ctx, 'approval/request', approvalRequest)
+    await until(() => { expect(frames).toHaveLength(1) })
+
+    await adapter.respond({
+      type: 'client-response',
+      rpcId: frames[0]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1', approvalId: frames[0]!.payload.approvalId } },
+    } as never)
+
+    // Fail closed: an unreadable outcome is not a grant.
+    await expect(answered).resolves.toBe('unavailable')
+    controller.abort()
+  })
+
+  it('refuses an answerless question batch instead of faking an empty one', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    const answered = fireRequest(ctx, 'user-questions/request', questionRequest)
+    await until(() => { expect(frames).toHaveLength(1) })
+
+    await adapter.respond({
+      type: 'client-response',
+      rpcId: frames[0]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1' } },
+    } as never)
+
+    await until(() => { expect(frames).toHaveLength(2) })
+    // The panel still retires — the phone is told its answer was accepted — but the
+    // agent learns the answers could not be read instead of receiving an empty batch
+    // that reads as "the user chose nothing".
+    expect(frames[1]!.payload).toMatchObject({ type: 'question/resolved', outcome: 'answered' })
+    await expect(answered).rejects.toThrow('answers')
     controller.abort()
   })
 })

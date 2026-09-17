@@ -1,5 +1,11 @@
 # dsh-palm 端到端性能实测（2026-09-07，临时基准）
 
+> **这是 2026-09-07 的 jsdom 基准记录，保留作历史对照。**现行报告是
+> [PERFORMANCE-REPORT.md](PERFORMANCE-REPORT.md)（真机抓取 + 基线文件）。v1.4.0 起抓取信封还包含
+> 错误环与存储状况，并用 Long Tasks + 隐藏区间区分「卡顿」与「被系统挂起」
+> （`longTasks.suspended` / `suspension.hiddenMs`）。下方「性能问题清单」保留当时的判读，
+> 其中标 ✅ 的项均已合入。
+
 一次性的端到端性能实测。测量口径：**每条 SSE 消息走完生产代码路径的成本**
 （`mux.handleMessage` 等价 JSON.parse+zod×2 → `EventFolder.fold` → `coalesceTurnMessages`
 → 真实 `MessageRow` 列表 React 提交），jsdom 环境、真实生产模块，逐事件计时。

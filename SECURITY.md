@@ -7,7 +7,11 @@ releases are not supported unless explicitly noted here.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| 1.4.x   | :white_check_mark: |
+
+Version numbers here are **dsh-palm** releases (this repository's package). The
+DSH host API line dsh-palm builds against (currently `0.1.5-rc`) is a separate
+axis — see [COMPATIBILITY.md](COMPATIBILITY.md) for that matrix.
 
 ## Reporting a Vulnerability
 

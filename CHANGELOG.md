@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-17
+
+### Fixed
+
+- **Answers submitted on the phone now reach the agent.** The host bridge handed DSH's `approval/request` and `user-questions/request` waterfalls the phone's whole client-response envelope (`{sessionId, approvalId, outcome}` and `{sessionId, answer:{answers}}`) instead of the payload the contract declares — a bare `ApprovalOutcome` and `{answers}`. Every approval answered from the phone was therefore normalized to `unavailable` (fail closed, so the phone's 允许 was silently ignored), and the ask-user tool threw `Cannot read properties of undefined (reading 'map')` on `.answers`, which is why a submitted question batch vanished without an error on either side. Both bridges unwrap the payload now, and the decision path reads it strictly instead of reusing the display-only helper: an unreadable outcome is `unavailable`, never a grant, and an answerless batch is refused rather than faked as an empty one. Verified on a paired phone end to end — a submitted batch arrives as `{answers:[{id, selected}]}`.
+
+### Changed
+
+- **The published docs are caught up to what 1.4.0 actually does.** `SECURITY.md` listed the DSH host line (`0.1.x`) as the supported package version; `COMPATIBILITY.md` stopped at v1.3.0 with a stale test count and a channel list without WxPusher; the npm package README and both top-level READMEs still described the notification channels without WxPusher, and the English README lagged the Chinese one on three interaction bullets and the L3 table. The two capability lists are back in sync, a Resilience & diagnosis group documents error self-rescue / persistent storage / jank-vs-suspension, and `CONTRIBUTING.md` now describes the soak lane, the graduation gates and the `--from-head` tag path instead of only the commit mode.
+
 ## [1.4.0] - 2026-09-16
 
 ### Added

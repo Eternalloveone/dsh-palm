@@ -58,7 +58,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Diff cards & code actions** — tolerant unified-diff parsing with accept / reject / review actions; copy, insert into editor, open, download, sandbox run
 - **Run-status strip & task sheet** — the todo plan and background jobs collapse into one live strip above the toolbar
 - **Offline outbox & PWA** — prompts queue in IndexedDB and flush automatically on reconnect; installable, versioned service worker
-- **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (Server酱 / Bark / Telegram) for when the app is closed; thresholds and cooldowns are configurable from the phone. Per-kind gates (plan-complete / background-task / long-reply) toggle each event type independently, defaulting to quiet for background tasks and long replies
+- **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (WxPusher, Server酱 / Bark / Telegram, plus a demoted legacy PushPlus) for when the app is closed; thresholds and cooldowns are configurable from the phone. Per-kind gates (plan-complete / background-task / long-reply) toggle each event type independently, defaulting to quiet for background tasks and long replies
 - **Per-provider usage & balances** — one settings card for every provider configured on the desktop: consumed-quota meters (Ollama Cloud), account balances (DeepSeek, Moonshot/Kimi) and OpenRouter's spent-vs-limit, refreshed on demand; providers without a public endpoint are not shown
 - **Global search with message-level locate** — search the workspace and every session from the home page, or the current workspace from the session list; hits group by workspace with real session titles, and tapping one opens the chat and scrolls to the matched message with a one-shot highlight. Chinese short words are covered by a bounded substring backfill (SQLite FTS tokenizes contiguous CJK as one token)
 - **Pending-message queue dock** — messages sent while a turn is running enter the host queue and show as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header, each editable (plain text), removable, or steered in as an interrupt; the dock mirrors the host snapshot and clears on session stop
@@ -69,7 +69,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 ## Full capability list
 
 <details>
-<summary>Architecture, realtime, interaction, offline, experience, pairing — the complete list</summary>
+<summary>Architecture, realtime, interaction, offline, resilience, experience, pairing — the complete list</summary>
 
 **Architecture**
 
@@ -93,7 +93,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Pending-message queue dock** — messages sent while a turn is running queue in the host and render as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header; each row is editable (plain text only), removable, or steered in as an interrupt while the agent is running; the dock mirrors the host snapshot and clears on session stop
 - **In-chat file preview** — file-path links (bare or backtick-wrapped) open a bottom sheet instead of the desktop-only opener: markdown renders formatted (interactive code fences / diff cards), HTML renders in a sandboxed iframe (scripts inert), other code highlights, and image paths display inline; relative paths resolve against the session's cwd, the host process cwd, every workspace, or absolute mentions already in the chat
 - **In-chat image lightbox** — message `<img>`s (remote URLs or attached data URLs) open full-screen with a double-tap fit/1:1 zoom toggle
-- **Global run overview** — a full-screen cross-session view (running sessions + live background jobs) reachable from the home quick chip; each card opens its session
+- **Global run overview** — a full-screen cross-session view (running sessions + live background jobs + the subagents a session is waiting for, running children first and folded past three) reachable from the home quick chip; each card opens its session
 - **Plugin market** — browse, search and install plugins from the phone (best done on the desktop)
 - **Desktop-parity settings** — phone settings sync with the desktop (schema forms, cascading model picker, permission presets; complex presets are best edited on the desktop)
 - **Settings search** — the settings page search also indexes sub-configuration entries (notification gates, push channels, Web Push, voice services), opening the owning sub-page and scrolling to the match
@@ -104,6 +104,12 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **gzip-compressed API responses** — weak-link friendly
 - **On-demand loading** — thin roster fetch; sessions load only when opened
 - **Instant navigation** — folded-view chat reads, batch previews and cross-mount caches make list/chat switching feel immediate, even over weak links
+
+**Resilience & diagnosis**
+
+- **Errors never leave a white screen** — a React error boundary renders a readable error page with retry / reload; window errors, unhandled rejections and failed resource loads go into a bounded ring kept host-side, and the host can forward a report to your configured channel — a phone that crashed cannot report itself
+- **Storage that survives eviction** — after the first cache write the app requests persistent storage, so a long-backgrounded PWA does not silently lose its history cache
+- **Jank and process suspension are separable** — a Long Task observer plus hidden-window bookkeeping flags any task that *began* while the page was hidden and reports `suspension.hiddenMs`: "the app stuttered" and "the phone froze us" stop producing the same number
 
 **Notifications**
 
@@ -154,13 +160,13 @@ The decision is delivered through three independent layers:
 |---|---|---|---|
 | L1 | SSE → Notification API | app open (foreground or background) | clicking deep-links to the session; suppressed while the page is visible |
 | L2 | Web Push (VAPID) | app closed, browser running | Android Chrome/Edge/Firefox; iOS Safari 16.4+ installed PWA only; FCM may be unreachable from mainland-China networks |
-| L3 | Server酱 / Bark / Telegram webhooks | app closed, browser gone | credentials stored host-side only |
+| L3 | WxPusher / Server酱 / Bark / Telegram / PushPlus (demoted) webhooks | app closed, browser gone | credentials stored host-side only |
 
 **L1 (in-app).** The phone keeps one SSE connection to `/m/api/events.notify` — deliberately separate from the chat mux stream, whose schema drops unknown frames. A notify frame shows a system notification; clicking it deep-links to `/m/?workspace=…&session=…`. Notifications are suppressed while the page is visible: you are already looking at the app.
 
 **L2 (Web Push).** The service worker (v4) receives pushes and shows the notification even when the app is closed, as long as the browser is running. VAPID keys are generated on first use and stored in `$DSH_HOME/dsh-palm-notify.json`; the phone subscribes through `pushManager` with the paired-device cookie as the subscription identity. Dead subscriptions (410/404 from the push service) are cleaned up automatically. Outbound delivery honors `DSH_PALM_PUSH_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY` — FCM is unreachable from some networks (mainland China) without a proxy.
 
-**L3 (third-party).** Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed and the browser gone. Credentials are stored host-side and never ride the settings surface — the phone only sees whether each channel is configured.
+**L3 (third-party).** WxPusher (WeChat, the recommended channel for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed and the browser gone; PushPlus is kept as a demoted legacy channel — it now requires paid verification, and a config that already carries a token keeps delivering. Credentials are stored host-side and never ride the settings surface — the phone only sees whether each channel is configured.
 
 ### Usage
 
@@ -168,10 +174,12 @@ The decision is delivered through three independent layers:
 2. Allow the notification permission when prompted
 3. Tune the **duration threshold** (long-reply trigger) and **cooldown** (per-session throttle)
 4. Toggle **Web Push** to subscribe the current browser (L2)
-5. Optionally configure **L3 channels**:
+5. Optionally configure **L3 channels** (settings → 通知 leads with the WxPusher card):
+   - **WxPusher** — scan the QR in the [WxPusher docs](https://wxpusher.zjiecode.com/docs/#/?id=spt) for a simple-push `SPT…` token and paste it in; free, no app registration, reachable from mainland networks
    - **Server酱** — register at [sct.ftqq.com](https://sct.ftqq.com) (WeChat scan), copy the SendKey (`SCT…`) into the settings page
    - **Bark** — install the Bark app (iOS), copy its device key
    - **Telegram** — create a bot via @BotFather, get the bot token and your chat id
+   - **PushPlus** — legacy, requires paid verification now; a config that already carries a token keeps delivering
 6. Press **发送测试** to push one synthetic event through the configured L3 channels end to end
 
 ### Notes
@@ -288,6 +296,10 @@ Starting with **1.0.0**, dsh-palm's own protocol is backward compatible:
 - [COMPATIBILITY.md](COMPATIBILITY.md) — DSH version compatibility matrix
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and contribution guide
 - [SECURITY.md](SECURITY.md) — vulnerability reporting
+- [packages/dsh-palm/docs/quickstart-tutorial.md](packages/dsh-palm/docs/quickstart-tutorial.md) — three-step getting started
+- [packages/dsh-palm/docs/remote-access-guide.md](packages/dsh-palm/docs/remote-access-guide.md) — reaching the host from a phone (worked frp topology end to end)
+- [perf/PERFORMANCE-REPORT.md](perf/PERFORMANCE-REPORT.md) — device-measured latency, baselines and how to capture
+- [docs/lifecycle](docs/lifecycle) — dated design notes and release retrospectives
 
 ## License
 

@@ -20,7 +20,7 @@ import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 // 加载 approval/question 事件的 cordis Events 模块增强（使 `keyof Events` 含这些事件）。
 import type {} from '@deepseek-ai/dsh-user-approval/types'
-import type {} from '@deepseek-ai/dsh-user-questions/types'
+import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions/types'
 import type {
   ApiProxy,
   RpcRequest,
@@ -61,6 +61,35 @@ function answerOutcomeOf(value: unknown): ApprovalOutcome {
   return outcome === 'allowed-once' || outcome === 'rejected' || outcome === 'cancelled' || outcome === 'unavailable'
     ? outcome
     : 'allowed-once'
+}
+
+/**
+ * 手机应答里的审批结论，用于**宿主决策**。与 `answerOutcomeOf` 分开是有意的：那个还兼职
+ * 「撤下面板」的展示语义（读不出就按 `allowed-once` 记），决策路径必须 **fail-closed**——
+ * 读不出结论就是 `unavailable`（不授权），解析失败绝不能等于放行。
+ */
+function approvalOutcomeOf(value: unknown): ApprovalOutcome {
+  const outcome = (value as { outcome?: unknown } | null | undefined)?.outcome
+  return outcome === 'allowed-once' || outcome === 'rejected' || outcome === 'cancelled' || outcome === 'unavailable'
+    ? outcome
+    : 'unavailable'
+}
+
+/**
+ * 手机应答里的问题答案，用于宿主决策。手机把它包在 client-response 信封里
+ * （`{ sessionId, answer: { answers } }`，sessionId 供宿主做归属校验），而 DSH 的
+ * `user-questions/request` waterfall 只接受答案本身 `{ answers }`：把信封整个交回去，
+ * `dsh-tool-ask-user` 会在 `answers.map` 上抛错，用户的选择就此丢失。
+ *
+ * 拿不到答案数组时返回 `null`（调用方拒绝这条 waterfall）——不伪造空批次，因为空批次
+ * 与「用户什么都没选」无法区分，正是要修的那种静默失效。
+ */
+function questionAnswerOf(value: unknown): AskUserQuestionAnswer | null {
+  // 兼容两种到达形状：带 sessionId 的标准信封，以及已经拆好的载荷。
+  const envelope = value as { answer?: unknown; answers?: unknown } | null | undefined
+  const candidate = (envelope?.answer ?? envelope) as { answers?: unknown } | null | undefined
+  if (!Array.isArray(candidate?.answers)) return null
+  return { answers: candidate.answers as AskUserQuestionAnswer['answers'] }
 }
 
 /** 适配层：在 ApiProxy 之上暴露内部钩子（手机在线状态、图片附件、dispose）。 */
@@ -320,7 +349,8 @@ export function makeApiProxyAdapter(
           approvalId: approval.approvalId as never,
           outcome: message.result.ok ? answerOutcomeOf(message.result.value) : 'unavailable',
         })
-        if (message.result.ok) approval.resolve(message.result.value)
+        // 决策路径拿的是载荷本身（裸 ApprovalOutcome），不是手机的信封。
+        if (message.result.ok) approval.resolve(approvalOutcomeOf(message.result.value))
         else approval.reject(new Error(message.result.error.message))
         return { accepted: true }
       }
@@ -334,8 +364,10 @@ export function makeApiProxyAdapter(
           questionRpcId: rpcId as never,
           outcome: message.result.ok ? 'answered' : 'cancelled',
         })
-        if (message.result.ok) question.resolve(message.result.value)
-        else question.reject(new Error(message.result.error.message))
+        // 同审批：DSH 的 waterfall 要答案本身（`{ answers }`），不是手机的信封。
+        const answer = message.result.ok ? questionAnswerOf(message.result.value) : null
+        if (answer !== null) question.resolve(answer)
+        else question.reject(new Error(message.result.ok ? '手机端应答缺少 answers' : message.result.error.message))
         return { accepted: true }
       }
       return { accepted: false, reason: 'not-pending' }

@@ -5,13 +5,13 @@
 | dsh-palm 版本 | 兼容的 DSH 版本 | 验证状态 | 运行时契约命名 | 配对设备是否沿用 | 备注 |
 |---|---|---|---|---|---|
 | v0.4.2 – v1.2.0 | **0.1.1-rc.1**（0.1.1-rc 线） | ✅ 发布时实测 | `remote-web-ui` | 是 | 0.1.5 及以后需升级到 v1.3.0（旧 API 已移除） |
-| **v1.3.0**（当前） | **0.1.5-rc.1 – 0.1.5-rc.2**（0.1.5-rc 线） | ✅ 在 rc.2 上实测（typecheck 0 错 + build + 测试 940/950） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦 |
+| **v1.3.0 – v1.4.0**（当前） | **0.1.5-rc.1 – 0.1.5-rc.2**（0.1.5-rc 线） | ✅ 在 rc.2 上实测（typecheck 0 错 + build + 测试 1104/1113） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦 |
 
-（未来每个新版本往下加一行；本表为权威版本对应，`package.json` 的 `peerDependencies` / `dsh.engines.dsh` 为机器可读声明。）
+（本表为权威版本对应，`package.json` 的 `peerDependencies` / `dsh.engines.dsh` 为机器可读声明。**同一版本带内、运行时契约未变的版本合并为一行**——契约命名或兼容版本带发生变化时才新增行。）
 
 ## 版本带说明
 
-| 声明 | v1.3.0 值 |
+| 声明 | v1.4.0 值 |
 |---|---|
 | `dsh.engines.dsh` | `>=0.1.5-rc.1` |
 | peer `@deepseek-ai/cordis` | `>=4.0.1 <5` |
@@ -22,7 +22,7 @@
 
 > 为什么是 `0.1.5-rc.1` 起？0.1.5 拆掉了 `dsh-client-runtime`、`dsh-host-apiproxy`，重写了 `dsh-settings` 的 `installSection` 模型，且 0.1.5-rc.1 与 rc.2 之间 API 无破坏性变化（已实测），故取 `>=0.1.5-rc.1 <0.1.6-0` 兼容整个 0.1.5-rc 线。
 
-## 运行环境要求（v1.3.0）
+## 运行环境要求（v1.4.0）
 
 | 项 | 要求 | 说明 |
 |---|---|---|
@@ -33,7 +33,7 @@
 | 手机端浏览器 | 现代浏览器：PWA 需 HTTPS；Web Push 需 Android Chrome/Edge/Firefox 或 iOS Safari 16.4+ installed PWA | `/m/` 端到端要求 |
 | 公网/隧道入口 | Tailscale / Cloudflare Tunnel / FRP 任一（可选） | 手机不在同一局域网时的配对与访问 |
 
-## 插件/组件依赖（v1.3.0）
+## 插件/组件依赖（v1.4.0）
 
 ### host 半（DSH 进程内，注入的服务）
 | 服务（`ctx` inject） | 提供包 |
@@ -54,7 +54,7 @@
 `clsx`、`qrcode.react`（配对二维码）、`schemastery`（配置 schema）、`web-push`（L2 通知）、`zod`
 
 ### 可选外部通道（通知/入口，非依赖）
-Bark / Telegram / Server酱（L3 通知）、FCM（Web Push 后端）、Tailscale / Cloudflare Tunnel / FRP（入口）
+WxPusher / Server酱 / Bark / Telegram / PushPlus（降级保留）（L3 通知）、FCM（Web Push 后端）、Tailscale / Cloudflare Tunnel / FRP（入口）
 
 ### 备注
 - `mobile/` 半：**零** `@deepseek-ai` 依赖，纯自有 `/m/api` + SSE 契约。
