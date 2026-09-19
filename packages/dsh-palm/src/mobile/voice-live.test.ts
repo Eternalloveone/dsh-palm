@@ -153,6 +153,10 @@ function fakeAudioContext() {
   }
   const source = { connect: vi.fn(), disconnect: vi.fn() }
   const sink = { connect: vi.fn(), disconnect: vi.fn(), gain: { value: 0 } }
+  // The engine hands a ScriptProcessor ONE buffer and overwrites it on every
+  // callback; the fake reuses one too, so a consumer that retains a frame
+  // without copying watches its own samples change under it.
+  const scratch = new Float32Array(4096)
   const context = {
     sampleRate: 16_000,
     createMediaStreamSource: vi.fn(() => source),
@@ -161,7 +165,12 @@ function fakeAudioContext() {
     destination: {},
     close: vi.fn().mockResolvedValue(undefined),
   }
-  return { processor, context }
+  /** One capture tick: 4096 samples, the block size openMicrophone asks for. */
+  const tick = (amplitude: number): void => {
+    scratch.fill(amplitude)
+    processor.onaudioprocess!({ inputBuffer: { getChannelData: () => scratch } })
+  }
+  return { processor, context, tick }
 }
 
 /** Stub the browser surface voiceSupported() needs (secure context + mic). */
@@ -173,9 +182,17 @@ function stubBrowser(stream: MediaStream, context: ReturnType<typeof fakeAudioCo
   vi.stubGlobal('AudioContext', function AudioContextMock() { return context })
 }
 
-/** One capture tick: 4096 samples, the block size openMicrophone asks for. */
-function tick(processor: ReturnType<typeof fakeAudioContext>['processor'], amplitude: number): void {
-  processor.onaudioprocess!({ inputBuffer: { getChannelData: () => frame(4096, amplitude) } })
+/** Decode a base64 WAV payload back to samples, so a test can read the audio. */
+function decodeWav(base64: string): Float32Array {
+  const bytes = Buffer.from(base64, 'base64')
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const length = view.getUint32(40, true) / 2
+  const out = new Float32Array(length)
+  for (let i = 0; i < length; i++) {
+    const sample = view.getInt16(44 + i * 2, true)
+    out[i] = sample < 0 ? sample / 0x8000 : sample / 0x7fff
+  }
+  return out
 }
 
 describe('startLiveVoice', () => {
@@ -188,7 +205,7 @@ describe('startLiveVoice', () => {
 
   it('hands over each utterance as a WAV and reports the listening state', async () => {
     const { stream } = fakeStream()
-    const { processor, context } = fakeAudioContext()
+    const { context, tick } = fakeAudioContext()
     stubBrowser(stream, context)
     const segments: Array<{ audio: string; durationMs: number }> = []
     const states: string[] = []
@@ -199,12 +216,12 @@ describe('startLiveVoice', () => {
       // samples) clear the 500 ms floor on voiced audio alone.
       silenceMs: 256,
     })
-    tick(processor, SPEECH)
-    tick(processor, SPEECH)
-    tick(processor, SPEECH)
+    tick(SPEECH)
+    tick(SPEECH)
+    tick(SPEECH)
     expect(states).toEqual(['speech'])
     expect(segments).toEqual([])
-    tick(processor, QUIET)
+    tick(QUIET)
     expect(states).toEqual(['speech', 'listening'])
     expect(segments).toHaveLength(1)
     // 12288 voiced + the 200 ms tail = 15488 samples at 16 kHz.
@@ -214,17 +231,42 @@ describe('startLiveVoice', () => {
     session.close()
   })
 
-  it('drops the open utterance when the sheet is dismissed', async () => {
-    const { stream, trackStop } = fakeStream()
-    const { processor, context } = fakeAudioContext()
+  it('captures every frame as it was spoken, not the engine scratch buffer', async () => {
+    const { stream } = fakeStream()
+    const { context, tick } = fakeAudioContext()
     stubBrowser(stream, context)
     const segments: Array<{ audio: string; durationMs: number }> = []
     const session = await startLiveVoice({
       onSegment: (segment) => { segments.push(segment) },
       silenceMs: 256,
     })
-    tick(processor, SPEECH)
-    tick(processor, SPEECH)
+    // A loud frame, a quiet one, then loud again: the utterance has to keep
+    // that shape. AudioBuffer channel data is reused by the engine, so a
+    // segmenter that buffers the views instead of the samples would hand the
+    // transcriber three copies of whichever frame arrived last.
+    tick(0.5)
+    tick(0.1)
+    tick(0.5)
+    tick(QUIET)
+    expect(segments).toHaveLength(1)
+    const pcm = decodeWav(segments[0].audio)
+    expect(pcm[0]).toBeCloseTo(0.5, 2)
+    expect(pcm[4096]).toBeCloseTo(0.1, 2)
+    expect(pcm[8192]).toBeCloseTo(0.5, 2)
+    session.close()
+  })
+
+  it('drops the open utterance when the sheet is dismissed', async () => {
+    const { stream, trackStop } = fakeStream()
+    const { context, tick } = fakeAudioContext()
+    stubBrowser(stream, context)
+    const segments: Array<{ audio: string; durationMs: number }> = []
+    const session = await startLiveVoice({
+      onSegment: (segment) => { segments.push(segment) },
+      silenceMs: 256,
+    })
+    tick(SPEECH)
+    tick(SPEECH)
     // Dismissing the sheet mid-sentence must not fire a prompt the user never
     // finished, but the mic still has to be released.
     session.close({ flush: false })
@@ -234,15 +276,15 @@ describe('startLiveVoice', () => {
 
   it('flushes the open utterance and releases the mic on close', async () => {
     const { stream, trackStop } = fakeStream()
-    const { processor, context } = fakeAudioContext()
+    const { context, tick } = fakeAudioContext()
     stubBrowser(stream, context)
     const segments: Array<{ audio: string; durationMs: number }> = []
     const session = await startLiveVoice({
       onSegment: (segment) => { segments.push(segment) },
       silenceMs: 256,
     })
-    tick(processor, SPEECH)
-    tick(processor, SPEECH)
+    tick(SPEECH)
+    tick(SPEECH)
     // The user stops mid-sentence: what was said is still transcribed.
     session.close()
     expect(segments).toHaveLength(1)

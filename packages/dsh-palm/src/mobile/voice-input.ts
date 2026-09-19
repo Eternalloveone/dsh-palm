@@ -37,7 +37,10 @@ export interface MicrophoneStream {
 
 /** Options for {@link openMicrophone}. */
 export interface MicrophoneOptions {
-  /** One mono PCM frame (~256 ms) per call, on the main thread. */
+  /**
+   * One mono PCM frame (~256 ms) per call, on the main thread. The array is
+   * the callee's to keep: it is a fresh copy, never the engine's own buffer.
+   */
   onFrame(frame: Float32Array): void
   /**
    * Abort the capture: while getUserMedia is still authorizing, an aborted
@@ -86,7 +89,11 @@ export async function openMicrophone(options: MicrophoneOptions): Promise<Microp
   let closed = false
   processor.onaudioprocess = (event) => {
     if (closed) return
-    options.onFrame(event.inputBuffer.getChannelData(0))
+    // The engine reuses this AudioBuffer — and its channel data — for every
+    // callback, so a frame is copied before it leaves this tick. Anything that
+    // buffers frames (the live segmenter does) would otherwise hold N views of
+    // one array and hand the transcriber the last frame over and over.
+    options.onFrame(new Float32Array(event.inputBuffer.getChannelData(0)))
   }
   source.connect(processor)
   // ScriptProcessor only runs while connected to a destination; route through
@@ -187,10 +194,11 @@ export async function startVoiceRecording(options?: VoiceRecordingOptions): Prom
   // the frame callback has to reach the capture it is about to stop.
   const mic: { current?: MicrophoneStream } = {}
   mic.current = await openMicrophone({
-    onFrame: (input) => {
+    onFrame: (frame) => {
       if (stopped) return
-      chunks.push(new Float32Array(input))
-      total += input.length
+      // The frame is already a private copy (openMicrophone copies per tick).
+      chunks.push(frame)
+      total += frame.length
       // Hard cap ~ SAMPLE_RATE * seconds; past it, stop processing AND release
       // the mic — a held stream keeps the browser's recording indicator on
       // and the page warm until the user closes the sheet.
