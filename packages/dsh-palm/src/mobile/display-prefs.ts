@@ -120,3 +120,28 @@ export function applyDisplayPrefs(): void {
   if (getLineNumbers()) root.dataset.lineNumbers = '1'
   else delete root.dataset.lineNumbers
 }
+
+/* ── haptics ───────────────────────────────────────────────────────────── */
+
+const HAPTICS_KEY = 'dsh.palm.haptics'
+
+/** Whether "needs a glance" events come with a light buzz (default on). */
+export function getHaptics(): boolean {
+  return readStored(HAPTICS_KEY) !== '0'
+}
+
+export function setHaptics(value: boolean): void {
+  writeStored(HAPTICS_KEY, value ? '1' : '0')
+}
+
+/** One short buzz; silently inert where vibrate is unsupported or denied. */
+export function buzz(): void {
+  if (!getHaptics()) return
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(15)
+    }
+  } catch {
+    // Haptics must never break the notification path.
+  }
+}

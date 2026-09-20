@@ -82,12 +82,45 @@ function harness() {
   return { ctx, adapter, frames, controller }
 }
 
-/** Fire one blocking host request; the waterfall promise is returned (and its
- *  rejection marked handled, since each test asserts it explicitly). */
-function fireRequest(ctx: ReturnType<typeof makeCtx>, event: string, request: unknown): Promise<unknown> {
-  const answered = ctx.fire(event, request, () => Promise.resolve('host-default')) as Promise<unknown>
+/** The desktop chain, still unanswered: a panel that is open and waiting. */
+const waitingDesktop = (): Promise<unknown> => new Promise<never>(() => { /* never settles */ })
+
+/**
+ * Fire one blocking host request. `next` is the DESKTOP chain the bridge hands
+ * downstream; the default stands for a desktop panel that is open and waiting,
+ * which is the realistic downstream now that the phone and the desktop answer
+ * one request in a race — a phone answer is then the only thing that settles it.
+ */
+function fireRequest(
+  ctx: ReturnType<typeof makeCtx>,
+  event: string,
+  request: unknown,
+  next: () => Promise<unknown> = waitingDesktop,
+): Promise<unknown> {
+  const answered = ctx.fire(event, request, next) as Promise<unknown>
   answered.catch(() => { /* asserted per test */ })
   return answered
+}
+
+/**
+ * The other side of the race: one desktop panel, with the downstream waterfall
+ * it owns. `next` records the signal the bridge handed downstream — that signal
+ * is the whole withdrawal mechanism (the gateway cancels its pending event, and
+ * broadcasts a `cancel` frame to the desktop client, when it aborts).
+ */
+function desktopPanel(request: { signal?: AbortSignal; [key: string]: unknown }) {
+  const seen: { signal: AbortSignal | undefined } = { signal: undefined }
+  const settled = Promise.withResolvers<unknown>()
+  settled.promise.catch(() => { /* asserted per test */ })
+  return {
+    seen,
+    next: (): Promise<unknown> => {
+      seen.signal = request.signal
+      return settled.promise
+    },
+    answer: (value: unknown): void => { settled.resolve(value) },
+    giveUp: (error: unknown): void => { settled.reject(error) },
+  }
 }
 
 const approvalRequest = { agent: { id: 's-1' }, toolName: 'bash', reason: '写入文件' }
@@ -141,7 +174,8 @@ describe('approval bridge over the mux', () => {
   it('leaves the waterfall to the host while no phone is connected', async () => {
     const { ctx, adapter, frames, controller } = harness()
     adapter.setPhoneConnected(false)
-    await expect(fireRequest(ctx, 'approval/request', approvalRequest)).resolves.toBe('host-default')
+    await expect(fireRequest(ctx, 'approval/request', approvalRequest, () => Promise.resolve('host-default')))
+      .resolves.toBe('host-default')
     // Nothing was forwarded to the phone, so nothing is broadcast.
     expect(frames).toHaveLength(0)
     controller.abort()
@@ -228,6 +262,141 @@ describe('answer shape handed to the host waterfall', () => {
     // that reads as "the user chose nothing".
     expect(frames[1]!.payload).toMatchObject({ type: 'question/resolved', outcome: 'answered' })
     await expect(answered).rejects.toThrow('answers')
+    controller.abort()
+  })
+})
+
+/**
+ * The bridge used to hijack the request whenever a phone was connected: the
+ * desktop chain was never consulted, so the desktop panel never appeared at all
+ * (and a phone sitting on another session left the turn hanging). Both ends now
+ * get the request and the first answer wins; the loser's panel is withdrawn.
+ */
+describe('dual-answer race between the phone and the desktop', () => {
+  const questionAnswer = (selected: string): { answers: Array<{ id: string; selected: string[] }> } =>
+    ({ answers: [{ id: 'q1', selected: [selected] }] })
+
+  it('takes the desktop answer and retires the phone panel', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    const request = { agent: { id: 's-1' }, questions: [{ id: 'q1', question: '选哪个' }] }
+    const desktop = desktopPanel(request)
+    const answered = fireRequest(ctx, 'user-questions/request', request, desktop.next)
+    await until(() => { expect(frames).toHaveLength(1) })
+    expect(frames[0]!.payload.type).toBe('question/requested')
+
+    desktop.answer(questionAnswer('桌面选的'))
+
+    // The phone is told the batch is over, so its panel and the host-side pending
+    // tracker (the polling fallback) drop it instead of handing it back later.
+    await until(() => { expect(frames).toHaveLength(2) })
+    expect(frames[1]!.payload).toMatchObject({
+      type: 'question/resolved',
+      sessionId: 's-1',
+      questionRpcId: frames[0]!.rpcId,
+      outcome: 'answered',
+    })
+    await expect(answered).resolves.toEqual(questionAnswer('桌面选的'))
+    // A phone answer racing in after the desktop won is a no-op, not a second answer.
+    await expect(adapter.respond({
+      type: 'client-response',
+      rpcId: frames[0]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1', answer: questionAnswer('手机选的') } },
+    } as never)).resolves.toEqual({ accepted: false, reason: 'not-pending' })
+    controller.abort()
+  })
+
+  it('cancels the desktop pending once the phone answers first', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    const request = { agent: { id: 's-1' }, questions: [{ id: 'q1', question: '选哪个' }] }
+    const desktop = desktopPanel(request)
+    const answered = fireRequest(ctx, 'user-questions/request', request, desktop.next)
+    await until(() => { expect(frames).toHaveLength(1) })
+    // Both panels are up: the desktop chain holds an unanswered request.
+    expect(desktop.seen.signal?.aborted).toBe(false)
+
+    await adapter.respond({
+      type: 'client-response',
+      rpcId: frames[0]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1', answer: questionAnswer('手机选的') } },
+    } as never)
+    await expect(answered).resolves.toEqual(questionAnswer('手机选的'))
+
+    // Aborting the signal the bridge handed downstream is what makes the gateway
+    // cancel the desktop's pending event and push a `cancel` frame to that client:
+    // without it the desktop panel would sit there waiting for a request that is
+    // already answered.
+    await until(() => { expect(desktop.seen.signal?.aborted).toBe(true) })
+    controller.abort()
+  })
+
+  it('keeps the turn signal reaching the desktop chain', async () => {
+    const { ctx, controller } = harness()
+    const turn = new AbortController()
+    const request = { agent: { id: 's-1' }, questions: [{ id: 'q1', question: '选哪个' }], signal: turn.signal }
+    const desktop = desktopPanel(request)
+    fireRequest(ctx, 'user-questions/request', request, desktop.next)
+
+    // The downstream signal is the composite (turn + bridge gate), never the raw
+    // turn signal: replacing it must not break the host's own cancellation.
+    expect(desktop.seen.signal).toBeInstanceOf(AbortSignal)
+    expect(desktop.seen.signal).not.toBe(turn.signal)
+    turn.abort()
+    await until(() => { expect(desktop.seen.signal?.aborted).toBe(true) })
+    controller.abort()
+  })
+
+  it('keeps waiting for the phone when the desktop has nothing to answer with', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    const request = { agent: { id: 's-1' }, questions: [{ id: 'q1', question: '选哪个' }] }
+    const desktop = desktopPanel(request)
+    const answered = fireRequest(ctx, 'user-questions/request', request, desktop.next)
+    await until(() => { expect(frames).toHaveLength(1) })
+
+    // No desktop client is looking at this session, so its chain delegates and the
+    // host rejects with "no answerer". That is not the race's verdict: the phone's
+    // panel is still up and must be able to answer.
+    desktop.giveUp(new Error('no user-questions answerer accepted the request'))
+
+    await adapter.respond({
+      type: 'client-response',
+      rpcId: frames[0]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1', answer: questionAnswer('手机选的') } },
+    } as never)
+    await expect(answered).resolves.toEqual(questionAnswer('手机选的'))
+    controller.abort()
+  })
+
+  it('runs the same race for approvals', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    const request = { agent: { id: 's-1' }, toolName: 'bash', reason: '写入文件' }
+    const desktop = desktopPanel(request)
+    const answered = fireRequest(ctx, 'approval/request', request, desktop.next)
+    await until(() => { expect(frames).toHaveLength(1) })
+    expect(frames[0]!.payload.type).toBe('approval/requested')
+
+    desktop.answer('allowed-once')
+
+    await until(() => { expect(frames).toHaveLength(2) })
+    expect(frames[1]!.payload).toMatchObject({
+      type: 'approval/resolved',
+      sessionId: 's-1',
+      approvalId: frames[0]!.payload.approvalId,
+      outcome: 'allowed-once',
+    })
+    await expect(answered).resolves.toBe('allowed-once')
+
+    // And the other order: the phone answers, the desktop's pending is cancelled.
+    const second = { agent: { id: 's-1' }, toolName: 'bash' }
+    const secondDesktop = desktopPanel(second)
+    const secondAnswered = fireRequest(ctx, 'approval/request', second, secondDesktop.next)
+    await until(() => { expect(frames).toHaveLength(3) })
+    await adapter.respond({
+      type: 'client-response',
+      rpcId: frames[2]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1', approvalId: frames[2]!.payload.approvalId, outcome: 'rejected' } },
+    } as never)
+    await expect(secondAnswered).resolves.toBe('rejected')
+    await until(() => { expect(secondDesktop.seen.signal?.aborted).toBe(true) })
     controller.abort()
   })
 })

@@ -13,6 +13,7 @@ import { models, selectModel, sendCommand, respondApproval, respondQuestion, typ
 import type { PendingApproval, PendingQuestionItem } from './api.ts'
 import { latestBatchOf } from './question-batches.ts'
 import { Sheet } from './sheet.tsx'
+import type { TurnEntry } from './turn-outline.ts'
 
 /** One switchable permission preset (the `permissions` projection shape). */
 export interface PermissionOption {
@@ -342,6 +343,52 @@ export function PermissionSheet({ sessionId, value, onChanged, onClose }: {
           </button>
         )
       })}
+    </Sheet>
+  )
+}
+
+/** The turn list: a jumpable outline of the session's turns. Each row shows
+ *  the turn number + prompt (ellipsized) with an indented response preview.
+ *  The current turn is highlighted; turns outside the loaded window carry a
+ *  faint dot marker so the reader knows they will be paged in on tap. Rows use
+ *  their own overflow discipline (min-width: 0 + flex-shrink: 1) so long
+ *  previews never blow out the sheet. */
+export function TurnListSheet({ entries, currentTurn, onPick, onClose }: {
+  entries: TurnEntry[]
+  currentTurn: number
+  onPick(entry: TurnEntry): void
+  onClose(): void
+}) {
+  return (
+    <Sheet title={`轮次 · 共 ${entries.length} 轮`} onClose={onClose}>
+      {entries.length === 0 ? (
+        <p className="sheet-note">当前会话没有可跳转的轮次</p>
+      ) : (
+        <div className="turn-list" role="list" aria-label="轮次清单">
+          {entries.map(entry => {
+            const isCurrent = entry.turn === currentTurn
+            return (
+              <button
+                type="button"
+                key={entry.turn}
+                role="listitem"
+                className={'turn-row' + (isCurrent ? ' turn-row-current' : '')}
+                onClick={() => { onPick(entry) }}
+              >
+                <span className="turn-row-accent" aria-hidden />
+                <span className="turn-row-copy">
+                  <span className="turn-row-head">
+                    <span className="turn-row-num">#{entry.turn}</span>
+                    <span className="turn-row-prompt">{entry.prompt}</span>
+                  </span>
+                  <span className="turn-row-response">{entry.response}</span>
+                </span>
+                {!entry.loaded && <span className="turn-row-dot" aria-hidden title="未加载" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </Sheet>
   )
 }

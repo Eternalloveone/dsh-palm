@@ -2983,6 +2983,14 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       controller.abort()
       clearInterval(heartbeat)
       activeEvents -= 1
+      // The plain socket close (tunnel blip, app backgrounded, phone gone) used
+      // to decrement the count and stop: only endStream() — the revocation path
+      // — ever refreshed the flag, so ONE closed stream left the host believing
+      // a phone was online for the rest of the process. That stale flag made the
+      // bridge keep a phone-side branch alive for a stream nobody reads; the
+      // desktop's own panel is what answers in that state (dual-answer race in
+      // api-proxy-adapter.ts), so the flag must track the live subscriptions.
+      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(activeEvents > 0)
       disposeObserved?.()
     }
     res.on('close', onClose)

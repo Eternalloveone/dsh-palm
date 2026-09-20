@@ -41,6 +41,7 @@ export function dropSessionFromCaches(sessionId: string): void {
   }
   // A revoked blank session's draft is meaningless — drop it too.
   removeDraft(sessionId)
+  removeReadingTurn(sessionId)
 }
 
 /** One workspace's persisted list page (rows + paging position). */
@@ -57,6 +58,7 @@ const LIST_PREFIX = 'dsh-palm.list.v1.'
 const PREVIEW_STORE = 'dsh-palm.prev.v1'
 const SCROLL_PREFIX = 'dsh-palm.scroll.v1.'
 const DRAFT_PREFIX = 'dsh-palm.draft.v1.'
+const READING_PREFIX = 'dsh-palm.reading.v1.'
 /**
  * Self-maintained key registry: storage environments differ wildly (browser
  * Storage exposes length/key(), while vitest's jsdom localStorage is a plain
@@ -353,13 +355,57 @@ function trimDrafts(): void {
   removeKeys(byAge.slice(0, keys.length - DRAFT_MAX_ENTRIES).map(entry => entry.key))
 }
 
+/* ── reading position (per session) ────────────────────────────────────── */
+
+/** One session's reading record: saved-at + the turn being read. */
+interface ReadingRecord {
+  t: number
+  v: number
+}
+
+/** Reading positions expire after a week (a stale bookmark is worse than none). */
+const READING_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** Reading entry cap (LRU: oldest saved-at evicted past this). */
+const READING_MAX_ENTRIES = 50
+
+/** Load one session's last-read turn (undefined when absent/expired/corrupt). */
+export function loadReadingTurn(sessionId: string): number | undefined {
+  if (!hasStorage()) return undefined
+  const record = readJson<ReadingRecord>(readRaw(READING_PREFIX + sessionId))
+  if (record === undefined || typeof record.v !== 'number' || record.v <= 0) return undefined
+  if (Date.now() - record.t > READING_TTL_MS) return undefined
+  return record.v
+}
+
+/** Persist one session's last-read turn (0/negative ignored). LRU-trimmed. */
+export function saveReadingTurn(sessionId: string, turn: number): void {
+  if (turn <= 0) return
+  write(READING_PREFIX + sessionId, JSON.stringify({ t: Date.now(), v: turn }))
+  trimReadingTurns()
+}
+
+/** Drop one session's reading position (the chip jump consumed it / revocation). */
+export function removeReadingTurn(sessionId: string): void {
+  removeKeys([READING_PREFIX + sessionId])
+}
+
+/** Evict the oldest reading records past the entry cap (by saved-at). */
+function trimReadingTurns(): void {
+  const keys = indexedKeys().filter(key => key.startsWith(READING_PREFIX))
+  if (keys.length <= READING_MAX_ENTRIES) return
+  const byAge = keys
+    .map(key => ({ key, t: readJson<ReadingRecord>(readRaw(key))?.t ?? 0 }))
+    .sort((a, b) => a.t - b.t)
+  removeKeys(byAge.slice(0, keys.length - READING_MAX_ENTRIES).map(entry => entry.key))
+}
+
 /** Drop every persisted cache (pairing eviction / re-pair on this device). */
 export function clearPairingCaches(): void {
   if (!hasStorage()) return
   // Anything queued was armed before the eviction, so it must not run after it.
   cancelPersistedWrites()
   const doomed = indexedKeys().filter(key =>
-    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key === PREVIEW_STORE || key === PIN_STORAGE)
+    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key.startsWith(READING_PREFIX) || key === PREVIEW_STORE || key === PIN_STORAGE)
   removeKeys(doomed)
 }
 
@@ -377,6 +423,10 @@ export function maintainPersistedCaches(): void {
     if (key.startsWith(DRAFT_PREFIX)) {
       const record = readJson<DraftRecord>(readRaw(key))
       return record === undefined || now - record.t > DRAFT_TTL_MS
+    }
+    if (key.startsWith(READING_PREFIX)) {
+      const record = readJson<ReadingRecord>(readRaw(key))
+      return record === undefined || now - record.t > READING_TTL_MS
     }
     return false
   })

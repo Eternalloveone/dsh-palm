@@ -9,7 +9,7 @@ import { type SessionView, type ChatPageResult } from './App.tsx'
 import type { HistoryPage, SessionPage } from '../api.ts'
 import { EventFolder, foldEvents, latestTodoSnapshot } from '../messages.ts'
 import type { RenderMessage, WireEvent } from '../messages.ts'
-import { loadDraft, sessionListCache } from '../list-persist.ts'
+import { loadDraft, loadReadingTurn, saveReadingTurn, sessionListCache } from '../list-persist.ts'
 import { answeredApprovals } from '../approval-batches.ts'
 import { answeredQuestions } from '../question-batches.ts'
 import { RpcCallError } from '../rpc.ts'
@@ -2980,6 +2980,40 @@ describe('ChatView question panel', () => {
     await waitFor(() => { expect(fetchPendingMock.mock.calls.length).toBeGreaterThanOrEqual(2) })
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
     expect(screen.queryByRole('button', { name: '提交回答' })).toBeNull()
+  })
+})
+
+describe('回到上次 chip', () => {
+  const outlinePage = rowPage(turnEvents(), {
+    projections: {
+      values: {
+        turnOutline: [
+          { turn: 1, seq: 10, prompt: '第一轮', response: '一' },
+          { turn: 2, seq: 20, prompt: '第二轮', response: '二' },
+        ],
+      },
+    },
+  })
+
+  it('shows the persisted bookmark and retires it on tap', async () => {
+    saveReadingTurn('s-1', 1)
+    loadChatPageMock.mockResolvedValue(outlinePage)
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const chip = await screen.findByRole('button', { name: '回到上次读到的轮次' })
+    expect(chip.textContent).toContain('第 1 轮')
+    fireEvent.click(chip)
+    expect(screen.queryByRole('button', { name: '回到上次读到的轮次' })).toBeNull()
+    expect(loadReadingTurn('s-1')).toBeUndefined()
+  })
+
+  it('stays hidden when the bookmark IS the newest turn', async () => {
+    saveReadingTurn('s-1', 2)
+    loadChatPageMock.mockResolvedValue(outlinePage)
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    // Let the outline/arrival effects settle, then the chip must still be absent.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(screen.queryByRole('button', { name: '回到上次读到的轮次' })).toBeNull()
   })
 })
 

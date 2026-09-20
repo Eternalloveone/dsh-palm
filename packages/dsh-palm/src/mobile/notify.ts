@@ -8,6 +8,7 @@
  */
 
 import { pushSubscribe, pushUnsubscribe, readNotifyConfig } from './api.ts'
+import { buzz } from './display-prefs.ts'
 
 /** One notify frame as the server's SSE stream delivers it. */
 export interface NotifyEventWire {
@@ -161,6 +162,7 @@ export function notifyDeepLink(event: NotifyEventWire['payload']): string {
 function showNotify(event: NotifyEventWire['payload']): void {
   // Do not disturb someone actively looking at the app.
   if (document.visibilityState === 'visible') return
+  buzz()
   const notification = new Notification(event.title, {
     body: event.body,
     tag: event.id,

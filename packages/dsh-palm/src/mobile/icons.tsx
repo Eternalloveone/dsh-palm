@@ -215,6 +215,17 @@ export function ScrollDownIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** Phone with vibration waves (haptics toggle). */
+export function VibrateIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <rect x="9" y="3" width="6" height="18" rx="1.5" />
+      <path d="M11 18h2" />
+      <path d="M5.5 9.5v5M3.5 11v2M18.5 9.5v5M20.5 11v2" />
+    </svg>
+  )
+}
+
 /** Info circle (about). */
 export function InfoIcon(props: SVGProps<SVGSVGElement>) {
   return (

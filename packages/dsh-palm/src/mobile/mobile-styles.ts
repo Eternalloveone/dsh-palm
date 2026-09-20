@@ -1299,7 +1299,14 @@ body,
   border-bottom: 1px solid var(--card-border);
 }
 .settings-roItem:last-child { border-bottom: none; }
-.settings-roKey { color: var(--text-tertiary); flex-shrink: 0; }
+/* The key column must be able to give way: while it was shrink 0 the item kept
+   its max-content width, which overflow-wrap alone cannot lower. */
+.settings-roKey {
+  color: var(--text-tertiary);
+  flex-shrink: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .settings-roValue {
   color: var(--text-primary);
   font-weight: 500;
@@ -1427,6 +1434,9 @@ button.settings-row:focus-visible {
   font-weight: 600;
   font-size: var(--text-base);
   color: var(--text-primary);
+  /* Provider ids come from the host: wrap a long one instead of letting it
+     spill past the card and overlap the status badge. */
+  overflow-wrap: anywhere;
 }
 .usage-providerBase {
   font-size: 11px;
@@ -1678,6 +1688,9 @@ button.settings-row:focus-visible {
   font-size: 14px;
   font-weight: 400;
   color: var(--text-primary);
+  /* A plugin schema field key is host text and can have no hyphen to break on:
+     wrap it instead of pushing the card sideways. */
+  overflow-wrap: anywhere;
 }
 
 .settings-fieldLock {
@@ -1787,6 +1800,9 @@ button.settings-row:focus-visible {
   margin: 0;
   color: var(--danger);
   font-size: 14px;
+  /* A pairing or workspace failure carries a host message that can hold a
+     path: wrap a long token instead of overflowing the card. */
+  overflow-wrap: anywhere;
 }
 
 /* ── render-crash error page (ErrorBoundary) ─────────────────────────── */
@@ -2184,6 +2200,11 @@ button.settings-row:focus-visible {
   color: var(--text-2);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   cursor: pointer;
+  /* Same press-vs-selection guard as the turn handle: a held press on the
+     round button must still count as a tap. */
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
   transition: background 120ms ease, color 120ms ease, transform 120ms ease;
   animation: chat-jump-in 160ms ease-out;
 }
@@ -2383,16 +2404,21 @@ button.settings-row:focus-visible {
   background: var(--card-bg);
   font-size: var(--text-sm);
   line-height: 1.4;
+  /* The command line and its output are agent/user text and can carry a path
+     or a URL: wrap a lone token so this flex row cannot widen the viewport. */
+  overflow-wrap: anywhere;
 }
 
 .chat-command-name {
   color: var(--text-secondary);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
 }
 
 .chat-command-result {
   color: var(--text-tertiary);
+  min-width: 0;
 }
 
 .chat-command-error .chat-command-result {
@@ -3296,6 +3322,26 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
+/*
+ * A tool id is a single unbreakable token when it comes from an MCP server
+ * (mcp__github__create_or_update_file), so the chip must be able to shrink
+ * inside its row: in the collapsed one-line header it ellipsizes, and once the
+ * card is open the full name matters more, so it wraps instead.
+ */
+.chat-disclosure-head .chat-tool-pill {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-tool-card .chat-tool-pill {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .chat-tool-args {
   margin: 0;
   padding: 6px 8px;
@@ -3394,7 +3440,9 @@ button.settings-row:focus-visible {
   gap: 6px;
   padding: 1px 8px;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
+  /* anywhere, not break-word: only anywhere lowers the min-content size, which
+     is what lets a flex item shrink below one long path token. */
+  overflow-wrap: anywhere;
 }
 
 .chat-tool-diff-path {
@@ -3423,6 +3471,7 @@ button.settings-row:focus-visible {
 
 .chat-tool-diff-text {
   flex: 1;
+  min-width: 0;
 }
 
 /* ── turn status: three breathing dots ───────────────────────────────── */
@@ -3700,6 +3749,9 @@ button.settings-row:focus-visible {
 .chat-task-meta {
   color: var(--text-tertiary);
   font-size: var(--text-sm);
+  /* job.detail is host text (often a path): wrap it rather than sticking out
+     of the copy column and being clipped by the taskbar. */
+  overflow-wrap: anywhere;
 }
 
 .chat-task-time {
@@ -3766,6 +3818,44 @@ button.settings-row:focus-visible {
 }
 
 /* ── approval / question panels ──────────────────────────────────────── */
+
+/*
+ * Both panels print agent-supplied text: a tool id full of underscores, a
+ * workspace path, a git ref, a command inside an approval reason. One long
+ * unbreakable token used to set a flex item's min-content width, which widened
+ * the whole chat column past the viewport and drifted the page sideways.
+ * overflow-wrap: anywhere is inherited by every child and — unlike break-word —
+ * it also lowers the min-content size, which is exactly what a flex item's
+ * automatic minimum looks at. The rows carry min-width: 0 so the guard survives
+ * a child that resets the property.
+ */
+.chat-approval-panel,
+.chat-question-panel {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.chat-approval-header,
+.chat-approval-reason,
+.chat-question-option,
+.chat-question-option-label,
+.chat-question-option-desc {
+  min-width: 0;
+}
+
+/* The header is a row: a long reason drops onto its own line, and a long tool
+   id wraps inside the pill instead of forcing the row wider than the screen. */
+.chat-approval-header {
+  flex-wrap: wrap;
+}
+
+.chat-approval-header .chat-tool-pill {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 .chat-approval-panel {
   margin: 4px 0;
@@ -4563,6 +4653,10 @@ button.settings-row:focus-visible {
 }
 
 .sheet {
+  /* Host data fills the sheets - model ids, slash-command names, permission
+     ids, failure messages - so a long unbreakable token wraps here instead of
+     running past the sheet edge, where overflow:hidden would clip it. */
+  overflow-wrap: anywhere;
   /* Content-sized sheet: no height cap by default, so every list item is
      always fully visible - nothing to scroll for ordinary content. Only
      extreme content (a hundred tasks) is bounded, and the sheet then
@@ -4674,6 +4768,8 @@ button.settings-row:focus-visible {
    same as in the chat. */
 .fp-md {
   line-height: 1.7;
+  /* 同 .md-html：正文里的长 URL / 路径必须能断行，否则会被 .fp-scroll 裁掉。 */
+  overflow-wrap: anywhere;
   /* 同 .fp-body：markdown 预览正文允许选中复制（body 全局 user-select:none
      不豁免这里，长按走系统选择复制）。 */
   user-select: text;
@@ -5309,6 +5405,9 @@ button.settings-row:focus-visible {
   background: var(--dialog-bg);
   box-shadow: var(--shadow-lg);
   animation: dialog-in 0.2s ease-out both;
+  /* A dialog title can be a workspace name or a path: wrap it rather than
+     letting it bleed past the fixed-width box. */
+  overflow-wrap: anywhere;
 }
 
 @keyframes dialog-in {
@@ -5435,6 +5534,10 @@ button.settings-row:focus-visible {
   font-weight: 400;
   box-shadow: var(--shadow-lg);
   animation: toast-in 0.25s ease-out both;
+  /* A toast prints a file path when a perf report is filed; the pill is capped
+     at 78vw, so wrap the token instead of letting it bleed out both sides. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .toast-out {
@@ -6330,7 +6433,10 @@ details.think-block[open] .chat-disclosure-caret {
   background: var(--fill);
 }
 
+/* text-overflow only engages on a block box: as inline spans inside the head's
+   flex:1 wrapper these clipped silently, with no ellipsis marker. */
 .runov-sess-title {
+  display: block;
   font-size: var(--text-base);
   font-weight: 600;
   line-height: 1.3;
@@ -6340,6 +6446,7 @@ details.think-block[open] .chat-disclosure-caret {
 }
 
 .runov-sess-sub {
+  display: block;
   margin-top: 2px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -6420,5 +6527,276 @@ details.think-block[open] .chat-disclosure-caret {
 /* Settled job rows are de-emphasized so the eye lands on live work first. */
 .runov-jobs-settled .chat-task-row {
   opacity: 0.72;
+}
+
+/* Turn list floating handle (轮次清单): a compact pill pinned beside the
+   jump-to-latest button; shows the current turn / total count. Rides the
+   same sticky flex column as chat-jump-latest (aligned flex-end), offset
+   above the round button so the two never overlap. */
+.chat-jump-turns {
+  position: sticky;
+  bottom: 58px;
+  align-self: flex-end;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  /* A press-and-hold must still count as a tap, AND the hold must own the
+     gesture: with manipulation/auto the browser claims the move for page
+     scrolling and fires pointercancel, which closes the scrubber the instant
+     it opens. none keeps every move on the handle. */
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  animation: chat-jump-in 160ms ease-out;
+}
+.chat-jump-turns:active {
+  transform: scale(0.92);
+}
+
+/* 「回到上次」 bookmark chip: the same pill family as the turn handle, pinned
+   a third rung higher in the sticky flex column (latest 12px, turns 58px, this
+   one 104px) so the three never overlap. Shows regardless of scroll position —
+   the whole point is tapping it WITHOUT first scrolling away from the tail. */
+.chat-jump-lastread {
+  position: sticky;
+  bottom: 104px;
+  align-self: flex-end;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  min-width: 48px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  animation: chat-jump-in 160ms ease-out;
+}
+.chat-jump-lastread:active {
+  transform: scale(0.92);
+}
+.chat-jump-turns-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Turn list sheet rows: one button per turn. A left accent bar marks the
+   current turn; an unloaded turn shows a faint dot on the right. Preview
+   lines ellipsize on their own line (block + overflow hidden), so long
+   prompts / responses never blow out the sheet width. */
+.turn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+.turn-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+.turn-row:active {
+  transform: scale(0.98);
+  background: var(--fill);
+}
+/* Current turn: accent vertical bar on the left edge. */
+.turn-row-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.turn-row-accent {
+  flex-shrink: 0;
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: transparent;
+  margin: 2px 0;
+}
+.turn-row-current .turn-row-accent {
+  background: var(--accent);
+}
+.turn-row-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+/* The number + prompt share one ellipsizing row; the response is an
+   indented line under it. Each text line shrinks (flex-shrink: 1 with
+   min-width: 0 on the parent column) so anywhere-wrapping long tokens
+   cannot widen the sheet. */
+.turn-row-head {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 1;
+}
+.turn-row-num {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--accent);
+}
+.turn-row-prompt {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+.turn-row-response {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 18px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+.turn-row-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-quaternary);
+  opacity: 0.6;
+}
+
+/* ── D1 turn scrubber ──────────────────────────────────────────────────
+   Docks above the composer while the turn handle is held: target turn +
+   prompt on one line, the response preview beneath it, then a full-width
+   rail carrying one tick per turn and a knob at the pointed turn. The
+   gesture runs on the handle (which owns the pointer capture), so the card
+   itself stays pointer-inert and never steals the drag. */
+.turn-scrub {
+  margin: 8px 16px 0;
+  padding: 10px 14px 9px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  animation: chat-jump-in 160ms ease-out;
+  pointer-events: none;
+}
+.turn-scrub-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.turn-scrub-num {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.turn-scrub-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.turn-scrub-sub {
+  margin-top: 1px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The track is taller than the rail so the knob has room to sit proud. */
+.turn-scrub-track {
+  position: relative;
+  height: 26px;
+  margin-top: 6px;
+}
+.turn-scrub-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill);
+}
+.turn-scrub-fill {
+  position: absolute;
+  left: 0;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.turn-scrub-tick {
+  position: absolute;
+  top: 9px;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--border-default);
+}
+.turn-scrub-tick-at {
+  background: var(--text-secondary);
+}
+.turn-scrub-knob {
+  position: absolute;
+  top: 2px;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 3px solid var(--accent);
+}
+.turn-scrub-hint {
+  margin-top: 3px;
+  font-size: var(--text-sm);
+  color: var(--text-quaternary);
+}
+/* Held: the handle reads as the live scrub control. */
+.chat-jump-turns-live {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 `;

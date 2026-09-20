@@ -128,6 +128,121 @@ interface PendingQuestionRequest {
 }
 
 /**
+ * 桌面先答时那条审批的展示结论。桌面链路的返回值**就是** `ApprovalOutcome` 本身
+ * （`ui-approval` 的 client 直接把面板结论交回 waterfall），不是手机那种
+ * `{sessionId, approvalId, outcome}` 信封——套用 {@link approvalOutcomeOf} 会把
+ * 每一个结论都读成 `unavailable`。信封形状也容忍（跨线值不假设）。
+ */
+function desktopApprovalOutcome(value: unknown): ApprovalOutcome {
+  const outcome = typeof value === 'string'
+    ? value
+    : (value as { outcome?: unknown } | null | undefined)?.outcome
+  return outcome === 'allowed-once' || outcome === 'rejected' || outcome === 'cancelled' || outcome === 'unavailable'
+    ? outcome
+    : 'unavailable'
+}
+
+/** 一次双端竞答里"桌面那一侧"的把手。 */
+interface DesktopArm {
+  /** 下游（api-remotes → 桌面网关）的应答：桌面真的答了才 resolve。 */
+  readonly answer: Promise<unknown>
+  /** 撤销桌面那条 pending：网关据此给桌面广播 cancel 帧，面板随之消失。 */
+  cancel(reason: unknown): void
+}
+
+/**
+ * 把一次宿主交互同时交给**下游链路**（api-remotes → 桌面网关 → 桌面面板）。
+ *
+ * 关键在信号替换：网关只认 `request.signal`（`api/gateway/src/index.ts` 的
+ * `startRemoteEvent` 在 signal abort 时 `cancelRemoteEvent`，并向所有收到过这条
+ * 请求的客户端推 `cancel` 帧）。我们换上一个「原信号 + 本闸门」的复合信号，
+ * 于是：原信号的语义（轮次中断）原样保留，而我们自己也能在手机先答时把桌面那条
+ * pending 撤掉——桌面面板因此消失，而不是留一个永远等不到结论的空面板。
+ * @param request - waterfall 请求（`signal` 会被替换成复合信号）。
+ * @param next - 下游 waterfall。
+ * @returns 桌面侧应答与撤销开关。
+ */
+function armDesktopRace(request: { signal?: AbortSignal }, next: () => Promise<unknown>): DesktopArm {
+  const gate = new AbortController()
+  const original = request.signal
+  const composite = original === undefined ? gate.signal : AbortSignal.any([original, gate.signal])
+  try {
+    request.signal = composite
+  } catch {
+    // 冻结的请求对象（理论上不存在）：退化成"不撤桌面面板"，竞答本身照常。
+  }
+  let answer: Promise<unknown>
+  try {
+    answer = Promise.resolve(next())
+  } catch (error) {
+    answer = Promise.reject(error)
+  }
+  // 桌面"放弃"（没有客户端在看这个会话）会立刻 reject。那不是竞答的失败，
+  // 调用方按需处理；这里先兜一层，免得成为 unhandled rejection。
+  answer.catch(() => { /* 由调用方决定 */ })
+  return { answer, cancel: (reason: unknown) => { gate.abort(reason) } }
+}
+
+/** 双端竞答的差异点：谁登记、谁撤面板。 */
+interface DualAnswerBridge {
+  /** waterfall 请求；`signal` 会被换成复合信号（见 armDesktopRace）。 */
+  request: { signal?: AbortSignal }
+  /** 下游 waterfall（桌面链路）。 */
+  next: () => Promise<unknown>
+  /** 手机应答条目登记（rpcId → resolve/reject）。 */
+  register: (entry: { resolve: (value: unknown) => void; reject: (error: unknown) => void }) => void
+  /** 撤销登记（结清后调用，重复调用无害）。 */
+  unregister: () => void
+  /** 登记完成后把请求推给手机（此刻它已经能被应答）。 */
+  announce: () => void
+  /** 桌面先答：给手机发一条 resolved 帧，撤掉手机那边的面板与 pending 追踪。 */
+  retirePhonePanel: (value: unknown) => void
+}
+
+/**
+ * 双端竞答：手机面板与桌面面板**同时在**，谁先答谁作数，输家那条被撤掉。
+ *
+ * 此前这里是「有手机在线就整批转给手机并且挡住 waterfall」：桌面永远收不到请求，
+ * 手机没看这个会话时就一直挂着（实测悬停 1m55s 后被中断）。改成竞答后，
+ * 任一端作答都能推进 agent，另一端的面板立刻消失。
+ * @param spec - 见 {@link DualAnswerBridge}。
+ * @returns 交给 waterfall 的结果（第一份到达的答案）。
+ */
+function bridgeDualAnswer(spec: DualAnswerBridge): Promise<unknown> {
+  const desktop = armDesktopRace(spec.request, spec.next)
+  return new Promise<unknown>((resolve, reject) => {
+    let settled = false
+    const finish = (action: () => void): void => {
+      if (settled) return
+      settled = true
+      spec.unregister()
+      action()
+    }
+    spec.register({
+      resolve: (value: unknown) => finish(() => {
+        // 手机先答：撤掉桌面那条 pending，桌面面板消失。
+        desktop.cancel(new Error('手机端已作答'))
+        resolve(value)
+      }),
+      reject: (error: unknown) => finish(() => {
+        desktop.cancel(new Error('手机端未作答'))
+        reject(error)
+      }),
+    })
+    spec.announce()
+    desktop.answer.then(
+      (value: unknown) => finish(() => {
+        // 桌面先答：让手机撤面板 + 通知它的 pending 追踪（否则轮询会把旧的
+        // 批次再端回来，面板复活）。
+        spec.retirePhonePanel(value)
+        resolve(value)
+      }),
+      () => { /* 桌面没有可答的客户端：手机面板还在，继续等手机 */ },
+    )
+  })
+}
+
+/**
  * 构造适配层。ctx 需已装配 host controllers（web-app bundle 提供）。
  */
 export function makeApiProxyAdapter(
@@ -199,49 +314,79 @@ export function makeApiProxyAdapter(
   const pendingQuestions = new Map<string, PendingQuestionRequest>()
 
   // ── respond 桥接：approval ─────────────────────────────────────────────
-  // 前置拦截 host 的 approval/request waterfall，转发给手机，返回 Promise 等手机应答。
+  // 手机在线的审批**同时**交给下游（桌面）与手机：双端竞答，先答者作数。
   // request/next 用宽松类型 + as never 规避 approval 事件类型解析到旧 checkout 的问题。
-  const disposeApproval = ctx.on('approval/request', ((request: { agent?: { id: string }; toolName: string; callId?: string; reason?: string }, next: () => Promise<unknown>) => {
+  const disposeApproval = ctx.on('approval/request', ((request: { agent?: { id: string }; toolName: string; callId?: string; reason?: string; signal?: AbortSignal }, next: () => Promise<unknown>) => {
     if (!phoneConnected) return next()
     const sessionId = request.agent?.id
     if (sessionId === undefined) return next()
     const rpcId = RpcId(`approval-${randomUUID()}`)
     const approvalId = RpcId(`approval-id-${randomUUID()}`)
-    broadcast.emitWithRpcId(rpcId, {
-      type: 'approval/requested',
-      sessionId: sessionId as never,
-      approvalId: approvalId as never,
-      toolName: request.toolName,
-      ...(request.callId !== undefined ? { callId: request.callId } : {}),
-      ...(request.reason !== undefined ? { reason: request.reason } : {}),
-    })
-    return new Promise<unknown>((resolve, reject) => {
-      pendingApprovals.set(rpcId, {
-        sessionId,
-        approvalId,
-        resolve: resolve as (v: unknown) => void,
-        reject: reject as (e: unknown) => void,
-      })
+    return bridgeDualAnswer({
+      request,
+      next,
+      register: (entry) => {
+        pendingApprovals.set(rpcId, {
+          sessionId,
+          approvalId,
+          resolve: entry.resolve as (v: unknown) => void,
+          reject: entry.reject as (e: unknown) => void,
+        })
+      },
+      unregister: () => { pendingApprovals.delete(rpcId) },
+      announce: () => {
+        broadcast.emitWithRpcId(rpcId, {
+          type: 'approval/requested',
+          sessionId: sessionId as never,
+          approvalId: approvalId as never,
+          toolName: request.toolName,
+          ...(request.callId !== undefined ? { callId: request.callId } : {}),
+          ...(request.reason !== undefined ? { reason: request.reason } : {}),
+        })
+      },
+      retirePhonePanel: (value: unknown) => {
+        broadcast.emitWithRpcId(RpcId(`approval-resolved-${randomUUID()}`), {
+          type: 'approval/resolved',
+          sessionId: sessionId as never,
+          approvalId: approvalId as never,
+          outcome: desktopApprovalOutcome(value),
+        })
+      },
     })
   }) as never, { prepend: true })
 
   // ── respond 桥接：question ─────────────────────────────────────────────
-  const disposeQuestion = ctx.on('user-questions/request' as never, ((request: { agent?: { id: string }; questions: unknown[] }, next: () => Promise<unknown>) => {
+  const disposeQuestion = ctx.on('user-questions/request' as never, ((request: { agent?: { id: string }; questions: unknown[]; signal?: AbortSignal }, next: () => Promise<unknown>) => {
     if (!phoneConnected) return next()
     const sessionId = request.agent?.id
     if (sessionId === undefined) return next()
     const rpcId = RpcId(`question-${randomUUID()}`)
-    broadcast.emitWithRpcId(rpcId, {
-      type: 'question/requested',
-      sessionId: sessionId as never,
-      questions: request.questions as never,
-    })
-    return new Promise<unknown>((resolve, reject) => {
-      pendingQuestions.set(rpcId, {
-        sessionId,
-        resolve: resolve as (v: unknown) => void,
-        reject: reject as (e: unknown) => void,
-      })
+    return bridgeDualAnswer({
+      request,
+      next,
+      register: (entry) => {
+        pendingQuestions.set(rpcId, {
+          sessionId,
+          resolve: entry.resolve as (v: unknown) => void,
+          reject: entry.reject as (e: unknown) => void,
+        })
+      },
+      unregister: () => { pendingQuestions.delete(rpcId) },
+      announce: () => {
+        broadcast.emitWithRpcId(rpcId, {
+          type: 'question/requested',
+          sessionId: sessionId as never,
+          questions: request.questions as never,
+        })
+      },
+      retirePhonePanel: () => {
+        broadcast.emitWithRpcId(RpcId(`question-resolved-${randomUUID()}`), {
+          type: 'question/resolved',
+          sessionId: sessionId as never,
+          questionRpcId: rpcId as never,
+          outcome: 'answered',
+        })
+      },
     })
   }) as never, { prepend: true })
 

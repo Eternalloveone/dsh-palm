@@ -21,8 +21,8 @@ import { PerfReportRow } from '../perf-report.tsx'
 import { BUILD_HASH } from '../build-info.ts'
 import {
   DENSITY_LABEL, FONT_SCALE_LABEL, applyDisplayPrefs,
-  getAutoScroll, getDensity, getFontScale, getLineNumbers,
-  setAutoScroll, setDensity, setFontScale, setLineNumbers,
+  getAutoScroll, getDensity, getFontScale, getHaptics, getLineNumbers,
+  setAutoScroll, setDensity, setFontScale, setHaptics, setLineNumbers,
   type Density, type FontScale,
 } from '../display-prefs.ts'
 import { toast } from '../toast.tsx'
@@ -31,7 +31,7 @@ import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
   ChatBubbleIcon, ChevronUpIcon, ContrastIcon, GaugeIcon, HashIcon, InfoIcon, MicIcon,
   PencilIcon, PlusIcon, QuoteIcon, RowsIcon, ScrollDownIcon, ShieldIcon, SlidersIcon,
-  TrashIcon, TypeIcon, UpperRightIcon, BellIcon,
+  TrashIcon, TypeIcon, UpperRightIcon, VibrateIcon, BellIcon,
 } from '../icons.tsx'
 import {
   getVoiceServices, moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService,
@@ -499,6 +499,7 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
   const [density, setDensityState] = useState<Density>(() => getDensity())
   const [lineNumbers, setLineNumbersState] = useState(() => getLineNumbers())
   const [autoScroll, setAutoScrollState] = useState(() => getAutoScroll())
+  const [haptics, setHapticsState] = useState(() => getHaptics())
   const [sheet, setSheet] = useState<'theme' | 'font' | 'density' | 'about' | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   // Voice transcription services (phone-local, sent with every transcribe).
@@ -1629,6 +1630,15 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               desc="新消息到达时自动滚动到底部"
               value={autoScroll}
               onChange={(next) => { setAutoScroll(next); setAutoScrollState(next) }}
+            />
+          )}
+          {hit('震动', 'vibrate', '通知震动') && (
+            <ToggleRow
+              icon={<VibrateIcon />}
+              title="震动"
+              desc="任务完成、审批到达时轻震一下"
+              value={haptics}
+              onChange={(next) => { setHaptics(next); setHapticsState(next) }}
             />
           )}
           {hit('工具调用', 'tool') && (

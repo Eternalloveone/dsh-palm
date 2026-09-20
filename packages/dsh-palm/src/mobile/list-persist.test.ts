@@ -11,6 +11,7 @@ import {
   flushPersistedWrites,
   loadDraft,
   loadPersistedList,
+  loadReadingTurn,
   loadPersistedScroll,
   loadPersistedPreviews,
   loadPinnedSessions,
@@ -19,7 +20,9 @@ import {
   queuePersistedList,
   queuePersistedPreviews,
   removeDraft,
+  removeReadingTurn,
   saveDraft,
+  saveReadingTurn,
   savePersistedList,
   savePersistedPreviews,
   savePersistedScroll,
@@ -372,5 +375,38 @@ describe('deferred store writes', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('reading turns', () => {
+    it('round-trips a per-session reading turn, ignores 0, and removes cleanly', () => {
+      saveReadingTurn('s-1', 5)
+      expect(loadReadingTurn('s-1')).toBe(5)
+      expect(loadReadingTurn('s-2')).toBeUndefined()
+      // 0 is "no position" — it must not clobber a real bookmark.
+      saveReadingTurn('s-1', 0)
+      expect(loadReadingTurn('s-1')).toBe(5)
+      removeReadingTurn('s-1')
+      expect(loadReadingTurn('s-1')).toBeUndefined()
+    })
+
+    it('rejects expired bookmarks (TTL)', () => {
+      const start = 1_700_000_000_000
+      vi.spyOn(Date, 'now').mockReturnValue(start)
+      saveReadingTurn('s-1', 3)
+      vi.spyOn(Date, 'now').mockReturnValue(start + 8 * 24 * 60 * 60 * 1000)
+      expect(loadReadingTurn('s-1')).toBeUndefined()
+    })
+
+    it('evicts the oldest bookmarks past the entry cap', () => {
+      for (let index = 0; index < 55; index++) saveReadingTurn(`s-${index}`, index + 1)
+      expect(loadReadingTurn('s-54')).toBe(55)
+      expect(loadReadingTurn('s-0')).toBeUndefined()
+    })
+
+    it('clearPairingCaches drops bookmarks too', () => {
+      saveReadingTurn('s-1', 2)
+      clearPairingCaches()
+      expect(loadReadingTurn('s-1')).toBeUndefined()
+    })
   })
 })

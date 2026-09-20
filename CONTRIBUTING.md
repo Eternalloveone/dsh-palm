@@ -25,7 +25,7 @@ dsh plugin --profile web add link:/path/to/dsh-palm/packages/dsh-palm
 ## Development loop
 
 ```sh
-pnpm test           # vitest — full suite (~430 tests)
+pnpm test           # vitest — full suite (~1140 tests)
 pnpm typecheck      # tsc -b
 pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
 ```

@@ -16,7 +16,7 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
-import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
+import { dropSessionFromCaches, loadDraft, loadReadingTurn, removeDraft, removeReadingTurn, saveDraft, saveReadingTurn } from '../list-persist.ts'
 import { usePageVisible } from '../foreground.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
@@ -43,7 +43,7 @@ function messageKey(message: RenderMessage): string {
     : message.id
 }
 import { RunStatusBar, RunStatusSheet } from '../run-status.tsx'
-import { copyText, openFilePath } from '../code-actions.ts'
+import { copyText, openFilePath, shareText } from '../code-actions.ts'
 import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll } from '../display-prefs.ts'
@@ -62,10 +62,30 @@ import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import { CheckIcon, ChevronDownIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SendIcon, ShieldIcon } from '../icons.tsx'
 import { MessageRow } from '../message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
-import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
+import { ApprovalPanel, ModelSheet, PermissionSheet, PlusSheet, QuestionPanel, TurnListSheet, parsePermissionSelect, type PermissionSelectValue } from '../sheets.tsx'
+import type { PointerEvent as ReactPointerEvent } from 'react'
+import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, turnRowIndex, type TurnEntry } from '../turn-outline.ts'
+import { TurnScrubber } from '../turn-scrubber.tsx'
 import { TaskStatusBar } from '../task-status.tsx'
 import type { JobView } from '../../api-proxy-types'
 import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../subagent-tree.ts'
+
+/** D1 handle-gesture tunables: the travel (px) a press must exceed before it
+ *  counts as a scrub drag, and the horizontal inset of the scrub card's track
+ *  inside the viewport (card margin + padding). The inset mirrors .turn-scrub in
+ *  the stylesheet, because the finger position is mapped onto that track. */
+const TURN_SCRUB_MOVE_PX = 8
+const TURN_SCRUB_TRACK_INSET_PX = 30
+
+/** Right-hand x of the scrub track inside the viewport (kept above the left edge
+ *  even on an absurdly narrow window, so the span can never invert). */
+function scrubTrackRight(): number {
+  return Math.max(TURN_SCRUB_TRACK_INSET_PX + 40, window.innerWidth - TURN_SCRUB_TRACK_INSET_PX)
+}
+
+/** Page budget for one turn jump. The first request jumps straight to the
+ *  target turn's page, so this only bounds a jump whose cursor missed. */
+const TURN_JUMP_MAX_PAGES = 24
 
 /** Props for the chat view. */
 export interface ChatViewProps {
@@ -550,6 +570,54 @@ export function ChatView({
   const [title, setTitle] = useState(session.title)
   /** The header 更多 menu (rename / copy session id). */
   const [moreOpen, setMoreOpen] = useState(false)
+  /** Turn-list bottom sheet visibility. */
+  const [turnListOpen, setTurnListOpen] = useState(false)
+  /** The host `turnOutline` projection raw value (parsed into the merged
+   *  list below). Absent until the tail projection baseline lands. */
+  const [turnOutlineRaw, setTurnOutlineRaw] = useState<unknown>(undefined)
+  /** Merged host outline + locally-loaded turns, sorted by turn ascending. */
+  const turnEntries = useMemo(
+    () => mergeTurnEntries(parseTurnOutline(turnOutlineRaw), localTurnEntries(messages)),
+    [turnOutlineRaw, messages],
+  )
+  /** The highest turn NUMBER in the outline: the "of N" denominator. The turn
+   *  number, not the entry count, so an outline that starts after turn 1 (or is
+   *  only partly merged) still reads "7 / 43" instead of "7 / 12". */
+  const maxTurn = turnEntries[turnEntries.length - 1]?.turn ?? 0
+  /** The currently-viewed turn (the row nearest the top of the viewport). */
+  const [currentTurn, setCurrentTurn] = useState(0)
+  /** What the handle and the sheet highlight show: the tracked reading turn,
+   *  falling back to the newest turn until the first scroll reports a position. */
+  const shownTurn = currentTurn > 0 ? currentTurn : maxTurn
+  /* Reading-position memory (the 「回到上次」 chip): the loaded bookmark plus
+     live mirror refs, so the debounced scroll save and the unmount flush never
+     read a stale closure. */
+  const [lastReadTurn, setLastReadTurn] = useState<number | undefined>(() => loadReadingTurn(session.sessionId))
+  const currentTurnRef = useRef(currentTurn)
+  currentTurnRef.current = currentTurn
+  const turnEntriesRef = useRef(turnEntries)
+  turnEntriesRef.current = turnEntries
+  const sessionIdRef = useRef(session.sessionId)
+  sessionIdRef.current = session.sessionId
+  /** Debounce handle for the scroll-settle reading save. */
+  const readingTimerRef = useRef<number | undefined>(undefined)
+  /** Pending turn-jump target seq while paging it in (see jumpToTurn). */
+  /** Target of a turn jump that must page history in first: the outline's
+   *  boundary seq, the turn NUMBER to match once a page lands (the seq alone
+   *  cannot match — see locateSeq), and how many follow-up pages this jump has
+   *  already spent. */
+  const pendingTurnSeqRef = useRef<number | undefined>(undefined)
+  const pendingTurnNumberRef = useRef<number | undefined>(undefined)
+  const pendingTurnPagesRef = useRef(0)
+  /** D1 scrub state: the index into `turnEntries` the finger points at while the
+   *  handle is held; undefined means the scrubber is closed. */
+  const [scrubIndex, setScrubIndex] = useState<number | undefined>(undefined)
+  /** Live bookkeeping for one handle gesture: where the press landed (the drag
+   *  threshold is measured against it) and whether it ever travelled, so the
+   *  release can tell a tap (open the list) from a scrub. */
+  const scrubGestureRef = useRef<
+    { pointerId: number; startX: number; moved: boolean } | undefined
+  >(undefined)
   /** Rename dialog visibility. */
   const [renaming, setRenaming] = useState(false)
   /** Delete-session confirm dialog visibility. */
@@ -849,6 +917,7 @@ export function ChatView({
         const projections = page.projections?.values as Record<string, unknown> | undefined
         setPermissions(parsePermissionSelect(projections?.['permissions']))
         setContextPressure(parseContextPressure(projections?.['contextPressure']))
+        setTurnOutlineRaw(projections?.['turnOutline'])
         // The buffer overflowed while waiting (oldest events were dropped):
         // refill the dropped seq window page by page, from its newest edge
         // backwards, until the whole window is covered or history ends. A
@@ -1352,6 +1421,50 @@ export function ChatView({
     setUnreadCount(0)
   }, [])
 
+  /** The turn of the row nearest the top of the viewport. Mirrors
+   *  locateWindow's scrollTop→row conversion: windowed sessions use the
+   *  estimated-height prefix (minus the height correction, which shifts the DOM
+   *  scrollTop into estimated space); non-windowed sessions accumulate row
+   *  estimates.
+   *
+   *  Only assistant rows carry a `turn` (user prompts and command rows do not —
+   *  see messages.ts chunkTarget), so the top row itself often has none. The
+   *  reading turn is therefore the first row AT OR BELOW the top row that has a
+   *  turn (the prompt above it began that turn), scanning upward only as a
+   *  fallback. It never falls back to the newest turn: doing so made the handle
+   *  report the tail while the reader was deep in history.
+   *
+   *  Returns undefined when no loaded row carries a turn. Reads only stable refs
+   *  + the module-level estimate, so a stale handleScroll closure still gets the
+   *  live values. */
+  const deriveCurrentTurn = (scrollTop: number): number | undefined => {
+    const list = messagesRef.current
+    const count = list.length
+    if (count === 0) return undefined
+    const prefix = prefixRef.current
+    let index: number
+    if (prefix !== undefined) {
+      const st = scrollTop - heightCorrectionRef.current
+      let low = 0
+      let high = count - 1
+      while (low < high) {
+        const mid = (low + high + 1) >> 1
+        if (prefix[mid] !== undefined && prefix[mid]! <= st) low = mid
+        else high = mid - 1
+      }
+      index = low
+    } else {
+      let acc = 0
+      index = count - 1
+      for (let i = 0; i < count; i++) {
+        acc += estimateMessageHeight(list[i])
+        if (acc > scrollTop) { index = i; break }
+      }
+    }
+    return readingTurnAt(list, index)
+  }
+
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (el === undefined) return
@@ -1370,6 +1483,23 @@ export function ChatView({
     // the bottom (same threshold the auto-follower uses); React bails out on
     // unchanged values, so this costs nothing while scrolling.
     setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
+    // Track the turn whose row sits nearest the top of the viewport (the
+    // reader's position): drives the turn-list highlight and the handle's
+    // current/total readout. Mirrors locateWindow's scrollTop→row conversion.
+    // 0 means "no position yet"; the render falls back to the newest turn once.
+    const readPosition = deriveCurrentTurn(el.scrollTop) ?? 0
+    setCurrentTurn(readPosition)
+    // Reading-position memory: save the settled turn once scrolling pauses
+    // for a second (a live write on every pixel would churn localStorage).
+    // Reading the newest turn does not update the bookmark — the chip points
+    // at the mid-history spot the reader actually left from.
+    if (readingTimerRef.current !== undefined) window.clearTimeout(readingTimerRef.current)
+    readingTimerRef.current = window.setTimeout(() => {
+      readingTimerRef.current = undefined
+      const entries = turnEntriesRef.current
+      const newest = entries.length > 0 ? entries[entries.length - 1].turn : 0
+      if (readPosition > 0 && readPosition !== newest) saveReadingTurn(sessionIdRef.current, readPosition)
+    }, 1000)
     // Scrolling back to the bottom counts as reading: clear the unread
     // badge and advance the seen-turn baseline, so a reader who manually
     // scrolls down (instead of tapping the jump button) also clears the
@@ -1383,6 +1513,24 @@ export function ChatView({
     if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
     if (eventFlushRafRef.current !== undefined) cancelAnimationFrame(eventFlushRafRef.current)
   }, [])
+
+  // Reading-position memory: reload the bookmark when the session id changes,
+  // and flush the live position on unmount (the debounce may not have fired
+  // yet). The cleanup closes over the session id it was created for, so a
+  // session switch still writes the OLD session's bookmark.
+  useEffect(() => {
+    setLastReadTurn(loadReadingTurn(session.sessionId))
+    return () => {
+      if (readingTimerRef.current !== undefined) {
+        window.clearTimeout(readingTimerRef.current)
+        readingTimerRef.current = undefined
+      }
+      const turn = currentTurnRef.current
+      const entries = turnEntriesRef.current
+      const newest = entries.length > 0 ? entries[entries.length - 1].turn : 0
+      if (turn > 0 && turn !== newest) saveReadingTurn(session.sessionId, turn)
+    }
+  }, [session.sessionId])
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
@@ -1451,6 +1599,156 @@ export function ChatView({
     markSeen()
     scrollToBottom()
   }, [markSeen, scrollToBottom])
+
+  /** Locate one message row for a jump, reusing the search-hit locate machinery
+   *  (focusMsgId + focusTargetRef + the layout-effect scroll): sets the same
+   *  guards so the auto-follower and windowing stand down while it renders.
+   *  {@link turnRowIndex} decides the row — a turn jump passes its turn number
+   *  because the outline's boundary seq lands in the gap between rows. */
+  const locateSeq = useCallback((seq: number, turn?: number): void => {
+    const list = messagesRef.current
+    const index = turnRowIndex(list, turn ?? -1, seq)
+    if (index < 0) return
+    const row = list[index]
+    setFocusMsgId(row.id)
+    focusTargetRef.current = seq
+    focusScrolledRef.current = false
+    locatingRef.current = true
+    locateLockRef.current = true
+    bottomGapAtUserScrollRef.current = Number.MAX_SAFE_INTEGER
+    const windowed = list.length >= WINDOW_THRESHOLD
+    if (windowed) {
+      const start = Math.max(0, index - WINDOW_OVERSCAN)
+      const end = Math.min(list.length, index + WINDOW_VISIBLE + WINDOW_OVERSCAN)
+      setWin(previous => previous.start === start && previous.end === end ? previous : { start, end })
+    }
+    const rowTurn = row.turn
+    if (rowTurn !== undefined) setCurrentTurn(rowTurn)
+  }, [])
+
+  /** Jump to a turn from the outline sheet or the scrubber: in-window turns
+   *  scroll in place; turns outside the loaded window page the target's rows in
+   *  first, then the pending effect below finishes the locate.
+   *
+   *  The page cursor is the NEXT turn's boundary, not this turn's own seq: the
+   *  host pages END at the requested beforeSeq, and a turn's seq is its
+   *  turn/start boundary — asking for it fetches everything BEFORE the turn and
+   *  never the turn itself. The next boundary lands this turn's rows instead. */
+  const jumpToTurn = useCallback((entry: TurnEntry): void => {
+    setTurnListOpen(false)
+    const inWindow = turnRowIndex(messagesRef.current, entry.turn, entry.seq) >= 0
+    if (inWindow) {
+      locateSeq(entry.seq, entry.turn)
+      return
+    }
+    if (!hasOlder) {
+      toast('没有更早的轮次')
+      return
+    }
+    const at = turnEntries.findIndex(candidate => candidate.turn === entry.turn)
+    const nextSeq = at >= 0 ? turnEntries[at + 1]?.seq : undefined
+    setCurrentTurn(0)
+    toast('正在载入…')
+    pendingTurnSeqRef.current = entry.seq
+    pendingTurnNumberRef.current = entry.turn
+    pendingTurnPagesRef.current = 0
+    loadOlderRef.current(true, nextSeq ?? entry.seq + 1)
+  }, [hasOlder, locateSeq, turnEntries])
+
+  /** 「回到上次」 chip: jump to the bookmarked turn through the same machine
+   *  the turn list uses (deep turns page in), then retire the bookmark. A
+   *  vanished turn (outline compaction) just drops the chip, no error toast. */
+  const jumpToLastRead = useCallback((): void => {
+    const bookmark = lastReadTurn
+    if (bookmark === undefined) return
+    setLastReadTurn(undefined)
+    removeReadingTurn(sessionIdRef.current)
+    const entry = turnEntriesRef.current.find(candidate => candidate.turn === bookmark)
+    if (entry === undefined) return
+    jumpToTurn(entry)
+  }, [lastReadTurn, jumpToTurn])
+
+  /** Handle touch-down: expand the scrubber in place, already pointing at the
+   *  turn under the finger (the knob sits under the finger from the first
+   *  frame). The RELEASE decides what the press meant — a press that never
+   *  travelled opens the turn list (B), a drag jumps to the pointed turn. */
+  const startScrub = useCallback((event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (turnEntries.length < 2) return
+    scrubGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      moved: false,
+    }
+    setScrubIndex(scrubTurnIndex(event.clientX, TURN_SCRUB_TRACK_INSET_PX, scrubTrackRight(), turnEntries.length))
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }, [turnEntries.length])
+
+  /** Handle drag: the finger's own position picks the turn, so either screen
+   *  edge reaches the oldest/newest turn instead of stopping wherever the press
+   *  happened to leave room. */
+  const moveScrub = useCallback((event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const gesture = scrubGestureRef.current
+    if (gesture === undefined || gesture.pointerId !== event.pointerId) return
+    if (Math.abs(event.clientX - gesture.startX) > TURN_SCRUB_MOVE_PX) gesture.moved = true
+    setScrubIndex(scrubTurnIndex(event.clientX, TURN_SCRUB_TRACK_INSET_PX, scrubTrackRight(), turnEntries.length))
+  }, [turnEntries.length])
+
+  /** Handle release: travel means a scrub, so the release jumps to the pointed
+   *  turn. A press that never moved keeps B's behaviour and opens the list,
+   *  which also covers a long press — holding never just does nothing. */
+  const endScrub = useCallback((event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const gesture = scrubGestureRef.current
+    if (gesture === undefined || gesture.pointerId !== event.pointerId) return
+    scrubGestureRef.current = undefined
+    const index = scrubIndex
+    setScrubIndex(undefined)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    const tap = !gesture.moved
+    if (tap) {
+      setTurnListOpen(true)
+      return
+    }
+    const entry = index === undefined ? undefined : turnEntries[index]
+    if (entry !== undefined) jumpToTurn(entry)
+  }, [jumpToTurn, scrubIndex, turnEntries])
+
+  /** The browser stole the pointer (scroll takeover, system gesture): close the
+   *  scrubber without jumping. Also fires after our own release, where the
+   *  gesture ref is already cleared and this is a no-op. */
+  const cancelScrub = useCallback((event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const gesture = scrubGestureRef.current
+    if (gesture === undefined || gesture.pointerId !== event.pointerId) return
+    scrubGestureRef.current = undefined
+    setScrubIndex(undefined)
+  }, [])
+
+  // Finish a pending out-of-window turn jump: the moment the target turn's row
+  // shows up, locate it. Until then keep paging back — a jump across hundreds of
+  // turns rarely lands in one page, and a cursor that missed has to be retried
+  // with ordinary paging. The budget stops a hopeless jump from grinding through
+  // the whole log, and the toast says so rather than leaving 「正在载入…」hanging.
+  useEffect(() => {
+    const seq = pendingTurnSeqRef.current
+    if (seq === undefined) return
+    const turn = pendingTurnNumberRef.current
+    const index = turnRowIndex(messagesRef.current, turn ?? -1, seq)
+    if (index >= 0) {
+      pendingTurnSeqRef.current = undefined
+      pendingTurnNumberRef.current = undefined
+      pendingTurnPagesRef.current = 0
+      locateSeq(seq, turn)
+      return
+    }
+    if (!hasOlder || pendingTurnPagesRef.current >= TURN_JUMP_MAX_PAGES) {
+      pendingTurnSeqRef.current = undefined
+      pendingTurnNumberRef.current = undefined
+      pendingTurnPagesRef.current = 0
+      toast('没能跳到那一轮：历史太深了')
+      return
+    }
+    pendingTurnPagesRef.current += 1
+    loadOlderRef.current(true)
+  }, [messages, hasOlder, locateSeq])
 
   // Keep the newest content visible. This covers the initial tail page (the
   // effect runs after commit, fixing the stale scrollHeight from the old
@@ -2904,6 +3202,31 @@ export function ChatView({
             }}
           />
         )}
+        {showJumpToLatest && turnEntries.length >= 2 && (
+          <button
+            type="button"
+            className={'chat-jump-turns' + (scrubIndex !== undefined ? ' chat-jump-turns-live' : '')}
+            aria-label="轮次导航：轻点开清单，按住拖动刮擦"
+            onPointerDown={startScrub}
+            onPointerMove={moveScrub}
+            onPointerUp={endScrub}
+            onPointerCancel={cancelScrub}
+            onLostPointerCapture={cancelScrub}
+            onClick={(event) => { if (event.detail === 0) setTurnListOpen(true) }}
+          >
+            <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
+          </button>
+        )}
+        {lastReadTurn !== undefined && lastReadTurn !== maxTurn && maxTurn >= 2 && (
+          <button
+            type="button"
+            className="chat-jump-lastread"
+            aria-label="回到上次读到的轮次"
+            onClick={jumpToLastRead}
+          >
+            回到上次 · 第 {lastReadTurn} 轮
+          </button>
+        )}
         {showJumpToLatest && (
           <button
             type="button"
@@ -2922,6 +3245,9 @@ export function ChatView({
         subagents={subagents}
         onOpen={() => { setRunStatusOpen(true) }}
       />
+      {scrubIndex !== undefined && turnEntries.length >= 2 && (
+        <TurnScrubber entries={turnEntries} index={scrubIndex} />
+      )}
       <div className="chat-tools">
         <div className="chat-tools-actions">
           <button
@@ -3275,6 +3601,14 @@ export function ChatView({
           onClose={() => { setSheet(null) }}
         />
       )}
+      {turnListOpen && (
+        <TurnListSheet
+          entries={turnEntries}
+          currentTurn={shownTurn}
+          onPick={jumpToTurn}
+          onClose={() => { setTurnListOpen(false) }}
+        />
+      )}
       {previewPath !== null && (
         <FilePreviewSheet path={previewPath} sessionId={session.sessionId} onClose={() => { setPreviewPath(null) }} />
       )}
@@ -3418,6 +3752,14 @@ export function ChatView({
               onClick={() => { const { text } = ctxMenu; setCtxMenu(undefined); quoteIntoComposer(text) }}
             >
               引用
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="ctx-item"
+              onClick={() => { const { raw, text } = ctxMenu; setCtxMenu(undefined); void shareText(raw ?? text) }}
+            >
+              分享
             </button>
           </div>
         </>

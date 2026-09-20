@@ -74,6 +74,24 @@ export async function copyText(text: string, message = '已复制'): Promise<boo
   }
 }
 
+/**
+ * Share text through the system share sheet (`navigator.share`). Unsupported
+ * browsers and share-sheet errors degrade to the clipboard; the user simply
+ * cancelling the sheet (AbortError) is silent — cancelling is not a failure.
+ */
+export async function shareText(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ text })
+      return
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      /* fall through to the clipboard */
+    }
+  }
+  await copyText(text, '已复制，可粘贴分享')
+}
+
 /** Insert code into the host editor: postMessage + global hook + toast. */
 export function insertCode(code: string): void {
   postToParent({ type: 'insertCode', code })
