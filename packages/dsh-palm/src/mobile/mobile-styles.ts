@@ -6248,6 +6248,66 @@ button.settings-row:focus-visible {
   filter: brightness(1.08);
 }
 
+/* Continuous ("live") voice: the mode row and the recent-utterance tail. The
+   sheet grows with its content instead of holding the fixed 200px height. */
+.voice-sheet-live {
+  height: auto;
+  min-height: 200px;
+  padding-top: 20px;
+}
+
+.voice-tail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 86vw;
+  max-height: 96px;
+  padding: 0 16px;
+  overflow-y: auto;
+}
+
+.voice-tail-line {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The newest transcript is the one being spoken about: keep it prominent. */
+.voice-tail-line:last-child {
+  color: var(--text-primary);
+}
+
+.voice-live-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-md);
+}
+
+.voice-live-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.voice-live-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.voice-live-hint {
+  color: var(--text-quaternary);
+}
+
 /* Settings search field. */
 .settings-search {
   padding: 0 16px 12px;

@@ -56,6 +56,7 @@ import { updateQueue, queueItemViewOf, type QueueItemView } from '../api.ts'
 import { RpcCallError } from '../rpc.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { getVoiceServices } from '../voice-services.ts'
+import { getLiveVoice, setLiveVoice, startLiveVoice, type LiveVoiceSession } from '../voice-live.ts'
 import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
@@ -486,6 +487,17 @@ export function ChatView({
   const [voicePartial, setVoicePartial] = useState('')
   const [voicePhase, setVoicePhase] = useState<'recording' | 'transcribing'>('recording')
   const voiceRef = useRef<VoiceRecording | undefined>(undefined)
+  /**
+   * Continuous mode: the open session, the sheet's toggle and the last few
+   * transcripts. The toggle is the device preference — it decides which mode
+   * the mic button opens, and it survives the sheet.
+   */
+  const [voiceLive, setVoiceLive] = useState(() => getLiveVoice())
+  const [voiceTail, setVoiceTail] = useState<string[]>([])
+  const [voiceLiveBusy, setVoiceLiveBusy] = useState(false)
+  const liveRef = useRef<LiveVoiceSession | undefined>(undefined)
+  /** Serializes live transcriptions: utterance N+1 must not overtake N. */
+  const liveQueueRef = useRef<Promise<void>>(Promise.resolve())
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
   const mountedRef = useRef(true)
   /** Pinch-zoom state for code blocks (one active gesture at a time). */
@@ -497,6 +509,11 @@ export function ChatView({
   const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   const [running, setRunning] = useState(false)
+  // Live mirror of `running` for the live-voice segment callback: a transcript
+  // resolves seconds after the utterance started, so it has to read the state
+  // of the turn NOW, not the one its closure was created with.
+  const runningRef = useRef(running)
+  runningRef.current = running
   /** Pending-message queue for this session (desktop QueueDock equivalent),
    *  seeded from the mux's retained snapshot so a freshly opened chat shows
    *  messages queued before it mounted. */
@@ -2576,9 +2593,13 @@ export function ChatView({
   }, [])
 
   /** Send the drafted prompt (the echoed user/message arrives over mux).
-   * Offline: queue in IndexedDB instead — the reconnect effect drains it. */
-  const send = useCallback(() => {
-    const text = input.trim()
+   * Offline: queue in IndexedDB instead — the reconnect effect drains it.
+   * `override` sends text that is not in the composer yet (a live-voice
+   * transcript); everything else — quoting, images, the offline outbox — is
+   * the same path the send button takes. */
+  const send = useCallback((override?: string) => {
+    const draft = override ?? input
+    const text = draft.trim()
     if ((text === '' && attachImages.length === 0) || sending) return
     // Offline: images can't queue (too big for the outbox), text can.
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -2626,7 +2647,7 @@ export function ChatView({
     // still carries the attached images (buildPromptParts appends them).
     const body: PromptPart[] = quoted !== undefined && text !== ''
       ? buildPromptParts(`引用消息：\n> ${quoted.replace(/\n+/g, ' ')}\n\n${text}`, attachImages)
-      : buildPromptParts(input, attachImages)
+      : buildPromptParts(draft, attachImages)
     void prompt(session.sessionId, body).then(
       () => {
         setSending(false)
@@ -2652,6 +2673,10 @@ export function ChatView({
       },
     )
   }, [input, attachImages, sending, session.sessionId, mux, quoted, runCommand])
+  // Live mirror of `send` for the live-voice segment callback (a transcript
+  // resolves long after the render that captured the callback was committed).
+  const sendRef = useRef(send)
+  sendRef.current = send
 
   /* ── voice input ───────────────────────────────────────────────────── */
 
@@ -2666,17 +2691,98 @@ export function ChatView({
     mountedRef.current = false
     voiceRef.current?.cancel()
     voiceRef.current = undefined
+    // Unmounting is a dismissal, not a finished sentence: drop the open one.
+    liveRef.current?.close({ flush: false })
+    liveRef.current = undefined
   }, [])
 
-  /** Discard the current recording and close the sheet. */
-  const closeVoice = useCallback((): void => {
+  /**
+   * Leave continuous mode and release the mic (idempotent). `flush` finishes
+   * the sentence that is still being spoken; only the sheet's 结束 button asks
+   * for that — a dismissal discards it, the way cancelling a one-shot
+   * recording does.
+   */
+  const stopLive = useCallback((flush: boolean): void => {
+    liveRef.current?.close({ flush })
+    liveRef.current = undefined
+    // A flushed utterance was already handed to the queue below, which keeps
+    // delivering it in order; only the UI state is dropped here.
+    setVoiceLiveBusy(false)
+  }, [])
+
+  /** Transcribe one utterance and deliver it — in order, never overlapping. */
+  const takeLiveSegment = useCallback((segment: { audio: string; durationMs: number }): void => {
+    setVoiceLiveBusy(true)
+    liveQueueRef.current = liveQueueRef.current
+      .then(() => transcribeVoice(segment.audio, getVoiceServices()))
+      .then(
+        (text) => {
+          setVoiceLiveBusy(false)
+          const spoken = text.trim()
+          if (spoken === '' || !mountedRef.current) return
+          setVoiceTail(previous => [...previous, spoken].slice(-3))
+          // A turn is already generating: the words go to the composer instead
+          // of racing a second prompt at the host, and the user sends them when
+          // the reply lands. `send()` itself refuses while a send is in flight.
+          if (runningRef.current || sendingRef.current) {
+            setInput(previous => (previous.trim() === '' ? spoken : `${previous.replace(/\s+$/, '')} ${spoken}`))
+            return
+          }
+          sendRef.current(spoken)
+        },
+        (reason: unknown) => {
+          setVoiceLiveBusy(false)
+          if (mountedRef.current) toast(reason instanceof Error ? reason.message : String(reason))
+        },
+      )
+  }, [])
+
+  /** Open the sheet in continuous mode: the mic stays open until it closes. */
+  const startLive = useCallback((): void => {
+    stopLive(false)
+    setVoiceTail([])
+    setVoiceLiveBusy(false)
+    setVoicePhase('recording')
+    setVoiceOpen(true)
+    void startLiveVoice({ onSegment: takeLiveSegment }).then(
+      (session) => {
+        // The chat unmounted while the mic was still authorizing: release the
+        // stream instead of listening for a sheet that no longer exists.
+        if (!mountedRef.current) {
+          session.close()
+          return
+        }
+        liveRef.current = session
+      },
+      (message: unknown) => {
+        setVoiceOpen(false)
+        if (mountedRef.current) toast(message instanceof Error ? message.message : String(message))
+      },
+    )
+  }, [stopLive, takeLiveSegment])
+
+  /**
+   * Close the sheet. `finish` delivers the sentence still being spoken — the
+   * 结束 button asks for it; a tap on the backdrop, a mode switch and unmount
+   * all discard, exactly like cancelling a one-shot recording.
+   */
+  const closeVoice = useCallback((finish = false): void => {
     voiceRef.current?.cancel()
     voiceRef.current = undefined
+    stopLive(finish)
     voicePartialRef.current = ''
     setVoicePartial('')
     setVoiceOpen(false)
     setVoicePhase('recording')
-  }, [])
+  }, [stopLive])
+
+  /** Switch modes: persist the choice and start or stop the session. */
+  const toggleVoiceLive = useCallback((on: boolean): void => {
+    setVoiceLive(on)
+    setLiveVoice(on)
+    if (on) startLive()
+    else stopLive(false)
+  }, [startLive, stopLive])
 
   /** Finish recording → upload the WAV → transcribe → fill the composer. */
   const finishVoice = useCallback((): void => {
@@ -2718,6 +2824,11 @@ export function ChatView({
 
   /** Open the recording sheet and start capturing audio. */
   const openVoice = useCallback((): void => {
+    // The remembered mode decides which recorder the mic button starts.
+    if (getLiveVoice()) {
+      startLive()
+      return
+    }
     voicePartialRef.current = ''
     setVoicePhase('recording')
     void startVoiceRecording({
@@ -2739,7 +2850,7 @@ export function ChatView({
         if (mountedRef.current) toast(message instanceof Error ? message.message : String(message))
       },
     )
-  }, [finishVoice])
+  }, [finishVoice, startLive])
 
   /**
    * Stop the active turn (desktop parity: the composer's primary button
@@ -3675,27 +3786,47 @@ export function ChatView({
       {voiceOpen && (
         <div className="voice-backdrop" onClick={() => { closeVoice() }}>
           <div
-            className="voice-sheet"
+            className={voiceLive ? 'voice-sheet voice-sheet-live' : 'voice-sheet'}
             role="dialog"
             aria-modal="true"
             aria-label="语音输入"
             onClick={(event) => { event.stopPropagation() }}
           >
-            <div className={'voice-wave' + (voicePhase === 'transcribing' ? ' voice-wave-idle' : '')} aria-hidden>
+            <div className={'voice-wave' + (voicePhase === 'transcribing' || voiceLiveBusy ? ' voice-wave-idle' : '')} aria-hidden>
               <span /><span /><span /><span /><span />
             </div>
             <div className="voice-text" role="status">
-              {voicePhase === 'transcribing'
-                ? '转写中...'
-                : voicePartial !== '' ? voicePartial : '正在听...'}
+              {voiceLive
+                ? voiceLiveBusy ? '识别中...' : '正在听，说完停一下'
+                : voicePhase === 'transcribing'
+                  ? '转写中...'
+                  : voicePartial !== '' ? voicePartial : '正在听...'}
+            </div>
+            {voiceLive && voiceTail.length > 0 && (
+              <div className="voice-tail" role="log">
+                {voiceTail.map((line, index) => (
+                  <div className="voice-tail-line" key={`${index}-${line}`}>{line}</div>
+                ))}
+              </div>
+            )}
+            <div className="voice-live-row">
+              <label className="voice-live-toggle">
+                <input
+                  type="checkbox"
+                  checked={voiceLive}
+                  onChange={(event) => { toggleVoiceLive(event.target.checked) }}
+                />
+                <span>连续对话</span>
+              </label>
+              <span className="voice-live-hint">{voiceLive ? '停一下自动发送' : '说完点完成'}</span>
             </div>
             <button
               type="button"
               className="voice-done"
-              disabled={voicePhase === 'transcribing'}
-              onClick={finishVoice}
+              disabled={!voiceLive && voicePhase === 'transcribing'}
+              onClick={() => { if (voiceLive) closeVoice(true); else finishVoice() }}
             >
-              {voicePhase === 'transcribing' ? '请稍候' : '完成'}
+              {voiceLive ? '结束' : voicePhase === 'transcribing' ? '请稍候' : '完成'}
             </button>
           </div>
         </div>
