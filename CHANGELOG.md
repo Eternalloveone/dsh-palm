@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-24
+
+### Changed
+
+- **The plugin loads on DSH 0.1.6 and later instead of being dropped before it starts.** 0.1.6 added a version gate that reads a plugin's `peerDependencies` before loading it, and the two official packages were still declared as `>=0.1.5-rc.1 <0.1.6-0`: on 0.1.7-rc.1 DSH answered `skipping profile bundle "@eternalloveone/dsh-palm": ... is incompatible with dsh 0.1.7-rc.1` and dropped the whole bundle, which left the phone surface dead while the desktop kept serving — the gate *skips* rather than fails, so nothing crashes and the web side shows no warning at all. Both ranges are now `<0.1.8-0`. Verified against 0.1.7-rc.1 with nothing but the declaration widened: the plugin boots, all 11 runtime contracts are present, a real pairing handshake succeeds, and `host-rpc` / `mux-stream` answer — the runtime needed no change, matching the static finding that every official-package import in this plugin is `import type` and therefore erased at build time.
+
 ## [1.5.0] - 2026-09-20
 
 ### Added

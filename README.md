@@ -193,7 +193,7 @@ The decision is delivered through three independent layers:
 
 ## Install
 
-Tested against **dsh 0.1.5-rc.2** (peer range `cordis >=4.0.1 <5`, `dsh-client-ui-slots`/`dsh-settings  >=0.1.5-rc.1 <0.1.6-0`). The plugin API between rc releases can change; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full version matrix.
+Tested against **dsh 0.1.5-rc.2**, **0.1.5-rc.3** and **0.1.7-rc.1** (peer range `cordis >=4.0.1 <5`, `dsh-client-ui-slots`/`dsh-settings >=0.1.5-rc.1 <0.1.8-0`). DSH 0.1.6 added a version gate that silently drops a plugin whose `peerDependencies` do not cover the running dsh, so the declared range must stay wide; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full version matrix.
 
 From npm:
 

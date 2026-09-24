@@ -193,7 +193,7 @@ dsh-palm 在任务完成或长回复结束时提醒手机。宿主端统一决�
 
 ## 安装
 
-**已在 dsh 0.1.5-rc.2 上测试**（peer 范围：`cordis >=4.0.1 <5`，`dsh-client-ui-slots` / `dsh-settings` 均为 `>=0.1.5-rc.1 <0.1.6-0`）。rc 版本之间的插件 API 可能变化；若使用其他 dsh 版本，安装后请验证配对面板与 `/m/` 界面。完整版本兼容矩阵见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+**已在 dsh 0.1.5-rc.2、0.1.5-rc.3 与 0.1.7-rc.1 上测试**（peer 范围：`cordis >=4.0.1 <5`，`dsh-client-ui-slots` / `dsh-settings` 均为 `>=0.1.5-rc.1 <0.1.8-0`）。0.1.6 起 DSH 新增插件版本门：`peerDependencies` 不覆盖当前版本时插件会被**静默跳过**（手机面全死、桌面端无任何提示），所以声明范围不能写窄；若使用其他 dsh 版本，安装后请验证配对面板与 `/m/` 界面。完整版本兼容矩阵见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
 从 npm 安装：
 

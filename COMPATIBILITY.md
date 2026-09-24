@@ -5,22 +5,23 @@
 | dsh-palm 版本 | 兼容的 DSH 版本 | 验证状态 | 运行时契约命名 | 配对设备是否沿用 | 备注 |
 |---|---|---|---|---|---|
 | v0.4.2 – v1.2.0 | **0.1.1-rc.1**（0.1.1-rc 线） | ✅ 发布时实测 | `remote-web-ui` | 是 | 0.1.5 及以后需升级到 v1.3.0（旧 API 已移除） |
-| **v1.3.0 – v1.5.0**（当前） | **0.1.5-rc.1 – 0.1.5-rc.2**（0.1.5-rc 线） | ✅ 在 rc.2 上实测（typecheck 0 错 + build + 测试 1156/1165） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦 |
+| **v1.3.0 – v1.5.1**（当前） | **0.1.5-rc.1 – 0.1.7-rc.1**（0.1.5-rc 线与 0.1.7 线） | ✅ 实测：0.1.5-rc.2（typecheck 0 错 + build + 测试 1156/1165）、0.1.5-rc.3 与 0.1.7-rc.1（容器矩阵 PASS：11 契约 + 真配对 + host-rpc + mux-stream） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦；0.1.7 线仅需放宽 peer 上界（0.1.6 起新增插件版本门，声明窄会被直接跳过） |
 
 （本表为权威版本对应，`package.json` 的 `peerDependencies` / `dsh.engines.dsh` 为机器可读声明。**同一版本带内、运行时契约未变的版本合并为一行**——契约命名或兼容版本带发生变化时才新增行。）
 
 ## 版本带说明
 
-| 声明 | v1.4.0 值 |
+| 声明 | v1.5.1 值 |
 |---|---|
 | `dsh.engines.dsh` | `>=0.1.5-rc.1` |
 | peer `@deepseek-ai/cordis` | `>=4.0.1 <5` |
-| peer `@deepseek-ai/dsh-client-ui-slots` | `>=0.1.5-rc.1 <0.1.6-0`（仅类型） |
-| peer `@deepseek-ai/dsh-settings` | `>=0.1.5-rc.1 <0.1.6-0` |
+| peer `@deepseek-ai/dsh-client-ui-slots` | `>=0.1.5-rc.1 <0.1.8-0`（仅类型） |
+| peer `@deepseek-ai/dsh-settings` | `>=0.1.5-rc.1 <0.1.8-0` |
 | peer `react` / `react-dom` | `^18.2.0` |
 | devDeps（编译期） | 全部 `@deepseek-ai/*` @ `0.1.5-rc.2` |
 
-> 为什么是 `0.1.5-rc.1` 起？0.1.5 拆掉了 `dsh-client-runtime`、`dsh-host-apiproxy`，重写了 `dsh-settings` 的 `installSection` 模型，且 0.1.5-rc.1 与 rc.2 之间 API 无破坏性变化（已实测），故取 `>=0.1.5-rc.1 <0.1.6-0` 兼容整个 0.1.5-rc 线。
+> 为什么是 `0.1.5-rc.1` 起？0.1.5 拆掉了 `dsh-client-runtime`、`dsh-host-apiproxy`，重写了 `dsh-settings` 的 `installSection` 模型，且 0.1.5-rc.1 与 rc.2 之间 API 无破坏性变化（已实测），故下界取 `>=0.1.5-rc.1` 以兼容整条 0.1.5-rc 线。
+> 为什么上界放到 `<0.1.8-0`？0.1.6 起 DSH 在装载前新增**插件版本门**：读插件的 `peerDependencies`，不覆盖当前运行版本就把**整个包静默跳过**（不崩、不告警）。旧上界 `<0.1.6-0` 会让插件在 0.1.7 上直接消失（手机面 `/m/` 全死、桌面端毫无提示）。下界之上的 0.1.5-rc.3 与 0.1.7-rc.1 均已实测（11 契约 + 真配对 + host-rpc + mux-stream），且插件对所有官方包都是 `import type`、无运行时耦合，故声明整个 0.1.x 带。
 
 ## 运行环境要求（v1.4.0）
 
