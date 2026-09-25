@@ -88,6 +88,7 @@
     "clsx": "^2.1.1",
     "qrcode.react": "^4.2.0",
     "schemastery": "^3.18.0",
+    "@deepseek-ai/schemastery": "^3.18.4",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
