@@ -18,7 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: activates the cordis Context merge providing `ctx.settings`
 // (the 0.1.5 SettingsProvider service carrying `installSection`).
 import type {} from '@deepseek-ai/dsh-settings'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DEFAULT_IDLE_EXPIRE_MS, PairingService, type PairingConfig } from './pairing.ts'
 import { dshHome } from './dsh-home.ts'
@@ -128,16 +128,16 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  tokenTtlMs: z.number().step(1).min(60_000).default(10 * 60_000),
-  offlineAfterMs: z.number().step(1).min(5_000).default(25_000),
-  maxDevices: z.number().step(1).min(1).max(64).default(4),
-  idleExpireMs: z.number().step(1).min(60_000).default(DEFAULT_IDLE_EXPIRE_MS),
-  cookieName: z.string().min(1).default('dsh_pair'),
-  requirePairingForLan: z.boolean().default(true),
-  publicBaseUrl: z.string(),
-  devicesFile: z.string(),
-  mobileEnterToSend: z.boolean().default(true),
-  enabled: z.boolean().default(true),
+  tokenTtlMs: z.number().step(1).min(60_000).default(10 * 60_000).volatile(),
+  offlineAfterMs: z.number().step(1).min(5_000).default(25_000).volatile(),
+  maxDevices: z.number().step(1).min(1).max(64).default(4).volatile(),
+  idleExpireMs: z.number().step(1).min(60_000).default(DEFAULT_IDLE_EXPIRE_MS).volatile(),
+  cookieName: z.string().min(1).default('dsh_pair').volatile(),
+  requirePairingForLan: z.boolean().default(true).volatile(),
+  publicBaseUrl: z.string().volatile(),
+  devicesFile: z.string().volatile(),
+  mobileEnterToSend: z.boolean().default(true).volatile(),
+  enabled: z.boolean().default(true).volatile(),
 })
 
 /** Presence sweep cadence (a stale device flips to disconnected within two sweeps). */
@@ -216,8 +216,27 @@ function applyImpl(ctx: Context, config?: Config): void {
   // section once the web settings surface is served, the composition entry
   // otherwise (installSettingsSection swaps it when the namespace registers).
   let current: () => Config = () => config ?? {}
+
+  /**
+   * DSH 0.1.6+ hands live `Volatile<T>` references (objects exposing `get()`)
+   * to `apply` for every `.volatile()` Config field. Unwrap them so every
+   * downstream `??` default and comparison sees a plain value; plain values,
+   * `undefined`, and null pass through untouched. On 0.1.5 nothing is
+   * volatile, so this is a no-op.
+   */
+  const unwrapVolatile = <T>(value: T): T => {
+    if (value === null || typeof value !== 'object') return value
+    const candidate = value as unknown as { get?: () => T }
+    if (typeof candidate.get === 'function') return candidate.get()
+    const out: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = unwrapVolatile(child)
+    }
+    return out as T
+  }
+
   const resolve = (): ResolvedConfig => {
-    const value = current()
+    const value = unwrapVolatile(current())
     return {
       tokenTtlMs: value.tokenTtlMs ?? DEFAULTS.tokenTtlMs,
       offlineAfterMs: value.offlineAfterMs ?? DEFAULTS.offlineAfterMs,

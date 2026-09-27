@@ -8,11 +8,20 @@
  * Dependency stance (0.1.5 decoupling): this surface keeps exactly two
  * `@deepseek-ai/*` imports — `@deepseek-ai/cordis` (the shared runtime
  * context) and `@deepseek-ai/dsh-client-ui-slots` (the slot/locale contract
- * types, type-only). Everything else (`ctx.locale`, `ctx.settingsScope`,
- * `ctx.slots`, `ctx.connection`) is narrowed structurally to the minimal
- * face this package needs, so no dsh-web-ui client bundle version can break
- * the pairing panel: the shell injects the real services at runtime, and
+ * types, type-only). Everything else (`ctx.locale`, `ctx.slots`,
+ * `ctx.connection`, the settings namespace) is narrowed structurally to the
+ * minimal face this package needs, so no dsh-web-ui client bundle version can
+ * break the pairing panel: the shell injects the real services at runtime, and
  * this file types them by shape, not by package.
+ *
+ * Settings stance (0.1.5 + 0.1.6/0.1.7): the settings namespace is the one
+ * service whose client name changed across the two lines (legacy
+ * `ctx.settingsScope`, modern `ctx.remote.settings`). It is deliberately NOT
+ * in the static `inject` below: a service a shell does not provide parks the
+ * plugin forever, which is how this surface stopped activating on 0.1.7. The
+ * adapter in `./settings-scope.ts` resolves whichever service the running
+ * shell provides (and degrades without throwing when neither does) behind the
+ * unchanged 0.1.5-shaped handle.
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -23,11 +32,18 @@ import { PairFailedNotice } from './PairFailedNotice.tsx'
 import { en, zh, type RemoteKey } from './locales.ts'
 import { PAIR_FAILED_MARKER, runPairBootFlow } from './deep-link.ts'
 import { sendHeartbeat } from './pair-api.ts'
+import { createRemoteSettingsAdapter, type SettingsScopeLike } from './settings-scope.ts'
 
 export type { RemoteEntryProps } from './RemoteEntry.tsx'
 export type { PanelState, RemotePanelProps } from './RemotePanel.tsx'
 export type { PairFailedNoticeProps } from './PairFailedNotice.tsx'
 export type { RemoteKey } from './locales.ts'
+export type {
+  SettingsBackend,
+  SettingsScopeBinderLike,
+  SettingsScopeLike,
+  SettingsScopeSnapshot,
+} from './settings-scope.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -82,23 +98,6 @@ interface LocaleLike {
 }
 
 /**
- * Minimal settings-namespace face. The full binder lives in
- * `@deepseek-ai/dsh-client-ui-settings`; the pairing surface needs bind /
- * getSnapshot / subscribe / set / unset, typed structurally against the
- * section shape it saves.
- */
-interface SettingsScopeLike<T> {
-  getSnapshot(): { status: 'loading' | 'ready' | 'unavailable'; value?: T }
-  subscribe(callback: () => void): () => void
-  set(key: keyof T & string, value: string | boolean): Promise<void>
-  unset(key: keyof T & string): Promise<void>
-}
-
-interface SettingsScopeBinderLike {
-  bind<T>(spec: { namespace: string }): SettingsScopeLike<T>
-}
-
-/**
  * Minimal slot-registry face. The full `ctx.slots` type lives in
  * `@deepseek-ai/dsh-client-ui-renderer`; the pairing surface only needs
  * `inject` + `register`.
@@ -118,8 +117,15 @@ interface ConnectionLike {
   readonly isLoopback?: boolean
 }
 
-/** Services required by this plugin (runtime injection by the shell). */
-export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote']
+/**
+ * Services required by this plugin (runtime injection by the shell).
+ *
+ * The settings namespace is intentionally absent: it is resolved at runtime by
+ * `createRemoteSettingsAdapter`, because its client name is version-dependent
+ * (`settingsScope` on 0.1.5, `remote.settings` on 0.1.6+) and a missing static
+ * inject would park this plugin forever on the other line.
+ */
+export const inject = ['slots', 'locale', 'connection', 'remote']
 
 /**
  * Register the pairing surface.
@@ -128,7 +134,6 @@ export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote
 export function apply(ctx: Context): void {
   const locale = (ctx as unknown as { locale: LocaleLike }).locale
   const slots = (ctx as unknown as { slots: SlotsLike }).slots
-  const ctxSettingsScope = (ctx as unknown as { settingsScope: SettingsScopeBinderLike }).settingsScope
 
   ctx.effect(() => {
     try {
@@ -139,7 +144,13 @@ export function apply(ctx: Context): void {
   }, 'dsh-palm: dictionaries')
 
   const t = locale.bind(NS)
-  const settingsScope = ctxSettingsScope.bind<RemoteSettings>({ namespace: DSH_PALM_NS })
+  // Version-agnostic settings handle: legacy `settingsScope` on 0.1.5, the
+  // modern `remote.settings` namespace on 0.1.6+, and a non-throwing degrade
+  // when neither is reachable. The modern backend listens on the forwarded
+  // document event, so its subscriptions are released with the plugin's fiber.
+  const settingsAdapter = createRemoteSettingsAdapter<RemoteSettings>(ctx, DSH_PALM_NS)
+  const settingsScope: SettingsScopeLike<RemoteSettings> = settingsAdapter.scope
+  ctx.effect(() => () => { settingsAdapter.dispose() }, 'dsh-palm: settings subscriptions')
   const enabled = (): boolean => {
     const snapshot = settingsScope.getSnapshot()
     return snapshot.status === 'ready'
