@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-09-30
+
+### Fixed
+
+- 「回到上次」阅读位置书签只在用户真的离开底部时才写入（判据与「回到最新消息」一致：gap > BOTTOM_FOLLOW_THRESHOLD_PX），在最新消息处停留不再产生书签；
+- 程序化滚动（开场回到底部、轮次定位、前插锚点校正）不再被误判为用户手势（新增 setScrollTopProgrammatically，仅在实际移动容器时置位）；
+- chip 的"是否最新轮"改用宿主轮次大纲投影（turnOutline）优先、本地已加载轮次兜底，深会话分页加载时不再闪现；
+- 书签存储前缀 dsh-palm.reading.v1. -> dsh-palm.reading.v2.，被写脏的旧书签立即失效并被维护/清配对路径回收。
+
 ## [1.5.1] - 2026-09-26
 
 ### Changed

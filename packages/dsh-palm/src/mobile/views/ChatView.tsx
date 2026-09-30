@@ -325,6 +325,14 @@ export function ChatView({
   const rafRef = useRef<number | undefined>(undefined)
   const scrollTopRef = useRef(0)
   /**
+   * True while a programmatic scroll (the opening tail pin, the locate, a
+   * prepend anchor correction) is in flight, so handleScroll can tell it apart
+   * from a user gesture: the FIRST scroll event consumes the flag, and that
+   * event may neither release the locate lock nor record a reading bookmark —
+   * it is the echo of a write, not the reader leaving the bottom.
+   */
+  const programmaticScrollRef = useRef(false)
+  /**
    * One deferred re-follow after the silent auto-extend prepend (open-time
    * older page). The old implementation re-followed from a rAF that reads
    * `el.scrollHeight` — but on a real browser the rAF can run BEFORE React
@@ -584,6 +592,19 @@ export function ChatView({
    *  number, not the entry count, so an outline that starts after turn 1 (or is
    *  only partly merged) still reads "7 / 43" instead of "7 / 12". */
   const maxTurn = turnEntries[turnEntries.length - 1]?.turn ?? 0
+  /** The host outline's own newest turn (0 until the projection lands). The
+   *  host projection is the session's FULL turn list, so — unlike `maxTurn`,
+   *  which only sees the rows currently loaded — it does not grow while deep
+   *  history pages in. It is the stable source for "is this the newest turn?":
+   *  a bookmark compared against a growing value would resurface as a bogus
+   *  「回到上次」 chip. */
+  const hostNewestTurn = useMemo(
+    () => parseTurnOutline(turnOutlineRaw).reduce((newest, entry) => Math.max(newest, entry.turn), 0),
+    [turnOutlineRaw],
+  )
+  /** The newest turn the bookmark is judged against: the host outline when it
+   *  has landed, the merged outline (local rows only) before that. */
+  const newestTurn = hostNewestTurn > 0 ? hostNewestTurn : maxTurn
   /** The currently-viewed turn (the row nearest the top of the viewport). */
   const [currentTurn, setCurrentTurn] = useState(0)
   /** What the handle and the sheet highlight show: the tracked reading turn,
@@ -597,6 +618,11 @@ export function ChatView({
   currentTurnRef.current = currentTurn
   const turnEntriesRef = useRef(turnEntries)
   turnEntriesRef.current = turnEntries
+  /** Live mirror of {@link newestTurn} for the deferred bookmark writes (the
+   *  scroll-settle debounce and the unmount flush must read the CURRENT newest
+   *  turn, not the one their closure captured). */
+  const newestTurnRef = useRef(newestTurn)
+  newestTurnRef.current = newestTurn
   const sessionIdRef = useRef(session.sessionId)
   sessionIdRef.current = session.sessionId
   /** Debounce handle for the scroll-settle reading save. */
@@ -1471,10 +1497,13 @@ export function ChatView({
     scrollTopRef.current = el.scrollTop
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
     bottomGapAtUserScrollRef.current = gap
-    // A programmatic scroll (the locate) must not be mistaken for a user
-    // gesture: it would release the locate lock and let the follower re-pin
-    // the viewport to the tail. Only a genuine user scroll releases the lock.
-    if (programmaticScrollRef.current) {
+    // A programmatic scroll (the opening tail pin, the locate, a prepend
+    // anchor correction) must not be mistaken for a user gesture: it would
+    // release the locate lock and let the follower re-pin the viewport to the
+    // tail. Only a genuine user scroll releases the lock — and, below, only a
+    // genuine user gesture may record a reading bookmark.
+    const programmatic = programmaticScrollRef.current
+    if (programmatic) {
       programmaticScrollRef.current = false
     } else {
       locateLockRef.current = false
@@ -1483,23 +1512,33 @@ export function ChatView({
     // the bottom (same threshold the auto-follower uses); React bails out on
     // unchanged values, so this costs nothing while scrolling.
     setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
-    // Track the turn whose row sits nearest the top of the viewport (the
-    // reader's position): drives the turn-list highlight and the handle's
-    // current/total readout. Mirrors locateWindow's scrollTop→row conversion.
-    // 0 means "no position yet"; the render falls back to the newest turn once.
-    const readPosition = deriveCurrentTurn(el.scrollTop) ?? 0
-    setCurrentTurn(readPosition)
-    // Reading-position memory: save the settled turn once scrolling pauses
-    // for a second (a live write on every pixel would churn localStorage).
-    // Reading the newest turn does not update the bookmark — the chip points
-    // at the mid-history spot the reader actually left from.
-    if (readingTimerRef.current !== undefined) window.clearTimeout(readingTimerRef.current)
-    readingTimerRef.current = window.setTimeout(() => {
-      readingTimerRef.current = undefined
-      const entries = turnEntriesRef.current
-      const newest = entries.length > 0 ? entries[entries.length - 1].turn : 0
-      if (readPosition > 0 && readPosition !== newest) saveReadingTurn(sessionIdRef.current, readPosition)
-    }, 1000)
+    // A bookmark means "the reader left the bottom to read history", so it is
+    // guarded by the same gap criterion as the 「回到最新消息」 button. Settling
+    // at (or near) the bottom is reading the newest content — the opening pin
+    // lands mid-history only because the container still carries estimated
+    // heights at that moment, and that must never become a bookmark.
+    const leftBottom = gap > BOTTOM_FOLLOW_THRESHOLD_PX
+    if (!programmatic) {
+      // Track the turn whose row sits nearest the top of the viewport (the
+      // reader's position): drives the turn-list highlight and the handle's
+      // current/total readout. Mirrors locateWindow's scrollTop→row conversion.
+      // 0 means "no position yet"; the render falls back to the newest turn
+      // once. A programmatic event is the echo of a write, not the reader's
+      // position, so it must not overwrite the tracked turn either.
+      const readPosition = deriveCurrentTurn(el.scrollTop) ?? 0
+      setCurrentTurn(readPosition)
+      // Reading-position memory: save the settled turn once scrolling pauses
+      // for a second (a live write on every pixel would churn localStorage).
+      // Reading the newest turn does not update the bookmark — the chip points
+      // at the mid-history spot the reader actually left from.
+      if (readingTimerRef.current !== undefined) window.clearTimeout(readingTimerRef.current)
+      readingTimerRef.current = window.setTimeout(() => {
+        readingTimerRef.current = undefined
+        if (!leftBottom) return
+        const newest = newestTurnRef.current
+        if (readPosition > 0 && readPosition !== newest) saveReadingTurn(sessionIdRef.current, readPosition)
+      }, 1000)
+    }
     // Scrolling back to the bottom counts as reading: clear the unread
     // badge and advance the seen-turn baseline, so a reader who manually
     // scrolls down (instead of tapping the jump button) also clears the
@@ -1526,17 +1565,34 @@ export function ChatView({
         readingTimerRef.current = undefined
       }
       const turn = currentTurnRef.current
-      const entries = turnEntriesRef.current
-      const newest = entries.length > 0 ? entries[entries.length - 1].turn : 0
+      const newest = newestTurnRef.current
+      // Same "the reader actually left the bottom" guard as the debounce: the
+      // gap ref holds the distance of their LAST scroll event, so a session
+      // that only ever sat at the tail (the opening pin included) leaves no
+      // bookmark behind.
+      if (bottomGapAtUserScrollRef.current <= BOTTOM_FOLLOW_THRESHOLD_PX) return
       if (turn > 0 && turn !== newest) saveReadingTurn(session.sessionId, turn)
     }
   }, [session.sessionId])
 
+  /**
+   * Write a programmatic scroll position. handleScroll reads the flag as "the
+   * next scroll event is the echo of this write, not a reader gesture" — such
+   * an event neither releases the locate lock nor records a reading bookmark.
+   * Armed only when the write really moves the container: an unchanged
+   * scrollTop fires no scroll event, and the stale flag would then swallow the
+   * reader's next genuine gesture (and with it their bookmark).
+   */
+  const setScrollTopProgrammatically = useCallback((el: HTMLDivElement, value: number): void => {
+    if (el.scrollTop !== value) programmaticScrollRef.current = true
+    el.scrollTop = value
+    scrollTopRef.current = el.scrollTop
+  }, [])
+
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
     if (el === undefined) return
-    el.scrollTop = el.scrollHeight
-    scrollTopRef.current = el.scrollTop
+    setScrollTopProgrammatically(el, el.scrollHeight)
     // Windowed mode: pin the window to the tail right away. The follow-up
     // rAF locate would land on the current scroll position, which can still
     // be 0 here (jsdom, or the very first frames) — the chat opens at the
@@ -1550,7 +1606,7 @@ export function ChatView({
       setWin(previous => previous.start === start && previous.end === count ? previous : { start, end: count })
     }
     scheduleLocate()
-  }, [scheduleLocate])
+  }, [scheduleLocate, setScrollTopProgrammatically])
 
   /** Pin the viewport to the REAL tail. In windowed mode the DOM scrollHeight
    * is an estimate (the top spacer carries estimated heights + the opening
@@ -1566,10 +1622,9 @@ export function ChatView({
     const target = prefix !== undefined && count > 0
       ? (prefix[count] ?? el.scrollHeight) + heightCorrectionRef.current
       : el.scrollHeight
-    el.scrollTop = target
-    scrollTopRef.current = el.scrollTop
+    setScrollTopProgrammatically(el, target)
     scheduleLocate()
-  }, [scheduleLocate])
+  }, [scheduleLocate, setScrollTopProgrammatically])
 
   // Track the last message's fold key so scrolling only fires when the
   // newest message actually changes (seq bump and/or pending flip). Runs
@@ -2205,8 +2260,10 @@ export function ChatView({
             // restore has already run and cannot overwrite the anchor.
             const target = (anchorTop ?? el.scrollTop) + inserted
             requestAnimationFrame(() => {
-              el.scrollTop = target
-              scrollTopRef.current = el.scrollTop
+              // Programmatic: the anchor shift is not the reader leaving the
+              // bottom, so its scroll event must not record a bookmark for the
+              // mid-history turn the shift happens to land on.
+              setScrollTopProgrammatically(el, target)
             })
           }
         }
@@ -2220,7 +2277,7 @@ export function ChatView({
         if (!silent) setError(errorText(reason))
       },
     )
-  }, [session.sessionId, messages, scrollToBottom])
+  }, [session.sessionId, messages, scrollToBottom, setScrollTopProgrammatically])
   loadOlderRef.current = loadOlder
 
   // Focus-locate (search-hit open): scroll the chat to the row covering the
@@ -2247,10 +2304,6 @@ export function ChatView({
    *  "keyword highlighted but the viewport sits at the tail" failure. The
    *  lock is released on the first genuine USER scroll. */
   const locateLockRef = useRef(false)
-  /** True while a programmatic scroll (the locate) is in flight, so
-   *  handleScroll can tell it apart from a user gesture and not release the
-   *  locate lock. */
-  const programmaticScrollRef = useRef(false)
   /** True while a search-locate has resolved its target row but has not yet
    *  scrolled the anchor into view. During this window the opening tail-pin /
    *  windowed re-locate must stand down — otherwise they repurpose the render
@@ -2451,10 +2504,9 @@ export function ChatView({
         const top = anchor.getBoundingClientRect().top - el2.getBoundingClientRect().top + el2.scrollTop - 8
         const before = el2.scrollTop
         // Mark this as a programmatic scroll so handleScroll does not treat it
-        // as a user gesture and release the locate lock.
-        programmaticScrollRef.current = true
-        el2.scrollTop = Math.max(0, top)
-        scrollTopRef.current = el2.scrollTop
+        // as a user gesture and release the locate lock (nor record a reading
+        // bookmark for the located turn).
+        setScrollTopProgrammatically(el2, Math.max(0, top))
         try { anchor.scrollIntoView() } catch { /* older webviews */ }
         // Verify one frame later; if the anchor is still off-viewport, retry
         // the scroll rather than giving up (a later commit/effect may have
@@ -2555,7 +2607,7 @@ export function ChatView({
     }
     timer = setTimeout(retry, 50)
     return () => clearTimeout(timer)
-  }, [focusMsgId, win, initialFocusMessageId, initialFocusPartId])
+  }, [focusMsgId, win, initialFocusMessageId, initialFocusPartId, setScrollTopProgrammatically])
 
   /** Add a picked/pasted image: compress it, then append to the attach list. */
   const addImage = useCallback((file: File) => {
@@ -3217,7 +3269,13 @@ export function ChatView({
             <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
           </button>
         )}
-        {lastReadTurn !== undefined && lastReadTurn !== maxTurn && maxTurn >= 2 && (
+        {/* 「回到上次」 is ENTRY-TIME intent: it must be offered as soon as an
+            open finds a bookmark, so it is deliberately NOT gated on
+            showJumpToLatest. A bookmark that no longer differs from the newest
+            turn is not a "last read" spot at all — checked against the stable
+            host-outline newest turn AND the locally-merged one, so neither a
+            late-landing projection nor a locally-newer turn can render it. */}
+        {lastReadTurn !== undefined && lastReadTurn !== newestTurn && lastReadTurn !== maxTurn && maxTurn >= 2 && (
           <button
             type="button"
             className="chat-jump-lastread"

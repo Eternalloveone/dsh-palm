@@ -408,5 +408,27 @@ describe('deferred store writes', () => {
       clearPairingCaches()
       expect(loadReadingTurn('s-1')).toBeUndefined()
     })
+
+    it('ignores pre-v2 bookmarks on load and sweeps them in the maintenance pass', () => {
+      // v1 records were also written by the opening programmatic scroll, so
+      // they can point at a turn the reader never left the bottom for. The
+      // store reads v2 only, and the prune pass drops the stale v1 keys.
+      localStorage.setItem('dsh-palm.reading.v1.s-legacy', JSON.stringify({ t: Date.now(), v: 3 }))
+      localStorage.setItem('dsh-palm.cache-index.v1', JSON.stringify(['dsh-palm.reading.v1.s-legacy']))
+      expect(loadReadingTurn('s-legacy')).toBeUndefined()
+      maintainPersistedCaches()
+      expect(localStorage.getItem('dsh-palm.reading.v1.s-legacy')).toBeNull()
+      // New bookmarks land under the v2 prefix.
+      saveReadingTurn('s-1', 4)
+      expect(localStorage.getItem('dsh-palm.reading.v2.s-1')).not.toBeNull()
+      expect(loadReadingTurn('s-1')).toBe(4)
+    })
+
+    it('clearPairingCaches drops pre-v2 bookmarks too', () => {
+      localStorage.setItem('dsh-palm.reading.v1.s-legacy', JSON.stringify({ t: Date.now(), v: 3 }))
+      localStorage.setItem('dsh-palm.cache-index.v1', JSON.stringify(['dsh-palm.reading.v1.s-legacy']))
+      clearPairingCaches()
+      expect(localStorage.getItem('dsh-palm.reading.v1.s-legacy')).toBeNull()
+    })
   })
 })

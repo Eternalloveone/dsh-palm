@@ -58,7 +58,14 @@ const LIST_PREFIX = 'dsh-palm.list.v1.'
 const PREVIEW_STORE = 'dsh-palm.prev.v1'
 const SCROLL_PREFIX = 'dsh-palm.scroll.v1.'
 const DRAFT_PREFIX = 'dsh-palm.draft.v1.'
-const READING_PREFIX = 'dsh-palm.reading.v1.'
+/** Reading bookmarks, v2. The v1 store was written by the opening programmatic
+ *  scroll as well as by real gestures, so a session that was merely OPENED
+ *  could carry a bogus 「回到上次 · 第 N 轮」 chip. The prefix bump invalidates
+ *  every v1 record; {@link LEGACY_READING_PREFIX} keys are swept by the
+ *  maintenance pass and by the pairing clear so they do not linger. */
+const READING_PREFIX = 'dsh-palm.reading.v2.'
+/** Pre-v2 reading prefix (see {@link READING_PREFIX}) — never read, only pruned. */
+const LEGACY_READING_PREFIX = 'dsh-palm.reading.v1.'
 /**
  * Self-maintained key registry: storage environments differ wildly (browser
  * Storage exposes length/key(), while vitest's jsdom localStorage is a plain
@@ -405,17 +412,20 @@ export function clearPairingCaches(): void {
   // Anything queued was armed before the eviction, so it must not run after it.
   cancelPersistedWrites()
   const doomed = indexedKeys().filter(key =>
-    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key.startsWith(READING_PREFIX) || key === PREVIEW_STORE || key === PIN_STORAGE)
+    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || key.startsWith(READING_PREFIX) || key.startsWith(LEGACY_READING_PREFIX) || key === PREVIEW_STORE || key === PIN_STORAGE)
   removeKeys(doomed)
 }
 
-/** Opportunistic maintenance: drop expired list entries and drafts (previews
- *  are capacity-bounded at write time; scroll offsets expire with their
- *  list). */
+/** Opportunistic maintenance: drop expired list entries and drafts, and sweep
+ *  the pre-v2 reading bookmarks (previews are capacity-bounded at write time;
+ *  scroll offsets expire with their list). */
 export function maintainPersistedCaches(): void {
   if (!hasStorage()) return
   const now = Date.now()
   const doomed = indexedKeys().filter(key => {
+    // Legacy reading records are never read again — drop them outright (their
+    // TTL is moot: the store they belong to no longer exists).
+    if (key.startsWith(LEGACY_READING_PREFIX)) return true
     if (key.startsWith(LIST_PREFIX)) {
       const entry = readJson<PersistedList>(readRaw(key))
       return entry === undefined || now - entry.savedAt > LIST_PERSIST_TTL_MS

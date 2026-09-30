@@ -3015,6 +3015,99 @@ describe('回到上次 chip', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
     expect(screen.queryByRole('button', { name: '回到上次读到的轮次' })).toBeNull()
   })
+
+  /**
+   * A long page: `count` turns of prompt + reply. Its ESTIMATED height (what the
+   * container carries before the real layout lands) is ~108px per turn, so a
+   * mid-page scrollTop resolves to an early/mid turn — the shape the opening
+   * pin lands on when the estimated height undershoots the real one.
+   */
+  const longPage = (count: number): ChatPageResult => {
+    const events: Array<{ event: WireEvent }> = []
+    for (let turn = 1; turn <= count; turn++) {
+      events.push(makeEntry('user/message', {
+        id: `u-${turn}`,
+        role: 'user',
+        content: [{ type: 'text', text: `第${turn}轮的问题` }],
+      }, turn * 10))
+      events.push(makeEntry('assistant/message', {
+        turn,
+        step: 0,
+        message: { id: `a-${turn}`, role: 'assistant', content: [{ type: 'text', text: `第${turn}轮的完整回答内容` }] },
+      }, turn * 10 + 1))
+    }
+    return rowPage(events)
+  }
+
+  /** Scroll to a position the way a reader's gesture would. A real browser
+   *  fires exactly ONE scroll event for a programmatic write (the opening pin);
+   *  jsdom never does, so the tests dispatch that event themselves before
+   *  acting — otherwise the component's programmatic-scroll flag (armed by the
+   *  opening write, see setScrollTopProgrammatically) would swallow the
+   *  synthetic gesture the same way a stale flag would swallow a real one. */
+  const scrollTo = (scrollTop: number): void => {
+    fireEvent.scroll(document.querySelector('.chat-scroll')!, { target: { scrollTop } })
+  }
+
+  it('never bookmarks the opening programmatic pin, even when it lands mid-history', async () => {
+    // At open the container still carries estimated heights, so the pin can sit
+    // short of the real bottom and the echo of THAT write reports a mid-history
+    // turn far from the bottom. It is not a gesture: no bookmark may come of it.
+    scrollHeightMock = 4000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValue(longPage(40))
+    const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('第40轮的完整回答内容')
+    // The pin's own scroll event: the estimate undershot, so the real height is
+    // now larger and the reported position looks like "scrolled up mid-history".
+    scrollHeightMock = 5200
+    scrollTo(4000)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)) })
+    expect(loadReadingTurn('s-1')).toBeUndefined()
+    // The unmount flush must not write it either.
+    view.unmount()
+    expect(loadReadingTurn('s-1')).toBeUndefined()
+  })
+
+  it('never bookmarks a scroll that settles within the bottom threshold', async () => {
+    scrollHeightMock = 4000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValue(longPage(40))
+    const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('第40轮的完整回答内容')
+    // Consume the opening pin's own scroll event, as a browser would.
+    scrollTo(4000)
+    // A 20px nudge from the bottom is still reading the newest content, even
+    // though the turn derived from that position is mid-history: the old guard
+    // compared turns only, so this used to arm the chip.
+    scrollTo(3380)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)) })
+    expect(loadReadingTurn('s-1')).toBeUndefined()
+    expect(screen.queryByRole('button', { name: '回到上次读到的轮次' })).toBeNull()
+    view.unmount()
+    expect(loadReadingTurn('s-1')).toBeUndefined()
+  })
+
+  it('still bookmarks a genuine upward scroll and offers the chip on the next open', async () => {
+    scrollHeightMock = 4000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValue(longPage(40))
+    const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('第40轮的完整回答内容')
+    scrollTo(4000)
+    // The reader leaves the bottom to read history (gap 1400 ≫ threshold).
+    scrollTo(2000)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)) })
+    const bookmark = loadReadingTurn('s-1')
+    expect(bookmark).toBeGreaterThan(0)
+    expect(bookmark).toBeLessThan(40)
+    view.unmount()
+    // Re-opening the session still offers the chip on the bookmarked turn.
+    loadChatPageMock.mockResolvedValue(longPage(40))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const chip = await screen.findByRole('button', { name: '回到上次读到的轮次' })
+    expect(chip.textContent).toContain(`第 ${bookmark} 轮`)
+  })
 })
 
 
