@@ -74,7 +74,7 @@ jobs:
           DSH_PALM_GUARD_REGEX: ${{ secrets.REAL_IDS_REGEX }}
         run: node scripts/verify.mjs --only hygiene
       - name: Gitleaks secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Package content check
