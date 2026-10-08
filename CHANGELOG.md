@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-10-08
+
+### Fixed
+
+- **手机端的权限面板在 DSH 0.1.7-rc.1 上又回来了。** 0.1.7-rc.1 把 `permissions` 投影的 wire 从 `{options, currentValue}` 收窄成 `{currentValue}`：可选 preset 列表搬到了进程级的 `permissionPresets.catalog()`，桌面端跟着改读目录，而手机端的 `parsePermissionSelect` 仍按旧形状解析——它要求 `options` 非空，否则返回 `undefined`，于是权限胶囊（会话里那枚显示当前 preset 的小标签）与整个权限面板都不再渲染，桌面正常、手机没有，两端还都不报错。修法放在**宿主侧**，手机端已缓存的 bundle 因此不必更新：新增 `src/permission-options.ts`，经 `ctx.get('permissionPresets').catalog()` **现取**进程目录（目录随 live 贡献变化，缓存下来会让手机停在旧列表上），只在投影值确实缺 `options` 时补上；服务缺失、形状不符、调用抛错一律原样返回。`api-proxy-adapter` 构造时取一次，同时喂给 history 页基线（`HistoryAdapter`）与实时帧（`setupMuxSources` → `controlFrameToMux`）。旧宿主本就带 `options`，所以这条路径在那条线上是零操作——一个构建同时服务两代宿主。端到端验证：用手机自己的配对凭据打它真正调用的 `mobile.readChat`，投影里已带回 read-only / workspace-write / danger-full-access 三项（会话**列表**那条 roster 投影没有装饰，仍不带选项——手机端权限胶囊不读它）。契约锁在 `src/permission-options.test.ts`。
+
 ## [1.5.2] - 2026-09-30
 
 ### Fixed

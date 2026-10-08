@@ -43,6 +43,7 @@ import type {
 } from './api-proxy-types.ts'
 import { RpcId } from './api-proxy-types.ts'
 import { HistoryAdapter } from './api-proxy-history.ts'
+import { permissionOptionsSource } from './permission-options.ts'
 import { WorkspaceListAdapter } from './api-proxy-workspace.ts'
 import { MuxBroadcast, setupMuxSources } from './api-proxy-mux.ts'
 import { setupAssistantStream } from './api-proxy-stream.ts'
@@ -270,11 +271,12 @@ export function makeApiProxyAdapter(
     diagnostics.register(name, kind, ok, ok ? undefined : '宿主未提供该方法')
   }
 
-  const history = new HistoryAdapter(session)
+  const permissionOptions = permissionOptionsSource(ctx)
+  const history = new HistoryAdapter(session, permissionOptions)
   const workspaceList = new WorkspaceListAdapter(workspace)
   const broadcast = new MuxBroadcast()
   const muxSignal = new AbortController()
-  const disposeMux = setupMuxSources(ctx, session, broadcast, muxSignal.signal, diagnostics)
+  const disposeMux = setupMuxSources(ctx, session, broadcast, muxSignal.signal, diagnostics, permissionOptions)
   // 手机正在看的会话的 token 级流式：直接订阅宿主 `agent/assistant-stream` 总线
   // （session-controller 自己也是这么消费的，见 api-proxy-stream.ts），
   // 翻译成手机 fold 认识的持久形状事件后走同一个广播。

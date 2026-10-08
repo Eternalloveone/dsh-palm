@@ -29,6 +29,7 @@ import type { SessionControlFrame } from '@deepseek-ai/dsh-api-session-controlle
 import type { RpcRequest, MuxFrame, JobView, QueuedInboxItem } from './api-proxy-types.ts'
 import { RpcId } from './api-proxy-types.ts'
 import type { DependencyDiagnostics } from './api-proxy-diag.ts'
+import { NO_PERMISSION_OPTIONS, decorateProjectionValue, type PermissionOptionsSource } from './permission-options.ts'
 
 /** 会话列表的宿主事件名（桌面端客户端消费同一批，见 session-controller client/index.ts:102-110）。 */
 const SESSION_LIST_EVENTS = [
@@ -124,13 +125,14 @@ export function setupMuxSources(
   broadcast: MuxBroadcast,
   signal: AbortSignal,
   diagnostics?: DependencyDiagnostics,
+  permissionOptions: PermissionOptionsSource = NO_PERMISSION_OPTIONS,
 ): () => void {
   const controlTask = (async () => {
     try {
       const frames = session.control(signal)
       for await (const frame of frames) {
         diagnostics?.note('session.control')
-        for (const wire of controlFrameToMux(frame)) broadcast.emit(wire)
+        for (const wire of controlFrameToMux(frame, permissionOptions)) broadcast.emit(wire)
       }
     } catch {
       // 流结束或中止；best-effort。
@@ -222,7 +224,7 @@ export function setupMuxSources(
 }
 
 /** 把一条 SessionControlFrame 展开为若干 MuxFrame。 */
-function controlFrameToMux(frame: SessionControlFrame): MuxFrame[] {
+function controlFrameToMux(frame: SessionControlFrame, permissionOptions: PermissionOptionsSource = NO_PERMISSION_OPTIONS): MuxFrame[] {
   if (frame.type === 'baseline') {
     const out: MuxFrame[] = []
     for (const [sessionId, items] of Object.entries(frame.value.queues)) {
@@ -233,7 +235,7 @@ function controlFrameToMux(frame: SessionControlFrame): MuxFrame[] {
     }
     for (const [sessionId, projections] of Object.entries(frame.value.projections)) {
       for (const [key, value] of Object.entries(projections.values)) {
-        out.push({ type: 'session/projection', sessionId, key, value, seq: projections.asOfSeq })
+        out.push({ type: 'session/projection', sessionId, key, value: decorateProjectionValue(key, value, permissionOptions()), seq: projections.asOfSeq })
       }
     }
     return out
@@ -245,7 +247,7 @@ function controlFrameToMux(frame: SessionControlFrame): MuxFrame[] {
     return [{ type: 'session/jobs', sessionId: frame.sessionId as string, jobs: frame.jobs.map(toJobView) }]
   }
   if (frame.type === 'projection') {
-    return [{ type: 'session/projection', sessionId: frame.sessionId as string, key: frame.key, value: frame.value, seq: frame.seq }]
+    return [{ type: 'session/projection', sessionId: frame.sessionId as string, key: frame.key, value: decorateProjectionValue(frame.key, frame.value, permissionOptions()), seq: frame.seq }]
   }
   return []
 }

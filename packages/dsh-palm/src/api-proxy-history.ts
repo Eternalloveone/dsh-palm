@@ -28,6 +28,7 @@ import type {
   SessionProjectionBaseline,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { HistoryEntry, SessionProjectionsBlock, SessionId, SessionEvent } from './api-proxy-types.ts'
+import { NO_PERMISSION_OPTIONS, withPermissionOptions, type PermissionOptionsSource } from './permission-options.ts'
 
 /** 游标+投影缓存的最长复用时长（毫秒）；超过即重开 follow 取当前游标。 */
 export const META_TTL_MS = 1000
@@ -68,7 +69,7 @@ export class HistoryAdapter {
   private readonly cache = new Map<string, FollowMeta>()
   private readonly inflight = new Map<string, Promise<FollowMeta>>()
 
-  constructor(private readonly session: SessionController) {}
+  constructor(private readonly session: SessionController, private readonly permissionOptions: PermissionOptionsSource = NO_PERMISSION_OPTIONS) {}
 
   /**
    * 读一页历史（tail 或 beforeSeq 页）。游标来自 follow 打开帧：TTL 内复用，
@@ -93,7 +94,7 @@ export class HistoryAdapter {
     return {
       events,
       hasMore: page.hasMore,
-      ...(meta.projections === undefined ? {} : { projections: toProjectionsBlock(meta.projections) }),
+      ...(meta.projections === undefined ? {} : { projections: withPermissionOptions(toProjectionsBlock(meta.projections), this.permissionOptions()) }),
     }
   }
 

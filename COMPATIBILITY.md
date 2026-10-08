@@ -5,7 +5,8 @@
 | dsh-palm 版本 | 兼容的 DSH 版本 | 验证状态 | 运行时契约命名 | 配对设备是否沿用 | 备注 |
 |---|---|---|---|---|---|
 | v0.4.2 – v1.2.0 | **0.1.1-rc.1**（0.1.1-rc 线） | ✅ 发布时实测 | `remote-web-ui` | 是 | 0.1.5 及以后需升级到 v1.3.0（旧 API 已移除） |
-| **v1.3.0 – v1.5.1**（当前） | **0.1.5-rc.1 – 0.1.7-rc.1**（0.1.5-rc 线与 0.1.7 线） | ✅ 实测：0.1.5-rc.2（typecheck 0 错 + build + 测试 1156/1165）、0.1.5-rc.3 与 0.1.7-rc.1（容器矩阵 PASS：11 契约 + 真配对 + host-rpc + mux-stream；**生产实跑 0.1.7-rc.1**：21 个设置命名空间（含 palm/see-image/subagent-model）、GUI 门禁 5/5 PASS、`/m/`→200、`/api/pair/status`→200、未激活 0 与 disabling 0） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦；0.1.7 线仅需放宽 peer 上界（0.1.6 起新增插件版本门，声明窄会被直接跳过） |
+| v1.3.0 – v1.5.2 | **0.1.5-rc.1 – 0.1.7-rc.1**（0.1.5-rc 线与 0.1.7 线） | ✅ 实测：0.1.5-rc.2（typecheck 0 错 + build + 测试 1156/1165）、0.1.5-rc.3 与 0.1.7-rc.1（容器矩阵 PASS：11 契约 + 真配对 + host-rpc + mux-stream；**生产实跑 0.1.7-rc.1**：21 个设置命名空间（含 palm/see-image/subagent-model）、GUI 门禁 5/5 PASS、`/m/`→200、`/api/pair/status`→200、未激活 0 与 disabling 0） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦；0.1.7 线仅需放宽 peer 上界（0.1.6 起新增插件版本门，声明窄会被直接跳过）；在 0.1.7-rc.1 上手机端权限面板缺失（见下行 v1.5.3） |
+| **v1.5.3**（当前） | **0.1.5-rc.1 – 0.1.7-rc.1**（同上） | ✅ 实测：0.1.7-rc.1 生产过程（`mobile.readChat` 的 `projections.values.permissions` 已带 `options`、手机端权限胶囊与权限面板恢复；本地门禁 8/8 PASS、1188 测试通过 / 9 跳过） | `dsh-palm` | **否** — 同上一行，升级后需重新扫码配对一次 | 0.1.7-rc.1 起 `permissions` 投影的 wire 收窄为 `{currentValue}`（选项搬到进程级 `permissionPresets.catalog()`）：**v1.5.2 及以前手机端权限胶囊与权限面板整块不渲染**（桌面端正常、两端都不报错），v1.5.3 起在宿主侧补挂进程目录恢复 |
 
 （本表为权威版本对应，`package.json` 的 `peerDependencies` / `dsh.engines.dsh` 为机器可读声明。**同一版本带内、运行时契约未变的版本合并为一行**——契约命名或兼容版本带发生变化时才新增行。）
 
@@ -62,11 +63,12 @@ WxPusher / Server酱 / Bark / Telegram / PushPlus（降级保留）（L3 通知�
 - 配对持久化：`$DSH_HOME/dsh-palm-devices.json`；settings 段 `dsh-palm`（`settings.yaml`）。
 - 与 dsh-remote-web-ui 的关系：**无**包依赖；仅 README/NOTICE 保留 Apache 衍生署名。
 
-## DSH 升级时核对（每次 DSH 升级只需查这 4 处）
+## DSH 升级时核对（每次 DSH 升级只需查这 5 处）
 
 1. `src/api-proxy-adapter.ts` — 5 个 controller 服务名与方法签名（session / workspace / settings / agentPresets / subagents）
 2. `src/index.ts` — `ctx.settings.installSection` 调用签名
 3. `src/client/index.ts` — `SlotMap` 的 `sidebar.footer.action` shape + `package.json` 的 `dsh.client.inject` 列表
 4. `package.json` — peer 版本带是否需放宽（`pnpm-workspace.yaml` 的 minimumReleaseAgeExclude 同步）
+5. **投影（session projections）的 wire 形状** — 每个 key 的字段增删都算契约：0.1.7-rc.1 就把 `permissions` 从 `{options, currentValue}` 收窄成 `{currentValue}`（选项搬到进程级 `permissionPresets.catalog()`），插件若仍按旧形状解析，手机端会**静默少一块界面**（桌面端正常、两端都不报错）。判定：用手机配对凭据打 `mobile.readChat`，看 `projections.values` 里各 key 是否仍是客户端解析的形状。
 
 判定方式：`plugin-compat-check.mjs`（Docker 全装配 + HTTP 200 实测）；0.1.x 内小迭代大概率直接通过。
