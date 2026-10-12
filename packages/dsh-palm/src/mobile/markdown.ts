@@ -62,6 +62,51 @@ export function safeUrl(raw: string): string | null {
   return name === 'http' || name === 'https' || name === 'mailto' ? trimmed : null
 }
 
+/* ── local image destinations ─────────────────────────────────────────
+   The desktop surface rewrites an authored image path into its
+   authenticated `/api/file` URL, so `![](D:\shot.png)` renders on the
+   desktop. The phone bundle has no such route: `safeUrl` reads the drive
+   letter of `D:\…` as an unknown scheme (the image degrades to alt text)
+   and a path like `./a.png` would resolve against `/m/` and 404. So a
+   local destination is carried on `data-local-src` instead, and the
+   message body hydrates it through `mobile.readFile` (which answers a
+   data URL) once mounted — see markdown-text.tsx.
+
+   The drive check must precede the scheme check: `D:/a.png` also matches
+   `^[A-Za-z][A-Za-z0-9+.-]*:`, and testing schemes first would classify
+   every Windows path as an unsupported protocol. The desktop panel's
+   path-images.ts orders them the same way for the same reason. */
+
+/** Image extensions a local destination may carry. */
+const LOCAL_IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i
+
+/** `X:/`, `X:\` — a Windows drive path (checked before any scheme). */
+const WINDOWS_DRIVE_RE = /^[A-Za-z]:[\\/]/
+
+/** `scheme:` in the URL sense (D: is excluded by the drive check above). */
+const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/
+
+/**
+ * The local filesystem path of an authored image destination, or null when
+ * the destination is a URL (or too malformed to identify a file).
+ * @param raw - the authored destination, still percent-encoded.
+ * @returns the decoded path, or null when it does not name a local file.
+ */
+export function localImagePath(raw: string): string | null {
+  const withoutSuffix = raw.trim().replace(/[?#][\s\S]*$/, '')
+  if (withoutSuffix === '') return null
+  // Protocol-relative (`//host/x.png`) reaches an arbitrary origin: never local.
+  if (withoutSuffix.startsWith('//')) return null
+  if (SCHEME_RE.test(withoutSuffix) && !WINDOWS_DRIVE_RE.test(withoutSuffix)) return null
+  if (!LOCAL_IMAGE_EXT_RE.test(withoutSuffix)) return null
+  try {
+    return decodeURIComponent(withoutSuffix)
+  } catch {
+    // Malformed percent escapes do not identify a file.
+    return null
+  }
+}
+
 /** Find the ')' closing a link/image target, skipping nested parens. */
 function findCloseParen(text: string, from: number): number {
   let depth = 0
@@ -142,12 +187,21 @@ export function renderInline(text: string): string {
         if (parenEnd !== -1) {
           const alt = text.slice(i + 2, close)
           const src = text.slice(close + 2, parenEnd)
-          const safe = safeUrl(src)
-          if (safe === null) {
-            out += escapeHtml(alt)
+          const local = localImagePath(src)
+          if (local !== null) {
+            // No `src` yet: the body hydrates it through mobile.readFile.
+            // A bare `src` here would either be dropped by the browser (a
+            // drive path is not a URL) or 404 under /m/.
+            out += '<img class="md-local-img" data-local-src="' + escapeHtml(local)
+              + '" alt="' + escapeHtml(alt) + '" loading="lazy" decoding="async" />'
           } else {
-            const srcEsc = escapeHtml(safe).replace(/\s+/g, '%20')
-            out += '<img alt="' + escapeHtml(alt) + '" src="' + srcEsc + '" loading="lazy" decoding="async" />'
+            const safe = safeUrl(src)
+            if (safe === null) {
+              out += escapeHtml(alt)
+            } else {
+              const srcEsc = escapeHtml(safe).replace(/\s+/g, '%20')
+              out += '<img alt="' + escapeHtml(alt) + '" src="' + srcEsc + '" loading="lazy" decoding="async" />'
+            }
           }
           i = parenEnd + 1
           continue

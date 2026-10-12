@@ -18,7 +18,16 @@ function mockFetch(responses: Array<{ status: number; body: unknown }>): void {
 describe('buildUsageView', () => {
   it('maps an Ollama provider to a usage row and labels a keyless provider unsupported', async () => {
     mockFetch([
-      { status: 200, body: { limits: { weekly: { usage: 0.459, models: [{ name: 'm', request_count: 3 }] }, session: { usage: 0.05 } } } },
+      // /api/balance —— 剩余百分比 + 重置时刻
+      { status: 200, body: { included: {
+        session: { remaining_percent: 95, resets_at: '2026-10-11T02:00:00Z' },
+        weekly: { remaining_percent: 54.1, resets_at: '2026-10-12T00:00:00Z' },
+      }, purchased: { balance_usd: 0 } } },
+      // /api/usage?range=7d —— 请求数与逐日桶
+      { status: 200, body: { range: '7d', totals: { request_count: 9447 }, buckets: [
+        { from: '2026-10-03T00:00:00Z', until: '2026-10-04T00:00:00Z', request_count: 3852 },
+      ] } },
+      // /api/me —— 套餐名
       { status: 200, body: { Plan: 'pro' } },
     ])
     const view = await buildUsageView([
@@ -26,12 +35,76 @@ describe('buildUsageView', () => {
       { route: 'agnes', baseURL: 'https://apihub.agnes-ai.com/v1', apiKeyEnv: 'AGNES_AI_API_KEY' },
     ], async () => 'sk-test')
 
-    expect(view.providers[0]).toMatchObject({ status: 'ok', kind: 'usage', plan: 'pro' })
-    expect(view.providers[0]?.usedPercent).toBeCloseTo(0.459)
-    expect(view.providers[0]?.sessionUsed).toBeCloseTo(0.05)
-    expect(view.providers[0]?.models).toEqual([{ name: 'm', requestCount: 3 }])
+    const row = view.providers[0]
+    expect(row).toMatchObject({ status: 'ok', kind: 'usage', plan: 'pro' })
+    // remaining_percent 是"剩余"：95% 剩余 ⇒ 5% 已用。
+    expect(row?.sessionUsed).toBeCloseTo(0.05)
+    expect(row?.usedPercent).toBeCloseTo(0.459)
+    expect(row?.sessionResetsAt).toBe(Date.parse('2026-10-11T02:00:00Z'))
+    expect(row?.weeklyResetsAt).toBe(Date.parse('2026-10-12T00:00:00Z'))
+    expect(row?.summary).toBe('近 7 天 9,447 次请求')
+    expect(row?.models).toEqual([{ name: '10-03', requestCount: 3852 }])
     // No adapter for Agnes (no public balance/usage endpoint) → honest label.
     expect(view.providers[1]).toMatchObject({ status: 'unsupported' })
+  })
+
+  it('keeps the percentages when the request-count report is unrecognised', async () => {
+    // 用量报告换形状不该拖垮百分比：余额这一块自己能成立。
+    mockFetch([
+      { status: 200, body: { included: { weekly: { remaining_percent: 40 } }, purchased: { balance_usd: 0 } } },
+      { status: 200, body: { something: 'else' } },
+      { status: 200, body: { Plan: 'pro' } },
+    ])
+    const view = await buildUsageView([
+      { route: 'ollama', baseURL: 'https://ollama.com/v1', apiKeyEnv: 'OLLAMA_API_KEY' },
+    ], async () => 'sk-test')
+    const row = view.providers[0]
+    expect(row?.status).toBe('ok')
+    expect(row?.usedPercent).toBeCloseTo(0.6)
+    expect(row?.summary).toBeUndefined()
+  })
+
+  it('keeps the request counts when the balance endpoint fails', async () => {
+    mockFetch([
+      { status: 500, body: {} },
+      { status: 200, body: { range: '7d', totals: { request_count: 12 }, buckets: [] } },
+      { status: 200, body: { Plan: 'free' } },
+    ])
+    const view = await buildUsageView([
+      { route: 'ollama', baseURL: 'https://ollama.com/v1', apiKeyEnv: 'OLLAMA_API_KEY' },
+    ], async () => 'sk-test')
+    const row = view.providers[0]
+    expect(row?.status).toBe('ok')
+    expect(row?.summary).toBe('近 7 天 12 次请求')
+    expect(row?.usedPercent).toBeUndefined()
+    expect(row?.plan).toBe('free')
+  })
+
+  it('keeps the usage row alive when /api/me fails without a request body', async () => {
+    // 线上真实故障：/api/me 对裸 POST 回 411 Length Required。它只是套餐名点缀，
+    // 整行不能因此变成「用量查询失败」。
+    mockFetch([
+      { status: 200, body: { included: { weekly: { remaining_percent: 10 } } } },
+      { status: 200, body: { range: '7d', totals: { request_count: 12 }, buckets: [] } },
+      { status: 411, body: { error: 'Length Required' } },
+    ])
+    const view = await buildUsageView([
+      { route: 'ollama', baseURL: 'https://ollama.com/v1', apiKeyEnv: 'OLLAMA_API_KEY' },
+    ], async () => 'sk-test')
+    expect(view.providers[0]).toMatchObject({ status: 'ok', summary: '近 7 天 12 次请求' })
+    expect(view.providers[0]?.plan).toBeUndefined()
+  })
+
+  it('reports an unrecognised payload as error instead of a made-up zero', async () => {
+    mockFetch([
+      { status: 200, body: { something: 'else' } },
+      { status: 200, body: { also: 'unknown' } },
+      { status: 200, body: { Plan: 'pro' } },
+    ])
+    const view = await buildUsageView([
+      { route: 'ollama', baseURL: 'https://ollama.com/v1', apiKeyEnv: 'OLLAMA_API_KEY' },
+    ], async () => 'sk-test')
+    expect(view.providers[0]?.status).toBe('error')
   })
 
   it('labels a provider with no resolvable key as no-key', async () => {
@@ -52,7 +125,8 @@ describe('buildUsageView', () => {
 
   it('matches by baseURL host rather than route name', async () => {
     mockFetch([
-      { status: 200, body: { limits: { weekly: { usage: 0.1, models: [] }, session: { usage: 0.0 } } } },
+      { status: 200, body: { included: { weekly: { remaining_percent: 90 } } } },
+      { status: 200, body: { range: '7d', totals: { request_count: 1 }, buckets: [] } },
       { status: 200, body: { Plan: 'pro' } },
     ])
     const view = await buildUsageView([

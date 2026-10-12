@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-10-10
+
+### Added
+
+- **手机端能显示本地图片了（此前只有桌面端能）。** 桌面端把 `![](D:\shot.png)` 重写成自己的授权 `/api/file` URL，而手机端 bundle 既没有那个路由、也没做任何重写：`safeUrl` 把 `D:\` 的盘符当成未知协议，把图片退化成 alt 文字；相对路径（`./a.png`）则相对 `/m/` 解析、稳定 404——只有 http(s) 图能显示。现在渲染器认领本地图片目标（盘符判断先于协议判断，`D:/a.png` 是路径而不是未知协议，与桌面面板 `path-images.ts` 同序）、把解码后的路径挂在 `data-local-src` 上并**故意不写 `src`**，消息体挂载后经 `mobile.readFile`（自己的授权通道）换成 data URL 再赋值——之所以靠赋值而不是写进 markdown，是因为 `safeUrl` 对作者书写的 markdown 仍拒绝 `data:`。新增 `local-images.ts`（(sessionId, path) 的 LRU 缓存 + 并发去重；sessionId 入 key，因为相对路径是按会话工作区解析的）。契约锁在新增的 `markdown-text.test.tsx`：成功换 data URL（绝对/相对路径都带 sessionId）、`readFile` 失败**不留半张图**（不给 `src`）、远程图完全不走这条路（既有行为不变）。
+
+### Changed
+
+- **插件在 DSH 0.2.0 上不再被版本门静默丢掉。** 0.1.6 起 DSH 装载插件前会读它的 `peerDependencies`，不覆盖当前运行版本就把**整个 bundle 静默跳过**（不崩、不告警）；两个官方包的上界停在 `<0.1.8-0`，于是在 0.2.0-rc.2 上 DSH 给出 `skipping profile bundle "@eternalloveone/dsh-palm": ... is incompatible with dsh 0.2.0-rc.2`，手机面 `/m/` 整套不存在，而桌面端毫无提示。上界放宽为 `<0.2.1-0`（`dsh-client-ui-slots` 与 `dsh-settings` 各一处），覆盖 0.2.0 线且不影响 0.1.5-rc.1 起的旧线。容器实测（镜像 `dsh-upgrade-verify:dsh-v0.2.0-rc.2`，用打包件测这个未发布版本）：改前 install ok / boot no / 契约与配对 skip（BOOT-FAIL，217s），改后 install ok / **boot yes / 11 条契约全 ok / 真配对成功**（80s PASS，矩阵 MATCH 1 / DRIFT 0）——**运行时零改动**，与"插件对所有官方包都是 `import type`、编译期擦除"的静态事实一致。另记两条：0.2.0 把自动化任务移到可选插件包，未安装该包时「任务完成/失败」推送不会触发（功能层缺失，不是故障，`session/jobs` 帧契约本身未变）；应急场景可用 0.2.0 自带的 `dsh plugin allow-version` 给旧版本开精确豁免。
+
+### Fixed
+
+- **手机端的问题面板不再"消失"。** 适配层此前按"此刻是否存在活着的手机流"决定要不要把提问交给手机：手机恰好在后台、锁屏、隧道抖动或 EventSource 重连中时，它就不在在线名单里，于是这条 `user-questions/request` 被**静默整条交给桌面**——不登记、不广播、也不通知。桌面面板照常弹出，用户顺手在桌面答掉，手机端则从头到尾没收到过那张卡片（通知链路只覆盖任务完成/失败、todo 与轮次结束，问答没有离线兜底），表现就是"手机端问题面板消失了"；审批看着正常，只是因为它恰好在线。现在两处 waterfall 桥接都不再按在线与否跳过：请求照常登记并广播，手机的下一条流一建立，SSE 路由就把仍在待答的 approval/question 帧作为**开场快照**补发（`pendingFrames()`，与 mux 流同形；客户端按 rpcId 去重，重复回放不会重复入列），并补喂 host 侧待答追踪，让轮询兜底同样看得到。`phoneConnected` 只保留一个用途：桌面链路报"没人能答"而一个手机流都没有时立即收尾（把桌面那条失败原样交回），不再让 agent 空悬。验证：以已配对设备身份旁听插件自己的 `/m/api/events.mux`，实测提问帧带正确 `sessionId` 发出；撤掉旁听、只靠手机自己的连接复测，卡片出现，单次 `mobile.pending` 轮询 53/57 轮命中待答。契约锁在 `api-proxy-adapter.test.ts`（离线时保留待答、快照可作答、无人可答时不悬停）与 `tests/mobile-api.spec.ts`（新连接补发快照）。
+
+- **手机端的 Ollama Cloud 用量回来了，含"最近 5 小时 / 本周"两条百分比。** Ollama 把云端接口拆成两个，插件原来只打一个，于是两处同时踩空：① 配额百分比不再来自 `/api/usage`（它的 `limits.weekly/session.usage` 字段已经消失），而是搬到 **`GET /api/balance`**——`included.session/weekly.remaining_percent`（0..100，**剩余**）外加各自的 `resets_at`；旧代码把百分比当用量报告里的字段去读，读到一片 undefined，于是那两条进度条整个消失。② `/api/usage` 现在只报请求数（`{range, scope, granularity, totals:{request_count}, buckets:[…]}`），插件也照旧当配额读。修法：**余额管百分比、用量管请求数**——把 `remaining_percent` 换算成已用（`1 - remaining/100`）喂回两条进度条，`resets_at` 显示成真实重置时间（顺带修掉"无固定重置时刻"这句已经不对的说明），`/api/usage?range=7d` 的请求数继续做摘要与逐日列表。两个端点**各自独立失败**：余额 500 仍报请求数，用量换形状仍报百分比，两者都认不出才诚实报失败。本机密钥实测：`/api/balance` 回 `session.remaining_percent=99.31`（重置于 2026-10-11T02:00Z）、`weekly.remaining_percent=64.13`（重置于 2026-10-12T00:00Z）；`/api/usage?range=7d` 回 `totals.request_count=9741` + 8 个按天桶（文档档位只有 24h / 7d / 30d）。契约锁在 `usage-check.test.ts`（余额+用量合并、余额挂掉、用量换形状、全不识别 → error）与 `SettingsView.test.tsx`（真实重置时间渲染）。
+
 ## [1.5.3] - 2026-10-08
 
 ### Fixed

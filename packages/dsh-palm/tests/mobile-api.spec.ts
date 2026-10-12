@@ -70,6 +70,7 @@ const apiProxy = {
     mutate: async () => ({ rpcId: 'r', result: { ok: true, value: { ns: 'ui-theme', schema: {}, value: { preference: 'dark' }, applies: 'live', secrets: [], revision: 2 } } }),
   },
   setPhoneConnected: () => {},
+  pendingFrames: () => [],
 } as unknown as ApiProxy
 
 /** A pending tracker holding one question/requested frame for a session. */
@@ -720,6 +721,52 @@ describe('mobile api envelope', () => {
 
     req.destroy()
     await new Promise<void>(resolve => server.close(() => resolve()))
+  })
+
+  it('replays still-pending approvals and questions on a new stream', async () => {
+    // 手机可能在提问/审批发生的那一刻没有活着的流（App 在后台、锁屏、EventSource 正在
+    // 重连）。待答条目仍然留在适配层，新流一建立就要把这份快照补发给它——否则手机从没
+    // 收到过那条 `question/requested`，用户看到的现象正是"手机端问题面板消失了"。
+    const pendingProxy = {
+      ...apiProxy,
+      events: { mux: () => (async function* () { while (true) { await new Promise(() => {}) } })() },
+      pendingFrames: () => [
+        { rpcId: 'approval-1', payload: { type: 'approval/requested', sessionId: 's-1', approvalId: 'a-1', toolName: 'bash' } },
+        { rpcId: 'question-2', payload: { type: 'question/requested', sessionId: 's-1', questions: [{ id: 'q1', question: '选哪个' }] } },
+      ],
+    } as unknown as ApiProxy
+    const tracker = new PendingTracker()
+    const server = await serve(makeMobileApiRoutes({
+      service, apiProxy: pendingProxy, mobileEnterToSend, pendingTracker: tracker, eventsHeartbeatMs: 5000,
+    }))
+    try {
+      let sseData = ''
+      let resolveDone: (() => void) | undefined
+      const done = new Promise<void>(resolve => { resolveDone = resolve })
+      const req = httpRequest({
+        host: '127.0.0.1', port: server.port, path: '/m/api/events.mux', method: 'GET',
+        headers: { cookie: 'dsh_pair=device-1' },
+      }, (response) => {
+        response.on('data', (chunk) => {
+          sseData += (chunk as Buffer).toString('utf8')
+          if ((sseData.match(/"rpcId":"question-2"/g) ?? []).length >= 1) resolveDone?.()
+        })
+      })
+      req.on('error', () => { resolveDone?.() })
+      req.end()
+      await done
+
+      // Wrapped exactly like a live broadcast frame, or the mobile client drops it.
+      expect(sseData).toContain('"type":"server-request"')
+      expect(sseData).toContain('"method":"events.mux"')
+      expect(sseData).toContain('"rpcId":"approval-1"')
+      expect(sseData).toContain('"rpcId":"question-2"')
+      // 快照同时喂给 host 侧待答追踪，轮询兜底（mobile.pending）也能看到它。
+      expect(tracker.pending('s-1').questions.length).toBeGreaterThan(0)
+      req.destroy()
+    } finally {
+      await server.close()
+    }
   })
 
   it('refreshes device presence on every gated unary request', async () => {

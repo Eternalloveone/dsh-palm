@@ -5,7 +5,7 @@
  * link to the host file opener.
  */
 import { describe, expect, it } from 'vitest'
-import { escapeHtml, parseMarkdown, parseSegments, parseStreamPrefix, renderInline, renderMarkdown, safeUrl } from './markdown.ts'
+import { escapeHtml, localImagePath, parseMarkdown, parseSegments, parseStreamPrefix, renderInline, renderMarkdown, safeUrl } from './markdown.ts'
 
 describe('safeUrl', () => {
   it('allows http/https/mailto/fragments and scheme-less targets', () => {
@@ -30,6 +30,47 @@ describe('safeUrl', () => {
   })
 })
 
+describe('localImagePath', () => {
+  it('claims absolute and relative file destinations', () => {
+    expect(localImagePath('D:\\shots\\a.png')).toBe('D:\\shots\\a.png')
+    expect(localImagePath('D:/shots/a.png')).toBe('D:/shots/a.png')
+    expect(localImagePath('/home/u/a.jpg')).toBe('/home/u/a.jpg')
+    expect(localImagePath('./docs/a.webp')).toBe('./docs/a.webp')
+    expect(localImagePath('docs/a.gif')).toBe('docs/a.gif')
+    expect(localImagePath('  D:/shots/a.png  ')).toBe('D:/shots/a.png')
+  })
+
+  it('decodes percent escapes and drops query/fragment suffixes', () => {
+    expect(localImagePath('D:/my%20shots/a.png')).toBe('D:/my shots/a.png')
+    expect(localImagePath('D:/shots/a.png?v=2')).toBe('D:/shots/a.png')
+    expect(localImagePath('D:/shots/a.png#top')).toBe('D:/shots/a.png')
+    // A malformed escape identifies no file.
+    expect(localImagePath('D:/shots/%ZZ.png')).toBeNull()
+  })
+
+  it('leaves URLs to the protocol allow-list', () => {
+    expect(localImagePath('https://e.com/a.png')).toBeNull()
+    expect(localImagePath('http://e.com/a.png')).toBeNull()
+    expect(localImagePath('data:image/png;base64,AAAA')).toBeNull()
+    expect(localImagePath('javascript:alert(1)')).toBeNull()
+    expect(localImagePath('//attacker.example/a.png')).toBeNull()
+    expect(localImagePath('mailto:a@b.c')).toBeNull()
+  })
+
+  it('only claims image extensions', () => {
+    expect(localImagePath('D:/shots/notes.txt')).toBeNull()
+    expect(localImagePath('D:/shots/noext')).toBeNull()
+    expect(localImagePath('')).toBeNull()
+    expect(localImagePath('   ')).toBeNull()
+  })
+
+  it('reads a Windows drive as a path, not as a scheme', () => {
+    // 判据顺序的回归位：先判盘符再判协议，否则 D: 会被当成未知协议。
+    expect(localImagePath('d:/shots/a.PNG')).toBe('d:/shots/a.PNG')
+    expect(localImagePath('C:\\a.png')).toBe('C:\\a.png')
+  })
+})
+
 describe('renderInline', () => {
   it('renders code, bold, italic, strikethrough and links', () => {
     expect(renderInline('`a<b`')).toBe('<code>a&lt;b</code>')
@@ -46,6 +87,24 @@ describe('renderInline', () => {
 
   it('escapes raw HTML instead of passing it through', () => {
     expect(renderInline('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+
+  it('keeps a remote image destination as a src', () => {
+    expect(renderInline('![a](https://e.com/a.png)'))
+      .toBe('<img alt="a" src="https://e.com/a.png" loading="lazy" decoding="async" />')
+  })
+
+  it('carries a local image destination for post-mount hydration', () => {
+    // 手机端没有 /api/file：本地路径不能出现在 src 上（D: 会被 safeUrl 当成
+    // 未知协议而退化成 alt 文字，相对路径会相对 /m/ 解析成 404），改由
+    // markdown-text.tsx 挂载后经 mobile.readFile 填回 data URL。
+    expect(renderInline('![shot](D:/shots/a.png)'))
+      .toBe('<img class="md-local-img" data-local-src="D:/shots/a.png" alt="shot" loading="lazy" decoding="async" />')
+    expect(renderInline('![](./a.png)'))
+      .toBe('<img class="md-local-img" data-local-src="./a.png" alt="" loading="lazy" decoding="async" />')
+    // 路径里的引号不能逃出属性。
+    expect(renderInline('![x](D:/a"onerror="1.png)'))
+      .toContain('data-local-src="D:/a&quot;onerror=&quot;1.png"')
   })
 })
 

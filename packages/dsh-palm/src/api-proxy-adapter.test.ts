@@ -171,13 +171,29 @@ describe('approval bridge over the mux', () => {
     controller.abort()
   })
 
-  it('leaves the waterfall to the host while no phone is connected', async () => {
+  it('still hands an offline-time approval to the desktop and keeps nothing behind', async () => {
     const { ctx, adapter, frames, controller } = harness()
     adapter.setPhoneConnected(false)
-    await expect(fireRequest(ctx, 'approval/request', approvalRequest, () => Promise.resolve('host-default')))
-      .resolves.toBe('host-default')
-    // Nothing was forwarded to the phone, so nothing is broadcast.
-    expect(frames).toHaveLength(0)
+    const answered = fireRequest(ctx, 'approval/request', approvalRequest, () => Promise.resolve('host-default'))
+    await expect(answered).resolves.toBe('host-default')
+    // 请求照样广播（手机稍后连上仍看得到），桌面答完随即结清，快照里不留残影。
+    await until(() => { expect(frames).toHaveLength(2) })
+    expect(frames[0]!.payload.type).toBe('approval/requested')
+    expect(adapter.pendingFrames()).toHaveLength(0)
+    controller.abort()
+  })
+
+  it('does not hang when the desktop has no client and no phone stream is live', async () => {
+    const { ctx, adapter, controller } = harness()
+    adapter.setPhoneConnected(false)
+    const panel = desktopPanel(approvalRequest)
+    const answered = fireRequest(ctx, 'approval/request', approvalRequest, panel.next)
+    await until(() => { expect(panel.seen.signal).toBeDefined() })
+    panel.giveUp(new Error('NO_PROVIDER'))
+    // 一个手机流都没有、桌面又没人能看这条会话：没人可能作答，把桌面那条失败原样
+    // 交回去，而不是像此前那样无条件挂着（悬停 1m55s 后被中断）。
+    await expect(answered).rejects.toThrow('NO_PROVIDER')
+    expect(adapter.pendingFrames()).toHaveLength(0)
     controller.abort()
   })
 })
@@ -224,6 +240,31 @@ describe('question bridge over the mux', () => {
 
     await until(() => { expect(frames).toHaveLength(2) })
     expect(frames[1]!.payload).toMatchObject({ type: 'question/resolved', outcome: 'cancelled' })
+    controller.abort()
+  })
+
+  it('keeps a question pending for a phone that connects later, and lets it answer', async () => {
+    const { ctx, adapter, frames, controller } = harness()
+    // 提问发生时手机没有活着的流（App 在后台 / 锁屏 / 正在重连）——"面板消失"的现场。
+    adapter.setPhoneConnected(false)
+    const answered = fireRequest(ctx, 'user-questions/request', questionRequest)
+    await until(() => { expect(frames).toHaveLength(1) })
+    expect(frames[0]!.payload.type).toBe('question/requested')
+
+    // 桌面一直没人答。手机这时才连上：开场快照把仍在等它的那条请求补给它。
+    const snapshot = adapter.pendingFrames()
+    expect(snapshot.map(frame => frame.payload.type)).toEqual(['question/requested'])
+    expect(snapshot[0]!.rpcId).toBe(frames[0]!.rpcId)
+
+    // 它用快照里的 rpcId 作答，走的是与在线时完全相同的那条路。
+    await adapter.respond({
+      type: 'client-response',
+      rpcId: snapshot[0]!.rpcId,
+      result: { ok: true, value: { sessionId: 's-1', answer: { answers: [{ id: 'q1', selected: ['B'] }] } } },
+    } as never)
+
+    await until(() => { expect(adapter.pendingFrames()).toHaveLength(0) })
+    await expect(answered).resolves.toEqual({ answers: [{ id: 'q1', selected: ['B'] }] })
     controller.abort()
   })
 })

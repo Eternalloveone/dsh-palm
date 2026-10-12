@@ -254,11 +254,23 @@ function usageSummaryText(usage: UsageView): string {
     if (provider.kind === 'usage' && provider.usedPercent !== undefined) {
       return `${provider.name} · 余量 ${Math.round((1 - provider.usedPercent) * 100)}%`
     }
+    if (provider.summary !== undefined) {
+      // 没有配额上限的用量提供方（Ollama Cloud 现在只报请求数）：如实摘要。
+      return `${provider.name} · ${provider.summary}`
+    }
     if (provider.kind === 'balance' && provider.balance !== undefined) {
       return `${provider.name} · ${provider.balance}`
     }
     return provider.name
   }).join(' · ')
+}
+
+/** 配额窗口的重置说明；提供方给了重置时刻就显示真实时间，否则说明它是滑动窗口。 */
+function resetNote(resetsAt: number | undefined): string {
+  if (resetsAt === undefined) return '窗口随请求持续滑动，无固定重置时刻'
+  const at = new Date(resetsAt)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `重置于 ${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
 }
 
 /** Traffic-light status badge for one provider's usage/balance row. */
@@ -297,7 +309,7 @@ function UsageProviderCard({ provider }: { provider: UsageProviderView }) {
               <div className="usage-meter">
                 <div className="usage-meterFill" style={{ width: `${(provider.sessionUsed * 100).toFixed(0)}%` }} />
               </div>
-              <p className="usage-resetNote">按最近 5 小时滚动统计，窗口随请求持续滑动、无固定重置时刻</p>
+              <p className="usage-resetNote">{resetNote(provider.sessionResetsAt)}</p>
             </div>
           )}
           <div className="usage-block">
@@ -310,9 +322,12 @@ function UsageProviderCard({ provider }: { provider: UsageProviderView }) {
             <div className="usage-meter">
               <div className="usage-meterFill" style={{ width: `${(provider.usedPercent * 100).toFixed(0)}%` }} />
             </div>
-            <p className="usage-resetNote">按最近 7 天滚动统计，窗口随请求持续滑动、无固定重置时刻</p>
+            <p className="usage-resetNote">{resetNote(provider.weeklyResetsAt)}</p>
           </div>
         </>
+      )}
+      {provider.status === 'ok' && provider.kind === 'usage' && provider.summary !== undefined && (
+        <div className="usage-stats"><span><b>{provider.summary}</b></span><span /></div>
       )}
       {provider.status === 'ok' && provider.kind === 'balance' && (
         <div className="usage-stats"><span>账户余额 <b>{provider.balance ?? '—'}</b></span><span /></div>

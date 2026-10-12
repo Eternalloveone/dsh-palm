@@ -547,6 +547,12 @@ export interface UsageProviderView {
   plan?: string
   usedPercent?: number
   sessionUsed?: number
+  /** 最近 5 小时窗口的下次重置时刻（epoch millis）。 */
+  sessionResetsAt?: number
+  /** 每周窗口的下次重置时刻（epoch millis）。 */
+  weeklyResetsAt?: number
+  /** 没有配额百分比可画时的一句话事实（如「近 7 天 9,447 次请求」）。 */
+  summary?: string
   models?: UsageModelRow[]
   balance?: string
   fetchedAt: number

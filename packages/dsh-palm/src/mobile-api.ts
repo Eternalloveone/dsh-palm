@@ -2918,6 +2918,16 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     })
+    // 开场快照：手机可能在提问/审批发生的那一刻没有活着的流（App 在后台、锁屏、隧道
+    // 抖动、正在重连），于是它从没收到过那条 `question/requested`，桌面也就照常在桌面
+    // 被答掉了——用户看到的现象是"手机端问题面板消失了"。待答条目仍然留在适配层，
+    // 这里在新流建立后立刻补发一份，手机一连上就能看到仍在等它的卡片（客户端按 rpcId
+    // 去重，重复回放不会重复入列）。也补喂 host 侧待答追踪，让轮询兜底同样能看到它。
+    for (const frame of (apiProxy as ApiProxyAdapter).pendingFrames()) {
+      deps.pendingTracker.onFrame(frame as never)
+      const wire = { type: 'server-request' as const, rpcId: frame.rpcId, method: 'events.mux', payload: frame.payload }
+      res.write(`data: ${JSON.stringify(wire)}\n\n`)
+    }
     const controller = new AbortController()
     let closed = false
     // The gate only ran at connect time; a revoked/stopped device must lose

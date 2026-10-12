@@ -261,8 +261,8 @@ describe('SettingsView card list', () => {
     // Expand: the provider detail (5-hour + weekly windows, reset notes).
     fireEvent.click(screen.getByRole('button', { name: /用量/ }))
     expect(screen.getByText(/45\.9% · 余 54\.1%/)).toBeTruthy()
-    // The weekly window's reset note reads honestly (rolling, no fixed time).
-    expect(screen.getByText(/按最近 7 天滚动统计/)).toBeTruthy()
+    // 提供方没给重置时刻时，两条窗口都说明自己是滑动窗口（不编假的重置时间）。
+    expect(screen.getAllByText(/窗口随请求持续滑动/).length).toBe(2)
     expect(screen.getByText('2,934 次')).toBeTruthy()
 
     // Refresh: re-fetches, bypassing the host cache ({ refresh: true }).
@@ -313,6 +313,9 @@ describe('SettingsView card list', () => {
           plan: 'pro',
           usedPercent: 0.879,
           sessionUsed: 0.5,
+          sessionResetsAt: Date.parse('2026-10-11T02:00:00Z'),
+          weeklyResetsAt: Date.parse('2026-10-12T00:00:00Z'),
+          summary: '近 7 天 9,764 次请求',
           models: [],
           fetchedAt: 0,
         },
@@ -321,14 +324,14 @@ describe('SettingsView card list', () => {
     render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
     expect(await screen.findByText(/余量 12%/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /用量/ }))
-    // Both quota windows render with their own meter and honest reset note
-    // (the API reports usage ratios only, so the note states the rolling
-    // window instead of inventing a fixed reset clock).
+    // 两条配额窗口各带自己的进度条与**真实**重置时间：/api/balance 现在给
+    // resets_at，所以那句话从"无固定重置时刻"改成了具体时间。
     expect(screen.getByText('近 5 小时')).toBeTruthy()
     expect(screen.getByText('50%')).toBeTruthy()
     expect(screen.getByText(/87\.9% · 余 12\.1%/)).toBeTruthy()
-    expect(screen.getAllByText(/按最近 5 小时滚动统计/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/按最近 7 天滚动统计/)).toBeTruthy()
+    expect(screen.getAllByText(/重置于 \d{2}-\d{2} \d{2}:\d{2}/).length).toBe(2)
+    // 百分比回来之后，请求数总计仍作为一行事实显示（不再被百分比分支挤掉）。
+    expect(screen.getByText('近 7 天 9,764 次请求')).toBeTruthy()
   })
 })
 

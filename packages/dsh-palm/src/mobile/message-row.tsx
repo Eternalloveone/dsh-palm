@@ -93,10 +93,10 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
         <ToolDisclosure tools={message.tools} />
       )}
       {message.kind === 'assistant' && message.flow !== undefined && message.flow.length > 0 ? (
-        <FlowBody message={message} focusedQuery={focused ? focusedQuery : undefined} />
+        <FlowBody message={message} focusedQuery={focused ? focusedQuery : undefined} sessionId={sessionId} />
       ) : message.kind === 'assistant' ? (
         <>
-          <MarkdownText text={message.text} pending={message.pending === true} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
+          <MarkdownText text={message.text} pending={message.pending === true} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} sessionId={sessionId} />
           {message.tools !== undefined && <ArtifactCards tools={message.tools} />}
         </>
       ) : (
@@ -243,7 +243,7 @@ function ToolDisclosure({ tools }: { tools: ToolCallInfo[] }) {
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-function FlowBody({ message, focusedQuery }: { message: RenderMessage; focusedQuery?: string }) {
+function FlowBody({ message, focusedQuery, sessionId }: { message: RenderMessage; focusedQuery?: string; sessionId?: string }) {
   // Index tools by callId once per render: the flow can carry many tool
   // parts and a linear find per part is O(parts × tools).
   const toolsById = useMemo(
@@ -265,7 +265,7 @@ function FlowBody({ message, focusedQuery }: { message: RenderMessage; focusedQu
     if (part.kind === 'text') {
       flush()
       const stepSeq = part.seq ?? message.stepSeqs?.[textIndex]
-      const body = <MarkdownText text={part.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} />
+      const body = <MarkdownText text={part.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} sessionId={sessionId} />
       const partId = part.partId ?? `text-${textIndex}`
       parts.push(stepSeq === undefined
         ? <Fragment key={key}>{body}</Fragment>

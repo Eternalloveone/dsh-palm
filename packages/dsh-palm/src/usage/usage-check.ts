@@ -55,6 +55,16 @@ export interface UsageProviderView {
   usedPercent?: number
   /** Current session consumed quota, 0..1 (usage adapters). */
   sessionUsed?: number
+  /** 最近 5 小时窗口的下次重置时刻（epoch millis），提供方给出时才有。 */
+  sessionResetsAt?: number
+  /** 每周窗口的下次重置时刻（epoch millis），提供方给出时才有。 */
+  weeklyResetsAt?: number
+  /**
+   * 一句话事实摘要，给那些没有「已用/上限」可算的用量行：Ollama Cloud 的余额
+   * 接口给剩余百分比、用量接口给请求数，手机端在两项都拿不到时用它显示
+   * 「近 7 天 9,447 次请求」，而不是编一个数字或留一片空白。
+   */
+  summary?: string
   /** Per-model request counts (usage adapters). */
   models?: UsageModelRow[]
   /** Formatted balance for balance adapters. */
@@ -75,7 +85,10 @@ interface ProviderUsage {
   plan?: string
   usedPercent?: number
   sessionUsed?: number
+  sessionResetsAt?: number
+  weeklyResetsAt?: number
   balance?: string
+  summary?: string
   models?: UsageModelRow[]
 }
 
@@ -87,11 +100,21 @@ interface UsageAdapter {
   check(key: string): Promise<ProviderUsage>
 }
 
-/** Read one JSON endpoint with bearer auth; throws on transport or HTTP failure. */
-async function getJson(url: string, key: string, method: 'GET' | 'POST' = 'GET'): Promise<unknown> {
+/**
+ * Read one JSON endpoint with bearer auth; throws on transport or HTTP failure.
+ *
+ * `body` matters more than it looks: `/api/me` answers 411 Length Required to a
+ * POST with no request body, so a bare POST fails even though the key is fine.
+ * Endpoints that insist on one get the smallest valid body (`'{}'`).
+ */
+async function getJson(url: string, key: string, method: 'GET' | 'POST' = 'GET', body?: string): Promise<unknown> {
   const response = await fetch(url, {
     method,
-    headers: { Authorization: `Bearer ${key}` },
+    headers: {
+      Authorization: `Bearer ${key}`,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body }),
     signal: AbortSignal.timeout(20_000),
   })
   if (!response.ok) throw new Error(`HTTP ${response.status} (${method}) from ${url}`)
@@ -110,30 +133,109 @@ function clampUnit(value: unknown): number | undefined {
     : undefined
 }
 
-/** Ollama Cloud: consumed-quota report + plan. Endpoints verified read-only. */
+/** `2026-10-03T00:00:00Z` → `10-03`：一条按天用量桶覆盖的那一天。 */
+function dayLabel(from: unknown): string | undefined {
+  return typeof from === 'string' && from.length >= 10 ? from.slice(5, 10) : undefined
+}
+
+/** `7d` → 7：这次报告覆盖的滚动窗口天数。 */
+function rangeDays(range: unknown): number | undefined {
+  const match = typeof range === 'string' ? /^(\d+)d$/.exec(range.trim()) : null
+  return match === null ? undefined : Number(match[1])
+}
+
+/** `remaining_percent`（0..100，剩余）→ 已用 0..1；非数字给 undefined。 */
+function remainingToUsed(remainingPercent: unknown): number | undefined {
+  return typeof remainingPercent === 'number' && Number.isFinite(remainingPercent)
+    ? clampUnit(1 - remainingPercent / 100)
+    : undefined
+}
+
+/** ISO 时间串 → epoch millis；解析不出来的给 undefined。 */
+function epochOf(iso: unknown): number | undefined {
+  if (typeof iso !== 'string') return undefined
+  const parsed = Date.parse(iso)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+/**
+ * Ollama Cloud —— 三个端点各管一块事实，任何一块单独失败都不该毁掉整行：
+ *
+ * · `GET /api/balance` —— **剩余百分比**（`included.session/weekly.remaining_percent`
+ *   为 0..100，另带各自的 `resets_at`）。这才是手机端过去那两条「近 5 小时 / 本周」
+ *   进度条的来源；旧代码把它当成 `/api/usage` 的 `limits.*.usage` 去读，而那个字段
+ *   已经不在用量报告里了。按额度计费的新形态给的是 `balance_usd`/`allowance_usd`
+ *   （如实转成金额文案，不硬凑百分比）。
+ * · `GET /api/usage?range=7d` —— 请求数报告（`totals.request_count` + 逐日桶）；文档
+ *   里的档位只有 24h / 7d / 30d，多传 `granularity` 之类的参数会被 400 拒掉。
+ * · `POST /api/me` —— 套餐名，纯点缀；它现在要求带请求体（裸 POST 回 411）。
+ *
+ * 余额与用量**至少取到一块**就算 ok（有事实可看），两块都取不到才诚实地报失败。
+ */
 const ollamaAdapter: UsageAdapter = {
   kind: 'usage',
   match: provider => hostIs(provider.baseURL, 'ollama.com') || provider.route === 'ollama',
   async check(key) {
-    const usage = (await getJson('https://ollama.com/api/usage', key)) as {
-      limits?: {
-        weekly?: { usage?: unknown; models?: Array<{ name?: unknown; request_count?: unknown }> }
-        session?: { usage?: unknown }
-      }
+    type QuotaBlock = { remaining_percent?: unknown; resets_at?: unknown }
+    type Included = {
+      session?: QuotaBlock
+      weekly?: QuotaBlock
+      balance_usd?: unknown
+      allowance_usd?: unknown
     }
-    // /api/me is POST-only (GET answers 405) — verified read-only against the
-    // live endpoint; the plan label is optional display garnish.
-    const me = (await getJson('https://ollama.com/api/me', key, 'POST')) as { Plan?: unknown }
-    const weekly = usage.limits?.weekly
+    let included: Included | undefined
+    try {
+      const balance = (await getJson('https://ollama.com/api/balance', key)) as { included?: Included }
+      included = balance.included
+    } catch {
+      // 余额拿不到还有请求数可用；两块都没了才在下面报失败。
+    }
+    let usage: {
+      range?: unknown
+      totals?: { request_count?: unknown }
+      buckets?: Array<{ from?: unknown; request_count?: unknown }>
+    } | undefined
+    try {
+      usage = (await getJson('https://ollama.com/api/usage?range=7d', key)) as typeof usage
+    } catch {
+      // 同上：有余额就够了。
+    }
+    let plan: string | undefined
+    try {
+      const me = (await getJson('https://ollama.com/api/me', key, 'POST', '{}')) as { Plan?: unknown }
+      if (typeof me.Plan === 'string' && me.Plan.length > 0) plan = me.Plan
+    } catch {
+      // 点缀而已：整行不能因为套餐名读不到就变 error。
+    }
+    const days = (usage?.buckets ?? []).flatMap((bucket) => {
+      const label = dayLabel(bucket.from)
+      return label !== undefined && typeof bucket.request_count === 'number'
+        ? [{ name: label, requestCount: bucket.request_count }]
+        : []
+    })
+    const total = typeof usage?.totals?.request_count === 'number'
+      ? usage.totals.request_count
+      : days.reduce((sum, day) => sum + day.requestCount, 0)
+    const hasCounts = typeof usage?.totals?.request_count === 'number' || days.length > 0
+    const sessionUsed = remainingToUsed(included?.session?.remaining_percent)
+    const usedPercent = remainingToUsed(included?.weekly?.remaining_percent)
+    const credits = typeof included?.balance_usd === 'number' && typeof included?.allowance_usd === 'number'
+      ? `剩余 $${included.balance_usd} / 额度 $${included.allowance_usd}`
+      : undefined
+    if (!hasCounts && sessionUsed === undefined && usedPercent === undefined && credits === undefined) {
+      // 端点答了 200 但形状不认识：宁可诚实地报失败，也不要显示一行空白。
+      throw new Error('ollama: 余额与用量都不可识别')
+    }
+    const window = rangeDays(usage?.range) ?? (days.length > 0 ? days.length : 7)
     return {
       kind: 'usage',
-      plan: typeof me.Plan === 'string' ? me.Plan : undefined,
-      usedPercent: clampUnit(weekly?.usage),
-      sessionUsed: clampUnit(usage.limits?.session?.usage),
-      models: (weekly?.models ?? []).flatMap(model =>
-        typeof model.name === 'string' && model.name.length > 0
-          ? [{ name: model.name, requestCount: Number(model.request_count) || 0 }]
-          : []),
+      plan,
+      usedPercent,
+      sessionUsed,
+      sessionResetsAt: epochOf(included?.session?.resets_at),
+      weeklyResetsAt: epochOf(included?.weekly?.resets_at),
+      summary: hasCounts ? `近 ${String(window)} 天 ${total.toLocaleString()} 次请求` : credits,
+      models: days,
     }
   },
 }
@@ -266,6 +368,9 @@ export async function buildUsageView(
         plan: measured.plan,
         usedPercent: measured.usedPercent,
         sessionUsed: measured.sessionUsed,
+        sessionResetsAt: measured.sessionResetsAt,
+        weeklyResetsAt: measured.weeklyResetsAt,
+        summary: measured.summary,
         models: measured.models,
         balance: measured.balance,
       }

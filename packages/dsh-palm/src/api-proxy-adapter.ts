@@ -98,6 +98,18 @@ export interface ApiProxyAdapter extends ApiProxy {
   /** 手机 SSE 订阅数变化时由 mobile-api 的 SSE 桥调用。 */
   setPhoneConnected(connected: boolean): void
   /**
+   * 当前仍在等手机作答的 approval/question 帧（`{ rpcId, payload }`，与 mux 流同形）。
+   *
+   * 为什么需要：手机可能在提问发生的那一刻**没有活着的流**——App 在后台、锁屏、
+   * 隧道抖动、EventSource 正在重连——那时它不在在线名单里。此前的做法是"没在线就
+   * 整条跳过"，于是手机端永远看不到这张卡片（桌面照常弹出、也就照常在桌面答掉），
+   * 而问答没有任何离线通知兜底。现在待答条目不再按在线与否丢弃，而是留在这里：手机
+   * 的下一条流一建立，SSE 路由先把这份快照补发给它，卡片就出现了（客户端按 rpcId
+   * 去重，重复回放不会重复入列）。
+   * @returns 快照帧（审批在前、提问在后；顺序与广播顺序无关）。
+   */
+  pendingFrames(): Array<{ rpcId: string; payload: MuxFrame }>
+  /**
    * 读一张会话里引用过的图片，返回可直接放进 `<img src>` 的 data URL。
    *
    * 0.1.5 起图片字节不在会话事件里（事件只带 `attachmentId` 引用），宿主按
@@ -117,6 +129,8 @@ export interface ApiProxyAdapter extends ApiProxy {
 interface PendingApprovalRequest {
   sessionId: string
   approvalId: string
+  /** 当初广播给手机的那条 `approval/requested` 帧：新连接的开场快照原样补发它。 */
+  payload: MuxFrame
   resolve: (value: unknown) => void
   reject: (error: unknown) => void
 }
@@ -124,6 +138,8 @@ interface PendingApprovalRequest {
 /** 一条已转发给手机、正在等应答的问题批次（同样是被 waterfall 挡住的一次 ask）。 */
 interface PendingQuestionRequest {
   sessionId: string
+  /** 当初广播给手机的那条 `question/requested` 帧：新连接的开场快照原样补发它。 */
+  payload: MuxFrame
   resolve: (value: unknown) => void
   reject: (error: unknown) => void
 }
@@ -198,6 +214,12 @@ interface DualAnswerBridge {
   announce: () => void
   /** 桌面先答：给手机发一条 resolved 帧，撤掉手机那边的面板与 pending 追踪。 */
   retirePhonePanel: (value: unknown) => void
+  /**
+   * 此刻是否有活着的手机流。**只**用于收尾判据：桌面链路说"没人能答"时，若一个手机
+   * 流都没有，就没人可能作答了，不必让 agent 空悬（见 {@link bridgeDualAnswer}）。
+   * 它**不**决定要不要把请求交给手机——那是开场快照存在的理由。
+   */
+  phoneOnline: () => boolean
 }
 
 /**
@@ -238,7 +260,12 @@ function bridgeDualAnswer(spec: DualAnswerBridge): Promise<unknown> {
         spec.retirePhonePanel(value)
         resolve(value)
       }),
-      () => { /* 桌面没有可答的客户端：手机面板还在，继续等手机 */ },
+      (error: unknown) => {
+        // 桌面链路没有可答的客户端（没有客户端在看这个会话）。手机有活着的流就继续
+        // 等它；一个都没有时没人可能作答，把桌面那条失败原样交回去，别让 agent 空悬
+        //（此前这里无条件等待，实测悬停 1m55s 后被中断）。
+        if (!spec.phoneOnline()) finish(() => { reject(error) })
+      },
     )
   })
 }
@@ -319,33 +346,35 @@ export function makeApiProxyAdapter(
   // 手机在线的审批**同时**交给下游（桌面）与手机：双端竞答，先答者作数。
   // request/next 用宽松类型 + as never 规避 approval 事件类型解析到旧 checkout 的问题。
   const disposeApproval = ctx.on('approval/request', ((request: { agent?: { id: string }; toolName: string; callId?: string; reason?: string; signal?: AbortSignal }, next: () => Promise<unknown>) => {
-    if (!phoneConnected) return next()
+    // 这里**不再**看手机在线与否：手机可能恰好在后台或重连中，但它回来时仍应看到这条
+    // 还在等它的审批（新连接的开场快照会补发）。没人可能作答时由 phoneOnline 收尾。
     const sessionId = request.agent?.id
     if (sessionId === undefined) return next()
     const rpcId = RpcId(`approval-${randomUUID()}`)
     const approvalId = RpcId(`approval-id-${randomUUID()}`)
+    const payload: MuxFrame = {
+      type: 'approval/requested',
+      sessionId: sessionId as never,
+      approvalId: approvalId as never,
+      toolName: request.toolName,
+      ...(request.callId !== undefined ? { callId: request.callId } : {}),
+      ...(request.reason !== undefined ? { reason: request.reason } : {}),
+    }
     return bridgeDualAnswer({
       request,
       next,
+      phoneOnline: () => phoneConnected,
       register: (entry) => {
         pendingApprovals.set(rpcId, {
           sessionId,
           approvalId,
+          payload,
           resolve: entry.resolve as (v: unknown) => void,
           reject: entry.reject as (e: unknown) => void,
         })
       },
       unregister: () => { pendingApprovals.delete(rpcId) },
-      announce: () => {
-        broadcast.emitWithRpcId(rpcId, {
-          type: 'approval/requested',
-          sessionId: sessionId as never,
-          approvalId: approvalId as never,
-          toolName: request.toolName,
-          ...(request.callId !== undefined ? { callId: request.callId } : {}),
-          ...(request.reason !== undefined ? { reason: request.reason } : {}),
-        })
-      },
+      announce: () => { broadcast.emitWithRpcId(rpcId, payload) },
       retirePhonePanel: (value: unknown) => {
         broadcast.emitWithRpcId(RpcId(`approval-resolved-${randomUUID()}`), {
           type: 'approval/resolved',
@@ -359,28 +388,30 @@ export function makeApiProxyAdapter(
 
   // ── respond 桥接：question ─────────────────────────────────────────────
   const disposeQuestion = ctx.on('user-questions/request' as never, ((request: { agent?: { id: string }; questions: unknown[]; signal?: AbortSignal }, next: () => Promise<unknown>) => {
-    if (!phoneConnected) return next()
+    // 同上：不按在线与否跳过。手机端的问题面板曾经"消失"，就是这条门槛的锅——手机在
+    // 后台时它恰好不在在线名单里，于是整条请求被静默交给桌面，手机永远收不到。
     const sessionId = request.agent?.id
     if (sessionId === undefined) return next()
     const rpcId = RpcId(`question-${randomUUID()}`)
+    const payload: MuxFrame = {
+      type: 'question/requested',
+      sessionId: sessionId as never,
+      questions: request.questions as never,
+    }
     return bridgeDualAnswer({
       request,
       next,
+      phoneOnline: () => phoneConnected,
       register: (entry) => {
         pendingQuestions.set(rpcId, {
           sessionId,
+          payload,
           resolve: entry.resolve as (v: unknown) => void,
           reject: entry.reject as (e: unknown) => void,
         })
       },
       unregister: () => { pendingQuestions.delete(rpcId) },
-      announce: () => {
-        broadcast.emitWithRpcId(rpcId, {
-          type: 'question/requested',
-          sessionId: sessionId as never,
-          questions: request.questions as never,
-        })
-      },
+      announce: () => { broadcast.emitWithRpcId(rpcId, payload) },
       retirePhonePanel: () => {
         broadcast.emitWithRpcId(RpcId(`question-resolved-${randomUUID()}`), {
           type: 'question/resolved',
@@ -403,6 +434,12 @@ export function makeApiProxyAdapter(
 
   const adapter: ApiProxyAdapter = {
     setPhoneConnected(connected: boolean): void { phoneConnected = connected },
+    pendingFrames(): Array<{ rpcId: string; payload: MuxFrame }> {
+      return [
+        ...[...pendingApprovals].map(([rpcId, entry]) => ({ rpcId, payload: entry.payload })),
+        ...[...pendingQuestions].map(([rpcId, entry]) => ({ rpcId, payload: entry.payload })),
+      ]
+    },
     readAttachment,
     dispose(): void {
       disposeMux()

@@ -2581,6 +2581,33 @@ button.settings-row:focus-visible {
 .chat-md-body a { color: var(--accent); }
 .chat-md-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 10px 0; }
 .chat-md-body img { max-width: 100%; border-radius: var(--radius-chip); }
+/* 正文里的本地图（agent 引用的工作区文件）：markdown 只带 data-local-src，
+   挂载后经 mobile.readFile 取回 data URL 再填 src（见 local-images.ts）。
+   取回前先占住尺寸，避免整段文字在图片到达时跳一下；取不回时给出可见的
+   失败态，而不是让浏览器渲染一个破图图标。 */
+.chat-md-body img.md-local-img {
+  display: block;
+  min-width: 96px;
+  min-height: 56px;
+  background: var(--surface-subtle, rgba(127, 127, 127, 0.12));
+  border: 1px dashed var(--border-subtle);
+}
+.chat-md-body img.md-local-img[data-local-state='loading'] {
+  /* 内容尚未到达：占位框不显示 alt 文字被浏览器裁断的碎片。 */
+  color: transparent;
+}
+.chat-md-body img.md-local-img[data-local-state='loaded'] {
+  border: none;
+}
+.chat-md-body img.md-local-img[data-local-state='failed'] {
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 10px;
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+}
 /* 文档/消息正文里的超长路径（无空格的连续 token）必须在文本 run 处可折，
    否则它会把消息或文件预览（.fp-md 没有 .chat-msg 祖先，继承不到任何
    overflow-wrap）撑出屏幕、整屏横向漂移。作用域限定在 .md-html 文本 run：

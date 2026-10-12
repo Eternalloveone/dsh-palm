@@ -25,6 +25,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { escapeHtml, parseSegments, parseStreamPrefix, safeUrl, type MarkdownSegment, type StreamBlock } from './markdown.ts'
+import { loadLocalImageUrl } from './local-images.ts'
 import { CodeBlock } from './code-block.tsx'
 import { DiffView } from './diff-view.tsx'
 import { ChevronUpIcon, SearchIcon } from './icons.tsx'
@@ -112,7 +113,7 @@ export function ReasoningDisclosure({ text, pending, label = '深度思考' }: {
   )
 }
 
-export function MarkdownText({ text, pending, forceOpen = false, highlightQuery }: { text: string; pending: boolean; forceOpen?: boolean; highlightQuery?: string }) {
+export function MarkdownText({ text, pending, forceOpen = false, highlightQuery, sessionId }: { text: string; pending: boolean; forceOpen?: boolean; highlightQuery?: string; sessionId?: string }) {
   const [open, setOpen] = useState(forceOpen)
   useEffect(() => {
     if (forceOpen) setOpen(true)
@@ -238,9 +239,45 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery 
 
   const long = !pending && text.length > LONG_TEXT_LIMIT
   const collapsed = long && !open
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * Local markdown images carry their path on `data-local-src` (see
+   * markdown.ts): the phone bundle has no `/api/file` route, so the bytes
+   * come back through `mobile.readFile` as a data URL and are assigned to
+   * `src` here. This runs after every segment change — the segments array
+   * is a fresh object on each parse, so a re-mounted run re-hydrates.
+   * `data-local-state` makes each image settle exactly once; the loader
+   * caches by (sessionId, path), so a re-mount costs no extra request.
+   *
+   * Assigning `src` (rather than emitting one) is what keeps this inside
+   * the renderer's escape-first contract: the data URL is produced by our
+   * own authenticated channel, and `safeUrl` — which deliberately rejects
+   * `data:` — only ever sees authored markdown.
+   */
+  useEffect(() => {
+    const root = bodyRef.current
+    if (root === null || sessionId === undefined) return
+    const images = root.querySelectorAll<HTMLImageElement>('img.md-local-img[data-local-src]')
+    for (const image of images) {
+      if (image.dataset['localState'] !== undefined) continue
+      const path = image.getAttribute('data-local-src')
+      if (path === null || path === '') continue
+      image.dataset['localState'] = 'loading'
+      void loadLocalImageUrl(sessionId, path).then((url) => {
+        // The element can be gone (list re-mount) before the bytes arrive.
+        if (!image.isConnected) return
+        if (url === undefined) {
+          image.dataset['localState'] = 'failed'
+          return
+        }
+        image.dataset['localState'] = 'loaded'
+        image.src = url
+      })
+    }
+  }, [segments, sessionId])
   return (
     <div className={'chat-msg-text chat-md' + (collapsed ? ' chat-md-collapsed' : '')}>
-      <div className="chat-md-body">
+      <div className="chat-md-body" ref={bodyRef}>
         {segments.map(segment => {
           if (segment.kind === 'think') return null
           if (segment.kind === 'html') {
