@@ -82,29 +82,6 @@ export function setAutoScroll(value: boolean): void {
   writeStored(AUTO_SCROLL_KEY, value ? '1' : '0')
 }
 
-/* ── tool-call / system-message visibility ──────────────────────────── */
-
-const SHOW_TOOL_CALLS_KEY = 'dsh.mobile.showToolCalls'
-const SHOW_SYSTEM_MESSAGES_KEY = 'dsh.mobile.showSystemMessages'
-
-/** Whether tool-call disclosures render (default on; '0' opts out). */
-export function getShowToolCalls(): boolean {
-  return readStored(SHOW_TOOL_CALLS_KEY) !== '0'
-}
-
-export function setShowToolCalls(value: boolean): void {
-  writeStored(SHOW_TOOL_CALLS_KEY, value ? '1' : '0')
-}
-
-/** Whether injected system messages render (default off; '1' opts in). */
-export function getShowSystemMessages(): boolean {
-  return readStored(SHOW_SYSTEM_MESSAGES_KEY) === '1'
-}
-
-export function setShowSystemMessages(value: boolean): void {
-  writeStored(SHOW_SYSTEM_MESSAGES_KEY, value ? '1' : '0')
-}
-
 /* ── document wiring ─────────────────────────────────────────────────── */
 
 /** Mirror the visual prefs onto <html> data attributes (boot + on change). */

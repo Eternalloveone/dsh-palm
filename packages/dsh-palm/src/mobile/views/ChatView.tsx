@@ -42,12 +42,35 @@ function messageKey(message: RenderMessage): string {
     ? `t${message.turn}.${message.step}`
     : message.id
 }
+
+/**
+ * 折叠里最新的一轮号（只看 assistant 行：user 行不带 turn 字段，轮次尾报告卡
+ * 只是产出清单、不承载过程）。活跃轮次号缺席时的兜底 —— 中途重开一个还开着的
+ * 回合时，running 是从会话名单或尾页锚点恢复的，那一帧 turn/start 没经手，
+ * 而正在跑的那一轮必然是折叠里最后出现的一轮。
+ */
+function newestFoldTurn(messages: readonly RenderMessage[]): number | undefined {
+  let newest: number | undefined
+  for (const message of messages) {
+    if (message.kind !== 'assistant' || message.turn === undefined) continue
+    if (newest === undefined || message.turn > newest) newest = message.turn
+  }
+  return newest
+}
+
+/** 回合边界事件（turn/start / turn/end）data 里的轮号；缺失或非数字即 undefined。 */
+function turnNumberOf(event: WireEvent): number | undefined {
+  const data = event.data
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return undefined
+  const turn = (data as Record<string, unknown>)['turn']
+  return typeof turn === 'number' && Number.isFinite(turn) ? turn : undefined
+}
 import { RunStatusBar, RunStatusSheet } from '../run-status.tsx'
 import { copyText, openFilePath, shareText } from '../code-actions.ts'
 import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll } from '../display-prefs.ts'
-import { formatRunDuration, timeVisibility } from '../ui-text.ts'
+import { timeVisibility } from '../ui-text.ts'
 import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../offline.ts'
 import { QueueDock } from '../queue-dock.tsx'
 import { FilePreviewSheet } from '../file-preview-sheet.tsx'
@@ -168,9 +191,9 @@ export const RECONCILE_FAILURE_LIMIT = 3
  * is still open but nothing visible is streaming - subagent memory upkeep
  * and other back-office work the phone does not render). */
 export const TURN_QUIET_MS = 6_000
-/** The turn clock (desktop parity) only appears once the turn has clearly
- * been running this long; shorter turns keep the plain label. */
-export const TURN_CLOCK_THRESHOLD_MS = 15_000
+/** The turn clock (desktop parity) appears once the turn has clearly been
+ * running this long; shorter turns keep the plain label. */
+export const TURN_CLOCK_THRESHOLD_MS = 3_000
 /** Composer draft debounce: localStorage writes wait this long after the
  *  last keystroke (unmount flushes immediately regardless). */
 export const DRAFT_SAVE_DEBOUNCE_MS = 1_500
@@ -505,6 +528,14 @@ export function ChatView({
   const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   const [running, setRunning] = useState(false)
+  /**
+   * 当前活跃轮次的**轮号**（turn/start 帧里带回来的那一个）。它与 {@link running}
+   * 同生同灭：凡是写 running 的地方都一起写这里（帧里的 turn/start、turn/end、
+   * 名单/尾页锚点的恢复、reconcile 探针、steer 被拒），所以行级判据看到的活跃
+   * 轮次永远就是底部状态行看到的那一轮。轮号缺席（中途重开时 running 是从名单
+   * 或尾页锚点恢复的，手上没有那一帧）时由 {@link liveTurn} 退回折叠里的最新一轮。
+   */
+  const [runningTurn, setRunningTurn] = useState<number | undefined>(undefined)
   /** Pending-message queue for this session (desktop QueueDock equivalent),
    *  seeded from the mux's retained snapshot so a freshly opened chat shows
    *  messages queued before it mounted. */
@@ -528,6 +559,13 @@ export function ChatView({
   /** Running but nothing has streamed for TURN_QUIET_MS: the host is in
    * invisible back-office work (subagent memory upkeep etc.). */
   const [turnQuiet, setTurnQuiet] = useState(false)
+  /** Sustained host silence (RECONCILE_FAILURE_LIMIT failed roster reads):
+   * the live channel is gone and nothing local can prove the turn ended. The
+   * clock and its anchor are deliberately KEPT - a phone that switched
+   * networks or woke from a locked screen must not lose the elapsed time it
+   * was watching - and only the wording changes until an answer (or a live
+   * frame) comes back. */
+  const [hostLost, setHostLost] = useState(false)
   /** Latest `session/jobs` snapshot for this session (background tasks the
    * parent owns: subagent delegations, bash/pwsh runs, …). The host pushes a
    * full snapshot after every registry commit; empty = no tasks. The initial
@@ -760,6 +798,8 @@ export function ChatView({
         // offering steer on a finished turn.
         toast('当前轮次已结束，无法插话')
         setRunning(false)
+        setRunningTurn(undefined)
+        setTurnStartAt(null)
         return
       }
       // queue-item-not-found (already claimed / cold session) or a
@@ -882,6 +922,9 @@ export function ChatView({
     // The clock anchor is unknown here (turn/start may sit outside the
     // window) — null falls back to mount time, like the desktop TurnStatus.
     setRunning(session.running === true)
+    // 会话切换：上一轮的轮号绝不能留给下一场（名单恢复的 running 会把它当成
+    // 活跃轮次，把上一场那一轮的卡片误判成运行中）。
+    setRunningTurn(undefined)
     setTurnStartAt(null)
     // Cache-first: seed the view from the cached tail page immediately so a
     // reopen paints instantly (stale-while-revalidate); the network load
@@ -936,6 +979,15 @@ export function ChatView({
         // frame already anchored it (newer) — never overwrite that.
         if (page.turnStartAt !== undefined) {
           setTurnStartAt(prev => prev ?? page.turnStartAt ?? null)
+          // An open turn/start inside the window is proof the turn is still
+          // open, even when the roster's running flag (agent liveness) says
+          // otherwise - the agent parks while a subagent runs. Reopening a
+          // chat mid-turn must not leave the indicator dark: nothing else
+          // turns it back on, because the reconcile only runs while running.
+          setRunning(true)
+          // 尾页锚点只有时间、没有轮号：活跃轮次退回折叠里最新的一轮（正在跑的
+          // 那一轮必然是最后出现的一轮），绝不留着上一场的旧轮号。
+          setRunningTurn(undefined)
         }
         // The page's projection baseline seeds the permission picker.
         // The `permissions` key is declared by the deployment's permission
@@ -1017,6 +1069,8 @@ export function ChatView({
       // per-session filters below.
       lastFrameAtRef.current = Date.now()
       setTurnQuiet(false)
+      // Any frame proves the link is back (and the host alive).
+      setHostLost(false)
       if (frame.type === 'session/event') {
         if (frame.sessionId !== session.sessionId) return
         const event = frame.view === undefined
@@ -1026,6 +1080,9 @@ export function ChatView({
         if (typeof event.type === 'string') {
           if (event.type === 'turn/start') {
             setRunning(true); setTurnQuiet(false)
+            // 同一帧带着轮号：行级"还在跑"判据靠它认出"这一步属于正在跑的那一轮"
+            // （宿主按步发 assistant/message，按步定格的行自己看不出回合还开着）。
+            setRunningTurn(turnNumberOf(event))
             // Anchor the turn clock at the logged start (desktop parity):
             // a mid-turn reload keeps the real elapsed time.
             setTurnStartAt(typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now())
@@ -1045,6 +1102,8 @@ export function ChatView({
           }
           if (event.type === 'turn/end') {
             setRunning(false)
+            // 活跃轮次随之清空：按步定格的行立刻回到 已完成/已中断/失败。
+            setRunningTurn(undefined)
             setTurnStartAt(null)
             // Mirror the host's turn/end normalization (see normalizeTurnEndTodo).
             normalizeTurnEndTodo()
@@ -1233,6 +1292,7 @@ export function ChatView({
           // A successful answer proves the host is reachable; reset the
           // unreachable streak so a single blip never clears the indicator.
           failures = 0
+          setHostLost(false)
           const row = page.items.find(item => item.sessionId === session.sessionId)
           // Only a row that explicitly says the agent is running short-circuits
           // the history scan. A MISSING row is deliberately NOT a short-circuit:
@@ -1258,6 +1318,8 @@ export function ChatView({
                 const t = hpage.events[i]?.event?.type
                 if (t === 'turn/end') {
                   setRunning(false)
+                  // 探针也是 turn/end：活跃轮次同样清空，行级判据不能停在旧轮上。
+                  setRunningTurn(undefined)
                   // The reconcile path is the one place a lost turn/end frame
                   // surfaces without the live handler: mirror the host's
                   // normalization here too, so a plan strip seeded from the
@@ -1289,7 +1351,10 @@ export function ChatView({
           // phone does not show 输出中 for a host that is no longer running.
           if (cancelled) return
           failures += 1
-          if (failures >= RECONCILE_FAILURE_LIMIT) setRunning(false)
+          // Sustained silence: flag the LINK, never the turn. Dropping the
+          // turn here is what made the running clock vanish mid-work on a
+          // flaky phone link (see the hostLost state comment).
+          if (failures >= RECONCILE_FAILURE_LIMIT) setHostLost(true)
         },
       )
     }, RUNNING_RECONCILE_MS)
@@ -1331,15 +1396,38 @@ export function ChatView({
   // a throttled background tab snaps back to the true duration — and a running
   // turn wakes the phone once a second, not twice. The clock span itself only
   // renders past TURN_CLOCK_THRESHOLD_MS (short turns keep the plain label).
-  const [turnElapsedMs, setTurnElapsedMs] = useState(0)
+  // 秒表已搬到过程组第一行（"输出中…"后面不再数秒）。这里仍每秒重算一次，
+  // 但只用它判静默（输出中 / 后台处理中）这个措辞切换。
+  const [, setTurnElapsedMs] = useState(0)
+  // The clock rides the turn ANCHOR, not the running flag: that flag is a
+  // liveness heuristic (roster seed, reconcile verdict) which flaps on a
+  // flaky phone link, and every flap used to zero the elapsed time the user
+  // was watching. The anchor is written by the turn/start boundary (live
+  // frame or history tail) and cleared only by the matching turn/end. The
+  // mount fallback stays for a turn seeded by the roster without an anchor.
+  const clockAnchor = turnStartAt ?? (running ? mountTimeRef.current : null)
+  /**
+   * 当前活跃轮次（没有活跃回合时 undefined）—— 逐层传给 MessageRow → AssistantBody
+   * → ProcessGroup 的 liveTurn，行级"还在跑"判据的第三个分量。
+   *
+   * 门控就是底部状态行的门控：那条 `输出中 / 后台处理中 / 连接中断` 行是
+   * `{running && ...}` 渲染出来的，所以这里也只能看 running —— 否则会出现
+   * "状态行说结束了、某张卡还在数秒"的自相矛盾。running 为假时任何行都不是
+   * 运行中：turn/end（或 reconcile 探针）一到，活跃轮次立刻消失，按步定格的行
+   * 马上回到 已完成/已中断/失败。
+   *
+   * 轮号优先用 turn/start 帧带回来的（runningTurn）；中途重开这种没有帧的场景
+   * 退回折叠里最新的一轮 assistant 行。
+   */
+  const liveTurn = running ? (runningTurn ?? newestFoldTurn(messages)) : undefined
   useEffect(() => {
-    if (!running) {
+    if (clockAnchor === null) {
       setTurnQuiet(false)
       setTurnElapsedMs(0)
       return
     }
     if (!foreground) return
-    const anchor = turnStartAt ?? mountTimeRef.current
+    const anchor = clockAnchor
     const tick = (): void => {
       const quiet = Date.now() - lastFrameAtRef.current > TURN_QUIET_MS
       setTurnQuiet(prev => prev === quiet ? prev : quiet)
@@ -1351,7 +1439,7 @@ export function ChatView({
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
-  }, [running, foreground, turnStartAt])
+  }, [clockAnchor, foreground])
 
   // Windowed rendering: rebuild the estimated-height prefix whenever the
   // message list changes (or a row measurement lands), then keep the window
@@ -3186,9 +3274,13 @@ export function ChatView({
                   sessionId={session.sessionId}
                   showToolCalls={showToolCalls}
                   showSystemMessages={showSystemMessages}
+                  clockOffsetMs={hostClockOffsetRef.current}
+                  liveTurnStartAt={clockAnchor ?? undefined}
+                  liveTurn={liveTurn}
                   showTime={timeFlags[index] === true}
                   focused={message.id === focusMsgId}
                   focusedQuery={initialFocusQuery}
+                  onOpenFile={(path) => { setPreviewPath(path) }}
                   onRegenerate={regenerateFor(message)}
                 />
               )
@@ -3214,10 +3306,14 @@ export function ChatView({
                 sessionId={session.sessionId}
                 showToolCalls={showToolCalls}
                 showSystemMessages={showSystemMessages}
+                clockOffsetMs={hostClockOffsetRef.current}
+                liveTurnStartAt={clockAnchor ?? undefined}
+                liveTurn={liveTurn}
                 showTime={timeFlags[index] === true}
                 focused={message.id === focusMsgId}
                 focusedQuery={initialFocusQuery}
                 style={cv}
+                onOpenFile={(path) => { setPreviewPath(path) }}
                 onRegenerate={regenerateFor(message)}
               />
             )
@@ -3226,11 +3322,8 @@ export function ChatView({
         {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
         {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
         {running && (
-          <div className="chat-turn-status" role="status" aria-label={turnQuiet ? '后台处理中' : '输出中'}>
-            {turnQuiet ? '后台处理中' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
-            {turnElapsedMs >= TURN_CLOCK_THRESHOLD_MS && (
-              <span className="chat-turn-time" aria-hidden>{formatRunDuration(turnElapsedMs)}</span>
-            )}
+          <div className="chat-turn-status" role="status" aria-label={hostLost ? '连接中断' : turnQuiet ? '后台处理中' : '输出中'}>
+            {hostLost ? '连接中断' : turnQuiet ? '后台处理中' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
           </div>
         )}
         {pendingApprovals.map(approval => (

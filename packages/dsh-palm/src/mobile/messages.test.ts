@@ -119,8 +119,8 @@ describe('foldEvents', () => {
     const assistant = result.find(message => message.kind === 'assistant')
     expect(assistant?.toolSummary).toBe('使用 bash / read')
     expect(assistant?.tools).toEqual([
-      { callId: 'c1', name: 'bash', arguments: '{}' },
-      { callId: 'c2', name: 'read', arguments: '{"path":"a.txt"}' },
+      { callId: 'c1', name: 'bash', arguments: '{}', state: 'running' },
+      { callId: 'c2', name: 'read', arguments: '{"path":"a.txt"}', state: 'running' },
     ])
   })
 
@@ -147,6 +147,14 @@ describe('foldEvents', () => {
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
     expect(assistant).toMatchObject({ text: '结论', reasoning: '先分析再行动', pending: false })
+    // The reasoning deltas ALSO land in the flow as one positioned part,
+    // ahead of the text they precede: the process group builds its think row
+    // from the flow (the merged `reasoning` string is only the fallback for
+    // flows that never carried a positioned reasoning part).
+    expect(assistant?.flow).toEqual([
+      { kind: 'reasoning', text: '先分析再行动' },
+      { kind: 'text', text: '结论' },
+    ])
   })
 
   it('keeps streamed reasoning when the final assistant message omits the reasoning block', () => {
@@ -172,7 +180,7 @@ describe('foldEvents', () => {
     ]
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
-    expect(assistant?.tools).toEqual([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"a"}' }])
+    expect(assistant?.tools).toEqual([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"a"}', state: 'running' }])
   })
 
   it('attaches the host diff-card view to the tool call it rides beside', () => {
@@ -190,6 +198,7 @@ describe('foldEvents', () => {
         callId: 'c1',
         name: 'write',
         arguments: '{"file_path":"a.txt"}',
+        state: 'running',
         view: { card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'hello\n' }] },
       },
     ])
@@ -215,6 +224,72 @@ describe('foldEvents', () => {
       title: 'Edit a.txt',
       diffs: [{ path: 'a.txt', oldText: 'old\nctx', newText: 'new\nctx' }],
     })
+    // The result settles the row even though it carried no NEW view here:
+    // the timeline's dot must stop spinning.
+    expect(assistant?.tools?.[0]?.state).toBe('ok')
+  })
+
+  it('appends one turn tail carrying the duration and the produced files', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', userMessageData('u-1', '写点东西'), 0),
+      makeEvent('turn/start', { turn: 1 }, 1),
+      makeEventWithView('tool/call', { turn: 1, step: 0, callId: 'c1', name: 'write', arguments: '{"file_path":"draft.md"}' }, 2,
+        diffEnvelope('Write draft.md', [{ path: 'draft.md', oldText: null, newText: '草稿\n' }])),
+      makeEvent('assistant/message', assistantMessageData('a-1', 1, 0, '好了'), 3),
+      makeEvent('turn/end', { turn: 1, reason: { kind: 'done' } }, 4),
+    ]
+    const result = foldEvents(events)
+    const tails = result.filter(message => message.kind === 'turn')
+    expect(tails.length).toBe(1)
+    expect(typeof tails[0]?.durationMs).toBe('number')
+    expect(tails[0]?.durationMs).toBeGreaterThanOrEqual(0)
+    expect(tails[0]?.produced).toEqual(['draft.md'])
+    // The tail is the last row of the turn.
+    expect(result[result.length - 1]?.kind).toBe('turn')
+  })
+
+  it('carries the presented deliverables and keeps them out of the produced list', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', userMessageData('u-1', '写报告'), 0),
+      makeEvent('turn/start', { turn: 1 }, 1),
+      makeEventWithView('tool/call', { turn: 1, step: 0, callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}' }, 2,
+        diffEnvelope('Write report.md', [{ path: 'report.md', oldText: null, newText: '# 报告\n' }])),
+      makeEventWithView('tool/call', { turn: 1, step: 0, callId: 'c2', name: 'edit', arguments: '{"file_path":"draft.md"}' }, 3,
+        diffEnvelope('Edit draft.md', [{ path: 'draft.md', oldText: 'x', newText: 'y' }])),
+      makeEvent('deliverables/presented', { turn: 1, callId: 'c2', files: [{ path: 'report.md', description: '交付报告' }] }, 4),
+      makeEvent('assistant/message', assistantMessageData('a-1', 1, 0, '好了'), 5),
+      makeEvent('turn/end', { turn: 1, reason: { kind: 'done' } }, 6),
+    ]
+    const result = foldEvents(events)
+    const tail = result.find(message => message.kind === 'turn')
+    expect(tail?.deliverables).toEqual([{ path: 'report.md', description: '交付报告' }])
+    // A declared deliverable is not repeated under "本轮产出文件".
+    expect(tail?.produced).toEqual(['draft.md'])
+  })
+
+  it('replaces the turn tail instead of stacking a second one when the window replays', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', userMessageData('u-1', '干活'), 0),
+      makeEvent('turn/start', { turn: 1 }, 1),
+      makeEvent('assistant/message', assistantMessageData('a-1', 1, 0, '做完了'), 2),
+      makeEvent('deliverables/presented', { turn: 1, callId: 'c1', files: [{ path: 'a.md' }] }, 3),
+      makeEvent('turn/end', { turn: 1, reason: { kind: 'done' } }, 4),
+    ]
+    const first = foldEvents(events)
+    const again = foldEvents(events, first)
+    expect(again.filter(message => message.kind === 'turn').length).toBe(1)
+    expect(again.find(message => message.kind === 'turn')?.deliverables).toEqual([{ path: 'a.md' }])
+  })
+
+  it('marks a call stopped when the turn ends with it still open', () => {
+    const events: WireEvent[] = [
+      makeEvent('user/message', userMessageData('u-1', '跑一下'), 0),
+      makeEvent('tool/call', { turn: 0, step: 0, callId: 'c1', name: 'bash', arguments: '{"command":"sleep 99"}' }, 1),
+      makeEvent('turn/end', { turn: 0, reason: { kind: 'error' } }, 2),
+    ]
+    const result = foldEvents(events)
+    const assistant = result.find(message => message.kind === 'assistant')
+    expect(assistant?.tools?.[0]?.state).toBe('stopped')
   })
 
   it('keeps the interleaved flow: text runs and tool calls at their event time points', () => {
@@ -247,11 +322,13 @@ describe('foldEvents', () => {
     ]
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
-    // The text run collapses to the authoritative text; the tool part
-    // survives (a call is an independent event, never dropped by a rewrite).
+    // Every text run collapses into ONE TRAILING run of the authoritative
+    // text; the tool part survives at its own (earlier) position — a call is
+    // an independent event, never dropped by a rewrite. The answer therefore
+    // lands AFTER the step that produced it, never before it.
     expect(assistant?.flow).toEqual([
-      { kind: 'text', text: '权威终稿', seq: 3 },
       { kind: 'tool', callId: 'c1' },
+      { kind: 'text', text: '权威终稿', seq: 3 },
     ])
   })
 
@@ -265,7 +342,7 @@ describe('foldEvents', () => {
     ]
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
-    expect(assistant?.tools).toEqual([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"ls"}' }])
+    expect(assistant?.tools).toEqual([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"ls"}', state: 'running' }])
   })
 
   it('marks the assistant message failed when turn/end ends in an error', () => {
@@ -604,6 +681,44 @@ describe('EventFolder incremental folding', () => {
     expect(row).toMatchObject({ turn: 2, step: 1, pending: true })
   })
 
+  it('stamps (turn, step) on a host-uuid assistant row and keeps every tool of that step', () => {
+    // D2：真机 turn 3 step1 实际有 3 个工具，卡片只报 1 步。根因是
+    // assistant/message 的**新建**分支不带 step：行 id 是宿主 uuid，
+    // turnStepKeyOf 反解不出 (turn, step)，于是第一枚 tool/result 换掉行对象后
+    // (turn, step) 索引仍指着旧对象，之后的 tool/call 全被静默丢弃。
+    const events: WireEvent[] = [
+      makeEvent('turn/start', { turn: 3 }, 1),
+      makeEvent('assistant/message', assistantMessageData('uuid-step-1', 3, 1, '先看一眼'), 2),
+      makeEvent('tool/call', { turn: 3, step: 1, callId: 'c1', name: 'read', arguments: '{}' }, 3),
+      makeEvent('tool/result', { turn: 3, step: 1, message: { source: { callId: 'c1' } } }, 4),
+      makeEvent('tool/call', { turn: 3, step: 1, callId: 'c2', name: 'bash', arguments: '{}' }, 5),
+      makeEvent('tool/result', { turn: 3, step: 1, message: { source: { callId: 'c2' } } }, 6),
+      makeEvent('tool/call', { turn: 3, step: 1, callId: 'c3', name: 'edit', arguments: '{}' }, 7),
+    ]
+
+    const rows = foldEvents(events)
+    const assistant = rows.filter(row => row.kind === 'assistant')
+    expect(assistant).toHaveLength(1)
+    expect(assistant[0]).toMatchObject({ id: 'uuid-step-1', turn: 3, step: 1 })
+    expect(assistant[0]?.tools?.map(tool => tool.callId)).toEqual(['c1', 'c2', 'c3'])
+    expect(assistant[0]?.tools?.map(tool => tool.state)).toEqual(['ok', 'ok', 'running'])
+  })
+
+  it('keeps the (turn, step) index on the live row after a rewrite (rebuilt folders too)', () => {
+    // 同一步里 tool/result 换掉行对象之后，下一枚 tool/call 必须落在**新**对象上；
+    // host-folded rows 重建出来的 EventFolder 也一样。
+    const rows = foldEvents([
+      makeEvent('assistant/message', assistantMessageData('uuid-a', 3, 1, '第一步'), 1),
+      makeEvent('tool/call', { turn: 3, step: 1, callId: 'c1', name: 'read', arguments: '{}' }, 2),
+      makeEvent('tool/result', { turn: 3, step: 1, message: { source: { callId: 'c1' } } }, 3),
+    ])
+    const folder = new EventFolder(rows)
+    const after = folder.fold([makeEvent('tool/call', { turn: 3, step: 1, callId: 'c2', name: 'bash', arguments: '{}' }, 4)])
+
+    expect(after).toHaveLength(1)
+    expect(after[0]?.tools?.map(tool => tool.callId)).toEqual(['c1', 'c2'])
+  })
+
   it('folds a command run+done pair into one card that settles with the result', () => {
     const events: WireEvent[] = [
       makeEvent('command/run', { commandId: 'cmd-1', name: 'compact', args: '', source: { kind: 'user' } }, 0),
@@ -739,6 +854,70 @@ describe('coalesceTurnMessages', () => {
     ])
     expect(merged).toHaveLength(3)
     expect(merged.map(m => m.text)).toEqual(['回复', '打断', '继续'])
+  })
+
+  it('merges one turn across the hidden injected rows the host emits between steps', () => {
+    // 真机 turn 3 的形状：宿主按步发 assistant/message，并在这两步之间注入
+    // user/message（compact-checkpoint / agent-instructions / skill-catalog /
+    // runtime-context）。它们的 source.kind ≠ 'user' —— message-row 把这类行整个
+    // 隐藏，看不见却曾经是合并屏障 ⇒ 一轮断成三张过程卡（用时同为 1分45秒）。
+    // 修复后它们对被拆开的同轮是透明的：仍然合成一行。
+    const injected = (kind: string, seq: number): RenderMessage => step(`inject-${kind}`, undefined as never, kind, seq, { kind: 'user', sourceKind: kind } as never)
+    const merged = coalesceTurnMessages([
+      step('a-1', 7, '第一步', 1),
+      injected('compact-checkpoint', 2),
+      step('a-2', 7, '第二步', 3),
+      injected('agent-instructions', 4),
+      step('a-3', 7, '第三步', 5),
+      injected('skill-catalog', 6),
+      injected('runtime-context', 7),
+      step('a-4', 7, '第四步', 8),
+      injected('runtime-context', 9),
+    ])
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({ id: 'a-1', turn: 7, seq: 8, text: '第一步\n\n第二步\n\n第三步\n\n第四步' })
+    // 每个真实步骤都还在 stepSeqs 里（一步都没丢），注入行不在其中。
+    expect(merged[0]?.stepSeqs).toEqual([1, 3, 5, 8])
+  })
+
+  it('does not merge across a REAL user row that carries source.kind = user', () => {
+    const merged = coalesceTurnMessages([
+      step('a-1', 7, '回复', 1),
+      step('u-1', undefined as never, '打断', 2, { kind: 'user', sourceKind: 'user' } as never),
+      step('a-2', 7, '继续', 3),
+    ])
+
+    expect(merged).toHaveLength(3)
+    expect(merged.map(m => m.text)).toEqual(['回复', '打断', '继续'])
+  })
+
+  it('keeps an injected row that is NOT inside a turn step chain', () => {
+    // 只有夹在 assistant 链中间才是透明的；独立出现的注入行留在原处（本来就渲染成
+    // 空），它的位置语义不被悄悄改掉。
+    const injected = step('inject-x', undefined as never, '系统注入消息', 1, { kind: 'user', sourceKind: 'plugin' } as never)
+    const merged = coalesceTurnMessages([injected, step('a-1', 7, '回复', 2)])
+
+    expect(merged.map(m => m.id)).toEqual(['inject-x', 'a-1'])
+  })
+
+  it('leaves the turn tail untouched and in place', () => {
+    // The tail is its own kind, so the same-turn guard cannot swallow it: the
+    // P2 report card must survive the surface's coalescing step.
+    const tail: RenderMessage = {
+      id: 'turn-tail:7',
+      kind: 'turn',
+      text: '',
+      turn: 7,
+      seq: 5,
+      time: 5_000,
+      durationMs: 12_000,
+      produced: ['a.md'],
+    }
+    const merged = coalesceTurnMessages([step('a-1', 7, '第一步', 1), step('a-2', 7, '第二步', 2), tail])
+    expect(merged).toHaveLength(2)
+    expect(merged[1]).toMatchObject({ kind: 'turn', id: 'turn-tail:7', durationMs: 12_000 })
+    expect(merged[1]?.produced).toEqual(['a.md'])
   })
 
   it('keeps the FIRST row step on the merged row (stable streaming key)', () => {

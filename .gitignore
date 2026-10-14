@@ -23,3 +23,6 @@ scripts/measure-tunnel.mjs
 
 # superpowers workflow artifacts (agentic implementation plans/specs, not shipped)
 docs/superpowers/
+
+# PowerShell module-analysis cache (a PS session whose cwd was inside a package)
+packages/*/Microsoft/

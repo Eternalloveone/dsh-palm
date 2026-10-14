@@ -13,6 +13,14 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+
+/**
+ * 上一次成功取到的工作区列表（跨挂载保留）。
+ * workspace.list 在巨型工作区上可以慢到分钟级（宿主会扫描工作区与会话），而"从会话
+ * 清单返回工作区列表"每次都会重新挂载并重新拉一次 ⇒ 返回时要干等很久（真机反馈）。
+ * 有这份缓存就能先渲染、后台再刷新；首屏那条路同理（SessionListView 给它 2.5s 预算）。
+ */
+let workspaceRowsCache: WorkspaceRow[] | undefined
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import { deleteWorkspace, listWorkspaces, listDirectory, createWorkspace, renameWorkspace, searchAll, searchMessages, type DirectoryListing, type DirectoryEntry, type SessionSearchHit } from '../api.ts'
@@ -378,7 +386,7 @@ export interface WorkspaceViewProps {
  * @returns the roster.
  */
 export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onOpenDirect, initialSearch, onSearchSnapshot, onSearchApplied, onOpenRunOverview, runOverviewLive }: WorkspaceViewProps) {
-  const [items, setItems] = useState<WorkspaceRow[] | undefined>(undefined)
+  const [items, setItems] = useState<WorkspaceRow[] | undefined>(() => workspaceRowsCache)
   const [error, setError] = useState<string | undefined>(undefined)
   // Bumped by the retry button to re-run the roster fetch effect.
   const [reload, setReload] = useState(0)
@@ -564,6 +572,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           onPick(target)
           return
         }
+        workspaceRowsCache = rows
         setItems(rows)
       },
       (reason: unknown) => {

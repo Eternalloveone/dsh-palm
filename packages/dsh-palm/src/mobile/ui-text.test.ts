@@ -58,9 +58,9 @@ describe('timeVisibility', () => {
   const minute = 60_000
   const base = 1_700_000_000_000
 
-  it('shows only the last row of each minute bucket', () => {
+  it('每条消息都带时刻：一分钟内连发也不再省略', () => {
     const times = [base, base + 1000, base + 2000, base + minute, base + minute + 500]
-    expect(timeVisibility(times)).toEqual([false, false, true, false, true])
+    expect(timeVisibility(times)).toEqual([true, true, true, true, true])
   })
 
   it('always shows the final row', () => {

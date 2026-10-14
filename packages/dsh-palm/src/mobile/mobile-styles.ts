@@ -991,10 +991,10 @@ body,
 }
 
 .sess-time {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 不可压缩：原来是 flex: 0 1 auto + min-width:0 + ellipsis，标题一长就把日期
+     挤成 "09-1…"（真机截图）。标题本来就该承担压缩（它已经显示成 "子代理状态展…"），
+     日期必须完整可读 —— 只读信息不该被省略号吃掉。 */
+  flex: none;
   white-space: nowrap;
   font-size: var(--text-xs);
   color: var(--text-quaternary);
@@ -2162,9 +2162,10 @@ button.settings-row:focus-visible {
   padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
   display: flex;
   flex-direction: column;
-  /* Flat (bubble-less) rows need more air than a carded layout: 20px keeps
-     each message readable as its own block. */
-  gap: var(--space-5);
+  /* 用户定的节奏（2026-10-13）：12px。卡片与紧随其后的正文另有 12px
+     （见 .chat-* + .chat-flow-text 规则），所以卡片上下读起来正好是 12px ＋ 12px。
+     注意：这是**全列表**的行间距，普通文字消息也按 12px 排。 */
+  gap: 12px;
 }
 
 /* Scroll children never shrink. The bubbles pin an explicit min-height
@@ -2517,7 +2518,13 @@ button.settings-row:focus-visible {
    — otherwise the card glues to the text (gap collapses to 0). */
 .chat-md + .chat-artifact, .chat-flow-text + .chat-artifact{ margin-top: 12px; }
 .chat-artifact + .chat-md,
-.chat-artifact + .chat-flow-text { margin-top: 12px; }
+.chat-artifact + .chat-flow-text,
+.chat-proc + .chat-md,
+.chat-proc + .chat-flow-text,
+.chat-command + .chat-md,
+.chat-command + .chat-flow-text,
+.chat-trigger + .chat-md,
+.chat-trigger + .chat-flow-text { margin-top: 12px; }
 /* Soft line breaks (single-\n markdown lists, agent status lines) render as
    <br /> inside a paragraph: give each a small air gap, or consecutive
    single-line writes read as one dense block. */
@@ -3314,12 +3321,6 @@ button.settings-row:focus-visible {
   }
 }
 
-.chat-tooldisc-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
 .chat-tool-card {
   display: flex;
   flex-direction: column;
@@ -3382,6 +3383,495 @@ button.settings-row:focus-visible {
   white-space: pre-wrap;
   max-height: 200px;
   overflow-y: auto;
+}
+
+/*
+ * 过程组（桌面端 turn-process 的对应物）：一轮的思考与工具调用藏在同一个折叠头
+ * 后面，头两行只有状态词/用时/报错信号、此刻到哪一步与改动量；步数在展开体首行
+ * （「共 N 步」）。行不编号，层级只靠缩进与行首字形。
+ */
+.chat-proc {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-1);
+}
+
+.chat-proc-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  min-height: 40px;
+  /* 右边留给绝对定位的展开箭头 */
+  padding: 6px 26px 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-proc-head-static {
+  cursor: default;
+}
+
+.chat-proc-lead {
+  flex: none;
+  /* emoji 与中文行对齐：定宽方形盒 + 双向居中 + line-height:1。emoji 字形的
+     上伸/下伸和中文不一样，不锁盒高就会把这一行顶高、也让符号看起来飘在文字上方。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-quaternary);
+}
+
+.chat-proc-lead-running {
+  color: var(--accent);
+  /* 沙漏翻转：45%→55% 之间快速翻 180°，其余时间静置。沙漏上下对称，
+     所以从 180° 直接回到 0° 看不出接缝，像"倒过来接着漏"。纯 CSS 动画走
+     合成层，不做逐帧重渲染 —— 秒表闪烁的教训就是不碰 JS 定时器。
+     盒模型/字号由 .chat-proc-lead 统一给（emoji 必须与 13px 正文同高，别再单独放大）。 */
+  animation: chat-proc-flip 1.6s ease-in-out infinite;
+}
+
+@keyframes chat-proc-flip {
+  0%, 45% { transform: rotate(0deg); }
+  55%, 100% { transform: rotate(180deg); }
+}
+
+/* 系统开"减弱动态效果"时，沙漏静止（仍显示 ⏳，不做任何动作）。 */
+@media (prefers-reduced-motion: reduce) {
+  .chat-proc-lead-running { animation: none; }
+}
+
+.chat-proc-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* 第一行：状态词是主角（灰阶里最重的一档），用时退到第三档。 */
+.chat-proc-state {
+  flex: none;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/*
+ * 第一行里的报错信号（「⚠ 2 处报错」）：比状态词弱一档（第三档灰、小一号），
+ * 只在真有报错步骤时存在。不引入新层次、不用重色。
+ */
+.chat-proc-errors {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 0.95em;
+  font-weight: 400;
+}
+
+.chat-proc-time {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-proc-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 第二行：此刻进行到哪一步 —— 正文色（这张卡的主角）。 */
+.chat-proc-current {
+  color: var(--text-primary);
+}
+
+.chat-proc-current-text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右侧补充信息（「改了 3 个文件」），第三档灰。 */
+.chat-proc-meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+
+/* 只有"运行中"给一点强调：比默认亮一档的灰边。 */
+.chat-proc-running > .chat-proc-head {
+  border-color: var(--border-default);
+}
+
+.chat-proc-caret {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  flex: none;
+}
+
+.chat-proc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-subtle);
+}
+
+/* 宿主唤醒消息的卡片（子代理/任务/定时/团队/外部事件…）。数值逐条对齐桌面端
+   ui-chat 的 TurnTriggerNodeView.module.css：16px 圆角、描边、代码块灰底、
+   头部 12px/16px、标题 13px、时间右对齐 12px、正文左缩进 40px、正文区最高 240px。
+   外边距单独给足 —— 真机反馈"卡片离周围文字太近、不协调"。 */
+.chat-trigger {
+  margin: 14px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--code-bg);
+  overflow: hidden;
+}
+.chat-trigger-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.chat-trigger-head::-webkit-details-marker {
+  display: none;
+}
+.chat-trigger-icon,
+.chat-trigger-caret {
+  flex: none;
+  color: var(--text-tertiary);
+}
+.chat-trigger-title {
+  flex: none;
+}
+.chat-trigger-time {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chat-trigger-body {
+  padding: 0 16px 12px 40px;
+}
+.chat-trigger-note {
+  margin: 8px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.chat-trigger-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+}
+
+/* 展开体首行：这一轮到底走了几步（卡面第一行只留状态词与用时）。 */
+.chat-proc-steps {
+  color: var(--text-tertiary);
+}
+
+.chat-think {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-think-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  /* 折叠头从 --text-muted 提到 --text-secondary：muted 是全站最弱的灰，
+     深色模式下几乎糊在背景里，"深度思考 · N 行"这行标题也看不清。 */
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-think-icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.chat-think-label {
+  flex: 1 1 auto;
+}
+
+.chat-think-caret {
+  flex: none;
+}
+
+.chat-think-body {
+  /* 思维链正文重新设计：原文用 --text-muted（全站最弱灰），浅色下发白、深色下发糊，
+     两种模式都读不清。改为：
+     ① 颜色 --text-secondary（主题保证对比度，深浅都够看，又弱于正文，层级不乱）；
+     ② 左侧竖线由 --border-subtle 提到 --border-default，边界更明确；
+     ③ 加一层 --code-bg 底（浅色 #e8ecf2 / 深色 #161b22，与页面底有区分），
+        让它一眼是"引用块/思考块"，不再和正文混在一起；
+     ④ 右侧同圆角，行高 1.65 更适合手机上读长段推理。 */
+  padding: 6px 10px 8px 22px;
+  border-left: 2px solid var(--border-default);
+  border-radius: 0 8px 8px 0;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-step-head {
+  min-height: 40px;
+}
+
+.chat-step-state {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.chat-step-state-ok { color: var(--diff-add); }
+.chat-step-state-error { color: var(--diff-del); }
+.chat-step-state-running { color: var(--accent); }
+
+.chat-flow-answer {
+  margin-top: var(--space-1);
+}
+
+/*
+ * Turn tail (desktop turn-tail): what the turn handed back as a report card —
+ * declared deliverables and the files the turn produced. No duration here: the
+ * process group head already carries it (one place, one number).
+ */
+.chat-turn-tail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.chat-turn-tail-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.chat-turn-tail-title {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.chat-turn-tail-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+}
+
+.chat-turn-tail-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.chat-turn-tail-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.chat-turn-tail-file {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-turn-tail-file-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.chat-turn-tail-count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.chat-turn-tail-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+.chat-turn-tail-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/*
+ * Process timeline (desktop ToolRow parity): one row per tool call with a
+ * state dot, the family glyph, the act's title and the args-derived summary.
+ * The summary is the shrinkable slot — an unbreakable MCP tool id or a long
+ * command ellipsizes instead of pushing the caret off the row.
+ */
+.chat-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.chat-step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-step-icon {
+  flex: none;
+  /* 与 .chat-proc-lead 同一套对齐规则：定宽方形盒 + 居中 + line-height:1。
+     这里原来还有一条给 14px SVG 用的子规则，换成 emoji 后已无用、已一并删除；
+     emoji 若不定盒会按字形基线摆放，看着像飘在标题上方。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+/* 非工具步骤（思考中 / 正在回答）也要有行首符号：💭 加轻微呼吸。
+   动效刻意比卡首的沙漏弱（那边是翻转），一张卡里不要两个东西抢眼睛。
+   注意：本文件的 CSS 在模板字符串里，注释里不得出现反引号或美元加花括号。 */
+.chat-step-icon-thinking {
+  animation: chat-step-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes chat-step-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-step-icon-thinking { animation: none; }
+  .chat-step-icon-spin { animation: none; }
+}
+
+/* 运行命令（bash 族）的齿轮只在"这一步正在跑"时转：结算后必须停，
+   否则"已完成"的卡里齿轮转个不停，读起来像还在干活。 */
+.chat-step-icon-spin {
+  animation: chat-step-spin 2.4s linear infinite;
+}
+
+@keyframes chat-step-spin {
+  to { transform: rotate(360deg); }
+}
+
+.chat-step-title {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.chat-step-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.chat-step-tally {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.chat-step-tally-add { color: var(--diff-add); }
+.chat-step-tally-del { color: var(--diff-del); }
+
+.chat-step-caret {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.chat-step-peek {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+@keyframes chat-step-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 /* Tool diff card: file path header + red removed / green added lines,

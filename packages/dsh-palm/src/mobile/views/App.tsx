@@ -20,7 +20,6 @@ import {
 } from '../api.ts'
 import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../messages.ts'
 import type { SessionProjectionsBlock } from '../../api-proxy-types'
-import { getShowSystemMessages, getShowToolCalls, setShowSystemMessages, setShowToolCalls } from '../display-prefs.ts'
 import { MuxClient } from '../mux.ts'
 import { startNotify, stopNotify } from '../notify.ts'
 import { usePageVisible } from '../foreground.ts'
@@ -385,18 +384,10 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     for (const sessionId of hostRunningRef.current) active.add(sessionId)
     setRunOverviewLive(active.size)
   }, [])
-  // Message-visibility prefs live here (shared by the chat and the settings
-  // page) and persist on the /m origin through display-prefs.
-  const [showToolCalls, setShowToolCallsState] = useState(() => getShowToolCalls())
-  const [showSystemMessages, setShowSystemMessagesState] = useState(() => getShowSystemMessages())
-  const handleToolCalls = useCallback((value: boolean) => {
-    setShowToolCalls(value)
-    setShowToolCallsState(value)
-  }, [])
-  const handleSystemMessages = useCallback((value: boolean) => {
-    setShowSystemMessages(value)
-    setShowSystemMessagesState(value)
-  }, [])
+  // Message visibility is pinned to desktop parity: tool calls always render,
+  // injected system messages never do. No setting can flip either one.
+  const showToolCalls = true
+  const showSystemMessages = false
 
   useEffect(() => () => {
     if (exitTimerRef.current !== undefined) clearTimeout(exitTimerRef.current)
@@ -808,10 +799,6 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
       : route.kind === 'settings'
         ? <SettingsView
           onBack={back}
-          showToolCalls={showToolCalls}
-          showSystemMessages={showSystemMessages}
-          onToolCalls={handleToolCalls}
-          onSystemMessages={handleSystemMessages}
         />
         : <ChatView
           session={route.session}

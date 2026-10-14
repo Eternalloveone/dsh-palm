@@ -29,8 +29,8 @@ import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
-  ChatBubbleIcon, ChevronUpIcon, ContrastIcon, GaugeIcon, HashIcon, InfoIcon, MicIcon,
-  PencilIcon, PlusIcon, QuoteIcon, RowsIcon, ScrollDownIcon, ShieldIcon, SlidersIcon,
+  ChevronUpIcon, ContrastIcon, GaugeIcon, HashIcon, InfoIcon, MicIcon,
+  PencilIcon, PlusIcon, RowsIcon, ScrollDownIcon, ShieldIcon, SlidersIcon,
   TrashIcon, TypeIcon, UpperRightIcon, VibrateIcon, BellIcon,
 } from '../icons.tsx'
 import {
@@ -43,12 +43,6 @@ import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.ts
 /** Props for the settings page. */
 export interface SettingsViewProps {
   onBack(): void
-  /** Tool-call disclosure visibility (owned by the app, persisted via display-prefs). */
-  showToolCalls: boolean
-  /** Injected system-message visibility (owned by the app, persisted via display-prefs). */
-  showSystemMessages: boolean
-  onToolCalls(value: boolean): void
-  onSystemMessages(value: boolean): void
 }
 
 /** Source badge: where a setting takes effect / can be changed. */
@@ -503,7 +497,7 @@ function DeviceManagementView({ onBack }: { onBack(): void }) {
  * @param props - the back action.
  * @returns the settings page.
  */
-export function SettingsView({ onBack, showToolCalls, showSystemMessages, onToolCalls, onSystemMessages }: SettingsViewProps) {
+export function SettingsView({ onBack }: SettingsViewProps) {
   const [namespaces, setNamespaces] = useState<SettingsNamespaceView[] | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [openGroup, setOpenGroup] = useState<string | undefined>(undefined)
@@ -1654,24 +1648,6 @@ export function SettingsView({ onBack, showToolCalls, showSystemMessages, onTool
               desc="任务完成、审批到达时轻震一下"
               value={haptics}
               onChange={(next) => { setHaptics(next); setHapticsState(next) }}
-            />
-          )}
-          {hit('工具调用', 'tool') && (
-            <ToggleRow
-              icon={<ChatBubbleIcon />}
-              title="工具调用"
-              desc="显示助手使用的工具调用"
-              value={showToolCalls}
-              onChange={onToolCalls}
-            />
-          )}
-          {hit('系统提示词', 'system', '注入') && (
-            <ToggleRow
-              icon={<QuoteIcon />}
-              title="系统提示词"
-              desc="显示注入到对话中的系统消息"
-              value={showSystemMessages}
-              onChange={onSystemMessages}
             />
           )}
         </ul>

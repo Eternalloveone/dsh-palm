@@ -96,7 +96,7 @@ describe('SettingsView card list', () => {
   })
 
   it('renders merged group cards with their member summary', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     // ui-theme + locale merge into the 通用 card; llm-pi-ai + agent-default-model
     // merge into the 模型 card. 外观 is now a section heading on the home page.
     expect(await screen.findByText('通用')).toBeTruthy()
@@ -106,14 +106,14 @@ describe('SettingsView card list', () => {
   })
 
   it('marks fully read-only groups with the read-only badge', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     await screen.findByText('通用')
     // llm-pi-ai is not writable, but agent-default-model is -> 模型 has no badge.
     expect(screen.queryByText('只读')).toBeNull()
   })
 
   it('opens the merged form from a group card, showing each section', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     // Click the 通用 group card (a button), not the 通用 section heading.
     fireEvent.click(await screen.findByRole('button', { name: /通用/ }))
     // Both sections render inside the merged form: ui-theme's writable field
@@ -126,24 +126,20 @@ describe('SettingsView card list', () => {
     expect(await screen.findByText('界面语言')).toBeTruthy()
   })
 
-  it('renders the tool-call and system-message switches and reports changes', async () => {
-    const onToolCalls = vi.fn()
-    const onSystemMessages = vi.fn()
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={onToolCalls} onSystemMessages={onSystemMessages} />)
-
-    const toolSwitch = await screen.findByRole('switch', { name: '工具调用' })
-    expect(toolSwitch.getAttribute('aria-checked')).toBe('true')
-    fireEvent.click(toolSwitch)
-    expect(onToolCalls).toHaveBeenCalledWith(false)
-
-    const systemSwitch = screen.getByRole('switch', { name: '系统提示词' })
-    expect(systemSwitch.getAttribute('aria-checked')).toBe('false')
-    fireEvent.click(systemSwitch)
-    expect(onSystemMessages).toHaveBeenCalledWith(true)
+  it('no longer offers the tool-call / system-message switches (desktop parity)', async () => {
+    render(<SettingsView onBack={() => {}} />)
+    // 与桌面端严格一致：这两个手机端独有的开关已删除，不许再以 switch 的形式出现。
+    await screen.findByText('通用')
+    // 同组的其它开关仍在，所以「找不到」是真的删除，不是整页没渲染。
+    expect(screen.getByRole('switch', { name: '自动滚动' })).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: '工具调用' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: '系统提示词' })).toBeNull()
+    expect(screen.queryByText('工具调用')).toBeNull()
+    expect(screen.queryByText('系统提示词')).toBeNull()
   })
 
   it('shows the package version in the About sheet', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByText('关于'))
     // The version comes from package.json (not a hardcoded literal); it
     // appears both in the row description and the About sheet.
@@ -153,7 +149,7 @@ describe('SettingsView card list', () => {
   it('opens the GitHub issues page from the feedback row', async () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
-      render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+      render(<SettingsView onBack={() => {}} />)
       fireEvent.click(await screen.findByText('反馈与建议'))
       expect(open).toHaveBeenCalledWith(
         'https://github.com/Eternalloveone/dsh-palm/issues/new', '_blank', 'noopener')
@@ -163,7 +159,7 @@ describe('SettingsView card list', () => {
   })
 
   it('adds, lists, and removes a voice transcription service', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
 
     fireEvent.click(await screen.findByText('语音服务'))
     expect(await screen.findByText('尚未配置服务 — 点击下方「添加服务」。')).toBeTruthy()
@@ -184,7 +180,7 @@ describe('SettingsView card list', () => {
   })
 
   it('keeps the save button disabled until the required fields are filled', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
 
     fireEvent.click(await screen.findByText('语音服务'))
     fireEvent.click(screen.getByText('添加服务'))
@@ -204,7 +200,7 @@ describe('SettingsView card list', () => {
       { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
       { name: 'SiliconFlow TeleASR', baseURL: 'https://api.siliconflow.cn/v1', model: 'TeleAI/TeleSpeechASR' },
     ])
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
 
     fireEvent.click(await screen.findByText('语音服务'))
     expect(fetchHostVoiceServicesMock).toHaveBeenCalledTimes(1)
@@ -226,7 +222,7 @@ describe('SettingsView card list', () => {
     upsertVoiceService({ id: 'svc-user', name: '我的服务', baseURL: 'https://x.example/v1', apiKey: 'k', model: 'm' })
     expect(getVoiceServices().length).toBe(2)
 
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByText('语音服务'))
 
     // The stale legacy import is gone; the user service survives; the host
@@ -252,7 +248,7 @@ describe('SettingsView card list', () => {
         models: [{ name: 'deepseek-v4-flash:0731', requestCount: 2934 }],
       }],
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
 
     // Collapsed: a single row whose summary shows the Ok provider's remaining quota.
     expect(await screen.findByText(/余量 54%/)).toBeTruthy()
@@ -291,7 +287,7 @@ describe('SettingsView card list', () => {
         { name: 'agnes-ai', baseURL: 'https://apihub.agnes-ai.com/v1', kind: 'usage', status: 'unsupported', fetchedAt: 0 },
       ],
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
 
     // The queryable provider shows in the collapsed summary…
     expect(await screen.findByText(/余量 54%/)).toBeTruthy()
@@ -321,7 +317,7 @@ describe('SettingsView card list', () => {
         },
       ],
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     expect(await screen.findByText(/余量 12%/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /用量/ }))
     // 两条配额窗口各带自己的进度条与**真实**重置时间：/api/balance 现在给
@@ -363,7 +359,7 @@ describe('SettingsView notification page (L3 channels)', () => {
   })
 
   it('renders the WxPusher SPT field with the recommend badge and the 2-step helper', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     expect(await screen.findByPlaceholderText(/^SPT_/)).toBeTruthy()
     expect(screen.getByText('推荐')).toBeTruthy()
@@ -378,7 +374,7 @@ describe('SettingsView notification page (L3 channels)', () => {
   })
 
   it('saves the WxPusher SPT with the other channel credentials', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     fireEvent.change(await screen.findByPlaceholderText(/^SPT_/), { target: { value: 'SPT_test_1' } })
     // The channel card has its own save button (distinct from the triggers card).
@@ -397,7 +393,7 @@ describe('SettingsView notification page (L3 channels)', () => {
   })
 
   it('clears the WxPusher channel when the field is left empty', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     fireEvent.click(await screen.findByRole('button', { name: '保存推送渠道' }))
     await waitFor(() => {
@@ -414,7 +410,7 @@ describe('SettingsView notification page (L3 channels)', () => {
   })
 
   it('shows the inbox empty state when the host has no recent decisions', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     expect(await screen.findByText('最近通知')).toBeTruthy()
     expect(await screen.findByText(/暂无通知/)).toBeTruthy()
@@ -443,7 +439,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         },
       ],
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     expect(await screen.findByText('「pnpm test」已完成')).toBeTruthy()
     expect(screen.getByText('「build」失败：exit 1')).toBeTruthy()
@@ -468,14 +464,14 @@ describe('SettingsView notification page (L3 channels)', () => {
         },
       ],
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     const row = (await screen.findByText('「改造」的回复已完成')).closest('button')
     expect((row as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('toggles the lock-screen privacy switch and persists it', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     const privacy = await screen.findByRole('switch', { name: '锁屏隐藏通知详情' })
     expect(privacy.getAttribute('aria-checked')).toBe('false')
@@ -488,21 +484,21 @@ describe('SettingsView notification page (L3 channels)', () => {
 
   it('flags a newer published version from the About sheet', async () => {
     latestVersionMock.mockResolvedValue({ latest: '0.7.4', isNewer: true })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByText('关于'))
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
     expect(await screen.findByText(/发现新版本 0\.7\.4/)).toBeTruthy()
   })
 
   it('confirms the latest version from the About sheet', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByText('关于'))
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
     expect(await screen.findByText(/已是最新版本/)).toBeTruthy()
   })
 
   it('shows the notification content gates with the quiet defaults', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     // 规划完成 default on; 后台任务 / 长回复 default off.
     expect((await screen.findByRole('switch', { name: '规划完成' })).getAttribute('aria-checked')).toBe('true')
@@ -511,7 +507,7 @@ describe('SettingsView notification page (L3 channels)', () => {
   })
 
   it('persists a kind gate toggle through push.config', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     fireEvent.click(await screen.findByRole('switch', { name: '后台任务' }))
     await waitFor(() => {
@@ -536,7 +532,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         pushplus: { configured: false },
       },
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     expect(await screen.findByText(/已配置 ✓/)).toBeTruthy()
     expect(screen.getAllByText('未配置').length).toBeGreaterThan(0)
@@ -556,7 +552,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         pushplus: { configured: false },
       },
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     // Wait for the config load (the configured-state label renders from it)
     // so the clear gate sees the configured channel.
@@ -582,7 +578,7 @@ describe('SettingsView notification page (L3 channels)', () => {
         pushplus: { configured: false },
       },
     })
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     await screen.findByText(/已配置 ✓/)
     fireEvent.click(screen.getByRole('button', { name: '保存推送渠道' }))
@@ -608,7 +604,7 @@ describe('SettingsView sub-config search', () => {
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
     try {
-      render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+      render(<SettingsView onBack={() => {}} />)
       await screen.findByText('外观')
       fireEvent.change(screen.getByPlaceholderText('搜索设置…'), { target: { value: 'wxpusher' } })
       // The index group surfaces the sub-page entry (no such row on the
@@ -630,7 +626,7 @@ describe('SettingsView sub-config search', () => {
   })
 
   it('matches sub-page entries by their English keywords too', async () => {
-    render(<SettingsView onBack={() => {}} showToolCalls={true} showSystemMessages={false} onToolCalls={() => {}} onSystemMessages={() => {}} />)
+    render(<SettingsView onBack={() => {}} />)
     await screen.findByText('外观')
     fireEvent.change(screen.getByPlaceholderText('搜索设置…'), { target: { value: 'serverchan' } })
     expect(await screen.findByText(/Server酱 SendKey/)).toBeTruthy()

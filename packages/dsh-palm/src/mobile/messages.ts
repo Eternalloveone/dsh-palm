@@ -42,10 +42,19 @@
  *   keep arriving, `pending: true`) is finalized by the matching
  *   `assistant/message` (same id or `(turn, step)`) or closed by `turn/end`.
  */
+/**
+ * One file a `present` call declared this turn — the desktop's deliverable
+ * card entry: a mandatory workspace path plus the optional human description.
+ */
+export interface TurnDeliverable {
+  readonly path: string
+  readonly description?: string
+}
+
 export interface RenderMessage {
   /** Stable message identity — the wire id when present, else the event seq. */
   readonly id: string
-  readonly kind: 'user' | 'assistant' | 'command'
+  readonly kind: 'user' | 'assistant' | 'command' | 'turn'
   /** The fully folded text (assistant chunks aggregate into their message). */
   readonly text: string
   /**
@@ -81,6 +90,28 @@ export interface RenderMessage {
   readonly seq: number
   /** Epoch ms of the latest touch. */
   readonly time: number
+  /**
+   * Turn-tail row (kind `turn`): how long the turn took, in epoch ms — the
+   * phone's take on the desktop's `用时 9分29秒`. Absent when the window never
+   * carried the `turn/start` anchor.
+   */
+  readonly durationMs?: number
+  /**
+   * The owning turn's `turn/start` time (epoch ms), folded onto every row of
+   * that turn. A running turn's process head ticks off it (`now - turnStartAt`);
+   * once `turn/end` lands, `durationMs` freezes the number instead.
+   */
+  readonly turnStartAt?: number
+  /**
+   * Host time (epoch ms) of the FIRST event that created this row — the clock
+   * fallback for a turn whose `turn/start` never reached this window (a tail
+   * page loaded mid-turn). The running head must never end up with no timer.
+   */
+  readonly firstSeenAt?: number
+  /** Turn-tail row: the files `present` declared this turn, in order. */
+  readonly deliverables?: readonly TurnDeliverable[]
+  /** Turn-tail row: workspace paths this turn's tool views mutated (minus the declared deliverables). */
+  readonly produced?: readonly string[]
   /** True while an assistant message is still receiving chunks (not yet closed). */
   readonly pending?: boolean
   /**
@@ -159,15 +190,28 @@ export interface ToolCallInfo {
    * keep the raw arguments fallback.
    */
   readonly view?: ToolDiffView
+  /**
+   * Row state for the process timeline (desktop parity): `running` from the
+   * call until its `tool/result` settles it (`ok`, or `error` when the
+   * result message says so), and `stopped` when the owning turn ends with
+   * the call still open — an interrupted turn, exactly like the desktop row.
+   */
+  readonly state?: 'running' | 'ok' | 'error' | 'stopped'
 }
 
 /**
- * One ordered part of an assistant message's flow: a text run or a tool
- * call (by callId — the live tool entry is looked up at render time, so a
- * result-time view replacement is reflected automatically).
+ * One ordered part of an assistant message's flow: a text run, a reasoning
+ * run or a tool call (by callId — the live tool entry is looked up at render
+ * time, so a result-time view replacement is reflected automatically).
+ *
+ * Reasoning is a POSITIONED part, not just the merged `reasoning` string: the
+ * phone renders one process group in which thinking and tool calls interleave
+ * in event order (desktop turn-process parity), which needs to know WHERE each
+ * reasoning run happened, not only what it said.
  */
 type FlowPart =
   | { readonly kind: 'text'; readonly text: string; readonly seq?: number; readonly partId?: string }
+  | { readonly kind: 'reasoning'; readonly text: string; readonly seq?: number }
   | { readonly kind: 'tool'; readonly callId: string }
 
 /**
@@ -397,6 +441,26 @@ function blocksOfType(content: unknown, type: string): string {
 }
 
 /**
+ * Ordered flow of an assistant message's content blocks: text runs and reasoning
+ * blocks in author order. `assistant/message` carries the whole block list, and
+ * this is the only place the interleaving survives a history reload —
+ * `textFromContent` and `reasoningFromContent` each drop it by type.
+ */
+function flowFromContent(content: unknown): FlowPart[] {
+  if (!Array.isArray(content)) return []
+  const out: FlowPart[] = []
+  for (const block of content) {
+    if (!isRecord(block)) continue
+    const type = block['type']
+    if (type !== 'text' && type !== 'reasoning') continue
+    const text = pickString(block['text'])
+    if (text === undefined || text === '') continue
+    out.push(type === 'reasoning' ? { kind: 'reasoning', text } : { kind: 'text', text })
+  }
+  return out
+}
+
+/**
  * Extract a text-chunk target from `assistant/chunk` or the mobile alias
  * `message/chunk`.
  *
@@ -455,6 +519,10 @@ interface FoldState {
   toolNames: Map<string, Set<string>>
   /** Highest seq folded so far; the replay/watermark gate. */
   maxSeq: number
+  /** `turn/start` epoch ms per turn (the turn tail's duration anchor). */
+  turnStarts: Map<number, number>
+  /** Files declared by `deliverables/presented` per turn, deduped by path. */
+  presented: Map<number, TurnDeliverable[]>
 }
 
 function createState(existing: readonly RenderMessage[] | undefined, eventMaxSeq?: number): FoldState {
@@ -466,6 +534,8 @@ function createState(existing: readonly RenderMessage[] | undefined, eventMaxSeq
     turnStepMessage: new Map(),
     messageTurn: new Map(),
     toolNames: new Map(),
+    turnStarts: new Map(),
+    presented: new Map(),
     // An explicit event watermark wins over the row-derived one: rows only
     // carry message-level seqs, and events like turn/end never bump a row's
     // seq, so a window restored from host-folded rows must know the true
@@ -532,8 +602,28 @@ function decodePendingTurnStep(id: string): { turn: number; step: number } | und
  * re-index it. Immutable: `next` is a fresh object; the old one is untouched.
  */
 function replaceMessage(state: FoldState, oldMessage: RenderMessage, next: RenderMessage): void {
-  const index = state.messages.indexOf(oldMessage)
-  if (index !== -1) state.messages[index] = next
+  let index = state.messages.indexOf(oldMessage)
+  if (index === -1) {
+    // The (turn, step) index can outlive the row OBJECT it points at: an
+    // earlier rewrite swapped that object for a fresh one. Dropping the
+    // rewrite here is what silently swallowed a step's later tool calls
+    // (the row was still indexed, so every following call bound to the
+    // orphan and its update vanished). Land it on the row that actually
+    // carries the replaced row's id, else on the same turn's last
+    // assistant row, else append: an update is never thrown away.
+    index = state.messages.findIndex(message => message.id === oldMessage.id)
+    if (index === -1 && oldMessage.turn !== undefined) {
+      for (let i = state.messages.length - 1; i >= 0; i -= 1) {
+        const candidate = state.messages[i]
+        if (candidate !== undefined && candidate.kind === 'assistant' && candidate.turn === oldMessage.turn) {
+          index = i
+          break
+        }
+      }
+    }
+  }
+  if (index === -1) state.messages.push(next)
+  else state.messages[index] = next
   state.byId.delete(oldMessage.id)
   state.byId.set(next.id, next)
 }
@@ -545,8 +635,16 @@ function retargetTurnStep(state: FoldState, key: string | undefined, oldMessage:
   if (state.turnStepMessage.get(key) === oldMessage) state.turnStepMessage.set(key, next)
 }
 
-/** The (turn, step) index key a row was created under, from its id. */
+/**
+ * The (turn, step) index key a row was created under. The row's own fields
+ * are the primary source — an `assistant/message` row carries the host's
+ * authoritative message id (a uuid), from which the synthetic
+ * "assistant,<turn>.<step>#<seq>" format cannot be recovered. The id decode
+ * stays as the fallback for rows folded before the fields existed.
+ */
 function turnStepKeyOf(message: RenderMessage): string | undefined {
+  const fromRow = tsKey(message.turn, message.step)
+  if (fromRow !== undefined) return fromRow
   const decoded = decodePendingTurnStep(message.id)
   return decoded === undefined ? undefined : tsKey(decoded.turn, decoded.step)
 }
@@ -579,6 +677,12 @@ function applyEvent(state: FoldState, event: WireEvent): void {
       break
     case 'tool/result':
       applyToolResult(state, event)
+      break
+    case 'turn/start':
+      applyTurnStart(state, event)
+      break
+    case 'deliverables/presented':
+      applyPresented(state, event)
       break
     case 'command/run':
       applyCommandRun(state, event)
@@ -684,14 +788,23 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
     return
   }
 
+  // History carries the whole content block list: walking it in order is what
+  // keeps thinking and text interleaved after a reload (live rows already have
+  // their positioned flow from the chunks).
+  const contentFlow = flowFromContent(messageData['content'])
   const message: RenderMessage = {
     id,
     kind: 'assistant',
     text: finalText,
-    ...(finalText !== '' ? { flow: [{ kind: 'text', text: finalText }] } : {}),
+    ...(contentFlow.length > 0 ? { flow: contentFlow } : (finalText !== '' ? { flow: [{ kind: 'text', text: finalText }] } : {})),
     ...(finalReasoning !== '' ? { reasoning: finalReasoning } : {}),
     ...(usage !== undefined ? { usage } : {}),
     ...(turn !== undefined ? { turn } : {}),
+    // The replace branch above stamps `step` too: without it here, the
+    // (turn, step) index key of a host-uuid row cannot be recovered from
+    // the id, so the first tool/result orphans the row and every later
+    // tool/call of the same step is dropped (the real-machine "1 步" lie).
+    ...(step !== undefined ? { step } : {}),
     seq: event.seq,
     time: event.time,
   }
@@ -744,21 +857,37 @@ function appendTextFlow(flow: ReadonlyArray<FlowPart> | undefined, text: string,
   return [...flow, { kind: 'text', text, ...(seq !== undefined ? { seq } : {}) }]
 }
 
+/**
+ * Append a reasoning run to the flow, merging into a trailing reasoning part.
+ * The part carries no seq of its own: reasoning chunks change seq on every
+ * token, and a per-chunk seq would break the merge (the merged run's position
+ * is already implied by the array order).
+ */
+function appendReasoningFlow(flow: ReadonlyArray<FlowPart> | undefined, text: string): ReadonlyArray<FlowPart> {
+  if (flow === undefined || flow.length === 0) return [{ kind: 'reasoning', text }]
+  const last = flow[flow.length - 1]
+  if (last !== undefined && last.kind === 'reasoning') {
+    return [...flow.slice(0, -1), { kind: 'reasoning', text: last.text + text, ...(last.seq !== undefined ? { seq: last.seq } : {}) }]
+  }
+  return [...flow, { kind: 'reasoning', text }]
+}
+
 /** Append a tool call to the flow (by callId). */
 function appendToolFlow(flow: ReadonlyArray<FlowPart> | undefined, callId: string): ReadonlyArray<FlowPart> {
   return [...(flow ?? []), { kind: 'tool', callId }]
 }
 
 /**
- * The final text is authoritative: when it differs from the accumulated
- * chunk text, the text runs collapse into one run of the final text while
- * the tool parts survive (a tool call is an independent event — a text
- * rewrite must not drop it); otherwise the interleaved flow is kept as-is.
+ * The final text is authoritative: when it differs from the accumulated chunk
+ * text, every text run collapses into ONE trailing run of the final text while
+ * the reasoning and tool parts survive at their own positions (a tool call is an
+ * independent event — a text rewrite must not drop it, and the answer belongs
+ * AFTER the steps that produced it). Otherwise the interleaved flow is kept.
  */
 function finalizeFlow(flow: ReadonlyArray<FlowPart> | undefined, accumulated: string, finalText: string, seq: number): ReadonlyArray<FlowPart> {
   if (finalText === accumulated) return flow ?? []
-  const tools = (flow ?? []).filter(part => part.kind === 'tool')
-  return finalText === '' ? tools : [{ kind: 'text', text: finalText, seq }, ...tools]
+  const steps = (flow ?? []).filter(part => part.kind !== 'text')
+  return finalText === '' ? steps : [...steps, { kind: 'text', text: finalText, seq }]
 }
 
 /** Merge two "使用 A / B" summaries by tool name (deduped, order preserved). */
@@ -777,8 +906,8 @@ function mergeToolSummary(a: string | undefined, b: string | undefined): string 
 
 /** Add a row seq only to legacy flows that have no explicit part seq. */
 function flowWithSeq(flow: ReadonlyArray<FlowPart> | undefined, seq: number): ReadonlyArray<FlowPart> | undefined {
-  if (flow === undefined || flow.some(part => part.kind === 'text' && part.seq !== undefined)) return flow
-  return flow.map(part => part.kind === 'text' ? { ...part, seq } : part)
+  if (flow === undefined || flow.some(part => part.kind !== 'tool' && part.seq !== undefined)) return flow
+  return flow.map(part => part.kind === 'tool' ? part : { ...part, seq })
 }
 
 /** Concatenate two flows, merging adjacent text runs on a blank line. */function mergeFlows(a: ReadonlyArray<FlowPart> | undefined, b: ReadonlyArray<FlowPart> | undefined): ReadonlyArray<FlowPart> {
@@ -788,15 +917,26 @@ function flowWithSeq(flow: ReadonlyArray<FlowPart> | undefined, seq: number): Re
   const first = b[0]
   if (first !== undefined && first.kind === 'text') {
     const last = out[out.length - 1]
-    // Keep distinct step seqs as distinct text parts. FlowBody exposes one
-    // data-step-seq anchor per text part; merging here would make the later
-    // step's search result impossible to locate or highlight.
+    // Keep distinct step seqs as distinct text parts. The process group's
+    // expanded body exposes one data-step-seq anchor per text part; merging
+    // here would make the later step's search result impossible to locate.
     if (last !== undefined && last.kind === 'text' && (last.seq === undefined || first.seq === undefined || last.seq === first.seq)) {
       out[out.length - 1] = { kind: 'text', text: last.text + (last.text !== '' && first.text !== '' ? '\n\n' : '') + first.text, ...(last.seq !== undefined || first.seq !== undefined ? { seq: last.seq ?? first.seq } : {}) }
       return [...out, ...b.slice(1)]
     }
   }
   return [...out, ...b]
+}
+
+/**
+ * The owning turn's clock, folded onto a row: `turn` always rides along, and
+ * `turnStartAt` is attached as soon as the turn's `turn/start` has been seen so
+ * a running process head can tick without any surface-side bookkeeping.
+ */
+function turnStamp(state: FoldState, turn: number | undefined): { turn?: number; turnStartAt?: number } {
+  if (turn === undefined) return {}
+  const startedAt = state.turnStarts.get(turn)
+  return { turn, ...(startedAt !== undefined ? { turnStartAt: startedAt } : {}) }
 }
 
 function applyChunk(state: FoldState, event: WireEvent): void {
@@ -818,7 +958,7 @@ function applyChunk(state: FoldState, event: WireEvent): void {
 
   if (message !== undefined && message.kind === 'assistant') {
     const next: RenderMessage = target.kind === 'reasoning'
-      ? { ...message, reasoning: (message.reasoning ?? '') + target.text, seq: event.seq, time: event.time }
+      ? { ...message, reasoning: (message.reasoning ?? '') + target.text, seq: event.seq, time: event.time, flow: appendReasoningFlow(message.flow, target.text) }
       : { ...message, text: message.text + target.text, seq: event.seq, time: event.time, flow: appendTextFlow(message.flow, target.text) }
     replaceMessage(state, message, next)
     retargetTurnStep(state, key, message, next)
@@ -828,8 +968,8 @@ function applyChunk(state: FoldState, event: WireEvent): void {
   const id = target.id
     ?? (key !== undefined ? syntheticId(`assistant,${key}`, event.seq) : syntheticId('assistant', event.seq))
   const created: RenderMessage = target.kind === 'reasoning'
-    ? { id, kind: 'assistant', text: '', reasoning: target.text, seq: event.seq, time: event.time, pending: true, ...(target.turn !== undefined ? { turn: target.turn } : {}), ...(target.step !== undefined ? { step: target.step } : {}) }
-    : { id, kind: 'assistant', text: target.text, seq: event.seq, time: event.time, pending: true, flow: [{ kind: 'text', text: target.text, seq: event.seq }], ...(target.turn !== undefined ? { turn: target.turn } : {}), ...(target.step !== undefined ? { step: target.step } : {}) }
+    ? { id, kind: 'assistant', text: '', reasoning: target.text, seq: event.seq, time: event.time, firstSeenAt: event.time, pending: true, flow: [{ kind: 'reasoning', text: target.text }], ...turnStamp(state, target.turn), ...(target.step !== undefined ? { step: target.step } : {}) }
+    : { id, kind: 'assistant', text: target.text, seq: event.seq, time: event.time, firstSeenAt: event.time, pending: true, flow: [{ kind: 'text', text: target.text, seq: event.seq }], ...turnStamp(state, target.turn), ...(target.step !== undefined ? { step: target.step } : {}) }
   state.messages.push(created)
   state.byId.set(id, created)
   if (key !== undefined) {
@@ -912,6 +1052,7 @@ function applyToolCall(state: FoldState, event: WireEvent): void {
       text: '',
       seq: event.seq,
       time: event.time,
+      firstSeenAt: event.time,
       pending: true,
       turn,
       step,
@@ -962,7 +1103,7 @@ function applyToolCall(state: FoldState, event: WireEvent): void {
   const existingIndex = tools.findIndex(tool => tool.callId === callId)
   const isNewCall = existingIndex === -1
   const nextTools: ToolCallInfo[] = isNewCall
-    ? [...tools, { callId, name, ...(args !== undefined ? { arguments: args } : {}), ...(view !== undefined ? { view } : {}) }]
+    ? [...tools, { callId, name, state: 'running', ...(args !== undefined ? { arguments: args } : {}), ...(view !== undefined ? { view } : {}) }]
     : tools.map((tool, index) => index === existingIndex
       ? { ...tool, ...(args !== undefined ? { arguments: args } : {}), ...(view !== undefined ? { view } : {}) }
       : tool)
@@ -991,12 +1132,16 @@ function applyToolResult(state: FoldState, event: WireEvent): void {
   const callId = pickString(source['callId'])
   if (callId === undefined) return
   const view = diffViewOf(event.view)
-  if (view === undefined) return
+  // The result settles the row's state even when it carries no diff view (a
+  // read/search/terminal result): the timeline's dot must stop spinning.
+  const settled: ToolCallInfo['state'] = message['isError'] === true || message['error'] !== undefined ? 'error' : 'ok'
   for (const row of state.messages) {
     if (row.kind !== 'assistant' || row.tools === undefined) continue
     const index = row.tools.findIndex(tool => tool.callId === callId)
     if (index === -1) continue
-    const nextTools = row.tools.map((tool, i) => i === index ? { ...tool, view } : tool)
+    const nextTools = row.tools.map((tool, i) => i === index
+      ? { ...tool, state: settled, ...(view !== undefined ? { view } : {}) }
+      : tool)
     const next: RenderMessage = { ...row, tools: nextTools, seq: event.seq, time: event.time }
     replaceMessage(state, row, next)
     // The diff lands while the step may still be streaming: keep the index on
@@ -1093,12 +1238,66 @@ function applyCommandDone(state: FoldState, event: WireEvent): void {
   }
 }
 
+/**
+ * Record a turn's start time. `turn/start` renders nothing on its own, but the
+ * turn tail needs the anchor to report how long the turn took.
+ */
+function applyTurnStart(state: FoldState, event: WireEvent): void {
+  const data = isRecord(event.data) ? event.data : {}
+  const turn = pickNumber(data['turn'])
+  if (turn !== undefined) state.turnStarts.set(turn, event.time)
+}
+
+/**
+ * Fold `deliverables/presented` (data = `{ turn, callId, files }`): the files a
+ * `present` call declared this turn. Entries are validated like the desktop's
+ * `isPresentedFile` (a non-empty path is mandatory) and deduped by path, so a
+ * replayed window cannot double a card.
+ */
+function applyPresented(state: FoldState, event: WireEvent): void {
+  const data = isRecord(event.data) ? event.data : {}
+  const turn = pickNumber(data['turn'])
+  const files = data['files']
+  if (turn === undefined || !Array.isArray(files)) return
+  const existing = state.presented.get(turn) ?? []
+  const seen = new Set(existing.map(file => file.path))
+  const next = [...existing]
+  for (const entry of files) {
+    if (!isRecord(entry)) continue
+    const path = pickString(entry['path'])
+    if (path === undefined || seen.has(path)) continue
+    const description = pickString(entry['description'])
+    seen.add(path)
+    next.push(description === undefined ? { path } : { path, description })
+  }
+  if (next.length !== existing.length) state.presented.set(turn, next)
+}
+
+/** Workspace paths this turn's tool views mutated, in first-seen order. */
+function producedFilesOf(messages: readonly RenderMessage[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const message of messages) {
+    for (const tool of message.tools ?? []) {
+      for (const diff of tool.view?.diffs ?? []) {
+        if (seen.has(diff.path)) continue
+        seen.add(diff.path)
+        out.push(diff.path)
+      }
+    }
+  }
+  return out
+}
+
 function applyTurnEnd(state: FoldState, event: WireEvent): void {
   const data = isRecord(event.data) ? event.data : {}
   const turn = pickNumber(data['turn'])
   const reason = isRecord(data['reason']) ? data['reason'] : {}
   const failed = reason['kind'] === 'error'
   const maxTokens = reason['kind'] === 'max-tokens'
+
+  const startedAt = turn === undefined ? undefined : state.turnStarts.get(turn)
+  const durationMs = startedAt === undefined ? undefined : Math.max(0, event.time - startedAt)
 
   let targets: RenderMessage[]
   if (turn !== undefined) {
@@ -1117,17 +1316,56 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
   }
   for (const message of targets) {
     const wasPending = message.pending === true
+    // A turn that ends with calls still open interrupted them (the desktop
+    // row's `stopped` state): their timeline dots must not spin forever.
+    const openTools = (message.tools ?? []).some(tool => tool.state === 'running')
     const next: RenderMessage = {
       ...message,
+      ...(openTools
+        ? { tools: (message.tools ?? []).map(tool => tool.state === 'running' ? { ...tool, state: 'stopped' as const } : tool) }
+        : {}),
       ...(wasPending ? { pending: false } : {}),
       ...(failed ? { failed: true } : {}),
       ...(maxTokens ? { maxTokens: true } : {}),
+      // The process head lives on the assistant row, so the turn's clock must
+      // land there too — not only on the turn-tail row.
+      ...(durationMs !== undefined ? { durationMs } : {}),
+      ...(startedAt !== undefined ? { turnStartAt: startedAt } : {}),
       // Preserve each step's own final-event seq. Collapsing every message
       // onto turn/end makes same-turn ordering depend on arbitrary ids.
       time: event.time,
     }
     replaceMessage(state, message, next)
     retargetTurnStep(state, turnStepKeyOf(message), message, next)
+  }
+
+  const deliverables = turn === undefined ? undefined : state.presented.get(turn)
+  const declared = new Set((deliverables ?? []).map(file => file.path))
+  const produced = producedFilesOf(targets).filter(path => !declared.has(path))
+  // The turn tail (the desktop's `turn-tail` node): what the turn cost and what
+  // it handed back. Emitted only when there is something to report, and keyed by
+  // turn so a replayed window replaces its row instead of stacking a new one.
+  // 计时已经在过程组折叠头里（每一行都盖了 durationMs），尾巴只报"交回了什么"：
+  // 没有交付物也没有产出文件时不生成尾巴行，免得每次回复后面挂个空壳。
+  const hasReport = (deliverables?.length ?? 0) > 0 || produced.length > 0
+  if (!hasReport) return
+  const tailId = `turn-tail:${turn ?? 'last'}`
+  const tail: RenderMessage = {
+    id: tailId,
+    kind: 'turn',
+    text: '',
+    seq: event.seq,
+    time: event.time,
+    ...(turn !== undefined ? { turn } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(deliverables !== undefined ? { deliverables } : {}),
+    ...(produced.length > 0 ? { produced } : {}),
+  }
+  const existingTail = state.byId.get(tailId)
+  if (existingTail !== undefined) replaceMessage(state, existingTail, tail)
+  else {
+    state.messages.push(tail)
+    state.byId.set(tailId, tail)
   }
 }
 
@@ -1160,6 +1398,85 @@ export function lastOpenTurnStartTime(events: readonly WireEvent[]): number | un
 }
 
 /**
+ * True for a user row the phone never paints: an injected (`source.kind`
+ * anything but 'user') user/message, hidden by message-row.tsx's guard.
+ * Mirrors that guard EXACTLY, so the coalescer's notion of "invisible" can
+ * never drift from what is actually on screen; a future injected kind is
+ * transparent for free.
+ */
+function isHiddenInjectedRow(message: RenderMessage): boolean {
+  // 只有这四种**纯噪音**注入行是透明的：它们在屏幕上从不渲染（message-row 的守卫）。
+  // 触发类唤醒消息（agent-message / subagent-settled / schedule / team-message / …）**不是**
+  // 透明的 —— 它们要独立成行才能渲染成卡片；当成透明的话会被并进助手那一轮，正文被折进
+  // 过程卡里（真机实测："消息卡片被纳入到了过程卡片中"，独立卡片根本不出现）。
+  // 这张表与 message-row.tsx 的 TRIGGER_TITLES 互补：那边出的卡 = 这边不透明的行。
+  return message.kind === 'user' && message.sourceKind !== undefined && message.sourceKind !== 'user'
+    && !isTriggerSourceKind(message.sourceKind)
+}
+
+/**
+ * 宿主唤醒消息的来源类型。与桌面端 ui-chat 的 turn-trigger.ts 同一张表：
+ * 这些消息在手机端要出折叠卡（message-row.tsx），并且必须打断 assistant 折叠链。
+ */
+const TRIGGER_SOURCE_KINDS = new Set([
+  'agent-message',
+  'team-message',
+  'subagent-settled',
+  'webhook',
+  'schedule',
+  'tool-jobs',
+  'cordis-host-runner',
+  'goal',
+])
+
+/** True when this source kind is a wake message the mobile renders as its own card. */
+export function isTriggerSourceKind(sourceKind: string): boolean {
+  return TRIGGER_SOURCE_KINDS.has(sourceKind)
+}
+
+/**
+ * 卡片标题。文案与桌面端 locale 的 message.trigger.* 一致。
+ * 这张表是**唯一真源**：判"是否出卡"（message-row.tsx）与判"是否透明"
+ * （上面的 isHiddenInjectedRow）都读它，避免两份清单各自演化后漂移。
+ */
+const TRIGGER_TITLES: Record<string, string> = {
+  'agent-message': '收到任务消息',
+  'team-message': '收到团队消息',
+  'subagent-settled': '子任务状态更新',
+  'webhook': '收到外部事件',
+  'schedule': '定时任务',
+  'tool-jobs': '后台任务状态更新',
+  'cordis-host-runner': '插件状态更新',
+  'goal': '继续执行目标',
+}
+
+/** 唤醒消息卡的标题；非唤醒来源返回 undefined（调用方照旧不渲染、也不出卡）。 */
+export function triggerTitleOf(sourceKind: string): string | undefined {
+  return isTriggerSourceKind(sourceKind) ? TRIGGER_TITLES[sourceKind] : undefined
+}
+
+/**
+ * 唤醒消息卡的**卡头符号**（emoji），与标题表一一对应。只用 emoji 11 及更早的字符，
+ * 老机型不会显示成空方块。符号放在卡头的图标位，标题文字保持纯文本 —— 便于搜索、
+ * 也不会让断言标题的用例跟着变。
+ */
+const TRIGGER_EMOJI: Record<string, string> = {
+  'agent-message': '📨',
+  'team-message': '👥',
+  'subagent-settled': '🧩',
+  'webhook': '🔔',
+  'schedule': '⏰',
+  'tool-jobs': '⚙️',
+  'cordis-host-runner': '🔌',
+  'goal': '🎯',
+}
+
+/** 唤醒消息卡卡头的符号；非唤醒来源返回 undefined。 */
+export function triggerEmojiOf(sourceKind: string): string | undefined {
+  return isTriggerSourceKind(sourceKind) ? TRIGGER_EMOJI[sourceKind] : undefined
+}
+
+/**
  * Coalesce consecutive same-turn assistant rows into one turn message.
  *
  * A busy turn emits one `assistant/message` per model step (each step's
@@ -1172,11 +1489,31 @@ export function lastOpenTurnStartTime(events: readonly WireEvent[]): number | un
  * text / reasoning / tools concatenate in message order. Applied at the
  * surface state layer (ChatView), not inside the fold, so live and replay
  * folding stay byte-identical and row ids remain stable while streaming.
+ *
+ * Rows the UI hides are transparent to the chain: the host injects a
+ * user/message between the steps of one turn (compact-checkpoint,
+ * agent-instructions, skill-catalog, runtime-context), and those used to cut
+ * a single turn into one process card per step. They are dropped from the
+ * output while merging; a real user message still ends the turn.
  */
 export function coalesceTurnMessages(messages: readonly RenderMessage[]): RenderMessage[] {
   const out: RenderMessage[] = []
   for (const message of messages) {
     const previous = out.length > 0 ? out[out.length - 1] : undefined
+    // The host injects a user/message BETWEEN the steps of one turn
+    // (compact-checkpoint, agent-instructions, skill-catalog,
+    // runtime-context — all with source.kind !== 'user'). They are hidden
+    // on screen, yet they used to break the merge chain and split a single
+    // turn into one process card per step (the three-card bug). They are
+    // transparent: inside an assistant run they are dropped from the output
+    // entirely (the show-system-messages switch is gone, so these rows can
+    // never be displayed — dropping them is lossless). A REAL user message
+    // (sourceKind 'user', or absent) still ends the turn.
+    if (isHiddenInjectedRow(message)) {
+      if (previous !== undefined && previous.kind === 'assistant') continue
+      out.push(message)
+      continue
+    }
     if (previous !== undefined && previous.kind === 'assistant' && message.kind === 'assistant'
       && previous.turn !== undefined && message.turn !== undefined
       && previous.turn === message.turn) {
@@ -1218,6 +1555,18 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
         ...(message.failed === true ? { failed: true } : {}),
         ...(message.maxTokens === true ? { maxTokens: true } : {}),
         ...(message.usage !== undefined ? { usage: message.usage } : {}),
+        // The turn clock rides the row: keep the FIRST row's start anchor and
+        // whichever step carries the settled duration (turn/end stamps every row
+        // of the turn, so the merged row sees both sides).
+        ...(previous.turnStartAt !== undefined || message.turnStartAt !== undefined
+          ? { turnStartAt: previous.turnStartAt ?? message.turnStartAt }
+          : {}),
+        ...(previous.durationMs !== undefined || message.durationMs !== undefined
+          ? { durationMs: message.durationMs ?? previous.durationMs }
+          : {}),
+        ...(previous.firstSeenAt !== undefined || message.firstSeenAt !== undefined
+          ? { firstSeenAt: previous.firstSeenAt ?? message.firstSeenAt }
+          : {}),
       }
       out[out.length - 1] = merged
     } else {

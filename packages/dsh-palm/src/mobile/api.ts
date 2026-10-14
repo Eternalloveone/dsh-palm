@@ -79,10 +79,29 @@ export async function mutateSettings(
   await callUnary<unknown>('settings.mutate', payload)
 }
 
+/** 工作区快照的复用窗口 + 单飞。真机埋点证明：宿主侧 workspace.list 只要 0~2ms，
+ *  但手机链路实测只有 0.1~3.6 KB/s —— **往返次数本身就是全部成本**。原来每次挂载
+ *  会话清单要发两次（后台归属 + 首屏预算竞速）、返回工作区页再发一次，一个来回 3 次
+ *  往返。这里让并发调用共享同一个请求、并在 5 秒内复用结果，把往返砍到 1/3。
+ *  只缓存成功的结果，失败照旧抛出（调用方各自处理）。 */
+const WORKSPACE_ROSTER_TTL_MS = 5_000
+let workspaceRosterInFlight: Promise<WorkspaceView[]> | undefined
+let workspaceRosterCached: { at: number; items: WorkspaceView[] } | undefined
+
 /** The workspace roster (session ids come back per workspace). */
 export async function listWorkspaces(): Promise<WorkspaceView[]> {
-  const { items } = await callUnary<{ items: WorkspaceView[] }>('workspace.list', {})
-  return items
+  const cached = workspaceRosterCached
+  if (cached !== undefined && Date.now() - cached.at < WORKSPACE_ROSTER_TTL_MS) return cached.items
+  const inFlight = workspaceRosterInFlight
+  if (inFlight !== undefined) return inFlight
+  const run = callUnary<{ items: WorkspaceView[] }>('workspace.list', {})
+    .then(({ items }) => {
+      workspaceRosterCached = { at: Date.now(), items }
+      return items
+    })
+    .finally(() => { workspaceRosterInFlight = undefined })
+  workspaceRosterInFlight = run
+  return run
 }
 
 /** Read-only mobile display preferences (answered by the plugin, not the host proxy). */
@@ -240,8 +259,13 @@ export async function runningSessions(): Promise<{ sessionIds: string[] }> {
 }
 
 /** One session.list page; omit the cursor for the first page. */
-export async function listSessions(cursor?: string): Promise<SessionPage> {
-  return await callUnary<SessionPage>('session.list', cursor === undefined ? {} : { cursor })
+export async function listSessions(cursor?: string, workspaceId?: string): Promise<SessionPage> {
+  // workspaceId 让宿主在切片前就按工作区过滤：每页返回的都是本工作区的会话，
+  // 客户端不再需要"连拉多页再丢弃"（那正是"点很多次"与"往深处拉超时"的共同来源）。
+  return await callUnary<SessionPage>('session.list', {
+    ...(cursor === undefined ? {} : { cursor }),
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+  })
 }
 
 /** One host-side full-roster search hit (message content across sessions). */

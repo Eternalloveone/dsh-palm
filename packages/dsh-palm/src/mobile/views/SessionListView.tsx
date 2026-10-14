@@ -211,6 +211,16 @@ const PREVIEW_CACHE_LIMIT = 200
 /** Cooldown after a failed next-page load before the sentinel retries. */
 const LOAD_MORE_BACKOFF_MS = 10_000
 
+/** 首屏/分页请求的看门狗：请求本身没有超时，挂死的连接必须由界面自己解锁。 */
+const FIRST_PAGE_TIMEOUT_MS = 12_000
+
+/**
+ * 工作区列表的预算。它只用来算"哪些会话属于本工作区"（归属过滤），却可能极慢 ——
+ * 主目录这类巨型工作区（本机 .dsh 下 57 万个文件）能慢到分钟级。给它一个短预算：
+ * 超时就先用工作区自带的 sessionIds 渲染，绝不拖死首屏。
+ */
+const WORKSPACE_LIST_BUDGET_MS = 2_500
+
 /** In-memory roster cache TTL (see list-persist.sessionListCache). */
 const LIST_CACHE_TTL_MS = 60_000
 
@@ -320,6 +330,10 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
   const [presetsLoading, setPresetsLoading] = useState(true)
   const cursorRef = useRef<string | undefined>(undefined)
   const busyRef = useRef(false)
+  // 手动重试首屏的信号：自增即重跑首屏加载（见下面 effect 的依赖）。
+  const [reloadTick, setReloadTick] = useState(0)
+  // 自动补页的轮次额度：见下面 auto-fill 的 effect。用户真正滚动时归零。
+  const autoFillRoundsRef = useRef(0)
   // Sentinel watched for automatic next-page loading (the "load more" button
   // stays as the manual fallback).
   const sentinelRef = useRef<HTMLDivElement | undefined>(undefined)
@@ -409,6 +423,12 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
    *  host's mux-fed cache (zero per-row log reads on repeat visits); when the
    *  host lacks the method (older plugin) or the call fails, the per-row
    *  history fallback below keeps the list working. */
+  /**
+   * 降级路径（逐条读会话尾部）每次最多补几条预览。
+   * 批量接口失败时如果整页一起退化成逐条请求，一页 40 条就是几十次跨网往返，
+   * 真机表现就是"加载很久很久、卡住"。预览只是装饰，宁可少几条也不拖死整页。
+   */
+  const PREVIEW_FALLBACK_LIMIT = 6
   const loadPreviews = useCallback((rows: SessionView[]): void => {
     const pending = rows
       .filter(row => !row.blank && row.preview === undefined && !sessionPreviewCache.has(row.sessionId))
@@ -438,7 +458,10 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
         // Fallback: per-row tail reads (the pre-v3.1 path), same concurrency
         // cap and cache discipline.
         if (!aliveRef.current) return
-        void mapLimited(pending, PREVIEW_CONCURRENCY, async (row) => {
+        // 降级路径必须限量：批量接口失败时会退化成"逐条读尾部"，每一条都是一次
+        // 跨网往返。整页 40 条一起退，就是真机反馈的"加载很久很久、卡住"。
+        // 预览只是装饰，宁可少显示几条，也不能把整页拖死。
+        void mapLimited(pending.slice(0, PREVIEW_FALLBACK_LIMIT), PREVIEW_CONCURRENCY, async (row) => {
           if (!aliveRef.current) return
           const summary = await fetchPreview(row.sessionId, controller.signal)
           if (summary === undefined || !aliveRef.current) return
@@ -500,12 +523,43 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       setLoading(true)
       setError(undefined)
     }
-    void Promise.all([
-      listSessions(),
+    // 看门狗：这些请求**没有超时**，一旦连接挂死（弱网、隧道被掐断但不报错），
+    // loading 会永远为真、列表永久空着 —— 而且此后每次点"加载更多"都会因为
+    // cursor 还是 undefined 被静默丢弃。真机反馈的"点击加载失效"就是这条链。
+    // 超时不能取消底层请求（传输层无关），但能把"永久锁死"降级为"报错后可重试"。
+    const firstPageWatchdog = setTimeout(() => {
+      if (cancelled) return
+      setLoading(false)
+      setError('加载超时了，点一下"加载更多"重试')
+    }, FIRST_PAGE_TIMEOUT_MS)
+    // 工作区列表单独在后台跑：只用来刷新 ownedRef（续页的归属过滤），失败就当无事发生。
+    void listWorkspaces().then(
+      (workspaces) => {
+        if (cancelled) return
+        const fresh = workspaces.find(item => item.workspaceId === workspace.workspaceId)
+        if (fresh === undefined) return
+        ownedRef.current = new Set(fresh.sessionIds.map(String))
+      },
+      () => undefined,
+    )
+    // 会话列表**不再等工作区列表**：listWorkspaces 在"主目录"这类巨型工作区上可以慢到
+    // 分钟级，而它原本被 Promise.all 卡在关键路径上 —— 于是"其他工作区首次加载都超时"，
+    // 甚至一个会话都没有的工作区（例如把用户主目录当工作区）也照样超时。
+    // 现在：会话列表先用工作区自带的 sessionIds 立刻渲染；工作区列表单独在后台跑，
+    // 回来后只刷新 ownedRef（供续页的归属过滤使用），永不阻塞首屏。
+    const workspacesOrEmpty = Promise.race([
       listWorkspaces().catch(() => [] as WorkspaceRow[]),
-    ]).then(
+      new Promise<WorkspaceRow[]>(resolve => {
+        setTimeout(() => resolve([] as WorkspaceRow[]), WORKSPACE_LIST_BUDGET_MS)
+      }),
+    ])
+    void Promise.all([listSessions(undefined, workspace.workspaceId), workspacesOrEmpty]).then(
       ([page, workspaces]) => {
         if (cancelled) return
+        clearTimeout(firstPageWatchdog)
+        // 成功即清掉旧横幅。少了这一行，看门狗打上的"加载超时"会一直挂在列表顶上
+        // （真机截图证实：数据早已毫秒级加载完，红字还在，用户以为又超时了）。
+        setError(undefined)
         const fresh = workspaces.find(item => item.workspaceId === workspace.workspaceId)
         const owned = new Set((fresh?.sessionIds ?? workspace.sessionIds).map(String))
         ownedRef.current = owned
@@ -602,22 +656,49 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       },
     )
     return () => { cancelled = true }
-  }, [workspace])
+  }, [workspace, reloadTick])
 
-  /** Pull the next page and append its rows. */
-  const loadMore = useCallback(() => {
+  /**
+   * Pull the next page and append its rows.
+   * manual=true 表示这次是用户亲手点的"加载更多"：**不适用失败退避**。
+   * 退避（10s）本来是给自动路径（哨兵 observer）防弱网猛打隧道用的，但手动点击
+   * 也被它一起静默吞掉时，用户看到的就是"点了没反应、要点好几次"。用户明确
+   * 重试的意图必须立刻被执行；防抖只该管自动重试。
+   */
+  const loadMore = useCallback((manual = false) => {
     if (busyRef.current) return
     // Failed loads gate the sentinel for a cooldown: on a weak link the
     // observer would otherwise hammer the tunnel with immediate retries.
-    if (Date.now() - retryBlockedAtRef.current < LOAD_MORE_BACKOFF_MS) return
+    if (!manual && Date.now() - retryBlockedAtRef.current < LOAD_MORE_BACKOFF_MS) return
     const cursor = cursorRef.current
-    if (cursor === undefined) return
+    if (cursor === undefined) {
+      // 首屏还没回来（或已被看门狗判超时）：这里以前是一句静默 return，
+      // 用户点多少次都不会有任何反应 —— 真机反馈的"点击加载失效"。
+      // 用户明确重试的意图必须被执行：重跑一遍首屏加载。
+      if (manual) setReloadTick(tick => tick + 1)
+      return
+    }
     busyRef.current = true
     setLoading(true)
-    void listSessions(cursor).then(
+    // 续页请求同样没有超时。缺了看门狗时，一次挂死的续页会让按钮永久停在
+    // "加载中…"（真机截图证实：下拉历史后按钮一直是加载中）。超时即解锁并报错，
+    // 用户可以直接再点一次，而不是只能退出重进。
+    const watchdog = setTimeout(() => {
+      if (!aliveRef.current) return
+      busyRef.current = false
+      setLoading(false)
+      retryBlockedAtRef.current = Date.now()
+      setError('加载超时了，再点一次')
+    }, FIRST_PAGE_TIMEOUT_MS)
+    void listSessions(cursor, workspace.workspaceId).then(
       (page) => {
         busyRef.current = false
         setLoading(false)
+        clearTimeout(watchdog)
+        // 续页成功同样要清掉看门狗的"再点一次"横幅，否则它一直挂着。
+        setError(undefined)
+        // 成功即解除退避：下一屏不必再等满 10 秒。
+        retryBlockedAtRef.current = 0
         cursorRef.current = page.nextCursor
         setHasMore(page.hasMore)
         const appended = pageItems(page.items, ownedIds)
@@ -635,6 +716,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       (reason: unknown) => {
         busyRef.current = false
         setLoading(false)
+        clearTimeout(watchdog)
         retryBlockedAtRef.current = Date.now()
         setError(errorText(reason))
       },
@@ -650,12 +732,39 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
     if (typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some(entry => entry.isIntersecting)) {
+        // 真实的"进入视野"事件说明用户滚动了：给他重新开一轮自动补页的额度。
+        autoFillRoundsRef.current = 0
         if (cursorRef.current !== undefined && !busyRef.current) void loadMore()
       }
     }, { rootMargin: '240px 0px' })
     observer.observe(sentinel)
     return () => { observer.disconnect() }
   }, [loadMore])
+
+  // 追加一页之后，哨兵往往**仍然**在视口/rootMargin 之内 —— IntersectionObserver 只在
+  // "进入/离开"这种状态切换时回调，位置没变就不再触发，于是用户必须再滚一下、或再点
+  // 一次"加载更多"，真机反馈就是"有时候要点好几次才看到更多会话"。
+  // 这里补一次主动几何检查，把列表一次填满；但必须有**硬上限**：一轮最多补
+  // AUTO_FILL_MAX_ROUNDS 页，否则一旦环境量不出几何（例如 jsdom 里 rect 全是 0）
+  // 且 hasMore 一直为真，就会无限拉页把内存打爆 —— 这是实测踩过的坑。
+  // 用户真正滚动（上面的 observer 回调）时会重新开额度。
+  // 一轮里最多自动补几页。宿主每页给的是**全局** 40 条，客户端再按工作区过滤
+  // （pageItems(page.items, owned)），所以一页里属于本工作区的常常只有几条 ——
+  // 上限太小，就会出现"每翻一屏要点好几次加载更多"（真机反馈）。
+  // 放宽到 8 页（最多 320 条宿主行，行本身很小），足以把一屏填满；
+  // 真正的刹车仍是几何判定：哨兵被顶出视野就立刻停，所以只有在"页面被大量过滤"
+  // 时才会连续补。用户真正滚动时额度归零。
+  const AUTO_FILL_MAX_ROUNDS = 2
+  useEffect(() => {
+    if (!hasMore || loading) return
+    if (autoFillRoundsRef.current >= AUTO_FILL_MAX_ROUNDS) return
+    const sentinel = sentinelRef.current
+    if (sentinel === null || sentinel === undefined) return
+    const distanceToBottom = sentinel.getBoundingClientRect().top - window.innerHeight
+    if (distanceToBottom > 240) return
+    autoFillRoundsRef.current += 1
+    void loadMore()
+  }, [hasMore, loading, rows, loadMore])
 
   /** Create a blank session in this workspace and open it immediately. */
   const handleCreate = useCallback(() => {
@@ -1130,7 +1239,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
                 type="button"
                 className="mobile-button mobile-block"
                 disabled={loading}
-                onClick={() => { void loadMore() }}
+                onClick={() => { void loadMore(true) }}
               >
                 {loading ? '加载中…' : '加载更多会话'}
               </button>

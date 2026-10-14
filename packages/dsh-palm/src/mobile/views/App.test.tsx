@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { RpcTransportError } from '../rpc.ts'
 
 const api = vi.hoisted(() => ({
@@ -127,16 +127,37 @@ describe('loadChatPage (v3 folded reads + fallback)', () => {
 })
 
 describe('foreground resync', () => {
+  const visibilityState = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+
+  beforeEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+  })
+
+  afterEach(() => {
+    if (visibilityState !== undefined) {
+      Object.defineProperty(document, 'visibilityState', visibilityState)
+    } else {
+      Reflect.deleteProperty(document, 'visibilityState')
+    }
+  })
+
   /** Drive one visibility transition with an explicit target state. */
   function setVisibility(state: 'visible' | 'hidden'): void {
-    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
-    document.dispatchEvent(new Event('visibilitychange'))
+    act(() => {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
   }
 
   it('resyncs the stream and re-asserts the observation when the page returns', async () => {
     api.fetchMobilePreferences.mockResolvedValue({ mobileEnterToSend: true })
     render(<App />)
     await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
+    await waitFor(() => {
+      expect(mux.start).toHaveBeenCalledTimes(1)
+      expect(api.observeSession).toHaveBeenCalledWith(undefined)
+    })
+    setVisibility('hidden')
     mux.resync.mockClear()
     mux.pause.mockClear()
     api.observeSession.mockClear()
@@ -154,6 +175,10 @@ describe('foreground resync', () => {
     api.fetchMobilePreferences.mockResolvedValue({ mobileEnterToSend: true })
     render(<App />)
     await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
+    await waitFor(() => {
+      expect(mux.start).toHaveBeenCalledTimes(1)
+      expect(api.observeSession).toHaveBeenCalledWith(undefined)
+    })
     mux.resync.mockClear()
     mux.pause.mockClear()
     api.observeSession.mockClear()

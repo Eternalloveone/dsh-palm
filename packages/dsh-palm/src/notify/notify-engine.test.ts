@@ -123,21 +123,34 @@ describe('NotifyEngine inbox (recentEvents)', () => {
   })
 
   it('caps the log at fifty entries', async () => {
-    const { host, push } = fakeHost()
+    const { host, push, end } = fakeHost()
     const engine = new NotifyEngine(host, store(1))
-    engine.start()
-    for (let index = 0; index < 60; index += 1) {
-      push(jobsFrame('s-1', [{ id: `j${index}`, status: 'running' }]))
-      await flush()
-      push(jobsFrame('s-1', [{ id: `j${index}`, status: 'completed', label: `任务${index}` }]))
-      await flush()
+    let decisions = 0
+    let unsubscribe = (): void => {}
+    const consumed = new Promise<void>(resolve => {
+      unsubscribe = engine.subscribe(() => {
+        decisions += 1
+        if (decisions === 60) resolve()
+      })
+    })
+    try {
+      engine.start()
+      for (let index = 0; index < 60; index += 1) {
+        push(jobsFrame('s-1', [{ id: `j${index}`, status: 'running' }]))
+        push(jobsFrame('s-1', [{ id: `j${index}`, status: 'completed', label: `任务${index}` }]))
+      }
+      await consumed
+      expect(decisions).toBe(60)
+      const recent = engine.recentEvents()
+      expect(recent.length).toBe(50)
+      // The oldest ten were evicted; the newest entry is j59.
+      expect(recent[0]?.body).toContain('任务59')
+      expect(recent.some(event => event.body.includes('任务9'))).toBe(false)
+    } finally {
+      unsubscribe()
+      engine.stop()
+      end()
     }
-    const recent = engine.recentEvents()
-    expect(recent.length).toBe(50)
-    // The oldest ten were evicted; the newest entry is j59.
-    expect(recent[0]?.body).toContain('任务59')
-    expect(recent.some(event => event.body.includes('任务9'))).toBe(false)
-    engine.stop()
   })
 
   it('redacts titles and task names when hideDetails is on', async () => {

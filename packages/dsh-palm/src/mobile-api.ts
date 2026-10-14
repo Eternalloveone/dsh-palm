@@ -38,7 +38,7 @@ import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
 import { buildUsageView, type UsageProviderConfig, type UsageView } from './usage/usage-check.ts'
 import { opendir, stat, readFile as fsReadFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { ChatWindowService } from './chat-window.ts'
@@ -555,6 +555,67 @@ const MAX_SSE_SUBSCRIBERS = 8
 
 /** session.list sort cache: content key -> sorted row array (see dispatch). */
 let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
+/**
+ * 会话归属：workspaceId → 该工作区拥有的 sessionId 集合。与 sessionListTtlCache 在
+ * 同一次 workspace.list 枚举里一起刷新，因此续页复用旧快照时依然能按工作区过滤。
+ */
+let sessionListOwnedCache: Map<string, Set<string>> | undefined
+/** 落盘花名册快照的文件名（位置由插件的 perfDir 决定，源码里不出现任何本机路径）。 */
+let sessionRosterCacheFile: string | undefined
+/** 落盘快照只回读一次；读不到就走全量枚举。 */
+let sessionRosterHydrated = false
+/** 两次后台刷新之间的最小间隔：枚举要 6~30 秒，刷太勤会把宿主变成其他界面的瓶颈。 */
+const SESSION_LIST_REFRESH_MIN_MS = 60_000
+let sessionRosterLastRefreshAt = 0
+/** 落盘快照的体积上限；超出即视为异常文件，不读。实测花名册快照约 2.3 MB（全局所有
+ *  会话），所以这里必须留足余量 —— 上限设成 2 MB 时会被静默跳过、冷启动修复形同失效。 */
+const ROSTER_SNAPSHOT_MAX_BYTES = 16_000_000
+
+/**
+ * 首帧前把落盘的花名册快照读回内存 —— 这是"跨 DSH 重启也不冷启动"的关键：重启后
+ * 第一次 session.list 直接毫秒返回，新鲜度交给随后的后台刷新补。`at: 0` 是刻意的：
+ * 让这次返回立刻触发一次后台刷新（标准 SWR）。
+ */
+function hydrateSessionRoster(apiProxy: ApiProxy): void {
+  if (sessionRosterHydrated) return
+  sessionRosterHydrated = true
+  const file = sessionRosterCacheFile
+  if (file === undefined) return
+  try {
+    if (statSync(file).size > ROSTER_SNAPSHOT_MAX_BYTES) return
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+      rawItems?: Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+      archivedIds?: string[]
+      owned?: Array<[string, string[]]>
+    }
+    if (!Array.isArray(parsed.rawItems)) return
+    sessionListTtlCache = {
+      at: 0,
+      proxy: apiProxy,
+      rawItems: parsed.rawItems,
+      archivedIds: new Set((parsed.archivedIds ?? []).map(String)),
+    }
+    sessionListOwnedCache = new Map(
+      (parsed.owned ?? []).map(([id, ids]) => [String(id), new Set(ids.map(String))] as [string, Set<string>]),
+    )
+  } catch { /* 没有可用的落盘快照：走全量枚举 */ }
+}
+
+/** 把花名册快照落盘（失败静默）。DSH 重启后靠它免掉冷启动那一次 6~30 秒的全量枚举。 */
+function persistSessionRoster(): void {
+  const file = sessionRosterCacheFile
+  const snapshot = sessionListTtlCache
+  if (file === undefined || snapshot === undefined) return
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({
+      at: snapshot.at,
+      rawItems: snapshot.rawItems,
+      archivedIds: [...snapshot.archivedIds],
+      owned: [...(sessionListOwnedCache ?? new Map<string, Set<string>>())].map(([id, ids]) => [id, [...ids]]),
+    }))
+  } catch { /* 落盘失败不影响内存缓存 */ }
+}
 /** Short TTL for the host session-list enumeration (v3.1+; see dispatch).
  *  30s because the phone's list view re-renders cached rows immediately and
  *  re-validates in the background — the TTL only bounds the background
@@ -1642,6 +1703,9 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  * @returns the routes to register on webServer.
  */
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
+  // 花名册快照的落盘位置：跟着 perfDir 走（由插件配置决定），源码里不写任何本机路径。
+  // perfDir 未配置时（测试环境）自动退化为纯内存缓存。
+  sessionRosterCacheFile = deps.perfDir === undefined ? undefined : join(deps.perfDir, 'roster-snapshot.json')
   const { service, apiProxy, mobileEnterToSend } = deps
   const eventsHeartbeatMs = deps.eventsHeartbeatMs ?? DEFAULT_EVENTS_HEARTBEAT_MS
 
@@ -3134,6 +3198,50 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
 }
 
 /** Dispatch one allowlisted method through the host ApiProxy. */
+/** 全量枚举会话花名册（宿主成本高：真机实测 6~23 秒）。**单飞**：同一时刻只跑一个，
+ *  并发调用共享同一个 Promise —— 埋点里那些相隔 0.5 秒、成对出现的 22 秒调用就是重复
+ *  枚举，这条把它们合并成一次。成功即刷新快照与工作区归属；业务失败把 host 的 result
+ *  交回调用方（首屏需要那个 envelope），异常静默（后台刷新不该打断请求）。 */
+let sessionRosterInFlight: Promise<{ failure?: unknown }> | undefined
+
+function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ failure?: unknown }> {
+  const existing = sessionRosterInFlight
+  if (existing !== undefined) return existing
+  sessionRosterLastRefreshAt = Date.now()
+  const run = (async (): Promise<{ failure?: unknown }> => {
+    try {
+      const [full, wsList] = await Promise.all([
+        apiProxy.sessions.list(request as never),
+        apiProxy.workspace.list(request as never).catch(() => undefined),
+      ])
+      if (!full.result.ok) return { failure: full.result }
+      const wsValue = (wsList?.result.ok === true ? wsList.result.value : undefined) as
+        | { archivedSessionIds?: string[]; items?: Array<{ workspaceId: string; sessionIds?: string[] }> }
+        | undefined
+      sessionListTtlCache = {
+        at: Date.now(),
+        proxy: apiProxy,
+        rawItems: full.result.value.items as Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>,
+        archivedIds: new Set((wsValue?.archivedSessionIds ?? []).map(id => String(id))),
+      }
+      sessionListOwnedCache = new Map(
+        (wsValue?.items ?? []).map(item => [
+          String(item.workspaceId),
+          new Set((item.sessionIds ?? []).map(id => String(id))),
+        ]),
+      )
+      persistSessionRoster()
+      return {}
+    } catch {
+      return {}
+    } finally {
+      sessionRosterInFlight = undefined
+    }
+  })()
+  sessionRosterInFlight = run
+  return run
+}
+
 async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rpcId: string, signal?: AbortSignal): Promise<unknown> {
   const request: RpcRequest<unknown> = { rpcId: RpcId(rpcId), payload }
   if (method === 'session.list') {
@@ -3145,38 +3253,51 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     // reads fresh. Freshness loss is bounded by the TTL; new sessions appear
     // within one TTL window just like on the desktop's polling surfaces.
     const cursor = (payload as { cursor?: string } | undefined)?.cursor
+    // 可选：让宿主在切片前按工作区过滤（见下方"归属过滤"）。不传即保持旧的全局分页行为。
+    const workspaceId = (payload as { workspaceId?: string } | undefined)?.workspaceId
     const now = Date.now()
     // Paging rides the same cached enumeration: within the TTL window every
     // page (first or continuation) serves one consistent cut — a cursor
     // request that re-read the host could straddle two different lists.
+    // 重启后的第一次调用：先把落盘快照读回内存，首帧就不必等全量枚举。
+    hydrateSessionRoster(apiProxy)
     const ttl = sessionListTtlCache
-    const ttlFresh = ttl !== undefined
-      && ttl.proxy === apiProxy
-      && now - ttl.at < SESSION_LIST_TTL_MS
+    // 首屏必须新鲜；续页（带 cursor）允许复用旧快照。
+    // 本机会话库有 3395 个条目，缓存一失效就要整个枚举一遍（秒级成本），而人往下拉
+    // 历史时两次请求的间隔普遍超过 TTL(30s) ⇒ 每次续页都重新枚举 ⇒ 真机反馈的
+    // "越往深处拉越久、必现的长时间加载中"。续页本身只是在同一个稳定切面上按游标
+    // 前进，用旧快照是安全的：真正的"列表变了"由首屏那次新鲜枚举负责。
+    // 有快照就**先用它回答**（首屏与续页一视同仁），需要新鲜度时在后台重算。
+    // 真机埋点把旧策略的代价钉死了：session.list 中位数 1ms、最坏 22.9 秒，而且成对
+    // 并发都未命中 —— "首屏永远强制新鲜"意味着每次进入/返回都付一次 6~23 秒的全量
+    // 枚举，12 秒看门狗必然报"加载超时了"。SWR 之后：有快照 ⇒ 毫秒级返回 + 后台刷新；
+    // 没有快照（首次、或宿主刚重启）⇒ 只能等一次。代价：极少数情况下列表显示几秒前的
+    // 快照，随后自动刷新。附带好处：并发的那第二个请求也会命中快照，不再重复枚举。
+    const needRefresh = ttl !== undefined
+      && (ttl.proxy !== apiProxy || now - ttl.at >= SESSION_LIST_TTL_MS)
+      // 刷新节流：枚举要 6~30 秒，刷太勤会把宿主 CPU 占住、连带拖慢其他界面（埋点里
+      // session.history 994ms / settings.read 224ms 正出现在枚举窗口内，事后同类调用
+      // 只有 1~2ms —— 那是争用，不是那些接口本身慢）。
+      && now - sessionRosterLastRefreshAt >= SESSION_LIST_REFRESH_MIN_MS
     let rawItems: Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
     let archivedIds: Set<string>
-    if (ttlFresh) {
+    if (ttl !== undefined) {
       rawItems = ttl.rawItems
       archivedIds = ttl.archivedIds
+      if (needRefresh) refreshSessionRoster(apiProxy, request)
     } else {
-      const [full, wsList] = await Promise.all([
-        apiProxy.sessions.list(request as never),
-        // The archive set (workspace.deleteSession/archiveSession) rides
-        // workspace.list; a failure degrades to "no archive filter" instead of
-        // failing the roster.
-        apiProxy.workspace.list(request as never).catch(() => undefined),
-      ])
+      const { failure } = await refreshSessionRoster(apiProxy, request)
       // The error path must carry the same 'server-response' envelope the
       // success path builds, or the phone's callUnary throws a transport error
       // and masks the real business error.
-      if (!full.result.ok) return { type: 'server-response' as const, rpcId, result: full.result }
-      archivedIds = new Set(
-        wsList?.result.ok === true
-          ? (wsList.result.value.archivedSessionIds ?? []).map(id => String(id))
-          : [],
-      )
-      rawItems = full.result.value.items as Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
-      sessionListTtlCache = { at: now, proxy: apiProxy, rawItems, archivedIds }
+      if (failure !== undefined) return { type: 'server-response' as const, rpcId, result: failure }
+      const snapshot = sessionListTtlCache
+      if (snapshot === undefined) {
+        // 枚举异常（非业务错误）且手里没有任何旧快照：给一个空页，别让手机端拿到传输层错误。
+        return { type: 'server-response', rpcId, result: { ok: true, value: { items: [], hasMore: false } } }
+      }
+      rawItems = snapshot.rawItems
+      archivedIds = snapshot.archivedIds
     }
     // The phone's session picker shows main-agent sessions only: subagent
     // sessions (origin: 'subagent') are internal working sessions that would
@@ -3184,19 +3305,34 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     // the desktop (deleted/archived) never reappear. Filter before the sort
     // cache so paging never surfaces them.
     const mainItems = visibleSessionRows(rawItems, archivedIds)
+    // 归属过滤：只保留本工作区真正拥有的会话。此前宿主返回全局 40 条、由客户端再按
+    // 工作区丢弃，于是"每翻一屏只剩几条"—— 用户要么点很多次"加载更多"，要么一次连拉
+    // 多页直接撞上 12 秒看门狗报超时（两种真机反馈都出现过）。
+    // 归属数据与 archivedIds 同源（同一次 workspace.list），随枚举一起缓存，所以续页
+    // 复用旧快照时同样具备过滤能力。workspaceId 缺失或归属未知时退回旧的全局分页行为。
+    const ownedIds = workspaceId === undefined ? undefined : sessionListOwnedCache?.get(workspaceId)
+    if (workspaceId !== undefined && ownedIds !== undefined && ownedIds.size === 0) {
+      // 该工作区确实一个会话都没有：必须显式收尾，否则会变成"永远有下一页、永远空页"。
+      return { type: 'server-response', rpcId, result: { ok: true, value: { items: [], hasMore: false } } }
+    }
+    const scopedItems = ownedIds === undefined
+      ? mainItems
+      : mainItems.filter(item => ownedIds.has(String(item.sessionId)))
     // Every call pages (the first call with no cursor IS the first page):
     // the phone must never transfer the whole session list at once.
     // One stable page over (updatedAt desc, sessionId asc); pages never skip
     // or repeat a row while the list changes between calls. The sort is
     // cached by a content key: paging through an unchanged list never
     // re-sorts, and any host-side change invalidates the cache immediately.
-    const contentKey = mainItems.map(item => `${item.sessionId}:${item.updatedAt}`).join(',')
-    let items = mainItems
+    // contentKey 必须并入 workspaceId，否则切换工作区会复用到另一条（错误的）序列，
+    // 表现为"列表串工作区"。
+    const contentKey = `${workspaceId ?? ''}|${scopedItems.map(item => `${item.sessionId}:${item.updatedAt}`).join(',')}`
+    let items = scopedItems
     if (sessionListSortedCache?.key !== contentKey) {
-      mainItems.sort((a, b) => b.updatedAt - a.updatedAt
+      scopedItems.sort((a, b) => b.updatedAt - a.updatedAt
         || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-      sessionListSortedCache = { key: contentKey, items: mainItems }
-      items = mainItems
+      sessionListSortedCache = { key: contentKey, items: scopedItems }
+      items = scopedItems
     } else {
       items = sessionListSortedCache.items
     }

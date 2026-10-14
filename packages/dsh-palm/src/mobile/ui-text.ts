@@ -123,14 +123,12 @@ export function formatRunDuration(ms: number): string {
 }
 
 /**
- * Which rows show their clock: a row shows the timestamp only when it is the
- * LAST row of its minute bucket — consecutive rows in the same minute hide
- * all but the final one.
+ * Which rows show their clock. Policy set by the user (2026-10-13): **every row
+ * carries its own timestamp**. The old rule showed only the LAST row of each
+ * minute bucket, which made earlier rows look as if they had lost their time
+ * ("有的时候发消息，消息下方没有出现时刻"). Kept as a function so ChatView's
+ * windowed slices stay shape-compatible.
  */
 export function timeVisibility(times: readonly number[]): boolean[] {
-  return times.map((time, index) => {
-    const next = times[index + 1]
-    if (next === undefined) return true
-    return Math.floor(time / 60_000) !== Math.floor(next / 60_000)
-  })
+  return times.map(() => true)
 }

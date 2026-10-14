@@ -164,10 +164,14 @@ describe('SessionListView roster', () => {
     listWorkspacesMock.mockResolvedValue([pagedWorkspace])
     renderList({ workspace: pagedWorkspace })
     await screen.findByText('demo')
-    fireEvent.click(screen.getByRole('button', { name: /加载更多会话/ }))
+    // 第二页不再需要点"加载更多会话"：哨兵进入视野后会自动补页，直到把列表填满
+    // （真机反馈"有时候要点好几次才看到更多会话"的修复）。
     expect(await screen.findByText('第二页会话')).toBeTruthy()
     expect(screen.queryByText('elsewhere')).toBeNull()
-    expect(listSessionsMock).toHaveBeenLastCalledWith('c1')
+    // 续页必须把 workspaceId 一起带给宿主：宿主在切片前按工作区过滤，每页返回的都是
+    // 本工作区的会话 —— 这是"每翻一屏要点很多次"与"往深处拉超时"的共同解。
+    expect(listSessionsMock).toHaveBeenLastCalledWith('c1', 'w-1')
+    expect(listSessionsMock).toHaveBeenNthCalledWith(1, undefined, 'w-1')
   })
 
   it('shows the full timestamp and drops the raw session-id tail', async () => {
