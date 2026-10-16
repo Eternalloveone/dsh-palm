@@ -14,6 +14,10 @@ coverage/
 .chrome-*/
 test-report.json
 
+# frame scratch directory for scripts/capture-gif.mjs (removed on exit, but a
+# killed run can leave it behind)
+.gif-frames/
+
 # local verification scripts with hardcoded deployment addresses
 scripts/check-pwa.mjs
 scripts/measure-tunnel.mjs

@@ -46,8 +46,11 @@ New here? The [30-second quickstart tutorial](packages/dsh-palm/docs/quickstart-
 | ![Run status](docs/screenshots/run-status.png) | **Run status** — the todo plan and background jobs share a live strip above the toolbar |
 | ![Pairing](docs/screenshots/pair.png) | **Pairing** — paste the desktop link or type the six-digit code |
 | ![Usage](docs/screenshots/usage-card.png) | **Usage** — one settings card per provider configured on the desktop: consumed-quota meters, account balances and OpenRouter's spent-vs-limit, refreshed on demand |
+| ![Process card](docs/screenshots/process-card.png) | **Process card** — one collapsed group per turn: thinking, tool rows and diffs in event order, headed by the status word, the elapsed time and what the turn is doing right now |
+| ![Turn report](docs/screenshots/report-card.png) | **Turn report** — what the turn handed back: the deliverables it declared, each with its path, plus the files it produced |
+| ![Wake message](docs/screenshots/wake-card.png) | **Wake messages** — a subagent settlement, task, schedule or team event that triggered a reply gets its own collapsed card |
 
-More screenshots (workspace, sessions, image attach, settings, task sheet, pairing panel): [docs/screenshots](docs/screenshots/). All captures are rendered by the real `/m/` UI against **fictional demo data** (workspace names, session titles and chat content are made up), so nothing private leaks into the repository.
+More screenshots (workspace, sessions, image attach, settings, task sheet, pairing panel, process card, turn report, wake message): [docs/screenshots](docs/screenshots/). All captures are rendered by the real `/m/` UI against **fictional demo data** (workspace names, session titles and chat content are made up), so nothing private leaks into the repository.
 
 ## Core capabilities
 
