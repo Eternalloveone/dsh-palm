@@ -234,25 +234,32 @@ describe('PairingService', () => {
     expect(service.snapshot().deviceCount).toBe(2)
   })
 
-  it('sweep deletes a session idle longer than idleExpireMs', () => {
-    const service = makeService({ idleExpireMs: 60_000 })
-    const { token } = service.issue()
-    const accepted = service.accept(token)
-    const deviceId = accepted.ok ? accepted.deviceId : ''
+  it('sweep deletes a session idle longer than idleExpireMs (not the primary)', () => {
+    const service = makeService({ idleExpireMs: 60_000, maxDevices: 4 })
+    // The first device is the primary and is exempt from idle expiry (only
+    // revoke()/stop() remove it), so eviction is checked on a second,
+    // non-primary device.
+    const primary = service.accept(service.issue().token)
+    const primaryId = primary.ok ? primary.deviceId : ''
+    const second = service.accept(service.issue().token)
+    const deviceId = second.ok ? second.deviceId : ''
     now += 60_001
     service.sweep()
     expect(service.hasDevice(deviceId)).toBe(false)
-    expect(service.snapshot().deviceCount).toBe(0)
+    expect(service.snapshot().devices.map(device => device.id)).toEqual([primaryId])
   })
 
-  it('touchDevice refuses an idle cookie without waiting for sweep', () => {
-    const service = makeService({ idleExpireMs: 60_000 })
-    const { token } = service.issue()
-    const accepted = service.accept(token)
-    const deviceId = accepted.ok ? accepted.deviceId : ''
+  it('touchDevice refuses an idle non-primary cookie without waiting for sweep', () => {
+    const service = makeService({ idleExpireMs: 60_000, maxDevices: 4 })
+    // First device is the primary (idle-exempt); the second is under test.
+    expect(service.accept(service.issue().token).ok).toBe(true)
+    const second = service.accept(service.issue().token)
+    const deviceId = second.ok ? second.deviceId : ''
     now += 60_001
     expect(service.touchDevice(deviceId)).toBe(false)
     expect(service.hasDevice(deviceId)).toBe(false)
+    // The eviction is real and durable, not just a refused lookup.
+    expect(service.snapshot().deviceCount).toBe(1)
   })
 
   it('revoke drops one device and leaves the others', () => {

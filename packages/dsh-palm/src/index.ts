@@ -88,7 +88,9 @@ export interface Config {
   maxDevices?: number
   /**
    * Idle sessions older than this (ms) are deleted from memory and disk.
-   * Default is 7 days; a leftover cookie no longer authorizes after expiry.
+   * Default is 90 days — the device cookie lifetime is derived from the same
+   * constant, so a session never expires under a still-live cookie. The
+   * primary device is exempt (only revoke()/stop() remove it).
    */
   idleExpireMs?: number
   /** Cookie name carrying the paired device id. */
@@ -113,7 +115,8 @@ export interface Config {
   /**
    * Absolute path to a JSON file where paired device sessions are persisted.
    * Defaults to `$DSH_HOME/dsh-palm-devices.json` so paired device sessions
-   * survive dsh web restarts (the cookie already lives 365 days).
+   * survive dsh web restarts (the cookie lives 90 days, the same window as
+   * the idle expiry). The device audit log sits beside this file.
    */
   devicesFile?: string
   /**

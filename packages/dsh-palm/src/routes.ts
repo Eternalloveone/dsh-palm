@@ -11,7 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { z, type ZodType } from 'zod'
-import { UnknownLanAddressError, type PairingService, type PairingSnapshot } from './pairing.ts'
+import { DEFAULT_IDLE_EXPIRE_MS, UnknownLanAddressError, type PairingService, type PairingSnapshot } from './pairing.ts'
 import { isLoopbackClient, readCookie } from './gate.ts'
 import { readJsonBody, writeJson } from './http.ts'
 import { detectTunnels } from './detect-tunnel.ts'
@@ -81,11 +81,16 @@ export function publicHostOf(url: string | undefined): string | undefined {
   }
 }
 
-/** Cookie lifetime: 90 days; revoked sessions die at the gate regardless. A
- * shorter life bounds the blast radius of a stolen device cookie (the cookie
- * is a full-authority credential) — Secure is impossible here because LAN
- * pairing runs over plain HTTP. */
-const COOKIE_MAX_AGE_SEC = 90 * 24 * 60 * 60
+/** Cookie lifetime: the device idle window, in seconds — derived from the
+ * single source of truth `DEFAULT_IDLE_EXPIRE_MS` in ./pairing.ts, because a
+ * cookie must never outlive its device session and a session must never be
+ * dropped while its cookie is still live (that mismatch is exactly what
+ * forced users to re-pair). Revoked sessions die at the gate regardless. A
+ * shorter life would bound the blast radius of a stolen device cookie (the
+ * cookie is a full-authority credential), but it has to move together with
+ * the idle window — change DEFAULT_IDLE_EXPIRE_MS, not this line. Secure is
+ * impossible here because LAN pairing runs over plain HTTP. */
+const COOKIE_MAX_AGE_SEC = Math.floor(DEFAULT_IDLE_EXPIRE_MS / 1000)
 
 /** Route paths (exact matches under /api). */
 export const PAIR_PATHS = {

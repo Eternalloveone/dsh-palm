@@ -14,12 +14,16 @@
  * - `stop()` revokes every device session and clears the token, so paired
  *   devices are cut off on their next gated request.
  * - `revoke()` drops one device session; idle sessions older than
- *   `idleExpireMs` are deleted on sweep, load, and the next gated request.
+ *   `idleExpireMs` are deleted on sweep, load, and the next gated request —
+ *   except the primary device, which only `revoke()` and `stop()` remove.
+ * - Every device that leaves the table is appended to a best-effort audit
+ *   log beside `devicesFile` (`<devicesFile stem>.audit.log`, one JSON line
+ *   per action) so a "why do I have to pair again" report is diagnosable.
  */
 
 import { randomBytes, randomInt } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, extname, join } from 'node:path'
 
 /** The observable pairing phases the panel renders. */
 export type PairingPhase =
@@ -52,8 +56,25 @@ export interface TokenRecord {
   code?: string
 }
 
-/** Default idle-expiry window: 7 days without heartbeat or a gated request. */
-export const DEFAULT_IDLE_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * Default idle-expiry window: 90 days without a heartbeat or a gated request.
+ *
+ * This is deliberately the same window as the device cookie lifetime:
+ * `routes.ts` derives the cookie's `Max-Age` from this constant, so the two
+ * cannot drift. A cookie that outlives its session — or a session dropped
+ * while its cookie is still live — both read to the user as "the phone wants
+ * the pairing code again".
+ */
+export const DEFAULT_IDLE_EXPIRE_MS = 90 * 24 * 60 * 60 * 1000
+
+/** Device-lifecycle actions recorded in the audit log. */
+type DeviceAuditAction = 'accept' | 'stop' | 'revoke' | 'idle-evict' | 'live-evict'
+
+/** Rotate the device audit log once it passes ~1 MB (to `<file>.1`). */
+const AUDIT_LOG_MAX_BYTES = 1_000_000
+
+/** Device ids are session credentials: the audit log keeps only a prefix. */
+const AUDIT_DEVICE_ID_CHARS = 8
 
 /** Cap on the persisted/displayed User-Agent string. */
 const MAX_USER_AGENT_CHARS = 180
@@ -128,9 +149,10 @@ export interface PairingConfig {
   idleExpireMs?: number
   /**
    * Path to a JSON file where paired device sessions are persisted. When
-   * set, sessions survive process restarts (the phone keeps its 365-day
-   * cookie), so re-pairing after a dsh web restart is not required. When
-   * unset, sessions stay memory-only.
+   * set, sessions survive process restarts (the phone keeps its 90-day
+   * cookie), so re-pairing after a dsh web restart is not required. The
+   * device audit log is derived from this path. When unset, sessions and
+   * their audit trail stay memory-only.
    */
   devicesFile?: string
 }
@@ -257,7 +279,10 @@ export class PairingService {
     for (const [id] of ordered.slice(0, overflow)) this.devices.delete(id)
   }
 
-  /** Drop sessions whose lastSeenAt is older than idleExpireMs. */
+  /**
+   * Drop sessions whose lastSeenAt is older than idleExpireMs. The primary
+   * device is exempt: it only leaves through revoke() or stop().
+   */
   private evictIdle(): boolean {
     const now = this.clock.now()
     const limit = this.config.idleExpireMs ?? DEFAULT_IDLE_EXPIRE_MS
@@ -266,6 +291,7 @@ export class PairingService {
       if (session.primary === true) continue
       if (now - session.lastSeenAt > limit) {
         this.devices.delete(id)
+        this.audit('idle-evict', id, `idle for more than ${String(limit)} ms`, session.userAgent)
         removed = true
       }
     }
@@ -295,6 +321,65 @@ export class PairingService {
       this.dirty = false
     } catch (error) {
       console.error('dsh-palm: failed to persist paired devices', error)
+    }
+  }
+
+  /**
+   * `<devicesFile stem>.audit.log`, beside the device store. Undefined when
+   * the store is memory-only (nothing to derive the location from).
+   */
+  private auditFile(): string | undefined {
+    const file = this.config.devicesFile
+    if (file === undefined || file === '') return undefined
+    return join(dirname(file), `${basename(file, extname(file))}.audit.log`)
+  }
+
+  /**
+   * Append one device-lifecycle record as a single JSON line. Best-effort by
+   * contract: an unwritable log is reported on stderr and never throws, so
+   * losing the trail can never block pairing, revocation, or a gated request
+   * (the log is a debugging aid, not a security boundary).
+   * @param action - what happened to the device.
+   * @param deviceId - the session credential (only its prefix is written).
+   * @param reason - human-readable explanation of the record.
+   * @param userAgent - sanitized User-Agent of the device, when known.
+   */
+  private audit(action: DeviceAuditAction, deviceId: string, reason: string, userAgent?: string): void {
+    try {
+      const file = this.auditFile()
+      if (file === undefined) return
+      this.rotateAuditLog(file)
+      const record = {
+        at: new Date(this.clock.now()).toISOString(),
+        action,
+        deviceId: deviceId.slice(0, AUDIT_DEVICE_ID_CHARS),
+        reason,
+        ...(userAgent !== undefined ? { userAgent } : {}),
+      }
+      mkdirSync(dirname(file), { recursive: true })
+      appendFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+    } catch (error) {
+      console.error('dsh-palm: failed to append the device audit log', error)
+    }
+  }
+
+  /**
+   * Keep the audit log bounded: once it passes the size cap it is moved to
+   * `<file>.1` (replacing an older rotation). A failed rotation leaves the
+   * current file in place — the next append retries.
+   */
+  private rotateAuditLog(file: string): void {
+    let size: number
+    try {
+      size = statSync(file).size
+    } catch {
+      return // no log yet
+    }
+    if (size < AUDIT_LOG_MAX_BYTES) return
+    try {
+      renameSync(file, `${file}.1`)
+    } catch (error) {
+      console.error('dsh-palm: failed to rotate the device audit log', error)
     }
   }
 
@@ -418,6 +503,7 @@ export class PairingService {
       ...(isFirstDevice ? { primary: true } : {}),
       ...(label !== undefined ? { userAgent: label } : {}),
     })
+    this.audit('accept', deviceId, isFirstDevice ? 'paired the first device (primary)' : 'paired a new device', label)
     this.persist()
     this.notify()
     return { ok: true, deviceId }
@@ -431,6 +517,11 @@ export class PairingService {
   stop(): void {
     this.tokens.clear()
     this.codeIndex.clear()
+    // One record per device: every id that disappears from the store is
+    // individually accounted for in the audit log.
+    for (const [id, session] of this.devices) {
+      this.audit('stop', id, 'remote control stopped; every device was revoked', session.userAgent)
+    }
     this.devices.clear()
     this.persist()
     this.stopped = true
@@ -445,7 +536,9 @@ export class PairingService {
    */
   revoke(deviceId: string): boolean {
     if (this.stopped) return false
-    if (!this.devices.delete(deviceId)) return false
+    const session = this.devices.get(deviceId)
+    if (session === undefined || !this.devices.delete(deviceId)) return false
+    this.audit('revoke', deviceId, 'revoked explicitly', session.userAgent)
     this.persist()
     this.notify()
     return true
@@ -570,17 +663,25 @@ export class PairingService {
   /**
    * Return a live session, deleting it first when idle-expired. Side-effecting
    * so a stale cookie cannot pass the gate between sweeps.
+   *
+   * The primary device is exempt from idle expiry, exactly as in
+   * `evictIdle()`: the phone the user actually uses must not be silently
+   * dropped, or the next visit greets them with a pairing prompt. It only
+   * leaves through an explicit revoke() or stop().
    */
   private liveSession(deviceId: string): DeviceSession | undefined {
     if (this.stopped) return undefined
     const session = this.devices.get(deviceId)
     if (session === undefined) return undefined
-    const limit = this.config.idleExpireMs ?? DEFAULT_IDLE_EXPIRE_MS
-    if (this.clock.now() - session.lastSeenAt > limit) {
-      this.devices.delete(deviceId)
-      this.persist()
-      this.notify()
-      return undefined
+    if (session.primary !== true) {
+      const limit = this.config.idleExpireMs ?? DEFAULT_IDLE_EXPIRE_MS
+      if (this.clock.now() - session.lastSeenAt > limit) {
+        this.devices.delete(deviceId)
+        this.audit('live-evict', deviceId, `idle for more than ${String(limit)} ms at a gated request`, session.userAgent)
+        this.persist()
+        this.notify()
+        return undefined
+      }
     }
     return session
   }

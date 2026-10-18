@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-18
+
+### Fixed
+
+- **手机端不再"隔几天就要重新配对"。** 根因：设备会话默认 **7 天**不活跃就被清掉（`liveSession()` 命中空闲超期后直接删设备并落盘），而手机 Cookie 有效期是 **90 天** —— cookie 还在、服务端已经把人踢了，于是下次打开就是配对页；宿主重启时 `loadPersisted()` 还会再淘汰一次，所以"隔几天/重启后"最明显。现在：① **主力设备（primary）不再参与空闲淘汰**，只有显式踢除或停用插件才会消失；② 默认空闲期 **7 天 → 90 天**，且与 Cookie 有效期**同源推导**（`COOKIE_MAX_AGE_SEC` 由 `DEFAULT_IDLE_EXPIRE_MS` 换算），两者不会再各自漂移。非主力设备的淘汰行为保持不变。
+
+- **设备消失终于有据可查。** 新增尽力而为的审计日志（与设备表同目录的 `dsh-palm-devices.audit.log`），记录 `stop` / `revoke` / `idle-evict` / `live-evict` / `accept` 五类事件（时间、设备 id 前 8 位、原因、UA），超过 1 MB 轮转成 `.audit.log.1`；写日志失败只打一行错误，**不影响**配对与鉴权主流程。以后再遇到"又要配对"，可以直接看出是谁、在什么时候删的。
+
 ## [1.6.0] - 2026-10-14
 
 ### Added
