@@ -70,9 +70,23 @@ jobs:
         # Invoked through node, not `pnpm verify`: this job sets pnpm up
         # nowhere (it only needs git, node and npm), and `pnpm: command not
         # found` (exit 127) is exactly how the first version of this failed.
+        #
+        # Dependabot and fork pull requests cannot read repository secrets, so
+        # the list arrives empty there and the scanner's fail-closed default
+        # ("no list" = exit 1) failed a lane that has nothing to do with the
+        # change - every Dependabot PR went red on a step that never got to
+        # run. A pull request now degrades to a warning; a push to main stays
+        # strict, so a deleted or renamed secret still fails loudly, and the
+        # local pre-push hook (`pnpm verify --profile push`) keeps enforcing
+        # the scan on the machine that owns the real pattern list.
         env:
           DSH_PALM_GUARD_REGEX: ${{ secrets.REAL_IDS_REGEX }}
-        run: node scripts/verify.mjs --only hygiene
+        run: |
+          if [ -z "$DSH_PALM_GUARD_REGEX" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::warning::hygiene scan skipped: this run cannot read REAL_IDS_REGEX (Dependabot or fork PR)"
+            exit 0
+          fi
+          node scripts/verify.mjs --only hygiene
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
         env:

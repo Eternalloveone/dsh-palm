@@ -337,7 +337,12 @@ body,
   overflow: hidden;
 }
 
+/* Stacking is stated per direction instead of falling out of the box model: a
+   push slides the entering page in above the leaving one, a pop slides the
+   leaving page away above the entering one. Both are flex items of
+   .page-stage, which honour z-index even with position: static. */
 .page-enter-fwd {
+  z-index: 2;
   animation: page-in-fwd 0.25s ease-out both;
 }
 
@@ -348,10 +353,12 @@ body,
   bottom: 0;
   left: 0;
   pointer-events: none;
+  z-index: 1;
   animation: page-out-fwd 0.25s ease-out both;
 }
 
 .page-enter-back {
+  z-index: 1;
   animation: page-in-back 0.25s ease-out both;
 }
 
@@ -362,6 +369,7 @@ body,
   bottom: 0;
   left: 0;
   pointer-events: none;
+  z-index: 2;
   animation: page-out-back 0.25s ease-out both;
 }
 
@@ -6324,6 +6332,16 @@ button.settings-row:focus-visible {
   .settings-optionChip {
     animation: none;
     transition: none;
+  }
+
+  /* Nothing animates in this branch, so there is no transition to watch: drop
+     the stacked leaving page instead of keeping it mounted. It is an opaque,
+     absolutely positioned full-stage overlay, so leaving it in the tree hid the
+     entering page for the whole 260ms window and then popped it into view when
+     it unmounted - reported from iOS Safari with Reduce Motion on (#10). */
+  .page-exit-fwd,
+  .page-exit-back {
+    display: none;
   }
 }
 /* ── v2.1 increments: workspace tints / search morph / status semantics ──

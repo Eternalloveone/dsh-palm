@@ -41,7 +41,7 @@ dsh-palm 是**窄屏优先的轻量指挥台**：手机用于查看进度、响�
 
 | | |
 |---|---|
-| ![聊天](docs/screenshots/chat.png) | **聊天** —— 流式 Markdown，带工具标签、可交互 diff 卡片与语法高亮代码块 |
+| ![聊天](docs/screenshots/chat.png) | **聊天** —— 流式 Markdown，每轮一张过程卡（思考与工具按事件顺序混排）、可交互 diff 卡片与语法高亮代码块 |
 | ![Diff 卡片](docs/screenshots/diff.png) | **Diff 卡片** —— `diff` 代码块渲染为可交互卡片，支持接受 / 拒绝 |
 | ![运行状态](docs/screenshots/run-status.png) | **运行状态** —— 任务清单与后台任务共用一个工具栏上方的实时状态条 |
 | ![配对](docs/screenshots/pair.png) | **配对** —— 粘贴桌面端链接或输入 6 位配对码 |

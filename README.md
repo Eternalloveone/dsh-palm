@@ -41,7 +41,7 @@ New here? The [30-second quickstart tutorial](packages/dsh-palm/docs/quickstart-
 
 | | |
 |---|---|
-| ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown with tool tags, interactive diff cards and syntax-highlighted code blocks |
+| ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown, one process card per turn, interactive diff cards and syntax-highlighted code blocks |
 | ![Diff cards](docs/screenshots/diff.png) | **Diff cards** — `diff` fences render as interactive cards with accept / reject actions |
 | ![Run status](docs/screenshots/run-status.png) | **Run status** — the todo plan and background jobs share a live strip above the toolbar |
 | ![Pairing](docs/screenshots/pair.png) | **Pairing** — paste the desktop link or type the six-digit code |

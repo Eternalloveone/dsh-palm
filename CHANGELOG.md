@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-10-19
+
+### Fixed
+
+- **iOS Safari 开着「减弱动态效果」时，手机端页面切换被旧页盖住。**（#10）根因：`@media (prefers-reduced-motion: reduce)` 只把四个 `.page-enter-*` / `.page-exit-*` 设成 `animation: none`，没有把退出页一起关掉 —— 它仍是 `position: absolute; inset: 0` 的不透明整屏覆盖层，于是新页在整整 260ms 的切换窗口里完全看不见，窗口结束才「弹」出来。现在：① 该分支下退出页**整块不渲染**（`display: none`），切换变成瞬时切换（减弱动态效果本就该如此，不是动画缺失）；② 前进/返回两个方向补上显式 `z-index`（前进：进入页在上；返回：退出页在上，恢复 iOS pop 的层次）。附 3 条样式契约测试，恢复旧样式即失败。
+
+- **Dependabot / fork 的 PR 让 CI 恒红。**（#9）根因：仓库卫生扫描拿不到 `REAL_IDS_REGEX` 时是 fail-closed（直接 exit 1），而这类 PR 的 `pull_request` 运行读不到仓库密钥，于是每次必红、与代码本身无关。现在：密钥缺失时只打一条 `::warning::` 并跳过该步，真实运行（密钥可用时）仍保持 fail-closed 护栏。
+
 ## [1.6.1] - 2026-10-18
 
 ### Fixed
