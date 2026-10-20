@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findRowForSnippet, resolveCommandDirectory, visibleSessionRows, type CommandRegistry, type AgentLookup } from './mobile-api.ts'
+import { findRowForSnippet, resolveCommandDirectory, toRosterItems, visibleSessionRows, type CommandRegistry, type AgentLookup, type RosterItem } from './mobile-api.ts'
 
 /**
  * The phone's session.list page slices come from this filtered array: the
@@ -9,12 +9,16 @@ import { findRowForSnippet, resolveCommandDirectory, visibleSessionRows, type Co
  * desktop reappears on the phone roster.
  */
 
-const row = (sessionId: string, updatedAt = 1): { updatedAt: number; sessionId: string; origin?: 'subagent' } =>
+const row = (sessionId: string, updatedAt = 1): RosterItem =>
   ({ sessionId, updatedAt })
 
 /** A subagent row (host marks these with origin: 'subagent'). */
-const sub = (sessionId: string, updatedAt = 1): { updatedAt: number; sessionId: string; origin?: 'subagent' } =>
+const sub = (sessionId: string, updatedAt = 1): RosterItem =>
   ({ sessionId, updatedAt, origin: 'subagent' })
+
+/** A session the desktop minted but nobody ever typed into. */
+const blank = (sessionId: string, updatedAt = 1): RosterItem =>
+  ({ sessionId, updatedAt, blank: true })
 
 describe('visibleSessionRows', () => {
   it('passes every main-agent session when nothing is archived', () => {
@@ -27,22 +31,57 @@ describe('visibleSessionRows', () => {
     expect(visibleSessionRows(rows, new Set()).map(r => r.sessionId)).toEqual(['s-1', 's-2'])
   })
 
+  it('drops blank sessions the desktop never used', () => {
+    // 2026-10-20: 542 of these had piled up and the phone listed every one;
+    // the desktop tree hides them (only the current blank is kept there).
+    const rows = [row('s-1', 5), blank('blank-a', 4), row('s-2', 3), blank('blank-b', 2)]
+    expect(visibleSessionRows(rows, new Set()).map(r => r.sessionId)).toEqual(['s-1', 's-2'])
+  })
+
+  it('keeps a row whose blank flag is absent or false', () => {
+    const rows = [{ sessionId: 's-1', updatedAt: 2, blank: false }, row('s-2', 1)] as RosterItem[]
+    expect(visibleSessionRows(rows, new Set()).map(r => r.sessionId)).toEqual(['s-1', 's-2'])
+  })
+
   it('drops sessions in the archive set', () => {
     const rows = [row('s-1'), row('s-2'), row('s-3')]
     const visible = visibleSessionRows(rows, new Set(['s-2']))
     expect(visible.map(r => r.sessionId)).toEqual(['s-1', 's-3'])
   })
 
-  it('filters subagent and archived together, preserving host order', () => {
+  it('filters subagent, blank and archived together, preserving host order', () => {
     const rows = [
       row('s-1', 5),
       sub('sub-a', 4),
       row('s-archived', 3),
+      blank('blank-a', 3),
       row('s-2', 2),
       sub('sub-b', 1),
     ]
     const visible = visibleSessionRows(rows, new Set(['s-archived']))
     expect(visible.map(r => r.sessionId)).toEqual(['s-1', 's-2'])
+  })
+})
+
+describe('toRosterItems', () => {
+  // The snapshot persists these rows and the paged list is served from it, so
+  // every field the phone renders has to survive. Narrowing the row down to
+  // {sessionId, updatedAt, origin} (2026-10-20) erased projections.values.title
+  // and turned every session in the phone's list into "新会话".
+  it('keeps projections and the other rendered fields', () => {
+    const hostRow = {
+      sessionId: 's-1',
+      updatedAt: 7,
+      running: false,
+      blank: true,
+      cwd: '/w/project',
+      origin: 'subagent' as const,
+      projections: { values: { title: '真实标题', preview: '第一句', sessionStats: { turns: 3 } } },
+    }
+    const copied = toRosterItems([hostRow])
+    expect(copied).toEqual([hostRow])
+    // A copy: a later host mutation must not rewrite rows already snapshotted.
+    expect(copied[0]).not.toBe(hostRow)
   })
 })
 

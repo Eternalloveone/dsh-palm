@@ -679,10 +679,10 @@ body,
   grid-template-columns: 48px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
-  /* <button> is shrink-to-fit on width:auto — pin the card to the 16px-inset column. */
-  width: calc(100% - 32px);
-  margin: 0 16px 8px;
-  padding: 0 16px;
+  /* <button> is shrink-to-fit on width:auto — pin the card to the 12px-inset column. */
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  padding: 0 12px;
   min-height: 72px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-card);
@@ -701,6 +701,34 @@ body,
   }
 }
 
+/* 会话卡片的标题列要尽量宽：图标列 48→36px、右箭头列 48→24px、间距 12→8px。
+   只加在会话行上（.mobile-row-sess），工作区/设置行仍按原来的 48px 列排版 ——
+   它们的图标是 48px 的 .ws-icon，套窄列会溢出。 */
+.mobile-row-sess {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.mobile-row-sess .card-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.mobile-row-sess .card-icon > * {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.mobile-row-sess .card-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.mobile-row-sess .card-action {
+  min-width: 24px;
+}
+
 /* 按压态：scale(0.98) + 背景变亮 5% */
 .mobile-row:active {
   transform: scale(0.98);
@@ -716,7 +744,8 @@ body,
    :active press-scale never fights the swipe offset. */
 .mobile-row-swipe {
   position: relative;
-  margin: 0 16px 8px;
+  /* 与会话卡片的 12px 内缩对齐（见 .mobile-row），否则滑动露出层会错边。 */
+  margin: 0 12px 8px;
   border-radius: var(--radius-card);
   overflow: hidden;
 }
@@ -874,7 +903,8 @@ body,
   white-space: nowrap;
 }
 
-/* Right action zone: right-aligned, min 48px, always in the same place. */
+/* Right action zone: right-aligned, min 48px, always in the same place.
+   会话行只放一个箭头，宽度由 .mobile-row-sess 收到 24px。 */
 .card-action {
   min-width: 48px;
   display: flex;
@@ -967,29 +997,52 @@ body,
   background: var(--text-muted);
 }
 
+/* 状态点是 8px 的小圆，不是图标：.card-icon > * 会把直接子元素撑成 40px 的
+   圆角方块，运行中的绿点于是变成一个绿色大方块（真机反馈 2026-10-20）。这里用
+   两个类名的选择器压回去，勾选标记也一并放回自然尺寸（它本来没有底板）。 */
+.card-icon > .sess-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.card-icon > .sess-check {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+
 .sess-dot-running {
   background: var(--positive);
   animation: pulse 2s infinite ease-in-out;
 }
 
-/* Title line: title · time merged on one truncating line. */
+/* Title line: the title owns the line and wraps instead of truncating.
+   日期与状态移到下一行的小字里（.sess-meta）：原来是"标题 · 日期"挤在一行，
+   标题被日期挤成一截加省略号，看不全会话名。 */
 .sess-titleline {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+  display: block;
   min-width: 0;
 }
 
 .sess-title {
-  flex: 0 1 auto;
+  display: block;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-primary);
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+/* 元信息行：状态徽标 + 时间，自动换行，不与标题抢宽度。 */
+.sess-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
 }
 
 .sess-sep {
@@ -7099,36 +7152,6 @@ details.think-block[open] .chat-disclosure-caret {
   transform: scale(0.92);
 }
 
-/* 「回到上次」 bookmark chip: the same pill family as the turn handle, pinned
-   a third rung higher in the sticky flex column (latest 12px, turns 58px, this
-   one 104px) so the three never overlap. Shows regardless of scroll position —
-   the whole point is tapping it WITHOUT first scrolling away from the tail. */
-.chat-jump-lastread {
-  position: sticky;
-  bottom: 104px;
-  align-self: flex-end;
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  min-width: 48px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 16px;
-  border: 1px solid var(--accent);
-  background: var(--surface-2);
-  color: var(--accent);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-  cursor: pointer;
-  font-size: 13px;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: manipulation;
-  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
-  animation: chat-jump-in 160ms ease-out;
-}
-.chat-jump-lastread:active {
-  transform: scale(0.92);
-}
 .chat-jump-turns-label {
   font-size: 13px;
   font-weight: 600;

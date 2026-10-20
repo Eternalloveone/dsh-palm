@@ -1147,7 +1147,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
                       删除
                     </button>
                     <div className={'mobile-row-swipe-inner' + (swiped ? ' swiped' : '')}>
-                      <button type="button" className="mobile-row" {...rowHandlers(row, matchedHit)}>
+                      <button type="button" className="mobile-row mobile-row-sess" {...rowHandlers(row, matchedHit)}>
                         <span className="card-icon">
                           {row.running ? (
                             <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
@@ -1158,10 +1158,11 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
                         <span className="card-main">
                           <span className="sess-titleline">
                             <span className="sess-title">{row.title}</span>
+                          </span>
+                          <span className="sess-meta">
                             {row.blank && <span className="sess-status">新</span>}
                             {row.running && <span className="sess-status">进行中</span>}
                             {row.error !== undefined && <span className="sess-status" title={row.error}>出错</span>}
-                            <span className="sess-sep" aria-hidden>·</span>
                             <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
                           </span>
                           {preview !== undefined && <span className="card-desc">{preview}</span>}
@@ -1191,7 +1192,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
                 <li key={`${hit.kind}:${hit.sessionId}`} style={{ listStyle: 'none' }}>
                   <button
                     type="button"
-                    className="mobile-row"
+                    className="mobile-row mobile-row-sess"
                     onClick={() => { void openSearchHit(hit, title) }}
                   >
                     <span className="card-icon">

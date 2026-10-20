@@ -572,6 +572,33 @@ let sessionRosterLastRefreshAt = 0
 const ROSTER_SNAPSHOT_MAX_BYTES = 16_000_000
 
 /**
+ * One roster row: a host `session.list` item kept as-is. The snapshot persists
+ * these rows and serves paged lists from them, so the item must keep every
+ * field the phone renders — `projections.values` carries the title, the
+ * preview line and the turn count, and dropping them turned every row into
+ * "新会话" (2026-10-20). `blank` is the flag the phone filters on.
+ */
+export interface RosterItem {
+  updatedAt: number
+  sessionId: string
+  origin?: 'subagent'
+  blank?: boolean
+  running?: boolean
+  cwd?: string
+  projections?: { values?: Record<string, unknown> }
+  [field: string]: unknown
+}
+
+/**
+ * Copy host session rows into roster rows. A shallow copy only: the snapshot
+ * must round-trip everything the row renders (see {@link RosterItem}), and the
+ * previous narrowing here is what erased the titles.
+ */
+export function toRosterItems(items: ReadonlyArray<RosterItem>): RosterItem[] {
+  return items.map(item => ({ ...item }))
+}
+
+/**
  * 首帧前把落盘的花名册快照读回内存 —— 这是"跨 DSH 重启也不冷启动"的关键：重启后
  * 第一次 session.list 直接毫秒返回，新鲜度交给随后的后台刷新补。`at: 0` 是刻意的：
  * 让这次返回立刻触发一次后台刷新（标准 SWR）。
@@ -584,7 +611,7 @@ function hydrateSessionRoster(apiProxy: ApiProxy): void {
   try {
     if (statSync(file).size > ROSTER_SNAPSHOT_MAX_BYTES) return
     const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
-      rawItems?: Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+      rawItems?: RosterItem[]
       archivedIds?: string[]
       owned?: Array<[string, string[]]>
     }
@@ -627,7 +654,7 @@ const SESSION_LIST_TTL_MS = 30_000
 let sessionListTtlCache: {
   at: number
   proxy: ApiProxy
-  rawItems: Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>
+  rawItems: RosterItem[]
   archivedIds: Set<string>
 } | undefined
 /** TTL for the workspace roster / agent-preset roster caches (v3.2). */
@@ -1235,18 +1262,28 @@ function afterCursor(row: { updatedAt: number; sessionId: string }, position: { 
 /**
  * Rows the phone surface may show, in host order: main-agent sessions
  * (origin not 'subagent') that were not archived with
- * `workspace.deleteSession` / `workspace.archiveSession`. The host archive
- * set (from `workspace.list`) hides removed sessions on the desktop, but the
- * host `session.list` still returns attached ones from its live registry —
- * without this filter a session deleted on the desktop reappears on the
- * phone roster (and in pagination, since the page slices come from this
- * filtered array).
+ * `workspace.deleteSession` / `workspace.archiveSession`, and that hold
+ * something. The host archive set (from `workspace.list`) hides removed
+ * sessions on the desktop, but the host `session.list` still returns attached
+ * ones from its live registry — without this filter a session deleted on the
+ * desktop reappears on the phone roster (and in pagination, since the page
+ * slices come from this filtered array).
+ *
+ * Blank sessions (`blank: true`, no turn ever sent) are hidden for the same
+ * reason the desktop tree hides them (`ui-workspace` keeps only the current
+ * one): the desktop mints a blank session per "new chat" and per workspace
+ * switch, and 542 of them had accumulated here by 2026-10-20 — the phone used
+ * to list every one. The phone has no "current blank session" notion, so all
+ * of them go.
  */
 export function visibleSessionRows(
-  rawItems: ReadonlyArray<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>,
+  rawItems: ReadonlyArray<RosterItem>,
   archivedSessionIds: ReadonlySet<string>,
 ): Array<{ updatedAt: number; sessionId: string }> {
-  return rawItems.filter(item => item.origin !== 'subagent' && !archivedSessionIds.has(String(item.sessionId)))
+  return rawItems.filter(item =>
+    item.origin !== 'subagent'
+    && item.blank !== true
+    && !archivedSessionIds.has(String(item.sessionId)))
 }
 
 /**
@@ -3221,7 +3258,7 @@ function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ f
       sessionListTtlCache = {
         at: Date.now(),
         proxy: apiProxy,
-        rawItems: full.result.value.items as Array<{ updatedAt: number; sessionId: string; origin?: 'subagent' }>,
+        rawItems: toRosterItems(full.result.value.items as RosterItem[]),
         archivedIds: new Set((wsValue?.archivedSessionIds ?? []).map(id => String(id))),
       }
       sessionListOwnedCache = new Map(

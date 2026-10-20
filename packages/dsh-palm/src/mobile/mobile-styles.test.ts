@@ -5,6 +5,30 @@ import { mobileCss } from './mobile-styles.ts'
 const compact = (css: string): string => css.replace(/\s+/g, ' ')
 
 describe('mobileCss long-token wrapping contract', () => {
+  it('shows the whole session title instead of truncating it', () => {
+    // 2026-10-20: the title shared its line with the date and truncation, so
+    // every long title read as "子代理状态展…". The title now owns its line and
+    // wraps; the date/status moved to .sess-meta underneath.
+    const css = compact(mobileCss)
+    expect(css).toContain('.sess-title { display: block; min-width: 0; white-space: normal; overflow-wrap: anywhere;')
+    expect(css).not.toContain('.sess-title { flex: 0 1 auto; min-width: 0; overflow: hidden;')
+    expect(css).toContain('.sess-meta { display: flex; align-items: center; flex-wrap: wrap;')
+  })
+  it('gives the session row a wider title column than the shared card row', () => {
+    // The icon column (48→36) and the chevron column (48→24) used to eat the
+    // title's width. Only the session row narrows — the workspace/settings rows
+    // keep their 48px column because their icon is a 48px .ws-icon.
+    const css = compact(mobileCss)
+    expect(css).toContain('.mobile-row-sess { grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; }')
+    expect(css).toContain('.mobile-row-sess .card-action { min-width: 24px; }')
+    expect(css).toContain('.card-action { min-width: 48px;')
+  })
+  it('keeps the running status dot a small circle, not an icon tile', () => {
+    // `.card-icon > *` sizes every direct child as a 40px rounded icon box, so
+    // the 8px running dot grew into a green square (phone report 2026-10-20).
+    const css = compact(mobileCss)
+    expect(css).toContain('.card-icon > .sess-dot { width: 8px; height: 8px; border-radius: var(--radius-full); }')
+  })
   it('wraps unbreakable tokens inside the .md-html prose run', () => {
     // A too-long file path (no spaces) must wrap inside the md text run, or
     // it stretches the message / .fp-md file preview past the screen edge.

@@ -16,7 +16,7 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
-import { dropSessionFromCaches, loadDraft, loadReadingTurn, removeDraft, removeReadingTurn, saveDraft, saveReadingTurn } from '../list-persist.ts'
+import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
 import { usePageVisible } from '../foreground.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
@@ -633,14 +633,12 @@ export function ChatView({
   /** The host outline's own newest turn (0 until the projection lands). The
    *  host projection is the session's FULL turn list, so — unlike `maxTurn`,
    *  which only sees the rows currently loaded — it does not grow while deep
-   *  history pages in. It is the stable source for "is this the newest turn?":
-   *  a bookmark compared against a growing value would resurface as a bogus
-   *  「回到上次」 chip. */
+   *  history pages in. */
   const hostNewestTurn = useMemo(
     () => parseTurnOutline(turnOutlineRaw).reduce((newest, entry) => Math.max(newest, entry.turn), 0),
     [turnOutlineRaw],
   )
-  /** The newest turn the bookmark is judged against: the host outline when it
+  /** The newest turn the turn handle judges against: the host outline when it
    *  has landed, the merged outline (local rows only) before that. */
   const newestTurn = hostNewestTurn > 0 ? hostNewestTurn : maxTurn
   /** The currently-viewed turn (the row nearest the top of the viewport). */
@@ -648,19 +646,10 @@ export function ChatView({
   /** What the handle and the sheet highlight show: the tracked reading turn,
    *  falling back to the newest turn until the first scroll reports a position. */
   const shownTurn = currentTurn > 0 ? currentTurn : maxTurn
-  /* Reading-position memory (the 「回到上次」 chip): the loaded bookmark plus
-     live mirror refs, so the debounced scroll save and the unmount flush never
-     read a stale closure. */
-  const [lastReadTurn, setLastReadTurn] = useState<number | undefined>(() => loadReadingTurn(session.sessionId))
   const currentTurnRef = useRef(currentTurn)
   currentTurnRef.current = currentTurn
   const turnEntriesRef = useRef(turnEntries)
   turnEntriesRef.current = turnEntries
-  /** Live mirror of {@link newestTurn} for the deferred bookmark writes (the
-   *  scroll-settle debounce and the unmount flush must read the CURRENT newest
-   *  turn, not the one their closure captured). */
-  const newestTurnRef = useRef(newestTurn)
-  newestTurnRef.current = newestTurn
   const sessionIdRef = useRef(session.sessionId)
   sessionIdRef.current = session.sessionId
   /** Debounce handle for the scroll-settle reading save. */
@@ -1615,17 +1604,6 @@ export function ChatView({
       // position, so it must not overwrite the tracked turn either.
       const readPosition = deriveCurrentTurn(el.scrollTop) ?? 0
       setCurrentTurn(readPosition)
-      // Reading-position memory: save the settled turn once scrolling pauses
-      // for a second (a live write on every pixel would churn localStorage).
-      // Reading the newest turn does not update the bookmark — the chip points
-      // at the mid-history spot the reader actually left from.
-      if (readingTimerRef.current !== undefined) window.clearTimeout(readingTimerRef.current)
-      readingTimerRef.current = window.setTimeout(() => {
-        readingTimerRef.current = undefined
-        if (!leftBottom) return
-        const newest = newestTurnRef.current
-        if (readPosition > 0 && readPosition !== newest) saveReadingTurn(sessionIdRef.current, readPosition)
-      }, 1000)
     }
     // Scrolling back to the bottom counts as reading: clear the unread
     // badge and advance the seen-turn baseline, so a reader who manually
@@ -1641,35 +1619,22 @@ export function ChatView({
     if (eventFlushRafRef.current !== undefined) cancelAnimationFrame(eventFlushRafRef.current)
   }, [])
 
-  // Reading-position memory: reload the bookmark when the session id changes,
-  // and flush the live position on unmount (the debounce may not have fired
-  // yet). The cleanup closes over the session id it was created for, so a
-  // session switch still writes the OLD session's bookmark.
-  useEffect(() => {
-    setLastReadTurn(loadReadingTurn(session.sessionId))
-    return () => {
-      if (readingTimerRef.current !== undefined) {
-        window.clearTimeout(readingTimerRef.current)
-        readingTimerRef.current = undefined
-      }
-      const turn = currentTurnRef.current
-      const newest = newestTurnRef.current
-      // Same "the reader actually left the bottom" guard as the debounce: the
-      // gap ref holds the distance of their LAST scroll event, so a session
-      // that only ever sat at the tail (the opening pin included) leaves no
-      // bookmark behind.
-      if (bottomGapAtUserScrollRef.current <= BOTTOM_FOLLOW_THRESHOLD_PX) return
-      if (turn > 0 && turn !== newest) saveReadingTurn(session.sessionId, turn)
+  // Drop any pending reading timer when the view goes away: the timer only
+  // drove the retired 「回到上次」 bookmark, so nothing else needs flushing.
+  useEffect(() => () => {
+    if (readingTimerRef.current !== undefined) {
+      window.clearTimeout(readingTimerRef.current)
+      readingTimerRef.current = undefined
     }
-  }, [session.sessionId])
+  }, [])
 
   /**
    * Write a programmatic scroll position. handleScroll reads the flag as "the
    * next scroll event is the echo of this write, not a reader gesture" — such
-   * an event neither releases the locate lock nor records a reading bookmark.
+   * an event does not release the locate lock.
    * Armed only when the write really moves the container: an unchanged
    * scrollTop fires no scroll event, and the stale flag would then swallow the
-   * reader's next genuine gesture (and with it their bookmark).
+   * reader's next genuine gesture.
    */
   const setScrollTopProgrammatically = useCallback((el: HTMLDivElement, value: number): void => {
     if (el.scrollTop !== value) programmaticScrollRef.current = true
@@ -1797,19 +1762,6 @@ export function ChatView({
     pendingTurnPagesRef.current = 0
     loadOlderRef.current(true, nextSeq ?? entry.seq + 1)
   }, [hasOlder, locateSeq, turnEntries])
-
-  /** 「回到上次」 chip: jump to the bookmarked turn through the same machine
-   *  the turn list uses (deep turns page in), then retire the bookmark. A
-   *  vanished turn (outline compaction) just drops the chip, no error toast. */
-  const jumpToLastRead = useCallback((): void => {
-    const bookmark = lastReadTurn
-    if (bookmark === undefined) return
-    setLastReadTurn(undefined)
-    removeReadingTurn(sessionIdRef.current)
-    const entry = turnEntriesRef.current.find(candidate => candidate.turn === bookmark)
-    if (entry === undefined) return
-    jumpToTurn(entry)
-  }, [lastReadTurn, jumpToTurn])
 
   /** Handle touch-down: expand the scrubber in place, already pointing at the
    *  turn under the finger (the knob sits under the finger from the first
@@ -3360,22 +3312,6 @@ export function ChatView({
             onClick={(event) => { if (event.detail === 0) setTurnListOpen(true) }}
           >
             <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
-          </button>
-        )}
-        {/* 「回到上次」 is ENTRY-TIME intent: it must be offered as soon as an
-            open finds a bookmark, so it is deliberately NOT gated on
-            showJumpToLatest. A bookmark that no longer differs from the newest
-            turn is not a "last read" spot at all — checked against the stable
-            host-outline newest turn AND the locally-merged one, so neither a
-            late-landing projection nor a locally-newer turn can render it. */}
-        {lastReadTurn !== undefined && lastReadTurn !== newestTurn && lastReadTurn !== maxTurn && maxTurn >= 2 && (
-          <button
-            type="button"
-            className="chat-jump-lastread"
-            aria-label="回到上次读到的轮次"
-            onClick={jumpToLastRead}
-          >
-            回到上次 · 第 {lastReadTurn} 轮
           </button>
         )}
         {showJumpToLatest && (

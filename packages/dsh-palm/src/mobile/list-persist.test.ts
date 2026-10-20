@@ -11,7 +11,6 @@ import {
   flushPersistedWrites,
   loadDraft,
   loadPersistedList,
-  loadReadingTurn,
   loadPersistedScroll,
   loadPersistedPreviews,
   loadPinnedSessions,
@@ -20,9 +19,7 @@ import {
   queuePersistedList,
   queuePersistedPreviews,
   removeDraft,
-  removeReadingTurn,
   saveDraft,
-  saveReadingTurn,
   savePersistedList,
   savePersistedPreviews,
   savePersistedScroll,
@@ -377,58 +374,27 @@ describe('deferred store writes', () => {
     }
   })
 
-  describe('reading turns', () => {
-    it('round-trips a per-session reading turn, ignores 0, and removes cleanly', () => {
-      saveReadingTurn('s-1', 5)
-      expect(loadReadingTurn('s-1')).toBe(5)
-      expect(loadReadingTurn('s-2')).toBeUndefined()
-      // 0 is "no position" — it must not clobber a real bookmark.
-      saveReadingTurn('s-1', 0)
-      expect(loadReadingTurn('s-1')).toBe(5)
-      removeReadingTurn('s-1')
-      expect(loadReadingTurn('s-1')).toBeUndefined()
-    })
-
-    it('rejects expired bookmarks (TTL)', () => {
-      const start = 1_700_000_000_000
-      vi.spyOn(Date, 'now').mockReturnValue(start)
-      saveReadingTurn('s-1', 3)
-      vi.spyOn(Date, 'now').mockReturnValue(start + 8 * 24 * 60 * 60 * 1000)
-      expect(loadReadingTurn('s-1')).toBeUndefined()
-    })
-
-    it('evicts the oldest bookmarks past the entry cap', () => {
-      for (let index = 0; index < 55; index++) saveReadingTurn(`s-${index}`, index + 1)
-      expect(loadReadingTurn('s-54')).toBe(55)
-      expect(loadReadingTurn('s-0')).toBeUndefined()
-    })
-
-    it('clearPairingCaches drops bookmarks too', () => {
-      saveReadingTurn('s-1', 2)
-      clearPairingCaches()
-      expect(loadReadingTurn('s-1')).toBeUndefined()
-    })
-
-    it('ignores pre-v2 bookmarks on load and sweeps them in the maintenance pass', () => {
-      // v1 records were also written by the opening programmatic scroll, so
-      // they can point at a turn the reader never left the bottom for. The
-      // store reads v2 only, and the prune pass drops the stale v1 keys.
-      localStorage.setItem('dsh-palm.reading.v1.s-legacy', JSON.stringify({ t: Date.now(), v: 3 }))
-      localStorage.setItem('dsh-palm.cache-index.v1', JSON.stringify(['dsh-palm.reading.v1.s-legacy']))
-      expect(loadReadingTurn('s-legacy')).toBeUndefined()
-      maintainPersistedCaches()
-      expect(localStorage.getItem('dsh-palm.reading.v1.s-legacy')).toBeNull()
-      // New bookmarks land under the v2 prefix.
-      saveReadingTurn('s-1', 4)
-      expect(localStorage.getItem('dsh-palm.reading.v2.s-1')).not.toBeNull()
-      expect(loadReadingTurn('s-1')).toBe(4)
-    })
-
-    it('clearPairingCaches drops pre-v2 bookmarks too', () => {
-      localStorage.setItem('dsh-palm.reading.v1.s-legacy', JSON.stringify({ t: Date.now(), v: 3 }))
-      localStorage.setItem('dsh-palm.cache-index.v1', JSON.stringify(['dsh-palm.reading.v1.s-legacy']))
-      clearPairingCaches()
-      expect(localStorage.getItem('dsh-palm.reading.v1.s-legacy')).toBeNull()
-    })
+  it('sweeps the retired reading bookmarks a phone may still carry', () => {
+    // 2026-10-20: the 「回到上次」 chip was removed. Phones that ran an older
+    // build still hold v1/v2/v3 records, so the maintenance pass must drop them
+    // (nothing else reads or writes that store any more).
+    const keys = [
+      'dsh-palm.reading.v1.s-old',
+      'dsh-palm.reading.v2.s-old',
+      'dsh-palm.reading.v3.s-old',
+    ]
+    for (const key of keys) localStorage.setItem(key, JSON.stringify({ t: Date.now(), v: 3 }))
+    localStorage.setItem('dsh-palm.cache-index.v1', JSON.stringify(keys))
+    maintainPersistedCaches()
+    for (const key of keys) expect(localStorage.getItem(key)).toBeNull()
   })
+
+  it('clearPairingCaches drops the retired reading bookmarks too', () => {
+    const keys = ['dsh-palm.reading.v2.s-old', 'dsh-palm.reading.v3.s-old']
+    for (const key of keys) localStorage.setItem(key, JSON.stringify({ t: Date.now(), v: 5 }))
+    localStorage.setItem('dsh-palm.cache-index.v1', JSON.stringify(keys))
+    clearPairingCaches()
+    for (const key of keys) expect(localStorage.getItem(key)).toBeNull()
+  })
+
 })
