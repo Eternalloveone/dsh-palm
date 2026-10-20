@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-10-20
+
+### Added
+
+- **桌面端面板底部新增版本行与「一键更新」。** 显示当前 dsh-palm 版本；有新版本时用强调色加圆点提示（不再是灰字），点一下即可更新并自动重启 DSH：① **npm 安装**走 `npm install --prefix <真实 profile>`，装完校验版本、入口文件与**新包声明的每一个运行依赖**，缺一个就回滚 —— 避免"报成功、重启后插件加载失败"；② **源码链接安装**走 `git pull → pnpm install → pnpm build`，工作树有未提交改动时直接拒绝，不弄乱手上的活儿；③ 更新成功后由独立 helper 进程按这次进程的真实启动配方重启，环境变量只带 8 个白名单键，绝不携带 token；10 秒倒计时可取消，连点第二次会被挡回"上一次更新还在跑"。四条路由仅在回环地址可用。
+
+### Fixed
+
+- **重启 DSH 后手机就要重新扫二维码。** 根因不是"配对丢了"：插件 `apply` 收到的 `.volatile()` 配置字段是**包装对象**，`value.devicesFile ?? DEFAULT` 兜不住对象，于是 `readFileSync` 拿到的是 `[object Object]`，设备表**从未被读取过** —— 内存里永远是 0 台设备，手机一连上就被当成新设备重新配对（审计日志里表现为反复出现 `paired the first device (primary)`）。现在：① 配置字段先解包（`get()` / `value` / 嵌套）再**按类型校验**，不符即退回 schema 默认值（`src/config-values.ts`，附 9 条单测）；② 设备表每次落盘同时写一份 `.bak`，启动时主表为空或缺失就从副本恢复并记一条 `store-restore` 审计；进程内有意的清除（踢设备、停止远程）会同时更新两份，已踢掉的设备不会被复活；③ 每次启动打一行 `[dsh-palm] device store: N device(s) from <路径>`，这类故障不必等手机连上才暴露。
+
+- **一键更新的两处硬伤。** ① 旧实现把新版装到临时目录再 `cpSync` 包本体，新版本若新增运行依赖会被丢掉，更新报成功、重启后插件加载失败；现在改为装进真实 profile 并逐个校验依赖。② 源不可达时 npm 默认重试会让人干等约 70 秒，且只得到一句"退出码 1"；现在 `--fetch-retries=1 --fetch-timeout=20000` 快速失败，并把 npm stderr 的首行带进错误文案，实测 1.4 秒。另修两处：连点两次会并发跑两个更新（守卫移到第一个 `await` 之前）；`--fetch-retry-maxtimeout` 小于 npm 默认 `fetch-retry-mintimeout` 会导致**所有**安装直接失败（已补 `--fetch-retry-mintimeout=1000`，并加一条"min ≤ max"的测试锁死）。
+
 ## [1.6.2] - 2026-10-19
 
 ### Fixed

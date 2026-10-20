@@ -25,6 +25,7 @@ import {
 } from './pair-api.ts'
 import { deviceNameFromUserAgent } from './device-name.ts'
 import { PublicUrlConfig } from './PublicUrlConfig.tsx'
+import { UpdateFooter } from './UpdateFooter.tsx'
 import css from './remote.module.css'
 
 /** The panel's view state, owned by the entry component. */
@@ -454,6 +455,10 @@ export function RemotePanel({ t, state, copied, detection, showWelcome, onDismis
           )}
         </>
       )}
+
+      {/* The updater line lives outside the three-step wizard: it is a
+          property of the installation, not a pairing step. */}
+      <UpdateFooter t={t} />
     </div>
   )
 }

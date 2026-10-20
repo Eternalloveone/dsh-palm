@@ -68,7 +68,23 @@ export interface TokenRecord {
 export const DEFAULT_IDLE_EXPIRE_MS = 90 * 24 * 60 * 60 * 1000
 
 /** Device-lifecycle actions recorded in the audit log. */
-type DeviceAuditAction = 'accept' | 'stop' | 'revoke' | 'idle-evict' | 'live-evict'
+type DeviceAuditAction =
+  | 'accept'
+  | 'stop'
+  | 'revoke'
+  | 'idle-evict'
+  | 'live-evict'
+  | 'store-restore'
+
+/**
+ * A spare copy of the device store, written beside it on every persist. A
+ * store that comes back empty or missing cannot be told apart from a fresh
+ * install, so this copy is what lets a wipe be undone instead of making the
+ * phone pair all over again.
+ */
+function backupOf(file: string): string {
+  return `${file}.bak`
+}
 
 /** Rotate the device audit log once it passes ~1 MB (to `<file>.1`). */
 const AUDIT_LOG_MAX_BYTES = 1_000_000
@@ -191,6 +207,39 @@ export const defaultClock: PairingClock = {
   randomCode: () => String(randomInt(0, 1_000_000)).padStart(6, '0'),
 }
 
+/** Parse one device store file. Undefined when it is missing or unusable. */
+function readDeviceStore(file: string): Map<string, DeviceSession> | undefined {
+  try {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    if (typeof saved !== 'object' || saved === null) return undefined
+    const store = new Map<string, DeviceSession>()
+    for (const [deviceId, session] of Object.entries(saved)) {
+      if (typeof deviceId !== 'string') continue
+      if (typeof session !== 'object' || session === null) continue
+      const { createdAt, lastSeenAt, userAgent, name, primary } = session as {
+        createdAt?: unknown
+        lastSeenAt?: unknown
+        userAgent?: unknown
+        name?: unknown
+        primary?: unknown
+      }
+      if (typeof createdAt !== 'number' || typeof lastSeenAt !== 'number') continue
+      const label = typeof userAgent === 'string' ? sanitizeUserAgent(userAgent) : undefined
+      const deviceName = typeof name === 'string' ? name.trim().slice(0, MAX_DEVICE_NAME_CHARS) : undefined
+      store.set(deviceId, {
+        createdAt,
+        lastSeenAt,
+        ...(label !== undefined ? { userAgent: label } : {}),
+        ...(deviceName !== undefined && deviceName !== '' ? { name: deviceName } : {}),
+        ...(primary === true ? { primary: true } : {}),
+      })
+    }
+    return store
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * The pairing state machine. Structural mutations issue/accept/stop/revoke
  * and config updates (LAN bases, public base) notify state listeners
@@ -233,39 +282,46 @@ export class PairingService {
    * Restore device sessions persisted by a previous process run. A corrupt
    * or missing file is tolerated (an empty device table, never a throw) —
    * persistence is an availability convenience, not a security boundary.
+   *
+   * An empty store is ambiguous: it is what a fresh install looks like, and
+   * it is also what a wiped file looks like. The spare copy written by
+   * persist() settles it — a spare with devices in it means the store was
+   * lost, so the devices come back instead of the phone having to pair again.
    */
   private loadPersisted(): void {
     const file = this.config.devicesFile
     if (file === undefined) return
-    try {
-      const saved = JSON.parse(readFileSync(file, 'utf8')) as unknown
-      if (typeof saved !== 'object' || saved === null) return
-      for (const [deviceId, session] of Object.entries(saved)) {
-        if (typeof deviceId !== 'string') continue
-        if (typeof session !== 'object' || session === null) continue
-        const { createdAt, lastSeenAt, userAgent, name, primary } = session as {
-          createdAt?: unknown
-          lastSeenAt?: unknown
-          userAgent?: unknown
-          name?: unknown
-          primary?: unknown
-        }
-        if (typeof createdAt !== 'number' || typeof lastSeenAt !== 'number') continue
-        const label = typeof userAgent === 'string' ? sanitizeUserAgent(userAgent) : undefined
-        const deviceName = typeof name === 'string' ? name.trim().slice(0, MAX_DEVICE_NAME_CHARS) : undefined
-        this.devices.set(deviceId, {
-          createdAt,
-          lastSeenAt,
-          ...(label !== undefined ? { userAgent: label } : {}),
-          ...(deviceName !== undefined && deviceName !== '' ? { name: deviceName } : {}),
-          ...(primary === true ? { primary: true } : {}),
-        })
+    let restored = false
+    this.adopt(readDeviceStore(file))
+    if (this.devices.size === 0) {
+      const spare = readDeviceStore(backupOf(file))
+      if (spare !== undefined && spare.size > 0) {
+        this.adopt(spare)
+        restored = true
+        this.audit('store-restore', '-', 'the device store was empty or missing; restored from the backup copy')
       }
-      this.clampToMaxDevices()
-      if (this.evictIdle()) this.persist()
-    } catch {
-      // Unreadable/corrupt: start empty rather than refusing to boot.
     }
+    this.clampToMaxDevices()
+    const evicted = this.evictIdle()
+    // A store written by an older build has no copy beside it yet; write one
+    // now so the protection starts with this boot rather than the next pair.
+    const copyMissing = this.devices.size > 0 && readDeviceStore(backupOf(file))?.size !== this.devices.size
+    // The restored table is written back so the store and its copy agree
+    // again; otherwise the next boot repeats the restore.
+    if (restored || evicted || copyMissing) this.persist()
+    // One line per boot: "the phone wants the code again" is otherwise
+    // invisible until someone connects, and this count is what tells a fresh
+    // install apart from a store that failed to load.
+    console.log(
+      `[dsh-palm] device store: ${String(this.devices.size)} device(s) from ${file}` +
+      `${restored ? ' (restored from the backup copy)' : ''}`,
+    )
+  }
+
+  /** Merge one parsed store into the live table (no side effects). */
+  private adopt(store: Map<string, DeviceSession> | undefined): void {
+    if (store === undefined) return
+    for (const [deviceId, session] of store) this.devices.set(deviceId, session)
   }
 
   /** FIFO-cap the device table (a persisted file may outlive a lowered cap). */
@@ -307,17 +363,26 @@ export class PairingService {
    * Device ids are session credentials (the gate authorizes requests by the
    * cookie's device id), so the file is written 0600 via a temp file and
    * atomic rename; a crash mid-write can never leave a half-written store.
+   *
+   * The spare copy beside it is written from the same bytes on every call, so
+   * it can only ever disagree with the store when something outside this
+   * process removed or emptied the store — which is exactly when it is used.
+   * A wipe this process *meant* to do (revoke, stop) updates both files, so a
+   * revoked device is never resurrected from the copy.
    */
   private persist(): void {
     const file = this.config.devicesFile
     if (file === undefined) return
     try {
       mkdirSync(dirname(file), { recursive: true })
-      const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
       const payload: Record<string, DeviceSession> = {}
       for (const [id, session] of this.devices) payload[id] = session
-      writeFileSync(temp, JSON.stringify(payload), { mode: 0o600 })
-      renameSync(temp, file)
+      const body = JSON.stringify(payload)
+      for (const target of [file, backupOf(file)]) {
+        const temp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+        writeFileSync(temp, body, { mode: 0o600 })
+        renameSync(temp, target)
+      }
       this.dirty = false
     } catch (error) {
       console.error('dsh-palm: failed to persist paired devices', error)

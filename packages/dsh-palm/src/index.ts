@@ -11,7 +11,8 @@
  * 使用本包自有命名（`dsh-palm`），与 dsh-remote-web-ui 的历史命名解耦。
  */
 
-import { join } from 'node:path'
+import { dirname, join, resolve as resolvePath } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { setInterval as nodeSetInterval } from 'node:timers'
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
@@ -21,6 +22,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DEFAULT_IDLE_EXPIRE_MS, PairingService, type PairingConfig } from './pairing.ts'
+import { asConfigBoolean, asConfigNumber, asConfigString, asOptionalConfigString } from './config-values.ts'
 import { dshHome } from './dsh-home.ts'
 import { isPairedDeviceRequest, makeGateListener } from './gate.ts'
 import { DshPalmPairing } from './pairing-access.ts'
@@ -40,6 +42,8 @@ import { RpcId } from './api-proxy-types'
 import { mountOnce } from './mount-once.ts'
 import { UUID_POLYFILL_SCRIPT } from './uuid-polyfill.ts'
 import { lanIPv4Addresses } from './lan.ts'
+import { UpdateCoordinator, locateInstalledPackageDir } from './updater.ts'
+import { captureLaunchRecipe, cancelRestart, restartRecipePath, restartResultPath, scheduleRestart } from './restart.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -203,57 +207,63 @@ const DEFAULTS: ResolvedConfig = {
 export const apply = mountOnce('@eternalloveone/dsh-palm', applyImpl)
 
 function applyImpl(ctx: Context, config?: Config): void {
+  // Whatever the host hands over (plain value, `Volatile` reference, or a
+  // wrapper around either) becomes a checked primitive here. A wrapper that
+  // slipped through used to reach readFileSync as a path and silently leave
+  // the device store unloaded — see config-values.ts.
   const resolved: ResolvedConfig = {
-    tokenTtlMs: config?.tokenTtlMs ?? DEFAULTS.tokenTtlMs,
-    offlineAfterMs: config?.offlineAfterMs ?? DEFAULTS.offlineAfterMs,
-    maxDevices: config?.maxDevices ?? DEFAULTS.maxDevices,
-    idleExpireMs: config?.idleExpireMs ?? DEFAULTS.idleExpireMs,
-    cookieName: config?.cookieName ?? DEFAULTS.cookieName,
-    requirePairingForLan: config?.requirePairingForLan ?? DEFAULTS.requirePairingForLan,
-    publicBaseUrl: config?.publicBaseUrl,
-    devicesFile: config?.devicesFile ?? DEFAULTS.devicesFile,
-    mobileEnterToSend: config?.mobileEnterToSend ?? DEFAULTS.mobileEnterToSend,
-    enabled: config?.enabled ?? DEFAULTS.enabled,
+    tokenTtlMs: asConfigNumber(config?.tokenTtlMs, DEFAULTS.tokenTtlMs),
+    offlineAfterMs: asConfigNumber(config?.offlineAfterMs, DEFAULTS.offlineAfterMs),
+    maxDevices: asConfigNumber(config?.maxDevices, DEFAULTS.maxDevices),
+    idleExpireMs: asConfigNumber(config?.idleExpireMs, DEFAULTS.idleExpireMs),
+    cookieName: asConfigString(config?.cookieName, DEFAULTS.cookieName),
+    requirePairingForLan: asConfigBoolean(config?.requirePairingForLan, DEFAULTS.requirePairingForLan),
+    publicBaseUrl: asOptionalConfigString(config?.publicBaseUrl),
+    devicesFile: asConfigString(config?.devicesFile, DEFAULTS.devicesFile),
+    mobileEnterToSend: asConfigBoolean(config?.mobileEnterToSend, DEFAULTS.mobileEnterToSend),
+    enabled: asConfigBoolean(config?.enabled, DEFAULTS.enabled),
   }
   // The live source the pairing service and the gate read: the settings
   // section once the web settings surface is served, the composition entry
   // otherwise (installSettingsSection swaps it when the namespace registers).
   let current: () => Config = () => config ?? {}
 
-  /**
-   * DSH 0.1.6+ hands live `Volatile<T>` references (objects exposing `get()`)
-   * to `apply` for every `.volatile()` Config field. Unwrap them so every
-   * downstream `??` default and comparison sees a plain value; plain values,
-   * `undefined`, and null pass through untouched. On 0.1.5 nothing is
-   * volatile, so this is a no-op.
-   */
-  const unwrapVolatile = <T>(value: T): T => {
-    if (value === null || typeof value !== 'object') return value
-    const candidate = value as unknown as { get?: () => T }
-    if (typeof candidate.get === 'function') return candidate.get()
-    const out: Record<string, unknown> = {}
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = unwrapVolatile(child)
-    }
-    return out as T
-  }
-
   const resolve = (): ResolvedConfig => {
-    const value = unwrapVolatile(current())
+    const value = current() as unknown as Record<string, unknown>
     return {
-      tokenTtlMs: value.tokenTtlMs ?? DEFAULTS.tokenTtlMs,
-      offlineAfterMs: value.offlineAfterMs ?? DEFAULTS.offlineAfterMs,
-      maxDevices: value.maxDevices ?? DEFAULTS.maxDevices,
-      idleExpireMs: value.idleExpireMs ?? DEFAULTS.idleExpireMs,
-      cookieName: value.cookieName ?? DEFAULTS.cookieName,
-      requirePairingForLan: value.requirePairingForLan ?? DEFAULTS.requirePairingForLan,
-      publicBaseUrl: value.publicBaseUrl,
-      devicesFile: value.devicesFile ?? DEFAULTS.devicesFile,
-      mobileEnterToSend: value.mobileEnterToSend ?? DEFAULTS.mobileEnterToSend,
-      enabled: value.enabled ?? DEFAULTS.enabled,
+      tokenTtlMs: asConfigNumber(value.tokenTtlMs, resolved.tokenTtlMs),
+      offlineAfterMs: asConfigNumber(value.offlineAfterMs, resolved.offlineAfterMs),
+      maxDevices: asConfigNumber(value.maxDevices, resolved.maxDevices),
+      idleExpireMs: asConfigNumber(value.idleExpireMs, resolved.idleExpireMs),
+      cookieName: asConfigString(value.cookieName, resolved.cookieName),
+      requirePairingForLan: asConfigBoolean(value.requirePairingForLan, resolved.requirePairingForLan),
+      publicBaseUrl: asOptionalConfigString(value.publicBaseUrl),
+      devicesFile: asConfigString(value.devicesFile, resolved.devicesFile),
+      mobileEnterToSend: asConfigBoolean(value.mobileEnterToSend, resolved.mobileEnterToSend),
+      enabled: asConfigBoolean(value.enabled, resolved.enabled),
     }
   }
-  const service = new PairingService(pairingConfigOf(resolved))
+  const service = new PairingService(pairingConfigOf(resolve()))
+
+  // 版本检查 + 一键更新（面板底部那一行）。加载时先记下"这次 dsh 是怎么被
+  // 拉起来的"：更新成功后由一个独立 helper 进程照这份配方重启，所以配方
+  // 必须是这一次进程的真实 argv / cwd（环境变量只留白名单，见 restart.ts）。
+  const restartRecipe = restartRecipePath()
+  captureLaunchRecipe()
+  const selfPackageDir = resolvePath(dirname(fileURLToPath(import.meta.url)), '..')
+  const update = new UpdateCoordinator({
+    // node_modules 里看到的那一份（可能是 junction）才是要更新的目标；找不到
+    // profile 布局时退回本包目录。
+    modulePath: locateInstalledPackageDir({ selfDir: selfPackageDir, home: dshHome() }),
+    // 审计日志和设备表同目录；设备表路径可被设置页改，所以按需读取。
+    devicesFile: () => resolve().devicesFile,
+    scheduleRestart: (delayMs) => scheduleRestart({
+      delayMs,
+      recipePath: restartRecipe,
+      resultPath: restartResultPath(restartRecipe),
+    }),
+    cancelRestart: () => { cancelRestart({ recipePath: restartRecipe }) },
+  })
 
   // The bind facts are known by now (webServer is an inject edge): the LAN
   // bases are frozen per process, matching the CLI's once-per-invocation
@@ -316,7 +326,7 @@ function applyImpl(ctx: Context, config?: Config): void {
     return { store, engine }
   })()
   const routes = [
-    ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan }),
+    ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan, update }),
     ...makeMobileRoutes(),
     ...(() => {
         const pendingTracker = new PendingTracker()

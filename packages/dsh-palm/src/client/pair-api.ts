@@ -305,3 +305,112 @@ export async function copyText(text: string): Promise<boolean> {
     return false
   }
 }
+
+/** One version check answer from the loopback host. */
+export interface UpdateVersionFrame {
+  installed: string
+  latest: string | null
+  isNewer: boolean
+  target: 'directory' | 'link' | 'missing'
+  repoDirty?: boolean
+}
+
+/**
+ * Ask the host whether a newer dsh-palm exists. Undefined on any failure —
+ * an offline registry or a non-loopback origin simply hides the footer line.
+ */
+export async function fetchUpdateVersion(): Promise<UpdateVersionFrame | undefined> {
+  try {
+    const response = await fetch('/api/pair/version')
+    if (!response.ok) return undefined
+    const body = await response.json() as Partial<UpdateVersionFrame>
+    if (typeof body.installed !== 'string' || body.installed === '') return undefined
+    return {
+      installed: body.installed,
+      latest: typeof body.latest === 'string' && body.latest !== '' ? body.latest : null,
+      isNewer: body.isNewer === true,
+      target: body.target === 'link' || body.target === 'directory' ? body.target : 'missing',
+      ...(body.repoDirty === true ? { repoDirty: true } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** The host's update plan (what it would do, or what it is doing). */
+export interface UpdatePlanFrame {
+  kind: 'noop' | 'npm' | 'source'
+  installed: string
+  latest?: string
+  steps: string[]
+  refuse?: string
+}
+
+/** One status poll from the host. */
+export interface UpdateStatusFrame {
+  phase: 'idle' | 'running' | 'restarting' | 'done' | 'failed'
+  done: boolean
+  ok: boolean
+  from: string
+  to: string
+  step: string
+  error?: string
+  restartAt?: number
+}
+
+/**
+ * Start (or rehearse) an update.
+ * @param dryRun - true asks the host for the plan only; nothing is written.
+ * @returns started + plan, or undefined when the request failed.
+ */
+export async function startUpdate(dryRun = false): Promise<{ started: boolean; plan?: UpdatePlanFrame } | undefined> {
+  try {
+    const response = await fetch('/api/pair/update', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRun }),
+    })
+    if (!response.ok) return undefined
+    const body = await response.json() as { started?: unknown; plan?: UpdatePlanFrame }
+    return { started: body.started === true, ...(body.plan !== undefined ? { plan: body.plan } : {}) }
+  } catch {
+    return undefined
+  }
+}
+
+/** Read the update status; undefined when the host cannot answer. */
+export async function fetchUpdateStatus(): Promise<UpdateStatusFrame | undefined> {
+  try {
+    const response = await fetch('/api/pair/update/status')
+    if (!response.ok) return undefined
+    const body = await response.json() as Partial<UpdateStatusFrame>
+    const phase = body.phase
+    if (phase !== 'idle' && phase !== 'running' && phase !== 'restarting' && phase !== 'done' && phase !== 'failed') {
+      return undefined
+    }
+    return {
+      phase,
+      done: body.done === true,
+      ok: body.ok === true,
+      from: typeof body.from === 'string' ? body.from : '',
+      to: typeof body.to === 'string' ? body.to : '',
+      step: typeof body.step === 'string' ? body.step : '',
+      ...(typeof body.error === 'string' && body.error !== '' ? { error: body.error } : {}),
+      ...(typeof body.restartAt === 'number' ? { restartAt: body.restartAt } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** Cancel the host's restart countdown. True when the host says it cancelled. */
+export async function cancelUpdateRestart(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/pair/update/restart/cancel', { method: 'POST' })
+    if (!response.ok) return false
+    const body = await response.json() as { cancelled?: unknown }
+    return body.cancelled === true
+  } catch {
+    return false
+  }
+}

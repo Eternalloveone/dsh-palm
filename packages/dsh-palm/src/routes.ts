@@ -15,6 +15,7 @@ import { DEFAULT_IDLE_EXPIRE_MS, UnknownLanAddressError, type PairingService, ty
 import { isLoopbackClient, readCookie } from './gate.ts'
 import { readJsonBody, writeJson } from './http.ts'
 import { detectTunnels } from './detect-tunnel.ts'
+import type { UpdateCoordinator } from './updater.ts'
 
 /**
  * Browser-trust fence for the /api/pair routes, mirroring the connection
@@ -105,6 +106,10 @@ export const PAIR_PATHS = {
   events: '/api/pair/events',
   probe: '/api/pair/probe',
   detect: '/api/pair/detect',
+  version: '/api/pair/version',
+  update: '/api/pair/update',
+  updateStatus: '/api/pair/update/status',
+  updateRestartCancel: '/api/pair/update/restart/cancel',
 } as const
 
 /**
@@ -138,6 +143,10 @@ export const probePayloadSchema = z.object({
   url: z.string().min(1),
 })
 export const pairActionPayloadSchema = z.object({}).passthrough()
+/** The update trigger: dryRun only inspects, it never touches the install. */
+export const updatePayloadSchema = z.object({
+  dryRun: z.boolean().optional(),
+})
 
 /**
  * Parse a pair request body through schema. A missing/empty, unparseable
@@ -213,6 +222,12 @@ export interface PairRoutesDeps {
   lanAddresses: readonly string[]
   /** Current desktop gate policy, re-read for every status response. */
   requirePairingForLan?: boolean | (() => boolean)
+  /**
+   * The version-check + update coordinator behind the panel footer. Absent
+   * when the host could not resolve an install path; the four update routes
+   * then answer 503 instead of pretending the feature exists.
+   */
+  update?: UpdateCoordinator
 }
 
 /**
@@ -221,7 +236,7 @@ export interface PairRoutesDeps {
  * @returns the exact routes to register on webServer.
  */
 export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
-  const { service, lanAddresses, requirePairingForLan = true } = deps
+  const { service, lanAddresses, requirePairingForLan = true, update } = deps
   const pairingRequired = (): boolean => typeof requirePairingForLan === 'function'
     ? requirePairingForLan()
     : requirePairingForLan
@@ -582,6 +597,95 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     writeJson(res, 200, { ok: true, ...detection })
   }
 
+  /**
+   * Version check for the panel footer. The registry lookup reuses the phone
+   * About sheet's helper; an unreachable registry answers latest:null instead
+   * of an error, so the footer can stay quiet. Loopback-only like every other
+   * control endpoint.
+   */
+  const handleVersion = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'GET')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    if (update === undefined) {
+      writeJson(res, 503, { ok: false, code: 'unavailable' })
+      return
+    }
+    try {
+      const frame = await update.version()
+      writeJson(res, 200, {
+        ok: true,
+        installed: frame.installed,
+        latest: frame.latest,
+        isNewer: frame.isNewer,
+        target: frame.target,
+        ...(frame.repoDirty !== undefined ? { repoDirty: frame.repoDirty } : {}),
+      })
+    } catch (error) {
+      // A broken install path must not break the panel: report "nothing to
+      // update" and let the user open the panel as usual.
+      console.error(`dsh-palm: version check failed: ${error instanceof Error ? error.message : String(error)}`)
+      writeJson(res, 200, { ok: true, installed: '', latest: null, isNewer: false, target: 'missing' })
+    }
+  }
+
+  /**
+   * Trigger an update. dryRun answers the plan only (zero file writes); a real
+   * run starts in the background and answers immediately, the panel then
+   * polls /api/pair/update/status.
+   */
+  const handleUpdate = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'POST')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    const body = await readJsonBody(req, { maxBytes: MAX_BODY_BYTES, objectOnly: true })
+    const payload = parsePairPayload(updatePayloadSchema, body)
+    if (payload === undefined) {
+      writeJson(res, 400, { ok: false, code: 'bad-payload' })
+      return
+    }
+    if (update === undefined) {
+      writeJson(res, 503, { ok: false, code: 'unavailable' })
+      return
+    }
+    const result = await update.start(payload.dryRun === true)
+    writeJson(res, 200, { ok: true, started: result.started, plan: result.plan })
+  }
+
+  /** Poll target for the panel footer: phase / progress / failure reason. */
+  const handleUpdateStatus = (req: IncomingMessage, res: ServerResponse): void => {
+    if (!requireMethod(req, res, 'GET')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    if (update === undefined) {
+      writeJson(res, 503, { ok: false, code: 'unavailable' })
+      return
+    }
+    // The status frame already carries `ok` (whether the update itself
+    // succeeded); the panel reads phase/done/step/restartAt from it.
+    writeJson(res, 200, update.status())
+  }
+
+  /** Cancel the restart countdown (the files on disk stay updated). */
+  const handleUpdateRestartCancel = (req: IncomingMessage, res: ServerResponse): void => {
+    if (!requireMethod(req, res, 'POST')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    if (update === undefined) {
+      writeJson(res, 503, { ok: false, code: 'unavailable' })
+      return
+    }
+    writeJson(res, 200, { cancelled: update.cancelRestart() })
+  }
+
   return [
     { kind: 'exact', path: PAIR_PATHS.issue, handler: handleIssue },
     { kind: 'exact', path: PAIR_PATHS.accept, handler: handleAccept },
@@ -594,5 +698,9 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     { kind: 'exact', path: PAIR_PATHS.events, handler: handleEvents },
     { kind: 'exact', path: PAIR_PATHS.probe, handler: handleProbe },
     { kind: 'exact', path: PAIR_PATHS.detect, handler: handleDetect },
+    { kind: 'exact', path: PAIR_PATHS.version, handler: handleVersion },
+    { kind: 'exact', path: PAIR_PATHS.update, handler: handleUpdate },
+    { kind: 'exact', path: PAIR_PATHS.updateStatus, handler: handleUpdateStatus },
+    { kind: 'exact', path: PAIR_PATHS.updateRestartCancel, handler: handleUpdateRestartCancel },
   ]
 }

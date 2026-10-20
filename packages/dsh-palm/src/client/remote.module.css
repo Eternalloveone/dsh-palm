@@ -1321,6 +1321,145 @@
   font-size: 13px;
 }
 
+/* ── updater line (panel bottom) ─────────────────────────────────────── */
+
+/* Sits outside the three-step wizard: one quiet line about the installation
+   itself. It is deliberately the last row of the panel, never a modal. */
+.updateFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--palm-border);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.updateMuted {
+  color: var(--palm-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.updateText {
+  color: var(--palm-text-secondary);
+}
+
+/* A new version is a to-do, not ambient chrome: give it a dot and the accent
+   colour so it reads as "something to do" instead of another grey footnote. */
+.updateDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--palm-accent);
+}
+
+.updateAvailable {
+  color: var(--palm-accent);
+  font-weight: 600;
+}
+
+/* Two rings on first sight, then it settles. Never loops. */
+.updateFresh {
+  animation: update-ring 1.1s ease-out 2;
+}
+
+@keyframes update-ring {
+  from {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55);
+  }
+
+  to {
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0);
+  }
+}
+
+.updateReason {
+  color: var(--palm-danger);
+}
+
+.updateCountdown {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--palm-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.updateCountdown:hover {
+  color: var(--palm-text);
+}
+
+.updateBtn {
+  flex: none;
+  border: 1px solid var(--palm-border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--palm-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--palm-transition);
+}
+
+.updateBtn:hover {
+  border-color: var(--palm-border-hover);
+  color: var(--palm-text);
+}
+
+.updateBtnPrimary {
+  flex: none;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 12px;
+  background: var(--palm-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--palm-transition);
+}
+
+.updateBtnPrimary:hover {
+  background: var(--palm-accent-hover);
+}
+
+.updateBtnPrimary:focus-visible,
+.updateBtn:focus-visible,
+.updateCountdown:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--palm-card), 0 0 0 4px var(--palm-accent);
+}
+
+/* The hairline "still working" bar under the current step. */
+.updateTrack {
+  flex: 1 1 100%;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--palm-border);
+}
+
+.updateBar {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--palm-accent);
+  animation: dshPalmUpdateSlide 1.4s ease-in-out infinite;
+}
+
+@keyframes dshPalmUpdateSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
 /* ── responsive ──────────────────────────────────────────────────────── */
 
 @media (max-width: 560px) {
@@ -1386,5 +1525,9 @@
   .welcomeDismiss,
   .statusCard {
     transition: none;
+  }
+
+  .updateFresh {
+    animation: none;
   }
 }
