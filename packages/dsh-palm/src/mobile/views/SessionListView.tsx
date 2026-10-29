@@ -15,13 +15,13 @@
  * status dot on running sessions; the raw session-id tail is gone.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { AgentPresetEntry } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
 import type { MuxClient } from '../mux.ts'
-import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, previews, searchAll, searchMessages, type SessionSearchHit } from '../api.ts'
+import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, runningSessions } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
@@ -43,7 +43,7 @@ import {
   sessionListCache,
 } from '../list-persist.ts'
 export { sessionListCache } from '../list-persist.ts'
-import { ChatBubbleIcon, CheckIcon, ChevronUpIcon, CloseIcon, HelpIcon, SearchIcon } from '../icons.tsx'
+import { ChatBubbleIcon, CheckIcon, ChevronUpIcon, HelpIcon } from '../icons.tsx'
 
 /** Props for the session list. */
 export interface SessionListViewProps {
@@ -52,23 +52,14 @@ export interface SessionListViewProps {
   mux?: MuxClient | undefined
   /** Session carried by a notification deep link; opened after the list loads. */
   initialSessionId?: string
-  /** Restore the in-list search surface when the app returns here after a
-   *  chat opened from that search (one-shot, consumed on apply). */
-  initialSearch?: { open: boolean; term: string }
   onBack(): void
   onPick(session: SessionView): void
   /** Open the mobile settings page (gear in the header). */
   onOpenSettings(): void
-  /** Locate a search hit living in another workspace (in-app navigation). */
+  /** Locate a session living in another workspace (in-app navigation). */
   onLocateSession?(sessionId: string, workspaceId: string, seq?: number, query?: string): void
-  /** Open a search-hit session scrolled to one of its matched messages. */
+  /** Open a session scrolled to one of its matched messages. */
   onPickSeq?(session: SessionView, seq: number, query?: string, messageId?: string, partId?: string): void
-  /** Report the live in-list search surface so the app can restore it when
-   *  returning from a chat opened out of this list. */
-  onSearchSnapshot?(open: boolean, term: string): void
-  /** The app cleared its one-shot restore (called after initialSearch is
-   *  applied), so a later manual visit does not restore the search again. */
-  onSearchApplied?(): void
 }
 
 /** Rows shown for the opened workspace: its sessions, paged. The roster
@@ -92,13 +83,19 @@ function pageItems(page: SessionSummary[], ownedIds: ReadonlySet<string>): Sessi
 interface LiveListState {
   added: Map<string, SessionView>
   status: Map<string, boolean>
+  /** 每条 status 是 mux 帧什么时候写下的。宿主那份运行集合自带 30 秒缓存，
+   *  比刚到的帧还旧；没有这个时间戳，一次核对就会把刚亮的绿点抹掉。 */
+  statusAt: Map<string, number>
   activity: Map<string, number>
   error: Map<string, string>
   removed: Set<string>
 }
 
 function emptyLiveState(): LiveListState {
-  return { added: new Map(), status: new Map(), activity: new Map(), error: new Map(), removed: new Set() }
+  return {
+    added: new Map(), status: new Map(), statusAt: new Map(),
+    activity: new Map(), error: new Map(), removed: new Set(),
+  }
 }
 
 /** Whether a `session/added` summary belongs to the workspace on screen. The
@@ -133,12 +130,17 @@ function applyListFrame(live: LiveListState, frame: MuxFrame, workspace: Workspa
     case 'session/status': {
       const id = String(frame.sessionId)
       live.status.set(id, frame.running)
+      live.statusAt.set(id, Date.now())
       // A session that runs again has moved past its failure.
       if (frame.running) live.error.delete(id)
       return true
     }
     case 'session/activity': {
-      live.activity.set(String(frame.sessionId), frame.updatedAt)
+      const id = String(frame.sessionId)
+      live.activity.set(id, frame.updatedAt)
+      // 有动静就说明它真的还在跑：给那条"在跑"的标记续命，否则静默一阵子
+      // 就会被上面的过期判断误杀。
+      if (live.status.get(id) === true) live.statusAt.set(id, Date.now())
       return true
     }
     case 'session/error': {
@@ -151,8 +153,20 @@ function applyListFrame(live: LiveListState, frame: MuxFrame, workspace: Workspa
 }
 
 /** One row with its live status/activity/error patches applied. */
-function patchRow(row: SessionView, live: LiveListState): SessionView {
-  const running = live.status.get(row.sessionId)
+function patchRow(row: SessionView, live: LiveListState, now = Date.now()): SessionView {
+  const reported = live.status.get(row.sessionId)
+  // 一个"在跑"的标记必须有东西持续续命。宿主的结束帧丢了、宿主的核对要枚举
+  // 几千个会话（冷启动实测 24 秒，手机上根本等不到），只靠这两样，绿点就会
+  // 挂着不下来。跑了这么久还没有任何一条关于它的事件，就按没在跑处理。
+  //
+  // 续命的证据是**帧**，不是 row.updatedAt：那个字段是"最后一条消息的时间"，
+  // 一轮跑五分钟它就停在开始处——拿它当心跳会把还在跑的会话误杀。真实的续命
+  // 来自会话每推一次事件就刷新的 session/activity；没有活动帧时退回 status 帧
+  // 的时间戳（宿主偶尔才发一次，所以它只是兜底，不是主判据）。
+  const lastActivity = live.activity.get(row.sessionId)
+  const heartbeatAt = lastActivity ?? live.statusAt.get(row.sessionId)
+  const quiet = heartbeatAt !== undefined && now - heartbeatAt > RUNNING_STALE_MS
+  const running = (reported === true && quiet) ? false : reported
   const updatedAt = live.activity.get(row.sessionId)
   const error = live.error.get(row.sessionId)
   // A session that runs again has moved past its failure. The mark may have
@@ -166,6 +180,31 @@ function patchRow(row: SessionView, live: LiveListState): SessionView {
   if (error !== undefined) next.error = error
   else if (dropError) delete next.error
   return next
+}
+
+/**
+ * 恢复缓存时先剥掉绿点。
+ *
+ *  缓存里的 running=true 是"上次渲染时的结论"，不是证据：从列表点进会话、跑完、
+ *  再回到列表，缓存里那一行还带着当时的 true，于是列表一挂载就把绿点画出来，等首页
+ *  请求回来才被宿主的新数据改成「已完成」——用户看到的就是卡片先绿一小会，而且和
+ *  "宿主的集合滞后"无关。恢复时只认这条 mux 连接当前还活着的那几个会话；真正还在
+ *  跑的会在随后的首页、宿主核对或日志尾页核实里重新点亮。
+ */
+function dropStaleRunning(rows: SessionView[], aliveIds: ReadonlySet<string>): SessionView[] {
+  let touched = false
+  const next = rows.map((row) => {
+    if (row.running !== true || aliveIds.has(String(row.sessionId))) return row
+    touched = true
+    return { ...row, running: false }
+  })
+  return touched ? next : rows
+}
+
+/** 这条 mux 连接认为还在跑的会话 id。测试里的假 mux 可能没有这个方法。 */
+function muxRunningIds(mux: MuxClient | undefined): Set<string> {
+  if (mux === undefined || typeof mux.runningSessionsSnapshot !== 'function') return new Set()
+  return new Set(mux.runningSessionsSnapshot().map(String))
 }
 
 /** Apply the live deltas to a baseline page, keeping the host's order (the
@@ -208,11 +247,21 @@ export const PREVIEW_FETCH_LIMIT = 12
 const PREVIEW_CONCURRENCY = 3
 /** Preview cache cap (oldest evicted past this). */
 const PREVIEW_CACHE_LIMIT = 200
+/** 向宿主核对「进行中」标记的最小间隔（宿主那份集合自带 30 s 缓存）。 */
+export const RUNNING_RESYNC_MS = 30_000
+/** 一条「在跑」标记多久没有新活动就作废。宿主的结束帧并不可靠（实测一整轮
+ *  零帧），宿主的核对要枚举几千个会话（冷启动实测 24 秒，手机上等不到），
+ *  所以绿点还得有自己的心跳：跑着的会话会不断推 session/activity。
+ *
+ *  窗口必须长于「静默但还在跑」的最长工具：一次构建、一条长命令一分钟都不写事件，
+ *  90 秒会把它们判死（用户看到绿点消失，以为跑完了）。5 分钟仍远快于宿主名单的刷新，
+ *  又覆盖得住常见的静默工具调用。 */
+export const RUNNING_STALE_MS = 5 * 60_000
 /** Cooldown after a failed next-page load before the sentinel retries. */
 const LOAD_MORE_BACKOFF_MS = 10_000
 
 /** 首屏/分页请求的看门狗：请求本身没有超时，挂死的连接必须由界面自己解锁。 */
-const FIRST_PAGE_TIMEOUT_MS = 12_000
+export const FIRST_PAGE_TIMEOUT_MS = 12_000
 
 /**
  * 工作区列表的预算。它只用来算"哪些会话属于本工作区"（归属过滤），却可能极慢 ——
@@ -314,10 +363,111 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
  * @param props - the workspace, back action, and pick action.
  * @returns the session list.
  */
-export function SessionListView({ workspace, mux, initialSessionId, initialSearch, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq, onSearchSnapshot, onSearchApplied }: SessionListViewProps) {
+export function SessionListView({ workspace, mux, initialSessionId, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
   /** Live list deltas (see {@link applyListFrame}), patched onto every page. */
   const liveRef = useRef<LiveListState>(emptyLiveState())
+
+  /** 用日志尾页核实一个"宿主说在跑"的会话。
+   *
+   *  宿主那份运行集合靠 session/status 帧维护，而真机上那条流几乎不发这类帧
+   *  （260 秒监听只见到一条，没有一条 running=false），所以它的"在跑"会残留
+   *  很久，绿点就挂着不下来。尾页是服务端折叠出来的（~20 ms），判据只认一件事：
+   *  最后一条边界是不是 turn/start。**不拿"事件静默"当收工**：一条编译命令跑三分
+   *  钟、一次大文件读写，这段时间日志里一行事件都没有，静默判据会把正在跑的会话
+   *  判成已结束（真机上就这么丢过绿点）。读不到就保留宿主结论：宁可多亮一个，
+   *  也不悄悄吞掉真实的一轮。 */
+  const confirmRunning = useCallback((sessionId: string, live: LiveListState): void => {
+    void logTail(sessionId).then(
+      (page) => {
+        if (!aliveRef.current) return
+        const next = page.turnStartAt !== undefined
+        if (live.status.get(sessionId) === next) return
+        live.status.set(sessionId, next)
+        live.statusAt.set(sessionId, Date.now())
+        setRows(previous => applyLive(previous, live))
+      },
+      () => { /* 非致命：读不到尾页就保留宿主的判断 */ },
+    )
+  }, [])
+
+  /** 首页/缓存到达时，把"宿主说在跑"的行先按没在跑处理，再逐条交给日志尾页核实。
+   *
+   *  页面上的 running 是宿主那一侧的结论：它的结束帧在真机上几乎不发、它自己的运行
+   *  集合还带 30 秒缓存，所以刚跑完的会话很可能仍被标成在跑。以前这里直接把页面的
+   *  true 画出来，用户从会话返回列表就会看到卡片先绿一小会、随后被新数据改回「已完成」。
+   *  现在只有这条 mux 连接当前也认为在跑的（有活动帧/状态帧）才立刻点灯，其余一律
+   *  等尾页核实。
+   */
+  const seedPageRows = useCallback((rows: SessionView[], live: LiveListState): SessionView[] => {
+    const aliveIds = muxRunningIds(mux)
+    const seeded = dropStaleRunning(rows, aliveIds)
+    for (const row of rows) {
+      const sessionId = String(row.sessionId)
+      if (row.running === true && !aliveIds.has(sessionId)) confirmRunning(sessionId, live)
+    }
+    return seeded
+  }, [confirmRunning, mux])
+
+  /** 用宿主的运行集合校正列表里的「进行中」标记。
+   *
+   *  mux 只在会话状态**变化**时推 session/status；断线期间漏掉的那一帧永远
+   *  不会重放，于是列表会一直标着一个早就结束的会话——真机上就是这样"桌面端
+   *  没会话在跑，手机还显示运行中"。宿主这份集合是权威的，而且它自己带 30 s
+   *  缓存，问一次很便宜。 */
+  const resyncRunning = useCallback((): void => {
+    void runningSessions().then(
+      ({ sessionIds }) => {
+        if (!aliveRef.current) return
+        const host = new Set(sessionIds)
+        const live = liveRef.current
+        const now = Date.now()
+        /** 刚由 mux 帧写下的状态更可信：宿主那份集合自带 30 秒缓存。 */
+        const fresh = (id: string): boolean => {
+          const writtenAt = live.statusAt.get(id)
+          return writtenAt !== undefined && now - writtenAt < RUNNING_RESYNC_MS
+        }
+        let changed = false
+        // 一、"宿主说没在跑"立刻落地。这个方向永远安全，也是手机上最常见的收敛：
+        //     mux 的结束帧经常压根没到，全靠这一次核对把绿点熄掉。滚出屏幕的条目也
+        //     要对齐，留下旧条目就是留下旧的绿点。
+        for (const id of new Set([...live.status.keys(), ...host])) {
+          if (host.has(id) || fresh(id)) continue
+          if (live.status.get(id) === false) continue
+          live.status.set(id, false)
+          live.statusAt.set(id, now)
+          changed = true
+        }
+        // 屏幕上的每一行都要有明确结论，不能只是"没被改过"：宿主说它没在跑，
+        // 它就一定不亮，哪怕这一行的 running 字段还带着旧快照里的 true。
+        setRows((previous) => {
+          let touched = changed
+          for (const row of previous) {
+            const id = row.sessionId
+            if (host.has(id) || fresh(id)) continue
+            if (row.running === false) continue
+            live.status.set(id, false)
+            live.statusAt.set(id, now)
+            touched = true
+          }
+          return touched ? applyLive(previous, live) : previous
+        })
+        // 二、"宿主说在跑"**先不点灯**。
+        //
+        //     这份集合靠 session/status 帧维护，而真机上那条流几乎不发这类帧（260 秒
+        //     监听只见到一条，没有一条 running=false），所以它会把早就跑完的会话留在
+        //     集合里很久。以前这里先把绿点亮起来，再拿日志尾页核实——用户看到的就是
+        //     卡片先闪一下「进行中」，几十到几百毫秒后才变「已完成」，切换界面时尤其
+        //     显眼（列表重挂载／mux 重连都会触发这次核对）。现在核实通过（尾页最后一条
+        //     边界是 turn/start）才亮，中间那一闪没有了。
+        for (const id of host) {
+          if (live.status.get(id) === true && fresh(id)) continue
+          confirmRunning(id, live)
+        }
+      },
+      () => { /* 非致命：保留 mux 镜像的判断 */ },
+    )
+  }, [confirmRunning])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -337,39 +487,11 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
   // Sentinel watched for automatic next-page loading (the "load more" button
   // stays as the manual fallback).
   const sentinelRef = useRef<HTMLDivElement | undefined>(undefined)
-  // In-list search (header morphs into the input) + preview lazy cache
-  // (module-level: summaries survive a chat round-trip).
-  const [searchActive, setSearchActive] = useState(false)
-  const [search, setSearch] = useState('')
-  /** Host full-roster search hits (sessions not yet in the loaded pages). */
-  const [searchHits, setSearchHits] = useState<SessionSearchHit[]>([])
-  const [searchBusy, setSearchBusy] = useState(false)
-  const [searchDone, setSearchDone] = useState(false)
-  /** How many full-roster hits live outside this workspace (folded away). */
-  const [searchForeign, setSearchForeign] = useState(0)
-  /** Result cap reached: more hits exist but are folded (refine the query). */
-  const [searchHasMore, setSearchHasMore] = useState(false)
-  /** The search hit currently locating its first matched message. */
-  /** This workspace's owned session ids (fresh roster), for scope narrowing. */
+  // 会话列表不再做页内搜索：搜索统一在「工作区首页」（跨工作区、带高亮与分组）。
+  /** 本工作区名下的会话 id（新花名册），用于把宿主结果收窄到本列表。 */
   const ownedRef = useRef<Set<string>>(new Set())
-  /** Once per mount: paging for a deep-link target beyond the first page. */
+  /** 每次挂载只补一次：深链接目标不在第一页时才往后翻。 */
   const deepTargetRef = useRef(false)
-  // Restore the in-list search surface once, when the app returns here from
-  // a chat that was opened out of this search.
-  const appliedInitialSearchRef = useRef(false)
-  useEffect(() => {
-    if (appliedInitialSearchRef.current) return
-    if (initialSearch !== undefined && initialSearch.open) {
-      appliedInitialSearchRef.current = true
-      setSearchActive(true)
-      setSearch(initialSearch.term)
-      onSearchApplied?.()
-    }
-  }, [initialSearch, onSearchApplied])
-  // Report the live in-list search surface so the app can restore it on return.
-  useEffect(() => {
-    onSearchSnapshot?.(searchActive, search)
-  }, [searchActive, search, onSearchSnapshot])
 
   /** Page forward (bounded) until the deep-link session appears, then open
    *  it. Best-effort: a target that never surfaces leaves the list usable. */
@@ -393,6 +515,8 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
   // tick state (or spin the tunnel) after the view left the screen.
   const aliveRef = useRef(true)
   useEffect(() => () => { aliveRef.current = false }, [])
+  /** 上一次向宿主核对运行状态的时间（这个核对自带 30 s 的宿主缓存）。 */
+  const runningResyncAtRef = useRef(0)
   /** Backoff gate after a failed next-page load (sentinel retry storm). */
   const retryBlockedAtRef = useRef(0)
   /** Long-press row menu (delete session) + its confirm dialog. */
@@ -483,11 +607,24 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
   useEffect(() => {
     if (mux === undefined) return
     return mux.onFrame((frame: MuxFrame) => {
+      // 新一条连接的基线帧：断线期间丢掉的 session/status 帧不会重放，列表就会
+      // 一直挂着「进行中」，而桌面端早就跑完了（真机就是这样卡住的）。基线一到
+      // 就用宿主的运行集合把已知行校正一遍。
+      if (frame.type === 'session/subscribed' && Date.now() - runningResyncAtRef.current > RUNNING_RESYNC_MS) {
+        runningResyncAtRef.current = Date.now()
+        resyncRunning()
+      }
       if (!applyListFrame(liveRef.current, frame, workspace)) return
       setRows(previous => applyLive(previous, liveRef.current))
     })
-  }, [mux, workspace])
+  }, [mux, workspace, resyncRunning])
 
+  // 首屏也校正一次：手机可能是在会话结束之后才打开列表的，它手里根本没有那条
+  // 结束帧，只能问宿主。
+  useEffect(() => {
+    runningResyncAtRef.current = Date.now()
+    resyncRunning()
+  }, [resyncRunning])
   // First page on mount (this workspace's sessions, paged). v3.2: when a
   // previous visit's rows are cached, they render IMMEDIATELY (no skeleton)
   // and the network refresh below re-validates in the background — returning
@@ -514,7 +651,9 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       }
     }
     if (cached !== undefined) {
-      setRows(applyLive(cached.rows, liveRef.current))
+      // 缓存里的绿点先剥掉：它是上次渲染时的结论，会话可能早就跑完了。
+      const aliveIds = muxRunningIds(mux)
+      setRows(applyLive(dropStaleRunning(cached.rows, aliveIds), liveRef.current))
       cursorRef.current = cached.cursor
       setHasMore(cached.hasMore)
       setError(undefined)
@@ -575,7 +714,17 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
           onPick(target)
           return
         }
-        setRows(applyLive(rows, liveRef.current))
+        // 这一页是宿主刚给的：它说谁在跑，就从现在开始给谁计时。这样即使那条
+        // 结束帧丢了、宿主核对又慢得等不到，绿点也会自己过期。
+        const seeded = seedPageRows(rows, liveRef.current)
+        const stampAt = Date.now()
+        for (const row of seeded) {
+          const sessionId = String(row.sessionId)
+          if (row.running === true && !liveRef.current.statusAt.has(sessionId)) {
+            liveRef.current.statusAt.set(sessionId, stampAt)
+          }
+        }
+        setRows(applyLive(seeded, liveRef.current))
         setCachedList(key, { rows, cursor: page.nextCursor, hasMore: page.hasMore })
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
@@ -608,6 +757,10 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       },
       (reason: unknown) => {
         if (cancelled) return
+        // 失败也要拆看门狗：它只负责把「永久锁死」降级成可重试。少了这一行，
+        // 12 秒后它照样开火，用「加载超时」把真正的错误（没配对、隧道断了）盖掉，
+        // 用户照着错误提示排查，方向从一开始就是错的。
+        clearTimeout(firstPageWatchdog)
         // With a cached roster the refresh failure stays silent (the old
         // rows remain); only a cold first load surfaces the error.
         if (cached === undefined) setError(errorText(reason))
@@ -818,7 +971,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
    * the delete action (right swipe / vertical scroll cancels it); tapping a
    * swiped-open row closes it instead of navigating.
    */
-  const rowHandlers = (row: SessionView, matchedHit: SessionSearchHit | undefined) => ({
+  const rowHandlers = (row: SessionView) => ({
     onTouchStart: (event: ReactTouchEvent) => {
       clearPressTimer()
       pressConsumedRef.current = undefined
@@ -862,8 +1015,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
         event.preventDefault()
         return
       }
-      if (matchedHit !== undefined) openSearchHit(matchedHit, row.title)
-      else onPick(row)
+      onPick(row)
     },
     onContextMenu: (event: ReactMouseEvent) => {
       event.preventDefault()
@@ -904,15 +1056,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
 
   // Date-grouped roster: 置顶 → 今天 → 昨天 → 更早, newest first inside each bucket.
   const groups = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    // The optimistic blank row (just created) participates: without it the
-    // fresh session is invisible in the list until a re-fetch, and the user
-    // cannot reopen it from the roster.
-    const hitIds = new Set(searchHits.map(hit => hit.sessionId))
-    const visible = rows.filter(row => {
-      if (term === '') return true
-      return row.title.toLowerCase().includes(term) || hitIds.has(row.sessionId)
-    })
+    const visible = rows
     const pinned = visible.filter(row => pinnedIds.has(row.sessionId))
     const rest = visible.filter(row => !pinnedIds.has(row.sessionId))
     const pinnedGroup = pinned.length > 0 ? [{ bucket: '置顶' as const, rows: pinned }] : []
@@ -921,137 +1065,31 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       .filter(group => group.rows.length > 0)
     return [...pinnedGroup, ...dayGroups]
     // previewTick: cached previews arrive async — recompute the filter when they land.
-  }, [rows, search, searchHits, previewTick, pinnedIds])
-
-  /** Host full-roster search: debounced, best-effort, narrowed to THIS
-   *  workspace's owned sessions (the list page searches what it shows; the
-   *  home search covers other workspaces). Hits outside the loaded pages
-   *  render as extra rows; a failure keeps the local filter. */
-  useEffect(() => {
-    const term = search.trim()
-    if (term === '') {
-      setSearchHits([])
-      setSearchForeign(0)
-      setSearchHasMore(false)
-      setSearchDone(false)
-      setSearchBusy(false)
-      return
-    }
-    setSearchBusy(true)
-    setSearchDone(false)
-    let cancelled = false
-    const timer = setTimeout(() => {
-      void searchAll(term).then(
-        (result) => {
-          if (cancelled) return
-          const owned = ownedRef.current
-          setSearchHits(result.items.filter(hit => owned.has(hit.sessionId)))
-          setSearchForeign(result.items.filter(hit => !owned.has(hit.sessionId)).length)
-          setSearchHasMore(result.hasMore)
-          setSearchDone(true)
-          setSearchBusy(false)
-        },
-        () => {
-          if (!cancelled) {
-            setSearchDone(true)
-            setSearchBusy(false)
-          }
-        },
-      )
-    }, 250)
-    return () => { cancelled = true; clearTimeout(timer) }
-  }, [search])
-
-  const exitSearch = (): void => {
-    setSearchActive(false)
-    setSearch('')
-  }
-
-  /** Open a search hit straight to its first matched message: lazy message
-   *  locate for the seq (cached), then open scrolled to it; a missed locate
-   *  degrades to a plain session open. A tap on another hit supersedes the
-   *  in-flight locate (the loser neither opens nor clears the indicator),
-   *  and a late result after the degrade path never double-fires. */
-  const openSearchHit = (hit: SessionSearchHit, title: string): void => {
-    const session: SessionView = {
-      sessionId: hit.sessionId,
-      title,
-      ...(hit.title === undefined ? { preview: hit.snippet } : {}),
-      updatedAt: 0,
-      running: false,
-      blank: false,
-    }
-    if (hit.kind === 'message' && hit.seq !== undefined) {
-      if (onPickSeq !== undefined) onPickSeq(session, hit.seq, search.trim(), hit.messageId, hit.partId)
-      else onPick(session)
-      return
-    }
-    // A message hit without a seq, or a TITLE hit (session name matched):
-    // resolve the first message containing the term so the tap still jumps
-    // to the relevant message instead of opening the session at the tail.
-    void searchMessages(hit.sessionId, search.trim()).then(
-      (result) => {
-        const first = result.items[0]
-        if (first !== undefined && onPickSeq !== undefined) onPickSeq(session, first.seq, search.trim(), first.messageId, first.partId)
-        else onPick(session)
-      },
-      () => { onPick(session) },
-    )
-  }
+  }, [rows, previewTick, pinnedIds])
 
   return (
     <div className="mobile">
       <header className="mobile-header">
         <div className="mobile-headerSlot">
-          {searchActive
-            ? (
-              <button type="button" className="mobile-back" aria-label="返回" onClick={exitSearch}>‹</button>
-            )
-            : (
-              <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
-            )}
+          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
         </div>
-        {searchActive ? (
-          <div className="mobile-headerSearch">
-            <input
-              type="search"
-              className="mobile-headerSearchInput"
-              placeholder="搜索当前工作区或全部会话…"
-              aria-label="搜索会话"
-              autoFocus
-              value={search}
-              onChange={(event) => { setSearch(event.target.value) }}
-            />
-          </div>
-        ) : (
-          <div className="mobile-titleWrap">
-            <h1 className="mobile-title mobile-titleInline">{workspace.title}</h1>
-            {/* Subordinate metadata: one mono line, ellipsized on overflow. */}
-            <p className="mobile-titlePath">{workspace.path}</p>
-          </div>
-        )}
+        <div className="mobile-titleWrap">
+          <h1 className="mobile-title mobile-titleInline">{workspace.title}</h1>
+          {/* Subordinate metadata: one mono line, ellipsized on overflow. */}
+          <p className="mobile-titlePath">{workspace.path}</p>
+        </div>
         <div className="mobile-headerSlot mobile-headerSlot-right">
-          {searchActive ? (
-            <button type="button" className="mobile-iconbtn" aria-label="取消搜索" onClick={exitSearch}>
-              <CloseIcon />
-            </button>
-          ) : (
-            <>
-              <button type="button" className="mobile-iconbtn" aria-label="搜索会话" onClick={() => { setSearchActive(true) }}>
-                <SearchIcon />
-              </button>
-              <button type="button" className="mobile-iconbtn" aria-label="设置" onClick={onOpenSettings}>
+          <button type="button" className="mobile-iconbtn" aria-label="设置" onClick={onOpenSettings}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
                   <circle cx="12" cy="12" r="3" />
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
                 </svg>
               </button>
-              <ThemeToggle />
-            </>
-          )}
+          <ThemeToggle />
         </div>
       </header>
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
+      <>
       <div className="mobile-create">
         {presets.length > 0 && (
           <div className="mobile-presetCard">
@@ -1059,7 +1097,8 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
               type="button"
               className="mobile-presetTrigger"
               aria-label="Agent 模式"
-              disabled={selectedPreset === undefined}
+              // 不再因为「当前没有选中项」而禁用：宿主返回的预设可能全是坏行，
+              // 那样用户点它毫无反应、也不知道为什么。打开面板就能看到每个模式的状态。
               onClick={() => { setPresetPickerOpen(true) }}
             >
               <span className="mobile-presetTriggerCopy">
@@ -1077,7 +1116,9 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
               type="button"
               className="mobile-presetHelp"
               aria-label="模式说明"
-              disabled={presetDescription === undefined}
+              // 不要因为「这个模式没写说明」就 disabled：禁用按钮按下没有任何反馈，
+              // 真机上就是「点问号没反应」（2026-10-29 反馈）。没说明时面板里
+              // 给通用解释，总比一个点不动的图标强。
               onClick={() => { setPresetHelpOpen(true) }}
             >
               <HelpIcon />
@@ -1099,6 +1140,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
           {createHint !== undefined && <span className="mobile-hint">{createHint}</span>}
         </p>
       )}
+      </>
       <ul className="mobile-list">
         {loading && rows.length === 0 && (
           <div aria-hidden="true" role="presentation">
@@ -1125,7 +1167,6 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
             <li key={group.bucket} style={{ listStyle: 'none' }}>
               <div className="mobile-groupTitle">{group.bucket}</div>
               {group.rows.map(row => {
-                const matchedHit = searchHits.find(hit => hit.sessionId === row.sessionId && (hit.kind === 'message' || hit.kind === 'title'))
                 const preview = row.preview ?? sessionPreviewCache.get(row.sessionId)
                   ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)
                 // content-visibility: skip layout/paint for rows far above the
@@ -1147,7 +1188,7 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
                       删除
                     </button>
                     <div className={'mobile-row-swipe-inner' + (swiped ? ' swiped' : '')}>
-                      <button type="button" className="mobile-row mobile-row-sess" {...rowHandlers(row, matchedHit)}>
+                      <button type="button" className="mobile-row mobile-row-sess" {...rowHandlers(row)}>
                         <span className="card-icon">
                           {row.running ? (
                             <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
@@ -1178,60 +1219,6 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
             </li>
           )
         })})()}
-        {!loading && searchBusy && (
-          <li style={{ listStyle: 'none' }}>
-            <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
-          </li>
-        )}
-        {!loading && search.trim() !== '' && !searchBusy && searchHits.some(hit => !rows.some(row => row.sessionId === hit.sessionId)) && (
-          <li style={{ listStyle: 'none' }}>
-            <div className="mobile-groupTitle">搜索结果（未加载的会话）</div>
-            {searchHits.filter(hit => !rows.some(row => row.sessionId === hit.sessionId)).map(hit => {
-              const title = (hit.title ?? hit.snippet.trim().slice(0, 24)) || '匹配会话'
-              return (
-                <li key={`${hit.kind}:${hit.sessionId}`} style={{ listStyle: 'none' }}>
-                  <button
-                    type="button"
-                    className="mobile-row mobile-row-sess"
-                    onClick={() => { void openSearchHit(hit, title) }}
-                  >
-                    <span className="card-icon">
-                      <span className="sess-check" aria-hidden><CheckIcon /></span>
-                    </span>
-                    <span className="card-main">
-                      <span className="sess-titleline">
-                        <span className="sess-title">{title}</span>
-                        <span className="sess-sep" aria-hidden>·</span>
-                        <span className="sess-time">命中内容</span>
-                      </span>
-                      <span className="card-desc">{hit.snippet}</span>
-                    </span>
-                    <span className="card-action">
-                      <span className="mobile-chevron" aria-hidden>›</span>
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </li>
-        )}
-        {!loading && search.trim() !== '' && !searchBusy && searchForeign > 0 && (
-          <li style={{ listStyle: 'none' }}>
-            <p className="search-hitsNote mobile-pad">另有 {searchForeign} 个其他工作区的命中未在此显示，首页搜索可查全部</p>
-          </li>
-        )}
-        {!loading && search.trim() !== '' && !searchBusy && searchHasMore && (
-          <li style={{ listStyle: 'none' }}>
-            <p className="search-hitsNote mobile-pad">结果较多，仅显示前若干条——请细化关键词</p>
-          </li>
-        )}
-        {!loading && search.trim() !== '' && !searchBusy && searchDone && groups.length === 0 && searchHits.length === 0 && (
-          <div className="mobile-empty">
-            <div className="empty-icon"><SearchIcon /></div>
-            <p className="empty-title">未找到匹配会话</p>
-            <p className="empty-desc">已搜索全部会话的标题与内容</p>
-          </div>
-        )}
         {hasMore && (
           <li style={{ listStyle: 'none' }}>
             <div className="mobile-pad">
@@ -1279,6 +1266,9 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
                   {preset.description !== undefined && (
                     <span className="sheet-option-desc">{preset.description}</span>
                   )}
+                  {preset.broken !== undefined && (
+                    <span className="sheet-option-desc">不可用：{preset.broken}</span>
+                  )}
                 </span>
                 {preset.id === selectedPreset && (
                   <span className="sheet-option-check" aria-hidden><CheckIcon /></span>
@@ -1291,8 +1281,17 @@ export function SessionListView({ workspace, mux, initialSessionId, initialSearc
       {presetHelpOpen && (
         <Sheet title="Agent 模式说明" onClose={() => { setPresetHelpOpen(false) }}>
           <p className="sheet-confirm-desc">
-            {selectedPresetEntry?.name ?? selectedPreset}
-            {presetDescription !== undefined ? '：' + presetDescription : ''}
+            {selectedPresetEntry?.name ?? selectedPreset ?? '当前模式'}
+            {presetDescription !== undefined && presetDescription !== '' ? '：' + presetDescription : ''}
+          </p>
+          {presetDescription === undefined || presetDescription === '' ? (
+            <p className="sheet-confirm-desc">
+              这个模式没有写说明。它决定新会话的系统提示词与可用工具集；点上方那一行可以切换，
+              选好后再点「新建会话」——改动只影响之后新建的会话，已存在的会话不受影响。
+            </p>
+          ) : null}
+          <p className="sheet-confirm-desc">
+            模式对本工作区生效：切换后新建的会话才用新模式，已有会话保持原样。
           </p>
         </Sheet>
       )}

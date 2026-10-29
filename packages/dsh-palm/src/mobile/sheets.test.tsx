@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { QuestionPanel } from './sheets.tsx'
+import { isPathInsideRoot, QuestionPanel } from './sheets.tsx'
 import { respondQuestion } from './api.ts'
 import type { PendingQuestionItem } from './api.ts'
 
@@ -44,6 +44,39 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+import { parsePermissionSelect } from './sheets.tsx'
+
+describe('parsePermissionSelect (slim permission projection)', () => {
+  // 会话枚举的权限投影只带当前档位，读会话的完整投影才带候选。快路径拿的是前者；
+  // 曾经因为"没有候选"就判成无权限，整个权限按钮消失（真机复现）。
+  it('keeps the picker alive when the projection carries no option list', () => {
+    const parsed = parsePermissionSelect({ currentValue: 'workspace-write' })
+    expect(parsed).toBeDefined()
+    expect(parsed?.currentValue).toBe('workspace-write')
+    expect(parsed?.options.map(option => option.value)).toEqual([
+      'read-only', 'workspace-write', 'danger-full-access',
+    ])
+  })
+
+  it('keeps an unknown deployment mode selectable instead of dropping it', () => {
+    const parsed = parsePermissionSelect({ currentValue: 'sandboxed' })
+    expect(parsed?.options.some(option => option.value === 'sandboxed')).toBe(true)
+    expect(parsed?.currentValue).toBe('sandboxed')
+  })
+
+  it('still prefers the host option list when one is present', () => {
+    const parsed = parsePermissionSelect({
+      currentValue: 'read-only',
+      options: [{ value: 'read-only', name: '只读' }, { value: 'plan', name: '计划' }],
+    })
+    expect(parsed?.options.map(option => option.name)).toEqual(['只读', '计划'])
+  })
+
+  it('returns undefined when the projection says nothing at all', () => {
+    expect(parsePermissionSelect(undefined)).toBeUndefined()
+    expect(parsePermissionSelect({})).toBeUndefined()
+  })
+})
 describe('QuestionPanel selection stability', () => {
   it('keeps the selected option when the same batch arrives as a fresh array', () => {
     const { rerender } = render(
@@ -130,5 +163,24 @@ describe('QuestionPanel batch identity', () => {
 
     expect(screen.getByText('第一个问题？')).toBeTruthy()
     expect(screen.getByText('第二个问题？')).toBeTruthy()
+  })
+})
+
+describe('isPathInsideRoot：越界判断', () => {
+  it('同盘同目录是「在内」', () => {
+    expect(isPathInsideRoot('D:\\work\\sub', 'D:\\work')).toBe(true)
+    expect(isPathInsideRoot('D:\\work', 'D:\\work')).toBe(true)
+    // 分隔符与大小写都宽容
+    expect(isPathInsideRoot('d:/work/sub', 'D:\\work')).toBe(true)
+  })
+
+  it('只是前缀相同不算在内（work2 ≠ work）', () => {
+    expect(isPathInsideRoot('D:\\work2', 'D:\\work')).toBe(false)
+    expect(isPathInsideRoot('C:\\Windows', 'D:\\work')).toBe(false)
+    expect(isPathInsideRoot('D:\\work\\..\\other', 'D:\\work')).toBe(false)
+  })
+
+  it('没给根目录时一律放行（老行为）', () => {
+    expect(isPathInsideRoot('C:\\', undefined)).toBe(true)
   })
 })

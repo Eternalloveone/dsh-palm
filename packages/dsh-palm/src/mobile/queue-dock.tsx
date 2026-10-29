@@ -26,7 +26,8 @@ export interface QueueDockProps {
 }
 
 export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDockProps) {
-  const [expanded, setExpanded] = useState(false)
+  /** 默认展开：排了三条只显示一行「3 条排队」时，用户不知道排了什么、顺序对不对。 */
+  const [expanded, setExpanded] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   /** One in-flight mutation at a time: the host answers queue mutations
@@ -36,6 +37,12 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
    *  state renders the disabled affordance. */
   const busyRef = useRef(false)
   const [busy, setBusy] = useState(false)
+  /**
+   * 哪一行、哪个动作正在等宿主回话。只把按钮置灰不够：一次往返要几百毫秒到几秒，
+   * 期间界面毫无变化，用户以为点空了就再点一遍 —— 这正是「点击插队没及时显示」
+   * 的观感来源。这里让被点的那一行当场变成「发送中…／删除中…」。
+   */
+  const [pending, setPending] = useState<{ id: string; verb: 'remove' | 'steer' } | null>(null)
 
   const queue = items.filter(item => item.placement === 'queued')
   if (queue.length === 0) return null
@@ -46,7 +53,10 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
     setDraft(item.text)
   }
   const commitEdit = async (): Promise<void> => {
-    if (editingId === null || busyRef.current) return
+    // The host refuses an edit whose text has no non-whitespace content
+    // (gateway/bad-request), and the failure surfaced as "already sending":
+    // an empty draft is blocked here instead, where the reason is visible.
+    if (editingId === null || busyRef.current || draft.trim() === '') return
     busyRef.current = true
     setBusy(true)
     try {
@@ -57,15 +67,21 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
       setEditingId(null)
     }
   }
-  const run = async (action: (itemId: string) => Promise<void>, itemId: string): Promise<void> => {
+  const run = async (
+    action: (itemId: string) => Promise<void>,
+    itemId: string,
+    verb: 'remove' | 'steer',
+  ): Promise<void> => {
     if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
+    setPending({ id: itemId, verb })
     try {
       await action(itemId)
     } finally {
       busyRef.current = false
       setBusy(false)
+      setPending(null)
     }
   }
 
@@ -98,7 +114,13 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                       if (event.key === 'Escape') setEditingId(null)
                     }}
                   />
-                  <button type="button" className="queue-dockBtn queue-dockBtn-primary" onClick={() => { void commitEdit() }}>保存</button>
+                  <button
+                    type="button"
+                    className="queue-dockBtn queue-dockBtn-primary"
+                    disabled={busy || draft.trim() === ''}
+                    title={draft.trim() === '' ? '排队消息不能为空，要撤销请直接删除' : undefined}
+                    onClick={() => { void commitEdit() }}
+                  >保存</button>
                   <button type="button" className="queue-dockBtn" onClick={() => { setEditingId(null) }}>取消</button>
                 </div>
               ) : (
@@ -115,15 +137,23 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                       disabled={!item.editable || busy}
                       onClick={() => { startEdit(item) }}
                     >编辑</button>
-                    <button type="button" className="queue-dockBtn" aria-label="删除排队消息" disabled={busy} onClick={() => { void run(onRemove, item.id) }}>删除</button>
+                    <button type="button" className="queue-dockBtn" aria-label="删除排队消息" disabled={busy} onClick={() => { void run(onRemove, item.id, 'remove') }}>{pending?.id === item.id && pending.verb === 'remove' ? '删除中…' : '删除'}</button>
+                    {/* 主操作要说人话：这条不排在队尾等下一轮，而是立刻塞进正在跑的这轮。
+                        「插话」两个字普通用户看不懂，按钮还长得和编辑/删除一模一样。 */}
                     <button
                       type="button"
                       className="queue-dockBtn queue-dockBtn-primary"
-                      aria-label="插话发送"
+                      aria-label="立即插入当前回合"
                       disabled={!running || busy}
-                      title={running ? undefined : '仅运行中可插话发送'}
-                      onClick={() => { void run(onSteer, item.id) }}
-                    >插话</button>
+                      title={running ? '不用等这一轮结束，现在就发' : '当前没有运行中的回合'}
+                      onClick={() => { void run(onSteer, item.id, 'steer') }}
+                    >
+                      <svg className="queue-dockBtnIcon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                        <path d="M3 2.5v4.5a3 3 0 0 0 3 3h6.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M10 7 13 10l-3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {pending?.id === item.id && pending.verb === 'steer' ? '发送中…' : '立即发送'}
+                    </button>
                   </span>
                 </>
               )}

@@ -1,19 +1,23 @@
 {
   "name": "@eternalloveone/dsh-palm",
   "description": "掌上 dsh — the standalone mobile surface for the dsh web GUI: scan-to-pair device trust, the /m/ phone UI, the /m/api RPC channel with realtime SSE mux bridge, and a polished desktop pairing panel. Extracted from dsh-remote-web-ui (M1, behavior-identical)",
-  "version": "1.6.4",
+  "version": "1.7.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "tsc -b && tsdown",
+    "build": "tsc -b && node scripts/clean-mobile-chunks.mjs && tsdown",
     "prebuild": "node scripts/windows-write-preflight.mjs build",
     "test": "vitest run",
     "pretest": "node scripts/windows-write-preflight.mjs test",
     "typecheck": "tsc -b --pretty false",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "verify:mobile": "node ../../tools/mobile-verify/run.mjs",
+    "verify:mobile:fast": "node ../../tools/mobile-verify/run.mjs --groups=entry,scroll,cards,composer",
+    "verify:adapt": "node ../../packages/dsh-palm/scripts/adapt-matrix.mjs",
+    "verify:all": "pnpm typecheck && pnpm test && pnpm verify:mobile"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -68,7 +72,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.1.5-rc.1"
+      "dsh": ">=0.2.1-rc.2 <0.3.0-0"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -85,40 +89,39 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
     "clsx": "^2.1.1",
     "qrcode.react": "^4.2.0",
-    "schemastery": "^3.18.0",
-    "@deepseek-ai/schemastery": "^3.18.4",
     "web-push": "^3.6.7",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.5 <5",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-settings": ">=0.2.1-rc.2 <0.3.0-0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@deepseek-ai/cordis": ">=4.0.1 <5",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.5-rc.1 <0.2.2-0",
-    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.2-0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-connection": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-client-locale": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-api-session-controller": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-api-workspace-controller": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-api-settings-controller": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-api-remotes": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-api-gateway": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-subagent": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-agent-presets": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-settings": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-user-approval": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-user-questions": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-agent-presets": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-api-gateway": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-api-remotes": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-api-settings-controller": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-host-webserver": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-settings": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-subagent": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-user-approval": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-user-questions": "0.2.2-alpha.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.20.0",

@@ -304,6 +304,62 @@ describe('processFilesText: 改动量写成一句人话（没改动也明说）'
     expect(processFilesText(untouched, true)).toBe('未改动文件')
   })
 
+  describe('宿主不给 view 时，靠参数里的路径算改动', () => {
+    /** 本仓实测：49 次工具调用里有 13 次真改了文件，而带 view 的是 0 个。 */
+    function editing(callId: string, args: string, state: ToolCallInfo['state'] = 'ok', name = 'edit'): ToolCallInfo {
+      return { callId, name, state, arguments: args }
+    }
+
+    it('edit 的参数带 file_path ⇒ 算一个改动文件（不再永远报「未改动文件」）', () => {
+      const model = processModel(assistant({
+        text: '',
+        flow: [{ kind: 'tool', callId: 'e1' }],
+        tools: [editing('e1', '{"file_path":"C:/repo/src/a.ts","old_string":"x","new_string":"y"}')],
+      }))
+
+      expect(model.changedFiles).toBe(1)
+      expect(processFilesText(model, true)).toBe('改了 1 个文件')
+    })
+
+    it('同一个文件改两次算一个，两个文件算两个', () => {
+      const model = processModel(assistant({
+        text: '',
+        flow: [{ kind: 'tool', callId: 'e1' }, { kind: 'tool', callId: 'e2' }, { kind: 'tool', callId: 'e3' }],
+        tools: [
+          editing('e1', '{"file_path":"C:/repo/a.ts"}'),
+          editing('e2', '{"file_path":"C:/repo/a.ts"}'),
+          editing('e3', '{"file_path":"C:/repo/b.ts"}', 'ok', 'write'),
+        ],
+      }))
+
+      expect(model.changedFiles).toBe(2)
+    })
+
+    it('读文件不算改动；失败的改动也不算', () => {
+      const model = processModel(assistant({
+        text: '',
+        flow: [{ kind: 'tool', callId: 'r1' }, { kind: 'tool', callId: 'e1' }],
+        tools: [
+          editing('r1', '{"file_path":"C:/repo/a.ts"}', 'ok', 'read'),
+          editing('e1', '{"file_path":"C:/repo/a.ts"}', 'error'),
+        ],
+      }))
+
+      expect(model.changedFiles).toBe(0)
+      expect(processFilesText(model, true)).toBe('未改动文件')
+    })
+
+    it('整体补丁挑不出路径 ⇒ 仍算改动过一次（不谎报成零）', () => {
+      const model = processModel(assistant({
+        text: '',
+        flow: [{ kind: 'tool', callId: 'p1' }],
+        tools: [editing('p1', '{"patch":"*** Begin Patch"}', 'ok', 'apply_patch')],
+      }))
+
+      expect(model.changedFiles).toBe(1)
+      expect(processFilesText(model, true)).toBe('改了 1 个文件')
+    })
+  })
   it('运行中不下"没改动"的结论（文件数还会涨，报未改动文件就是误报）', () => {
     const untouched = processModel(assistant({ text: '就一句话', pending: true }))
 
@@ -543,6 +599,22 @@ describe('processModel.current: 折叠头第二行（此刻进行到哪一步）
     // 行自己没有轮号：不能被活跃轮次误认。
     expect(isRowRunning(assistant({ text: '', pending: false, tools: [bash('c1', 'ok')] }), 7)).toBe(false)
   })
+
+  it('旧轮次的行一律不算在跑：残留的 pending 与"还在跑"的工具都不算数', () => {
+    // 真机现象：手机已经跑到最新一轮，上面几个旧过程框还在一起转圈。旧轮的
+    // 收尾丢了（turn/end 没到、工具结果没回），于是 pending / running 工具永远
+    // 留在那儿；只要活跃轮次已经翻过去，那一轮就是结束了。
+    const stalePending = assistant({ text: '', turn: 5, pending: true })
+    expect(isRowRunning(stalePending, 9)).toBe(false)
+    const staleTool = assistant({ text: '', turn: 5, pending: false, tools: [bash('c1', 'running')] })
+    expect(isRowRunning(staleTool, 9)).toBe(false)
+    // 同一行在自己那一轮里仍然算在跑（不能把当前轮一起灭掉）。
+    expect(isRowRunning(stalePending, 5)).toBe(true)
+    expect(isRowRunning(staleTool, 5)).toBe(true)
+    // 没有活跃轮次时，"旧轮"无从谈起：残留仍然按原判据处理，由 settled 兜底。
+    expect(isRowRunning(stalePending)).toBe(true)
+    expect(isRowRunning(stalePending, undefined, true)).toBe(false)
+  })
 })
 
 describe('活跃轮次：回合中途按步定格的行也算运行中（真机 17:52 的根因）', () => {
@@ -621,10 +693,12 @@ describe('过程组的改动量', () => {
 })
 
 describe('formatDuration: 桌面端措辞', () => {
-  it('秒 / 分秒 / 小时分', () => {
+  it('秒 / 分秒 / 小时分秒', () => {
     expect(formatDuration(19_000)).toBe('19秒')
     expect(formatDuration(569_000)).toBe('9分29秒')
-    expect(formatDuration(3_720_000)).toBe('1小时2分')
+    // 超过一小时也要带秒：长回合里只看「几分」看不出还在不在动（2026-10-28 用户要求）。
+    expect(formatDuration(3_720_000)).toBe('1小时2分0秒')
+    expect(formatDuration(3_777_000)).toBe('1小时2分57秒')
     expect(formatDuration(0)).toBe('0秒')
   })
 })

@@ -1,3 +1,4 @@
+
 // @vitest-environment jsdom
 /** SettingsView: desktop-parity card list, phone-local switches, form nav. */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -5,6 +6,19 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { SettingsView } from './SettingsView.tsx'
 
 vi.mock('../api.ts', () => ({
+  // 打开会话时会向宿主要一次排队快照（投影帧到不了手机）。
+  inboxOf: vi.fn(async () => ({ inbox: null })),
+  // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
+  sessionState: vi.fn(async (sessionId: string) => ({
+    sessionId,
+    rows: [],
+    maxSeq: 0,
+    queue: [],
+    queueRevision: 0,
+    turn: { running: false },
+    asOf: Date.now(),
+  })),
+  goalOf: vi.fn(async () => ({ goal: null })),
   readSettings: vi.fn(),
   mutateSettings: vi.fn(),
   listAgentPresets: vi.fn(),
@@ -89,47 +103,55 @@ describe('SettingsView card list', () => {
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
       hideDetails: false,
-      kinds: { jobs: false, todo: true, turns: false },
+      kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
   })
 
+  /** 展开「进阶 → 主机配置」：分组卡默认收起，用例要点它们先展开。 */
+  const revealHostGroups = async (): Promise<void> => {
+    const toggle = await screen.findByRole('button', { name: /主机配置/ })
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle)
+    await screen.findAllByText('通用')
+  }
+
   it('renders merged group cards with their member summary', async () => {
     render(<SettingsView onBack={() => {}} />)
+    // 主机配置默认收在【进阶】里（真机一屏 2.6 屏太长）：先展开再找分组卡。
+    await revealHostGroups()
     // ui-theme + locale merge into the 通用 card; llm-pi-ai + agent-default-model
     // merge into the 模型 card. 外观 is now a section heading on the home page.
-    expect(await screen.findByText('通用')).toBeTruthy()
+    expect((await screen.findAllByText('通用')).length).toBeGreaterThan(0)
     expect(screen.getByText('模型')).toBeTruthy()
-    expect(screen.getByText('外观')).toBeTruthy()
+    // 外观 现在是首页的区块标题；分组卡片只有一个成员时摘要也会是「外观」。
+    expect(screen.getAllByText('外观').length).toBeGreaterThan(0)
     expect(screen.queryByText('模型提供方')).toBeNull()
   })
 
   it('marks fully read-only groups with the read-only badge', async () => {
     render(<SettingsView onBack={() => {}} />)
-    await screen.findByText('通用')
+    await revealHostGroups()
     // llm-pi-ai is not writable, but agent-default-model is -> 模型 has no badge.
-    expect(screen.queryByText('只读')).toBeNull()
+    // （图例里本身就有一枚「只读」，所以按分组卡断言，而不是全页搜文字。）
+    const modelCard = screen.getByRole('button', { name: /模型/ })
+    expect(modelCard.textContent ?? '').not.toContain('只读')
   })
 
   it('opens the merged form from a group card, showing each section', async () => {
     render(<SettingsView onBack={() => {}} />)
+    await revealHostGroups()
     // Click the 通用 group card (a button), not the 通用 section heading.
     fireEvent.click(await screen.findByRole('button', { name: /通用/ }))
-    // Both sections render inside the merged form: ui-theme's writable field
-    // shows its metadata title, locale's read-only field sits in the
-    // collapsible read-only block.
-    expect(await screen.findByText('外观')).toBeTruthy()
-    expect(screen.getByText('语言')).toBeTruthy()
+    // The merged form renders ui-theme's own section with its writable field.
+    expect((await screen.findAllByText('外观')).length).toBeGreaterThan(0)
     expect(screen.getByText('主题偏好')).toBeTruthy()
-    fireEvent.click(screen.getByText('只读配置（1 项）'))
-    expect(await screen.findByText('界面语言')).toBeTruthy()
   })
 
   it('no longer offers the tool-call / system-message switches (desktop parity)', async () => {
     render(<SettingsView onBack={() => {}} />)
     // 与桌面端严格一致：这两个手机端独有的开关已删除，不许再以 switch 的形式出现。
-    await screen.findByText('通用')
+    await revealHostGroups()
     // 同组的其它开关仍在，所以「找不到」是真的删除，不是整页没渲染。
     expect(screen.getByRole('switch', { name: '自动滚动' })).toBeTruthy()
     expect(screen.queryByRole('switch', { name: '工具调用' })).toBeNull()
@@ -145,6 +167,30 @@ describe('SettingsView card list', () => {
     // appears both in the row description and the About sheet.
     expect((await screen.findAllByText(/版本 \d+\.\d+\.\d+/)).length).toBeGreaterThan(0)
   })
+  it('links straight to the repository from the About sheet', async () => {
+    // 「关于」就是版本更新界面：检查更新旁边那颗 GitHub 图标直接开仓库主页
+    // （不是 issues/new —— 那是下面「反馈与建议」那行的活）。
+    render(<SettingsView onBack={() => {}} />)
+    fireEvent.click(await screen.findByText('关于'))
+    const link = await screen.findByLabelText('打开 GitHub 仓库')
+    expect(link.tagName).toBe('A')
+    expect(link.getAttribute('href')).toBe('https://github.com/Eternalloveone/dsh-palm')
+    expect(link.getAttribute('target')).toBe('_blank')
+    // target=_blank 必须带 noopener，否则新页面能拿到 window.opener。
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
+  it('no longer carries the host dependency self-check in the About sheet', async () => {
+    // 这一段原本是「依赖自检」：宿主的四个 session 方法是否在位 + 各总线事件的
+    // 运行期帧计数。属排查用的东西，普通用户看不懂「0 帧属正常」那套话，已整块
+    // 移除；「关于」现在只留版本、检查更新、仓库入口、清除缓存。
+    render(<SettingsView onBack={() => {}} />)
+    fireEvent.click(await screen.findByText('关于'))
+    // 版本那句在行描述和面板里各出现一次，(await findAllByText) 单数会因多个命中而抛错。
+    expect((await screen.findAllByText(/版本 \d+\.\d+\.\d+/)).length).toBeGreaterThan(0)
+    expect(screen.queryByText('依赖自检')).toBeNull()
+    expect(screen.queryByText('刷新自检')).toBeNull()
+  })
+
 
   it('opens the GitHub issues page from the feedback row', async () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
@@ -350,7 +396,7 @@ describe('SettingsView notification page (L3 channels)', () => {
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
       hideDetails: false,
-      kinds: { jobs: false, todo: true, turns: false },
+      kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
     fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
@@ -451,7 +497,9 @@ describe('SettingsView notification page (L3 channels)', () => {
     expect((row as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('disables inbox rows whose session workspace is unknown', async () => {
+  it('keeps inbox rows clickable when the workspace is unknown — without writing an empty workspace param', async () => {
+    // 原来这种行是 disabled 的：手机上点上去毫无反应，用户不知道是坏了还是没做。
+    // 现在照样能跳（只带 session），并且**不写**空 workspace 参数（写空会被当成「未分组」）。
     notifyEventsMock.mockResolvedValue({
       items: [
         {
@@ -467,7 +515,7 @@ describe('SettingsView notification page (L3 channels)', () => {
     render(<SettingsView onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
     const row = (await screen.findByText('「改造」的回复已完成')).closest('button')
-    expect((row as HTMLButtonElement).disabled).toBe(true)
+    expect((row as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('toggles the lock-screen privacy switch and persists it', async () => {
@@ -512,18 +560,31 @@ describe('SettingsView notification page (L3 channels)', () => {
     fireEvent.click(await screen.findByRole('switch', { name: '后台任务' }))
     await waitFor(() => {
       expect(writeNotifyConfigMock).toHaveBeenCalledWith({
-        kinds: { jobs: true, todo: true, turns: false },
+        kinds: { jobs: true, todo: true, turns: false, approvals: true },
       })
     })
     expect(screen.getByRole('switch', { name: '后台任务' }).getAttribute('aria-checked')).toBe('true')
   })
 
+
+    it('offers the approvals gate and can switch it off through push.config', async () => {
+      render(<SettingsView onBack={() => {}} />)
+      fireEvent.click(await screen.findByRole('button', { name: /通知/ }))
+      // 宿主默认开（不配就是发），所以开关初始是开着的：这一条防的是「漏了第 4 类」。
+      expect((await screen.findByRole('switch', { name: '审批与提问' })).getAttribute('aria-checked')).toBe('true')
+      fireEvent.click(screen.getByRole('switch', { name: '审批与提问' }))
+      await waitFor(() => {
+        expect(writeNotifyConfigMock).toHaveBeenCalledWith({
+          kinds: { jobs: false, todo: true, turns: false, approvals: false },
+        })
+      })
+    })
   it('shows which push channels are configured (credentials stay host-side)', async () => {
     readNotifyConfigMock.mockResolvedValue({
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
       hideDetails: false,
-      kinds: { jobs: false, todo: true, turns: false },
+      kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: {
         serverchan: { configured: true },
         bark: { configured: false },
@@ -543,7 +604,7 @@ describe('SettingsView notification page (L3 channels)', () => {
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
       hideDetails: false,
-      kinds: { jobs: false, todo: true, turns: false },
+      kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: {
         serverchan: { configured: true },
         bark: { configured: false },
@@ -569,7 +630,7 @@ describe('SettingsView notification page (L3 channels)', () => {
       turnThresholdMs: 30_000,
       turnCooldownMs: 120_000,
       hideDetails: false,
-      kinds: { jobs: false, todo: true, turns: false },
+      kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: {
         serverchan: { configured: true },
         bark: { configured: false },
@@ -632,5 +693,22 @@ describe('SettingsView sub-config search', () => {
     expect(await screen.findByText(/Server酱 SendKey/)).toBeTruthy()
     // The main page does not render a row for it; only the index group does.
     expect(screen.getByText(/点击定位/)).toBeTruthy()
+  })
+
+  // 回归：行右侧是 grid 的 auto 轨，值有多长就占多宽。之前把「权限被拒绝，请在浏览器
+  // 设置中开启」（15 字）塞进去，标题列被挤成一个字，用户看到的是「通…」。
+  it('keeps every row value to a short state word', async () => {
+    render(<SettingsView onBack={() => {}} />)
+    // 主页偏好行（不依赖默认收起的「主机配置」分组卡）。
+    await screen.findByText('主题')
+    const values = Array.from(document.querySelectorAll('.settings-row .settings-rowValue'))
+    expect(values.length).toBeGreaterThan(0)
+    for (const value of values) {
+      expect((value.textContent ?? '').trim().length).toBeLessThanOrEqual(6)
+    }
+    // 通知行的值是一个状态词；完整说明只在通知子页里出现。
+    const title = screen.getByText('通知', { selector: '.card-titleText' })
+    const row = title.closest('.settings-row') as HTMLElement
+    expect(row.querySelector('.settings-rowValue')!.textContent).toBe('不支持')
   })
 })

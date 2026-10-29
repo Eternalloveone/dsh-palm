@@ -34,39 +34,34 @@ interface SchemaEnvelope {
 /** Namespace display titles (desktop settings card names). */
 const NS_TITLES: Record<string, string> = {
   'ui-theme': '外观',
-  locale: '语言',
   'ui-conversation': '对话',
-  'agent-presets': 'Agent 预设',
-  'subagent-model': '子代理模型',
+  'ui-chat': '对话显示',
   'agent-default-model': '默认模型',
-  'at-file': '@文件',
   'agent-loop': 'Agent 循环',
-  'dsh-market': '插件市场',
-  'dsh-better-sidebar': '侧边栏',
+  'agent-preset-registry': 'Agent 预设',
+  'subagent-model-selection-settings': '子代理模型',
+  subagent: '子代理',
   'llm-deepseek': 'DeepSeek 模型',
   'llm-pi-ai': '模型提供方',
-  'free-search': '搜索',
-  'tool-see-image': '看图工具',
+  'web-search-free': '免费搜索',
   'web-search-deepseek': '联网搜索',
-  shell: 'Shell',
   permission: '权限',
+  'pwsh-sandbox': '命令沙箱',
   'dsh-palm': '远程访问',
   mnemon: '记忆',
-  'mnemon-ui': '记忆界面',
-  'ui-onboarding': '引导',
+  'better-sidebar': '侧边栏',
 }
 
 /** Client mirror of the server whitelist (drives read-only rendering). */
 const WRITABLE_FIELDS: Record<string, readonly string[]> = {
   'ui-theme': ['preference'],
   'ui-conversation': ['busyEnter'],
-  'agent-presets': ['default'],
-  'subagent-model': ['model', 'provider'],
+  'subagent-model-selection-settings': ['enabled', 'allowedModels'],
   'agent-default-model': ['model', 'provider', 'reasoningEffort'],
-  'at-file': ['enabled'],
   'agent-loop': ['maxParallelToolCalls'],
-  'dsh-market': ['allowRestart'],
-  'dsh-better-sidebar': ['*'],
+  'better-sidebar': ['*'],
+  // 手机自己的配置：回车即发送、离线判定、设备上限、登录有效期。
+  'dsh-palm': ['mobileEnterToSend', 'offlineAfterMs', 'maxDevices', 'tokenTtlMs'],
 }
 
 /** Whether a field of a namespace is writable from the phone. */

@@ -66,7 +66,7 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 - **Global search with message-level locate** — search the workspace and every session from the home page, or the current workspace from the session list; hits group by workspace with real session titles, and tapping one opens the chat and scrolls to the matched message with a one-shot highlight. Chinese short words are covered by a bounded substring backfill (SQLite FTS tokenizes contiguous CJK as one token)
 - **Turn navigation for long sessions** — a floating handle in the bottom-right reads 当前 / 总轮 once you scroll away from the newest message: tap it for the turn list (each turn with its prompt and reply preview; unloaded turns are paged in first), or press and drag it sideways to scrub, releasing on the turn you want. The list spans the whole session — a 172-turn session still reaches turn 1
 - **Pending-message queue dock** — messages sent while a turn is running enter the host queue and show as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header, each editable (plain text), removable, or steered in as an interrupt; the dock mirrors the host snapshot and clears on session stop
-- **Global run overview** — a full-screen view of everything the host is doing right now: running sessions and live background jobs across every workspace, grouped into 正在运行 / 最近结束; the home page's quick chip shows a live badge and opens the overview, and tapping a card opens that session
+- **Global run overview** — a full-screen view of everything the host is doing right now: running sessions across every workspace, each card naming the current action, the step and the elapsed time (`运行命令 pnpm test · 第 7 步 · 已跑 12分04秒`) plus workspace and last-activity, with background jobs folded to one line; the home page's quick chip shows a live badge, and tapping a card opens that session. Sessions that finish move to 「刚结束」with outcome, duration and a one-line summary instead of disappearing, and a tappable capsule announces a finished turn on any page
 - **In-chat file & image preview** — file-path links in messages (bare or backtick-wrapped) open a bottom sheet: markdown renders formatted, HTML renders in a sandboxed iframe, code highlights, images display inline; message `<img>`s open a full-screen lightbox with double-tap zoom
 - **Clean streaming output** — windowed prefix rendering keeps long replies smooth; collapsible reasoning blocks fold in-body thinking into a disclosure
 
@@ -90,15 +90,20 @@ More screenshots (workspace, sessions, image attach, settings, task sheet, pairi
 
 - **Approval & question panels** — tool approvals stream in realtime and resolve in place; answers are bound to the owning device session (no cross-device stealing)
 - **Command cards** — slash-command discovery and execution with running / success / error lifecycle
+- **Slash-command chips** — picking a command from the `/` sheet inserts a blue chip holding only the command word, so parameters stay editable; sending assembles the full line, and removing the chip cancels the command
 - **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget; over-limit and decode failures surface as toasts instead of silent drops
-- **Voice input & transcription** — in-browser WAV recording (auto-finishes at 60 s, cleans up on leave), OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list; host-configured services are shown as display facts only — host API keys never leave the host
+- **File attach** — the `+` menu takes arbitrary files (documents, sheets, archives, code): up to 5 at a time, 20 MB each, staged through the host attachment service so the message itself only carries a receipt, with a pending-attachment bar (name, size, remove) above the composer. When the phone's own picker offers nothing but camera and gallery (some Android builds register no file handler at all), **Host file** browses this computer's directories instead and writes `@absolute-path` into the composer.
+- **Voice input & transcription** — in-browser WAV recording (auto-finishes at 60 s, cleans up on leave), OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list; host-configured services are shown as display facts only — host API keys never leave the host; live captions stream while recording.
 - **Session management** — delete sessions from the chat menu or a long-press on the roster; the offline outbox is cleared with the session
 - **Global search** — the home-page search is a global search over workspaces and every session's content, grouped by workspace with real session titles; the session-list search narrows to the current workspace. Hits open the chat and scroll to the matched message (deep-link `?session=&seq=`), with a one-shot highlight; CJK short words are covered by a bounded substring backfill
 - **Turn navigation** — a floating handle in the bottom-right shows 当前 / 总轮 and appears as soon as you leave the newest message: tap it for the turn list (prompt + reply preview per turn, unloaded turns are paged in first) or press and drag it sideways to scrub, releasing on the turn under your finger. The list merges the host's `turnOutline` projection with the locally loaded turns (deduplicated, ascending), so the whole session is reachable; the scrubber maps the finger's absolute x onto that list, and a deep jump pages to the NEXT turn's boundary under a page budget — saying so when it cannot get there instead of hanging on a loading state
 - **Pending-message queue dock** — messages sent while a turn is running queue in the host and render as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header; each row is editable (plain text only), removable, or steered in as an interrupt while the agent is running; the dock mirrors the host snapshot and clears on session stop
+- **Goal bar** — the desktop goal strip on the phone, between the queue dock and the model / permission row: pause / resume follows the host's activate state, and expanding gives body-length wrapping with a visible collapse control
 - **In-chat file preview** — file-path links (bare or backtick-wrapped) open a bottom sheet instead of the desktop-only opener: markdown renders formatted (interactive code fences / diff cards), HTML renders in a sandboxed iframe (scripts inert), other code highlights, and image paths display inline; relative paths resolve against the session's cwd, the host process cwd, every workspace, or absolute mentions already in the chat
 - **In-chat image lightbox** — message `<img>`s (remote URLs or attached data URLs) open full-screen with a double-tap fit/1:1 zoom toggle
-- **Global run overview** — a full-screen cross-session view (running sessions + live background jobs + the subagents a session is waiting for, running children first and folded past three) reachable from the home quick chip; each card opens its session
+- **Global run overview** — a full-screen cross-session view (running sessions + live background jobs + the subagents a session is waiting for, running children first and folded past three) reachable from the home quick chip; each card opens its session. Every card says what is happening — `运行命令 pnpm test · 第 7 步 · 已跑 12分04秒` — with the workspace and "active N seconds ago" underneath (amber past 90 s, so a stuck turn is visible at a glance)
+- **Subagents you can open** — each card lists the subagents that turn delegated (running ones with their elapsed time, finished ones with "N minutes ago"); tapping a row opens that child's **read-only transcript**: the task it was given, every tool step and its answer, with a footer stating that a subagent cannot receive messages from here
+- **Finished runs stay put** — a session that finishes does not just vanish: it lands under 「刚结束」with its outcome (done / failed / stopped), duration, "N minutes ago" and a one-line summary for 30 minutes (max 8, persisted in localStorage); a tappable capsule also pops up on any page when a turn ends and jumps straight to that session
 - **Plugin market** — browse, search and install plugins from the phone (best done on the desktop)
 - **Desktop-parity settings** — phone settings sync with the desktop (schema forms, cascading model picker, permission presets; complex presets are best edited on the desktop)
 - **Settings search** — the settings page search also indexes sub-configuration entries (notification gates, push channels, Web Push, voice services), opening the owning sub-page and scrolling to the match
@@ -257,6 +262,15 @@ pnpm install        # in packages/dsh-palm
 pnpm test           # vitest full suite
 pnpm typecheck      # tsc -b
 pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
+```
+
+Verification gates (all four must be green before a release; see [RELEASING.md](RELEASING.md)):
+
+```sh
+pnpm verify:mobile        # 41 end-to-end phone cases against the real host + a real browser
+pnpm verify:adapt         # reinstall the DSH SDK per version in Docker, then tsc + full tests
+pnpm verify:mobile:fast   # the four fastest groups, for iterating
+node ../../tools/dsh-canary/start.ps1   # boot a canary host on the newest DSH (isolated HOME, port 3099)
 ```
 
 Local push gate (repo hygiene + tests + commitlint before every push):

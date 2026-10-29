@@ -269,6 +269,10 @@ export type SubagentListEntry =
     id: SessionId
     activity: 'running' | 'inactive'
     hasChildren: boolean
+    /** 这一轮开始的时间（activity==='running' 时才有意义）。 */
+    turnStartAt?: number
+    /** 子会话里最新事件的时间：显示"3 秒前有活动"，也用来识别卡住。 */
+    lastEventAt?: number
   } & (
     | { mode: 'one-shot'; label?: string }
     | { mode: 'continuable'; label: string }
@@ -332,6 +336,10 @@ export type MuxFrame =
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   | { type: 'session/jobs'; sessionId: SessionId; jobs: JobView[] }
   | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
+  // 目标服务的进程内授权变化（goal/activation-changed）。宿主的 goal 投影只发
+  // durable 快照，撤授权不改相位，所以桌面端点「暂停」时投影帧根本不会来；
+  // 手机端要把按钮从「暂停」换成「继续」，只能靠这一帧。
+  | { type: 'goal/activation'; sessionId: SessionId; activation: 'armed' | 'disarmed' }
   // 会话列表的实时状态：宿主 `api-session/*` 五事件的镜像（桌面端消费同一批，
   // session-controller client/index.ts:102-110）。手机端的列表原来是拉取驱动，
   // 于是桌面端新建/关闭的会话、running 点、活动时间要等一次列表拉取才更新。
@@ -340,6 +348,10 @@ export type MuxFrame =
   | { type: 'session/status'; sessionId: SessionId; running: boolean }
   | { type: 'session/activity'; sessionId: SessionId; updatedAt: number }
   | { type: 'session/error'; sessionId: SessionId; message: string }
+  // 传输层保活帧：不带任何状态，只用来证明这条 SSE 还在送东西。心跳必须是
+  // 真帧而不是 SSE 注释行——注释会被 EventSource 规范直接丢掉，页面永远看不到，
+  // 于是客户端按"多久没收到帧"判存活时会在空闲期误判成断流、掉回轮询。
+  | { type: 'mux/ping' }
   | { type: 'stream/error'; error: RpcError }
 
 /**

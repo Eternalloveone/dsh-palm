@@ -94,3 +94,23 @@ describe('ErrorBoundary', () => {
     expect(text.length).toBeLessThanOrEqual(240)
   })
 })
+
+describe('ErrorBoundary stale-chunk page', () => {
+  it('tells the user the front end moved on instead of showing a 404 message', () => {
+    // 页面长期挂着、chunk 被新构建换掉：重试永远好不了，文案要说清是版本问题。
+    function StaleThrower(): JSX.Element {
+      throw new Error('Failed to fetch dynamically imported module: /m/mobile/ChatView-old.js')
+    }
+    render(<ErrorBoundary><StaleThrower /></ErrorBoundary>)
+    expect(screen.getByText('前端已更新')).toBeTruthy()
+    // 旧 chunk 场景下「重试」是死路，只留重新加载。
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
+    expect(screen.getByRole('button', { name: '重新加载' })).toBeTruthy()
+  })
+
+  it('keeps the retry button for ordinary render errors', () => {
+    render(<ErrorBoundary><Bomb armed={() => true} /></ErrorBoundary>)
+    expect(screen.getByText('页面出错了')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
+  })
+})

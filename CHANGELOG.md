@@ -4,9 +4,774 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+（暂无 —— 下一个版本开始往这里记。）
+
+## [1.7.0] - 2026-10-29
+
+> 1.7.0 分两批落地：**10-23 主体**（手机端文件发送、目标条与计划入口、运行中页重做、子代理只读页、
+> 排队/运行状态对齐宿主真值、用量查询覆盖主流供应商）与 **10-29 收尾**（DSH 0.2.x SDK 适配、
+> 验收套件与金丝雀入库、同一轮多卡/翻页被拽到底两个顽疾根治）。下面按时间**倒序**：先 10-29，再 10-23。
+
+### 2026-10-29 批次
+
+### Added
+
+- **「关于」里加了一个直达 GitHub 仓库的图标。** 版本这块最常被问的就是"有没有新版本 / 源码在哪"，原先要去设置首页翻「反馈与建议」，而那里开的是新建 Issue 页面。
+  - 检查更新旁边多一颗 octocat 图标，点一下直接开仓库主页（新标签、带 noopener），长按/悬停提示「欢迎 Star 和提交 Issue」。
+
+- **桌面端配对面板底部也加了同一颗仓库图标。** 位置是「dsh-palm 1.7.0 · 已是最新」这句话的行尾 —— 用户问"有没有新版本"的地方，顺手就能去仓库看源码、提 Issue。
+  - 有新版时行尾那颗图标不挪位（左侧照旧是强调文字 + 「更新」按钮），点它开仓库主页、新标签、带 noopener。
+  - 版本查不到时整行照旧隐藏（既有契约 `hides the line entirely when the host cannot answer` 未动），图标跟着这一行走，不另开空行。
+
+- **通知内容多了一个「审批与提问」开关。** 宿主支持四类通知（jobs / todo / turns / approvals），
+  手机端只暴露了前三个 —— 于是审批与提问通知默认一直是开的、关不掉。现在四类都能单独开关，
+  默认值与宿主一致（审批开、规划完成开、后台任务关、长回复关）。
+
+### Changed
+
+- **用量里的「累计已用（自开户）」改成「累计已用」。** 「自开户」对读者没有信息量，
+  只让标签变长、在小屏上把金额挤掉。中转站那行的语义不变：写的是**累计已花**，不是余额
+  （所以不会把 $537 读成「还剩 537」）。宿主侧改动，重启后生效。
+
+- **首页去掉「测试项目」分区。** 原来按工作区路径/标题里的 `test|spec|benchmark|e2e` 分词分成
+  「活跃项目 / 代码项目 / 测试项目 / 其他」四组 —— 实际效果是把正经项目也误判成测试项目
+  （本仓自己的路径里就带一个 test 段），分区标题纯噪音。
+  - 这类工作区现在归入「代码项目」；空占位「暂无测试项目」与对应的图标配色一并删除。
+  - 验收补 1 条（`roster.no-test-section`：首页不得出现「测试项目」或「暂无测试项目」）。
+
+- **收工提示不再盖住输入框（聊天页改走顶部）。** `✓ 会话 xxxx · 已完成 2分38秒` 原来是底部浮层
+  （`position: fixed; bottom: …`），而输入区同样钉底、z-index 还更低 —— 真机上直接压在输入框上，
+  打字被挡。
+  - 聊天页：这条信息并进顶部 HUD（与目标/排队/任务条同一处），高度与状态条一致，不占底部一个像素；
+    点它跳到那个会话，右侧 ✕ 可手动收起，8 秒无操作自动消失。
+  - 非聊天页（首页/运行中/设置）：底部浮层照旧（那些页面没有输入区）。
+  - 打字时一律先压住：输入框聚焦期间浮层不弹，离开输入框后再弹（每 800ms 重试，记录不丢）。
+  - 验收补 2 条锁位置契约：输入区三个落点都必须点到输入框本身；聊天页不得出现 `.finish-toast`，
+    顶部条底边必须高于输入区顶边。
+
+- **适配 DSH 0.2.2-alpha.2 SDK（0.1.5-rc.2 / 0.2.1-rc.4 / 0.2.2-alpha.2 三档都能编译）。**
+  宿主删了三个 API、换了两个形状，插件按旧 SDK 写的源码在 0.2.x 下编译不过（13 处类型错误）——
+  手机端之所以还能用，是因为跑的是按 0.1.5-rc.2 编出来的旧产物，删掉的 API 在运行期静默降级。
+  - `SessionControlBaseline` 只剩 `{ projections }`：mux 里 `queues` / `jobs` 两段镜像删除
+    （宿主里已无发布者，projection 键也查过没有）。排队/后台任务手机端本来就走直读通道
+    （`mobile.inbox` / `mobile.sessionState`），界面不受影响；受影响的是「后台任务完成推送」，
+    它原本依赖这两类帧。
+  - `SettingsController.canOpenAgentPresetDirectory()` 删除：两代方法都试（旧方法 → `describe().hasDocument`），
+    都没有就返回 false（只影响按钮可用性）。
+  - `SettingsForms.installSection` 删除：改用 `configure({ auto: true })` 打开自动表单，
+    配置变化跟随 `settings/document-updated` 事件，真实值从 `describe()` 读回。
+  - `Config` 的类型标注改成断言：仓库里同时装了两份 schemastery，两套 `Schema` 泛型互不兼容；
+    删掉重复依赖后仍会在新旧 SDK 之间二选一报错，故用 `as unknown as z<Config>` 钉住类型名。
+  - 体检脚本入库：`docker-adapt-check.sh`（容器内按目标版本重装 SDK → `tsc` + `vitest`），
+    三档实测全绿（2109 passed）。
+
+- **消息密度和字体大小原来调了跟没调一样，现在真能看出来。** 两项都只挂在最外层的容器上，差值小到肉眼看不出（实测反馈）。
+  - 消息密度原先只改 `.chat-scroll` 的 gap：12px → 8px，每条差 4px，一屏八条才差 28px，气泡内边距和段落间距一动没动。现在紧凑模式连用户气泡内边距（12→8px）、段落间距（16→10px）、正文行高（1.7→1.55）一起收。
+  - 字体大小三档是 14/15/16.5px，跨度才 2.5px，而且只作用于 `.chat-msg` —— 助手那种长回复的字号根本不变。现在改成 13/15/18px，并同时覆盖 `.chat-md-body` / `.chat-flow-text` / `.chat-think-body`。
+- **「震动」改名「通知震动」，并写明只对通知生效。** 它只被通知链路调用，别的操作不会震 —— 原来的名字容易让人以为全局反馈。
+
+### Fixed
+
+- **全站扫了一遍「禁用等于死按钮」的地方（66 处 `disabled`，改了 5 处）。**
+  禁用本身没错，但**因为数据缺失而禁用**在手机上没有 tooltip、没有任何反馈，用户只会觉得坏了。
+  - 「Agent 模式」主按钮：当前没选中项时不再禁用（宿主预设可能全是坏行，点了本来毫无反应）——
+    现在总能打开面板，每个模式的状态都看得到。
+  - 坏掉的预设行：仍不可选，但把原因写出来（原来只有「（不可用）」三个字）。
+  - 运行中页的子代理行：拿不到打开回调时渲染成纯展示行，不再是一个 disabled 的按钮假装可点。
+  - 设置页收件箱行：宿主没给 workspaceId 时不再禁用，照样能跳（只带 session，且**不写**空
+    workspace 参数，避免被当成「未分组」）。
+  - 工作区页「选择此目录」：目录还没读出来时不再禁用，点一下变成「重新读取目录」并提示，而不是干等。
+  - 其余 61 处保持禁用，都是**用户能理解**的状态：进行中（创建/发送/保存/停用/转写/加载更多）、
+    边界（上移首项、下移末项）、校验（草稿为空、必填未填）、只读配置、搜索无命中。
+
+ 那个图标是「Agent 模式说明」，原来写成
+  `disabled={presetDescription === undefined}` —— 而宿主给的 4 个预设（standard / ptc / minimal / cordis）
+  **全都没有 description**，于是按钮一直是禁用的，点上去毫无反馈（真机 2026-10-29 反馈）。
+  - 现在按钮始终可点；有说明就显示说明，没说明就给出通用解释（它决定新会话的系统提示词与可用工具集、
+    在哪切换、只对新会话生效），并补一句「已有会话保持原样」。
+  - 验收补 1 条（`roster.preset-help-opens`：按钮必须 enabled → 点开必须出现「Agent 模式说明」面板）；
+    单测补 1 条（无说明时也能点开并看到兜底文案）。
+
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
+- **搜索重构·期 2（手机端）：搜索页切到新索引，取消/输入法/高亮/分页一起补上。**
+  - 优先走 `mobile.search`（中文 2 字可搜、按会话分组）；宿主回 `fallback: true`
+    （索引还在后台建）时自动退回旧的 `mobile.searchAll`，不会出现空结果。
+  - **取消**：新输入立刻 `abort` 上一发请求，慢请求回来不会覆盖新结果。
+  - **输入法**：拼音未上屏（`compositionstart`→`compositionend`）期间不查询，
+    上屏后补一次 —— 不再每敲一个字母打一次宿主。
+  - **高亮**：用宿主返回的 `ranges` 给摘要上色（客户端不自己猜切词），
+    命中多处的会话显示「N 处命中」。
+  - **分页**：结果多时给「加载更多结果」，按 20 个会话步长放大窗口重查。
+  - 用例 +3（索引结果渲染与高亮、拼写中不查询、连打取消旧请求）；
+    `pnpm verify` 8/8，全量 1832 passed。
+- **搜索重构·期 2（宿主侧）：`mobile.search` 上线，分组 / 高亮 / 会话内搜索 / 端到端用例。**
+  - 返回按会话分组：每条带 `hits`（该会话命中数）、最佳命中的 `seq` + `messageId`
+    （客户端点击定位靠它）、`snippet` 和 `ranges`（高亮区间），以及工作区归属。
+    标题命中的会话排前面且只出现一次，不再把每条消息都带出来。
+  - `sessionId` 参数走会话内搜索：不分页、按命中顺序给位置列表，供「上一处/下一处」。
+  - 索引没建好（或 Node 不带 `node:sqlite`）回 `fallback: true`，客户端退回旧路径，
+    不会出现「索引没建完就搜不到」的空结果。
+  - 新增 `closeSearchIndexes()`：sqlite 文件句柄不释放时 Windows 上临时目录都删不掉。
+  - 新增 11 条端到端用例：真 `node:http` 服务 + 真 cookie 门禁 + 真 `mobile.search`，
+    宿主只替身 `apiProxy`。覆盖中文 2 字 / 3 字（含「付专项」跨词不该命中）、单字 LIKE
+    兜底、英文与混合 AND、高亮区间与摘要对得上、会话内 seq 定位、标题命中不重复、
+    子代理会话不出现、索引未建好回 fallback、p95（含门禁往返）< 150ms、重建索引结果一致。
+    `pnpm verify` 8/8，全量 1829 passed。
+- **搜索重构·期 1：自建中文友好的搜索索引（影子模式，先只落日志）。** 旧路径每次查询
+  都要把候选会话的全部历史读出来重新折叠（上限 4096 页），中文又靠 FTS 猜 + 补扫 12 个
+  会话，所以又慢又不准。
+  - 新模块 `search-index.ts`：中文预切相邻二字组（`支付专项 → 支付 付专 专项`）进 FTS5
+    `unicode61`，短语相邻约束等价于子串匹配；实测本机 2000 条消息查中文 2 字 < 25ms
+    （旧路径是秒级 + 全历史 IO）。单汉字无 bigram，自动退化为 LIKE 兜底。
+  - 排序沿用 bm25（负数、越小越好），用户消息加权 1.8 排在助手前；标题单独走
+    `sessions.title` 的 LIKE，不再把标题塞进每条消息（否则一个会话的每条消息都会被
+    标题带出来，分组命中数就不准了）。
+  - 新模块 `search-indexer.ts`：每会话一次全量回填（分页、限速 60ms/页、可续跑，
+    `oldestSeq` 记续跑游标）+ 之后只补比水位新的（`indexedThroughSeq`），无变化零读取；
+    会话从花名册消失就清掉它的文档；subagent / 空会话 / 已归档会话沿用搜索花名册的
+    排除规则，不进索引。
+  - 宿主接线：索引库落在插件自己的 `dsh-palm-search.db`，**第一次手机请求时才懒启动**，
+    后台建库不抢启动资源；`mobile.searchAll` 算完照旧返回，另外把新索引的答案写进
+    `dsh-palm-perf/search-shadow.log`（会话数/命中数/差异条数/索引耗时），2MB 滚动。
+  - 用例 28 条（切分/表达式/摘要高亮/写入查询排序删除/分组/性能闸门 + 回填增量续跑清理）。
+    `pnpm verify` 8/8，全量 1818 passed。
+- **发出去的文档附件，对话里终于看得见那张文件卡片（名字 + 扩展名·大小）。** 手机端折会话
+  时只认图片块（`type: 'image'`），`{ type: 'file', attachment: { attachmentId, name,
+  bytes } }` 被整块丢掉 —— 文档上传成功、prompt 里也带着 receipt、宿主也回了行，可那一行
+  只剩文字，用户在"发送条"里找不到自己附了什么。
+  - 折叠层新增 `filesFromContent`，把文件引用折进 `message.files`；纯附件消息（正文为空）
+    的行以前会整行 `return null`，现在照常渲染。
+  - 行里画成桌面端那种文件卡片：图标 + 文件名（可截断）+ `PDF · 2 KB`；字节数缺失就只
+    显示扩展名，没有扩展名就只显示大小。
+  - 解析兼容三种形态：正式形态带 `attachmentId`、只有 `receiptId` 的中间形态、字段平铺
+    的旧形态；没名字的块才跳过（没名字画不出东西）。
+  - 用例：折叠层两条（纯附件行、三种形态）、行渲染一条（单附件 / 文字+附件 / 无扩展名）；
+    反证过（折叠丢 files、行不画卡片，两条都红）。
+- **加了附件发送框立刻显示它（上传中 / 失败可重传），不再"看着像没加进去"。** 以前文件
+  附件要等宿主的 base64 往返回来才挂进待发列表 —— 隧道里一张 20 MB 的文件要几十秒，这
+  期间发送框一片空白；上传失败则直接消失，用户根本看不到是哪一条出了问题。
+  - 现在选完文件当场出现一条 chip：虚线边 + 「上传中…」；回包后转成「大小」；失败则标
+    红并留一条「上传失败，点按重试」（原文件还在，点一下就重传，不用重新挑）。
+  - 有失败的那条时发送被挡下（提示「有附件上传失败，点一下那条重试或移除」）—— 不会
+    静默少发一个文件；上传中发送照旧被拦。
+  - 用例锁住三件事：chip 在上传回包**之前**就出现且带「上传中…」、失败留在框里可重传、
+    重传成功后发出的 prompt 带那个 receipt（反证：把 chip 改回"回包才挂"，三条都红）。
+- **长会话不再"估价定位"：已载入的行全部渲染，跳轮次的落点精确到像素。** 以前超过 120 行
+  就只渲染滚动位置附近的行，上下用估算高度撑开 —— 于是"这一轮在哪儿"永远是估的，跳过去
+  总差一截（真机「历史轮次定位还是有问题」）。
+  - 现在照桌面端：已载入的行全在 DOM 里，不可见行交给 CSS 的 content-visibility（浏览器
+    记住它自己布局过的真实高度，不是我们的估算）。行窗格、估高 spacer、行高测量与高度
+    修正这一整套（约 200 行）连根删掉。
+  - 定位执行器也换成桌面那一套：量一次锚点 → 写一次 scrollTop → **读回** clamp 之后的真实
+    落点当权威结果；仍然偏才补"还差的那几像素"，最多 3 帧。原来是同一套估算盲写 12 次，
+    越补越偏。
+  - 校验从"锚点在视口顶 48px 以内"再收紧到 2px；用例锁住"落点 = 该行真实 rect − 8px"、
+    "连跳两次不累积偏差"（反证：让定位忽略行几何，两条都红）。
+  - 代价：进深历史时首次渲染量变大（已载入上限本来就压在 ~320 行）。
+- **跳轮次落在"提问"那一行，不再只滚到回答。** 带 turn 的行是 assistant 的回答行，问题在
+  它上面一格；以前定位只认回答行，跳过去提问被切在视口外，看着像跳晚了一轮（真机「定位
+  好像并不是很准」）。现在按轮次跳转统一退到这一轮的提问行再定位，搜索命中不动。
+- **定位不再被 scrollIntoView() 二次推歪。** 那一下按"最近边缘"对齐，会把算好的精确
+  scrollTop 再推一次；同时校验从"锚点在屏内就行"（容差一整屏）收紧到"锚点在视口顶 48px
+  以内"，偏了会自己重试而不是默默认了。
+
+- **轮次条滑到早期的轮次不再卡住：松手就按轮次号往回翻。** 滑条轴按宿主最高轮次画
+  （57 格），但手机上有行的只有最近十几轮、大纲也只覆盖最近一段；以前滑到最早那几轮
+  松手只弹一句「还没载入，往上滑加载历史」，一个请求都不发 —— 真机「没法滑动历史轮次条
+  到前面的轮次」。现在按轮次号翻页直到目标轮次，翻到就定位；真到历史尽头才提示不在更早
+  的历史里。滑条卡片文案同步改成「松手会往回翻到这一轮」。
+
+- **拉历史那一下不再塌列表：新列表比屏幕上更"穷"时逐行取并集。** 宿主回的是窗口
+  （页比屏幕短）、工具参数被投影剥掉、报告行不带；整份替换会让列表塌一半、参数清空、
+  卡片消失再异步挂回来 —— 这就是「拉历史的时候闪一下」。现在同身份的行合并（状态取新、
+  参数/视图/报告取全），页窗口之外的更早行保留（上限 200 行），内容一致的行复用原对象。
+
+- **进会话第一帧不再空一帧：本次运行里打开过的会话直接用内存快照铺满。** 以前那一帧是
+  空的（缓存页要读 IndexedDB、网络页还要一个往返），屏幕先空、再内容，就是真机说的
+  「一进会话就刷新闪烁一下」。现在第一帧就有上次画的行、并且直接贴在最新一条上，
+  网络页到了照旧覆盖。跨刷新仍由 IndexedDB 缓存兜底。
+
+- **进会话不再连续闪烁：铺开的几页一次提交。** 以前进会话是 1 次尾页 + 4 次静默补页，
+  每页落地都整份换列表并做一次滚动校正，屏幕就跳几下。现在先把页拉完、攒成一份再画
+  一次，视野仍钉在最新一条。
+
+- **卡片「发送完当前消息就消失」：实时折叠不再用页基线覆盖已画出的报告行。** 实时折叠的
+  基线只装页给的行，日志补回来的卡不在里面，发送后第一个事件一到就把上一轮的卡吃掉；
+  现在这一步同样走 `keepTurnReports`，并把两处直接写 `folder.snapshot()` 的地方统一到
+  `applyMessages`。另外「活跃轮次」的兜底不再把已经收工的上一轮算成活跃（否则它的卡会被
+  当成"这轮还在跑"藏起来）。
+
+- **卡片「点进会话突然又消失」：换列表时不再把已经画出来的卡丢掉。** 进会话列表会被整份
+  换掉好几次（缓存页 → 网络页 → 重拉尾页），页本身不带报告行，换一次卡就闪没一次；再
+  加上"补过一次就记账"的旧账，卡就永久消失了。现在换列表会把仍在本轮里的报告行带走，
+  补读的判据也改成"这一轮现在有没有卡 / 有没有被日志确认过"。
+
+- **弱网"挂着"（地铁/隧道半开）也认得出断网，探测不再被 60 秒超时卡死。** 一次超时可能
+  只是某个调用慢，连续两次都没答话才认定断；探测自带 4 秒上限，每 5 秒重探，通了立刻
+  撤横幅并自动发队列。
+
+- **「网络已断开」横幅挂着不恢复（真机：网络早好了，横幅还在，消息全进离线队列）。**
+  判据以前只认 `navigator.onLine`，安卓上它会一直停在 false、`online` 事件还可能不来。
+  现在只认宿主的回答：HTTP 回了（哪怕 5xx）就是通的，只有请求根本没发出去才算断；
+  断着时每 5 秒自己探一次，回到前台/重新聚焦/恢复页面也会立刻探；实时帧到达也算在线。
+  启动时不再采信 `navigator.onLine`，发送时的排队判断也改用这个状态。
+
+- **交付物卡片改成"日志是唯一来源"。** 以前卡片靠页里的工具名/参数推断（窗口截断、投影剥参
+  数都会让它少列或整轮没有），现在页只管显示：列表里每个已收工的回合都按日志折一次，
+  翻到那一轮自己的 `turn/start` 才折；页里已有的卡按日志校正（文件取并集，不会抹掉）。
+  亲眼看到 `turn/end` 的回合跳过（它的卡本来就是同一批实时事件折出来的）。
+
+- **补读只在首屏跑，从上翻页补进来的回合仍然没卡。** 真机：页落地时最新那一轮有卡，
+  再进一次窗口挪一轮，它变成"从上翻页补进来的"，补读早就跑完了 —— 卡片又消失。现在
+  补读挂在整个列表上（按回合记账，同一轮只补一次），任何来源的新回合都会补。
+
+- **整轮没有交付物卡片（真机：这一轮改了文件却一张卡都没有）。** 窗口只留最近的几步时，
+  一轮里早先的 `edit`/`write` 会被截掉，页里只剩 `pwsh`；缺卡判据按工具名找"会交回文件"
+  的调用，于是一次都不回读日志。现在判据改成"这一轮有工具调用却没有卡"就问一次日志，
+  纯聊天回合仍不触发。另外卡片也认 `tool/result` 的 `meta`（`diffs[].path` / `path`），
+  参数被剥光的页也能拼出来。
+
+- **交付物卡片"消失"的真因：视图停在旧底部。** 进会话先画缓存、页随后落地，缓存尾页
+  和网络页常结束在同一条消息上（末尾 key 不变），跟随逻辑不触发，读者就停在旧底部。
+  真机探针实测：4 张卡片都画出来了，但距底 1135px —— 最新一轮的卡在屏幕外。现在只要
+  读者还在底部、列表行数变多（含缓存→页、报告卡并回），就重新贴到真实底部。
+
+- **交付物卡片时有时无、有时回合没结束就冒出来。** 重建出来的报告行把锚点行的
+  `step` 一起搬过来了，而行 key 是 `(turn, step)` —— 两行撞成同一个 key，React 对
+  重复 key 的处理是「可能重复或丢弃子节点」，于是卡片随机消失。报告行不再带 `step`
+  （key 退回行 id）。另外跑着的回合一律不画报告卡：行里没有「回合已结束」这个信号，
+  重建只看得到「工具都不在跑」，会在两步之间提前挂卡。
+
+- **交付物卡片仍会消失 / 列不全。** 回读日志时"折出报告行就停"，而回合后半段本来就
+  能凑出一张缺文件的卡，于是永远停在那儿。现在必须翻到**目标回合自己的 turn/start**
+  才收工，整轮一起折。另外：卡片真的补不出来时，手机把页面的真实形状报到宿主的
+  perf 目录（`carddiag`），下次不用再猜。
+
+- **交付物卡片只列出部分文件。** 回读日志时按固定条数截断（60 条）只覆盖回合后半段，
+  写在回合开头的文件全丢。改成按页往前翻到那一轮的 `turn/start`（每页 25 条消息、
+  最多 6 页），整轮一起折；真实会话日志验证：整轮窗口与全量折叠的文件清单逐项一致。
+
+- **一进会话「本轮产出」卡片又没了。** 页面里的工具只剩名字时（参数被投影剥掉、
+  diff 视图只活在实时帧里），页自己拼不出卡片；老窗口还会留下"只有时钟"的空尾巴行，
+  空行渲染成 null 并把重建也挡掉。现在空尾巴行不算数（有清单就留、没清单就补或删）；
+  页里明明有写文件/交付的工具却没有卡片时，回读一次日志原文用手机自己折回来。
+
+- **过程条秒表的节奏怪、偶尔一下跳 2 秒。** 两处：读秒用 `Math.round`（桌面 `formatRunDuration`
+  是 `Math.floor`，同一时刻手机能多出一秒）；显示值外面还套了一层「只增不减」的棘轮，
+  而宿主偏移是每帧直接覆盖的 —— 一帧慢包把偏移顶高 1.5 秒，读数就永久快 1.5 秒，
+  下一帧真值追上来时一口气跨两秒。现在偏移取最近 24 个样本的最大值（延迟最小的样本
+  才接近真值，且能自愈），换会话清零；读数每帧按墙钟直算、统一向下取整，棘轮去掉。
+
+- **刷新一下，「本轮产出」卡片就消失了。** 那张卡原本只在折叠到 `turn/end` 的那一刻生成；
+  刷新后拿到的是宿主折叠好的**行**，那一轮的 `turn/end` 已经不在页面里，卡片就再也没人补。
+  现在按行重建：交付物从 `present` 的参数取，产出文件先从 diff 视图取、没有就用写类工具
+  自己的参数（`file_path` 等，参数本来就在日志里），在那一轮最后一行后面补一张卡；已有卡
+  的回合不重复补，正在跑的回合等结束再补。
+
+- **花名册页说「运行中 N 个会话」，点进去却没有在跑的。** 那个数字来自宿主的运行集合，
+  而它本身是帧镜像：漏掉一条 turn/end 之后要等五分钟静默上限才会掉。聊天页进来会当场
+  问 `mobile.turnState`（日志边界核对过的真值），于是外面说在跑、里面是空闲。现在花名册
+  也走同一口径：宿主列出的每条都复核一次，答「没在跑」的当场删掉；刚看到 turn/start 的
+  不再多问一次。
+
+- **排队消息条：点「立即发送」没反应、发出后不消失。** 插队/删除成功只去查了一次宿主，
+  而宿主的待发投影不会推到手机 —— 行就一直挂着。现在宿主确认后立刻摘行，按钮当场
+  变「发送中…／删除中…」，插队成功还补一句「已插入当前回合」。
+
+- **（修正上一条）把第三轨封成 42% 反而让所有标题都被截。** 百分比轨会把 42% 白送给
+  右列，标题列只剩四五个字。改回 `auto` 轨，改成给右值自己设 `max-width: 6em`——
+  短值照常、长值省略，标题列在 360pt 窄屏 + 大字号下仍有约 6.8 个字。
+
+- **设置页「通知」一行的标题被挤成「通…」。** 行右侧是 grid 的 auto 轨，取内容宽度：
+  那一行塞了整句「权限被拒绝，请在浏览器设置中开启」（15 字），标题列被压到一个字。
+  右列封顶 42%，值超长自己省略；通知行右值改成「已授权 / 已拒绝 / 未授权 / 不支持」，
+  完整说明留在通知子页。顺带全页排查：14 个卡片行、组卡、工作区行都不再有同类挤压。
+
+- **「本轮产出」卡片框太淡。** 细灰边 + 卡片底色，和普通回复分不开。改成主题色描边、
+  左侧 3px 实色条、主题色淡染底（7%），标题加粗到 600，文件计数改用主题色等宽字。
+
+- **「本轮产出」卡片认不出是哪个文件。** 一行只显示完整绝对路径，同一轮的两个文件在手机上
+  截断成开头一模一样的两行。现在改成「扩展名小块 + 文件名 + 目录」三列，目录压到 11px
+  弱化成注释，右侧加箭头表示可点，完整路径留在 `title` 里长按可查。
+
+- **设置页的「本机 / 同步桌面 / 桌面端」角标大面积缺失。** `SettingsRow` 和 `ToggleRow` 从来
+  没渲染过角标，只有几张 `settings-card` 标了「同步桌面」，于是主题、字体大小、消息密度、
+  代码块行号、自动滚动、通知震动这些本机项全是空白 —— 图例上三种颜色等于摆设。现在
+  `SettingsRow` 默认标「本机」，`ToggleRow` 透传，需要「同步桌面 / 桌面端」的显式声明。
+- **轮次滑条的两端和刻度。** 滑块用百分比定位，拖到两端时有一半悬在卡片外；刻度上限判断
+  用了轴长而不是条目数，549 轮的轴上即使只载入了十几轮也不画任何刻度。现在滑块用
+  `clamp()` 收进轨道，刻度改按条目数判断，另外把「已载入区间」画成浅色段。
+
+- **轮次清单里点任何一轮都只弹「没有更早的轮次」。** `hasOlder` 只是个布尔，一次游标偏掉的
+  翻页会让宿主回空页 + `hasMore: false`，这个布尔从此恒假，之后连试都不试。现在点某一轮就实打实
+  翻一次（真到头由翻页预算收尾），并且空页不再把 `hasOlder` 写成 false。
+
+- **轮次滑条滑不到最早那一轮。** 滑块轴长原来取「已加载的轮次数」，而宿主的轮次大纲只回溯十几轮，
+  于是滑条最左只能停在第 44 轮（真机截图「第 44 / 57 轮」顶在最左边）。现在轴长按宿主的最高轮次算，
+  滑到还没载入的轮次会提示「往上滑加载历史」，不再默默停住。
+- **手动上翻历史时画面抖。** 窗口化渲染下 `el.scrollHeight` 是"当前窗口内那几行"的函数，
+  而高度修正逻辑拿它当全量真值：滚动 → 窗口换行 → scrollHeight 变 → 修正值变 → 前缀重建 → 重新定位
+  → 窗口再换行，一个每帧闭合的反馈环。现在滚动期间冻结高度修正，停下 160 毫秒再收尾一次。
+
+- **手机上排队消息的实时性不再依赖一条会静默失败的独立通道。** 宿主的 SSE 投影帧被公共隧道掐断后，
+  对话内容靠 `session.history` 的 3 秒轮询续命，而队列却另开一条 `mobile.inbox` 请求 —— 失败一次就停在旧值，
+  卡片既不会走也删不掉，桌面端却一切正常。现在 tail 页本来就捎带的 `projections.values.inbox` 直接合流成
+  `session/projection` 帧喂给界面，队列跟着对话走；同时队列非空时轮询加密到 2 秒，宿主一投递、一删除，
+  手机立刻跟上。
+
+- **手机上的排队消息条会变成一张删不掉的幽灵。** 排队快照是手机上唯一可靠的队列来源（宿主的投影帧到不了手机），
+  一次隧道抖动把它丢掉、或者拿到的是打开会话时的旧快照，那张卡片就再也不会自己走；点删除时宿主回 `queue-item-not-found`，
+  界面却统一说「已开始发送」—— 用户以为消息发了，其实还躺在宿主队列里。现在区分两种失败：宿主说没这条就把它从列表移除，
+  请求没送到就明说网络问题；快照请求失败也会重试一次。
+
+- **工具调用只显示一坨参数 JSON，没有红绿 diff 了。** 红绿卡依赖宿主在事件里带 `view.card = diff`；没带的时候前端只剩原始参数可显示，
+  于是一次编辑变成满屏 `old_string` / `new_string`。现在宿主缺席时改用工具参数自己拼一张 diff 卡 —— `edit` 的参数本来就是一对新旧文本，
+  够画红绿；`write` 拿整段内容当全新增。别的工具不猜，猜错了不如老实显示原文。
+
+- **有的图在手机上就是一块纯黑，连「加载失败」都不给。** 结构损坏的 JPEG（段长度对不上、标记字节缺失）会「加载成功」却一个像素都解不出来：
+  `naturalWidth` 是 0，`onError` 不响，浏览器也不画任何东西。相册能看是因为系统解码器宽容，浏览器不接受这种文件。
+  现在 `onLoad` 里查一次 `naturalWidth`，为 0 就走失败态，给「点击重试」。
+
+- **相册里的手机截图经常显示成黑块。** 截图动辄 1080×2400、好几兆，之前把宿主的 data URL 原样塞进 `<img src>`，
+  base64 后的长字符串在移动端 WebKit 上有实际长度上限，超了就是静默解码失败 —— 屏幕上只剩一块黑。
+  现在读完立刻转成 Blob URL：字符串当场可回收，`<img>` 只持一个对象引用，绕开这个上限；
+  缓存淘汰和手动重试都会 `revokeObjectURL`，不再漏内存。
+
+- **图片有时候显示成一块黑。** 解码失败时（浏览器不认的格式、data URL 被截断、图太大解不动），`<img>` 只会给一块空白，
+  深色主题下就是「黑图」，而且它没有 `onError`：永远黑着，用户既看不到「加载失败」，也没有重试入口。
+  现在接上 `onError`，失败退回带「点击重试」的占位块，并清掉那张图的内容缓存 —— 不清的话重试还是同一个坏字节。
+
+- **搜索的时候，下面还挂着「新建会话」那一整块。** 头部已经变成搜索框了，主体顶上照样摆着 Agent 模式卡 + 「+ 新建会话」按钮，
+  快 80px 高，既挡着搜索结果，又容易让人以为误入了新建页面。现在搜索态收起它，退出搜索自动回来。
+
+- **自动滚动开关现在当场生效。** 原先 `ChatView` 只在挂载时读一次 `getAutoScroll()`，在设置里关掉之后，当前这个会话照样自动滚到底，得退出去重进才认。现在改成订阅式（`subscribeDisplayPrefs` + `useSyncExternalStore`）。
+
+- **秒表不再从 0 秒开始数。** 中途进一个已经跑了十几分钟的会话，秒表原本从 0 起（桌面端显示十几分钟），起因是兜底锚点取的是这一行**最后一次**事件时间 —— 活跃行上那就是"现在"。
+  - 锚点改为按可信度取：行上的 `turnStartAt` → 行上的 `firstSeenAt`（这一行**首个**事件时间）→ 这一轮的发起消息。
+  - 长回合里 `turn/start` 会被挤出折叠窗口和边界回读窗口（十几分钟、几十步就到），此时 `firstSeenAt` 是唯一还挂着"起点"的证据。
+  - 反向验证过：把兜底改回去，用例立刻退回秒表不显示（锚点≈现在，差值不足 3 秒阈值）。
+
+- **目标条上的阻塞理由占掉大半屏。** 宿主把整段排查记录塞进 `blockedReason`，手机上它整段铺开，压掉输入区和大半对话。
+  - 默认只露两行（底部渐隐提示还有），点文字或「展开理由」才铺开；展开后最高 38vh 自己滚动，`收起理由` 收回。
+  - 折叠是 `max-height`，不动原文：展开/复制到的仍是完整一段。
+
+- **输入区那一行有个按钮和别的不在同一条中线上。** 停止键带着 `margin-bottom: 5px`（窄屏 7px），`align-self: center` 会把外边距算进居中，整颗按钮就被往上顶了 2.5px（窄屏 3.5px）。实测：输入框 / 附件键 / 排队键的中心线都在 32.0，只有停止键在 28.5。
+  - 底部外边距归零，四点回到同一条中线；横向间距不变。
+
+- **点了「立即发送」之后，那条在手机端整个消失，桌面端还挂着。** 宿主会把它在队列帧里标成 `steering`，而排队条只渲染 `queued`，于是手机端提前把它藏了；桌面端读的是 `next-turn` 投影（那里没有 placement），一直显示。
+  - 手机端不再采信帧里的 `steering`：宿主的 `next-turn` 才是"还在排队"的真值，只要它没移走，两端都显示。
+
+- **桌面端还挂着排队消息，手机端整条没了。** 每轮开始时手机端会把本地队列清空（队首被那一轮认领），但认领只拿走一条；剩下的要等下一次轮询才回来——空闲时是 20 秒，期间手机端看起来"队列消失"，而桌面端读宿主投影一直有。
+  - 清空之后立刻向宿主对一次真值（`fresh`），队列在同一帧里就有；空闲轮询也从 20 秒收到 10 秒，断流丢了帧也能很快自愈。
+
+- **排队条再压一档：48px 还嫌高，现在是 40px。** 按钮纵向 36→30px、外层上下 6→4px、行内 2→0，相邻按钮间距加到 10px 兜住误点。和一条消息气泡差不多高，与目标条挨着也不抢位置。
+
+- **排队条宽度参差：文字贴左边、右边留一截，和下面的目标条没对齐。** 上一版把宽度改成"跟内容走"，三个按钮一撑就接近满宽，却仍按内容截断，于是左右都不齐（真机："布局怎么这么奇怪"）。
+  - 现在它自己占满可用宽度（与目标条、输入框同宽），文字左齐、按钮右齐；左右内边距加到 12px，文字不再贴着自己的边框。
+
+- **排队消息框太高，比它承载的那行文字大出一截。** 外层留白、行内留白、44px 的按钮和"N 条排队"的顶间距叠在一起，只有一条消息时约 62px 高，压在输入区上方像一块面板。
+  - 上下留白收到 6px + 2px，按钮纵向降到 36px（横向仍留 44px 命中区），第一条贴在顶边；整条约 48px，和消息气泡一个量级。
+  - 行内那层不同色的底也去掉：一层底板就够，之前看起来是"卡片套卡片"。
+
+- **秒表在后台待过之后仍然定住（第二次修）。** 上一版把心跳收到父级，理论上回前台重建一次就够；真机实测仍卡：安卓 PWA 冻结页面后，定时器不保证自己回来，**连 `visibilitychange` 都不一定派发**，于是这一行再也没有任何人叫醒它。
+  - 心跳加了一条"屏幕亮着就一定有"的信号：动画帧探针。前台每帧只比一次墙钟（不发 setState），发现两拍没跳就补一拍；后台浏览器不派发帧，所以不费电。
+  - 回前台现在是三重保险：effect 重建、`visibilitychange` 补拍、动画帧自愈。
+
+- **过程条状态改成与桌面端同源：宿主说在跑就是在跑。** 以前手机端每 10 秒自己去问、靠日志轮次边界猜，读不到边界就猜成「已完成」；现在宿主在 `turn/start`、`turn/end` 到达的那一刻**主动推一条 `session/status`** 给手机（桌面端读的就是这个布尔值），手机端只负责显示。
+  - 兜底核对保留但只在跑着的时候排期（10 秒一次，防"边界帧被断流丢了"）；没在跑时完全不轮询——回合开始由宿主那条推送叫醒，省掉每 20 秒一次的 idle 探测。
+
+- **会话明明还在跑，过程条却写着「已完成」。** 手机的运行核对每 10 秒问一次宿主"这一轮还开着吗"，而宿主那次答复在**读不到轮次边界**时直接说"没在跑"：一轮跑到几十步，`turn/start` 会被挤出日志折叠窗口（默认 2048 帧），宿主刚重启过的话帧镜像也是空的。于是命令还在跑、卡片已经收尾，而且次次核对都这么答。
+  - 边界**读不到**只是"不知道"，不再等同于"收工"：宿主运行集合里还有它，或者日志三分钟内还在动，都算还在跑；读到 `turn/end` 的仍然照旧判收工。
+  - 宿主运行集合改成由**每一条**会话事件喂（以前只有 `turn/start` 和 `session/status` 帧喂），长命令静默期间不会被五分钟无证据上限清掉。
+
+- **手机端从后台切回前台后，过程条的用时就卡住不走了。** 秒表原来靠每一行自己的 1 Hz 定时器推进：PWA 进后台时浏览器把它冻住，回到前台它不会自己回来，而这一行的内容已经定稿（`memo` 认为 props 没变），于是没有任何东西再叫醒它 —— 读数定在最后一帧，非得重进一次会话（行重建）才恢复。
+  - 心跳收到一处（`live-clock.ts`）：父级每秒变一次的计数器只作为 prop 传给**正在跑的那几行**，props 一变 `memo` 就挡不住，冻结的定时器死没死都不影响；
+  - 读数永远在渲染时取墙钟（`Date.now()`），所以"重渲染"就等于"数字刷新"，不再把时间戳存在 state 里；
+  - 回到前台时 `visibilitychange` 还会补一拍并重建定时器（见 `foreground.ts`），两重保险。
+- 顺带改掉 `ChatView` 里过时的注释：它还写着秒表骑在页级 1 秒 tick 上（P4 起秒表已搬到行内）。
+
+### Removed
+
+- **「关于」里的依赖自检整块撤掉。** 那是给排查用的：宿主四个 session 方法在没在位、各总线事件自启动以来收了多少帧，还得配一段"added、removed、error 本就罕见，0 帧属正常"的说明才读得懂。
+  - 对普通用户是纯噪音；真出问题时看它一眼也解决不了什么，宿主启动 3 秒后自己会往日志打一行 `[dsh-palm] 依赖自检`。
+  - 「关于」现在只剩：版本号、检查更新、仓库入口、清除缓存。
+  - 用例锁住了"不再出现"（`no longer carries the host dependency self-check`），防止哪天被顺手加回来。
+
+### 2026-10-23 批次
+
+这一版几乎全在手机端。主线是一条：**让「现在什么状态」只有一个判据、一个渲染点**，
+于是重复的过程条、凭空的卡片、跑完还挂着的条子、抢手势的跟随，都从「反复打补丁」变成「结构上不会发生」。
+
+### 会话状态：一套判据，一个渲染点
+
+- 新增 `session-status.ts`：一个会话状态机，三条不变量 ——
+  **单例**（当前回合/排队/目标/计划各一份）、**租约**（可见值带 `{until, by}`，过期即失效）、
+  **固定源优先级**（本地意图 > 宿主原子快照 > 实时帧 > 花名册 > 缓存，低优先级不得覆盖新鲜的高优先级）。
+  花名册撒谎（跑完还写 running）被实时帧压住；复核结论一旦入账，迟到的花名册也改不回去。
+- 三根条的显不显示由 `describeBars()` 单独决定，组件退化成纯展示：
+  运行状态条只接收一句现成的文字，目标条由「租约 + 有无目标」门控。
+- 排队条可见性收成 `visibleQueue()`：隐藏 90s / 乐观 45s / 空队列观察窗 4s 三个 TTL
+  变成同一套「时刻比较」，`session-store` 委托它，实现只剩一份。
+- 新增 `SessionHud`：三根条的唯一渲染点，顺序固定为 **目标（为什么在跑）→ 排队（接下来发什么）→
+  任务（跑到哪了）**；容器 `display: contents`，纯结构不改外观。
+- 新增 `session-status-store`：聊天页是唯一生产者，运行中页/首页徽标读同一份结论 ——
+  「聊天页说停了、运行中页还挂着」没有来源了。没发布过的会话返回 `undefined`，消费者退回自己的判断。
+- 滚动策略收成 `scroll-machine.ts`：`following / reading / locating / suppressed` 四模式 + 事件驱动，
+  取代原先散在六处的 ref。真实手势后 350ms 内不抢画面、定位锁 2 秒自解、进会话反复补钉直到真的落底。
+
+### 不再闪、不再残留
+
+- **过程条**：折叠层给每行打轮号（`turn/start` 记、实时分片缺轮号时跟随），同一轮从第一次渲染就只一条。
+- **交付卡**：与页**同一次提交**（翻页时把这一页缺的卡一次读齐再落地）；历史页不「猜卡」；
+  补读窗口收窄到最近两轮；合并时正文只增不减（截断版不许覆盖完整版）。
+- **首屏**：不足一整页的缓存不再先上屏（800ms 还没等到网络页才兜底显示），避免「半页 → 整页」整屏替换。
+- **账本**：「刚结束」从 localStorage 迁到宿主落盘（`mobile.finishedRuns`，`perfDir/finished-runs.json`），
+  换浏览器/清缓存也在；按会话去重、30 分钟过期、上限 20 条。
+- **列表提交**：只有 `commitRows()`（折叠 → 补卡 → 并集合并），禁止各处直接 `setMessages`。
+
+### 交互
+
+- 停止改两拍：第一拍变红色「确认」，2.5 秒自动收回，不再与「排队」误触。
+- 目标动作点下去立刻转圈（只置灰像没反应）；交付卡头部可折叠，长回合不再占满半屏。
+- 搜索命中在窗口外时，计数旁显示「载入中…」，数字不消失。
+- 运行中页校准期间顶部一条 2px 细进度条；过程条折叠头点击区 40 → 44px。
+- 排队项带附件/图片也能编辑：宿主把非文本块原样交回，改正文不会把文件丢掉。
+- 文件上限搬到宿主侧（一条消息最多 5 个），换个客户端也绕不过。
+- 进会话时 `@路径` 含空格自动加引号；「电脑文件」默认根在会话工作区，越界明确提示。
+
+### 用量
+
+- OpenCode Go 接真实用量接口（5h/周/月三窗口 + 重置时刻）；one-api/new-api 系中转站走通用账单，
+  标「累计已用」而不是余额；失败原因说人话（401/402/410/超时）；不支持的提供方给控制台深链。
+  硅基流动写明「官方 2026-08-14 已下线余额接口」。
+
+### 性能
+
+- 聊天与设置视图拆出入口包；尾页直接读日志、宿主侧折叠；模型目录/偏好复用 30 秒；
+  花名册只发手机真正用到的字段；「谁在跑」由宿主侧镜像回答；撤掉与快照重复的 `turnState` 往返。
+
+### 已知限制
+
+- OpenAI / Anthropic 组织级用量需要 admin key；硅基流动官方已下线接口。
+- 子代理只知道一层（宿主只有 `listChildren`），子孙树不展开。
+- 账本首次读取为空（此前只存在手机的 localStorage 里）。
+
+<details>
+<summary>本版 280 个提交（v1.6.4..v1.7.0）</summary>
+
+- `140a6ce` feat(mobile): P1 会话状态跨页共享（运行中页/徽标读聊天页发布的同一份结论）、P2 移除影子对照、P3「刚结束」账本落盘宿主侧、P4 过程条点击区 44px
+- `c4032b8` refactor(mobile): 阶段3——三根状态条收进 SessionHud（唯一渲染点，顺序固定为目标→排队→任务，容器 display:contents 不改外观）
+- `bb4eb06` refactor(mobile): 阶段2b——目标条可见性交给 describeBars；回合状态按来源优先级入账（花名册 < 实时帧 < 宿主复核）
+- `414506a` refactor(mobile): 阶段1/2——排队可见判定收成唯一实现（session-store 委托 visibleQueue）、运行状态条文案改由 describeBars 决定
+- `ea2d83e` feat(mobile): 会话状态机阶段0——session-status（单例+租约+源优先级+describeBars）旁路接入影子对照，排队条可见判定独立成纯函数
+- `a66585f` refactor(chat): 滚动收成状态机（scroll-machine）、列表统一走 commitRows 提交入口，杜绝「多处 ref 互相判断 + 各处 setMessages」
+- `d769a70` feat(mobile): 交互清单落地——慢网兜底缓存、搜索载入提示、目标动作转圈、排队项可带附件编辑、停止二次确认、交付卡可折叠、运行页校准细条、用量口径写清
+- `70b261c` fix(chat): 无感加载——半页缓存不再先上屏、合并时正文只增不减（截断版不许覆盖完整版）
+- `fe3f60c` fix(chat): 实时分片缺轮号时跟着当前这一轮 —— 根除「进会话多条过程条、过一会儿才合成一条」
+- `c9ae464` feat(chat): 历史轮次的交付卡改为「翻页时一次读齐再提交」—— 卡片随页出现，不再先显示后改
+- `a6a658d` fix(chat): 翻历史时交付卡不再「先猜后改」—— 历史页只显示页里真带 turn/end 的卡，补读窗口收窄到最近两轮
+- `a1392ca` fix(chat): 跟随让路给手势（真实滚动后 350ms 不抢画面）、定位锁 2 秒自解，不再出现「新消息不跳到底部」
+- `848e857` fix(mobile): 进会话反复补钉直到真的落底（布局估值）、文件附件上限搬到宿主侧、计划胶囊随交付卡一起补读
+- `7bd0da2` fix(mobile): 子会话只读页轮询加闸门、@路径含空格自动加引号、电脑文件默认根在工作区、用量页 consoleUrl 按路由兜底与硅基流动下线说明
+- `7d542de` v1.7.0: release dsh-palm (文件发送与电脑文件、目标条与计划入口、运行中页重做与子代理只读页、排队与运行状态按宿主真值对齐、用量页扩到主流供应商)
+- `a761c1a` fix(chat): 视口变高/变矮也要跟随（ResizeObserver）—— 输入框长高 34px 导致的不落底；补钉阈值改 2px
+- `3caebe6` fix(chat): 合并函数架构性修复 —— 所有行（含交付卡）走同一条「同身份合并 + 跨页去重」路径，不再丢卡/重复过程条
+- `bfde260` fix(usage): 中转站的数字是「累计已用」不是余额 —— 加 balanceLabel，徽章与数值前缀按标签说话；401 不再当成「不支持」
+- `86e0946` feat(chat): 交付卡上挂「计划 n/m · 用时」胶囊，点开就地展开只读清单（状态条收起后的入口）
+- `907d34f` feat(chat): 运行状态条全完成且无后台任务时淡出收起；排队条加空队列观察窗（切后台回来不再凭空消失）
+- `d39ac05` fix(tail): 最新一轮的 turn/end 落在尾窗之外时，宿主补读一段把交付卡折进首屏（同一轮 60 秒内只补一次）
+- `6d1f0c6` fix(chat): 进会话往上滑一小段 + 交付卡闪一下 —— 同身份行变高要补钉底，尾页换尾页时留住刚收工的卡
+- `b706dc6` feat(usage): W1 —— one-api/new-api 中转站通用账单适配器（兜底匹配）+ 失败原因人话化 + 控制台深链
+- `25ae657` feat(usage): OpenCode Go 接入真实用量接口 /inference/go/v1/usage（5h/周/月 三窗口百分比+重置时刻）
+- `1d78f74` fix(queue): 队列投影行是裸 UserMessage（content 在行上），只认 message.content 导致排队条全是空白；非文本块给占位（[图片]/[附件]）
+- `d106898` Revert "perf(chat): 首屏铺开每页 25→60 行，同一份上下文跨度往返次数减半"
+- `07708fb` perf(chat): 首屏铺开每页 25→60 行，同一份上下文跨度往返次数减半
+- `dc5f22c` feat(chat): 过程条只报最终失败、目标条显示已跑时长+第几步、任务条显示正在做第几项
+- `f787174` perf(state): goal/todo 并入 mobile.sessionState 原子快照，撤掉独立 goal 轮询与重复 turnState 调用（目标条不再滞后 15~20 秒）
+- `989a2b5` fix(todo): turn/start 清空计划时保留 seq 水位，免得旧历史页把上一轮计划塞回来
+- `de5fd98` fix(status): 「输出中」时有时无——判死要硬证据（宿主重启过 或 status 明确说没在跑），不再凭运行集合为空就判收工
+- `026c253` feat(chat): 过程条计时超过 1 小时也显示秒（1小时2分57秒），免得长回合看不出还在动
+- `6c98d48` fix(chat): 进会话时同一轮被画成两张过程卡——尾页那段有轮号、mux 实时那段还没到 turn/start，改为按消息 id 合并
+- `4b4dff3` fix(queue): 删除后又复活、已发送仍挂着、turn/start 闪一下——隐藏表改按权威队列收敛、乐观项按对话退场、队首从状态仓认领
+- `fdd288e` fix(queue): 宿主错误码带 session/ 前缀导致「这条已不在队列里」分支永不触发（误报成删除没送到）；本地乐观项不再拿去调宿主
+- `0dfb3c0` feat(usage): 支持 OpenCode（Console / Go）—— 模型列表验 key + 套餐形态 + 如实标注余额需去控制台；官方无余额查询接口
+- `07b9144` fix(queue): 排队条点发送必须立刻出现（乐观项只按文本对上/45 秒超时退场，不再因写回成功或版本推进提前清空）+ 状态仓跨用例隔离
+- `aed376f` feat(settings): 手机端设置页 A 方案（角标降噪/图例收进页脚/进阶折叠/人话副标题/分组语义图标/空态只在真无命中时显示）
+- `09e02d0` fix(state): mobile.sessionState 必须进 local 方法链（否则被当成宿主代理方法，报内部错误）
+- `a918947` feat(state): 会话状态仓 + mobile.sessionState 原子快照 + 排队消息乐观项/回执
+- `f23f5a5` fix(nav): 子代理只读页的返回是死按钮（back() 少了 sub-chat 分支）
+- `05c5b6d` docs(1.7.0): 补充运行中 v3（卡片信息/子代理只读/刚结束驻留）与过程条状态修复
+- `784cb7c` fix(run-overview): 刚结束补用时、心跳不再停；记账事件不再点亮已收工的回合
+- `b09bde0` fix(run-overview): 收工的会话立刻记账到「刚结束」，全部跑完不再空白
+- `82bbb25` fix(run-overview): 收工的会话立刻退场（尾页判定 + 定期向宿主核对运行集合）
+- `92f51c3` fix(run-overview): 子会话不再单独成卡（已挂在父卡片的子代理行）
+- `dc9fb23` fix(turn-state): 窗口里只剩上一轮 turn/end、其后仍有事件时，判成新一轮在跑
+- `ddc61ef` fix(subagent): 子代理目录改走宿主 0.2.x 的 listChildren（老版本仍认 remoteExportList）
+- `55d4059` feat(run-overview): 运行中页 v3（进度/子代理可点/刚结束清单/收工浮层）
+- `ab9bc70` fix(timing): 过程条收工时定格不再往回跳（真起点补回折叠）
+- `495f225` fix(search): 副本合并按正文段落去重（fork 副本的 id / seq 各算各的）
+- `f6dd02b` fix(search): 单字查询提速 5~50 倍、全角归一化、副本合并、未命名标题
+- `4958336` fix(search): 会话内命中不再截断在 50 条；首页点进来接着能用「下一个」
+- `40fe6aa` fix(mobile): 开场自动定位后保证有一处高亮真的在视口里
+- `8497657` fix(search): 首页「加载更多」不再重复，总数改成会话数
+- `24e1647` fix(mobile): 会话内搜索每一条命中都落到有高亮的那一行
+- `340aee2` perf(mobile): 会话内搜索「下一个」不再现场等取页
+- `27c1a9e` fix(mobile): 翻页按回合边界切，搜索索引与手机渲染共用同一份折叠
+- `551a5f4` fix(mobile): 会话内搜索「下一个」逐处落地，合并卡不再停在同一个高亮
+- `5e93eec` fix(mobile): 会话内搜索连按 10 次全部落到关键词上（0 次看不到词）
+- `94606b5` fix(mobile): 定位解析行改为 DOM 优先（状态晚一拍时不再退到错行）
+- `97b3f7c` fix(mobile): 落地期间不许「跟随最新」抢滚动 + 零标记也要展开正文
+- `bcb922e` fix(mobile): 搜索跳转一次要够行数 + 落到自己那一行 + 落地才动计数
+- `d701239` fix(mobile): 命中必须落在自己那一行，猜出来的行不再算落点
+- `898c99b` test(search): 加 docker 冒烟脚本（容器里不开 vitest，直接跑宿主搜索逻辑真代码）
+- `f89da4f` feat(search): 索引口径与渲染统一（A）+ 定位按坐标与翻页收敛（B）
+- `dc1df52` fix(mobile): 命中落不动时强制翻页 + 长消息先展开再定位
+- `58b3e5b` feat(mobile): 搜索命中按段落锚点定位（A），结果页直接展示命中段落（C）
+- `d4f2da7` fix(mobile): 推理链不再参与搜索高亮与定位
+- `c7c17cd` fix(mobile): 会话内搜索切换命中：优先落正文、遇到同一处自动往后找
+- `eb5d549` fix(mobile): 定位意图在等首屏期间续期——慢会话「滚到附近却没有高亮」的根因
+- `715aa9a` fix(mobile): 搜索不再把工具原始块当正文；大会话冷读不再被 30 秒掐成白页
+- `766b255` fix(mobile): 搜索命中角标按会话计数（别再显示 11/2），回放脚本放宽等待预算
+- `f229778` perf(mobile): 搜索不再等 3 秒名册，摘要只为展示的那几行算
+- `e88a3b7` feat(mobile): 首页搜索改成「每条命中一行 + 真分页」，交互层一并补齐
+- `7a4afbc` test(mobile): 提交搜索定位回放脚本（当前 12/12 样本高亮在视口内）
+- `8440eda` fix(mobile): 离开聊天即清定位意图（2 秒宽限避开转场双实例）
+- `dd442c6` feat(search): 索引只收正文答案，折叠区过程叙述不再出现在搜索结果里
+- `72dc028` fix(mobile): 搜索命中定位后一定高亮可见（意图表跨层传递 + 首屏直取目标页 + 到底判据 + 收尾校准）
+- `609afb7` refactor(mobile): 删除会话列表页的页内搜索（搜索统一由工作区首页承担）
+- `30eed96` fix(mobile): 搜索时隐藏首屏欢迎卡，让结果直接占满首屏
+- `385e5e1` fix(mobile): 子序列命中只参与排序、不上色（避免把不相干的单字涂黄）
+- `210d81f` feat(mobile): 工作区首页搜索改为分档打分匹配（名称+目录名、命中高亮、分组截断）
+- `22b40e1` fix(mobile): 搜索命中落在思考块里时自动展开并高亮；定位优先按索引行号与短锚点认行
+- `ca59199` fix(mobile): 搜索定位落到带折叠工具步骤的行时自动展开（深链不动）
+- `f4eacf3` fix(mobile): 搜索定位落到带折叠工具步骤的行时自动展开，命中正文才看得见
+- `7b94796` fix(mobile): 搜索定位不再被挪到提问行（turn=-1 时按命中行落点）
+- `3ae1d11` fix(mobile): 定位改用宿主原始页比对，同 seq 多行时取正文最长的那行
+- `84fe988` fix(mobile): 行可搜正文始终合并 text 与 flow（原来只在 text 为空时才取 flow）
+- `8d8c142` fix(mobile): 合并行同时合并 searchText（命中片段落在后一步时也能匹配）
+- `237cc1c` fix(mobile): 命中片段优先于 id/seq（实测 49/49 文本都能落到正确行）
+- `987993f` feat(mobile): 翻页行与搜索索引同源合并（before 先 coalesce），定位不再落到空白步骤行
+- `507ee39` fix(mobile): seq 命中的行不再被片段否决（片段只加分，不否决）
+- `6ef6541` fix(mobile): 行的可搜正文覆盖 flow，客户端空 searchText 也回退
+- `0ba5571` feat(mobile): readChat 每行带回索引同源的 searchText，命中定位靠它落准
+- `02ae2a1` fix(mobile): 搜索命中定位的落点校验（文本证据 + flow 正文 + mark 优先）
+- `418d0ed` fix(mobile): 定位脉冲动画把用户气泡底色清掉，整段白字看不见
+- `d03e8a9` fix(mobile): 浅色模式下命中高亮白字白底（用户气泡内反相 + 代码块压回正文色）
+- `598859d` fix(mobile): 会话内搜索定位与上一个/下一个切换（真机复现后的完整排查）
+- `812924b` fix(mobile): 点「上一个/下一个」原地不动——点击被在飞的翻页吃掉
+- `048595f` fix(mobile): 会话内搜索定位与上一个/下一个切换不准
+- `d77e51a` fix(mobile): 会话内搜索跳过去后没有高亮
+- `db46d2e` fix(mobile): 搜索命中落在行间空档时不再弹「第 -1 轮不在更早的历史里」
+- `1951db8` fix(mobile): 空页连击上限——工具事件长尾不再每趟重读
+- `b0d60ff` fix(mobile): 索引器空页死锁——59/317 个会话永远补不完
+- `f515b84` chore(mobile): 加容器内搜索验证脚本，补期 3 变更记录
+- `878cacb` fix(mobile): 期3 会话内搜索落地，删掉旧的子串补扫路径
+- `8255a17` feat(mobile): 搜索重构期2（手机端）——搜索页切索引，取消/输入法/高亮/分页
+- `d7366f6` feat(mobile): 搜索重构期2（宿主）——mobile.search 分组搜索 + 端到端用例
+- `01e44b9` feat(mobile): 搜索重构期1——自建中文友好索引（影子模式）
+- `3ddb59b` fix(mobile): 发出的文档附件在对话里画出文件卡片
+- `ceb4418` fix(mobile): 加了附件发送框立刻显示它，失败可重传
+- `7521d11` fix(mobile): 长会话改成行全渲染，定位按桌面的写一次读回
+- `8786f05` fix(mobile): 跳轮次落在提问那一行，定位不再被二次推歪
+- `bfe5fd7` fix(mobile): 轮次条滑到早期轮次时真的往回翻，不再只弹一句
+- `8962042` fix(mobile): 拉历史那一下不再塌列表、不再丢参数
+- `4292abc` fix(mobile): 进会话第一帧就有内容，不再空一帧再跳出来
+- `455691e` fix(mobile): 进会话的铺开改成一次提交，不再一页一跳
+- `45ee9b3` fix(mobile): 发送后不再吃掉上一轮的交付物卡
+- `5278b4f` fix(mobile): 换列表时把交付物卡带走，点进会话不再闪没
+- `425234c` fix(mobile): 弱网挂着也认得出断网，探测不再被默认超时卡死
+- `b304c03` fix(mobile): 断网横幅不再靠 navigator.onLine，宿主答话就自动恢复
+- `47ff67f` fix(mobile): 交付物卡片改为"日志是唯一来源"，页只负责显示
+- `4af368d` fix(mobile): 补读挂到整个列表上，从上翻页补进来的回合也有卡
+- `dd0f8b8` fix(mobile): 整轮没有交付物卡片 —— 判据别再挂在工具名上，并认 tool/result 的 meta
+- `ca96ea2` fix(mobile): 交付物卡片"消失"的真因 —— 视图停在旧底部，卡片在屏幕外
+- `b9ca886` chore(mobile): 交付物卡片加一次性现场探针（状态行数 vs DOM 画出的卡片数）
+- `27dc4b2` fix(mobile): 交付物卡片时有时无的根因 —— 重建的报告行和锚点行撞了 React key
+- `22293f6` fix(mobile): 交付物卡片列不全 —— 翻到整轮起点才收工，另加一份现场诊断
+- `90d8712` fix(mobile): 交付物卡片列不全 —— 回读按整轮取，不再按条数截断
+- `fcb00b2` fix(mobile): 交付物卡片一进会话就消失 —— 空尾巴行不算数，缺料就回读日志补一次
+- `da67619` fix(mobile): 秒表不再忽快忽慢，读数与桌面同口径（向下取整 + 稳定偏移）
+- `f4ece09` fix(mobile): 刷新后「本轮产出」不再消失，缺卡按行重建
+- `be947c2` fix(mobile): 花名册的「运行中」用 turnState 逐条复核，不再挂着早已结束的会话
+- `1e69464` fix(mobile): 插队/删除成功立刻摘掉排队行，点击当场变成「发送中…」
+- `a53cba1` fix(mobile): 设置行改回 auto 轨，右值自己限宽
+- `060ed5a` fix(mobile): 设置行右值封顶，标题不再被挤成一个字
+- `0239e64` fix(mobile): 「本轮产出」卡片框改用主题色强调
+- `477ddaa` feat(mobile): 「本轮产出」卡片按文件名重排
+- `0b57171` fix(mobile): 设置项补上「本机 / 同步桌面 / 桌面端」角标
+- `accd41d` fix(mobile): 点轮次不再被一个写坏的 hasOlder 锁死
+- `a1a99ae` chore(deps): zod 升到 4.6.7（GHSA-mrhx-c7xc-m3w5，超高内存消耗）
+- `44a8803` fix(mobile): 轮次大纲现读一次宿主投影，历史轮次不再只有 5 轮
+- `911fcca` fix(mobile): 轮次滑条按全量轮次算轴长，滚动时不再每帧重排历史
+- `8f2c3d1` fix(mobile): 排队状态并进对话轮询，不再单开一条会静默失败的通道
+- `d783642` fix(mobile): 删不掉的排队消息条，不再把网络失败说成「已发送」
+- `8d38c7c` fix(mobile): 宿主折叠的行也补上 diff 视图，红绿卡真的回来了
+- `4e44bf6` feat(mobile): 关于弹窗里也显示构建号
+- `37d45a6` fix(mobile): 补几个常见的路径键名，diff 兜底不再漏
+- `568cc22` fix(mobile): 工具调用没拿到宿主视图时，自己拼红绿 diff
+- `20df6ff` fix(mobile): 结构损坏的图不再无声地黑一整块
+- `1c4c619` fix(mobile): 截图不再黑，把 data URL 换成 Blob URL
+- `267069d` fix(mobile): 图片解码失败时不再留一块黑，退回可点重试
+- `216c5c1` fix(mobile): 搜索时收起「新建会话」那一块
+- `db0c7c3` fix(mobile): 设置里那几项调了没反应，现在真能看出来
+- `bad2360` refactor(settings): 撤掉「关于」里的依赖自检整块
+- `01cc307` feat(client): 桌面端更新条行尾加一颗直达仓库的 GitHub 图标
+- `70999ca` fix(mobile): 秒表锚点改用行的首见时间，不再从中途打开时的 0 秒起数
+- `37dab97` feat(mobile): 关于页加一键直达仓库的 GitHub 图标
+- `6231fdb` feat(mobile): 目标条的阻塞理由默认折叠成两行
+- `d28e2b9` style(mobile): 停止键去掉底部外边距，输入区四点共用一条中线
+- `c32925a` fix(mobile): 排队帧不再采信 steering，与桌面端同看 next-turn
+- `71e96ea` fix(mobile): 每轮开始清空队列后立刻对账，不再等下一次轮询
+- `bd8f6dc` style(mobile): 排队条再压一档到 40px
+- `b45b6c9` style(mobile): 排队条占满宽度并与目标条对齐
+- `8048a7b` style(mobile): 排队消息框压低到和消息气泡一个量级
+- `d5e82e6` fix(mobile): 秒表加动画帧探针，回前台不再依赖定时器自己回来
+- `03ddd03` feat(mobile): 运行状态改由宿主在轮次边界主动推送（对齐桌面端）
+- `65f57db` fix(mobile): 边界读不到不再当成收工，过程条不再误写已完成
+- `2958473` fix(mobile): 秒表心跳收到 ChatView，冻结的定时器不再决定读数
+- `6684e41` fix(mobile): 过程条用时在后台恢复后不再卡住
+- `1c835bf` docs: 1.7.0 补齐 README 能力条目与提交索引
+- `af5d9cb` chore(release): 定版 1.7.0
+- `9f4cc00` feat(mobile): 「+」加「电脑文件」，手机系统选不了文件时从宿主目录挑
+- `cce6dcc` fix(mobile): 「文件」改成菜单项里直连的原生输入框
+- `088fe7d` fix(mobile): 每次点选文件时现造选择框，绕开浏览器沿用上次配置
+- `aafdc48` fix(mobile): 一个选择框按需切换用途，点「文件」不再弹相册
+- `191dd48` fix(mobile): 文件选择框显式声明不限类型，别再被当成选图
+- `6109597` feat(mobile): 「+」菜单加「文件」，任意附件经宿主暂存后随消息发出
+- `62392b9` fix(mobile): 重建之后页面自己换新包，不再钉住第一次读到的入口
+- `b884571` fix(mobile): 命令失败仍要说话，并清掉每次构建堆积的旧分块
+- `664c9a5` fix(mobile): 冷会话也给出完整命令目录（/goal、/plan 不再按会话时有时无）
+- `cf390f4` fix(mobile): 斜杠面板不再"有时候"丢掉 /goal、/plan
+- `03e3160` fix(mobile): 回合还活着的时候不再摆出「重新生成」
+- `60cfc10` fix(mobile): 命令成功后不再弹整段回执，执行中提示改成 1.2 秒后才出现
+- `aa1c47b` fix(mobile): 会话里新建的目标立刻出现在目标条上（原来读的是过期快照）
+- `c78ef04` style(mobile): 输入行的加号、命令、语音、停止、发送都按输入框中心线对齐
+- `5d388b0` fix(mobile): 排队卡片按宿主真值对账、输入框外壳收编命令 chip、排队键改成写字
+- `7e05915` fix(mobile): 排队卡片投递后立刻消失、收窄、主按钮说人话，命令 chip 并到输入行
+- `bd3e946` fix(mobile): 撤掉命令 chip 时连命令一起取消（不再把 /goal 拼回输入框）
+- `c24cc8b` feat(mobile): 斜杠命令按桌面端填进输入框（蓝色 chip + 参数）
+- `64482b9` fix(mobile): 目标条按桌面端语义显示暂停/继续（读宿主 activate 状态）
+- `5a0e538` feat(mobile): 进会话就铺开更长的历史，翻到顶自动接页
+- `7436d80` fix(mobile): 收口剩余四条——权限以宿主为准、花名册随写入失效、语音面板可 Esc 退出、子代理行有间距
+- `66d2582` fix(mobile): 目标条展开后给出可见的收起出口
+- `0e89287` fix(mobile): 目标条展开后按正文排版，换行与段落不再挤成一条
+- `3faa260` feat(mobile): 手机端复刻桌面目标条，挂在排队卡片与模型/权限行之间
+- `e67a4ed` fix(mobile): 白盒扫出的一批样式隐患——6 个陈旧的 CSS 变量名、深色主题里写死的浅色小标签
+- `168de41` fix(mobile): 补回被吞掉的右花括号——一个括号让命令面板、附件面板、长按菜单整段样式失效
+- `c531982` fix(mobile): 排查清单逐项收口（日志静默可判、排队不再每 5 秒读日志、分块不再卡住宿主）
+- `d5273d8` fix(mobile): 字幕被单行规则吃掉、每 700ms 白编一次整段 WAV，宿主基线不再清空运行集合
+- `20a62b6` fix(mobile): 状态对不上的四处病根（运行镜像、花名册空窗、日志换代、失效不取消在飞读）
+- `cc8750a` feat(mobile): 录音时显示实时字幕
+- `092d040` fix(mobile): 旧 chunk 404 时自动换新壳子，而不是停在一句技术错误上
+- `7fbcd2f` feat(mobile): 审批卡片显示将要执行的命令
+- `dec12b1` fix(mobile): 通知阈值空输入不再写成 0、录音最后十秒先提醒
+- `fd454f9` fix(mobile): 长按菜单支持 Esc 关闭、药丸命中区不再互相吃掉、代码块横滑看得见、阈值输入用数字键盘
+- `f627439` fix(mobile): 排队条默认展开、占位词中文化、按钮 44px、绿点窗口放宽、波形跟随真实响度
+- `c713c62` fix(mobile): 排队底稿跟随编辑删除、排队键与发送键分家、打断的回合写已中断
+- `be1e3b1` fix(mobile-api): readChat extras 取信封里的 value，打断窗口收到三分钟
+- `8f4a68d` fix(mobile): 语音上限按真实采样率算，并守住未定义的 CSS 变量
+- `d3bb74a` test(mobile): cover queue-claim turn switching in both directions
+- `c516466` fix(mobile): settle the previous turn when its turn/end never arrived
+- `66a6330` fix(mobile): stop calling a delivered queued message "lost"
+- `216e338` fix(mobile): keep a local copy of queued messages so a host restart cannot eat them
+- `9bb6552` fix(mobile): let a long-lived phone page pick up a new build by itself
+- `469838d` fix(mobile): make voice input work on iOS and give the sheet a way out
+- `7f81a06` fix(mobile): read the queue fresh so a delete stays deleted
+- `29a4e7c` fix(mobile): ask the host for the queue snapshot instead of waiting for a frame
+- `0cec047` fix(mobile): read the queue from the host inbox projection, the only place it exists
+- `e358d02` feat(mobile): float the queue dock above the model/permission row, like desktop
+- `b6ac82d` fix(mobile): empty queue edits, repeat outline downloads, cramped narrow composer
+- `5c81931` fix(mobile): judge the queue receipt at send time, not when the answer comes back
+- `878ee90` feat(mobile): keep the send button while a turn runs, so a message can be queued
+- `310f728` fix(mobile): give the turn navigator the whole outline, not just loaded turns
+- `848d781` fix(mobile): stop reporting a turn as running after its log went silent
+- `69d4241` fix(mobile): never paint 进行中 from a cached or first-page row
+- `f4ee53a` fix(mobile): stop lighting 进行中 from the host set before the tail confirms
+- `9627bf6` fix(mobile): open a lazily loaded page without blanking the stage first
+- `2675e4e` fix(mobile): keep the long-press menu on screen when the anchor is off the fold
+- `b12d6bb` feat(mobile): long-press can select text again, and the menu gets out of its way
+- `54cce11` fix(mobile): one copy action per object in the row menu
+- `a6cec68` fix(mobile): make the long-press menu act on the row, and stop covering it
+- `74b00e5` fix(mobile): the phone's dead subagent panel, and nine smaller UI defects
+- `9a88c16` feat(mobile): one owner for "is this turn still running"
+- `aff7b30` chore: drop the temporary live probe (it talked to a running host and had no place in CI)
+- `6a4d44d` fix(mobile): a page that cannot see the boundary no longer means the turn ended
+- `2104e58` fix(mobile): ask the host's running set before calling a silent turn finished
+- `5d930da` fix(mobile): stop a silent log from closing a turn that is still working
+- `0f0f7d2` fix(mobile): give rows from an older page the turn end they were cut off from
+- `a3c2f20` fix(mobile): stop the same answer from appearing twice after an older page loads
+- `b94f4c9` fix(mobile): count changed files from the tool arguments, not just the host view
+- `f3e9def` fix(mobile): stop the turn clock from restarting at zero
+- `055b20a` feat(mobile): turn 重新生成 into a single icon
+- `84c9e5d` fix(mobile): a completed turn no longer reports 已中断
+- `62cda35` fix(mobile): give a finished turn the end event it needs to report its time
+- `83779ea` fix(mobile): confirm the list badge against the log tail
+- `0abfa77` fix(mobile): one running label, and stop trusting the status frames
+- `795d21a` fix(mobile): keep turn anchors across window rewrites
+- `dbad99a` fix(mobile): keep the fold state so a finished turn reports its time
+- `6493338` fix(mobile): stop stale turns from spinning and settle lost turn ends
+- `5556f4b` fix(mobile): widen the anchor peek so the oldest turn gets its time
+- `0002a7a` fix(mobile): report how long the oldest turn took
+- `23d9fd9` fix(mobile): settle the turn indicator from the host's own verdict
+- `68d00ea` fix(mobile): keep the phone on the live stream instead of polling it
+- `f87c26a` feat(mobile): run the desktop client's animated whale instead of a redrawn path
+- `9c3adf8` fix(mobile): swing the whale's leaves together instead of fanning them apart
+- `f21f27b` feat(mobile): make the whale swim by fanning two leaves, not rotating one
+- `dc63485` feat(mobile): draw the running indicator as a whale tail instead of the hourglass
+- `17d6b18` refactor(mobile): give each composer surface exactly one job
+- `4d08caa` fix(mobile): the test push and error reports now go through the engine
+- `c3fc5b0` feat(mobile): answer approvals from the lock screen, plus git and telemetry
+- `a1dfc10` fix(mobile): make the settings page match the settings that exist
+- `d3f31a2` perf(mobile): answer "who is running" from a server-side mirror
+- `630a5cb` fix(mobile): give the list's running badge a heartbeat of its own
+- `8f713f5` fix(mobile): let the host decide when the chat is still running
+- `a25b615` fix(mobile): clear a stale "running" badge on the session list
+- `77cfbfa` fix(mobile): never hide the permission pill, and make the running check actually run
+- `238b74c` perf(mobile): stop one chat read from freezing every other request
+- `0c35289` fix(mobile): show running session titles in full, and name them correctly
+- `cbf7f53` fix(mobile): keep the split bundle from reloading the entry and blanking the ui
+- `da71b67` perf(mobile): fold the log tail on the host and defer the host read
+- `f32ef95` perf(mobile): read the chat tail straight from the session log
+- `8f3943c` perf(mobile): split the chat and settings views out of the entry bundle
+- `85fc698` perf(mobile): fold the model directory into the chat page read
+- `48c7750` perf(mobile): reuse the model directory for 30s
+- `ce90bab` perf(mobile): coalesce the batch preview read
+- `eb19088` perf(mobile): reuse display preferences for 30s
+- `29a2c70` perf(mobile): ship only the roster fields the phone reads
+- `cb58e43` perf(mobile): coalesce duplicate reads and merge repeated observe asserts
+
+</details>
+
 ## [1.6.4] - 2026-10-20
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **手机会话列表里冒出大量空白会话。** 桌面端每开一个新会话/切换工作区都会落一条 `blank` 会话，桌面自己在侧栏里隐藏它们（`tree.ts`），手机端却照单全收。现在手机端的可见行过滤掉 `blank: true` 与子代理来源的会话；顺带修掉一个回归：快照落盘时把行裁成 `{sessionId, updatedAt}`，标题字段丢失，导致列表里所有会话都叫「新会话」——现在按 `{ ...item }` 浅拷贝保留投影，并补了回归测试。
 
@@ -25,6 +790,20 @@ All notable changes to this project are documented here. The format is based on 
 - **桌面端面板底部新增版本行与「一键更新」。** 显示当前 dsh-palm 版本；有新版本时用强调色加圆点提示（不再是灰字），点一下即可更新并自动重启 DSH：① **npm 安装**走 `npm install --prefix <真实 profile>`，装完校验版本、入口文件与**新包声明的每一个运行依赖**，缺一个就回滚 —— 避免"报成功、重启后插件加载失败"；② **源码链接安装**走 `git pull → pnpm install → pnpm build`，工作树有未提交改动时直接拒绝，不弄乱手上的活儿；③ 更新成功后由独立 helper 进程按这次进程的真实启动配方重启，环境变量只带 8 个白名单键，绝不携带 token；10 秒倒计时可取消，连点第二次会被挡回"上一次更新还在跑"。四条路由仅在回环地址可用。
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **重启 DSH 后手机就要重新扫二维码。** 根因不是"配对丢了"：插件 `apply` 收到的 `.volatile()` 配置字段是**包装对象**，`value.devicesFile ?? DEFAULT` 兜不住对象，于是 `readFileSync` 拿到的是 `[object Object]`，设备表**从未被读取过** —— 内存里永远是 0 台设备，手机一连上就被当成新设备重新配对（审计日志里表现为反复出现 `paired the first device (primary)`）。现在：① 配置字段先解包（`get()` / `value` / 嵌套）再**按类型校验**，不符即退回 schema 默认值（`src/config-values.ts`，附 9 条单测）；② 设备表每次落盘同时写一份 `.bak`，启动时主表为空或缺失就从副本恢复并记一条 `store-restore` 审计；进程内有意的清除（踢设备、停止远程）会同时更新两份，已踢掉的设备不会被复活；③ 每次启动打一行 `[dsh-palm] device store: N device(s) from <路径>`，这类故障不必等手机连上才暴露。
 
@@ -33,6 +812,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [1.6.2] - 2026-10-19
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **iOS Safari 开着「减弱动态效果」时，手机端页面切换被旧页盖住。**（#10）根因：`@media (prefers-reduced-motion: reduce)` 只把四个 `.page-enter-*` / `.page-exit-*` 设成 `animation: none`，没有把退出页一起关掉 —— 它仍是 `position: absolute; inset: 0` 的不透明整屏覆盖层，于是新页在整整 260ms 的切换窗口里完全看不见，窗口结束才「弹」出来。现在：① 该分支下退出页**整块不渲染**（`display: none`），切换变成瞬时切换（减弱动态效果本就该如此，不是动画缺失）；② 前进/返回两个方向补上显式 `z-index`（前进：进入页在上；返回：退出页在上，恢复 iOS pop 的层次）。附 3 条样式契约测试，恢复旧样式即失败。
 
@@ -41,6 +834,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [1.6.1] - 2026-10-18
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **手机端不再"隔几天就要重新配对"。** 根因：设备会话默认 **7 天**不活跃就被清掉（`liveSession()` 命中空闲超期后直接删设备并落盘），而手机 Cookie 有效期是 **90 天** —— cookie 还在、服务端已经把人踢了，于是下次打开就是配对页；宿主重启时 `loadPersisted()` 还会再淘汰一次，所以"隔几天/重启后"最明显。现在：① **主力设备（primary）不再参与空闲淘汰**，只有显式踢除或停用插件才会消失；② 默认空闲期 **7 天 → 90 天**，且与 Cookie 有效期**同源推导**（`COOKIE_MAX_AGE_SEC` 由 `DEFAULT_IDLE_EXPIRE_MS` 换算），两者不会再各自漂移。非主力设备的淘汰行为保持不变。
 
@@ -67,6 +874,20 @@ All notable changes to this project are documented here. The format is based on 
 - **手机端读会话列表改成"投影式读取"：首屏先用上次落盘的快照立即渲染，后台再刷新（SWR）。** 宿主侧新增快照落盘（`roster-snapshot.json`，超过 16 MB 才跳过）与刷新节流（最快 60 秒一次），并把并发枚举合并成单飞——同一时刻只跑一次枚举，其余请求直接复用结果。客户端工作区列表另加 5 秒 TTL + 单飞，每次导航的往返次数由 3 次降到约 1 次。实测冷启动 `session.list` 由最长 **29.8 秒**降到 **0~23 毫秒**。
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **手机端的"输出中"指示灯与运行时间不再突然消失，计时也不再被一次网络抖动清零。** 三个缺陷叠加：① 一轮之内连续 3 次 `listSessions` 失败（约 30 秒的重试，手机在后台、锁屏、隧道抖动或 EventSource 重连时很常见）就会把 `running` 置假，于是指示灯连同计时整块消失，而回合其实还在跑；② 中途重开会话时，若宿主花名册的 `running` 恰好为假（agent 正停在子代理上），尾部页里的 `turnStartAt` 虽然证明回合开着，界面却一直不亮；③ 计时挂在 `turnStartAt` 锚点上，但"停止"入口不可用那条路径没有清掉过期锚点，下一次回合的时长会从上一次算起。现在把**指示灯的存活与计时解耦**：列表失败只把文案切成"连接中断"（轮询与对账照旧重试、自己恢复），计时继续按 `turnStartAt` 走；尾部页带 `turnStartAt` 就直接点亮回合；锚点缺失才退回挂载时刻兜底，前台恢复时重算；门限由 15 秒收紧到 3 秒（短回合也看得到时长）；"停止"不可用时清掉锚点。契约锁在 `ChatView.test.tsx`（断连时计时继续走、恢复后回到"输出中"、尾部页证明回合开着时点亮、短回合不显示时长）。
 
@@ -90,6 +911,20 @@ All notable changes to this project are documented here. The format is based on 
 - **插件在 DSH 0.2.0 上不再被版本门静默丢掉。** 0.1.6 起 DSH 装载插件前会读它的 `peerDependencies`，不覆盖当前运行版本就把**整个 bundle 静默跳过**（不崩、不告警）；两个官方包的上界停在 `<0.1.8-0`，于是在 0.2.0-rc.2 上 DSH 给出 `skipping profile bundle "@eternalloveone/dsh-palm": ... is incompatible with dsh 0.2.0-rc.2`，手机面 `/m/` 整套不存在，而桌面端毫无提示。上界放宽为 `<0.2.1-0`（`dsh-client-ui-slots` 与 `dsh-settings` 各一处），覆盖 0.2.0 线且不影响 0.1.5-rc.1 起的旧线。容器实测（镜像 `dsh-upgrade-verify:dsh-v0.2.0-rc.2`，用打包件测这个未发布版本）：改前 install ok / boot no / 契约与配对 skip（BOOT-FAIL，217s），改后 install ok / **boot yes / 11 条契约全 ok / 真配对成功**（80s PASS，矩阵 MATCH 1 / DRIFT 0）——**运行时零改动**，与"插件对所有官方包都是 `import type`、编译期擦除"的静态事实一致。另记两条：0.2.0 把自动化任务移到可选插件包，未安装该包时「任务完成/失败」推送不会触发（功能层缺失，不是故障，`session/jobs` 帧契约本身未变）；应急场景可用 0.2.0 自带的 `dsh plugin allow-version` 给旧版本开精确豁免。
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **手机端的问题面板不再"消失"。** 适配层此前按"此刻是否存在活着的手机流"决定要不要把提问交给手机：手机恰好在后台、锁屏、隧道抖动或 EventSource 重连中时，它就不在在线名单里，于是这条 `user-questions/request` 被**静默整条交给桌面**——不登记、不广播、也不通知。桌面面板照常弹出，用户顺手在桌面答掉，手机端则从头到尾没收到过那张卡片（通知链路只覆盖任务完成/失败、todo 与轮次结束，问答没有离线兜底），表现就是"手机端问题面板消失了"；审批看着正常，只是因为它恰好在线。现在两处 waterfall 桥接都不再按在线与否跳过：请求照常登记并广播，手机的下一条流一建立，SSE 路由就把仍在待答的 approval/question 帧作为**开场快照**补发（`pendingFrames()`，与 mux 流同形；客户端按 rpcId 去重，重复回放不会重复入列），并补喂 host 侧待答追踪，让轮询兜底同样看得到。`phoneConnected` 只保留一个用途：桌面链路报"没人能答"而一个手机流都没有时立即收尾（把桌面那条失败原样交回），不再让 agent 空悬。验证：以已配对设备身份旁听插件自己的 `/m/api/events.mux`，实测提问帧带正确 `sessionId` 发出；撤掉旁听、只靠手机自己的连接复测，卡片出现，单次 `mobile.pending` 轮询 53/57 轮命中待答。契约锁在 `api-proxy-adapter.test.ts`（离线时保留待答、快照可作答、无人可答时不悬停）与 `tests/mobile-api.spec.ts`（新连接补发快照）。
 
@@ -98,12 +933,40 @@ All notable changes to this project are documented here. The format is based on 
 ## [1.5.3] - 2026-10-08
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **手机端的权限面板在 DSH 0.1.7-rc.1 上又回来了。** 0.1.7-rc.1 把 `permissions` 投影的 wire 从 `{options, currentValue}` 收窄成 `{currentValue}`：可选 preset 列表搬到了进程级的 `permissionPresets.catalog()`，桌面端跟着改读目录，而手机端的 `parsePermissionSelect` 仍按旧形状解析——它要求 `options` 非空，否则返回 `undefined`，于是权限胶囊（会话里那枚显示当前 preset 的小标签）与整个权限面板都不再渲染，桌面正常、手机没有，两端还都不报错。修法放在**宿主侧**，手机端已缓存的 bundle 因此不必更新：新增 `src/permission-options.ts`，经 `ctx.get('permissionPresets').catalog()` **现取**进程目录（目录随 live 贡献变化，缓存下来会让手机停在旧列表上），只在投影值确实缺 `options` 时补上；服务缺失、形状不符、调用抛错一律原样返回。`api-proxy-adapter` 构造时取一次，同时喂给 history 页基线（`HistoryAdapter`）与实时帧（`setupMuxSources` → `controlFrameToMux`）。旧宿主本就带 `options`，所以这条路径在那条线上是零操作——一个构建同时服务两代宿主。端到端验证：用手机自己的配对凭据打它真正调用的 `mobile.readChat`，投影里已带回 read-only / workspace-write / danger-full-access 三项（会话**列表**那条 roster 投影没有装饰，仍不带选项——手机端权限胶囊不读它）。契约锁在 `src/permission-options.test.ts`。
 
 ## [1.5.2] - 2026-09-30
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - 「回到上次」阅读位置书签只在用户真的离开底部时才写入（判据与「回到最新消息」一致：gap > BOTTOM_FOLLOW_THRESHOLD_PX），在最新消息处停留不再产生书签；
 - 程序化滚动（开场回到底部、轮次定位、前插锚点校正）不再被误判为用户手势（新增 setScrollTopProgrammatically，仅在实际移动容器时置位）；
@@ -117,6 +980,20 @@ All notable changes to this project are documented here. The format is based on 
 - **The plugin loads on DSH 0.1.6 and later instead of being dropped before it starts.** 0.1.6 added a version gate that reads a plugin's `peerDependencies` before loading it, and the two official packages were still declared as `>=0.1.5-rc.1 <0.1.6-0`: on 0.1.7-rc.1 DSH answered `skipping profile bundle "@eternalloveone/dsh-palm": ... is incompatible with dsh 0.1.7-rc.1` and dropped the whole bundle, which left the phone surface dead while the desktop kept serving — the gate *skips* rather than fails, so nothing crashes and the web side shows no warning at all. Both ranges are now `<0.1.8-0`. Verified against 0.1.7-rc.1 with nothing but the declaration widened: the plugin boots, all 11 runtime contracts are present, a real pairing handshake succeeds, and `host-rpc` / `mux-stream` answer — the runtime needed no change, matching the static finding that every official-package import in this plugin is `import type` and therefore erased at build time.
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **The settings page survives DSH 0.1.6's client-settings migration.** 0.1.6 moved a client plugin's settings surface from the injected `settingsScope` service to `remote.settings`, and a plugin that still resolved the old name simply lost its page — no error, the rows were just gone. The client half now resolves whichever service the running shell actually provides (through `ctx.get(name, false)`, never a static inject) and keeps the 0.1.5 path as the fallback, so one build serves both lines; the resolution is covered by the new `tests/client-settings-api.spec.ts`.
 - **Every live `Config` field is declared `.volatile()` so 0.1.6 and later still render it.** From 0.1.6 the Loader hands `SettingsForms` only the fields marked volatile; a field declared as a plain value arrives as a snapshot the form cannot write back, which surfaced as 「(无法确定)」 rows and an empty `SettingsForms.describe()`. The host half marks its live fields volatile and unwraps the `Volatile<T>` reference the Loader supplies.
@@ -132,6 +1009,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Code and text can leave the app through the system share sheet.** `shareText` prefers `navigator.share` and degrades to the clipboard (已复制，可粘贴分享) where the API is missing or the share itself fails; the user merely cancelling the sheet (AbortError) is silent, because cancelling is not a failure.
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **A connected phone no longer silences the desktop's approval and question panels.** The host bridge intercepted both host waterfalls ahead of the desktop chain whenever a phone was online, so `api-remotes` never saw the request: the desktop panel never appeared at all, and a phone that was not looking at that session left the turn hanging until it was interrupted (measured: 1m55s of nothing, then ABORTED). The request now reaches **both** ends and the first answer wins — the bridge hands it downstream (the desktop) *and* broadcasts it to the phone, withdraws the desktop's pending event through the gateway's own cancellation path when the phone answers first, and retires the phone's panel and pending tracker with `question/resolved` / `approval/resolved` when the desktop answers first. A desktop chain with no client looking at that session answers `NO_PROVIDER` immediately; that is "the desktop has nothing to answer with", not the end of the race, so the phone's panel stays live and can still answer. Covered by the bridge suite (either order, the preserved turn signal, the desktop-gives-up case) and verified end to end on a paired phone: an answer from the phone drops the desktop's panel at once, an answer from the desktop retires the phone's panel without it coming back after leaving and re-entering the session, and a phone that is not connected leaves the desktop's panel working normally.
 - **One closed phone stream no longer leaves the host believing a phone is online.** The SSE close handler decremented the subscriber count and stopped; only the revocation path refreshed the "a phone is connected" flag, so after a backgrounded app or a tunnel blip the bridge kept forwarding approvals and questions to a stream nobody read — for the rest of the process. The flag now tracks the live subscriptions, which is what decides between the dual-answer race and the desktop-only path.
@@ -140,6 +1031,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [1.4.1] - 2026-09-17
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Answers submitted on the phone now reach the agent.** The host bridge handed DSH's `approval/request` and `user-questions/request` waterfalls the phone's whole client-response envelope (`{sessionId, approvalId, outcome}` and `{sessionId, answer:{answers}}`) instead of the payload the contract declares — a bare `ApprovalOutcome` and `{answers}`. Every approval answered from the phone was therefore normalized to `unavailable` (fail closed, so the phone's 允许 was silently ignored), and the ask-user tool threw `Cannot read properties of undefined (reading 'map')` on `.answers`, which is why a submitted question batch vanished without an error on either side. Both bridges unwrap the payload now, and the decision path reads it strictly instead of reusing the display-only helper: an unreadable outcome is `unavailable`, never a grant, and an answerless batch is refused rather than faked as an empty one. Verified on a paired phone end to end — a submitted batch arrives as `{answers:[{id, selected}]}`.
 
@@ -172,6 +1077,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [1.3.6] - 2026-09-12
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **1.3.5's publish gate failed on the CI runner while the local gate was green — two runner-only defects, both in the tests this batch added.** `vi.spyOn(localStorage, 'setItem')` silently fails to intercept there (the global is a jsdom `Storage` proxy on the runner, while it intercepts locally), so the "one write per window" assertion saw zero calls and its two siblings ("must not write") were vacuously true; the deferred-write tests now count writes through a plain-object storage stub and pin no-starvation behaviourally (a second update inside the window must not postpone the write). Separately, a new test constant named `PREVIEW_KEY` tripped the preflight's secret scan — `*_KEY = '…'` matches the generic API-key rule — which no local step looks for; it is renamed for the store it holds. Both are verified on a pull request before this release (`check` and `release-preflight` green).
 - **v1.3.5 never reached npm.** Both of its workflows are red on the gate above, so the features listed under 1.3.5 first reached the registry as 1.3.6. Its tag and GitHub Release stay exactly as published — this project does not rewrite published tags.
@@ -194,6 +1113,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [1.3.4] - 2026-09-12
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **An answered approval or question panel came back as soon as the session was re-opened** — neither `approval/resolved` nor `question/resolved` had a sender anywhere in the host (both frame types existed, and the tracker and the phone both handled them, but nothing ever emitted one), so an item this phone had already answered stayed pending in the tracker behind the polling fallback for the plugin's lifetime and the poll handed it straight back. The phone kept its own answered list in a component ref, which the very remount that reproduced the bug cleared. Both bridges now retire the pending item when the answer is consumed: the adapter broadcasts the resolved frame, the respond channel drops it from the tracker directly (the phone routinely answers and leaves in the same breath, so the frame alone is not enough), and the answered memory moved to module scope (`mobile/answered-ids.ts`, shared by `approval-batches.ts` and `question-batches.ts`) where every frame and poll adoption filters through it.
 - **The session row flashed a red edge on every tap** — the row rides on top of the swipe wrapper's always-present delete button, and the global press style scaled the card to 98%, which let that layer show along the right side on every press (it read as "the delete button just appeared"). Inside the swipe wrapper the press state now keeps the background wash and drops the transform.
@@ -211,6 +1144,20 @@ All notable changes to this project are documented here. The format is based on 
 - **A tag can no longer disagree with the declared version.** Both publish jobs assert `v<package.json version> == github.ref_name` before anything is released: npm and GitHub Packages publish the *declared* version, not the tag name, so a mislabelled tag would have shipped one version's contents under another's name.
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **The phone could show two identical question panels, and the panel came back right after it was answered** — `mobile.pending` is served by a tracker that is only fed from a live phone SSE loop, so a batch answered while the page was hidden (or answered from the desktop) survived in it as a ghost. The poll then handed that batch back next to the live ask: the panel rendered both groups, and its single submit button could only echo one rpcId — the other batch stayed pending, so the panel reappeared on the next poll. A new ask now replaces that session's previous batch (the host's `ask()` blocks, so a session never holds two unanswered batches at once), the panel renders only the newest batch, and every poll adoption drops the rpcIds this phone already answered.
 
@@ -230,6 +1177,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Running-turn reconciliation is skipped while the stream is delivering** — the roster read now runs only once the chat has been silent for a full cadence, which is exactly when a lost `turn/end` matters (cuts ~2/3 of the RPCs during a live turn).
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **A phone that came back to the foreground could sit on a stale transcript** — a backgrounded PWA is frozen (timers stop, the socket can die without the page seeing an error), so returning now resyncs the stream and re-asserts the observation immediately instead of waiting out the 30 s cadence.
 - **Two contradictory comments in the fold's synthetic-id swap** — the branch is reachable (`syntheticId` yields `prefix#seq`); the comments claimed both that indexes must migrate and that the case was unused.
@@ -254,6 +1215,20 @@ All notable changes to this project are documented here. The format is based on 
 - **History cursors refresh on read** — the permanent per-session `throughSeq` cache is gone (1s TTL, forced-fresh reads, in-flight de-duplication) and chat windows revalidate when read, so a stale cursor can no longer strand the phone behind the desktop.
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Chat images never appeared on the phone** — 0.1.5 stores an image as a durable reference (`{ type: 'image', attachment: { attachmentId, … } }`), not inline bytes; the fold kept only text, so an image-only message folded to empty text and the row's empty-guard dropped it entirely (the desktop resolves the reference separately, which is why it looked fine there). Images are now folded, rendered as tiles (tap for the full-screen view) and read on demand through `mobile.readAttachment` → the host's session-authorized `session.attachment`, cached by content-addressed id on both ends.
 - **Abandoned attempts left their half-written text on screen** — an abandoned attempt has no durable settlement, so its pending row lingered until `turn/end`; the translated stream now deletes it as soon as the attempt is abandoned.
@@ -287,6 +1262,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Regenerate-button fix**
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - Regenerate button no longer misbehaves after a turn boundary
 
@@ -300,6 +1289,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Selectable file-preview text + copy-original** — 文件预览正文（代码 / 纯文本 / markdown）允许长按选中复制（此前 body 全局 `user-select:none` 未豁免预览区）；复制按钮改为「复制原文」，明确复制原始文件文本（markdown 复制源码而非渲染后文本）
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Diff artifact card breathing room** — 修复 diff 工件卡贴住正文：flow 行文本 run 被 `<div data-step-seq>` 包装后，兄弟间距选择器失效，卡片与正文间距塌缩到 0；给包装 div 加 `chat-flow-text` 类并扩展选择器，恢复卡片 12px / 文本 run 16px 间距
 - **Long path tokens wrap inside markdown prose** — markdown 正文内超长路径 token 换行，不再撑出屏幕
@@ -350,6 +1353,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Search: message-level locate via stable messageId/partId** - 搜索定位升级为按 `messageId`/`partId` 精确定位：流式 pending 行保留真实 uuid id（finalize 后不换 id），搜索命中在流式期间索引的 messageId 仍能匹配最终行；命中携带 messageId/partId/seq，聊天页滚动到精确 step/part 并高亮关键词（`<mark>`），不再回退到「首次出现」导致落错位置
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Long-token overflow on narrow phones** - 长文本在窄屏手机不再横向溢出：通知页说明与字段描述、设置表单选项说明、最近通知收件箱行、欢迎卡片、错误/空态提示等统一 `overflow-wrap: anywhere` 兜底（聊天消息区此前已有覆盖），收件箱行另加两行截断
 - **Turn-clock anchor sync with the desktop** - 「输出中」计时与桌面端完全同源：进入一个正在运行的会话时，时钟锚点直接取日志里 `turn/start` 的登录时间（host 折叠窗口携带 open-turn 边界，`mobile.readChat` 页面新增 `turnStartAt`；raw-history 兜底路径与手机端 running-reconcile 探测同样恢复该锚点），不再从本机挂载时刻起算——中途进出会话后耗时与桌面一致，也不再出现「计着计着突然跳到别的数值」的锚点切换；窗口内没有边界时才回退到挂载时刻（与桌面 TurnStatus 的 fallback 行为相同）
@@ -364,6 +1381,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Notification-page onboarding guide** - 通知页顶部新增「该开哪个？」引导卡（浏览器通知必开 / 推送渠道推荐 / Web Push 大陆受限需代理），卡片重排为 浏览器通知 → 推送渠道 → Web Push → 触发条件（可选）；Web Push 注册失败 toast 改为可操作中文指引（FCM 大陆不可直连 → 开代理或改用推送渠道）；两个保存按钮加 `aria-label` 供精确测试定位
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Notification-page save/test buttons never worked** - the five notify handlers (`handleNotifyClick` / `saveChannels` / `handleTestNotify` / `handleWebPushToggle` / `saveNotifyTriggers`) were declared after the notification page's early `return`, so their `const` bindings stayed in the temporal dead zone and every click threw a ReferenceError (the notification page had zero interaction test coverage, so the bug shipped since v0.5.0); the handlers now initialize before the early returns, and the push.config round-trip gained a spec covering channel presence + credential redaction
 
@@ -380,6 +1411,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [0.7.1] - 2026-09-03
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Flaky oversized-body rejection** - the strict body reader no longer destroys the request socket the moment an over-budget upload is detected; the host drains the remainder to EOF before answering, so a client still uploading never sees ECONNRESET (the mobile-api image-budget spec passed 20/20 consecutive runs after the fix)
 - **Runtime DSH packages declared as peerDependencies** - `@deepseek-ai/cordis`, `dsh-client-ui-primitives`, `dsh-host-apiproxy` and `dsh-settings` are now peer-declared with a verified range (`>=0.1.1-rc.1 <0.1.2-0`, excluding the breaking alpha line), so a host that does not drag them in transitively gets them auto-installed instead of a runtime ERR_MODULE_NOT_FOUND; install verified on DSH 0.1.1-rc.1
@@ -398,6 +1443,20 @@ All notable changes to this project are documented here. The format is based on 
 - **PWA renamed to Dsh Palm** — manifest / install name, iOS title and offline page
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Settings legend alignment** — the scope badges (本机 / 同步桌面 / 桌面端) now sit in a two-column grid so every explanation starts at the same x
 
@@ -410,6 +1469,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Settings form polish on the phone** — Chinese field labels driven by a metadata table, non-writable fields collapse into a read-only summary block instead of disabled controls, and voice services moved from a sheet into a full settings page with desktop-configured services listed read-only
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Usage-card data now actually arrives on the phone** — the credential ref was passed as an object instead of the raw (branded) string, so every configured provider read "未配置"; keys now resolve through the host credentials service with the method bound to the service, and Ollama Cloud's `/api/me` is queried via POST (GET answers 405)
 
@@ -425,6 +1498,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Notification settings on the phone** — permission, duration threshold, cooldown, Web Push toggle and channel credentials in the settings page, with a test button that pushes one synthetic event end to end
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Web Push now routes through a proxy when one is configured** — FCM is unreachable from some networks (mainland China), which silently dropped every L2 push; the delivery now honors `DSH_PALM_PUSH_PROXY` first, then the standard `HTTPS_PROXY` / `HTTP_PROXY` variables, and falls back to a direct connection when none is set
 - **Completion notifications now actually fire** — the notify engine read the host mux stream without unwrapping the RPC envelope (`{ rpcId, payload }`), so no job or turn event was ever seen and no notification was ever emitted; the engine now unwraps the payload before routing, and the test harness mirrors the real envelope shape
@@ -436,6 +1523,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [0.4.2] - 2026-09-02
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **The create-workspace card no longer doubles the plus sign** — the icon and the label both carried a `+`, so the button read `+ + 新建工作区`; the label now stands alone next to the icon
 - **The sidebar phone trigger is a smartphone again** — the remote-control icon was an old handset silhouette; it is redrawn as a modern rounded phone with an earpiece line and home bar, matching the desktop icon set's outline style
@@ -443,6 +1544,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [0.4.1] - 2026-09-02
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **A freshly created session now survives the back-from-chat remount** — the session list refreshes the workspace's attach roster alongside the first page, so a session created since the list last mounted is no longer dropped by the owned-row filter (previously it only appeared after a manual page reload); a roster refresh failure falls back to the snapshot and never blocks the list
 
@@ -461,6 +1576,20 @@ All notable changes to this project are documented here. The format is based on 
 - **First-time onboarding** — the panel walks a new user through configure → pair → use with a step indicator, a dismissible welcome banner, an unconfigured dot on the sidebar trigger, tunnel detection (Tailscale tailnet domain with one-click apply, frp / Cloudflare Tunnel hints), and a reachability probe that blocks saving a dead public address with a plain-language hint
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Task plan no longer sticks on an intermediate state** — a task still `in_progress` when a turn ends now reads as completed on the run-status strip and sheet (mirroring the host projection normalization), so the plan never sits stuck when the agent skips the final all-done write; `pending` items stay untouched and the next turn/start still clears the list
 - **The + menu now lists every command the desktop `/` popup shows** — the command directory resolves the session's agent view instead of the plain-context one, so per-agent rows that the Web deployment mounts through agent presets (`/plan`, `/compact`) appear on the phone; a session that resolves no agent falls back to the plain-context view
@@ -491,6 +1620,20 @@ All notable changes to this project are documented here. The format is based on 
 - **README screenshots** — run-status strip and task sheet captures rendered by the real `/m/` UI against fictional demo data; highlights and feature lists kept in sync across both languages
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **The sheet no longer hides its last rows behind the composer** — the sheet backdrop and the composer both stacked at z-index 50 and the sheet renders earlier in the DOM, so the input bar covered the bottom ~10% of the panel (the final todo row looked cut off and the list appeared unscrollable); the backdrop now stacks at 60
 - **Pull-up expand survives fast swipes** — the drag distance is tracked in a ref, so a quick swipe whose touchend lands on the same frame as the last touchmove no longer reads stale state and swallows the gesture
@@ -501,6 +1644,20 @@ All notable changes to this project are documented here. The format is based on 
 ## [0.2.1] - 2026-08-31
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Package description mojibake** - the v0.2.0 publish metadata carried a double-encoded description (PowerShell Get-Content misread the UTF-8 package.json as GBK during the version bump); 0.2.1 republishes with the correct one
 
@@ -513,6 +1670,20 @@ All notable changes to this project are documented here. The format is based on 
 - **Release infrastructure** — GitHub Actions CI (pnpm + node 22 matrix, required `check`), dependabot config, npmjs + GitHub Packages publish workflows triggered by a tag push, commitlint, bilingual README with refreshed screenshots
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - **Opening a long session no longer strands mid-history** — the opening auto-extend prepend re-follows at commit time instead of a rAF that can read the pre-commit height and pin to the stale tail (measured: 6/6 opens showed stray frames and 1/3 ended far from the bottom; now 0/8 with a frame-level sampler); the opening follower pins before the first paint, removing the top-of-history flash; the windowed height correction converges into the prefix sum instead of drifting every pass
 - **Windowed locate keeps the tail window** — while the reader sits at the bottom the locate no longer yanks the window when measured row heights land; the opening tail window is shaped like locateWindow (VISIBLE + OVERSCAN)
@@ -565,6 +1736,20 @@ First open-source release: the standalone mobile surface for the dsh web GUI, ex
 - **Persistent context usage chip** — driven by the host `contextPressure` projection (per-session occupancy, live `session/projection` pushes); renders `上下文 --` until data lands
 
 ### Fixed
+- **搜索重构·期 3：会话内搜索，旧的「子串补扫」整条删掉。**
+  - 会话内搜索：聊天头部一颗放大镜，点开是「搜索本会话」输入条，显示 `第 n/m 处`，
+    上一处/下一处循环走；命中落在已加载窗口外时先翻那一页再定位，不假装跳到了。
+  - `mobile.searchMessages` 改成一次索引查询直接拿 `seq`（旧实现要把这个会话的历史翻到底，
+    上限 4096 页），点结果立刻能定位到行。
+  - `mobile.searchAll` 保留返回形状但内部换成索引：首页/工作区搜索同样吃到中文 2 字命中，
+    工作区归属照旧带出来。
+  - 删掉 `searchDocument` / `findRowForSnippet` / `substringBackfill` / `matchMessageRows`
+    与两套命中缓存（`searchMessagesCache`、`searchDocumentCache`、`searchAllCache`）及
+    对应的 `SEARCH_*` 常量 —— 一条查询路径，不再有"FTS 猜 + 子串补扫"两套语义。
+  - 手机侧写操作（发消息、新建、归档、改名）后 3 秒内安排一次增量同步，
+    刚发出去的消息马上能搜到，不用等整轮 re-sync。
+  - 容器内验证：`scripts/verify-mobile-search-docker.ps1` 在 `node:22-bookworm`
+    里跑同一套 13 条端到端用例（真 HTTP + 真门禁 + 真 `node:sqlite` 索引），全绿。
 
 - Question/approval answers never reached the host; question panel could vanish entirely on a phone
 - Image uploads rejected by the 64 KiB `/m/api` cap now use the recording-oriented message
@@ -593,3 +1778,4 @@ First open-source release: the standalone mobile surface for the dsh web GUI, ex
 
 [0.2.0]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v0.1.0
+[1.7.0]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v1.7.0

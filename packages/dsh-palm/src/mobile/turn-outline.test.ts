@@ -1,6 +1,6 @@
 /** Merged turn outline parsing + merge tests (方案 B). */
 import { describe, expect, it } from 'vitest'
-import { localTurnEntries, mergeTurnEntries, parseTurnOutline, readingTurnAt, scrubTurnIndex, turnRowIndex, type TurnEntry } from './turn-outline.ts'
+import { localTurnEntries, mergeTurnEntries, parseTurnOutline, readingTurnAt, rowMatchesSnippet, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from './turn-outline.ts'
 import type { RenderMessage } from './messages.ts'
 
 /** One outline-style entry (wire shape). */
@@ -245,3 +245,76 @@ describe('turnRowIndex', () => {
     expect(turnRowIndex(rows, -1, 39)).toBe(2)
   })
 })
+
+describe('seqRowIndex', () => {
+  const rows = [
+    { seq: 1101, id: 'm-1', text: '你好，这里是支付专项' },
+    { seq: 4277, id: 'm-2', text: '出V2效果图', stepSeqs: [4203, 4277] },
+  ]
+
+  it('命中按 messageId 落到对应行（跨通道唯一一致的键）', () => {
+    expect(seqRowIndex(rows, 999, 'm-2')).toBe(1)
+  })
+
+  it('命中片段能在正文里对上时按文本定位（seq 对不齐时的兜底）', () => {
+    expect(seqRowIndex(rows, 999, undefined, '…这里是支付专项…')).toBe(0)
+  })
+
+  it('合并行按 stepSeqs 定位；什么都对不上时交回 -1 让调用方继续翻页', () => {
+    expect(seqRowIndex(rows, 4203)).toBe(1)
+    // 关键：窗外命中不许被"最近一行"兜住——那会让调用方以为已经在窗口里。
+    expect(seqRowIndex(rows, 5000)).toBe(-1)
+  })
+})
+describe('rowMatchesSnippet', () => {
+  it('整段命中 / 8 字窗口命中都算，跨 markdown 边界也能对上', () => {
+    expect(rowMatchesSnippet({ seq: 1, text: '好的，这里是支付专项排查结果' }, '…这里是支付专项…')).toBe(true)
+    expect(rowMatchesSnippet({ seq: 1, text: '**这里是支付专项排查结果**' }, '这里是支付专项排查结果')).toBe(true)
+    expect(rowMatchesSnippet({ seq: 1, text: '完全无关的一段话' }, '这里是支付专项排查结果')).toBe(false)
+  })
+
+  it('没有片段可比时降级为信任 seq，不误杀', () => {
+    expect(rowMatchesSnippet({ seq: 1, text: '任意' }, undefined)).toBe(true)
+    expect(rowMatchesSnippet({ seq: 1, text: '' }, '支付专项')).toBe(false)
+  })
+})
+describe('turnPromptRowIndex', () => {
+  // 真机「历史会话定位好像并不是很准」：带 turn 的行是 assistant 的回答行，问题在它
+  // 上面一格。只滚到回答行 = 提问被切在视口外，看着就像跳到了下一轮。
+  const rows = [
+    { seq: 10, turn: 1 },                 // 回答（turn 1）
+    { seq: 20 },                         // 用户提问（不带 turn）
+    { seq: 24, startSeq: 24, turn: 2 },  // 回答（turn 2）
+    { seq: 30 },                         // 用户提问
+    { seq: 31 },                         // 同轮的另一条用户消息（插话）
+    { seq: 40, turn: 3 },                // 回答（turn 3）
+  ] as unknown as RenderMessage[]
+
+  it('walks back over the unturned rows to the prompt that opens the turn', () => {
+    expect(turnPromptRowIndex(rows, 2)).toBe(1)
+    expect(turnPromptRowIndex(rows, 5)).toBe(3)
+  })
+
+  it('stops at the previous turn instead of eating the whole history', () => {
+    // 第 3 轮的提问紧跟在第 2 轮回答后面：只能退一行，不能一直退到第 1 轮。
+    expect(turnPromptRowIndex(rows, 5)).not.toBe(0)
+  })
+
+  it('leaves a prompt row, an out-of-range index and the head alone', () => {
+    expect(turnPromptRowIndex(rows, 1)).toBe(1)
+    expect(turnPromptRowIndex(rows, 0)).toBe(0)
+    expect(turnPromptRowIndex(rows, -3)).toBe(0)
+    expect(turnPromptRowIndex(rows, 99)).toBe(99)
+  })
+})
+  // 真机报障「搜索老出现第 -1 轮不在更早的历史里」：命中的 seq 落在两行之间的空档
+  // （轮次边界事件 / 被折叠掉的步骤行），区间匹配全落空，于是当成"翻不到"。
+  it('seq-only 命中落在行与行之间时，落到最靠近的下一条', () => {
+    const gapped = [
+      { seq: 10, startSeq: 10, turn: 1 },
+      { seq: 40, startSeq: 25, turn: 2 },
+    ]
+    expect(turnRowIndex(gapped, -1, 20)).toBe(1)
+    // 比所有行都新时仍然交回 -1：调用方还要继续翻页，不能假装到位。
+    expect(turnRowIndex(gapped, -1, 99)).toBe(-1)
+  })

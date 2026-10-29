@@ -100,6 +100,8 @@ export const zh = {
   'update.done': '已更新到 {version}',
   'update.failedGeneric': '更新没完成，请稍后再试',
   'update.timeout': '更新好像卡住了，刷新页面看看结果',
+  'update.repo': '打开 GitHub 仓库',
+  'update.repoHint': '欢迎 Star 和提交 Issue',
   'close.label': '关闭远程访问面板',
 } satisfies Record<string, string>
 
@@ -206,5 +208,7 @@ export const en = {
   'update.done': 'Updated to {version}',
   'update.failedGeneric': 'The update did not finish — try again later',
   'update.timeout': 'The update seems stuck — refresh the page to see the result',
+  'update.repo': 'Open the GitHub repository',
+  'update.repoHint': 'Stars and issues are welcome',
   'close.label': 'Close remote access panel',
 } satisfies Record<RemoteKey, string>

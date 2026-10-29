@@ -42,6 +42,21 @@ describe('image attach helpers', () => {
     expect(buildPromptParts('', [])).toEqual([])
   })
 
+  it('appends staged files after text and images as receipt references', () => {
+    const image: AttachedImage = { dataUrl: 'data:image/png;base64,BBBB', mediaType: 'image/png' }
+    const parts = buildPromptParts('读一下这份附件', [image], [{ receiptId: 'receipt-1' }])
+    // 顺序固定：文字 → 图片 → 文件。文件只带宿主铸的 receipt，不带字节。
+    expect(parts).toEqual([
+      { type: 'text', text: '读一下这份附件' },
+      { type: 'image', mediaType: 'image/png', data: 'BBBB' },
+      { type: 'file', receiptId: 'receipt-1' },
+    ])
+    // 只挂文件、不打字也是一条能发的消息。
+    expect(buildPromptParts('', [], [{ receiptId: 'receipt-2' }])).toEqual([
+      { type: 'file', receiptId: 'receipt-2' },
+    ])
+  })
+
   it('extracts image files from clipboard items (Android Chrome shape)', () => {
     const png = new File(['x'], 'shot.png', { type: 'image/png' })
     const text = new File(['hi'], 'note.txt', { type: 'text/plain' })

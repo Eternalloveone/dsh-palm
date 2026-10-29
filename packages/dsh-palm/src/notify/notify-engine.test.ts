@@ -76,6 +76,9 @@ function store(
   store.setConfig({
     turnThresholdMs: thresholdMs,
     turnCooldownMs: cooldownMs,
+    // Tests emit bursts of the same kind for one session; dedupe would
+    // swallow them, and these assertions are about the engine, not the filter.
+    dedupeMs: 0,
     ...(kinds !== undefined
       ? { kinds }
       : { kinds: { jobs: true, turns: true } }),

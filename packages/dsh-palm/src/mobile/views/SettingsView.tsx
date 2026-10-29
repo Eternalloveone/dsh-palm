@@ -12,7 +12,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type DependencyCheckView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
@@ -29,7 +29,7 @@ import { toast } from '../toast.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
-  ChevronUpIcon, ContrastIcon, GaugeIcon, HashIcon, InfoIcon, MicIcon,
+  ChevronUpIcon, ContrastIcon, GaugeIcon, GitHubIcon, HashIcon, InfoIcon, MicIcon,
   PencilIcon, PlusIcon, RowsIcon, ScrollDownIcon, ShieldIcon, SlidersIcon,
   TrashIcon, TypeIcon, UpperRightIcon, VibrateIcon, BellIcon,
 } from '../icons.tsx'
@@ -38,6 +38,7 @@ import {
   subscribeVoiceServices, syncHostVoiceServices, upsertVoiceService, type VoiceService,
 } from '../voice-services.ts'
 import { MarketView } from './MarketView.tsx'
+import { parseNotifyTriggerInputs } from '../notify-triggers.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
 
 /** Props for the settings page. */
@@ -47,7 +48,10 @@ export interface SettingsViewProps {
 
 /** Source badge: where a setting takes effect / can be changed. */
 function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend' }) {
-  const label = scope === 'phone' ? '本机' : scope === 'sync' ? '同步桌面' : scope === 'desktop' ? '桌面端' : scope === 'ro' ? '只读' : '推荐'
+  // 「本机」是绝大多数项的默认：每行都挂一枚等于没有信息，还把副标题挤成省略号
+  // （真机：一屏 6~7 个「本机」）。只在"不是本机"时才标，读者自然知道没标的就是本机。
+  if (scope === 'phone') return null
+  const label = scope === 'sync' ? '同步桌面' : scope === 'desktop' ? '桌面端' : scope === 'ro' ? '只读' : '推荐'
   return <span className={`settings-badge settings-badge-${scope}`}>{label}</span>
 }
 
@@ -59,15 +63,6 @@ function ChannelState({ configured }: { configured: boolean }) {
       {configured ? '已配置 ✓（凭据存于电脑端）' : '未配置'}
     </span>
   )
-}
-
-/** 依赖自检行里的"多久之前"：秒/分/时，够用就好。 */
-function sinceLabel(at: number, now: number): string {
-  const seconds = Math.max(0, Math.round((now - at) / 1000))
-  if (seconds < 60) return `${String(seconds)} 秒前`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${String(minutes)} 分钟前`
-  return `${String(Math.round(minutes / 60))} 小时前`
 }
 
 /** Inbox row time: today → HH:mm, otherwise MM-DD HH:mm. */
@@ -85,15 +80,14 @@ function formatInboxTime(ts: number): string {
 
 /** Merged card groups: semantically related namespaces share one card. */
 const SETTINGS_GROUPS: Array<{ id: string; title: string; namespaces: string[] }> = [
-  { id: 'general', title: '通用', namespaces: ['ui-theme', 'locale', 'ui-conversation', 'ui-onboarding'] },
-  { id: 'models', title: '模型', namespaces: ['llm-pi-ai', 'llm-deepseek', 'subagent-model', 'agent-default-model'] },
-  { id: 'search', title: '搜索', namespaces: ['free-search', 'web-search-deepseek'] },
-  { id: 'memory', title: '记忆', namespaces: ['mnemon', 'mnemon-ui'] },
-  { id: 'tools', title: '工具', namespaces: ['at-file', 'tool-see-image', 'agent-loop'] },
-  { id: 'system', title: '系统', namespaces: ['shell', 'permission'] },
-  { id: 'plugins', title: '插件', namespaces: ['dsh-market', 'dsh-better-sidebar'] },
+  { id: 'general', title: '通用', namespaces: ['ui-theme', 'ui-conversation'] },
+  { id: 'models', title: '模型', namespaces: ['llm-pi-ai', 'llm-deepseek', 'subagent-model-selection-settings', 'agent-default-model'] },
+  { id: 'search', title: '搜索', namespaces: ['web-search-free', 'web-search-deepseek'] },
+  { id: 'memory', title: '记忆', namespaces: ['mnemon'] },
+  { id: 'tools', title: '工具', namespaces: ['agent-loop', 'subagent'] },
+  { id: 'system', title: '系统', namespaces: ['permission', 'pwsh-sandbox'] },
+  { id: 'sidebar', title: '侧边栏', namespaces: ['better-sidebar'] },
   { id: 'remote', title: '远程访问', namespaces: ['dsh-palm'] },
-  { id: 'presets', title: 'Agent 预设', namespaces: ['agent-presets'] },
 ]
 
 /** One searchable sub-configuration entry: lives INSIDE the notify / voice
@@ -125,7 +119,7 @@ const SETTINGS_INDEX: SettingsIndexEntry[] = [
 ]
 
 /** One row of the unified settings card: icon · title/value · control. */
-function SettingsRow({ icon, title, desc, action, onClick, locateId, focused }: {
+function SettingsRow({ icon, title, desc, action, onClick, locateId, focused, scope = 'phone' }: {
   icon: ReactNode
   title: string
   desc?: string
@@ -135,12 +129,18 @@ function SettingsRow({ icon, title, desc, action, onClick, locateId, focused }: 
   locateId?: string
   /** One-shot pulse when this row is the active search target. */
   focused?: boolean
+  /**
+   * 这一项改在哪生效，显示成标题旁的角标。默认「本机」——这一页的开关绝大多数
+   * 只写本地偏好；同步到桌面、只能在桌面改的必须显式传，否则图例上那三种颜色
+   * 等于没标，用户会以为整页都没标记。
+   */
+  scope?: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend'
 }) {
   const body = (
     <>
       <span className="card-icon"><span aria-hidden>{icon}</span></span>
       <span className="card-main">
-        <span className="card-title"><span className="card-titleText">{title}</span></span>
+        <span className="card-title"><span className="card-titleText">{title}</span><ScopeBadge scope={scope} /></span>
         {desc !== undefined && <span className="card-desc">{desc}</span>}
       </span>
       <span className="card-action">{action}</span>
@@ -158,6 +158,36 @@ function SettingsRow({ icon, title, desc, action, onClick, locateId, focused }: 
       </button>
     </li>
   )
+}
+
+/** 主机配置各组的一句话说明（原来自动拼的标题重复、术语直出，普通用户读不懂）。 */
+const HOST_GROUP_DESC: Record<string, string> = {
+  general: '语言、区域和通用偏好',
+  models: '手机和子代理用哪个模型',
+  search: '联网搜索、免费搜索',
+  memory: '长期记忆里存了什么',
+  tools: 'agent 怎么循环、子代理怎么开',
+  system: '手机端能做哪些操作（发命令、改文件）',
+  sidebar: '桌面端侧边栏的显示',
+  remote: '从外网连回这台电脑',
+}
+
+function hostGroupDesc(group: { id: string; title: string }): string {
+  return HOST_GROUP_DESC[group.id] ?? group.title
+}
+
+/** 分组图标：按语义挑一个，不再 8 行共用一个滑杆。 */
+function hostGroupIcon(id: string): ReactNode {
+  switch (id) {
+    case 'general': return <TypeIcon />
+    case 'models': return <GaugeIcon />
+    case 'search': return <HashIcon />
+    case 'memory': return <InfoIcon />
+    case 'tools': return <SlidersIcon />
+    case 'system': return <ShieldIcon />
+    case 'sidebar': return <RowsIcon />
+    default: return <UpperRightIcon />
+  }
 }
 
 /** A chevron affordance for row cards that open a sheet. */
@@ -214,18 +244,21 @@ async function clearAppCaches(): Promise<void> {
 }
 
 /** One toggle row bound to a boolean display pref. */
-function ToggleRow({ icon, title, desc, value, onChange }: {
+function ToggleRow({ icon, title, desc, value, onChange, scope }: {
   icon: ReactNode
   title: string
   desc: string
   value: boolean
   onChange(next: boolean): void
+  /** 透传给 SettingsRow；不传就是本机。 */
+  scope?: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend'
 }) {
   return (
     <SettingsRow
       icon={icon}
       title={title}
       desc={desc}
+      scope={scope}
       action={
         <button
           type="button"
@@ -270,7 +303,10 @@ function resetNote(resetsAt: number | undefined): string {
 /** Traffic-light status badge for one provider's usage/balance row. */
 function UsageStatusBadge({ provider }: { provider: UsageProviderView }) {
   if (provider.status === 'ok') {
-    const label = provider.kind === 'usage' ? (provider.plan ?? '可用') : '余额'
+    // 中转站只有「累计已花」，标成「余额」会被读成「还剩这么多」——按标签说话。
+    const label = provider.kind === 'usage'
+      ? (provider.plan ?? '可用')
+      : (provider.balanceLabel ?? '余额')
     return <span className="usage-badge usage-badge-ok">{label}</span>
   }
   if (provider.status === 'no-key') return <span className="usage-badge usage-badge-no">未配置</span>
@@ -324,11 +360,44 @@ function UsageProviderCard({ provider }: { provider: UsageProviderView }) {
         <div className="usage-stats"><span><b>{provider.summary}</b></span><span /></div>
       )}
       {provider.status === 'ok' && provider.kind === 'balance' && (
-        <div className="usage-stats"><span>账户余额 <b>{provider.balance ?? '—'}</b></span><span /></div>
+        <div className="usage-stats">
+          <span>{provider.balanceLabel ?? '账户余额'} <b>{provider.balance ?? '—'}</b></span>
+          <span />
+        </div>
       )}
       {provider.status === 'no-key' && <p className="settings-note">桌面端未配置 API Key，已按用量计费无法查询</p>}
-      {provider.status === 'unsupported' && <p className="settings-note">该提供方无公开余额/用量接口</p>}
-      {provider.status === 'error' && <p className="settings-note">用量查询失败，请稍后重试</p>}
+      {provider.status === 'unsupported' && (
+        <p className="settings-note">
+          {provider.detail ?? '该提供方无公开余额/用量接口'}
+          {provider.consoleUrl !== undefined && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="usage-consoleLink"
+                onClick={() => { window.open(provider.consoleUrl, '_blank', 'noopener') }}
+              >去控制台看用量 ›
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {provider.status === 'error' && (
+        <p className="settings-note">
+          {provider.detail ?? '用量查询失败，请稍后重试'}
+          {provider.consoleUrl !== undefined && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="usage-consoleLink"
+                onClick={() => { window.open(provider.consoleUrl, '_blank', 'noopener') }}
+              >去控制台核对 ›
+              </button>
+            </>
+          )}
+        </p>
+      )}
       {provider.models !== undefined && provider.models.length > 0 && (
         <div className="usage-models">
           {provider.models.map(model => (
@@ -501,6 +570,8 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const [namespaces, setNamespaces] = useState<SettingsNamespaceView[] | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [openGroup, setOpenGroup] = useState<string | undefined>(undefined)
+  /** 「进阶」折叠：主机配置默认收起（低频，展开才占版面）。 */
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [marketOpen, setMarketOpen] = useState(false)
   // Local preference state (mirrors display-prefs + theme stores).
   const themeMode = useSyncExternalStore(subscribeMobileTheme, getMobileThemeMode)
@@ -560,26 +631,21 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   // Notification inbox: the host engine's recent decisions (newest first).
   const [inbox, setInbox] = useState<NotifyEventView[]>([])
   const [inboxBusy, setInboxBusy] = useState(false)
+  /** Delivery telemetry: distinguishes 'nothing happened' from 'nothing arrived'. */
+  const [inboxStats, setInboxStats] = useState<DeliveryStatsView | undefined>(undefined)
+  const [inboxDeliveries, setInboxDeliveries] = useState<DeliveryRecordView[] | undefined>(undefined)
   // Lock-screen privacy switch (synced from the loaded config).
   const [hideDetailsOn, setHideDetailsOn] = useState(false)
   // Per-kind notification gates (synced from the loaded config; defaults
   // mirror the host: jobs off, todo on, turns off).
-  const [kindsOn, setKindsOn] = useState({ jobs: false, todo: true, turns: false })
+  const [kindsOn, setKindsOn] = useState({ jobs: false, todo: true, turns: false, approvals: true })
   // Channel-clear confirmation: all-empty save with configured channels.
   const [confirmClearChannels, setConfirmClearChannels] = useState(false)
   // About-sheet update check state.
   const [versionBusy, setVersionBusy] = useState(false)
   const [versionStatus, setVersionStatus] = useState<string | undefined>(undefined)
-  // About-sheet dependency self-check state.
-  const [diagnostics, setDiagnostics] = useState<{ checks: DependencyCheckView[]; now: number } | undefined>(undefined)
-  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false)
 
   useEffect(() => subscribeVoiceServices(() => setVoiceServicesState(getVoiceServices())), [])
-
-  // 打开「关于」即跑一次自检：帧计数是运行期数据，每次看都得重新取。
-  useEffect(() => {
-    if (sheet === 'about') void handleDiagnostics()
-  }, [sheet])
 
   useEffect(() => {
     let cancelled = false
@@ -611,6 +677,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           jobs: config.kinds.jobs,
           todo: config.kinds.todo,
           turns: config.kinds.turns,
+          approvals: config.kinds.approvals,
         })
       },
       () => { /* notify unavailable: rows stay hidden */ },
@@ -628,6 +695,8 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       (view) => {
         if (cancelled) return
         setInbox(view.items)
+        setInboxStats(view.stats)
+        setInboxDeliveries(view.deliveries)
         setInboxBusy(false)
       },
       () => {
@@ -668,8 +737,14 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   // Hooks stay above every early return — query state is unconditional.
   const [query, setQuery] = useState('')
   const term = query.trim().toLowerCase()
-  const hit = (...texts: ReadonlyArray<string | undefined>): boolean =>
-    term === '' || texts.some(text => text !== undefined && text.toLowerCase().includes(term))
+  // 命中计数：搜索时「没有匹配」的空态只在真的没有任何一行命中时才显示
+  // （以前只要输入了词就显示，明明命中了还挂着「没有匹配」，自相矛盾）。
+  let hitCount = 0
+  const hit = (...texts: ReadonlyArray<string | undefined>): boolean => {
+    const matched = term === '' || texts.some(text => text !== undefined && text.toLowerCase().includes(term))
+    if (matched && term !== '') hitCount += 1
+    return matched
+  }
   /** Settings-search locate target: a sub-page entry's data-locate-id anchor. */
   const [focusId, setFocusId] = useState<string | undefined>(undefined)
   // Sub-page entries matching the term (the main-page rows already filter by
@@ -703,6 +778,19 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       : notifyPermission === 'denied'
         ? '权限被拒绝，请在浏览器设置中开启'
         : '点击授权，任务完成时提醒'
+
+  /**
+   * 主列表那一行右侧只放一个状态词。整句「权限被拒绝，请在浏览器设置中开启」有
+   * 15 个字，在 390pt 宽的机器上会把标题列挤成「通…」——行右列是 grid 的 auto 轨，
+   * 内容多宽它就占多宽。完整说明留在通知子页里。
+   */
+  const notifyState = !notificationSupported()
+    ? '不支持'
+    : notifyPermission === 'granted'
+      ? '已授权'
+      : notifyPermission === 'denied'
+        ? '已拒绝'
+        : '未授权'
 
   const themeLabel = themeMode === 'dark' ? '深色' : themeMode === 'light' ? '浅色' : '跟随系统'
 
@@ -842,7 +930,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   }
 
   /** Toggle one notification kind gate (instant write, all three values ride). */
-  const handleKindToggle = async (kind: 'jobs' | 'todo' | 'turns', next: boolean): Promise<void> => {
+  const handleKindToggle = async (kind: 'jobs' | 'todo' | 'turns' | 'approvals', next: boolean): Promise<void> => {
     setNotifyBusy(true)
     const patch = { ...kindsOn, [kind]: next }
     try {
@@ -870,39 +958,18 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     }
   }
 
-  /**
-   * About sheet: the host dependency self-check. Live frame counts are the
-   * point — a renamed or dropped bus event still registers fine, so only a
-   * count stuck at 0 proves that leg is gone.
-   */
-  const handleDiagnostics = async (): Promise<void> => {
-    setDiagnosticsBusy(true)
-    try {
-      setDiagnostics(await readDiagnostics())
-    } catch {
-      setDiagnostics(undefined)
-    } finally {
-      setDiagnosticsBusy(false)
-    }
-  }
-
   /** Save the notification trigger inputs (seconds/minutes → ms). */
   const saveNotifyTriggers = async (): Promise<void> => {
-    const seconds = Number(thresholdInput)
-    const minutes = Number(cooldownInput)
-    if (!Number.isFinite(seconds) || seconds < 0 || !Number.isFinite(minutes) || minutes < 0) {
-      toast('请输入有效的数值')
+    const parsed = parseNotifyTriggerInputs(thresholdInput, cooldownInput)
+    // 空输入框必须拒绝：Number('') 是 0，会把「阈值为 0」存进去，之后每条回复都通知。
+    if (parsed === undefined) {
+      toast('请填写有效的数值（非负整数）')
       return
     }
     setNotifyBusy(true)
     try {
-      await writeNotifyConfig({
-        turnThresholdMs: Math.round(seconds * 1000),
-        turnCooldownMs: Math.round(minutes * 60_000),
-      })
-      setNotifyConfig(previous => previous === undefined
-        ? previous
-        : { ...previous, turnThresholdMs: Math.round(seconds * 1000), turnCooldownMs: Math.round(minutes * 60_000) })
+      await writeNotifyConfig(parsed)
+      setNotifyConfig(previous => previous === undefined ? previous : { ...previous, ...parsed })
       toast('已保存')
     } catch (reason: unknown) {
       toast(errorText(reason))
@@ -1125,6 +1192,29 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             </div>
           </div>
 
+          {/* 送达情况：手机没响的时候，先看这里分清"没发"还是"没送到" */}
+          {inboxStats !== undefined && inboxStats.total > 0 && (
+            <div className="settings-card">
+              <div className="settings-cardHead">
+                <span className="settings-cardTitle">送达情况</span>
+              </div>
+              <p className="settings-note">
+                共 {inboxStats.total} 次推送尝试 · 成功 {inboxStats.sent} · 失败 {inboxStats.failed} · 已过滤 {inboxStats.dropped}
+              </p>
+              {inboxStats.byChannel.length > 0 && (
+                <p className="settings-note">
+                  {inboxStats.byChannel.map(channel => `${channel.channel} ${channel.sent}/${channel.sent + channel.failed + channel.dropped}`).join(' · ')}
+                </p>
+              )}
+              {(inboxDeliveries ?? []).filter(record => record.status !== 'sent').slice(0, 8).map(record => (
+                <p className="settings-note" key={`${record.at}-${record.eventId}-${record.channel}`}>
+                  {new Date(record.at).toLocaleTimeString()} · {record.channel} · {record.status === 'dropped' ? '已过滤' : '失败'}
+                  {record.detail !== undefined ? ` · ${record.detail}` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+
           {/* 最近通知：主机的判定记录（错过即丢的兜底） */}
           <div className="settings-card">
             <div className="settings-cardHead">
@@ -1141,10 +1231,13 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                     type="button"
                     key={item.id}
                     className="settings-inboxRow"
-                    disabled={item.workspaceId === undefined}
                     onClick={() => {
+                      // 通知里不一定带 workspaceId（宿主没给时就空）：以前这种行是
+                      // disabled 的，点了没反应。现在照样能跳——没工作区就只带会话 id，
+                      // 反而不要把空的 workspace 参数写进去（会被当成「未分组」）。
                       const url = new URL(window.location.href)
-                      url.searchParams.set('workspace', item.workspaceId ?? '')
+                      if (item.workspaceId === undefined || item.workspaceId === '') url.searchParams.delete('workspace')
+                      else url.searchParams.set('workspace', item.workspaceId)
                       url.searchParams.set('session', item.sessionId)
                       window.location.href = `${url.pathname}${url.search}`
                     }}
@@ -1237,6 +1330,21 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   onClick={() => { void handleKindToggle('turns', !kindsOn.turns) }}
                 />
                 <p className="settings-fieldDesc">超过时长阈值的回复完成时提醒（默认关闭）</p>
+              </div>
+              <div className="settings-field">
+                <div className="settings-fieldHead">
+                  <span className="settings-fieldLabel">审批与提问</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="审批与提问"
+                  aria-checked={kindsOn.approvals}
+                  className={`settings-switch${kindsOn.approvals ? ' settings-switch-on' : ''}`}
+                  disabled={notifyBusy}
+                  onClick={() => { void handleKindToggle('approvals', !kindsOn.approvals) }}
+                />
+                <p className="settings-fieldDesc">需要你批准或回答时提醒（默认开启，建议保留）</p>
               </div>
             </div>
           )}
@@ -1407,7 +1515,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   <span className="settings-fieldLabel">回复时长阈值（秒）</span>
                 </div>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="off"
                   className="settings-input"
                   aria-label="回复时长阈值"
                   value={thresholdInput}
@@ -1420,7 +1531,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   <span className="settings-fieldLabel">通知间隔（分钟）</span>
                 </div>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="off"
                   className="settings-input"
                   aria-label="通知间隔"
                   value={cooldownInput}
@@ -1584,11 +1698,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           </ul>
         )}
 
-        <div className="settings-legend">
-          <ScopeBadge scope="phone" /><span>仅影响本机</span>
-          <ScopeBadge scope="sync" /><span>改动同步到桌面端</span>
-          <ScopeBadge scope="desktop" /><span>请在桌面端修改</span>
-        </div>
+        {/* 图例不再占首屏：默认项不带角标，「只在桌面端改」的说明统一放页脚。 */}
 
         <ul className="settings-group">
           <li className="settings-groupTitle">外观 <span className="settings-groupDesc">显示效果</span></li>
@@ -1644,8 +1754,8 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           {hit('震动', 'vibrate', '通知震动') && (
             <ToggleRow
               icon={<VibrateIcon />}
-              title="震动"
-              desc="任务完成、审批到达时轻震一下"
+              title="通知震动"
+              desc="只对通知生效：任务完成、审批到达时轻震一下；其他操作不震"
               value={haptics}
               onChange={(next) => { setHaptics(next); setHapticsState(next) }}
             />
@@ -1656,7 +1766,12 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           <ul className="settings-group">
             <li className="settings-groupTitle">用量 <span className="settings-groupDesc">套餐与配额</span></li>
             {usage === undefined && error === undefined && (
-              <li className="settings-note">加载中…</li>
+              // 余额查询要跑好几个 provider（实测 3 秒+）。只有一行"加载中…"时
+              // 看不出是在等还是卡死了，给一条骨架。
+              <li className="settings-note" aria-busy="true">
+                <span className="settings-skeleton" aria-hidden />
+                正在读取用量…
+              </li>
             )}
             {/* Providers with no balance/usage endpoint are hidden: only rows
                 the host can actually query (ok / no-key / error) render. */}
@@ -1670,7 +1785,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               />
             )}
             {visibleUsage !== undefined && visibleUsage.providers.length > 0 && usageOpen && (
-              <li className="usage-card">
+              <li>
                 {visibleUsage.providers.map(provider => (
                   <UsageProviderCard key={provider.name} provider={provider} />
                 ))}
@@ -1697,7 +1812,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               icon={<BellIcon />}
               title="通知"
               desc="浏览器通知 · 推送渠道 · Web Push"
-              action={<><span className="settings-rowValue">{notifyDesc}</span><RowChevron /></>}
+              action={<><span className="settings-rowValue">{notifyState}</span><RowChevron /></>}
               onClick={() => { setNotifyOpen(true) }}
             />
           )}
@@ -1733,7 +1848,24 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         </ul>
 
         <ul className="settings-group">
-          <li className="settings-groupTitle">主机配置 <span className="settings-groupDesc">模型 · 搜索 · 记忆 · 工具等</span></li>
+          <li className="settings-groupTitle">进阶 <span className="settings-groupDesc">模型 · 搜索 · 记忆 · 工具 · 系统 · 远程访问</span></li>
+          <li>
+            <button type="button" className="mobile-row" aria-expanded={showAdvanced} onClick={() => { setShowAdvanced(value => !value) }}>
+              <span className="card-icon"><span aria-hidden><SlidersIcon /></span></span>
+              <span className="card-main">
+                <span className="card-title"><span className="card-titleText">主机配置</span></span>
+                <span className="card-desc">{showAdvanced ? '点一下收起' : '模型、搜索、记忆、工具、系统、侧边栏、远程访问'}</span>
+              </span>
+              <span className="card-action">
+                <span className={`settings-advChev${showAdvanced ? ' settings-advChev-open' : ''}`} aria-hidden>›</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+
+        {(showAdvanced || term !== '') && (
+        <ul className="settings-group">
+          <li className="settings-groupTitle">主机配置 <span className="settings-groupDesc">按类别分组</span></li>
           {namespaces === undefined && error === undefined && (
             <li className="settings-note">加载中…</li>
           )}
@@ -1746,17 +1878,16 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             const writable = members.some(entry =>
               Object.keys((entry.value as Record<string, unknown> | undefined) ?? {})
                 .some(field => isWritableField(entry.ns, field)))
-            const summary = members.map(entry => namespaceTitle(entry.ns)).join(' · ')
             return (
               <li key={group.id}>
                 <button type="button" className="mobile-row" onClick={() => { setOpenGroup(group.id) }}>
-                  <span className="card-icon"><span aria-hidden><SlidersIcon /></span></span>
+                  <span className="card-icon"><span aria-hidden>{hostGroupIcon(group.id)}</span></span>
                   <span className="card-main">
                     <span className="card-title">
                       <span className="card-titleText">{group.title}</span>
                       {writable ? <ScopeBadge scope="sync" /> : <ScopeBadge scope="ro" />}
                     </span>
-                    <span className="card-desc">{summary}</span>
+                    <span className="card-desc">{hostGroupDesc(group)}</span>
                   </span>
                   <span className="card-action"><RowChevron /></span>
                 </button>
@@ -1764,9 +1895,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             )
           })}
         </ul>
+        )}
 
         <ul className="settings-group">
-          <li className="settings-groupTitle">通用</li>
+          <li className="settings-groupTitle">其他</li>
           {hit('清除缓存', 'cache') && (
             <SettingsRow
               icon={<TrashIcon />}
@@ -1798,10 +1930,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         </ul>
 
         <p className="settings-note">
-          密钥类配置永不显示、不可在手机端修改；带「只读」标记的配置请在桌面端调整。
+          密钥类配置永不显示、不可在手机端修改。带「只读」的项只能在桌面端改；带「同步桌面」的项会一并改掉桌面端设置。
         </p>
 
-        {term !== '' && (
+        {term !== '' && hitCount === 0 && indexHits.length === 0 && (
           <div className="mobile-empty">
             <p className="empty-desc">没有匹配「{query.trim()}」的设置项</p>
           </div>
@@ -1852,9 +1984,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       {sheet === 'about' && (
         <Sheet title="关于" onClose={() => { setSheet(null) }}>
           <p className="sheet-confirm-desc">
-            掌上 DSH（dsh-palm）· 版本 {pkg.version}
-            <br />
-            DSH 移动端界面：扫码配对、工作区、会话与实时对话。
+                掌上 DSH（dsh-palm）· 版本 {pkg.version}
+                <br />
+                {/* 构建号是当前这一版 JS 的内容指纹：报问题时报它，一秒就能分清是旧缓存还是新代码。 */}
+                构建 {BUILD_HASH ?? '无法读取'}
           </p>
           <div className="sheet-confirm-actions">
             <button
@@ -1865,39 +1998,22 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             >
               {versionBusy ? '检查中…' : '检查更新'}
             </button>
+            {/* 一键直达仓库：版本这块最常被问的就是"有没有新版本/源码在哪"，
+                检查更新旁边放一个 GitHub 图标，省掉去设置里翻「反馈」那一步。 */}
+            <a
+              className="sheet-icon-link"
+              href="https://github.com/Eternalloveone/dsh-palm"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="打开 GitHub 仓库"
+              title="欢迎 Star 和提交 Issue"
+            >
+              <GitHubIcon width={20} height={20} />
+            </a>
           </div>
           {versionStatus !== undefined && (
             <p className="settings-fieldDesc" role="status">{versionStatus}</p>
           )}
-          <div className="settings-field">
-            <span className="settings-fieldLabel">依赖自检</span>
-            <p className="settings-fieldDesc">
-              与宿主接口的连通性。总线事件显示自启动以来收到的帧数——事件被改名或停发时订阅仍会
-              成功，所以要看常发的那几条（session.control / session/event / agent/assistant-stream）
-              是否长期为 0；added、removed、error 本就罕见，0 帧属正常。
-            </p>
-            {diagnostics === undefined
-              ? <p className="settings-fieldDesc">{diagnosticsBusy ? '读取中…' : '未读取'}</p>
-              : diagnostics.checks.map(check => (
-                <p className="settings-fieldDesc" key={check.name}>
-                  {check.ok ? '✓' : '✗'} {check.name}
-                  {' · '}
-                  {!check.ok
-                    ? (check.reason ?? '不可用')
-                    : check.kind === 'method'
-                      ? '在位'
-                      : `${String(check.frames)} 帧${check.lastAt === undefined ? '' : ` · ${sinceLabel(check.lastAt, diagnostics.now)}`}`}
-                </p>
-              ))}
-            <button
-              type="button"
-              className="mobile-button"
-              disabled={diagnosticsBusy}
-              onClick={() => { void handleDiagnostics() }}
-            >
-              {diagnosticsBusy ? '读取中…' : '刷新自检'}
-            </button>
-          </div>
         </Sheet>
       )}
       {confirmClear && (

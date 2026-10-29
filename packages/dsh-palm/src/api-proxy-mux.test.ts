@@ -65,6 +65,34 @@ function collector(broadcast: MuxBroadcast, accept?: (frame: MuxFrame) => boolea
 }
 
 describe('setupMuxSources', () => {
+  it('forwards the goal activation edge so a desktop pause reaches the phone live', async () => {
+    // 桌面端点「暂停」只是撤授权：durable 相位不变，goal 投影帧不会来。手机上
+    // 那条「暂停 → 继续」的换按钮全靠这一帧。
+    const { ctx, emit, registered } = fakeCtx()
+    const broadcast = new MuxBroadcast()
+    const sink = collector(broadcast)
+    const dispose = setupMuxSources(ctx, idleSession(), broadcast, new AbortController().signal)
+
+    expect(registered('goal/activation-changed')).toBe(true)
+    emit('goal/activation-changed', { sessionId: 's-1', goal: { id: 'g1', revision: 4, activation: 'disarmed' } })
+    await sink.settle()
+    expect(sink.frames).toEqual([{ type: 'goal/activation', sessionId: 's-1', activation: 'disarmed' }])
+
+    // 形状不对/没有目标/取值未知的载荷一律不上线（老宿主没有这条事件）。
+    emit('goal/activation-changed', { sessionId: 's-1' })
+    emit('goal/activation-changed', { sessionId: '', goal: { activation: 'armed' } })
+    emit('goal/activation-changed', { sessionId: 's-1', goal: { activation: 'unknown' } })
+    emit('goal/activation-changed', null)
+    await sink.settle()
+    expect(sink.frames).toHaveLength(1)
+
+    dispose()
+    emit('goal/activation-changed', { sessionId: 's-1', goal: { activation: 'armed' } })
+    await sink.settle()
+    expect(sink.frames).toHaveLength(1)
+    await sink.stop()
+  })
+
   it('forwards host session/event frames to every subscriber, tagged with the session', async () => {
     const { ctx, emit, registered, options } = fakeCtx()
     const broadcast = new MuxBroadcast()
@@ -93,16 +121,17 @@ describe('setupMuxSources', () => {
     await sink.stop()
   })
 
-  it('keeps the control wiring it had before (queue/jobs/projection frames)', async () => {
+  it('baseline 只镜像 projections（0.2.x 已删掉 queue/jobs 两个通道）', async () => {
     const { ctx } = fakeCtx()
     const broadcast = new MuxBroadcast()
     const sink = collector(broadcast)
     setupMuxSources(ctx, baselineSession(), broadcast, new AbortController().signal)
 
     await sink.settle()
+    // 宿主 0.2.x 的 `SessionControlBaseline` 只剩 `{ projections }`：queue/jobs 镜像被删了，
+    // 手机端的排队/后台任务改走自己的直读通道（mobile.inbox / mobile.sessionState）。
+    // 这条用例锁住这个事实：如果有人手滑把 queue/jobs 又加回来，这里会失败。
     expect(sink.frames).toEqual([
-      { type: 'session/queue', sessionId: 's-1', items: [] },
-      { type: 'session/jobs', sessionId: 's-1', jobs: [] },
       { type: 'session/projection', sessionId: 's-1', key: 'title', value: '标题', seq: 4 },
     ])
     await sink.stop()

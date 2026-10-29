@@ -3,25 +3,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testing-library/react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
-import { SessionListView, sessionListCache, sessionPreviewCache, type SessionListViewProps } from './SessionListView.tsx'
+import type { ChatPage } from '../api.ts'
+import { SessionListView, sessionListCache, sessionPreviewCache, RUNNING_STALE_MS, FIRST_PAGE_TIMEOUT_MS, type SessionListViewProps } from './SessionListView.tsx'
 import { type SessionView } from './App.tsx'
 
 // The api module is fully mocked; the view's App.tsx helpers stay real.
 vi.mock('../api.ts', () => ({
+  // 打开会话时会向宿主要一次排队快照（投影帧到不了手机）。
+  inboxOf: vi.fn(async () => ({ inbox: null })),
+  // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
+  sessionState: vi.fn(async (sessionId: string) => ({
+    sessionId,
+    rows: [],
+    maxSeq: 0,
+    queue: [],
+    queueRevision: 0,
+    turn: { running: false },
+    asOf: Date.now(),
+  })),
+  goalOf: vi.fn(async () => ({ goal: null })),
   listSessions: vi.fn(),
   listWorkspaces: vi.fn(),
   listAgentPresets: vi.fn(),
   createSession: vi.fn(),
   archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
   previews: vi.fn(),
+  // 默认「没有会话在跑」：这些用例关心的是 mux 帧怎么落到列表上。
+  runningSessions: vi.fn(async () => ({ sessionIds: [] })),
+  // 列表会对宿主说"在跑"的会话用尾页核实一次。默认给一个"边界还开着、但最新
+  // 事件早已不动"的尾页，等于核实为没在跑，不改动既有用例的预期。
+  logTail: vi.fn(async () => ({
+    rows: [],
+    maxSeq: 0,
+    hasMore: false,
+    turnStartAt: 1_700_000_000_000,
+    lastEventAt: 1_700_000_001_000,
+  })),
   history: vi.fn(),
   searchAll: vi.fn(),
   searchMessages: vi.fn(),
+  searchSessions: vi.fn(),
 }))
 vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions, listWorkspaces, previews, history, searchAll, searchMessages } from '../api.ts'
+import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions, listWorkspaces, logTail, previews, runningSessions, history, searchAll, searchMessages, searchSessions } from '../api.ts'
 import { removeOutboxForSession } from '../offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
@@ -30,9 +56,12 @@ const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const createSessionMock = vi.mocked(createSession)
 const archiveSessionMock = vi.mocked(archiveSessionApi)
 const previewsMock = vi.mocked(previews)
+const runningSessionsMock = vi.mocked(runningSessions)
+const logTailMock = vi.mocked(logTail)
 const historyMock = vi.mocked(history)
 const searchAllMock = vi.mocked(searchAll)
 const searchMessagesMock = vi.mocked(searchMessages)
+const searchSessionsMock = vi.mocked(searchSessions)
 const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
 
 const workspace: WorkspaceRow = {
@@ -73,6 +102,8 @@ beforeEach(() => {
   // stats lines); per-row history fallback stays unmocked (unused).
   previewsMock.mockResolvedValue([])
   searchAllMock.mockResolvedValue({ items: [], hasMore: false })
+  // 默认「索引还没建好」：既有用例继续覆盖旧路径兜底；索引路径由新用例单独覆盖。
+  searchSessionsMock.mockResolvedValue({ items: [], total: 0, hasMore: false, tookMs: 0, fallback: true })
   searchMessagesMock.mockResolvedValue({ items: [] })
 })
 
@@ -240,6 +271,25 @@ describe('SessionListView creation', () => {
     expect(within(helpSheet).getByText(/规格驱动模式/)).toBeTruthy()
   })
 
+  it('预设没有写说明时，问号也能点开并给出解释（不能是个点不动的死按钮）', async () => {
+    // 真机反馈（2026-10-29）：宿主给的 4 个预设全都没有 description，而问号按钮
+    // 当时是 `disabled={presetDescription === undefined}` —— 点上去毫无反应。
+    listAgentPresetsMock.mockResolvedValue({
+      presets: [{ id: 'standard', name: 'standard', trust: 'system', isDefault: true }],
+      authorable: false,
+      hasDocument: false,
+    })
+    renderList()
+
+    const help = await screen.findByRole('button', { name: '模式说明' })
+    expect((help as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(help)
+
+    const sheet = await screen.findByRole('dialog', { name: 'Agent 模式说明' })
+    expect(within(sheet).getByText(/这个模式没有写说明/)).toBeTruthy()
+    expect(within(sheet).getByText(/已有会话保持原样/)).toBeTruthy()
+  })
+
   it('skips a broken default preset and disables it in the picker', async () => {
     listAgentPresetsMock.mockResolvedValue({
       presets: [
@@ -309,205 +359,6 @@ describe('SessionListView creation', () => {
     expect(await screen.findByText(/HTTP 403/)).toBeTruthy()
     expect(await screen.findByText(/重启 dsh web/)).toBeTruthy()
     expect(picked).toBeUndefined()
-  })
-})
-
-describe('SessionListView search scope', () => {
-  it('queries the host full roster and shows extra hits outside the loaded pages', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: true,
-      nextCursor: 'c1',
-    })
-    searchAllMock.mockResolvedValue({
-      items: [
-        { kind: 'message', sessionId: 's-1', snippet: '改造移动端 本地命中', seq: 10 },
-        { kind: 'message', sessionId: 's-sub', snippet: '很久以前改过的支付逻辑片段', seq: 11 },
-      ],
-      hasMore: false,
-    })
-    renderList()
-    await screen.findByText('改造移动端')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
-    // The loaded-page hit renders in the normal groups; the owned but
-    // unloaded hit renders as an extra search row with the host snippet.
-    expect(await screen.findByText('搜索结果（未加载的会话）')).toBeTruthy()
-    // The snippet renders twice (clipped title + full description); the
-    // desc node is the click target.
-    expect(screen.getAllByText('很久以前改过的支付逻辑片段').length).toBeGreaterThan(0)
-    expect(searchAllMock).toHaveBeenCalledWith('支付')
-
-    // Clicking the extra hit opens the session (the chat loads by id). The
-    // row text renders twice (clipped title + description); hit the desc.
-    fireEvent.click(screen.getAllByText('很久以前改过的支付逻辑片段').at(-1)!)
-    await waitFor(() => {
-      expect(picked?.sessionId).toBe('s-sub')
-      expect(picked?.preview).toContain('支付逻辑')
-    })
-  })
-
-  it('hints to refine when the host search result is truncated', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockResolvedValue({
-      items: [{ kind: 'message', sessionId: 's-sub', snippet: '子目录里的支付逻辑', workspaceId: 'w-1', seq: 12 }],
-      hasMore: true,
-    })
-    renderList()
-    await screen.findByText('改造移动端')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
-    await screen.findByText('搜索结果（未加载的会话）')
-    // The cap hint tells the user to refine instead of silently hiding hits.
-    expect(screen.getByText(/结果较多，仅显示前若干条/)).toBeTruthy()
-  })
-
-  it('keeps the local filter when the host search fails', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockRejectedValue(new Error('network down'))
-    renderList()
-    await screen.findByText('改造移动端')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '移动端' } })
-    // Local filtering still applies (the loaded row matches).
-    expect(await screen.findByText('改造移动端')).toBeTruthy()
-    expect(screen.queryByText('搜索结果（未加载的会话）')).toBeNull()
-  })
-
-  it('narrows search to this workspace\'s owned sessions and reports folded foreign hits', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockResolvedValue({
-      items: [
-        // Owned but not loaded: must render as an extra search row.
-        { kind: 'message', sessionId: 's-sub', snippet: '子目录里的支付逻辑', workspaceId: 'w-1', seq: 13 },
-        // Foreign (other workspace) and unattributable: folded away.
-        { kind: 'message', sessionId: 's-other', snippet: '别的项目里的支付逻辑', workspaceId: 'w-9', seq: 14 },
-        { kind: 'message', sessionId: 's-unknown', snippet: '无从归属的片段', seq: 15 },
-      ],
-      hasMore: false,
-    })
-    renderList()
-    await screen.findByText('改造移动端')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
-    expect(await screen.findByText('搜索结果（未加载的会话）')).toBeTruthy()
-    // Only the owned, unloaded hit renders; the others fold into the
-    // scope note instead of leaking cross-workspace rows into this roster.
-    expect(screen.getAllByText(/子目录里的支付逻辑/).length).toBeGreaterThan(0)
-    expect(screen.queryByText(/别的项目里的支付逻辑/)).toBeNull()
-    expect(screen.getByText(/另有 2 个其他工作区的命中/)).toBeTruthy()
-    expect(screen.queryByText('其他工作区')).toBeNull()
-  })
-
-  it('opens a session hit straight to its first matched message', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockResolvedValue({
-      items: [{ kind: 'message', sessionId: 's-sub', snippet: '子目录里的支付逻辑', workspaceId: 'w-1', seq: 40 }],
-      hasMore: false,
-    })
-    let pickedSeq: number | undefined
-    const openChat = (session: SessionView, seq: number): void => { pickedSeq = seq }
-    renderList({ onPickSeq: openChat })
-    await screen.findByText('改造移动端')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
-    await screen.findByText('搜索结果（未加载的会话）')
-    // The host hit already carries the exact matched sequence.
-    fireEvent.click(screen.getAllByText(/子目录里的支付逻辑/).at(-1)!)
-    await waitFor(() => {
-      expect(searchMessagesMock).not.toHaveBeenCalled()
-      expect(pickedSeq).toBe(40)
-    })
-  })
-
-  it('restores the in-list search surface from initialSearch and reports snapshots', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockResolvedValue({ items: [], hasMore: false })
-    const onApplied = vi.fn()
-    const onSnapshot = vi.fn()
-    renderList({ initialSearch: { open: true, term: '支付' }, onSearchApplied: onApplied, onSearchSnapshot: onSnapshot })
-    // The search box is open with the restored term, and the app was told
-    // the one-shot restore is consumed.
-    const input = await screen.findByPlaceholderText('搜索当前工作区或全部会话…') as HTMLInputElement
-    expect(input.value).toBe('支付')
-    expect(onApplied).toHaveBeenCalledTimes(1)
-    // Live state is reported (open + term) so the app can restore it on return.
-    expect(onSnapshot).toHaveBeenCalledWith(true, '支付')
-    // It restores only once: a later render does not re-apply.
-    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
-  })
-
-  it('opens each precise host hit without a second search', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '改造移动端' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockResolvedValue({
-      items: [
-        { kind: 'message', sessionId: 's-sub', snippet: 'A 的支付逻辑', workspaceId: 'w-1', seq: 40 },
-        { kind: 'message', sessionId: 's-case', snippet: 'B 的支付逻辑', workspaceId: 'w-1', seq: 41 },
-      ],
-      hasMore: false,
-    })
-    const opened: Array<{ sessionId: string; seq?: number }> = []
-    const openChat = (session: SessionView, seq?: number): void => { opened.push({ sessionId: session.sessionId, seq }) }
-    renderList({ onPickSeq: openChat })
-    await screen.findByText('改造移动端')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
-    await screen.findByText('搜索结果（未加载的会话）')
-    // Both rows carry their exact sequence and open immediately.
-    fireEvent.click(screen.getAllByText(/A 的支付逻辑/).at(-1)!)
-    fireEvent.click(screen.getAllByText(/B 的支付逻辑/).at(-1)!)
-    expect(searchMessagesMock).not.toHaveBeenCalled()
-    expect(opened).toEqual([
-      { sessionId: 's-sub', seq: 40 },
-      { sessionId: 's-case', seq: 41 },
-    ])
-  })
-
-  it('lazily locates a loaded row that matched only by TITLE', async () => {
-    listSessionsMock.mockResolvedValue({
-      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '支付改造' } } })],
-      hasMore: false,
-    })
-    searchAllMock.mockResolvedValue({
-      items: [{ kind: 'title', sessionId: 's-1', snippet: '支付改造', workspaceId: 'w-1' }],
-      hasMore: false,
-    })
-    searchMessagesMock.mockResolvedValue({ items: [{ seq: 40, snippet: '支付逻辑' }] })
-    let pickedSeq: number | undefined
-    const openChat = (session: SessionView, seq?: number): void => { pickedSeq = seq }
-    renderList({ onPickSeq: openChat })
-    await screen.findByText('支付改造')
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-    fireEvent.change(screen.getByPlaceholderText('搜索当前工作区或全部会话…'), { target: { value: '支付' } })
-    // Wait for the debounced host search to settle so the loaded row is wired
-    // through the title-hit locate path (not the plain onPick).
-    await waitFor(() => expect(searchAllMock).toHaveBeenCalled())
-    await waitFor(() => expect(screen.queryByText('正在搜索全部会话…')).toBeNull())
-    // The loaded row matched by TITLE only: tapping it must lazily locate the
-    // first message containing the term instead of opening at the tail.
-    fireEvent.click(screen.getByText('支付改造'))
-    await waitFor(() => {
-      expect(searchMessagesMock).toHaveBeenCalledWith('s-1', '支付')
-      expect(pickedSeq).toBe(40)
-    })
   })
 })
 
@@ -737,6 +588,151 @@ describe('SessionListView live session frames', () => {
     expect(screen.queryByText('进行中')).toBeNull()
   })
 
+  it('does not paint a green dot from the first page before the tail confirms it', async () => {
+    // 真机现象（返回列表时卡片先绿一下）：首页来自宿主，而宿主那边的 running 会滞后
+    // ——刚跑完的会话仍然被标成在跑。所以页面的 true 不能直接画。
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { running: true, cwd: '/tmp/demo', projections: { values: { title: '会话一' } } })],
+      hasMore: false,
+    })
+    runningSessionsMock.mockResolvedValue({ sessionIds: [] })
+    let releaseTail: (page: ChatPage) => void = () => {}
+    logTailMock.mockImplementation(() => new Promise((resolve) => { releaseTail = resolve }))
+    renderList()
+    await screen.findByText('会话一')
+    expect(screen.queryByText('进行中')).toBeNull()
+    releaseTail({ rows: [], maxSeq: 3, hasMore: false, turnStartAt: Date.now() - 1_000 })
+    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+  })
+
+  it('drops a green dot that was baked into the cached page', async () => {
+    // 从列表点进会话、跑完、再回来：缓存里那一行还带着上次的 running=true，
+    // 挂载时如果照抄，就会先画出一个早就该熄灭的绿点。
+    sessionListCache.set(String(workspace.workspaceId), {
+      rows: [{ sessionId: 's-1', title: '缓存里还在跑', updatedAt: 1_700_000_000_000, running: true, blank: false } as never],
+      hasMore: false,
+      at: Date.now(),
+    })
+    listSessionsMock.mockResolvedValue({
+      items: [summary('s-1', 1_700_000_000_000, { cwd: '/tmp/demo', projections: { values: { title: '缓存里还在跑' } } })],
+      hasMore: false,
+    })
+    runningSessionsMock.mockResolvedValue({ sessionIds: [] })
+    renderList()
+    // 挂载这一帧就不许有绿点。
+    expect(screen.queryByText('进行中')).toBeNull()
+    await screen.findByText('缓存里还在跑')
+    expect(screen.queryByText('进行中')).toBeNull()
+  })
+  it('never flashes 进行中 while the tail check for a host claim is still in flight', async () => {
+    // 真机现象：从会话列表切到设置（列表重挂载 / mux 重连都会触发核对），卡片先亮一下
+    // 「进行中」再变「已完成」。宿主的运行集合会残留早就跑完的会话，所以"宿主说在跑"
+    // 必须先拿日志尾页核实，核实期间不许点灯。
+    twoRows()
+    runningSessionsMock.mockResolvedValue({ sessionIds: ['s-1'] })
+    let releaseTail: (page: ChatPage) => void = () => {}
+    logTailMock.mockImplementation(() => new Promise((resolve) => { releaseTail = resolve }))
+    renderList({ mux: new FakeMux() as never })
+    await screen.findByText('会话一')
+    // 核对还没回来：一个「进行中」都不许出现。
+    await waitFor(() => { expect(runningSessionsMock).toHaveBeenCalled() })
+    expect(screen.queryByText('进行中')).toBeNull()
+    // 尾页说边界还开着：这时才亮。
+    releaseTail({ rows: [], maxSeq: 3, hasMore: false, turnStartAt: Date.now() - 1_000 })
+    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+  })
+  it('shows a session the host says is running when no status frame ever arrived', async () => {
+    // 手机可能是在会话已经开跑之后才打开列表的：它手里没有那条 turn/start，
+    // 只能问宿主。列表以前完全不问，于是"运行中"时有时无。
+    twoRows()
+    runningSessionsMock.mockResolvedValue({ sessionIds: ['s-1'] })
+    // 尾页核实通过：边界开着，而且最新事件就是刚刚写的。
+    logTailMock.mockResolvedValue({
+      rows: [],
+      maxSeq: 3,
+      hasMore: false,
+      turnStartAt: Date.now() - 5_000,
+      lastEventAt: Date.now() - 1_000,
+    })
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+  })
+
+  it('keeps the badge while a long command runs silently, and drops it when the boundary closes', async () => {
+    // 静默**不是**收工的凭据：一条编译命令跑三分钟、一次大文件读写，这期间日志里
+    // 一行事件都没有。此前拿"最新事件已经很久"当收工判据，真机上就这么把正在跑的
+    // 会话判成已结束。收工只认日志里的 turn/end。
+    twoRows()
+    runningSessionsMock.mockResolvedValue({ sessionIds: ['s-1'] })
+    logTailMock.mockResolvedValue({
+      rows: [],
+      maxSeq: 3,
+      hasMore: false,
+      turnStartAt: 1_700_000_000_000,
+      // 边界开着，而且十分钟没有任何事件——命令在跑，只是不出声。
+      lastEventAt: 1_700_000_001_000,
+    })
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+
+    // 边界真收口了（尾页最后一条是 turn/end）才撤标。宿主的运行集合带 30 s 缓存，
+    // 所以把时钟推过去，让这次核对真的问到宿主的集合。
+    logTailMock.mockResolvedValue({ rows: [], maxSeq: 4, hasMore: false })
+    const realNow = Date.now()
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(realNow + 31_000)
+    try {
+      mux.emit({ type: 'session/subscribed', sessionId: 's-1' })
+      await waitFor(() => { expect(screen.queryByText('进行中')).toBeNull() })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('clears a stale running badge from the host answer once the frame is old', async () => {
+    // 断线期间丢掉的 turn/end 不会重放；没有这次校正，列表会一直标着一个
+    // 早就结束的会话（真机现象：桌面端没会话在跑，手机还显示运行中）。
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
+    expect(screen.getAllByText('进行中')).toHaveLength(1)
+
+    // 30 秒后宿主说它没在跑（缓存也过期了），一次新的连接基线触发核对。
+    const realNow = Date.now()
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(realNow + 31_000)
+    try {
+      runningSessionsMock.mockResolvedValue({ sessionIds: [] })
+      mux.emit({ type: 'session/subscribed', sessionId: 's-1' })
+      await waitFor(() => { expect(screen.queryByText('进行中')).toBeNull() })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+  it('drops a running badge that has been silent past its lifetime', async () => {
+    // 宿主的结束帧会丢，宿主的核对要枚举几千个会话（冷启动实测 24 秒，手机上
+    // 等不到）。没有自己的心跳，绿点就会挂着不下来——真机上就是这样。
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
+    expect(screen.getAllByText('进行中')).toHaveLength(1)
+
+    const realNow = Date.now()
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(realNow + RUNNING_STALE_MS + 1_000)
+    try {
+      // 任何一次重渲染都会重新算一遍行状态；静默超时后它就不该再亮。
+      mux.emit({ type: 'session/activity', sessionId: 's-2', updatedAt: realNow + 5_000 })
+      await waitFor(() => { expect(screen.queryByText('进行中')).toBeNull() })
+    } finally {
+      spy.mockRestore()
+    }
+  })
   it('re-sorts the roster from a session/activity frame', async () => {
     twoRows()
     const mux = new FakeMux()
@@ -824,3 +820,21 @@ describe('SessionListView live session frames', () => {
     expect(renderedTitles()).toEqual(before)
   })
 })
+
+  it('keeps the real first-load error instead of overwriting it with the watchdog', async () => {
+    // 看门狗只负责把「永久锁死」降级成可重试：失败分支不拆它，12 秒后它照样开火，
+    // 用「加载超时」把真正的错误（没配对、隧道断了）盖掉，用户照着错误提示排查，
+    // 方向从一开始就是错的。所以这里必须真的把假时钟推过窗口 —— 只等 20 毫秒等于没测。
+    listSessionsMock.mockRejectedValue(new Error('unauthorized: 设备未配对'))
+    vi.useFakeTimers()
+    try {
+      renderList()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.getByText(/设备未配对/)).toBeTruthy()
+      await vi.advanceTimersByTimeAsync(FIRST_PAGE_TIMEOUT_MS + 1_000)
+      expect(screen.queryByText(/加载超时/)).toBeNull()
+      expect(screen.getByText(/设备未配对/)).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })

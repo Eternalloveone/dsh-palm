@@ -16,6 +16,19 @@ export class RpcTransportError extends Error {
 }
 
 /** A business error the host answered with (200 + err result). */
+/**
+ * 宿主的方法级错误码带命名空间前缀（`session/queue-item-not-found`、
+ * `session/steer-unavailable`），而界面里判的是裸名。
+ *
+ * 这里统一剥掉一层 `xxx/` 前缀，让每个调用点只写一次判据 —— 之前没剥，
+ * `code === 'queue-item-not-found'` 永远不成立，于是「这条已经不在队列里」被误报成
+ * 「删除没送到宿主」，「轮次已结束」也被当成网络失败（真机反馈过两次）。
+ */
+export function normalizeRpcCode(code: string): string {
+  const slash = code.indexOf('/')
+  return slash > 0 ? code.slice(slash + 1) : code
+}
+
 export class RpcCallError extends Error {
   /** The wire error (code + message + details). */
   readonly error: { code: string; message: string }
@@ -23,7 +36,7 @@ export class RpcCallError extends Error {
   constructor(error: { code: string; message: string }) {
     super(error.message)
     this.name = 'RpcCallError'
-    this.error = error
+    this.error = { code: normalizeRpcCode(error.code), message: error.message }
   }
 }
 
@@ -34,12 +47,46 @@ let rpcCounter = 0
 export const DEFAULT_RPC_TIMEOUT_MS = 60_000
 
 /** Mint one process-unique rpcId (stable under crypto.randomUUID absence). */
-export function mintRpcId(): string {
-  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+export function mintRpcId(): string {  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   rpcCounter += 1
   return `${random}-${rpcCounter.toString(36)}`
+}
+
+/**
+ * 连通性的**真值**：每一次真实请求的结局。
+ *
+ * `navigator.onLine` 在安卓上很不可靠 —— 换基站、切 5G/流量、锁屏一会儿之后它会一直
+ * 停在 false，而且 `online` 事件可能永远不来。真机就是这样：网络早就好了，横幅还挂着
+ * 「网络已断开」，发出去的话全进了离线队列。所以"在线"只认宿主答没答话：HTTP 回了
+ * （哪怕是 500）就是通的，fetch 自己抛了才是断的。
+ */
+type ConnectivityListener = (online: boolean) => void
+
+const connectivityListeners = new Set<ConnectivityListener>()
+
+/** 订阅连通性变化（返回退订函数）。 */
+export function onConnectivityChange(listener: ConnectivityListener): () => void {
+  connectivityListeners.add(listener)
+  return () => { connectivityListeners.delete(listener) }
+}
+
+/** 连续多少次"没答话"才认定为断网（一次超时可能只是某一个调用慢）。 */
+const OFFLINE_AFTER_SILENT_FAILURES = 2
+
+let silentFailures = 0
+
+/** 报告一次请求结局（内部用，也供 mux 帧到达这类证据调用）。 */
+export function reportConnectivity(online: boolean): void {
+  if (online) silentFailures = 0
+  for (const listener of [...connectivityListeners]) {
+    try {
+      listener(online)
+    } catch {
+      // 订阅者自己的事：一条坏订阅不该影响请求本身。
+    }
+  }
 }
 
 /**
@@ -89,8 +136,15 @@ export async function callUnary<T>(
       } else {
         reason = error instanceof Error ? error.message : String(error)
       }
+      // 请求根本没送出去：立刻算断网。超时是另一端没答 —— 链路可能是"挂着"的
+      // 弱网（地铁、隧道半开），也有可能是某一个调用慢；连续两次都没答话才算断，
+      // 任何一次答话都会把计数清零。
+      silentFailures += 1
+      if (!timedOut || silentFailures >= OFFLINE_AFTER_SILENT_FAILURES) reportConnectivity(false)
       throw new RpcTransportError(timedOut ? '请求超时，请重试' : `transport failed: ${reason}`)
     }
+    // 宿主答话了（哪怕 4xx/5xx）：链路是通的。
+    reportConnectivity(true)
     if (!response.ok) {
       // Surface the host's machine-readable refusal message (e.g. the 64 KiB
       // payload cap) instead of a bare status. 403 stays the raw literal: the

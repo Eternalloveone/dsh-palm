@@ -37,6 +37,7 @@ import type {
   WorkspaceView,
   AgentPresetEntry,
   SubagentCatalog,
+  SubagentListEntry,
   SettingsNamespaceView,
   MuxFrame,
   ApprovalOutcome,
@@ -94,6 +95,35 @@ function questionAnswerOf(value: unknown): AskUserQuestionAnswer | null {
 }
 
 /** 适配层：在 ApiProxy 之上暴露内部钩子（手机在线状态、图片附件、dispose）。 */
+/**
+ * 「这台机器上是否存在可打开的设置文档」。
+ *
+ * 宿主在 0.1.x → 0.2.x 之间把这个探测器换了名字也换了形状：
+ *   · 0.1.x：`settings.canOpenAgentPresetDirectory()`
+ *   · 0.2.x：`settingsController.describe().hasDocument`
+ * 两代都试一遍，都没有就返回 false（它只影响按钮是否可点，不该让整块功能报错）。
+ */
+function canOpenSettingsDocument(settings: unknown): boolean {
+  const probe = settings as
+    | {
+      canOpenAgentPresetDirectory?: () => boolean
+      describe?: (options?: { redactSecrets?: boolean }) => { hasDocument?: boolean } | undefined
+    }
+    | undefined
+  if (probe === undefined || probe === null) return false
+  try {
+    if (typeof probe.canOpenAgentPresetDirectory === 'function') {
+      return probe.canOpenAgentPresetDirectory() === true
+    }
+    if (typeof probe.describe === 'function') {
+      return probe.describe({ redactSecrets: true })?.hasDocument === true
+    }
+  } catch {
+    // 设置提供方没挂上时这些调用会抛：当作「没有」，不打断预设列表。
+  }
+  return false
+}
+
 export interface ApiProxyAdapter extends ApiProxy {
   /** 手机 SSE 订阅数变化时由 mobile-api 的 SSE 桥调用。 */
   setPhoneConnected(connected: boolean): void
@@ -453,8 +483,17 @@ export function makeApiProxyAdapter(
     },
 
     sessions: {
-      list: (request) => call(request.rpcId, () =>
-        cast<Promise<{ items: SessionSummary[] }>>(session.list({ cursor: request.payload.cursor }, new AbortController().signal))),
+      // 手机端「谁在跑」的探针只带最近 200 条的 limit：不转发时宿主会把整张
+      // 会话表枚举一遍（冷启动实测 24.7 秒），请求在手机上根本等不到答复。
+      // 只有正整数才转发；不带 limit 时 payload 与旧实现逐字节一致，游标分页不受影响。
+      list: (request) => call(request.rpcId, () => {
+        const payload = request.payload as { cursor?: string; limit?: number }
+        const query: { cursor?: string; limit?: number } = { cursor: payload.cursor }
+        if (typeof payload.limit === 'number' && Number.isSafeInteger(payload.limit) && payload.limit > 0) {
+          query.limit = payload.limit
+        }
+        return cast<Promise<{ items: SessionSummary[] }>>(session.list(query as never, new AbortController().signal))
+      }),
       history: (request) => call(request.rpcId, () =>
         history.page(request.payload) as Promise<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>),
       search: (request, signal) => call(request.rpcId, () =>
@@ -497,15 +536,34 @@ export function makeApiProxyAdapter(
         return {
           presets: cast<AgentPresetEntry[]>(roster.presets),
           authorable: roster.authorable,
-          // hasDocument 从 roster 移除，改由 settings.canOpenAgentPresetDirectory() 探测。
-          hasDocument: settings.canOpenAgentPresetDirectory(),
+          // hasDocument 从 roster 移除。宿主 0.1.x 用 settings.canOpenAgentPresetDirectory()，
+          // 0.2.x 删了它、改成 settingsController.describe().hasDocument —— 两种都试，都没有就当没有。
+          hasDocument: canOpenSettingsDocument(settings),
         }
       }),
     },
 
     subagents: {
-      list: (request, signal) => call(request.rpcId, () =>
-        cast<Promise<SubagentCatalog>>(subagents.remoteExportList(request.payload.parentSessionId as never, signal ?? new AbortController().signal))),
+      // 方法名跟着宿主版本走：0.1.x 叫 remoteExportList（直接回带 parentAvailable 的目录），
+      // 0.2.x 换成 listChildren（回裸条目数组，没有 activity）。按运行期是否存在来探测，
+      // 插件就不再因为宿主升级而整块失效 —— 真机上"子代理永远是空"就是这么来的。
+      list: (request, signal) => call(request.rpcId, async () => {
+        const parentSessionId = request.payload.parentSessionId as never
+        const abort = signal ?? new AbortController().signal
+        const runtime = subagents as unknown as {
+          listChildren?: (id: never, signal?: AbortSignal) => Promise<readonly RawSubagentEntry[] | undefined>
+          remoteExportList?: (id: never, signal: AbortSignal) => Promise<SubagentCatalog>
+        }
+        if (typeof runtime.listChildren === 'function') {
+          const rows = await runtime.listChildren(parentSessionId, abort)
+          // activity 由调用方（mobile-api）按子会话的日志边界补：这一层拿不到运行态。
+          return { parentAvailable: true, entries: (rows ?? []).map(toCatalogEntry) } satisfies SubagentCatalog
+        }
+        if (typeof runtime.remoteExportList === 'function') {
+          return await runtime.remoteExportList(parentSessionId, abort)
+        }
+        throw new Error('宿主没有子代理查询能力（listChildren / remoteExportList 都不存在）')
+      }),
     },
 
     settings: {
@@ -574,6 +632,34 @@ function toSessionModels(catalog: ModelCatalog): SessionModels {
 /** 类型断言 helper：避免续行 `as unknown as` 的解析问题。 */
 function cast<T>(value: unknown): T {
   return value as T
+}
+
+/**
+ * 宿主 0.2.x `listChildren` 的裸条目（只有身份，没有运行态）。
+ *
+ * `mode` 是宿主的生命周期口径：continuable 可以续聊，one-shot / external /
+ * unknown 都是一次性的。手机上只区分"能不能再发消息"，所以只保留这两类。
+ */
+interface RawSubagentEntry {
+  id: string
+  mode?: string
+  label?: string
+}
+
+/** 裸条目 → 手机侧目录行（activity 由 mobile-api 按子会话边界补）。 */
+export function toCatalogEntry(entry: RawSubagentEntry): SubagentListEntry {
+  const label = typeof entry.label === 'string' && entry.label !== '' ? entry.label : undefined
+  const base = {
+    kind: 'child' as const,
+    id: entry.id as never,
+    // 老宿主由 remoteExportList 给真值；新宿主这里只能先占位，mobile-api 会覆盖。
+    activity: 'inactive' as const,
+    // 深一层是否有子代理要另读一次目录，手机上不展开树，先给 false。
+    hasChildren: false,
+  }
+  return entry.mode === 'continuable' && label !== undefined
+    ? { ...base, mode: 'continuable' as const, label }
+    : { ...base, mode: 'one-shot' as const, ...(label === undefined ? {} : { label }) }
 }
 
 /** RemoteError → 旧 RpcError 形状。 */

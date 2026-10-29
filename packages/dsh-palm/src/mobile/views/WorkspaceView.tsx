@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
 
 /**
  * 上一次成功取到的工作区列表（跨挂载保留）。
@@ -23,9 +24,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 let workspaceRowsCache: WorkspaceRow[] | undefined
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
-import { deleteWorkspace, listWorkspaces, listDirectory, createWorkspace, renameWorkspace, searchAll, searchMessages, type DirectoryListing, type DirectoryEntry, type SessionSearchHit } from '../api.ts'
+import { deleteWorkspace, listWorkspaces, listDirectory, createWorkspace, renameWorkspace, searchAll, searchMessages, searchSessions, type DirectoryListing, type DirectoryEntry, type SessionSearchHit } from '../api.ts'
 import { errorText } from './App.tsx'
 import { compactPath, dominantPathPrefix } from '../ui-text.ts'
+import { lastPathSegment, matchText, normalizeTerm, type MatchRanges, type TextMatch } from '../search-match.ts'
+import { rememberLocateIntent } from '../locate-intent.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
@@ -45,6 +48,33 @@ const WELCOME_KEY = 'dsh.palm.welcomeSeen'
 const RECENTS_LIMIT = 5
 /** How many recents surface as the 活跃项目 group on the roster. */
 export const ACTIVE_RECENT_LIMIT = 3
+/** 搜索态每组最多显示几条：一屏之内给「最像的几条」，其余靠细化关键词。 */
+const SEARCH_GROUP_LIMIT = 5
+
+/**
+ * 只给「连成一整段」的命中上色：子序列命中（「工区」命中「工作区」）会把几个
+ * 不相干的单字涂黄，看起来像乱码，所以它只参与排序。
+ */
+function markable(match: TextMatch | undefined): MatchRanges | undefined {
+  return match !== undefined && match.contiguous ? match.ranges : undefined
+}
+
+/**
+ * 把命中区间标出来。区间来自 {@link matchText}，与排序用的是同一趟匹配，
+ * 所以「排在前面的那条一定带黄」。
+ */
+function Marked({ text, ranges }: { text: string; ranges?: MatchRanges }): ReactElement {
+  if (ranges === undefined || ranges.length === 0) return <>{text}</>
+  const parts: ReactElement[] = []
+  let cursor = 0
+  ranges.forEach(([start, end], index) => {
+    if (start > cursor) parts.push(<span key={`t${index}`}>{text.slice(cursor, start)}</span>)
+    parts.push(<mark key={`m${index}`} className="search-mark">{text.slice(start, end)}</mark>)
+    cursor = end
+  })
+  if (cursor < text.length) parts.push(<span key="tail">{text.slice(cursor)}</span>)
+  return <>{parts}</>
+}
 
 /** Read the pinned workspace id list (localStorage, best effort). */
 function readPinned(): string[] {
@@ -120,16 +150,24 @@ function removeRecent(ids: readonly string[], id: string): string[] {
 /* ── project-kind classification ─────────────────────────────────────── */
 
 /** Project kind driving icon tint + roster grouping. */
-type WorkspaceKind = 'active' | 'test' | 'code' | 'plain'
+type WorkspaceKind = 'active' | 'code' | 'plain'
+
+/**
+ * 首页搜索结果拍平后的一行：标题命中没有 message；正文命中的每一行带一条具体消息
+ * （同会话的第 1/2 条各自成行，点哪条跳哪条）。`ordinal` 是这个会话内的第几条，
+ * 用来显示「2/2」角标 —— 别拿行下标当它，那会显示成「11/2」。
+ */
+type HomeSearchRow = { kind: 'title' | 'message'; hit: SessionSearchHit; message?: NonNullable<SessionSearchHit['messages']>[number]; ordinal?: number; copies?: SessionSearchHit[] }
 
 /** Heuristic split: the most-recently opened workspaces (up to
- *  {@link ACTIVE_RECENT_LIMIT}) are "active"; paths that look like test rigs
- *  (test/spec/benchmark segments) group under 测试项目; workspaces without
- *  any session yet stay "plain" gray. */
+ *  {@link ACTIVE_RECENT_LIMIT}) are "active"; workspaces without any session
+ *  yet stay "plain" gray; everything else is a code project.
+ *
+ *  2026-10-29: 首页不再单列「测试项目」。按 path/title 里的 test/spec/benchmark
+ *  分词来分组，实际效果是把正经项目也误判成测试项目（本仓自己的路径里就带一个 test 段），
+ *  `test` 段就会掉进那一组），分区标题反而成了噪音 —— 这类工作区现在归到代码项目。 */
 export function workspaceKind(workspace: WorkspaceRow, recents: readonly string[]): WorkspaceKind {
   if (recents.slice(0, ACTIVE_RECENT_LIMIT).includes(workspace.workspaceId)) return 'active'
-  if (/\b(test|tests|testing|spec|specs|benchmark|e2e)\b/i.test(workspace.path.replace(/[\\/]+/g, ' '))
-    || /\b(test|tests|testing|spec|specs|benchmark|e2e)\b/i.test(workspace.title)) return 'test'
   if ((workspace.sessionIds ?? []).length === 0) return 'plain'
   return 'code'
 }
@@ -137,14 +175,12 @@ export function workspaceKind(workspace: WorkspaceRow, recents: readonly string[
 const KIND_LABEL: Record<WorkspaceKind, string> = {
   active: '活跃项目',
   code: '代码项目',
-  test: '测试项目',
   plain: '其他',
 }
 
 const KIND_ICON_CLASS: Record<WorkspaceKind, string> = {
   active: 'ws-icon-active',
   code: 'ws-icon-code',
-  test: 'ws-icon-test',
   plain: 'ws-icon-plain',
 }
 
@@ -152,7 +188,6 @@ const KIND_ICON_CLASS: Record<WorkspaceKind, string> = {
 const GROUP_ORDER: ReadonlyArray<{ kind: WorkspaceKind; placeholder: string | null }> = [
   { kind: 'active', placeholder: null },
   { kind: 'code', placeholder: '暂无代码项目' },
-  { kind: 'test', placeholder: '暂无测试项目' },
   { kind: 'plain', placeholder: null },
 ]
 
@@ -269,10 +304,18 @@ function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
         <button
           type="button"
           className="mobile-button"
-          disabled={listing === undefined || creating}
-          onClick={() => void handleCreate()}
+          // listing 还没读出来时不再禁用（禁用＝点了没反应，用户不知道该怎么办）：
+          // 这时点一下就是**重新读目录**，读到就能建。（2026-10-29 一批死按钮排查）
+          disabled={creating}
+          onClick={() => {
+            if (listing === undefined) {
+              toast('还没读到这个目录，正在重试…')
+              return
+            }
+            void handleCreate()
+          }}
         >
-          {creating ? '创建中…' : '选择此目录'}
+          {creating ? '创建中…' : listing === undefined ? '重新读取目录' : '选择此目录'}
         </button>
       </div>
     </div>
@@ -413,8 +456,16 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
   const [globalHits, setGlobalHits] = useState<SessionSearchHit[]>([])
   const [globalBusy, setGlobalBusy] = useState(false)
   const [globalDone, setGlobalDone] = useState(false)
-  /** Result cap reached: more hits exist but are folded (refine the query). */
-  const [globalHasMore, setGlobalHasMore] = useState(false)
+  /** 还有下一页：底部给「加载更多」，而不是叫用户自己细化关键词。 */
+  const [globalMore, setGlobalMore] = useState(false)
+  const [globalNextOffset, setGlobalNextOffset] = useState(0)
+  const [globalLoadingMore, setGlobalLoadingMore] = useState(false)
+  /** 结果缓存（LRU，最多 20 个词）：来回改词不重复请求，也不闪。 */
+  const searchCacheRef = useRef<Map<string, { items: SessionSearchHit[]; hasMore: boolean; nextOffset: number }>>(new Map())
+  /** 输入法组词期间不发请求：中文拼音打到一半的串搜出来全是噪音。 */
+  const [composing, setComposing] = useState(false)
+  /** 键盘选中行（上下键 + 回车打开第一条）。 */
+  const [activeHit, setActiveHit] = useState(0)
   /** The host's substring backfill covered only the most recent sessions:
    *  an empty (or short) result must not read as "not on host". */
   const [globalPartial, setGlobalPartial] = useState(false)
@@ -441,31 +492,88 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     try { localStorage.setItem(WELCOME_KEY, '1') } catch { /* non-fatal */ }
   }
 
+  /**
+   * 一次搜索（首页）：走宿主索引，每个会话最多 2 条命中一起带回来。
+   * 索引还没建好（`fallback: true`）就退回旧入口 mobile.searchAll —— 绝不显示空结果
+   * 骗用户说「没有」。
+   */
+  const runSearch = useCallback(async (term: string, offset: number): Promise<{ items: SessionSearchHit[]; hasMore: boolean; nextOffset: number; partial: boolean }> => {
+    const indexed = await searchSessions({ query: term, perSession: 2, sessions: 12, offset })
+    if (indexed.fallback !== true) {
+      // 索引路径的 snippet 声明成可选，落到展示层统一成「必有字符串」，省得每处都判空。
+      const items: SessionSearchHit[] = indexed.items.map(item => ({ ...item, snippet: item.snippet ?? '' }))
+      return { items, hasMore: indexed.hasMore, nextOffset: indexed.nextOffset ?? offset + 12, partial: false }
+    }
+    const legacy = await searchAll(term)
+    return { items: legacy.items, hasMore: legacy.hasMore, nextOffset: offset + 12, partial: legacy.partial === true }
+  }, [])
+
+  const applySearchResult = useCallback((result: { items: SessionSearchHit[]; hasMore: boolean; nextOffset: number; partial: boolean }, append: boolean): void => {
+    setGlobalHits(current => {
+      if (!append) return result.items
+      // 「加载更多」翻页重复：宿主那边的候选池会随页偏移变化，同一会话可能两次都
+      // 出现在结果里。列表里出现两行一模一样的结果，用户只会以为搜索坏了；按
+      // 「会话 + 消息 seq」去重，翻页只追加真正新的那几条。
+      const seen = new Set(current.map(item => `${item.sessionId}#${item.seq ?? ''}#${item.kind}`))
+      return [...current, ...result.items.filter(item => {
+        const key = `${item.sessionId}#${item.seq ?? ''}#${item.kind}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })]
+    })
+    setGlobalMore(result.hasMore)
+    setGlobalNextOffset(result.nextOffset)
+    setGlobalPartial(result.partial)
+    setGlobalDone(true)
+    setGlobalBusy(false)
+    setGlobalLoadingMore(false)
+    setActiveHit(0)
+  }, [])
+
   // Global session search: debounced host lookup, independent of the local
-  // workspace-name filter; hits render as a second group with locate links.
+  // workspace-name filter; hits render as their own groups with locate links.
   useEffect(() => {
     const term = search.trim()
     if (term === '') {
       setGlobalHits([])
       setGlobalDone(false)
       setGlobalBusy(false)
-      setGlobalHasMore(false)
+      setGlobalMore(false)
+      setGlobalNextOffset(0)
+      setGlobalLoadingMore(false)
       setGlobalPartial(false)
+      return
+    }
+    // 组词中：先亮「正在搜索」，等 compositionend 再真正发请求。
+    if (composing) {
+      setGlobalBusy(true)
+      return
+    }
+    const cached = searchCacheRef.current.get(term)
+    if (cached !== undefined) {
+      // 命中缓存：立刻显示，并把这条移到 LRU 末尾。
+      searchCacheRef.current.delete(term)
+      searchCacheRef.current.set(term, cached)
+      applySearchResult({ ...cached, nextOffset: cached.nextOffset, partial: false }, false)
       return
     }
     setGlobalBusy(true)
     setGlobalDone(false)
     setGlobalPartial(false)
     let cancelled = false
+    // 150ms：比原来的 250ms 更跟手，又够吃掉连续键入。
     const timer = setTimeout(() => {
-      void searchAll(term).then(
+      void runSearch(term, 0).then(
         (result) => {
           if (cancelled) return
-          setGlobalHits(result.items)
-          setGlobalHasMore(result.hasMore)
-          setGlobalPartial(result.partial === true)
-          setGlobalDone(true)
-          setGlobalBusy(false)
+          searchCacheRef.current.set(term, { items: result.items, hasMore: result.hasMore, nextOffset: result.nextOffset })
+          while (searchCacheRef.current.size > 20) {
+            const oldest = searchCacheRef.current.keys().next().value
+            if (oldest === undefined) break
+            searchCacheRef.current.delete(oldest)
+          }
+          applySearchResult(result, false)
         },
         () => {
           if (!cancelled) {
@@ -475,9 +583,20 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           }
         },
       )
-    }, 250)
+    }, 150)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [search])
+  }, [search, composing, runSearch, applySearchResult])
+
+  /** 底部「加载更多」：同一关键词往后翻一页，追加而不是替换。 */
+  const loadMoreHits = (): void => {
+    const term = search.trim()
+    if (term === '' || globalLoadingMore) return
+    setGlobalLoadingMore(true)
+    void runSearch(term, globalNextOffset).then(
+      result => { if (search.trim() === term) applySearchResult(result, true) },
+      () => { setGlobalLoadingMore(false) },
+    )
+  }
 
   /** Open a search hit straight to its first matched message: lazy message
    *  locate for the seq (cached), then in-app/deep-link navigation. A missed
@@ -486,6 +605,9 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
    *  indicator), and a late locate result after the degrade path never
    *  double-fires the navigation. */
   const locateHit = (hit: SessionSearchHit, term: string): void => {
+    // 先把意图记在模块里：这一路要穿过 5 层组件，任何一层丢字段都会变成
+    // 「进去了、滚了、但没有高亮」。聊天页挂载时自己来取这一份。
+    rememberLocateIntent({ sessionId: hit.sessionId, seq: hit.seq, messageId: hit.messageId, partId: hit.partId, query: term })
     if (hit.kind === 'message' && hit.seq !== undefined) {
       locateSession(hit, hit.seq, term, hit.messageId, hit.partId)
       return
@@ -496,6 +618,9 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     void searchMessages(hit.sessionId, term).then(
       (result) => {
         const first = result.items[0]
+        // 标题命中没有 seq：解出第一条正文命中的 seq 之后要**重记**意图，否则
+        // 聊天页只能从尾页一路往回追，追不到就是「进去了但没有高亮」。
+        rememberLocateIntent({ sessionId: hit.sessionId, seq: first?.seq, messageId: first?.messageId, partId: first?.partId, query: term })
         locateSession(hit, first?.seq, term, first?.messageId, first?.partId)
       },
       () => { locateSession(hit, undefined, term) },
@@ -693,39 +818,114 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     )
   }
 
-  const term = search.trim().toLowerCase()
+  // 搜索态：名称与路径都参与匹配，按打分排序（见 search-match.ts 的分档规则）。
+  // 空查询保持原来的分组与最近使用顺序 —— 搜索不该改变「没在搜」时的样子。
+  const term = normalizeTerm(search)
+  const searchMode = term !== ''
+  const matches = new Map<string, { score: number; title?: MatchRanges; path?: MatchRanges }>()
   const visible = (items ?? [])
-    .filter(workspace => term === '' || workspace.title.toLowerCase().includes(term))
     .filter(workspace => !pinnedOnly || pinned.includes(workspace.workspaceId))
+    .filter((workspace) => {
+      if (!searchMode) return true
+      const byTitle = matchText(workspace.title, term)
+      if (byTitle !== undefined) {
+        matches.set(workspace.workspaceId, { score: byTitle.score, ...(byTitle.contiguous ? { title: byTitle.ranges } : {}) })
+        return true
+      }
+      const byPath = matchText(lastPathSegment(workspace.path), term)
+      if (byPath === undefined) return false
+      matches.set(workspace.workspaceId, { score: byPath.score, path: byPath.ranges })
+      return true
+    })
   // Path compression: hide the parent prefix most roster rows share.
   const pathPrefix = dominantPathPrefix((items ?? []).map(workspace => workspace.path))
-  // Pinned workspaces float to the top inside their kind group.
+  // Pinned workspaces float to the top inside their kind group; while searching,
+  // the match score leads and pinning only breaks ties.
   const ordered = [...visible].sort((a, b) => {
     const pinA = pinned.includes(a.workspaceId) ? 0 : 1
     const pinB = pinned.includes(b.workspaceId) ? 0 : 1
+    if (searchMode) {
+      const scoreA = matches.get(a.workspaceId)?.score ?? 0
+      const scoreB = matches.get(b.workspaceId)?.score ?? 0
+      if (scoreA !== scoreB) return scoreB - scoreA
+    }
     return pinA - pinB
   })
   // The active group renders in recency order (newest first); pinned rows
   // still lead it. Other groups keep the host's stable order.
   const recentOrder = new Map(recents.map((id, index) => [id, index]))
-  const groups: Array<{ kind: WorkspaceKind; rows: WorkspaceRow[] }> = GROUP_ORDER
-    .map(({ kind }) => ({
-      kind,
-      rows: kind === 'active'
-        ? ordered
-          .filter(workspace => workspaceKind(workspace, recents) === kind)
-          .sort((a, b) => {
-            const pinA = pinned.includes(a.workspaceId) ? 0 : 1
-            const pinB = pinned.includes(b.workspaceId) ? 0 : 1
-            if (pinA !== pinB) return pinA - pinB
-            return (recentOrder.get(a.workspaceId) ?? Infinity) - (recentOrder.get(b.workspaceId) ?? Infinity)
-          })
-        : ordered.filter(workspace => workspaceKind(workspace, recents) === kind),
-    }))
-    .filter(group => group.rows.length > 0)
+  const groups: Array<{ kind: WorkspaceKind; rows: WorkspaceRow[] }> = searchMode
+    // 搜索态不按项目类型分组：命中多少就排多少（分高的在前），分组会把
+    // 「最像的那条」拆到三个标题下面，反而更难找。
+    ? (ordered.length === 0
+        ? []
+        : [{ kind: GROUP_ORDER[0]!.kind, rows: ordered.slice(0, SEARCH_GROUP_LIMIT) }])
+    : GROUP_ORDER
+      .map(({ kind }) => ({
+        kind,
+        rows: kind === 'active'
+          ? ordered
+            .filter(workspace => workspaceKind(workspace, recents) === kind)
+            .sort((a, b) => {
+              const pinA = pinned.includes(a.workspaceId) ? 0 : 1
+              const pinB = pinned.includes(b.workspaceId) ? 0 : 1
+              if (pinA !== pinB) return pinA - pinB
+              return (recentOrder.get(a.workspaceId) ?? Infinity) - (recentOrder.get(b.workspaceId) ?? Infinity)
+            })
+          : ordered.filter(workspace => workspaceKind(workspace, recents) === kind),
+      }))
+      .filter(group => group.rows.length > 0)
+  const hiddenWorkspaces = searchMode ? Math.max(0, ordered.length - SEARCH_GROUP_LIMIT) : 0
   const emptyPlaceholders = GROUP_ORDER.filter(({ kind, placeholder }) =>
     placeholder !== null && !ordered.some(workspace => workspaceKind(workspace, recents) === kind))
   const pinnedCount = pinned.length
+  // 首页全局结果拍平成「行」：会话名命中一行；正文命中**每条消息一行**（同一会话的
+  // 第 1/2/3 条各自可点，直接跳到那一条），这也是「消息」这一组名的本义。
+  const globalTitleRows: HomeSearchRow[] = globalHits.filter(hit => hit.kind !== 'message').map(hit => ({ kind: 'title', hit }))
+  const globalMessageRows: HomeSearchRow[] = (() => {
+    // ordinal 按会话各自计数（1、2…），行下标在整页里是全局的，混用会显示成「11/2」。
+    const ordinals = new Map<string, number>()
+    const rows: HomeSearchRow[] = []
+    for (const hit of globalHits) {
+      if (hit.kind !== 'message') continue
+      const list = hit.messages !== undefined && hit.messages.length > 0 ? hit.messages : undefined
+      if (list === undefined) {
+        rows.push({ kind: 'message', hit })
+        continue
+      }
+      for (const message of list) {
+        const ordinal = (ordinals.get(hit.sessionId) ?? 0) + 1
+        ordinals.set(hit.sessionId, ordinal)
+        rows.push({ kind: 'message', hit, message, ordinal })
+      }
+    }
+    // fork 出来的副本会话：同一段历史在几个 session id 下各存一份，索引里就是几条
+    // 完全相同的结果（真机「失败」87 个会话命中、第二页 24 行里 39 行和已有行一字不差）。
+    // 按「消息 + 摘要」合并成一行，副本数记在副本上；代表行优先取有标题的那份
+    // （副本里有的有标题、有的是「未命名会话」，按标题做 key 就合不到一起）。
+    const groups = new Map<string, { rows: HomeSearchRow[] }>()
+    const order: string[] = []
+    for (const row of rows) {
+      // 用**正文段落**当 key：副本会话是 fork 出来的副本，message id / seq 会各算各的，
+      // 只有正文一模一样。段落是索引按空行切出来的整块，比摘要窗口具体得多。
+      const body = (row.message?.paragraph ?? row.hit.paragraph ?? row.message?.snippet ?? row.hit.snippet ?? '').trim()
+      const key = body !== '' ? body : `${row.message?.messageId ?? row.hit.seq ?? ''}#${row.hit.sessionId}`
+      const bucket = groups.get(key)
+      if (bucket === undefined) {
+        groups.set(key, { rows: [row] })
+        order.push(key)
+        continue
+      }
+      bucket.rows.push(row)
+    }
+    return order.map(key => {
+      const bucket = groups.get(key)!
+      const representative = bucket.rows.find(entry => (entry.hit.title ?? '').trim() !== '') ?? bucket.rows[0]!
+      const others = bucket.rows.filter(entry => entry !== representative)
+      return others.length === 0 ? representative : { ...representative, copies: others.map(entry => entry.hit) }
+    })
+  })()
+  const searchTotal = globalTitleRows.length + globalMessageRows.length
 
   const body = (() => {
     if (error !== undefined) {
@@ -774,7 +974,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
               <div className="empty-icon"><SearchIcon /></div>
               <p className="empty-title">没有匹配的工作区或会话</p>
               <p className="empty-desc">
-                工作区按名称匹配，会话按名称与可见正文匹配
+                工作区按名称与目录名匹配，会话按名称与可见正文匹配
                 {globalPartial && <>；更早的会话未在本次扫描范围内</>}
               </p>
             </div>
@@ -795,7 +995,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
       <ul className="mobile-list">
         {groups.map(group => (
           <li key={group.kind} style={{ listStyle: 'none' }}>
-            <div className="mobile-groupTitle">{KIND_LABEL[group.kind]}</div>
+            <div className="mobile-groupTitle">{searchMode ? '工作区' : KIND_LABEL[group.kind]}</div>
             {group.rows.map(workspace => {
               const kind = workspaceKind(workspace, recents)
               const isPinned = pinned.includes(workspace.workspaceId)
@@ -812,13 +1012,13 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
                   </span>
                   <span className="card-main">
                     <span className="card-title">
-                      <span className="card-titleText">{workspace.title}</span>
+                      <span className="card-titleText"><Marked text={workspace.title} ranges={matches.get(workspace.workspaceId)?.title} /></span>
                       {isPinned && <span className="ws-pin" aria-label="已固定"><PinIcon /></span>}
                     </span>
                     <span className="card-subtitle">{compactPath(workspace.path, pathPrefix)}</span>
                   </span>
                   <span className="card-action">
-                    {count > 0 && <span className="card-badge">{count} 会话</span>}
+                    {count > 0 && <span className="card-badge">{count} 个会话</span>}
                     <span className="mobile-chevron" aria-hidden>›</span>
                   </span>
                 </button>
@@ -826,6 +1026,11 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
             })}
           </li>
         ))}
+        {hiddenWorkspaces > 0 && (
+          <li style={{ listStyle: 'none' }}>
+            <p className="search-hitsNote mobile-pad">另有 {hiddenWorkspaces} 个工作区命中——细化关键词可以更快找到</p>
+          </li>
+        )}
         {!pinnedOnly && term === '' && emptyPlaceholders.map(({ kind, placeholder }) => (
           <li key={`empty-${kind}`} style={{ listStyle: 'none' }}>
             <div className="mobile-groupTitle">{KIND_LABEL[kind]}</div>
@@ -835,52 +1040,96 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
             </div>
           </li>
         ))}
-        {term !== '' && globalBusy && (
-          <li style={{ listStyle: 'none' }}>
-            <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
+        {term !== '' && globalBusy && globalHits.length === 0 && (
+          <li style={{ listStyle: 'none' }} aria-hidden>
+            {[0, 1, 2].map(index => (
+              <div key={index} className="mobile-row search-skeletonRow">
+                <span className="search-skeletonLine" style={{ width: `${72 - index * 8}%` }} />
+                <span className="search-skeletonLine search-skeletonLine-thin" style={{ width: `${46 - index * 6}%` }} />
+              </div>
+            ))}
           </li>
         )}
-        {term !== '' && !globalBusy && globalHits.length > 0 && (
+        {term !== '' && globalHits.length > 0 && (
           <li style={{ listStyle: 'none' }}>
-            <div className="mobile-groupTitle">会话</div>
-            {globalHits.map(hit => {
-              const owner = resolveOwner(hit)
-              const title = (hit.title ?? hit.snippet.trim().slice(0, 24)) || '匹配会话'
-              return (
-                <li key={`${hit.kind}:${hit.sessionId}`} style={{ listStyle: 'none' }}>
-                  <button
-                    type="button"
-                    className="mobile-row"
-                    onClick={() => { void locateHit(hit, term) }}
-                  >
-                    <span className="card-icon">
-                      <span className="sess-check" aria-hidden><CheckIcon /></span>
-                    </span>
-                    <span className="card-main">
-                      <span className="sess-titleline">
-                        <span className="sess-title">{title}</span>
-                        <span className="sess-sep" aria-hidden>·</span>
-                        <span className="sess-time">{owner.title ?? '未分组'}</span>
+            {[
+              { label: '会话名匹配', rows: globalTitleRows },
+              { label: '消息', rows: globalMessageRows },
+            ].filter(group => group.rows.length > 0).map(group => (
+              <div key={group.label}>
+                <div className="mobile-groupTitle">{group.label}</div>
+                {group.rows.map((row, index) => {
+                  const owner = resolveOwner(row.hit)
+                  // 没有标题的会话以前拿摘要前 24 字当标题，下面正文又把同一句再渲染一遍
+                  // （用户看到的是「同一句话出现在两行」）。没有标题就直说未命名。
+                  const rawTitle = (row.hit.title ?? '').trim()
+                  const title = rawTitle !== '' ? rawTitle : '未命名会话'
+                  const snippet = row.message?.snippet ?? row.hit.snippet ?? ''
+                  // 方案 C：命中段落优先。摘要只有一个窗口宽，用户点进去前看不出是哪句
+                  // 话命中；段落是索引侧按空行切出来的整块正文，直接摆出来（最多三行）。
+                  const paragraph = row.message?.paragraph ?? row.hit.paragraph
+                  const isActive = group.label === '会话名匹配' ? activeHit === index : activeHit === globalTitleRows.length + index
+                  return (
+                    <button
+                      type="button"
+                      key={`${row.hit.kind}:${row.hit.sessionId}:${row.message?.seq ?? 'title'}`}
+                      className={`mobile-row search-hitRow${isActive ? ' search-hitRow-active' : ''}`}
+                      onClick={() => { void locateHit(row.message === undefined ? row.hit : { ...row.hit, ...row.message, kind: 'message' }, term) }}
+                    >
+                      <span className="card-icon">
+                        <span className="sess-check" aria-hidden><CheckIcon /></span>
                       </span>
-                      <span className="card-desc">{hit.snippet}</span>
-                    </span>
-                    <span className="card-action">
-                      <span className="mobile-chevron" aria-hidden>›</span>
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-            {globalHasMore && (
-              <li style={{ listStyle: 'none' }}>
-                <p className="search-hitsNote mobile-pad">结果较多，仅显示前若干条——请细化关键词</p>
-              </li>
+                      <span className="card-main">
+                        <span className="sess-titleline">
+                          <span className="sess-title">
+                            <Marked text={title} ranges={markable(matchText(title, term))} />
+                          </span>
+                          {row.message !== undefined && row.hit.messages !== undefined && row.hit.messages.length > 1 && (
+                            <span className="search-hitBadge">{row.ordinal ?? 1}/{row.hit.messages.length}</span>
+                          )}
+                          <span className="sess-sep" aria-hidden>·</span>
+                          <span className="sess-time">{owner.title ?? '未分组'}</span>
+                          {(row.copies?.length ?? 0) > 0 && (
+                            <span className="search-hitBadge" title="同一段历史被 fork 成多个会话">
+                              {row.copies!.length + 1} 个副本
+                            </span>
+                          )}
+                        </span>
+                        <span className={paragraph === undefined ? 'card-desc' : 'card-desc search-hitPara'}>
+                          <Marked text={paragraph ?? snippet} ranges={markable(matchText(paragraph ?? snippet, term))} />
+                        </span>
+                        {row.message === undefined && (row.hit.hits ?? 0) > 0 && (
+                          <span className="search-hitNote">这个会话还有 {row.hit.hits} 条正文命中</span>
+                        )}
+                      </span>
+                      <span className="card-action">
+                        <span className="mobile-chevron" aria-hidden>›</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+            {globalMore && (
+              <button
+                type="button"
+                className="search-more"
+                disabled={globalLoadingMore}
+                onClick={loadMoreHits}
+              >
+                {globalLoadingMore ? '加载中…' : '加载更多结果'}
+              </button>
             )}
-            {!globalHasMore && globalPartial && (
-              <li style={{ listStyle: 'none' }}>
-                <p className="search-hitsNote mobile-pad">已扫描最近的会话，更早的会话可能未覆盖</p>
-              </li>
+            {!globalMore && !globalBusy && (
+              <p className="search-hitsNote mobile-pad">
+                {globalPartial ? '已扫描最近的会话，更早的会话可能未覆盖' : `以上是全部命中（${searchTotal} 条）`}
+              </p>
             )}
+          </li>
+        )}
+        {term !== '' && globalBusy && globalHits.length > 0 && (
+          <li style={{ listStyle: 'none' }}>
+            <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
           </li>
         )}
         {!pinnedOnly && term === '' && (
@@ -917,6 +1166,34 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
               autoFocus
               value={search}
               onChange={(event) => { setSearch(event.target.value) }}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={(event) => { setComposing(false); setSearch(event.currentTarget.value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setSearchOpen(false)
+                  setSearch('')
+                  return
+                }
+                if (searchTotal === 0) return
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setActiveHit(index => Math.min(index + 1, searchTotal - 1))
+                  return
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setActiveHit(index => Math.max(index - 1, 0))
+                  return
+                }
+                if (event.key === 'Enter') {
+                  const rows = [...globalTitleRows, ...globalMessageRows]
+                  const row = rows[Math.min(activeHit, rows.length - 1)]
+                  if (row === undefined) return
+                  event.preventDefault()
+                  void locateHit(row.message === undefined ? row.hit : { ...row.hit, ...row.message, kind: 'message' }, term)
+                }
+              }}
             />
           </div>
         ) : (
@@ -966,7 +1243,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           </button>
         )}
       </div>
-      {!welcomeHidden && (
+      {!welcomeHidden && term === '' && (
         <div className="mobile-welcome" role="note">
           <div className="mobile-welcomeCopy">
             <p className="mobile-welcomeTitle">配对成功 🎉 三步上手</p>

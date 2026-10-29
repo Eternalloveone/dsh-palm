@@ -24,19 +24,20 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { ApiProxy, MuxFrame, RpcRequest } from './api-proxy-types'
+import type { ApiProxy, MuxFrame, RpcRequest, SubagentCatalog } from './api-proxy-types'
 import { RpcId } from './api-proxy-types'
+import { mergeRunningBaseline, staleRunningEvidence } from './running-baseline.ts'
 import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
 import type { PairingService } from './pairing.ts'
 import type { NotifyService } from './notify/notify-engine.ts'
 import type { NotifyEvent } from './notify/notify-engine.ts'
-import { deliverL2, deliverL3, testNotifyEvent } from './notify/notify-deliver.ts'
+import { deliverL2 } from './notify/notify-deliver.ts'
 import { asJsonObject, readBoundedJson, writeJson } from './http.ts'
 import { readCookie } from './gate.ts'
 import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
 import { buildUsageView, type UsageProviderConfig, type UsageView } from './usage/usage-check.ts'
-import { opendir, stat, readFile as fsReadFile } from 'node:fs/promises'
+import { opendir, rename, stat, readFile as fsReadFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -44,11 +45,16 @@ import { createHash } from 'node:crypto'
 import type { ChatWindowService } from './chat-window.ts'
 import { READ_CHAT_DEFAULT_ROWS, READ_CHAT_MAX_ROWS, type ChatPage } from './chat-window.ts'
 import { coalesceTurnMessages, EventFolder, foldEvents, type RenderMessage } from './mobile/messages.ts'
+import { processModel } from './mobile/process-rows.ts'
 import type { PreviewCacheService } from './preview-cache.ts'
 import type { SessionObserverRegistry } from './api-proxy-observe.ts'
 import type { DependencyDiagnostics } from './api-proxy-diag.ts'
 import { PREVIEWS_MAX_SESSIONS } from './preview-cache.ts'
 import { fetchLatestVersion, isNewerVersion } from './latest-version.ts'
+import { readChatTailPage, readTurnBoundary } from './mobile-log-source.ts'
+import { readGitSummary } from './mobile-git.ts'
+import { SearchIndex, stripToolBlocks, type SearchIndexRow } from './search-index.ts'
+import { SearchIndexer } from './search-indexer.ts'
 import pkg from '../package.json'
 
 /**
@@ -59,9 +65,13 @@ import pkg from '../package.json'
  * stop() revokes every device; the loopback panel can also revoke one
  * device at a time.
  */
-const MOBILE_ALLOWLIST = new Set([
+export const MOBILE_ALLOWLIST: ReadonlySet<string> = new Set([
   'mobile.listDirectory',
   'mobile.readFile',
+  'mobile.readChat',
+  'mobile.logTail',
+  'mobile.sessionState',
+  'mobile.gitSummary',
   'workspace.create',
   'workspace.list',
   'workspace.rename',
@@ -78,6 +88,9 @@ const MOBILE_ALLOWLIST = new Set([
   'session.updateQueue',
   'session.models',
   'session.selectModel',
+  // 会话页的子代理徽标/树要读它（只读、按 parent 限定）。此前不在名单里，
+  // 每打开一个会话都吃一次 403，徽标于是永远是空的。
+  'subagent.list',
   'session.rename',
   'session.cancel',
   'settings.read',
@@ -97,13 +110,13 @@ const MOBILE_ALLOWLIST = new Set([
 const SETTINGS_WRITE_WHITELIST: Record<string, readonly (readonly string[])[]> = {
   'ui-theme': [['preference']],
   'ui-conversation': [['busyEnter']],
-  'agent-presets': [['default']],
-  'subagent-model': [['model'], ['provider']],
+  'subagent-model-selection-settings': [['enabled'], ['allowedModels']],
   'agent-default-model': [['model'], ['provider'], ['reasoningEffort']],
-  'at-file': [['enabled']],
   'agent-loop': [['maxParallelToolCalls']],
-  'dsh-market': [['allowRestart']],
-  'dsh-better-sidebar': [['*']],
+  'better-sidebar': [['*']],
+  // 手机自己的配置。`enabled` 故意不在列表里：关掉远程访问入口会让这台手机
+  // 立刻失去连接，这个开关只能从桌面端关。
+  'dsh-palm': [['mobileEnterToSend'], ['offlineAfterMs'], ['maxDevices'], ['tokenTtlMs']],
 }
 
 /**
@@ -118,6 +131,36 @@ const MOBILE_LIST_DIRECTORY_METHOD = 'mobile.listDirectory'
 /** Read one text file's content for the phone's file-preview sheet. */
 const MOBILE_READ_FILE_METHOD = 'mobile.readFile'
 const MOBILE_COMMANDS_METHOD = 'mobile.commands'
+/**
+ * 手机上选一个文件交给宿主暂存（`ctx.fileUploads.upload`），拿回一个 receiptId。
+ *
+ * 宿主的 prompt 内容里 `{ type: 'file', receiptId }` 才是文件附件的正式形态：字节由
+ * 附件服务落盘、按会话暂存，模型收到的是引用而不是一段内联 base64。手机端没有桌面
+ * 那条 `/upload` 直传通道（那条走桌面鉴权），所以由插件在本通道里代传。
+ */
+/**
+ * 一条 prompt 里最多带几个文件附件。
+ *
+ * 手机端本来就在选片时拦着（`MAX_ATTACHED_FILES = 5`），但那只是礼貌：这条通道对已
+ * 配对设备是全权，换个客户端（或一次脚本）就能塞 50 个。宿主侧再数一次，超了直接拒，
+ * 免得一次误操作把整轮上下文撑爆。
+ */
+export const MAX_PROMPT_FILE_PARTS = 5
+
+/** 数一条 prompt 里的文件附件（`{ type: 'file' }` 部分）。 */
+export function countPromptFileParts(payload: unknown): number {
+  const content = (payload as { content?: unknown } | null | undefined)?.content
+  if (!Array.isArray(content)) return 0
+  let count = 0
+  for (const part of content) {
+    if (typeof part === 'object' && part !== null && (part as { type?: unknown }).type === 'file') count += 1
+  }
+  return count
+}
+
+const MOBILE_UPLOAD_ATTACHMENT_METHOD = 'mobile.uploadAttachment'
+/** 单个附件 base64 的字节上限（20 MB 原始字节约 27 MB base64，留一点余量）。 */
+const MAX_ATTACHMENT_BASE64_CHARS = 28 * 1024 * 1024
 const MOBILE_TRANSCRIBE_METHOD = 'mobile.transcribe'
 /** Recent completion-notify decisions (the phone's notification inbox). */
 const MOBILE_NOTIFY_EVENTS_METHOD = 'mobile.notifyEvents'
@@ -125,6 +168,11 @@ const MOBILE_NOTIFY_EVENTS_METHOD = 'mobile.notifyEvents'
 const MOBILE_LATEST_VERSION_METHOD = 'mobile.latestVersion'
 /** Global session search with workspace attribution (home-page search). */
 const MOBILE_SEARCH_ALL_METHOD = 'mobile.searchAll'
+/** 自建索引版全局/会话内搜索（期 2）：按会话分组，带高亮区间与游标分页。 */
+const MOBILE_SEARCH_METHOD = 'mobile.search'
+/** 会话内搜索一次给多少处（上一处/下一处的水位表）：常用字在长会话里能有几百处，
+ *  给 200 处既够点，也不会把一次响应撑得太大；超出就标 hasMore，客户端显示「200+」。 */
+const CHAT_SEARCH_HITS = 200
 /**
  * One host-side running-session enumeration (the run-overview entry's badge):
  * which main-agent sessions have an attached agent running RIGHT NOW. Unlike
@@ -133,6 +181,198 @@ const MOBILE_SEARCH_ALL_METHOD = 'mobile.searchAll'
  * so the badge never queries faster than the roster refresh.
  */
 const MOBILE_RUNNING_SESSIONS_METHOD = 'mobile.runningSessions'
+/**
+ * 一轮的实时状态（v3.6）：`{ running, turnStartAt?, lastEventAt?, asOf }`。
+ *
+ * 这是手机唯一该读的「还在跑吗」：宿主把帧镜像与日志边界按 seq 比一次，给出结论。
+ * 手机端不再自己推断（静默阈值、边界缺席、名单 running 全部退场）。
+ */
+const MOBILE_TURN_STATE_METHOD = 'mobile.turnState'
+/**
+ * 轮次大纲（导航清单要的 `{ turn, seq, prompt, response }[]`）。
+ *
+ *  尾页刻意不带它（一个 87 KB，首屏不需要），而手机端的宿主权威页又只在"尾页完全没有
+ *  投影"时才补 —— 尾页一旦带上了权限/上下文投影，这份大纲就永远到不了手机，于是
+ *  轮次清单里只剩已加载的那两三抡。这里单独开一条只读通道：数据来自花名册枚举留下的
+ *  投影快照（内存查表，不读日志、不触发整页解压）。
+ */
+const MOBILE_TURN_OUTLINE_METHOD = 'mobile.turnOutline'
+/** 排队消息的宿主快照（inbox 投影的 next-turn）。宿主只发投影帧、从不发
+ *  session/queue；而投影帧实测也到不了手机（排队后 6 秒 0 帧），所以这里按需直读
+ *  同一份花名册快照，不读日志、不解压。 */
+const MOBILE_INBOX_METHOD = 'mobile.inbox'
+/**
+ * 目标投影（`mobile.goal` 与 `mobile.sessionState` 共用）。
+ *
+ * 优先问进程内的目标服务：会话里刚建的目标在花名册快照里还没有，只读快照就是
+ * 「目标条永远不出现」。服务不可用（没装/会话冷）时退回快照，必要时现读一页日志。
+ */
+async function readGoalProjection(
+  proxy: ApiProxy,
+  deps: { agents?: AgentLookup | undefined; goals?: GoalLookup | undefined },
+  sessionId: string,
+  wantsFresh: boolean,
+): Promise<{ goal: unknown; activation?: 'armed' | 'disarmed' }> {
+  const live = goalSnapshotOf(deps, sessionId)
+  let goal: unknown = preferLiveGoal(live, sessionProjectionSnapshots.get(sessionId)?.block.values?.['goal'])
+  if (wantsFresh && live === undefined) {
+    try {
+      const page = await proxy.sessions.history({ rpcId: RpcId('dsh-palm-mobile-goal'), payload: { sessionId, maxMessages: 1, fresh: true } } as never)
+      if (page.result.ok) {
+        const values = (page.result.value as { projections?: { values?: Record<string, unknown> } }).projections?.values
+        if (values?.['goal'] !== undefined) goal = values['goal']
+      }
+    } catch {
+      // 读不到就用快照：目标条显示旧相位，比整条消失好。
+    }
+  }
+  const activation = goalActivationOf(deps, sessionId)
+  return { goal: goal === undefined ? null : goal, ...(activation === undefined ? {} : { activation }) }
+}
+
+/** 原子快照：行 + 队列 + 回合一次给全（手机端状态仓的唯一权威来源）。 */
+const MOBILE_SESSION_STATE_METHOD = 'mobile.sessionState'
+
+/** 队列版本：每次入队/插队/删除/编辑 +1，客户端据此让乐观项退场。 */
+const queueRevisions = new Map<string, number>()
+
+function queueRevisionOf(sessionId: string): number {
+  return queueRevisions.get(sessionId) ?? 0
+}
+
+function bumpQueueRevision(sessionId: string): void {
+  queueRevisions.set(sessionId, queueRevisionOf(sessionId) + 1)
+}
+
+/**
+ * 队列投影读取（`mobile.inbox` 与 `mobile.sessionState` 共用）。
+ *
+ * 花名册快照是几分钟前枚举的：删除/编辑之后还拿它就会把已经删掉的行又画回来，看起来
+ * 就像"删不掉"。所以改完队列的那一次（客户端带 fresh）现开一帧 follow 取当下投影；
+ * 平时（回合跑着时每几秒一问）只读快照 —— 每次都读一页 history 会跟同会话的聊天读
+ * 抢宿主，弱网下卡片反而更慢。
+ */
+async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFresh: boolean): Promise<unknown> {
+  let inbox: unknown = sessionProjectionSnapshots.get(sessionId)?.block.values?.['inbox']
+  // 快照里还挂着待发项时不能信它：那一项可能早就被宿主投递出去了（投递不改这份
+  // 快照），手机端就会一直显示一条已经发出去的排队消息。此时现读一次，带节流。
+  const autoFresh = shouldRefreshInbox(inbox, Date.now(), inboxFreshAt.get(sessionId) ?? null)
+  if (autoFresh) inboxFreshAt.set(sessionId, Date.now())
+  if (wantsFresh || autoFresh) {
+    try {
+      const page = await proxy.sessions.history({ rpcId: RpcId('dsh-palm-mobile-inbox'), payload: { sessionId, maxMessages: 1, fresh: true } } as never)
+      if (page.result.ok) {
+        const values = (page.result.value as { projections?: { values?: Record<string, unknown> } }).projections?.values
+        if (values?.['inbox'] !== undefined) inbox = values['inbox']
+      }
+    } catch {
+      // 读不到就用快照，卡片显示旧一点总比不显示好。
+    }
+  }
+  return inbox
+}
+
+/**
+ * inbox 投影 → 手机侧队列行。
+ *
+ * 两种线上形状都要吃：
+ *  ①`session/queue` 帧（桌面插件时代）：`{ id, placement, message: { content } }`；
+ *  ②inbox 投影（宿主 0.2.x）：`next-turn` 里就是**裸的 UserMessage**，`content` 在行上，
+ *    没有 `message` 这一层。
+ *
+ * 只认 ① 的时候，投影过来的每一条正文都是空的 —— 手机上就是「2 条排队」加两行空白
+ * （真机截图）。所以这里先看行上的 `content`，再退回 `message.content`。
+ */
+export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; receipts?: string[]; keepParts?: unknown[] }> {
+  const rows = (inbox as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
+  if (!Array.isArray(rows)) return []
+  const items: Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean }> = []
+  rows.forEach((row, index) => {
+    const record = (row ?? {}) as {
+      id?: unknown
+      placement?: unknown
+      content?: unknown
+      text?: unknown
+      message?: { content?: unknown; text?: unknown }
+    }
+    const blocks = record.content ?? record.message?.content
+    const rawText = record.text ?? record.message?.text
+    const receipts: string[] = []
+    if (Array.isArray(blocks)) {
+      for (const block of blocks) {
+        const part = block as { type?: unknown; receiptId?: unknown }
+        if (part.type === 'file' && typeof part.receiptId === 'string' && part.receiptId !== '') receipts.push(part.receiptId)
+      }
+    }
+    const text = typeof rawText === 'string' && rawText !== '' ? rawText.trim() : textOfInboxContent(blocks)
+    // 能不能就地编辑：正文必须可改，附件/图片这些**原样保留**（收据和 attachmentId
+    // 都还在宿主手里，拼回去不用重传字节）。只有认不出的块类型才判为不可编辑。
+    const keepParts: unknown[] = []
+    let hasUnknownPart = false
+    if (Array.isArray(blocks)) {
+      for (const block of blocks) {
+        const type = (block as { type?: unknown }).type
+        if (type === 'text') continue
+        if (type === 'file' || type === 'image') { keepParts.push(block); continue }
+        hasUnknownPart = true
+      }
+    }
+    const editable = Array.isArray(blocks)
+      ? blocks.length > 0 && !hasUnknownPart
+      : text !== ''
+    items.push({
+      id: typeof record.id === 'string' ? record.id : String(index),
+      placement: record.placement === 'steering' ? 'steering' : record.placement === 'context' ? 'context' : 'queued',
+      text,
+      editable,
+      // 文件附件只带收据（给界面显示用）；`keepParts` 是编辑时要拼回去的原样块。
+      ...(receipts.length === 0 ? {} : { receipts }),
+      ...(keepParts.length === 0 ? {} : { keepParts }),
+    })
+  })
+  return items
+}
+
+/**
+ * 队列项正文（够卡片显示一行）。
+ *
+ * 非文本块也要出一段占位：只排队了一张图片时，正文是空的 —— 界面上就是「2 条排队」
+ * 加两行空白（真机截图）。给个 `[图片]` 至少能看出这条是什么。
+ */
+function textOfInboxContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const type = (block as { type?: unknown }).type
+    if (type === 'text') {
+      const text = (block as { text?: unknown }).text
+      if (typeof text === 'string' && text.trim() !== '') parts.push(text.trim())
+      continue
+    }
+    if (typeof type === 'string' && type !== '') {
+      parts.push(type === 'image' ? '[图片]' : type === 'file' ? '[附件]' : `[${type}]`)
+    }
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
+/**
+ * 目标条读取：把会话的 goal 投影原样交给手机端（{ current } 由客户端解析）。
+ * 队列那条路（mobile.inbox）已经证明同一个快照里能拿到投影，这里复用同一条：
+ * 平时读快照，只有刚点过动作（fresh）时才现开一帧 follow 取当下值。
+ */
+const MOBILE_GOAL_METHOD = 'mobile.goal'
+/**
+ * 目标动作（暂停/恢复/编辑/清除）的原生通道。
+ *
+ * 桌面端那条 `remote.goals.*` 在手机上不可用，`/goal <verb>` 命令虽然也能改相位，
+ * 但**暂停的语义不一样**：桌面端点暂停只是撤掉"允许自动继续"这条进程内授权
+ * （durable 相位仍写着 active），命令行的 `/goal pause` 却把 durable 相位改成
+ * paused。手机照抄命令就会出现"桌面点了暂停、手机条子还写暂停"的错位 —— 用户
+ * 看到的就是这个。这里直连宿主目标服务，动作语义与桌面端逐字一致。
+ */
+export const MOBILE_GOAL_ACTION_METHOD = 'mobile.goalAction'
 /** The published package the About sheet checks against. */
 const PACKAGE_NAME = '@eternalloveone/dsh-palm'
 /**
@@ -150,11 +390,38 @@ const MOBILE_VOICE_SERVICES_METHOD = 'mobile.voiceServices'
  */
 const MOBILE_COMMAND_EXEC_METHOD = 'mobile.commandExec'
 /**
+ * Read-only git summary for one directory (branch / changes / recent
+ * commits). Answered locally on the host: the phone gets one structured
+ * answer instead of shelling out and parsing text, and the command set is
+ * fixed so nothing on the phone can mutate a repository.
+ */
+const MOBILE_GIT_SUMMARY_METHOD = 'mobile.gitSummary'
+/**
  * Folded-view chat reads (v3): the host serves message rows from its
  * mux-fed window cache instead of the raw event stream. Answered locally;
  * the phone falls back to `session.history` when this method is absent.
  */
 const MOBILE_READ_CHAT_METHOD = 'mobile.readChat'
+/** 会话日志尾部直读（C）：只解尾部 zstd 帧，供手机折叠首屏。 */
+const MOBILE_LOG_TAIL_METHOD = 'mobile.logTail'
+/**
+ * `mobile.readChat` 可以顺带取回的小读取（白名单）：打开会话时这两份目录本来
+ * 各自要一次隧道往返，现在跟页面一起回来。名字之外的请求一律忽略。
+ */
+const READ_CHAT_INCLUDE_NAMES = ['models', 'subagents'] as const
+type ReadChatIncludeName = (typeof READ_CHAT_INCLUDE_NAMES)[number]
+
+/** 解析 `readChat` 的 `include`：只认白名单，去重且保持请求顺序。 */
+function readChatInclude(raw: unknown): ReadChatIncludeName[] {
+  if (!Array.isArray(raw)) return []
+  const picked: ReadChatIncludeName[] = []
+  for (const value of raw) {
+    if (typeof value !== 'string') continue
+    const name = READ_CHAT_INCLUDE_NAMES.find(candidate => candidate === value)
+    if (name !== undefined && !picked.includes(name)) picked.push(name)
+  }
+  return picked
+}
 /**
  * Batch last-message previews (v3.1): the session-list page's preview lines
  * served from the host's mux-fed preview cache in ONE call — instead of one
@@ -179,6 +446,22 @@ const MOBILE_DIAGNOSTICS_METHOD = 'mobile.diagnostics'
  * taps a button, the host writes one JSON file, and the agent reads it.
  */
 const MOBILE_PERF_METHOD = 'mobile.perf'
+/**
+ * 「刚结束」账本的宿主侧落盘。
+ *
+ * 手机端原来只在 localStorage 里记一份：换个浏览器/清一次缓存，运行中页的「刚结束」
+ * 就空了。账本放宿主这边（跟着 perfDir 走），同一台机器的任何客户端读到同一份。
+ */
+const MOBILE_FINISHED_RUNS_METHOD = 'mobile.finishedRuns'
+/** 账本最多留多少条（够放一两天的工作，按会话去重）。 */
+const FINISHED_RUNS_MAX = 60
+/**
+ * 一条账本存活多久。
+ *
+ * 真机口径（2026-10-29）：运行中页的「刚结束」应该是**我没点进去看过**的那些会话，
+ * 而不是「最近半小时结束的」。所以存活期给到 7 天，真正的剔除靠「打开过就删」。
+ */
+const FINISHED_RUNS_TTL_MS = 7 * 24 * 60 * 60_000
 /**
  * Write-only error-report intake. The always-on mobile error ring hands each
  * debounced record here; the host validates the (already-sanitized) shape,
@@ -245,6 +528,10 @@ interface MobileDirectoryEntry {
   name: string
   path: string
   hidden: boolean
+  /** 带上文件一起列时才有：区分目录与文件（目录浏览老调用方不看这两个字段）。 */
+  kind?: 'dir' | 'file'
+  /** 文件的字节数（只有 kind === 'file' 时有）。 */
+  bytes?: number
 }
 
 /** One-level directory listing with ancestor breadcrumbs (host.listDirectory shape). */
@@ -427,7 +714,7 @@ function isWindowsDriveRoot(target: string): boolean {
   return /^[A-Za-z]:[\\/]$/.test(target)
 }
 
-async function mobileListDirectory(path: string | undefined): Promise<MobileDirectoryListing> {
+async function mobileListDirectory(path: string | undefined, files = false): Promise<MobileDirectoryListing> {
   const home = homedir()
   // This-PC drive picker (Windows): list available drives instead of a level.
   if (path === THIS_PC) {
@@ -450,7 +737,7 @@ async function mobileListDirectory(path: string | undefined): Promise<MobileDire
       for (;;) {
         const dirent = await dir.read()
         if (dirent === null) break
-        if (!dirent.isDirectory() && !dirent.isSymbolicLink()) continue
+        if (!dirent.isDirectory() && !dirent.isSymbolicLink() && !files) continue
         collected.push({ name: dirent.name, isDirectory: dirent.isDirectory(), isSymbolicLink: dirent.isSymbolicLink() })
       }
     } finally {
@@ -476,12 +763,27 @@ async function mobileListDirectory(path: string | undefined): Promise<MobileDire
         continue // broken/cyclic symlink: not enterable
       }
     }
-    if (!enterable) continue
+    if (!enterable) {
+      // 文件行：只有调用方要文件（files=true）时才会走到这里，带上字节数给手机显示。
+      if (!files) continue
+      let bytes: number | undefined
+      try {
+        bytes = (await stat(entryPath)).size
+      } catch {
+        continue // 读不到大小的（权限/竞态删掉）就别列了
+      }
+      if (entries.length === maxEntries) {
+        truncated = true
+        break
+      }
+      entries.push({ name: candidate.name, path: entryPath, hidden: candidate.name.startsWith('.'), kind: 'file', bytes })
+      continue
+    }
     if (entries.length === maxEntries) {
       truncated = true
       break
     }
-    entries.push({ name: candidate.name, path: entryPath, hidden: candidate.name.startsWith('.') })
+    entries.push({ name: candidate.name, path: entryPath, hidden: candidate.name.startsWith('.'), kind: 'dir' })
   }
   const crumbs = mobileAncestryCrumbs(target)
   // Windows: at a drive root, prepend a "此电脑" crumb so the user can switch drives.
@@ -555,6 +857,41 @@ const MAX_SSE_SUBSCRIBERS = 8
 
 /** session.list sort cache: content key -> sorted row array (see dispatch). */
 let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
+
+/**
+ * 列表行在手机端真正被读取的字段：`mobile/views/App.tsx` 的 `toSessionView` 取
+ * sessionId / updatedAt / running / blank / cwd 与 `projections.values` 里的
+ * title、preview、sessionStats，`RunOverviewView` 只再要 title / running / blank。
+ *
+ * 宿主返回的每一行都带着全部投影：实测一页 40 行 248~384 KB，其中 99% 是别的投影
+ * （单行 `turnOutline` 最大 53 KB / 279 轮）。这些字节在 4G 上要走 1~2 秒、还要被
+ * 手机解析和 JSON 序列化一次，然后丢掉。这里在发车前沿白名单裁掉。
+ */
+const SESSION_LIST_KEPT_PROJECTIONS = ['title', 'preview', 'sessionStats'] as const
+
+/** Strip a host roster row down to the fields the phone surface actually reads. */
+export function trimSessionListRow<T extends { updatedAt: number; sessionId: string }>(row: T): T {
+  const projections = (row as { projections?: { values?: Record<string, unknown> } }).projections
+  const values = projections?.values
+  // 没有投影：这行本来就小（只剩 id/时间/状态），原样发。
+  if (projections === undefined || values === undefined) return row
+  const kept: Record<string, unknown> = {}
+  let keptCount = 0
+  for (const key of SESSION_LIST_KEPT_PROJECTIONS) {
+    const value = values[key]
+    if (value !== undefined) {
+      kept[key] = value
+      keptCount += 1
+    }
+  }
+  // 三个白名单键都没有：整块投影都没用，连外壳一起省掉（比留着空对象再小一点）。
+  if (keptCount === 0) {
+    const { projections: _dropped, ...rest } = row as T & { projections?: unknown }
+    return rest as T
+  }
+  return { ...row, projections: { ...projections, values: kept } }
+}
+
 /**
  * 会话归属：workspaceId → 该工作区拥有的 sessionId 集合。与 sessionListTtlCache 在
  * 同一次 workspace.list 枚举里一起刷新，因此续页复用旧快照时依然能按工作区过滤。
@@ -562,6 +899,8 @@ let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; ses
 let sessionListOwnedCache: Map<string, Set<string>> | undefined
 /** 落盘花名册快照的文件名（位置由插件的 perfDir 决定，源码里不出现任何本机路径）。 */
 let sessionRosterCacheFile: string | undefined
+/** 「刚结束」账本的落盘文件（位置同样由 perfDir 决定，源码里不出现本机路径）。 */
+let finishedRunsFile: string | undefined
 /** 落盘快照只回读一次；读不到就走全量枚举。 */
 let sessionRosterHydrated = false
 /** 两次后台刷新之间的最小间隔：枚举要 6~30 秒，刷太勤会把宿主变成其他界面的瓶颈。 */
@@ -628,6 +967,68 @@ function hydrateSessionRoster(apiProxy: ApiProxy): void {
   } catch { /* 没有可用的落盘快照：走全量枚举 */ }
 }
 
+
+/** 账本里的一条（与客户端 `FinishedRun` 同形，宿主只存不解释）。 */
+export interface FinishedRunEntry {
+  sessionId: string
+  title: string
+  finishedAt: number
+  status: 'done' | 'error' | 'stopped'
+  durationMs?: number
+  summary?: string
+}
+
+/** 读账本（文件不存在/坏文件都当空）。顺手按 TTL 与条数上限裁剪。 */
+export function readFinishedRuns(file: string | undefined, now: number): FinishedRunEntry[] {
+  if (file === undefined) return []
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((entry): entry is FinishedRunEntry => {
+      if (typeof entry !== 'object' || entry === null) return false
+      const row = entry as Partial<FinishedRunEntry>
+      return typeof row.sessionId === 'string'
+        && typeof row.title === 'string'
+        && typeof row.finishedAt === 'number'
+        && (row.status === 'done' || row.status === 'error' || row.status === 'stopped')
+        && now - row.finishedAt < FINISHED_RUNS_TTL_MS
+    }).slice(0, FINISHED_RUNS_MAX)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 合并一次上报的账本条目，返回合并后的全量。
+ *
+ * 合并语义用**会话 + 收工时刻**做键：同一会话只保留最新一条（与客户端一致），
+ * 不同客户端先后上报同一条也不会重复。
+ */
+export function mergeFinishedRuns(
+  current: readonly FinishedRunEntry[],
+  incoming: readonly FinishedRunEntry[],
+  now: number,
+): FinishedRunEntry[] {
+  const bySession = new Map<string, FinishedRunEntry>()
+  for (const entry of [...current, ...incoming]) {
+    if (typeof entry.finishedAt !== 'number' || now - entry.finishedAt >= FINISHED_RUNS_TTL_MS) continue
+    const previous = bySession.get(entry.sessionId)
+    if (previous === undefined || entry.finishedAt >= previous.finishedAt) bySession.set(entry.sessionId, entry)
+  }
+  return [...bySession.values()].sort((a, b) => b.finishedAt - a.finishedAt).slice(0, FINISHED_RUNS_MAX)
+}
+
+/** 写账本（失败静默：账本丢一条不能影响聊天）。 */
+export function writeFinishedRuns(file: string | undefined, entries: readonly FinishedRunEntry[]): void {
+  if (file === undefined) return
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify(entries))
+  } catch {
+    // 磁盘满/只读：保持内存行为即可
+  }
+}
+
 /** 把花名册快照落盘（失败静默）。DSH 重启后靠它免掉冷启动那一次 6~30 秒的全量枚举。 */
 function persistSessionRoster(): void {
   const file = sessionRosterCacheFile
@@ -657,18 +1058,378 @@ let sessionListTtlCache: {
   rawItems: RosterItem[]
   archivedIds: Set<string>
 } | undefined
+/** 会话投影快照（每次全量枚举时整体替换）。
+ *
+ *  手机的权限选择器/上下文占用/轮次大纲都以尾页投影为基线，而日志尾部里只有
+ *  消息事件。直接为主页补一次 `sessions.list` 是不可接受的：枚举三千多个会话
+ *  要 6~30 秒（见 refreshSessionRoster 的注释）。枚举本来就在跑（列表页），顺手
+ *  把每行的投影留下即可，尾页读取只是查表。 */
+let sessionProjectionSnapshots = new Map<string, { at: number; block: { asOfSeq?: number; values?: Record<string, unknown> } }>()
+/**
+ * 排队投影（inbox）上一次"现读"的时刻。
+ *
+ * 花名册快照里的 inbox 只有在枚举会话时才刷新，**宿主把排队消息认领成下一轮时它不会
+ * 变**——手机端照这份快照轮询，卡片就永远挂着「排队中」。所以只要快照里还显示有待发
+ * 项，就得开一帧 follow 拿当下的真值；这里记一次时刻，避免每 5 秒的轮询都去读宿主。
+ */
+const inboxFreshAt = new Map<string, number>()
+/** 待发投影的现读节流：手机上每 5 秒轮询一次，宿主这边最多 4 秒真读一次。 */
+const INBOX_FRESH_INTERVAL_MS = 4000
+
+/**
+ * 快照里的 inbox 还挂着待发项时，是否需要现读一次真值。
+ *
+ * 花名册快照只在枚举会话时刷新，宿主把排队消息认领成下一轮并不会更新它——照快照
+ * 轮询，手机上那张卡片就永远显示「排队中」，而消息其实早发出去了。这里给出判据，
+ * 由调用方决定真的去开 follow（带节流，别把每次轮询都变成一次整页读）。
+ */
+export function shouldRefreshInbox(
+  inbox: unknown,
+  now: number,
+  lastFreshAt: number | null,
+  intervalMs: number = INBOX_FRESH_INTERVAL_MS,
+): boolean {
+  const rows = (inbox as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
+  if (!Array.isArray(rows) || rows.length === 0) return false
+  if (lastFreshAt === null) return true
+  return now - lastFreshAt >= intervalMs
+}
+/** 尾页随消息一起下发的投影键（首屏渲染要用的那几个，都很小）。
+ *  turnOutline 刻意不在里面：它能有 87 KB，而首屏并不需要它。 */
+const TAIL_PAGE_PROJECTION_KEYS = ['permissions', 'contextPressure'] as const
 /** TTL for the workspace roster / agent-preset roster caches (v3.2). */
 const ROSTER_TTL_MS = 30_000
 /** TTL for mobile.runningSessions (the badge is not latency-critical and the
  *  host enumeration is the same session.list walk, so the caches align). */
-const RUNNING_SESSIONS_TTL_MS = 30_000
+const RUNNING_SESSIONS_TTL_MS = 15_000
+/** 查"谁在跑"时只看最近更新的这一批会话：运行中的会话每一帧都在写
+ *  updatedAt，必然落在这一批里，而全量枚举几千条是几秒到几十秒的活——
+ *  手机上这个请求常常等不到答复，"进行中"就永远退不掉。 */
+const RUNNING_SESSIONS_SCAN_LIMIT = 200
 /** Running-session cache (see dispatch). */
 let mobileRunningCache: {
   at: number
   proxy: ApiProxy
   sessionIds: string[]
 } | undefined
-/** workspace.list TTL cache (see dispatch). */
+
+/* ── 「谁在跑」的服务端镜像 ──────────────────────────────────────────────
+   手机每问一次就得让宿主把会话表枚举一遍，冷启动实测 24.7 秒——手机上这个
+   请求根本等不到答复，于是"运行中"迟迟不出现、或者出现了不肯消失。
+
+   这里在服务端留一份镜像：每一条转发给手机的 mux 帧都顺带把 session/status
+   记下来，于是手机再问就是一次内存读（微秒级），而且桌面端一开跑，下一帧
+   就把状态送进去了。只有进程启动后的第一次问才需要枚举一遍做基线。 */
+const liveRunningSessionIds = new Set<string>()
+/**
+ * 宿主**明确说过「这条会话没在跑」**的集合（session/status 的 running:false）。
+ *
+ * 只有这种正面证据才允许按「日志静默」把一轮判成中断。以前用的是「运行集合里没有它」
+ * —— 集合为空时同样「没有」，于是长回合（编译、跑测试静默几分钟）会被判成收工：
+ * 手机上「输出中」时有时无、过程条秒表也跟着闪（真机反馈）。
+ */
+const liveNotRunningConfirmed = new Set<string>()
+/** 基线是什么时候取到的；0 表示还没有取过。 */
+let liveRunningSeededAt = 0
+
+/**
+ * Whether a session is working right now, from the same mirror the phone
+ * reads. The notify engine uses it to drop "reply finished" pushes that only
+ * mark an internal sub-turn: the session is demonstrably still running, so
+ * nothing has been handed back to the user yet.
+ */
+export function isLiveSessionRunning(sessionId: string): boolean {
+  return liveRunningSessionIds.has(sessionId)
+}
+
+/**
+ * 宿主是否**明确**说过这条会话当前没在跑（收到过 status 帧的 running:false）。
+ *
+ * false 只代表「没收到过否定证据」，不代表「在跑」：判「这一轮死在半路」时必须要求
+ * 这个正面证据，否则一次静默就被误判成收工（真机：输出中时有时无）。
+ */
+export function isLiveSessionNotRunningConfirmed(sessionId: string): boolean {
+  return liveNotRunningConfirmed.has(sessionId)
+}
+/**
+ * 基线的保底重取间隔：帧是实时的，但断流期间会漏，所以隔一阵子重对一次。
+ *
+ * 不能缩短：reseed 只认宿主的 `sessions.list(...).running`，而实测那个字段
+ * 在正在跑的会话上也是 false（40 个会话全 false，含本机正在跑的这一轮）。
+ * 也就是说基线恒为空、真正的运行集合全靠 `session/status` 帧喂；把间隔改小
+ * 只会让 reseed 反复把这套集合清空，正在跑的会话反而被抹掉。
+ */
+const LIVE_RUNNING_RESEED_MS = 5 * 60_000
+let liveRunningReseedInFlight = false
+let liveRunningReseedPromise: Promise<void> | undefined
+
+/**
+ * 每一条「正在跑」最后一次有证据的时刻（帧或基线）。用来给「谁都没再提它」设一个上限，
+ * 但绝不因为一次空基线就删 —— 上游的 running 字段实测恒 false，清一次就等于把
+ * 正在跑的长回合判成「已中断」。
+ */
+const liveRunningEvidence = new Map<string, number>()
+
+/** 记一次运行证据（帧或基线都算）。 */
+function noteRunningEvidence(sessionId: string, at: number = Date.now()): void {
+  liveRunningEvidence.set(sessionId, at)
+}
+
+/** 用宿主枚举出来的结果当基线：**只并集，不清空**（见 running-baseline.ts 的注释）。 */
+function adoptRunningBaseline(sessionIds: string[]): void {
+  const merged = mergeRunningBaseline(liveRunningSessionIds, sessionIds)
+  liveRunningSessionIds.clear()
+  for (const sessionId of merged) {
+    liveRunningSessionIds.add(sessionId)
+    noteRunningEvidence(sessionId)
+  }
+  liveRunningBaseline = new Set(sessionIds)
+  liveRunningSeededAt = Date.now()
+  pruneRunningEvidence()
+}
+
+/** 最近一次基线里出现过的会话（静默清理时要豁免它们）。 */
+let liveRunningBaseline: ReadonlySet<string> = new Set()
+
+/** 清掉「帧和基线都没再提到」的运行记录，给漏掉的 turn/end 兜底。 */
+function pruneRunningEvidence(now: number = Date.now()): void {
+  for (const sessionId of staleRunningEvidence(liveRunningEvidence, liveRunningBaseline, now)) {
+    liveRunningEvidence.delete(sessionId)
+    liveRunningSessionIds.delete(sessionId)
+  }
+}
+
+/** 重取基线。同一时刻只有一次在飞，等待者共享同一个 promise——
+ *  第一次问"谁在跑"的人会等这一份，而不是自己再枚举一遍。 */
+function reseedRunning(): Promise<void> {
+  if (liveRunningReseedPromise !== undefined) return liveRunningReseedPromise
+  liveRunningReseedPromise = runReseed().finally(() => { liveRunningReseedPromise = undefined })
+  return liveRunningReseedPromise
+}
+
+async function runReseed(): Promise<void> {
+  if (liveRunningReseedInFlight) return
+  liveRunningReseedInFlight = true
+  try {
+    const list = await apiProxyForRunning?.sessions.list({
+      rpcId: RpcId('dsh-palm-running-reseed'),
+      payload: { limit: RUNNING_SESSIONS_SCAN_LIMIT },
+    } as never)
+    const items = (list as { result?: { ok?: boolean; value?: { items?: Array<{
+      sessionId: string
+      origin?: 'subagent'
+      running?: boolean
+      blank?: boolean
+    }> } } }).result?.value?.items ?? []
+    adoptRunningBaseline(items
+      .filter(item => item.origin !== 'subagent' && item.running === true && item.blank !== true)
+      .map(item => String(item.sessionId)))
+  } catch {
+    // 失败就把上一次的基线留着：过期的答案比没有答案强。
+  } finally {
+    liveRunningReseedInFlight = false
+  }
+}
+
+/**
+ * 「这一轮还开着吗」的**唯一**来源：宿主自己在转发时看到的轮次边界。
+ *
+ * 以前这件事被四个地方各算一遍——上游会话表的 running 字段（实测全是 false，
+ * 含正在跑的那一轮）、session/status 帧（只在有人跟着这条流时才推）、日志尾页
+ * （只解 48 帧，长回合的边界被挤出窗口）、手机端的静默阈值（长命令一定会中招）。
+ * 四个都不完整，拼出来的结论自然时对时错，而且手机每十秒重算一次，错了也不会自愈。
+ *
+ * 现在只有这里记账：宿主每转发一条 session/event，看到 turn/start、turn/end 就在
+ * 这里落下一条记录（带 seq，用来和日志读出的边界比谁更新）。手机只读结论，不再推断。
+ */
+const turnBoundaryMirror = new Map<string, { running: boolean; startAt?: number; seq: number; at: number }>()
+
+/**
+ * 记一条发给手机的帧里的运行状态（status 帧）与轮次边界（event 帧）。
+ *
+ * @returns 遇到轮次边界时，这一轮的新状态 —— 调用方据此**主动**再推一条
+ *   `session/status` 给手机。桌面端从不自己推断"这一轮还开着吗"，它读的就是宿主
+ *   给的这个布尔值；手机端过去没有这条推送，只能每十秒问一次、靠日志边界比对来
+ *   猜，边界被挤出折叠窗口时就猜成"已完成"。把结论在边界帧到的当下推过去，手机端
+ *   就和桌面端同源了，核对也退化成兜底。
+ */
+export function noteRunningFrame(
+  frame: { payload?: unknown },
+): { sessionId: string; running: boolean } | undefined {
+  const payload = frame.payload as { type?: string; sessionId?: unknown; running?: unknown; event?: unknown } | undefined
+  const sessionId = payload?.sessionId
+  if (typeof sessionId !== 'string' || sessionId === '') return undefined
+  if (payload?.type === 'session/status') {
+    if (payload.running === true) {
+      liveRunningSessionIds.add(sessionId)
+      liveNotRunningConfirmed.delete(sessionId)
+      noteRunningEvidence(sessionId)
+    } else if (payload.running === false) {
+      liveRunningSessionIds.delete(sessionId)
+      liveRunningEvidence.delete(sessionId)
+      liveNotRunningConfirmed.add(sessionId)
+    }
+    return undefined
+  }
+  if (payload?.type !== 'session/event') return undefined
+  const event = payload.event as { type?: unknown; time?: unknown; seq?: unknown } | undefined
+  const type = event?.type
+  if (type !== 'turn/start' && type !== 'turn/end') return undefined
+  const seq = typeof event?.seq === 'number' && Number.isFinite(event.seq) ? event.seq : -1
+  const time = typeof event?.time === 'number' && Number.isFinite(event.time) ? event.time : undefined
+  // 每条事件都是"这条会话还活着"的证据：长回合里命令一跑好几分钟，只有 turn/start
+  // 和 status 帧喂证据的话，集合会在五分钟的静默上限里把它清掉，随后核对就答"没在跑"。
+  noteRunningEvidence(sessionId)
+  const running = type === 'turn/start'
+  if (running) {
+    liveRunningSessionIds.add(sessionId)
+    liveNotRunningConfirmed.delete(sessionId)
+  } else {
+    liveRunningSessionIds.delete(sessionId)
+  }
+  turnBoundaryMirror.set(sessionId, {
+    running,
+    ...(running && time !== undefined ? { startAt: time } : {}),
+    seq,
+    at: Date.now(),
+  })
+  return { sessionId, running }
+}
+
+/**
+ * 一条"边界开着、可人早就没了"的容差：日志最新事件停过这么久、宿主的运行集合里也没有它，
+ * 就认定这一轮死在半路（turn/end 没写下来）。
+ *
+ *  为什么需要：宿主重启、进程被杀、断流都会让一轮不写 turn/end，那条 turn/start 边界
+ *  会永远开着，于是 `computeTurnState` 一直答"还在跑"，手机上就是"会话早就跑完了，
+ *  却突然又冒出一行输出中"。本机实测两条：一条最新事件停在 8.3 小时前，一条停在 65 天前。
+ *
+ *  为什么是 3 分钟：判据里的第二个条件是「宿主运行集合里没有它」——真正在跑的回合会被豁免，
+ *  所以这里只需要覆盖「重启/被杀之后日志再也不动」的情形。30 分钟意味着手机上要盯着一个
+ *  早就死掉的秒表半小时，然后还显示「已完成」，两头都错。3 分钟足够长（超大编译仍在运行集合
+ *  里），又能在用户回到 app 时给出「已中断」；判早了也不致命：下一个事件会把时间刷新，二十秒
+ *  内重新亮起来。
+ */
+/** 把 apiProxy 的 RPC 信封拆成 value；形状不符时返回 undefined（extras 是纯增益，缺了走老路径）。 */
+function unwrapProxyValue(reply: unknown): unknown {
+  const result = (reply as { result?: { ok?: boolean; value?: unknown } } | null | undefined)?.result
+  return result?.ok === true ? result.value : undefined
+}
+
+export const TURN_ABANDONED_MS = 3 * 60_000
+
+/**
+ * 本进程启动时刻。比它更早开始的回合不可能还活着 —— 宿主重启会杀掉所有回合，
+ * 而那种情况下往往既没有 status 帧也没有 turn/end：这是「死在半路」最硬的证据。
+ */
+const HOST_STARTED_AT = Date.now() - Math.round(process.uptime() * 1000)
+
+/** 把"边界开着 / 日志最新事件 / 宿主运行集合"三件事收成一个结论（纯函数，便于测试）。 */
+export function turnVerdict(input: {
+  boundaryOpen: boolean
+  /** false＝根本没有边界可读（不是"读到 turn/end"）。默认按"已知"处理。 */
+  boundaryKnown?: boolean
+  lastEventAt?: number
+  live: boolean
+  /** 宿主明确说过它没在跑（status 帧 running:false）；未知时省略。 */
+  liveConfirmedIdle?: boolean
+  /** 这一轮开始得比当前宿主进程还早（宿主重启过 ⇒ 回合必然已经没了）。 */
+  turnStartedBeforeHost?: boolean
+  now: number
+}): { running: boolean; abandoned: boolean } {
+  if (!input.boundaryOpen) {
+    // 「边界读不到」不等于「收工了」。一跑得久（几十步、几千帧）时 turn/start 会被挤出
+    // 折叠窗口；宿主重启后帧镜像也是空的。真机表现就是命令还在跑、过程框却写着已完成，
+    // 而且每十秒核对一次、次次都答"没在跑"。这种情况看另外两条证据：宿主运行集合里
+    // 还有它，或者日志刚刚还在动（三分钟内）。读完是 turn/end 的（boundaryKnown 为真）
+    // 仍然照旧判收工 —— 那是明确的边界，不能凭集合残留把死回合点亮。
+    if (input.boundaryKnown === false) {
+      const fresh = input.lastEventAt !== undefined && input.now - input.lastEventAt <= TURN_ABANDONED_MS
+      return { running: input.live === true || fresh, abandoned: false }
+    }
+    return { running: false, abandoned: false }
+  }
+  // 「死在半路」必须同时满足三条：①边界开着；②宿主**明确**说过它没在跑
+  // （liveConfirmedIdle，来自 status 帧的 running:false）；③日志静默超过阈值。
+  //
+  // 以前 ② 用的是「运行集合里没有它」—— 集合为空时同样成立，于是长回合里一次几分钟
+  // 的静默（编译、跑测试、长命令）就把这一轮判成收工：手机上的「输出中」消失、秒表
+  // 停住，下一条事件到了又出现（真机反馈：时有时无）。
+  // 静默超过阈值只是「可疑」，还要一条**硬证据**才敢判死：
+  //  ①这一轮开始得比宿主进程还早（宿主重启过，回合必然没了）；或
+  //  ②宿主明确说过它没在跑（status 帧 running:false）。
+  // 只凭「运行集合里没有它」就判死是错的：集合为空时也会命中，长回合里几分钟静默
+  // （编译、跑测试）就被当成收工 —— 手机上的「输出中」时有时无、秒表跟着闪。
+  const silent = input.lastEventAt !== undefined
+    && input.now - input.lastEventAt > TURN_ABANDONED_MS
+  const hardEvidence = input.turnStartedBeforeHost === true || input.liveConfirmedIdle === true
+  const abandoned = input.live !== true && silent && hardEvidence
+  return { running: !abandoned, abandoned }
+}
+
+/** 一轮的实时状态；帧镜像与日志边界按 seq 取较新者，都没有就说没在跑。 */
+export async function computeTurnState(
+  sessionId: string,
+): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number }> {
+  // 日志是记录：它写下的边界谁也改不了；帧镜像只是"更快知道"，所以两者按 seq 比新。
+  const boundary = await readTurnBoundary(sessionId)
+  const mirror = turnBoundaryMirror.get(sessionId)
+  const asOf = Date.now()
+  const boundarySeq = boundary?.seq ?? -1
+  const fromMirror = mirror !== undefined && mirror.seq >= boundarySeq
+  const open = fromMirror ? mirror.running : boundary?.type === 'turn/start'
+  const startAt = fromMirror ? mirror.startAt : boundary?.type === 'turn/start' ? boundary.time : undefined
+  const verdict = turnVerdict({
+    boundaryOpen: open === true,
+    boundaryKnown: boundary !== undefined || mirror !== undefined,
+    ...(boundary?.lastEventAt === undefined ? {} : { lastEventAt: boundary.lastEventAt }),
+    live: isLiveSessionRunning(sessionId),
+    liveConfirmedIdle: isLiveSessionNotRunningConfirmed(sessionId),
+    turnStartedBeforeHost: startAt !== undefined && startAt < HOST_STARTED_AT,
+    now: asOf,
+  })
+  return {
+    running: verdict.running,
+    ...(verdict.running && startAt !== undefined ? { turnStartAt: startAt } : {}),
+    ...(boundary?.lastEventAt === undefined ? {} : { lastEventAt: boundary.lastEventAt }),
+    asOf,
+  }
+}
+/**
+ * 子代理目录 + 运行态（手机上那张卡的呼吸点与已跑时长都靠它）。
+ *
+ * 宿主 0.2.x 的 `listChildren` 只回身份：谁被派出去、叫什么、能不能续聊。运行态得从
+ * 子会话自己的日志边界看 —— 子会话和普通会话是同一套日志定位（按 sessionId 找文件），
+ * 所以直接复用 `computeTurnState`，父会话怎么判断，子会话就怎么判断，口径一致。
+ * 老宿主的 `remoteExportList` 本来带 activity，这里只补缺的那部分，不覆盖真值。
+ */
+async function subagentCatalogWithActivity(
+  request: unknown,
+  proxy: ApiProxy,
+): Promise<{ rpcId: string; result: unknown }> {
+  const envelope = await proxy.subagents.list(request as never) as { rpcId: string; result: unknown }
+  const raw = unwrapProxyValue(envelope) as SubagentCatalog | undefined
+  if (raw === undefined) return envelope
+  const entries = await Promise.all((raw.entries ?? []).map(async entry => {
+    if (entry.kind !== 'child') return entry
+    let state: { running: boolean; turnStartAt?: number; lastEventAt?: number } | undefined
+    try {
+      state = await computeTurnState(String(entry.id))
+    } catch {
+      state = undefined
+    }
+    if (state === undefined) return entry
+    return {
+      ...entry,
+      activity: state.running ? 'running' as const : 'inactive' as const,
+      ...(state.turnStartAt === undefined ? {} : { turnStartAt: state.turnStartAt }),
+      ...(state.lastEventAt === undefined ? {} : { lastEventAt: state.lastEventAt }),
+    }
+  }))
+  return { ...envelope, result: { ok: true, value: { ...raw, entries } } }
+}
+/** reseedRunning 需要的那份代理，随每次请求刷新。 */
+let apiProxyForRunning: ApiProxy | undefined/** workspace.list TTL cache (see dispatch). */
 let workspaceListTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
 /** agentPreset.list TTL cache (see dispatch). */
 let agentPresetTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
@@ -683,18 +1444,36 @@ function invalidateRosterCaches(): void {
   sessionListTtlCache = undefined
   workspaceListTtlCache = undefined
   ordinarySearchSnapshotCache = undefined
-  searchAllCache = undefined
+  // 会话新增/归档/改名：索引要尽快跟上（否则新会话搜不到、已归档的还在）。
+  scheduleSearchSync()
 }
 
-function invalidateSessionSearch(sessionId?: string): void {
-  searchAllCache = undefined
-  searchMessagesCache.clear()
-  if (sessionId === undefined) searchDocumentCache.clear()
-  else searchDocumentCache.delete(sessionId)
+/**
+ * A mutation the phone just performed: drop the roster snapshot and make sure
+ * the index catches up soon. Sending a message must not leave search blind for
+ * a full re-sync interval, so schedule one incremental pass (multiple mutations
+ * inside the window collapse into a single pass).
+ */
+function invalidateSessionSearch(): void {
+  ordinarySearchSnapshotCache = undefined
+  scheduleSearchSync()
+}
+
+/** One deferred incremental index pass, coalescing bursts of mutations. */
+let searchSyncTimer: ReturnType<typeof setTimeout> | undefined
+function scheduleSearchSync(): void {
+  if (searchSyncTimer !== undefined) return
+  searchSyncTimer = setTimeout(() => {
+    searchSyncTimer = undefined
+    void activeSearchIndexer?.runOnce().catch(() => undefined)
+  }, SEARCH_SYNC_DEBOUNCE_MS)
+  searchSyncTimer.unref?.()
 }
 
 /** TTL for the session→workspace/title attribution backing mobile.searchAll. */
 const LOCATE_TTL_MS = 60_000
+/** 当前在跑的索引器（宿主进程内唯一）：写操作后可以立刻催它增量同步。 */
+let activeSearchIndexer: SearchIndexer | undefined
 let locateSessionCache: {
   at: number
   workspace: Map<string, string>
@@ -767,58 +1546,13 @@ async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
 }
 /** Message-level hits kept per expanded session hit (bounded view). */
 const SEARCH_MESSAGES_LIMIT = 8
-/**
- * History pages scanned for an explicit message locate. Search-all remains
- * cheap because it only reads resident tails; once the user taps a result we
- * must walk the complete session, otherwise deep FTS hits silently open at the
- * tail without a highlight. The cap is only a corruption/host-loop guard.
- */
-const SEARCH_MESSAGES_PAGES = 4096
-/** Per-session message-hit cache TTL (re-expands cost nothing). */
-const SEARCH_MESSAGES_TTL_MS = 60_000
-/** Cache entry cap: searchAll pre-warms one entry per hit, so bound the map. */
-const SEARCH_MESSAGES_CACHE_LIMIT = 64
-/** Message-hit cache: (session, lowercased query) keyed, TTL'd, oldest evicted. */
-const searchMessagesCache = new Map<string, { at: number; proxy: ApiProxy; items: Array<{ seq: number; snippet: string }> }>()
-
-/**
- * Cache key for one session+query locate. Case-normalized: the roster
- * surface locates with a lowercased term while the list surface sends the
- * raw one, and searchAll pre-warms with its own query — all three must
- * land on the same entry or the pre-warm never pays off.
- */
-function messageCacheKey(sessionId: string, query: string): string {
-  return `${sessionId}\u0000${query.toLowerCase()}`
-}
-
-/** Cached message hits for a key, or undefined when absent/expired. */
-function readMessageHits(key: string, apiProxy: ApiProxy): Array<{ seq: number; snippet: string }> | undefined {
-  const entry = searchMessagesCache.get(key)
-  if (entry === undefined) return undefined
-  if (entry.proxy !== apiProxy || Date.now() - entry.at >= SEARCH_MESSAGES_TTL_MS) {
-    searchMessagesCache.delete(key)
-    return undefined
-  }
-  return entry.items
-}
-
-/** Store one message-hit list; evicts the oldest entries past the cap. */
-function writeMessageHits(key: string, apiProxy: ApiProxy, items: Array<{ seq: number; messageId?: string; partId?: string; snippet: string }>): void {
-  searchMessagesCache.delete(key)
-  searchMessagesCache.set(key, { at: Date.now(), proxy: apiProxy, items })
-  while (searchMessagesCache.size > SEARCH_MESSAGES_CACHE_LIMIT) {
-    const oldest = searchMessagesCache.keys().next().value
-    if (oldest === undefined) break
-    searchMessagesCache.delete(oldest)
-  }
-}
 
 /**
  * Strip fenced code blocks (```lang … ```) from a message body so a search
  * term inside a code fence does not match — code is not conversational text.
  */
 function stripHiddenAssistantText(text: string): string {
-  return text
+  return stripToolBlocks(text)
     // Both closed and interrupted fences are non-conversational surfaces.
     .replace(/```[\s\S]*?(?:```|$)/g, '')
     // Inline model thinking is rendered as a disclosure, not reply prose.
@@ -833,6 +1567,20 @@ function stripHiddenAssistantText(text: string): string {
  * a search hit must be visible in the conversation, not buried in a tool
  * payload or a collapsed disclosure.
  */
+/**
+ * 行里"能搜到的正文"：readChat/logTail 的行有时把正文放在 flow（工具步骤流）里，
+ * text 是空的（实测 25 行里 19 行如此），而索引侧同一段文字在 text 里。取并集才能
+ * 让手机端按这段文本把命中落准行。
+ */
+function rowSearchableText(row: RenderMessage): string {
+  const body = searchableText(row)
+  const parts: string[] = []
+  if (body !== '') parts.push(body)
+  for (const part of row.flow ?? []) {
+    if (part.kind === 'text' && part.text !== '') parts.push(part.text)
+  }
+  return parts.join('\n')
+}
 function searchableText(row: RenderMessage): string {
   if (row.kind === 'user') {
     return row.sourceKind === undefined || row.sourceKind === 'user' ? row.text : ''
@@ -857,47 +1605,6 @@ function excludedText(row: RenderMessage): string {
   return parts.join('\n')
 }
 
-/**
- * Match folded message rows against a case-insensitive substring query,
- * collecting bounded message-level hits (`startSeq`/`seq` locate the row in
- * a chat page — the chat row covers the event range [startSeq, seq]). Only
- * the row's SEARCHABLE text participates (see {@link searchableText}).
- * When `userOut` is given, the seq of every hit that lives in a USER message
- * is recorded there too, so a caller can prefer the user's own words over a
- * generic assistant reply (the user usually remembers what THEY typed).
- */
-function matchMessageRows(rows: readonly RenderMessage[], needle: string, out: Map<number, string>, userOut?: Set<number>): void {
-  for (const row of rows) {
-    if (out.size >= SEARCH_MESSAGES_LIMIT) return
-    // Same flow-aligned seq mapping as documentRows/FlowBody: stepTexts is
-    // per folded step but mergeFlows collapses adjacent text runs, so only
-    // the flow's text parts carry a rendered `data-step-seq` anchor.
-    const parts: Array<{ text: string; seq: number }> = []
-    if (row.kind === 'assistant' && row.flow !== undefined && row.flow.length > 0) {
-      let textIndex = 0
-      for (const part of row.flow) {
-        if (part.kind !== 'text') continue
-        const text = stripHiddenAssistantText(part.text)
-        if (text === '') { textIndex += 1; continue }
-        parts.push({ text, seq: part.seq ?? row.stepSeqs?.[textIndex] ?? row.startSeq ?? row.seq })
-        textIndex += 1
-      }
-    } else {
-      const text = searchableText(row)
-      if (text !== '') parts.push({ text, seq: row.startSeq ?? row.seq })
-    }
-    for (const part of parts) {
-      if (part.text === '') continue
-      const at = matchSearchText(part.text, needle)
-      if (at < 0 || out.has(part.seq)) continue
-      const start = Math.max(0, at - 24)
-      const end = Math.min(part.text.length, at + needle.length + 48)
-      out.set(part.seq, (start > 0 ? '…' : '') + part.text.slice(start, end) + (end < part.text.length ? '…' : ''))
-      if (userOut !== undefined && row.kind === 'user') userOut.add(part.seq)
-      if (out.size >= SEARCH_MESSAGES_LIMIT) return
-    }
-  }
-}
 
 interface OrdinarySearchSession {
   sessionId: string
@@ -918,15 +1625,37 @@ let ordinarySearchSnapshotCache: { at: number; proxy: ApiProxy; value: OrdinaryS
 /**
  * One authoritative roster for all search paths. Classification failures are
  * fail-closed: an unknown session must never leak a subagent conversation.
+ *
+ * 冷取一次要 3 秒（宿主那侧要扫会话 + 工作区），而 30 秒 TTL 一过又得重来 ——
+ * 表现就是「隔一会儿再搜，第一次要等 3 秒」。所以缓存过期后先进 stale 窗口：
+ * 立刻用旧名册作答，后台再刷新（子代理在索引阶段就已排除，旧名册最多让标签
+ * 晚几分钟更新，不会漏出不该看的会话）。
  */
+const SESSION_SNAPSHOT_STALE_MS = 5 * 60_000
+let ordinarySearchSnapshotRefresh: Promise<unknown> | undefined
+
 async function ordinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
   const cached = ordinarySearchSnapshotCache
-  if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_LIST_TTL_MS) {
+  const fresh = cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_LIST_TTL_MS
+  if (fresh) return cached.value
+  const stale = cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_SNAPSHOT_STALE_MS
+  if (stale) {
+    // 后台刷新：失败就算了（旧名册还能用），下次再试。必须吞掉异常，否则后台
+    // Promise 变成 unhandledRejection 会把宿主进程带走。
+    ordinarySearchSnapshotRefresh ??= loadOrdinarySearchSnapshot(apiProxy)
+      .catch(() => undefined)
+      .finally(() => { ordinarySearchSnapshotRefresh = undefined })
     return cached.value
   }
+  const pending = loadOrdinarySearchSnapshot(apiProxy)
+  ordinarySearchSnapshotRefresh = pending.catch(() => undefined).finally(() => { ordinarySearchSnapshotRefresh = undefined })
+  return await pending
+}
+
+async function loadOrdinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
   const [sessionResponse, workspaceResponse] = await Promise.all([
     apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-search-roster'), payload: {} } as never),
-    apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-search-workspaces'), payload: {} } as never).catch(() => undefined),
+    apiProxy?.workspace?.list === undefined ? undefined : apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-search-workspaces'), payload: {} } as never).catch(() => undefined),
   ])
   const sessionResult = (sessionResponse as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; updatedAt?: number; cwd?: string; origin?: string; projections?: { values?: Record<string, unknown> } }>; hasMore?: boolean } } }).result
   if (sessionResult?.ok !== true) throw new Error('search session classification unavailable')
@@ -986,177 +1715,63 @@ interface SearchDocument {
   complete: boolean
 }
 
-const SEARCH_DOCUMENT_TTL_MS = 60_000
-const SEARCH_DOCUMENT_CACHE_LIMIT = 80
-const searchDocumentCache = new Map<string, { at: number; proxy: ApiProxy; watermark: number; pages: number; value: SearchDocument }>()
+
+/**
+ * 索引口径的唯一真源（A）：一条消息**手机端最终显示的那段正文**，加上它在屏幕上
+ * 的坐标（seq + partId）。
+ *
+ * 规则只有两条，和用户看到的一一对应：
+ * - 用户发送内容 → 气泡正文（`.chat-msg-text`，`data-part-id="body"`）；
+ * - 助手正文答案 → 答案段（`.chat-flow-answer[data-part-id="answer"]`），代码块、
+ *   ` thinking`、工具块都剥掉；
+ * - 其它（系统行、非用户来源、无答案的助手行）→ 不入库。
+ *
+ * 为什么要它单独成一个函数：索引端和渲染端各写一份判断，就是之前反复出问题的
+ * 根源（搜得到、点进去没高亮 / 搜到推理链）。渲染端认的 part-id 就由这里给出。
+ */
+export function searchCorpusOf(row: RenderMessage): { seq: number; partId?: string; text: string } | undefined {
+  if (row.kind === 'assistant') {
+    // settled=true 是刻意的：索引要可复现，不能让「这一轮还在跑」改变入库内容。
+    const model = processModel(row, undefined, true)
+    const answer = model.answer === undefined ? '' : stripHiddenAssistantText(model.answer)
+    if (answer.trim() === '') return undefined
+    // 渲染端只在 answerSeq 存在时把它包进 data-part-id="answer" 的节点；否则是裸
+    // MarkdownText，此时给 partId 反而指不到元素。
+    return {
+      seq: model.answerSeq ?? row.startSeq ?? row.seq,
+      ...(model.answerSeq === undefined ? {} : { partId: 'answer' }),
+      text: answer,
+    }
+  }
+  if (row.kind !== 'user') return undefined
+  const text = searchableText(row)
+  if (text === '') return undefined
+  // 用户消息画成气泡正文，给它一个 part-id，定位就能按坐标落，不用在整行里找词。
+  return { seq: row.startSeq ?? row.seq, partId: 'body', text }
+}
 
 export function documentRows(rows: readonly RenderMessage[]): SearchDocumentRow[] {
   const result: SearchDocumentRow[] = []
   for (const row of rows) {
-    if (row.kind === 'assistant' && row.flow !== undefined && row.flow.length > 0) {
-      // Use the flow's text parts, seq aligned with stepSeqs — the SAME
-      // mapping FlowBody uses to render `data-step-seq`. stepTexts is one
-      // entry per folded step, but mergeFlows collapses adjacent text runs,
-      // so indexing stepTexts would return a seq that no rendered anchor
-      // carries (the locate then misses and the chat stays at the tail).
-      let textIndex = 0
-      for (const part of row.flow) {
-        if (part.kind !== 'text') continue
-        const text = stripHiddenAssistantText(part.text)
-        if (text === '') { textIndex += 1; continue }
-        const seq = part.seq ?? row.stepSeqs?.[textIndex] ?? row.startSeq ?? row.seq
-        result.push({ seq, messageId: row.id, ...(part.partId !== undefined ? { partId: part.partId } : {}), text, folded: text.toLowerCase(), user: false })
-        textIndex += 1
-      }
-    } else {
-      const text = searchableText(row)
-      if (text === '') continue
-      result.push({ seq: row.startSeq ?? row.seq, messageId: row.id, text, folded: text.toLowerCase(), user: row.kind === 'user' })
-    }
+    const corpus = searchCorpusOf(row)
+    if (corpus === undefined) continue
+    result.push({
+      seq: corpus.seq,
+      messageId: row.id,
+      ...(corpus.partId === undefined ? {} : { partId: corpus.partId }),
+      text: corpus.text,
+      folded: corpus.text.toLowerCase(),
+      user: row.kind === 'user',
+    })
   }
   return result
 }
 
-/** Read/fold history once per session watermark; all queries reuse the rows. */
-async function searchDocument(
-  apiProxy: ApiProxy,
-  session: OrdinarySearchSession,
-  maxPages: number,
-  chatWindows?: ChatWindowService,
-): Promise<SearchDocument> {
-  const cached = searchDocumentCache.get(session.sessionId)
-  if (cached !== undefined
-    && cached.proxy === apiProxy
-    && cached.watermark === session.updatedAt
-    && Date.now() - cached.at < SEARCH_DOCUMENT_TTL_MS
-    && (cached.value.complete || cached.pages >= maxPages)) {
-    searchDocumentCache.delete(session.sessionId)
-    searchDocumentCache.set(session.sessionId, cached)
-    return cached.value
-  }
-  const bySeq = new Map<number, SearchDocumentRow>()
-  let beforeSeq: number | undefined
-  let complete = false
-  let pages = 0
-  if (chatWindows !== undefined) {
-    try {
-      const page = await chatWindows.tail(session.sessionId, READ_CHAT_MAX_ROWS)
-      // Coalesce the same way ChatView renders (coalesceTurnMessages), so the
-      // seqs we return match the `data-step-seq` anchors the chat actually
-      // renders. chatWindows.tail returns never-coalesced per-step rows.
-      const rows = coalesceTurnMessages(page.rows)
-      for (const row of documentRows(rows)) bySeq.set(row.seq, row)
-      pages = 1
-      complete = !page.hasMore
-      const first = rows[0]
-      beforeSeq = first === undefined ? undefined : first.startSeq ?? first.seq
-    } catch {
-      // Fall through to the direct history path.
-    }
-  }
-  for (; !complete && pages < maxPages; pages++) {
-    if (beforeSeq === undefined && bySeq.size > 0) break
-    const request: RpcRequest<{ sessionId: string; beforeSeq?: number; maxMessages: number }> = {
-      rpcId: RpcId('dsh-palm-search-doc'),
-      payload: { sessionId: session.sessionId, maxMessages: 25, ...(beforeSeq === undefined ? {} : { beforeSeq }) },
-    }
-    const response = await apiProxy.sessions.history(request as never)
-    if (!response.result.ok) break
-    const rawEvents = response.result.value?.events ?? []
-    if (rawEvents.length === 0) { complete = true; break }
-    const events = rawEvents.map(entry => ({ ...entry.event, ...(entry.view !== undefined ? { view: entry.view } : {}) }))
-    const folded = coalesceTurnMessages(new EventFolder(foldEvents(events)).snapshot())
-    for (const row of documentRows(folded)) bySeq.set(row.seq, row)
-    if (!response.result.value.hasMore) { complete = true; pages += 1; break }
-    const first = folded[0]
-    if (first === undefined) break
-    beforeSeq = first.startSeq ?? first.seq
-  }
-  const value = { rows: [...bySeq.values()], complete }
-  searchDocumentCache.delete(session.sessionId)
-  searchDocumentCache.set(session.sessionId, { at: Date.now(), proxy: apiProxy, watermark: session.updatedAt, pages, value })
-  while (searchDocumentCache.size > SEARCH_DOCUMENT_CACHE_LIMIT) {
-    const oldest = searchDocumentCache.keys().next().value
-    if (oldest === undefined) break
-    searchDocumentCache.delete(oldest)
-  }
-  return value
-}
 
-function searchNeedles(query: string): string[] {
-  // Match the useful FTS token shape: letters/numbers are terms, while
-  // punctuation and whitespace are separators. A contiguous CJK query stays
-  // one term so the phrase path still handles CJK substring matches.
-  return (query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter(Boolean)
-}
-
-function matchSearchText(text: string, query: string): number {
-  const folded = text.toLowerCase()
-  const phraseAt = folded.indexOf(query.toLowerCase())
-  if (phraseAt >= 0) return phraseAt
-  const needles = searchNeedles(query)
-  if (needles.length === 0 || !needles.every(needle => folded.includes(needle))) return -1
-  return folded.indexOf(needles[0] ?? '')
-}
-
-function snippetForRow(row: SearchDocumentRow, query: string): string {
-  const at = matchSearchText(row.folded, query)
-  const start = Math.max(0, at - 24)
-  const end = Math.min(row.text.length, at + query.length + 48)
-  return (start > 0 ? '…' : '') + row.text.slice(start, end) + (end < row.text.length ? '…' : '')
-}
-
-function hitsInDocument(document: SearchDocument, needle: string): Array<{ seq: number; messageId?: string; partId?: string; snippet: string; user: boolean }> {
-  const hits: Array<{ seq: number; messageId?: string; partId?: string; snippet: string; user: boolean }> = []
-  for (const row of document.rows) {
-    const at = matchSearchText(row.folded, needle)
-    if (at < 0) continue
-    const start = Math.max(0, at - 24)
-    const end = Math.min(row.text.length, at + needle.length + 48)
-    hits.push({
-      seq: row.seq,
-      messageId: row.messageId,
-      ...(row.partId !== undefined ? { partId: row.partId } : {}),
-      snippet: (start > 0 ? '…' : '') + row.text.slice(start, end) + (end < row.text.length ? '…' : ''),
-      user: row.user,
-    })
-    if (hits.length >= SEARCH_MESSAGES_LIMIT) break
-  }
-  hits.sort((a, b) => a.user === b.user ? 0 : a.user ? -1 : 1)
-  return hits
-}
-
-/**
- * Best-effort match of a host FTS snippet to the exact document row that
- * produced it, so a tap lands on the FTS-matched message rather than the
- * first occurrence of the term (which can be a different, earlier message
- * when the term appears several times). The snippet is a window around the
- * matched token; strip the leading/trailing ellipsis and look for a row whose
- * folded text contains the core. Falls back to undefined when the snippet is
- * truncated past a clean match (the caller then uses the first occurrence).
- */
-export function findRowForSnippet(document: SearchDocument, snippet: string): SearchDocumentRow | undefined {
-  const core = snippet.replace(/^…/, '').replace(/…$/, '').trim()
-  if (core === '') return undefined
-  const foldedCore = core.toLowerCase()
-  for (const row of document.rows) {
-    if (row.folded.includes(foldedCore)) return row
-  }
-  return undefined
-}
-
-/** SSE keep-alive ping cadence for the live mux stream (single connection). */
-
-/** How many recent sessions the substring backfill may scan for one query. */
-const SEARCH_BACKFILL_SESSIONS = 12
-/** History pages scanned per backfill session (a hit can sit in an old message). */
-const SEARCH_BACKFILL_PAGES = 1
-/** How many backfill hits to return at most (reaching it sets hasMore). */
-const SEARCH_BACKFILL_HITS = 8
-/** Concurrent history reads inside the backfill (weak links stay snappy). */
-const SEARCH_BACKFILL_CONCURRENCY = 6
-/** Whole-search result cache TTL (repeat queries cost nothing). */
-const SEARCH_ALL_TTL_MS = 60_000
+/** 手机侧写操作后多久安排一次增量同步（多次操作合并成一次）。 */
+const SEARCH_SYNC_DEBOUNCE_MS = 3_000
+/** 旧入口 mobile.searchAll 最多回多少个会话（老客户端的分页语义）。 */
+const SEARCH_ALL_SESSIONS = 20
 /** Short-lived cache for mobile.searchAll (query keyed). */
 type SearchAllHit = {
   kind: 'title' | 'message'
@@ -1164,80 +1779,26 @@ type SearchAllHit = {
   messageId?: string
   partId?: string
   snippet: string
+  /** A/C：命中所在整段 + 段内第几处（老宿主没有这两个字段，客户端要兜住）。 */
+  paragraph?: string
+  matchIndex?: number
   title?: string
   workspaceId?: string
   workspaceTitle?: string
   seq?: number
 }
-let searchAllCache: { key: string; at: number; proxy: ApiProxy; items: SearchAllHit[]; hasMore: boolean; partial?: boolean } | undefined
 
 /**
- * Substring backfill for the host's token/phrase search. The FTS5
- * `unicode61` index treats contiguous CJK as ONE token, so a query like
- * 支付 does not match 支付专项 inside a session body — the token search
- * can answer nothing for a term that is plainly present (the desktop
- * surface has the same limit; the phone cannot afford the same). When
- * the token hits are sparse, scan the most recent sessions' history
- * tails (one page each, bounded, best-effort, CONCURRENCY parallel) for
- * a plain case-insensitive substring so short Chinese terms still find
- * their sessions. Resident chat windows answer first (zero log reads).
- * Hits stay display facts: snippet only. `scannedAll` reports whether the
- * scan covered the whole session roster (false → the phone hints that
- * older sessions were not covered).
+ * Keep-alive cadence for the mobile SSE streams.
+ *
+ * This has to stay comfortably below the client's stall threshold (12 s, see
+ * DEFAULT_STALL_THRESHOLD_MS in mobile/mux.ts). At 15 s the phone's liveness
+ * clock expired between pings no matter what the stream was doing, so an idle
+ * session always fell back to polling and the next real event waited for a
+ * poll instead of arriving on the wire. 5 s leaves room for a slow event loop
+ * or a jittery tunnel while still being cheap: the frame is ~130 bytes.
  */
-async function substringBackfill(
-  apiProxy: ApiProxy,
-  needle: string,
-  sessions: readonly OrdinarySearchSession[],
-  exclude: ReadonlySet<string>,
-  chatWindows?: ChatWindowService,
-): Promise<{ hits: Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string }>; scannedAll: boolean }> {
-  const candidates = sessions
-    .filter(item => !exclude.has(item.sessionId))
-    .slice(0, SEARCH_BACKFILL_SESSIONS)
-  // Covered everything only when the roster list said there are no further
-  // pages (the first page then holds the whole roster, and `candidates`
-  // covers every non-excluded session). When hasMore is true there are
-  // sessions beyond this page that neither FTS nor the backfill scanned, so
-  // the scan is partial regardless of how many candidates were excluded.
-  let scannedAll = candidates.length === sessions.filter(item => !exclude.has(item.sessionId)).length
-  const results: Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string; user: boolean }> = []
-  const scanOne = async (session: OrdinarySearchSession): Promise<void> => {
-    try {
-      const document = await searchDocument(apiProxy, session, SEARCH_BACKFILL_PAGES, chatWindows)
-      const hits = hitsInDocument(document, needle)
-      if (!document.complete) scannedAll = false
-      const first = hits[0]
-      if (first !== undefined) results.push({ sessionId: session.sessionId, snippet: first.snippet, seq: first.seq, messageId: first.messageId, ...(first.partId !== undefined ? { partId: first.partId } : {}), user: first.user })
-    } catch {
-      scannedAll = false
-      return
-    }
-  }
-  // Bounded worker pool: never more than CONCURRENCY history reads at once.
-  // Every candidate is scanned (each stops at its first hit) so the results
-  // can be ranked — user-message hits first — instead of returning whatever
-  // the scan order happened to reach first.
-  let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < candidates.length) {
-      const index = next
-      next += 1
-      await scanOne(candidates[index])
-    }
-  }
-  await Promise.all(Array.from(
-    { length: Math.min(SEARCH_BACKFILL_CONCURRENCY, candidates.length) },
-    () => worker(),
-  ))
-  // Rank user-message hits first (the user's own words are the relevant
-  // ones), then cap to the display limit.
-  results.sort((a, b) => (a.user === b.user ? 0 : a.user ? -1 : 1))
-  const hits = results.slice(0, SEARCH_BACKFILL_HITS).map(({ sessionId, snippet, seq, messageId, partId }) => ({ sessionId, snippet, seq, ...(messageId !== undefined ? { messageId } : {}), ...(partId !== undefined ? { partId } : {}) }))
-  return { hits, scannedAll }
-}
-
-const DEFAULT_EVENTS_HEARTBEAT_MS = 15_000
+const DEFAULT_EVENTS_HEARTBEAT_MS = 5_000
 
 /** Encode one list position as an opaque continuation cursor. */
 function sessionListCursor(updatedAt: number, sessionId: string): string {
@@ -1321,6 +1882,10 @@ export interface MobileApiDeps {
   commands?: CommandRegistry | undefined
   /** The live agent registry (absent when the agent service is not composed). */
   agents?: AgentLookup | undefined
+  /** The host goal service (absent when @deepseek-ai/dsh-goal is not composed). */
+  goals?: GoalLookup | undefined
+  /** 宿主文件上传服务（absent 时不支持手机端添加附件）。 */
+  fileUploads?: FileUploadsLike | undefined
   /**
    * The completion-notify feature (engine + store). Absent when the plugin
    * was composed without it (older configs); the push.* methods and the
@@ -1334,7 +1899,7 @@ export interface MobileApiDeps {
    * returned value is consumed and discarded here.
    */
   resolveKey?: (refName: string) => Promise<string | undefined>
-  /** SSE keep-alive ping cadence for the mux stream (default 15000 ms; test seam). */
+  /** SSE keep-alive frame cadence for the mux stream (default 5000 ms; test seam). */
   eventsHeartbeatMs?: number
   /**
    * The folded-view chat-window service (v3): `mobile.readChat` reads
@@ -1375,6 +1940,17 @@ export interface MobileApiDeps {
    * {@link perfDir}: the plugin passes one next to its devices store.
    */
   errorDir?: string | undefined
+  /**
+   * 自建搜索索引库的落盘路径（node:sqlite 单文件）。缺省或 Node 不带
+   * 
+ode:sqlite 时整套索引关闭，搜索退回宿主 FTS + 子串补扫的旧路径。
+   */
+  searchIndexPath?: string | undefined
+  /**
+   * 测试/端到端用：开跑后**等**第一趟索引走完再返回，这样断言不必和后台赛跑。
+   * 生产不设（建库全程后台，首个 pass 延迟 15s）。
+   */
+  searchIndexEager?: boolean | undefined
 }
 
 /** Perf captures kept on disk: newest `PERF_CAPTURE_KEEP` win, older pruned. */
@@ -1630,8 +2206,10 @@ export function pushErrorOnce(notify: NotifyService | undefined, report: { messa
     sessionId: '',
     ts: Date.now(),
   }
-  void deliverL3(notify.store.getConfig(), event)
-  void deliverL2(notify.store, event)
+  // Route the report through the engine so it reaches the inbox and the
+  // delivery telemetry too; going straight to the channel functions meant a
+  // failed report was invisible everywhere except the host log.
+  notify.engine.publish(event)
 }
 
 /**
@@ -1692,6 +2270,44 @@ export interface AgentLookup {
 }
 
 /**
+ * 宿主附件服务里手机端用得到的那一件事：把一段 base64 落盘并暂存成一个 receipt。
+ * 真实服务（@deepseek-ai/dsh-client-file-upload 的 FileUploads）还带 resolve/bindPrompt
+ * 等一堆方法，插件不碰它们，所以只声明这一个调用面。
+ */
+export interface FileUploadsLike {
+  upload(
+    agent: unknown,
+    request: { data: string; name?: string },
+    signal: AbortSignal,
+  ): Promise<{ receiptId: string; file?: { name?: string; bytes?: number } }>
+}
+
+/** 宿主目标视图里手机端用得到的字段。 */
+export interface GoalViewLike {
+  readonly id: string
+  readonly revision: number
+  readonly phase: string
+  readonly objective: string
+  /** 进程内"允许自动继续"授权；桌面端那条 暂停/继续 按钮就是看它。 */
+  readonly activation?: 'armed' | 'disarmed'
+}
+
+/**
+ * 宿主目标服务的最小面（`ctx.goals`）。
+ *
+ * 只声明手机端要用的五个方法，签名照宿主 `GoalService` 的公开 API。服务没装上
+ * （宿主裁掉 @deepseek-ai/dsh-goal）时 deps 里没有它，目标条退回"只读投影 + 命令
+ * 通道"的老样子，不会因此整条消失。
+ */
+export interface GoalLookup {
+  get(agent: unknown): GoalViewLike | undefined
+  pause(agent: unknown, ref: { id: string; revision: number }): GoalViewLike
+  resume(agent: unknown, ref: { id: string; revision: number }): GoalViewLike
+  edit(agent: unknown, ref: { id: string; revision: number }, request: { objective: string }): GoalViewLike
+  clear(agent: unknown, ref: { id: string; revision: number }): unknown
+}
+
+/**
  * Resolve the command directory the phone's + menu shows for one session.
  *
  * The host `CommandRuntime.list(agent)` resolves the effective view for one
@@ -1707,6 +2323,28 @@ export interface AgentLookup {
  * @param sessionId - the session whose agent view to resolve.
  * @returns the name-sorted effective command descriptors.
  */
+/** 一份命令目录条目（宿主注册表返回的形状）。 */
+export interface CommandDescriptorView {
+  name: string
+  description: string
+  input?: { hint?: string }
+}
+
+/**
+ * 最近一次从"活的会话 agent"拿到的完整命令目录。
+ *
+ * 为什么需要它：命令目录是**按会话 agent 解析**的，而手机上打开的历史会话多半没有
+ * 活的 agent（宿主的 ctx.agents.get 是空的），目录就只剩全局那几条 —— 真机表现就是
+ * "这个会话有 /goal、/plan，换个会话就没了"。命令目录本身不随会话变化（除了 plan
+ * mode 这种状态），所以把最后见到的完整一份留在这里，冷会话拿它补齐。
+ */
+let fullDirectoryCache: readonly CommandDescriptorView[] = []
+
+/** 清空上面那份缓存（只给用例用）。 */
+export function resetCommandDirectoryCache(): void {
+  fullDirectoryCache = []
+}
+
 export function resolveCommandDirectory(
   registry: CommandRegistry | undefined,
   agents: AgentLookup | undefined,
@@ -1716,11 +2354,160 @@ export function resolveCommandDirectory(
   const agent = sessionId === undefined || agents === undefined
     ? undefined
     : agents.get(sessionId)
-  return registry.list(agent).map(command => ({
-    name: command.name,
-    description: command.description,
-    ...(command.input !== undefined ? { input: command.input } : {}),
-  }))
+  // 两份目录取并集，而不是"agent 解析不到就只剩全局那几条"。
+  //
+  // 真机 2026-10-22：斜杠面板里 /goal、/plan 有时整条消失，只剩 export/feedback/
+  // mnemon/permission —— 那一次恰好是会话的 agent 还没建起来（新会话、刚重启、
+  // 或手机上先点开了 + 再进会话），于是退回了 plain-context 视角。命令目录不该
+  // 因为"此刻没有 agent"就少给命令：agent 视角有的优先，全局视角里其余的也留着。
+  const collected = new Map<string, CommandDescriptorView>()
+  const absorb = (list: readonly CommandDescriptorView[]): void => {
+    for (const command of list) {
+      collected.set(command.name, {
+        name: command.name,
+        description: command.description,
+        ...(command.input !== undefined ? { input: command.input } : {}),
+      })
+    }
+  }
+  absorb(registry.list(undefined))
+  if (agent !== undefined && agent !== null) {
+    const view = registry.list(agent)
+    // 记下这份"完整视角"：没活的 agent 的会话（历史会话、刚打开还没发过言的会话）
+    // 就靠它补齐 /plan、/compact 这些挂在 agent 预设上的行。
+    fullDirectoryCache = view
+    absorb(view)
+  } else {
+    absorb(fullDirectoryCache)
+  }
+  return [...collected.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+/** 手机端能看见的激活取值（与宿主 `GoalActivation` 同词）。 */
+export type GoalActivationView = 'armed' | 'disarmed'
+
+/**
+ * 读一个会话目标此刻的进程内授权（armed/disarmed）。
+ *
+ * 宿主的线上投影只发 durable 快照（`{ current }`），**故意不含** activation
+ * —— 那是"本进程还会不会自动继续"的进程内状态。桌面端靠 `remote.goals.get`
+ * 拿它，手机端没有那条通道，于是只能看见 durable 相位：桌面上点过暂停（只是
+ * 撤授权，相位仍是 active）之后，手机条子还写着"暂停"。这里直连宿主目标服务
+ * （`ctx.goals` + `ctx.agents`）把这个值取出来。
+ *
+ * 任何一步不可用（服务没装、会话没活着的 agent、宿主改签名）都返回 undefined，
+ * 调用方按"未知"处理：条子退回只读投影的老行为，不会白屏也不会报错。
+ *
+ * @param deps - 插件依赖（只用 agents / goals 两项，缺席即降级）。
+ * @param sessionId - 会话 id。
+ * @returns armed / disarmed，或取不到时的 undefined。
+ */
+export function goalActivationOf(
+  deps: { agents?: AgentLookup | undefined; goals?: GoalLookup | undefined },
+  sessionId: string,
+): GoalActivationView | undefined {
+  if (deps.agents === undefined || deps.goals === undefined) return undefined
+  try {
+    const agent = deps.agents.get(sessionId)
+    if (agent === undefined || agent === null) return undefined
+    const view = deps.goals.get(agent)
+    const activation = view?.activation
+    return activation === 'armed' || activation === 'disarmed' ? activation : undefined
+  } catch {
+    // 宿主目标服务拒绝（会话没活着的 agent、内部错误）时静默降级。
+    return undefined
+  }
+}
+
+/**
+ * 现取当前目标的投影形状（`{ current }`）。
+ *
+ * 手机端原来读的是花名册快照里的 `goal` 投影 —— 那份快照只在枚举会话时刷新。用户在
+ * 会话里刚用 `/goal 做点什么` 建了目标，快照里根本没有它，于是手机端的目标条一直不
+ * 出现（真机 2026-10-22）。目标服务本来就在进程里，直接问它，不读日志也不算抢宿主。
+ *
+ * @returns 投影形状；宿主没装目标服务或会话没有活着的 agent 时返回 undefined，调用方
+ *   回退到快照/现读日志的老路。
+ */
+export function goalSnapshotOf(
+  deps: { agents?: AgentLookup | undefined; goals?: GoalLookup | undefined },
+  sessionId: string,
+): { current: GoalViewLike | null } | undefined {
+  if (deps.agents === undefined || deps.goals === undefined) return undefined
+  try {
+    const agent = deps.agents.get(sessionId)
+    if (agent === undefined || agent === null) return undefined
+    const view = deps.goals.get(agent as never)
+    if (view === undefined || view === null) return { current: null }
+    return { current: view }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 目标值的来源选择：现取得到就用现取的，问不到才退回花名册快照。
+ *
+ * `undefined` 专门表示"问不到"（宿主没装目标服务、会话冷），`null` 表示"确实没有目标"
+ * —— 两者混用会让目标条要么永远不消失、要么永远不出现。
+ */
+export function preferLiveGoal(live: unknown, snapshot: unknown): unknown {
+  return live === undefined ? snapshot : live
+}
+
+/** 一次目标动作的结局：成功带新视图，失败带可下发的原因。 */
+export type GoalActionResultLike =
+  | { ok: true; goal?: GoalViewLike; activation?: GoalActivationView }
+  | { ok: false; code: string; message: string }
+
+/**
+ * 执行手机上的一次目标动作（暂停/恢复/编辑/清除）。
+ *
+ * 语义与桌面端 `remote.goals.*` 逐一对应：暂停 = 撤授权（durable 相位保持
+ * active），恢复 = 重新授权（相位是 paused 时同时把相位翻回 active），编辑/清除
+ * 用当前 revision 做 CAS。ref 从服务现读，不接受手机传来的 revision —— 手机可能
+ * 停在旧的一帧上，照它写会把别人的改动覆盖掉。
+ *
+ * @param deps - 插件依赖（agents / goals）。
+ * @param sessionId - 会话 id。
+ * @param action - pause / resume / edit / clear。
+ * @param objective - edit 的新目标文本（其余动作忽略）。
+ * @returns 结局；调用方只负责把 ok:false 翻成 HTTP 答复。
+ */
+export function applyGoalAction(
+  deps: { agents?: AgentLookup | undefined; goals?: GoalLookup | undefined },
+  sessionId: string,
+  action: 'pause' | 'resume' | 'edit' | 'clear',
+  objective = '',
+): GoalActionResultLike {
+  if (deps.agents === undefined || deps.goals === undefined) {
+    return { ok: false, code: 'unavailable', message: '宿主目标服务不可用' }
+  }
+  try {
+    const agent = deps.agents.get(sessionId)
+    if (agent === undefined || agent === null) {
+      return { ok: false, code: 'unavailable', message: '这个会话没有运行中的 agent' }
+    }
+    const goals = deps.goals
+    const current = goals.get(agent)
+    if (current === undefined) return { ok: false, code: 'no-current-goal', message: '当前没有目标' }
+    const ref = { id: current.id, revision: current.revision }
+    if (action === 'clear') {
+      goals.clear(agent, ref)
+      return { ok: true }
+    }
+    const view = action === 'pause' ? goals.pause(agent, ref)
+      : action === 'resume' ? goals.resume(agent, ref)
+        : goals.edit(agent, ref, { objective })
+    const activation = view.activation
+    return {
+      ok: true,
+      goal: view,
+      ...(activation === 'armed' || activation === 'disarmed' ? { activation } : {}),
+    }
+  } catch (error) {
+    return { ok: false, code: 'goal-action-failed', message: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 /** Mobile API route paths. */
@@ -1739,12 +2526,121 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  * @param deps - pairing service + apiProxy.
  * @returns the routes to register on webServer.
  */
+/**
+ * 进程内已打开的索引库。宿主停服和端到端测试收尾时统一关掉 —— sqlite 文件句柄
+ * 不释放，Windows 上连临时目录都删不掉。
+ */
+const openSearchIndexes = new Set<SearchIndex>()
+
+/** 关闭本进程打开过的全部搜索索引（停服 / 测试收尾用）。 */
+export function closeSearchIndexes(): void {
+  for (const index of openSearchIndexes) index.close()
+  openSearchIndexes.clear()
+}
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
   // 花名册快照的落盘位置：跟着 perfDir 走（由插件配置决定），源码里不写任何本机路径。
   // perfDir 未配置时（测试环境）自动退化为纯内存缓存。
   sessionRosterCacheFile = deps.perfDir === undefined ? undefined : join(deps.perfDir, 'roster-snapshot.json')
+  finishedRunsFile = deps.perfDir === undefined ? undefined : join(deps.perfDir, 'finished-runs.json')
   const { service, apiProxy, mobileEnterToSend } = deps
   const eventsHeartbeatMs = deps.eventsHeartbeatMs ?? DEFAULT_EVENTS_HEARTBEAT_MS
+
+  // ---- 自建搜索索引（期 1：影子模式，不改变任何现有返回）----
+  let searchIndexPromise: Promise<SearchIndex | undefined> | undefined
+  let searchIndexer: SearchIndexer | undefined
+
+  /**
+   * 第一次手机请求时才起索引。宿主启动不抢资源；建库在后台按 60ms/页限速跑，
+   * 手机照旧用旧路径，索引追上之前不给任何结论。
+   */
+  const ensureSearchIndex = async (): Promise<SearchIndex | undefined> => {
+    if (searchIndexPromise !== undefined) return await searchIndexPromise
+    searchIndexPromise = (async () => {
+      const path = deps.searchIndexPath
+      if (path === undefined) return undefined
+      const index = await SearchIndex.open(path)
+      if (index === undefined) return undefined
+      openSearchIndexes.add(index)
+      searchIndexer = new SearchIndexer({
+        index,
+        // 花名册复用搜索那套快照：subagent / 空会话 / 已归档会话都在这里被排除。
+        listSessions: async () => (await ordinarySearchSnapshot(apiProxy)).sessions,
+        readRows: async (sessionId, beforeSeq, maxMessages) => {
+          const request = {
+            rpcId: RpcId('dsh-palm-search-index'),
+            payload: { sessionId, maxMessages, ...(beforeSeq === undefined ? {} : { beforeSeq }) },
+          }
+          const response = await apiProxy.sessions.history(request as never)
+          if (!response.result.ok) return { rows: [], hasMore: false }
+          const value = response.result.value as { events?: Array<{ event: unknown; view?: unknown }>; hasMore?: boolean } | undefined
+          // 历史页按「条数」切，切点可能落在一轮（turn）中间：这一页折出来的第一张卡
+          // 只是「半截回合」。手机端的窗口是按整轮折叠的，索引若按半截行建文档，就会
+          // 出现「搜得到、点过去一个高亮都没有」的命中（真机：一条命中的正文只存在于
+          // 索引里）。往前补读到 turn/start 或用户消息为止，索引与渲染才用同一个切点。
+          let rawEvents = value?.events ?? []
+          let hasMore = value?.hasMore === true
+          const isBoundary = (entry: { event?: unknown } | undefined): boolean => {
+            const type = (entry?.event as { type?: unknown } | undefined)?.type
+            return type === 'turn/start' || type === 'user/message'
+          }
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (rawEvents.length === 0 || isBoundary(rawEvents[0])) break
+            const oldestSeq = (rawEvents[0]?.event as { seq?: unknown } | undefined)?.seq
+            if (typeof oldestSeq !== 'number') break
+            const older = await apiProxy.sessions.history({
+              rpcId: RpcId('dsh-palm-search-index-align'),
+              payload: { sessionId, maxMessages, beforeSeq: oldestSeq },
+            } as never)
+            if (!older.result.ok) break
+            const olderValue = older.result.value as { events?: Array<{ event: unknown; view?: unknown }>; hasMore?: boolean } | undefined
+            const olderEvents = olderValue?.events ?? []
+            if (olderEvents.length === 0) break
+            // 补读必须真的更早：游标若被当成「含端点」，同一段会被重复读三遍。
+            const olderMax = olderEvents.reduce((max, item) => {
+              const at = (item.event as { seq?: unknown } | undefined)?.seq
+              return typeof at === 'number' && at > max ? at : max
+            }, -1)
+            if (olderMax < 0 || olderMax >= oldestSeq) break
+            rawEvents = [...olderEvents, ...rawEvents]
+            hasMore = olderValue?.hasMore === true
+          }
+          const events = rawEvents.map(entry => ({ ...(entry.event as object), ...(entry.view !== undefined ? { view: entry.view } : {}) }))
+          const folded = coalesceTurnMessages(new EventFolder(foldEvents(events as never)).snapshot())
+          const rows: SearchIndexRow[] = documentRows(folded).map(row => ({
+            messageId: row.messageId ?? `${sessionId}:${row.seq}`,
+            seq: row.seq,
+            ...(row.partId !== undefined ? { partId: row.partId } : {}),
+            text: row.text,
+            user: row.user,
+          }))
+          // 页游标取「这一页所有事件」的最小 seq：一整页工具/推理事件折叠后是 0 条文档，
+          // 但索引器仍然得往更早走，否则这个会话永远补不完。
+          let nextBeforeSeq: number | undefined
+          for (const entry of rawEvents) {
+            const seq = (entry.event as { seq?: unknown } | undefined)?.seq
+            if (typeof seq !== 'number') continue
+            if (nextBeforeSeq === undefined || seq < nextBeforeSeq) nextBeforeSeq = seq
+          }
+          return {
+            rows,
+            hasMore,
+            ...(nextBeforeSeq === undefined ? {} : { nextBeforeSeq }),
+          }
+        },
+        log: (message) => { console.log('[dsh-palm search-index]', message) },
+      })
+      activeSearchIndexer = searchIndexer
+      searchIndexer.start()
+      // 端到端测试要确定性：先把第一趟跑完，免得断言和后台建库赛跑。
+      if (deps.searchIndexEager === true) await searchIndexer.runOnce()
+      return index
+    })()
+    return await searchIndexPromise
+  }
+
+  // 构造即开跑：索引在后台自己建，手机就算一直不开也会追上（首个 pass 延迟 15s，
+  // 建库按 60ms/页限速，不占宿主启动时间）。
+  void ensureSearchIndex().catch(() => undefined)
 
   /**
    * Refresh the paired device's presence and report whether it is live.
@@ -1771,6 +2667,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       res.end()
       return
     }
+    // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
+    void ensureSearchIndex().catch(() => undefined)
     if (!gateOk(req)) {
       // Rejected early: drain whatever body the client sent so the request
       // stream (and the keep-alive connection) is released, not stalled.
@@ -1793,21 +2691,32 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_LIST_DIRECTORY_METHOD
       || method === MOBILE_READ_FILE_METHOD
       || method === MOBILE_COMMANDS_METHOD
+      || method === MOBILE_UPLOAD_ATTACHMENT_METHOD
       || method === MOBILE_COMMAND_EXEC_METHOD
       || method === MOBILE_VOICE_SERVICES_METHOD
       || method === MOBILE_PUSH_SUBSCRIBE_METHOD
       || method === MOBILE_PUSH_UNSUBSCRIBE_METHOD
       || method === MOBILE_PUSH_CONFIG_METHOD
       || method === MOBILE_NOTIFY_EVENTS_METHOD
+      || method === MOBILE_GIT_SUMMARY_METHOD
       || method === MOBILE_LATEST_VERSION_METHOD
+      || method === MOBILE_SEARCH_METHOD
       || method === MOBILE_SEARCH_ALL_METHOD
       || method === MOBILE_SEARCH_MESSAGES_METHOD
       || method === MOBILE_RUNNING_SESSIONS_METHOD
+      || method === MOBILE_TURN_STATE_METHOD
+      || method === MOBILE_TURN_OUTLINE_METHOD
+      || method === MOBILE_INBOX_METHOD
+      || (method as string) === MOBILE_SESSION_STATE_METHOD
+      || method === MOBILE_GOAL_METHOD
+      || method === MOBILE_GOAL_ACTION_METHOD
       || method === MOBILE_USAGE_METHOD
       || method === MOBILE_READ_CHAT_METHOD
+      || method === MOBILE_LOG_TAIL_METHOD
       || method === MOBILE_OBSERVE_METHOD
       || method === MOBILE_DIAGNOSTICS_METHOD
       || method === MOBILE_PERF_METHOD
+      || method === MOBILE_FINISHED_RUNS_METHOD
       || method === MOBILE_ERROR_METHOD
       || method === MOBILE_READ_ATTACHMENT_METHOD
       || method === MOBILE_PREVIEWS_METHOD
@@ -1831,7 +2740,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // small JSON budget.
       const bodyBudget = isTranscribe
         ? 12 * 1024 * 1024
-        : isPrompt ? 2 * 1024 * 1024 : method === MOBILE_PERF_METHOD ? PERF_RAW_MAX_BYTES + 4096 : 64 * 1024
+        // 附件上传是这条通道里唯一"本来就很大"的请求：默认那 64 KB 只够放一段
+        // JSON，20 MB 的文件会被 413 挡在门外（实测就是这里把附件功能掐死）。
+        // 给这条方法一份自己的预算，再留 1 MB 给 JSON 包装（名字、会话 id、转义）。
+        : isPrompt ? 2 * 1024 * 1024
+          : method === MOBILE_PERF_METHOD ? PERF_RAW_MAX_BYTES + 4096
+            : method === MOBILE_UPLOAD_ATTACHMENT_METHOD ? MAX_ATTACHMENT_BASE64_CHARS + 1024 * 1024
+              : 64 * 1024
       envelope = await readBoundedJson(req, bodyBudget)
     } catch (error) {
       if (error instanceof Error && error.message === 'body too large') {
@@ -1870,7 +2785,80 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'missing rpcId' } })
       return
     }
+    if (isPrompt) {
+      const files = countPromptFileParts(parsed.payload)
+      if (files > MAX_PROMPT_FILE_PARTS) {
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: {
+            ok: false,
+            error: { code: 'too-many-files', message: `一次最多 ${MAX_PROMPT_FILE_PARTS} 个文件（收到 ${files} 个）` },
+          },
+        })
+        return
+      }
+    }
     if (local) {
+      if (method === MOBILE_FINISHED_RUNS_METHOD) {
+        // 「刚结束」账本：读 / 追加 / 清空。文件跟着 perfDir 走，客户端不传任何路径。
+        const body = parsed.payload as { op?: unknown; entries?: unknown; sessionIds?: unknown } | undefined
+        const op = body?.op
+        try {
+          if (op === 'read') {
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: true, value: { entries: readFinishedRuns(finishedRunsFile, Date.now()) } },
+            })
+            return
+          }
+          if (op === 'clear') {
+            writeFinishedRuns(finishedRunsFile, [])
+            writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value: { accepted: true } } })
+            return
+          }
+          if (op === 'remove') {
+            // 打开过就删：这就是「只保留没点进去看过的」的实现。
+            const ids = Array.isArray(body?.sessionIds)
+              ? body.sessionIds.filter((id): id is string => typeof id === 'string')
+              : []
+            const now = Date.now()
+            const kept = readFinishedRuns(finishedRunsFile, now).filter(entry => !ids.includes(entry.sessionId))
+            writeFinishedRuns(finishedRunsFile, kept)
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: true, value: { entries: kept } },
+            })
+            return
+          }
+          if (op === 'append') {
+            const incoming = Array.isArray(body?.entries) ? body.entries : []
+            const now = Date.now()
+            const merged = mergeFinishedRuns(readFinishedRuns(finishedRunsFile, now), incoming as FinishedRunEntry[], now)
+            writeFinishedRuns(finishedRunsFile, merged)
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: true, value: { entries: merged } },
+            })
+            return
+          }
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '未知的账本操作' } },
+          })
+        } catch (error) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: String(error) } },
+          })
+        }
+        return
+      }
       if (method === MOBILE_PERF_METHOD) {
         const payload = parsed.payload as { capture?: unknown; label?: unknown }
         // Write-only, inert and path-free: the name is generated host-side from
@@ -2029,9 +3017,14 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       } else if (method === MOBILE_LIST_DIRECTORY_METHOD) {
-        const payload = parsed.payload as { path?: unknown } | undefined
+        const payload = parsed.payload as { path?: unknown; files?: unknown } | undefined
         try {
-          const listing = await mobileListDirectory(typeof payload?.path === 'string' ? payload.path : undefined)
+          // files=true：连文件一起列（手机端「电脑文件」挑选用）。缺省仍只列目录，
+          // 工作区浏览那些老调用方拿到的还是原来那套形状。
+          const listing = await mobileListDirectory(
+            typeof payload?.path === 'string' ? payload.path : undefined,
+            payload?.files === true,
+          )
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
@@ -2134,6 +3127,78 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             type: 'server-response',
             rpcId,
             result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
+          })
+        }
+      } else if (method === MOBILE_UPLOAD_ATTACHMENT_METHOD) {
+        // 手机端「添加附件」：把选中的文件交给宿主附件服务落盘并暂存，回一个
+        // receiptId；随后那条 prompt 用 `{ type: 'file', receiptId }` 引用它。
+        //
+        // 三条判据都是防御深度而不是信任线（手机=已配对设备）：要有附件服务、
+        // 要有活的会话 agent（receipt 绑定在 agent 的会话上）、字节要有上限，
+        // 免得一次误选把整份日志/一段视频当附件塞进 rpc 通道。
+        const body = parsed.payload as { sessionId?: unknown; name?: unknown; data?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined
+        const data = typeof body?.data === 'string' ? body.data : ''
+        const rawName = typeof body?.name === 'string' ? body.name.trim() : ''
+        const name = rawName === '' ? undefined : rawName
+        const uploads = deps.fileUploads
+        const agent = sessionId === undefined || deps.agents === undefined
+          ? undefined
+          : deps.agents.get(sessionId)
+        if (uploads === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'upload-unavailable', message: '当前宿主不支持添加附件' } },
+          })
+          return
+        }
+        if (agent === undefined || agent === null) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'session-cold', message: '这个会话还没准备好，稍后再试' } },
+          })
+          return
+        }
+        if (data === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '附件内容是空的' } },
+          })
+          return
+        }
+        if (data.length > MAX_ATTACHMENT_BASE64_CHARS) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'payload-too-large', message: '附件太大（上限 20 MB）' } },
+          })
+          return
+        }
+        // 设备中途离开就取消这次落盘，不留半份文件。
+        const abort = new AbortController()
+        res.on('close', () => { if (!res.writableEnded) abort.abort() })
+        try {
+          const value = await uploads.upload(agent, { data, ...(name === undefined ? {} : { name }) }, abort.signal)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: {
+              ok: true,
+              value: {
+                receiptId: value.receiptId,
+                name: value.file?.name ?? name ?? '附件',
+                ...(value.file?.bytes === undefined ? {} : { bytes: value.file.bytes }),
+              },
+            },
+          })
+        } catch {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'upload-failed', message: '附件上传失败，请重试' } },
           })
         }
       } else if (method === MOBILE_COMMANDS_METHOD) {
@@ -2284,10 +3349,11 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
         const body = parsed.payload as { get?: unknown; set?: unknown; test?: unknown } | undefined
         if (body?.test === true) {
-          // Settings-page test button: push one synthetic event through the
-          // L3 channels so the user can verify the whole chain end to end.
-          const config = notify.store.getConfig()
-          await deliverL3(config, testNotifyEvent())
+          // Settings-page test button: publish one synthetic event through the
+          // engine, exactly like a real notification. Sending it straight to
+          // the delivery functions (the old behaviour) skipped the inbox and
+          // the telemetry, so a test could "succeed" while both stayed empty.
+          notify.engine.publishTest()
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
@@ -2316,6 +3382,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
                   jobs: config.kinds?.jobs === true,
                   todo: config.kinds?.todo !== false,
                   turns: config.kinds?.turns === true,
+                  approvals: config.kinds?.approvals !== false,
                 },
                 vapidPublicKey: vapid.publicKey,
                 channels: {
@@ -2351,7 +3418,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         if (typeof patch.hideDetails === 'boolean') {
           next.hideDetails = patch.hideDetails
         }
-        const kinds = patch.kinds as { jobs?: unknown; todo?: unknown; turns?: unknown } | undefined
+        const kinds = patch.kinds as { jobs?: unknown; todo?: unknown; turns?: unknown; approvals?: unknown } | undefined
         if (kinds !== undefined) {
           const currentKinds = notify.store.getConfig().kinds ?? {}
           next.kinds = {
@@ -2364,6 +3431,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             ...(kinds.turns !== undefined
               ? { turns: kinds.turns === true }
               : currentKinds.turns !== undefined ? { turns: currentKinds.turns } : {}),
+            ...(kinds.approvals !== undefined
+              ? { approvals: kinds.approvals === true }
+              : currentKinds.approvals !== undefined ? { approvals: currentKinds.approvals } : {}),
           }
         }
         const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown; wxpusher?: unknown; pushplus?: unknown } | undefined
@@ -2485,7 +3555,36 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
-          result: { ok: true, value: { items: notify.engine.recentEvents() } },
+          result: {
+            ok: true,
+            value: {
+              items: notify.engine.recentEvents(),
+              // Delivery telemetry: what the host actually tried to send, so
+              // "nothing arrived" can be told apart from "nothing to send".
+              stats: notify.store.deliverySummary(),
+              deliveries: notify.store.recentDeliveries(),
+            },
+          },
+        })
+      } else if (method === MOBILE_GIT_SUMMARY_METHOD) {
+        // Read-only repository summary for one directory. The phone asks for
+        // the workspace it is already looking at; anything that is not a
+        // git work tree is a normal "not a repo" answer, not an error.
+        const payload = parsed.payload as { cwd?: unknown } | undefined
+        const cwd = typeof payload?.cwd === 'string' ? payload.cwd : ''
+        if (cwd === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'invalid-argument', message: '缺少目录' } },
+          })
+          return
+        }
+        const summary = await readGitSummary(cwd)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: summary },
         })
       } else if (method === MOBILE_LATEST_VERSION_METHOD) {
         // About-sheet update check. The registry may be unreachable from the
@@ -2507,7 +3606,216 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             value: { latest, isNewer: isNewerVersion(latest, pkg.version) },
           },
         })
+      } else if (method === MOBILE_TURN_OUTLINE_METHOD) {
+        // 轮次大纲有两个来源，按可靠度排：枚举快照 → 现读一次宿主投影。
+        //
+        // 只信枚举快照是不够的：那一页是"最近更新的 N 个会话"，打开一个很久
+        // 以前的会话时它根本不在里面，手机端就只剩本地已加载的那几轮 —— 真机
+        // 表现是「轮次 · 共 5 轮」，滑条分母 549 却一格历史都点不开。
+        const body = parsed.payload as { sessionId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '' ) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        let outline: unknown = sessionProjectionSnapshots.get(sessionId)?.block.values?.['turnOutline']
+        if (!Array.isArray(outline)) {
+          // 现开一帧 follow，从 `session.history` 的投影基线里取。这条比枚举快照贵
+          // （大会话能到几十 KB，实测 279 轮约 53 KB），但客户端有五分钟缓存，一次
+          // 打开只付一次；总比"历史永远列不出来"强。
+          try {
+            const page = await apiProxy.sessions.history({
+              rpcId: RpcId('dsh-palm-mobile-outline'),
+              payload: { sessionId, maxMessages: 1, fresh: true },
+            } as never)
+            if (page.result.ok) {
+              const values = (page.result.value as { projections?: { values?: Record<string, unknown> } })
+                .projections?.values
+              if (Array.isArray(values?.['turnOutline'])) outline = values['turnOutline']
+            }
+          } catch { /* 拿不到就维持原样，界面显示本地那几轮 */ }
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { turns: outline === undefined ? null : outline } },
+        })
+      } else if (method === MOBILE_INBOX_METHOD) {
+        // 排队消息：同一份花名册快照里就有（inbox 投影），不读日志、不解压。
+        const body = parsed.payload as { sessionId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        const wantsFresh = (parsed.payload as { fresh?: unknown } | undefined)?.fresh === true
+        const inbox = await readInboxProjection(apiProxy, sessionId, wantsFresh)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { inbox: inbox === undefined ? null : inbox } },
+        })
+      } else if ((method as string) === MOBILE_SESSION_STATE_METHOD) {
+        // 一份原子快照：行 + 队列 + 回合 + 队列版本都在同一个切面上。
+        //
+        // 手机端以前要三次调用（logTail / inbox / turnState）才能拼出一屏，三次落在
+        // 不同时刻，于是"队列说还有一条、回合说已经开始了"这类矛盾随时可见。这里一次
+        // 给全，客户端按 seq / revision 单调合并（见 mobile/session-store.ts）。
+        const body = parsed.payload as { sessionId?: unknown; fresh?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        const wantsFreshQueue = body?.fresh === true
+        const turnState = async (): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number }> => {
+          try {
+            return await computeTurnState(sessionId)
+          } catch {
+            return { running: false, asOf: Date.now() }
+          }
+        }
+        const [page, inbox, turn, goalView] = await Promise.all([
+          readChatTailPage(sessionId),
+          readInboxProjection(apiProxy, sessionId, wantsFreshQueue).catch(() => undefined),
+          turnState(),
+          // 目标与待办也在这张切面上：客户端不用再单独轮询 mobile.goal，
+          // 目标条与回合状态也就不会出现「一个说进行中、一个说已结束」。
+          readGoalProjection(apiProxy, deps, sessionId, wantsFreshQueue)
+            .catch((): { goal: unknown; activation?: 'armed' | 'disarmed' } => ({ goal: null })),
+        ])
+        if (page === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '会话状态不可读' } },
+          })
+          return
+        }
+        const queueItems = queueItemsOf(inbox)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: {
+            ok: true,
+            value: {
+              sessionId,
+              rows: page.rows,
+              maxSeq: page.maxSeq,
+              queue: queueItems,
+              queueRevision: queueRevisionOf(sessionId),
+              ...(page.todo === undefined ? {} : { todo: page.todo }),
+              goal: goalView.goal,
+              ...(goalView.activation === undefined ? {} : { goalActivation: goalView.activation }),
+              turn: {
+                running: turn.running === true,
+                ...(turn.turnStartAt === undefined ? {} : { turnStartAt: turn.turnStartAt }),
+                ...(turn.lastEventAt === undefined ? {} : { lastEventAt: turn.lastEventAt }),
+              },
+              asOf: turn.asOf ?? Date.now(),
+            },
+          },
+        })
+      } else if (method === MOBILE_GOAL_METHOD) {
+        // 目标条：宿主 goal 投影的线上形状是 { current }，原样交出去由客户端解析。
+        const body = parsed.payload as { sessionId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        // 目标改动只发生在手机上点动作的那一刻，所以平时读快照就够；带 fresh 时
+        // 现开一帧 follow 取当下投影（动作刚发出去，快照里可能还是旧相位）。
+        const wantsFreshGoal = (parsed.payload as { fresh?: unknown } | undefined)?.fresh === true
+        const value = await readGoalProjection(apiProxy, deps, sessionId, wantsFreshGoal)
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value },
+        })
+      } else if (method === MOBILE_GOAL_ACTION_METHOD) {
+        // 目标动作直连宿主服务：暂停=撤授权（durable 相位不变），恢复=重新授权，
+        // 编辑/清除走同一套 CAS。命令通道的老路留给没有本方法的旧宿主。
+        const body = parsed.payload as { sessionId?: unknown; action?: unknown; objective?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        const action = body?.action
+        const objective = typeof body?.objective === 'string' ? body.objective.trim() : ''
+        const fail = (code: string, message: string): void => {
+          writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: false, error: { code, message } } })
+        }
+        if (sessionId === '') {
+          fail('bad-request', '缺少会话 id')
+          return
+        }
+        if (action !== 'pause' && action !== 'resume' && action !== 'edit' && action !== 'clear') {
+          fail('bad-request', '未知的目标动作')
+          return
+        }
+        if (action === 'edit' && objective === '') {
+          fail('bad-request', '目标内容为空')
+          return
+        }
+        const outcome = applyGoalAction(deps, sessionId, action, objective)
+        if (!outcome.ok) {
+          fail(outcome.code, outcome.message)
+          return
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: {
+            ok: true,
+            value: {
+              ...(outcome.goal === undefined ? {} : { goal: { current: outcome.goal } }),
+              ...(outcome.activation === undefined ? {} : { activation: outcome.activation }),
+            },
+          },
+        })
+      } else if (method === MOBILE_TURN_STATE_METHOD) {
+        // 手机唯一该问的「还在跑吗」。宿主比完帧镜像与日志边界再回答，客户端不再推断。
+        const body = parsed.payload as { sessionId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '' ) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        try {
+          const state = await computeTurnState(sessionId)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: state },
+          })
+        } catch (error) {
+          console.error('mobile.turnState failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '轮次状态不可读' } },
+          })
+        }
       } else if (method === MOBILE_RUNNING_SESSIONS_METHOD) {
+        apiProxyForRunning = apiProxy
         // Which main-agent sessions have an attached agent running right now.
         // The run-overview badge seeds from this so a session that started
         // generating BEFORE the phone opened (or before this page mounted)
@@ -2523,17 +3831,25 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
           return
         }
+        // 有基线就立刻答复，过期与否都在后台刷新：手机上等一次枚举的代价是
+        // 整屏"运行中"迟到（冷启动实测 24.7 秒），比偶尔一份稍旧的答案糟糕。
+        if (liveRunningSeededAt !== 0) {
+          const sessionIds = [...liveRunningSessionIds]
+          mobileRunningCache = { at: Date.now(), proxy: apiProxy, sessionIds }
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { sessionIds } },
+          })
+          if (Date.now() - liveRunningSeededAt >= LIVE_RUNNING_RESEED_MS) void reseedRunning()
+          return
+        }
         try {
-          const list = await apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-running-sessions'), payload: {} } as never)
-          const items = (list as { result?: { ok?: boolean; value?: { items?: Array<{
-            sessionId: string
-            origin?: 'subagent'
-            running?: boolean
-            blank?: boolean
-          }> } } }).result?.value?.items ?? []
-          const sessionIds = items
-            .filter(item => item.origin !== 'subagent' && item.running === true && item.blank !== true)
-            .map(item => String(item.sessionId))
+          // 进程启动后第一次问：现在取一次基线。之后每一次都是内存读，帧会
+          // 一直把桌面端的开始/结束送进镜像。
+          await reseedRunning()
+          if (liveRunningSeededAt === 0) throw new Error('running baseline unavailable')
+          const sessionIds = [...liveRunningSessionIds]
           mobileRunningCache = { at: Date.now(), proxy: apiProxy, sessionIds }
           writeJson(res, 200, {
             type: 'server-response',
@@ -2548,13 +3864,153 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '运行状态查询失败，请稍后重试' } },
           })
         }
-      } else if (method === MOBILE_SEARCH_ALL_METHOD) {
-        // Global session search with workspace attribution: the home-page
-        // search needs to locate hits in whatever workspace they live in,
-        // not only the currently-open one (session.search answers across the
-        // whole host). Attribution rides workspace.list's attach relation,
-        // cached briefly; a missing attribution keeps the row usable (the
-        // phone falls back to opening it from the current workspace).
+      } else if (method === MOBILE_SEARCH_METHOD) {
+        // 期 2：自建索引版搜索。索引还没建好（或 Node 不带 node:sqlite）时回
+        // `fallback: true`，手机端据此退回旧的 mobile.searchAll —— 不会出现
+        // 「索引没建完就搜不到」的空结果。
+        const body = parsed.payload as { query?: unknown; sessionId?: unknown; sessions?: unknown; perSession?: unknown; offset?: unknown } | undefined
+        const query = typeof body?.query === 'string' ? body.query.trim() : ''
+        if (query === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少搜索词' } },
+          })
+          return
+        }
+        const fallback = (): void => {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { items: [], total: 0, hasMore: false, tookMs: 0, fallback: true } },
+          })
+        }
+        try {
+          const index = await ensureSearchIndex()
+          if (index === undefined || index.stats().docs === 0) {
+            fallback()
+            return
+          }
+          const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined
+          const clamp = (value: unknown, min: number, max: number, fallbackValue: number): number => {
+            const parsedValue = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallbackValue
+            return Math.min(Math.max(parsedValue, min), max)
+          }
+          const perSession = clamp(body?.perSession, 1, 5, 2)
+          const sessionCap = clamp(body?.sessions, 5, 40, 12)
+          const offset = clamp(body?.offset, 0, 200, 0)
+          const started = performance.now()
+          const snapshot = await ordinarySearchSnapshot(apiProxy)
+          const workspaceOf = (id: string): Record<string, string> => {
+            const workspaceId = snapshot.workspace.get(id)
+            const workspaceTitle = snapshot.workspaceTitle.get(id)
+            return {
+              ...(workspaceId === undefined ? {} : { workspaceId }),
+              ...(workspaceTitle === undefined ? {} : { workspaceTitle }),
+            }
+          }
+          const items: Array<Record<string, unknown>> = []
+
+          if (sessionId !== undefined) {
+            // 会话内搜索：不分组，按命中顺序给位置列表（上一处/下一处靠它）。
+            // 以前这里写死 50 条、hasMore 恒为 false：常用字在长会话里能有两三百处，
+            // 客户端只看到 1/50，后面的一律点不到（真机实测某会话「的」722 处）。
+            // 现在按 CHAT_SEARCH_HITS 取、多取一条判 hasMore，如实告诉客户端「还有」。
+            const hits = index.querySessionHits(query, sessionId, CHAT_SEARCH_HITS + 1)
+            const truncated = hits.length > CHAT_SEARCH_HITS
+            const visible = truncated ? hits.slice(0, CHAT_SEARCH_HITS) : hits
+            const tookMs = Math.round((performance.now() - started) * 10) / 10
+            for (const hit of visible) {
+              items.push({
+                kind: 'message',
+                sessionId: hit.sessionId,
+                seq: hit.seq,
+                messageId: hit.messageId,
+                ...(hit.partId === undefined ? {} : { partId: hit.partId }),
+                snippet: hit.snippet,
+                ...(hit.paragraph === undefined ? {} : { paragraph: hit.paragraph }),
+                ...(hit.matchIndex === undefined ? {} : { matchIndex: hit.matchIndex }),
+                ranges: hit.ranges,
+                user: hit.user,
+              })
+            }
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: true, value: { items, total: items.length, hasMore: truncated, tookMs, source: 'index' } },
+            })
+            return
+          }
+
+          const page = index.queryGroupsDetailed(query, { limits: perSession, sessions: sessionCap, offset })
+          const tookMs = Math.round((performance.now() - started) * 10) / 10
+          const hasMore = page.hasMore
+          const seen = new Set(page.groups.map(group => group.sessionId))
+          // 标题命中只在第一页给（翻页时再塞一遍会让「加载更多」看起来没变化）；
+          // 已经出现在消息命中里的会话不重复列。
+          if (offset === 0) {
+            for (const hit of index.titleHits(query, sessionCap)) {
+              if (seen.has(hit.sessionId) || !snapshot.byId.has(hit.sessionId)) continue
+              items.push({
+                kind: 'title',
+                sessionId: hit.sessionId,
+                title: hit.title,
+                hits: 0,
+                ...workspaceOf(hit.sessionId),
+              })
+            }
+          }
+          for (const group of page.groups) {
+            const meta = snapshot.byId.get(group.sessionId)
+            // 花名册里没有的（子代理 / 已归档 / 已删除）一律不返回，和列表口径一致。
+            if (meta === undefined) continue
+            const best = group.best
+            // 每条命中单独一行：手机端可以直接点「第 2 条」跳到那条，而不是只能跳到最佳那条。
+            const messages = group.messages.map(hit => ({
+              seq: hit.seq,
+              messageId: hit.messageId,
+              ...(hit.partId === undefined ? {} : { partId: hit.partId }),
+              snippet: hit.snippet,
+              ...(hit.paragraph === undefined ? {} : { paragraph: hit.paragraph }),
+              ...(hit.matchIndex === undefined ? {} : { matchIndex: hit.matchIndex }),
+              ranges: hit.ranges,
+              user: hit.user,
+            }))
+            items.push({
+              kind: 'message',
+              sessionId: group.sessionId,
+              ...(meta.title === undefined ? {} : { title: meta.title }),
+              hits: group.hits,
+              seq: best.seq,
+              messageId: best.messageId,
+              ...(best.partId === undefined ? {} : { partId: best.partId }),
+              snippet: best.snippet,
+              ...(best.paragraph === undefined ? {} : { paragraph: best.paragraph }),
+              ...(best.matchIndex === undefined ? {} : { matchIndex: best.matchIndex }),
+              ranges: best.ranges,
+              user: best.user,
+              messages,
+              ...workspaceOf(group.sessionId),
+            })
+          }
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: {
+              ok: true,
+              value: { items, total: page.totalGroups, hasMore, nextOffset: offset + page.groups.length, tookMs, source: 'index' },
+            },
+          })
+        } catch (error) {
+          console.error('mobile.search failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '搜索失败，请稍后重试' } },
+          })
+        }      } else if (method === MOBILE_SEARCH_ALL_METHOD) {
+        // 旧入口留着（老客户端还在调），但内部换成索引：返回形状不变
+        // （每个会话一条 + 标题命中），一次查询就算完，不读任何会话历史。
         const body = parsed.payload as { query?: unknown } | undefined
         const query = typeof body?.query === 'string' ? body.query.trim() : ''
         if (query === '') {
@@ -2566,116 +4022,52 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           return
         }
         try {
-          const cacheKey = query.toLowerCase()
-          if (searchAllCache !== undefined
-            && searchAllCache.proxy === apiProxy
-            && searchAllCache.key === cacheKey
-            && Date.now() - searchAllCache.at < SEARCH_ALL_TTL_MS) {
+          const snapshot = await ordinarySearchSnapshot(apiProxy)
+          const index = await ensureSearchIndex()
+          if (index === undefined) {
+            // 宿主没有可用的 sqlite：如实说「没搜全」，别假装搜过。
             writeJson(res, 200, {
               type: 'server-response',
               rpcId,
-              result: { ok: true, value: { items: searchAllCache.items, hasMore: searchAllCache.hasMore, ...(searchAllCache.partial === true ? { partial: true } : {}) } },
+              result: { ok: true, value: { items: [], hasMore: false, partial: true } },
             })
             return
           }
-          const [search, snapshot] = await Promise.all([
-            apiProxy.sessions.search(
-              { rpcId: RpcId('dsh-palm-search-all'), payload: { query } },
-              new AbortController().signal,
-            ),
-            ordinarySearchSnapshot(apiProxy),
-          ])
-          const value = (search as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; snippet: string }>; hasMore?: boolean } } }).result?.value
-          // Subagent sessions are internal working sessions, not user
-          // conversations: exclude them from search the same way the roster
-          // does (origin: 'subagent').
-          const needles = query.toLowerCase()
-          // FTS is only a candidate source. Verify every candidate against
-          // the same complete, visible-text document used by searchMessages;
-          // otherwise tool/reasoning/code hits appear in the list but cannot be
-          // located or highlighted after the tap. The document cache keeps
-          // repeated searches cheap, while this strict path guarantees that
-          // every returned message hit already has a valid render seq.
-          const rawFts = (value?.items ?? []).filter(item => snapshot.byId.has(String(item.sessionId)))
-          const ftsHits: Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string }> = []
-          let ftsNext = 0
-          const ftsWorker = async (): Promise<void> => {
-            while (ftsNext < rawFts.length) {
-              const index = ftsNext
-              ftsNext += 1
-              const item = rawFts[index]
-              const session = snapshot.byId.get(String(item.sessionId))
-              if (session === undefined) continue
-              try {
-                const doc = await searchDocument(apiProxy, session, SEARCH_MESSAGES_PAGES, deps.chatWindows)
-                const exact = findRowForSnippet(doc, item.snippet)
-                if (exact !== undefined) {
-                  ftsHits.push({ sessionId: session.sessionId, snippet: snippetForRow(exact, needles), seq: exact.seq, messageId: exact.messageId, ...(exact.partId !== undefined ? { partId: exact.partId } : {}) })
-                  continue
-                }
-                const fallback = hitsInDocument(doc, needles)[0]
-                if (fallback !== undefined) {
-                  ftsHits.push({ sessionId: session.sessionId, snippet: fallback.snippet, seq: fallback.seq, messageId: fallback.messageId, ...(fallback.partId !== undefined ? { partId: fallback.partId } : {}) })
-                }
-              } catch {
-                // An unreadable candidate is omitted; never show an unlocatable hit.
-              }
-            }
-          }
-          await Promise.all(Array.from(
-            { length: Math.min(SEARCH_BACKFILL_CONCURRENCY, rawFts.length) },
-            () => ftsWorker(),
-          ))
-          // The FTS token search cannot match a CJK SUBSTRING (unicode61
-          // keeps contiguous Chinese as one token). Only scan history when
-          // FTS found nothing — otherwise the list is already populated.
-          const titleSessionIds = new Set(snapshot.sessions.filter(item => item.title?.toLowerCase().includes(needles) === true).map(item => item.sessionId))
-          const backfillExclude = new Set([...ftsHits.map(item => item.sessionId), ...titleSessionIds])
-          const backfillScan = ftsHits.length === 0
-            ? await substringBackfill(apiProxy, needles, snapshot.sessions, backfillExclude, deps.chatWindows)
-            : { hits: [] as Array<{ sessionId: string; snippet: string; seq: number; messageId?: string; partId?: string }>, scannedAll: true }
-          const backfill = backfillScan.hits
-          const partialScan = snapshot.rosterPartial || !backfillScan.scannedAll
-          // Pre-warm the message-locate cache for backfill hits: tapping a
-          // hit then resolves INSTANTLY (zero extra RPC) and opens the
-          // session scrolled to the first matched message.
-          for (const hit of backfill) {
-            writeMessageHits(messageCacheKey(hit.sessionId, query), apiProxy, [
-              { seq: hit.seq, messageId: hit.messageId, ...(hit.partId !== undefined ? { partId: hit.partId } : {}), snippet: hit.snippet },
-            ])
-          }
-          const titleHits = snapshot.sessions
-            .filter(item => item.title?.toLowerCase().includes(needles) === true)
-            .map(item => ({ sessionId: item.sessionId, snippet: item.title ?? '', ...(item.title !== undefined ? { title: item.title } : {}), kind: 'title' as const }))
-          const messageBySession = new Map([...ftsHits, ...backfill].map(item => [item.sessionId, item]))
-          const messageHits = [...messageBySession.values()].map(item => ({ ...item, kind: 'message' as const }))
-          const items: SearchAllHit[] = [...titleHits, ...messageHits].map(item => {
-            const seqValue = 'seq' in item ? item.seq : undefined
-            const sessionId = String(item.sessionId)
-            const workspaceId = snapshot.workspace.get(sessionId)
-            const seq = typeof seqValue === 'number' ? seqValue : undefined
-            const messageId = 'messageId' in item && item.messageId !== undefined ? item.messageId : undefined
-            const partId = 'partId' in item && item.partId !== undefined ? item.partId : undefined
+          const workspaceOf = (id: string): Record<string, string> => {
+            const workspaceId = snapshot.workspace.get(id)
+            const workspaceTitle = workspaceId === undefined ? undefined : snapshot.workspaceTitle.get(workspaceId)
             return {
-              kind: item.kind,
-              sessionId,
-              snippet: item.snippet,
-              ...(seq !== undefined ? { seq } : {}),
-              ...(messageId !== undefined ? { messageId } : {}),
-              ...(partId !== undefined ? { partId } : {}),
-              ...(snapshot.byId.get(sessionId)?.title !== undefined ? { title: snapshot.byId.get(sessionId)?.title } : {}),
-              ...(workspaceId !== undefined ? { workspaceId } : {}),
-              ...(workspaceId !== undefined && snapshot.workspaceTitle.get(workspaceId) !== undefined
-                ? { workspaceTitle: snapshot.workspaceTitle.get(workspaceId) }
-                : {}),
+              ...(workspaceId === undefined ? {} : { workspaceId }),
+              ...(workspaceTitle === undefined ? {} : { workspaceTitle }),
             }
-          })
-          const truncated = value?.hasMore === true || backfill.length >= SEARCH_BACKFILL_HITS
-          searchAllCache = { key: cacheKey, at: Date.now(), proxy: apiProxy, items, hasMore: truncated, partial: partialScan }
+          }
+          const items: SearchAllHit[] = []
+          for (const hit of index.titleHits(query, SEARCH_ALL_SESSIONS)) {
+            if (!snapshot.byId.has(hit.sessionId)) continue
+            items.push({ kind: 'title', sessionId: hit.sessionId, snippet: hit.title, title: hit.title, ...workspaceOf(hit.sessionId) })
+          }
+          const groups = index.queryGroups(query, { limits: 1, sessions: SEARCH_ALL_SESSIONS })
+          for (const group of groups) {
+            const session = snapshot.byId.get(group.sessionId)
+            if (session === undefined) continue
+            const best = group.best
+            items.push({
+              kind: 'message',
+              sessionId: group.sessionId,
+              snippet: best.snippet,
+              ...(best.paragraph === undefined ? {} : { paragraph: best.paragraph }),
+              ...(best.matchIndex === undefined ? {} : { matchIndex: best.matchIndex }),
+              seq: best.seq,
+              ...(best.messageId === undefined ? {} : { messageId: best.messageId }),
+              ...(best.partId === undefined ? {} : { partId: best.partId }),
+              ...(session.title === undefined ? {} : { title: session.title }),
+              ...workspaceOf(group.sessionId),
+            })
+          }
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
-            result: { ok: true, value: { items, hasMore: truncated, ...(partialScan ? { partial: true } : {}) } },
+            result: { ok: true, value: { items, hasMore: groups.length >= SEARCH_ALL_SESSIONS } },
           })
         } catch (error) {
           console.error('mobile.searchAll failed', error)
@@ -2686,12 +4078,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       } else if (method === MOBILE_SEARCH_MESSAGES_METHOD) {
-        // Message-level locate INSIDE one session: the lazy detail behind an
-        // expanded search-hit row. The resident chat window serves it with
-        // zero log reads when it covers the hit; otherwise a bounded history
-        // scan walks back from the tail (SEARCH_MESSAGES_PAGES pages max).
-        // Hits carry the matched message event's seq so the phone can open
-        // the session scrolled to that exact row and highlight it.
+        // 会话内定位：一次索引查询。旧实现要把这个会话的历史翻到底（最多
+        // 4096 页）才能确定 seq，现在命中行本身就带 seq。
         const body = parsed.payload as { sessionId?: unknown; query?: unknown } | undefined
         const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
         const query = typeof body?.query === 'string' ? body.query.trim() : ''
@@ -2703,26 +4091,17 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
           return
         }
-        const needle = query.toLowerCase()
-        const cacheKey = messageCacheKey(sessionId, query)
-        const cachedHits = readMessageHits(cacheKey, apiProxy)
-        if (cachedHits !== undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { items: cachedHits } },
-          })
-          return
-        }
         try {
-          const snapshot = await ordinarySearchSnapshot(apiProxy)
-          const session = snapshot.byId.get(sessionId)
-          const items = session === undefined
-            ? []
-            : hitsInDocument(await searchDocument(apiProxy, session, SEARCH_MESSAGES_PAGES, deps.chatWindows), needle)
-              .slice(0, SEARCH_MESSAGES_LIMIT)
-              .map(({ seq, messageId, partId, snippet }) => ({ seq, ...(messageId !== undefined ? { messageId } : {}), ...(partId !== undefined ? { partId } : {}), snippet }))
-          writeMessageHits(cacheKey, apiProxy, items)
+          const index = await ensureSearchIndex()
+          const hits = index === undefined ? [] : index.query(query, { sessionId, limit: SEARCH_MESSAGES_LIMIT })
+          const items = hits.map(hit => ({
+            seq: hit.seq,
+            ...(hit.messageId === undefined ? {} : { messageId: hit.messageId }),
+            ...(hit.partId === undefined ? {} : { partId: hit.partId }),
+            snippet: hit.snippet,
+            ...(hit.paragraph === undefined ? {} : { paragraph: hit.paragraph }),
+            ...(hit.matchIndex === undefined ? {} : { matchIndex: hit.matchIndex }),
+          }))
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
@@ -2796,7 +4175,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
           return
         }
-        const body = parsed.payload as { sessionId?: unknown; beforeSeq?: unknown; maxRows?: unknown } | undefined
+        const body = parsed.payload as { sessionId?: unknown; beforeSeq?: unknown; maxRows?: unknown; include?: unknown } | undefined
         const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
         if (sessionId === '') {
           writeJson(res, 200, {
@@ -2816,10 +4195,43 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           const page: ChatPage = beforeSeq === undefined
             ? await windows.tail(sessionId, maxRows)
             : await windows.before(sessionId, beforeSeq, maxRows)
+          // 每行带上**索引里那份正文**（与 documentRows 用同一个 searchableText 算）。
+          // 手机端的搜索定位只靠它能把命中落准：索引的 seq/id 来自 history 折叠，
+          // 渲染行的 seq/id 来自窗口投影，两条通道逐条并不对齐（实测命中 seq 会落到
+          // 内容完全不同的相邻消息上），而这段文本两边一字不差。
+          const pageWithSearchText: ChatPage = {
+            ...page,
+            rows: page.rows.map(row => ({ ...row, searchText: rowSearchableText(row) })),
+          }
+          // 打开会话时顺带把小读取带回去（A）：模型目录、子代理目录本来要各走
+          // 一次隧道往返，弱网下每个 150~400ms。这里在服务端并行取齐，挂在同
+          // 一个响应里；任何一项失败都不影响页面本身（缺失即让客户端按老路径
+          // 单独再取），所以 extras 是纯增益的附加字段。
+          const include = readChatInclude(body?.include)
+          if (include.length === 0) {
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: true, value: pageWithSearchText },
+            })
+            return
+          }
+          const extras: Record<string, unknown> = {}
+          await Promise.all(include.map(async (name) => {
+            try {
+              // apiProxy 的每个方法都返回 RPC 信封 { rpcId, result: { ok, value } }（见
+              // api-proxy-adapter 的 call()），而 extras 要的是 value 本身。直接挂信封会让手机上
+              // 的模型目录读成 undefined，chip 和选择器全空。
+              if (name === 'models') extras['models'] = unwrapProxyValue(await apiProxy.sessions.models({ sessionId } as never))
+              else if (name === 'subagents') extras['subagents'] = unwrapProxyValue(await apiProxy.subagents.list({ parentSessionId: sessionId } as never))
+            } catch (error) {
+              console.error('mobile.readChat extra failed: ' + name, error)
+            }
+          }))
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
-            result: { ok: true, value: page },
+            result: { ok: true, value: { ...pageWithSearchText, extras } },
           })
         } catch (error) {
           // Internal failures never leak host paths or log details: a stable
@@ -2832,7 +4244,79 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '会话内容读取失败，请稍后重试' } },
           })
         }
+      } else if ((method as string) === MOBILE_LOG_TAIL_METHOD) {
+        // 上面那串比较把 method 窄成了剩余字面量的联合，这里显式放宽类型。
+        // 会话日志直读（C）：只解尾部若干 zstd 帧，就地折叠成与宿主同形的
+        // rows 再回给手机。宿主的 session.page 每次都整文件解压（52 MB 实测
+        // 4.1 s），而尾部帧只有几十毫秒 —— 大会话首屏的差距全在这里。
+        // 这条通道只读、只给尾部；翻旧页仍然走宿主（它维护投影与窗口缓存）。
+        const body = parsed.payload as { sessionId?: unknown; maxRows?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
+        if (sessionId === '') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
+          })
+          return
+        }
+        const rawMaxRows = body?.maxRows
+        const maxRows = typeof rawMaxRows === 'number' && Number.isFinite(rawMaxRows)
+          ? Math.min(Math.max(1, Math.round(rawMaxRows)), READ_CHAT_MAX_ROWS)
+          : undefined
+        try {
+          // 服务端就折叠成 rows：原始事件约是可见行的两倍（52 MB 会话实测
+          // 408 KB 事件 → 约 210 KB 行），弱网下这段字节差比解压更值钱。
+          const page = await readChatTailPage(sessionId, maxRows)
+          if (page === undefined) {
+            // 找不到日志（会话刚建、或压缩存储换了布局）：让手机回落到宿主路径。
+            writeJson(res, 200, {
+              type: 'server-response',
+              rpcId,
+              result: { ok: false, error: { code: 'unavailable', message: '日志尾部不可读' } },
+            })
+            return
+          }
+          // 权限、上下文压力这些投影**不在日志里**：手机的权限选择器以尾页投影
+          // 为基线，缺了它整块就不渲染（实测就是"权限面板消失"）。投影来自宿主
+          // 会话枚举——那次枚举很贵（六到三十秒），但列表页本来就在跑，所以只查
+          // 它留下的快照；查不到就不带，手机端会保留已有基线。
+          //
+          // 只带首屏要用的键：整块里 turnOutline 一个就 87 KB（尾页消息自己才
+          // 99 KB），那部分留给稍后的宿主权威页。
+          if (page.projections === undefined) {
+            const snapshot = sessionProjectionSnapshots.get(sessionId)
+            if (snapshot !== undefined) {
+              const values: Record<string, unknown> = {}
+              for (const key of TAIL_PAGE_PROJECTION_KEYS) {
+                if (snapshot.block.values?.[key] !== undefined) values[key] = snapshot.block.values[key]
+              }
+              ;(page as { projections?: { asOfSeq?: number; values?: Record<string, unknown> } }).projections = {
+                ...(snapshot.block.asOfSeq === undefined ? {} : { asOfSeq: snapshot.block.asOfSeq }),
+                values,
+              }
+            }
+          }
+          // 首屏同样要带 searchText：手机端搜到命中后按它落行。日志直读这条通道
+          // 若缺这段文本，定位就退回「text + flow」自行猜，实测会停到别的段落上。
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { ...page, rows: page.rows.map(row => ({ ...row, searchText: rowSearchableText(row) })) } },
+          })
+        } catch (error) {
+          console.error('mobile.logTail failed', error)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'internal', message: '日志尾部读取失败' } },
+          })
+        }
       } else if (method === MOBILE_OBSERVE_METHOD) {
+        // 手机一打开页面就来这里，顺手把「谁在跑」的基线预热掉：等用户点进
+        // 会话列表时它多半已经好了，不必让"运行中"晚二十几秒才出现。
+        apiProxyForRunning = apiProxy
+        if (liveRunningSeededAt === 0) void reseedRunning()
         // Which session the phone has open (v3.4): the host keeps exactly one
         // assistant-stream follow for the observed sessions, so this is the
         // signal that turns token-level streaming on for the chat on screen.
@@ -2998,6 +4482,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       res.end()
       return
     }
+    // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
+    void ensureSearchIndex().catch(() => undefined)
     if (!gateOk(req)) {
       writeJson(res, 403, {
         ok: false,
@@ -3019,6 +4505,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     })
+    // Flush the response head now. Node only puts headers on the wire with the
+    // first write or end(), so an SSE stream with no pending frames kept the
+    // browser's EventSource in CONNECTING until the first heartbeat — up to the
+    // full keep-alive interval. The phone reads that as "no stream yet" and
+    // starts polling, which is the delay users see when the desktop begins a
+    // turn and the phone keeps showing idle.
+    res.flushHeaders()
     // 开场快照：手机可能在提问/审批发生的那一刻没有活着的流（App 在后台、锁屏、隧道
     // 抖动、正在重连），于是它从没收到过那条 `question/requested`，桌面也就照常在桌面
     // 被答掉了——用户看到的现象是"手机端问题面板消失了"。待答条目仍然留在适配层，
@@ -3083,7 +4576,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // keepalive — otherwise an idle phone drifts to "disconnected".
       touchDeviceFor(req)
       try {
-        res.write(': ping\n\n')
+        // A real mux frame, not an SSE comment. Comments are legal transport
+        // keep-alives, but the EventSource spec drops them before the page ever
+        // sees them, so a client tracking liveness from delivered frames kept
+        // concluding the stream was dead. `mux/ping` reaches the client as a
+        // frame it can count, which is what keeps it off the polling fallback.
+        res.write(`data: ${JSON.stringify({ type: 'server-request', rpcId: 'mux-ping', method: 'events.mux', payload: { type: 'mux/ping' } })}\n\n`)
       } catch {
         // The write failed; the close handler tears the subscription down.
       }
@@ -3116,6 +4614,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           break
         }
         deps.pendingTracker.onFrame(frame as any)
+        // 顺带把运行状态记进内存镜像：手机下一次问就是一次内存读。
+        const boundary = noteRunningFrame(frame as { payload?: unknown })
         // The host mux stream yields bare { rpcId, payload } frames; the mobile
         // client validates the full server-request envelope ({ type, rpcId,
         // method, payload }) and silently drops anything else — unwrapped
@@ -3123,6 +4623,19 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         // (3s cadence, the "visible lag" vs desktop). Wrap every frame so the
         // live stream actually reaches the client.
         const wire = { type: 'server-request' as const, rpcId: frame.rpcId, method: 'events.mux', payload: frame.payload }
+        // A turn boundary just moved: tell the phone the new verdict instead of
+        // letting it infer one. This is the desktop's model — the store's
+        // `running` flag IS the answer, nobody re-derives it from log edges.
+        // The extra frame rides the same socket and is tiny (one status line).
+        if (boundary !== undefined) {
+          const verdict = {
+            type: 'server-request' as const,
+            rpcId: frame.rpcId,
+            method: 'events.mux',
+            payload: { type: 'session/status', sessionId: boundary.sessionId, running: boundary.running },
+          }
+          try { res.write(`data: ${JSON.stringify(verdict)}\n\n`) } catch { /* close handler tears it down */ }
+        }
         // Backpressure: a slow phone must not buffer unbounded frames in the
         // socket. Pause consuming the mux stream until the write drains.
         if (!res.write(`data: ${JSON.stringify(wire)}\n\n`)) {
@@ -3162,6 +4675,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       res.end()
       return
     }
+    // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
+    void ensureSearchIndex().catch(() => undefined)
     if (!gateOk(req)) {
       req.resume()
       writeJson(res, 403, { ok: false, error: { code: 'unpaired', message: 'mobile session is not paired' } })
@@ -3255,6 +4770,20 @@ function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ f
       const wsValue = (wsList?.result.ok === true ? wsList.result.value : undefined) as
         | { archivedSessionIds?: string[]; items?: Array<{ workspaceId: string; sessionIds?: string[] }> }
         | undefined
+      // 顺手留下每行的投影（枚举结果本来就带），尾页读取查表即得，不用为此再
+      // 枚举一次。整体替换而不是合并：删掉的会话不该在表里留下投影。
+      const items = full.result.value.items as Array<{
+        sessionId?: unknown
+        projections?: { asOfSeq?: number; values?: Record<string, unknown> }
+      }>
+      const enumeratedAt = Date.now()
+      const snapshots = new Map<string, { at: number; block: { asOfSeq?: number; values?: Record<string, unknown> } }>()
+      for (const item of items) {
+        if (typeof item.sessionId === 'string' && item.projections !== undefined) {
+          snapshots.set(item.sessionId, { at: enumeratedAt, block: item.projections })
+        }
+      }
+      sessionProjectionSnapshots = snapshots
       sessionListTtlCache = {
         at: Date.now(),
         proxy: apiProxy,
@@ -3376,7 +4905,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const position = cursor === undefined ? undefined : parseSessionListCursor(cursor)
     const from = position === undefined ? 0 : items.findIndex(row => afterCursor(row, position))
     const start = from < 0 ? items.length : from
-    const page = items.slice(start, start + SESSION_PAGE_SIZE)
+    const page = items.slice(start, start + SESSION_PAGE_SIZE).map(trimSessionListRow)
     const last = page[page.length - 1]
     const nextCursor = last !== undefined && start + page.length < items.length
       ? sessionListCursor(last.updatedAt, last.sessionId)
@@ -3454,8 +4983,11 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   if (method === 'session.search') return wrap(await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
   if (method === 'session.prompt') {
     const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
-    invalidateSessionSearch(typeof sessionId === 'string' ? sessionId : undefined)
-    return wrap(await apiProxy.sessions.prompt(request as never))
+    invalidateSessionSearch()
+    const reply = await apiProxy.sessions.prompt(request as never)
+    // 队列版本 +1：手机端的乐观排队项据此退场（见 mobile/session-store.ts）。
+    if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
+    return wrap(reply)
   }
   if (method === 'session.models') return wrap(await apiProxy.sessions.models(request as never))
   if (method === 'session.selectModel') return wrap(await apiProxy.sessions.selectModel(request as never))
@@ -3466,8 +4998,14 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     return wrap(await apiProxy.sessions.rename(request as never))
   }
   if (method === 'session.cancel') return wrap(await apiProxy.sessions.cancel(request as never))
-  if (method === 'session.updateQueue') return wrap(await apiProxy.sessions.updateQueue(request as never))
-  if (method === 'subagent.list') return wrap(await apiProxy.subagents.list(request as never))
+  if (method === 'session.updateQueue') {
+    const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
+    const reply = await apiProxy.sessions.updateQueue(request as never)
+    // 编辑/删除/插队都会让队列换代：手机端的乐观项与快照都靠这个版本号对齐。
+    if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
+    return wrap(reply)
+  }
+  if (method === 'subagent.list') return wrap(await subagentCatalogWithActivity(request, apiProxy))
   if (method === 'settings.read') {
     // The full redacted settings surface (namespace schemas + values, secrets
     // stripped by the host seam) — the phone renders the same configuration

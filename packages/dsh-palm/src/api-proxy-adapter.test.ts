@@ -16,7 +16,7 @@
  * throw on `answers.map`: an answer that looked submitted never reached the agent.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { makeApiProxyAdapter } from './api-proxy-adapter.ts'
+import { makeApiProxyAdapter, toCatalogEntry } from './api-proxy-adapter.ts'
 import { SessionObserverRegistry } from './api-proxy-observe.ts'
 
 /** Poll a condition until it holds (no timer dependency on vitest helpers). */
@@ -439,5 +439,50 @@ describe('dual-answer race between the phone and the desktop', () => {
     await expect(secondAnswered).resolves.toBe('rejected')
     await until(() => { expect(secondDesktop.seen.signal?.aborted).toBe(true) })
     controller.abort()
+  })
+
+  it('forwards session.list limit only when it is a positive integer', async () => {
+    // 手机端「谁在跑」的探针只带最近 200 条的 limit。适配层不转发时，宿主会把整张
+    // 会话表枚举一遍（冷启动实测 24.7 秒），请求在手机上根本等不到答复。
+    const { ctx, adapter } = harness()
+    const list = vi.fn(async (query: unknown) => ({ items: [], query }))
+    ;(ctx.get('sessionController') as { list?: unknown }).list = list
+
+    await adapter.sessions.list({ rpcId: 'list-1', payload: { cursor: 'c-1', limit: 200 } } as never)
+    expect(list.mock.calls[0]?.[0]).toEqual({ cursor: 'c-1', limit: 200 })
+
+    await adapter.sessions.list({ rpcId: 'list-2', payload: { cursor: 'c-2' } } as never)
+    expect(list.mock.calls[1]?.[0]).toEqual({ cursor: 'c-2' })
+
+    // 非正整数一律不转发，免得下游收到 0 / NaN 后自己猜。
+    await adapter.sessions.list({ rpcId: 'list-3', payload: { limit: 0 } } as never)
+    expect(list.mock.calls[2]?.[0]).toEqual({ cursor: undefined })
+  })
+})
+
+describe('子代理目录：0.2.x 的 listChildren 裸条目 → 手机侧目录行', () => {
+  it('keeps a continuable child续聊语义 and its label', () => {
+    const entry = toCatalogEntry({ id: 'c1', mode: 'continuable', label: '整理记忆' })
+    expect(entry).toMatchObject({
+      kind: 'child',
+      id: 'c1',
+      mode: 'continuable',
+      label: '整理记忆',
+      // 运行态由 mobile-api 按子会话边界补，这里只占位。
+      activity: 'inactive',
+      hasChildren: false,
+    })
+  })
+
+  it('treats one-shot / external / unknown as one-shot', () => {
+    for (const mode of ['one-shot', 'external', 'unknown', undefined]) {
+      const entry = toCatalogEntry({ id: 'c2', ...(mode === undefined ? {} : { mode }) })
+      expect(entry).toMatchObject({ kind: 'child', mode: 'one-shot' })
+    }
+  })
+
+  it('drops an empty label instead of projecting an empty title', () => {
+    const entry = toCatalogEntry({ id: 'c3', mode: 'one-shot', label: '' })
+    expect(entry.kind === 'child' && 'label' in entry).toBe(false)
   })
 })

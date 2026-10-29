@@ -88,3 +88,73 @@ describe('startVoiceRecording duration cap', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('startVoiceRecording sample handling', () => {
+  it('keeps the cap honest on a 48 kHz context: 60 s of speech, not 20 s', async () => {
+    // iOS hands back 48 kHz whatever we ask for. The cap used to divide the RAW
+    // sample count by 16 kHz, so a "60 秒" recording was cut at 20 秒 and the
+    // sentence lost its ending while the sheet still said 最长 60s.
+    const { stream } = fakeStream()
+    const { processor, context } = fakeAudioContext()
+    stubBrowser(stream, { ...context, sampleRate: 48_000 } as never)
+    const onTimeout = vi.fn()
+    await startVoiceRecording({ onTimeout })
+    const oneCallback = (): void => {
+      processor.onaudioprocess!({ inputBuffer: { getChannelData: () => new Float32Array(4_096) } })
+    }
+    // 352 callbacks × 4096 samples @ 48 kHz ≈ 30 s of audio: nothing may fire.
+    for (let i = 0; i < 352; i += 1) oneCallback()
+    expect(onTimeout).toHaveBeenCalledTimes(0)
+    // Past a full minute of audio the cap does fire, exactly once.
+    for (let i = 0; i < 360; i += 1) oneCallback()
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+  })
+
+
+  it('resumes a suspended context, which iOS leaves behind after the mic prompt', async () => {
+    const { stream } = fakeStream()
+    const { context } = fakeAudioContext()
+    const resume = vi.fn().mockResolvedValue(undefined)
+    stubBrowser(stream, { ...context, resume } as never)
+    const recorder = await startVoiceRecording()
+    recorder.cancel()
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('resamples a 48 kHz capture down to 16 kHz before encoding', async () => {
+    const { stream } = fakeStream()
+    const { processor, context } = fakeAudioContext()
+    // iOS Safari ignores the requested sample rate and hands back 48 kHz;
+    // encoding that as-is triples the upload for no gain.
+    stubBrowser(stream, { ...context, sampleRate: 48_000 } as never)
+    const recorder = await startVoiceRecording()
+    processor.onaudioprocess!({ inputBuffer: { getChannelData: () => new Float32Array(48_000) } })
+    const wav = Buffer.from(await recorder.stop(), 'base64')
+    expect(wav.subarray(0, 4).toString()).toBe('RIFF')
+    expect(wav.readUInt32LE(24)).toBe(16_000)
+    // 1 s at 48 kHz becomes 1 s at 16 kHz: header (44) + 16000 * 2 bytes.
+    expect(wav.length).toBe(44 + 16_000 * 2)
+  })
+})
+
+describe('startVoiceRecording level metering', () => {
+  it('reports the input loudness so the wave can move with the voice', async () => {
+    // 固定动画看不出麦克风到底有没有声音（静音/戴耳机/被别的应用抢占）。
+    const { stream } = fakeStream()
+    const { processor, context } = fakeAudioContext()
+    stubBrowser(stream, context)
+    const onLevel = vi.fn()
+    const recorder = await startVoiceRecording({ onLevel })
+    const tone = new Float32Array(4_096)
+    for (let i = 0; i < tone.length; i += 1) tone[i] = Math.sin(i / 8) * 0.2
+    processor.onaudioprocess!({ inputBuffer: { getChannelData: () => tone } })
+    expect(onLevel).toHaveBeenCalled()
+    const level = onLevel.mock.calls[0]![0] as number
+    expect(level).toBeGreaterThan(0.08)
+    expect(level).toBeLessThanOrEqual(1)
+    // 静音（全零）落到下限，而不是 0：柱子保持平而不是消失。
+    processor.onaudioprocess!({ inputBuffer: { getChannelData: () => new Float32Array(4_096) } })
+    expect(onLevel.mock.calls[1]![0]).toBeCloseTo(0.08, 5)
+    recorder.cancel()
+  })
+})

@@ -33,6 +33,25 @@ export interface PendingState {
   questions: PendingQuestion[]
 }
 
+/**
+ * Something is now blocked on the user. The notify engine turns this into a
+ * push notification so the phone learns about it without polling — before
+ * this, an approval could sit unanswered indefinitely with the phone silent.
+ */
+export interface PendingDecisionNotice {
+  sessionId: string
+  /** The pending frame's rpcId: the answer must echo it. */
+  rpcId: string
+  decisionId: string
+  kind: 'approval' | 'question'
+  /** Approval: the tool being requested. */
+  toolName?: string
+  /** Approval: the host's reason. Question: the first question's text. */
+  summary?: string
+  multiSelect?: boolean
+  optionCount?: number
+}
+
 /** Guard helpers: a malformed frame is dropped, never trusted. */
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
@@ -40,6 +59,17 @@ function asString(value: unknown): string | undefined {
 
 export class PendingTracker {
   private readonly sessions = new Map<string, { approvals: Map<string, PendingApproval>; questions: PendingQuestion[] }>()
+
+  constructor(private readonly onDecision?: (notice: PendingDecisionNotice) => void) {}
+
+  /** Tell the notify engine (best-effort: a listener error never breaks the stream). */
+  private _notifyDecision(notice: PendingDecisionNotice): void {
+    try {
+      this.onDecision?.(notice)
+    } catch {
+      // Notification is a courtesy; the pending state above stays authoritative.
+    }
+  }
 
   /**
    * Process one mux frame and update the pending state. Every branch is
@@ -70,6 +100,14 @@ export class PendingTracker {
         toolName,
         ...(typeof payload.callId === 'string' ? { callId: payload.callId } : {}),
         ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}),
+      })
+      this._notifyDecision({
+        sessionId,
+        rpcId: frame.rpcId,
+        decisionId: approvalId,
+        kind: 'approval',
+        ...(toolName !== '' ? { toolName } : {}),
+        ...(typeof payload.reason === 'string' && payload.reason !== '' ? { summary: payload.reason } : {}),
       })
     } else if (payload.type === 'approval/resolved') {
       const sessionId = asString(payload.sessionId)
@@ -111,6 +149,21 @@ export class PendingTracker {
           ...(item.header !== undefined ? { header: item.header } : {}),
           ...(item.options !== undefined ? { options: item.options } : {}),
           ...(item.multiSelect !== undefined ? { multiSelect: item.multiSelect } : {}),
+        })
+      }
+      // One notification per batch, keyed by the batch's first question: the
+      // agent blocks on the answer, so the extra questions are a continuation,
+      // not a second thing to do.
+      const first = state.questions[0]
+      if (first !== undefined) {
+        this._notifyDecision({
+          sessionId,
+          rpcId: frame.rpcId,
+          decisionId: first.id,
+          kind: 'question',
+          summary: first.question,
+          ...(first.multiSelect !== undefined ? { multiSelect: first.multiSelect } : {}),
+          ...(first.options !== undefined ? { optionCount: first.options.length } : {}),
         })
       }
     } else if (payload.type === 'question/resolved') {

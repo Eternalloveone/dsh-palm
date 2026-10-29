@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** display-prefs haptics: the default-on flag, its persistence, and buzz(). */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { buzz, getHaptics, setHaptics } from './display-prefs.ts'
+import { buzz, getAutoScroll, getDensity, getHaptics, setAutoScroll, setDensity, setHaptics, subscribeDisplayPrefs } from './display-prefs.ts'
 
 beforeEach(() => {
   localStorage.clear()

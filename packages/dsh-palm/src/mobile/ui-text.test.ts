@@ -28,11 +28,19 @@ describe('compactPath', () => {
     expect(compactPath('D:\\demo\\x', '')).toBe('D:\\demo\\x')
   })
 
-  it('middle-truncates long remainders to first…last', () => {
+  it('keeps the tail of a long remainder, not the head', () => {
+    // 尾部才是"哪个项目"的答案；保留头部会把真实目录名挤掉（实测两条同名
+    // 工作区的副标题因此完全相同）。
     const full = 'D:\\demo\\demo\\packages\\pkg\\pkg_20260729_01_build_Short_Debug - 副本'
     const out = compactPath(full, 'D:/demo')
-    expect(out.startsWith('…demo…')).toBe(true)
-    expect(out.length).toBeLessThanOrEqual(40)
+    expect(out.startsWith('…\\')).toBe(true)
+    expect(out.endsWith('副本')).toBe(true)
+    expect(out.length).toBeLessThanOrEqual(28)
+  })
+
+  it('keeps the last two directories when the workspace is nested deep', () => {
+    const out = compactPath('E:\\work\\chip\\proj-a\\panel-oled', 'E:/work/chip')
+    expect(out.replace('…', '').split(/[\\\\/]/).join('/')).toBe('proj-a/panel-oled')
   })
 })
 
@@ -47,6 +55,24 @@ describe('previewSummary', () => {
   it('renders fenced code as a [代码] badge with the language', () => {
     expect(previewSummary('```ts\nconst a = 1\n```')).toBe('[代码] ts')
     expect(previewSummary('```\nplain fence\n```')).toBe('[代码]')
+  })
+
+  it('strips the markdown a list row cannot render', () => {
+    // 实测：列表里出现 "## 结论"、"## 🎉 两件都完成了"、"- 修好了"，看着像没加工的日志。
+    expect(previewSummary('## 结论')).toBe('结论')
+    expect(previewSummary('### v1.6.2 已发布')).toBe('v1.6.2 已发布')
+    expect(previewSummary('- 只读挂载修好了')).toBe('只读挂载修好了')
+    expect(previewSummary('1. 先看尾巴')).toBe('先看尾巴')
+    expect(previewSummary('> 引用一句话')).toBe('引用一句话')
+    expect(previewSummary('**加粗**和`代码`')).toBe('加粗和代码')
+    expect(previewSummary('见[文档](https://example.com/a)')).toBe('见文档')
+    expect(previewSummary('![截图](x.png)').startsWith('[图片]')).toBe(true)
+  })
+
+  it('skips marker-only lines and takes the first real sentence', () => {
+    expect(previewSummary('## 结论\n\n第一句话才是内容')).toBe('结论')
+    expect(previewSummary('---\n真正的第一句')).toBe('真正的第一句')
+    expect(previewSummary('| 列 | 列 |\n正文在这里')).toBe('正文在这里')
   })
 
   it('uses the first line only', () => {

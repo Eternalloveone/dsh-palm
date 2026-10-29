@@ -26,6 +26,24 @@ function writeStored(key: string, value: string): void {
   try { localStorage.setItem(key, value) } catch { /* non-fatal */ }
 }
 
+/**
+ * 偏好变更的订阅点。设置页拨一下开关，已经挂载的会话视图要立刻跟上 —— 原先
+ * ChatView 只在挂载时读一次 getAutoScroll()，于是在设置里关了自动滚动，当前
+ * 这个会话照样自动滚到底，得退出去重进才生效。
+ */
+const listeners = new Set<() => void>()
+
+/** 订阅任意显示偏好的变更；返回退订函数。 */
+export function subscribeDisplayPrefs(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+/** 广播一次变更（每个 setter 写完都调）。 */
+function notifyDisplayPrefs(): void {
+  for (const listener of [...listeners]) listener()
+}
+
 /* ── font scale ──────────────────────────────────────────────────────── */
 
 export function getFontScale(): FontScale {
@@ -36,6 +54,7 @@ export function getFontScale(): FontScale {
 export function setFontScale(value: FontScale): void {
   writeStored(FONT_KEY, value)
   applyDisplayPrefs()
+  notifyDisplayPrefs()
 }
 
 /** Chat message font size per scale (drives the label in settings). */
@@ -54,6 +73,7 @@ export function getDensity(): Density {
 export function setDensity(value: Density): void {
   writeStored(DENSITY_KEY, value)
   applyDisplayPrefs()
+  notifyDisplayPrefs()
 }
 
 export const DENSITY_LABEL: Record<Density, string> = {
@@ -70,6 +90,7 @@ export function getLineNumbers(): boolean {
 export function setLineNumbers(value: boolean): void {
   writeStored(LINE_NUMBERS_KEY, value ? '1' : '0')
   applyDisplayPrefs()
+  notifyDisplayPrefs()
 }
 
 /* ── chat auto-scroll ────────────────────────────────────────────────── */
@@ -80,6 +101,7 @@ export function getAutoScroll(): boolean {
 
 export function setAutoScroll(value: boolean): void {
   writeStored(AUTO_SCROLL_KEY, value ? '1' : '0')
+  notifyDisplayPrefs()
 }
 
 /* ── document wiring ─────────────────────────────────────────────────── */
@@ -109,6 +131,7 @@ export function getHaptics(): boolean {
 
 export function setHaptics(value: boolean): void {
   writeStored(HAPTICS_KEY, value ? '1' : '0')
+  notifyDisplayPrefs()
 }
 
 /** One short buzz; silently inert where vibrate is unsupported or denied. */

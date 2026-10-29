@@ -135,6 +135,31 @@ export default defineConfig([
     },
     outputOptions: {
       entryFileNames: 'mobile.js',
+      // B（拆包）：聊天页/设置页是动态 import 的独立 chunk，落在 lib/mobile/
+      // 下（mobile-routes 以 /m/mobile/ 前缀提供）。文件名带内容 hash，所以
+      // 服务工可以按 URL 永久缓存，升级时自然会取新 chunk。
+      chunkFileNames: 'mobile/[name]-[hash].js',
+      inlineDynamicImports: false,
+      // 动态 chunk 绝不能反过来 import 入口：入口是按 `?v=<hash>` 取的 URL，
+      // 而 chunk 里的 `../mobile.js` 是裸路径 —— 浏览器把它们当成两个模块，
+      // 于是再下载并执行一整份入口（实测：PWA 启动读两次、React 出现两个实
+      // 例、页面报 invalid hook call 白屏）。把入口与视图共享的代码提到独立
+      // chunk，依赖图变成 entry→shared、view→shared，没有回边。
+      advancedChunks: {
+        groups: [
+          { name: 'vendor', test: /[\\/]node_modules[\\/]/, priority: 30 },
+          {
+            name: 'shared',
+            // 基础层（api、messages、chat-window、hooks…）入口与视图都要用，放
+            // 这里就断了"视图 chunk 反向 import 入口"的回边；视图自身的组件仍
+            // 留在各自的 chunk 里，独占的代码不会被拖回首屏。
+            test: (id: string) => /[\\/]src[\\/]/.test(id)
+              && !/[\\/]src[\\/]mobile[\\/]views[\\/]/.test(id)
+              && !/mobile[\\/]index\.tsx$/.test(id),
+            priority: 10,
+          },
+        ],
+      },
     },
   },
   {

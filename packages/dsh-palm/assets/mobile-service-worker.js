@@ -20,7 +20,12 @@
    unchanged for the process lifetime, so same URL means same bytes: a cache
    hit is always correct. The unversioned URL keeps network-first. Bumped the
    cache name so old entries are purged on activate. */
-const CACHE_NAME = 'dsh-remote-mobile-shell-v5'
+/* Local patch (2026-10-21): the surface split into content-hashed chunks under
+   /m/mobile/ (chat + settings views, lazy-loaded). Chunks are cache-first like
+   the versioned bundle; any stale entry is dropped on activate together with
+   the previous shell cache, so the bumped name below also clears the chunks the
+   old bundle referenced. */
+const CACHE_NAME = 'dsh-remote-mobile-shell-v6'
 const OFFLINE_URL = '/m/offline.html'
 const SHELL_PATHS = new Set([
   '/m/',
@@ -68,6 +73,9 @@ self.addEventListener('activate', event => {
       for (const request of requests) {
         const url = new URL(request.url)
         if (url.pathname === '/m/mobile.js' && url.search !== '') await cache.delete(request)
+        // Split chunks: a build's chunk names carry its hash, so anything left
+        // here from an earlier build can never be requested again.
+        if (url.pathname.startsWith('/m/mobile/')) await cache.delete(request)
       }
     }
   })())
@@ -80,12 +88,21 @@ self.addEventListener('push', event => {
   let body = ''
   let tag = ''
   let data = {}
+  let actions = []
   try {
     const parsed = event.data ? event.data.json() : {}
     if (typeof parsed.title === 'string' && parsed.title !== '') title = parsed.title
     if (typeof parsed.body === 'string') body = parsed.body
     if (typeof parsed.tag === 'string') tag = parsed.tag
     if (parsed.data !== null && typeof parsed.data === 'object') data = parsed.data
+    // Lock-screen buttons. Chrome/Android render these on the notification;
+    // iOS ignores the field entirely (its Web Push has no action support), so
+    // the same payload still lands there as a plain tap-through.
+    if (Array.isArray(parsed.actions)) {
+      actions = parsed.actions
+        .filter(action => action !== null && typeof action === 'object' && typeof action.action === 'string')
+        .map(action => ({ action: action.action, title: String(action.title ?? action.action) }))
+    }
   } catch {
     // Non-JSON payload: fall back to the defaults.
   }
@@ -94,11 +111,41 @@ self.addEventListener('push', event => {
     tag,
     icon: '/m/icon-192.png',
     data,
+    ...(actions.length > 0 ? { actions } : {}),
   }))
 })
 
+/* Answer an approval straight from the notification — no app, no window.
+   Returns a short verdict string for the toast. */
+async function answerFromNotification(record, action) {
+  const rpcId = typeof record.decisionRpcId === 'string' ? record.decisionRpcId : ''
+  const approvalId = typeof record.decisionId === 'string' ? record.decisionId : ''
+  const sessionId = typeof record.sessionId === 'string' ? record.sessionId : ''
+  if (rpcId === '' || approvalId === '' || sessionId === '') return '这个审批已经过期'
+  const outcome = action === 'allow' ? 'allowed-once' : 'rejected'
+  try {
+    const response = await fetch('/m/api/mobile.respond', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        rpcId: `sw-${Date.now().toString(36)}`,
+        payload: { rpcId, response: { sessionId, approvalId, outcome } },
+      }),
+    })
+    const body = await response.json()
+    const result = body && body.result ? body.result : {}
+    if (result.ok === true) return outcome === 'allowed-once' ? '已允许' : '已拒绝'
+    const message = result.error && typeof result.error.message === 'string' ? result.error.message : '答复失败'
+    return message
+  } catch {
+    return '网络不可用，请打开 app 处理'
+  }
+}
+
 /* Notification click: focus an existing window or open one, deep-linked to
-   the session the notification came from. */
+   the session the notification came from. When the tap was one of the
+   lock-screen buttons, answer instead and stay out of the way. */
 self.addEventListener('notificationclick', event => {
   event.notification.close()
   const target = event.notification.data
@@ -110,6 +157,24 @@ self.addEventListener('notificationclick', event => {
     }
     if (typeof record.sessionId === 'string' && record.sessionId !== '') {
       url.searchParams.set('session', record.sessionId)
+    }
+    // Tapping the body of a decision notification lands ON the decision, not
+    // on the session: iOS has no action buttons, so this is how a blocked
+    // turn gets answered there without hunting for the panel.
+    if (typeof record.decisionId === 'string' && record.decisionId !== '') {
+      url.searchParams.set('decision', record.decisionId)
+      if (typeof record.decisionKind === 'string' && record.decisionKind !== '') {
+        url.searchParams.set('decisionKind', record.decisionKind)
+      }
+    }
+    const action = typeof event.action === 'string' ? event.action : ''
+    if ((action === 'allow' || action === 'deny') && record.decisionKind === 'approval') {
+      event.waitUntil(answerFromNotification(record, action).then(verdict => self.registration.showNotification(verdict, {
+        tag: 'dsh-verdict',
+        icon: '/m/icon-192.png',
+        silent: true,
+      })).catch(() => {}))
+      return
     }
   }
   event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
@@ -139,6 +204,16 @@ self.addEventListener('fetch', event => {
   // The unversioned URL carries no such guarantee and stays network-first.
   if (url.pathname === '/m/mobile.js') {
     event.respondWith(url.search === '' ? networkFirst(request, request) : cacheFirst(request))
+    return
+  }
+
+  /* Local patch (2026-10-21): the surface is split into content-hashed chunks
+     under /m/mobile/ (the chat and settings views). Their URL contains the
+     build hash, so cache-first is always correct — and it is what keeps a
+     lazy view from paying a download on every open. Cache entries are purged
+     on activate by the bundle rule below, which drops the whole /m/ prefix. */
+  if (url.pathname.startsWith('/m/mobile/')) {
+    event.respondWith(cacheFirst(request))
     return
   }
 

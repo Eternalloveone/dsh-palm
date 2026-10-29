@@ -5,6 +5,19 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
 
 vi.mock('../api.ts', () => ({
+  // 打开会话时会向宿主要一次排队快照（投影帧到不了手机）。
+  inboxOf: vi.fn(async () => ({ inbox: null })),
+  // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
+  sessionState: vi.fn(async (sessionId: string) => ({
+    sessionId,
+    rows: [],
+    maxSeq: 0,
+    queue: [],
+    queueRevision: 0,
+    turn: { running: false },
+    asOf: Date.now(),
+  })),
+  goalOf: vi.fn(async () => ({ goal: null })),
   readSettings: vi.fn(),
   mutateSettings: vi.fn(),
   listAgentPresets: vi.fn(),
@@ -66,11 +79,11 @@ describe('SettingsForm schema rendering', () => {
   })
 
   it('renders booleans as switches and strings as inputs', async () => {
-    const ns = namespace('at-file', { enabled: true }, envelope({
-      enabled: { type: 'boolean' },
+    const ns = namespace('better-sidebar', { tabsEnabled: true }, envelope({
+      tabsEnabled: { type: 'boolean' },
     }))
     render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
-    const toggle = await screen.findByRole('switch', { name: '启用 @文件' })
+    const toggle = await screen.findByRole('switch', { name: '启用标签页' })
     expect(toggle.getAttribute('aria-checked')).toBe('true')
   })
 
@@ -203,6 +216,12 @@ describe('SettingsForm helpers', () => {
     expect(isWritableField('ui-theme', 'preference')).toBe(true)
     expect(isWritableField('ui-theme', 'fontSize')).toBe(false)
     expect(isWritableField('llm-pi-ai', 'apiKey')).toBe(false)
-    expect(isWritableField('dsh-better-sidebar', 'terminalFontSize')).toBe(true)
+    expect(isWritableField('better-sidebar', 'tabsEnabled')).toBe(true)
+    // 手机自己的配置可以改；唯独「远程访问入口」不行——关掉手机就连不上了。
+    expect(isWritableField('dsh-palm', 'mobileEnterToSend')).toBe(true)
+    expect(isWritableField('dsh-palm', 'enabled')).toBe(false)
+    // 名字过时的模块不再出现在白名单里（它们也不在 schema 里）。
+    expect(isWritableField('dsh-better-sidebar', 'tabsEnabled')).toBe(false)
+    expect(isWritableField('at-file', 'enabled')).toBe(false)
   })
 })

@@ -316,11 +316,11 @@ export function CollapsibleText({ text, forceOpen = false, highlightQuery }: { t
   }, [forceOpen])
   const highlighted = (value: string): ReactNode => highlightPlain(value, highlightQuery)
   if (text.length <= LONG_TEXT_LIMIT) {
-    return <span className="chat-msg-text">{highlighted(text)}</span>
+    return <span className="chat-msg-text" data-part-id="body">{highlighted(text)}</span>
   }
   const shown = open ? text : text.slice(0, LONG_TEXT_PREVIEW)
   return (
-    <span className="chat-msg-text">
+    <span className="chat-msg-text" data-part-id="body">
       {highlighted(shown)}{!open ? '…' : ''}
       <button type="button" className="chat-msg-toggle" onClick={() => { setOpen(value => !value) }}>
         {open ? '收起' : `展开全文（${text.length} 字）`}
@@ -346,7 +346,7 @@ function highlightHtml(html: string, query: string | undefined): string {
     : part.replace(pattern, match => `<mark class="chat-search-mark">${match}</mark>`)).join('')
 }
 
-function highlightPlain(text: string, query: string | undefined): ReactNode {
+export function highlightPlain(text: string, query: string | undefined): ReactNode {
   const pattern = escapedPattern(query)
   if (pattern === undefined) return text
   const parts: ReactNode[] = []

@@ -1,6 +1,6 @@
 /** foldEvents: message-list folding from a session event stream. */
 import { describe, expect, it } from 'vitest'
-import { coalesceTurnMessages, EventFolder, foldEvents, foldTodoEvent, foldTodoSnapshot, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
+import { coalesceTurnMessages, ensureTurnTails, preferRicherRows, expectsTurnReport, keepTurnReports, missingTurnReports, EventFolder, filesFromContent, foldEvents, foldTodoEvent, foldTodoSnapshot, mergeTurnReports, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
 
 /** Assemble one event with an auto-incrementing seq / time. */
 function makeEvent(
@@ -17,6 +17,52 @@ function userMessageData(id: string, text: string): unknown {
   return { id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }
 }
 
+describe('文件附件（发送条里要看得见）', () => {
+  it('把 prompt 里的 file 引用折成 message.files，纯附件消息也不丢', () => {
+    // 宿主落库的形态：{ type:'file', attachment:{ attachmentId, name, bytes } }。
+    // 以前只折 images，文件块被整块丢掉 —— 文档明明发出去了，那一行只剩文字。
+    const withText = {
+      id: 'u-file',
+      role: 'user',
+      content: [
+        { type: 'text', text: '看看这份报告' },
+        { type: 'file', attachment: { attachmentId: 'sha256:f1', name: '报告.pdf', bytes: 2048 } },
+      ],
+      source: { kind: 'user' },
+    }
+    const fold = foldEvents([makeEvent('user/message', withText, 1)])
+    const row = fold.find(message => message.id === 'u-file')
+    expect(row?.files).toEqual([{ attachmentId: 'sha256:f1', name: '报告.pdf', bytes: 2048 }])
+    expect(row?.text).toBe('看看这份报告')
+
+    // 只有附件、没有文字：行还在，files 在。
+    const fileOnly = {
+      id: 'u-file-only',
+      role: 'user',
+      content: [{ type: 'file', attachment: { attachmentId: 'sha256:f2', name: '账单.xlsx', bytes: 999 } }],
+      source: { kind: 'user' },
+    }
+    const only = foldEvents([makeEvent('user/message', fileOnly, 1)]).find(message => message.id === 'u-file-only')
+    expect(only?.text).toBe('')
+    expect(only?.files?.[0]?.name).toBe('账单.xlsx')
+  })
+
+  it('字段平铺 / 只有 receiptId 的中间形态也认，没名字的块跳过', () => {
+    const content = [
+      { type: 'file', attachmentId: 'sha256:f3', name: 'a.log', bytes: 12 },
+      { type: 'file', receiptId: 'receipt-7', name: 'b.docx', bytes: 34 },
+      { type: 'file', name: '没有 id 的块', bytes: 1 },
+      { type: 'file', attachment: { attachmentId: 'sha256:f4' } },
+      { type: 'text', text: '正文' },
+    ]
+    expect(filesFromContent(content)).toEqual([
+      { attachmentId: 'sha256:f3', name: 'a.log', bytes: 12 },
+      { attachmentId: 'receipt-7', name: 'b.docx', bytes: 34 },
+      { attachmentId: 'file-2', name: '没有 id 的块', bytes: 1 },
+    ])
+    expect(filesFromContent(undefined)).toEqual([])
+  })
+})
 /** A DSH-shaped assistant message payload for one step. */
 function assistantMessageData(
   id: string,
@@ -73,6 +119,31 @@ describe('foldEvents', () => {
       text: '今天晴天',
       seq: 3,
       pending: false,
+    })
+  })
+
+  it('restores diff cards for host-folded rows that arrived without a view', () => {
+    // 首屏是宿主折叠好的行，不是事件流：那些行里的工具调用不一定带 diff 视图。
+    // 少了它，整段编辑在手机上就只剩一坨参数 JSON。
+    const rows: RenderMessage[] = [{
+      id: 'a-1',
+      kind: 'assistant',
+      text: '好了',
+      seq: 5,
+      time: 1,
+      tools: [{
+        callId: 'c1',
+        name: 'edit',
+        arguments: '{"file_path":"a.txt","old_string":"old line","new_string":"new line"}',
+        state: 'ok',
+      }],
+    }]
+    const folder = new EventFolder(rows, 5)
+    const restored = folder.fold([]).find(message => message.id === 'a-1')
+    expect(restored?.tools?.[0]?.view).toEqual({
+      card: 'diff',
+      title: 'edit',
+      diffs: [{ path: 'a.txt', oldText: 'old line', newText: 'new line' }],
     })
   })
 
@@ -228,6 +299,28 @@ describe('foldEvents', () => {
     // the timeline's dot must stop spinning.
     expect(assistant?.tools?.[0]?.state).toBe('ok')
   })
+  it('derives a diff card from edit arguments when the host sent no view', () => {
+    // 宿主对某些 edit 不给 presentation view：只剩原始参数。但参数里本来就是
+    // 一对 old_string / new_string，够画红绿了 —— 把整段 JSON 摊在屏幕上才是浪费。
+    const events: WireEvent[] = [
+      makeEvent('user/message', userMessageData('u-1', '改文件'), 0),
+      makeEvent('tool/call', {
+        turn: 0,
+        step: 0,
+        callId: 'c1',
+        name: 'edit',
+        arguments: '{"file_path":"a.txt","old_string":"old line","new_string":"new line"}',
+      }, 1),
+      makeEvent('assistant/message', assistantMessageData('a-1', 0, 0, '好了'), 2),
+    ]
+    const result = foldEvents(events)
+    const assistant = result.find(message => message.kind === 'assistant')
+    expect(assistant?.tools?.[0]?.view).toEqual({
+      card: 'diff',
+      title: 'edit',
+      diffs: [{ path: 'a.txt', oldText: 'old line', newText: 'new line' }],
+    })
+  })
 
   it('appends one turn tail carrying the duration and the produced files', () => {
     const events: WireEvent[] = [
@@ -279,6 +372,199 @@ describe('foldEvents', () => {
     const again = foldEvents(events, first)
     expect(again.filter(message => message.kind === 'turn').length).toBe(1)
     expect(again.find(message => message.kind === 'turn')?.deliverables).toEqual([{ path: 'a.md' }])
+  })
+
+  it('rebuilds the turn tail from a page that arrives as rows with no turn/end', () => {
+    // 刷新后的复现：宿主折叠页给的是**行**，那一轮的 turn/end 早就不在页面里，
+    // 于是 applyTurnEnd 永远不会为它补尾巴 —— 用户刚看到的「本轮产出」卡消失。
+    // 产出清单的另一半（工具参数）在行里，可以据此重建。
+    const rows: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+      {
+        id: 'a-1',
+        kind: 'assistant',
+        text: '好了',
+        seq: 2,
+        time: 2_000,
+        turn: 1,
+        // No `view`: a history read does not necessarily carry the presenter's
+        // diff card. The call's own arguments are the durable half.
+        tools: [{ callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}', state: 'ok' }],
+      },
+    ]
+    const result = ensureTurnTails(rows)
+    const tail = result.find(message => message.kind === 'turn')
+    expect(tail?.produced).toEqual(['report.md'])
+    expect(result[result.length - 1]).toBe(tail)
+    // 报告行不能带锚点行的 step：行 key 是 (turn, step)，带上就和那一行撞 key，
+    // React 对重复 key 的处理是"可能重复或丢弃子节点"—— 卡片就时有时无。
+    expect(tail?.step).toBeUndefined()
+  })
+
+  it('recovers the declared deliverables from a present call when rebuilding the tail', () => {
+    const rows: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+      {
+        id: 'a-1',
+        kind: 'assistant',
+        text: '好了',
+        seq: 2,
+        time: 2_000,
+        turn: 1,
+        tools: [
+          { callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}', state: 'ok' },
+          {
+            callId: 'c2',
+            name: 'present',
+            arguments: '{"files":[{"path":"report.md","description":"交付报告"}]}',
+            state: 'ok',
+          },
+        ],
+      },
+    ]
+    const tail = ensureTurnTails(rows).find(message => message.kind === 'turn')
+    expect(tail?.deliverables).toEqual([{ path: 'report.md', description: '交付报告' }])
+    // 已声明的交付物不在产出里重报一遍。
+    expect(tail?.produced).toBeUndefined()
+  })
+
+  it('leaves a turn that already has its tail, and a still-running turn, alone', () => {
+    const tailed: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+      {
+        id: 'a-1',
+        kind: 'assistant',
+        text: '好了',
+        seq: 2,
+        time: 2_000,
+        turn: 1,
+        tools: [{ callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}', state: 'ok' }],
+      },
+      { id: 'turn-tail:1', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 1, produced: ['report.md'] },
+    ]
+    expect(ensureTurnTails(tailed)).toHaveLength(3)
+    // 正在跑的回合不提前挂卡：它的卡等 turn/end 到了再出。
+    const running: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+      {
+        id: 'a-1',
+        kind: 'assistant',
+        text: '写着',
+        seq: 2,
+        time: 2_000,
+        turn: 1,
+        tools: [{ callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}', state: 'running' }],
+      },
+    ]
+    expect(ensureTurnTails(running).some(message => message.kind === 'turn')).toBe(false)
+  })
+
+  it('replaces an empty report row instead of trusting it, and drops it when nothing is left', () => {
+    // 老窗口会为"只有时钟"的回合也落一行尾巴（清单为空）：空尾巴渲染成 null，
+    // 卡片看起来"消失"，而重建又因为它"已存在"被跳过。空行不算数。
+    const rows: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+      {
+        id: 'a-1',
+        kind: 'assistant',
+        text: '好了',
+        seq: 2,
+        time: 2_000,
+        turn: 1,
+        tools: [{ callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}', state: 'ok' }],
+      },
+      { id: 'turn-tail:1', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 1, durationMs: 2_000 },
+    ]
+    const result = ensureTurnTails(rows)
+    const tail = result.find(message => message.kind === 'turn')
+    expect(tail?.produced).toEqual(['report.md'])
+    // 老行的时长留着（它是可信的），清单补上。
+    expect(tail?.durationMs).toBe(2_000)
+    expect(result).toHaveLength(3)
+    // 真的什么都没有的回合：空尾巴不留（否则永远挂着一张渲染成 null 的行）。
+    const emptyOnly: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '你好', seq: 0, time: 0 },
+      { id: 'a-1', kind: 'assistant', text: '你好', seq: 1, time: 1_000, turn: 1 },
+      { id: 'turn-tail:1', kind: 'turn', text: '', seq: 2, time: 2_000, turn: 1, durationMs: 1_000 },
+    ]
+    expect(ensureTurnTails(emptyOnly).some(message => message.kind === 'turn')).toBe(false)
+  })
+
+  it('builds the card from the result meta when the arguments were stripped', () => {
+    // 真机形态：窗口只留最近的几步，参数被投影剥掉、也没有 diff 视图；
+    // 但 tool/result 的 meta 里带着改过的文件（edit 的 diffs）。卡片据此重建。
+    const rows = foldEvents([
+      makeEvent('turn/start', { turn: 7 }, 100),
+      makeEvent('tool/call', { turn: 7, step: 0, callId: 'c1', name: 'edit' }, 101),
+      makeEvent('tool/result', {
+        turn: 7,
+        step: 0,
+        message: { source: { callId: 'c1' } },
+        meta: { path: 'src/a.ts', diffs: [{ path: 'src/a.ts', oldText: 'a', newText: 'b' }] },
+      }, 102),
+      makeEvent('turn/end', { turn: 7 }, 200),
+    ])
+    const tail = rows.find(row => row.kind === 'turn')
+    expect(tail?.produced).toEqual(['src/a.ts'])
+  })
+
+  it('flags a page whose row lost its edit calls but still shows a shell call', () => {
+    // 页里只剩 pwsh（一轮里早先的 edit 被窗口截掉）：判据不能挂在工具名上。
+    const page: RenderMessage[] = [
+      { id: 'u-2', kind: 'user', text: '改代码', seq: 0, time: 0 },
+      {
+        id: 'a-2',
+        kind: 'assistant',
+        text: '好了',
+        seq: 2,
+        time: 2_000,
+        turn: 3,
+        tools: [{ callId: 'c9', name: 'pwsh', state: 'ok' }],
+      },
+    ]
+    expect(missingTurnReports(page)).toEqual([3])
+  })
+
+  it('flags a page that should have a card but cannot build one, and merges a recovered one', () => {
+    // 页里只剩工具名（参数被投影剥掉、也没有 diff 视图）：页自己拼不出卡片。
+    const page: RenderMessage[] = [
+      { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+      {
+        id: 'a-1',
+        kind: 'assistant',
+        text: '好了',
+        seq: 2,
+        time: 2_000,
+        turn: 1,
+        tools: [{ callId: 'c1', name: 'write_file', state: 'ok' }],
+      },
+    ]
+    expect(expectsTurnReport(page)).toBe(true)
+    expect(ensureTurnTails(page).some(message => message.kind === 'turn')).toBe(false)
+    // 已经挂上卡片的页不需要再读日志。
+    const tailed: RenderMessage[] = [
+      ...page,
+      { id: 'turn-tail:1', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 1, produced: ['report.md'] },
+    ]
+    expect(expectsTurnReport(tailed)).toBe(false)
+    // 纯聊天回合（没写文件）也不该触发补读。
+    expect(expectsTurnReport([{ id: 'a-9', kind: 'assistant', text: '好', seq: 1, time: 1_000, turn: 9 }])).toBe(false)
+
+    // 日志里折出来的报告行并回去：落在那一轮最后一行的后面，同 id 的空行被替换。
+    const recovered: RenderMessage[] = [
+      { id: 'turn-tail:1', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 1, produced: ['report.md'] },
+    ]
+    const merged = mergeTurnReports(page, recovered)
+    expect(merged.map(message => message.id)).toEqual(['u-1', 'a-1', 'turn-tail:1'])
+    const mergedOverEmpty = mergeTurnReports(
+      [...page, { id: 'turn-tail:1', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 1 }],
+      recovered,
+    )
+    expect(mergedOverEmpty.filter(message => message.id === 'turn-tail:1')).toHaveLength(1)
+    expect(mergedOverEmpty[mergedOverEmpty.length - 1]?.produced).toEqual(['report.md'])
+    // 空报告行（日志里也没东西）不并入。
+    expect(mergeTurnReports(page, [{ id: 'turn-tail:1', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 1 }]))
+      .toEqual(page)
   })
 
   it('marks a call stopped when the turn ends with it still open', () => {
@@ -400,8 +686,14 @@ describe('foldEvents', () => {
       makeEvent('assistant/message', assistantMessageData('a-1', 0, 0, '一二'), 4),
       makeEvent('turn/end', { turn: 0, reason: { kind: 'completed' } }, 5),
     ]
-    const once = foldEvents(events)
-    const twice = foldEvents(events, once)
+    // 幂等性测的是真实路径：一个 EventFolder 实例被反复折叠（ChatView 就是这么
+    // 喂 live 事件的）。`foldEvents(events, rows)` 那个入口是从**行**重建的，
+    // 行里没有每轮的起始锚点，重建后 turn/end 只能退回"本轮最早一行"的兜底
+    // 时间，于是与首次折叠不再逐字节相同——这是那个入口的固有损失，不是折叠的
+    // 重复计算。这里按实例测，重复折叠必须一字节不差。
+    const folder = new EventFolder()
+    const once = folder.fold(events)
+    const twice = folder.fold(events)
     expect(twice).toEqual(once)
     expect(twice.filter(message => message.kind === 'assistant')).toHaveLength(1)
     // Text must not have doubled from re-aggregating the streamed chunks.
@@ -935,9 +1227,33 @@ describe('coalesceTurnMessages', () => {
 
   it('leaves a single message and turn-less rows untouched', () => {
     expect(coalesceTurnMessages([step('a-1', 7, '单一', 1)])).toHaveLength(1)
-    const unturned = step('a-1', undefined as never, '无 turn', 1) as RenderMessage
-    const without = coalesceTurnMessages([unturned, unturned])
-    expect(without).toHaveLength(2)
+    // 两条**不同**的无轮号消息：无法判断是不是同一轮，保持分开。
+    const first = step('a-1', undefined as never, '无 turn 一', 1) as RenderMessage
+    const second = step('a-2', undefined as never, '无 turn 二', 2) as RenderMessage
+    expect(coalesceTurnMessages([first, second])).toHaveLength(2)
+  })
+
+  it('一段有轮号、一段还没轮到 turn/start：同一消息合成一张过程卡（真机双卡）', () => {
+    // 进一个正在跑的会话时：尾页折叠出来的那段带 turn 42，mux 实时折出来的那段还
+    // 没经历 turn/start，turn 是 undefined —— 但两者是**同一条消息**（id 相同）。
+    // 旧判据要求两边都有轮号且相等，于是同一轮被画成两张卡，过一会儿一次整页重折
+    // 才合成一张（用户看到「多个过程条 → 一会儿变一条」）。
+    const merged = coalesceTurnMessages([
+      step('a-1', 42, '第一段', 1),
+      step('a-1', undefined as never, '第二段', 2),
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]!.turn).toBe(42)
+    expect(merged[0]!.text).toContain('第一段')
+    expect(merged[0]!.text).toContain('第二段')
+  })
+
+  it('缺轮号且不是同一条消息：不合并（两条独立的助手消息）', () => {
+    const merged = coalesceTurnMessages([
+      step('a-1', 42, '第一段', 1),
+      step('a-9', undefined as never, '另一条', 2),
+    ])
+    expect(merged).toHaveLength(2)
   })
 })
 
@@ -1118,5 +1434,528 @@ describe('search-locate id alignment', () => {
     expect(pending[0]).toMatchObject({ id: 'uuid-A', pending: true })
     const finalized = foldEvents([final], pending)
     expect(finalized[0]).toMatchObject({ id: 'uuid-A', text: '你好', pending: false })
+  })
+})
+
+describe('EventFolder 保住每轮的起始锚点（时长只能由 turn/end 减锚点算出）', () => {
+  /** One finished turn: start at 1000ms, message at 2000ms. */
+  function openedTurn(): EventFolder {
+    const folder = new EventFolder()
+    folder.fold([
+      makeEvent('turn/start', { turn: 4 }, 1, 1_000),
+      makeEvent('assistant/message', assistantMessageData('a-4', 4, 0, '完成'), 2, 2_000),
+    ])
+    return folder
+  }
+  const endEvent = (seq = 3, time = 5_000) =>
+    makeEvent('turn/end', { turn: 4, reason: { kind: 'completed' } }, seq, time)
+  const assistant = (folder: EventFolder) => folder.snapshot().find(row => row.kind === 'assistant')
+
+  it('seed（行上限裁剪走这条路）之后 turn/end 仍算得出时长', () => {
+    const folder = openedTurn()
+    folder.seed(folder.snapshot())
+    folder.fold([endEvent()])
+    expect(assistant(folder)?.durationMs).toBe(4_000)
+  })
+
+  it('prepend（往上翻历史）之后同样不丢', () => {
+    const folder = openedTurn()
+    folder.prepend([])
+    folder.fold([endEvent()])
+    expect(assistant(folder)?.durationMs).toBe(4_000)
+  })
+
+  it('窗口重建时新文件夹继承旧锚点', () => {
+    const old = openedTurn()
+    const rebuilt = new EventFolder()
+    rebuilt.fold([makeEvent('assistant/message', assistantMessageData('a-4', 4, 0, '完成'), 2, 2_000)])
+    rebuilt.adoptAnchors(old)
+    rebuilt.fold([endEvent(3, 5_000)])
+    expect(assistant(rebuilt)?.durationMs).toBe(4_000)
+  })
+})
+
+describe('窗口里看不到 turn/start 时，收工定格用宿主给的真起点（别在收工时往回跳）', () => {
+  // 真机：一轮跑了 8分39秒，秒表一路数到 8分37秒，收工瞬间定格成 6分48秒 ——
+  // 因为 turn/start 被挤出窗口，收工只能拿"窗口最早一行"当锚点，短了 109 秒。
+  const T0 = 1_700_000_000_000
+  /** 只有中途那一条回答、没有 turn/start 的窗口（长回合被切掉开头时的形状）。 */
+  const midTurn = (): EventFolder => {
+    const folder = new EventFolder()
+    folder.fold([makeEvent('assistant/message', assistantMessageData('a-9', 9, 0, '在跑编译'), 2, T0 + 130_000)])
+    return folder
+  }
+  const end = (time: number, turn = 9) =>
+    makeEvent('turn/end', { turn, reason: { kind: 'completed' } }, 4, time)
+
+  it('没有外部锚点时退回窗口最早一行：用时被缩短（旧行为，兜底而非正确值）', () => {
+    const folder = midTurn()
+    folder.fold([end(T0 + 300_000)])
+    expect(folder.snapshot().find(row => row.kind === 'assistant')?.durationMs).toBe(170_000)
+  })
+
+  it('noteOpenTurnStart 之后按真起点定格，并且行上带着这个锚点', () => {
+    const folder = midTurn()
+    folder.noteOpenTurnStart(T0)
+    folder.fold([end(T0 + 300_000)])
+    const row = folder.snapshot().find(candidate => candidate.kind === 'assistant')
+    expect(row?.durationMs).toBe(300_000)
+    expect(row?.turnStartAt).toBe(T0)
+  })
+
+  it('seed/prepend 之后外部锚点仍然在（行上限裁剪发生在回合中途）', () => {
+    for (const rebuild of ['seed', 'prepend'] as const) {
+      const folder = midTurn()
+      folder.noteOpenTurnStart(T0)
+      if (rebuild === 'seed') folder.seed(folder.snapshot())
+      else folder.prepend([])
+      folder.fold([end(T0 + 300_000)])
+      expect(folder.snapshot().find(row => row.kind === 'assistant')?.durationMs).toBe(300_000)
+    }
+  })
+
+  it('旧回合的 turn/end 不吃外部锚点（否则旧一轮的用时会被算成天文数字）', () => {
+    const folder = new EventFolder()
+    folder.fold([
+      makeEvent('turn/start', { turn: 8 }, 1, T0 - 900_000),
+      makeEvent('assistant/message', assistantMessageData('a-8', 8, 0, '旧一轮'), 2, T0 - 800_000),
+      makeEvent('assistant/message', assistantMessageData('a-9', 9, 0, '新一轮'), 3, T0 + 10_000),
+    ])
+    folder.noteOpenTurnStart(T0)
+    folder.fold([end(T0 - 700_000, 8)])
+    const old = folder.snapshot().find(row => row.text.includes('旧一轮'))
+    expect(old?.durationMs).toBe(200_000)
+  })
+})
+
+describe('turn/end 收尾：只有真的异常才把未回结果的工具记成中断', () => {
+  /** 一次工具调用，但它的 tool/result 没进这个 fold（丢帧／窗口中途重建）。 */
+  const openToolThenEnd = (reason: Record<string, unknown>): RenderMessage[] => foldEvents([
+    makeEvent('turn/start', { turn: 0 }, 1),
+    makeEvent('user/message', userMessageData('u-1', '跑一下'), 2),
+    makeEvent('tool/call', { turn: 0, step: 0, callId: 'c1', name: 'bash', arguments: '{}' }, 3),
+    makeEvent('turn/end', { turn: 0, reason }, 4),
+  ])
+
+  it('正常结束把未回结果的工具记成 ok，卡头读「已完成」而不是「已中断」', () => {
+    // 真机现象：看着是「已完成」，突然变「已中断」，重进会话又变回「已完成」。
+    // 服务端那一折有 tool/result，所以头部算成功；手机这一折丢了结果帧，旧逻辑
+    // 把工具记成 stopped，头部于是读出「已中断」。正常结束不该把干完的活说成中断。
+    const rows = openToolThenEnd({ kind: 'completed' })
+    const assistant = rows.find(row => row.kind === 'assistant')
+    expect(assistant?.tools?.map(tool => tool.state)).toEqual(['ok'])
+  })
+
+  it('异常结束（错误）仍记成中断，别把被放弃的调用伪装成成功', () => {
+    const rows = openToolThenEnd({ kind: 'error', message: 'boom' })
+    const assistant = rows.find(row => row.kind === 'assistant')
+    expect(assistant?.tools?.map(tool => tool.state)).toEqual(['stopped'])
+    expect(assistant?.failed).toBe(true)
+  })
+})
+describe('keepTurnReports', () => {
+  const tail = (turn: number, paths: string[]): RenderMessage => ({
+    id: `turn-tail:${turn}`, kind: 'turn', text: '', turn, seq: turn * 10, time: 0,
+    deliverables: paths.map(path => ({ path, exists: true })),
+  })
+  const row = (turn: number, step: number): RenderMessage => ({
+    id: `t${turn}.${step}`, kind: 'assistant', text: `第 ${turn} 轮`, turn, step, seq: turn * 10 + step, time: 0,
+  })
+
+  it('carries the card across a list that was replaced wholesale', () => {
+    // 进会话时列表会被整份换掉（缓存页 → 网络页 → 实时基线）：页不带报告行，
+    // 不带走的话卡片就闪没了 —— 真机「点进会话，卡片突然又消失」。
+    const previous = [row(3, 0), tail(3, ['a.ts'])]
+    const next = [row(3, 0), row(4, 0)]
+    const kept = keepTurnReports(previous, next)
+    const tails = kept.filter(entry => entry.kind === 'turn')
+    expect(tails).toHaveLength(1)
+    expect(tails[0]?.turn).toBe(3)
+    expect(tails[0]?.deliverables?.map(file => file.path)).toEqual(['a.ts'])
+  })
+
+  it('keeps the just-finished card when the page moved one turn on (尾页换尾页不闪)', () => {
+    // 真机：交付结果卡片「闪一下才出现」。换列表时新页已经进到下一轮，上一轮的行全在
+    // 窗口外，卡被丢掉，几秒后 cardRecovery 读到 turn/end 再补回来 —— 中间那一下就是
+    // 空白。尾部相邻（差 1~2 轮）时应该把卡留住。
+    const previous = [row(11, 0), tail(11, ['report.pdf'])]
+    const next = [row(12, 0)]
+    const kept = keepTurnReports(previous, next)
+    expect(kept.some(entry => entry.kind === 'turn' && entry.turn === 11)).toBe(true)
+  })
+
+  it('drops a card whose turn is gone from the new list', () => {
+    const previous = [row(2, 0), tail(2, ['old.ts'])]
+    const next = [row(5, 0)]
+    expect(keepTurnReports(previous, next).some(entry => entry.kind === 'turn')).toBe(false)
+  })
+
+  it('does not carry an empty card and keeps the new list as it is', () => {
+    const previous = [row(3, 0), { id: 'turn-tail:3', kind: 'turn', text: '', turn: 3, seq: 30, time: 0 } as RenderMessage]
+    const next = [row(3, 0)]
+    expect(keepTurnReports(previous, next)).toHaveLength(1)
+  })
+})
+describe('preferRicherRows', () => {
+  const row = (id: string, extra: Record<string, unknown> = {}): RenderMessage => (
+    { id, kind: 'assistant', text: id, seq: 1, time: 1, ...extra } as unknown as RenderMessage
+  )
+
+  it('reuses the painted object when the page says the same thing', () => {
+    const before = [row('a', { tools: [{ callId: 'c1', name: 'edit', state: 'ok', arguments: '{"p":"x"}' }] })]
+    const after = [row('a', { tools: [{ callId: 'c1', name: 'edit', state: 'ok', arguments: '{"p":"x"}' }] })]
+    const merged = preferRicherRows(before, after)
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toBe(before[0])
+  })
+
+  it('keeps the arguments and the diff view the page stripped', () => {
+    const before = [row('a', { tools: [{ callId: 'c1', name: 'edit', state: 'running', arguments: '{"p":"x"}' }] })]
+    const after = [row('a', { tools: [{ callId: 'c1', name: 'edit', state: 'ok' }] })]
+    const merged = preferRicherRows(before, after)
+    expect(merged[0]?.tools?.[0]?.state).toBe('ok')
+    expect(merged[0]?.tools?.[0]?.arguments).toBe('{"p":"x"}')
+  })
+
+  it('keeps rows older than the page window instead of collapsing the list', () => {
+    // 页是一段窗口：屏幕上 3 行、页只给最后 1 行，塌成 1 行就是真机那一闪。
+    const before = [row('r1', { seq: 1 }), row('r2', { seq: 2 }), row('r3', { seq: 3 })]
+    const after = [row('r3', { seq: 3 })]
+    const merged = preferRicherRows(before, after)
+    expect(merged.map(entry => entry.id)).toEqual(['r1', 'r2', 'r3'])
+  })
+
+  it('appends genuinely new rows and takes the newer text', () => {
+    const before = [row('r1', { seq: 1, text: '旧' })]
+    const after = [row('r1', { seq: 1, text: '新' }), row('r2', { seq: 2 })]
+    const merged = preferRicherRows(before, after)
+    expect(merged.map(entry => entry.id)).toEqual(['r1', 'r2'])
+    expect(merged[0]?.text).toBe('新')
+  })
+
+  it('keeps one row per message id and takes the whole turn over its first half', () => {
+    // 页切落在一轮中间时，同一个 message id 会以两种形状到达：只有第一步的「半截行」
+    // 和整回合行。两版都留下就是两张同 id 的卡；半截行胜出，这一轮后面几步的正文就
+    // 再也画不出来 —— 索引收过那些正文，搜索于是指到一段屏幕上不存在的文字（真机：
+    // 命中 seq=1165 落在只画到 1136 的卡上，一个高亮都没有）。
+    const half = row('a', { seq: 1136, text: '第一步' })
+    const whole = row('a', { startSeq: 1137, seq: 1165, text: '第一步\n\n整段的正文 编译', stepSeqs: [1137, 1142, 1165] })
+    const merged = preferRicherRows([half], [whole])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.text).toContain('编译')
+    expect(merged[0]?.stepSeqs).toEqual([1137, 1142, 1165])
+    expect(merged[0]?.startSeq).toBe(1136)
+    expect(merged[0]?.seq).toBe(1165)
+  })
+})
+
+describe('计划挂到交付卡上（状态条收起后的入口）', () => {
+  const ev = (type: string, seq: number, data: Record<string, unknown> = {}): WireEvent => (
+    { type, seq, time: 1_700_000_000_000 + seq * 1000, data } as unknown as WireEvent
+  )
+
+  it('收工时把这一轮的计划挂到 turn 行，并把 in_progress 归一成 completed', () => {
+    const rows = foldEvents([
+      ev('turn/start', 1, { turn: 1 }),
+      ev('todo/write', 2, { todos: [
+        { content: '写代码', status: 'in_progress' },
+        { content: '跑测试', status: 'pending' },
+      ] }),
+      ev('assistant/message', 3, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '做完了' }] }),
+      ev('turn/end', 4, { turn: 1 }),
+    ])
+    const tail = rows.find(row => row.kind === 'turn')
+    expect(tail?.plan?.items.map(item => item.content)).toEqual(['写代码', '跑测试'])
+    // 这一轮结束了：in_progress 归一成 completed；pending 保持 pending（宿主同语义，
+    // 没做完的项不该被说成做完了 —— 胶囊上的 1/2 就是实话）。
+    expect(tail?.plan?.items.map(item => item.status)).toEqual(['completed', 'pending'])
+  })
+
+  it('没有写过计划的回合不挂空胶囊', () => {
+    const rows = foldEvents([
+      ev('turn/start', 1, { turn: 1 }),
+      ev('assistant/message', 2, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '随便聊聊' }] }),
+      ev('turn/end', 3, { turn: 1 }),
+    ])
+    expect(rows.find(row => row.kind === 'turn')?.plan).toBeUndefined()
+  })
+
+  it('新一轮开始后，上一轮的计划不再跟着新回合', () => {
+    const rows = foldEvents([
+      ev('turn/start', 1, { turn: 1 }),
+      ev('todo/write', 2, { todos: [{ content: '旧计划', status: 'pending' }] }),
+      ev('turn/end', 3, { turn: 1 }),
+      ev('turn/start', 4, { turn: 2 }),
+      ev('assistant/message', 5, { id: 'a2', role: 'assistant', content: [{ type: 'text', text: '新的一轮' }] }),
+      ev('turn/end', 6, { turn: 2 }),
+    ])
+    const tails = rows.filter(row => row.kind === 'turn')
+    expect(tails[0]?.plan?.items[0]?.content).toBe('旧计划')
+    expect(tails[1]?.plan).toBeUndefined()
+  })
+})
+
+describe('换页合并：交付卡与计划不许丢、不许重复', () => {
+  const assistant = (id: string, seq: number, extra: Record<string, unknown> = {}): RenderMessage => (
+    { id, kind: 'assistant', text: id, seq, time: 1, ...extra } as unknown as RenderMessage
+  )
+  const card = (turn: number, seq: number, extra: Record<string, unknown> = {}): RenderMessage => (
+    { id: `turn-tail:${turn}`, kind: 'turn', text: '', turn, seq, time: 1, ...extra } as unknown as RenderMessage
+  )
+
+  it('页里也带这张卡时只留一份（以前 turn 行不走合并 → 同一张卡两份）', () => {
+    const previous = [assistant('a', 10, { turn: 1 }), card(1, 11, { produced: ['x.ts'], plan: { items: [{ content: '写代码', status: 'completed' }] } })]
+    // 页窗口覆盖到同一张卡，但那份是瘦版（没有 plan、没有 produced）
+    const next = [assistant('a', 10, { turn: 1 }), card(1, 11)]
+    const merged = preferRicherRows(previous, next)
+    const cards = merged.filter(row => row.kind === 'turn')
+    expect(cards).toHaveLength(1)
+    // 内容取全的那份：计划和产出都还在
+    expect(cards[0]?.produced).toEqual(['x.ts'])
+    expect(cards[0]?.plan?.items?.[0]?.content).toBe('写代码')
+  })
+
+  it('页窗口完全不含这张卡时，卡靠「更早那段」保留下来', () => {
+    const previous = [assistant('a', 10, { turn: 1 }), card(1, 11, { produced: ['x.ts'] })]
+    const next = [assistant('b', 40, { turn: 3 })]
+    const merged = preferRicherRows(previous, next)
+    expect(merged.some(row => row.kind === 'turn' && row.turn === 1)).toBe(true)
+  })
+
+  it('同一行不会被推两次（过程条变多条的那个来源）', () => {
+    const previous = [assistant('a', 10, { turn: 1 }), assistant('b', 20, { turn: 2 })]
+    const next = [assistant('b', 20, { turn: 2 }), assistant('c', 30, { turn: 3 })]
+    const merged = preferRicherRows(previous, next)
+    const ids = merged.map(row => row.id)
+    expect(ids.filter(id => id === 'b')).toHaveLength(1)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+})
+
+describe('缺轮号的实时分片跟着当前这一轮（多条过程条的根）', () => {
+  const ev = (type: string, seq: number, data: Record<string, unknown> = {}): WireEvent => (
+    { type, seq, time: 1_700_000_000_000 + seq, data } as unknown as WireEvent
+  )
+
+  it('turn/start 之后的分片即使不带 turn，也算这一轮', () => {
+    const rows = foldEvents([
+      ev('turn/start', 1, { turn: 7 }),
+      ev('assistant/message', 2, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '一' }] }),
+      ev('assistant/message', 3, { id: 'a2', role: 'assistant', content: [{ type: 'text', text: '二' }] }),
+    ])
+    const assistants = rows.filter(row => row.kind === 'assistant')
+    expect(assistants.every(row => row.turn === 7)).toBe(true)
+    // 于是合并成一条过程卡（不然就是两条，等尾页补齐轮号后才合并）
+    expect(coalesceTurnMessages(rows).filter(row => row.kind === 'assistant')).toHaveLength(1)
+  })
+
+  it('turn/end 之后清掉：下一轮之前的助手行不会被套上旧轮号', () => {
+    const rows = foldEvents([
+      ev('turn/start', 1, { turn: 7 }),
+      ev('assistant/message', 2, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '一' }] }),
+      ev('turn/end', 3, { turn: 7 }),
+      ev('assistant/message', 4, { id: 'a9', role: 'assistant', content: [{ type: 'text', text: '游离' }] }),
+    ])
+    const stray = rows.find(row => row.id === 'a9')
+    expect(stray?.turn).toBeUndefined()
+  })
+})
+
+describe('合并时正文只增不减（重叠窗口的截断版不许覆盖完整版）', () => {
+  const row = (id: string, text: string, seq = 10): RenderMessage => (
+    { id, kind: 'assistant', text, seq, time: 1 } as unknown as RenderMessage
+  )
+
+  it('页给的是这一页边界截断的前缀 → 保留屏幕上那份完整正文', () => {
+    const merged = preferRicherRows([row('a', '完整的回答，很长很长')], [row('a', '完整的回答')])
+    expect(merged[0]?.text).toBe('完整的回答，很长很长')
+  })
+
+  it('页给的是更长的正文 → 用页的（正常增长）', () => {
+    const merged = preferRicherRows([row('a', '开头')], [row('a', '开头 + 后面补上的内容')])
+    expect(merged[0]?.text).toBe('开头 + 后面补上的内容')
+  })
+
+  it('两份内容不同（不是前缀关系）→ 仍以页为准', () => {
+    const merged = preferRicherRows([row('a', '旧内容')], [row('a', '新内容')])
+    expect(merged[0]?.text).toBe('新内容')
+  })
+})
+
+describe('同一轮被切成两张过程卡（2026-10-29 真机复现）', () => {
+  const row = (patch: Record<string, unknown>): RenderMessage => ({
+    kind: 'assistant',
+    seq: 10,
+    time: 1,
+    text: '',
+    ...patch,
+  }) as unknown as RenderMessage
+
+  it('页面行带轮号、实时行没轮号但 step 相同 → 合成一条', () => {
+    // 真机形状：宿主尾页每步一行（turn 98 step 3），实时流那段还没经历 turn/start，
+    // 轮号是 undefined，id 又是另一套 —— 只按 id 认会把同一 step 画两次。
+    const merged = coalesceTurnMessages([
+      row({ id: 'page-row-1', turn: 98, step: 3 }),
+      row({ id: 'live-row-1', step: 3 }),
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.turn).toBe(98)
+  })
+
+  it('step 不同 → 仍然分开（不同消息不许误合并）', () => {
+    const merged = coalesceTurnMessages([
+      row({ id: 'a', turn: 98, step: 3 }),
+      row({ id: 'b', step: 4 }),
+    ])
+    expect(merged).toHaveLength(2)
+  })
+
+  it('两边都没轮号也没 step → 不合并（否则一堆独立助手消息会并成一张卡）', () => {
+    const merged = coalesceTurnMessages([row({ id: 'a' }), row({ id: 'b' })])
+    expect(merged).toHaveLength(2)
+  })
+
+  it('两边都有轮号且不同 → 不合并（真的是两轮）', () => {
+    const merged = coalesceTurnMessages([
+      row({ id: 'a', turn: 98, step: 1 }),
+      row({ id: 'b', turn: 99, step: 1 }),
+    ])
+    expect(merged).toHaveLength(2)
+  })
+})
+
+describe('身份判据：缺轮号但有 step 的行算同一行（过程卡不再重复）', () => {
+  const row = (patch: Record<string, unknown>): RenderMessage => ({
+    kind: 'assistant',
+    seq: 10,
+    time: 1,
+    text: '',
+    ...patch,
+  }) as unknown as RenderMessage
+
+  it('页面行（turn 98 step 3）与实时行（无轮号 step 3）合并成一行，不叠加', () => {
+    const previous = [row({ id: 'page-1', turn: 98, step: 3, tools: [{ callId: 'c1', name: 'bash', state: 'ok' }] })]
+    const next = [row({ id: 'live-1', step: 3, tools: [{ callId: 'c1', name: 'bash', state: 'ok' }] })]
+    const merged = preferRicherRows(previous, next)
+    expect(merged).toHaveLength(1)
+    // 轮号由页面那份补进来，下游（状态判据）才认得出这是正在跑的一轮
+    expect(merged[0]?.turn).toBe(98)
+  })
+
+  it('step 不同不会被当成同一行（不串行合并）', () => {
+    const merged = preferRicherRows(
+      [row({ id: 'a', turn: 98, step: 3, text: '第三步' })],
+      [row({ id: 'b', step: 4, text: '第四步' })],
+    )
+    // 新一页只有第四步：旧的第一步不该被塞进它里面（合并会让正文变成两段）
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.id).toBe('b')
+    expect(merged[0]?.text).toBe('第四步')
+  })
+
+  it('来行带轮号时不做 step 兜底（跨轮的同一 step 不许误配）', () => {
+    const merged = preferRicherRows(
+      [row({ id: 'a', turn: 98, step: 3, text: '第 98 轮第三步' })],
+      [row({ id: 'b', turn: 99, step: 3, text: '第 99 轮第三步' })],
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.id).toBe('b')
+    expect(merged[0]?.text).toBe('第 99 轮第三步')
+  })
+})
+
+describe('同轮同文的两段只画一份（2026-10-29 真机：过程卡+回答整组出现两次）', () => {
+  const answer = '一次跑完却发现问题没抓全，是因为验证脚本是临时拼出来的，覆盖范围靠我每次现想。'
+  const row = (patch: Record<string, unknown>): RenderMessage => ({
+    kind: 'assistant',
+    seq: 10,
+    time: 1,
+    text: '',
+    ...patch,
+  }) as unknown as RenderMessage
+
+  it('同一轮、正文一样的 pending 行与最终行（id 不同）收敛成一条', () => {
+    const merged = coalesceTurnMessages([
+      row({ id: 'pending-1', turn: 114, step: 3, text: answer, tools: [{ callId: 'c1', name: 'bash', state: 'ok' }] }),
+      row({ id: 'page-1', turn: 114, step: 3, text: answer, tools: [{ callId: 'c1', name: 'bash', state: 'ok' }] }),
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.text).toBe(answer)
+  })
+
+  it('缺 step 也不影响收敛（页面行与实时行是两套 id，步号可能缺）', () => {
+    const merged = coalesceTurnMessages([
+      row({ id: 'a', turn: 114, text: answer }),
+      row({ id: 'b', turn: 114, text: answer }),
+    ])
+    expect(merged).toHaveLength(1)
+  })
+
+  it('不同轮说同样的话不许合并（那是正常内容）', () => {
+    const merged = coalesceTurnMessages([
+      row({ id: 'a', turn: 114, step: 1, text: answer }),
+      row({ id: 'b', turn: 115, step: 1, text: answer }),
+    ])
+    expect(merged).toHaveLength(2)
+  })
+
+  it('太短的正文（「好」）不参与收敛：同一张卡里保留两段，不吞内容', () => {
+    const merged = coalesceTurnMessages([
+      row({ id: 'a', turn: 114, step: 1, text: '好的' }),
+      row({ id: 'b', turn: 114, step: 2, text: '好的' }),
+    ])
+    // 同一轮仍然合成一张卡（这是设计），但正文里两段都在
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.text).toBe('好的\n\n好的')
+  })
+})
+
+describe('流式分片缺 step：同一轮不能一行一片（2026-10-29 真机：同轮两张过程卡）', () => {
+  const chunk = (seq: number, text: string, data: Record<string, unknown>) => ({
+    type: 'assistant/chunk' as const,
+    seq,
+    time: 1_000 + seq,
+    data: { chunk: { type: 'text-delta', text }, ...data },
+  })
+
+  it('两片都不带 step、只带 turn：落进同一行', () => {
+    const rows = foldEvents([
+      { type: 'turn/start', seq: 1, time: 1_000, data: { turn: 9 } },
+      chunk(2, '第一段', { turn: 9 }),
+      chunk(3, '第二段', { turn: 9 }),
+    ] as never)
+    const assist = rows.filter(row => row.kind === 'assistant')
+    expect(assist).toHaveLength(1)
+    expect(assist[0]?.text).toBe('第一段第二段')
+    expect(assist[0]?.turn).toBe(9)
+  })
+
+  it('分片完全不带 turn：跟着当前这一轮，仍然只有一行', () => {
+    const rows = foldEvents([
+      { type: 'turn/start', seq: 1, time: 1_000, data: { turn: 11 } },
+      chunk(2, '甲', {}),
+      chunk(3, '乙', {}),
+    ] as never)
+    const assist = rows.filter(row => row.kind === 'assistant')
+    expect(assist).toHaveLength(1)
+    expect(assist[0]?.text).toBe('甲乙')
+  })
+
+  it('流式在「未知步」桶里，最终消息带 step 也能收编同一行', () => {
+    const rows = foldEvents([
+      { type: 'turn/start', seq: 1, time: 1_000, data: { turn: 12 } },
+      chunk(2, '流式中', { turn: 12 }),
+      {
+        type: 'assistant/message',
+        seq: 3,
+        time: 1_003,
+        data: { turn: 12, step: 4, message: { id: 'final-1', role: 'assistant', content: [{ type: 'text', text: '流式中，完成' }] } },
+      },
+    ] as never)
+    const assist = rows.filter(row => row.kind === 'assistant')
+    expect(assist).toHaveLength(1)
+    expect(assist[0]?.text).toBe('流式中，完成')
+    expect(assist[0]?.pending).toBe(false)
+    expect(assist[0]?.step).toBe(4)
   })
 })

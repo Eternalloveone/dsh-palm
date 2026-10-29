@@ -12,7 +12,7 @@ import { RpcId } from '../api-proxy-types'
 import type { NotifyStore } from './notify-store.ts'
 
 /** What happened; drives the notification copy. */
-export type NotifyKind = 'task-done' | 'task-failed' | 'turn-done' | 'todo-done'
+export type NotifyKind = 'task-done' | 'task-failed' | 'turn-done' | 'todo-done' | 'approval' | 'question'
 
 /** One notification decision, ready for any delivery channel. */
 export interface NotifyEvent {
@@ -25,6 +25,13 @@ export interface NotifyEvent {
   /** Present when the workspace index knows the session. */
   workspaceId?: string
   ts: number
+  /**
+   * Set on the two kinds that are waiting for an answer. The push payload
+   * carries it so the phone can answer from the lock screen (where the
+   * platform supports action buttons) or, failing that, land directly on the
+   * decision instead of the session list.
+   */
+  decision?: { id: string; kind: 'approval' | 'question'; rpcId?: string }
 }
 
 /** The minimal host surface the engine needs (test seam). */
@@ -80,12 +87,20 @@ export class NotifyEngine {
   private readonly sessionIndex = new Map<string, { title?: string; workspaceId?: string }>()
   /** Recent decisions, oldest first (the phone's inbox; bounded). */
   private readonly recent: NotifyEvent[] = []
+  /** sessionId → last emit epoch per `${kind}:${sessionId}` (dedupe window). */
+  private readonly lastEmitAt = new Map<string, number>()
   private controller: AbortController | undefined
   private indexTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(
     private readonly host: NotifyEngineHost,
     private readonly store: NotifyStore,
+    /**
+     * Whether a session is still working. Used to drop turn-done events that
+     * only reflect an internal sub-turn: the agent finished one step of its
+     * own choreography, the user is not being handed anything back yet.
+     */
+    private readonly isRunning?: (sessionId: string) => boolean,
   ) {}
 
   /** Begin the host mux watch + index refresh. Idempotent. */
@@ -235,22 +250,131 @@ export class NotifyEngine {
     return [...this.recent].reverse()
   }
 
+  /**
+   * A session is now BLOCKED waiting for the user: an approval to run a tool,
+   * or a question it needs answered. Unlike the completion kinds this is not
+   * a courtesy — the turn cannot proceed until someone answers, so it
+   * notifies regardless of the turn threshold and cooldown.
+   */
+  notifyDecision(input: {
+    sessionId: string
+    decisionId: string
+    rpcId?: string
+    kind: 'approval' | 'question'
+    toolName?: string
+    summary?: string
+    multiSelect?: boolean
+    optionCount?: number
+  }): void {
+    const config = this.store.getConfig()
+    if (config.kinds?.approvals === false) return
+    const sessionTitle = this.sessionIndex.get(input.sessionId)?.title
+    const where = sessionTitle !== undefined && sessionTitle !== '' ? `「${sessionTitle}」` : '一个会话'
+    const tool = input.toolName !== undefined && input.toolName !== '' ? input.toolName : undefined
+    let title: string
+    let body: string
+    if (input.kind === 'approval') {
+      title = '需要你授权'
+      body = tool !== undefined
+        ? `${where}请求执行 ${tool}`
+        : `${where}请求执行一个工具`
+      if (input.summary !== undefined && input.summary !== '') body = `${body}：${input.summary}`
+    } else {
+      title = '需要你回答'
+      const asked = input.summary !== undefined && input.summary !== '' ? input.summary : '一个问题'
+      body = `${where}在等你回答：${asked}`
+      if (input.optionCount !== undefined && input.optionCount > 0) {
+        body = `${body}（${input.optionCount} 个选项${input.multiSelect === true ? '，可多选' : ''}）`
+      }
+    }
+    this.emit({
+      id: `${input.kind}-${input.decisionId}`,
+      kind: input.kind,
+      title,
+      body,
+      sessionId: input.sessionId,
+      workspaceId: this.sessionIndex.get(input.sessionId)?.workspaceId,
+      ts: Date.now(),
+      decision: { id: input.decisionId, kind: input.kind, ...(input.rpcId !== undefined ? { rpcId: input.rpcId } : {}) },
+    })
+  }
+
+  /**
+   * Push one synthetic event through every channel. The settings page's test
+   * button uses this instead of calling the delivery functions directly, so a
+   * test exercises exactly what a real notification does: the inbox, every
+   * configured channel, and the delivery telemetry.
+   */
+  publishTest(): void {
+    this.publish({
+      id: `test-${Date.now().toString(36)}`,
+      kind: 'task-done',
+      title: '测试通知',
+      body: '这是一条来自 dsh-palm 的测试通知',
+      sessionId: '',
+      ts: Date.now(),
+    })
+  }
+
+  /**
+   * Publish an event the engine did not observe itself (a phone-side error
+   * report, a test push). Goes through the same fan-out, so it lands in the
+   * inbox and the delivery telemetry like any other notification instead of
+   * bypassing them.
+   */
+  publish(event: NotifyEvent): void {
+    this.emit(event)
+  }
+
   /** Fan out to every delivery listener; a failing listener never breaks the engine. */
   private emit(event: NotifyEvent): void {
     // Lock-screen privacy: one decision, applied before any channel sees the
     // event — L1 (in-app), L2 (Web Push) and L3 (Server酱/Bark/Telegram/
     // WxPusher) all deliver the same redacted copy, and the phone inbox too.
     const config = this.store.getConfig()
+    // Tiering. "Someone is waiting for an answer" is the one class of event
+    // that must never be suppressed, delayed or deduplicated: the turn is
+    // literally blocked until it is handled. Everything else is a courtesy
+    // and gets filtered — an internal sub-turn the user never started is not
+    // worth a buzz, and a repeated status for the same session just trains
+    // people to ignore notifications.
+    const urgent = event.kind === 'approval' || event.kind === 'question'
+    if (!urgent) {
+      if (event.kind === 'turn-done' && this.isRunning?.(event.sessionId) === true) {
+        this.store.recordDelivery({
+          at: Date.now(), eventId: event.id, kind: event.kind, channel: 'engine', status: 'dropped',
+          detail: 'session still running (internal sub-turn)',
+        })
+        return
+      }
+      const dedupeWindow = config.dedupeMs ?? 0
+      if (dedupeWindow > 0) {
+        const key = `${event.kind}:${event.sessionId}`
+        const previous = this.lastEmitAt.get(key) ?? 0
+        if (previous > 0 && event.ts - previous < dedupeWindow) {
+          this.store.recordDelivery({
+            at: Date.now(), eventId: event.id, kind: event.kind, channel: 'engine', status: 'dropped',
+            detail: `duplicate within ${Math.round(dedupeWindow / 1000)}s`,
+          })
+          return
+        }
+        this.lastEmitAt.set(key, event.ts)
+      }
+    }
     const delivered: NotifyEvent = config.hideDetails === true
       ? {
           ...event,
           title: event.kind === 'task-done' ? '任务完成'
             : event.kind === 'task-failed' ? '任务失败'
-              : event.kind === 'todo-done' ? '规划完成' : '回复完成',
+              : event.kind === 'todo-done' ? '规划完成'
+                : event.kind === 'approval' ? '需要你授权'
+                  : event.kind === 'question' ? '需要你回答' : '回复完成',
           body: event.kind === 'task-done' ? '有后台任务已完成，点击查看'
             : event.kind === 'task-failed' ? '有后台任务失败，点击查看'
               : event.kind === 'todo-done' ? '有任务规划已完成，点击查看'
-                : '有新的回复已完成，点击查看',
+                : event.kind === 'approval' ? '有操作在等你授权，点击查看'
+                  : event.kind === 'question' ? '有问题在等你回答，点击查看'
+                    : '有新的回复已完成，点击查看',
         }
       : event
     this.recent.push(delivered)

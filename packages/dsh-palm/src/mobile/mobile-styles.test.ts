@@ -146,3 +146,67 @@ describe('mobileCss page-transition stacking contract', () => {
     }
   })
 })
+
+describe('mobileCss tap-target contract', () => {
+  it('gives the mini stop button a 44px hit area without growing its face', () => {
+    // 30px（窄屏 26px）在手机上真的会按空，尤其单手握着、拇指贴着屏幕边缘的时候。
+    // 视觉尺寸保持不变（和主键拉开距离，避免误触），判定区靠伪元素补到 44px。
+    const css = compact(mobileCss)
+    expect(css).toContain('.chat-stop-mini { position: relative; }')
+    expect(css).toContain(".chat-stop-mini::after { content: ''; position: absolute; inset: -7px; }")
+  })
+
+  it('spaces stacked subagent rows apart', () => {
+    // 子代理行是 flex 行，容器没有 gap 时两条记录贴在一起，看起来像一条换了行。
+    const css = compact(mobileCss)
+    expect(css).toMatch(/\.chat-subagent-list \{[^}]*display: flex/)
+    expect(css).toMatch(/\.chat-subagent-list \{[^}]*flex-direction: column/)
+    expect(css).toMatch(/\.chat-subagent-list \{[^}]*gap: 8px/)
+  })
+  it('lays the expanded goal text out as readable body copy', () => {
+    // 2026-10-22 真机：展开的目标是一段带小标题/空行/编号的多段文本，原先挤在按钮里
+    // 用 normal + 12px，换行全丢、段落不分，读起来是一条文字墙。
+    const css = compact(mobileCss)
+    // 保留宿主给的换行与空行，否则多段目标会连成一段。
+    expect(css).toMatch(/\.chat-goal-body \{[^}]*white-space: pre-wrap/)
+    // 正文级行高与字号：13px 以下 + 单倍行高在手机上读不动。
+    expect(css).toMatch(/\.chat-goal-body \{[^}]*line-height: 1\.65/)
+    expect(css).toMatch(/\.chat-goal-body \{[^}]*font-size: var\(--text-base\)/)
+    // 长目标不能把输入框挤出屏幕：限高后自己滚。
+    expect(css).toMatch(/\.chat-goal-body \{[^}]*max-height: 38vh/)
+  })
+
+  it('keeps the composer icons on the input box centre line', () => {
+    // 2026-10-22 真机：输入框一长成两行，+ / 命令 / 语音 / 停止 / 发送就贴在底边，
+    // 看着像没对齐。整行改中线对齐，几个按钮也不许自己再贴底。
+    const css = compact(mobileCss)
+    expect(css).toMatch(/\.chat-inputbar \{[^}]*align-items: center/)
+    expect(css).toMatch(/\.chat-attach-btn \{[^}]*align-self: center/)
+    expect(css).toMatch(/\.chat-send \{[^}]*align-self: center/)
+    expect(css).toMatch(/\.chat-stop-mini \{[^}]*align-self: center/)
+  })
+
+  it("gives the voice sheet's only exit a 44px height", () => {
+    const css = compact(mobileCss)
+    expect(css).toMatch(/\.voice-done \{[^}]*height: 44px/)
+  })
+})
+
+describe('mobileCss structure', () => {
+  it('keeps every rule closed (one stray brace kills the rest of the sheet)', () => {
+    // 2026-10-22 真机现场：命令面板、附件面板、长按菜单全变成白底黑字的默认按钮，
+    // 命令行说明还和名字黏在一起（"/compactCompact older conversation history"）。
+    // 根因不是排版，是文件里少了一个右花括号 —— 浏览器从那一行往后把整段样式
+    // 当成同一条规则的声明，后面所有规则一律失效。肉眼看不见，只能靠计数兜住。
+    const source = mobileCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    let depth = 0
+    for (const char of source) {
+      if (char === '{') depth += 1
+      else if (char === '}') {
+        depth -= 1
+        expect(depth).toBeGreaterThanOrEqual(0)
+      }
+    }
+    expect(depth).toBe(0)
+  })
+})

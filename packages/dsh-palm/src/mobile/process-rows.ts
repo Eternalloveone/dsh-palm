@@ -73,16 +73,28 @@ export function processStateText(outcome: ProcessOutcome): string {
  *
  * 折叠头的状态词/秒表（message-row）与第二行（currentStepOf）必须共用这一个判据，
  * 否则会出现头读"深度求索中"、第二行却走"已结束"分支的自相矛盾。
+ *
+ * `settled` 是宿主给出的裁决：这一轮确定不在跑了。它为真时一律返回 false ——
+ * 回合中途断流/被杀时，最后一次流式的行永远不会收到定稿的 assistant/message，
+ * `pending` 就留在 true 上；只靠这个判据的话，那个过程框会永远显示"深度求索中"、
+ * 秒表也永远不停。宿主说停了就是停了，残留的 pending / running 工具都不算数。
+ *
+ * 旧轮次的行同样一律不算在跑：活跃轮次已经翻过去，说明那一轮早就结束了。它的
+ * `pending` 或"还在跑"的工具只是那一轮自己的收尾丢了（turn/end 没到、工具结果没
+ * 回），不能拿它当"此刻还在跑"的证据 —— 否则手机在跑最新一轮时，上面几个旧过程框
+ * 会一起转圈。
  */
-export function isRowRunning(message: RenderMessage, liveTurn?: number): boolean {
+export function isRowRunning(message: RenderMessage, liveTurn?: number, settled?: boolean): boolean {
+  if (settled === true) return false
+  if (liveTurn !== undefined && message.turn !== undefined && message.turn < liveTurn) return false
   return message.pending === true
     || (message.tools ?? []).some(tool => tool.state === 'running')
     || (liveTurn !== undefined && message.turn !== undefined && message.turn === liveTurn)
 }
 
 /** 成败的真源：turn/end 的 failed / max-tokens，以及被它收尾的 stopped 工具。 */
-export function processOutcome(message: RenderMessage, liveTurn?: number): ProcessOutcome {
-  if (isRowRunning(message, liveTurn)) return 'running'
+export function processOutcome(message: RenderMessage, liveTurn?: number, settled?: boolean): ProcessOutcome {
+  if (isRowRunning(message, liveTurn, settled)) return 'running'
   if (message.failed === true) return 'failed'
   if (message.maxTokens === true) return 'stopped'
   return (message.tools ?? []).some(tool => tool.state === 'stopped') ? 'stopped' : 'ok'
@@ -146,13 +158,23 @@ export function toolDiffLines(text: string): string[] {
   return body.split('\n')
 }
 
-/** Human turn duration: `9分29秒` / `19秒` / `1小时2分` (desktop wording parity). */
+/**
+ * Human turn duration: `9分29秒` / `19秒` / `1小时2分`.
+ *
+ * Desktop parity (`formatRunDuration` in the desktop chat chrome): whole
+ * seconds are FLOORED, never rounded. Rounding put the phone up to half a
+ * second ahead of the desktop, and because the reading is re-derived from the
+ * wall clock on every render, a tick that landed just past the half-second
+ * showed one second more than the desktop at the same instant — read as "手机
+ * 的秒表比桌面快". Floor makes the two numbers identical.
+ */
 export function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.round(ms / 1000))
+  const total = Math.max(0, Math.floor(ms / 1000))
   const hours = Math.floor(total / 3600)
   const minutes = Math.floor((total % 3600) / 60)
   const seconds = total % 60
-  if (hours > 0) return `${hours}小时${minutes}分`
+  // 超过一小时也要带秒：长回合里只看"几分"根本看不出还在不在动（用户要求）。
+  if (hours > 0) return `${hours}小时${minutes}分${seconds}秒`
   if (minutes > 0) return `${minutes}分${seconds}秒`
   return `${seconds}秒`
 }
@@ -203,7 +225,7 @@ function answerPartOf(
  * Order is preserved exactly as the fold recorded it, so thinking and tool calls
  * stay interleaved the way they happened.
  */
-export function processModel(message: RenderMessage, liveTurn?: number): ProcessModel {
+export function processModel(message: RenderMessage, liveTurn?: number, settled?: boolean): ProcessModel {
   const flow = message.flow ?? []
   const toolsById = new Map((message.tools ?? []).map(tool => [tool.callId, tool] as const))
 
@@ -219,7 +241,7 @@ export function processModel(message: RenderMessage, liveTurn?: number): Process
   // 运行中不提升：这一轮还在跑时，末尾那段文本随时会被下一步取代，先提升到卡外就会
   // "闪一下又被收进卡里"（真机 1 秒内可见）。跑着时一律留在组内（可展开），等这一轮
   // 结束（turn/end，或活跃轮次翻走）再把最后一步的文本提到卡外 —— 只切一次。
-  const running = isRowRunning(message, liveTurn)
+  const running = isRowRunning(message, liveTurn, settled)
   let answer: string | undefined
   let answerSeq: number | undefined
   let answerIndex = -1
@@ -304,16 +326,37 @@ export function processModel(message: RenderMessage, liveTurn?: number): Process
     answer = message.text
   }
 
-  const current = currentStepOf(message, rows, liveTurn)
+  const current = currentStepOf(message, rows, liveTurn, settled)
   const changed = new Set<string>()
   let artifactTitle = ''
+  // 报错数只算「最终仍然失败」的调用：同一 callId 先 error、后来重试成功（state 变 ok）
+  // 时不该在收工的卡上永远挂着「⚠ 1 处报错」——那是过程，不是结果。
+  const finalStateByCall = new Map<string, string>()
+  for (const tool of message.tools ?? []) {
+    const id = tool.callId
+    const state = tool.state
+    if (id !== undefined && state !== undefined) finalStateByCall.set(id, state)
+  }
   let errorCount = 0
+  const countedErrors = new Set<string>()
   for (const tool of message.tools ?? []) {
     // 报错只认工具行自己的 state（tool/result 的 isError/error 落定）；stopped 是
     // turn/end 的中断收尾，不算报错。
-    if (tool.state === 'error') errorCount += 1
+    if (tool.state === 'error') {
+      const callId = tool.callId
+      const finalState = callId === undefined ? tool.state : finalStateByCall.get(callId) ?? tool.state
+      const key = callId ?? `anon-${errorCount}`
+      if (finalState === 'error' && !countedErrors.has(key)) {
+        countedErrors.add(key)
+        errorCount += 1
+      }
+    }
     for (const diff of tool.view?.diffs ?? []) changed.add(diff.path)
     if (artifactTitle === '' && tool.view !== undefined) artifactTitle = tool.view.title ?? tool.name
+    // 宿主的 view 不是到处都有：本仓实测 49 次工具调用（含 13 次真改文件）里 view
+    // 是零个，于是「未改动文件」成了永远的输出 —— 一句会骗人的话。改文件的工具的
+    // 参数里带着路径，那是我们自己就有的证据，拿它兜底。
+    for (const path of writtenPathsOf(tool)) changed.add(path)
   }
   const tally = tallyOfTools(message.tools ?? [])
   return {
@@ -323,7 +366,7 @@ export function processModel(message: RenderMessage, liveTurn?: number): Process
     toolCount,
     reasoningCount,
     current,
-    outcome: processOutcome(message, liveTurn),
+    outcome: processOutcome(message, liveTurn, settled),
     changedFiles: changed.size,
     errorCount,
     artifactTitle,
@@ -338,11 +381,11 @@ export function processModel(message: RenderMessage, liveTurn?: number): Process
  * 工具行不渲染，但有 diff 视图的卡片仍然渲染，所以卡片也要算进去。
  */
 /** 折叠头第二行：此刻进行到哪一步。运行中看最新事件，结束后报最后一步做了什么。 */
-function currentStepOf(message: RenderMessage, rows: readonly ProcessRow[], liveTurn?: number): ProcessCurrent | undefined {
+function currentStepOf(message: RenderMessage, rows: readonly ProcessRow[], liveTurn?: number, settled?: boolean): ProcessCurrent | undefined {
   // 复用同一个"还在跑"判据（含活跃轮次）：pending 已落下但还有工具在跑、或这一行
   // 就属于当前活跃轮次的行同样是运行中，第二行必须走"进行中"分支（末尾是思考报
   // "思考中"、末尾是文本报"正在回答"）。
-  if (isRowRunning(message, liveTurn)) {
+  if (isRowRunning(message, liveTurn, settled)) {
     const flow = message.flow ?? []
     const last = [...flow].reverse().find(part => !(part.kind === 'text' && part.text.trim() === ''))
     if (last === undefined || last.kind === 'reasoning') return { kind: 'thinking', text: '思考中' }
@@ -371,9 +414,66 @@ function currentOfTool(tool: ToolCallInfo): ProcessCurrent {
   }
 }
 
+/**
+ * 会落盘的工具名（小写比较）。
+ *
+ * 只列"名字一出现就必然写文件"的：纯读的 read/grep/glob 不在内，命令行工具也在
+ * 外——`pwsh` 里 sed、cp、重定向都能改文件，但那要靠参数语义猜，猜错就会谎报，
+ * 宁可不算。
+ */
+const WRITING_TOOLS = new Set([
+  'edit',
+  'write',
+  'write_file',
+  'multi_edit',
+  'multiedit',
+  'apply_patch',
+  'applypatch',
+  'str_replace',
+  'str_replace_editor',
+  'create_file',
+  'notebook_edit',
+])
+
+/** 参数里可能装路径的键（各家工具命名不一致，能认的都认）。 */
+const ARGUMENT_PATH_KEYS = ['file_path', 'filePath', 'path', 'file', 'target_file', 'notebook_path']
+
+/**
+ * 这次调用写的是哪个文件——从**参数**里读。
+ *
+ * 宿主给的结果视图（`view.diffs`）在这个部署里实测是零个，只认它的话「未改动文件」
+ * 就成了永远的输出，而它明明是一句会骗人的结论。参数是我们本来就有的一手证据。
+ * 参数里挑不出路径时（比如整体补丁），退成一个按 callId 唯一的名字：改了，只是不知
+ * 改的是哪个文件——数量上仍然算一次，不至于把改动报成零。
+ */
+function writtenPathsOf(tool: ToolCallInfo): string[] {
+  if (!WRITING_TOOLS.has(tool.name.toLowerCase())) return []
+  // error / stopped 都没落盘，不能算作改动。
+  if (tool.state === 'error' || tool.state === 'stopped') return []
+  // 有视图就以视图为准：那边的路径是宿主的正式口径，这里的参数只是兜底。两边都收
+  // 会把同一个文件算两次（视图常用相对路径，参数是绝对路径，去重抵不掉）。
+  if ((tool.view?.diffs?.length ?? 0) > 0) return []
+  const args = parseToolArguments(tool.arguments)
+  const paths: string[] = []
+  for (const key of ARGUMENT_PATH_KEYS) {
+    const value = args?.[key]
+    if (typeof value === 'string' && value.trim() !== '') paths.push(value)
+  }
+  return paths.length > 0 ? paths : [`?${tool.callId}`]
+}
+
+function parseToolArguments(raw: string | undefined): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return parsed !== null && typeof parsed === 'object' ? parsed as Record<string, unknown> : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** 第二行右侧的补充信息：「改了 3 个文件」/「未改动文件」。 */
-export function processFilesText(model: ProcessModel, settled: boolean): string {
-  // 有改动时运行中也照报数量（文件数只会涨，不会说谎）。
+export function processFilesText(model: ProcessModel, settled: boolean): string {  // 有改动时运行中也照报数量（文件数只会涨，不会说谎）。
   if (model.changedFiles > 0) return `改了 ${model.changedFiles} 个文件`
   // "没改动"只有回合结束才敢下结论：运行中文件数还会涨，此时报"未改动文件"就是误报。
   return settled ? '未改动文件' : ''

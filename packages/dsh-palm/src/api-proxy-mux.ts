@@ -166,6 +166,41 @@ export function setupMuxSources(
     diagnostics?.register('session/event', 'event', false, reasonOf(error))
   }
 
+  // 目标激活态（goal/activation-changed）→ mux `goal/activation` 帧。
+  //
+  // 宿主的 goal 投影只发 durable 快照（`{ current }`，相位 active/paused/...），
+  // 而桌面端那条「暂停/继续」看的是**进程内授权**：暂停=撤授权，相位不变。这条
+  // 事件由目标服务在授权真的变化时发出，桌面端就是靠它把按钮换成 ▶。手机端没有
+  // remote.goals 通道，只能在这里转发；事件缺字段/事件名不存在都静默跳过（老宿主
+  // 没有这条事件，只是手机上不会实时跟随，重开会话仍能读到正确状态）。
+  let disposeGoalActivation: (() => void) | undefined
+  try {
+    const onGoalEvent = ctx.on as unknown as (
+      name: string,
+      listener: (payload: unknown) => void,
+      options?: { global?: boolean },
+    ) => () => void
+    disposeGoalActivation = onGoalEvent('goal/activation-changed', (payload) => {
+      if (payload === null || typeof payload !== 'object') return
+      const record = payload as { sessionId?: unknown; goal?: unknown }
+      const sessionId = record.sessionId
+      if (typeof sessionId !== 'string' || sessionId === '') return
+      const goal = record.goal
+      const activation = goal !== null && typeof goal === 'object'
+        ? (goal as { activation?: unknown }).activation
+        : undefined
+      if (activation !== 'armed' && activation !== 'disarmed') return
+      broadcast.emit({
+        type: 'goal/activation',
+        sessionId: sessionId as never,
+        activation,
+      } as never)
+      diagnostics?.note('goal/activation-changed')
+    }, { global: true })
+  } catch (error) {
+    diagnostics?.register('goal/activation-changed', 'event', false, reasonOf(error))
+  }
+
   // 会话列表的实时状态：宿主 `api-session/*` 五事件 → 同名 mux 帧。桌面端消费的
   // 就是这五条（session-controller client/index.ts:102-110）；手机端的列表此前只能
   // 靠 `sessions.list` 拉取，于是桌面端新建/关闭的会话、running 点、活动时间排序都
@@ -218,6 +253,7 @@ export function setupMuxSources(
 
   return () => {
     disposeSessionEvent?.()
+    disposeGoalActivation?.()
     for (const dispose of disposeSessionList) dispose()
     void controlTask
   }
@@ -227,24 +263,19 @@ export function setupMuxSources(
 function controlFrameToMux(frame: SessionControlFrame, permissionOptions: PermissionOptionsSource = NO_PERMISSION_OPTIONS): MuxFrame[] {
   if (frame.type === 'baseline') {
     const out: MuxFrame[] = []
-    for (const [sessionId, items] of Object.entries(frame.value.queues)) {
-      out.push({ type: 'session/queue', sessionId, items: items.map(toQueuedInboxItem) })
-    }
-    for (const [sessionId, jobs] of Object.entries(frame.value.jobs)) {
-      out.push({ type: 'session/jobs', sessionId, jobs: jobs.map(toJobView) })
-    }
-    for (const [sessionId, projections] of Object.entries(frame.value.projections)) {
+    // 0.2.x：baseline 只剩 `{ projections }`，旧的 `queues` / `jobs` 两个镜像被宿主删掉了。
+    //
+    // 这不是「我们懒得适配」：宿主里已经没有任何地方发布这两样（projection 键也查过，
+    // 没有 queue/jobs），所以 mux 通道上的排队/后台任务在 0.2.x 无从取得。手机端一直
+    // 走的是自己的直读通道（`mobile.sessionState` / `mobile.inbox`，见 mobile-api.ts），
+    // 界面不受影响；受影响的是「后台任务完成的推送」，它依赖这里的帧（见 notify-engine）。
+    // 这里用可选链读 projections：宿主给的是 `{ projections }` 就够，多给的字段忽略掉。
+    for (const [sessionId, projections] of Object.entries(frame.value.projections ?? {})) {
       for (const [key, value] of Object.entries(projections.values)) {
         out.push({ type: 'session/projection', sessionId, key, value: decorateProjectionValue(key, value, permissionOptions()), seq: projections.asOfSeq })
       }
     }
     return out
-  }
-  if (frame.type === 'queue') {
-    return [{ type: 'session/queue', sessionId: frame.sessionId as string, items: frame.items.map(toQueuedInboxItem) }]
-  }
-  if (frame.type === 'jobs') {
-    return [{ type: 'session/jobs', sessionId: frame.sessionId as string, jobs: frame.jobs.map(toJobView) }]
   }
   if (frame.type === 'projection') {
     return [{ type: 'session/projection', sessionId: frame.sessionId as string, key: frame.key, value: decorateProjectionValue(frame.key, frame.value, permissionOptions()), seq: frame.seq }]

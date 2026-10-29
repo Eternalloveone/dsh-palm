@@ -10,14 +10,30 @@
 
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
 import { formatTime } from './views/App.tsx'
-import type { MessageImage, RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
+import type { MessageFile, MessageImage, RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { triggerEmojiOf, triggerTitleOf } from './messages.ts'
-import { cachedAttachmentUrl, loadAttachmentUrl } from './attachment-images.ts'
-import { CollapsibleText, MarkdownText } from './markdown-text.tsx'
+import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from './attachment-images.ts'
+import { CollapsibleText, MarkdownText, highlightPlain } from './markdown-text.tsx'
 import { diffTallyOf, formatDuration, isRowRunning, processErrorsText, processFilesText, processHeadText, processModel, processStateText, processStepsText, processTimeText, toolDiffLines, visibleRowCount, type ProcessModel, type ProcessOutcome, type ProcessReasoningRow } from './process-rows.ts'
 import { stepModel, type StepVariant } from './step-view.ts'
+import { formatFileSize } from './ui-text.ts'
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, style, onRegenerate, onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn }: {
+/**
+ * The running indicator's whale: one stroked path in a 16×16 box.
+ *
+ * This is only the still fallback. The living version is the animated PNG at
+ * /m/running-whale.png — the same asset the desktop client replays — painted
+ * as a `currentColor` mask. Hand-animating the path never got there: rotating
+ * it, splitting the two leaves, even morphing the path data all still read as
+ * two leaves turning, because the life in that asset comes from drawn
+ * deformation, not from anything derivable at this size.
+ */
+const WHALE_REST_PATH = 'M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.94 8.88 8.43 9.6 8.43C11.285 8.43 12.106 8.281 12.685 8.104C13.71 7.791 14.585 6.768 15.055 5.945C15.137 5.803 14.99 5.641 14.829 5.671C13.829 5.86 12.828 5.376 11.827 4.978C10.659 4.514 9.491 4.707 8.935 4.876C8.805 4.915 8.658 4.819 8.636 4.686C8.468 3.643 7.405 2.615 5.498 2.238C4.54 2.048 3.748 1.574 3.347 1.202C3.252 1.113 3.088 1.125 3.03 1.242C2.628 2.059 2.168 3.82 5.248 6.115C5.82 6.494 6.31 6.785 6.574 7.637C6.72 8.104 6.157 9.168 6.061 9.368C5.157 11.27 5.089 12.19 4.926 13.742'
+
+/** / 重生成按钮的三态：待点、已发出、发出失败。 */
+export type RegenerateState = 'idle' | 'busy' | 'failed'
+
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -33,6 +49,8 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   /** Search-hit locate highlight (one-shot CSS animation). */
   focused?: boolean
   focusedQuery?: string
+  /** 从会话内搜索跳过来：折叠的工具步骤自动展开，命中正文才看得见。 */
+  focusExpand?: boolean
   /** Optional inline style on the row's root element (e.g. content-visibility). */
   style?: CSSProperties
   /**
@@ -47,6 +65,14 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
    * 它才是运行中（见 process-rows.ts 的 isRowRunning）。
    */
   liveTurn?: number
+  /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
+  settled?: boolean
+  /**
+   * 父级的 1 Hz 心跳（见 live-clock.ts）。只有正在跑的那一行才收得到；它每秒
+   * 变一次，作用是把这一行叫醒 —— 秒表读数在渲染时直接取墙钟，所以"重渲染"
+   * 就等于"数字刷新"，不依赖本行自己的定时器还活着。
+   */
+  liveClockTick?: number
   /**
    * Host clock minus local clock (ms), for the running process head's timer.
    * A plain number: it changes only when a frame re-calibrates the skew, so
@@ -55,6 +81,8 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   clockOffsetMs?: number
   /** Regenerate affordance: shown on the last settled assistant reply. */
   onRegenerate?: () => void
+  /** 它自己的状态：待点、已发出（转圈）、发出失败（可再点）。 */
+  regenerateState?: RegenerateState
 }) {
   const focusSeqAttr = message.startSeq ?? message.seq
   // 宿主唤醒消息（子代理/任务/定时/团队/外部事件…）在手机端也出卡，与桌面端
@@ -116,11 +144,20 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   // Turn tail (the desktop's `turn-tail` node): what the turn cost and what it
   // handed back — on the phone, a report card under the turn it closes. Every
   // entry is tappable and opens the file preview (text/image inline).
+  // 计划胶囊的展开状态：整数行被 memo 包着，状态放在本行里最省事（不会牵动别的行）。
+  const [planOpen, setPlanOpen] = useState(false)
+  /** 交付卡整体是否展开（默认展开：刚跑完就想知道交回了什么）。 */
+  const [tailOpen, setTailOpen] = useState(true)
+  const planDone = (message.plan?.items ?? []).filter(item => item.status === 'completed').length
   if (message.kind === 'turn') {
     // 计时已经在过程组折叠头里（本轮用了 X），这里只报"交回了什么"：
     // 没有交付物也没有产出文件时不弹卡片，免得每次回复尾巴都挂个空壳。
     const reportCount = (message.deliverables?.length ?? 0) + (message.produced?.length ?? 0)
-    if (reportCount === 0) return null
+    // 卡片里有几组清单：只有一组时不必再来一行内层标题（头部已经写了「本轮产出」）。
+    const sections = ((message.deliverables?.length ?? 0) > 0 ? 1 : 0) + ((message.produced?.length ?? 0) > 0 ? 1 : 0)
+    // 只有计划、没有文件时也要出卡：状态条在全完成时会收起，这张卡是计划的入口。
+    const planItems = message.plan?.items ?? []
+    if (reportCount === 0 && planItems.length === 0) return null
     return (
       <div
         data-mid={message.id}
@@ -129,41 +166,91 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
         className="chat-turn-tail"
         style={style}
       >
-        <div className="chat-turn-tail-head">
-          <span className="chat-turn-tail-title">本轮产出</span>
-          <span className="chat-turn-tail-count">{reportCount} 个文件</span>
-        </div>
-        {message.deliverables !== undefined && message.deliverables.length > 0 && (
+        {/* 头部就是开关：长回合交回七八个文件时，卡片能把半屏占满 —— 先给结论，
+            要看清单再点开。默认展开（首次看到就知道交回了什么）。 */}
+        <button
+          type="button"
+          className="chat-turn-tail-head"
+          aria-expanded={tailOpen}
+          aria-label={`${reportCount > 0 ? '本轮产出' : '本轮计划'} ${reportCount > 0 ? `${reportCount} 个文件` : `${planItems.filter(item => item.status === 'completed').length}/${planItems.length}`}`}
+          onClick={() => { setTailOpen(value => !value) }}
+        >
+          <span className="chat-turn-tail-title">{reportCount > 0 ? '本轮产出' : '本轮计划'}</span>
+          <span className="chat-turn-tail-count">
+            {reportCount > 0 ? `${reportCount} 个文件` : `${planItems.filter(item => item.status === 'completed').length}/${planItems.length}`}
+          </span>
+          <span className="chat-turn-tail-head-chevron" aria-hidden>{tailOpen ? '▾' : '›'}</span>
+        </button>
+        {tailOpen && message.deliverables !== undefined && message.deliverables.length > 0 && (
           <div className="chat-turn-tail-section">
-            <span className="chat-turn-tail-label">交付物</span>
+            {sections > 1 && <span className="chat-turn-tail-label">交付物</span>}
             {message.deliverables.map(file => (
               <button
                 type="button"
                 key={file.path}
                 className="chat-turn-tail-file"
+                title={file.path}
                 onClick={() => { onOpenFile?.(file.path) }}
               >
-                <span className="chat-turn-tail-file-name">
-                  {file.description ?? baseName(file.path)}
-                  <span className="chat-turn-tail-badge">已交付</span>
+                <span className="chat-turn-tail-chip">{fileBadgeLabel(file.path)}</span>
+                <span className="chat-turn-tail-file-main">
+                  <span className="chat-turn-tail-file-name">
+                    {file.description ?? baseName(file.path)}
+                    <span className="chat-turn-tail-badge">已交付</span>
+                  </span>
+                  <span className="chat-turn-tail-file-path">{parentPath(file.path)}</span>
                 </span>
-                <span className="chat-turn-tail-file-path">{file.path}</span>
+                <span className="chat-turn-tail-chevron" aria-hidden>›</span>
               </button>
             ))}
           </div>
         )}
-        {message.produced !== undefined && message.produced.length > 0 && (
+        {tailOpen && message.produced !== undefined && message.produced.length > 0 && (
           <div className="chat-turn-tail-section">
-            <span className="chat-turn-tail-label">本轮产出文件</span>
+            {sections > 1 && <span className="chat-turn-tail-label">本轮产出文件</span>}
             {message.produced.map(path => (
               <button
                 type="button"
                 key={path}
                 className="chat-turn-tail-file"
+                title={path}
                 onClick={() => { onOpenFile?.(path) }}
               >
-                <span className="chat-turn-tail-file-path">{path}</span>
+                <span className="chat-turn-tail-chip">{fileBadgeLabel(path)}</span>
+                <span className="chat-turn-tail-file-main">
+                  <span className="chat-turn-tail-file-name">{baseName(path)}</span>
+                  <span className="chat-turn-tail-file-path">{parentPath(path)}</span>
+                </span>
+                <span className="chat-turn-tail-chevron" aria-hidden>›</span>
               </button>
+            ))}
+          </div>
+        )}
+        {planItems.length > 0 && (
+          <button
+            type="button"
+            className="chat-turn-plan-chip"
+            aria-expanded={planOpen}
+            aria-label={`本轮计划 ${planDone}/${planItems.length}`}
+            onClick={() => { setPlanOpen(value => !value) }}
+          >
+            <span className="chat-turn-plan-check" aria-hidden>☑</span>
+            <span>计划 {planDone}/{planItems.length}</span>
+            {message.durationMs !== undefined && message.durationMs > 0 && (
+              <span className="chat-turn-plan-time">· 用时 {formatDuration(message.durationMs)}</span>
+            )}
+            <span className="chat-turn-plan-chevron" aria-hidden>{planOpen ? '▾' : '›'}</span>
+          </button>
+        )}
+        {planItems.length > 0 && planOpen && (
+          <div className="chat-turn-plan-list">
+            {planItems.map((item, index) => (
+              <div className="chat-turn-plan-item" key={`${index}-${item.content}`}>
+                <span className={'chat-turn-plan-mark' + (item.status === 'completed' ? ' is-done' : '')} aria-hidden>
+                  {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '›' : '·'}
+                </span>
+                <span className={'chat-turn-plan-text' + (item.status === 'completed' ? ' is-done' : '')}>{item.content}</span>
+              </div>
             ))}
           </div>
         )}
@@ -179,11 +266,12 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
     ? message.images
     : undefined
   const hasImages = images !== undefined
+  const files = message.files !== undefined && message.files.length > 0 ? message.files : undefined
   // Flow rows with at least one non-empty text run carry visible content even
   // when `text` is empty (tool-interleaved turns put their payload in flow).
   const hasFlowText = message.flow !== undefined
     && message.flow.some(part => part.kind === 'text' && part.text !== '')
-  if (!hasReasoning && !hasTools && !hasText && !hasFailTag && !hasFlowText && !hasImages) {
+  if (!hasReasoning && !hasTools && !hasText && !hasFailTag && !hasFlowText && !hasImages && files === undefined) {
     return null
   }
   return (
@@ -195,29 +283,74 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} sessionId={sessionId} clockOffsetMs={clockOffsetMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} clockOffsetMs={clockOffsetMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />
       ) : (
         <>
           <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
           {images !== undefined && sessionId !== undefined && (
             <MessageImages sessionId={sessionId} images={images} />
           )}
+          {files !== undefined && <MessageFiles files={files} />}
         </>
       )}
       {message.failed === true && <span className="chat-msg-failtag">本次回复失败</span>}
       {message.maxTokens === true && <div className="chat-msg-maxtokens">已达到输出 token 上限，回答被截断。发送“继续”可让模型接着输出。</div>}
       <span className="chat-msg-footer">
         {showTime && <span className="chat-msg-time">{formatTime(message.time)}</span>}
+        {/* 一个图标，落在时间行最右端：不占行、不带动词。
+            文字版（↻ 重新生成）在手机上白占 ~48px，而这只是个工具入口；
+            说清楚靠 aria-label / title，视觉上只留一个可点的圆。
+            发出后原地转圈（禁用），失败变红可再点 —— 反馈都在这里，不弹条。 */}
         {message.kind === 'assistant' && onRegenerate !== undefined && (
-          <button type="button" className="chat-msg-regenerate" onClick={onRegenerate} aria-label="重新生成回复">
+          <button
+            type="button"
+            className={`chat-msg-regenerate${regenerateState === 'busy' ? ' chat-msg-regenerate-busy' : ''}${regenerateState === 'failed' ? ' chat-msg-regenerate-failed' : ''}`}
+            onClick={onRegenerate}
+            disabled={regenerateState === 'busy'}
+            aria-label={regenerateState === 'busy' ? '正在重新回答' : '重新生成回复'}
+            title={regenerateState === 'failed' ? '上次没发出去，再点一次' : '重新生成'}
+          >
             <span className="chat-msg-regenerate-icon" aria-hidden>↻</span>
-            重新生成
           </button>
         )}
       </span>
     </div>
   )
 })
+
+/**
+ * 一条消息里的文件附件（桌面端那颗文件卡片的手机版）。
+ *
+ * 只画引用（图标 + 名字 + 扩展名·大小），不取字节：手机端还没有文件预览，
+ * 先把"这条消息带了什么附件"讲清楚 —— 以前文件块被整块丢掉，发送条里看不出
+ * 用户附过文档。
+ */
+function MessageFiles({ files }: { files: readonly MessageFile[] }) {
+  return (
+    <div className="chat-msg-files" role="list" aria-label="消息附件">
+      {files.map(file => (
+        <div key={file.attachmentId} className="chat-msg-file" role="listitem" title={file.name}>
+          <svg className="chat-msg-file-glyph" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path d="M9 1.5 H4.5 A1.5 1.5 0 0 0 3 3 V13 A1.5 1.5 0 0 0 4.5 14.5 H11.5 A1.5 1.5 0 0 0 13 13 V5.5 Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M9 1.5 V5.5 H13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          </svg>
+          <span className="chat-msg-file-name">{file.name}</span>
+          <span className="chat-msg-file-meta">{filesMetaText(file)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** 附件那行小字：`PDF · 2 KB`；没有扩展名就只有大小。 */
+function filesMetaText(file: MessageFile): string {
+  const dot = file.name.lastIndexOf('.')
+  const extension = dot > 0 && dot < file.name.length - 1
+    ? file.name.slice(dot + 1).toUpperCase().slice(0, 8)
+    : ''
+  const size = file.bytes > 0 ? formatFileSize(file.bytes) : ''
+  return [extension, size].filter(part => part !== '').join(' · ')
+}
 
 /**
  * 一条消息里的图片组。
@@ -242,6 +375,8 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
 
   useEffect(() => {
     if (url !== undefined) return
+    // 解码失败后停在失败态：字节没变，再读一次还是同一个坏 data URL。
+    if (failed) return
     let cancelled = false
     void loadAttachmentUrl(sessionId, image.attachmentId).then((loaded) => {
       if (cancelled) return
@@ -252,7 +387,7 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
       }
     })
     return () => { cancelled = true }
-  }, [sessionId, image.attachmentId, url, attempt])
+  }, [sessionId, image.attachmentId, url, attempt, failed])
 
   if (url === undefined) {
     return (
@@ -280,6 +415,23 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
       loading="lazy"
       {...(image.width > 0 ? { width: image.width } : {})}
       {...(image.height > 0 ? { height: image.height } : {})}
+      onLoad={(event) => {
+        // 结构损坏的图会「加载成功」却一个像素都解不出来：naturalWidth 是 0。
+        // 这种图既不触发 onError，浏览器也不画任何东西 —— 屏幕上就是一块纯黑。
+        // 相册能看是因为系统解码器宽容，浏览器不接受这种文件。
+        if (event.currentTarget.naturalWidth !== 0) return
+        forgetAttachmentUrl(image.attachmentId)
+        setUrl(undefined)
+        setFailed(true)
+      }}
+      onError={() => {
+        // 解码失败时浏览器只给一块空白（深色主题下就是"黑图"）。没有 onError 就
+        // 永远黑着：用户既看不到提示，也没有重试的入口。这里退回占位/失败态，
+        // 顺手清掉缓存 —— 不清的话重试还是同一个坏字节。
+        forgetAttachmentUrl(image.attachmentId)
+        setUrl(undefined)
+        setFailed(true)
+      }}
     />
   )
 }
@@ -300,57 +452,59 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
  * 行不编号（用户拍板乙）：层级只靠缩进和行首字形区分。
  * 没有可展开的行时头是静态的（纯文本回复也照样显示用时），与桌面端一致。
  */
-/**
- * 1Hz 的行内时钟：只在"运行中"挂定时器，而且时钟状态长在这一行里。
- * 不能把秒数做成从 ChatView 传下来的 prop —— 那个数字每秒都变，
- * 会把整份列表所有行一起重渲染（每行都 memo 也挡不住新值）。
- */
-function useLiveClock(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!active) return
-    setNow(Date.now())
-    const id = setInterval(() => { setNow(Date.now()) }, 1_000)
-    return () => { clearInterval(id) }
-  }, [active])
-  return now
-}
-
-function ProcessGroup({ message, model, showToolCalls, focusedQuery, sessionId, clockOffsetMs, liveTurnStartAt, liveTurn }: {
+function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, clockOffsetMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
   focusedQuery?: string
+  /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
+  focusExpand?: boolean
   sessionId?: string
   clockOffsetMs?: number
   liveTurnStartAt?: number
   liveTurn?: number
+  /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
+  settled?: boolean
+  /** 父级的 1 Hz 心跳（见 live-clock.ts）。它每秒变一次，负责把这一行叫醒。 */
+  liveClockTick?: number
 }) {
   const [open, setOpen] = useState(false)
+  // 这一行是从「搜索本会话」跳过来的：命中的正文很可能在折叠着的工具步骤里，不展开
+  // 就只看到一张「X 步已完成」的卡，用户以为"搜到了却没定位"（实测渲染出 1759 字，
+  // 可搜正文 5157 字，差额全在折叠体里）。深链进入（initialFocusQuery）不展开——那条
+  // 路径用户期望先看结论。
+  useEffect(() => {
+    if (focusExpand === true) setOpen(true)
+  }, [focusExpand])
   // 与 processOutcome / currentStepOf 共用同一个"还在跑"判据：只认 pending 会让
   // 运行中的卡片读成"已完成"，秒表也会消失；按步定格的行只有活跃轮次能救它。
-  const running = isRowRunning(message, liveTurn)
+  const running = isRowRunning(message, liveTurn, settled)
+  // 有外部心跳就靠它叫醒；单独渲染这一行（测试、别的宿主）时才自己挂一个。
+  // 两者都只负责"每秒踢一次重渲染"，读数在下面渲染时直接取墙钟。
+  const [, setSelfTick] = useState(0)
+  useEffect(() => {
+    if (!running || liveClockTick !== undefined) return
+    const id = setInterval(() => { setSelfTick(previous => previous + 1) }, 1_000)
+    return () => { clearInterval(id) }
+  }, [running, liveClockTick])
   // 秒表走宿主时间：偏移量来自 frameEvent.time 与本地时间的差，
   // 否则手机 NTP 与宿主差几秒，秒表就和桌面端对不上。
-  const now = useLiveClock(running)
+  const now = Date.now()
   // 锚点只认**宿主时间**：行上的 turnStartAt（turn/end 盖的）与页级 liveTurnStartAt
   // （ChatView 从宿主帧推出来的）。原先兜底用的 firstSeenAt 是"手机第一次看到这一行"的
   // 本地时间 —— 中途打开页面、或回合在手机连上之前就开始时，它比宿主真正的回合开始晚
   // 一大截，真机表现就是"手机读数比桌面端偏小"。拿不到宿主锚点就干脆不报秒表（宁缺勿错）。
   const clockAnchor = message.turnStartAt ?? liveTurnStartAt
-  const targetElapsed = running && clockAnchor !== undefined
+  // 每一帧都直接按墙钟重算：读数 = 现在 + 宿主偏移 − 锚点，取整由 formatDuration
+  // 统一向下取整（桌面端同样口径）。
+  //
+  // 这里以前有一层"只增不减"的棘轮，本意是挡住校准抖动，代价是**偏大的样本一旦
+  // 出现就永久留在屏幕上**：偏移被一帧慢包顶高 1.5 秒之后，秒表就永久比桌面快 1.5 秒，
+  // 而下一帧真值追上来时要一口气跨两秒 —— 真机"突然跳 2 秒"就是这个。抖动应该在
+  // 源头（ChatView 的偏移估计取窗口内最大值）解决，不该把误差冻结在显示值里。
+  const liveElapsedMs = running && clockAnchor !== undefined
     ? Math.max(0, now + (clockOffsetMs ?? 0) - clockAnchor)
     : undefined
-  // 显示值**只增不减**：宿主偏移每帧都可能被重新校准，偏移的微抖会让秒数来回跳
-  // （真机"一直在闪"：3 秒 → 2 秒 → 3 秒）。校准造成的**向上升**照旧立刻生效
-  // （未校准 → 校准 +3 秒，必须变成 1分3秒），只挡住"往回跳"这一种。
-  // 锚点换了（新一轮）就重新起算。
-  const elapsedRef = useRef<{ anchor: number | undefined; elapsed: number }>({ anchor: undefined, elapsed: 0 })
-  if (elapsedRef.current.anchor !== clockAnchor) elapsedRef.current = { anchor: clockAnchor, elapsed: 0 }
-  if (targetElapsed !== undefined && targetElapsed > elapsedRef.current.elapsed) {
-    elapsedRef.current = { anchor: clockAnchor, elapsed: targetElapsed }
-  }
-  const liveElapsedMs = running && clockAnchor !== undefined ? elapsedRef.current.elapsed : undefined
   // 结束时间以 turn/end 盖上的 durationMs 为准；窗口没收到 turn/end 时退回
   // turn/start 与最后一次触碰的时间差（中断的回合也能给出可信的耗时）。
   const durationMs = message.durationMs
@@ -377,12 +531,23 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, sessionId, 
   // 步数移出卡面：展开体首行才报「共 N 步」（关掉"显示工具调用"时不声称步数）。
   const stepsText = processStepsText(model, showToolCalls)
   const visibleRows = visibleRowCount(model, showToolCalls)
-  // 行首符号（系统 emoji，动作由 CSS 给，结算后动画自动停止）：
-  // 运行中 ⏳ 沙漏 —— 配 .chat-proc-lead-running 的翻转动画（见 mobile-styles.ts）；
+  // 行首符号（动作由 CSS 给，结算后动画自动停止）：
+  // 运行中画鲸鱼 —— 优先用 /m/running-whale.png 那张动画 PNG（就是桌面端在放
+  // 的那一张），以 currentColor 蒙版染色；浏览器不支持 mask-mode 或用户开了
+  // "减弱动态效果"时，退回同轮廓的静态 SVG。见 mobile-styles.ts。
   // 结束后**按结果**给符号：成功 ✅ / 失败 ❌ / 中断 ⏹️。此前一律显示 ✓，
   // 失败与中断也挂个对勾，属于误导。
-  const leadIcon = running ? '⏳' : model.outcome === 'failed' ? '❌' : model.outcome === 'stopped' ? '⏹️' : '✅'
-  const lead = <span className={`chat-proc-lead${running ? ' chat-proc-lead-running' : ''}`} aria-hidden>{leadIcon}</span>
+  const leadIcon = model.outcome === 'failed' ? '❌' : model.outcome === 'stopped' ? '⏹️' : '✅'
+  const lead = running
+    ? (
+        <span className="chat-proc-lead chat-proc-lead-running" aria-hidden>
+          <span className="chat-proc-whale-loop" />
+          <svg className="chat-proc-whale-still" viewBox="0 0 16 16" fill="none" focusable="false">
+            <path d={WHALE_REST_PATH} stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      )
+    : <span className="chat-proc-lead" aria-hidden>{leadIcon}</span>
   if (visibleRows === 0) {
     return (
       <div className="chat-proc" data-proc-rows="0">
@@ -433,7 +598,7 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, sessionId, 
       {open && (
         <div className="chat-proc-body">
           {stepsText !== '' && <div className="chat-proc-steps">{stepsText}</div>}
-          <ProcessRows message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} sessionId={sessionId} />
+          <ProcessRows message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} />
         </div>
       )}
     </div>
@@ -441,11 +606,12 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, sessionId, 
 }
 
 /** 展开体：思考块、工具行、步骤之间的叙述文本、diff 卡，全按事件顺序排。 */
-function ProcessRows({ message, model, showToolCalls, focusedQuery, sessionId }: {
+function ProcessRows({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
   focusedQuery?: string
+  focusExpand?: boolean
   sessionId?: string
 }) {
   const nodes: ReactNode[] = []
@@ -477,6 +643,11 @@ function ProcessRows({ message, model, showToolCalls, focusedQuery, sessionId }:
     // Legacy flows carry no part seq: fall back to the coalesced step seq so a
     // search-hit locate can still scroll to this step.
     const stepSeq = row.seq ?? message.stepSeqs?.[textIndex]
+    // 过程/步骤正文里**也有答案**：一轮多步被打包成一张卡时，卡的正文字面只渲染
+    // 最后一步（process-rows.ts 的 answer = stepTexts[last]），前面各步的正文被折进
+    // 这里。索引收的正是这些答案段（每步一条文档），所以这里必须跟着高亮 —— 否则
+    // 命中「下一个」落到这一步时，屏幕上连一个标记都没有（真机：计数在走、画面不动）。
+    // 推理链（ThinkBlock）与工具卡仍然不参与：它们从来不是索引的命中来源。
     const body = <MarkdownText text={row.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} sessionId={sessionId} />
     nodes.push(stepSeq === undefined
       ? <Fragment key={row.key}>{body}</Fragment>
@@ -490,6 +661,10 @@ function ProcessRows({ message, model, showToolCalls, focusedQuery, sessionId }:
 /**
  * 一段思考：缩进、左侧强调线。折叠时只说"深度思考 · 42 行"，展开才读正文
  * （正文不长时一次给全，不做二级折叠——少一次点击）。
+ *
+ * 推理链**不参与搜索**：索引只收正文答案，如果这里还按命中词自动展开并高亮，
+ * 用户就会看到"搜到的位置落在深度思考里"——搜得到的是答案，跳过去却在推理链上。
+ * 所以这里既不收 focusedQuery、也不再按命中自动展开。
  */
 function ThinkBlock({ row }: { row: ProcessReasoningRow }) {
   const [open, setOpen] = useState(false)
@@ -522,7 +697,13 @@ function ToolStep({ tool }: { tool: ToolCallInfo }) {
   const state = tool.state ?? 'running'
   const tally = tool.view === undefined ? undefined : diffTallyOf(tool.view)
   return (
-    <div className="chat-step" data-state={state}>
+    <div
+      className="chat-step"
+      data-state={state}
+      data-step-title={model.title}
+      data-step-summary={model.summary}
+      data-step-state={STEP_STATE_LABELS[state] ?? state}
+    >
       <button
         type="button"
         className="chat-step-head"
@@ -573,19 +754,25 @@ function stepIcon(variant: StepVariant): ReactNode {
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, sessionId, clockOffsetMs, liveTurnStartAt, liveTurn }: {
+function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, clockOffsetMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
   message: RenderMessage
   showToolCalls: boolean
   forceOpen: boolean
   focusedQuery?: string
+  /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
+  focusExpand?: boolean
   sessionId?: string
   clockOffsetMs?: number
   liveTurnStartAt?: number
   liveTurn?: number
+  /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
+  settled?: boolean
+  /** 父级的 1 Hz 心跳（见 live-clock.ts）：只有正在跑的那一行才收得到。 */
+  liveClockTick?: number
 }) {
   // 判据的第二行（第二行状态词）与头的状态词必须同源：[liveTurn] 也要进依赖，
   // 否则活跃轮次一变（turn/end 到了、下一轮开了）这一行的第二行不会重算。
-  const model = useMemo(() => processModel(message, liveTurn), [message, liveTurn])
+  const model = useMemo(() => processModel(message, liveTurn, settled), [message, liveTurn, settled])
   // 有过程行，或者至少有一枚回合时钟（纯文本回复也要显示"本轮用了 X"）。
   // 注意：这个开关只挡工具行，不挡整组 —— 关掉工具调用不该连带丢掉思考与用时。
   const visibleRows = visibleRowCount(model, showToolCalls)
@@ -593,7 +780,7 @@ function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, sessio
   const answer = model.answer
   return (
     <>
-      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} sessionId={sessionId} clockOffsetMs={clockOffsetMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} />}
+      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} clockOffsetMs={clockOffsetMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />}
       {answer !== undefined && answer !== '' && (model.answerSeq === undefined ? (
         <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />
       ) : (
@@ -715,4 +902,24 @@ function ToolDiffCard({ view, diffRef }: { view: ToolDiffView; diffRef?: Ref<HTM
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/)
   return parts[parts.length - 1] || path
+}
+
+/**
+ * Everything before the last segment, with the workspace root trimmed to `…`.
+ * The full absolute path is unreadable on a phone and identical for every file
+ * of one turn, so the card shows the file name first and this as the quiet line.
+ */
+function parentPath(path: string): string {
+  const parts = path.split(/[\\/]/)
+  if (parts.length <= 1) return ''
+  const dir = parts.slice(0, -1).join('/')
+  return dir.length > 34 ? '…' + dir.slice(-33) : dir
+}
+
+/** Extension label for the file chip, uppercased and capped (`TS`, `MD`, `PNG`). */
+function fileBadgeLabel(path: string): string {
+  const name = baseName(path)
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0 || dot === name.length - 1) return '·'
+  return name.slice(dot + 1, dot + 4).toUpperCase()
 }

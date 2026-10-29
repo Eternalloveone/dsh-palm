@@ -73,6 +73,13 @@ export interface RenderMessage {
    */
   readonly reasoning?: string
   /**
+   * 这一轮的计划（收工时挂在交付卡上，只读展示）。
+   *
+   * 状态条在「全部完成且无后台任务」时会淡出收起，计划得留个能点开的入口 ——
+   * 交付卡上的 `计划 3/3 · 用时 8分12秒` 胶囊就是它。
+   */
+  readonly plan?: { items: readonly TodoItem[] }
+  /**
    * Ordered tool calls of this assistant message, in first-seen order,
    * driving the collapsible tool disclosure (name + raw arguments).
    */
@@ -86,6 +93,13 @@ export interface RenderMessage {
    * replacement is reflected automatically.
    */
   readonly flow?: ReadonlyArray<FlowPart>
+  /**
+   * 这一行在**搜索索引里**的正文（宿主用同一个 `searchableText` 算出的原文）。
+   * 只随 `mobile.readChat` 回来，用来把「搜到的命中」落到正确的行上：索引的 seq/id
+   * 与渲染行的 seq/id 来自两条不同通道，逐条并不对齐，而这段文本两边一字不差。
+   * 老宿主不带这个字段，客户端退回 text + flow 自行比对。
+   */
+  readonly searchText?: string
   /** Seq of the latest event that touched this message (used for loadOlder). */
   readonly seq: number
   /** Epoch ms of the latest touch. */
@@ -131,6 +145,14 @@ export interface RenderMessage {
    * 文本为空，行渲染直接 return null，手机上什么都看不到。
    */
   readonly images?: readonly MessageImage[]
+  /**
+   * 这条消息附带的文件引用（`{ type: 'file', attachment: { attachmentId, name, bytes } }`）。
+   *
+   * 以前只折 `images`，文件块被整块丢掉：文档明明上传成功、prompt 里也带着 receipt，
+   * 发出去的那一行却只剩文字 —— 用户在"发送条"里看不到自己附了什么（真机反馈）。
+   * 桌面端同一份 content 会渲染成一张文件卡片，这里对齐。
+   */
+  readonly files?: readonly MessageFile[]
   /**
    * Step within the owning turn (folded from chunk/tool-call/assistant
    * data). Together with `turn` this is the stable identity of a streaming
@@ -197,6 +219,14 @@ export interface ToolCallInfo {
    * the call still open — an interrupted turn, exactly like the desktop row.
    */
   readonly state?: 'running' | 'ok' | 'error' | 'stopped'
+  /**
+   * Files the tool's RESULT meta names as changed (`meta.diffs[].path`, or
+   * `meta.path` for a plain write). This survives projections that strip the
+   * call's arguments — a window that keeps only the tool name still tells us
+   * what was written — and it covers turns whose files changed through a tool
+   * this file's own mutating-name list does not know.
+   */
+  readonly metaPaths?: readonly string[]
 }
 
 /**
@@ -391,6 +421,51 @@ export interface MessageImage {
   name?: string
 }
 
+/** 一条消息里的文件附件引用（内容寻址，字节另行读取）。 */
+export interface MessageFile {
+  /** 内容寻址的持久附件 id（sha256）。 */
+  attachmentId: string
+  /** 宿主清洗过的展示文件名。 */
+  name: string
+  /** 字节数。 */
+  bytes: number
+}
+
+/**
+ * 从 content 里取文件附件引用。
+ *
+ * 正式形态是 `{ type: 'file', attachment: { attachmentId, name, bytes } }`（宿主把
+ * receipt 换成这份引用之后落库）；也兼容字段平铺在同一层的形态，缺 id 的块跳过。
+ *
+ * 以前只折 images，文件块被整块丢掉：文档上传成功、prompt 里也带着 receipt，发出去
+ * 的那一行却只剩文字 —— 用户在"发送条"里看不到自己附了什么（真机反馈）。
+ */
+export function filesFromContent(content: unknown): MessageFile[] {
+  if (!Array.isArray(content)) return []
+  const files: MessageFile[] = []
+  for (const block of content) {
+    if (block === null || typeof block !== 'object') continue
+    const record = block as Record<string, unknown>
+    if (record['type'] !== 'file') continue
+    const attachment = isRecord(record['attachment']) ? record['attachment'] : record
+    // 没有名字的块画不出东西（名字是唯一认得出的信息），直接跳。
+    const name = pickString(attachment['name']) ?? pickString(record['name'])
+    if (name === undefined) continue
+    // id 用于 key/去重：正式形态有 attachmentId；兼容只有 receiptId 的中间形态，
+    // 两者都没有时用位置占位（宁可显示一张没 id 的卡片，也不要整块消失）。
+    const attachmentId = pickString(attachment['attachmentId'])
+      ?? pickString(record['attachmentId'])
+      ?? pickString(record['receiptId'])
+      ?? `file-${files.length}`
+    files.push({
+      attachmentId,
+      name,
+      bytes: pickNumber(attachment['bytes']) ?? pickNumber(record['bytes']) ?? 0,
+    })
+  }
+  return files
+}
+
 /**
  * 从 content 里取图片引用。宿主把引用嵌在 `attachment` 下
  * （`{ type: 'image', attachment: { attachmentId, mediaType, … } }`）；也兼容
@@ -521,12 +596,73 @@ interface FoldState {
   maxSeq: number
   /** `turn/start` epoch ms per turn (the turn tail's duration anchor). */
   turnStarts: Map<number, number>
+  /**
+   * 本轮的最近一份计划（`todo/write` 折叠出来的快照）。
+   *
+   * 收工时挂到交付卡上：状态条在全完成时会淡出，计划得有地方看得到。
+   */
+  plan?: { turn: number | undefined; items: TodoItem[] }
+  /**
+   * 每轮的收工时刻（``turn/end`` 的时间）。往上翻页补进来的旧行来自切口之前那一页，
+   * 那一页里没有这一轮的 turn/end，于是它们既没有用时也不带收工时间；只有记住这个，
+   * 补进来的行才能和同一轮其它行一样收尾。
+   */
+  turnEnds: Map<number, number>
+  /**
+   * 宿主播给我们的「当前开着的那一轮」起点（`mobile.readChat` 的 page.turnStartAt、
+   * `mobile.turnState` 的 turnStartAt）。
+   *
+   * 长回合的 turn/start 会落在折叠窗口之外：那时 `applyTurnEnd` 只能拿窗口里最早的
+   * 一行当锚点，收工瞬间用时比真实值短一截（真机 8分39秒 的一轮，秒表一路数到
+   * 8分37秒，收工后定格成 6分48秒）。宿主其实知道真起点，所以这里单独记一份，
+   * 收工定格优先用它 —— 只对"当前最新一轮"生效，避免把旧回合的收工时刻算错。
+   */
+  openTurnStart?: number
+  /**
+   * 当前开着的轮号（`turn/start` 记、`turn/end` 清）。
+   *
+   * 实时流的某些事件不带 `turn`（流式分片、步骤文本）。不补的话这些行 `turn` 是
+   * undefined，折叠时就认不出「和上一条同属一轮」，同一轮被画成两条过程条 ——
+   * 等尾页/收工把轮号补齐后才合成一条。真机「一进会话多条过程条，过一会儿只剩一条」
+   * 就是这么来的。
+   */
+  openTurn?: number
+  /**
+   * 这一轮当前第几步（最近一次见到 step 的编号）。
+   *
+   * 助手行的**金标准身份是 (turn, step)**。流式分片常常只带 turn 不带 step，身份就
+   * 退化成 id —— 页面行、实时行、pending 行各一套 id，同一行于是变成好几条。
+   * 轮号早就这样兜了（openTurn），步号必须同样兜，否则「同轮同文」只能靠事后去重。
+   */
+  openStep?: number
   /** Files declared by `deliverables/presented` per turn, deduped by path. */
   presented: Map<number, TurnDeliverable[]>
 }
 
+/**
+ * 宿主折叠好的行里，工具调用不一定会带 diff 视图：那时手机上只剩一整块参数
+ * JSON，红绿卡看起来就"消失"了。这里按事件流的同一套规则补一遍 —— 只在
+ * view 缺席时补，宿主给了就以宿主的为准。
+ * @param existing - 宿主或缓存交回来的行（可能没有工具行）。
+ */
+function seedDiffViews(existing: readonly RenderMessage[] | undefined): RenderMessage[] {
+  if (existing === undefined) return []
+  return existing.map(message => {
+    if (message.kind !== 'assistant' || message.tools === undefined) return message
+    let touched = false
+    const tools = message.tools.map(tool => {
+      if (tool.view !== undefined) return tool
+      const view = diffViewFromArguments(tool.name, tool.arguments)
+      if (view === undefined) return tool
+      touched = true
+      return { ...tool, view }
+    })
+    return touched ? { ...message, tools } : message
+  })
+}
+
 function createState(existing: readonly RenderMessage[] | undefined, eventMaxSeq?: number): FoldState {
-  const messages = existing === undefined ? [] : [...existing]
+  const messages = seedDiffViews(existing)
   const state: FoldState = {
     messages,
     byId: new Map(),
@@ -535,6 +671,7 @@ function createState(existing: readonly RenderMessage[] | undefined, eventMaxSeq
     messageTurn: new Map(),
     toolNames: new Map(),
     turnStarts: new Map(),
+    turnEnds: new Map(),
     presented: new Map(),
     // An explicit event watermark wins over the row-derived one: rows only
     // carry message-level seqs, and events like turn/end never bump a row's
@@ -577,6 +714,23 @@ function createState(existing: readonly RenderMessage[] | undefined, eventMaxSeq
 
 function tsKey(turn: number | undefined, step: number | undefined): string | undefined {
   return turn === undefined || step === undefined ? undefined : `${turn}.${step}`
+}
+
+/** 「这一轮、步号未知」的桶键标记。 */
+const UNKNOWN_STEP = '*'
+
+/**
+ * 分片/最终消息该落进哪一行：先按 (turn, step)，再退回「本轮未知步」桶。
+ *
+ * 这是「同一轮画成两张过程卡」的根：分片只带 turn、不带 step 时旧代码 key 是 undefined，
+ * 于是**每一片都新建一行**（各一个 synthetic id），屏幕上两张卡、都 pending、都顶秒表。
+ */
+function lookupKeys(turn: number | undefined, step: number | undefined): string[] {
+  const exact = tsKey(turn, step)
+  const bucket = turn === undefined ? undefined : `${turn}.${UNKNOWN_STEP}`
+  if (exact !== undefined && bucket !== undefined) return [exact, bucket]
+  if (exact !== undefined) return [exact]
+  return bucket === undefined ? [] : [bucket]
 }
 
 /**
@@ -680,7 +834,17 @@ function applyEvent(state: FoldState, event: WireEvent): void {
       break
     case 'turn/start':
       applyTurnStart(state, event)
+      // 新一轮开始：计划从头记（上一轮那份已经挂在上轮的交付卡上了）。
+      state.plan = undefined
       break
+    case 'todo/write': {
+      const items = parseTodoList(event.data)
+      if (items !== undefined) {
+        // 挂给收工时那张交付卡：状态条在全完成时会收起，计划得留个入口。
+        state.plan = { turn: newestAssistantTurn(state), items }
+      }
+      break
+    }
     case 'deliverables/presented':
       applyPresented(state, event)
       break
@@ -702,6 +866,7 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
   const id = pickString(data['id']) ?? syntheticId('user', event.seq)
   const text = textFromContent(data['content'])
   const images = imagesFromContent(data['content'])
+  const files = filesFromContent(data['content'])
   const source = isRecord(data['source']) ? data['source'] : {}
   const sourceKind = pickString(source['kind'])
   const existing = state.byId.get(id)
@@ -711,6 +876,7 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
       ...existing,
       ...(sourceKind !== undefined ? { sourceKind } : {}),
       ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
       text,
       seq: event.seq,
       time: event.time,
@@ -722,6 +888,7 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
     kind: 'user',
     text,
     ...(images.length > 0 ? { images } : {}),
+    ...(files.length > 0 ? { files } : {}),
     ...(sourceKind !== undefined ? { sourceKind } : {}),
     seq: event.seq,
     time: event.time,
@@ -734,8 +901,12 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
   const data = isRecord(event.data) ? event.data : {}
   const messageData = isRecord(data['message']) ? data['message'] : data
   const id = pickString(messageData['id']) ?? pickString(data['id']) ?? syntheticId('assistant', event.seq)
-  const turn = pickNumber(data['turn'])
-  const step = pickNumber(data['step'])
+  // 分片不带 turn 时跟着当前这一轮走：不然这一行没有轮号，折叠认不出它和上一条同行，
+  // 同一轮会被画成两条过程条（真机「多条 → 过一会儿只剩一条」）。
+  const turn = pickNumber(data['turn']) ?? state.openTurn
+  const explicitStep = pickNumber(data['step'])
+  if (explicitStep !== undefined) state.openStep = explicitStep
+  const step = explicitStep ?? state.openStep
   const finalText = textFromContent(messageData['content'])
   const finalReasoning = reasoningFromContent(messageData['content'])
   const key = tsKey(turn, step)
@@ -744,7 +915,13 @@ function applyAssistantMessage(state: FoldState, event: WireEvent): void {
   // Finalize the matching assistant message (by id, or by turn/step for the
   // streaming partial that chunks built before the final event arrived).
   let target = state.byId.get(id)
-  if (target === undefined && key !== undefined) target = state.pendingByTurnStep.get(key)
+  if (target === undefined) {
+    // 最终消息带 step、而流式那一行落在「未知步」桶里：两个键都找一遍再决定新建。
+    for (const candidate of lookupKeys(turn, step)) {
+      const found = state.pendingByTurnStep.get(candidate)
+      if (found !== undefined) { target = found; break }
+    }
+  }
 
   if (target !== undefined) {
     const next: RenderMessage = {
@@ -935,25 +1112,39 @@ function flowWithSeq(flow: ReadonlyArray<FlowPart> | undefined, seq: number): Re
  */
 function turnStamp(state: FoldState, turn: number | undefined): { turn?: number; turnStartAt?: number } {
   if (turn === undefined) return {}
+  // 窗口里没有这一轮的 turn/start 时，宿主种进来的外部锚点（openTurnStart）就是它；
+  // 只认窗口里最新的那一轮 —— 更早的轮次有它自己的 turn/start 或干脆不该有锚点。
+  const newest = newestAssistantTurn(state)
   const startedAt = state.turnStarts.get(turn)
+    ?? (newest === undefined || turn >= newest ? state.openTurnStart : undefined)
   return { turn, ...(startedAt !== undefined ? { turnStartAt: startedAt } : {}) }
 }
 
 function applyChunk(state: FoldState, event: WireEvent): void {
   const target = chunkTarget(event.data)
   if (target === null) return
-  const key = tsKey(target.turn, target.step)
+  // 缺 turn/step 时跟着「当前这一轮」走，并且落进「未知步」桶：同一轮的所有无步分片
+  // 因此合成一行，而不是每片新建一行。
+  const turn = target.turn ?? state.openTurn
+  const step = target.step ?? state.openStep
+  const keys = lookupKeys(turn, step)
+  const key = keys[0]
+  const findRow = (): RenderMessage | undefined => {
+    for (const candidate of keys) {
+      const found = state.pendingByTurnStep.get(candidate) ?? state.turnStepMessage.get(candidate)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
   let message: RenderMessage | undefined
   if (target.id !== undefined) {
     message = state.byId.get(target.id)
     // A tool/call-created placeholder may predate this chunk's authoritative
     // message id: bind by (turn, step) too, so the chunk appends to the same
     // row (absorbing the placeholder's tools) instead of orphaning it.
-    if (message === undefined && key !== undefined) {
-      message = state.pendingByTurnStep.get(key) ?? state.turnStepMessage.get(key)
-    }
-  } else if (key !== undefined) {
-    message = state.pendingByTurnStep.get(key) ?? state.turnStepMessage.get(key)
+    if (message === undefined) message = findRow()
+  } else {
+    message = findRow()
   }
 
   if (message !== undefined && message.kind === 'assistant') {
@@ -968,8 +1159,8 @@ function applyChunk(state: FoldState, event: WireEvent): void {
   const id = target.id
     ?? (key !== undefined ? syntheticId(`assistant,${key}`, event.seq) : syntheticId('assistant', event.seq))
   const created: RenderMessage = target.kind === 'reasoning'
-    ? { id, kind: 'assistant', text: '', reasoning: target.text, seq: event.seq, time: event.time, firstSeenAt: event.time, pending: true, flow: [{ kind: 'reasoning', text: target.text }], ...turnStamp(state, target.turn), ...(target.step !== undefined ? { step: target.step } : {}) }
-    : { id, kind: 'assistant', text: target.text, seq: event.seq, time: event.time, firstSeenAt: event.time, pending: true, flow: [{ kind: 'text', text: target.text, seq: event.seq }], ...turnStamp(state, target.turn), ...(target.step !== undefined ? { step: target.step } : {}) }
+    ? { id, kind: 'assistant', text: '', reasoning: target.text, seq: event.seq, time: event.time, firstSeenAt: event.time, pending: true, flow: [{ kind: 'reasoning', text: target.text }], ...turnStamp(state, turn), ...(step !== undefined ? { step } : {}) }
+    : { id, kind: 'assistant', text: target.text, seq: event.seq, time: event.time, firstSeenAt: event.time, pending: true, flow: [{ kind: 'text', text: target.text, seq: event.seq }], ...turnStamp(state, turn), ...(step !== undefined ? { step } : {}) }
   state.messages.push(created)
   state.byId.set(id, created)
   if (key !== undefined) {
@@ -1098,7 +1289,7 @@ function applyToolCall(state: FoldState, event: WireEvent): void {
   }
   const callId = pickString(data['callId']) ?? `${name}#${String(event.seq)}`
   const args = pickString(data['arguments'])
-  const view = diffViewOf(event.view)
+  const view = diffViewOf(event.view) ?? diffViewFromArguments(name, args)
   const tools = target.tools ?? []
   const existingIndex = tools.findIndex(tool => tool.callId === callId)
   const isNewCall = existingIndex === -1
@@ -1132,6 +1323,10 @@ function applyToolResult(state: FoldState, event: WireEvent): void {
   const callId = pickString(source['callId'])
   if (callId === undefined) return
   const view = diffViewOf(event.view)
+  // The result's meta is the authoritative "these files changed" record — the
+  // page may keep the tool NAME but drop the arguments, and a turn can change
+  // files through any tool. Keep it on the call so the report card survives.
+  const meta = isRecord(data['meta']) ? data['meta'] : undefined
   // The result settles the row's state even when it carries no diff view (a
   // read/search/terminal result): the timeline's dot must stop spinning.
   const settled: ToolCallInfo['state'] = message['isError'] === true || message['error'] !== undefined ? 'error' : 'ok'
@@ -1140,7 +1335,15 @@ function applyToolResult(state: FoldState, event: WireEvent): void {
     const index = row.tools.findIndex(tool => tool.callId === callId)
     if (index === -1) continue
     const nextTools = row.tools.map((tool, i) => i === index
-      ? { ...tool, state: settled, ...(view !== undefined ? { view } : {}) }
+      ? {
+          ...tool,
+          state: settled,
+          ...(view !== undefined ? { view } : {}),
+          ...(meta === undefined ? {} : (() => {
+            const paths = metaPathsOf(tool.name, meta)
+            return paths.length > 0 ? { metaPaths: paths } : {}
+          })()),
+        }
       : tool)
     const next: RenderMessage = { ...row, tools: nextTools, seq: event.seq, time: event.time }
     replaceMessage(state, row, next)
@@ -1176,6 +1379,35 @@ function diffViewOf(envelope: unknown): ToolDiffView | undefined {
   return { card: 'diff', ...(title !== undefined ? { title } : {}), diffs }
 }
 
+
+/**
+ * 宿主没给 diff 视图时，用工具参数自己拼一个。
+ *
+ * `edit` 的参数本来就是一对 old_string / new_string，`write` 是整段新内容，
+ * 足够画出红绿 —— 比把原始 JSON 摊在屏幕上强得多。别的工具不猜：参数格式
+ * 各家不同，猜错了不如老实显示原文。
+ *
+ * 只在 `event.view` 缺席时兜底：宿主给了就以宿主的为准（那是按已应用的
+ * hunk 算出来的，比参数更准）。
+ * @param name - 工具名。
+ * @param raw - 事件的 arguments 原串（JSON）。
+ */
+function diffViewFromArguments(name: string, raw: string | undefined): ToolDiffView | undefined {
+  if (raw === undefined || raw === '') return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  if (!isRecord(parsed)) return undefined
+  const path = pickString(parsed['file_path']) ?? pickString(parsed['path']) ?? pickString(parsed['filePath'])
+    ?? pickString(parsed['file']) ?? pickString(parsed['filename']) ?? pickString(parsed['target'])
+  const newText = pickString(parsed['new_string']) ?? pickString(parsed['content']) ?? pickString(parsed['newText'])
+  if (path === undefined || newText === undefined) return undefined
+  const oldText = pickString(parsed['old_string']) ?? pickString(parsed['oldText']) ?? null
+  return { card: 'diff', title: name, diffs: [{ path, oldText, newText }] }
+}
 /**
  * Command card from `command/run` (data = `{ commandId, name, args?, source }`).
  * The card renders immediately as "running" — the mux delivers this frame the
@@ -1245,7 +1477,47 @@ function applyCommandDone(state: FoldState, event: WireEvent): void {
 function applyTurnStart(state: FoldState, event: WireEvent): void {
   const data = isRecord(event.data) ? event.data : {}
   const turn = pickNumber(data['turn'])
+  if (turn !== undefined) state.openTurn = turn
+  // 新一轮从第一步重新数：不清会让新轮里缺 step 的分片沿用上一轮的步号。
+  state.openStep = undefined
   if (turn !== undefined) state.turnStarts.set(turn, event.time)
+  // 真的 turn/start 到了：外部种进来的"当前轮起点"就该退场，别留给下一轮。
+  state.openTurnStart = undefined
+}
+
+/**
+ * 窗口里最新的 assistant 轮号（收工定格判「这是不是当前那一轮」用）。
+ */
+function newestAssistantTurn(state: FoldState): number | undefined {
+  let newest: number | undefined
+  for (const message of state.messages) {
+    if (message.kind !== 'assistant') continue
+    const turn = state.messageTurn.get(message.id) ?? message.turn
+    if (turn !== undefined && (newest === undefined || turn > newest)) newest = turn
+  }
+  return newest
+}
+
+/**
+ * 一轮里最早的可信起点——`turn/start` 不在折叠状态里时的锚点兜底。
+ *
+ * turn/end 只带轮号，时长必须靠锚点算；而一个跑了十几分钟的回合，它的
+ * turn/start 与窗口切口之间隔着几百条事件，翻页补读也够不着。这时退回"这一轮
+ * 手头最早的证据"：行自己带的 turnStartAt（服务端折叠时盖上去的），或者最早
+ * 那一行的时间。前者是真正的起点，后者比真正的起点晚几秒（生成第一步的耗时）
+ * ——但永远有值，于是"完全没有用时"变成"略短一点的用时"。
+ */
+function earliestTurnTime(state: FoldState, turn: number): number | undefined {
+  let earliest: number | undefined
+  for (const message of state.messages) {
+    if (message.kind !== 'assistant') continue
+    if (state.messageTurn.get(message.id) !== turn) continue
+    for (const candidate of [message.turnStartAt, message.time]) {
+      if (typeof candidate !== 'number' || !Number.isFinite(candidate)) continue
+      if (earliest === undefined || candidate < earliest) earliest = candidate
+    }
+  }
+  return earliest
 }
 
 /**
@@ -1279,11 +1551,622 @@ function producedFilesOf(messages: readonly RenderMessage[]): string[] {
   const seen = new Set<string>()
   for (const message of messages) {
     for (const tool of message.tools ?? []) {
-      for (const diff of tool.view?.diffs ?? []) {
-        if (seen.has(diff.path)) continue
-        seen.add(diff.path)
-        out.push(diff.path)
+      for (const path of producedPathsOf(tool)) {
+        if (seen.has(path)) continue
+        seen.add(path)
+        out.push(path)
       }
+    }
+  }
+  return out
+}
+
+/**
+ * Tool names whose arguments name the file they change.
+ *
+ *  The diff view is the *live* half of a turn's output list: the mux presenters
+ *  attach `view.diffs` to a tool event as it streams, and a page folded from
+ *  history only carries it when that deployment's presenter happened to be
+ *  registered for that call. The arguments are the durable half — they sit in
+ *  the log, so any page folded from the log has them. Reading them is what
+ *  keeps the turn-tail card alive across a reload.
+ */
+const MUTATING_TOOL_NAMES = new Set([
+  'write', 'write_file', 'edit', 'edit_file', 'multiedit', 'multi_edit',
+  'notebook_edit', 'apply_patch', 'create_file', 'str_replace_editor',
+])
+
+/** Argument keys that name the target file of a write-ish tool call. */
+const ARG_PATH_KEYS = ['file_path', 'filePath', 'path', 'notebook_path', 'target_file', 'abs_path'] as const
+
+/** Parse a tool call's raw arguments into an object, when they are one. */
+function parseArguments(raw: string | undefined): Record<string, unknown> | undefined {
+  if (raw === undefined || raw === '') return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Files a tool RESULT's meta records as changed.
+ *
+ * `edit` results carry `{ path, diffs: [{ path, oldText, newText }] }`; a plain
+ * write carries `{ path }`. Everything else (`read` carries `{ path }` too, a
+ * shell call carries only `{ cwd }`) must not count as a produced file, so the
+ * tool name guards the bare-path case.
+ * @param toolName - the call's tool name.
+ * @param meta - the `tool/result` event's meta object.
+ * @returns changed file paths, deduped.
+ */
+function metaPathsOf(toolName: string, meta: Record<string, unknown>): string[] {
+  const out: string[] = []
+  const diffs = meta['diffs']
+  if (Array.isArray(diffs)) {
+    for (const raw of diffs) {
+      if (!isRecord(raw)) continue
+      const path = pickString(raw['path'])
+      if (path !== undefined && path !== '') out.push(path)
+    }
+  }
+  if (out.length === 0 && MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) {
+    const path = pickString(meta['path'])
+    if (path !== undefined && path !== '') out.push(path)
+  }
+  return [...new Set(out)]
+}
+
+/**
+ * Files one tool call reports mutating: its diff view first (that is what the
+ * desktop renders), then the result meta (survives stripped arguments), then
+ * the call's own arguments.
+ */
+function producedPathsOf(tool: ToolCallInfo): string[] {
+  const fromView: string[] = []
+  for (const diff of tool.view?.diffs ?? []) fromView.push(diff.path)
+  if (fromView.length > 0) return fromView
+  if ((tool.metaPaths?.length ?? 0) > 0) return [...(tool.metaPaths ?? [])]
+  if (!MUTATING_TOOL_NAMES.has(tool.name.toLowerCase())) return []
+  const args = parseArguments(tool.arguments)
+  if (args === undefined) return []
+  const out: string[] = []
+  for (const key of ARG_PATH_KEYS) {
+    const path = pickString(args[key])
+    if (path !== undefined && path !== '') out.push(path)
+  }
+  return out
+}
+
+/** Files a `present` call declared, recovered from its arguments. */
+function presentedFromArguments(tool: ToolCallInfo): TurnDeliverable[] {
+  if (tool.name.toLowerCase() !== 'present') return []
+  const args = parseArguments(tool.arguments)
+  const files = args?.['files']
+  if (!Array.isArray(files)) return []
+  const out: TurnDeliverable[] = []
+  for (const entry of files) {
+    if (!isRecord(entry)) continue
+    const path = pickString(entry['path'])
+    if (path === undefined || path === '') continue
+    const description = pickString(entry['description'])
+    out.push(description === undefined ? { path } : { path, description })
+  }
+  return out
+}
+
+/** Row id of a turn's report row (stable, so a replayed window replaces it). */
+function turnTailId(turn: number | undefined): string {
+  return `turn-tail:${turn === undefined ? 'last' : turn}`
+}
+
+/** True for the turn-tail report row (never an assistant step row). */
+function isTurnTailRow(message: RenderMessage): boolean {
+  return message.id.startsWith('turn-tail:')
+}
+
+/** True when a report row actually lists something (an empty one renders as nothing). */
+function reportsAnything(message: RenderMessage | undefined): boolean {
+  if (message === undefined) return false
+  return (message.deliverables?.length ?? 0) + (message.produced?.length ?? 0) > 0
+}
+
+/**
+ * The turns the list shows that have finished — every turn whose card is already
+ * decided (a running turn has no card yet, by design).
+ *
+ * 卡片的来源是日志里那一轮的 `tool/result` meta，不是页。页给的行可能被投影剥掉
+ * 参数、被窗口截掉一轮早先的调用，据此推"产出了什么"一会儿对一会儿错；这个函数
+ * 只回答"列表里有哪些回合已经收工"，由调用方去日志里把它们挨个折一遍。
+ * @param rows - folded rows shown on screen.
+ * @returns finished turn numbers, oldest first.
+ */
+export function completedTurns(rows: readonly RenderMessage[]): number[] {
+  const out = new Set<number>()
+  for (const row of rows) {
+    if (row.turn === undefined || isTurnTailRow(row)) continue
+    if ((row.tools ?? []).some(tool => tool.state === 'running')) continue
+    out.add(row.turn)
+  }
+  return [...out].sort((left, right) => left - right)
+}
+
+/**
+ * True when this page holds a completed turn that handed files back but no
+ * report row for it — i.e. the card is missing although something was made.
+ *
+ * The page alone cannot tell whether such a turn exists: the tool names survive
+ * every projection, the arguments and diff views need not. So this is the
+ * condition under which the surface reads the events themselves instead of
+ * guessing, and `mergeTurnReports` folds that answer back in.
+ * @param rows - folded page rows.
+ * @returns whether the page is missing at least one expected report row.
+ */
+export function expectsTurnReport(rows: readonly RenderMessage[]): boolean {
+  return missingTurnReports(rows).length > 0
+}
+
+/**
+ * The turns whose card the page cannot produce: a completed turn with rows yet
+ * no report row carrying content.
+ *
+ * 判据不能挂在工具名上：窗口只留最近的几步时，一轮里早先的 `edit`/`write` 会被
+ * 截掉，页里只剩 `pwsh` —— 真机就是这么"卡片彻底不见了"，而日志里那一轮明明改了
+ * 文件（`tool/result` 的 meta 里有 diffs）。所以只要这一轮没卡就问一次日志，日志
+ * 折出来没有产出才是真的没有。
+ * @param rows - folded page rows.
+ * @returns the turn numbers still missing a report, oldest first.
+ */
+export function missingTurnReports(rows: readonly RenderMessage[]): number[] {
+  const reported = new Set<number>()
+  const hasRows = new Set<number>()
+  for (const row of rows) {
+    if (row.turn === undefined) continue
+    if (isTurnTailRow(row)) {
+      if (reportsAnything(row)) reported.add(row.turn)
+      continue
+    }
+    // 跑着的行不算"已完成"：那一轮结束前本来就不该有卡。
+    if ((row.tools ?? []).some(tool => tool.state === 'running')) continue
+    // 纯聊天回合（一个工具都没调）不可能产出文件，不必为它读日志。
+    if ((row.tools ?? []).length === 0) continue
+    hasRows.add(row.turn)
+  }
+  return [...hasRows].filter(turn => !reported.has(turn)).sort((left, right) => left - right)
+}
+
+/**
+ * Merge one authoritative report row over a page-guessed one.
+ *
+ * 页里那张是猜的（窗口截断会让它少列文件），日志折出来的才是这一轮真正交回的
+ * 东西。所以以日志那张为准（时间、序号、清单都取它），但文件清单取并集 —— 万一
+ * 日志翻页没翻到整轮，也不至于把页里已经显示的文件抹掉。
+ * @param guessed - the row already on screen.
+ * @param recovered - the row folded from the event log.
+ * @returns the row to display.
+ */
+function preferRecoveredReport(guessed: RenderMessage, recovered: RenderMessage): RenderMessage {
+  const deliverables = [...(recovered.deliverables ?? [])]
+  const seenDeliverable = new Set(deliverables.map(file => file.path))
+  for (const file of guessed.deliverables ?? []) {
+    if (seenDeliverable.has(file.path)) continue
+    seenDeliverable.add(file.path)
+    deliverables.push(file)
+  }
+  const produced = [...(recovered.produced ?? [])]
+  const seenProduced = new Set(produced)
+  for (const path of guessed.produced ?? []) {
+    if (seenProduced.has(path)) continue
+    seenProduced.add(path)
+    produced.push(path)
+  }
+  return {
+    ...recovered,
+    ...(deliverables.length > 0 ? { deliverables } : {}),
+    ...(produced.length > 0 ? { produced } : {}),
+  }
+}
+
+/**
+ * Fold report rows recovered from raw events into a page that lacked them.
+ *
+ * The recovered rows are authoritative: they come from the turn's own events,
+ * while a page-supplied row is only what that projection happened to keep. A
+ * page row for the same turn is therefore replaced (its files are unioned in,
+ * never dropped). A recovered row lands right after that turn's last row, or at
+ * the end when the page never saw the turn.
+ * @param rows - current folded rows.
+ * @param tails - report rows folded from the event log.
+ * @returns the merged row list.
+ */
+export function mergeTurnReports(
+  rows: readonly RenderMessage[],
+  tails: readonly RenderMessage[],
+): RenderMessage[] {
+  let out = [...rows]
+  for (const tail of tails) {
+    if (!isTurnTailRow(tail) || !reportsAnything(tail)) continue
+    const existing = out.find(row => row.id === tail.id)
+    if (existing !== undefined) {
+      out = out.map(row => (row.id === tail.id
+        ? (reportsAnything(existing) ? preferRecoveredReport(existing, tail) : tail)
+        : row))
+      continue
+    }
+    const sameTurn = out.filter(row => row.turn === tail.turn && !isTurnTailRow(row))
+    const anchor = sameTurn[sameTurn.length - 1]
+    if (anchor === undefined) {
+      out.push(tail)
+      continue
+    }
+    out.splice(out.indexOf(anchor) + 1, 0, tail)
+  }
+  return out
+}
+
+/**
+ * Carry the report rows already on screen into a freshly loaded row list.
+ *
+ * 进会话时列表会被整个换掉好几次（缓存页 → 网络页 → 实时重放基线）。页自己不带
+ * 报告行，换一次卡片就闪没一次；用户看到的就是"点进会话，卡片突然又消失了"。
+ * 这一份只保留"新列表里仍然有那个回合"的报告行，其余交给调用方重新补读。
+ * @param previous - the rows that were on screen.
+ * @param next - the rows replacing them.
+ * @returns the new rows, with the still-relevant report rows kept.
+ */
+export function keepTurnReports(
+  previous: readonly RenderMessage[],
+  next: readonly RenderMessage[],
+): RenderMessage[] {
+  const reportRows = previous.filter(row => isTurnTailRow(row) && reportsAnything(row) && row.turn !== undefined)
+  const carried = reportRows.filter(row =>
+    next.some(other => other.turn === row.turn && !isTurnTailRow(other)),
+  )
+  // 页里**完全没有**这一轮的行（回合的全部事件都在窗口之外）：也要把刚看到的那张卡
+  // 留下，最多留最新 N 轮。否则就是真机那句「交付结果卡片闪一下才出现」——换列表时
+  // 卡被丢掉，几秒后 cardRecovery 读到 turn/end 再补回来，中间那一下就是空白。
+  //
+  // 只能留最近几轮：留全量就变成「上一轮的卡片永远赖在最新位置」。
+  // 只在**尾部相邻**时留：卡属于比页里最新一轮还旧一点的那一轮（差距不超过
+  // KEEP_ORPHAN_REPORT_TURNS）。跳到深历史时页里最新一轮离得很远，卡必须掉，否则
+  // 「上一轮的卡片赖在最新位置」——那正是 keepTurnReports 当初只认页内回合的原因。
+  const newestInPage = next.reduce((max, row) => Math.max(max, row.turn ?? 0), 0)
+  const orphaned = reportRows
+    .filter(row => {
+      if (newestInPage === 0) return false
+      if (next.some(other => other.turn === row.turn)) return false
+      const turn = row.turn ?? 0
+      return turn <= newestInPage && newestInPage - turn <= KEEP_ORPHAN_REPORT_TURNS
+    })
+    .sort((left, right) => (right.turn ?? 0) - (left.turn ?? 0))
+    .slice(0, KEEP_ORPHAN_REPORT_TURNS)
+  const kept = [...carried, ...orphaned]
+  if (kept.length === 0) return [...next]
+  return mergeTurnReports(next, kept)
+}
+
+/**
+ * 一行的身份：跟 surface 的 React key 同源（(turn, step) 优先，否则 id）。
+ * 只有同身份的两行才谈得上"谁更全"。
+ */
+/** 换列表时最多替屏幕上保留多少「页窗口之外的更早行」。 */
+const MAX_KEPT_OLDER_ROWS = 200
+/** 换列表时，页里已经没有那一轮的行，仍替屏幕上保留几张最近的交付卡。 */
+export const KEEP_ORPHAN_REPORT_TURNS = 2
+
+function rowIdentity(row: RenderMessage): string {
+  return row.turn !== undefined && row.step !== undefined ? `t${row.turn}.${row.step}` : row.id
+}
+
+/**
+ * 同一次工具调用的两个版本，合并成"状态取新的、内容取全的"。
+ *
+ * 页（宿主折叠窗口）会把参数剥掉、把早先的调用截掉；屏幕上那份是当时逐个事件折出来
+ * 的，参数和 diff 视图都还在。换列表时不能因为页更"新"就把这些丢掉 —— 丢了就是真机
+ * 那句"拉历史的那一下屏幕闪一下"：卡片、diff、命令参数集体消失，再异步补回来。
+ */
+function richerTool(next: ToolCallInfo, previous: ToolCallInfo | undefined): ToolCallInfo {
+  if (previous === undefined) return next
+  return {
+    ...previous,
+    ...next,
+    // 参数/视图页那边常常是空的：空就留屏幕上那份（状态仍用页的，它更新）。
+    ...(next.arguments === undefined || next.arguments === '' ? { arguments: previous.arguments } : {}),
+    ...(next.view === undefined ? { view: previous.view } : {}),
+  }
+}
+
+/**
+ * 把新列表里"比屏幕上更残缺"的行，换成屏幕上那份更全的版本。
+ *
+ * 进会话的顺序是：内存快照（当时逐事件折出来的完整版）→ 网络尾页（宿主投影，参数被
+ * 剥掉、不带报告行）→ 铺开的更早几页。页更"权威"，但更**穷**：直接整份替换，屏幕上
+ * 就会看到卡片消失、diff 收起、工具行参数清空，然后卡片补读再异步挂回来 —— 用户看到
+ * 的就是"拉历史的时候闪一下"。
+ *
+ * 所以换列表时逐行比较：同身份的两行合并（状态/时间用新的，参数/视图/报告用全的），
+ * 只有真正变了才产生新行；一行都没变时**原样返回上一个数组**，React 不重绘。
+ *
+ * @param previous - 屏幕上那份（可能更全）。
+ * @param next - 新折出来的那份（更新，但可能更穷）。
+ * @returns the rows to render; `previous` itself when nothing changed.
+ */
+export function preferRicherRows(
+  previous: readonly RenderMessage[],
+  next: readonly RenderMessage[],
+): RenderMessage[] {
+  if (previous.length === 0 || next.length === 0) return [...next]
+  const previousById = new Map<string, RenderMessage>()
+  /** step → 屏幕上的那一行：只在**来行缺轮号**时兜底用。 */
+  const previousByStep = new Map<number, RenderMessage>()
+  for (const row of previous) {
+    previousById.set(rowIdentity(row), row)
+    if (row.turn !== undefined && row.step !== undefined) previousByStep.set(row.step, row)
+  }
+  // 页是一段窗口：它比屏幕上那份**短**是常态（尾页 25 行 vs 屏幕上 120 行）。窗口
+  // 覆盖不到的、更早的那些行不能跟着被丢掉 —— 丢了就是"拉历史那一下列表塌一半再长
+  // 回来"，正是真机看到的那一闪。保留比页首更早的那一段（上限防止无限增长）。
+  const firstNextSeq = next[0]!.startSeq ?? next[0]!.seq
+  const keptOlder = previous
+    .filter(row => (row.startSeq ?? row.seq) < firstNextSeq)
+    .slice(-MAX_KEPT_OLDER_ROWS)
+  const merged: RenderMessage[] = []
+  /** 身份 → 它在 merged 里的下标。同身份的行只出现一次，后来者就地合并。 */
+  const slots = new Map<string, number>()
+  const pushOrMerge = (row: RenderMessage): void => {
+    const identity = rowIdentity(row)
+    const at = slots.get(identity)
+    if (at === undefined) {
+      slots.set(identity, merged.length)
+      merged.push(row)
+      return
+    }
+    // 已经在数组里（来自 keptOlder 的更早那份，或者页里先到的同一行）：就地合并，
+    // 而不是丢掉或再推一份。以前 turn 行（交付卡）走「页说啥就是啥」的快捷路径：
+    // ①页里没有这张卡、它又被 keptOlder 留着时，页再推一遍 → 同一行两份，屏幕上就是
+    // 多条过程条 + 闪一下；②页那份是「瘦版」（没有 plan / 交付物 / 用时），直接把更全的
+    // 那份顶掉 → 计划和交付卡消失。现在所有行走同一条合并路径。
+    merged[at] = mergeRows(merged[at]!, row)
+  }
+  for (const older of keptOlder) pushOrMerge(older)
+  for (const row of next) {
+    // 真机（2026-10-29）：尾页每步一行（turn 98 step 3），实时流折出来的那段还没经历
+    // `turn/start`、轮号是 undefined，id 又是另一套 —— 只按 id 找不到同一行，于是两行
+    // 都留着，同一轮被画成两张过程卡（时间还对得上，最容易误认为「跑了两遍」）。
+    // 来行缺轮号但带着 step 时，用 step 找回屏幕上那一行就地合并。
+    const byId = previousById.get(rowIdentity(row))
+    const byStep = byId === undefined && row.turn === undefined && row.step !== undefined
+      ? previousByStep.get(row.step)
+      : undefined
+    const before = byId ?? byStep
+    pushOrMerge(before === undefined ? row : mergeRows(before, row))
+  }
+  // 同一个 message id 只能留一份：页切会把一个回合切成「半截行」（只有第一步）和
+  // 「整回合行」（startSeq..最后一步）两个版本，两版都进列表就是两张同 id 的卡；而
+  // 半截行一旦胜出，这一回合后面几步的正文就再也渲染不出来 —— 索引收过那些正文，
+  // 搜索于是指到一段屏幕上不存在的文字（真机：命中 seq=1165 落在一张只画到 1136
+  // 的卡上，一个高亮都没有）。这里按「跨度大、正文全」的那份收敛。
+  const deduped: RenderMessage[] = []
+  const seenAt = new Map<string, number>()
+  for (const row of merged) {
+    const at = seenAt.get(row.id)
+    if (at === undefined) {
+      seenAt.set(row.id, deduped.length)
+      deduped.push(row)
+      continue
+    }
+    deduped[at] = heavierRow(deduped[at]!, row)
+  }
+  return deduped
+}
+
+/**
+ * 同一身份的两行合并：状态/时间用新的（页更权威），内容用全的（屏幕上那份是逐事件
+ * 折出来的，参数、diff、交付物、计划都还在）。
+ */
+function mergeRows(before: RenderMessage, row: RenderMessage): RenderMessage {
+  const tools = row.tools === undefined
+    ? before.tools
+    : row.tools.map(tool => richerTool(tool, before.tools?.find(other => other.callId === tool.callId)))
+  const unionTools = tools === undefined
+    ? undefined
+    : [
+      ...tools,
+      ...(before.tools ?? []).filter(old => !tools.some(tool => tool.callId === old.callId)),
+    ]
+  const richer: RenderMessage = {
+    ...before,
+    ...row,
+    // 缺轮号的一侧跟着另一侧补齐（与 coalesce 同一条规则）：标识客户是同一轮，
+    // 不补的话下游认不出「这一行属于正在跑的第 98 轮」，过程卡的状态与秒表都会丢。
+    ...(row.turn === undefined && before.turn !== undefined ? { turn: before.turn } : {}),
+    ...(row.step === undefined && before.step !== undefined ? { step: before.step } : {}),
+    // 正文只增不减：页常常是**重叠窗口**，同一行会给一份截断版（比如只到这一页的
+    // 边界），拿它覆盖屏幕上的完整版 = 正文「往回缩」闪一下。前缀关系时保留长的。
+    ...(row.text === '' && before.text !== '' ? { text: before.text } : {}),
+    ...(row.text !== '' && before.text !== '' && row.text.length < before.text.length
+      && before.text.startsWith(row.text)
+      ? { text: before.text }
+      : {}),
+    ...(unionTools !== undefined && unionTools.length > 0 ? { tools: unionTools } : {}),
+    ...(row.reasoning === undefined && before.reasoning !== undefined ? { reasoning: before.reasoning } : {}),
+    ...(row.flow === undefined && before.flow !== undefined ? { flow: before.flow } : {}),
+    ...(row.deliverables === undefined && before.deliverables !== undefined ? { deliverables: before.deliverables } : {}),
+    ...(row.produced === undefined && before.produced !== undefined ? { produced: before.produced } : {}),
+    // 计划是客户端折叠时才挂上去的（宿主的页窗口里常常没有 todo/write）：页那份缺了
+    // 就留屏幕上这份，否则一换页胶囊就没了。
+    ...(row.plan === undefined && before.plan !== undefined ? { plan: before.plan } : {}),
+    ...(row.durationMs === undefined && before.durationMs !== undefined ? { durationMs: before.durationMs } : {}),
+    // 跨度取并集：页把一轮切在中间时，两版各覆盖半截（半截行 1136 起、整回合行
+    // 1137 起）。只让页那份说话会把起点的更早半截丢掉，搜索命中就落到一段没画的正文上。
+    ...(Math.min(before.startSeq ?? before.seq, row.startSeq ?? row.seq) === (row.startSeq ?? row.seq)
+      ? {}
+      : { startSeq: Math.min(before.startSeq ?? before.seq, row.startSeq ?? row.seq) }),
+    ...(Math.max(before.seq, row.seq) === row.seq ? {} : { seq: Math.max(before.seq, row.seq) }),
+  }
+  // 内容没变就复用屏幕上那个对象：React 的 memo 挡住整行重绘。
+  return sameRowContent(before, richer) ? before : richer
+}
+
+/**
+ * 同一个 id 的两版行：留跨度大、正文全的那份。
+ *
+ * 页（宿主的折叠窗口）会按"这一页到哪"把回合切在中间，同一份 assistant 内容因此可能
+ * 以两种形状到达：只含第一步的半截行，和整回合行。它们不是"新/旧"，而是"全/缺"，
+ * 取内容多的那份；工具按 callId 求并集，失败/截断标记任一为真即真，跨度取并集。
+ */
+function heavierRow(left: RenderMessage, right: RenderMessage): RenderMessage {
+  const weight = (row: RenderMessage): number => {
+    const flowLen = (row.flow ?? []).reduce((sum, part) => sum + ((part as { text?: string }).text ?? '').length, 0)
+    return (row.stepSeqs?.length ?? 0) * 1_000_000 + flowLen + row.text.length + (row.reasoning ?? '').length
+  }
+  const heavy = weight(right) > weight(left) ? right : left
+  const light = heavy === left ? right : left
+  const heavyTools = heavy.tools
+  const tools = heavyTools === undefined
+    ? light.tools
+    : [...heavyTools, ...(light.tools ?? []).filter(old => !heavyTools.some(tool => tool.callId === old.callId))]
+  return {
+    ...light,
+    ...heavy,
+    seq: Math.max(left.seq, right.seq),
+    ...(left.startSeq === undefined && right.startSeq === undefined
+      ? {}
+      : { startSeq: Math.min(left.startSeq ?? left.seq, right.startSeq ?? right.seq) }),
+    ...(tools === undefined || tools.length === 0 ? {} : { tools }),
+    ...(left.failed === true || right.failed === true ? { failed: true } : {}),
+    ...(left.maxTokens === true || right.maxTokens === true ? { maxTokens: true } : {}),
+  }
+}
+
+/**
+ * 两行"画出来"是否一致。只比会显示的字段，够了就复用对象。
+ *
+ * 比的是**合并后**的行，判据必须偏保守（宁可判"变了"多绘一次，也不要漏掉一次变化）。
+ */
+function sameRowContent(left: RenderMessage, right: RenderMessage): boolean {
+  const toolKey = (row: RenderMessage): string => (row.tools ?? [])
+    .map(tool => `${tool.callId}\u0002${tool.name}\u0002${tool.state}\u0002${(tool.arguments ?? '').length}\u0002${tool.view === undefined ? 0 : 1}`)
+    .join('\u0002')
+  return left.id === right.id
+    && left.kind === right.kind
+    && left.text === right.text
+    && left.reasoning === right.reasoning
+    && left.seq === right.seq
+    && left.time === right.time
+    && left.turn === right.turn
+    && left.step === right.step
+    && left.pending === right.pending
+    && left.failed === right.failed
+    && left.maxTokens === right.maxTokens
+    && left.durationMs === right.durationMs
+    && left.turnStartAt === right.turnStartAt
+    && left.firstSeenAt === right.firstSeenAt
+    && left.startSeq === right.startSeq
+    && (left.flow?.length ?? 0) === (right.flow?.length ?? 0)
+    && toolKey(left) === toolKey(right)
+    && (left.deliverables ?? []).map(item => item.path).join('\u0002') === (right.deliverables ?? []).map(item => item.path).join('\u0002')
+    && (left.produced ?? []).join('\u0002') === (right.produced ?? []).join('\u0002')
+    && (left.images ?? []).map(image => image.attachmentId).join('\u0002') === (right.images ?? []).map(image => image.attachmentId).join('\u0002')
+    && (left.stepTexts ?? []).length === (right.stepTexts ?? []).length
+    && (left.stepSeqs ?? []).join(',') === (right.stepSeqs ?? []).join(',')
+}
+
+/**
+ * Rebuild the turn-tail rows a folded page did not carry.
+ *
+ *  The row is normally produced by {@link applyTurnEnd} while folding the live
+ *  stream: `turn/end` brings the turn's final seq, and the delivery list is
+ *  already in `state.presented`. A page served from the host's folded window, or
+ *  a cached page whose turn ended while the tab was closed, arrives as ROWS —
+ *  there is no `turn/end` left to fold, so a turn whose card is missing stays
+ *  missing forever and the card the user just saw disappears on refresh.
+ *
+ *  Everything the card needs is in the rows themselves: the declared files in a
+ *  `present` call's arguments, the output files in each write-ish call's
+ *  arguments (or its diff view). So the surface can rebuild it — one row per
+ *  completed turn that has something to report, right after that turn's last
+ *  row. A turn still running is left alone: its card appears when the turn
+ *  ends, exactly like a live one.
+ *
+ *  An existing report row is trusted only when it actually reports something:
+ *  a row with no files renders as nothing, and such a row is what an older
+ *  folded window leaves behind (it emitted the tail for its clock alone). Left
+ *  alone, that empty row both hides the card and blocks this rebuild.
+ */
+export function ensureTurnTails(rows: readonly RenderMessage[]): RenderMessage[] {
+  const existingTail = new Map<number, RenderMessage>()
+  const lastRowOfTurn = new Map<number, RenderMessage>()
+  const running = new Set<number>()
+  for (const row of rows) {
+    if (isTurnTailRow(row)) {
+      if (row.turn !== undefined) existingTail.set(row.turn, row)
+      continue
+    }
+    if (row.turn === undefined) continue
+    lastRowOfTurn.set(row.turn, row)
+    for (const tool of row.tools ?? []) {
+      if (tool.state === 'running') running.add(row.turn)
+    }
+  }
+  const pending = [...lastRowOfTurn.keys()].filter(turn => !running.has(turn) && !reportsAnything(existingTail.get(turn)))
+  if (pending.length === 0) return [...rows]
+  /** Rebuilt report row, keyed by turn (replaces the empty one in place, or is appended). */
+  const rebuilt = new Map<number, RenderMessage>()
+  /** Empty report rows whose turn has nothing to report after all: drop them. */
+  const dropped = new Set<string>()
+  for (const turn of pending) {
+    const targets = rows.filter(row => row.turn === turn && !isTurnTailRow(row))
+    const deliverables: TurnDeliverable[] = []
+    const seen = new Set<string>()
+    for (const row of targets) {
+      for (const tool of row.tools ?? []) {
+        for (const file of presentedFromArguments(tool)) {
+          if (seen.has(file.path)) continue
+          seen.add(file.path)
+          deliverables.push(file)
+        }
+      }
+    }
+    const declared = new Set(deliverables.map(file => file.path))
+    const produced = producedFilesOf(targets).filter(path => !declared.has(path))
+    const existing = existingTail.get(turn)
+    if (deliverables.length === 0 && produced.length === 0) {
+      if (existing !== undefined) dropped.add(existing.id)
+      continue
+    }
+    const anchor = existing ?? lastRowOfTurn.get(turn)
+    if (anchor === undefined) continue
+    rebuilt.set(turn, {
+      ...anchor,
+      id: turnTailId(turn),
+      kind: 'turn',
+      text: '',
+      turn,
+      // 报告行不是某一步的行：把锚点行的 step 清掉。留着它的话，行 key 会退化成
+      // `(turn, step)`，和锚点行撞成同一个 key —— React 遇到重复 key 的行为是
+      // "可能重复或丢弃子节点"，真机表现就是卡片时有时无。
+      step: undefined,
+      // 原有行可能带着它自己的时钟（老窗口只有时长、没有清单）：留着，
+      // 只把清单补上。
+      ...(deliverables.length > 0 ? { deliverables } : {}),
+      ...(produced.length > 0 ? { produced } : {}),
+    })
+  }
+  if (rebuilt.size === 0 && dropped.size === 0) return [...rows]
+  const out: RenderMessage[] = []
+  for (const row of rows) {
+    if (dropped.has(row.id)) continue
+    const replacement = row.turn === undefined ? undefined : rebuilt.get(row.turn)
+    if (isTurnTailRow(row)) {
+      out.push(replacement ?? row)
+      continue
+    }
+    out.push(row)
+    if (row.turn !== undefined && lastRowOfTurn.get(row.turn) === row) {
+      // Only append when the turn had no report row to replace.
+      if (replacement !== undefined && existingTail.get(row.turn) === undefined) out.push(replacement)
     }
   }
   return out
@@ -1292,11 +2175,29 @@ function producedFilesOf(messages: readonly RenderMessage[]): string[] {
 function applyTurnEnd(state: FoldState, event: WireEvent): void {
   const data = isRecord(event.data) ? event.data : {}
   const turn = pickNumber(data['turn'])
+  state.openTurn = undefined
   const reason = isRecord(data['reason']) ? data['reason'] : {}
   const failed = reason['kind'] === 'error'
   const maxTokens = reason['kind'] === 'max-tokens'
 
-  const startedAt = turn === undefined ? undefined : state.turnStarts.get(turn)
+  // The anchor is the turn/start event's own time. It is usually in the window,
+  // but a turn that ran for ten minutes has hundreds of events between its start
+  // and the page cut, so the window (and the backfill peek behind it) never sees
+  // it — and turn/end carries no duration, so the whole turn reports no elapsed
+  // time. Fall back to the earliest row this turn produced: it is a few seconds
+  // after the true start (the time to produce that first step) and always inside
+  // the window, which turns "no clock at all" into "a clock that is a little
+  // short". A known-approximate duration beats a blank one.
+  //
+  // 但"短一截"在真机上是可见的倒退：秒表一路数到 8分37秒，收工瞬间定格成 6分48秒
+  // （窗口起点比真起点晚了 109 秒）。宿主的页面/`mobile.turnState` 带着真起点
+  // （page.turnStartAt），客户端会把它种进 state.openTurnStart；只要这一轮是窗口里
+  // 最新的那一轮，就用它定格 —— 这才是和桌面端一致的数字。旧回合的 turn/end
+  // （翻页补读、乱序帧）不能拿它当锚点，否则会把旧回合的用时算成天文数字。
+  const newestTurn = newestAssistantTurn(state)
+  const anchored = turn === undefined ? undefined : state.turnStarts.get(turn)
+  const external = turn !== undefined && newestTurn !== undefined && turn >= newestTurn ? state.openTurnStart : undefined
+  const startedAt = anchored ?? external ?? (turn === undefined ? undefined : earliestTurnTime(state, turn))
   const durationMs = startedAt === undefined ? undefined : Math.max(0, event.time - startedAt)
 
   let targets: RenderMessage[]
@@ -1314,15 +2215,28 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
       }
     }
   }
+  // Turn ended abnormally? Only then are still-open calls genuinely interrupted.
+  // A normal completion that still shows an open call means its `tool/result`
+  // never reached this fold (a dropped frame, or a window rebuilt mid-turn) — the
+  // work itself finished. Marking those `stopped` there is what made a finished
+  // turn's head flip from 已完成 to 已中断 while the user watched, and flip back
+  // to 已完成 on re-entering the session (the server-side fold has the results).
+  const aborted = reason['kind'] !== undefined && reason['kind'] !== 'completed'
+  // 记住这一轮的收工时刻：往上翻页补进来的行来自切口之前那一页，那里没有这条
+  // turn/end，只有记住它才能把这些行补齐（否则同一轮里一半行有用时、一半没有）。
+  if (turn !== undefined) state.turnEnds.set(turn, event.time)
   for (const message of targets) {
     const wasPending = message.pending === true
-    // A turn that ends with calls still open interrupted them (the desktop
-    // row's `stopped` state): their timeline dots must not spin forever.
+    // The desktop row's `stopped` state belongs to abandoned calls only.
     const openTools = (message.tools ?? []).some(tool => tool.state === 'running')
     const next: RenderMessage = {
       ...message,
       ...(openTools
-        ? { tools: (message.tools ?? []).map(tool => tool.state === 'running' ? { ...tool, state: 'stopped' as const } : tool) }
+        ? {
+            tools: (message.tools ?? []).map(tool => tool.state === 'running'
+              ? { ...tool, state: aborted ? 'stopped' as const : 'ok' as const }
+              : tool),
+          }
         : {}),
       ...(wasPending ? { pending: false } : {}),
       ...(failed ? { failed: true } : {}),
@@ -1347,9 +2261,20 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
   // turn so a replayed window replaces its row instead of stacking a new one.
   // 计时已经在过程组折叠头里（每一行都盖了 durationMs），尾巴只报"交回了什么"：
   // 没有交付物也没有产出文件时不生成尾巴行，免得每次回复后面挂个空壳。
-  const hasReport = (deliverables?.length ?? 0) > 0 || produced.length > 0
+  // 收工时手上的计划：未完成的项按宿主语义归一成已完成（这一轮结束了）。
+  const planState = state.plan
+  const planForTail = planState === undefined || planState.items.length === 0
+    ? undefined
+    : {
+        items: planState.items.map(item => (item.status === 'in_progress'
+          ? { ...item, status: 'completed' as const }
+          : item)),
+      }
+  // 有文件、**或者**写过计划才出这条尾巴：计划也是「这一轮交回了什么」的一部分，
+  // 而且是状态条收起之后唯一的计划入口。
+  const hasReport = (deliverables?.length ?? 0) > 0 || produced.length > 0 || planForTail !== undefined
   if (!hasReport) return
-  const tailId = `turn-tail:${turn ?? 'last'}`
+  const tailId = turnTailId(turn)
   const tail: RenderMessage = {
     id: tailId,
     kind: 'turn',
@@ -1360,6 +2285,7 @@ function applyTurnEnd(state: FoldState, event: WireEvent): void {
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(deliverables !== undefined ? { deliverables } : {}),
     ...(produced.length > 0 ? { produced } : {}),
+    ...(planForTail === undefined ? {} : { plan: planForTail }),
   }
   const existingTail = state.byId.get(tailId)
   if (existingTail !== undefined) replaceMessage(state, existingTail, tail)
@@ -1496,6 +2422,8 @@ export function triggerEmojiOf(sourceKind: string): string | undefined {
  * a single turn into one process card per step. They are dropped from the
  * output while merging; a real user message still ends the turn.
  */
+
+
 export function coalesceTurnMessages(messages: readonly RenderMessage[]): RenderMessage[] {
   const out: RenderMessage[] = []
   for (const message of messages) {
@@ -1514,11 +2442,48 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
       out.push(message)
       continue
     }
-    if (previous !== undefined && previous.kind === 'assistant' && message.kind === 'assistant'
-      && previous.turn !== undefined && message.turn !== undefined
-      && previous.turn === message.turn) {
+    // 同一轮的两段（含「其中一段还不知道轮号」的情况）要合成一张过程卡。
+    //
+    // 真机现象：刚进一个正在跑的会话时，屏上有两条一模一样的过程卡，过一会儿才合成
+    // 一条。原因是尾页折叠出来的那段带轮号（turn 42），而挂上 mux 之后实时折出来的
+    // 那段还没经历 turn/start，turn 是 undefined —— 旧判据要求两边都有轮号且相等，
+    // 于是同一轮被画了两次。这里把「缺轮号」当成「跟着上一条走」。
+    const mergeableByTurn = previous !== undefined
+      && previous.kind === 'assistant' && message.kind === 'assistant'
+      // 合并判据（三条，任一成立即同一轮）：
+      //  ①两边都有轮号且相等；
+      //  ②有一边缺轮号，但两条是**同一条消息**（id 相同）；
+      //  ③有一边缺轮号，但**step 相同** —— 这一条是 2026-10-29 真机补上的：
+      //    尾页每步一行（turn 98 step 1..5），实时流折出来的那行轮号常常还没补上、
+      //    id 又是另一套（页面行 id ≠ 流式行 id），于是同一个 step 被画成两张过程卡。
+      //    step 是「本轮第几步」，比 id 稳，也不会误合并两个都没有轮号的不同消息
+      //    （那种情况 step 也没有或不等）。
+      && (
+        (previous.turn !== undefined && message.turn !== undefined && previous.turn === message.turn)
+        || ((previous.turn === undefined || message.turn === undefined) && previous.id === message.id)
+        || ((previous.turn === undefined || message.turn === undefined)
+          && previous.step !== undefined && message.step !== undefined
+          && previous.step === message.step)
+      )
+    if (mergeableByTurn) {
+      // 同轮同文：一次重试 / 一次分片重放会让同一轮出现两段一模一样的正文。
+      // 这时只把工具并进来，正文别再拼一遍（否则一张卡里同一段话说两次）。
+      // 阈值 16 字：太短的「好」「继续」在多步里重复是正常内容，不能吞。
+      const previousText = previous.text.replace(/\s+/g, ' ').trim()
+      const messageText = message.text.replace(/\s+/g, ' ').trim()
+      const sameTurnSameText = previous.turn !== undefined
+        && previous.turn === message.turn
+        && previousText.length >= 16
+        && previousText === messageText
+      if (sameTurnSameText) {
+        out[out.length - 1] = mergeRows(previous, { ...message, text: '' })
+        continue
+      }
       const merged: RenderMessage = {
         ...previous,
+        // 缺轮号的那一段跟着上一条走，下游（过程条状态判据）才读得到轮号。
+        ...((previous.turn === undefined && message.turn !== undefined) ? { turn: message.turn } : {}),
+        ...((previous.turnStartAt === undefined && message.turnStartAt !== undefined) ? { turnStartAt: message.turnStartAt } : {}),
         // Step texts join on a blank line: each step is its own markdown
         // paragraph run, and while the turn is still streaming the merged
         // row stays pending — the blank line lets parseStreamPrefix close
@@ -1546,6 +2511,11 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
         seq: message.seq,
         stepSeqs: [...(previous.stepSeqs ?? [previous.startSeq ?? previous.seq]), message.seq],
         stepTexts: [...(previous.stepTexts ?? [previous.text]), message.text],
+        // 合并行也要合并「搜索索引里那份正文」：只保留 previous 那段，命中片段落在
+        // 后一步时会匹配不上，定位就退到按 seq 撞行（真机表现：跳到空白段）。
+        ...(previous.searchText !== undefined || message.searchText !== undefined
+          ? { searchText: [previous.searchText ?? '', message.searchText ?? ''].filter(part => part !== '').join('\n') }
+          : {}),
         time: message.time,
         // The latest row's status wins: a finalized step (no pending flag)
         // clears the merged row's pending — an interrupted turn (every row
@@ -1629,15 +2599,126 @@ export class EventFolder {
     return this.snapshotList
   }
 
-  /** Replace the whole stream (history reload / session switch). */
+  /**
+   * Replace the whole stream (history reload / session switch).
+   *
+   * The turn-start anchors survive: `turn/end` carries no duration, so dropping
+   * them would make every turn in the rebuilt window report no elapsed time.
+   * `seed` is also how a row-cap trim rewrites the window, which happens mid-turn
+   * on a long session — anchors are a couple of numbers, keeping them is free.
+   */
   seed(messages: readonly RenderMessage[]): void {
+    const anchors = this.state.turnStarts
+    const openStart = this.state.openTurnStart
     this.state = createState(messages)
+    for (const [turn, startedAt] of anchors) {
+      if (!this.state.turnStarts.has(turn)) this.state.turnStarts.set(turn, startedAt)
+    }
+    if (openStart !== undefined) this.state.openTurnStart = openStart
     this.snapshotList = undefined
   }
 
   /** Prepend an older history page (exact seam; no overlapping seqs). */
   prepend(older: readonly RenderMessage[]): void {
-    this.state = createState([...older, ...this.state.messages])
+    // 宿主按消息切页，跨切口的那条消息会同时落在两页里（它不会把一条消息劈成两半）。
+    // 直接拼就成了两份同 id 的行：窗口里那份已经被 turn/end 重写过（时间戳改成收工
+    // 时刻、带上用时），拼进来这份是切口之前的原样（没有用时），于是同一条回答在手机
+    // 上出现两次、其中一次没有秒表——实测某会话 118 行里 37 个 id 各两份。
+    // 保留窗口里已有的那份：它是最新的。
+    const known = new Set(this.state.messages.map(message => message.id))
+    const unique: RenderMessage[] = []
+    for (const message of older) {
+      if (known.has(message.id)) continue
+      known.add(message.id)
+      unique.push(message)
+    }
+    if (unique.length === 0) return
+    // 补进来的行属于切口之前那一页，那一页没有这一轮的 turn/end：同一轮里前面那些行
+    // 于是既没有用时、时间戳也停在每一步的时刻，和后面那些行对不上。收工时刻已经记
+    // 在 turnEnds 里，按它补齐（与整页重折的结果一致）。
+    const settled = unique.map(message => {
+      const turn = message.kind === 'assistant' ? message.turn : undefined
+      const endedAt = turn === undefined ? undefined : this.state.turnEnds.get(turn)
+      if (turn === undefined || endedAt === undefined) return message
+      const startedAt = this.state.turnStarts.get(turn) ?? message.turnStartAt ?? message.time
+      return {
+        ...message,
+        time: endedAt,
+        durationMs: Math.max(0, endedAt - startedAt),
+        turnStartAt: startedAt,
+      }
+    })
+    const anchors = this.state.turnStarts
+    const ends = this.state.turnEnds
+    const openStart = this.state.openTurnStart
+    this.state = createState([...settled, ...this.state.messages])
+    for (const [turn, startedAt] of anchors) {
+      if (!this.state.turnStarts.has(turn)) this.state.turnStarts.set(turn, startedAt)
+    }
+    for (const [turn, endedAt] of ends) {
+      if (!this.state.turnEnds.has(turn)) this.state.turnEnds.set(turn, endedAt)
+    }
+    if (openStart !== undefined) this.state.openTurnStart = openStart
+    this.snapshotList = undefined
+  }
+
+  /**
+   * 记下宿主播报的「当前这一轮从什么时候开始」。
+   *
+   * 窗口里找不到 turn/start 时，收工定格只能用窗口最早一行当锚点，于是秒表在
+   * 收工那一刻往回跳（真机 8分37秒 → 6分48秒）。宿主页面自带真起点
+   * （`mobile.readChat` 的 page.turnStartAt / `mobile.turnState`），传进来即可。
+   * 只对窗口里最新那一轮生效，见 applyTurnEnd。
+   */
+  noteOpenTurnStart(at: number | undefined): void {
+    if (at === undefined || !Number.isFinite(at)) return
+    if (this.state.openTurnStart === at) return
+    this.state.openTurnStart = at
+    this.snapshotList = undefined
+  }
+
+  /** 宿主说这一轮收工了：把外部锚点丢掉，别再拿去定格下一轮。 */
+  clearOpenTurnStart(): void {
+    if (this.state.openTurnStart === undefined) return
+    this.state.openTurnStart = undefined
+    this.snapshotList = undefined
+  }
+
+  /**
+   * 按轮号记下一个窗口里看不到的起点（宿主从日志里翻出来的真 turn/start 时间）。
+   *
+   * 比 {@link noteOpenTurnStart} 更准：一次折叠里可能先后收工好几轮（旧轮的 turn/end
+   * 先到），单值的"当前轮锚点"会被早收工的那一轮先吃掉。有轮号就直接按轮号存。
+   */
+  noteTurnStart(turn: number, at: number | undefined): void {
+    if (at === undefined || !Number.isFinite(at) || !Number.isFinite(turn)) return
+    if (this.state.turnStarts.has(turn)) return
+    this.state.turnStarts.set(turn, at)
+    this.snapshotList = undefined
+  }
+
+  /**
+   * Carry turn-start anchors over from a folder this one replaces.
+   *
+   * A window is rebuilt from a fresh page whenever the two no longer join, and
+   * that page is cut at a message boundary — the turn/start of the turn owning
+   * its first message sits outside it. The rebuilt folder would therefore forget
+   * every anchor the old one had, and since turn/end carries no duration, the
+   * turns in that window lose their elapsed time. Anchors are tiny and never
+   * wrong (a turn starts once), so the replacement inherits them.
+   */
+  adoptAnchors(from: EventFolder): void {
+    for (const [turn, startedAt] of from.state.turnStarts) {
+      if (!this.state.turnStarts.has(turn)) this.state.turnStarts.set(turn, startedAt)
+    }
+    for (const [turn, endedAt] of from.state.turnEnds) {
+      if (!this.state.turnEnds.has(turn)) this.state.turnEnds.set(turn, endedAt)
+    }
+    if (from.state.openTurnStart !== undefined && this.state.openTurnStart === undefined) {
+      this.state.openTurnStart = from.state.openTurnStart
+    }
+    // Durations already stamped on the inherited rows stay valid as well: the
+    // rows themselves are replaced, so re-derive their clock from the anchors.
     this.snapshotList = undefined
   }
 

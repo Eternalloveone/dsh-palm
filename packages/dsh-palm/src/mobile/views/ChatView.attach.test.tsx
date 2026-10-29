@@ -3,9 +3,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
+import { resetSessionStoreForTest } from '../session-store.ts'
 import { type SessionView } from './App.tsx'
 
 vi.mock('../api.ts', () => ({
+  // 打开会话时会向宿主要一次排队快照（投影帧到不了手机）。
+  inboxOf: vi.fn(async () => ({ inbox: null })),
+  // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
+  // 默认让这条新通道不可用：这些老用例测的是 inbox 投影那条回退路径。
+  // 专门测原子快照的用例自己 mockResolvedValue 一份即可。
+  sessionState: vi.fn(async () => { throw new Error('sessionState unavailable in this fake host') }),
+  // 目标条打开会话时也会问一次宿主；缺这个导出，整个页面在挂载期就抛异常。
+  goalOf: vi.fn(async () => ({ goal: null })),
   fetchMobilePreferences: vi.fn(),
   models: vi.fn(),
   selectModel: vi.fn(),
@@ -58,6 +67,8 @@ const compressImageFileMock = vi.mocked(compressImageFile)
 const toastMock = vi.mocked(toast)
 
 beforeEach(() => {
+  // 状态仓是模块级单例：每个用例开始时清空，免得乐观项/隐藏表串到下一条。
+  resetSessionStoreForTest()
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
   promptMock.mockResolvedValue(undefined)
   modelsMock.mockResolvedValue({

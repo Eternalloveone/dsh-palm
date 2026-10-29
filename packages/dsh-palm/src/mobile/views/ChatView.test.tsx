@@ -3,7 +3,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { SessionModels } from '../../api-proxy-types'
-import { ChatView, estimateMessageHeight, MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './ChatView.tsx'
+import { ChatView, loadTurnReportRows, MAX_TAIL_BUFFER_EVENTS, offersRegenerate, quotePathForReference, renderRows, RUNNING_RECONCILE_MS } from './ChatView.tsx'
+import { addOptimisticQueueItem, resetSessionStoreForTest } from '../session-store.ts'
+import { resetToastsForTest, ToastHost } from '../toast.tsx'
+
+import { sessionState } from '../api.ts'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
 import { type SessionView, type ChatPageResult } from './App.tsx'
 import type { HistoryPage, SessionPage } from '../api.ts'
@@ -13,6 +17,10 @@ import { loadDraft, sessionListCache } from '../list-persist.ts'
 import { answeredApprovals } from '../approval-batches.ts'
 import { answeredQuestions } from '../question-batches.ts'
 import { RpcCallError } from '../rpc.ts'
+import { readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
+import { clearChatSnapshots } from '../chat-snapshot.ts'
+import { loadCachedHistory } from '../history-cache.ts'
+import { clearLocateIntent, rememberLocateIntent } from '../locate-intent.ts'
 
 // The api module is fully mocked; App.tsx's chat-page loader is overridden to
 // feed fixed folded pages, its pure helpers (errorText / formatTime) stay real.
@@ -29,8 +37,39 @@ vi.mock('../api.ts', () => ({
   archiveSession: vi.fn(async () => ({ archivedSessionIds: [] })),
   listSessions: vi.fn(),
   history: vi.fn(),
+  // Default: the tail channel is unavailable, so the reconcile falls back to the
+  // history scan these tests were written against. The tail path has its own
+  // tests that opt in.
+  logTail: vi.fn(async () => { throw new Error('unavailable') }),
+  readChat: vi.fn(),
+  // 默认「没有会话在跑」：核对问宿主时拿到空集合。
+  runningSessions: vi.fn(async () => ({ sessionIds: [] })),
+  // 默认宿主没有 turnState 这个方法：核对于是走日志尾页那套（这些用例就是为那条路径写的）。
+  // 专测 turnState 的用例自己 opt in。
+  turnState: vi.fn(async () => { throw new Error('unsupported') }),
+  // 卡片缺失时会把页面真实形状报给宿主（mobile.perf）：默认静默接受。
+  reportPerf: vi.fn(async () => ({ file: 'capture-test.json', bytes: 1 })),
   subagentsList: vi.fn(),
+  // 会话内搜索（期 3）：默认索引里没有任何命中，专测它的用例自己排返回值。
+  searchSessions: vi.fn(async () => ({ items: [], total: 0, hasMore: false, tookMs: 0 })),
   updateQueue: vi.fn(async () => {}),
+  // 「电脑文件」面板默认列一个空目录；专测它的用例自己排返回值。
+  listDirectory: vi.fn(async () => ({ path: 'C:\\\\', home: 'C:\\\\', crumbs: [], entries: [], truncated: false })),
+  // 默认宿主没有任何排队消息；排队相关的用例自己改返回值。
+  inboxOf: vi.fn(async () => ({ inbox: null })),
+  // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
+  // 默认让这条新通道不可用：这些老用例测的是 inbox 投影那条回退路径。
+  // 专门测原子快照的用例自己 mockResolvedValue 一份即可。
+  sessionState: vi.fn(async () => { throw new Error('sessionState unavailable in this fake host') }),
+  goalOf: vi.fn(async () => ({ goal: null })),
+  // 斜杠命令目录：默认给一条带参的命令，专门的用例自己改返回值。
+  listCommands: vi.fn(async () => [{ name: 'goal', description: '设置或查看长期任务目标' }]),
+  // 目标动作默认走原生通道并成功；专门测降级的用例自己改成 reject。
+  goalAction: vi.fn(async () => ({ goal: { current: { id: 'g-1', objective: '目标', phase: 'active', revision: 2 } } })),
+  // 语音转写走宿主：默认给一句固定的转写文本。
+  transcribeVoice: vi.fn(async () => '转写出来的文本'),
+  // 附件上传：默认成功，专门的用例自己改返回值/抛错。
+  uploadAttachment: vi.fn(async (_sessionId: string, file: { name: string }) => ({ receiptId: `receipt-${file.name}`, name: file.name, bytes: 12 })),
   queueItemViewOf: (item: { id: string; placement: 'queued' | 'steering' | 'context'; message?: { content?: unknown } }) => {
     const blocks = Array.isArray(item.message?.content)
       ? (item.message.content as Array<{ type?: string; text?: string }>)
@@ -56,6 +95,12 @@ vi.mock('../voice-input.ts', () => ({
   startVoiceRecording: vi.fn(),
   voiceSupported: vi.fn(() => false),
 }))
+// 缓存首发默认关闭（真机缓存来自 IndexedDB，jsdom 里没有）：专测"缓存先画、
+// 页后落"的用例自己排一个缓存页。
+vi.mock('../history-cache.ts', () => ({
+  loadCachedHistory: vi.fn(async () => undefined),
+  saveCachedHistory: vi.fn(async () => {}),
+}))
 vi.mock('../offline.ts', () => ({
   enqueuePrompt: vi.fn(),
   // Real flushOutbox is async and always resolves a FlushResult; the mock
@@ -66,9 +111,10 @@ vi.mock('../offline.ts', () => ({
   removeFromOutbox: vi.fn(),
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, respondApproval, respondQuestion, listSessions, history, subagentsList, updateQueue as updateQueueMock } from '../api.ts'
+import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, respondApproval, respondQuestion, listSessions, history, logTail, readChat, runningSessions, turnState, subagentsList, searchSessions, updateQueue as updateQueueMock } from '../api.ts'
 import { loadChatPage, prompt } from './App.tsx'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
+import { transcribeVoice } from '../api.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
 
 const session: SessionView = {
@@ -220,6 +266,9 @@ class FakeMux {
   isSseLive(): boolean {
     return true
   }
+  /** The real client pokes a poll after a send; a fake lacking it turns the
+   *  send success path into an unhandled rejection instead of a failed assert. */
+  poke(): void {}
 }
 
 /** A full turn: user message, reasoning + text chunks, tool calls, final message. */
@@ -267,6 +316,11 @@ const respondApprovalMock = vi.mocked(respondApproval)
 const respondQuestionMock = vi.mocked(respondQuestion)
 const listSessionsMock = vi.mocked(listSessions)
 const historyMock = vi.mocked(history)
+const searchSessionsMock = vi.mocked(searchSessions)
+const logTailMock = vi.mocked(logTail)
+const readChatMock = vi.mocked(readChat)
+const runningSessionsMock = vi.mocked(runningSessions)
+const turnStateMock = vi.mocked(turnState)
 const loadChatPageMock = vi.mocked(loadChatPage)
 const subagentsListMock = vi.mocked(subagentsList)
 const promptMock = vi.mocked(prompt)
@@ -277,6 +331,12 @@ const listOutboxMock = vi.mocked(listOutbox)
 const removeFromOutboxMock = vi.mocked(removeFromOutbox)
 
 beforeEach(() => {
+  // 状态仓与 toast 都是模块级单例：每个用例开始时清空，免得乐观项/隐藏表/C 串到下一条。
+  resetSessionStoreForTest()
+  // toast 自带 2.2 秒定时器：不清就会让「这次不该弹已排队」测到上一条的回执。
+  resetToastsForTest()
+  // 内存快照是模块级状态：每条用例都从'没打开过这场'开始。
+  clearChatSnapshots()
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
   promptMock.mockResolvedValue(undefined)
   modelsMock.mockResolvedValue({
@@ -296,6 +356,9 @@ beforeEach(() => {
   } satisfies SessionModels)
   selectModelMock.mockResolvedValue({ selected: { provider: 'fx', model: 'fx-2', reasoningEffort: 'high' } })
   sendCommandMock.mockResolvedValue({ matched: true })
+  // 权限对账会顺手读一次 readChat：没给默认值的用例会拿到 undefined（真机不会），
+  // 于是一个 .then 变成未处理拒绝。给个空页兜底。
+  readChatMock.mockResolvedValue({ rows: [], maxSeq: 0, hasMore: false } as unknown as Awaited<ReturnType<typeof readChat>>)
   cancelSessionMock.mockResolvedValue({ accepted: true })
   fetchPendingMock.mockResolvedValue({ approvals: [], questions: [] })
   respondApprovalMock.mockResolvedValue(undefined)
@@ -321,6 +384,24 @@ afterEach(() => {
   answeredQuestions.clear()
   localStorage.clear()
 })
+
+/** 把 `mobile.sessionState` 的 mock 还原成「这条通道不可用」（默认语义）。 */
+function resetSessionStateMock(): void {
+  const api = vi.mocked(sessionState)
+  api.mockReset()
+  api.mockImplementation(async () => { throw new Error('sessionState unavailable in this fake host') })
+}
+
+/**
+   * 模拟读者自己滚动：先派发一次输入意图（滚轮），再改 scrollTop 并触发 scroll。
+   *
+   * 生产代码用「最近有没有输入」区分「读者的手势」和「程序化回声/浏览器滚动锚定」，
+   * 只改 scrollTop 在真机上不会发生，所以这里补上输入事件，保持用例真实。
+   */
+  const userScroll = (scroller: Element, scrollTop: number): void => {
+    fireEvent.wheel(scroller)
+    fireEvent.scroll(scroller, { target: { scrollTop } })
+  }
 
 describe('ChatView message folds', () => {
   it('keeps reasoning inside the collapsed process group and reveals it after two taps', async () => {
@@ -413,6 +494,68 @@ describe('ChatView message folds', () => {
     expect(screen.getByText('ls')).toBeTruthy()
   })
 
+  it('draws the running indicator as the whale, not the hourglass emoji', async () => {
+    // The hourglass was an emoji, so it could not take the theme accent. The
+    // running lead now paints the animated PNG (the desktop client's own asset)
+    // as a currentColor mask, keeping the stroked path as the still fallback
+    // for browsers without mask-mode and for reduced-motion users.
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    // The indicator only paints while the host says the turn runs (see
+    // `settled`): an idle session's leftover rows must not claim it. The
+    // reconcile probe must agree, or its fallback would retire the indicator
+    // mid-test (the probe is a fallback now; the host pushes the verdict).
+    listSessionsMock.mockResolvedValue({
+      items: [{ sessionId: 's-1', running: true } as never],
+      hasMore: false,
+    } as SessionPage)
+    render(<ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const lead = await screen.findByRole('status', { name: /运行中/ }).then(
+      () => document.querySelector('.chat-proc-lead-running'),
+      () => document.querySelector('.chat-proc-lead-running'),
+    )
+    expect(lead).not.toBeNull()
+    // Both layers exist; the stylesheet decides which one is painted.
+    expect(lead!.querySelector('.chat-proc-whale-loop')).not.toBeNull()
+    const still = lead!.querySelector('.chat-proc-whale-still')
+    expect(still).not.toBeNull()
+    expect(still!.tagName.toLowerCase()).toBe('svg')
+    expect(still!.querySelector('path')!.getAttribute('stroke')).toBe('currentColor')
+    // The emoji must be gone from the running lead entirely.
+    expect(document.body.textContent).not.toContain('⏳')
+  })
+
+  it('窗口里没有 turn/start 时，收工用时按宿主给的起点定格（不在收工瞬间往回跳）', async () => {
+    // 真机：一轮跑了 8分39秒，秒表数到 8分37秒，收工后卡片定格成 6分48秒 ——
+    // 折叠窗口里看不到这一轮的 turn/start，收工只能退回"窗口最早一行"当锚点。
+    // 宿主的页带着真起点（page.turnStartAt），它必须一路走到收工定格。
+    const t0 = 1_700_000_000_000
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntryAt('user/message', { id: 'u-9', role: 'user', content: [{ type: 'text', text: '跑编译' }] }, 100, t0 + 120_000),
+      makeEntryAt('assistant/message', {
+        turn: 9,
+        step: 0,
+        message: { id: 'a-9', role: 'assistant', content: [{ type: 'text', text: '在跑编译' }] },
+      }, 101, t0 + 130_000),
+    ], { turnStartAt: t0 }))
+    const mux = new FakeMux()
+    render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    expect(await screen.findByText('在跑编译')).toBeTruthy()
+    await act(async () => {
+      mux.emit({
+        type: 'session/event',
+        sessionId: 's-1',
+        event: makeEntryAt('turn/end', { turn: 9, reason: { kind: 'completed' } }, 102, t0 + 300_000).event,
+      })
+    })
+
+    // 真时钟下不用 settleLiveFold（它要假时钟）：findByText 自己会等 rAF 合并那一拍。
+    // 300 秒（真起点 0 秒 → 收工 300 秒）；退回窗口最早一行只会是 170 秒。
+    expect(await screen.findByText('用时5分0秒')).toBeTruthy()
+    expect(screen.queryByText('用时2分50秒')).toBeNull()
+  })
+
   it('renders the turn tail as a file report (the duration lives in the process head) at the end of the turn', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '写报告' }] }, 0),
@@ -443,14 +586,385 @@ describe('ChatView message folds', () => {
     expect(container.querySelector('.chat-turn-tail .chat-turn-tail-head .chat-turn-tail-count')!.textContent).toBe('1 个文件')
     // 用时不再在尾巴里重复报（它只在过程卡第一行，见上）。
     expect(tail.closest('.chat-turn-tail')!.textContent).not.toContain('用时')
-    expect(screen.getByText('交付物')).toBeTruthy()
+    // 只有一组清单时不再重复内层标题（头部已经写了「本轮产出」）。
+    expect(screen.queryByText('交付物')).toBeNull()
+    expect(screen.queryByText('本轮产出文件')).toBeNull()
     // A declared deliverable carries the 已交付 badge on its file row.
     expect(screen.getByText('已交付')).toBeTruthy()
     const file = screen.getByRole('button', { name: /交付报告/ })
-    expect(file.textContent).toContain('report.md')
+    expect(file.getAttribute('title')).toContain('report.md')
     // The tail is the last row of the turn.
     const rows = container.querySelectorAll('[data-message-id]')
     expect(rows[rows.length - 1]!.className).toContain('chat-turn-tail')
+  })
+
+it('交付卡同时有交付物与产出文件时，两组各自带内层标题', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '写报告' }] }, 0),
+      makeEntry('turn/start', { turn: 1 }, 1),
+      makeEntry('assistant/message', {
+        turn: 1,
+        step: 0,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '好了' }] },
+      }, 2),
+      makeEntry('deliverables/presented', { turn: 1, callId: 'c1', files: [{ path: 'report.md', description: '交付报告' }] }, 3),
+      makeEntry('tool/call', { turn: 1, step: 0, callId: 'c2', name: 'write_file', arguments: '{"path":"out.txt"}' }, 4),
+      makeEntry('tool/result', { callId: 'c2', ok: true }, 5),
+      makeEntry('turn/end', { turn: 1, reason: { kind: 'done' } }, 6),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('本轮产出')
+    expect(screen.getByText('交付物')).toBeTruthy()
+    expect(screen.getByText('本轮产出文件')).toBeTruthy()
+  })
+
+  it('keeps the deliverable card after a reload that serves rows without a tail row', async () => {
+    // 刷新后的复现：宿主折叠页只有行，没有那一轮的 turn/end，也就没有尾巴行。
+    // 「本轮产出」不能因此消失 —— 卡片该由行里的事实重建。
+    loadChatPageMock.mockResolvedValue({
+      rows: [
+        { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 1,
+          tools: [{ callId: 'c1', name: 'write', arguments: '{"file_path":"report.md"}', state: 'ok' }],
+        },
+      ],
+      maxSeq: 4,
+      hasMore: false,
+    } as unknown as ChatPageResult)
+    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const title = await screen.findByText('本轮产出')
+    expect(title.closest('.chat-turn-tail')).not.toBeNull()
+    const tailRow = container.querySelector('.chat-turn-tail') as HTMLElement
+    expect(tailRow.textContent).toContain('1 个文件')
+    expect(tailRow.textContent).toContain('report.md')
+  })
+
+  it('reads the log for the card when the page kept only tool names (no arguments)', async () => {
+    // 真机复现：页里只剩工具名（参数被投影剥掉、diff 视图只活在实时帧里），
+    // 页自己拼不出卡片 —— 这时才回读一次日志原文，用手机自己的折叠补回来。
+    loadChatPageMock.mockResolvedValue({
+      rows: [
+        { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 1,
+          tools: [{ callId: 'c1', name: 'write_file', state: 'ok' }],
+        },
+      ],
+      maxSeq: 4,
+      hasMore: false,
+    } as unknown as ChatPageResult)
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('turn/start', { turn: 1 }, 1),
+      makeEntry('tool/call', { turn: 1, step: 0, callId: 'c1', name: 'write_file', arguments: '{"file_path":"report.md"}' }, 3),
+      makeEntry('tool/result', { turn: 1, step: 0, message: { source: { callId: 'c1' } } }, 4),
+      makeEntry('turn/end', { turn: 1 }, 5),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const title = await screen.findByText('本轮产出')
+    expect(title.closest('.chat-turn-tail')).not.toBeNull()
+    expect(historyMock).toHaveBeenCalledTimes(1)
+  })
+  it('reads the log when the page kept only shell calls, so no write name is left', async () => {
+    // 真机复现（这一轮卡片彻底不见）：窗口只留最近的几步，这一轮早先的 edit 被
+    // 截掉，页里只剩 pwsh —— 旧判据按工具名找"会交回文件"的调用，于是永远不补读。
+    const page = rowPage([
+      makeEntry('user/message', { id: 'u-1', content: [{ type: 'text', text: '改代码' }] }, 0),
+      makeEntry('assistant/message', {
+        turn: 12,
+        step: 3,
+        message: { id: 'a-12', role: 'assistant', content: [{ type: 'text', text: '改完了' }] },
+      }, 9),
+    ]) as ChatPageResult
+    page.rows = page.rows.map(row => (row.kind === 'assistant'
+      ? { ...row, tools: [{ callId: 'c-shell', name: 'pwsh', state: 'ok' as const }] }
+      : row))
+    loadChatPageMock.mockResolvedValue(page)
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('turn/start', { turn: 12 }, 1),
+      makeEntry('tool/call', { turn: 12, step: 0, callId: 'c-edit', name: 'edit', arguments: '{"file_path":"src/a.ts"}' }, 2),
+      makeEntry('tool/result', { turn: 12, step: 0, message: { source: { callId: 'c-edit' } } }, 3),
+      makeEntry('turn/end', { turn: 12 }, 10),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const title = await screen.findByText('本轮产出')
+    expect(title.closest('.chat-turn-tail')?.textContent).toContain('a.ts')
+    expect(historyMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces a page-guessed card with the log one, even when the page already had a card', async () => {
+    // 根治点：页给出的卡片只是猜测（窗口截断会让它缺文件）。日志才是唯一来源 ——
+    // 页里已经有卡也要按日志校正一次，否则"少列文件"会一直留在屏幕上。
+    loadChatPageMock.mockResolvedValue({
+      rows: [
+        { id: 'u-1', kind: 'user', text: '改两个文件', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 4,
+          tools: [{ callId: 'c1', name: 'edit', state: 'ok' }],
+        },
+        { id: 'turn-tail:4', kind: 'turn', text: '', seq: 3, time: 3_000, turn: 4, produced: ['one.ts'] },
+      ],
+      maxSeq: 5,
+      hasMore: false,
+    } as unknown as ChatPageResult)
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('turn/start', { turn: 4 }, 1),
+      makeEntry('tool/call', { turn: 4, step: 0, callId: 'c1', name: 'edit', arguments: '{"file_path":"one.ts"}' }, 2),
+      makeEntry('tool/result', {
+        turn: 4,
+        step: 0,
+        message: { source: { callId: 'c1' } },
+        meta: { path: 'one.ts', diffs: [{ path: 'one.ts', oldText: 'a', newText: 'b' }] },
+      }, 3),
+      makeEntry('tool/call', { turn: 4, step: 1, callId: 'c2', name: 'edit', arguments: '{"file_path":"two.ts"}' }, 4),
+      makeEntry('tool/result', {
+        turn: 4,
+        step: 1,
+        message: { source: { callId: 'c2' } },
+        meta: { path: 'two.ts', diffs: [{ path: 'two.ts', oldText: 'a', newText: 'b' }] },
+      }, 5),
+      makeEntry('turn/end', { turn: 4 }, 9),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    await waitFor(() => {
+      const card = document.querySelector('.chat-turn-tail')
+      expect(card?.textContent ?? '').toContain('two.ts')
+    })
+  })
+  it('recovers a card for a turn that arrived from an older page, not the first one', async () => {
+    // 真机：页落地时最新的那一轮有卡；再进一次会话窗口挪了一轮，那一轮变成
+    // "从上翻页补进来的"，只在首屏补读就漏掉它 —— 卡片又不见了。
+    // 补读要挂在整个列表上，任何来源的新回合都算。
+    const newer: ChatPageResult = {
+      rows: [
+        { id: 'u-2', kind: 'user', text: '第二问', seq: 100, time: 100_000 },
+        {
+          id: 'a-2',
+          kind: 'assistant',
+          text: '好了',
+          seq: 102,
+          time: 102_000,
+          turn: 2,
+          tools: [{ callId: 'c2', name: 'pwsh', state: 'ok' }],
+        },
+        { id: 'turn-tail:2', kind: 'turn', text: '', seq: 103, time: 103_000, turn: 2, produced: ['x.md'] },
+      ],
+      maxSeq: 103,
+      hasMore: true,
+    } as unknown as ChatPageResult
+    const older: ChatPageResult = {
+      rows: [
+        { id: 'u-1', kind: 'user', text: '第一问', seq: 10, time: 10_000 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '改好了',
+          seq: 12,
+          time: 12_000,
+          turn: 1,
+          tools: [{ callId: 'c1', name: 'pwsh', state: 'ok' }],
+        },
+      ],
+      maxSeq: 12,
+      hasMore: false,
+    } as unknown as ChatPageResult
+    loadChatPageMock.mockResolvedValueOnce(newer).mockResolvedValueOnce(older)
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('turn/start', { turn: 1 }, 5),
+      makeEntry('tool/call', { turn: 1, step: 0, callId: 'c1', name: 'edit', arguments: '{"file_path":"older.ts"}' }, 6),
+      makeEntry('tool/result', { turn: 1, step: 0, message: { source: { callId: 'c1' } } }, 7),
+      makeEntry('turn/end', { turn: 1 }, 9),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    // 补进来的那一轮也要有卡。
+    await waitFor(() => {
+      const text = Array.from(document.querySelectorAll('.chat-turn-tail')).map(node => node.textContent ?? '').join(' | ')
+      expect(text).toContain('older.ts')
+    })
+    expect(await screen.findByText('第一问')).toBeTruthy()
+  })
+  it('pages back until the whole turn is in hand, so the card lists every file', async () => {
+    // 真机复现：按条数截断的回读只拿到回合后半段，卡片就只列出几个文件。
+    // 现在按页往前翻到那一轮的 turn/start，整轮一起折。
+    loadChatPageMock.mockResolvedValue({
+      rows: [
+        { id: 'u-1', kind: 'user', text: '写两份报告', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 1,
+          tools: [{ callId: 'c1', name: 'write_file', state: 'ok' }],
+        },
+      ],
+      maxSeq: 40,
+      hasMore: false,
+    } as unknown as ChatPageResult)
+    // 尾页只有回合收尾：没有 turn/start，也就没有那两次写文件的调用。
+    historyMock.mockResolvedValueOnce(historyPage([
+      makeEntry('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', content: '写好了' } }, 30),
+      makeEntry('turn/end', { turn: 1 }, 40),
+    ], { hasMore: true }))
+    // 再往前一页：turn/start 与两次写文件都在这里。
+    historyMock.mockResolvedValueOnce(historyPage([
+      makeEntry('turn/start', { turn: 1 }, 10),
+      makeEntry('tool/call', { turn: 1, step: 0, callId: 'c1', name: 'write_file', arguments: '{"file_path":"a.md"}' }, 11),
+      makeEntry('tool/call', { turn: 1, step: 1, callId: 'c2', name: 'write_file', arguments: '{"file_path":"b.md"}' }, 12),
+      makeEntry('tool/result', { turn: 1, step: 1, message: { source: { callId: 'c2' } } }, 13),
+    ], { hasMore: true }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const title = await screen.findByText('本轮产出')
+    const tail = title.closest('.chat-turn-tail') as HTMLElement
+    expect(tail.textContent).toContain('2 个文件')
+    expect(tail.textContent).toContain('a.md')
+    expect(tail.textContent).toContain('b.md')
+    expect(historyMock).toHaveBeenCalledTimes(2)
+    // 第二次是接着第一页的最早 seq 往前翻的。
+    expect(historyMock.mock.calls[1]?.[1]).toBe(30)
+  })
+
+  it('does not stop at a half turn that already folds into a card with fewer files', async () => {
+    // 只拿到回合后半段时，折叠也能凑出一张卡（后半段的那次写文件）——
+    // 以前就停在这里，卡片少列文件。现在必须看到这一轮自己的 turn/start 才收工。
+    loadChatPageMock.mockResolvedValue({
+      rows: [
+        { id: 'u-1', kind: 'user', text: '写两份报告', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 1,
+          tools: [{ callId: 'c1', name: 'write_file', state: 'ok' }],
+        },
+      ],
+      maxSeq: 40,
+      hasMore: false,
+    } as unknown as ChatPageResult)
+    // 尾页：回合后半段，只有 b.md 那次写文件（没有 turn/start）。
+    historyMock.mockResolvedValueOnce(historyPage([
+      makeEntry('tool/call', { turn: 1, step: 2, callId: 'c2', name: 'write_file', arguments: '{"file_path":"b.md"}' }, 31),
+      makeEntry('tool/result', { turn: 1, step: 2, message: { source: { callId: 'c2' } } }, 32),
+      makeEntry('turn/end', { turn: 1 }, 40),
+    ], { hasMore: true }))
+    // 往前一页：这一轮的起点与 a.md。
+    historyMock.mockResolvedValueOnce(historyPage([
+      makeEntry('turn/start', { turn: 1 }, 10),
+      makeEntry('tool/call', { turn: 1, step: 0, callId: 'c1', name: 'write_file', arguments: '{"file_path":"a.md"}' }, 11),
+      makeEntry('tool/result', { turn: 1, step: 0, message: { source: { callId: 'c1' } } }, 12),
+    ], { hasMore: true }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const title = await screen.findByText('本轮产出')
+    const tail = title.closest('.chat-turn-tail') as HTMLElement
+    expect(tail.textContent).toContain('2 个文件')
+    expect(tail.textContent).toContain('a.md')
+    expect(tail.textContent).toContain('b.md')
+    expect(historyMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('holds the card until the turn really ends, even when its tools already settled', async () => {
+    // 真机复现：回合还在跑（两步之间，工具都不在跑了），卡片就提前冒出来。
+    // 页里的行不带"回合已结束"这个信号，重建只能看工具是否在跑 —— 所以跑着的
+    // 那一轮一律不画报告卡，等 turn/end 到了再出。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('还没有消息，发一句话开始吧')
+    vi.useFakeTimers()
+    try {
+      const t0 = 1_700_000_000_000
+      vi.setSystemTime(t0)
+      emitTurnStart(mux, 80, t0 - 5_000, 2)
+      emitSessionFrame(mux, 'tool/call', 81, t0, {
+        turn: 2,
+        step: 0,
+        callId: 'c1',
+        name: 'write',
+        arguments: '{"file_path":"mid.md"}',
+      })
+      emitSessionFrame(mux, 'tool/result', 82, t0, { turn: 2, step: 0, message: { source: { callId: 'c1' } } })
+      await settleLiveFold()
+      // 工具都结束了，但这一轮还没收尾：不许出卡。
+      expect(container.querySelector('.chat-turn-tail')).toBeNull()
+
+      emitSessionFrame(mux, 'turn/end', 83, t0, { turn: 2 })
+      await settleLiveFold()
+      const tail = container.querySelector('.chat-turn-tail') as HTMLElement | null
+      expect(tail).not.toBeNull()
+      expect(tail?.textContent).toContain('mid.md')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('keeps the card when the list is replaced by a fresh page (no blink on entry)', async () => {
+    // 真机：「点进会话，交付物卡片突然又消失了」。进会话时列表会被整份换掉好几次
+    // （缓存页 → 网络页 → /compact 之类的重拉），页本身不带报告行 —— 换一次卡就闪
+    // 没一次。这条把"换列表也要把已经画出来的卡带走"钉住。
+    const withTurn = {
+      rows: [
+        { id: 'u-1', kind: 'user', text: '改两个文件', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 4,
+          tools: [{ callId: 'c1', name: 'edit', state: 'ok' }],
+        },
+      ],
+      maxSeq: 5,
+      hasMore: false,
+    } as unknown as ChatPageResult
+    loadChatPageMock.mockResolvedValue(withTurn)
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('turn/start', { turn: 4 }, 1),
+      makeEntry('tool/call', { turn: 4, step: 0, callId: 'c1', name: 'edit', arguments: '{"file_path":"one.ts"}' }, 2),
+      makeEntry('tool/result', {
+        turn: 4,
+        step: 0,
+        message: { source: { callId: 'c1' } },
+        meta: { path: 'one.ts', diffs: [{ path: 'one.ts', oldText: 'a', newText: 'b' }] },
+      }, 3),
+      makeEntry('turn/end', { turn: 4 }, 9),
+    ]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await waitFor(() => {
+      expect(document.querySelector('.chat-turn-tail')?.textContent ?? '').toContain('one.ts')
+    })
+    // 重拉尾页（/compact 收尾、宿主权威页晚到都会走这条路）：新页同样没有报告行。
+    sendCommandMock.mockResolvedValue({ matched: true })
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '/compact' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    expect(loadChatPageMock.mock.calls.length).toBeGreaterThan(1)
+    await act(async () => { await Promise.resolve() })
+    expect(document.querySelector('.chat-turn-tail')?.textContent ?? '').toContain('one.ts')
   })
 
   it('shows the permission chip from the history-tail projection and applies via /permission', async () => {
@@ -480,6 +994,57 @@ describe('ChatView message folds', () => {
     })
   })
 
+  it('lets the host override the optimistic permission value', async () => {
+    // 药丸先写乐观值给即时反馈，但宿主可能压根没落盘（或归一化成别的档位）。乐观值
+    // 留在药丸上，用户下次点开选择器就会看到"选了却没生效" —— 命令成功后再问一次
+    // 投影，以宿主为准。
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
+      projections: {
+        asOfSeq: 4,
+        values: {
+          permissions: {
+            options: [
+              { value: 'read-only', name: '只读' },
+              { value: 'workspace-write', name: '读写工作区' },
+            ],
+            currentValue: 'read-only',
+          },
+        } as Record<string, unknown>,
+      },
+    }))
+    // 宿主坚持只读：这次切换并没有真落盘。
+    readChatMock.mockResolvedValue({
+      rows: [],
+      maxSeq: 4,
+      hasMore: false,
+      projections: {
+        asOfSeq: 4,
+        values: {
+          permissions: {
+            options: [
+              { value: 'read-only', name: '只读' },
+              { value: 'workspace-write', name: '读写工作区' },
+            ],
+            currentValue: 'read-only',
+          },
+        },
+      },
+    } as unknown as Awaited<ReturnType<typeof readChat>>)
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /只读/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /读写工作区/ }))
+    await waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith('s-1', '/permission workspace-write')
+      expect(readChatMock).toHaveBeenCalledWith('s-1')
+    })
+    // 乐观值必须被宿主的答案盖回去。
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /只读/ })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /读写工作区/ })).toBeNull()
+    })
+  })
+
   it('requires an explicit confirm before enabling full access', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
@@ -494,17 +1059,17 @@ describe('ChatView message folds', () => {
     }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    // The chip shows the derived label for the unmatched current value.
+    // The chip shows the derived label for the unmatched current value. The
+    // popover is now the ONLY preset list, so one tap on the preset must open
+    // the confirmation rather than switching silently.
     fireEvent.click(await screen.findByRole('button', { name: /Workspace Write/ }))
-    // The strip's full-access card routes into the sheet (never a direct submit).
-    fireEvent.click(await screen.findByRole('button', { name: /完全权限/ }))
-    // Picking full access in the sheet opens the confirmation instead of submitting.
     fireEvent.click(await screen.findByRole('button', { name: /完全权限/ }))
     expect(await screen.findByText(/确认完全权限/)).toBeTruthy()
     expect(sendCommandMock).not.toHaveBeenCalled()
     // Cancelling dispatches nothing; opening again and confirming submits.
     fireEvent.click(screen.getByRole('button', { name: /取消/ }))
-    fireEvent.click(screen.getByRole('button', { name: /完全权限/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Write/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /完全权限/ }))
     fireEvent.click(await screen.findByRole('button', { name: /确认开启/ }))
     await waitFor(() => {
       expect(sendCommandMock).toHaveBeenCalledWith('s-1', '/permission danger-full-access')
@@ -645,6 +1210,112 @@ describe('ChatView initial-load race', () => {
     expect(await screen.findByText('流式')).toBeTruthy()
   })
 
+  it('re-pins when the same last row gets taller (cache page → network page)', async () => {
+    // 真机：进会话有时不落到底、反而往上滑一小段。缓存页（矮）先上屏并钉到底，网络页
+    // 到了把同一批行换成更高的版本；最后一行的身份（seq+是否 pending）没变，老代码在
+    // 身份相同处直接 return，于是没人补钉。
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('assistant/message', {
+        id: 'a-1',
+        role: 'assistant',
+        content: [{ type: 'text', text: '第一版（矮）' }],
+      }, 2),
+    ]))
+    const mux = Object.assign(new FakeMux(), { isSseLive: () => true })
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    // 首次跟随：钉到底（高度 1000）。
+    scrollHeightMock = 1_000
+    await waitFor(() => { expect(scrollWrites.length).toBeGreaterThan(0) })
+    const afterFirst = scrollWrites.length
+    // 同一条行被折进更多内容（工具步并进这一轮）：最后一行身份不变，高度 1400。
+    // 这正是「缓存页换网络页」「卡片补进来」时的形状。
+    scrollHeightMock = 1_400
+    mux.emit({
+      type: 'session/event',
+      sessionId: 's-1',
+      event: {
+        type: 'tool/call',
+        seq: 3,
+        time: Date.now(),
+        data: { callId: 'c-1', name: 'read_file', arguments: '{"path":"a.ts"}' },
+      },
+    })
+    mux.emit({
+      type: 'session/event',
+      sessionId: 's-1',
+      event: {
+        type: 'tool/result',
+        seq: 4,
+        time: Date.now(),
+        data: { callId: 'c-1', output: 'ok' },
+      },
+    })
+    await waitFor(() => { expect(scrollWrites.length).toBeGreaterThan(afterFirst) })
+    expect(scrollWrites[scrollWrites.length - 1]).toBe(1_400)
+  })
+
+  it('进会话后高度还会长：布局安定前反复补钉，直到真的到底', async () => {
+    // 真机：长列表的高度是分段长出来的（content-visibility 行铺开、卡片补进来），
+    // 一次 pin 用的是偏小的 scrollHeight，之后就把画面留在历史里 —— 用户看到的是
+    // 「进会话没有自动跳到底部」。
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('assistant/message', {
+        id: 'a-grow',
+        role: 'assistant',
+        content: [{ type: 'text', text: '先短后长' }],
+      }, 2),
+    ]))
+    // 首帧量到的是**估值**：内容刚好填满视口（600），pin 写 600。
+    scrollHeightMock = 600
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => { expect(scrollWrites).toContain(600) })
+    // 行真正铺开后高度是 1600：此时 top 还在 600，离底 400px（真机的症状）。
+    // 没有任何消息变化，靠「布局安定前反复补钉」把它钉回去。
+    scrollHeightMock = 1_600
+    await waitFor(() => { expect(scrollWrites).toContain(1_600) }, { timeout: 2_000 })
+  })
+
+  it('手指还在滚的时候，新消息不抢画面', async () => {
+    // 真机反馈：新消息到达时跟随逻辑会跟手动上滑打架。真实滚动之后 350ms 内一律让路。
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('assistant/message', { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '第一段' }] }, 2),
+    ]))
+    const mux = Object.assign(new FakeMux(), { isSseLive: () => true })
+    scrollHeightMock = 4_000
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => { expect(scrollWrites.length).toBeGreaterThan(0) })
+    const scroller = document.querySelector('.chat-scroll') as HTMLElement
+    // 读者往上翻（真实手势：先有输入意图，再滚）
+    scroller.scrollTop = 1_000
+    userScroll(scroller, 1_000)
+    const before = scrollWrites.length
+    // 紧接着一条新消息到达：手势窗口内不许跟随
+    mux.emit({
+      type: 'session/event',
+      sessionId: 's-1',
+      event: { type: 'assistant/message', seq: 3, time: Date.now(), data: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '新消息' }] } },
+    })
+    await waitFor(() => { expect(screen.getByText('新消息')).toBeTruthy() })
+    expect(scrollWrites.length).toBe(before)
+  })
+
+  it('翻历史那一页不再「猜」交付卡：宁可先没有，也不要出现后又改', async () => {
+    // 真机：往上翻历史时交付卡闪一下 —— 页里没有 turn/end 时先按工具行猜一张，
+    // 几秒后 cardRecovery 读到真 turn/end 再换成正式版（文件清单可能变多）。
+    // 现在历史页不猜，卡只来自页里真的带着的 turn/end。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    // 直接验渲染函数：没有 turn/end 的行集，开 / 猜两种模式的差别只在卡片数量。
+    const rows = [
+      { id: 'p1', kind: 'assistant', text: '改了两个文件', seq: 10, time: 1, turn: 3, step: 1 },
+    ] as unknown as Parameters<typeof renderRows>[0]
+    expect(renderRows(rows, false).some(row => row.kind === 'turn')).toBe(false)
+  })
+
   it('caps the tail-load live buffer and re-pulls the history tail after an overflow', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let resolveHistory: (page: ChatPageResult) => void = () => {}
@@ -734,7 +1405,9 @@ describe('ChatView model sheet', () => {
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     const chip = await screen.findByRole('button', { name: /切换模型/ })
-    expect(chip.textContent).toContain('fx-1')
+    // A（聚合读取）：目录先等 readChat 的 extras，宽限过后才自己补取，所以
+    // chip 的文案是异步落位的。
+    await waitFor(() => { expect(chip.textContent).toContain('fx-1') })
 
     fireEvent.click(chip)
     const deep = await screen.findByRole('button', { name: /FX 深度/ })
@@ -742,6 +1415,20 @@ describe('ChatView model sheet', () => {
     await waitFor(() => {
       expect(selectModelMock).toHaveBeenCalledWith('s-1', { provider: 'fx', model: 'fx-2', reasoningEffort: 'high' })
     })
+  })
+
+  it('takes the model directory from the readChat extras instead of a second request', async () => {
+    loadChatPageMock.mockResolvedValue({
+      ...rowPage(turnEvents()),
+      extras: { models: { current: { provider: 'ex', model: 'ex-9' }, routable: true, groups: [], failures: [] } },
+    })
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+
+    const chip = await screen.findByRole('button', { name: /切换模型/ })
+    await waitFor(() => { expect(chip.textContent).toContain('ex-9') })
+    // 宽限窗口（120ms）过后也不该再发一次 session.models。
+    await new Promise(resolve => setTimeout(resolve, 220))
+    expect(modelsMock).not.toHaveBeenCalled()
   })
 
   it('offers effort choices for the current model and submits the picked effort', async () => {
@@ -765,8 +1452,8 @@ describe('ChatView model sheet', () => {
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     fireEvent.click(await screen.findByRole('button', { name: /切换模型/ }))
-    // The strip only lists models; effort lives in the full sheet.
-    fireEvent.click(await screen.findByRole('button', { name: /全部…/ }))
+    // Effort now lives in the same popover as the models (the duplicate full
+    // sheet is gone), so no "全部…" hop is needed to reach it.
     const effort = await screen.findByRole('button', { name: /^高/ })
     fireEvent.click(effort)
     await waitFor(() => {
@@ -938,14 +1625,36 @@ describe('ChatView scrolling', () => {
     expect(screen.queryByRole('button', { name: /加载更早的消息/ })).toBeNull()
   })
 
+  it('re-pins to the new bottom when the page lands after the cache seed', async () => {
+    // 真机：进会话先画缓存（1 行），页随后落到十几行 —— 读者还停在缓存的旧底部，
+    // 距底 1135px，最新一轮的交付物卡片就在屏幕外；探针里 4 张卡片都画出来了。
+    // 缓存尾页和网络页常常结束在同一条消息上：末尾 key 不变，只是前面多出几行。
+    scrollHeightMock = 200
+    const fullPage = rowPage(turnEvents())
+    vi.mocked(loadCachedHistory).mockResolvedValueOnce({
+      rows: fullPage.rows.slice(-1),
+      maxSeq: fullPage.maxSeq,
+      hasMore: false,
+    })
+    loadChatPageMock.mockImplementation(async () => {
+      // 页回来时内容已经撑高（真机上高度在同一个 commit 里就位）。
+      scrollHeightMock = 1_400
+      return fullPage
+    })
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(await screen.findByText('已完成修改')).toBeTruthy()
+    // 页落地后必须重新贴到底，而不是停在缓存的旧底部。
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(1_400) })
+  })
+
   it('keeps the current scroll position when older messages are loaded', async () => {
     scrollHeightMock = 400
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), { hasMore: true }))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    // The auto-extend consumed one older page; the button stays (hasMore).
-    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(2) })
+    // 进会话现在把上下文铺开到页数上限（不再只补一页），按钮仍然留着（hasMore）。
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(5) })
     // Move to the bottom (streaming), as a stable baseline to preserve.
     scrollHeightMock = 800
     await act(async () => {
@@ -955,16 +1664,38 @@ describe('ChatView scrolling', () => {
     const writesBefore = scrollWrites.length
     expect(scrollWrites.at(-1)).toBe(800)
     // Prepend an older page: the visual anchor is preserved by one scroll
-    // write advancing the position by the inserted rows' estimated height —
-    // the view is NOT re-pinned to the new bottom (scrollHeightMock is 900
-    // and no write may hit 900).
-    scrollHeightMock = 900
-    loadChatPageMock.mockResolvedValueOnce(rowPage(turnEvents(), { hasMore: false }))
+    // write advancing the position by the REAL content growth (页面高度差).
+    // 这里在翻页请求落地那一刻把高度从 800 提到 900 —— 模拟「上面插进来 100px」。
+    loadChatPageMock.mockImplementationOnce(() => {
+      scrollHeightMock = 900
+      return Promise.resolve(rowPage(turnEvents(), { hasMore: false }))
+    })
     fireEvent.click(screen.getByRole('button', { name: /加载更早的消息/ }))
     await waitFor(() => { expect(scrollWrites.length).toBe(writesBefore + 1) })
     const anchored = scrollWrites.at(-1) ?? 0
-    expect(anchored).toBeGreaterThan(800)
-    expect(anchored).not.toBe(900)
+    // 800（原位置）+ 100（新插入内容的真实高度）= 900
+    expect(anchored).toBe(900)
+  })
+
+  it('pages in another older page when the reader reaches the top, without a tap', async () => {
+    // 真机：一进会话挂着「加载更早的消息」，长会话要连点很多次。读到接近顶部
+    // 就该自动接上一页（无限上翻），按钮只留作重试。
+    scrollHeightMock = 4_000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), { hasMore: true }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    // 进会话的铺开链先把页数预算用完。
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(5) })
+    const el = document.querySelector('.chat-scroll') as HTMLElement
+    // 用户一直上翻到顶：没有点击，只有滚动。写的是原型上的存储字段，不能把
+    // scrollTop 重定义成只读属性——测试结束后代码还要往回写，那会抛未处理异常。
+    ;(el as unknown as Record<string, unknown>)['__scrollTop'] = 0
+    fireEvent.scroll(el)
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(6) })
+    // 这一页落地后的锚点/跟随是在 rAF 里写的：等它跑完再结束用例，否则写到下一
+    // 条用例的元素上，会把那边的滚动断言搅乱（实测下一改用例拿到 168 而不是 400）。
+    await act(async () => { await new Promise(resolve => { setTimeout(resolve, 60) }) })
   })
 
   it('re-follows to the REAL bottom after the silent auto-extend prepend commits', async () => {
@@ -1003,7 +1734,7 @@ describe('ChatView scrolling', () => {
     expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
     // Scrolling up through history (gap 20_000 − 5_000 − 600 ≫ threshold) reveals it.
     const scroller = document.querySelector('.chat-scroll')!
-    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    userScroll(scroller, 5_000)
     expect(screen.getByRole('button', { name: '回到最新消息' })).toBeTruthy()
   })
 
@@ -1014,7 +1745,7 @@ describe('ChatView scrolling', () => {
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     const scroller = document.querySelector('.chat-scroll')!
-    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    userScroll(scroller, 5_000)
     fireEvent.click(screen.getByRole('button', { name: '回到最新消息' }))
     // The view pins to the new bottom and the button disappears.
     expect(scrollWrites.at(-1)).toBe(20_000)
@@ -1029,7 +1760,7 @@ describe('ChatView scrolling', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     const scroller = document.querySelector('.chat-scroll')!
-    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    userScroll(scroller, 5_000)
     // Two new turns arrive while the reader is away from the bottom.
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
@@ -1055,7 +1786,7 @@ describe('ChatView scrolling', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     const scroller = document.querySelector('.chat-scroll')!
-    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    userScroll(scroller, 5_000)
     // Two new turns arrive while the reader is away from the bottom.
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
@@ -1087,7 +1818,7 @@ describe('ChatView scrolling', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     const scroller = document.querySelector('.chat-scroll')!
-    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    userScroll(scroller, 5_000)
     // Three messages of the SAME turn (tool call + follow-up chunks) count once.
     await act(async () => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6, 1).event })
@@ -1102,10 +1833,9 @@ describe('ChatView scrolling', () => {
     expect(badge).toBeTruthy()
   })
 
-  it('windowed: re-pins to the tail when content settles while at the bottom, and leaves a scrolled-away reader alone', async () => {
-    // 130 messages: above WINDOW_THRESHOLD, so the opening scrollToBottom
-    // lands on an ESTIMATED height and the measurement convergence must
-    // re-pin the view to the true tail.
+  it('长会话（130 行）贴底时内容变高仍补到真底，滚走的读者不动', async () => {
+    // 行全渲染之后不再有"估高 → 测量收敛"的中间态，但列表在进会话后仍会继续长
+    // （先画缓存、页后落、图片再撑开），所以补底逻辑必须还在。
     const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
       id: `u-${i}`,
       role: 'user',
@@ -1117,31 +1847,27 @@ describe('ChatView scrolling', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('消息129')
-    // The opening pin lands on the estimated height, then the height
-    // correction (measured on the full frame) re-pins to the real tail.
     await waitFor(() => { expect(scrollWrites.at(-1)).toBe(20_000) })
-    // Content grows (async load / measurement convergence) while the reader
-    // is at the bottom: the view re-pins to the new tail (the windowed
-    // target is prefix[count] + correction, which grows with the new row).
+    // 内容变高：贴着底的读者跟到新底。
     scrollHeightMock = 25_000
     await act(async () => {
-      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(6).event })
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(200).event })
     })
     await waitFor(() => { expect(scrollWrites.at(-1) ?? 0).toBeGreaterThan(20_000) })
-    // A reader who scrolled away is left alone even when content settles.
+    // 已经滚走的读者不动。
     scrollHeightMock = 30_000
     const scroller = document.querySelector('.chat-scroll')!
-    fireEvent.scroll(scroller, { target: { scrollTop: 5_000 } })
+    userScroll(scroller, 5_000)
     const writesBefore = scrollWrites.length
     await act(async () => {
-      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(7).event })
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: liveFinalEvent(201).event })
     })
     expect(scrollWrites.length).toBe(writesBefore)
   })
 
-  it('windowed: past the threshold only the rows around the scroll position render, and the window follows scrolls', async () => {
-    // 130 short user messages: above WINDOW_THRESHOLD, so the list renders
-    // as an estimated-height spacer + a slice instead of the full list.
+  it('130 行全部渲染：没有估高 spacer，滚动只换内容不移窗', async () => {
+    // 这是"落点准不准"的地基：以前超过阈值只渲染滚动位置附近的行，上下用估算
+    // 高度撑开 —— 落点于是永远是估的。现在照桌面：已载入的行全在 DOM 里。
     const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
       id: `u-${i}`,
       role: 'user',
@@ -1152,75 +1878,74 @@ describe('ChatView scrolling', () => {
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('消息129')
-    // The tail window replaced the first full frame: rows far above the
-    // scroll position are no longer in the DOM (spacers stand in for them).
-    await waitFor(() => { expect(screen.queryByText('消息0')).toBeNull() })
-    const renderedRows = screen.queryAllByText(/^消息\d+$/).length
-    expect(renderedRows).toBeGreaterThan(20)
-    expect(renderedRows).toBeLessThan(130)
-    // Scroll toward the middle: the window relocates around the new position.
-    // After the height correction the windowed scrollTop lives in REAL content
-    // space (the top spacer carries the estimate→real correction), while the
-    // row index is estimated — scroll to the real position of row ~65
-    // (estimated prefix of 65 rows + the correction measured on the full
-    // frame: scrollHeightMock − estimated total).
+    expect(screen.queryAllByText(/^消息\d+$/).length).toBe(130)
+    // 上下不再有 spacer（它们的高度就是"估出来的落点"）。
+    expect(container.querySelectorAll('.chat-scroll > div[aria-hidden="true"]').length).toBe(0)
+    // 滚到中间：首尾两行都还在 DOM 里，没有被移出窗口。
     const scroller = container.querySelector('.chat-scroll') as HTMLElement
-    const estimatedTotal = Array.from({ length: 130 }, (_, index) => estimateMessageHeight({
-      kind: 'user', id: `u-${index}`, text: `消息${index}`, seq: index, time: index * 1_000,
-    })).reduce((acc, height) => acc + height, 0)
-    const estimated65 = Array.from({ length: 65 }, (_, index) => estimateMessageHeight({
-      kind: 'user', id: `u-${index}`, text: `消息${index}`, seq: index, time: index * 1_000,
-    })).reduce((acc, height) => acc + height, 0)
-    const correction = scrollHeightMock - estimatedTotal
-    fireEvent.scroll(scroller, { target: { scrollTop: estimated65 + correction } })
-    await waitFor(() => { expect(screen.getByText('消息65')).toBeTruthy() })
-    expect(screen.queryByText('消息129')).toBeNull()
-    expect(screen.queryByText('消息0')).toBeNull()
+    fireEvent.scroll(scroller, { target: { scrollTop: 9_000 } })
+    expect(screen.getByText('消息0')).toBeTruthy()
+    expect(screen.getByText('消息129')).toBeTruthy()
   })
 
-  it('windowed: measured row heights replace the estimate in the prefix sum', async () => {
-    // jsdom reports no layout (offsetHeight 0), so the measurement effect
-    // normally stays silent. Give every element a fixed height: the effect
-    // then records real heights and the prefix rebuild blends them in.
-    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
-    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 100 })
+  it('定位落点读的是行的真实几何，不是高度估算', async () => {
+    // 130 行 + 一个已知 rect：目标行在内容坐标 1234px 处、容器顶 0。窗口化时期
+    // 这个落点要用"前缀和估算"换算，偏几十上百像素；现在直接量、直接写。
+    const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
+      id: `u-${i}`,
+      role: 'user',
+      content: [{ type: 'text', text: `消息${i}` }],
+    }, i))
+    scrollHeightMock = 20_000
+    loadChatPageMock.mockResolvedValue(rowPage(many))
+    const mux = new FakeMux()
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'getBoundingClientRect')
+    const box = (): HTMLElement | null => document.querySelector('.chat-scroll') as HTMLElement | null
+    const rect = (top: number, height: number): DOMRect => ({
+      top, bottom: top + height, left: 0, right: 390, width: 390, height,
+      x: 0, y: top, toJSON: () => ({}),
+    } as DOMRect)
+    Object.defineProperty(Element.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: Element) {
+        const scroller = box()
+        if (scroller !== null && this === scroller) return rect(0, 600)
+        // 目标行跟着滚动位移：写入 1226 之后它的 rect.top 正好是 8。
+        if (this.closest !== undefined && this.closest('[data-message-id="u-20"]') !== null) {
+          return rect(1_234 - (scroller?.scrollTop ?? 0), 100)
+        }
+        return rect(0, 0)
+      },
+    })
     try {
-      const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
-        id: `u-${i}`,
-        role: 'user',
-        content: [{ type: 'text', text: `消息${i}` }],
-      }, i))
-      scrollHeightMock = 20_000
-      loadChatPageMock.mockResolvedValue(rowPage(many))
-      const mux = new FakeMux()
-      const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-      await screen.findByText('消息129')
-      await waitFor(() => { expect(screen.queryByText('消息0')).toBeNull() })
-      // Let the measurement effect run and the prefix rebuild + locate land.
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
-      // The window lands at the tail after the open-time re-pin, so the
-      // bottom spacer is 0 and the TOP spacer carries the measured prefix
-      // (100px/row) plus the height correction (scrollHeightMock 20000 −
-      // measured prefix) — the pure estimate (50px/row) would be far
-      // smaller, proving the real heights entered the prefix sum. The
-      // opening tail window spans WINDOW_VISIBLE + WINDOW_OVERSCAN = 44 rows
-      // (matches locateWindow), so its measured height is 4400px and the
-      // top spacer is 20000 − 4400 = 15600. The correction re-render
-      // (correctionTick) must have landed for the spacer to reflect the
-      // final correction, not the opening estimate.
-      const spacers = container.querySelectorAll('.chat-scroll > div[aria-hidden="true"]')
-      const top = spacers[0] as HTMLElement | undefined
-      expect(top?.style.height).toBe('15600px')
+      render(<ChatView
+        session={session}
+        initialFocusMessageId="u-20"
+        mux={mux as never}
+        onBack={() => {}}
+        showToolCalls={true}
+        showSystemMessages={false}
+      />)
+      await waitFor(() => {
+        expect(document.querySelector('[data-message-id="u-20"]')?.classList.contains('chat-msg-focus')).toBe(true)
+      })
+      // 1234 − 0（容器顶）− 8（呼吸位）= 1226，与任何估算值都无关。
+      await waitFor(() => { expect(scrollWrites).toContain(1_226) })
+      // 落点像素级：目标行的 rect.top 必须停在留白上（±2px）。以前的判据容差
+      // 是一整屏（±150px 以上），偏半屏也算过 —— 这正是"定位不准"的现场。
+      const landedTop = (document.querySelector('[data-message-id="u-20"]') as HTMLElement).getBoundingClientRect().top
+      expect(Math.abs(landedTop - 8)).toBeLessThanOrEqual(2)
+      // 而且不是靠反复盲写凑出来的：一次写 + 至多两次补偿。
+      expect(scrollWrites.length).toBeLessThanOrEqual(3)
     } finally {
-      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original!)
+      if (original !== undefined) Object.defineProperty(Element.prototype, 'getBoundingClientRect', original)
+      else delete (Element.prototype as unknown as Record<string, unknown>)['getBoundingClientRect']
     }
   })
 
-  it('windowed: a search-hit locate deep in history relocates the window to that row and marks it', async () => {
-    // 130 user messages (past WINDOW_THRESHOLD). Locating one deep row must
-    // move the render window to it and give it the focus class — not be
-    // overridden by the opening pin-to-tail window, which would window the
-    // target OUT of the DOM (the classic "search shows it but I can't see it").
+  it('深历史里的搜索命中：定位到那一行并打上焦点标记', async () => {
+    // 130 行全渲染之后不再有"把目标移出窗口"这类失效，但这条仍然是护栏：
+    // 定位必须真的落在那一行上，而不是只在开屏的贴底位置上高亮。
     const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
       id: `u-${i}`,
       role: 'user',
@@ -1272,9 +1997,10 @@ describe('ChatView scrolling', () => {
       role: 'user',
       content: [{ type: 'text', text: `旧消息${i}` }],
     }, i))
-    // call 1 = opening tail (hasMore true, no target). call 2 = the silent
-    // auto-extend page (still no target). call 3 = the locate's direct jump
-    // to the target's page (beforeSeq = target+1 = 6), which contains it.
+    // call 1 = opening tail (hasMore true, no target). call 2 = the locate's
+    // direct jump to the target's page (beforeSeq = target+1 = 6) — 带定位打开时
+    // 不再先铺开（铺开链会跟定位抢同一个往返）。call 3 = 没找到目标时按当前
+    // 最早的 seq 继续往前翻，那页里才有目标。
     loadChatPageMock
       .mockResolvedValueOnce(rowPage(tail, { hasMore: true }))
       .mockResolvedValueOnce(rowPage(mid, { hasMore: true }))
@@ -1294,7 +2020,7 @@ describe('ChatView scrolling', () => {
     // The locate jumps straight to the target's page (beforeSeq = target+1)
     // instead of paging back one page at a time through deep history.
     await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledTimes(3) })
-    expect(loadChatPageMock.mock.calls[2]?.[1]).toBe(6)
+    expect(loadChatPageMock.mock.calls[1]?.[1]).toBe(6)
     await waitFor(() => {
       const row = document.querySelector('[data-message-id="u-old-5"]')
       expect(row).not.toBeNull()
@@ -1648,10 +2374,11 @@ describe('ChatView in-place quick picker strips', () => {
     expect(screen.getByText('FX 深度')).toBeTruthy()
     const selected = screen.getByText('FX 标准').closest('.chat-picker-row')
     expect(selected?.className).toContain('chat-picker-row-selected')
-    // The panel lists every model directly (no search box); the full sheet
-    // stays reachable from the panel.
+    // The panel lists every model directly (no search box) and is now the
+    // only model surface: the duplicate full sheet and its "全部…" hop are
+    // gone, so nothing else must be reachable from here.
     expect(screen.queryByRole('searchbox', { name: '搜索模型' })).toBeNull()
-    expect(screen.getByRole('button', { name: '全部…' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '全部…' })).toBeNull()
   })
 
   it('shows thinking-effort choices for the current model right in the panel', async () => {
@@ -1677,6 +2404,48 @@ describe('ChatView in-place quick picker strips', () => {
     expect(await screen.findByText('思考强度')).toBeTruthy()
     const effort = screen.getByText('高').closest('.chat-picker-row')
     expect(effort?.className).toContain('chat-picker-row-selected')
+  })
+
+  it('labels same-named models with their provider, so the two V4.1-Flash rows differ', async () => {
+    // 实测：两个 provider 各有一个 DeepSeek-V4.1-Flash，列表里两行一模一样，用户
+    // 只能靠上方的分组标题猜自己在选谁。重名时才补 provider。
+    modelsMock.mockResolvedValue({
+      current: { provider: 'deepseek', model: 'deepseek-v4.1-flash' },
+      routable: true,
+      groups: [
+        { id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek-V4.1-Flash' }] },
+        { id: 'account', name: 'DeepSeek Account', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek-V4.1-Flash' }] },
+        { id: 'agnes', name: 'agnes-ai', models: [{ id: 'agnes-2.5-flash', name: 'agnes-2.5-flash' }] },
+      ],
+      failures: [],
+    } satisfies SessionModels)
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    expect(await screen.findByText('DeepSeek-V4.1-Flash · DeepSeek')).toBeTruthy()
+    expect(screen.getByText('DeepSeek-V4.1-Flash · DeepSeek Account')).toBeTruthy()
+    // 独名的那项不加后缀，保持干净。
+    expect(screen.getByText('agnes-2.5-flash')).toBeTruthy()
+  })
+
+  it('shows the model in force even when the catalog does not list it', async () => {
+    // 实测：chip 是 v4.1-flash:1017，目录里没有这一项，整张表没有一项打勾。
+    modelsMock.mockResolvedValue({
+      current: { provider: 'modelflare', model: 'v4.1-flash:1017' },
+      routable: true,
+      groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek-V4.1-Flash' }] }],
+      failures: [],
+    } satisfies SessionModels)
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    expect(await screen.findByText('当前')).toBeTruthy()
+    // chip 上也写着同一个 id，查询限定在面板内。
+    const panel = screen.getByRole('menu', { name: '选择模型' })
+    const row = within(panel).getByText('v4.1-flash:1017').closest('.chat-picker-row')
+    expect(row?.className).toContain('chat-picker-row-selected')
   })
 
   it('switches the model directly from the strip and closes it', async () => {
@@ -1724,9 +2493,10 @@ describe('ChatView in-place quick picker strips', () => {
     fireEvent.click(screen.getByText('工作区写入'))
     expect(sendCommandMock).toHaveBeenCalledWith('s-1', '/permission workspace-write')
     await waitFor(() => expect(screen.queryByRole('menu', { name: '选择权限' })).toBeNull())
-    expect(await screen.findByText('工作区写入')).toBeTruthy()
+    // pill 只有 32px 高：可见文本用中文短名，完整值留在 aria-label 里（否则会被省略号吃掉）。
+    expect(await screen.findByText('可写')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '切换权限：工作区写入' })).toBeTruthy()
   })
-
   it('routes the full-access preset through the confirming sheet, never directly', async () => {
     loadChatPageMock.mockResolvedValue(permissionHistory())
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -1736,10 +2506,10 @@ describe('ChatView in-place quick picker strips', () => {
     expect(dangerCard.closest('.chat-picker-row')?.className).toContain('chat-picker-row-danger')
     fireEvent.click(dangerCard)
     expect(sendCommandMock).not.toHaveBeenCalled()
-    // The strip routes full access into the sheet, which owns the explicit
-    // confirm — the strip itself never applies it directly.
+    // The popover is the only preset list now, so picking full access there
+    // must raise the confirm itself — the old sheet hop is gone, and with it
+    // the silent-switch path that skipped the warning.
     await waitFor(() => expect(screen.queryByRole('menu', { name: '选择权限' })).toBeNull())
-    fireEvent.click(screen.getByText('完全权限'))
     expect(await screen.findByText('确认完全权限')).toBeTruthy()
     expect(screen.getByText(/开启完全权限后/)).toBeTruthy()
   })
@@ -1813,6 +2583,26 @@ describe('ChatView stop button (#1041)', () => {
     expect(await screen.findByText(/cancel exploded/)).toBeTruthy()
   })
 
+  it('keeps the permission pill when the page carries no projection, and pulls on tap', async () => {
+    // 冷启动/深链直进会话时，宿主的会话枚举还没跑过，尾页快速通道带不回权限投影。
+    // 按钮曾经整块不渲染——用户看到的就是"权限面板消失了"。它现在总是在，缺数据
+    // 时点一下就地补。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    readChatMock.mockResolvedValue({
+      rows: [],
+      maxSeq: 1,
+      hasMore: false,
+      projections: { asOfSeq: 1, values: { permissions: { currentValue: 'workspace-write' } } },
+    })
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    fireEvent.click(screen.getByRole('button', { name: '切换权限：读取中' }))
+    await waitFor(() => { expect(readChatMock).toHaveBeenCalled() })
+    // The projection that lands seeds the picker and opens it.
+    expect(await screen.findByRole('button', { name: /切换权限：workspace-write/ })).toBeTruthy()
+  })
   it('reconciles a lost turn/end frame against the host running state', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
@@ -1833,9 +2623,9 @@ describe('ChatView stop button (#1041)', () => {
         hasMore: false,
       } as SessionPage)
       await vi.advanceTimersByTimeAsync(10_000)
-      // Ten silent seconds in, the wording is 后台处理中; reconciliation
+      // Ten silent seconds in, the wording is 输出中; reconciliation
       // with a still-running host must NOT clear the row.
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
 
       // The host reports the turn finished: the indicator self-heals.
       listSessionsMock.mockResolvedValue({
@@ -1850,6 +2640,272 @@ describe('ChatView stop button (#1041)', () => {
     }
   })
 
+  it('reconciles from the folded log tail instead of inflating the whole history', async () => {
+    // session.history has to inflate the entire log (34 s on a 52 MB session) —
+    // that wait was the "refreshes slowly" the phone showed. The tail already
+    // says whether the turn is open, in ~20 ms, so it must be the first probe.
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+
+      // Tail without a turn/start anchor = the turn already ended.
+      logTailMock.mockResolvedValue({ rows: [], maxSeq: 3, hasMore: false })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
+      expect(logTailMock).toHaveBeenCalled()
+      expect(historyMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the indicator when the tail and the host both say the turn is open', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      // The turn is still open: keep the indicator and its clock.
+      logTailMock.mockResolvedValue({ rows: [], maxSeq: 3, hasMore: false, turnStartAt: 1_700_000_000_000 })
+      runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+      expect(historyMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the turn running when the log tail cannot see the boundary at all', async () => {
+    // 真机实测的病灶：一轮工具跑二十几步之后，48 帧的尾切里全是工具事件，宿主的
+    // mobile.logTail 只回 rows/maxSeq/hasMore/lastEventAt——没有 turnStartAt。旧代码把
+    // "没有锚点"当成"这一轮收工了"，于是命令还跑着，过程框已经写着已完成，而且
+    // 十秒一次的核对每次都重新判成已完成，永远不纠正回来。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      logTailMock.mockResolvedValue({
+        rows: [],
+        maxSeq: 3,
+        hasMore: false,
+        // 既没有 turnStartAt、也没有 turnOpen：这一小段里根本见不到边界。
+        lastEventAt: Date.now(),
+      })
+      runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.queryByRole('status', { name: '已完成' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('closes the turn as soon as the log tail reports a turn/end boundary', async () => {
+    // 反方向：边界明确收口就立刻收工，不等宿主的集合，也不等事件静默。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      logTailMock.mockResolvedValue({ rows: [], maxSeq: 4, hasMore: false, lastEventAt: Date.now(), turnOpen: false })
+      // 宿主集合还说在跑也不算——边界是日志写下来的事实。
+      runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a silent turn alive when the host still counts it as running', async () => {
+    // 真机的反例：命令跑了很久（日志十分钟没一行事件），宿主集合却认这一轮。此前
+    // "最后事件已经很久就判收工"会把正在跑的一轮判成已完成。集合说在跑，就是在跑。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      logTailMock.mockResolvedValue({
+        rows: [],
+        maxSeq: 3,
+        hasMore: false,
+        turnStartAt: 1_700_000_000_000,
+        lastEventAt: 1_700_000_001_000,
+      })
+      runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
+      // 时钟推到十分钟之后：日志彻底静了，宿主集合仍认它。
+      vi.setSystemTime(1_700_000_601_000)
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.queryByRole('status', { name: '已完成' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the process card running while an open tool call is alive, even with no running flag', async () => {
+    // 真机现象：命令还在跑（或者正在改文件），过程框的头却写着「已完成」，而里面那条
+    // 工具行还停在「运行中」——同一个框里前后矛盾。原因是行级判据挂在 running 这个
+    // 启发式旗标上：它一翻假，settled 立刻把所有头改成已完成。日志里的锚点还开着，
+    // 那这一轮就是开着的，工具行也就还活着。
+    loadChatPageMock.mockResolvedValue(rowPage([
+      { event: { type: 'turn/start', seq: 1, time: 1_700_000_000_000, data: { turn: 1 } } as WireEvent },
+      { event: { type: 'user/message', seq: 2, time: 1_700_000_000_100, data: { id: 'u-1', role: 'user', content: [{ type: 'text', text: '跑一下' }] } } as WireEvent },
+      { event: { type: 'tool/call', seq: 3, time: 1_700_000_000_200, data: { turn: 1, step: 0, callId: 'c1', name: 'bash', arguments: '{"cmd":"pnpm verify"}' } } as WireEvent },
+    ], { turnStartAt: 1_700_000_000_000 }))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('跑一下')
+    expect(screen.getAllByText('深度求索中').length).toBeGreaterThan(0)
+    expect(screen.queryByText('已完成')).toBeNull()
+  })
+
+  it('takes the turn verdict from the atomic snapshot, not from the log window', async () => {
+    // 主路径换成原子快照：宿主的 turn 判定、行、队列、目标、待办是同一次往返里的
+    // 同一个切面。这里让快照说「在跑」、尾页说「收工」，过程框必须跟着宿主。
+    const t0 = Date.now()
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    vi.mocked(api.sessionState).mockResolvedValue({
+      sessionId: 's-1',
+      rows: [],
+      maxSeq: 5,
+      queue: [],
+      queueRevision: 0,
+      turn: { running: true, turnStartAt: t0 - 90_000 },
+      asOf: t0,
+    })
+    // 尾页谎称收工：宿主的结论优先。
+    logTailMock.mockResolvedValue({ rows: [], maxSeq: 5, hasMore: false, lastEventAt: t0, turnOpen: false })
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      vi.setSystemTime(Date.now())
+      await vi.advanceTimersByTimeAsync(20_000)
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      // 回合判定不再单独走 mobile.turnState（那条通道已经并进快照）。
+      expect(turnStateMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+      resetSessionStateMock()
+    }
+  })
+
+  it('does not read a silent log as "the turn is over": a long command keeps its clock', async () => {
+    // 静默不是收工的凭据。一条编译命令跑三分钟、一次大文件读写，这段时间日志里一行
+    // 事件都没有；此前"最后事件已经很久就判收工"正是"命令还在跑、过程框却写着已完成"
+    // 的来源（工具行还停在运行中，同一个框里前后矛盾）。收工只认两条硬证据：最后一条
+    // 边界是 turn/end，或者宿主自己说这轮不跑了。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      logTailMock.mockResolvedValue({
+        rows: [],
+        maxSeq: 3,
+        hasMore: false,
+        turnStartAt: 1_700_000_000_000,
+        // 边界还开着，而且十分钟没有任何新事件——命令正在跑，只是不出声。
+        lastEventAt: 1_700_000_000_500,
+      })
+      // 宿主说这一轮还在跑，那就还在跑（列表行不可信，要问专用集合）。
+      runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
+      vi.setSystemTime(1_700_000_600_500)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still clears the indicator on a silent tail once the host says the turn is not running', async () => {
+    // 反方向留一手：日志静了、边界还开着，但宿主自己说这轮不跑了——那就是真的没在跑
+    // （turn/end 丢在断流窗口里的情形）。宿主的运行集合是它自己的知识，帧会丢，它不会。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      logTailMock.mockResolvedValue({
+        rows: [],
+        maxSeq: 3,
+        hasMore: false,
+        turnStartAt: 1_700_000_000_000,
+        lastEventAt: 1_700_000_000_500,
+      })
+      runningSessionsMock.mockResolvedValue({ sessionIds: [] })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the turn running while the tail is still moving even when the host set is empty', async () => {
+    // 反方向：宿主的运行集合靠帧维护，实测一整轮零帧，它说"没在跑"的时候
+    // 真实的那一轮可能正跑得好好的。以前这里以集合为准，于是手机把正在跑的
+    // 一轮显示成已完成；现在尾页"还在动"就是真相。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    vi.useFakeTimers()
+    try {
+      emitSessionEvent(mux, 'turn/start', 1)
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      logTailMock.mockResolvedValue({
+        rows: [],
+        maxSeq: 3,
+        hasMore: false,
+        turnStartAt: 1_700_000_000_000,
+        // Freshly written: the turn is alive right now, whatever the host set says.
+        lastEventAt: Date.now() + 60_000,
+      })
+      runningSessionsMock.mockResolvedValue({ sessionIds: [] })
+      await vi.advanceTimersByTimeAsync(20_000)
+      // 帧静默一会儿之后措辞会从"输出中"变成"输出中"，但这一轮**仍然
+      // 在跑**——判据是它没有翻成"已完成"。那才是这条测试要守的东西。
+      expect(screen.queryByRole('status', { name: '已完成' })).toBeNull()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('clears the indicator even when the session is off the first list page (missing row)', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
@@ -1900,7 +2956,7 @@ describe('ChatView stop button (#1041)', () => {
       } as SessionPage)
       historyMock.mockResolvedValue(historyPage([makeEntry('turn/start', {}, 60)]))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
@@ -1935,9 +2991,9 @@ describe('ChatView stop button (#1041)', () => {
       // what used to zero the running clock mid-work on a flaky phone link.
       listSessionsMock.mockRejectedValue(new Error('host unreachable'))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
       // Third consecutive failure (30 s of unreachability): the wording
       // becomes 连接中断 while the turn and its clock stay alive.
       await vi.advanceTimersByTimeAsync(10_000)
@@ -1991,13 +3047,13 @@ describe('ChatView stop button (#1041)', () => {
       } as SessionPage)
       historyMock.mockResolvedValue(historyPage([makeEntry('turn/start', {}, 50)]))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('flips the indicator wording to 后台处理中 while frames go silent', async () => {
+  it('keeps the indicator at 输出中 while frames go silent', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     // The agent is genuinely running throughout this test: reconciliation
     // must not consult history (its default turn/end mock would clear the
@@ -2021,7 +3077,7 @@ describe('ChatView stop button (#1041)', () => {
 
       // The stream stops but the turn is still open: back-office wording.
       await vi.advanceTimersByTimeAsync(7_000)
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
 
       // Any frame at all - even another session's (the memory-upkeep
       // subagent streams on the same mux) - restores the typing wording.
@@ -2031,7 +3087,6 @@ describe('ChatView stop button (#1041)', () => {
       emitSessionEvent(mux, 'turn/end', 9)
       // The status row is gone (the context ring keeps its own role=status,
       // so assert on the wording, not the bare role).
-      expect(screen.queryByText('后台处理中')).toBeNull()
       expect(screen.queryByText('输出中')).toBeNull()
     } finally {
       vi.useRealTimers()
@@ -2080,12 +3135,12 @@ describe('ChatView run-status strip (session/jobs)', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
 
-    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [job('subagent-1', 'running')] }) })
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [{ id: 'subagent-1', kind: 'subagent', label: '整理记忆', status: 'running', startedAt: 1_700_000_000_000 }] }) })
     expect(screen.getByRole('button', { name: /后台任务/ })).toBeTruthy()
 
-    // The host sends [] when the last task settles: the strip disappears.
+    // The host sends [] when the last task settles: the strip fades out then unmounts.
     act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [] }) })
-    expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull()
+    await waitFor(() => { expect(screen.queryByRole('button', { name: /后台任务/ })).toBeNull() })
   })
 
   it('seeds the strip from the mux-cached snapshot when a chat opens', async () => {
@@ -2389,6 +3444,71 @@ describe('ChatView text selection vs custom menu', () => {
     }
   })
 
+  it('turns a command-row press into row-scoped actions, not the whole reply', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    // 过程行在折叠的组里，展开才有行可长按。
+    fireEvent.click(document.querySelector('button.chat-proc-head') as Element)
+    const row = await screen.findByText('运行命令')
+    const stepRow = row.closest('.chat-step')
+    expect(stepRow).not.toBeNull()
+    fireEvent.contextMenu(stepRow as Element)
+    const menu = await screen.findByRole('menu', { name: '消息操作' })
+    // 行头先告诉用户操作的是哪一行，动作也换成行级的，并且有可见的取消。
+    expect(menu.textContent).toContain((stepRow as HTMLElement).getAttribute('data-step-title') ?? '运行命令')
+    expect(within(menu).getByRole('menuitem', { name: '复制这一行' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: '取消' })).toBeTruthy()
+    // 行级菜单不再堆三个"复制"变体，也不把整条回复拿去分享。
+    expect(within(menu).queryByRole('menuitem', { name: '复制原文' })).toBeNull()
+    expect(within(menu).queryByRole('menuitem', { name: '分享' })).toBeNull()
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '取消' }))
+    await waitFor(() => { expect(screen.queryByRole('menu', { name: '消息操作' })).toBeNull() })
+  })
+
+  it('hands the pressed block to the system selection from 选择文字', async () => {
+    const { textEl } = await renderOneTurn()
+    window.getSelection()?.removeAllRanges()
+    fireEvent.contextMenu(textEl)
+    const menu = await screen.findByRole('menu', { name: '消息操作' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '选择文字' }))
+    // 菜单让位，选区落在正文上——用户接着能拖手柄、用系统菜单复制片段。
+    await waitFor(() => { expect(screen.queryByRole('menu', { name: '消息操作' })).toBeNull() })
+    expect(window.getSelection()?.toString()).toContain('已完成修改')
+    window.getSelection()?.removeAllRanges()
+  })
+
+  it('drops the custom menu the moment the browser starts a selection', async () => {
+    const { textEl } = await renderOneTurn()
+    window.getSelection()?.removeAllRanges()
+    fireEvent.contextMenu(textEl)
+    expect(await screen.findByRole('menu', { name: '消息操作' })).toBeTruthy()
+    const range = document.createRange()
+    range.selectNodeContents(textEl)
+    window.getSelection()?.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    await waitFor(() => { expect(screen.queryByRole('menu', { name: '消息操作' })).toBeNull() })
+    window.getSelection()?.removeAllRanges()
+  })
+
+  it('places the menu above a row that sits at the bottom of the screen', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    fireEvent.click(document.querySelector('button.chat-proc-head') as Element)
+    const stepRow = (await screen.findByText('运行命令')).closest('.chat-step') as HTMLElement
+    // jsdom 的 rect 全是 0，测不出翻边；给这一行一个「贴着屏幕底部」的真实位置。
+    vi.spyOn(stepRow, 'getBoundingClientRect').mockReturnValue({
+      top: 700, bottom: 744, left: 24, right: 360, height: 44, width: 336, x: 24, y: 700, toJSON: () => ({}),
+    } as DOMRect)
+    fireEvent.contextMenu(stepRow)
+    const menu = await screen.findByRole('menu', { name: '消息操作' })
+    const top = Number.parseFloat(menu.style.top)
+    // 下方放不下 → 菜单整体落在这一行上方，不盖住它。
+    expect(top).toBeLessThanOrEqual(700)
+    expect(top).toBeGreaterThan(0)
+  })
+
   it('edits and resends a user message through the context menu', async () => {
     await renderOneTurn()
     promptMock.mockClear()
@@ -2405,12 +3525,69 @@ describe('ChatView text selection vs custom menu', () => {
     await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
   })
 
-  it('regenerates the last assistant reply via its footer button', async () => {
+  it('closes the context menu on Escape', async () => {
+  // iPad/外接键盘上背景点击够不到，Esc 是唯一顺手的取消方式。
+  await renderOneTurn()
+  const userEl = await screen.findByText('改一下代码')
+  fireEvent.contextMenu(userEl)
+  expect(await screen.findByRole('menu', { name: '消息操作' })).toBeTruthy()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  await waitFor(() => { expect(screen.queryByRole('menu', { name: '消息操作' })).toBeNull() })
+})
+it('regenerates the last assistant reply via its footer button', async () => {
     await renderOneTurn()
     promptMock.mockClear()
     const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
     fireEvent.click(regenerate)
     await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+  })
+
+  it('keeps the regenerate affordance to one icon: no verb on screen', async () => {
+    // 手机上"重新生成"四个字白占 ~48px，而这一行本来只有时间戳。含义留在
+    // aria-label/title 里，视觉上只有一个可点的 ↻。
+    await renderOneTurn()
+    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
+    expect(regenerate.textContent).toBe('↻')
+    expect(regenerate.textContent).not.toContain('重新生成')
+  })
+
+  it('sends one prompt even when the icon is tapped twice before the turn starts', async () => {
+    // 点下到轮次真的开跑之间有个窗口，这段时间按钮还在屏上。旧实现双击会
+    // 追加两条"请忽略上一条回答"，而这些行删不掉。
+    //
+    // 这里故意在同一帧里派发两次**原生** click：React 还没来得及把 disabled
+    // 刷上去，所以能挡住的只可能是那个 in-flight 闸门（用 fireEvent 是测不到
+    // 它的——第二次点击撞上的已经是禁用按钮）。
+    await renderOneTurn()
+    promptMock.mockClear()
+    promptMock.mockImplementation(() => new Promise(() => {}))
+    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
+    act(() => {
+      regenerate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      regenerate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      regenerate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await waitFor(() => { expect(promptMock).toHaveBeenCalledTimes(1) })
+    // 已发出：原地转圈并禁用，语义也跟着变。
+    const busy = await screen.findByRole('button', { name: '正在重新回答' })
+    expect(busy.className).toContain('chat-msg-regenerate-busy')
+    expect((busy as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('turns the icon red and lets it be tapped again when the send fails', async () => {
+    await renderOneTurn()
+    promptMock.mockClear()
+    promptMock.mockRejectedValue(new Error('offline'))
+    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
+    fireEvent.click(regenerate)
+    await waitFor(() => {
+      const failed = screen.getByRole('button', { name: '重新生成回复' })
+      expect(failed.className).toContain('chat-msg-regenerate-failed')
+      expect((failed as HTMLButtonElement).disabled).toBe(false)
+    })
+    // 失败后闸门放开：还能再点一次。
+    fireEvent.click(screen.getByRole('button', { name: '重新生成回复' }))
+    await waitFor(() => { expect(promptMock).toHaveBeenCalledTimes(2) })
   })
 
   it('lets an image through to the native menu: contextmenu on <img> shows no custom menu', async () => {
@@ -2522,9 +3699,138 @@ describe('ChatView voice cleanup', () => {
     unmount()
     // Authorization resolves after unmount: the recorder must be cancelled so
     // the MediaStream tracks are stopped (no mic leak, no stuck indicator).
-    await act(async () => { resolveRecorder!({ stop: vi.fn(), cancel }) })
+    await act(async () => { resolveRecorder!({ stop: vi.fn(), cancel, snapshot: () => undefined }) })
     expect(cancel).toHaveBeenCalled()
     expect(trackStop).toHaveBeenCalled()
+  })
+})
+
+describe('ChatView queued echo', () => {
+  it('hands a queued message back to the composer when a host restart swallowed it', async () => {
+    // 队列只活在宿主内存里：重启后这条既不在 inbox、也没进对话，必须还给用户，
+    // 不能让「已排队」变成字消失了。
+    localStorage.setItem('dsh.palm.queuedEcho', JSON.stringify([
+      { sessionId: 's-1', text: '重启前排队的那句话', at: Date.now() - 60_000 },
+    ]))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    await waitFor(() => {
+      expect(input.value).toBe('重启前排队的那句话')
+    })
+    // 还过一次就销账，下次打开不会重复塞进输入框。
+    expect(localStorage.getItem('dsh.palm.queuedEcho')).toBe('[]')
+  })
+})
+
+describe('ChatView queued echo while a turn runs', () => {
+  it('never hands a queued message back while the host may still be claiming it', async () => {
+    // 真实故障：队列把消息认领成下一轮的那几秒，手机端看到「队列空了、对话里还没有」，
+    // 就当成丢失把原文塞回输入框 —— 而消息其实已经发出去了。回合在跑时一律不判丢失。
+    // 排队后一直没在手机上看到卡片（旧前端/轮询没命中）也一样：只要回合在跑，
+    // 就不能拿「很久没见」当丢失证据。
+    localStorage.setItem('dsh.palm.queuedEcho', JSON.stringify([
+      { sessionId: 's-1', text: '其实已经发出去的那句话', at: Date.now() - 300_000 },
+    ]))
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(input.value).toBe('')
+    // 底稿也不能丢：真正丢消息时还要靠它回填。
+    expect(localStorage.getItem('dsh.palm.queuedEcho') ?? '').toContain('其实已经发出去的那句话')
+    localStorage.clear()
+  })
+})
+
+it('shows live captions while the user is still talking', async () => {
+  // 边录边看字：宿主没有流式 ASR，靠滚动重转；松手后的最终转写仍然说了算。
+  startVoiceRecordingMock.mockResolvedValue({
+    stop: vi.fn(),
+    cancel: vi.fn(),
+    snapshot: () => 'wav-so-far',
+  })
+  voiceSupportedMock.mockReturnValue(true)
+  loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+  render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+  fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+  await waitFor(() => {
+    expect(document.querySelector('.voice-text-live')?.textContent).toBe('转写出来的文本')
+  }, { timeout: 6000 })
+  // 字幕用的是「已录到的音频」快照，不是最终 WAV。
+  expect(vi.mocked(transcribeVoice)).toHaveBeenCalledWith('wav-so-far', expect.anything())
+})
+
+describe('ChatView voice sheet', () => {
+  it('offers 取消 and releases the mic without filling the composer', async () => {
+    // 以前面板只能点背景退出：用户按「取消」找不到，按「完成」又会被塞一段转写。
+    const cancel = vi.fn()
+    const stop = vi.fn()
+    startVoiceRecordingMock.mockResolvedValue({ stop, cancel, snapshot: () => undefined })
+    voiceSupportedMock.mockReturnValue(true)
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+    const cancelButton = await screen.findByRole('button', { name: '取消' })
+    fireEvent.click(cancelButton)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '语音输入' })).toBeNull()
+    })
+    expect(cancel).toHaveBeenCalled()
+    // 取消是丢弃，不是完成：不能去转写，也不能把录音停下来当成提交。
+    expect(stop).not.toHaveBeenCalled()
+    expect((screen.getByPlaceholderText('说点什么...') as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('closes the voice sheet on Escape and hands the focus back', async () => {
+    // 面板只能点背景关掉，而背景正是手指最容易误触的位置；外接键盘/读屏用户没有
+    // Esc 就等于没有出口。焦点也要进来（否则 Tab 落在背后的页面上）再还回去。
+    const cancel = vi.fn()
+    startVoiceRecordingMock.mockResolvedValue({ stop: vi.fn(), cancel, snapshot: () => undefined })
+    voiceSupportedMock.mockReturnValue(true)
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const trigger = await screen.findByRole('button', { name: '语音输入' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const sheet = await screen.findByRole('dialog', { name: '语音输入' })
+    // 焦点必须先落到面板里的「完成」上。
+    await waitFor(() => {
+      expect(document.activeElement?.textContent).toBe('完成')
+    })
+    fireEvent.keyDown(sheet, { key: 'Escape' })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '语音输入' })).toBeNull()
+    })
+    expect(cancel).toHaveBeenCalled()
+    // 焦点回到打开它的那颗按钮上，继续按空格还是「语音输入」。
+    await waitFor(() => {
+      expect(document.activeElement).toBe(trigger)
+    })
+  })
+
+  it('drops a transcript that comes back after the sheet was closed', async () => {
+    // 关掉面板时正在转写：结果回来不能偷偷塞进输入框。
+    const cancel = vi.fn()
+    let resolveStop: ((value: string) => void) | undefined
+    startVoiceRecordingMock.mockResolvedValue({
+      stop: () => new Promise<string>(resolve => { resolveStop = resolve }),
+      cancel,
+      snapshot: () => undefined,
+    })
+    voiceSupportedMock.mockReturnValue(true)
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+    fireEvent.click(await screen.findByRole('button', { name: '完成' }))
+    await waitFor(() => { expect(screen.queryByRole('dialog', { name: '语音输入' })).not.toBeNull() })
+    // 面板仍开着（转写中），用户等不及按了取消。
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }))
+    await act(async () => { resolveStop!('BWFTR0JTRTQ=') })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '语音输入' })).toBeNull()
+    })
+    expect((screen.getByPlaceholderText('说点什么...') as HTMLTextAreaElement).value).toBe('')
   })
 })
 
@@ -2583,6 +3889,61 @@ describe('ChatView send failure', () => {
 })
 
 describe('ChatView offline banner', () => {
+  it('ignores a lying navigator.onLine: the banner only follows real requests', async () => {
+    // 真机故障：安卓上 navigator.onLine 会一直停在 false，横幅就永远挂着、
+    // 消息永远进离线队列，而网络其实早就好了。所以启动时不采信它。
+    const onLine = vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false)
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    expect(screen.queryByText('网络已断开，消息将在恢复后发送')).toBeNull()
+    onLine.mockRestore()
+  })
+
+  it('shows the offline banner on the browser hint and clears it when the host answers', async () => {
+    // 断线提示立刻给横幅（fail-safe），但恢复不能只等 online 事件：
+    // 宿主一旦答话（这里用一帧实时事件代表）就立刻撤掉。
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    act(() => { window.dispatchEvent(new Event('offline')) })
+    expect(await screen.findByText('网络已断开，消息将在恢复后发送')).toBeTruthy()
+    act(() => {
+      mux.emit({
+        type: 'event',
+        event: { type: 'todo/write', seq: 9_000, time: Date.now(), data: { items: [] } },
+      } as never)
+    })
+    await waitFor(() => { expect(screen.queryByText('网络已断开，消息将在恢复后发送')).toBeNull() })
+
+  })
+  it('queues a prompt while the host is unreachable and sends it once the host answers', async () => {
+    // 真机承诺的是「网络恢复后自动发送」：横幅挂着时进队列，宿主一答话就自动发出去。
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    const mux = new FakeMux()
+    vi.mocked(listOutbox).mockResolvedValue([])
+    const enqueueMock = vi.mocked(await import('../offline.ts')).enqueuePrompt
+    const flushMock = vi.mocked(await import('../offline.ts')).flushOutbox
+    flushMock.mockClear()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    act(() => { window.dispatchEvent(new Event('offline')) })
+    await screen.findByText('网络已断开，消息将在恢复后发送')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '断网时写的话' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ text: '断网时写的话' })) })
+    expect(prompt).not.toHaveBeenCalled()
+    // 宿主答话（一帧实时事件）：横幅撤掉，队列自动排空。
+    vi.mocked(listOutbox).mockResolvedValue([{ id: 'o9', sessionId: 's-1', text: '断网时写的话', queuedAt: 1 }])
+    act(() => {
+      mux.emit({
+        type: 'event',
+        event: { type: 'todo/write', seq: 9_100, time: Date.now(), data: { items: [] } },
+      } as never)
+    })
+    await waitFor(() => { expect(flushMock).toHaveBeenCalled() })
+  })
   it('removes an individual queued entry from the banner', async () => {
     listOutboxMock.mockResolvedValue([{ id: 'o1', sessionId: 's-1', text: '离线消息', queuedAt: 1 }])
     removeFromOutboxMock.mockResolvedValue(undefined)
@@ -2612,9 +3973,578 @@ describe('ChatView pending-message queue dock', () => {
       })
     })
     expect(await screen.findByText('排队消息')).toBeTruthy()
+    // 删除必须同时清掉本地底稿：留下的底稿会在 20 秒后被对账当成「没送达」放回输入框，
+    // 用户会看到自己刚删掉的排队消息自己复活。
+    rememberQueuedEcho({ sessionId: 's-1', text: '排队消息', at: Date.now() })
+    expect(readQueuedEchoes().some(echo => echo.text === '排队消息')).toBe(true)
     // Remove calls updateQueue.
     fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
     await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'remove' }) })
+    await waitFor(() => { expect(readQueuedEchoes().some(echo => echo.text === '排队消息')).toBe(false) })
+  })
+
+  it('follows an edit: the echo carries the new text, not the old one', async () => {
+    // 编辑后底稿还留着旧文本，认领时对账会把旧文本当「没送达」放回输入框 —— 用户看到
+    // 自己改过的排队消息又变回原样，还会重复发送。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q2', placement: 'queued', message: { id: 'm2', role: 'user', content: [{ type: 'text', text: '排队原文' }], source: { kind: 'user' } } }],
+      })
+    })
+    expect(await screen.findByText('排队原文')).toBeTruthy()
+    rememberQueuedEcho({ sessionId: 's-1', text: '排队原文', at: Date.now() })
+    fireEvent.click(screen.getByRole('button', { name: '编辑排队消息' }))
+    const editor = document.querySelector('.queue-dockInput') as HTMLInputElement
+    fireEvent.change(editor, { target: { value: '改后文本' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => {
+      expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q2', { kind: 'edit', content: [{ type: 'text', text: '改后文本' }] })
+    })
+    await waitFor(() => {
+      const texts = readQueuedEchoes().map(echo => echo.text)
+      expect(texts).toContain('改后文本')
+      expect(texts).not.toContain('排队原文')
+    })
+  })
+
+  it('asks the host for the queue on open and draws what it returns', async () => {
+    // 投影帧到不了手机（实测排队后 6 秒 0 帧），所以打开会话时必须主动问一次快照，
+    // 否则上次排进来的消息在这台手机上永远看不到。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    inboxMock.mockResolvedValueOnce({ inbox: { 'next-turn': [{ id: 'q1', role: 'user', content: [{ type: 'text', text: '打开时就该看见' }], source: { kind: 'user' } }] } })
+    render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(await screen.findByText('打开时就该看见')).toBeTruthy()
+  })
+
+  it('shows queued messages from the host inbox projection'
+  , async () => {
+    // 宿主只发投影帧（inbox），从不发 session/queue：手机端如果只等后者，
+    // 排队卡片就永远不出现（实测：排队后 6 秒内 0 帧、无卡片）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/projection',
+        sessionId: 's-1',
+        key: 'inbox',
+        value: { 'next-turn': [{ id: 'q1', role: 'user', content: [{ type: 'text', text: '投影里的排队' }], source: { kind: 'user' } }], 'next-step': [] },
+      })
+    })
+    expect(await screen.findByText('投影里的排队')).toBeTruthy()
+    // 宿主的 next-step（插话）不是"排队等下一轮"，不进这张卡片。
+    act(() => {
+      mux.emit({
+        type: 'session/projection',
+        sessionId: 's-1',
+        key: 'inbox',
+        value: { 'next-turn': [], 'next-step': [{ id: 'q2', role: 'user', content: [{ type: 'text', text: '插话里的' }], source: { kind: 'user' } }] },
+      })
+    })
+    await waitFor(() => { expect(screen.queryByText('投影里的排队')).toBeNull() })
+  })
+
+  it('asks the host for the queue right after a turn starts, instead of waiting for the next poll', async () => {
+    // 真机：桌面端排队消息还在，手机端整条没了。本地的 turn/start 处理把队列清空
+    // （队首被认领），而认领只拿走一条；剩下的要等下一次轮询才回来，空闲时是 20 秒。
+    // 清空之后必须立刻问一次宿主真值，这条钉住那次 fresh 对账。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    inboxMock.mockResolvedValue({ inbox: { 'next-turn': [] } })
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    const before = inboxMock.mock.calls.filter(([, options]) => options?.fresh === true).length
+    act(() => { emitSessionEvent(mux, 'turn/start', 1) })
+    await vi.waitFor(() => {
+      const fresh = inboxMock.mock.calls.filter(([, options]) => options?.fresh === true).length
+      expect(fresh).toBeGreaterThan(before)
+    })
+  })
+  it('keeps a steered row visible while the host still lists it as queued', async () => {
+    // 真机：点了「立即发送」之后手机端整条消失，桌面端还挂着。宿主把这条在队列帧里
+    // 标成 steering，而排队条只渲染 queued —— 可它的 next-turn 投影里还有它（桌面端
+    // 读的就是那份）。手机端不该比桌面端更早地把它藏起来。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'steering', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '插队的那条' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('插队的那条')
+    expect(container.querySelector('[data-queue-dock]')).not.toBeNull()
+  })
+  it('floats the queue dock above the model and permission row', async () => {
+    // 桌面端把队列挂在输入框外、模型/权限那一行上面；手机端曾经塞在 .chat-composer
+    // 里，视觉上成了输入框的一部分。DOM 顺序就是视觉顺序，这里直接钉住。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('排队消息')
+    const dock = container.querySelector('[data-queue-dock]')
+    const tools = container.querySelector('.chat-tools')
+    expect(dock).not.toBeNull()
+    expect(tools).not.toBeNull()
+    expect(dock !== null && tools !== null && (dock.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+  })
+
+  it('HUD 顺序：目标在最上，排队居中，模型行在下（阶段 3 起固定）', async () => {
+    // 顺序改由 `SessionHud` 统一决定：为什么在跑（目标）→ 接下来发什么（排队）→
+    // 跑到哪了（任务）。三条都在模型/权限行之上，DOM 顺序就是视觉顺序。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/projection',
+        sessionId: 's-1',
+        key: 'goal',
+        value: { current: { id: 'g-1', objective: '手机端目标条', phase: 'active', revision: 1 } },
+      })
+    })
+    await screen.findByText('进行中的目标')
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队消息' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('排队消息')
+    const dock = container.querySelector('[data-queue-dock]')
+    const bar = container.querySelector('[data-goal-bar]')
+    const tools = container.querySelector('.chat-tools')
+    expect(dock).not.toBeNull()
+    expect(bar).not.toBeNull()
+    expect(tools).not.toBeNull()
+    // 目标在上、排队居中（阶段 3 起由 SessionHud 固定这个顺序）。
+    expect(dock !== null && bar !== null && (bar.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(bar !== null && tools !== null && (bar.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+  })
+
+  it('hides the goal bar the moment the goal completes', async () => {
+    // 「目标结束再清掉」：宿主把相位改成 complete 就该整条消失，不用等下一帧队列。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({ type: 'session/projection', sessionId: 's-1', key: 'goal', value: { current: { id: 'g-1', objective: '做完了', phase: 'active' } } })
+    })
+    await screen.findByText('进行中的目标')
+    act(() => {
+      mux.emit({ type: 'session/projection', sessionId: 's-1', key: 'goal', value: { current: { id: 'g-1', objective: '做完了', phase: 'complete' } } })
+    })
+    // 整条 DOM 必须消失：只断言文案会漏掉「相位变了但条子还在」那种情况。
+    await waitFor(() => { expect(document.querySelector('[data-goal-bar]')).toBeNull() })
+  })
+
+  it('seeds the goal bar from the host on open (cold start has no frame)', async () => {
+    // 冷启动没有任何目标帧：只等帧的话，手机上已经存在的目标要等下一次变更才出现。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const goalMock = vi.mocked(await import('../api.ts')).goalOf
+    goalMock.mockResolvedValueOnce({ goal: { current: { id: 'g-9', objective: '冷启动就该看见', phase: 'active' } } })
+    render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(await screen.findByText('冷启动就该看见')).toBeTruthy()
+  })
+
+  it('picks a goal created inside the session up while idle (no turn, no frame)', async () => {
+    // 真机 2026-10-22：会话里 `/goal 做个测试`，宿主回了 Goal created，手机上却没有目标条。
+    // 命令不产生回合；现在目标随原子快照回来（空闲 8 秒一次对账），不再自己轮询。
+    //
+    // 注意：假时钟下 **不能** 用 findBy*/waitFor（它们靠真实定时器等），否则永远等不到。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    vi.mocked(api.goalOf).mockResolvedValue({ goal: null })
+    vi.useFakeTimers()
+    try {
+      render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await act(async () => { await Promise.resolve() })
+      // 快照随后把新建的目标带回来（同一份往返里还带着行/队列/回合）。
+      vi.mocked(api.sessionState).mockResolvedValue({
+        sessionId: 's-1',
+        rows: [],
+        maxSeq: 1,
+        queue: [],
+        queueRevision: 0,
+        turn: { running: false },
+        goal: { current: { id: 'g-new', objective: '做个测试', phase: 'active' } },
+        goalActivation: 'armed',
+        asOf: Date.now(),
+      })
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_000) })
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByText('做个测试')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+      resetSessionStateMock()
+    }
+  })
+
+  it('asks for the goal right after a send, so a new goal bar shows up at once', async () => {
+    // `/goal …` 是命令：不进 queue，也不开回合。发完不问一次，条子要等下一轮轮询。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    vi.mocked(api.goalOf).mockResolvedValue({ goal: null })
+    render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const before = vi.mocked(api.goalOf).mock.calls.length
+    fireEvent.change(input, { target: { value: '/goal 做个测试' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(vi.mocked(api.goalOf).mock.calls.length).toBeGreaterThan(before) })
+  })
+
+  it('mounts a dedicated any-file input for 文件 and image-only pickers elsewhere', async () => {
+    // 真机上的病根：点「文件」弹出的还是相册。现在文件那一项是 label 直连一个静态
+    // input——它从挂载起就没有 accept，浏览器没有"上一次的配置"可沿用，也不需要
+    // 程序化 click()。图片和拍照仍走现造的节点，带图片类型（拍照另外带 capture）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByPlaceholderText('说点什么...')
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    const fileItem = await screen.findByRole('menuitem', { name: /^文件/ })
+    const fileInput = fileItem.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput).not.toBeNull()
+    expect(fileInput.hasAttribute('accept')).toBe(false)
+    expect(fileInput.multiple).toBe(true)
+    expect(fileInput.classList.contains('chat-picker-input')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /拍照/ }))
+    const cameraNode = document.querySelector('input.chat-picker-input') as HTMLInputElement
+    expect(cameraNode.getAttribute('accept')).toBe('image/*')
+    expect(cameraNode.getAttribute('capture')).toBe('environment')
+    expect(cameraNode.multiple).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /图片/ }))
+    const imageNode = document.querySelector('input.chat-picker-input') as HTMLInputElement
+    expect(imageNode.getAttribute('accept')).toBe('image/*')
+    expect(imageNode.hasAttribute('capture')).toBe(false)
+    expect(imageNode.multiple).toBe(true)
+    expect(cameraNode).not.toBe(imageNode)
+  })
+
+  it('路径里有空格时用引号包起来，别让 agent 读到半截路径', async () => {
+    // 真机症状：点了宿主机上的 `D:\my project\a.ts`，输入框里是 `@D:\my project\a.ts`，
+    // agent 按空白切词只拿到 `@D:\my`，去读一个不存在的文件。
+    expect(quotePathForReference('D:\\work\\a.ts')).toBe('D:\\work\\a.ts')
+    expect(quotePathForReference('D:\\my project\\a.ts')).toBe('"D:\\my project\\a.ts"')
+    expect(quotePathForReference("D:\\a b\\c d.md")).toBe('"D:\\a b\\c d.md"')
+  })
+
+  it('inserts a host path from the 电脑文件 browser when the phone cannot pick files', async () => {
+    // 真机上系统选择器只给相机/相册时，这条是唯一能挑到文档的路：从宿主的目录列表里
+    // 点一个文件，把 `@路径` 写进输入框（这套系统里 @ 前缀就是文件引用）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    const listDirectoryMock = vi.mocked(api.listDirectory)
+    // 按路径分派，不依赖调用次数（挂载几次都拿到同一份结果）。
+    listDirectoryMock.mockImplementation(async (calledPath?: string) => {
+      if (calledPath === 'D:\\work\\sub') {
+        return {
+          path: 'D:\\work\\sub',
+          home: 'C:\\Users\\me',
+          crumbs: [{ name: 'D:\\', path: 'D:\\', hidden: false }, { name: 'work', path: 'D:\\work', hidden: false }, { name: 'sub', path: 'D:\\work\\sub', hidden: false }],
+          entries: [],
+          truncated: false,
+        }
+      }
+      return {
+        path: 'D:\\work',
+        home: 'C:\\Users\\me',
+        crumbs: [{ name: 'D:\\', path: 'D:\\', hidden: false }, { name: 'work', path: 'D:\\work', hidden: false }],
+        entries: [
+          { name: 'sub', path: 'D:\\work\\sub', hidden: false, kind: 'dir' },
+          { name: '报告.pdf', path: 'D:\\work\\报告.pdf', hidden: false, kind: 'file', bytes: 2048 },
+        ],
+        truncated: false,
+      }
+    })
+    render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByPlaceholderText('说点什么...')
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /电脑文件/ }))
+    // 目录与文件都列出来，文件带字节数。
+    await screen.findByText('sub')
+    expect(await screen.findByText('报告.pdf')).toBeTruthy()
+    expect(screen.getByText('2 KB')).toBeTruthy()
+    // 点目录是进入下一层；点文件是引用它。
+    fireEvent.click(screen.getByText('sub'))
+    await waitFor(() => { expect(listDirectoryMock).toHaveBeenLastCalledWith('D:\\work\\sub', { files: true }) })
+    await screen.findByText('这个目录是空的')
+    fireEvent.click(screen.getByRole('button', { name: '上一级' }))
+    await screen.findByText('报告.pdf')
+    fireEvent.click(screen.getByText('报告.pdf'))
+    await waitFor(() => {
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('@D:\\work\\报告.pdf ')
+    })
+  })
+
+  it('stages a picked file through the host and sends it as a receipt part', async () => {
+    // 「+」→「文件」：文件不是内联进 prompt 的，先交给宿主附件服务落盘拿 receipt，
+    // 线上只传 { type: 'file', receiptId }。这条盯的是整条链路不断。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    const { container } = render(
+      <>
+        <ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    await screen.findByPlaceholderText('说点什么...')
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^文件/ }))
+    const menuItem = await screen.findByRole('menuitem', { name: /^文件/ })
+    const picker = menuItem.querySelector('input[type="file"]') as HTMLInputElement
+    expect(picker).not.toBeNull()
+    const file = new File(['hello'], 'notes.pdf', { type: 'application/pdf' })
+    // 把上传卡在"未回包"：真机上这一步要几十秒，chip 必须在这期间就看得见。
+    const pending: { settle?: (value: { receiptId: string; name: string; bytes: number }) => void } = {}
+    vi.mocked(api.uploadAttachment).mockImplementationOnce(() => new Promise((resolve) => {
+      pending.settle = resolve
+    }) as never)
+    fireEvent.change(picker, { target: { files: [file] } })
+    // 真机反馈的现场：chip 必须**当场**出现并显示"上传中…"，而不是等回包才出现
+    // （以前发送框一片空白，看着像附件没加进去）。
+    await screen.findByText('notes.pdf')
+    expect(screen.getByText('上传中…')).toBeTruthy()
+    // 字节是在 chip 挂出来之后才读、才传的：等它到宿主。
+    await waitFor(() => { expect(vi.mocked(api.uploadAttachment)).toHaveBeenCalledTimes(1) })
+    const [calledSession, calledFile] = vi.mocked(api.uploadAttachment).mock.calls[0] ?? []
+    expect(calledSession).toBe('s-1')
+    expect(calledFile?.name).toBe('notes.pdf')
+    // 上传中不允许发（否则静默少一个文件）。
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await screen.findByText('附件还在上传，稍等一下')
+    expect(promptMock).not.toHaveBeenCalled()
+    // 回包之后 chip 从"上传中…"转成大小；这时候才允许发。
+    await act(async () => { pending.settle?.({ receiptId: 'receipt-notes.pdf', name: 'notes.pdf', bytes: 12 }) })
+    await screen.findByText('12 B')
+    expect(screen.queryByText('上传中…')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+    const parts = promptMock.mock.calls[0]?.[1] as Array<{ type: string; receiptId?: string }>
+    expect(parts.some(part => part.type === 'file' && part.receiptId === 'receipt-notes.pdf')).toBe(true)
+  })
+
+  it('上传失败的附件留在发送框里，点一下就重传', async () => {
+    // 以前失败是直接消失：发送框里什么都看不到，用户以为"附件没加进去"。
+    // 现在保留那一条、标红、可点重传；发送时被挡下（不会静默少一个文件）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    vi.mocked(api.uploadAttachment).mockRejectedValueOnce(new Error('nope'))
+    render(
+      <>
+        <ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    await screen.findByPlaceholderText('说点什么...')
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^文件/ }))
+    const picker = (await screen.findByRole('menuitem', { name: /^文件/ })).querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(picker, { target: { files: [new File(['x'], 'bad.bin')] } })
+    // 名字还在，状态是"上传失败，点按重试"。
+    await screen.findByText('bad.bin')
+    const retry = await screen.findByRole('button', { name: '重新上传 bad.bin' })
+    expect(screen.getByRole('list', { name: '待发送附件' })).toBeTruthy()
+    // 带着失败的那条发不出去。
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await screen.findByText('有附件上传失败，点一下那条重试或移除')
+    expect(promptMock).not.toHaveBeenCalled()
+    // 点重试 → 第二次成功 → 变成 ready（显示大小），可以正常发出收据。
+    fireEvent.click(retry)
+    await waitFor(() => { expect(screen.getByText('12 B')).toBeTruthy() })
+    expect(vi.mocked(api.uploadAttachment)).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+    const parts = promptMock.mock.calls[0]?.[1] as Array<{ type: string; receiptId?: string }>
+    expect(parts.some(part => part.type === 'file' && part.receiptId === 'receipt-bad.bin')).toBe(true)
+  })
+
+  it('refuses a file over 20 MB without asking the host', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    const { container } = render(
+      <>
+        <ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    await screen.findByPlaceholderText('说点什么...')
+    fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^文件/ }))
+    const picker = (await screen.findByRole('menuitem', { name: /^文件/ })).querySelector('input[type="file"]') as HTMLInputElement
+    const huge = new File(['x'], 'huge.zip')
+    Object.defineProperty(huge, 'size', { value: 21 * 1024 * 1024 })
+    fireEvent.change(picker, { target: { files: [huge] } })
+    await screen.findByText('huge.zip 超过 20 MB，已忽略')
+    expect(vi.mocked(api.uploadAttachment)).not.toHaveBeenCalled()
+  })
+
+  it('clears the goal through the host service, not a slash command', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({ type: 'session/projection', sessionId: 's-1', key: 'goal', value: { current: { id: 'g-1', objective: '要清掉的目标', phase: 'active' } } })
+    })
+    await screen.findByText('进行中的目标')
+    fireEvent.click(screen.getByLabelText('清除目标'))
+    const api = await import('../api.ts')
+    await waitFor(() => { expect(vi.mocked(api.goalAction)).toHaveBeenCalledWith('s-1', 'clear', {}) })
+    // 走了服务就不该再发命令行动作（两条都发会把同一件事做两遍）。
+    expect(vi.mocked(sendCommandMock)).not.toHaveBeenCalledWith('s-1', '/goal clear')
+  })
+
+  it('shows 继续 for a disarmed goal and re-arms it through the host service', async () => {
+    // 桌面端那条 ⏸ 只撤授权，durable 相位仍是 active。只读相位的话手机还写着
+    // 「暂停」——用户报的就是这个。插件把 activation 一起带下来，条子按桌面端
+    // 的规则换成「继续」，按下即重新授权。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const api = await import('../api.ts')
+    vi.mocked(api.goalOf).mockResolvedValue({
+      goal: { current: { id: 'g-1', objective: '暂停中的目标', phase: 'active', revision: 3 } },
+      activation: 'disarmed',
+    })
+    vi.mocked(api.goalAction).mockResolvedValue({
+      goal: { current: { id: 'g-1', objective: '暂停中的目标', phase: 'active', revision: 4 } },
+      activation: 'armed',
+    })
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('暂停中的目标')
+    // 撤授权时不该出现「暂停」（再点一次没有语义），出现的是「继续」。
+    expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '继续' }))
+    await waitFor(() => { expect(vi.mocked(api.goalAction)).toHaveBeenCalledWith('s-1', 'resume', {}) })
+    // 恢复之后条子回到「暂停」（授权回来了）。
+    await screen.findByRole('button', { name: '暂停' })
+  })
+
+  it('falls back to the /goal command when the host has no goal service', async () => {
+    // 老宿主没有 mobile.goalAction：动作仍要生效，只是语义精度退化到命令行那条路。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const api = await import('../api.ts')
+    vi.mocked(api.goalAction).mockRejectedValue(new Error('unknown method'))
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({ type: 'session/projection', sessionId: 's-1', key: 'goal', value: { current: { id: 'g-1', objective: '老宿主上的目标', phase: 'active', revision: 1 } } })
+    })
+    await screen.findByText('进行中的目标')
+    fireEvent.click(screen.getByRole('button', { name: '暂停' }))
+    await waitFor(() => { expect(vi.mocked(sendCommandMock)).toHaveBeenCalledWith('s-1', '/goal pause') })
+  })
+
+  it('flips the bar to 继续 the moment the desktop pauses (activation frame)', async () => {
+    // 桌面端点暂停只撤授权，durable 相位不变 → 没有 goal 投影帧。少了这一帧，
+    // 手机要等到重开会话才发现自己该显示「继续」。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({ type: 'session/projection', sessionId: 's-1', key: 'goal', value: { current: { id: 'g-1', objective: '桌面刚暂停的目标', phase: 'active', revision: 2 } } })
+    })
+    await screen.findByText('进行中的目标')
+    expect(screen.getByRole('button', { name: '暂停' })).toBeTruthy()
+    act(() => {
+      mux.emit({ type: 'goal/activation', sessionId: 's-1', activation: 'disarmed' })
+    })
+    await screen.findByText('已暂停的目标')
+    expect(screen.getByRole('button', { name: '继续' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
+  })
+
+  it('fills the composer with a picked command instead of running it', async () => {
+    // 桌面端从命令菜单选 `/goal` 是把它填进输入框（蓝色 chip + 光标在参数区），
+    // 由用户补目标内容再发；手机端原来选中即执行，带参命令连参数都填不了。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    fireEvent.click(screen.getByRole('button', { name: '斜杠命令' }))
+    fireEvent.click(await screen.findByRole('menuitem'))
+    // chip 出现、命令行**没有**被立刻发出去
+    expect(await screen.findByText('/goal')).toBeTruthy()
+    expect(vi.mocked(sendCommandMock)).not.toHaveBeenCalled()
+    // 参数在输入框里，回车即发：线上仍是一整行命令行
+    const box = screen.getByPlaceholderText('输入命令参数，回车执行')
+    fireEvent.change(box, { target: { value: '把手机端命令模块对齐桌面' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => {
+      expect(vi.mocked(sendCommandMock)).toHaveBeenCalledWith('s-1', '/goal 把手机端命令模块对齐桌面')
+    })
+  })
+
+  it('claims a command the user typed by hand once the directory arrives', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    fireEvent.change(screen.getByPlaceholderText('说点什么...'), { target: { value: '/goal 手敲的目标' } })
+    // 目录是异步拉回来的：回来后命令词收成 chip，参数留在输入框。
+    expect(await screen.findByText('/goal')).toBeTruthy()
+    expect((screen.getByPlaceholderText('输入命令参数，回车执行') as HTMLTextAreaElement).value).toBe('手敲的目标')
+    // chip 撤掉 = 取消这条命令：chip 与参数一起清空，输入框回到普通状态，
+    // 不能把 `/goal` 又拼回框里（点了 × 却看见命令还在，等于没生效）。
+    fireEvent.click(screen.getByRole('button', { name: '取消命令' }))
+    await waitFor(() => {
+      expect(screen.queryByText('/goal')).toBeNull()
+    })
+    const cleared = screen.getByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    expect(cleared.value).toBe('')
+  })
+
+  it('画出一条刚发出的排队消息，即使宿主快照还没带上它', async () => {
+    // 真机 bug：回合跑着时点发送，排队条还是空的。原因是两处清早：
+    //   ①写请求成功就把乐观项删了；②快照的队列版本一变就删。
+    // 而宿主读的是几分钟前的投影快照 —— 版本先涨、条目后到，中间这段时间什么都没有。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const api = await import('../api.ts')
+    // 快照：队列是空的，但版本已经是 3（说明宿主"处理过写"，却还没把条目吐出来）。
+    vi.mocked(api.sessionState).mockResolvedValueOnce({
+      sessionId: 's-1',
+      rows: [],
+      maxSeq: 0,
+      queue: [],
+      queueRevision: 3,
+      turn: { running: true },
+      asOf: Date.now(),
+    })
+    promptMock.mockResolvedValue(undefined)
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    emitSessionEvent(mux, 'turn/start', 1)
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '排队里的一条' } })
+    fireEvent.click(screen.getByRole('button', { name: '排队发送' }))
+    await waitFor(() => { expect(screen.getByText('排队里的一条')).toBeTruthy() })
   })
 
   it('steers a queued message into the running turn', async () => {
@@ -2632,8 +4562,11 @@ describe('ChatView pending-message queue dock', () => {
       })
     })
     await screen.findByText('插话消息')
-    fireEvent.click(screen.getByRole('button', { name: '插话发送' }))
+    fireEvent.click(screen.getByRole('button', { name: '立即插入当前回合' }))
     await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'steer' }) })
+    // 插队成功后排队条必须当场消失：宿主的待发投影不推到手机，只等帧的话这条
+    // 会一直挂到下一轮对账，用户看到的就是「插队发送之后排队消息没消失」。
+    await waitFor(() => { expect(screen.queryByText('插话消息')).toBeNull() })
   })
 
   it('flips running off when a steer is rejected but keeps the queue dock', async () => {
@@ -2653,19 +4586,87 @@ describe('ChatView pending-message queue dock', () => {
     await screen.findByText('插话消息')
     // The host rejects the steer because the agent is no longer running.
     vi.mocked(updateQueueMock).mockRejectedValueOnce(new RpcCallError({ code: 'steer-unavailable', message: 'current turn no longer accepts steering' }))
-    fireEvent.click(screen.getByRole('button', { name: '插话发送' }))
+    fireEvent.click(screen.getByRole('button', { name: '立即插入当前回合' }))
     await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'steer' }) })
     // The running indicator flips off (steer is only offered while running),
     // but the queue row itself stays: the view is authoritative host data and
     // converges via the next session/queue frame or the session/subscribed
     // re-baseline, never by a local clear on failure.
     await waitFor(() => {
-      expect((screen.getByRole('button', { name: '插话发送' }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByRole('button', { name: '立即插入当前回合' }) as HTMLButtonElement).disabled).toBe(true)
     })
     expect(screen.queryByText('插话消息')).not.toBeNull()
   })
+  it('宿主的错误码带命名空间前缀时，也要走「这条已经不在队列里」这条分支', async () => {
+    // 真机 bug：宿主返回 `session/queue-item-not-found`，界面判的是裸名
+    // `queue-item-not-found` —— 分支从不成立，于是把「这条已经发出去/被删除」误报成
+    // 「删除没送到宿主，检查一下网络再试」，用户只能看到一个删不掉的排队条 + 一句错话。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<><ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} /><ToastHost /></>)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q7', placement: 'queued', message: { id: 'm7', role: 'user', content: [{ type: 'text', text: '带前缀的排队' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('带前缀的排队')
+    // inbox 立刻回空队列：别触发 400ms 重试链（这个文件里还有对时序敏感的用例）。
+    vi.mocked(await import('../api.ts')).inboxOf.mockResolvedValueOnce({ inbox: { 'next-turn': [] } })
+    vi.mocked(updateQueueMock).mockRejectedValueOnce(new RpcCallError({ code: 'session/queue-item-not-found', message: 'queued item is no longer pending' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
+    await waitFor(() => { expect(screen.queryByText('带前缀的排队')).toBeNull() })
+    // 报的是真原因（toast 由 ToastHost 渲染：错误码归一化后「这条已经不在队列里」这条路才成立）
+    await waitFor(() => { expect(document.body.textContent ?? '').toContain('这条已经不在队列里了') })
+    expect(document.body.textContent ?? '').not.toContain('删除没送到宿主')
+  })
 
-  it('keeps the queue dock when a mutation is rejected (convergence arrives by frame)', async () => {
+  it('本地乐观项不能拿去调宿主：删除就是本地删掉', async () => {
+    // 乐观项 id 是 local-*，宿主根本不知道它。以前拿它去调 session.updateQueue，
+    // 必然失败并弹「删除没送到宿主」（真机：点删除，排队条还在）。
+    //
+    // 这里直接把乐观项塞进状态仓，不走发送链路 —— 发送链路会改 promptMock/inboxMock
+    // 的默认实现，漏给后面那几个对时序与回执敏感的用例（实测会连锁失败）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => { addOptimisticQueueItem('s-1', { text: '本地乐观排队', placement: 'queued' }) })
+    await screen.findByText('本地乐观排队')
+    const before = vi.mocked(updateQueueMock).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
+    await waitFor(() => { expect(screen.queryByText('本地乐观排队')).toBeNull() })
+    // 一次宿主调用都不该发出去
+    expect(vi.mocked(updateQueueMock).mock.calls.length).toBe(before)
+  })
+
+  it('drops a queued row the host no longer knows about', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    act(() => {
+      mux.emit({
+        type: 'session/queue',
+        sessionId: 's-1',
+        items: [{ id: 'q1', placement: 'queued', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: '删不掉的排队' }], source: { kind: 'user' } } }],
+      })
+    })
+    await screen.findByText('删不掉的排队')
+    // 手机上那份队列可能是打开会话时的旧快照（宿主的投影帧到不了手机），
+    // 宿主早就没有 q1 了 —— 再点删除只会得到 queue-item-not-found。
+    vi.mocked(updateQueueMock).mockRejectedValueOnce(new RpcCallError({ code: 'queue-item-not-found', message: 'no such queue item' }))
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    inboxMock.mockResolvedValue({ inbox: { 'next-turn': [] } })
+    fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
+    await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'remove' }) })
+    // 这张卡片已经没有对应的队列项了，必须走人 —— 留着就是一张删不掉的幽灵。
+    await waitFor(() => { expect(screen.queryByText('删不掉的排队')).toBeNull() })
+  })
+
+  it('asks the host again when a mutation is rejected (a claimed message must leave the dock)', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -2682,11 +4683,69 @@ describe('ChatView pending-message queue dock', () => {
     vi.mocked(updateQueueMock).mockRejectedValueOnce(new RpcCallError({ code: 'queue-item-not-found', message: 'queued item is no longer pending' }))
     fireEvent.click(screen.getByRole('button', { name: '删除排队消息' }))
     await waitFor(() => { expect(updateQueueMock).toHaveBeenCalledWith('s-1', 'q1', { kind: 'remove' }) })
-    // The queue row remains visible: the dock mirrors authoritative host
-    // snapshots, so a rejected mutation never clears it locally — the next
-    // session/queue frame (or the session/subscribed re-baseline after a
-    // reconnect) brings the true state.
-    expect(screen.queryByText('排队消息')).not.toBeNull()
+    // 行不凭空删（队列以宿主为准），但必须**立刻现查一次**：宿主说这条已开始发送，
+    // 手机上又没有投影帧，不查就永远挂着那张卡片。
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    await waitFor(() => {
+      expect(inboxMock).toHaveBeenCalledWith('s-1', { fresh: true })
+    })
+  })
+
+  it('reconciles the queue again when the phone comes back to the foreground', async () => {
+    // 真机：桌面端把排队消息投出去了，手机上那张卡片还挂着「排队中」。息屏/切后台
+    // 那段时间的帧本来就会丢，切回来必须立刻对一次账。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    const before = inboxMock.mock.calls.length
+    inboxMock.mockResolvedValue({ inbox: { 'next-turn': [] } })
+    fireEvent(document, new Event('visibilitychange'))
+    await waitFor(() => { expect(inboxMock.mock.calls.length).toBe(before + 1) })
+  })
+
+  it('keeps polling the queue after the turn ends (the old code stopped while idle)', async () => {
+    // 只在 running 时轮询，等于「这一轮结束后队列再也不会对账」——而投递恰恰发生在
+    // 回合结束前后。这里用假定时器确认空闲态仍有 10 秒一轮的对账（20 秒太慢：手机端
+    // 会在这段时间里看着队列"消失"，而桌面端一直有）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    vi.useFakeTimers()
+    try {
+      render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await act(async () => { await Promise.resolve() })
+      const before = inboxMock.mock.calls.length
+      // 一条空闲会话不该在挂载后立刻连打（那才是病）：1 秒内没有新请求。
+      await act(async () => { vi.advanceTimersByTime(1_000) })
+      expect(inboxMock.mock.calls.length).toBe(before)
+      // 但空闲态必须继续对账（回合结束后投递还得更新）：8 秒窗口内至少一轮。
+      // 现在这条节奏由原子快照承担，顺带把目标/待办/回合一起带回来。
+      await act(async () => { vi.advanceTimersByTime(8_000) })
+      expect(inboxMock.mock.calls.length).toBeGreaterThan(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the command chip on the composer line, not in a row of its own', async () => {
+    // 输入框里文字多的时候，命令那一行单独占一整行、把输入区顶得很别扭。
+    // chip 要和输入框排在同一行的中心线上。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    fireEvent.click(screen.getByRole('button', { name: '斜杠命令' }))
+    fireEvent.click(await screen.findByRole('menuitem'))
+    await screen.findByText('/goal')
+    // chip 在输入框外壳里面（和 textarea 同一个 .chat-field），不是并排的第二个控件，
+    // 也不是输入框上方另起一行。
+    const field = container.querySelector('.chat-field')
+    expect(field).not.toBeNull()
+    expect(field?.querySelector('.chat-command-chip')).not.toBeNull()
+    expect(field?.querySelector('textarea.chat-input')).not.toBeNull()
+    expect(container.querySelector('.chat-inputbar > .chat-command-chip')).toBeNull()
   })
 
   it('clears the queue dock on turn/start (claimed messages must not linger)', async () => {
@@ -2793,9 +4852,9 @@ describe('ChatView run-status strip (todo/write)', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     expect(await screen.findByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
 
-    // A new turn starts: the host clears the projection; the strip leaves.
+    // A new turn starts: the host clears the projection; the strip fades out then unmounts.
     emitSessionEvent(mux, 'turn/start', 20)
-    expect(screen.queryByRole('button', { name: /任务 / })).toBeNull()
+    await waitFor(() => { expect(screen.queryByRole('button', { name: /任务 / })).toBeNull() })
 
     // The new turn writes its own plan.
     act(() => {
@@ -2824,13 +4883,18 @@ describe('ChatView run-status strip (todo/write)', () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByRole('button', { name: '发送' })
+    // 显式放宽这一处的等待：状态条依赖异步投影落地，全量并发跑（186 个文件）时
+    // 默认 1s 会偶发超时（本地单独跑 3/3 全过）。只改等待，不改任何断言。
+    await screen.findByRole('button', { name: '发送' }, { timeout: 5_000 })
 
     act(() => {
       mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('todo/write', { todos: TODOS }, 40).event })
     })
     expect(screen.getByRole('button', { name: /任务 1\/2/ })).toBeTruthy()
 
+    // 挂一个在跑的后台任务：全完成时状态条会淡出（真机要求的「不留一条空话」），
+    // 有这个任务才还能看到这一行，正好用它验证归一化后的计数。
+    act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [{ id: 'subagent-1', kind: 'subagent', label: '整理记忆', status: 'running', startedAt: 1_700_000_000_000 }] }) })
     // The turn ends while '写代码' is still in_progress: it reads as completed
     // (the host normalizes the projection the same way), so the strip counts
     // 2/2 until the next turn/start clears the whole plan.
@@ -2865,8 +4929,10 @@ describe('ChatView run-status strip (todo/write)', () => {
         hasMore: false,
       } as SessionPage)
       historyMock.mockResolvedValue(historyPage([makeEntry('turn/end', {}, 60)]))
+      // 同上：留一个在跑的后台任务，条子才不会被「全完成自动收起」收掉。
+      act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [{ id: 'subagent-1', kind: 'subagent', label: '整理记忆', status: 'running', startedAt: 1_700_000_000_000 }] }) })
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.queryByRole('status', { name: '后台处理中' })).toBeNull()
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
       expect(screen.getByRole('button', { name: /任务 2\/2/ })).toBeTruthy()
     } finally {
       vi.useRealTimers()
@@ -2937,6 +5003,33 @@ describe('ChatView turn clock (#outputting timer)', () => {
     }
   })
 
+  it('一帧慢包不会把秒表的宿主偏移拖回去（偏移取窗口内最大值）', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('还没有消息，发一句话开始吧')
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      // 锚点是日志里的回合起点：20 秒前。
+      emitTurnStart(mux, 70, T0 - 20_000, 1)
+      // 一帧低延迟的普通事件：宿主时间比本机快 4 秒（真实偏移），
+      // 读数 = 20 + 4 = 24 秒。
+      emitChunk(mux, 71, T0 + 4_000, 1)
+      await settleLiveFold()
+      expect(procTime()).toBe('用时24秒')
+
+      // 紧接着一帧慢包：它的样本被延迟压低 4 秒。每帧直接覆盖偏移的话，
+      // 秒表会当场从 24 秒掉回 20 秒（再来一帧又跳回去 —— 就是"节奏很怪"）。
+      // 取窗口内最大值后，慢包只是没被采纳，读数不动。
+      emitChunk(mux, 72, T0, 1)
+      await settleLiveFold()
+      expect(procTime()).toBe('用时24秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('restores the clock anchor from the loaded tail page (mid-turn reload keeps the real elapsed)', async () => {
     // The window carries the open turn/start's logged time (desktop parity):
     // an entry into an already-running turn counts from the true start.
@@ -2976,12 +5069,269 @@ describe('ChatView turn clock (#outputting timer)', () => {
     }
   })
 
-  it('lights the indicator when the loaded tail page proves an open turn (roster says not running)', async () => {
-    // Reopening a chat mid-turn: the roster's running flag is AGENT liveness
-    // and reads false while the agent is parked on a subagent. A tail page
-    // carrying an open turn/start is proof the turn is still open, so the
-    // indicator must come on - nothing else ever turns it back on, because
-    // the reconcile only runs while running.
+  it('takes the clock anchor from the turn rows when the page carries none', async () => {
+    // 真机现象：有时候一进会话，用时从 0 开始数。尾页的 turnStartAt 靠"最后一条
+    // 边界"判，边界落在切口之外就是空的；此时行上也没有 turnStartAt（它的
+    // turn/start 同样在窗口外），于是整页只剩挂载时刻可用 —— 一个已经跑了 89 秒
+    // 的会话，秒表从 0 数起。行自己的时间一直在，拿它当锚点虽然略短（少了首步
+    // 的生成耗时），但方向对。
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+      loadChatPageMock.mockResolvedValue(rowPage([
+        makeEntryAt('tool/call', { turn: 0, step: 0, callId: 'c-89', name: 'bash', arguments: '{}' }, 2, T0 - 89_000),
+      ]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(procTime()).toBe('用时1分29秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  describe('ChatView queue claim / turn switching', () => {
+  /** 第 index 个助手行里的过程卡头（按 DOM 顺序）。 */
+  function procHeadAt(index: number): HTMLElement | null {
+    const rows = document.querySelectorAll('.chat-msg-assistant')
+    const row = rows[index]
+    if (row === undefined) return null
+    return row.querySelector('.chat-proc-head') as HTMLElement | null
+  }
+  function stateAt(index: number): string {
+    const head = procHeadAt(index)
+    return head === null ? '' : procStateOf(head)
+  }
+  /** 当前还在跑的过程卡数量：任何时刻最多 1 张。 */
+  function liveCount(): number {
+    return Array.from(document.querySelectorAll('.chat-msg-assistant'))
+      .filter(row => {
+        const head = row.querySelector('.chat-proc-head')
+        return head !== null && procStateOf(head as HTMLElement) === '深度求索中'
+      }).length
+  }
+
+  it('插话（steer）在同一轮里追加用户消息时，不能把正在跑的卡清零', async () => {
+    // 判据不能选「更新的用户消息」：插话、排队消息被认领都在同一轮里追加用户行。
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      emitTurnStart(mux, 300, T0 - 5_000, 0)
+      emitChunk(mux, 301, T0 - 4_000, 0)
+      await settleLiveFold()
+      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+
+      // 插话：用户行比锚点新，但轮号没变 —— 这一轮还在跑。
+      emitSessionFrame(mux, 'user/message', 302, T0 - 1_000, { id: 'u-steer', role: 'user', content: [{ type: 'text', text: '顺便再改一处' }] })
+      await settleLiveFold()
+      emitSessionFrame(mux, 'assistant/chunk', 303, T0, { turn: 0, step: 1, chunk: { type: 'text-delta', index: 0, text: '好' } })
+      await settleLiveFold()
+
+      // 同一轮可以有多张过程卡同时活着（按步分卡），但这一轮不能被清零。
+      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(liveCount()).toBeGreaterThanOrEqual(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('连续两轮都漏掉边界帧时，上一轮的卡全部落定', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      emitTurnStart(mux, 400, T0 - 90_000, 0)
+      emitChunk(mux, 401, T0 - 89_000, 0)
+      await settleLiveFold()
+      expect(stateAt(0)).toBe('深度求索中')
+      expect(liveCount()).toBe(1)
+
+      // 排队第一条被认领（边界帧全丢，只有新一轮的行到）。
+      emitSessionFrame(mux, 'assistant/message', 402, T0 - 60_000, {
+        turn: 1,
+        step: 0,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '第一条已处理' }] },
+      })
+      await settleLiveFold()
+      expect(stateAt(0)).not.toBe('深度求索中')
+      expect(liveCount()).toBe(0)
+
+      // 排队第二条被认领。
+      emitSessionFrame(mux, 'assistant/message', 403, T0 - 10_000, {
+        turn: 2,
+        step: 0,
+        message: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '第二条在处理' }] },
+      })
+      await settleLiveFold()
+      expect(stateAt(0)).not.toBe('深度求索中')
+      expect(liveCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('正常的 turn/end → turn/start 切换：旧卡落定，只有新卡在跑', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      emitTurnStart(mux, 500, T0 - 50_000, 0)
+      emitChunk(mux, 501, T0 - 49_000, 0)
+      await settleLiveFold()
+      expect(stateAt(0)).toBe('深度求索中')
+
+      emitSessionFrame(mux, 'turn/end', 502, T0 - 20_000, { turn: 0 })
+      emitTurnStart(mux, 503, T0 - 1_000, 1)
+      emitChunk(mux, 504, T0, 1)
+      await settleLiveFold()
+
+      expect(stateAt(0)).not.toBe('深度求索中')
+      expect(liveCount()).toBe(1)
+      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('ChatView queued-send affordance', () => {
+  it('says 排队 in words while a turn runs, instead of a clock badge on the paper plane', async () => {
+    // 用户原话：运行中按发送，消息从输入框消失、答案没来，以为丢了。图标必须能区分。
+    // 后来又一条：角上那只小钟又丑又看不懂 —— 直接写字最省解释。
+    // 运行中且输入框为空时主键是「停止」；一有草稿才变成「排队发送」（primaryStops）。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const first = render(
+      <ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />,
+    )
+    const runningInput = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    fireEvent.change(runningInput, { target: { value: '先排一条' } })
+    const queued = await screen.findByRole('button', { name: '排队发送' })
+    // 写字的胶囊，而不是「纸飞机 + 角上一只钟」。
+    expect(queued.textContent).toContain('排队')
+    expect(queued.querySelector('.chat-send-queued-badge')).toBeNull()
+    expect(queued.querySelector('svg')).toBeNull()
+    first.unmount()
+
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    render(<ChatView session={{ ...session, running: false }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const idleInput = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    fireEvent.change(idleInput, { target: { value: '直接发' } })
+    const sending = await screen.findByRole('button', { name: '发送' })
+    // 空闲时还是那枚纸飞机，不会误显示成「排队」。
+    expect(sending.textContent).not.toContain('排队')
+    expect(sending.querySelector('svg')).not.toBeNull()
+  })
+})
+
+describe('ChatView command directory retry', () => {
+  it('retries the directory after a failed fetch instead of caching an empty list', async () => {
+    // 真机 2026-10-22：斜杠面板有时只剩几条命令，/goal、/plan 不见。首次拉目录撞上
+    // 宿主忙/弱网时，旧代码把 [] 缓存下来，整个会话就再也拉不到。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const api = await import('../api.ts')
+    const listMock = vi.mocked(api.listCommands)
+    listMock.mockRejectedValue(new Error('busy'))
+    render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: '/' } })
+    await waitFor(() => { expect(listMock).toHaveBeenCalledTimes(1) })
+    // 失败不缓存：过了防抖窗口再敲一次斜杠，应该再问一次宿主。
+    fireEvent.change(input, { target: { value: '' } })
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    listMock.mockResolvedValue([{ name: 'goal', description: 'set or view the goal' }])
+    fireEvent.change(input, { target: { value: '/g' } })
+    await waitFor(() => { expect(listMock.mock.calls.length).toBeGreaterThan(1) })
+  })
+})
+
+describe('ChatView regenerate affordance', () => {
+  const base = { isLastMessage: true, isAssistant: true, pending: false }
+
+  it('never offers 重新生成 while the turn still looks alive', () => {
+    // 真机 2026-10-22：会话还在跑（过程框「深度求索中 · 用时 3 分 55 秒」），右下角却
+    // 摆着一颗 ↻。原来只看本地的 running：宿主重启/断流把 running 打回 false，过程框
+    // 却还挂着（turnStartAt 没有配对的 turn/end）。两边必须同源。
+    expect(offersRegenerate({ ...base, turnLive: true })).toBe(false)
+    expect(offersRegenerate({ ...base, turnLive: false })).toBe(true)
+  })
+
+  it('only decorates the last settled assistant reply', () => {
+    expect(offersRegenerate({ isLastMessage: false, isAssistant: true, pending: false, turnLive: false })).toBe(false)
+    expect(offersRegenerate({ isLastMessage: true, isAssistant: false, pending: false, turnLive: false })).toBe(false)
+    expect(offersRegenerate({ isLastMessage: true, isAssistant: true, pending: true, turnLive: false })).toBe(false)
+  })
+})
+
+describe('ChatView stale turn boundary', () => {
+  it('marks the open turn 已中断 when the roster says idle (restart killed it)', async () => {
+    // 宿主重启/断流打断的回合不会写 turn/end，打开会话时只能看到一条开着的边界。
+    // 旧逻辑把这种「边界开着但名单说不跑」判成收工，卡片落在 ok 分支显示
+    // 「已完成 ✅ 用时 X」，正文却是半句 —— 假成功。收尾词必须是「已中断」。
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), { turnStartAt: T0 - 50_000, lastEventAt: T0 - 50_000 }))
+    render(<ChatView session={{ ...session, running: false }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await flushPageLoad()
+    expect(procStateOf(lastProcHead())).toBe('已中断')
+  })
+
+
+  it('settles the previous turn when a new user message arrives without any boundary frames', async () => {
+    // turn/end 与 turn/start 是两帧，弱网/切后台时只漏了 turn/end：runningTurn 与计时锚点
+    // 就永远停在上一轮 —— 上一轮卡片一直「正在回答」并继续数秒，新一轮的秒表还从上一轮
+    // 起点算（截图里 46 秒那次）。宿主的规矩是「一条用户消息开一轮」，所以出现更新的
+    // 用户消息就等于上一轮已经结束。
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      emitTurnStart(mux, 200, T0 - 40_000)
+      emitChunk(mux, 201, T0 - 39_000)
+      await settleLiveFold()
+      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+
+      // 新一轮开始：用户消息 + 新一轮的行都在，唯独 turn/end 和 turn/start 没到。
+      emitSessionFrame(mux, 'user/message', 202, T0 - 1_000, {
+        id: 'u-2',
+        role: 'user',
+        content: [{ type: 'text', text: '继续' }],
+      })
+      await settleLiveFold()
+      emitSessionFrame(mux, 'assistant/message', 203, T0 - 500, {
+        turn: 1,
+        step: 0,
+        message: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '好' }] },
+      })
+      await settleLiveFold()
+
+      // 旧卡必须落定：活跃轮次已经翻到新一轮，不能再挂着「深度求索中」的秒表。
+      const first = document.querySelectorAll('.chat-proc-head')[0] as HTMLElement
+      expect(procStateOf(first)).not.toBe('深度求索中')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+it('does not light the indicator from a stale open turn when the host says nothing runs', async () => {
+    // A turn that died without writing its turn/end leaves an open boundary in
+    // the log. Treating that boundary as proof the turn is still open painted
+    // 输出中 over sessions the desktop knew were idle, and the last process
+    // block kept reading 深度求索中 forever. The roster's running flag is the
+    // verdict; the boundary only anchors the clock.
     vi.useFakeTimers()
     try {
       vi.setSystemTime(T0)
@@ -2990,8 +5340,36 @@ describe('ChatView turn clock (#outputting timer)', () => {
       const mux = new FakeMux()
       render(<ChatView session={{ ...session, running: false }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('settles the running indicator when the host reports the session stopped', async () => {
+    // The correction path for a lost turn/end: the roster event carries what
+    // the host believes, independently of whether this page saw the boundary.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      emitTurnStart(mux, 200, T0 - 5_000)
+      emitChunk(mux, 201, T0)
+      await settleLiveFold()
       expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
-      expect(procTime()).toBe('用时42秒')
+
+      // The host says the session is no longer running.
+      mux.emit({ type: 'session/status', sessionId: session.sessionId, running: false })
+      await settleLiveFold()
+
+      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      // The process head must settle too — the stale active-turn pointer was
+      // what kept it reading 深度求索中 with a stopwatch that never stopped.
+      expect(procStateOf(lastProcHead())).not.toBe('深度求索中')
     } finally {
       vi.useRealTimers()
     }
@@ -3023,16 +5401,15 @@ describe('ChatView turn clock (#outputting timer)', () => {
       // turn is still open, so the clock keeps counting and never restarts.
       act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
       await act(async () => { await Promise.resolve() })
-      // 10.05s of silence is past TURN_QUIET_MS, so the bottom line flips to the
-      // quiet wording — but the turn is still OPEN (the probe found its
-      // turn/start) and the link is up, so the indicator must neither vanish
-      // nor claim 连接中断.
-      expect(screen.getByRole('status', { name: '后台处理中' })).toBeTruthy()
+      // 10.05s of silence: the wording still stays 输出中 — the turn is still
+      // OPEN (the probe found its turn/start) and the link is up, so the
+      // indicator must neither vanish nor claim 连接中断.
+      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
       expect(screen.queryByRole('status', { name: '连接中断' })).toBeNull()
       // 秒表在过程卡第一行（P4 起不再挂底部状态行），锚点还是 live 帧的
       // turn/start（T0-2s）：2s + 10.05s = 12s，绝不被探针清零重来。
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
-      expect(turnStatusEl().textContent).toBe('后台处理中')
+      expect(turnStatusEl().textContent).toBe('输出中')
       expect(turnStatusEl().textContent).not.toMatch(/\d/)
       expect(procTime()).toBe('用时12秒')
       // 探针之后秒表继续往前走（没有被清零回 0）。
@@ -3076,6 +5453,40 @@ describe('ChatView turn clock (#outputting timer)', () => {
       await flushPageLoad()
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
       expect(procTime()).toBe('用时1分40秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('anchors on the row first-seen time when turn/start is out of every window', async () => {
+    // 真机返工现象：桌面端已经跑了十几分钟，手机中途进会话，秒表却从 0 秒开始。
+    // 成因是这一轮的 turn/start 早被挤出折叠窗口和边界回读窗口，兜底锚点退化成
+    // "这一行的最后一次事件时间"（活跃行上就等于现在）。首见时间才是这一轮的证据。
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      historyMock.mockResolvedValue(historyPage([]))
+      const mux = new FakeMux()
+      render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await flushPageLoad()
+      // 这一行十一分钟前就在写了（turn/start 已经不可读）。
+      emitSessionFrame(mux, 'assistant/chunk', 59, T0 - 660_000, {
+        turn: 0,
+        step: 0,
+        chunk: { type: 'reasoning-delta', index: 0, text: '先看结构' },
+      })
+      await settleLiveFold()
+      // 再推一条把它"最后一次触碰"推进到现在：time 变成 T0，首见时间不变。
+      emitSessionFrame(mux, 'assistant/chunk', 60, T0, {
+        turn: 0,
+        step: 0,
+        chunk: { type: 'reasoning-delta', index: 1, text: '再看数据' },
+      })
+      await settleLiveFold()
+      act(() => { vi.advanceTimersByTime(1_000) })
+      // 660 秒 + 1 秒 = 11分1秒。锚点若认 time（=T0）这里只会数出 1 秒，正是那个 bug。
+      expect(procTime()).toBe('用时11分1秒')
     } finally {
       vi.useRealTimers()
     }
@@ -3529,6 +5940,20 @@ describe('ChatView approval panel', () => {
   })
 })
 
+it('shows the command a pending approval would run', async () => {
+  // 宿主帧只带工具名：用户点「允许一次」时必须看得见要执行的命令。
+  loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+  fetchPendingMock.mockResolvedValue({
+    approvals: [{ rpcId: 'rpc-ap-2', approvalId: 'ap-2', toolName: 'bash', callId: 'c1', reason: '执行命令' }],
+    questions: [],
+  })
+  render(<ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+  await waitFor(() => {
+    expect(document.querySelector('.chat-approval-preview')?.textContent).toBe('ls')
+  })
+})
+
+
 describe('ChatView question panel', () => {
   it('never re-shows a question batch this phone already answered when the session is re-entered', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
@@ -3552,3 +5977,703 @@ describe('ChatView question panel', () => {
   })
 })
 
+
+describe('ChatView queue-while-running (composer primary)', () => {
+  // 桌面的规则：草稿为空才把主键让给"停止"；有草稿时主键是"发送"，走排队。手机端
+  // 曾经运行中一律变停止，于是回合进行中根本没有把消息排队的入口。
+  const typeDraft = (text: string): void => {
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: text } })
+  }
+
+  it('keeps send primary while running and names the queued delivery', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    // toast 文本只有 ToastHost 渲染（模块级 store），单挂 ChatView 看不到回执。
+    render(
+      <>
+        <ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    await screen.findByRole('button', { name: '发送' })
+
+    emitSessionEvent(mux, 'turn/start', 1)
+    // 空草稿：主键仍是停止。
+    expect((await screen.findByRole('button', { name: '停止' })) as HTMLButtonElement).toBeTruthy()
+
+    // 有草稿：主键变成"排队发送"，且停止退成旁边的小键，仍然可达。
+    typeDraft('再补一句')
+    const queued = (await screen.findByRole('button', { name: '排队发送' })) as HTMLButtonElement
+    expect(queued.disabled).toBe(false)
+    expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+
+    fireEvent.click(queued)
+    // 整套跑时别的文件在编译，1 秒的默认上限会被挤爆（实测 1.1~1.2 秒才到）；
+    // 断言本身与时长无关，这里给足 6 秒。
+    await waitFor(() => { expect(promptMock).toHaveBeenCalledWith('s-1', [{ type: 'text', text: '再补一句' }]) }, { timeout: 6000 })
+    // 排队要有回执，否则用户以为消息丢了。
+    expect(await screen.findByText('已排队，本轮结束后自动发送')).toBeTruthy()
+
+    // 发完草稿被清空：主键自动回到停止。
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '排队发送' })).toBeNull() }, { timeout: 6000 })
+    expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+  })
+
+  it('does not pop a receipt for a command that succeeds, and waits before saying 正在执行', async () => {
+    // 真机：`/goal 再做一次假测试` 一按下去，先闪一条「正在执行 /goal…」，紧接着一整段
+    // 「Goal created Status: active Objective: … Rounds… Commands…」把目标条糊住。
+    // 会话里那张命令卡就是回执；这里只留慢网的兜底提示。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    sendCommandMock.mockResolvedValue({ matched: true, text: 'Goal created Status: active Objective: 再做一个假测试' })
+    render(
+      <>
+        <ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: '/goal 再做一个假测试' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(sendCommandMock).toHaveBeenCalled() })
+    // 快命令：既不弹「正在执行」，也不弹宿主的整段回执。
+    expect(screen.queryByText(/正在执行/)).toBeNull()
+    expect(screen.queryByText(/Goal created Status/)).toBeNull()
+    sendCommandMock.mockResolvedValue({ matched: true })
+  })
+
+  it('still surfaces the host text when the command itself failed', async () => {
+    // 静默成功回执时别把失败也静默掉：参数错了要看见原因。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    sendCommandMock.mockResolvedValue({ matched: true, kind: 'error', text: '/goal 需要一个目标描述' })
+    render(
+      <>
+        <ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: '/goal' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('/goal 需要一个目标描述')).toBeTruthy()
+    sendCommandMock.mockResolvedValue({ matched: true })
+  })
+
+  it('still explains a slow command after 1.2s so the tap is never silent', async () => {
+    // 慢网兜底：1.2 秒还没回话，才提示"正在执行"，避免用户以为没点上。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    sendCommandMock.mockReturnValue(new Promise(() => {}) as never)
+    render(
+      <>
+        <ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: '/compact' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(sendCommandMock).toHaveBeenCalled() })
+    expect(screen.queryByText(/正在执行/)).toBeNull()
+    expect(await screen.findByText('正在执行 /compact…', undefined, { timeout: 3000 })).toBeTruthy()
+    sendCommandMock.mockResolvedValue({ matched: true })
+  })
+
+  it('does not claim a queue receipt when the turn only starts after the send', async () => {
+    // 宿主接单后立刻开新回合：turn/start 帧常常比 prompt 的 resolve 先到。判据若在回调
+    // 里读 running，就永远是"已排队"——用户明明没在跑任何回合，却被通知排队。
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    let resolvePrompt: (() => void) | undefined
+    promptMock.mockReturnValue(new Promise<void>((resolve) => { resolvePrompt = () => { resolve() } }))
+    const mux = new FakeMux()
+    render(
+      <>
+        <ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />
+        <ToastHost />
+      </>,
+    )
+    await screen.findByRole('button', { name: '发送' })
+    // toast 是模块级 store（2.2 秒才消退），上一条用例的回执可能还活着：先等它过期，
+    // 否则这条断言测的是别人的吐司，而不是本次发送。
+    await waitFor(() => { expect(screen.queryByText('已排队，本轮结束后自动发送')).toBeNull() }, { timeout: 8000 })
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '正常发一条' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    emitSessionEvent(mux, 'turn/start', 1)
+    await act(async () => { resolvePrompt?.() })
+
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() }, { timeout: 6000 })
+    expect(screen.queryByText('已排队，本轮结束后自动发送')).toBeNull()
+    promptMock.mockResolvedValue(undefined)
+  })
+
+  it('lets the mini stop button cancel the turn while a draft is queued', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+
+    emitSessionEvent(mux, 'turn/start', 1)
+    typeDraft('排队中')
+    // 停止是两拍：第一拍只把按钮变成「确认停止」（2.5 秒不动自动收回）。
+    fireEvent.click(await screen.findByRole('button', { name: '停止' }))
+    expect(cancelSessionMock).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: '确认停止' }))
+    await waitFor(() => { expect(cancelSessionMock).toHaveBeenCalledWith('s-1') })
+    // 停止之后主键立刻回来，草稿还在（用户没发送，只是叫停）。
+    expect(promptMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatView 上一轮卡片保持', () => {
+  it('keeps the previous card after the user sends the next message', async () => {
+    // 真机：「发送完当前消息之后，上一条消息的交付物卡片会消失」。发送后新回合的
+    // turn/start 还没到，活跃轮次的兜底用「最后出现的一轮」—— 那正好是刚刚收工的
+    // 上一轮，它的卡被当成"这轮还在跑"藏了起来。收工的轮不能再算活跃。
+    const withTurn = {
+      rows: [
+        { id: 'u-1', kind: 'user', text: '改一个文件', seq: 0, time: 0 },
+        {
+          id: 'a-1',
+          kind: 'assistant',
+          text: '好了',
+          seq: 2,
+          time: 2_000,
+          turn: 4,
+          tools: [{ callId: 'c1', name: 'edit', state: 'ok' }],
+        },
+      ],
+      maxSeq: 5,
+      hasMore: false,
+    } as unknown as ChatPageResult
+    loadChatPageMock.mockResolvedValue(withTurn)
+    historyMock.mockResolvedValue(historyPage([
+      makeEntry('turn/start', { turn: 4 }, 1),
+      makeEntry('tool/call', { turn: 4, step: 0, callId: 'c1', name: 'edit', arguments: '{"file_path":"one.ts"}' }, 2),
+      makeEntry('tool/result', {
+        turn: 4,
+        step: 0,
+        message: { source: { callId: 'c1' } },
+        meta: { path: 'one.ts', diffs: [{ path: 'one.ts', oldText: 'a', newText: 'b' }] },
+      }, 3),
+      makeEntry('turn/end', { turn: 4 }, 9),
+    ]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await waitFor(() => {
+      expect(document.querySelector('.chat-turn-tail')?.textContent ?? '').toContain('one.ts')
+    })
+    // 上一轮亲眼收工（turn/end 帧），随后用户发下一条：此时还没有新一轮的边界帧。
+    await act(async () => {
+      mux.emit({ type: 'session/event', sessionId: 's-1', event: makeEntry('turn/end', { turn: 4 }, 10).event })
+    })
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '再改一个' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+    await act(async () => { await Promise.resolve() })
+    expect(document.querySelector('.chat-turn-tail')?.textContent ?? '').toContain('one.ts')
+  })
+})
+describe('ChatView 进会话只画一次', () => {
+  it('commits the whole opened history in one go instead of page by page', async () => {
+    // 真机：「一进会话就闪烁几下」。铺开是 5 次分页读取，以前每页落地都整份换列表 +
+    // 滚动校正一次；现在拉完再提交一次。这条盯的就是"行数只跳一次"。
+    // 每页给一点延迟、内容各不相同：真机上这 5 页本来就是分开回来的，也只有让
+    // 行数真的随页增长，才看得出中间到底提交了几次。
+    let pageNo = 0
+    loadChatPageMock.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20))
+      pageNo += 1
+      return {
+        rows: [
+          { id: `u-${pageNo}`, kind: 'user', text: `更早的第 ${pageNo} 问`, seq: pageNo * 100, time: 0 },
+          {
+            id: `a-${pageNo}`,
+            kind: 'assistant',
+            text: `更早的第 ${pageNo} 答`,
+            seq: pageNo * 100 + 1,
+            time: 1,
+            turn: pageNo,
+            tools: [{ callId: `c${pageNo}`, name: 'read', state: 'ok' }],
+          },
+        ],
+        maxSeq: pageNo * 100 + 1,
+        hasMore: true,
+      } as unknown as ChatPageResult
+    })
+    const seen: number[] = []
+    const timer = setInterval(() => {
+      const count = document.querySelectorAll('.chat-msg').length
+      if (seen.at(-1) !== count) seen.push(count)
+    }, 10)
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('更早的第 5 问', undefined, { timeout: 3000 })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)) })
+    clearInterval(timer)
+    expect(loadChatPageMock.mock.calls.length).toBe(5)
+    // 骨架 → 首屏 → 铺开完：只允许两三次高度变化，不能再"一页一跳"。
+    expect(seen.length).toBeLessThanOrEqual(3)
+  })
+})
+describe('ChatView 再进会话第一帧就有内容', () => {
+  it('paints the previous rows synchronously instead of an empty frame', async () => {
+    // 真机：「一进会话就会刷新闪烁一下」。那一帧是空的：缓存页要读 IndexedDB，网络页
+    // 还要一个往返，屏幕先空、再内容。本次运行里打开过的会话走内存快照，第一帧就有
+    // 内容 —— 用例把网络页压住不返回，只允许快照顶上。
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    const first = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    first.unmount()
+    // 再进来：网络页一直不返回。
+    scrollHeightMock = 900
+    clientHeightMock = 600
+    loadChatPageMock.mockReturnValue(new Promise<ChatPageResult>(() => {}))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // 同步断言：不给 await，第一帧就必须已经有内容。
+    expect(document.querySelectorAll('.chat-msg').length).toBeGreaterThan(0)
+    expect(screen.queryByText('加载中…')).toBeNull()
+    // 而且第一帧就贴在最新一条上，不是停在顶部。
+    expect(scrollWrites.at(-1)).toBe(900)
+  })
+
+  it('still shows the loading line for a session that was never opened', async () => {
+    loadChatPageMock.mockReturnValue(new Promise<ChatPageResult>(() => {}))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    expect(document.querySelectorAll('.chat-msg')).toHaveLength(0)
+    expect(screen.getByText('加载中…')).toBeTruthy()
+  })
+})
+
+describe('ChatView 拉历史不塌列表', () => {
+  it('keeps the painted rows, cards and tool arguments when the page is leaner', async () => {
+    // 白盒实测（同一套 jsdom 环境）：再进会话时宿主只回一段**窗口**（页比屏幕短）、
+    // 工具参数被投影剥掉、报告行不带 —— 旧代码整份替换，列表从 6 行塌成 3 行、文字
+    // 改动 6 处，屏幕上就是「拉历史的时候闪一下」。合并之后行数不变、零 DOM 改动。
+    const mk = (n: number): Record<string, unknown> => ({
+      id: `a-${n}`, kind: 'assistant', text: `第 ${n} 条`, seq: n * 2, time: n * 2_000, turn: n, step: 0,
+      tools: [{ callId: `c${n}`, name: 'read', state: 'ok', arguments: `{"file_path":"f${n}.ts"}` }],
+    })
+    loadChatPageMock.mockResolvedValue({ rows: [0, 1, 2, 3, 4, 5].map(mk), maxSeq: 20, hasMore: false } as unknown as ChatPageResult)
+    historyMock.mockResolvedValue(historyPage([]))
+    const first = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('第 5 条')
+    expect(document.querySelectorAll('.chat-msg')).toHaveLength(6)
+    first.unmount()
+    // 再进来：页只回最后三条，且参数被剥掉。
+    const leanRows = [3, 4, 5].map((n) => ({
+      id: `a-${n}`, kind: 'assistant', text: `第 ${n} 条`, seq: n * 2, time: n * 2_000, turn: n, step: 0,
+      tools: [{ callId: `c${n}`, name: 'read', state: 'ok' }],
+    }))
+    let land!: (value: ChatPageResult) => void
+    loadChatPageMock.mockReturnValue(new Promise<ChatPageResult>(resolve => { land = resolve }))
+    scrollHeightMock = 1_200
+    clientHeightMock = 600
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const list = document.querySelector('.chat-scroll') as HTMLElement
+    let mutations = 0
+    const observer = new MutationObserver(records => { mutations += records.length })
+    observer.observe(list, { childList: true, subtree: true, characterData: true, attributes: true })
+    await act(async () => { land({ rows: leanRows, maxSeq: 20, hasMore: false } as unknown as ChatPageResult); await Promise.resolve() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 200)) })
+    observer.disconnect()
+    // 行数不塌、最早那条还在、一个字都没改。
+    expect(document.querySelectorAll('.chat-msg')).toHaveLength(6)
+    expect(document.body.textContent ?? '').toContain('第 0 条')
+    expect(mutations).toBe(0)
+  })
+})
+
+describe('ChatView 轮次条滑到早期的轮次', () => {
+  it('pages back to a turn the outline does not cover instead of refusing', async () => {
+    // 真机：「没法滑动历史轮次条到前面的轮次」。滑条轴按宿主最高轮次画（57 格），
+    // 但手机上真正有行的只有最近两轮，宿主大纲也只覆盖最近一段 —— 松手时以前只弹
+    // 一句「还没载入，往上滑加载历史」，一个请求都不发，滑条在早期轮次上是死的。
+    // 现在按轮次号往回翻，翻到就定位。
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('assistant/message', {
+        turn: 56,
+        step: 0,
+        message: { id: 'a-56', role: 'assistant', content: [{ type: 'text', text: '第 56 轮' }] },
+      }, 100),
+      makeEntry('assistant/message', {
+        turn: 57,
+        step: 0,
+        message: { id: 'a-57', role: 'assistant', content: [{ type: 'text', text: '第 57 轮' }] },
+      }, 110),
+    ], { hasMore: true }))
+    // 进会话的铺开链紧跟一页"没有更早的"就收尾，把手势之后的请求留给下面那条断言。
+    loadChatPageMock.mockResolvedValueOnce(rowPage([], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('第 57 轮')
+    await waitFor(() => { expect(loadChatPageMock.mock.calls.length).toBe(2) })
+    // 滚离底部：轮次条出现。
+    const scroller = document.querySelector('.chat-scroll')!
+    userScroll(scroller, 5_000)
+    const handle = await screen.findByRole('button', { name: '轮次导航：轻点开清单，按住拖动刮擦' })
+    // jsdom 没有 pointer capture：补上，手势才会走完按下→拖动→松手。
+    Object.defineProperty(handle, 'setPointerCapture', { value: () => {}, configurable: true })
+    Object.defineProperty(handle, 'hasPointerCapture', { value: () => true, configurable: true })
+    Object.defineProperty(handle, 'releasePointerCapture', { value: () => {}, configurable: true })
+    let land!: (page: ChatPageResult) => void
+    loadChatPageMock.mockReturnValueOnce(new Promise<ChatPageResult>(resolve => { land = resolve }))
+    await act(async () => { fireEvent.pointerDown(handle, { pointerId: 1, clientX: 900 }) })
+    await act(async () => { fireEvent.pointerMove(handle, { pointerId: 1, clientX: 2 }) })
+    // 松手最左边 = 第 1 轮：必须发一次翻页，而不是弹「还没载入」了事。
+    await act(async () => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 2 }) })
+    await waitFor(() => { expect(loadChatPageMock.mock.calls.length).toBe(3) })
+    expect(screen.queryByText(/还没载入/)).toBeNull()
+    // 那一页回来：第 1 轮的行必须真的被定位（焦点高亮）。
+    await act(async () => {
+      land(rowPage([makeEntry('assistant/message', {
+        turn: 1,
+        step: 0,
+        message: { id: 'a-t1', role: 'assistant', content: [{ type: 'text', text: '第 1 轮的开头' }] },
+      }, 10)], { hasMore: false }))
+    })
+    await waitFor(() => {
+      const row = document.querySelector('[data-message-id="a-t1"]')
+      expect(row).not.toBeNull()
+      expect(row?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+  })
+})
+
+describe('ChatView 跳轮次落在提问那一行', () => {
+  it('lands on the prompt, not the answer, when jumping to a turn', async () => {
+    // 真机：「历史会话定位好像并不是很准」。带 turn 的行是 assistant 的回答行，问题在
+    // 它上面一格 —— 只滚到回答行，等于把提问切在视口外，看着像跳晚了一轮。
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-56', role: 'user', content: [{ type: 'text', text: '第 56 轮的问题' }] }, 99),
+      makeEntry('assistant/message', {
+        turn: 56,
+        step: 0,
+        message: { id: 'a-56', role: 'assistant', content: [{ type: 'text', text: '第 56 轮的回答' }] },
+      }, 100),
+      makeEntry('user/message', { id: 'u-57', role: 'user', content: [{ type: 'text', text: '第 57 轮的问题' }] }, 109),
+      makeEntry('assistant/message', {
+        turn: 57,
+        step: 0,
+        message: { id: 'a-57', role: 'assistant', content: [{ type: 'text', text: '第 57 轮的回答' }] },
+      }, 110),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('第 57 轮的回答')
+    const scroller = document.querySelector('.chat-scroll')!
+    userScroll(scroller, 5_000)
+    const handle = await screen.findByRole('button', { name: '轮次导航：轻点开清单，按住拖动刮擦' })
+    Object.defineProperty(handle, 'setPointerCapture', { value: () => {}, configurable: true })
+    Object.defineProperty(handle, 'hasPointerCapture', { value: () => true, configurable: true })
+    Object.defineProperty(handle, 'releasePointerCapture', { value: () => {}, configurable: true })
+    // 轻点打开轮次清单（不移动 = 点击）。
+    await act(async () => { fireEvent.pointerDown(handle, { pointerId: 1, clientX: 900 }) })
+    await act(async () => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900 }) })
+    // 轮次清单里点最上面那条 = 第 56 轮。jsdom 里 `role=listitem` 的可及名不稳，
+    // 直接按行元素点。
+    await waitFor(() => { expect(document.querySelectorAll('.turn-row').length).toBe(2) })
+    const item = document.querySelectorAll('.turn-row')[0] as HTMLElement
+    await act(async () => { fireEvent.click(item) })
+    await waitFor(() => {
+      expect(document.querySelector('[data-message-id="u-56"]')?.classList.contains('chat-msg-focus')).toBe(true)
+    })
+    expect(document.querySelector('[data-message-id="a-56"]')?.classList.contains('chat-msg-focus')).toBe(false)
+    // 滑条读数跟着走：退到提问行之后别把"当前轮次"留在上一轮。
+    expect(document.querySelector('.chat-jump-turns-label')?.textContent ?? '').toContain('56/')
+  })
+  it('跳轮次的落点 = 提问行的真实几何，连跳两次不累积偏差', async () => {
+    // 以前窗口化时落点要用"前缀和估算"换算，跳一次偏几十像素、连跳越偏越多。
+    // 行全渲染之后落点只由那一行的 rect 决定：1234 − 8 = 1226，再跳一轮
+    // 2100 − 8 = 2092 —— 与上一次跳到哪儿无关。
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-56', role: 'user', content: [{ type: 'text', text: '第 56 轮的问题' }] }, 99),
+      makeEntry('assistant/message', {
+        turn: 56,
+        step: 0,
+        message: { id: 'a-56', role: 'assistant', content: [{ type: 'text', text: '第 56 轮的回答' }] },
+      }, 100),
+      makeEntry('user/message', { id: 'u-57', role: 'user', content: [{ type: 'text', text: '第 57 轮的问题' }] }, 109),
+      makeEntry('assistant/message', {
+        turn: 57,
+        step: 0,
+        message: { id: 'a-57', role: 'assistant', content: [{ type: 'text', text: '第 57 轮的回答' }] },
+      }, 110),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'getBoundingClientRect')
+    const rect = (top: number, height: number): DOMRect => ({
+      top, bottom: top + height, left: 0, right: 390, width: 390, height,
+      x: 0, y: top, toJSON: () => ({}),
+    } as DOMRect)
+    // 每行在"内容坐标"里的真实位置；读 rect 时减去当前 scrollTop。
+    const at: Array<[string, number]> = [['u-56', 1_234], ['a-56', 1_400], ['u-57', 2_100], ['a-57', 2_200]]
+    Object.defineProperty(Element.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: Element) {
+        const scroller = document.querySelector('.chat-scroll') as HTMLElement | null
+        const shift = scroller?.scrollTop ?? 0
+        if (scroller !== null && this === scroller) return rect(0, 600)
+        for (const [id, top] of at) {
+          if (this.closest !== undefined && this.closest(`[data-message-id="${id}"]`) !== null) return rect(top - shift, 100)
+        }
+        return rect(0, 0)
+      },
+    })
+    try {
+      render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      await screen.findByText('第 57 轮的回答')
+      // 轮次把手只在"读者离开了底部"之后出现（滑条不是给贴着底的人用的）。
+      fireEvent.scroll(document.querySelector('.chat-scroll')!, { target: { scrollTop: 5_000 } })
+      const handle = await screen.findByRole('button', { name: '轮次导航：轻点开清单，按住拖动刮擦' })
+      Object.defineProperty(handle, 'setPointerCapture', { value: () => {}, configurable: true })
+      Object.defineProperty(handle, 'hasPointerCapture', { value: () => true, configurable: true })
+      Object.defineProperty(handle, 'releasePointerCapture', { value: () => {}, configurable: true })
+      const jumpTo = async (row: number): Promise<void> => {
+        await act(async () => { fireEvent.pointerDown(handle, { pointerId: 1, clientX: 900 }) })
+        await act(async () => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900 }) })
+        await waitFor(() => { expect(document.querySelectorAll('.turn-row').length).toBeGreaterThan(row) })
+        await act(async () => { fireEvent.click(document.querySelectorAll('.turn-row')[row] as HTMLElement) })
+      }
+      await jumpTo(0)
+      await waitFor(() => { expect(scrollWrites).toContain(1_226) })
+      await jumpTo(1)
+      await waitFor(() => { expect(scrollWrites).toContain(2_092) })
+      // 连跳之后落点仍在留白上：偏差不累积。
+      const top = (document.querySelector('[data-message-id="u-57"]') as HTMLElement).getBoundingClientRect().top
+      expect(Math.abs(top - 8)).toBeLessThanOrEqual(2)
+    } finally {
+      if (original !== undefined) Object.defineProperty(Element.prototype, 'getBoundingClientRect', original)
+      else delete (Element.prototype as unknown as Record<string, unknown>)['getBoundingClientRect']
+    }
+  })
+})
+describe('ChatView 会话内搜索（期 3）', () => {
+  it('按词查询后计数按 seq 升序走，下一个/上一个循环', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好，这里是支付专项' }] }, 1),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    // 命中在窗口外时按目标 seq 取那一页；计数只在真正落地后才前进，所以这些页必须
+    // 带回目标行 —— 空页等于没落地（计数不动是对的），但那样就测不到「按 seq 升序走」。
+    loadChatPageMock.mockResolvedValue(rowPage([
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '前面这条支付' }] }, 10),
+      makeEntry('assistant/message', { id: 'a-40', role: 'assistant', content: [{ type: 'text', text: '后面这条支付' }] }, 40),
+    ], { hasMore: false }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/你好/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    const input = screen.getByPlaceholderText('搜索本会话…')
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 40, snippet: '…后面这条支付…' },
+        { kind: 'message', sessionId: 's-1', seq: 10, snippet: '…前面这条支付…' },
+      ],
+      total: 2,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(input, { target: { value: '支付' } })
+    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+    expect(searchSessionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ query: '支付', sessionId: 's-1' }),
+      expect.anything(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+    await waitFor(() => { expect(screen.getByText('2/2')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+  })
+
+  it('跳到的命中行要能看出来：整行脉冲 + 词级高亮', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '这里有一条支付专项记录' }] }, 10),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/这里有一条支付专项记录/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    searchSessionsMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-1', seq: 10, snippet: '…支付专项…' }],
+      total: 1,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 词级高亮：跳到的那一行里「支付」被 <mark> 出来（真机反馈「没有高亮显示」）。
+    await waitFor(() => {
+      expect(document.querySelector('.chat-search-mark')?.textContent).toBe('支付')
+    })
+    // 整行脉冲：定位到的行挂 chat-msg-focus。
+    expect(document.querySelector('[data-message-id="a-10"]')?.classList.contains('chat-msg-focus')).toBe(true)
+  })
+  it('命中只认正文：推理链里写着同样的词也不高亮、不展开', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '改一下代码' }] }, 1),
+      makeEntry('assistant/message', {
+        id: 'a-20',
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: '先看结构，再决定改支付这段' },
+          { type: 'text', text: '已完成修改' },
+        ],
+      }, 20),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/已完成修改/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    searchSessionsMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-1', seq: 20, snippet: '…支付…' }],
+      total: 1,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 索引只收正文答案，推理链不该成为命中：不画标记、也不替用户展开。
+    await waitFor(() => { expect(screen.getByText('1/1')).toBeTruthy() })
+    expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(0)
+    expect(document.querySelector('.chat-think-body')).toBeNull()
+    expect(document.querySelector('.chat-think')?.textContent ?? '').not.toContain('支付')
+  })
+  it('命中在窗口外时，点「下一个」会真的换成下一条的目标页', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+    ], { hasMore: true }))
+    historyMock.mockResolvedValue(historyPage([]))
+    // 每页都回空页收尾：本用例只关心"请求了哪一页"，不关心落地。
+    loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/你好/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 90, snippet: '…远处的另一处…' },
+        { kind: 'message', sessionId: 's-1', seq: 40, snippet: '…远处的一处…' },
+      ],
+      total: 2,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 第一条（seq 40，升序排第一）：直接要「到 40 为止」那一页。
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledWith('s-1', 41, expect.anything(), undefined, undefined, 80) })
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+    // 第二条（seq 90）：必须换成 91，而不是继续停在同一页。
+    await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledWith('s-1', 91, expect.anything(), undefined, undefined, 80) })
+    // 这一页是空页（目标行没送到）：落点没变，计数器就不许前进 —— 数字先走、画面
+    // 不动正是用户最早报的那条。
+    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+  })
+  it('宿主说索引还没建好时如实提示，不假装搜过', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/你好/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    searchSessionsMock.mockResolvedValue({ items: [], total: 0, hasMore: false, tookMs: 0, fallback: true } as never)
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    await waitFor(() => { expect(screen.getByText('索引建立中')).toBeTruthy() })
+  })
+  it('命中在窗口外时按目标 seq 直接要那一页（不按首页游标一页页往回翻）', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+    ], { hasMore: true }))
+    historyMock.mockResolvedValue(historyPage([]))
+    loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/你好/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    searchSessionsMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-1', seq: 40, snippet: '…远处的支付…' }],
+      total: 1,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 命中 seq=40 不在窗口里：必须直接按 41 要那一页（page ENDS at beforeSeq）。
+    await waitFor(() => {
+      expect(loadChatPageMock).toHaveBeenCalledWith('s-1', 41, expect.anything(), undefined, undefined, 80)
+    })
+  })
+
+  it('首页点进来：搜索框自动填词、计数对齐到点的那一处，可以直接按「下一个」', async () => {
+    rememberLocateIntent({ sessionId: 's-1', seq: 20, messageId: 'a-20', query: '支付' })
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '第一处支付' }] }, 10),
+      makeEntry('assistant/message', { id: 'a-20', role: 'assistant', content: [{ type: 'text', text: '第二处支付' }] }, 20),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 20, messageId: 'a-20', snippet: '…第二处支付…' },
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…第一处支付…' },
+      ],
+      total: 2,
+      hasMore: false,
+      tookMs: 1,
+    })
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // 不用点「搜索本会话」：意图里有词就自动打开并把词填进去。
+    const input = await screen.findByPlaceholderText('搜索本会话…')
+    await waitFor(() => { expect((input as HTMLInputElement).value).toBe('支付') })
+    // 对齐到 messageId=a-20 那一处（升序第 2 条），而不是归 0 跳回第一处。
+    await waitFor(() => { expect(screen.getByText('2/2')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+    clearLocateIntent('s-1')
+  })
+
+  it('命中数被宿主截断时计数带「+」，不假装只有这么多', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '这里有一条支付记录' }] }, 10),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…支付…' },
+        { kind: 'message', sessionId: 's-1', seq: 20, messageId: 'a-20', snippet: '…支付…' },
+      ],
+      total: 2,
+      hasMore: true,
+      tookMs: 1,
+    })
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/你好/)
+    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    await waitFor(() => { expect(screen.getByText('1/2+')).toBeTruthy() })
+  })
+})
+
+describe('loadTurnReportRows：按轮号读交付卡', () => {
+  it('把日志里这些轮的 turn 行折出来（翻页时和页一起提交）', async () => {
+    // history 里给两轮：第 5 轮带交付单、第 6 轮没有。只请求第 5 轮。
+    historyMock.mockResolvedValueOnce(historyPage([
+      makeEntry('turn/start', { turn: 5 }, 100),
+      makeEntry('deliverables/presented', { turn: 5, files: [{ path: 'a.ts', description: '改了个文件' }] }, 101),
+      makeEntry('assistant/message', { id: 'a5', role: 'assistant', content: [{ type: 'text', text: '做完了' }] }, 102),
+      makeEntry('turn/end', { turn: 5 }, 103),
+    ]))
+    const rows = await loadTurnReportRows('s-1', [5])
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every(row => row.kind === 'turn' && row.turn === 5)).toBe(true)
+    expect(rows[0]?.deliverables?.[0]?.path).toBe('a.ts')
+  })
+
+  it('不请求任何轮号时一次网络都不发', async () => {
+    historyMock.mockClear()
+    expect(await loadTurnReportRows('s-1', [])).toEqual([])
+    expect(historyMock).not.toHaveBeenCalled()
+  })
+})

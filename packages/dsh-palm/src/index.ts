@@ -28,11 +28,12 @@ import { isPairedDeviceRequest, makeGateListener } from './gate.ts'
 import { DshPalmPairing } from './pairing-access.ts'
 import { makeRoutes } from './routes.ts'
 import { makeMobileRoutes } from './mobile-routes.ts'
-import { makeMobileApiRoutes } from './mobile-api.ts'
+import { isLiveSessionRunning, makeMobileApiRoutes } from './mobile-api.ts'
 import { makeApiProxyAdapter } from './api-proxy-adapter.ts'
 import { SessionObserverRegistry } from './api-proxy-observe.ts'
 import { DependencyDiagnostics } from './api-proxy-diag.ts'
-import { ChatWindowService, defaultChatHistoryFetcher } from './chat-window.ts'
+import { ChatWindowService, defaultChatHistoryFetcher, withLogTurnBoundaries } from './chat-window.ts'
+import { readSessionLogTailPage } from './mobile-log-source.ts'
 import { PreviewCacheService } from './preview-cache.ts'
 import { NotifyEngine, type NotifyService } from './notify/notify-engine.ts'
 import { NotifyStore } from './notify/notify-store.ts'
@@ -134,7 +135,43 @@ export interface Config {
   enabled?: boolean
 }
 
-export const Config: z<Config> = z.object({
+/**
+ * 设置服务里我们真正用到的那一小部分（0.2.x SettingsForms）。
+ *
+ * 只写形状不写 SDK 类型：这个服务在 0.1.5 / 0.2.1 / 0.2.2 之间反复变过，
+ * 绑死具体类型会让插件在宿主小版本升级后直接编译不过。
+ */
+interface SettingsFormsLike {
+  configure?: (presentation: { auto?: boolean }) => () => void
+  describe?: (options?: { redactSecrets?: boolean }) => readonly {
+    ns?: string
+    value?: unknown
+  }[]
+}
+
+/** 从 SettingsForms.describe() 里取出本插件的命名空间值；拿不到就 undefined。 */
+function readNamespaceValues(
+  forms: SettingsFormsLike,
+  namespace: string,
+): Record<string, unknown> | undefined {
+  if (typeof forms.describe !== 'function') return undefined
+  try {
+    const entries = forms.describe({ redactSecrets: true }) ?? []
+    const found = entries.find(entry => entry.ns === namespace)
+    const value = found?.value
+    return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+  } catch {
+    // 设置提供方没挂上时 describe 会抛：退回 entry config，不打断插件。
+    return undefined
+  }
+}
+
+// 显式断言到本插件的 `z<Config>`：
+//   · 不标注 —— 旧 SDK 下推断出的类型引用嵌套 schemastery 副本，报 TS2883「无法命名」；
+//   · 直接标注 —— 新 SDK（0.2.2）里 `z` 与宿主那份 Schema 泛型不是同一个，报 TS2322 不兼容。
+// 两次都栽在「同一个包里有两份 schemastery」，所以这里走断言：类型按我们的 Schema 命名，
+// 值本身仍是 schema 对象，运行时两边都认。
+export const Config = z.object({
   tokenTtlMs: z.number().step(1).min(60_000).default(10 * 60_000).volatile(),
   offlineAfterMs: z.number().step(1).min(5_000).default(25_000).volatile(),
   maxDevices: z.number().step(1).min(1).max(64).default(4).volatile(),
@@ -145,7 +182,7 @@ export const Config: z<Config> = z.object({
   devicesFile: z.string().volatile(),
   mobileEnterToSend: z.boolean().default(true).volatile(),
   enabled: z.boolean().default(true).volatile(),
-})
+}) as unknown as z<Config>
 
 /** Presence sweep cadence (a stale device flips to disconnected within two sweeps). */
 const SWEEP_INTERVAL_MS = 10_000
@@ -311,12 +348,12 @@ function applyImpl(ctx: Context, config?: Config): void {
   // routes and stops when the plugin is disabled.
   const notify: NotifyService = (() => {
     const store = new NotifyStore(join(dshHome(), 'dsh-palm-notify.json'))
-    const engine = new NotifyEngine(apiProxy as never, store)
+    const engine = new NotifyEngine(apiProxy as never, store, isLiveSessionRunning)
     // L3 delivery rides the same decisions as the L1 SSE channel: every
     // engine event goes to the configured third-party channels (Server酱 /
     // Bark / Telegram) as best-effort outbound webhooks.
     engine.subscribe((event) => {
-      void deliverL3(store.getConfig(), event)
+      void deliverL3(store.getConfig(), event, store)
     })
     // L2 (Web Push) rides the same decisions: every event goes to the
     // stored push subscriptions; dead subscriptions are cleaned up on 410.
@@ -329,11 +366,22 @@ function applyImpl(ctx: Context, config?: Config): void {
     ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan, update }),
     ...makeMobileRoutes(),
     ...(() => {
-        const pendingTracker = new PendingTracker()
+        const pendingTracker = new PendingTracker((notice) => { notify.engine.notifyDecision(notice) })
         // Folded-view chat windows (v3): the mux-fed host cache behind
         // `mobile.readChat`. One window per opened session, live-folded by
         // the same background stream that feeds the pending tracker.
-        const chatWindows = new ChatWindowService(defaultChatHistoryFetcher(apiProxy))
+        //
+        // The history page is message-paged, so it never carries `turn/end` —
+        // the only event that holds a turn's finishing time. Boundaries are read
+        // from the log tail and merged in; without them a finished turn reports
+        // no elapsed time at all, because the fold has nothing to subtract its
+        // anchor from.
+        const chatWindows = new ChatWindowService(
+          withLogTurnBoundaries(
+            defaultChatHistoryFetcher(apiProxy),
+            (sessionId, options) => readSessionLogTailPage(sessionId, options),
+          ),
+        )
         // Batch last-message previews (v3.1): the session-list page's preview
         // lines served without per-row log reads. Lazy tail reads use the
         // history fetcher contract (tail 1 message per cold session).
@@ -387,9 +435,16 @@ function applyImpl(ctx: Context, config?: Config): void {
           // host-side, so nothing from the wire can steer a path. Pushing rides
           // the existing notify capability wired to the route deps below.
           errorDir: join(dshHome(), 'dsh-palm-errors'),
-          mobileEnterToSend: () => resolve().mobileEnterToSend,
+          // 自建搜索索引：插件自己的派生库，删了会自动重建（期 1 只写影子日志）。
+          searchIndexPath: join(dshHome(), 'dsh-palm-search.db'),          mobileEnterToSend: () => resolve().mobileEnterToSend,
           commands: ctx.get('commands'),
           agents: ctx.get('agents'),
+    // 目标服务（@deepseek-ai/dsh-goal）。宿主没装时 ctx.get 返回 undefined，
+    // 目标条退回只读投影 + /goal 命令通道。
+    goals: ctx.get('goals'),
+    // 附件服务（@deepseek-ai/dsh-client-file-upload）。宿主没装时手机端的「添加附件」
+    // 会明确回「当前宿主不支持」，而不是把 base64 塞进 prompt 假装成功。
+    fileUploads: ctx.get('fileUploads'),
           notify,
           // Credential resolution for the usage feature: the host credentials
           // service is resolved per call so a rotated key is picked up without
@@ -470,18 +525,34 @@ function applyImpl(ctx: Context, config?: Config): void {
     table.push({ kind: 'script', placement: 'head', text: UUID_POLYFILL_SCRIPT })
   }), 'dsh-palm: uuid polyfill')
 
-  // 0.1.5 settings: `ctx.settings.installSection` replaces the removed
-  // `installSettingsSection` helper; the settings service is optional, so the
-  // section registration is wrapped in an optional injection (the plugin falls
-  // back to its composition entry config when the service is absent).
+  // 设置页注册（0.2.x SettingsForms）。
+  //
+  // 旧版是 `ctx.settings.installSection(ctx, ns, Config, config, {setSource, onChange})`；
+  // 0.2.x 把这个 helper 删了，改由 SettingsForms 从**插件的 Config** 自动生成表单：
+  //   · `configure({ auto: true })` —— 打开本实例的自动表单（返回 disposer，挂到 ctx.effect）；
+  //   · `describe()` —— 读回宿主解析后的真实值（替代旧的 setSource 回传）；
+  //   · `settings/document-updated` 事件 —— 用户改完设置后同步（替代旧的 onChange）。
+  //
+  // settings 服务是可选的：拿不到就退回 composition 里 entry 的 config（旧行为一致）。
   ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, DSH_PALM_SETTINGS_NAMESPACE, Config, config ?? {}, {
-      setSource: (source: () => Config) => {
-        current = source
-        sync()
-      },
-      onChange: sync,
-    })
+    const forms = settingsCtx.settings as unknown as SettingsFormsLike | undefined
+    if (forms === undefined) return
+    if (typeof forms.configure === 'function') {
+      ctx.effect(() => forms.configure!({ auto: true }), 'dsh-palm: settings page')
+    }
+    const readBack = (): void => {
+      const live = readNamespaceValues(forms, DSH_PALM_SETTINGS_NAMESPACE)
+      if (live === undefined) return
+      current = () => live as Config
+      sync()
+    }
+    readBack()
+    ctx.effect(
+      () => ctx.on('settings/document-updated', (ns: string) => {
+        if (ns === DSH_PALM_SETTINGS_NAMESPACE) readBack()
+      }),
+      'dsh-palm: settings live sync',
+    )
   })
   sync()
 }

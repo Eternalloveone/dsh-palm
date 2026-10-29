@@ -122,12 +122,17 @@ export const CHANNEL_ADAPTERS: readonly ChannelAdapter[] = [
 ]
 
 /** Deliver one event to every configured L3 channel (best-effort). */
-export async function deliverL3(config: NotifyConfig, event: NotifyEvent): Promise<void> {
+export async function deliverL3(config: NotifyConfig, event: NotifyEvent, store?: NotifyStore): Promise<void> {
   await Promise.all(CHANNEL_ADAPTERS.map(async (adapter) => {
     try {
       await adapter.send(config, event)
+      store?.recordDelivery({ at: Date.now(), eventId: event.id, kind: event.kind, channel: adapter.name, status: 'sent' })
     } catch (error) {
       console.error(`dsh-palm: L3 channel ${adapter.name} failed`, error)
+      store?.recordDelivery({
+        at: Date.now(), eventId: event.id, kind: event.kind, channel: adapter.name, status: 'failed',
+        detail: describeError(error),
+      })
     }
   }))
 }
@@ -137,16 +142,33 @@ export async function deliverL3(config: NotifyConfig, event: NotifyEvent): Promi
  * from the push service means the subscription is dead (uninstalled app,
  * revoked permission) — it is removed so the table never grows stale.
  * The VAPID subject is a URL (the project page), never an email address.
+ *
+ * A blocked turn carries `actions`, which Android renders as lock-screen
+ * buttons — the phone answers without ever opening the app. iOS's Web Push
+ * has no action support and silently drops the field, so the same payload
+ * still works there: tapping the notification opens the app deep-linked
+ * straight onto the pending decision (see the service worker). A question is
+ * not given buttons at all: it has options, and a lock screen is the wrong
+ * place to pick between them.
  */
 export async function deliverL2(store: NotifyStore, event: NotifyEvent): Promise<void> {
   const config = store.getConfig()
   const vapid = config.vapid
   if (vapid === undefined) return
+  const decision = event.decision
   const payload = JSON.stringify({
     title: event.title,
     body: event.body,
     tag: event.id,
-    data: { sessionId: event.sessionId, workspaceId: event.workspaceId },
+    data: {
+      sessionId: event.sessionId,
+      workspaceId: event.workspaceId,
+      ...(decision !== undefined ? { decisionId: decision.id, decisionKind: decision.kind } : {}),
+      ...(decision?.rpcId !== undefined ? { decisionRpcId: decision.rpcId } : {}),
+    },
+    ...(decision !== undefined && decision.kind === 'approval'
+      ? { actions: [{ action: 'allow', title: '允许' }, { action: 'deny', title: '拒绝' }] }
+      : {}),
   })
   const proxy = pushProxy()
   const subscriptions = store.listSubscriptions()
@@ -164,14 +186,33 @@ export async function deliverL2(store: NotifyStore, event: NotifyEvent): Promise
           },
         },
       )
+      store.recordDelivery({ at: Date.now(), eventId: event.id, kind: event.kind, channel: 'web-push', status: 'sent' })
     } catch (error) {
       if (error instanceof webpush.WebPushError && (error.statusCode === 410 || error.statusCode === 404)) {
         store.removeSubscriptionByEndpoint(subscription.endpoint)
+        store.recordDelivery({
+          at: Date.now(), eventId: event.id, kind: event.kind, channel: 'web-push', status: 'failed',
+          detail: `subscription gone (${error.statusCode})`,
+        })
       } else {
         console.error('dsh-palm: L2 push failed', error)
+        store.recordDelivery({
+          at: Date.now(), eventId: event.id, kind: event.kind, channel: 'web-push', status: 'failed',
+          detail: describeError(error),
+        })
       }
     }
   }))
+}
+
+/** A short, log-safe description of a delivery failure. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    const status = (error as { statusCode?: unknown }).statusCode
+    const text = typeof status === 'number' ? `HTTP ${status} ${error.message}` : error.message
+    return text.slice(0, 120)
+  }
+  return String(error).slice(0, 120)
 }
 
 /**

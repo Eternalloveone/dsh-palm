@@ -20,6 +20,7 @@ import type { RenderMessage, ToolCallInfo } from './messages.ts'
 vi.mock('./attachment-images.ts', () => ({
   cachedAttachmentUrl: (attachmentId: string) => (attachmentId === 'sha256:abc' ? 'data:image/jpeg;base64,QUFB' : undefined),
   loadAttachmentUrl: () => Promise.resolve('data:image/jpeg;base64,QUFB'),
+  forgetAttachmentUrl: () => {},
 }))
 
 const tool: ToolCallInfo = {
@@ -327,16 +328,57 @@ describe('MessageRow flow body (layout stability)', () => {
       act(() => { vi.advanceTimersByTime(3_000) })
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时15秒')
 
-      // 偏移被重新校准（这里变小）：显示值**不回跳** —— 真机上"3 秒 → 2 秒 → 3 秒"
-      // 的闪动就是它。校准造成的向上升仍然立刻生效（ChatView 那条用例钉着），
-      // 只挡住"往回跳"这一种。
+      // 偏移被重新校准（这里变小）：读数跟着真值回落。以前这里有一层"只增不减"
+      // 的棘轮把它冻在 15 秒，代价是偏大的样本永久留在屏幕上 —— 秒表从此比桌面快，
+      // 下一帧真值追上来时一口气跨两秒（真机"突然跳 2 秒"）。抖动的源头
+      // （每帧覆盖的原始偏移）已经在 ChatView 改成取窗口内最大值，显示值不必再兜。
       view.rerender(<MessageRow message={message} showToolCalls showSystemMessages={false} clockOffsetMs={0} />)
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时15秒')
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时13秒')
     } finally {
       vi.useRealTimers()
     }
   })
 
+  it('读数按整秒向下取整，与桌面 formatRunDuration 一致', () => {
+    vi.useFakeTimers()
+    try {
+      const t0 = 1_700_000_000_000
+      vi.setSystemTime(t0)
+      const message: RenderMessage = { ...baseMessage(true), turnStartAt: t0 - 3_500 }
+      const view = render(<MessageRow message={message} showToolCalls showSystemMessages={false} />)
+      // 3.5 秒（已过 3 秒阈值）：四舍五入会显示 4 秒 —— 比桌面多一秒；向下取整是 3 秒。
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时3秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('父级心跳能把秒表叫醒：本行定时器一次都没触发也不影响读数', () => {
+    vi.useFakeTimers()
+    try {
+      const t0 = 1_700_000_000_000
+      vi.setSystemTime(t0)
+      const message: RenderMessage = { ...baseMessage(true), turnStartAt: t0 }
+      const view = render(
+        <MessageRow message={message} showToolCalls showSystemMessages={false} liveClockTick={0} />,
+      )
+      // 后台：本行的定时器被冻住（一次都没触发），系统时间却照走。
+      vi.setSystemTime(t0 + 65_000)
+      // 父级心跳每回到一次前台都会变：props 一变，memo 就挡不住这一行重渲染。
+      view.rerender(
+        <MessageRow message={message} showToolCalls showSystemMessages={false} liveClockTick={1} />,
+      )
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时1分5秒')
+      // 再一拍，读数继续跟上。
+      vi.setSystemTime(t0 + 71_000)
+      view.rerender(
+        <MessageRow message={message} showToolCalls showSystemMessages={false} liveClockTick={2} />,
+      )
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时1分11秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('renders streaming rows without any typewriter cursor (clean output)', () => {
     const message = baseMessage(
       true,
@@ -378,6 +420,44 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(screen.queryByText('old line')).toBeNull()
   })
 
+  it('发送条里画出这条消息带的文档附件（名字 + 扩展名·大小）', () => {
+    // 真机："文档已经上传、也发出去了，发送条里还是没有这个附件文档的索引"。
+    // 文件引用以前整块被丢（只折了 image 块），行里只剩文字。
+    const fileOnly: RenderMessage = {
+      id: 'u-doc',
+      kind: 'user',
+      text: '',
+      files: [{ attachmentId: 'sha256:f1', name: '季度报告.pdf', bytes: 2048 }],
+      seq: 1,
+      time: 1_000,
+    }
+    const { container } = render(
+      <MessageRow message={fileOnly} sessionId="s-1" showToolCalls showSystemMessages={false} />,
+    )
+    // 纯附件消息（文本为空）以前整行 return null，现在必须画出文件卡片。
+    expect(container.querySelector('.chat-msg-file')).not.toBeNull()
+    expect(screen.getByText('季度报告.pdf')).toBeTruthy()
+    expect(screen.getByText('PDF · 2 KB')).toBeTruthy()
+
+    // 文字 + 附件：两者都在。
+    const withText: RenderMessage = { ...fileOnly, id: 'u-doc-text', text: '看这份报告' }
+    const both = render(
+      <MessageRow message={withText} sessionId="s-1" showToolCalls showSystemMessages={false} />,
+    )
+    expect(both.container.textContent).toContain('看这份报告')
+    expect(both.container.querySelector('.chat-msg-file')).not.toBeNull()
+
+    // 有字节但没扩展名：只显示大小，不显示半截"文件"字样。
+    const noExtension = render(
+      <MessageRow
+        message={{ ...fileOnly, id: 'u-doc-2', files: [{ attachmentId: 'sha256:f2', name: 'Makefile', bytes: 12 }] }}
+        sessionId="s-1"
+        showToolCalls
+        showSystemMessages={false}
+      />,
+    )
+    expect(noExtension.container.querySelector('.chat-msg-file-meta')?.textContent).toBe('12 B')
+  })
   it('renders message images for a user row and keeps an image-only row alive', () => {
     // 事件里只有 attachmentId 引用；字节由 attachment-images 取（这里给缓存命中，
     // 组件同步拿到 data URL，测试不碰网络）。
@@ -406,5 +486,35 @@ describe('MessageRow flow body (layout stability)', () => {
       <MessageRow message={imageOnly} showToolCalls showSystemMessages={false} />,
     )
     expect(anonymous.container.querySelector('.chat-msg-image')).toBeNull()
+  })
+
+  it('falls back to the retry tile when the image bytes fail to decode', async () => {
+    // 解码失败（格式不支持 / data URL 被截断 / 图太大 OOM）时浏览器只给一块空白，
+    // 深色主题下就是用户说的「黑图」。没有 onError 就永远黑着 —— 既没有提示，也点不了重试。
+    const image = { attachmentId: 'sha256:abc', mediaType: 'image/jpeg', width: 810, height: 1440, name: 'a.jpg' }
+    const row: RenderMessage = { id: 'u-bad', kind: 'user', text: '', images: [image], seq: 1, time: 1_000 }
+    const { container } = render(
+      <MessageRow message={row} sessionId="s-1" showToolCalls showSystemMessages={false} />,
+    )
+    const img = container.querySelector('.chat-msg-image') as HTMLImageElement
+    expect(img.tagName).toBe('IMG')
+    fireEvent.error(img)
+    const retry = await screen.findByRole('listitem', { name: 'a.jpg，加载失败，点击重试' })
+    expect(retry.textContent).toContain('图片加载失败，点击重试')
+  })
+
+  it('treats a zero-sized decode as broken and offers retry', async () => {
+    // 结构损坏的 JPEG：load 事件照常来，但一个像素都没解出来（naturalWidth = 0），
+    // onError 不响、浏览器也不画东西 —— 屏幕上就是一块纯黑，连"加载中"都看不到。
+    const image = { attachmentId: 'sha256:abc', mediaType: 'image/jpeg', width: 1260, height: 940, name: 'IMG.jpg' }
+    const row: RenderMessage = { id: 'u-zero', kind: 'user', text: '', images: [image], seq: 1, time: 1_000 }
+    const { container } = render(
+      <MessageRow message={row} sessionId="s-1" showToolCalls showSystemMessages={false} />,
+    )
+    const img = container.querySelector('.chat-msg-image') as HTMLImageElement
+    // jsdom 从不真正解码，naturalWidth 恒为 0 —— 正好是这张坏图在真机上的样子。
+    fireEvent.load(img)
+    const retry = await screen.findByRole('listitem', { name: 'IMG.jpg，加载失败，点击重试' })
+    expect(retry.textContent).toContain('图片加载失败，点击重试')
   })
 })

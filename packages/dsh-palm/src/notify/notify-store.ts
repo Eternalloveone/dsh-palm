@@ -19,6 +19,10 @@ export interface NotifyConfig {
   turnThresholdMs: number
   /** Minimum gap between turn-done notifications of one session (ms). */
   turnCooldownMs: number
+  /** Duplicate suppression window for the non-urgent kinds (ms): the same
+   *  kind of event for the same session inside this window is dropped. 0
+   *  disables it. Approvals and questions ignore it — they are never noise. */
+  dedupeMs?: number
   /** VAPID key pair, generated on first Web Push enable (L2). */
   vapid?: { publicKey: string; privateKey: string }
   /** Third-party channel credentials (L3); empty strings mean disabled. */
@@ -36,7 +40,8 @@ export interface NotifyConfig {
    *  delivered notification (all channels share one decision). */
   hideDetails?: boolean
   /** Per-kind notification gates (absent → defaults: jobs off, todo on,
-   *  turns off — the quiet-by-default stance). */
+   *  turns off — the quiet-by-default stance; approvals on, because a
+   *  blocked turn is the one thing the phone must not miss). */
   kinds?: {
     /** Background jobs (bash/pwsh …) terminal transitions. */
     jobs?: boolean
@@ -44,6 +49,8 @@ export interface NotifyConfig {
     todo?: boolean
     /** Turns longer than the threshold. */
     turns?: boolean
+    /** Approval requests + questions waiting for an answer. */
+    approvals?: boolean
   }
 }
 
@@ -65,10 +72,33 @@ interface NotifyFile {
 const DEFAULT_CONFIG: NotifyConfig = {
   turnThresholdMs: 30_000,
   turnCooldownMs: 120_000,
+  dedupeMs: 15_000,
 }
 
 /** Hard cap on stored subscriptions (oldest evicted when full). */
 export const MAX_SUBSCRIPTIONS = 64
+
+/**
+ * One delivery attempt. Notifications are best-effort by design, so when one
+ * does not arrive the only way to answer "why?" is a record of what the host
+ * actually tried: which channel, for which decision, and how it ended.
+ */
+export interface DeliveryRecord {
+  at: number
+  /** The decision id (see NotifyEvent.id). */
+  eventId: string
+  kind: string
+  /** 'web-push' or a third-party adapter name. */
+  channel: string
+  /** 'dropped' means the host decided not to send it at all (duplicate, or
+   *  an internal sub-turn the user does not care about). */
+  status: 'sent' | 'failed' | 'dropped'
+  /** HTTP status / error text, truncated. */
+  detail?: string
+}
+
+/** How many delivery records to keep in memory (a debugging window, not a log). */
+const MAX_DELIVERY_RECORDS = 200
 
 /** Load a JSON file defensively; any failure yields the default shape. */
 function loadFile(file: string): NotifyFile {
@@ -190,6 +220,74 @@ export class NotifyStore {
       this.dirty = false
     } catch (error) {
       console.error('dsh-palm: failed to persist notify state', error)
+    }
+  }
+
+  /* ── delivery telemetry ──────────────────────────────────────────────── */
+
+  /** Recent delivery attempts, oldest first. Memory only: a restarted host
+   *  starts a fresh window rather than pretending it remembers. */
+  private readonly deliveries: DeliveryRecord[] = []
+
+  /** Record one attempt (bounded; oldest dropped). */
+  recordDelivery(record: DeliveryRecord): void {
+    this.deliveries.push(record)
+    if (this.deliveries.length > MAX_DELIVERY_RECORDS) {
+      this.deliveries.splice(0, this.deliveries.length - MAX_DELIVERY_RECORDS)
+    }
+  }
+
+  /** Recent attempts, newest first. */
+  recentDeliveries(limit = 40): DeliveryRecord[] {
+    return this.deliveries.slice(-limit).reverse()
+  }
+
+  /**
+   * Aggregated health for the settings page: how much went out, through
+   * which channel, and how much failed — the numbers that tell you whether
+   * silence means "nothing happened" or "delivery is broken".
+   */
+  deliverySummary(): {
+    total: number
+    sent: number
+    failed: number
+    dropped: number
+    byChannel: Array<{ channel: string; sent: number; failed: number; dropped: number }>
+    byKind: Array<{ kind: string; sent: number; failed: number; dropped: number }>
+    since: number
+  } {
+    const byChannel = new Map<string, { sent: number; failed: number; dropped: number }>()
+    const byKind = new Map<string, { sent: number; failed: number; dropped: number }>()
+    let sent = 0
+    let failed = 0
+    let dropped = 0
+    for (const record of this.deliveries) {
+      const channelEntry = byChannel.get(record.channel) ?? { sent: 0, failed: 0, dropped: 0 }
+      const kindEntry = byKind.get(record.kind) ?? { sent: 0, failed: 0, dropped: 0 }
+      if (record.status === 'sent') {
+        sent += 1
+        channelEntry.sent += 1
+        kindEntry.sent += 1
+      } else if (record.status === 'dropped') {
+        dropped += 1
+        channelEntry.dropped += 1
+        kindEntry.dropped += 1
+      } else {
+        failed += 1
+        channelEntry.failed += 1
+        kindEntry.failed += 1
+      }
+      byChannel.set(record.channel, channelEntry)
+      byKind.set(record.kind, kindEntry)
+    }
+    return {
+      total: this.deliveries.length,
+      sent,
+      failed,
+      dropped,
+      byChannel: [...byChannel].map(([channel, counts]) => ({ channel, ...counts })),
+      byKind: [...byKind].map(([kind, counts]) => ({ kind, ...counts })),
+      since: this.deliveries[0]?.at ?? 0,
     }
   }
 }

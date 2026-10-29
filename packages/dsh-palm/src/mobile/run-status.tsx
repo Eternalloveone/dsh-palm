@@ -12,12 +12,16 @@
  * @module dsh-palm/mobile/run-status
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { JobView } from '../api-proxy-types'
+import { formatRunDuration } from './run-detail.ts'
 import { Sheet } from './sheet.tsx'
 import { TaskRow } from './task-status.tsx'
 import type { TodoItem, TodoSnapshot } from './messages.ts'
 import { countRunningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from './subagent-tree.ts'
+
+/** 淡出动画时长：内容清空后先留这么久播收起动画，再整条卸载（不占位）。 */
+export const STATUS_LEAVE_MS = 320
 
 /** Rows of the flat subagent list shown before the fold (phone-friendly). */
 export const SUBAGENT_VISIBLE_MAX = 5
@@ -108,18 +112,39 @@ export function RunStatusBar({
   todo,
   jobs,
   subagents,
+  text: textOverride,
+  live = false,
   onOpen,
 }: {
   todo: TodoSnapshot | undefined
   jobs: readonly JobView[]
   subagents: readonly SubagentFlatNode[]
+  /**
+   * 外部算好的「这一条该写什么」。
+   *
+   * 给了就用它（`undefined` = 不显示）；不给才退回本组件自己按 todo/jobs/subagents
+   * 推导 —— 这是迁移期的双轨，判据最终只剩 `session-status.ts` 里的 `describeBars`。
+   */
+  text?: string | undefined
+  /** 回合是否在跑：决定左侧圆点是「活的」还是静止（以前只看任务/后台任务）。 */
+  live?: boolean
   onOpen(): void
 }) {
-  const text = useMemo(() => {
+  const derived = useMemo(() => {
     const parts: string[] = []
+    const liveJobs = liveJobCount(jobs)
+    const liveSubagents = countRunningSubagents(subagents)
+    const { done, total } = todo === undefined ? { done: 0, total: 0 } : todoCount(todo.items)
+    // 整轮都收工了、也没有还在跑的后台任务/子代理：这一条没有信息量，收起。
+    // 真机反馈：一轮跑完，发送框上凭空挂一条「任务 3/3」，像是刚冒出来的消息。
+    // 有后台任务或子代理时仍然显示（那说明还有东西在动，值得占位）。
+    const allDone = total > 0 && done === total && liveJobs === 0 && liveSubagents === 0
+    if (allDone) return parts
     if (todo !== undefined && todo.items.length > 0) {
-      const { done, total } = todoCount(todo.items)
-      parts.push(`任务 ${done}/${total}`)
+      // 在做的第几项也直接说出来：光有 3/7 看不出卡在哪一步（真机反馈：
+      // 得点开面板才知道计划停在哪）。
+      const activeIndex = todo.items.findIndex(item => item.status === 'in_progress')
+      parts.push(activeIndex >= 0 ? `任务 ${done}/${total} · 正在做第 ${activeIndex + 1} 项` : `任务 ${done}/${total}`)
     }
     if (jobs.length > 0) {
       const live = liveJobCount(jobs)
@@ -129,17 +154,116 @@ export function RunStatusBar({
     if (runningSubagents > 0) parts.push(`子代理 ${runningSubagents} 个运行中`)
     return parts
   }, [todo, jobs, subagents])
-  if (text.length === 0) return null
+  // 判据上移：给了 `text` 就照它显示（`undefined` = 不显示），本组件不再自己判断。
+  const rawText = textOverride !== undefined
+    ? (textOverride === '' ? [] : [textOverride])
+    : derived
+  // 文案完全由 `describeBars` 决定；本组件不自己造时间（那会和过程条头的用时重复）。
+  const text = rawText
+  // 淡出：内容清空时不立刻卸载，先播 320ms 的收起动画（否则条子会「啪」地消失，
+  // 下面的输入框跟着跳一下）。动画接受后真正卸载，不占位。
+  const [shown, setShown] = useState<readonly string[]>(text)
+  const [leaving, setLeaving] = useState(false)
+  const textKey = text.join('|')
+  useEffect(() => {
+    if (text.length > 0) {
+      setShown(text)
+      setLeaving(false)
+      return
+    }
+    setShown(previous => {
+      if (previous.length === 0) return previous
+      setLeaving(true)
+      return previous
+    })
+  }, [textKey])
+  useEffect(() => {
+    if (!leaving) return
+    const timer = window.setTimeout(() => {
+      setShown([])
+      setLeaving(false)
+    }, STATUS_LEAVE_MS)
+    return () => { window.clearTimeout(timer) }
+  }, [leaving])
+  if (shown.length === 0) return null
 
-  const busy = (todo !== undefined && todo.items.some(item => item.status === 'in_progress'))
+  const busy = live
+    || (todo !== undefined && todo.items.some(item => item.status === 'in_progress'))
     || liveJobCount(jobs) > 0
     || countRunningSubagents(subagents) > 0
 
   return (
-    <button type="button" className="chat-status-strip" onClick={onOpen}>
+    <button
+      type="button"
+      className={'chat-status-strip' + (leaving ? ' chat-status-strip-leaving' : '')}
+      onClick={onOpen}
+    >
       <span className={'chat-status-dot' + (busy ? ' chat-status-dot-live' : '')} aria-hidden />
-      <span className="chat-status-text">{text.join(' · ')}</span>
+      <span className="chat-status-text">{shown.join(' · ')}</span>
     </button>
+  )
+}
+
+/**
+ * 「别的会话跑完了」的顶部条。
+ *
+ * 原来这条信息是**底部浮层**（`.finish-toast`，`position: fixed; bottom: …`），
+ * 而输入区 `.chat-composer` 也钉在底部（z-index 50 < 浮层 60）—— 浮层直接把输入框盖住
+ * （真机反馈：挡到打字）。聊天页本来就有顶部状态条（HUD），这条信息放这里信息量一样，
+ * 却不占底部任何像素；底部浮层只留给「首页/运行中/设置」这些没有输入区的页面。
+ */
+export function FinishedElsewhereBar({
+  title,
+  status,
+  durationMs,
+  onOpen,
+  onDismiss,
+}: {
+  title: string
+  status: 'done' | 'error' | 'stopped'
+  durationMs?: number | undefined
+  onOpen(): void
+  onDismiss(): void
+}) {
+  const label = status === 'error' ? '出错退出' : status === 'stopped' ? '已中断' : '已完成'
+  return (
+    <div
+      className="chat-status-strip chat-finished-strip"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+    >
+      <span
+        className={'chat-finished-ic' + (status === 'error' ? ' is-bad' : status === 'stopped' ? ' is-stop' : '')}
+        aria-hidden
+      >
+        {status === 'error' ? '!' : status === 'stopped' ? '⏸' : '✓'}
+      </span>
+      <span className="chat-status-text">
+        {title}
+        {' · '}
+        {label}
+        {durationMs === undefined ? '' : ` · ${formatRunDuration(durationMs)}`}
+      </span>
+      <span className="chat-finished-chev" aria-hidden>›</span>
+      <button
+        type="button"
+        className="chat-finished-dismiss"
+        aria-label="收起这条提示"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDismiss()
+        }}
+      >
+        ✕
+      </button>
+    </div>
   )
 }
 

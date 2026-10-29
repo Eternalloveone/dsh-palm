@@ -75,6 +75,22 @@ export function mergeTurnEntries(outline: readonly TurnEntry[], localTurns: read
   return [...byTurn.values()].sort((a, b) => a.turn - b.turn)
 }
 
+/** The row a turn jump should land on: the turn's PROMPT, not its answer.
+ *  Only assistant rows carry a `turn`, so the row `turnRowIndex` finds is the
+ *  first answer row — the question that turn answers sits just above it. Landing
+ *  there is what "定位不准" looks like on device: you jump to 第 5 轮 and read the
+ *  reply with its question cut off above the viewport. Walks back over the
+ *  preceding rows that carry no turn (user prompts, command rows, tool cards of
+ *  the same turn) and stops at the previous turn's tail. Out-of-range or
+ *  already-prompt indices are returned unchanged. */
+export function turnPromptRowIndex(rows: readonly RenderMessage[], index: number): number {
+  if (index <= 0 || index >= rows.length) return Math.max(0, index)
+  if (rows[index]?.turn === undefined) return index
+  let at = index
+  while (at > 0 && rows[at - 1]?.turn === undefined) at -= 1
+  return at
+}
+
 /** The turn being read for the row at `index` (the row under the viewport top):
  *  the first row at or below it that carries a `turn`, scanning upward only as
  *  a fallback. Only assistant rows carry a turn (user prompts and command rows
@@ -158,10 +174,122 @@ export interface TurnRowLike {
   seq: number
   startSeq?: number | undefined
   turn?: number | undefined
+  /** 行的稳定 id（消息 UUID）。跨通道（history 折叠 vs readChat 投影）只有它一致。 */
+  id?: string | undefined
+  /** 行的正文（搜索定位的文本兜底）。 */
+  text?: string | undefined
+  /** 合并行（coalesceTurnMessages）保留的每一步 seq：搜索命中按它精确定位。 */
+  stepSeqs?: readonly number[] | undefined
+}
+
+/** 去掉宿主片段两端的省略号：剩下的才是真的能在正文里比对的文本。 */
+export function snippetProbe(snippet: string): string {
+  return snippet.replace(/^…+/u, '').replace(/…+$/u, '').trim()
+}
+
+/** 把连续空白（含换行、全角空格）压成单空格：索引摘要里的换行位置和正文不一样。 */
+function normalizeSpace(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim()
+}
+
+/** 行的正文是否真的带着这段命中原文（8 字窗口滑一遍，容忍 markdown 边界）。 */
+export function rowMatchesSnippet(row: TurnRowLike, snippet: string | undefined): boolean {
+  const probe = snippet === undefined ? '' : normalizeSpace(snippetProbe(snippet))
+  // 没有片段可比时只能信 seq：这是"不知道原文"的降级路径。
+  if (probe.length < 2) return true
+  const haystack = normalizeSpace(row.text ?? '')
+  // 有片段、这一行却没有可比文本（turn 尾卡、被折叠掉的步骤行）：不可信，
+  // 别拿它当落点——否则会停在一条空白/不相干的卡片上，看着就是"没定位"。
+  if (haystack === '') return false
+  if (haystack.includes(probe)) return true
+  for (let start = 0; start + 8 <= probe.length; start += 4) {
+    if (haystack.includes(probe.slice(start, start + 8))) return true
+  }
+  return false
+}
+
+/**
+ * 搜索命中的落脚行。
+ *
+ * 优先级：行 id（消息 UUID）→ **命中片段文本**→ 合并行的 stepSeqs → seq 相等。
+ * 都找不到返回 -1 —— **不要**退回「最靠近的下一条」：窗外命中一旦被兜到窗口边缘，
+ * 调用方会以为「已经在窗口里」而不去翻页，真机表现就是「点了下一个，跳到不相干的
+ * 地方」/「一动不动」。
+ *
+ * 靠 seq / stepSeqs 命中的行**必须再用片段校验一次**：索引的 seq 来自
+ * `sessions.history` 的折叠，渲染行的 seq 来自 `mobile.readChat` 的投影，两套编号
+ * 逐条并不对齐（实测命中 seq=4203 落到 seq=4203 但内容完全不同的相邻消息上）。校验
+ * 不过就当没找到，让调用方继续翻页——这正是「搜到了却停在别的段落」的根因。
+ */
+export function seqRowIndex(
+  rows: readonly TurnRowLike[],
+  seq: number,
+  messageId?: string,
+  snippet?: string,
+): number {
+  let candidate = -1
+  if (messageId !== undefined && messageId !== '') {
+    const byId = rows.findIndex(row => row.id === messageId)
+    if (byId >= 0) candidate = byId
+  }
+  const probe = snippet === undefined ? '' : normalizeSpace(snippetProbe(snippet))
+  if (probe.length >= 2) {
+    const exact = rows.findIndex(row => normalizeSpace(row.text ?? '').includes(probe))
+    if (exact >= 0) return exact
+    // 片段可能跨 markdown 边界（代码块、表格、列表标记）而整段比对不上：先试 8 字
+    // 窗口，再退到 2 字对打分。摘要里的 `**`、`|`、换行会把 8 字窗口切碎，2 字对
+    // 对切碎不敏感，只要过半对得上就认这一行——比「按 seq 撞到哪行算哪行」准得多。
+    for (let start = 0; start + 8 <= probe.length; start += 4) {
+      const window = probe.slice(start, start + 8)
+      const found = rows.findIndex(row => normalizeSpace(row.text ?? '').includes(window))
+      if (found >= 0) return found
+    }
+    let best = -1
+    let bestScore = 0
+    for (let index = 0; index < rows.length; index += 1) {
+      const haystack = normalizeSpace(rows[index]?.text ?? '')
+      if (haystack === '') continue
+      let matched = 0
+      let total = 0
+      for (let start = 0; start + 2 <= probe.length; start += 2) {
+        total += 1
+        if (haystack.includes(probe.slice(start, start + 2))) matched += 1
+      }
+      const score = total === 0 ? 0 : matched / total
+      if (score > bestScore) {
+        bestScore = score
+        best = index
+      }
+    }
+    if (best >= 0 && bestScore >= 0.6) return best
+  }
+  const byStep = rows.findIndex(row => (row.stepSeqs ?? []).includes(seq))
+  if (byStep >= 0) return byStep
+  const bySeq = rows.findIndex(row => row.seq === seq)
+  if (bySeq >= 0) return bySeq
+  return candidate
 }
 
 export function turnRowIndex(rows: readonly TurnRowLike[], turn: number, seq: number): number {
-  const byTurn = rows.findIndex(row => row.turn === turn)
-  if (byTurn >= 0) return byTurn
-  return rows.findIndex(row => seq >= (row.startSeq ?? row.seq) && seq <= row.seq)
+  if (turn >= 0) {
+    const byTurn = rows.findIndex(row => row.turn === turn)
+    if (byTurn >= 0) return byTurn
+    return rows.findIndex(row => seq >= (row.startSeq ?? row.seq) && seq <= row.seq)
+  }
+  // 只按 seq 认行（搜索命中）。命中的 seq 常常落在两行之间的空档里：轮次边界事件、
+  // 被折叠掉的步骤行、被 preferRicherRows 丢掉的那一份。真机上的表现就是
+  // 「第 -1 轮不在更早的历史里」——其实那一处就在窗口里，只是没落进任何一行的区间。
+  // 退到「最靠近的下一条」：宁可落在紧邻那一行，也别把用户丢回去。
+  const span = rows.findIndex(row => seq >= (row.startSeq ?? row.seq) && seq <= row.seq)
+  if (span >= 0) return span
+  let nearest = -1
+  let nearestStart = Number.POSITIVE_INFINITY
+  for (let i = 0; i < rows.length; i += 1) {
+    const start = rows[i]?.startSeq ?? rows[i]?.seq ?? Number.POSITIVE_INFINITY
+    if (start >= seq && start < nearestStart) {
+      nearest = i
+      nearestStart = start
+    }
+  }
+  return nearest
 }

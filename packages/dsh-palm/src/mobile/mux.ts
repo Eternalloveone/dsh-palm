@@ -27,7 +27,9 @@
 import type { MuxFrame } from '../api-proxy-types'
 import type { JobView } from '../api-proxy-types'
 import type { HistoryEntry } from '../api-proxy-types'
-import { history as fetchHistory, queueItemViewOf, type HistoryPage, type QueueItemView } from './api.ts'
+import { history as fetchHistory, listSessions as listSessionRows, queueItemViewOf, type HistoryPage, type QueueItemView } from './api.ts'
+import { runningSessions as runningSessionIds, turnState as turnStateOf } from './api.ts'
+import { RunningMirror } from './running-mirror.ts'
 import { RpcTransportError } from './rpc.ts'
 import { perfAnomaly, perfEnabled, perfMark } from './perf.ts'
 
@@ -51,6 +53,17 @@ export interface MuxClientOptions {
   stallThresholdMs?: number
   /** Clock seam for tests (defaults to Date.now). */
   now?: () => number
+  /** 宿主运行集合探针（默认走 mobile.runningSessions；测试注入假数据）。 */
+  runningProbe?: () => Promise<string[]>
+  /**
+   * 逐条复核「这个会话真的还在跑吗」（默认走 mobile.turnState —— 聊天页判定
+   * 运行中用的就是同一个接口）。宿主的运行集合本身是一份帧镜像：漏掉一条
+   * turn/end 之后要等五分钟静默上限才会掉，期间花名册页会一直说「有会话在跑」，
+   * 而点进去聊天页当场一问宿主却是空闲的。复核就是为了让两边同一口径。
+   */
+  verifyRunning?: (sessionId: string) => Promise<boolean>
+  /** 运行集合校准间隔（默认 60 秒；测试可缩短）。 */
+  runningResyncMs?: number
   /**
    * Called when the polling fallback hits a terminal (unpaired) error — the
    * device was revoked or remote control was stopped. The client has already
@@ -96,6 +109,16 @@ const DEFAULT_POLL_PAGE_SIZE = 50
  * keeps the map from growing without limit across the roster.
  */
 const MAX_CACHED_JOBS_SESSION = 64
+/** 基线帧的密集程度小于这个间隔 = 新一条连接（宿主每次重连都重订阅所有会话）。 */
+const SUBSCRIBED_GENERATION_GAP_MS = 5_000
+/** 运行集合的周期性校准间隔：漏掉的 turn/end 帧只能在下一轮探针里被纠正。 */
+const RUNNING_RESYNC_INTERVAL_MS = 60_000
+/** 校准失败的重试上限（指数退避，从 30 秒起）。 */
+const RUNNING_RESYNC_MAX_BACKOFF_MS = 5 * 60_000
+/** 证据比这个更旧的「运行中」才值得向宿主逐条复核（刚看到 turn/start 的不问）。 */
+const RUNNING_VERIFY_STALE_MS = 45_000
+/** 一轮最多复核几个会话：花名册上一屏通常 0～2 个，多的下一轮再说。 */
+const RUNNING_VERIFY_MAX = 8
 
 /**
  * Known mux frame discriminants, mirroring the host's frame union. Unknown
@@ -117,6 +140,12 @@ const MUX_FRAME_TYPES = new Set<string>([
   'session/activity',
   'session/error',
   'stream/error',
+  // Keep-alive from the host. It carries no state; the client only uses it as
+  // proof the transport is still delivering (see handleMessage). It has to be
+  // a real frame rather than an SSE comment line, because the EventSource spec
+  // discards comments without ever surfacing them to the page — which made an
+  // idle stream look dead and dropped every phone onto 3 s polling.
+  'mux/ping',
 ])
 
 /**
@@ -209,7 +238,21 @@ export class MuxClient {
    * generating before it opened — the turn/start frame itself is long gone
    * by then, and session.list's 60 s TTL can still report running:false.
    */
-  private readonly runningSessionIds = new Set<string>()
+  /** 运行中镜像（帧 + 宿主探针两路证据，见 running-mirror.ts）。 */
+  private readonly running = new RunningMirror()
+  /** 周期性校准的定时器（漏掉的 turn/end 帧只能靠它收敛）。 */
+  private runningResyncTimer: ReturnType<typeof setInterval> | undefined
+  /** 校准失败后的退避（毫秒）；成功后复位到基数。 */
+  private runningResyncBackoffMs = RUNNING_RESYNC_INTERVAL_MS
+  /** 宿主运行集合探针。 */
+  private readonly runningProbe: () => Promise<string[]>
+  /** 逐条复核「真的还在跑吗」（见 MuxClientOptions.verifyRunning）。 */
+  private readonly verifyRunning: (sessionId: string) => Promise<boolean>
+  /** 校准间隔基数。 */
+  private readonly runningResyncMs: number
+  /** 上一轮 session/subscribed 基线帧的时间：断线重连时宿主会把每个会话重新
+   *  订阅一遍，那批帧之间的间隔远小于正常帧间隔，用它识别"新一轮连接"。 */
+  private lastSubscribedAt = 0
   private source: EventSourceLike | undefined
   private stopped = false
   /** Released on purpose because the page is hidden (see {@link pause}). */
@@ -250,6 +293,10 @@ export class MuxClient {
     this.pollDelayMs = this.pollIntervalMs
     this.stallThresholdMs = options.stallThresholdMs ?? DEFAULT_STALL_THRESHOLD_MS
     this.now = options.now ?? (() => Date.now())
+    this.runningProbe = options.runningProbe ?? (async () => (await runningSessionIds()).sessionIds)
+    this.verifyRunning = options.verifyRunning ?? (async sessionId => (await turnStateOf(sessionId)).running === true)
+    this.runningResyncMs = options.runningResyncMs ?? RUNNING_RESYNC_INTERVAL_MS
+    this.runningResyncBackoffMs = this.runningResyncMs
     this.onUnpaired = options.onUnpaired
   }
 
@@ -260,11 +307,16 @@ export class MuxClient {
     this.lastDataAt = this.now()
     if (this.source === undefined) this.connect()
     this.startTick()
+    this.armRunningResync()
   }
 
   /** Close for good. */
   stop(): void {
     this.stopped = true
+    if (this.runningResyncTimer !== undefined) {
+      clearTimeout(this.runningResyncTimer)
+      this.runningResyncTimer = undefined
+    }
     this.stopTick()
     this.stopPolling()
     this.closeSource()
@@ -536,6 +588,24 @@ export class MuxClient {
           })
         }
         emitted += pageEmitted
+        // A（并流）：排队状态跟着这条轮询一起回来。
+        //
+        // 手机上的 SSE 被隧道掐断之后，对话内容全靠这条轮询续命；队列如果另开一条
+        // 请求，就多出一个会静默失败的独立通道 —— 卡片停在旧值、点删除也删不掉，
+        // 而桌面端一切正常，根源就在这里。tail 页本来就捎带投影基线
+        // （session.history 的 projections.values），白白不读太可惜。
+        if (beforeSeq === undefined) {
+          const inbox = page.projections?.values?.['inbox']
+          if (inbox !== undefined) {
+            this.emit({
+              type: 'session/projection',
+              sessionId: sessionId as SessionEventFrame['sessionId'],
+              key: 'inbox',
+              value: inbox,
+              seq: Math.max(maxSeq, 0),
+            })
+          }
+        }
         const oldestSeq = ordered.length > 0 ? seqOf(ordered[0] ?? { event: undefined }) : -1
         // The chain reached the watermark (no gap left) or returned nothing new.
         if (pageEmitted === 0 || oldestSeq === -1 || !hadWatermark) {
@@ -598,6 +668,18 @@ export class MuxClient {
     const envelope = parseMuxEnvelope(data)
     if (envelope === undefined) return
     const frame = envelope.frame
+    // Host keep-alive: proves the channel is delivering but carries no state,
+    // so it refreshes the liveness clock and stops any fallback polling without
+    // reaching subscribers. Without this the phone only ever counted real
+    // events, so an idle session tripped the stall window and fell back to 3 s
+    // polling — turning a live push channel into a delayed one precisely when
+    // the user was about to start a turn.
+    if (frame.type === 'mux/ping') {
+      this.sseAlive = true
+      this.lastDataAt = this.now()
+      if (this.polling) this.stopPolling()
+      return
+    }
     // Opt-in perf mark: stamp the frame the moment it reaches the client,
     // with its event seq when it is a session/event (later stages key spans
     // off this mark). Seq gaps beyond +1 are the transport's own loss signal.
@@ -641,8 +723,7 @@ export class MuxClient {
     const event = frame.event as { type?: unknown } | undefined
     const eventType = event?.type
     const sessionId = String(frame.sessionId)
-    if (eventType === 'turn/start') this.runningSessionIds.add(sessionId)
-    else if (eventType === 'turn/end') this.runningSessionIds.delete(sessionId)
+    this.running.observeFrame(typeof eventType === 'string' ? eventType : undefined, sessionId, this.now())
   }
 
   /**
@@ -652,7 +733,7 @@ export class MuxClient {
    * at app boot and tracks turns for the whole page lifetime).
    */
   runningSessionsSnapshot(): string[] {
-    return [...this.runningSessionIds]
+    return this.running.snapshot()
   }
 
   /**
@@ -734,6 +815,93 @@ export class MuxClient {
     const sessionId = String(frame.sessionId)
     this.cachedQueueBySession.delete(sessionId)
     this.cachedJobsBySession.delete(sessionId)
+    // 新一轮连接：断线期间发生的 turn/end 不会重放，running 集合就会一直留着
+    // 一个早已结束的会话——"运行中"页明明桌面端什么都没跑，手机却显示在跑。
+    // 基线帧是新连接最早的一批帧，用它们的密集程度认出这一轮，然后按宿主列表
+    // 校正（走插件快照，毫秒级）。
+    const now = Date.now()
+    const freshGeneration = now - this.lastSubscribedAt > SUBSCRIBED_GENERATION_GAP_MS
+    this.lastSubscribedAt = now
+    if (freshGeneration) void this.resyncRunning()
+  }
+
+  /** 用宿主的运行集合校正 running 镜像。
+   *
+   *  断线期间漏掉的 turn/end 帧永远不会重放，光靠 mux 帧攒出来的集合会一直
+   *  挂着"进行中"——桌面端早就跑完了。会话列表的 running 字段不能当判据
+   *  （它可能来自一份旧快照），宿主这份集合是权威的。 */
+  private async resyncRunning(): Promise<void> {
+    try {
+      const sessionIds = await this.runningProbe()
+      const at = this.now()
+      const confirmed = await this.confirmRunning(sessionIds, at)
+      this.running.observeRoster(confirmed, at)
+      this.running.prune(at)
+      this.runningResyncBackoffMs = this.runningResyncMs
+    } catch {
+      // 读不到就把现有集合留着：宁可多显示一个运行中，也不要悄悄吞掉。
+      // 但要有退避 —— 探针挂了却按原节奏重试，弱网下只是拿失败换流量。
+      this.runningResyncBackoffMs = Math.min(
+        RUNNING_RESYNC_MAX_BACKOFF_MS,
+        this.runningResyncBackoffMs * 2,
+      )
+    }
+  }
+
+  /**
+   * 宿主集合里的每条都要复核才进镜像。
+   *
+   *  宿主的运行集合本身也是帧镜像：漏掉一条 turn/end 之后，它要等五分钟静默
+   *  上限才会掉。这段时间花名册页一直说「运行中 N 个会话」，点进去聊天页当场
+   *  问 `mobile.turnState` 却是空闲 —— 用户看到的就是「外面说有会话在跑，进去
+   *  一个都没有」。所以这里用聊天页同一个接口逐条复核：
+   *
+   *  - 刚看到 turn/start（证据比 {@link RUNNING_VERIFY_STALE_MS} 新）的会话直接信，
+   *    不为它多发一次往返；
+   *  - 证据旧的逐条问，答「没在跑」的当场从镜像里删掉；
+   *  - 复核请求本身失败时按「还在跑」处理：弱网下宁可多显示一个，也不悄悄吞。
+   */
+  private async confirmRunning(sessionIds: readonly string[], at: number): Promise<string[]> {
+    const confirmed: string[] = []
+    const unchecked: string[] = []
+    for (const sessionId of sessionIds) {
+      const age = this.running.evidenceAge(sessionId, at)
+      if (age === undefined || age > RUNNING_VERIFY_STALE_MS) unchecked.push(sessionId)
+      else confirmed.push(sessionId)
+    }
+    const asked = unchecked.slice(0, RUNNING_VERIFY_MAX)
+    for (const sessionId of unchecked.slice(RUNNING_VERIFY_MAX)) confirmed.push(sessionId)
+    const answers = await Promise.all(asked.map(async (sessionId) => {
+      try {
+        return { sessionId, running: await this.verifyRunning(sessionId) }
+      } catch {
+        return { sessionId, running: true }
+      }
+    }))
+    for (const answer of answers) {
+      if (answer.running) confirmed.push(answer.sessionId)
+      else this.running.forget(answer.sessionId)
+    }
+    return confirmed
+  }
+
+  /**
+   * 立刻按宿主校正一次运行集合。花名册页（那个绿点 + 数字）用它代替自己再开
+   * 一条探针：两路各自维护一份「谁在跑」只会互相续命，错的那个永远退不掉。
+   */
+  refreshRunning(): Promise<void> {
+    return this.resyncRunning()
+  }
+
+  /** 起/重启周期校准定时器（间隔取当前退避值）。 */
+  private armRunningResync(): void {
+    if (this.runningResyncTimer !== undefined) clearTimeout(this.runningResyncTimer)
+    this.runningResyncTimer = setTimeout(() => {
+      this.runningResyncTimer = undefined
+      void this.resyncRunning().then(() => {
+        if (!this.stopped) this.armRunningResync()
+      })
+    }, this.runningResyncBackoffMs)
   }
 
   /** Last known queue snapshot for a session, or undefined if none seen. */

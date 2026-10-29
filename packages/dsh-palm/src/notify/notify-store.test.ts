@@ -24,7 +24,7 @@ describe('NotifyStore defaults', () => {
   it('starts with the default config and no subscriptions', () => {
     const { store, cleanup } = scratch()
     try {
-      expect(store.getConfig()).toEqual({ turnThresholdMs: 30_000, turnCooldownMs: 120_000 })
+      expect(store.getConfig()).toEqual({ turnThresholdMs: 30_000, turnCooldownMs: 120_000, dedupeMs: 15_000 })
       expect(store.listSubscriptions()).toEqual({})
     } finally {
       cleanup()

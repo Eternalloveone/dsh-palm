@@ -12,6 +12,8 @@
 /** Target sample rate (matches the transcription backend's sweet spot). */
 const SAMPLE_RATE = 16_000
 /** Hard cap on one recording (the host refuses more than ~5 minutes). */
+/** 实时字幕最少要有这么长的音频才值得发（转写一次的成本不低）。 */
+const MIN_CAPTION_MS = 1_200
 const MAX_DURATION_MS = 60_000
 
 /** Whether the runtime can record audio for transcription. */
@@ -27,6 +29,12 @@ export function voiceSupported(): boolean {
 export interface VoiceRecording {
   stop(): Promise<string>
   cancel(): void
+  /**
+   * 目前为止录到的音频（base64 WAV），用于录音中的实时字幕。
+   * 说话太短（不足 MIN_CAPTION_MS）时返回 undefined：转出来只有一个字，白花一次请求。
+   * 不改变录音状态，stop()/cancel() 之后调用返回 undefined。
+   */
+  snapshot(): string | undefined
 }
 
 /** Options for {@link startVoiceRecording}. */
@@ -46,6 +54,32 @@ export interface VoiceRecordingOptions {
    * sheet would keep showing "正在听..." past the cap.
    */
   onTimeout?: () => void
+  /**
+   * 当前输入的响度（0..1，约每 85ms 一次）。语音面板的波形靠它起伏 —— 固定动画让人
+   * 看不出麦克风到底有没有收到声音（静音、戴耳机、被别的应用抢占时尤其明显）。
+   */
+  onLevel?: (level: number) => void
+}
+
+/**
+ * Linear-interpolation downsample. iOS Safari ignores the requested
+ * AudioContext sample rate and hands back 48 kHz, which triples the upload:
+ * one minute becomes ~5.5 MB instead of ~1.9 MB. The transcriber only wants
+ * 16 kHz, so every recording is resampled down before it is encoded.
+ */
+function downsample(samples: Float32Array, fromRate: number): Float32Array {
+  if (fromRate <= SAMPLE_RATE || samples.length === 0) return samples
+  const ratio = fromRate / SAMPLE_RATE
+  const length = Math.floor(samples.length / ratio)
+  const out = new Float32Array(length)
+  for (let i = 0; i < length; i++) {
+    const at = i * ratio
+    const left = Math.floor(at)
+    const right = Math.min(left + 1, samples.length - 1)
+    const t = at - left
+    out[i] = samples[left] * (1 - t) + samples[right] * t
+  }
+  return out
 }
 
 /** Encode interleaved 16-bit PCM as a container-less WAV, base64-wrapped. */
@@ -100,6 +134,10 @@ export async function startVoiceRecording(options?: VoiceRecordingOptions): Prom
     const name = error instanceof DOMException ? error.name : ''
     if (name === 'NotAllowedError') throw new Error('麦克风权限被拒绝，请在浏览器设置中允许')
     if (name === 'NotFoundError') throw new Error('没有找到可用的麦克风')
+    // 别的应用正占着麦克风（微信语音、录音机）时浏览器给的就是这两个名字，
+    // 笼统的「录音启动失败」会让用户以为功能坏了。
+    if (name === 'NotReadableError' || name === 'TrackStartError') throw new Error('麦克风被其他应用占用，请关掉再试')
+    if (name === 'SecurityError') throw new Error('麦克风不可用（需要 HTTPS 访问）')
     throw new Error('录音启动失败')
   }
   // The caller cancelled while the mic was still authorizing: release the
@@ -112,6 +150,9 @@ export async function startVoiceRecording(options?: VoiceRecordingOptions): Prom
     ? AudioContext
     : (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
   const context = new AudioCtor({ sampleRate: SAMPLE_RATE })
+  // 授权等待（await getUserMedia）会让 iOS 把新建的上下文留在 suspended：
+  // 不 resume 的话 ScriptProcessor 一次回调都不来，录出来是空的。
+  try { await (context as unknown as { resume?: () => Promise<void> }).resume?.() } catch { /* 非致命 */ }
   const source = context.createMediaStreamSource(stream)
   const processor = context.createScriptProcessor(4096, 1, 1)
   const chunks: Float32Array[] = []
@@ -120,8 +161,25 @@ export async function startVoiceRecording(options?: VoiceRecordingOptions): Prom
   processor.onaudioprocess = (event) => {
     if (stopped) return
     const input = event.inputBuffer.getChannelData(0)
-    chunks.push(new Float32Array(input))
-    total += input.length
+    // Resample HERE, per callback, not at encode time. The cap below divides by
+    // SAMPLE_RATE, so accumulating raw samples meant the cap was measured in the
+    // capture rate — on iOS (which ignores the requested 16 kHz and hands back
+    // 48 kHz) the "60 s" limit fired at 20 s and cut the sentence in half. Doing
+    // it per callback also keeps the buffer at 16 kHz the whole time instead of
+    // holding a 48 kHz copy for a minute.
+    // Copy first: for an already-16 kHz context downsample() returns its input,
+    // and the browser reuses the WebAudio buffer between callbacks.
+    const chunk = downsample(new Float32Array(input), context.sampleRate)
+    chunks.push(chunk)
+    // 响度用同一批采样算（不挂 AnalyserNode，省一个音频节点和一次 FFT）。
+    // 语音的 RMS 大约 0.02~0.2，放大 12 倍接近 0..1；0.08 的下限让静音表现成「平」而不是「没反应」。
+    if (options?.onLevel !== undefined) {
+      let sum = 0
+      for (let i = 0; i < input.length; i += 1) sum += input[i]! * input[i]!
+      const rms = Math.sqrt(sum / Math.max(1, input.length))
+      options.onLevel(Math.min(1, Math.max(0.08, rms * 12)))
+    }
+    total += chunk.length
     // Hard cap ~ SAMPLE_RATE * seconds; past it, stop processing AND release
     // the mic — a held stream keeps the browser's recording indicator on
     // and the page warm until the user closes the sheet.
@@ -141,6 +199,17 @@ export async function startVoiceRecording(options?: VoiceRecordingOptions): Prom
   processor.connect(sink)
   sink.connect(context.destination)
 
+  /** 把已录到的所有 chunk 拼成一段 16 kHz 单声道音频。 */
+  const mergeChunks = (): Float32Array => {
+    const merged = new Float32Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      merged.set(chunk, offset)
+      offset += chunk.length
+    }
+    return merged
+  }
+
   const teardown = (): void => {
     stopped = true
     try { processor.disconnect() } catch { /* already gone */ }
@@ -158,21 +227,25 @@ export async function startVoiceRecording(options?: VoiceRecordingOptions): Prom
 
   return {
     stop(): Promise<string> {
-      const merged = new Float32Array(total)
-      let offset = 0
-      for (const chunk of chunks) {
-        merged.set(chunk, offset)
-        offset += chunk.length
-      }
-      const payload = encodeWavBase64(merged, context.sampleRate)
+      // Chunks are already 16 kHz (see onaudioprocess): resampling again here
+      // would divide by the capture ratio a second time and turn one second of
+      // speech into a third of a second.
+      const merged = mergeChunks()
+      const payload = encodeWavBase64(merged, SAMPLE_RATE)
+      const seconds = merged.length / SAMPLE_RATE
       teardown()
-      if (merged.length / context.sampleRate < 0.4) {
-        return Promise.reject(new Error('录音太短，请按住后说话至少 1 秒'))
+      if (seconds < 0.4) {
+        return Promise.reject(new Error('录音太短，请说长一点再松手'))
       }
       return Promise.resolve(payload)
     },
     cancel(): void {
       teardown()
+    },
+    snapshot(): string | undefined {
+      // 停止后不再出声：松手之后由最终转写说话。
+      if (stopped || total / SAMPLE_RATE * 1000 < MIN_CAPTION_MS) return undefined
+      return encodeWavBase64(mergeChunks(), SAMPLE_RATE)
     },
   }
 }

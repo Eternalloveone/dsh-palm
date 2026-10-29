@@ -83,15 +83,46 @@ export function compactPath(full: string, commonPrefix: string, maxChars = 28): 
   if (rest.length <= maxChars) return rest
   const parts = segments(rest.startsWith('…') ? rest.slice(1) : rest)
   if (parts.length < 2) return rest.slice(0, maxChars - 1) + '…'
-  // "…first…last": clip each kept segment so a huge leaf name can't inflate
-  // the display back past the budget.
-  const clipped = '…' + (parts[0] ?? '').slice(0, 10) + '…' + (parts[parts.length - 1] ?? '').slice(0, 10)
-  return clipped
+  // 保留**尾部**而不是"…首段…末段"：末两级才是"这是哪个项目"的答案，首段
+  // （如项目代号）往往和名字重复，拼进去只是把真实目录挤掉。实测截成
+  // "…proj-a…panel-ol" 时，两条同名工作区的副标题完全一样、分不出来。
+  const keep: string[] = []
+  let budget = maxChars - 2
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const segment = parts[i] ?? ''
+    const cost = segment.length + (keep.length > 0 ? 1 : 0)
+    if (cost > budget && keep.length > 0) break
+    // 单个名字都放不下时保留它的**尾部**：目录名区分度通常在末尾（版本号/后缀）。
+    if (cost > budget) { keep.unshift(segment.slice(-budget)); break }
+    keep.unshift(segment)
+    budget -= cost
+  }
+  return '…\\' + keep.join('\\')
 }
 
 /** Cap a preview line to `max` characters with an ellipsis. */
 function clamp(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max) + '…'
+}
+
+/**
+ * Strip the markdown a list row has no room to render: heading hashes, list
+ * bullets, quote markers, emphasis and inline-code ticks, and links (their
+ * label survives). A row that would otherwise read "## 结论" or "- 修好了"
+ * should read like the sentence the user wrote.
+ */
+function plainPreviewLine(line: string): string {
+  return line
+    .replace(/^[ \t]*#{1,6}[ \t]+/, '')
+    .replace(/^[ \t]*>+[ \t]*/, '')
+    .replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '[图片]')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/`+([^`]*)`+/g, '$1')
+    .replace(/^Task:[ \t]*/i, '')
+    .trim()
 }
 
 /**
@@ -105,8 +136,13 @@ export function previewSummary(text: string): string {
     const lang = fence[1] ?? ''
     return lang === '' ? '[代码]' : `[代码] ${lang}`
   }
-  const firstLine = text.trimStart().split('\n', 1)[0] ?? ''
-  return clamp(firstLine, 30)
+  // 跳过只有标记的行（标题行剥完就空了、分隔线、表格行），取第一条真文本。
+  for (const raw of text.trimStart().split('\n')) {
+    const line = plainPreviewLine(raw)
+    if (line === ' ' || /^(?:-{3,}|\*{3,}|_{3,}|\|)/.test(line)) continue
+    return clamp(line, 30)
+  }
+  return ''
 }
 
 /**
@@ -131,4 +167,11 @@ export function formatRunDuration(ms: number): string {
  */
 export function timeVisibility(times: readonly number[]): boolean[] {
   return times.map(() => true)
+}
+
+/** 附件大小：1024 → "1 KB"，1.5 MB → "1.5 MB"（手机上只需要个量级）。 */
+export function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
 }

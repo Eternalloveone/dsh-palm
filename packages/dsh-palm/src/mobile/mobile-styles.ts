@@ -41,6 +41,17 @@ export const mobileCss = `/* ── design tokens ──────────
   --warning: #f59e0b;
   --danger: #ef4444;
   --danger-soft: rgba(239, 68, 68, 0.1);
+  /* 状态小标签用的「淡底 + 深字」成对颜色：浅色主题是粉彩底，深色主题是半透明底，
+     这样同一个 class 在两套主题里都不会变成刺眼的浅色方块。 */
+  --tone-positive-soft: #e8f7ee;
+  --tone-positive-ink: #1a9e5c;
+  --tone-neutral-soft: #f3f4f6;
+  --tone-neutral-ink: #9aa0a8;
+  --tone-warning-soft: #fff4e5;
+  --tone-warning-ink: #e8890c;
+  --tone-info-soft: #eaf3ff;
+  --tone-info-ink: #2f6fed;
+  --tone-danger-ink: #e5484d;
   /* unified card spec */
   --card-bg: #ffffff;
   --card-border: #e8e8ed;
@@ -126,6 +137,17 @@ export const mobileCss = `/* ── design tokens ──────────
   --warning: #fbbf24;
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.14);
+  /* 状态小标签用的「淡底 + 深字」成对颜色：浅色主题是粉彩底，深色主题是半透明底，
+     这样同一个 class 在两套主题里都不会变成刺眼的浅色方块。 */
+  --tone-positive-soft: rgba(74, 222, 128, 0.15);
+  --tone-positive-ink: #4ade80;
+  --tone-neutral-soft: rgba(240, 240, 245, 0.08);
+  --tone-neutral-ink: #a0a0b0;
+  --tone-warning-soft: rgba(251, 191, 36, 0.15);
+  --tone-warning-ink: #fbbf24;
+  --tone-info-soft: rgba(99, 102, 241, 0.16);
+  --tone-info-ink: #9aa4ff;
+  --tone-danger-ink: #f87171;
   --card-bg: #13131a;
   --card-border: #1e1e2a;
   --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -181,6 +203,16 @@ export const mobileCss = `/* ── design tokens ──────────
     --warning: #fbbf24;
     --danger: #f87171;
     --danger-soft: rgba(248, 113, 113, 0.14);
+  /* 状态小标签的深色版成对颜色（见上：同一套 class 在两套主题都成立）。 */
+  --tone-positive-soft: rgba(74, 222, 128, 0.15);
+  --tone-positive-ink: #4ade80;
+  --tone-neutral-soft: rgba(240, 240, 245, 0.08);
+  --tone-neutral-ink: #a0a0b0;
+  --tone-warning-soft: rgba(251, 191, 36, 0.15);
+  --tone-warning-ink: #fbbf24;
+  --tone-info-soft: rgba(99, 102, 241, 0.16);
+  --tone-info-ink: #9aa4ff;
+  --tone-danger-ink: #f87171;
     --card-bg: #13131a;
     --card-border: #1e1e2a;
     --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -327,6 +359,57 @@ body,
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* Lazy-view placeholder (a split chunk still loading). It only holds the
+   layout: a full-height, page-coloured box with the same shape as the page
+   that is about to mount, so a cold chunk cannot make the shell jump. */
+/* 冷启动直接落进懒加载页时的骨架：页头留白 + 几条等宽灰条。以前这里是纯空
+   背景，切页时会看着像"闪一下"。 */
+.page-loading {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-page);
+}
+
+.page-loading-head {
+  flex: none;
+  height: 52px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.page-loading-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 16px;
+}
+
+.page-loading-rows span {
+  height: 13px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-surface) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
+}
+
+.page-loading-rows span:nth-child(1) { width: 72%; }
+.page-loading-rows span:nth-child(2) { width: 94%; }
+.page-loading-rows span:nth-child(3) { width: 86%; }
+.page-loading-rows span:nth-child(4) { width: 55%; }
+
+.page-loading-retry {
+  margin: 24px 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
 }
 
 .page {
@@ -794,10 +877,12 @@ body,
   justify-content: space-between;
   gap: 10px;
 }
+/* 「知道了」：40x24 摸着太费劲（审计实测），给到 32px 高 */
 .settings-installHint-btn {
+  min-height: 32px;
   flex: none;
-  padding: 4px 10px;
-  border: 1px solid var(--mobile-line, rgba(128, 128, 128, 0.35));
+  padding: 4px 12px;
+  border: 1px solid var(--border-default);
   border-radius: 999px;
   background: transparent;
   color: inherit;
@@ -848,11 +933,6 @@ body,
 .ws-icon-code > * {
   background: var(--accent-soft);
   color: var(--accent);
-}
-
-.ws-icon-test > * {
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  color: var(--warning);
 }
 
 /* Content zone. */
@@ -1119,11 +1199,11 @@ body,
   flex-shrink: 0;
   vertical-align: middle;
 }
-.settings-badge-phone { background: #e8f7ee; color: #1a9e5c; }
+.settings-badge-phone { background: var(--tone-positive-soft); color: var(--tone-positive-ink); }
 .settings-badge-sync { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
-.settings-badge-desktop { background: #f3f4f6; color: #9aa0a8; }
-.settings-badge-ro { background: #fdf0f0; color: #e5484d; }
-.settings-badge-recommend { background: #fff4e5; color: #e8890c; }
+.settings-badge-desktop { background: var(--tone-neutral-soft); color: var(--tone-neutral-ink); }
+.settings-badge-ro { background: var(--danger-soft); color: var(--tone-danger-ink); }
+.settings-badge-recommend { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
 
 /* Channel-setup disclosure (channel setup helper): native details chrome
    kept minimal so the steps read as plain description text. */
@@ -1159,7 +1239,7 @@ body,
   border: 0;
   background: transparent;
   padding: 10px 0;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
 }
 .settings-inboxRow:disabled {
@@ -1195,9 +1275,9 @@ body,
   border-radius: 4px;
   font-weight: 500;
 }
-.settings-inboxKind-task-done { background: #e8f7ee; color: #1a9e5c; }
-.settings-inboxKind-task-failed { background: #fdf0f0; color: #e5484d; }
-.settings-inboxKind-todo-done { background: #eaf3ff; color: #2f6fed; }
+.settings-inboxKind-task-done { background: var(--tone-positive-soft); color: var(--tone-positive-ink); }
+.settings-inboxKind-task-failed { background: var(--danger-soft); color: var(--tone-danger-ink); }
+.settings-inboxKind-todo-done { background: var(--tone-info-soft); color: var(--tone-info-ink); }
 .settings-inboxKind-turn-done { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
 .settings-inboxTitle {
   font-size: 13px;
@@ -1222,13 +1302,13 @@ body,
   line-height: 1;
   padding: 3px 6px;
   border-radius: 4px;
-  background: #f3f4f6;
-  color: #9aa0a8;
+  background: var(--tone-neutral-soft);
+  color: var(--tone-neutral-ink);
   margin-top: 2px;
 }
 .settings-channelState-on {
-  background: #e8f7ee;
-  color: #1a9e5c;
+  background: var(--tone-positive-soft);
+  color: var(--tone-positive-ink);
 }
 
 /* First-run welcome card: one-shot onboarding hint above the roster. */
@@ -1240,7 +1320,7 @@ body,
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--accent-soft, #eef1ff);
-  border: 1px solid var(--accent-border, #dbe1ff);
+  border: 1px solid var(--accent-soft);
 }
 .mobile-welcomeCopy { flex: 1; min-width: 0; }
 .mobile-welcomeTitle {
@@ -1256,14 +1336,16 @@ body,
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* 首次引导里的「知道了」：40x24 太难点（审计实测），给到 32px 高 */
 .mobile-welcomeClose {
+  min-height: 32px;
   flex-shrink: 0;
   border: 0;
   background: transparent;
   color: var(--accent, #4d6bfe);
   font-size: 12px;
   font-weight: 500;
-  padding: 4px 2px;
+  padding: 4px 10px;
   cursor: pointer;
 }
 
@@ -1320,8 +1402,8 @@ body,
   line-height: 1;
   padding: 2px 5px;
   border-radius: 4px;
-  background: #f3f4f6;
-  color: #9aa0a8;
+  background: var(--tone-neutral-soft);
+  color: var(--tone-neutral-ink);
   vertical-align: middle;
 }
 
@@ -1339,7 +1421,7 @@ body,
   border: 1px dashed var(--card-border);
   border-radius: 10px;
   padding: 10px 12px;
-  background: var(--bg-subtle, #fafbfc);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
   font-size: 12.5px;
   cursor: pointer;
@@ -1373,6 +1455,24 @@ body,
   font-weight: 500;
   text-align: right;
   word-break: break-all;
+}
+
+/* 用量要等宿主跑一遍 provider 余额查询（实测 3 秒+），期间只有一行「加载中…」，
+   看着像卡死。给个骨架条。 */
+.settings-skeleton {
+  display: block;
+  height: 14px;
+  margin: 6px 0;
+  width: 62%;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-default) 50%, var(--bg-input) 75%);
+  background-size: 200% 100%;
+  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes settings-skeleton-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 .settings-group {
@@ -1459,10 +1559,16 @@ button.settings-row:focus-visible {
 }
 
 .settings-rowValue {
+  /* 右值自己限宽：给第三轨封百分比会把 42% 白送给它，标题列只剩四五个字。
+     限在 6em（约 78px）以内，短值照常显示，长值自己出省略号。 */
+  max-width: 6em;
+  min-width: 0;
   color: var(--text-quaternary);
   font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-note {
@@ -1633,11 +1739,14 @@ button.settings-row:focus-visible {
   color: var(--accent);
   font-weight: 500;
 }/* Toggle switch: 44 × 24, 12px radius, accent when on. */
+/* 审计实测 44x24：开关本体只有 24px 高，拇指容易点空。
+   视觉轨道保持 24，热区加到 32（padding + content-box 裁切）。 */
 .settings-switch{
+  /* 审计实测只有 44x24：热区太小。高度给到 32（滑钮按 24 居中，视觉基本不变）。 */
   position: relative;
   flex: none;
   width: 44px;
-  height: 24px;
+  min-height: 32px;
   padding: 0;
   border: none;
   border-radius: 12px;
@@ -2237,9 +2346,30 @@ button.settings-row:focus-visible {
   flex-shrink: 0;
 }
 
-/* Density preference (settings): 紧凑 tightens the message rhythm. */
+/* Density preference (settings): 紧凑把整个消息节奏收紧一格。
+   只改 .chat-scroll 的 gap 时每条只差 4px（12→8），一屏八条才差 28px，真机上
+   等于看不出（实测反馈）。所以连用户气泡的内边距、段落间距、正文行高一起收。 */
 [data-density='compact'] .chat-scroll {
-  gap: var(--space-2);
+  gap: 8px;
+}
+
+[data-density='compact'] .chat-msg-user {
+  padding: 8px 14px;
+}
+
+[data-density='compact'] .chat-md + .chat-md,
+[data-density='compact'] .chat-flow-text + .chat-flow-text,
+[data-density='compact'] .chat-md + .chat-flow-text,
+[data-density='compact'] .chat-flow-text + .chat-md {
+  margin-top: 10px;
+}
+
+[data-density='compact'] .chat-md-body p + p {
+  margin-top: 10px;
+}
+
+[data-density='compact'] .chat-md-body {
+  line-height: 1.55;
 }
 
 /* Jump-to-latest: a floating round button pinned to the bottom-right of
@@ -2258,8 +2388,8 @@ button.settings-row:focus-visible {
   height: 40px;
   border-radius: 50%;
   border: 1px solid var(--border-subtle);
-  background: var(--surface-2);
-  color: var(--text-2);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   cursor: pointer;
   /* Same press-vs-selection guard as the turn handle: a held press on the
@@ -2303,13 +2433,21 @@ button.settings-row:focus-visible {
   50% { box-shadow: 0 2px 18px var(--accent-soft, rgba(124, 108, 255, 0.45)); }
 }
 
-/* Font-size preference: 小 / 标准 / 大 on message text. */
-[data-font-scale='small'] .chat-msg {
-  font-size: 14px;
+/* Font-size preference: 小 / 标准 / 大。三档是 13 / 15 / 18px —— 原先 14/15/16.5
+   只差 1px，等于没做（实测反馈看不出）。同时覆盖气泡与助手正文：只改 .chat-msg
+   的话，助手那种长回复的字号根本不变。 */
+[data-font-scale='small'] .chat-msg,
+[data-font-scale='small'] .chat-md-body,
+[data-font-scale='small'] .chat-flow-text,
+[data-font-scale='small'] .chat-think-body {
+  font-size: 13px;
 }
 
-[data-font-scale='large'] .chat-msg {
-  font-size: var(--text-lg);
+[data-font-scale='large'] .chat-msg,
+[data-font-scale='large'] .chat-md-body,
+[data-font-scale='large'] .chat-flow-text,
+[data-font-scale='large'] .chat-think-body {
+  font-size: 18px;
 }
 
 /* Message bubbles — the large-card tier. */
@@ -2328,18 +2466,26 @@ button.settings-row:focus-visible {
 
 /* 消息正文长按走自定义菜单（编辑/复制/引用）；同时允许长按选字——一旦产生
    选区，ChatView 的 openCtxFromTarget 会让位给系统（局部复制优先），不弹
-   自定义菜单。代码块/diff 仍允许选择复制。 */
+   自定义菜单。代码块/diff 仍允许选择复制。
+   另外把 * 上禁掉的 touch-callout 在这些块里放开：iOS 长按选字后要能看到系统那个
+   "拷贝/查询"气泡，否则只能拖手柄、拿不到复制入口。 */
 .chat-msg-text,
-.chat-msg-plain {
+.chat-msg-plain,
+.chat-md-body,
+.chat-flow-text,
+.chat-think-body,
+.chat-tool-args {
   min-width: 0;
   max-width: 100%;
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }.code-block pre{
   min-width: 0;
   max-width: 100%;
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 @keyframes msg-in {
@@ -2373,6 +2519,47 @@ button.settings-row:focus-visible {
   margin-top: 6px;
 }
 
+/* 消息里的文件附件（桌面端文件卡片的手机版）：一条一枚，图标 + 名字 + 扩展名·大小。
+   比图片组更宽：文件名要能读出来，所以整行铺开、名字可截断。 */
+.chat-msg-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chat-msg-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.chat-msg-file-glyph {
+  flex: none;
+  color: var(--accent, #4f7cff);
+}
+
+.chat-msg-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.chat-msg-file-meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
 .chat-msg-image {
   display: block;
   width: auto;
@@ -2381,7 +2568,7 @@ button.settings-row:focus-visible {
   max-height: 220px;
   border-radius: 10px;
   object-fit: cover;
-  background: var(--surface-subtle, rgba(127, 127, 127, 0.12));
+  background: var(--fill);
 }
 
 .chat-msg-image-placeholder {
@@ -2657,7 +2844,7 @@ button.settings-row:focus-visible {
   display: block;
   min-width: 96px;
   min-height: 56px;
-  background: var(--surface-subtle, rgba(127, 127, 127, 0.12));
+  background: var(--fill);
   border: 1px dashed var(--border-subtle);
 }
 .chat-md-body img.md-local-img[data-local-state='loading'] {
@@ -2792,11 +2979,18 @@ button.settings-row:focus-visible {
 .code-body {
   padding: 12px 16px;
   overflow-x: auto;
-  scrollbar-width: none;
+  /* 长行能横滑，但滚动条被藏起来时用户根本不知道这里能滑：给一条 3px 的细条。 */
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .code-body::-webkit-scrollbar {
-  display: none;
+  height: 3px;
+}
+
+.code-body::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
 }
 
 /* Folded long blocks clamp to ~15 lines; the mask fades the cut edge. */
@@ -3131,7 +3325,7 @@ button.settings-row:focus-visible {
   gap: var(--space-2);
   padding: 8px 12px;
   border-top: 1px solid var(--border-subtle);
-  background: var(--bg-raised);
+  background: var(--bg-elevated);
 }
 
 .diff-fold-text {
@@ -3145,10 +3339,10 @@ button.settings-row:focus-visible {
   flex: none;
   height: 30px;
   padding: 0 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-input);
-  color: var(--text);
+  color: var(--text-primary);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
@@ -3247,6 +3441,11 @@ button.settings-row:focus-visible {
 /* ── file-path links (host file opener) ───────────────────────────────── */
 
 .chat-md-body a.file-link {
+  /* 审计实测 189x16：正文里的文件链接太矮，点不中。上下各扩 8px 热区、
+     用负 margin 抵消，行高不变（否则正文会散）。 */
+  display: inline-block;
+  padding: 8px 2px;
+  margin: -8px 0;
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
@@ -3464,7 +3663,8 @@ button.settings-row:focus-visible {
   align-items: stretch;
   gap: 2px;
   width: 100%;
-  min-height: 40px;
+  /* 44px 是拇指友好的最小点击高度（原来 40px，真机上点开折叠要试两次）。 */
+  min-height: 44px;
   /* 右边留给绝对定位的展开箭头 */
   padding: 6px 26px 6px 8px;
   border: 1px solid var(--border-subtle);
@@ -3497,21 +3697,42 @@ button.settings-row:focus-visible {
 
 .chat-proc-lead-running {
   color: var(--accent);
-  /* 沙漏翻转：45%→55% 之间快速翻 180°，其余时间静置。沙漏上下对称，
-     所以从 180° 直接回到 0° 看不出接缝，像"倒过来接着漏"。纯 CSS 动画走
-     合成层，不做逐帧重渲染 —— 秒表闪烁的教训就是不碰 JS 定时器。
-     盒模型/字号由 .chat-proc-lead 统一给（emoji 必须与 13px 正文同高，别再单独放大）。 */
-  animation: chat-proc-flip 1.6s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
 }
 
-@keyframes chat-proc-flip {
-  0%, 45% { transform: rotate(0deg); }
-  55%, 100% { transform: rotate(180deg); }
+/* 静态轮廓（同一条 path 描边）：不支持蒙版动画或用户要减少动态时显示。 */
+.chat-proc-whale-still {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
-/* 系统开"减弱动态效果"时，沙漏静止（仍显示 ⏳，不做任何动作）。 */
-@media (prefers-reduced-motion: reduce) {
-  .chat-proc-lead-running { animation: none; }
+.chat-proc-whale-loop {
+  display: none;
+  position: absolute;
+  inset: 0;
+}
+
+/* 动画 PNG（/m/running-whale.png，就是桌面端在放的那一张）染色播放。
+   用 currentColor 当底色 + alpha 蒙版，形状随主题色走；这张图只在"思考中"
+   才被请求，静止时一个字节都不发。手写 SVG 动画到不了这个质感 —— 试过整体
+   旋转、拆成两片叶子、乃至用 SMIL 改路径数据，都还是"两片叶在转"。
+   不支持 mask-mode 的浏览器、以及开了"减弱动态效果"的系统，直接退回静态
+   SVG 轮廓（下面这段 @supports/@media 不成立时，默认就是静态形态）。 */
+@supports (mask-mode: alpha) and (mask-image: url('')) {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    .chat-proc-whale-loop {
+      display: block;
+      background: currentColor;
+      mask: url('/m/running-whale.png') center / 100% 100% no-repeat;
+      mask-mode: alpha;
+      /* 让逐帧解码留在合成层上，别牵动整行重排。 */
+      will-change: transform;
+    }
+
+    .chat-proc-whale-still { display: none; }
+  }
 }
 
 .chat-proc-line {
@@ -3738,10 +3959,13 @@ button.settings-row:focus-visible {
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-2);
-  padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
+  padding: 10px 12px;
+  /* 卡片框要能一眼从普通回复里分出来：主题色描边 + 左侧实色条 + 淡染底，
+     比原来的 --border-subtle 细灰边醒目得多，又不至于抢正文的注意力。 */
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-subtle));
+  border-left: 3px solid var(--accent);
   border-radius: 10px;
-  background: var(--card-bg);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card-bg));
 }
 
 .chat-turn-tail-head {
@@ -3752,7 +3976,9 @@ button.settings-row:focus-visible {
 
 .chat-turn-tail-title {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
 }
 
 .chat-turn-tail-time {
@@ -3772,31 +3998,75 @@ button.settings-row:focus-visible {
   color: var(--text-muted);
 }
 
+/* 一行一个文件：左边扩展名小块，中间「文件名 + 目录」，右边箭头。原来的
+   单行绝对路径在手机上被截成开头相同的两行，认不出是哪个文件。 */
 .chat-turn-tail-file {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-chip);
-  background: none;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--fill);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.chat-turn-tail-file:active {
+  background: var(--fill-strong);
+  border-color: var(--border-default);
+}
+
+.chat-turn-tail-chip {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.chat-turn-tail-file-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .chat-turn-tail-file-name {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-xs);
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-turn-tail-chevron {
+  flex-shrink: 0;
+  color: var(--text-quaternary);
+  font-size: var(--text-md);
+  line-height: 1;
 }
 
 .chat-turn-tail-count {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--accent);
 }
 
 .chat-turn-tail-badge {
@@ -3812,8 +4082,8 @@ button.settings-row:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text-quaternary);
 }
 
 /*
@@ -4069,7 +4339,7 @@ button.settings-row:focus-visible {
 
 /* Turn clock (desktop parity): muted, tabular-ish elapsed label. */
 .chat-turn-time {
-  color: var(--muted);
+  color: var(--text-tertiary);
   font-size: var(--text-sm);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -4205,7 +4475,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-run-todo.chat-run-todo-completed .chat-run-todo-mark {
-  color: var(--success, var(--accent));
+  color: var(--positive);
 }
 
 .chat-run-job-list {
@@ -4298,7 +4568,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-task-dot-completed {
-  background: var(--success, #3fae6a);
+  background: var(--positive);
 }
 
 .chat-task-dot-killed {
@@ -4335,6 +4605,14 @@ button.settings-row:focus-visible {
 .chat-task-time {
   color: var(--text-quaternary);
   font-size: var(--text-xs);
+}
+
+/* 子代理行之间必须有竖向间隔：这一层是列表容器，行本身是 flex 行，
+   没有 gap 时两条记录贴在一起，看起来像一条记录换行。 */
+.chat-subagent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .chat-subagent-row {
@@ -4420,6 +4698,24 @@ button.settings-row:focus-visible {
 .chat-question-option-label,
 .chat-question-option-desc {
   min-width: 0;
+}
+
+/* 「将要执行什么」：等宽、两行封顶。审批卡片不能因为一条长命令把整页顶宽。 */
+.chat-approval-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-chip);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* The header is a row: a long reason drops onto its own line, and a long tool
@@ -4686,6 +4982,31 @@ button.settings-row:focus-visible {
   transform: scale(0.96);
   border-color: var(--border-focus);
   background: var(--accent-soft);
+}
+
+/* 32px 高的 pill 视觉够用，拇指命中区却只有 32px。伪元素把命中区向外扩：
+   纵向 6px（上下没有邻居），横向只 2px —— 相邻药丸间距 8px，横向也扩 6px 会让两块
+   命中区重叠 4px，点空隙反而命中隔壁那个。 */
+.chat-pill {
+  position: relative;
+}
+
+.chat-pill::after {
+  content: '';
+  position: absolute;
+  inset: -6px -2px;
+  border-radius: inherit;
+}
+
+.mobile-quickchip {
+  position: relative;
+}
+
+.mobile-quickchip::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
 }
 
 .chat-pill-name {
@@ -4966,7 +5287,7 @@ button.settings-row:focus-visible {
 
 .chat-attach-btn {
   flex: none;
-  align-self: flex-end;
+  align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4980,7 +5301,16 @@ button.settings-row:focus-visible {
 }
 
 .chat-attach-btn:active {
-  background: var(--bg-hover);
+  background: var(--fill-strong);
+}
+
+/* The slash glyph: a text mark, not an icon, so it reads as "type a command"
+   rather than as another app action. */
+.chat-slash-glyph {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  transform: translateY(-1px);
 }
 
 .chat-attach-bar {
@@ -5030,9 +5360,220 @@ button.settings-row:focus-visible {
   background: rgba(0, 0, 0, 0.8);
 }
 
+/* 待发送的文件附件（+ 菜单 → 文件）：图片用缩略图，文件用一行"图标 + 文件名 + 大小"。
+   横向滚动，最多五个，长文件名省略中段以外的地方，别把这一行撑成两行高。 */
+/* 「文件」这一项是 label 直连输入框：输入框透明铺满整行，手指点到的是它本体，
+   走原生手势（不经过 click()），而且它从挂载起就没有 accept，浏览器没有旧配置可沿用。 */
+/* 「电脑文件」目录浏览：一行一个，目录在前文件在后，路径一行省略号收着。 */
+.host-file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 4px 10px;
+}
+
+.host-file-up {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.host-file-up:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.host-file-path {
+  min-width: 0;
+  flex: 1;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.host-file-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.host-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.host-file-row:active {
+  background: var(--bg-elevated);
+}
+
+.host-file-row-file .host-file-name {
+  color: var(--accent);
+}
+
+.host-file-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-file-meta {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.sheet-option-file {
+  position: relative;
+}
+
+.sheet-option-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* 文件选择框只是"看不见"，不是 display:none：Chrome 的 showPicker() 对隐藏元素
+   会抛 NotAllowedError，视觉隐藏（1px + opacity 0）才两全。 */
+.chat-picker-input {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-file-bar {
+  display: flex;
+  gap: var(--space-2);
+  padding: 8px 12px 0;
+  overflow-x: auto;
+}
+
+.chat-file-item {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.chat-file-glyph {
+  flex: none;
+  color: var(--accent, #4f7cff);
+}
+
+.chat-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.chat-file-size {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.chat-file-remove {
+  flex: none;
+  /* 视觉 18px、热区 36px：拇指点得中，chip 也不会被撑大（负 margin 抵消占位）。 */
+  width: 36px;
+  height: 36px;
+  margin: -9px -9px -9px 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-file-remove:active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* 待发附件的三态：上传中 / 已就绪 / 上传失败。
+   失败的那条不消失 —— 用户要能看见是哪一条没上去、点一下重传（桌面端同样保留）。 */
+.chat-file-item.is-uploading {
+  border-style: dashed;
+}
+
+.chat-file-item.is-failed {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.chat-file-item.is-failed .chat-file-name {
+  color: var(--danger);
+}
+
+.chat-file-status {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.chat-file-retry {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-file-retry:active {
+  opacity: 0.7;
+}
+
 .chat-inputbar {
   display: flex;
-  align-items: flex-end;
+  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。原来底部对齐，
+     输入框一长成两行，这几个图标就贴在底边，看着像没对齐。 */
+  align-items: center;
   gap: var(--space-2);
   padding: 8px 12px calc(env(safe-area-inset-bottom, 0px) + 10px);
   padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 10px), 10px);
@@ -5046,7 +5587,10 @@ button.settings-row:focus-visible {
   flex: 1;
   min-width: 0;
   min-height: 44px;
-  max-height: 132px;
+  /* 4 行封顶：实测 132px（约 6 行）时草稿把最后一条消息和「输出中」整块遮住，
+     写长文本反而看不见上下文。超出的内容在框内滚动。 */
+  max-height: 104px;
+  overflow-y: auto;
   field-sizing: content;
   padding: 9px 16px;
   border: 1px solid var(--border-default);
@@ -5062,6 +5606,44 @@ button.settings-row:focus-visible {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* 输入框外壳：命令 chip 也在框里，所以边框/背景/焦点环归容器，textarea 只要文字。 */
+.chat-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  max-height: 104px;
+  padding: 2px 8px 2px 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-capsule);
+  background: var(--bg-input);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 框内的 textarea：不重复画边框，也不重复画焦点环。 */
+.chat-field > .chat-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 100px;
+  padding: 7px 8px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chat-field > .chat-input:focus {
+  border: none;
+  box-shadow: none;
+}
+
 .chat-input::placeholder {
   color: var(--text-muted);
 }
@@ -5071,9 +5653,26 @@ button.settings-row:focus-visible {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+
+
+/* 排队发送：不再是「纸飞机 + 角上一只小钟」那种猜谜图标，改成拉长的胶囊上直接写「排队」。
+   40px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
+.chat-send.chat-send-queued {
+  width: auto;
+  min-width: 56px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.chat-send-queuedText {
+  white-space: nowrap;
+}
+
 .chat-send {
   flex: none;
-  align-self: flex-end;
+  align-self: center;
   width: 40px;
   height: 40px;
   display: flex;
@@ -5115,6 +5714,80 @@ button.settings-row:focus-visible {
   background: var(--bg-elevated);
   color: var(--danger);
   box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+/* 运行中带草稿时的停止键：主键此时让给"发送"（排队），停止退成它左边的小方块。
+   比主键矮一圈并留一点间距，避免拇指在想发消息时误触到停止。 */
+.chat-stop-mini {
+  flex: none;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  /* 底部那个 5px 外边距在 align-self:center 里会把整个按钮往上顶 2.5px：停止键
+     和输入框、发送键就不在同一条中线上了（真机看就是"按钮错开一格"）。左右留
+     间距、上下留 0，三点共用一条中线。 */
+  margin: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.chat-stop-mini:not(:disabled):active {
+  transform: scale(0.92);
+}
+
+/* 停止键的命中区：视觉上仍是 30px 的小方块（和主键拉开距离，避免误触），但手指按下去
+   的判定区补到 44px —— 30px 在手机上真的会按空，尤其单手握着、拇指贴着屏幕边缘的时候。 */
+.chat-stop-mini {
+  position: relative;
+}
+
+.chat-stop-mini::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+.chat-stop-mini:disabled {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* 窄屏（≤360px，iPhone SE 一类）：运行中且有草稿时，一行要塞三个附件键、输入框、
+   停止和发送，实测 320px 下正文只剩 60px（约三四个字）。这里把各键收小一圈、留白
+   和间距压紧，正文回到 110px 上下；键都留在原位，不改变任何操作路径。 */
+@media (max-width: 360px) {
+  .chat-inputbar {
+    gap: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .chat-attach-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+  }
+
+  .chat-stop-mini {
+    width: 26px;
+    height: 26px;
+    margin: 0 4px;
+  }
+
+  
+.chat-send {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 .chat-load-older {
@@ -5160,7 +5833,7 @@ button.settings-row:focus-visible {
 .ctx-menu {
   position: fixed;
   z-index: 71;
-  min-width: 148px;
+  min-width: 168px;
   padding: var(--space-1);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-menu);
@@ -5178,6 +5851,43 @@ button.settings-row:focus-visible {
     opacity: 1;
     transform: none;
   }
+}
+
+/* 菜单顶部的"操作对象"行：长按命令卡时先告诉用户这一条是什么，
+   否则四个动作长得一样，复制前后都分不清对象。 */
+.ctx-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--card-border);
+  margin-bottom: 2px;
+}
+
+.ctx-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ctx-head-state {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* 取消单独一档：手机上没有 Esc，兜底入口要看得见。 */
+.ctx-item-cancel {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--card-border);
+  border-radius: 0 0 8px 8px;
+  margin-top: 2px;
 }
 
 .ctx-item {
@@ -5666,6 +6376,30 @@ button.settings-row:focus-visible {
   line-height: 1.6;
 }
 
+
+/* 「关于」里检查更新旁边那颗仓库图标：与主按钮同高（44px）、同圆角，只占一颗方键的
+   宽度，点一下直接开 GitHub 仓库。 */
+.sheet-icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.sheet-icon-link:active {
+  background: var(--fill);
+  border-color: var(--accent-soft);
+  color: var(--text-primary);
+}
 .sheet-confirm-actions {
   display: flex;
   gap: 10px;
@@ -5910,7 +6644,7 @@ button.settings-row:focus-visible {
 }
 
 .device-status-on {
-  color: var(--success, #2e9e5b);
+  color: var(--positive);
 }
 
 .device-ua {
@@ -6532,39 +7266,74 @@ button.settings-row:focus-visible {
   flex: 1;
 }
 
-/* Regenerate affordance on the last settled assistant reply (footer, right). */
+/* Regenerate affordance on the last settled assistant reply: ONE icon at the
+   right end of the timestamp line. The verb was dropped on purpose — on a phone
+   "重新生成" costs ~48px of a line that otherwise carries only a time, and this
+   is a utility, not a decision. The meaning lives in aria-label/title. The
+   negative vertical margins keep a 32px finger target from growing the row. */
 .chat-msg-regenerate {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -8px 0 -8px 4px;
   border: none;
-  padding: 2px 6px;
-  border-radius: var(--radius-chip);
+  padding: 0;
+  border-radius: 50%;
   background: transparent;
-  color: var(--accent);
-  font-size: var(--text-sm);
+  color: var(--text-tertiary);
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .chat-msg-regenerate:active {
   background: var(--fill);
+  color: var(--accent);
+}
+
+/* 已发出：原地转圈并禁用，直到这一轮真的开跑（按钮随之被收走）。 */
+.chat-msg-regenerate-busy {
+  color: var(--accent);
+  cursor: default;
+}
+
+.chat-msg-regenerate-busy .chat-msg-regenerate-icon {
+  display: inline-block;
+  animation: chat-regenerate-spin 0.9s linear infinite;
+}
+
+/* 没发出去：变红，允许直接再点。 */
+.chat-msg-regenerate-failed {
+  color: var(--danger);
 }
 
 .chat-msg-regenerate-icon {
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1;
 }
 
+@keyframes chat-regenerate-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Pending-message queue dock (desktop QueueDock equivalent): the messages
-   queued while the current turn runs, above the composer. */
+   queued while the current turn runs, floating above the model/permission row
+   — outside the composer box, so it reads as "what goes out next" rather than
+   as a part of the input field. */
 .queue-dock {
   flex: none;
-  margin: 0 12px 8px;
-  padding: 8px 10px;
+  /* 宽度跟内容走时，三个按钮一撑就接近满宽，右边却仍按内容截断，于是这条和
+     下面的目标条/输入框左右都不齐（真机："布局怎么这么奇怪"）。现在它自己占满
+     可用宽度（与目标条同宽），文字左齐、按钮右齐，上下都是一条整齐的边。 */
+  align-self: stretch;
+  margin: 0 12px 4px;
+  /* 用户连着两轮说"还是太高"：外层 8→6→4px、行内 6→0、按钮 44→30px，
+     整条从 62px 压到 40px。左右仍留 12px，文字不贴自己的边框。 */
+  padding: 4px 12px;
   border: 1px solid var(--border-default);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--bg-elevated);
 }
 .queue-dockHead {
@@ -6593,13 +7362,20 @@ button.settings-row:focus-visible {
   padding: 0;
   list-style: none;
 }
+/* 只有一条的时候上面没有"N 条排队"那一行，6px 的顶间距就变成了一条空带：
+   整条卡片因此显得头重脚轻。第一条贴在顶边上。 */
+.queue-dock > .queue-dockList:first-child {
+  margin-top: 0;
+}
 .queue-dockRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: var(--card-bg);
+  /* 行内再铺一层不同的底色就等于"卡片套卡片"，真机上看是两层框。整条只留外层
+     底板，行本身透明；插话那条的左侧竖线仍然保留。 */
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
 }
 .queue-dockRow[data-placement='steering'] {
   border-left: 2px solid var(--accent, #4f7cff);
@@ -6616,11 +7392,17 @@ button.settings-row:focus-visible {
 .queue-dockActions {
   flex: 0 0 auto;
   display: flex;
-  gap: 4px;
+  /* 删除与插话相邻且只有 4px 间隔，误删不可撤销：把间距和命中区一起放大。 */
+  gap: 10px;
 }
 .queue-dockBtn {
   flex: none;
-  padding: 3px 8px;
+  /* 用户两轮反馈"还是太高"：纵向收到 30px、横向留 40px，相邻间距加到 10px ——
+     靠间距而不是按钮自身的空白来兜住误点。整条因此从 62px 压到 40px，
+     和一条消息气泡差不多高。 */
+  min-height: 30px;
+  min-width: 40px;
+  padding: 2px 9px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: transparent;
@@ -6628,8 +7410,17 @@ button.settings-row:focus-visible {
   font-size: var(--text-xs);
 }
 .queue-dockBtn-primary {
-  border-color: var(--accent, #4f7cff);
-  color: var(--accent, #4f7cff);
+  /* 主操作要在一行里被一眼认出来：实心强调色，不再是和编辑/删除同款的描边。 */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-color: transparent;
+  background: var(--accent, #4f7cff);
+  color: #fff;
+  font-weight: 600;
+}
+.queue-dockBtnIcon {
+  flex: none;
 }
 .queue-dockBtn:disabled {
   opacity: 0.4;
@@ -6719,6 +7510,45 @@ button.settings-row:focus-visible {
   }
 }
 
+/* 已认领命令（桌面端 composer 里那颗 chip）：命令词一块蓝色，参数在输入框里。
+   排在与输入框同一行的中心线上，输入框长高时跟着垂直居中。 */
+.chat-command-chip {
+  flex: 0 1 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 40%;
+  margin-left: 4px;
+  padding: 3px 4px 3px 9px;
+  border-radius: calc(var(--radius-chip) + 4px);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+}
+
+.chat-command-chipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-command-chipClose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+}
 .chat-quote-text {
   flex: 1;
   min-width: 0;
@@ -6762,6 +7592,24 @@ button.settings-row:focus-visible {
   animation: sheet-fade 0.18s ease;
 }
 
+/* 面板底部两个动作：取消在左、完成在右，取消是明确的可退出路径（以前只能点背景）。
+   注释里不用反引号和模板占位符，样式文件里那些字符会破坏模板字符串。 */
+.voice-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.voice-cancel {
+  min-width: 96px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
 .voice-sheet {
   height: 200px;
   display: flex;
@@ -6773,6 +7621,25 @@ button.settings-row:focus-visible {
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   animation: sheet-up 0.3s ease-out both;
+}
+
+/* 录音快到 60 秒上限时的提醒：只变颜色和字重，不改字号（避免面板跳动）。 */
+.voice-text-warn {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* 实时字幕：说完一句就换一行，最多三行（再多会把录音按钮挤出屏幕）。 */
+.voice-text.voice-text-live {
+  /* 复合选择器是必须的：voice-text 是给"说一句话"的状态行写的（居中、单行、省略号），
+     两者同特异性且它在后，单写 voice-text-live 会被它的 nowrap 吃掉，字幕只剩一行被截断。 */
+  white-space: normal;
+  text-overflow: clip;
+  overflow: visible;
+  text-align: left;
+  max-height: 4.6em;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  -webkit-overflow-scrolling: touch;
 }
 
 .voice-wave {
@@ -6790,11 +7657,19 @@ button.settings-row:focus-visible {
   animation: voice-bar 1s ease-in-out infinite;
 }
 
-.voice-wave span:nth-child(1) { animation-delay: 0s; }
-.voice-wave span:nth-child(2) { animation-delay: 0.12s; }
-.voice-wave span:nth-child(3) { animation-delay: 0.24s; }
-.voice-wave span:nth-child(4) { animation-delay: 0.36s; }
-.voice-wave span:nth-child(5) { animation-delay: 0.48s; }
+/* 有实时响度时：停掉固定动画，柱高跟着 --voice-level 走（每根柱子乘一个固定系数，
+   看起来才像波形而不是一条线）。拿不到响度时保持原来的动画。 */
+.voice-wave[data-live='1'] span {
+  animation: none;
+  transform: scaleY(calc((0.18 + var(--voice-level, 0.5) * 1.2) * var(--m, 1)));
+  transition: transform 0.1s linear;
+}
+
+.voice-wave span:nth-child(1) { --m: 0.8; animation-delay: 0s; }
+.voice-wave span:nth-child(2) { --m: 1.15; animation-delay: 0.12s; }
+.voice-wave span:nth-child(3) { --m: 1.3; animation-delay: 0.24s; }
+.voice-wave span:nth-child(4) { --m: 1.05; animation-delay: 0.36s; }
+.voice-wave span:nth-child(5) { --m: 0.7; animation-delay: 0.48s; }
 
 @keyframes voice-bar {
   0%, 100% {
@@ -6819,7 +7694,8 @@ button.settings-row:focus-visible {
 }
 
 .voice-done {
-  height: 40px;
+  /* 44px 是拇指能稳稳按到的下限；40px 在真机上要低头瞄准，而且这是录音结束时唯一的出口。 */
+  height: 44px;
   padding: 0 24px;
   border: none;
   border-radius: var(--radius-capsule);
@@ -6862,6 +7738,7 @@ button.settings-row:active {
   .chat-offline-banner,
   .chat-offline-retry,
   .chat-quote-bar,
+  .chat-msg-regenerate-icon,
   .voice-backdrop,
   .voice-sheet,
   .voice-wave span,
@@ -6909,6 +7786,68 @@ details.think-block[open] .chat-disclosure-caret {
 }
 
 /* Search result notes (truncation / scope hints). */
+/* 搜索命中高亮：底色只用强调色的淡版，文字颜色保持不变，避免整行花掉。 */
+.mobile mark {
+  background: var(--accent-soft);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+/* 「加载更多结果」：整行点击区，和列表行一样高，手指好按。 */
+/* 会话内搜索条：夹在头部和聊天区之间，一行放输入 + 记数 + 上/下一个 + 关闭。 */
+.chat-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.chat-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chat-search-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.chat-search-count {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.search-more {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 8px 16px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.search-more:active {
+  background: var(--accent-soft);
+}
 .search-hitsNote {
   margin: 0;
   padding: 4px 2px;
@@ -6917,21 +7856,110 @@ details.think-block[open] .chat-disclosure-caret {
   line-height: 1.45;
 }
 
-/* Focus-locate highlight: a one-shot background pulse on the located row. */
+/* 首页搜索结果的一行：会话名命中和「消息」命中都是这一种行，正文命中多一行摘要；
+   键盘上下键选中的那一行给一圈内描边（不换背景，避免和按压态打架）。 */
+.search-hitRow {
+  align-items: flex-start;
+}
+.search-hitRow-active {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  border-radius: 12px;
+}
+.search-hitBadge {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+.search-hitNote {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+/* 方案 C：命中段落。摘要只有一个窗口宽，看不出是哪句话命中；段落直接给三行。
+   换行保留（段落本来就是多行正文），超出三行截断并给省略号。 */
+.card-desc.search-hitPara {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  line-height: 18px;
+}
+/* 搜索中的骨架：三行灰条，比一句「正在搜索…」更能说明"结果正在填进来"。 */
+.search-skeletonRow {
+  display: block;
+  padding: 12px 16px;
+}
+.search-skeletonLine {
+  display: block;
+  height: 11px;
+  margin: 5px 0;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-default) 50%, var(--bg-input) 75%);
+  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
+}
+.search-skeletonLine-thin {
+  height: 9px;
+}
+
+/* Focus-locate highlight: a one-shot ring pulse on the located row.
+   只用 box-shadow，**绝不碰 background-color**：.chat-msg-focus 带
+   animation-fill-mode: forwards，动画写到 100% 的 background-color: transparent 会
+   永久覆盖 .chat-msg-user 的强调色底——气泡变透明、而 color 仍是白字，浅色模式下
+   整段看不见（真机截图就是这个）。描边不会改底色，安全。 */
 @keyframes dshPalmFocusPulse {
-  0% { background-color: var(--focus-bg, rgba(79, 124, 255, 0.22)); }
-  100% { background-color: transparent; }
+  0% {
+    box-shadow:
+      inset 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  70% {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 14px 2px color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 2px transparent,
+      0 0 0 0 transparent;
+  }
 }
 
+/* 真机反馈「搜索命中之后没有高亮」：底色脉冲在气泡里看不见（气泡自己有底），
+   所以补一圈内描边并把保持时间拉长到 3.2s；词级 <mark> 由 focusedQuery 负责。 */
 .chat-msg-focus {
-  animation: dshPalmFocusPulse 2.2s ease-out forwards;
+  animation: dshPalmFocusPulse 3.2s ease-out forwards;
 }
 
-.chat-search-mark {
-  color: inherit;
-  background: color-mix(in srgb, var(--accent) 34%, transparent);
+/* 定位落点的词级高亮。两个坑：
+   1) 用户气泡是强调色底 + 白字（.chat-msg-user），半透明紫底叠上去等于白字白底，
+      浅色模式下整个词看不见 —— 气泡内必须反相（白底深字）。
+   2) 代码块的 token 自带内联 color，继承不到主题正文色，也要显式压回正文色。
+   用 .mobile 提一级特异性，避免被上面 .mobile mark 的 background 盖掉。 */
+.mobile .chat-search-mark {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 26%, var(--bg-elevated));
   border-radius: 3px;
   padding: 0 1px;
+  font-weight: 600;
+}
+
+.mobile .chat-msg-user .chat-search-mark {
+  color: #1a1a2e;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.mobile .chat-md pre .chat-search-mark,
+.mobile .chat-md code .chat-search-mark {
+  color: var(--text-primary) !important;
 }
 
 /* Settings-search locate: the anchored sub-page entry pulses once on
@@ -6972,14 +8000,18 @@ details.think-block[open] .chat-disclosure-caret {
   min-width: 0;
 }
 
+/* 两行各占一行：这两个是 inline span，早先并排渲染，于是"0 个后台任务"和
+   "跨全部工作区"连成一句、断行也错位。 */
 .runov-hero-t {
+  display: block;
   font-size: var(--text-md);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .runov-hero-s {
-  margin-top: 1px;
+  display: block;
+  margin-top: 2px;
   font-size: var(--text-sm);
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
@@ -7021,16 +8053,16 @@ details.think-block[open] .chat-disclosure-caret {
   background: var(--fill);
 }
 
-/* text-overflow only engages on a block box: as inline spans inside the head's
-   flex:1 wrapper these clipped silently, with no ellipsis marker. */
+/* 标题必须完整显示：早先是单行 nowrap + 省略号，"dsh-palm手机端与桌面端消息
+   不同步"在手机上只剩 "dsh-palm手机端与桌面…"，一条会话和另一条就分不出来了。
+   现在按自然换行排（长标题最多铺两行），不再截断。 */
 .runov-sess-title {
   display: block;
   font-size: var(--text-base);
   font-weight: 600;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .runov-sess-sub {
@@ -7134,8 +8166,8 @@ details.think-block[open] .chat-disclosure-caret {
   padding: 0 12px;
   border-radius: 16px;
   border: 1px solid var(--border-subtle);
-  background: var(--surface-2);
-  color: var(--text-2);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   cursor: pointer;
   /* A press-and-hold must still count as a tap, AND the hold must own the
@@ -7325,6 +8357,15 @@ details.think-block[open] .chat-disclosure-caret {
   border-radius: 2px;
   background: var(--accent);
 }
+/* 已加载的那一段：滑条轴按宿主全量轮次算，可手机只加载了尾部，没这一段
+   就是一片空白，用户不知道能往哪拖。 */
+.turn-scrub-loaded {
+  position: absolute;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
 .turn-scrub-tick {
   position: absolute;
   top: 9px;
@@ -7342,6 +8383,10 @@ details.think-block[open] .chat-disclosure-caret {
   top: 2px;
   width: 22px;
   height: 22px;
+  /* 两端收进轨道内：纯百分比会让滑块有一半悬在卡外面。
+     位置由行内样式按当前轮次给（--knob-pct），这里的默认值让变量有定义。 */
+  --knob-pct: 0%;
+  left: clamp(11px, var(--knob-pct), calc(100% - 11px));
   margin-left: -11px;
   border-radius: 50%;
   background: var(--card-bg);
@@ -7357,4 +8402,980 @@ details.think-block[open] .chat-disclosure-caret {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+
+/* ── 目标条（goal bar）───────────────────────────────────────────────── */
+/* 桌面端 composer 上方那条 goal 指示条的复刻。位置由 DOM 决定（排队卡片与
+   模型/权限行之间），这里只管一条紧凑横条：准星 + 相位 + 目标正文一行省略。
+   手机上它上排队卡片、下模型/权限行、再下输入框，三条叠起来已经吃掉正文空间，
+   所以视觉高度压在 28px；按钮的判定区靠 padding 补到 44px 见下方 ::after。 */
+.chat-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 10px 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-chip);
+  background: var(--bg-elevated);
+}
+.chat-goal-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+.chat-goal-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+.chat-goal-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.chat-goal-label {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.chat-goal-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+/* 展开的全文：目标常是带小标题、空行、编号的多段文本，按普通正文的阅读节奏排
+   —— 保留原始换行（pre-wrap）、行高 1.65、字号提到 15px。此前用 normal +
+  12px 挤在按钮里，一段长目标会被压成没有段落的文字墙。 */
+.chat-goal-body {
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--text-primary);
+  -webkit-overflow-scrolling: touch;
+}
+.chat-goal-btn {
+  position: relative;
+  flex: none;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.chat-goal-btn::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+.chat-goal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chat-goal-btn-clear {
+  color: var(--text-muted);
+}
+.chat-goal-btn-save {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+/* 展开状态的出口：与「×」（清除）区分开，用强调色，一眼是"回到收起"。 */
+.chat-goal-btn-collapse {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+/* 阻塞理由常常是一整段排查记录（实测能占掉大半个屏幕）：默认只露两行，底部渐隐
+   提示"还有"，点文字或下面那颗小按钮展开。折叠靠 max-height，不动原文。 */
+.chat-goal-reasonWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.chat-goal-reason {
+  display: block;
+  width: 100%;
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--warning);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  cursor: pointer;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-goal-reason-collapsed {
+  /* 约两行；再靠一道渐隐告诉用户"后面还有". */
+  max-height: 3.2em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+.chat-goal-reasonText {
+  display: block;
+}
+.chat-goal-btn-reason {
+  align-self: flex-start;
+  color: var(--warning);
+}
+.chat-goal-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-goal-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+@media (max-width: 360px) {
+  .chat-goal-label {
+    display: none;
+  }
+  .chat-goal {
+    margin-left: 6px;
+    margin-right: 6px;
+  }
+}
+
+/* ===== 运行中页 v3：一行标题 + 一行"在干什么"，子代理单独成行、点得开 ===== */
+/* 旧版把状态徽标塞在标题行里，正文只能从徽标右边起，形成两栏错位；现在状态是一枚
+   小圆点，占固定 14px 图标列，标题与下面每一行都从同一条竖线开始。 */
+.runov-sess-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px 8px;
+}
+
+.rs-glyph {
+  flex: none;
+  width: 14px;
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.rs-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: breathe 1.6s infinite ease-in-out;
+}
+
+/* 最新事件超过 90 秒：可能是宿主重启/断流，也可能是真卡住，转黄提示别干等。 */
+.rs-dot-stale {
+  background: var(--warning);
+  animation: none;
+}
+
+.rs-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-title {
+  display: block;
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.rs-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.rs-meta > .sep,
+.rs-sub > .sep {
+  color: var(--text-quaternary);
+}
+
+.rs-action {
+  color: var(--text-secondary);
+}
+
+.rs-cmd {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 42vw;
+}
+
+.rs-elapsed {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.rs-stale {
+  color: var(--warning);
+}
+
+.rs-agents-count {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.rs-chev {
+  flex: none;
+  align-self: center;
+  color: var(--text-quaternary);
+  font-size: 16px;
+}
+
+/* 子代理：缩进 + 一条细轨表示从属关系 */
+.rs-agents {
+  padding: 0 12px 4px 34px;
+}
+
+.rs-agents-inner {
+  border-left: 1px solid var(--border-default);
+}
+
+.rs-agent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 6px 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-agent:active {
+  background: var(--fill);
+}
+
+.rs-agent:disabled {
+  cursor: default;
+}
+
+.rs-agent-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: breathe 1.6s infinite ease-in-out;
+}
+
+.rs-agent-dot-idle {
+  background: var(--text-quaternary);
+  animation: none;
+}
+
+.rs-agent-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-agent-dur {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-agent-chev {
+  flex: none;
+  color: var(--text-quaternary);
+  font-size: 14px;
+}
+
+/* 折叠行：更多子代理 / 另有几个后台任务 */
+.rs-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 12px 10px 34px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-more-chev {
+  margin-left: auto;
+  color: var(--text-quaternary);
+}
+
+.rs-sub-quiet {
+  padding: 0 12px 10px 34px;
+  color: var(--text-quaternary);
+}
+
+/* 组标题：计数与动作跟在标题后面，别让 hero 卡再报一遍同一个数字 */
+.runov-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.runov-group-cnt {
+  color: var(--text-quaternary);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.runov-group-action {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.runov-empty-note {
+  padding: 4px 18px 6px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+/* 刚结束：两行（标题 + 状态·用时·多久以前），一屏能放六条 */
+.runov-finish {
+  margin: 2px 16px 10px;
+}
+
+.rf-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rf-row:active {
+  background: var(--fill);
+}
+
+.rf-row + .rf-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rf-ic {
+  flex: none;
+  width: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.rf-ic-ok {
+  color: var(--positive);
+}
+
+.rf-ic-bad {
+  color: var(--danger);
+}
+
+.rf-ic-stop {
+  color: var(--warning);
+}
+
+.rf-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rf-title {
+  display: block;
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rf-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.rf-meta > .sep {
+  color: var(--text-quaternary);
+}
+
+.rf-dur {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rf-chev {
+  flex: none;
+  color: var(--text-quaternary);
+  font-size: 15px;
+}
+
+/* ===== 聊天页顶部「别的会话跑完了」条 =====
+ *
+ * 这条原来只在底部浮层里出现，而浮层与输入框同样钉底、z-index 更高 —— 真机上直接盖住
+ * 输入框（"挡到我打字了"）。聊天页改走顶部 HUD：信息一样，不占底部一个像素；
+ * 底部浮层只留给首页/运行中/设置这些没有输入区的页面。
+ */
+.chat-finished-strip {
+  position: relative;
+  padding-right: 34px;
+  color: var(--text-primary);
+}
+
+.chat-finished-ic {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--positive);
+  font-weight: 700;
+}
+
+.chat-finished-ic.is-bad {
+  color: var(--danger);
+}
+
+.chat-finished-ic.is-stop {
+  color: var(--warning);
+}
+
+.chat-finished-chev {
+  flex: none;
+  color: var(--text-quaternary);
+  font-size: 15px;
+}
+
+.chat-finished-dismiss {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 34px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-quaternary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-finished-dismiss:active {
+  color: var(--text-primary);
+}
+
+/* ===== 收工浮层：任何页面都能看到"哪个会话跑完了" ===== */
+.finish-toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  border: 1px solid var(--border-focus);
+  border-radius: 14px;
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  animation: finish-toast-in 200ms ease-out;
+}
+
+@keyframes finish-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.finish-toast-ic {
+  flex: none;
+  display: flex;
+  color: var(--positive);
+}
+
+.finish-toast-ic.is-bad {
+  color: var(--danger);
+}
+
+.finish-toast-ic.is-stop {
+  color: var(--warning);
+}
+
+.finish-toast-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finish-toast-dur {
+  flex: none;
+  color: #a8a8bc;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.finish-toast-chev {
+  flex: none;
+  color: #8a8a9e;
+  font-size: 15px;
+}
+
+/* ===== 子代理只读会话页 ===== */
+.subchat-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.subchat-note {
+  margin: 10px 16px 4px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.subchat-note b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.subchat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 8px 16px 12px;
+}
+
+.subchat-task {
+  margin: 6px 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.subchat-task-who {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.subchat-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 9px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.subchat-step-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-quaternary);
+}
+
+.subchat-step-dot.is-running {
+  background: var(--accent);
+  animation: breathe 1.6s infinite ease-in-out;
+}
+
+.subchat-step-cmd {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subchat-step-state {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.subchat-step-state.is-running {
+  color: var(--accent);
+}
+
+.subchat-answer {
+  margin: 0 0 12px;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.subchat-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.subchat-foot-link {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ===== 设置页：常用捷径 + 进阶折叠（v1.7.0 增补） ===== */
+.settings-quick {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 16px 6px;
+}
+
+.settings-quickChip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-quickChip:active {
+  background: var(--fill);
+}
+
+.settings-quickLabel {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.settings-quickHint {
+  max-width: 100%;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 进阶折叠的箭头：收起时朝右，展开时朝下 */
+.settings-advChev {
+  display: inline-block;
+  color: var(--text-quaternary);
+  font-size: 16px;
+  transition: transform 140ms ease-out;
+}
+
+.settings-advChev-open {
+  transform: rotate(90deg);
+}
+
+/* 目标条上的进度摘要（已跑多久 · 第几步） */
+.chat-goal-meta {
+  flex: none;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 用量行里的「去控制台看用量」：不是主操作，做成链接样式的按钮 */
+.usage-consoleLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 运行状态条收起：内容清空后先播这一段，再整条卸载（不占位） */
+.chat-status-strip-leaving {
+  animation: chatStatusLeave 320ms ease forwards;
+  pointer-events: none;
+}
+@keyframes chatStatusLeave {
+  from { opacity: 1; transform: translateY(0); max-height: 64px; }
+  to { opacity: 0; transform: translateY(6px); max-height: 0; }
+}
+
+/* 交付卡上的计划胶囊：全完成时状态条会淡出，计划的入口挪到这里 */
+.chat-turn-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 9px;
+  /* 36px：胶囊是高频点击，太扁会点空（44 会让交付卡显得臃肿）。 */
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.chat-turn-plan-check { opacity: .85; }
+.chat-turn-plan-time { opacity: .8; }
+.chat-turn-plan-chevron { opacity: .65; margin-left: 1px; }
+.chat-turn-plan-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+.chat-turn-plan-item { display: flex; gap: 7px; align-items: flex-start; font-size: var(--text-sm); }
+.chat-turn-plan-mark { flex: none; width: 13px; color: var(--text-tertiary); }
+.chat-turn-plan-mark.is-done { color: var(--positive); }
+.chat-turn-plan-text { flex: 1; color: var(--text-secondary); }
+.chat-turn-plan-text.is-done { color: var(--text-tertiary); }
+
+/* 「电脑文件」越界提示：一句话 + 一个回工作区的出口 */
+.host-file-outside {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.host-file-back {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 目标动作的等待指示：点了立刻转圈，回执到了才停 */
+.chat-goal-spinner {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+  animation: goalSpin 700ms linear infinite;
+}
+@keyframes goalSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 搜索条上的第二个提示（载入中…）：不与计数共用一颗节点 */
+.chat-search-hint {
+  margin-left: 6px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* 停止的「确认」态：变宽、变红，明确它在等第二次点击 */
+.chat-stop-mini-armed {
+  width: auto;
+  min-width: 48px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
+}
+.chat-stop-mini-text {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* 交付卡头部当开关用时：保持原样，只补右端箭头与点击态 */
+button.chat-turn-tail-head {
+  width: 100%;
+  /* 它是折叠开关：17px 高的按钮摸不着（实测 334x17），给到 36px 热区。 */
+  min-height: 36px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+button.chat-turn-tail-head:active { opacity: 0.7; }
+.chat-turn-tail-head-chevron {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* 运行中页的校准细条：只表示"在问宿主"，不遮挡内容 */
+.runov-sync-bar {
+  position: relative;
+  height: 2px;
+  flex: none;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.runov-sync-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: var(--accent);
+  animation: runovSync 1.05s ease-in-out infinite;
+}
+@keyframes runovSync {
+  0% { transform: translateX(-40%); }
+  100% { transform: translateX(300%); }
+}
+
+/* 会话 HUD：纯结构容器，不产生布局盒（三条状态条的外观/间距保持原样） */
+.chat-hud {
+  display: contents;
+}
+
+/* 附件 chip 上的「取消」：上传中随时可停（弱网不等 120 秒超时） */
+.chat-file-cancel {
+  flex: none;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.chat-file-cancel:active { opacity: 0.7; }
 `;

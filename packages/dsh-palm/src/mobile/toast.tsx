@@ -46,6 +46,18 @@ export function toast(text: string): void {
   }, VISIBLE_MS)
 }
 
+/**
+ * 立刻清空所有 toast（只给测试用）。
+ *
+ * toast 是模块级 store、自带 2.2 秒定时器：上一条用例的回执会漏到下一条，
+ * 于是「这次发送不该弹已排队」这类断言测到的是别人的吐司（实测在整套跑时
+ * 偶发超时 4 秒失败）。每个用例开始前清一次即可。
+ */
+export function resetToastsForTest(): void {
+  entries.length = 0
+  emit()
+}
+
 /** Render the toast stack; mount once inside the app root. */
 export function ToastHost() {
   const [items, setItems] = useState<ToastEntry[]>(entries)

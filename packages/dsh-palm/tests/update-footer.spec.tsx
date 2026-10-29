@@ -161,4 +161,16 @@ describe('UpdateFooter', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update now' }))
     await waitFor(() => expect(screen.getByText('更新没成功：下载安装包失败（npm 退出码 1）')).toBeTruthy())
   })
+  // 版本这句话旁边那颗 octocat：点一下直达仓库主页（不是 issues/new —— 那是另一处
+  // 反馈入口的活）。属性也一并锁住，target=_blank 少了 noopener 就是可被拿 opener。
+  it('links straight to the repository from the version line', async () => {
+    stubFetch({ version: { ok: true, installed: '1.7.0', latest: '1.7.0', isNewer: false, target: 'link' } })
+    render(<UpdateFooter t={t} pollMs={20} />)
+    await waitFor(() => expect(screen.getByText(/up to date/)).toBeTruthy())
+    const link = screen.getByLabelText('Open the GitHub repository')
+    expect(link.tagName).toBe('A')
+    expect(link.getAttribute('href')).toBe('https://github.com/Eternalloveone/dsh-palm')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
 })

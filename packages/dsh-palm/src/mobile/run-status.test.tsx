@@ -39,7 +39,8 @@ describe('RunStatusBar', () => {
 
   it('combines todo count and live job count in one line', () => {
     render(<RunStatusBar todo={TODO} jobs={[job('a', 'running')]} subagents={[]} onOpen={() => {}} />)
-    expect(screen.getByRole('button', { name: /任务 1\/3 · 后台任务 1 个运行中/ })).toBeTruthy()
+    // 计划里有一项 in_progress：条上直接说「正在做第 1 项」，不用点开面板看卡在哪。
+    expect(screen.getByRole('button', { name: /任务 1\/3 · 正在做第 1 项 · 后台任务 1 个运行中/ })).toBeTruthy()
   })
 
   it('shows only the job part when there is no todo and all jobs settled', () => {
@@ -132,5 +133,31 @@ describe('RunStatusSheet', () => {
     expect(screen.getByRole('button', { name: `… 还有 3 个子代理` })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: `… 还有 3 个子代理` }))
     expect(screen.getAllByRole('listitem')).toHaveLength(SUBAGENT_VISIBLE_MAX + 3)
+  })
+})
+
+describe('全部收工时自动收起', () => {
+  const doneTodo: TodoSnapshot = {
+    seq: 41,
+    items: [
+      { content: '写代码', status: 'completed' },
+      { content: '跑测试', status: 'completed' },
+    ],
+  }
+
+  it('任务全完成、没有后台任务和子代理 → 整条不渲染', () => {
+    // 真机反馈：一轮跑完，发送框上凭空挂一条「任务 2/2」，像是刚冒出来的消息。
+    const { container } = render(<RunStatusBar todo={doneTodo} jobs={[]} subagents={[]} onOpen={() => {}} />)
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('任务全完成但还有后台任务在跑 → 仍然显示', () => {
+    render(<RunStatusBar todo={doneTodo} jobs={[job('a', 'running')]} subagents={[]} onOpen={() => {}} />)
+    expect(screen.getByRole('button', { name: /后台任务 1 个运行中/ })).toBeTruthy()
+  })
+
+  it('任务还没做完 → 仍然显示进度', () => {
+    render(<RunStatusBar todo={TODO} jobs={[]} subagents={[]} onOpen={() => {}} />)
+    expect(screen.getByRole('button', { name: /任务 1\/3/ })).toBeTruthy()
   })
 })

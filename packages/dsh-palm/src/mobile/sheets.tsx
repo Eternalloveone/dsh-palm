@@ -1,15 +1,14 @@
 /**
- * Bottom sheets and inline panels of the chat level: the composer's +
- * menu (PlusSheet), the model + thinking-effort picker (ModelSheet), the
- * permission-preset picker (PermissionSheet), and the pending tool
+ * Bottom sheets and inline panels of the chat level: the composer's + menu
+ * (PlusSheet, attachments only), the slash-command picker (CommandSheet), the
+ * full-access confirmation (PermissionConfirmSheet), and the pending tool
  * approval / question panels that ride above the composer.
  * @module dsh-palm/mobile/sheets
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import type { SessionModels } from '../api-proxy-types'
 import { errorText, staleHostHint } from './views/App.tsx'
-import { models, selectModel, sendCommand, respondApproval, respondQuestion, type CommandDescriptor } from './api.ts'
+import { sendCommand, respondApproval, respondQuestion, fetchGitSummary, listDirectory, type CommandDescriptor, type DirectoryListing, type GitSummary } from './api.ts'
 import type { PendingApproval, PendingQuestionItem } from './api.ts'
 import { latestBatchOf } from './question-batches.ts'
 import { Sheet } from './sheet.tsx'
@@ -45,7 +44,16 @@ export function parsePermissionSelect(value: unknown): PermissionSelectValue | u
     })
   }
   const currentValue = typeof value['currentValue'] === 'string' ? value['currentValue'] : undefined
-  if (currentValue === undefined || options.length === 0) return undefined
+  if (currentValue === undefined) return undefined
+  // 会话枚举（roster）的权限投影只带当前档位、不带可选档位，读会话的完整投影两者
+  // 都带。首屏快路径拿到的是前者——若因为"没有候选"就判成无权限，整个权限按钮
+  // 会直接消失（实测复现）。用标准三档兜底：当前档位永远在内，用户点开时宿主
+  // 仍会给真值。
+  if (options.length === 0) {
+    const fallback = ['read-only', 'workspace-write', 'danger-full-access']
+    if (!fallback.includes(currentValue)) fallback.push(currentValue)
+    return { options: fallback.map(option => ({ value: option, name: option })), currentValue }
+  }
   return { options, currentValue }
 }
 
@@ -54,12 +62,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** The composer's + menu: attach an image (gallery or camera) or run a slash command. */
-export function PlusSheet({ commands, onPickImage, onPickCamera, onPickCommand, onClose }: {
-  commands: CommandDescriptor[] | undefined
+/**
+ * The composer's + menu: attach an image, from the gallery or the camera.
+ *
+ * Slash commands deliberately do NOT live here. They used to, duplicated with
+ * the dedicated "/" panel next door — two buttons, one list, and every command
+ * styling change had to be made twice. The + button now owns attachments only
+ * and "/" owns commands only.
+ */
+export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFile, onClose }: {
   onPickImage(): void
   onPickCamera(): void
-  onPickCommand(line: string): void
+  /**
+   * 选了任意文件。这一项故意做成 label 直连一个 input：手指点到的就是文件输入框
+   * 本体，属于原生手势，不经过 click()。之前用程序化 click 加 accept 切换，真机上
+   * 点「文件」弹的仍是相册（浏览器沿用了上一次的选择器配置）；输入框从挂载起就没
+   * 设过 accept，也就没有"上一次"可沿用。
+   */
+  onPickFiles(files: File[]): void
+  /**
+   * 从电脑上挑一个文件（走宿主的目录列表）。手机浏览器的文件选择器由系统决定，
+   * 有些机型只给相机和相册，那时这条路是唯一能挑到文档的办法。
+   */
+  onPickHostFile(): void
   onClose(): void
 }) {
   return (
@@ -86,11 +111,176 @@ export function PlusSheet({ commands, onPickImage, onPickCamera, onPickCommand, 
             <circle cx="8" cy="8.75" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
           </svg>
         </button>
-        <div className="sheet-option-divider" role="separator" />
+        <label className="sheet-option sheet-option-file" role="menuitem">
+          <span className="sheet-option-copy">
+            <span className="sheet-option-title">文件</span>
+            <span className="sheet-option-desc">文档、表格、压缩包、代码…</span>
+          </span>
+          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">
+            <path d="M9 1.5 H4.5 A1.5 1.5 0 0 0 3 3 V13 A1.5 1.5 0 0 0 4.5 14.5 H11.5 A1.5 1.5 0 0 0 13 13 V5.5 Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M9 1.5 V5.5 H13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          </svg>
+          {/* 透明覆盖整行的文件输入框：点到的就是它，原生手势，且从不设 accept。 */}
+          <input
+            type="file"
+            multiple
+            className="sheet-option-input"
+            aria-label="选择文件"
+            onChange={(event) => {
+              const picked = [...(event.target.files ?? [])]
+              event.target.value = ''
+              onPickFiles(picked)
+            }}
+          />
+        </label>
+        <button type="button" role="menuitem" className="sheet-option" onClick={onPickHostFile}>
+          <span className="sheet-option-copy">
+            <span className="sheet-option-title">电脑文件</span>
+            <span className="sheet-option-desc">从电脑上选，手机上选不了文件时用</span>
+          </span>
+          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">
+            <rect x="1.5" y="2.5" width="13" height="9" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M5 14 H11" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            <path d="M8 11.5 V14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </Sheet>
+  )
+}
+
+/** 从电脑上挑文件的一层目录浏览（宿主目录列表，带文件）。 */
+/**
+ * 这个路径在不在根目录之下（Windows 大小写与分隔符都要宽容）。
+ *
+ * 用途：手机上的「电脑文件」默认停在会话工作区，越界到磁盘别处时提醒一句 ——
+ * 宿主目录接口对已配对设备是全权（设计如此），但误点一下 `C:\` 就会把整块盘列出来，
+ * 那既慢又容易选错。
+ */
+export function isPathInsideRoot(path: string, root: string | undefined): boolean {
+  if (root === undefined || root === '') return true
+  /** 统一分隔符、小写、把 `.`/`..` 折掉 —— 否则 `a/../b` 会被前缀匹配当成 `a/b` 放过。 */
+  const norm = (value: string): string => {
+    const parts: string[] = []
+    for (const raw of value.replace(/[\\/]+/gu, '/').split('/')) {
+      if (raw === '' || raw === '.') continue
+      if (raw === '..') { parts.pop(); continue }
+      parts.push(raw.toLowerCase())
+    }
+    return parts.join('/')
+  }
+  const target = norm(path)
+  const base = norm(root)
+  return target === base || target.startsWith(`${base}/`)
+}
+
+export function HostFileSheet({ onPick, onClose, rootPath }: {
+  onPick(path: string, name: string): void
+  onClose(): void
+  /** 会话的工作区：面板默认停在这里，越界时提醒。缺省时按宿主默认目录（老行为）。 */
+  rootPath?: string
+}) {
+  const [listing, setListing] = useState<DirectoryListing | undefined>(undefined)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [busy, setBusy] = useState(false)
+  const load = useCallback((path?: string): void => {
+    setBusy(true)
+    setError(undefined)
+    void listDirectory(path, { files: true }).then((next) => {
+      setListing(next)
+    }).catch((reason: unknown) => {
+      setError(errorText(reason))
+    }).finally(() => {
+      setBusy(false)
+    })
+  }, [])
+  useEffect(() => { load(rootPath) }, [load, rootPath])
+  const rows = listing?.entries ?? []
+  const dirs = rows.filter(row => row.kind !== 'file')
+  const files = rows.filter(row => row.kind === 'file')
+  const parent = listing !== undefined && listing.crumbs.length > 1
+    ? listing.crumbs[listing.crumbs.length - 2]
+    : undefined
+  return (
+    <Sheet title="电脑文件" onClose={onClose}>
+      <div className="host-file-head">
+        <button
+          type="button"
+          className="host-file-up"
+          disabled={parent === undefined || busy}
+          onClick={() => { if (parent !== undefined) load(parent.path) }}
+        >
+          上一级
+        </button>
+        <span className="host-file-path" title={listing?.path}>{listing?.path ?? '读取中…'}</span>
+      </div>
+      {rootPath !== undefined && listing !== undefined && !isPathInsideRoot(listing.path, rootPath) && (
+        <p className="sheet-note host-file-outside">
+          这个目录在工作区之外，选中的文件会被按绝对路径引用。
+          <button type="button" className="host-file-back" onClick={() => { load(rootPath) }}>回到工作区</button>
+        </p>
+      )}
+      {error !== undefined && <p className="sheet-note">打不开这个目录：{error}</p>}
+      {busy && listing === undefined && <p className="sheet-note">读取中…</p>}
+      {!busy && error === undefined && rows.length === 0 && (
+        <p className="sheet-note">这个目录是空的</p>
+      )}
+      <div className="host-file-list">
+        {dirs.map(entry => (
+          <button
+            key={entry.path}
+            type="button"
+            className="host-file-row"
+            onClick={() => { load(entry.path) }}
+          >
+            <span className="host-file-name">{entry.name}</span>
+            <span className="host-file-meta">目录</span>
+          </button>
+        ))}
+        {files.map(entry => (
+          <button
+            key={entry.path}
+            type="button"
+            className="host-file-row host-file-row-file"
+            onClick={() => { onPick(entry.path, entry.name) }}
+          >
+            <span className="host-file-name">{entry.name}</span>
+            <span className="host-file-meta">
+              {entry.bytes === undefined ? '文件' : formatBytes(entry.bytes)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </Sheet>
+  )
+}
+
+/** 文件大小的人话写法（只在手机这一层显示，别上科学计数法）。 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+/**
+ * The slash-command picker, one tap from the composer. Commands used to live
+ * only inside the "+" sheet next to image/camera, which put the thing people
+ * reach for most behind the least-frequent menu. A phone has no Tab key and
+ * no command palette, so this is the whole discoverability of the feature.
+ */
+export function CommandSheet({ commands, onPickCommand, onClose }: {
+  commands: CommandDescriptor[] | undefined
+  onPickCommand(line: string): void
+  onClose(): void
+}) {
+  return (
+    <Sheet title="斜杠命令" onClose={onClose}>
+      <div role="menu" aria-label="斜杠命令">
         {commands === undefined ? (
           <p className="sheet-note">命令加载中…</p>
         ) : commands.length === 0 ? (
-          <p className="sheet-note">没有可用命令</p>
+          <p className="sheet-note">这个会话没有可用命令</p>
         ) : (
           commands.map(command => (
             <button
@@ -112,237 +302,130 @@ export function PlusSheet({ commands, onPickImage, onPickCamera, onPickCommand, 
   )
 }
 
-/** The model + thinking-effort picker (fresh advisory directory per open). */
-export function ModelSheet({ sessionId, current, onCurrent, onClose }: {
-  sessionId: string
-  current: { provider: string; model: string; reasoningEffort?: string } | undefined
-  onCurrent(selection: { provider: string; model: string; reasoningEffort?: string }): void
+/**
+ * The read-only git sheet: what changed, on which branch, and the last few
+ * commits. On a phone this replaces the urge to open an editor — the usual
+ * question is "did my change land", not "let me rewrite this file".
+ */
+export function GitSheet({ cwd, onClose }: {
+  cwd: string
   onClose(): void
 }) {
-  const [state, setState] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: SessionModels }>({ status: 'loading' })
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | undefined>(undefined)
-
-  const load = useCallback(() => {
-    setState({ status: 'loading' })
-    void models(sessionId).then(
-      data => { setState({ status: 'ready', data }) },
-      (reason: unknown) => { setState({ status: 'error', message: errorText(reason) }) },
+  const [summary, setSummary] = useState<GitSummary | undefined>(undefined)
+  const [failure, setFailure] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    void fetchGitSummary(cwd).then(
+      (value) => { if (!cancelled) setSummary(value) },
+      (error: unknown) => { if (!cancelled) setFailure(errorText(error)) },
     )
-  }, [sessionId])
-
-  useEffect(() => { load() }, [load])
-
-  /** Select model/effort and close on success (one-shot action per sheet). */
-  const apply = useCallback((selection: { provider: string; model: string; reasoningEffort?: string }) => {
-    if (busy) return
-    setBusy(true)
-    setError(undefined)
-    void selectModel(sessionId, selection).then(
-      (result) => {
-        setBusy(false)
-        onCurrent(result.selected)
-        onClose()
-      },
-      (reason: unknown) => {
-        setBusy(false)
-        setError(errorText(reason))
-      },
-    )
-  }, [busy, sessionId, onCurrent, onClose])
-
-  if (state.status === 'loading') {
-    return (
-      <Sheet title="模型与思考强度" onClose={onClose}>
-        <div className="sheet-status">正在加载模型目录…</div>
-      </Sheet>
-    )
-  }
-  if (state.status === 'error') {
-    return (
-      <Sheet title="模型与思考强度" onClose={onClose}>
-        <div className="sheet-status sheet-status-error">
-          <span>{state.message}</span>
-          {staleHostHint(state.message) !== undefined && <span className="sheet-hint">{staleHostHint(state.message)}</span>}
-          <button type="button" className="chat-load-older" onClick={load}>重试</button>
-        </div>
-      </Sheet>
-    )
-  }
-
-  const { data } = state
-  const selected = current ?? data.current
-  const choices = data.groups.flatMap(group => group.models.map(model => ({ group, model })))
-  const currentChoice = choices.find(choice => choice.group.id === selected.provider && choice.model.id === selected.model)
-  const reasoning = currentChoice?.model.reasoning
-  const effectiveEffort = selected.reasoningEffort ?? reasoning?.defaultEffort
-  const effortChoices = reasoning === undefined
-    ? []
-    : [
-      ...(reasoning.defaultEffort === undefined
-        ? [{ key: 'provider-default', effort: undefined as string | undefined, label: '跟随模型默认' }]
-        : []),
-      ...reasoning.efforts.map(effort => ({
-        key: `effort:${effort.id}`,
-        effort: effort.id as string | undefined,
-        label: effort.name,
-        description: effort.description,
-      })),
-    ]
-
+    return () => { cancelled = true }
+  }, [cwd])
   return (
-    <Sheet title="模型与思考强度" onClose={onClose}>
-      {error !== undefined && <p className="sheet-error">{error}</p>}
-      {error !== undefined && staleHostHint(error) !== undefined && <p className="sheet-hint">{staleHostHint(error)}</p>}
-      {data.failures.map(failure => (
-        <p className="sheet-error" key={failure.id}>{failure.name}: {failure.message}</p>
-      ))}
-      {data.groups.length === 0 && choices.length === 0 && (
-        <div className="sheet-status">没有可用的模型</div>
-      )}
-      {data.groups.map(group => (
-        <div className="sheet-section" key={group.id}>
-          <div className="sheet-section-title">{group.name}</div>
-          {group.models.map(model => {
-            const isSelected = selected.provider === group.id && selected.model === model.id
-            return (
-              <button
-                type="button"
-                key={model.id}
-                className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
-                disabled={busy}
-                onClick={() => {
-                  apply({
-                    provider: group.id,
-                    model: model.id,
-                    ...(model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: model.reasoning.defaultEffort }),
-                  })
-                }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">{model.name}</span>
-                  {model.description !== undefined && <span className="sheet-option-desc">{model.description}</span>}
-                </span>
-                {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
-              </button>
-            )
-          })}
-        </div>
-      ))}
-      {effortChoices.length > 0 && (
-        <div className="sheet-section">
-          <div className="sheet-section-title">思考强度</div>
-          {effortChoices.map(choice => {
-            const isSelected = effectiveEffort === choice.effort
-            return (
-              <button
-                type="button"
-                key={choice.key}
-                className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
-                disabled={busy}
-                onClick={() => { apply({ provider: selected.provider, model: selected.model, ...(choice.effort !== undefined ? { reasoningEffort: choice.effort } : {}) }) }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">{choice.label}</span>
-                </span>
-                {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
-              </button>
-            )
-          })}
-        </div>
-      )}
+    <Sheet title="改动" onClose={onClose}>
+      <div role="region" aria-label="git 状态">
+        {failure !== undefined && <p className="sheet-note">{failure}</p>}
+        {failure === undefined && summary === undefined && <p className="sheet-note">读取中…</p>}
+        {summary !== undefined && !summary.repo && (
+          <p className="sheet-note">这个目录不在 git 仓库里</p>
+        )}
+        {summary !== undefined && summary.repo && (
+          <>
+            <p className="sheet-note">
+              {summary.branch !== undefined && summary.branch !== '' ? `分支 ${summary.branch}` : '未命名分支'}
+              {summary.ahead !== undefined && summary.ahead > 0 ? ` · 领先 ${summary.ahead}` : ''}
+              {summary.behind !== undefined && summary.behind > 0 ? ` · 落后 ${summary.behind}` : ''}
+            </p>
+            {summary.warning !== undefined && <p className="sheet-note">{summary.warning}</p>}
+            {summary.files.length === 0 ? (
+              <p className="sheet-note">工作区干净，没有未提交的改动</p>
+            ) : (
+              summary.files.map(file => (
+                <div key={`${file.status}-${file.path}`} className="sheet-option" role="listitem">
+                  <span className="sheet-option-copy">
+                    <span className="sheet-option-title">{file.path}</span>
+                    <span className="sheet-option-desc">{file.staged ? `${file.status} · 已暂存` : file.status}</span>
+                  </span>
+                </div>
+              ))
+            )}
+            {summary.commits.length > 0 && (
+              <>
+                <div className="sheet-option-divider" role="separator" />
+                <p className="sheet-note">最近提交</p>
+                {summary.commits.map(commit => (
+                  <div key={commit.shortHash} className="sheet-option" role="listitem">
+                    <span className="sheet-option-copy">
+                      <span className="sheet-option-title">{commit.subject}</span>
+                      <span className="sheet-option-desc">{commit.shortHash} · {commit.author}</span>
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
     </Sheet>
   )
 }
 
-/** The permission-preset picker; full access needs an explicit confirm. */
-export function PermissionSheet({ sessionId, value, onChanged, onClose }: {
+/**
+ * The full-access confirmation, and nothing else.
+ *
+ * This sheet used to also list every permission preset, duplicating the
+ * composer popover — and worse, the two disagreed: the popover switched to
+ * full access silently while this sheet asked first. The preset list now lives
+ * only in the popover; this sheet exists solely to make granting full access a
+ * deliberate, described act, and BOTH entry points route through it.
+ */
+export function PermissionConfirmSheet({ sessionId, target, onChanged, onClose }: {
   sessionId: string
-  value: PermissionSelectValue
+  /** The preset the user picked; the parent has already decided it needs asking. */
+  target: string
   onChanged(currentValue: string): void
   onClose(): void
 }) {
-  const [confirming, setConfirming] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
 
   /** Submit `/permission <value>` as a slash command (mode-agnostic). The
    * host must actually execute it — a catalog miss here is an error, never a
    * prompt: the permission preset only changes through the command. */
-  const submit = useCallback((next: string) => {
+  const submit = (): void => {
     if (busy) return
     setBusy(true)
     setError(undefined)
-    void sendCommand(sessionId, `/permission ${next}`).then(
+    void sendCommand(sessionId, `/permission ${target}`).then(
       (outcome) => {
         setBusy(false)
-        setConfirming(null)
         if (!outcome.matched) {
           setError('权限命令未在宿主注册，无法切换')
           return
         }
-        onChanged(next)
+        onChanged(target)
         onClose()
       },
       (reason: unknown) => {
         setBusy(false)
-        setConfirming(null)
         setError(errorText(reason))
       },
-    )
-  }, [busy, sessionId, onChanged, onClose])
-
-  const choose = (next: string): void => {
-    if (next === value.currentValue) {
-      onClose()
-      return
-    }
-    if (next === 'danger-full-access') {
-      setConfirming(next)
-      return
-    }
-    submit(next)
-  }
-
-  if (confirming !== null) {
-    return (
-      <Sheet title="确认完全权限" onClose={() => { setConfirming(null) }}>
-        <p className="sheet-confirm-desc">
-          开启完全权限后，远程会话可以在工作区内执行任意操作（包括运行命令、修改所有文件与访问凭证）。
-          仅在您信任当前设备和网络时开启。
-        </p>
-        {error !== undefined && <p className="sheet-error">{error}</p>}
-        <div className="sheet-confirm-actions">
-          <button type="button" className="mobile-button" disabled={busy} onClick={() => { setConfirming(null) }}>取消</button>
-          <button type="button" className="sheet-confirm-danger" disabled={busy} onClick={() => { submit(confirming) }}>
-            {busy ? '提交中…' : '确认开启'}
-          </button>
-        </div>
-      </Sheet>
     )
   }
 
   return (
-    <Sheet title="权限" onClose={onClose}>
+    <Sheet title="确认完全权限" onClose={onClose}>
+      <p className="sheet-confirm-desc">
+        开启完全权限后，远程会话可以在工作区内执行任意操作（包括运行命令、修改所有文件与访问凭证）。
+        仅在您信任当前设备和网络时开启。
+      </p>
       {error !== undefined && <p className="sheet-error">{error}</p>}
-      {value.options.map(option => {
-        const isSelected = option.value === value.currentValue
-        return (
-          <button
-            type="button"
-            key={option.value}
-            className={`sheet-option${isSelected ? ' sheet-option-selected' : ''}`}
-            disabled={busy}
-            onClick={() => { choose(option.value) }}
-          >
-            <span className="sheet-option-copy">
-              <span className="sheet-option-title">{option.name}</span>
-              {option.description !== undefined && <span className="sheet-option-desc">{option.description}</span>}
-            </span>
-            {isSelected && <span className="sheet-option-check" aria-hidden>√</span>}
-          </button>
-        )
-      })}
+      <div className="sheet-confirm-actions">
+        <button type="button" className="mobile-button" disabled={busy} onClick={onClose}>取消</button>
+        <button type="button" className="sheet-confirm-danger" disabled={busy} onClick={submit}>
+          {busy ? '提交中…' : '确认开启'}
+        </button>
+      </div>
     </Sheet>
   )
 }
@@ -394,10 +477,12 @@ export function TurnListSheet({ entries, currentTurn, onPick, onClose }: {
 }
 
 /** One pending tool approval card with allow/reject actions. */
-export function ApprovalPanel({ approval, sessionId, onResolved }: {
+export function ApprovalPanel({ approval, sessionId, onResolved, preview }: {
   approval: PendingApproval
   sessionId: string
   onResolved(approvalId: string): void
+  /** 这次调用的参数压成的一行（来自会话日志里同 callId 的 tool/call）。 */
+  preview?: string
 }) {
   const [busy, setBusy] = useState(false)
   const [panelError, setPanelError] = useState<string | undefined>(undefined)
@@ -423,6 +508,8 @@ export function ApprovalPanel({ approval, sessionId, onResolved }: {
           <span className="chat-approval-reason">{approval.reason}</span>
         )}
       </div>
+      {/* host 的帧只带工具名：把「要执行什么」摆在同一张卡上，否则用户是在盲批。 */}
+      {preview !== undefined && <p className="chat-approval-preview">{preview}</p>}
       {panelError !== undefined && <p className="chat-approval-error">{panelError}</p>}
       <div className="chat-approval-actions">
         <button

@@ -19,6 +19,10 @@ export interface SubagentFlatNode {
   id: string
   label: string
   activity: 'running' | 'inactive'
+  /** 这一轮开始的时间：卡片上显示"已跑 2分10秒"。 */
+  turnStartAt?: number
+  /** 子会话里最新事件的时间：不在跑的时候显示"6 分钟前"。 */
+  lastEventAt?: number
 }
 
 /** Foreground-subagent poll cadence. The host stream (`host/session-status`)
@@ -49,6 +53,8 @@ export async function fetchSubagents(parentId: string): Promise<SubagentFlatNode
       id: entry.id,
       label: entry.label ?? entry.id,
       activity: entry.activity,
+      ...(entry.turnStartAt === undefined ? {} : { turnStartAt: entry.turnStartAt }),
+      ...(entry.lastEventAt === undefined ? {} : { lastEventAt: entry.lastEventAt }),
     })
   }
   return nodes

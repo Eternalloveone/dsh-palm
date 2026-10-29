@@ -14,6 +14,7 @@ import {
   startUpdate,
   type UpdateStatusFrame,
 } from './pair-api.ts'
+import { IconGitHubFill16 } from './icons.tsx'
 import css from './remote.module.css'
 
 /** 底部一行的视图状态。 */
@@ -46,6 +47,28 @@ function viewOfStatus(frame: UpdateStatusFrame, now: number): FooterView {
   return { kind: 'hidden' }
 }
 
+/**
+/**
+ * 行尾的仓库入口：「dsh-palm 1.7.0 · 已是最新」右边那颗 octocat。
+ *
+ * 位置就在版本这句话旁边 —— 用户问"有没有新版本"时顺手也能去仓库看源码、提 Issue，
+ * 比回设置里翻「反馈」那一行近一步。它跟着更新条一起出现/消失（查不到版本时整行
+ * 按既有契约隐藏，见下面的 hidden 分支）。
+ */
+function RepoLink({ t }: { t: TranslateNS<'remote'> }) {
+  return (
+    <a
+      className={css.updateRepo}
+      href="https://github.com/Eternalloveone/dsh-palm"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={t('update.repo')}
+      title={t('update.repoHint')}
+    >
+      <IconGitHubFill16 />
+    </a>
+  )
+}
 /** UpdateFooter 的属性。 */
 export interface UpdateFooterProps {
   t: TranslateNS<'remote'>
@@ -159,8 +182,10 @@ export function UpdateFooter({ t, pollMs = 1000 }: UpdateFooterProps) {
     setView({ kind: 'done', to: toRef.current, step: cancelled ? 'cancelled' : 'restart-uncertain' })
   }, [])
 
+  // 版本查不到（老宿主、接口不通、还没配对）：整行不渲染 —— 这条是既有契约，
+  // tests/update-footer.spec.tsx 锁着它（"hides the line entirely when the host
+  // cannot answer"）。仓库入口跟着这一行一起出现/消失，不单独为它开一条空行。
   if (view.kind === 'hidden') return null
-
   return (
     <div className={css.updateFooter} data-testid="remote-update" aria-live="polite">
       {view.kind === 'checking' && (
@@ -250,6 +275,10 @@ export function UpdateFooter({ t, pollMs = 1000 }: UpdateFooterProps) {
           {view.reason === '' ? t('update.failedGeneric') : view.reason}
         </span>
       )}
+
+      {/* 行尾的仓库入口：版本信息可能查不到、更新也可能失败，但「源码在哪、去哪提
+          Issue」永远值得一键可达，所以它不跟着上面那些状态一起消失。 */}
+      <RepoLink t={t} />
     </div>
   )
 }

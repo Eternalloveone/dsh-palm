@@ -1,11 +1,32 @@
 /** PWA routes for the standalone /m mobile surface. */
+import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer, request as httpRequest } from 'node:http'
+import { fileURLToPath } from 'node:url'
 import { brotliDecompressSync, gunzipSync } from 'node:zlib'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingHttpHeaders } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { makeMobileRoutes } from '../src/mobile-routes.ts'
+
+// 生产模块用的是 node:zlib 的具名导入，vi.spyOn 改不了 ESM 命名空间；用 vi.mock
+// 包一层只数同步 brotli 的调用，其它 API（含异步压缩）保持原样。拆包路由的请求
+// 路径上一次同步压缩都不许发生——那会卡住宿主事件循环 0.3–2 秒/chunk，桌面端
+// 的 SSE 流也跟着停。
+const syncBrotliCalls = vi.hoisted(() => ({ count: 0 }))
+vi.mock('node:zlib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:zlib')>()
+  return {
+    ...actual,
+    brotliCompressSync: (
+      buffer: Parameters<typeof actual.brotliCompressSync>[0],
+      options?: Parameters<typeof actual.brotliCompressSync>[1],
+    ) => {
+      syncBrotliCalls.count += 1
+      return actual.brotliCompressSync(buffer, options)
+    },
+  }
+})
 
 interface TestServer {
   port: number
@@ -21,10 +42,13 @@ interface GetResponse {
 
 async function serve(routes: WebRoute[]): Promise<TestServer> {
   const server = createServer((request, response) => {
-    const route = routes.find(r => {
-      const pathname = new URL(request.url ?? '/', 'http://x').pathname
-      return r.kind === 'exact' && r.path === pathname
-    })
+    const pathname = new URL(request.url ?? '/', 'http://x').pathname
+    const route = routes.find(r => (
+      r.kind === 'exact'
+        ? r.path === pathname
+        // 与宿主 webserver 的前缀语义一致：整段相等，或以 "前缀/" 开头。
+        : pathname === r.path || pathname.startsWith(r.path + '/')
+    ))
     if (route === undefined) {
       response.writeHead(404)
       response.end()
@@ -98,6 +122,35 @@ async function getRaw(
   })
 }
 
+/** 后台压缩落进缓存要时间：轮询同一个请求，直到指定编码出现（或超时）。 */
+async function getEncodedEventually(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+  encoding: 'br' | 'gzip',
+  timeoutMs = 20_000,
+): Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const response = await getRaw(port, path, headers)
+    if (response.headers['content-encoding'] === encoding || Date.now() > deadline) return response
+    await new Promise<void>(resolve => setTimeout(resolve, 25))
+  }
+}
+
+/** chunk 名 → 磁盘路径（与 src/mobile-routes.ts 里的映射一致）。 */
+function chunkFilePath(name: string): string {
+  return fileURLToPath(new URL('../lib/mobile/' + name, import.meta.url))
+}
+
+/** 入口包实际 import 的 chunk 名（去重）。 */
+async function entryChunkNames(port: number): Promise<string[]> {
+  const entry = await get(port, '/m/mobile.js')
+  return [...new Set(
+    [...entry.body.matchAll(/\.\/mobile\/([A-Za-z0-9._-]+\.js)/g)].map(match => match[1] as string),
+  )]
+}
+
 function expectPngDimensions(body: Buffer, width: number, height: number): void {
   expect(Array.from(body.subarray(0, 8))).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
   expect(body.readUInt32BE(16)).toBe(width)
@@ -132,6 +185,26 @@ describe('mobile routes', () => {
       expect(page.body).toContain('<link rel="apple-touch-icon" href="/m/apple-touch-icon.png">')
     } finally {
       await server.close()
+    }
+  })
+
+  it('re-reads the bundle after a rebuild instead of pinning the first read', async () => {
+    // 原来这份缓存认"进程内不变"：pnpm build 之后不重启，页面还下发旧 body 和旧
+    // ?v=hash，手机端按旧 hash 拿到的入口引用的分块已被新构建清掉（404 兜底换壳）。
+    const server = await serve(makeMobileRoutes())
+    const first = await get(server.port, '/m/')
+    const firstHash = /src="\/m\/mobile\.js\?v=([0-9a-f]{8})"/.exec(first.body)?.[1]
+    expect(firstHash).toBeDefined()
+    const bundlePath = fileURLToPath(new URL('../lib/mobile.js', import.meta.url))
+    const original = readFileSync(bundlePath)
+    try {
+      writeFileSync(bundlePath, Buffer.concat([original, Buffer.from('\n// rebuild marker\n')]))
+      const second = await get(server.port, '/m/')
+      const secondHash = /src="\/m\/mobile\.js\?v=([0-9a-f]{8})"/.exec(second.body)?.[1]
+      expect(secondHash).toBeDefined()
+      expect(secondHash).not.toBe(firstHash)
+    } finally {
+      writeFileSync(bundlePath, original)
     }
   })
 
@@ -203,30 +276,85 @@ describe('mobile routes', () => {
       const bundle = await get(server.port, '/m/mobile.js')
       expect(bundle.status).toBe(200)
       expect(bundle.type).toContain('text/javascript')
-      expect(bundle.body.length).toBeGreaterThan(1_000)
-      // Bundle-size canary: the phone pays for these bytes over a relayed link.
-      // Minified the artifact is ~564 KB; the same sources unminified are
-      // ~1120 KB, so this catches a build that silently stopped minifying (or
-      // a dependency that doubles the app) long before a phone notices.
-      expect(bundle.body.length).toBeLessThan(900_000)
+      // The entry is only the bootstrap after the split; the code itself lives
+      // in the chunks it imports. So the size canary measures the whole app —
+      // entry plus every chunk it names — which is what the phone downloads.
+      const chunkNames = [...bundle.body.matchAll(/\.\/mobile\/([A-Za-z0-9._-]+\.js)/g)].map(match => match[1])
+      expect(chunkNames.length).toBeGreaterThan(0)
+      let total = Buffer.byteLength(bundle.body)
+      for (const name of new Set(chunkNames)) {
+        const chunk = await get(server.port, '/m/mobile/' + name)
+        expect(chunk.status).toBe(200)
+        total += Buffer.byteLength(chunk.body)
+      }
+      // Minified the app is ~520 KB; the same sources unminified are ~1120 KB,
+      // so this catches a build that silently stopped minifying (or a
+      // dependency that doubles the app) long before a phone notices.
+      expect(total).toBeGreaterThan(300_000)
+      expect(total).toBeLessThan(900_000)
     } finally {
       await server.close()
     }
   })
 
+  it('serves the split view chunks the entry imports, immutable and compressed', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      // 入口必须真的把聊天/设置视图拆出去（B 拆包），否则这条断言就是空转。
+      const chunkNames = await entryChunkNames(server.port)
+      expect(chunkNames.length).toBeGreaterThan(0)
+      for (const name of chunkNames) {
+        // 首个请求先回原始字节（压缩在后台），压缩完成后同一 URL 才是 br。
+        const chunk = await getEncodedEventually(
+          server.port,
+          '/m/mobile/' + name,
+          { 'accept-encoding': 'gzip, deflate, br' },
+          'br',
+        )
+        expect(chunk.status).toBe(200)
+        expect(chunk.headers['content-encoding']).toBe('br')
+        expect(chunk.headers['cache-control']).toContain('immutable')
+        const text = brotliDecompressSync(chunk.body).toString('utf8')
+        expect(text.length).toBeGreaterThan(0)
+      }
+      // 越界与不存在的 chunk 一律 404（这条路由直接映射磁盘）。
+      expect((await get(server.port, '/m/mobile/..%2F..%2Fpackage.json')).status).toBe(404)
+      expect((await get(server.port, '/m/mobile/nope-00000000.js')).status).toBe(404)
+    } finally {
+      await server.close()
+    }
+  }, 60_000)
+
   it('negotiates brotli for the bundle and falls back to gzip', async () => {
     const server = await serve(makeMobileRoutes())
     try {
+      // The entry is the bootstrap only now, so the compression comparison runs
+      // on the biggest chunk it pulls in — that is the payload the phone pays
+      // for, and a tiny file would make the brotli-vs-gzip assertion meaningless.
+      const chunkNames = await entryChunkNames(server.port)
+      let target = '/m/mobile.js'
+      let biggest = 0
+      for (const name of chunkNames) {
+        const raw = await getRaw(server.port, '/m/mobile/' + name, {})
+        if (raw.body.length > biggest) { biggest = raw.body.length; target = '/m/mobile/' + name }
+      }
+      expect(biggest).toBeGreaterThan(100_000)
+
       // Brotli when the phone offers it, and it must beat gzip on the wire.
-      const br = await getRaw(server.port, '/m/mobile.js', { 'accept-encoding': 'gzip, deflate, br' })
+      // 首个请求只回原始字节，压缩在后台；等压缩副本进缓存后再断言。
+      const br = await getEncodedEventually(
+        server.port,
+        target,
+        { 'accept-encoding': 'gzip, deflate, br' },
+        'br',
+      )
       expect(br.status).toBe(200)
       expect(br.headers['content-encoding']).toBe('br')
       expect(br.headers.vary).toBe('Accept-Encoding')
-      expect(br.body.length).toBeGreaterThan(10_000)
       const brotliText = brotliDecompressSync(br.body).toString('utf8')
       expect(brotliText).toContain('createElement')
 
-      const gz = await getRaw(server.port, '/m/mobile.js', { 'accept-encoding': 'gzip' })
+      const gz = await getEncodedEventually(server.port, target, { 'accept-encoding': 'gzip' }, 'gzip')
       expect(gz.headers['content-encoding']).toBe('gzip')
       const gzipText = gunzipSync(gz.body).toString('utf8')
       expect(gzipText).toContain('createElement')
@@ -234,14 +362,89 @@ describe('mobile routes', () => {
 
       // A client that offers neither gets identity bytes, never an encoding it
       // did not ask for.
-      const plain = await getRaw(server.port, '/m/mobile.js', {})
+      const plain = await getRaw(server.port, target, {})
       expect(plain.headers['content-encoding']).toBeUndefined()
       expect(plain.body.length).toBeGreaterThan(gz.body.length)
       expect(plain.body.toString('utf8')).toBe(gzipText)
     } finally {
       await server.close()
     }
-  })
+  }, 60_000)
+
+  it('serves the first chunk request raw and never compresses synchronously', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      const [name] = await entryChunkNames(server.port)
+      expect(name).toBeDefined()
+      const disk = readFileSync(chunkFilePath(name as string))
+      syncBrotliCalls.count = 0
+      const first = await getRaw(server.port, '/m/mobile/' + name, { 'accept-encoding': 'br' })
+      expect(first.status).toBe(200)
+      // 首请求拿到的字节就是磁盘原文：既不能带 Content-Encoding，也不能为了
+      // 这个请求同步压一遍。
+      expect(first.headers['content-encoding']).toBeUndefined()
+      expect(Buffer.compare(first.body, disk)).toBe(0)
+      expect(syncBrotliCalls.count).toBe(0)
+    } finally {
+      await server.close()
+    }
+  }, 30_000)
+
+  it('reuses the asynchronously compressed chunk once it is cached', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      const [name] = await entryChunkNames(server.port)
+      const path = '/m/mobile/' + String(name)
+      const disk = readFileSync(chunkFilePath(String(name)))
+      // 第一个请求触发后台压缩；等它落缓存后，同一个请求必须拿到合法的 br，
+      // 且能解回磁盘上的同一份字节。
+      const second = await getEncodedEventually(server.port, path, { 'accept-encoding': 'br' }, 'br')
+      expect(second.headers['content-encoding']).toBe('br')
+      expect(Buffer.compare(brotliDecompressSync(second.body), disk)).toBe(0)
+      // 已经压好的编码直接复用，不会再压一次（字节完全一致）。
+      const third = await getRaw(server.port, path, { 'accept-encoding': 'br' })
+      expect(third.headers['content-encoding']).toBe('br')
+      expect(Buffer.compare(third.body, second.body)).toBe(0)
+    } finally {
+      await server.close()
+    }
+  }, 30_000)
+
+  it('evicts the least recently used chunk together with its encoded copies', async () => {
+    const reads = new Map<string, number>()
+    // 注入很小的上限 + 假读盘实现：三个 chunk 就能验证淘汰，不依赖磁盘上有多
+    // 少个 chunk，也不用分配几兆内存。
+    const server = await serve(makeMobileRoutes({
+      chunkCacheLimit: 2,
+      readChunk: async (name) => {
+        reads.set(name, (reads.get(name) ?? 0) + 1)
+        return Buffer.from('/* ' + name + ' */ export const chunk = ' + JSON.stringify(name))
+      },
+    }))
+    try {
+      const br = { 'accept-encoding': 'br' }
+      // a、b 依次进入缓存，并各自等到后台压缩完成。
+      const a = await getEncodedEventually(server.port, '/m/mobile/a.js', br, 'br')
+      expect(a.headers['content-encoding']).toBe('br')
+      const b = await getEncodedEventually(server.port, '/m/mobile/b.js', br, 'br')
+      expect(b.headers['content-encoding']).toBe('br')
+      // 第三次插入把最久没用的 a（连同它的 br 副本）挤出去。
+      const c = await getEncodedEventually(server.port, '/m/mobile/c.js', br, 'br')
+      // 最新的 c 必须还在，并且直接命中缓存的 br。
+      expect(c.headers['content-encoding']).toBe('br')
+      // 最新的 c 一直命中缓存（三次轮询都没有重新读盘）。
+      expect(reads.get('c.js')).toBe(1)
+      // a 已被淘汰：整个条目（原始字节 + br 副本）都没了，所以必须重新读盘。
+      const aAgain = await getRaw(server.port, '/m/mobile/a.js', br)
+      expect(aAgain.status).toBe(200)
+      expect(reads.get('a.js')).toBe(2)
+      // 再插一次 a，b 成了最久没用的，同样被淘汰（重新读盘）。
+      await getRaw(server.port, '/m/mobile/b.js', br)
+      expect(reads.get('b.js')).toBe(2)
+    } finally {
+      await server.close()
+    }
+  }, 30_000)
 
   it('serves the iOS and PWA icon assets as valid PNGs', async () => {
     const server = await serve(makeMobileRoutes())

@@ -75,6 +75,56 @@ describe('MuxClient polling fallback', () => {
     client.stop()
   })
 
+  it('carries the inbox projection on the polling fallback (the queue follows the chat)', async () => {
+    // 手机上的 SSE 被隧道掐断后，对话内容靠这条轮询续命。队列如果另开一条请求，
+    // 就多出一个会静默失败的独立通道 —— 卡片停在旧值、点删除也删不掉，
+    // 而桌面端一切正常，根源就在这里。
+    const { factory } = makeSources()
+    const inbox = { 'next-turn': [{ id: 'q1', role: 'user', content: [{ type: 'text', text: '排队中' }] }] }
+    const pollLatest = vi.fn(async (_sessionId: string) => ({
+      events: [],
+      hasMore: false,
+      projections: { asOfSeq: 0, values: { inbox } },
+    }) as unknown as HistoryPage)
+    const client = new MuxClient('/m/api/events.mux', baseOptions(pollLatest, factory))
+    const frames: Array<Record<string, unknown>> = []
+    client.onFrame(frame => { frames.push(frame as unknown as Record<string, unknown>) })
+    client.start()
+    client.observe('s1')
+    await vi.advanceTimersByTimeAsync(1200)
+    const projection = frames.find(frame => frame['type'] === 'session/projection' && frame['key'] === 'inbox')
+    expect(projection?.['value']).toEqual(inbox)
+    client.stop()
+  })
+
+  it('a keep-alive frame refreshes liveness without reaching subscribers', async () => {
+    // The host used to send its keep-alive as an SSE comment, which the
+    // EventSource spec discards before any page sees it. The client's liveness
+    // clock therefore only ever moved on real events, so an idle stream tripped
+    // the stall window and fell back to polling — and the next turn/start then
+    // waited for a poll instead of arriving on the wire.
+    const { factory, sources } = makeSources()
+    const pollLatest = vi.fn(async (_sessionId: string) => pageOf([0]))
+    const client = new MuxClient('/m/api/events.mux', baseOptions(pollLatest, factory))
+    const frames: unknown[] = []
+    client.onFrame(frame => { frames.push(frame) })
+    client.start()
+    client.observe('s1')
+    const source = sources[0]
+
+    // Keep a keep-alive arriving well inside the 800 ms stall window, and step
+    // past the point where silence alone would have started polling.
+    for (let beat = 0; beat < 6; beat += 1) {
+      await vi.advanceTimersByTimeAsync(400)
+      source?.onmessage?.({ data: envelopeWith({ type: 'mux/ping' }) })
+    }
+
+    expect(pollLatest).not.toHaveBeenCalled()
+    // A keep-alive carries no state, so nothing is forwarded upstream.
+    expect(frames).toHaveLength(0)
+    client.stop()
+  })
+
   it('starts polling after silence and emits appended events as session/event frames', async () => {
     const { factory } = makeSources()
     const pages = [pageOf([0]), pageOf([0, 1])]
@@ -827,5 +877,99 @@ describe('MuxClient background pause', () => {
     client.resync()
     expect(sources).toHaveLength(1)
     expect(sources[0]?.closed).toBe(true)
+  })
+})
+
+describe('MuxClient running mirror', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('corrects a missed turn/end on the next host probe', async () => {
+    // 断线期间漏掉的 turn/end 帧不会重放：镜像必须靠周期探针收敛，
+    // 否则绿点会一直挂着「运行中」。
+    const { factory, sources } = makeSources()
+    const probe = vi.fn(async () => [] as string[])
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 0,
+      runningProbe: probe,
+      runningResyncMs: 1_000,
+    })
+    mux.start()
+    sources[0]!.onmessage?.({ data: envelopeWith({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/start' } }) })
+    expect(mux.runningSessionsSnapshot()).toEqual(['s-1'])
+    // 探针连说两次「没人在跑」之前不给删（30 秒 TTL 的空快照会闪掉绿点）。
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mux.runningSessionsSnapshot()).toEqual(['s-1'])
+    expect(probe).toHaveBeenCalled()
+    mux.stop()
+  })
+
+  it('drops a session the host still lists but turnState calls idle', async () => {
+    // 真机：turn/end 漏了，宿主的运行集合要等五分钟静默上限才会掉。这期间花名册页
+    // 一直说「运行中 N 个会话」，点进去聊天页当场问 turnState 却是空闲 ——
+    // 所以宿主集合里的每条都要和聊天页同一个接口复核。
+    const { factory } = makeSources()
+    const probe = vi.fn(async () => ['s-1'])
+    const verify = vi.fn(async () => false)
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 1_000,
+      runningProbe: probe,
+      verifyRunning: verify,
+      runningResyncMs: 1_000,
+    })
+    mux.start()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(verify).toHaveBeenCalledWith('s-1')
+    expect(mux.runningSessionsSnapshot()).toEqual([])
+    mux.stop()
+  })
+
+  it('trusts a session it just saw turn/start on, without asking again', async () => {
+    // 刚看到 turn/start 的会话不必再问一次宿主：那是一次白花的往返。
+    const { factory, sources } = makeSources()
+    let clock = 1_000
+    const probe = vi.fn(async () => ['s-1'])
+    const verify = vi.fn(async () => false)
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => clock,
+      runningProbe: probe,
+      verifyRunning: verify,
+      runningResyncMs: 1_000,
+    })
+    mux.start()
+    sources[0]!.onmessage?.({ data: envelopeWith({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/start' } }) })
+    clock = 2_000
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(verify).not.toHaveBeenCalled()
+    expect(mux.runningSessionsSnapshot()).toEqual(['s-1'])
+    mux.stop()
+  })
+
+  it('backs off when the probe keeps failing', async () => {
+    const { factory } = makeSources()
+    let calls = 0
+    const probe = vi.fn(async () => {
+      calls += 1
+      throw new Error('链断')
+    })
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 0,
+      runningProbe: probe,
+      runningResyncMs: 1_000,
+    })
+    mux.start()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(calls).toBe(1)
+    // 失败后间隔翻倍：再等 1 秒不该重试，等够 2 秒才来第二次。
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(calls).toBe(1)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(calls).toBe(2)
+    mux.stop()
   })
 })

@@ -8,25 +8,47 @@
 | v1.3.0 – v1.5.2 | **0.1.5-rc.1 – 0.1.7-rc.1**（0.1.5-rc 线与 0.1.7 线） | ✅ 实测：0.1.5-rc.2（typecheck 0 错 + build + 测试 1156/1165）、0.1.5-rc.3 与 0.1.7-rc.1（容器矩阵 PASS：11 契约 + 真配对 + host-rpc + mux-stream；**生产实跑 0.1.7-rc.1**：21 个设置命名空间（含 palm/see-image/subagent-model）、GUI 门禁 5/5 PASS、`/m/`→200、`/api/pair/status`→200、未激活 0 与 disabling 0） | `dsh-palm` | **否** — 升级后需重新扫码配对一次 | 与 dsh-remote-web-ui / dsh-webui 命名与依赖解耦；0.1.7 线仅需放宽 peer 上界（0.1.6 起新增插件版本门，声明窄会被直接跳过）；在 0.1.7-rc.1 上手机端权限面板缺失（见下行 v1.5.3） |
 | v1.5.3 | **0.1.5-rc.1 – 0.1.7-rc.1**（同上） | ✅ 实测：0.1.7-rc.1 生产过程（`mobile.readChat` 的 `projections.values.permissions` 已带 `options`、手机端权限胶囊与权限面板恢复；本地门禁 8/8 PASS、1188 测试通过 / 9 跳过） | `dsh-palm` | **否** — 同上一行，升级后需重新扫码配对一次 | 0.1.7-rc.1 起 `permissions` 投影的 wire 收窄为 `{currentValue}`（选项搬到进程级 `permissionPresets.catalog()`）：**v1.5.2 及以前手机端权限胶囊与权限面板整块不渲染**（桌面端正常、两端都不报错），v1.5.3 起在宿主侧补挂进程目录恢复 |
 | v1.5.4 | **0.1.5-rc.1 – 0.2.0-rc.2**（0.1.5-rc 线、0.1.7 线与 0.2.0 线） | ✅ 实测：0.2.0-rc.2 容器矩阵（改前 BOOT-FAIL —— 版本门读 peer 把整包跳过；改后 install ok + boot yes + 11 契约全 ok + 真配对，80s PASS）；0.1.7-rc.1 生产实跑沿用 v1.5.3 结论（本地门禁 8/8 PASS、1188 测试通过 / 9 跳过） | `dsh-palm` | **否** — 同上一行，升级后需重新扫码配对一次 | 0.2.0 线仅需放宽 peer 上界（`<0.1.8-0` → `<0.2.1-0`），**运行时零改动**；0.2.0 把自动化任务移到可选插件包，未装时「任务完成/失败」推送不触发（功能层，不是故障）；应急可在 0.2.0 上用 `dsh plugin allow-version` 给旧版本开精确豁免 |
-| **v1.6.0**（当前） | **0.1.5-rc.1 – 0.2.1-rc.2**（0.1.5-rc 线、0.1.7 线、0.2.0 线与 0.2.1 线） | ✅ 实测：本地门禁 8/8 PASS（install / build / coverage / typecheck / audit / hygiene / pack / commitlint）、1227 测试通过 / 9 跳过、构建出 618100 B 的 mobile bundle；**0.2.1-rc.2 容器矩阵实测 PASS**（2026-10-18，162s：install ok + boot yes + 11 契约全 ok + 真配对成功）；0.2.1-alpha.2 上放宽上界后探针 PASS | `dsh-palm` | **否** — 同上一行，升级后需重新扫码配对一次 | 本轮新增手机端步骤时间线与回合尾报告；peer 上界 `<0.2.1-0` → `<0.2.2-0`，运行时零改动 |
+| v1.6.0 | **0.1.5-rc.1 – 0.2.1-rc.2**（0.1.5-rc 线、0.1.7 线、0.2.0 线与 0.2.1 线） | ✅ 实测：本地门禁 8/8 PASS（install / build / coverage / typecheck / audit / hygiene / pack / commitlint）、1227 测试通过 / 9 跳过、构建出 618100 B 的 mobile bundle；**0.2.1-rc.2 容器矩阵实测 PASS**（2026-10-18，162s：install ok + boot yes + 11 契约全 ok + 真配对成功）；0.2.1-alpha.2 上放宽上界后探针 PASS | `dsh-palm` | **否** — 同上一行，升级后需重新扫码配对一次 | 本轮新增手机端步骤时间线与回合尾报告；peer 上界 `<0.2.1-0` → `<0.2.2-0`，运行时零改动 |
+| **v1.7.0**（当前） | **0.2.1-rc.2 – 0.2.2-alpha.2**（推荐窗口）；**0.1.5-rc.2 – 0.2.2-alpha.2** 可编译可跑 | ✅ 实测：容器矩阵逐版本装 SDK 后跑 `tsc` + 全量单测（0.1.5-rc.2 / 0.1.7-rc.2 / 0.2.0-rc.1 / 0.2.1-alpha.1 / 0.2.1-rc.2 / 0.2.1-rc.4 / 0.2.2-alpha.2：**全部 0 错误、2109 测试通过**）；手机端验收 **41/41**（连续多轮稳定）；**0.2.2-alpha.2 金丝雀真跑 PASS**（独立 HOME + 3099：宿主启动、插件加载、手机端 5/5 接口、建会话后 readChat/turnOutline/turnState/inbox/pending 全通、日志零报错） | `dsh-palm` | **是** — 配对设备继续沿用 | 0.2.x 删了三个 API（`SessionControlBaseline.queues/jobs`、`SettingsController.canOpenAgentPresetDirectory`、`SettingsForms.installSection`），v1.7.0 已改造完毕：mux 只镜像 projections（排队/后台任务走手机端直读通道），设置页改用 `configure({auto})` + `settings/document-updated`，目录探测两代都试。**0.1.x 仍能编译能跑但有两处退化**：宿主侧设置表单注册不了、后台任务完成推送降级为轮询 —— 故 `dsh.engines.dsh` 与 peer 下界都定在 `0.2.1-rc.2`。旁注：宿主开头的插件版本门还会把不满足 `peerDependencies` 的包整块跳过，0.2.0-rc.x 想用需 `dsh plugin allow-version` |
 
 （本表为权威版本对应，`package.json` 的 `peerDependencies` / `dsh.engines.dsh` 为机器可读声明。**同一版本带内、运行时契约未变的版本合并为一行**——契约命名或兼容版本带发生变化时才新增行。）
 
 ## 版本带说明
 
-| 声明 | v1.6.0 值 |
+| 声明 | v1.7.0 值 |
 |---|---|
-| `dsh.engines.dsh` | `>=0.1.5-rc.1` |
-| peer `@deepseek-ai/cordis` | `>=4.0.1 <5` |
-| peer `@deepseek-ai/dsh-client-ui-slots` | `>=0.1.5-rc.1 <0.2.2-0`（仅类型） |
-| peer `@deepseek-ai/dsh-settings` | `>=0.1.5-rc.1 <0.2.2-0` |
+| `dsh.engines.dsh`（宿主加载门） | `>=0.2.1-rc.2 <0.3.0-0` |
+| peer `@deepseek-ai/cordis` | `>=4.0.5 <5` |
+| peer `@deepseek-ai/dsh-client-ui-slots` | `>=0.2.1-rc.2 <0.3.0-0`（仅类型） |
+| peer `@deepseek-ai/dsh-settings` | `>=0.2.1-rc.2 <0.3.0-0` |
 | peer `react` / `react-dom` | `^18.2.0` |
-| devDeps（编译期） | 全部 `@deepseek-ai/*` @ `0.1.5-rc.2` |
+| devDeps（编译期） | 全部 `@deepseek-ai/dsh-*` @ `0.2.2-alpha.2`（`dsh-agent-presets` 停在 `0.1.6-alpha.2`，该包没有 0.2.2 发布物） |
+| Node.js | `^22.19.0 \|\| >=24.0.0` |
 
-> 为什么是 `0.1.5-rc.1` 起？0.1.5 拆掉了 `dsh-client-runtime`、`dsh-host-apiproxy`，重写了 `dsh-settings` 的 `installSection` 模型，且 0.1.5-rc.1 与 rc.2 之间 API 无破坏性变化（已实测），故下界取 `>=0.1.5-rc.1` 以兼容整条 0.1.5-rc 线。
-> 为什么上界放到 `<0.2.1-0`？0.1.6 起 DSH 在装载前新增**插件版本门**：读插件的 `peerDependencies`，不覆盖当前运行版本就把**整个包静默跳过**（不崩、不告警）。上界随每条新线**实测后推进**：`<0.1.6-0` 会让插件在 0.1.7 上直接消失（手机面 `/m/` 全死、桌面端毫无提示），故 v1.5.1 放到 `<0.1.8-0`，并实测下界之上的 0.1.5-rc.3 与 0.1.7-rc.1（11 契约 + 真配对 + host-rpc + mux-stream）；0.2.0-rc.2 实测改前被跳过、改后 boot + 11 契约 + 真配对全绿（容器矩阵 80s PASS），故 v1.5.4 放到 `<0.2.1-0`；0.2.1-alpha.2 上探针 PASS（boot ＋ 契约自检 ＋ 真配对），故 v1.6.0 放到 `<0.2.2-0`；0.2.1-rc.2 于 2026-10-18 用 v1.6.0 容器矩阵实测 PASS（162s），该上界已由实测确认。插件对所有官方包都是 `import type`、无运行时耦合，所以每条新线只需动这一行声明。
+> **为什么下界是 0.2.1-rc.2 而不是 0.1.5**：v1.7.0 把设置页注册与 control 流解析改到了 0.2.x 的 API 上。
+> 0.1.x 下编译与单测仍全绿（见矩阵），但宿主侧设置表单注册不了、后台任务完成推送退化为轮询，
+> 所以门与 peer 都收在 0.2.1-rc.2 起；0.1.x 想继续用请留在 v1.6.4。
+>
+> **为什么上界是 0.2.2-alpha.2**：这是当前最高发布版本，且已在金丝雀上真跑通过。
+> 每次 DSH 发新版，先跑 `tools` 下的适配矩阵（见下）再决定是否放宽。
 
-## 运行环境要求（v1.6.0）
+## 复现一次兼容结论
+
+```powershell
+# 容器里按目标 DSH 版本重装 SDK，再跑 tsc + 全量单测
+docker run --rm -v "<repo>:/repo:ro" -v dsh-palm-npm:/root/.npm node:22-bookworm `
+  bash /repo/docker-adapt-check.sh 0.2.2-alpha.2
+
+# 边界版本一次跑完
+docker run --rm -v "<repo>:/repo:ro" node:22-bookworm bash /repo/docker-adapt-matrix.sh
+
+# 「真能跑起来」：起一个独立 HOME + 3099 的金丝雀（见 tools/dsh-canary/README.md）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\dsh-canary\start.ps1
+node tools\dsh-canary\probe-api.mjs
+node tools\dsh-canary\probe-session.mjs
+```
+
+## 运行环境要求（v1.7.0）
 
 | 项 | 要求 | 说明 |
 |---|---|---|
@@ -37,7 +59,7 @@
 | 手机端浏览器 | 现代浏览器：PWA 需 HTTPS；Web Push 需 Android Chrome/Edge/Firefox 或 iOS Safari 16.4+ installed PWA | `/m/` 端到端要求 |
 | 公网/隧道入口 | Tailscale / Cloudflare Tunnel / FRP 任一（可选） | 手机不在同一局域网时的配对与访问 |
 
-## 插件/组件依赖（v1.6.0）
+## 插件/组件依赖（v1.7.0）
 
 ### host 半（DSH 进程内，注入的服务）
 | 服务（`ctx` inject） | 提供包 |

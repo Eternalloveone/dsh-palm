@@ -25,10 +25,15 @@ export interface AttachedImage {
   readonly name?: string
 }
 
-/** A text or image prompt content part, matching `session.prompt` wire shape. */
+/**
+ * A prompt content part, matching `session.prompt` wire shape. The `file` form is a
+ * receipt reference: the bytes were already staged by the host's attachment service
+ * (`mobile.uploadAttachment`), so the wire carries an id, never inline bytes.
+ */
 export type PromptPart =
   | { type: 'text'; text: string }
   | { type: 'image'; mediaType: string; data: string; name?: string }
+  | { type: 'file'; receiptId: string }
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
@@ -60,13 +65,19 @@ export function dataUrlToImagePart(dataUrl: string, name?: string): { type: 'ima
  * (text first, then images — the order the model expects for a caption
  * followed by pictures).
  */
-export function buildPromptParts(text: string, images: readonly AttachedImage[]): PromptPart[] {
+export function buildPromptParts(
+  text: string,
+  images: readonly AttachedImage[],
+  files: readonly { receiptId: string }[] = [],
+): PromptPart[] {
   const parts: PromptPart[] = []
   if (text.trim() !== '') parts.push({ type: 'text', text })
   for (const image of images) {
     const part = dataUrlToImagePart(image.dataUrl, image.name)
     if (part !== undefined) parts.push(part)
   }
+  // 文件排在图片之后：模型先看到"这是什么"（文字），再看到图片，最后是待读的文件。
+  for (const file of files) parts.push({ type: 'file', receiptId: file.receiptId })
   return parts
 }
 

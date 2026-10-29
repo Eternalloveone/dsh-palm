@@ -14,12 +14,17 @@ import { mobileCss } from './mobile-styles.ts'
 import { initMobileTheme } from './mobile-theme.ts'
 import { applyDisplayPrefs } from './display-prefs.ts'
 import { registerMobilePwa } from '../mobile-pwa.ts'
+import { watchBuildRefresh } from './build-refresh.ts'
 import { consumeMobilePairUrl } from './pairing.ts'
 
 // Apply the persisted (or default system) theme and the local display
 // preferences before first paint, so the page never flashes the wrong look.
 initMobileTheme()
 applyDisplayPrefs()
+// A phone keeps the PWA page alive for hours: after a host rebuild it would keep
+// running the old bundle (and the old UI) until the user clears the cache by hand.
+// This compares the loaded bundle hash with the served one and reloads once.
+watchBuildRefresh()
 
 // Inject the standalone stylesheet (the page has no shell to load it for us).
 const style = document.createElement('style')
