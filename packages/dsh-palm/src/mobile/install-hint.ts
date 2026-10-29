@@ -10,7 +10,7 @@
  */
 
 /** Storage key for the one-time acknowledgement. */
-export const INSTALL_HINT_KEY = 'dsh-palm.install-hint.v1'
+export const INSTALL_HINT_KEY = 'dsh-palm.install-hint.v1' //gitleaks:allow  值是 localStorage 名字，不是凭据
 
 /** The navigator facts the decision needs (injectable for tests). */
 export interface InstallHintEnv {

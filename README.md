@@ -268,6 +268,7 @@ Verification gates (all four must be green before a release; see [RELEASING.md](
 
 ```sh
 pnpm verify:mobile        # 41 end-to-end phone cases against the real host + a real browser
+pnpm verify:secrets       # secret scan (gitleaks when installed, builtin rules otherwise)
 pnpm verify:adapt         # reinstall the DSH SDK per version in Docker, then tsc + full tests
 pnpm verify:mobile:fast   # the four fastest groups, for iterating
 node ../../tools/dsh-canary/start.ps1   # boot a canary host on the newest DSH (isolated HOME, port 3099)

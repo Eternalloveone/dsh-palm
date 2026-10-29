@@ -68,7 +68,7 @@ const LEGACY_READING_PREFIXES = ['dsh-palm.reading.v1.', 'dsh-palm.reading.v2.',
  * stub whose Object.keys returns the METHODS — no enumerable data keys at
  * all). Persisting keys here makes eviction/maintenance environment-proof.
  */
-const INDEX_KEY = 'dsh-palm.cache-index.v1'
+const INDEX_KEY = 'dsh-palm.cache-index.v1' //gitleaks:allow  值是 localStorage 名字，不是凭据
 
 /** List rows are only a boot scaffold — the background refresh replaces them
  *  within seconds, so a generous TTL is safe (stale rows never persist long

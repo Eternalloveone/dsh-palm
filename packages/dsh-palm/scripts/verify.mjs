@@ -58,8 +58,8 @@ const HYGIENE_EXCLUDES = [
 ]
 
 const PROFILES = {
-  ci: ['install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'pack', 'commitlint'],
-  push: ['hygiene', 'tests', 'commitlint'],
+  ci: ['install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint'],
+  push: ['hygiene', 'secrets', 'tests', 'commitlint'],
 }
 
 const STEPS = {
@@ -90,6 +90,13 @@ const STEPS = {
   hygiene: {
     title: 'repo hygiene scan',
     run: hygieneScan,
+  },
+  secrets: {
+    // CI 的 release-preflight 用 gitleaks 扫密钥，本地原来没有这一步 ——
+    // 于是「本地全绿、push 上去 CI 红」是必然盲区（2026-10-29 真撞过一次：
+    // 一个「名字带 KEY 的 localStorage 常量」被 generic-api-key 判成密钥）。
+    title: 'secret scan (gitleaks / builtin)',
+    run: () => run('node scripts/secrets-scan.mjs', packageDir),
   },
   pack: {
     title: 'package content + entries',

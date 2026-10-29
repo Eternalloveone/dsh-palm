@@ -30,7 +30,7 @@ interface InstalledPayload {
   installed: Record<string, string>
 }
 
-const REGISTRY_CACHE_KEY = 'dsh.mobile.market.registry.v1'
+const REGISTRY_CACHE_KEY = 'dsh.mobile.market.registry.v1' //gitleaks:allow  值是 localStorage 前缀，不是凭据
 const REGISTRY_CACHE_TTL_MS = 60 * 60 * 1000
 
 async function fetchJson<T>(path: string): Promise<T> {

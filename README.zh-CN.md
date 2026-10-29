@@ -260,6 +260,7 @@ pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
 
 ```sh
 pnpm verify:mobile        # 手机端 41 条端到端用例（真宿主 + 真浏览器）
+pnpm verify:secrets       # 密钥扫描（有 gitleaks 用它，没有用内置规则兜底）
 pnpm verify:adapt         # 容器里逐版本重装 DSH SDK，再编译 + 全量单测
 pnpm verify:mobile:fast   # 只跑最快的四组，改代码时用
 node ../../tools/dsh-canary/start.ps1   # 起金丝雀（最新 DSH，独立 HOME，端口 3099）
