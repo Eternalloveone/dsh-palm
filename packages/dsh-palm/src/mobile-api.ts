@@ -268,6 +268,42 @@ function queueTokenOf(items: readonly { id: string; text: string }[]): string {
  * 平时（回合跑着时每几秒一问）只读快照 —— 每次都读一页 history 会跟同会话的聊天读
  * 抢宿主，弱网下卡片反而更慢。
  */
+/**
+ * 从**活的 agent** 上直读待发队列（权威来源）。
+ *
+ * DSH 0.2.x 的权威数据在 `ctx.agents.get(sessionId).inbox`：
+ *   - `nextTurn`: 等下一轮开跑的排队消息
+ *   - `nextStep`: 已经插进**正在跑的这一轮**、等下一步边界消费的消息
+ * 宿主自己处理队列命令时读的就是它（见 @deepseek-ai/dsh-session-controller 的
+ * `agent.inbox.nextTurn.find(...)`）。
+ *
+ * 为什么不能只读投影快照：`inbox` 投影是从**持久 splice** 重建的，而花名册那份快照
+ * 只在枚举会话时刷新 —— 消息被认领成这一轮的用户消息之后，快照里那条还会挂一阵子。
+ * 实测（2026-10-30）：对话里已经出现该用户气泡，`mobile.sessionState` 仍回 `queue=1`，
+ * 于是手机端排队条一直挂着。
+ *
+ * 活的 agent 上读到的就是当下真值：认领那一刻它就没了。形状按 `queueItemsOf` 吃过的
+ * `{ 'next-turn': [...] }` 返回，调用方不需要分支。
+ */
+export function liveInboxOf(agents: AgentLookup | undefined, sessionId: string): { 'next-turn': readonly unknown[] } | undefined {
+  if (agents === undefined) return undefined
+  let agent: unknown
+  try {
+    agent = agents.get(sessionId)
+  } catch {
+    return undefined
+  }
+  if (agent === null || agent === undefined || typeof agent !== 'object') return undefined
+  const inbox = (agent as { inbox?: unknown }).inbox
+  if (inbox === null || inbox === undefined || typeof inbox !== 'object') return undefined
+  const source = inbox as { nextTurn?: unknown; 'next-turn'?: unknown }
+  const nextTurn = source.nextTurn ?? source['next-turn']
+  if (!Array.isArray(nextTurn)) return undefined
+  // 只报 nextTurn：nextStep 是「已经插进这一轮」的输入，界面上它已经是对话的一部分，
+  // 再列进排队条就是重复（正是「消息发完了排队条还在」的另一种形态）。
+  return { 'next-turn': nextTurn as readonly unknown[] }
+}
+
 async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFresh: boolean): Promise<unknown> {
   let inbox: unknown = sessionProjectionSnapshots.get(sessionId)?.block.values?.['inbox']
   // 快照里还挂着待发项时不能信它：那一项可能早就被宿主投递出去了（投递不改这份
@@ -3720,7 +3756,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
         const [page, inbox, turn, goalView] = await Promise.all([
           readChatTailPage(sessionId),
-          readInboxProjection(apiProxy, sessionId, wantsFreshQueue).catch(() => undefined),
+          (async () => liveInboxOf(deps.agents, sessionId)
+            ?? await readInboxProjection(apiProxy, sessionId, wantsFreshQueue).catch(() => undefined))(),
           turnState(),
           // 目标与待办也在这张切面上：客户端不用再单独轮询 mobile.goal，
           // 目标条与回合状态也就不会出现「一个说进行中、一个说已结束」。

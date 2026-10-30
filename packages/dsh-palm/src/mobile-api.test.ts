@@ -7,7 +7,7 @@ import {
   MAX_PROMPT_FILE_PARTS,
   MOBILE_ALLOWLIST,
   noteRunningFrame,
-  queueItemsOf, MOBILE_GOAL_ACTION_METHOD, applyGoalAction, goalActivationOf, goalSnapshotOf, preferLiveGoal, resetCommandDirectoryCache, shouldRefreshInbox, resolveCommandDirectory, toRosterItems, turnVerdict, visibleSessionRows, type CommandRegistry, type AgentLookup, type GoalLookup, type RosterItem } from './mobile-api.ts'
+  liveInboxOf, queueItemsOf, MOBILE_GOAL_ACTION_METHOD, applyGoalAction, goalActivationOf, goalSnapshotOf, preferLiveGoal, resetCommandDirectoryCache, shouldRefreshInbox, resolveCommandDirectory, toRosterItems, turnVerdict, visibleSessionRows, type CommandRegistry, type AgentLookup, type GoalLookup, type RosterItem } from './mobile-api.ts'
 
 /**
  * The phone's session.list page slices come from this filtered array: the
@@ -580,5 +580,27 @@ describe('「刚结束」账本（宿主侧持久化）', () => {
   it('文件不存在 / 是坏 JSON → 当空账本，不抛', () => {
     expect(readFinishedRuns(undefined, now)).toEqual([])
     expect(readFinishedRuns('C:/definitely/not/here/finished-runs.json', now)).toEqual([])
+  })
+})
+
+describe('liveInboxOf：队列从活的 agent 直读（2026-10-30 架构根治）', () => {
+  it('活 agent 有 nextTurn 就用它，形状按 queueItemsOf 吃的样子给', () => {
+    const message = { id: 'm1', role: 'user', content: [{ type: 'text', text: '排队中' }] }
+    const inbox = liveInboxOf({ get: () => ({ inbox: { nextTurn: [message], nextStep: [] } }) }, 's-1')
+    expect(inbox?.['next-turn']).toEqual([message])
+  })
+
+  it('agent 不在（冷会话/已卸载）→ 返回 undefined，调用方回退投影快照', () => {
+    expect(liveInboxOf({ get: () => undefined }, 's-1')).toBeUndefined()
+    expect(liveInboxOf(undefined, 's-1')).toBeUndefined()
+    expect(liveInboxOf({ get: () => ({}) }, 's-1')).toBeUndefined()
+    expect(liveInboxOf({ get: () => ({ inbox: {} }) }, 's-1')).toBeUndefined()
+  })
+
+  it('只报 next-turn：已经插进这一轮的 nextStep 不再进排队条', () => {
+    const queued = { id: 'q1', role: 'user', content: [{ type: 'text', text: '等下一轮' }] }
+    const steered = { id: 's1', role: 'user', content: [{ type: 'text', text: '已经插进这一轮' }] }
+    const inbox = liveInboxOf({ get: () => ({ inbox: { nextTurn: [queued], nextStep: [steered] } }) }, 's-1')
+    expect(inbox?.['next-turn']?.map(item => (item as { id: string }).id)).toEqual(['q1'])
   })
 })
