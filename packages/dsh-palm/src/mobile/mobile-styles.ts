@@ -2713,13 +2713,14 @@ button.settings-row:focus-visible {
   overflow-wrap: break-word;
 }
 
-.chat-md-collapsed {
+/* 只裁正文容器（.chat-md-body），「展开全文」按钮是它的兄弟节点，永远可点。 */
+.chat-md-body.chat-md-collapsed {
   max-height: 45vh;
   overflow: hidden;
   position: relative;
 }
 
-.chat-md-collapsed::after {
+.chat-md-body.chat-md-collapsed::after {
   content: '';
   position: absolute;
   left: 0;

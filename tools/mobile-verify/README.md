@@ -14,6 +14,12 @@
 
 ## 2. 前置条件
 
+> **指定一条长会话再跑**：`PALM_SESSION=<会话 id>`（PowerShell：先 `$env:PALM_SESSION='…'`）。
+> 不指定时脚本会自己挑一条空闲会话，但它只能看到宿主的 raw 行数 —— 一条回复常被拆成几十个
+> assistant 片段，raw 28 行合并到屏幕上可能只有 4 行（实测 `session-3dac00`）。落到这种会话上，
+> 翻页/滚动/落点用例会因为「根本没有可翻的内容」而红，那是 fixture 的性质，不是产品问题。
+> 本机常用长会话：`session-628d1093-…`（114 行）。
+
 1. 宿主在跑：`http://127.0.0.1:3080`（`apps/cli/lib/bin.js web`）；
 2. 已配对：脚本用 `dsh_pair` cookie，默认值写在 `lib/config.mjs`，可用 `PALM_PAIR` 覆盖；
 3. Playwright 已在本机（默认取自 `~/.dsh/skills/feishu-report/node_modules/playwright`，可用 `PALM_PLAYWRIGHT` 覆盖）；

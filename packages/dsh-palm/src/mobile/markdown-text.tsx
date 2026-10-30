@@ -276,8 +276,13 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
     }
   }, [segments, sessionId])
   return (
-    <div className={'chat-msg-text chat-md' + (collapsed ? ' chat-md-collapsed' : '')}>
-      <div className="chat-md-body" ref={bodyRef}>
+    <div className="chat-msg-text chat-md">
+      {/*
+       * 裁剪必须只套在正文上：原来 `chat-md-collapsed`（max-height:45vh + overflow:hidden）
+       * 和「展开全文」按钮在同一个容器里，于是**按钮被自己裁掉了** —— 手机上看到的
+       * 就是「正文断在半句、下面一点渐变，再没有任何可点的地方」（2026-10-30 真机反馈）。
+       */}
+      <div className={'chat-md-body' + (collapsed ? ' chat-md-collapsed' : '')} ref={bodyRef}>
         {segments.map(segment => {
           if (segment.kind === 'think') return null
           if (segment.kind === 'html') {
@@ -300,7 +305,12 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
         )}
       </div>
       {long && (
-        <button type="button" className="chat-msg-toggle" onClick={() => { setOpen(value => !value) }}>
+        <button
+          type="button"
+          className="chat-msg-toggle"
+          aria-expanded={open}
+          onClick={() => { setOpen(value => !value) }}
+        >
           {open ? '收起' : '展开全文（' + text.length + ' 字）'}
         </button>
       )}

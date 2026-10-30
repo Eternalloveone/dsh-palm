@@ -9,7 +9,7 @@
  * 图和 data: 的既有行为不变（后者仍退化成 alt 文字）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MarkdownText } from './markdown-text.tsx'
 import { resetLocalImageCache } from './local-images.ts'
 
@@ -37,6 +37,34 @@ function renderBody(text: string, sessionId = 's-1'): HTMLElement {
   if (body === null) throw new Error('消息体没有渲染出来')
   return body as HTMLElement
 }
+
+describe('长回答的折叠入口（2026-10-30 真机回归）', () => {
+  it('「展开全文」按钮必须在裁剪容器之外——否则它被自己裁掉，用户无路可走', () => {
+    // 真机现象：正文断在半句、下面只有一点渐变，没有任何可点的地方。
+    // 根因是 max-height:45vh + overflow:hidden 的容器同时包住了按钮。
+    const huge = 'F'.repeat(7_000)
+    render(<MarkdownText text={huge} pending={false} sessionId="s-1" />)
+
+    const toggle = screen.getByRole('button', { name: /展开全文/ })
+    expect(toggle).toBeTruthy()
+    // 关键断言：按钮的任何一个祖先都不能是裁剪节点
+    const clipped = toggle.closest('.chat-md-collapsed')
+    expect(clipped).toBeNull()
+    // 而正文容器确实是裁剪的
+    const body = document.querySelector('.chat-md-body')
+    expect(body === null ? '' : body.className).toContain('chat-md-collapsed')
+  })
+
+  it('展开后按钮变成「收起」，正文容器不再裁剪', () => {
+    const huge = 'G'.repeat(7_000)
+    render(<MarkdownText text={huge} pending={false} sessionId="s-1" />)
+    fireEvent.click(screen.getByRole('button', { name: /展开全文/ }))
+    const collapse = screen.getByRole('button', { name: '收起' })
+    expect(collapse.getAttribute('aria-expanded')).toBe('true')
+    const body = document.querySelector('.chat-md-body')
+    expect(body === null ? '' : body.className).not.toContain('chat-md-collapsed')
+  })
+})
 
 describe('MarkdownText 的本地图片水合', () => {
   it('把本地路径经 readFile 换成 data URL', async () => {
