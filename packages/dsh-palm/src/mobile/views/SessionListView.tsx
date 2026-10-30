@@ -248,7 +248,11 @@ const PREVIEW_CONCURRENCY = 3
 /** Preview cache cap (oldest evicted past this). */
 const PREVIEW_CACHE_LIMIT = 200
 /** 向宿主核对「进行中」标记的最小间隔（宿主那份集合自带 30 s 缓存）。 */
-export const RUNNING_RESYNC_MS = 30_000
+export const RUNNING_RESYNC_MS = 30
+/** 停留在列表页时的主动核对间隔（毫秒）：会话在跑但绿点不亮就是靠它收敛。 */
+const RUNNING_POLL_MS = 5_000
+/** 只有最近这么久内活跃过的行才值得花一次尾读去核实（更老的极不可能还在跑）。 */
+const RUNNING_CANDIDATE_AGE_MS = 10 * 60_000_000
 /** 一条「在跑」标记多久没有新活动就作废。宿主的结束帧并不可靠（实测一整轮
  *  零帧），宿主的核对要枚举几千个会话（冷启动实测 24 秒，手机上等不到），
  *  所以绿点还得有自己的心跳：跑着的会话会不断推 session/activity。
@@ -365,6 +369,9 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
  */
 export function SessionListView({ workspace, mux, initialSessionId, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
+  /** rows 的镜像：resync 需要"当前有哪些行"，但读 state 会把它绑进依赖、频繁重建。 */
+  const rowsRef = useRef<readonly SessionView[]>([])
+  useEffect(() => { rowsRef.current = rows }, [rows])
   /** Live list deltas (see {@link applyListFrame}), patched onto every page. */
   const liveRef = useRef<LiveListState>(emptyLiveState())
 
@@ -463,6 +470,22 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
         for (const id of host) {
           if (live.status.get(id) === true && fresh(id)) continue
           confirmRunning(id, live)
+        }
+        // 三、宿主那份集合会**漏报**：实测正在跑的会话不在里面（真机：会话在跑，
+        //     首页那个小点始终是灰的）。所以对「最近活跃的前 8 行」再按尾页证据补核一次
+        //     —— 尾页最后一条边界是不是 turn/start，是唯一能证明"正在跑"的东西。
+        //     上限 8 行：每行一次尾读，不能因为核对把列表拖慢。
+        const nowMs = Date.now()
+        const candidates = rowsRef.current
+          .filter(row => live.status.get(row.sessionId) === undefined || live.status.get(row.sessionId) === false)
+          .filter(row => {
+            const at = row.updatedAt === undefined ? Number.NaN : Date.parse(String(row.updatedAt))
+            return !Number.isFinite(at) || nowMs - at < RUNNING_CANDIDATE_AGE_MS
+          })
+          .slice(0, 8)
+        for (const row of candidates) {
+          if (fresh(row.sessionId)) continue
+          confirmRunning(row.sessionId, live)
         }
       },
       () => { /* 非致命：保留 mux 镜像的判断 */ },
@@ -624,6 +647,27 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
   useEffect(() => {
     runningResyncAtRef.current = Date.now()
     resyncRunning()
+  }, [resyncRunning])
+
+  // 停留期间也要持续核对。
+  //
+  // 以前只在「首屏」和「mux 基线帧」时核对一次：如果这一轮是在**你已经停在列表页**
+  // 之后才开始的（在别的设备发起、或从聊天页返回后 mux 没重连），列表手里没有任何帧，
+  // 绿点就一直不亮 —— 真机「会话明明在跑，首页那个小点还是灰的」。
+  // 现在页面可见时每 5 秒核对一次；切回前台也立刻核对一次。判断证据仍是尾页边界
+  // （turn/start = 在跑），不靠宿主那份自带缓存的集合。
+  useEffect(() => {
+    const tick = (): void => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      runningResyncAtRef.current = Date.now()
+      resyncRunning()
+    }
+    const timer = setInterval(tick, RUNNING_POLL_MS)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
   }, [resyncRunning])
   // First page on mount (this workspace's sessions, paged). v3.2: when a
   // previous visit's rows are cached, they render IMMEDIATELY (no skeleton)
