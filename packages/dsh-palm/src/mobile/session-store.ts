@@ -302,7 +302,7 @@ export function claimQueueHead(sessionId: string): void {
 
 /** 写操作发出时记一条乐观项（立刻可见）；返回它的 pendingId。 */export function addOptimisticQueueItem(
   sessionId: string,
-  item: { text: string; placement: 'queued' | 'steering' },
+  item: { text: string; placement: 'queued' | 'steering'; requestId?: string },
 ): string {
   const entry = entryOf(sessionId)
   const pendingId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -321,6 +321,7 @@ export function claimQueueHead(sessionId: string): void {
     placement: item.placement,
     at: Date.now(),
     knownHostIds,
+    ...(item.requestId === undefined ? {} : { requestId: item.requestId }),
   }]
   publish(sessionId)
   return pendingId

@@ -376,6 +376,8 @@ export interface QueueIntent {
    * —— 屏幕上正好是「一条消息两条排队条」。按"新出现"判，与正文无关。
    */
   readonly knownHostIds?: readonly string[]
+  /** 本次投递的幂等键（宿主行经由插件身份桥标回同一个值时即视为落地）。 */
+  readonly requestId?: string
 }
 
 export interface QueueInputs {
@@ -426,6 +428,9 @@ export function optimisticAlive(intent: QueueIntent, inputs: QueueInputs, now: n
   if (now - intent.at >= QUEUE_OPTIMISTIC_MS) return false
   const normalize = inputs.normalize ?? ((text: string): string => text)
   const text = normalize(intent.text)
+  // ① 身份对上（插件侧身份桥把 requestId 标在宿主行上）：最可靠，和正文无关。
+  const requestId = intent.requestId
+  if (requestId !== undefined && inputs.host.some(item => (item as { requestId?: string }).requestId === requestId)) return false
   const known = intent.knownHostIds
   // 只有「提交之后新出现的行」才算这次投递的结果；提交前就在队列里的同文行是别人的/上一次的。
   const fresh = known === undefined ? inputs.host : inputs.host.filter(item => !known.includes(item.id))

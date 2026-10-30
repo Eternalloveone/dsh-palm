@@ -256,6 +256,32 @@ function bumpQueueRevision(sessionId: string): void {
  *   - `queueRevision`：只回答「我那次写操作落地了吗」（乐观项退场用）；
  *   - `queueToken`：只回答「权威队列本身变了没」（任何客户端）。
  */
+/**
+ * 投递身份桥：`requestId`（客户端生成）→ 宿主队列条目 id。
+ *
+ * 宿主队列行**不会**回显我们传的 `requestId`（实测：行里只有 id/placement/text/editable），
+ * 于是客户端只能靠正文或"有没有新条目"去猜自己那次投递落到哪一行 —— 正文被改写
+ * （带图片变 `[图片] …`、引用块、折行压缩）时就会猜错，屏幕上留下两条一模一样的排队条。
+ *
+ * 这里在插件侧把身份接上：处理 `session.prompt` 时记下投递前后队列的差异，新出现的那个
+ * id 就是这次投递的宿主 id。之后 `queueItemsOf` 反过来给每一行标上 `requestId`，
+ * 手机端就能按**身份**退场，彻底不依赖正文。
+ */
+const requestIdsByMessageId = new Map<string, string>()
+
+/** 记一条对应关系（同一 id 重复写无害）。 */
+function rememberRequestBody(pairs: ReadonlyArray<readonly [string, string]>): void {
+  for (const [requestId, messageId] of pairs) {
+    if (requestId === '' || messageId === '') continue
+    requestIdsByMessageId.set(messageId, requestId)
+  }
+}
+
+/** 宿主条目 id → 客户端 `requestId`（没有就是 undefined）。 */
+function requestIdOfMessage(messageId: string): string | undefined {
+  return requestIdsByMessageId.get(messageId)
+}
+
 function queueTokenOf(items: readonly { id: string; text: string }[]): string {
   return items.map(item => `${item.id}:${item.text.length}`).join('|')
 }
@@ -364,9 +390,12 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
     // 投递身份：客户端发 prompt 时带的 `requestId`，宿主会在 durable `user/message`
     // 的 source 上以 `rpcId` 回显（见 @deepseek-ai/dsh-session-controller 的契约）。
     // 有它就能按「身份」去重/退场；没有就只能按正文猜 —— 那正是重复条的根源。
+    const messageId = typeof record.id === 'string' ? record.id : undefined
     const requestId = [record.requestId, record.rpcId, record.source?.rpcId, record.source?.requestId,
       record.message?.requestId, record.message?.source?.rpcId, record.message?.source?.requestId]
-      .find(value => typeof value === 'string' && value !== '') as string | undefined
+      .find(value => typeof value === 'string' && value !== '') as string
+      | undefined
+      ?? (messageId === undefined ? undefined : requestIdOfMessage(messageId))
     const blocks = record.content ?? record.message?.content
     const rawText = record.text ?? record.message?.text
     const receipts: string[] = []
