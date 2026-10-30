@@ -6294,6 +6294,14 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           </button>
         )}
         {messages.map((message, index) => {
+          const rowKey = messageKey(message)
+          // 只在「正在流式落地」的行上播入场动画：历史行不播。
+          //
+          // 原来动画无条件挂在每一行上，而打开会话是"先粗后细"两轮提交（第一轮的行还
+          // 没有 turn/step → key 退化成 id，折完之后 key 变成 turn.step 组合键），
+          // React 把整屏行卸了重挂（实测 113/114 行 remount）→ 动画整屏重播一遍，
+          // 肉眼就是「一打开会话正文闪一下」（2026-10-30 真机）。
+          const animateIn = message.pending === true
           // 行全渲染：不可见行交给 content-visibility（浏览器自己记住布局过的
           // 真实高度，不是我们估的数）。尾部 CONTENT_VISIBILITY_KEEP_BOTTOM 行
           // 保持真实布局，贴底时 el.scrollHeight 才是精确值。
@@ -6304,7 +6312,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             : undefined
           return (
               <MessageRow
-                key={messageKey(message)}
+                key={rowKey}
+                enter={animateIn}
                 message={rowOfInterrupted(message)}
                 sessionId={session.sessionId}
                 showToolCalls={showToolCalls}

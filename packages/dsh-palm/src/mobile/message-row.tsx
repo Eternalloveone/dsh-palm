@@ -33,7 +33,7 @@ const WHALE_REST_PATH = 'M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.9
 /** / 重生成按钮的三态：待点、已发出、发出失败。 */
 export type RegenerateState = 'idle' | 'busy' | 'failed'
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -67,6 +67,15 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   liveTurn?: number
   /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
   settled?: boolean
+  /**
+   * 这条行是不是第一次出现在列表里。
+   *
+   * 打开会话时会先粗后细提交两轮（第一轮的行还没有 turn/step，key 退化成 id；第二轮
+   * 补齐后 key 变成 `t<turn>.<step>`），React 会把整屏行卸了重挂。动画挂在行上时重挂
+   * 就重播，肉眼是「一打开会话正文闪一下」。为 false 时挂 `chat-msg-no-enter`，样式层
+   * 用一个 :not() 把入场动画让过去。
+   */
+  enter?: boolean
   /**
    * 父级的 1 Hz 心跳（见 live-clock.ts）。只有正在跑的那一行才收得到；它每秒
    * 变一次，作用是把这一行叫醒 —— 秒表读数在渲染时直接取墙钟，所以"重渲染"
@@ -279,7 +288,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       data-mid={message.id}
       data-message-id={message.id}
       data-row-seq={focusSeqAttr}
-      className={`chat-msg chat-msg-${message.kind}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
+      className={`chat-msg chat-msg-${message.kind}${enter === false ? ' chat-msg-no-enter' : ''}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
       style={style}
     >
       {message.kind === 'assistant' ? (

@@ -518,3 +518,21 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(retry.textContent).toContain('图片加载失败，点击重试')
   })
 })
+
+describe('MessageRow 入场动画（2026-10-30 打开会话闪烁）', () => {
+  it('enter=false 的行挂 chat-msg-no-enter（历史行重挂不重播动画）', () => {
+    const { container } = render(
+      <MessageRow message={baseMessage(false)} showToolCalls showSystemMessages={false} enter={false} />,
+    )
+    const row = container.querySelector('.chat-msg')
+    expect(row?.className).toContain('chat-msg-no-enter')
+  })
+
+  it('enter 缺省（流式落地）的行不挂该标记，入场动画照旧', () => {
+    const { container } = render(
+      <MessageRow message={baseMessage(true)} showToolCalls showSystemMessages={false} />,
+    )
+    const row = container.querySelector('.chat-msg')
+    expect(row?.className).not.toContain('chat-msg-no-enter')
+  })
+})

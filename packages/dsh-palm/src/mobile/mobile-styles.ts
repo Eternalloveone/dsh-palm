@@ -2461,6 +2461,16 @@ button.settings-row:focus-visible {
   line-height: 1.7;
   overflow-wrap: break-word;
   white-space: pre-wrap;
+}
+
+/* 入场动画只给「第一次出现的行」。
+ *
+ * 打开会话时是"先粗后细"两轮提交：第一轮的行还没有 turn/step（key 退化成 id），
+ * 事件折完之后 key 变成 turn.step 组合键 —— React 于是把整屏行卸了重挂（实测
+ * 113/114 行 remount），动画挂在 .chat-msg 上就跟着重播一遍，肉眼是「一打开会话
+ * 正文闪一下」（2026-10-30 真机）。键变了没法避免重挂，但重挂不该重播动画。
+ */
+.chat-msg:not(.chat-msg-no-enter) {
   animation: msg-in 0.18s ease both;
 }
 
