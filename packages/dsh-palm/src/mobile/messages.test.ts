@@ -2047,3 +2047,30 @@ describe('行的身份是位置，不是生产者给的 id（2026-10-30 架构�
     expect(preferRicherRows([], rows)).toHaveLength(2)
   })
 })
+
+describe('回归闸门：生产入口（coalesceTurnMessages）也必须只画一张卡', () => {
+  // 之前的用例直接调 mergeProcessCardsByTurn —— 那只验证了函数本身，
+  // **没验证它真的接在折叠流程上**：把接线换成 `return out` 时，那 3 条用例照样全绿。
+  // 这条从生产入口进去，接线一断就红。
+  const tool = (callId: string) => ({ callId, name: 'bash', arguments: '{}' })
+  const row = (overrides: Record<string, unknown>): RenderMessage => ({
+    id: 'x',
+    kind: 'assistant',
+    text: '',
+    seq: 1,
+    ...overrides,
+  } as RenderMessage)
+
+  it('turn 147 形状：步骤 + 用户插话 + 同轮后段 → 只有一行带过程（一张卡）', () => {
+    const shared = [tool('c1'), tool('c2')]
+    const folded = coalesceTurnMessages([
+      row({ id: 'a1', turn: 147, step: 1, seq: 10, text: '', tools: shared }),
+      row({ id: 'u1', kind: 'user', turn: undefined, seq: 11, text: '插一句' }),
+      row({ id: 'a2', turn: 147, step: 40, seq: 12, text: '最终回答', tools: shared }),
+    ])
+    const withTools = folded.filter(entry => (entry.tools?.length ?? 0) > 0)
+    expect(withTools).toHaveLength(1)
+    // 后段正文一个字都不能少
+    expect(folded.some(entry => entry.text === '最终回答')).toBe(true)
+  })
+})
