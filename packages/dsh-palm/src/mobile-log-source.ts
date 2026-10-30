@@ -417,9 +417,17 @@ export async function readChatTailPage(
     TAIL_FRAME_CAP,
     Math.max(DEFAULT_TAIL_FRAMES, maxRows * FRAMES_PER_ROW),
   )
-  const tail = await readSessionLogTailPage(sessionId, { maxFrames: frameBudget })
+  // 帧预算之外还要放开**字节窗口**：默认窗口很小，只够读几十帧，
+  // 于是「要 120 行」实际只能折出 29 行，剩下 85 行要靠进会话后再补几页 ——
+  // 真机表现就是「进去先短后长」。这里按 2 MB 的尾部窗口读，一次取够。
+  const tail = await readSessionLogTailPage(sessionId, {
+    maxFrames: frameBudget,
+    windowBytes: TURN_START_WINDOW_BYTES,
+  })
   if (tail === undefined) return undefined
-  const events = tail.lines.map(line => line.event) as unknown as WireEvent[]
+  let events = tail.lines.map(line => line.event) as unknown as WireEvent[]
+  /** 折叠后若发现「已收工的历史回合缺卡」，会把事件窗口整体换成更宽的一份。 */
+  let widened = false
   // 窗口里看不到这一轮的 turn/start 时，先把真起点从日志里捞出来交给折叠：
   // turn/end 只带轮号，锚点缺席就只能拿"窗口最早一行"凑，收工用时被算短一截
   // （真机：8分40秒 的一轮，卡片写 3分22秒）。必须在折叠之前种进去 ——
@@ -431,8 +439,59 @@ export async function readChatTailPage(
   const folder = new EventFolder()
   // 按轮号种进去：一次折叠里可能先后收工好几轮，单值的"当前轮锚点"会被早收工的那轮吃掉。
   if (externalStart !== undefined) folder.noteTurnStart(newestTurn as number, externalStart)
-  const rows = folder.fold(events)
+  let rows = folder.fold(events)
   let todo = foldTodoSnapshot(events)
+
+  // 首屏就把「已收工回合的 turn/end」一起带回来。
+  //
+  // 以前尾窗只覆盖最近几十行，更早那些回合的 turn/end 落在窗口之外 —— 手机上只能先画
+  // 一张**猜的**卡（内容不全），几秒后被正式版替换，或者干脆等 cardRecovery 回读才出现。
+  // 用户看到的就是「点进会话，交付卡一张张长出来」。
+  //
+  // 现在：折完之后检查一遍「有工具行却没有卡的历史回合」，只要存在就**再多读一次更宽的
+  // 尾窗**（BOUNDARY_TAIL_FRAMES，本来就用它摸回合边界），把这些回合的 turn/end 一并
+  // 带回来重折。只多一次本地文件读，请求仍然只有一个 —— 首屏一次成型。
+  //
+  // 只补**比最新轮更早**的回合：最新那一轮由下面的边界判定处理（它可能还在跑，
+  // 没 turn/end 才是对的）。
+  const lackingCardTurns = (list: readonly { kind?: string; turn?: number; tools?: readonly unknown[] }[]): number[] => {
+    const newest = list.reduce((max, row) => (
+      row.turn !== undefined && row.turn > max ? row.turn : max
+    ), Number.NEGATIVE_INFINITY)
+    const hasCard = new Set<number>()
+    const wantsCard = new Set<number>()
+    for (const row of list) {
+      if (row.turn === undefined) continue
+      if (row.kind === 'turn') { hasCard.add(row.turn); continue }
+      if (row.turn < newest && (row.tools?.length ?? 0) > 0) wantsCard.add(row.turn)
+    }
+    return [...wantsCard].filter(turn => !hasCard.has(turn))
+  }
+  if (!widened && lackingCardTurns(rows).length > 0) {
+    widened = true
+    const wide = await readSessionLogTailPage(sessionId, {
+      maxFrames: BOUNDARY_TAIL_FRAMES,
+      windowBytes: TURN_START_WINDOW_BYTES,
+    })
+    if (wide !== undefined) {
+      const wideEvents = wide.lines.map(line => line.event) as unknown as WireEvent[]
+      const wideFolder = new EventFolder()
+      const wideNewest = newestTurnOf(wideEvents)
+      if (wideNewest !== undefined) {
+        const startAnchor = await turnStartFromLog(sessionId, wideNewest)
+        if (startAnchor !== undefined) wideFolder.noteTurnStart(wideNewest, startAnchor)
+      }
+      const wideRows = wideFolder.fold(wideEvents)
+      // 只在「更宽的那份确实补上了缺的卡」时才替换，避免白干一次还换掉已有内容。
+      const before = lackingCardTurns(rows).length
+      const after = lackingCardTurns(wideRows).length
+      if (after < before) {
+        events = wideEvents
+        rows = wideRows
+        todo = foldTodoSnapshot(wideEvents)
+      }
+    }
+  }
   // 边界常常不在这一小段里：一轮工具跑二十几步就是二十多个事件，48 帧的尾切常常全是
   // 工具事件，turn/start 早在几十帧之外。以前找不到边界就当成"收工了"，于是命令还跑着、
   // 过程框已经写着已完成（真机实测就是这么来的）。找不到就往回再读一段，摸到最近的一条

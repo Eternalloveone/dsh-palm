@@ -24,7 +24,7 @@ import { useLiveClock } from '../live-clock.ts'
 import { formatDuration, isRowRunning } from '../process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallChatSnapshot, recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
-import { loadCachedHistory } from '../history-cache.ts'
+import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
 import type { SessionModels } from '../../api-proxy-types'
@@ -694,6 +694,8 @@ export function ChatView({
   }
 
   const [hasOlder, setHasOlder] = useState(false)
+
+
   /**
    * 列表的**唯一**提交入口。
    *
@@ -719,6 +721,7 @@ export function ChatView({
     if (!new URLSearchParams(window.location.search).has('debug')) return
     ;(window as unknown as { __palmRows?: unknown }).__palmRows = messages
   }, [messages])
+
 
   const commitRows = useCallback((
     rows: readonly RenderMessage[] | ((previous: readonly RenderMessage[]) => readonly RenderMessage[]),
@@ -1074,6 +1077,22 @@ export function ChatView({
       ? { ...message, maxTokens: true }
       : message
   )
+
+  /**
+   * 缓存 = **屏幕稳定之后的完整画面**（含交付卡）。
+   *
+   * 进会话是两拍：先尾页（29 行），再自动补页合成完整一屏（114 行）。
+   * 只在第一拍写缓存的话，下次进入会先画 29 行再被整份换成 114 行 ——
+   * 用户看到的就是「进去先短后长、卡片又长一遍」。这里等画面稳定再写。
+   */
+  useEffect(() => {
+    if (messages.length === 0) return
+    const timer = setTimeout(() => {
+      const maxSeq = messages.reduce((max, row) => (row.seq > max ? row.seq : max), 0)
+      void saveCachedHistory(session.sessionId, { rows: messages, maxSeq, hasOlder })
+    }, 400)
+    return () => { clearTimeout(timer) }
+  }, [messages, hasOlder, session.sessionId])
 
   /** Pending-message queue for this session (desktop QueueDock equivalent),
    *  seeded from the mux's retained snapshot so a freshly opened chat shows
@@ -1924,6 +1943,13 @@ export function ChatView({
         }
         if (cancelled) return
         applyMessages(foldedRows)
+        // 把**首屏完整这一份**（含交付卡）写进缓存。
+        //
+        // 以前缓存里存的是 host 尾页那一小份（29 行、3 张卡），于是再次进入先画 29 行、
+        // 随后被网络页整份换成 114 行 —— 用户看到的就是「进去先短后长、卡片又长一遍」。
+        // 这里把最终上屏的这一份存起来：下一次进入首帧就是完整画面。
+        // 缓存不在这里写：这一刻只有 host 尾页那一小份（29 行），
+        // 真正上屏的完整画面是自动补页之后的 114 行 —— 见下面的 debounce 写入。
         setHasOlder(page.hasMore)
         // Seed the plan strip from the page's todo snapshot (newest
         // todo/write in the window; live frames adopt above it by seq).
