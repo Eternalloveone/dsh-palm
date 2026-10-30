@@ -80,10 +80,25 @@ export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<
   try {
     const db = await openDb()
     try {
+      // 缓存**只许变多**（不变式 I3：单调）。
+      //
+      // 写这份缓存的地方有三处（尾页 120 行 / 宿主权威页 / 通用兜底），后到的那次
+      // 可能是更小的一页。曾经的现场：尾页按 120 行写入后，被一份 25 事件的小页覆盖，
+      // 于是「再进会话」的 cache-first 只画得出 13 行（实测 200ms 13 行 / 稳定 114 行）。
+      // 这里按行合并：同一 seq 以新到的为准，其余保留，然后按 seq 排序截断。
+      // 读旧值（同一连接）再决定写什么：缓存只增不减，见 mergeCachedPage。
+      const previous = await readEntry<T>(db, sessionId)
+      const merged = ((): T => {
+        try {
+          return mergeCachedPage(previous?.page, page)
+        } catch {
+          return page
+        }
+      })()
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE, 'readwrite')
         const store = tx.objectStore(STORE)
-        store.put({ key: sessionId, v: 1, savedAt: Date.now(), page } satisfies HistoryCacheEntry<T>)
+        store.put({ key: sessionId, v: 1, savedAt: Date.now(), page: merged } satisfies HistoryCacheEntry<T>)
         tx.oncomplete = () => { resolve() }
         tx.onerror = () => { reject(tx.error ?? new Error('indexedDB write failed')) }
         tx.onabort = () => { reject(tx.error ?? new Error('indexedDB write aborted')) }
@@ -101,6 +116,75 @@ export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<
   // prompt for) happens here rather than on first paint. Deliberately not awaited
   // — a prompt must never hold up the chat.
   if (saved) void ensurePersistentStorage()
+}
+
+/** 读一条缓存（同一连接；不存在或读失败就是 undefined）。 */
+async function readEntry<T>(db: IDBDatabase, sessionId: string): Promise<HistoryCacheEntry<T> | undefined> {
+  try {
+    return await new Promise<HistoryCacheEntry<T> | undefined>((resolve) => {
+      const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(sessionId)
+      request.onsuccess = () => { resolve(request.result as HistoryCacheEntry<T> | undefined) }
+      request.onerror = () => { resolve(undefined) }
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/** 缓存里留多少行：够铺满首屏并留出上翻余量。 */
+const CACHE_MAX_ROWS = 240
+
+/**
+ * 把「旧缓存」和「这次要写的页」合成一份**只增不减**的页。
+ *
+ * - 形状不认识（没有 rows 数组 / 行没有数字 seq）→ 直接用新页；
+ * - 同一 seq 两行都在 → 新页那行胜出（它更新）；
+ * - 合并后按 seq 升序、保留尾部 `CACHE_MAX_ROWS` 行；
+ * - `maxSeq` 取大者，`hasMore` 跟新页（它代表"更早还有没有"，只有网络页知道）。
+ */
+export function mergeCachedPage<T>(existing: T | undefined, incoming: T): T {
+  const previous = existing as unknown as { rows?: unknown; maxSeq?: unknown; hasMore?: unknown } | undefined
+  const next = incoming as unknown as { rows?: unknown; maxSeq?: unknown; hasMore?: unknown }
+  // 没有旧值（或形状不认识）：仍然把这一页按上限截断，别让单条缓存无限长。
+  const capped = (): T => {
+    if (!Array.isArray(next.rows) || next.rows.length <= CACHE_MAX_ROWS) return incoming
+    return { ...(next as object), rows: (next.rows as unknown[]).slice(-CACHE_MAX_ROWS) } as unknown as T
+  }
+  if (
+    previous === undefined
+    || !Array.isArray(previous.rows)
+    || !Array.isArray(next.rows)
+    || typeof previous.maxSeq !== 'number'
+    || typeof next.maxSeq !== 'number'
+  ) return capped()
+
+  type SeqRow = { seq?: unknown }
+  const bySeq = new Map<number, unknown>()
+  const seqOf = (row: unknown): number | undefined => {
+    if (typeof row !== 'object' || row === null) return undefined
+    const seq = (row as SeqRow).seq
+    return typeof seq === 'number' && Number.isFinite(seq) ? seq : undefined
+  }
+  for (const row of previous.rows as unknown[]) {
+    const seq = seqOf(row)
+    if (seq === undefined) return incoming
+    bySeq.set(seq, row)
+  }
+  for (const row of next.rows as unknown[]) {
+    const seq = seqOf(row)
+    if (seq === undefined) return incoming
+    bySeq.set(seq, row)
+  }
+  const rows = [...bySeq.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, row]) => row)
+    .slice(-CACHE_MAX_ROWS)
+  const maxSeq = typeof previous.maxSeq === 'number' ? Math.max(previous.maxSeq, next.maxSeq) : next.maxSeq
+  return {
+    ...(next as object),
+    rows,
+    maxSeq,
+  } as unknown as T
 }
 
 /** Evict the oldest entries past the cap (by savedAt). */

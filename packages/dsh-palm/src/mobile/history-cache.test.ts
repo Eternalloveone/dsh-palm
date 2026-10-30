@@ -5,7 +5,7 @@
  * covering exactly the operations the module performs.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearHistoryCache, loadCachedHistory, saveCachedHistory } from './history-cache.ts'
+import { clearHistoryCache, loadCachedHistory, mergeCachedPage, saveCachedHistory } from './history-cache.ts'
 
 interface FakeRequest {
   result?: unknown
@@ -146,5 +146,45 @@ describe('history-cache', () => {
     expect(await loadCachedHistory('s-1')).toBeUndefined()
     await expect(saveCachedHistory('s-1', { rows: [], maxSeq: 0, hasMore: false })).resolves.toBeUndefined()
     await expect(clearHistoryCache()).resolves.toBeUndefined()
+  })
+})
+
+describe('缓存合并只许变多（I3 单调）', () => {
+  // 直接测纯函数：IndexedDB 那层是 best-effort 的通道（回环用例已在上面），
+  // 这里要锁的是**合并规则本身**——它是"缓存被小页覆盖"的唯一防线。
+  const page = (seqs: number[]) => ({
+    rows: seqs.map(seq => ({ seq, kind: 'assistant', id: `r-${seq}`, text: '' })),
+    maxSeq: Math.max(...seqs),
+    hasMore: seqs[0] === 1,
+  })
+
+  it('旧的 114 行 + 新的 13 行 → 合成 114 行（小的不许把大的顶掉）', () => {
+    // 真机现场：尾页按 120 行写入，被后到的一份 25 事件小页覆盖，
+    // 于是再进会话的 cache-first 只画得出 13 行。
+    const big = page(Array.from({ length: 114 }, (_, i) => i + 1))
+    const small = page(Array.from({ length: 13 }, (_, i) => i + 102))
+    const merged = mergeCachedPage(big, small)
+    expect(merged.rows).toHaveLength(114)
+    expect(merged.maxSeq).toBe(114)
+  })
+
+  it('同一 seq 以新到的为准（流式正文会被更新成最终版）', () => {
+    const first = { rows: [{ seq: 7, kind: 'assistant', id: 'r-7', text: '流式中' }], maxSeq: 7, hasMore: false }
+    const second = { rows: [{ seq: 7, kind: 'assistant', id: 'r-7', text: '最终正文' }], maxSeq: 7, hasMore: false }
+    const merged = mergeCachedPage(first, second)
+    expect(merged.rows).toHaveLength(1)
+    expect((merged.rows[0] as { text?: string }).text).toBe('最终正文')
+  })
+
+  it('形状不认识时直接用新页（不猜）', () => {
+    const merged = mergeCachedPage(undefined, { hello: 'world' })
+    expect(merged).toEqual({ hello: 'world' })
+  })
+
+  it('行数有上限：合并后保留尾部 240 行', () => {
+    const big = page(Array.from({ length: 300 }, (_, i) => i + 1))
+    const merged = mergeCachedPage(undefined, big)
+    expect(merged.rows).toHaveLength(240)
+    expect((merged.rows.at(-1) as { seq?: number }).seq).toBe(300)
   })
 })
