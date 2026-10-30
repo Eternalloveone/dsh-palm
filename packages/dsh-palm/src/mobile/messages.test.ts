@@ -2074,3 +2074,38 @@ describe('回归闸门：生产入口（coalesceTurnMessages）也必须只画�
     expect(folded.some(entry => entry.text === '最终回答')).toBe(true)
   })
 })
+
+describe('回归闸门：正在跑的那一轮不许有「已完成」卡', () => {
+  // 真机现场（2026-10-30）：会话底部还写着"输出中…"，上面那张卡却 ✅完成 / 用时 1分45秒。
+  // 成因：那一轮的工具都跑完了（不在 running 集合），但模型还在输出正文，turn/end 未到；
+  // 猜卡与"补卡回读"只认工具状态，于是把「工具跑完」当成「这一轮完成」。
+  const row = (overrides: Record<string, unknown>): RenderMessage => ({
+    id: 'x',
+    kind: 'assistant',
+    text: '',
+    seq: 1,
+    ...overrides,
+  } as RenderMessage)
+  const finishedTool = { callId: 'c1', name: 'bash', state: 'done', arguments: '{}' }
+
+  it('没有 turn/end、工具也已跑完 → 从"缺卡"里排除（不去回读、不造卡）', () => {
+    const rows = [row({ id: 'a1', turn: 9, step: 3, tools: [finishedTool] })]
+    // 历史视角（不知道该轮在跑）：会去回读补卡
+    expect(missingTurnReports(rows)).toContain(9)
+    // 实时视角（openTurn=9，正在跑）：不许当成缺卡
+    expect(missingTurnReports(rows, 9)).toEqual([])
+  })
+
+  it('收工之后（openTurn 消失）照常补卡', () => {
+    const rows = [row({ id: 'a1', turn: 9, step: 3, tools: [finishedTool] })]
+    expect(missingTurnReports(rows, undefined)).toContain(9)
+  })
+
+  it('历史轮次不受影响：只有「正在跑的那一轮」被排除', () => {
+    const rows = [
+      row({ id: 'a8', turn: 8, step: 2, tools: [finishedTool] }),
+      row({ id: 'a9', turn: 9, step: 1, tools: [finishedTool] }),
+    ]
+    expect(missingTurnReports(rows, 9)).toEqual([8])
+  })
+})

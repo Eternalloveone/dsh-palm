@@ -1726,7 +1726,7 @@ export function expectsTurnReport(rows: readonly RenderMessage[]): boolean {
  * @param rows - folded page rows.
  * @returns the turn numbers still missing a report, oldest first.
  */
-export function missingTurnReports(rows: readonly RenderMessage[]): number[] {
+export function missingTurnReports(rows: readonly RenderMessage[], openTurn?: number): number[] {
   const reported = new Set<number>()
   const hasRows = new Set<number>()
   for (const row of rows) {
@@ -1741,7 +1741,12 @@ export function missingTurnReports(rows: readonly RenderMessage[]): number[] {
     if ((row.tools ?? []).length === 0) continue
     hasRows.add(row.turn)
   }
-  return [...hasRows].filter(turn => !reported.has(turn)).sort((left, right) => left - right)
+  // 正在跑的那一轮不算「缺卡」：它本来就不该有卡；回读日志只会把还没结束的回合
+  // 当成已完成（真机：底部还在"输出中…"，卡片却已是 ✅完成）。
+  return [...hasRows]
+    .filter(turn => !reported.has(turn))
+    .filter(turn => turn !== openTurn)
+    .sort((left, right) => left - right)
 }
 
 /**
@@ -2150,7 +2155,7 @@ function sameRowContent(left: RenderMessage, right: RenderMessage): boolean {
  *  folded window leaves behind (it emitted the tail for its clock alone). Left
  *  alone, that empty row both hides the card and blocks this rebuild.
  */
-export function ensureTurnTails(rows: readonly RenderMessage[]): RenderMessage[] {
+export function ensureTurnTails(rows: readonly RenderMessage[], openTurn?: number): RenderMessage[] {
   const existingTail = new Map<number, RenderMessage>()
   const lastRowOfTurn = new Map<number, RenderMessage>()
   const running = new Set<number>()
@@ -2165,7 +2170,17 @@ export function ensureTurnTails(rows: readonly RenderMessage[]): RenderMessage[]
       if (tool.state === 'running') running.add(row.turn)
     }
   }
-  const pending = [...lastRowOfTurn.keys()].filter(turn => !running.has(turn) && !reportsAnything(existingTail.get(turn)))
+  // 正在跑的那一轮**绝不猜卡**（`openTurn` 由实时流给出，不靠任何推断）。
+  //
+  // 真机现场（2026-10-30）：会话明明还在跑（底部"输出中…"），上面那张卡却写着
+  // ✅完成、用时 1分45秒。原因就在这里：那一轮的工具都跑完了（没进 running 集合），
+  // 但模型还在输出正文、turn/end 尚未出现；猜卡只认工具状态，于是把「工具跑完」
+  // 当成了「这一轮完成」。判据必须来自**实时流的活跃轮次**，不能靠工具状态猜。
+  const pending = [...lastRowOfTurn.keys()].filter(turn => (
+    !running.has(turn)
+    && !reportsAnything(existingTail.get(turn))
+    && turn !== openTurn
+  ))
   if (pending.length === 0) return [...rows]
   /** Rebuilt report row, keyed by turn (replaces the empty one in place, or is appended). */
   const rebuilt = new Map<number, RenderMessage>()
