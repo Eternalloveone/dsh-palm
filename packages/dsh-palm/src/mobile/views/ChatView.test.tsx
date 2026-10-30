@@ -5133,8 +5133,11 @@ describe('ChatView turn clock (#outputting timer)', () => {
       emitSessionFrame(mux, 'assistant/chunk', 303, T0, { turn: 0, step: 1, chunk: { type: 'text-delta', index: 0, text: '好' } })
       await settleLiveFold()
 
-      // 同一轮可以有多张过程卡同时活着（按步分卡），但这一轮不能被清零。
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      // 过程卡按回合归属：插话把这一轮切成两段之后，卡挂在**本轮第一段**上，
+      // 后段只画正文（否则同一轮会出现两张卡）。所以这里不再断言「最后一张卡」，
+      // 而是断言「这一轮的卡还在，且仍在跑」。
+      const heads = [...document.querySelectorAll('.chat-proc-head')].map(head => procStateOf(head as HTMLElement))
+      expect(heads).toContain('深度求索中')
       expect(liveCount()).toBeGreaterThanOrEqual(1)
     } finally {
       vi.useRealTimers()

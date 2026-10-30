@@ -785,7 +785,10 @@ function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusE
   // 有过程行，或者至少有一枚回合时钟（纯文本回复也要显示"本轮用了 X"）。
   // 注意：这个开关只挡工具行，不挡整组 —— 关掉工具调用不该连带丢掉思考与用时。
   const visibleRows = visibleRowCount(model, showToolCalls)
-  const showGroup = visibleRows > 0 || message.durationMs !== undefined || message.turnStartAt !== undefined
+  // 同一轮的「后续段」不再自己画卡：过程卡按回合归属，步骤已经上提到本轮第一段
+  // （见 messages.ts 的 mergeProcessCardsByTurn）。这一段只负责它的正文。
+  const showGroup = message.processCardOwner !== false
+    && (visibleRows > 0 || message.durationMs !== undefined || message.turnStartAt !== undefined)
   const answer = model.answer
   return (
     <>

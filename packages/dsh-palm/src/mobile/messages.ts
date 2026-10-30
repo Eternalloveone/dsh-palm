@@ -109,6 +109,14 @@ export interface RenderMessage {
    * phone's take on the desktop's `用时 9分29秒`. Absent when the window never
    * carried the `turn/start` anchor.
    */
+  /**
+   * 这一行是不是「本轮过程卡的归属行」。
+   *
+   * 默认 true。同一轮被用户插话切成多段时，只有第一段是归属行；后续段为 false ——
+   * 它的工具/思考/工具摘要都已上提到第一段，这一段只画正文，不再画第二张卡。
+   */
+  readonly processCardOwner?: boolean
+
   readonly durationMs?: number
   /**
    * The owning turn's `turn/start` time (epoch ms), folded onto every row of
@@ -2579,6 +2587,8 @@ export function mergeProcessCardsByTurn(messages: readonly RenderMessage[]): Ren
   const firstByTurn = new Map<number, number>()
   const laterTools = new Map<number, ToolCallInfo[]>()
   const laterFlow = new Map<number, FlowPart[]>()
+  const laterReasoning = new Map<number, string>()
+  const laterSummary = new Map<number, string>()
   messages.forEach((row, index) => {
     if (row.kind !== 'assistant' || row.turn === undefined) return
     if (!firstByTurn.has(row.turn)) {
@@ -2586,9 +2596,18 @@ export function mergeProcessCardsByTurn(messages: readonly RenderMessage[]): Ren
       return
     }
     if (row.tools !== undefined) laterTools.set(row.turn, [...(laterTools.get(row.turn) ?? []), ...row.tools])
-    if (row.flow !== undefined) laterFlow.set(row.turn, [...(laterFlow.get(row.turn) ?? []), ...row.flow.filter(part => part.kind === 'tool')])
+    // 流里的「工具」和「思考」都属于过程卡的内容；只剩它们时卡照样会画出来。
+    if (row.flow !== undefined) {
+      laterFlow.set(row.turn, [...(laterFlow.get(row.turn) ?? []), ...row.flow.filter(part => part.kind === 'tool' || part.kind === 'reasoning')])
+    }
+    // 思考也算「这一轮做过什么」：卡头会写「深度思考 N 行」。后段只剩思考时，
+    // 它照样会画出第二张卡（实测 d977：4 个分裂回合的第二段 tools=0 但仍有思考）。
+    if (row.reasoning !== undefined && row.reasoning !== '') {
+      laterReasoning.set(row.turn, [laterReasoning.get(row.turn) ?? '', row.reasoning].filter(part => part !== '').join('\n\n'))
+    }
+    if (row.toolSummary !== undefined) laterSummary.set(row.turn, row.toolSummary)
   })
-  if (laterTools.size === 0 && laterFlow.size === 0) return messages.slice()
+  if (laterTools.size === 0 && laterFlow.size === 0 && laterReasoning.size === 0) return messages.slice()
 
   return messages.map((row, index) => {
     if (row.kind !== 'assistant' || row.turn === undefined) return row
@@ -2598,20 +2617,30 @@ export function mergeProcessCardsByTurn(messages: readonly RenderMessage[]): Ren
       const extra = (laterTools.get(row.turn) ?? []).filter(tool => !seen.has(tool.callId))
       const tools = [...(row.tools ?? []), ...extra]
       const seenFlow = new Set((row.flow ?? []).filter(part => part.kind === 'tool').map(part => part.callId))
-      const extraFlow = (laterFlow.get(row.turn) ?? []).filter(part => part.kind === 'tool' && !seenFlow.has(part.callId))
+      const extraFlow = (laterFlow.get(row.turn) ?? []).filter(part => part.kind !== 'tool' || !seenFlow.has(part.callId))
       const flow = [...(row.flow ?? []), ...extraFlow]
+      const extraReasoning = laterReasoning.get(row.turn)
+      const reasoning = [row.reasoning ?? '', extraReasoning ?? ''].filter(part => part !== '').join('\n\n')
+      const toolSummary = row.toolSummary ?? laterSummary.get(row.turn)
       return {
         ...row,
         ...(tools.length === 0 ? {} : { tools }),
         ...(flow.length === 0 ? {} : { flow }),
+        ...(reasoning === '' ? {} : { reasoning }),
+        ...(toolSummary === undefined ? {} : { toolSummary }),
       }
     }
-    // 后段：步骤上提之后自己不再画卡，只留正文与思考。
-    const flow = row.flow?.filter(part => part.kind !== 'tool')
+    // 后段：工具、思考、工具摘要都上提之后，它只剩正文——卡不再画。
+    // （toolSummary 自身也会让卡渲染出一行「用时 X▸」，实测 turn 9 / 17 就是这么多出
+    //   两张卡的：后段 tools=0、reasoning=0，但 toolSummary 还在。）
+    const flow = row.flow?.filter(part => part.kind === 'text')
+    const { toolSummary: _hoistedSummary, ...rest } = row
     return {
-      ...row,
+      ...rest,
+      processCardOwner: false,
       ...(row.tools === undefined ? {} : { tools: [] }),
       ...(flow === undefined ? {} : { flow }),
+      ...(row.reasoning === undefined ? {} : { reasoning: '' }),
     }
   })
 }
