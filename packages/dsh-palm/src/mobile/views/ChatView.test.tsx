@@ -25,6 +25,7 @@ import { clearLocateIntent, rememberLocateIntent } from '../locate-intent.ts'
 // The api module is fully mocked; App.tsx's chat-page loader is overridden to
 // feed fixed folded pages, its pure helpers (errorText / formatTime) stay real.
 vi.mock('../api.ts', () => ({
+  newRequestId: () => 'test-request-id',
   fetchMobilePreferences: vi.fn(),
   models: vi.fn(),
   selectModel: vi.fn(),
@@ -402,6 +403,21 @@ function resetSessionStateMock(): void {
     fireEvent.wheel(scroller)
     fireEvent.scroll(scroller, { target: { scrollTop } })
   }
+
+/**
+ * 断言「mock 被以这些实参调用过」——**只比给定这几个**，允许多余的尾参。
+ *
+ * 发送现在多带一个幂等键（宿主据此去重、插件侧据此把队列行标回本次投递），
+ * 用例关心的仍然是「发了什么」，不该被多出来的键绑住。
+ */
+function expectCalledWithPrefix(mock: { mock: { calls: unknown[][] } }, ...args: unknown[]): void {
+  const hit = mock.mock.calls.some(call => args.every((arg, index) => {
+    const actual = call[index]
+    if (arg !== null && typeof arg === 'object') return JSON.stringify(actual) === JSON.stringify(arg)
+    return actual === arg
+  }))
+  expect(hit).toBe(true)
+}
 
 describe('ChatView message folds', () => {
   it('keeps reasoning inside the collapsed process group and reveals it after two taps', async () => {
@@ -1495,7 +1511,7 @@ describe('ChatView composer', () => {
     const enter = pressEnter(input)
     expect(enter.defaultPrevented).toBe(true)
     await waitFor(() => {
-      expect(promptMock).toHaveBeenCalledWith('s-1', [{ type: 'text', text: '第一行' }])
+      expectCalledWithPrefix(promptMock, 's-1', [{ type: 'text', text: '第一行' }])
     })
 
     // Shift+Enter stays a newline gesture and never sends.
@@ -1529,7 +1545,7 @@ describe('ChatView composer', () => {
     fireEvent.change(input, { target: { value: '第一行\n第二行' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     await waitFor(() => {
-      expect(promptMock).toHaveBeenCalledWith('s-1', [{ type: 'text', text: '第一行\n第二行' }])
+      expectCalledWithPrefix(promptMock, 's-1', [{ type: 'text', text: '第一行\n第二行' }])
     })
 
     // Shift+Enter keeps inserting a newline in either mode.
@@ -6013,7 +6029,7 @@ describe('ChatView queue-while-running (composer primary)', () => {
     fireEvent.click(queued)
     // 整套跑时别的文件在编译，1 秒的默认上限会被挤爆（实测 1.1~1.2 秒才到）；
     // 断言本身与时长无关，这里给足 6 秒。
-    await waitFor(() => { expect(promptMock).toHaveBeenCalledWith('s-1', [{ type: 'text', text: '再补一句' }]) }, { timeout: 6000 })
+    await waitFor(() => { expectCalledWithPrefix(promptMock, 's-1', [{ type: 'text', text: '再补一句' }]) }, { timeout: 6000 })
     // 排队要有回执，否则用户以为消息丢了。
     expect(await screen.findByText('已排队，本轮结束后自动发送')).toBeTruthy()
 

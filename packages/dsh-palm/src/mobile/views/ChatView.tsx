@@ -26,7 +26,7 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallChatSnapshot, rememberChatSnapshot } from '../chat-snapshot.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, } from '../api.ts'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage, type PromptPart } from '../image.ts'
@@ -5619,11 +5619,14 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     // 以前这里只有一次 `refreshInbox({fresh:true})`，宿主要现开一帧 follow 再回包，
     // 弱网下就是"点了发送，排队条半天不出来"。
     const queueText = body.find(part => part.type === 'text')?.text ?? ''
+    // 这次投递的幂等键：宿主按它去重（同 id 只入队一次），插件侧身份桥把它标回
+    // 队列行 —— 于是乐观项可以「按身份」退场，不再靠正文猜。
+    const sendRequestId = newRequestId()
     const optimisticId = queuedByRunning && queueText !== ''
-      ? addOptimisticQueueItem(session.sessionId, { text: queueText, placement: 'queued' })
+      ? addOptimisticQueueItem(session.sessionId, { text: queueText, placement: 'queued', requestId: sendRequestId })
       : undefined
     sendInFlightRef.current = true
-    void prompt(session.sessionId, body).then(
+    void prompt(session.sessionId, body, sendRequestId).then(
       () => {
         sendInFlightRef.current = false
         setSending(false)

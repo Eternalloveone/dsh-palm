@@ -7,6 +7,7 @@ import { resetSessionStoreForTest } from '../session-store.ts'
 import { type SessionView } from './App.tsx'
 
 vi.mock('../api.ts', () => ({
+  newRequestId: () => 'test-request-id',
   // 打开会话时会向宿主要一次排队快照（投影帧到不了手机）。
   inboxOf: vi.fn(async () => ({ inbox: null })),
   // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
@@ -188,4 +189,4 @@ describe('ChatView image attach', () => {
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith('该图片无法解码，已忽略'))
     expect(screen.queryByAltText('待发送图片')).toBeNull()
   })
-})
+})
