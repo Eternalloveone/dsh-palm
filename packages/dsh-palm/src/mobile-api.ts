@@ -285,7 +285,7 @@ function queueTokenOf(items: readonly { id: string; text: string }[]): string {
  * 活的 agent 上读到的就是当下真值：认领那一刻它就没了。形状按 `queueItemsOf` 吃过的
  * `{ 'next-turn': [...] }` 返回，调用方不需要分支。
  */
-export function liveInboxOf(agents: AgentLookup | undefined, sessionId: string): { 'next-turn': readonly unknown[] } | undefined {
+export function liveInboxOf(agents: AgentLookup | undefined, sessionId: string): { 'next-turn': readonly unknown[]; 'next-step': readonly unknown[] } | undefined {
   if (agents === undefined) return undefined
   let agent: unknown
   try {
@@ -296,12 +296,16 @@ export function liveInboxOf(agents: AgentLookup | undefined, sessionId: string):
   if (agent === null || agent === undefined || typeof agent !== 'object') return undefined
   const inbox = (agent as { inbox?: unknown }).inbox
   if (inbox === null || inbox === undefined || typeof inbox !== 'object') return undefined
-  const source = inbox as { nextTurn?: unknown; 'next-turn'?: unknown }
+  const source = inbox as { nextTurn?: unknown; 'next-turn'?: unknown; nextStep?: unknown; 'next-step'?: unknown }
   const nextTurn = source.nextTurn ?? source['next-turn']
-  if (!Array.isArray(nextTurn)) return undefined
-  // 只报 nextTurn：nextStep 是「已经插进这一轮」的输入，界面上它已经是对话的一部分，
-  // 再列进排队条就是重复（正是「消息发完了排队条还在」的另一种形态）。
-  return { 'next-turn': nextTurn as readonly unknown[] }
+  const nextStep = source.nextStep ?? source['next-step']
+  if (!Array.isArray(nextTurn) && !Array.isArray(nextStep)) return undefined
+  // 两条列都给：next-turn 是「等下一轮」，next-step 是「已经插进这一轮、等下一步消费」。
+  // 后者必须显示 —— 否则插队的消息在"宿主已收下、对话还没出现"这段时间里**两边都没有**。
+  return {
+    'next-turn': (Array.isArray(nextTurn) ? nextTurn : []) as readonly unknown[],
+    'next-step': (Array.isArray(nextStep) ? nextStep : []) as readonly unknown[],
+  }
 }
 
 async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFresh: boolean): Promise<unknown> {
@@ -336,10 +340,17 @@ async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFres
  * （真机截图）。所以这里先看行上的 `content`，再退回 `message.content`。
  */
 export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; receipts?: string[]; keepParts?: unknown[] }> {
-  const rows = (inbox as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
-  if (!Array.isArray(rows)) return []
+  const box = inbox as { 'next-turn'?: unknown; 'next-step'?: unknown } | null | undefined
+  // 两条列都要：只读 next-turn 会让「插队」的消息在手机上**完全看不到**——它不在排队条上，
+  // 也还没进对话（要等下一步边界消费）。实测 2026-10-30：steer 回执 ok，手机 12 秒既无气泡
+  // 也无排队条。next-step 是"已经插进这一轮、等下一步消费"，展示成 steering。
+  const lists: Array<{ rows: unknown[]; placement: 'queued' | 'steering' }> = []
+  if (Array.isArray(box?.['next-turn'])) lists.push({ rows: box['next-turn'], placement: 'queued' })
+  if (Array.isArray(box?.['next-step'])) lists.push({ rows: box['next-step'], placement: 'steering' })
+  if (lists.length === 0) return []
   const items: Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean }> = []
-  rows.forEach((row, index) => {
+  for (const list of lists) list.rows.forEach((row, index) => {
+    const listPlacement = list.placement
     const record = (row ?? {}) as {
       id?: unknown
       placement?: unknown
@@ -374,7 +385,7 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       : text !== ''
     items.push({
       id: typeof record.id === 'string' ? record.id : String(index),
-      placement: record.placement === 'steering' ? 'steering' : record.placement === 'context' ? 'context' : 'queued',
+      placement: record.placement === 'steering' ? 'steering' : record.placement === 'context' ? 'context' : listPlacement,
       text,
       editable,
       // 文件附件只带收据（给界面显示用）；`keepParts` 是编辑时要拼回去的原样块。

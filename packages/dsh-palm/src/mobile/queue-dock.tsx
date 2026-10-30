@@ -125,7 +125,10 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                 </div>
               ) : (
                 <>
-                  <span className="queue-dockText" title={item.text}>{item.text}</span>
+                  <span className="queue-dockText" title={item.text}>
+                    {item.text}
+                    {item.placement === 'steering' && <span className="queue-dockTag">已插入本轮</span>}
+                  </span>
                   <span className="queue-dockActions">
                     <button
                       type="button"
@@ -139,13 +142,17 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                     >编辑</button>
                     <button type="button" className="queue-dockBtn" aria-label="删除排队消息" disabled={busy} onClick={() => { void run(onRemove, item.id, 'remove') }}>{pending?.id === item.id && pending.verb === 'remove' ? '删除中…' : '删除'}</button>
                     {/* 主操作要说人话：这条不排在队尾等下一轮，而是立刻塞进正在跑的这轮。
-                        「插话」两个字普通用户看不懂，按钮还长得和编辑/删除一模一样。 */}
+                        「插话」两个字普通用户看不懂，按钮还长得和编辑/删除一模一样。
+
+                        `placement === 'steering'` 的条目**已经插进这一轮**了（宿主 next-step
+                        队列），再给「立即发送」是按不动的空操作 —— 换成一句状态词。 */}
                     <button
                       type="button"
                       className="queue-dockBtn queue-dockBtn-primary"
                       aria-label="立即插入当前回合"
                       disabled={!running || busy}
                       title={running ? '不用等这一轮结束，现在就发' : '当前没有运行中的回合'}
+                      hidden={item.placement === 'steering'}
                       onClick={() => { void run(onSteer, item.id, 'steer') }}
                     >
                       <svg className="queue-dockBtnIcon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">

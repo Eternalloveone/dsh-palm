@@ -597,10 +597,14 @@ describe('liveInboxOf：队列从活的 agent 直读（2026-10-30 架构根治�
     expect(liveInboxOf({ get: () => ({ inbox: {} }) }, 's-1')).toBeUndefined()
   })
 
-  it('只报 next-turn：已经插进这一轮的 nextStep 不再进排队条', () => {
+  it('两条列都报：next-step（插队）也必须可见，否则它两边都没有', () => {
     const queued = { id: 'q1', role: 'user', content: [{ type: 'text', text: '等下一轮' }] }
     const steered = { id: 's1', role: 'user', content: [{ type: 'text', text: '已经插进这一轮' }] }
     const inbox = liveInboxOf({ get: () => ({ inbox: { nextTurn: [queued], nextStep: [steered] } }) }, 's-1')
     expect(inbox?.['next-turn']?.map(item => (item as { id: string }).id)).toEqual(['q1'])
+    expect(inbox?.['next-step']?.map(item => (item as { id: string }).id)).toEqual(['s1'])
+    // 到队列行这一层：next-step 记成 steering（界面据此不显示「立即发送」）
+    const items = queueItemsOf(inbox)
+    expect(items.map(item => [item.text, item.placement])).toEqual([['等下一轮', 'queued'], ['已经插进这一轮', 'steering']])
   })
 })

@@ -7406,6 +7406,18 @@ button.settings-row:focus-visible {
   /* 删除与插话相邻且只有 4px 间隔，误删不可撤销：把间距和命中区一起放大。 */
   gap: 10px;
 }
+/* 插队条目（已经插进本轮）的小标签：和「排队中」区分开，别让用户以为它还在等。 */
+.queue-dockTag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .queue-dockBtn {
   flex: none;
   /* 用户两轮反馈"还是太高"：纵向收到 30px、横向留 40px，相邻间距加到 10px ——
