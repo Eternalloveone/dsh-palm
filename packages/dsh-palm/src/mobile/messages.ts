@@ -2543,7 +2543,48 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
       out.push(message)
     }
   }
-  return out
+  return dedupeProcessAcrossSameTurn(out)
+}
+
+/**
+ * 同一轮里「隔了一条用户消息的两段」不要各画一张过程卡。
+ *
+ * 真机证据（2026-10-30，turn 147）：
+ * ```
+ * 23: assistant turn=147 step=1  text=0     tools=39
+ * 24: turn(本轮报告卡)        turn=147
+ * 25: user                    text=251      ← 回合中途插进来的用户消息
+ * 26: assistant turn=147 step=40 text=1489  tools=39   ← 和 23 是同一批工具
+ * ```
+ * 宿主在同一个 turn 内插入一条用户消息之后继续跑，产出落在新的 step 上 —— 两段之间
+ * 有真的用户行，`coalesceTurnMessages` 拒绝合并是对的（插话必须把内容切开），于是屏幕
+ * 上出现两张过程卡，而它们列的是同一批 39 个工具。用户看到的就是「同一轮多条过程条」。
+ *
+ * 修法：同轮跨段时，后面那段只保留自己新增的工具/工具流；已经在前一段展示过的
+ * （按 callId 认）不再重复。正文与思考过程不动 —— 那是这两段真正的区别。
+ */
+export function dedupeProcessAcrossSameTurn(messages: readonly RenderMessage[]): RenderMessage[] {
+  const shown = new Map<number, Set<string>>()
+  return messages.map(row => {
+    if (row.kind !== 'assistant' || row.turn === undefined) return row
+    let calls = shown.get(row.turn)
+    if (calls === undefined) {
+      calls = new Set<string>()
+      shown.set(row.turn, calls)
+    }
+    const tools = (row.tools ?? []).filter(tool => !calls.has(tool.callId))
+    const flow = row.flow?.filter(part => part.kind !== 'tool' || !calls.has(part.callId))
+    for (const tool of row.tools ?? []) calls.add(tool.callId)
+    for (const part of row.flow ?? []) if (part.kind === 'tool') calls.add(part.callId)
+    const toolsChanged = row.tools !== undefined && tools.length !== row.tools.length
+    const flowChanged = row.flow !== undefined && flow !== undefined && flow.length !== row.flow.length
+    if (!toolsChanged && !flowChanged) return row
+    return {
+      ...row,
+      ...(row.tools === undefined ? {} : { tools }),
+      ...(flow === undefined ? {} : { flow }),
+    }
+  })
 }
 
 /**

@@ -1,6 +1,6 @@
 /** foldEvents: message-list folding from a session event stream. */
 import { describe, expect, it } from 'vitest'
-import { coalesceTurnMessages, ensureTurnTails, preferRicherRows, expectsTurnReport, keepTurnReports, missingTurnReports, EventFolder, filesFromContent, foldEvents, foldTodoEvent, foldTodoSnapshot, mergeTurnReports, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
+import { coalesceTurnMessages, dedupeProcessAcrossSameTurn, ensureTurnTails, preferRicherRows, expectsTurnReport, keepTurnReports, missingTurnReports, EventFolder, filesFromContent, foldEvents, foldTodoEvent, foldTodoSnapshot, mergeTurnReports, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
 
 /** Assemble one event with an auto-incrementing seq / time. */
 function makeEvent(
@@ -1957,5 +1957,52 @@ describe('流式分片缺 step：同一轮不能一行一片（2026-10-29 真机
     expect(assist[0]?.text).toBe('流式中，完成')
     expect(assist[0]?.pending).toBe(false)
     expect(assist[0]?.step).toBe(4)
+  })
+})
+
+describe('同一轮跨段不重复画过程卡（2026-10-30 真机）', () => {
+  // 现场：turn 147 的第一段只有工具（正文空），宿主在回合中途插了一条用户消息
+  // （text=251），之后同一轮继续产出第二段（step=40，正文 1489 字）—— 而且**同一批
+  // 39 个工具**在两段上都挂着。屏幕上就是两张卡、列同一堆步骤。
+  const tool = (callId: string) => ({ callId, name: 'bash', arguments: '{}' })
+  const sharedTools = [tool('c1'), tool('c2'), tool('c3')]
+
+  const row = (overrides: Partial<RenderMessage>): RenderMessage => ({
+    id: 'x',
+    kind: 'assistant',
+    text: '',
+    ...overrides,
+  } as RenderMessage)
+
+  it('后一段只保留自己新增的工具，重复的不再出现', () => {
+    const rows: RenderMessage[] = [
+      row({ id: 'a1', turn: 147, step: 1, text: '', tools: sharedTools, flow: [{ kind: 'tool', callId: 'c1' }, { kind: 'tool', callId: 'c2' }, { kind: 'tool', callId: 'c3' }] }),
+      row({ id: 'u1', kind: 'user', text: '插一句' }),
+      row({ id: 'a2', turn: 147, step: 40, text: '最终回答', tools: [...sharedTools, tool('c9')], flow: [{ kind: 'tool', callId: 'c1' }, { kind: 'text', text: '最终回答' }] }),
+    ]
+
+    const out = dedupeProcessAcrossSameTurn(rows)
+    const [, , second] = out
+    expect(second?.tools?.map(t => t.callId)).toEqual(['c9'])
+    expect(second?.flow?.map(part => (part.kind === 'tool' ? `tool:${part.callId}` : `text:${part.text}`))).toEqual(['text:最终回答'])
+    // 正文一个字都不能少
+    expect(second?.text).toBe('最终回答')
+    // 第一段原样保留（所有步骤都留在它身上）
+    expect(out[0]?.tools).toHaveLength(3)
+  })
+
+  it('不同轮各自独立：不会因为上一轮用过同名工具就吞掉下一轮的步骤', () => {
+    const rows: RenderMessage[] = [
+      row({ id: 'a1', turn: 1, step: 1, tools: sharedTools }),
+      row({ id: 'a2', turn: 2, step: 1, tools: sharedTools }),
+    ]
+    const out = dedupeProcessAcrossSameTurn(rows)
+    expect(out[1]?.tools).toHaveLength(3)
+  })
+
+  it('没有重复时原样返回（同一个对象，不制造多余重渲染）', () => {
+    const rows: RenderMessage[] = [row({ id: 'a1', turn: 5, step: 1, tools: [tool('c1')] })]
+    const out = dedupeProcessAcrossSameTurn(rows)
+    expect(out[0]).toBe(rows[0])
   })
 })
