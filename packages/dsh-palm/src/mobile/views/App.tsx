@@ -31,6 +31,7 @@ import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
 import { clearPairingCaches } from '../list-persist.ts'
 import { clearHistoryCache, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
+import { preferredTailWindowBytes } from '../entry-perf.ts'
 import { installErrorCapture } from '../errors.ts'
 import { watchBuildRefresh } from '../build-refresh.ts'
 import { installErrorReporter } from '../errors-report.ts'
@@ -1246,7 +1247,7 @@ export async function loadChatPage(
       // 首屏一次取够：以前尾页只给 25 行，进会话后再补 2~4 页「更早」，
       // 每补一页都把列表往上一顶 —— 真机上就是「一进会话闪一下 / 跳到前面某轮」。
       // 宿主这条路本来就能到 200 行，一次取回就没有中途插入这回事了。
-      const tail = await logTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal)
+      const tail = await logTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal, preferredTailWindowBytes())
       const fast = foldChatPage(tail, true)
       // 快路径的结果先落缓存：下一次打开直接命中，不必再解日志。
       void saveCachedHistory(sessionId, fast)

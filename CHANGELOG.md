@@ -86,6 +86,13 @@ All notable changes to this project are documented here. The format is based on 
   - 客户端：缓存改为「画面稳定 400ms 后写完整一屏（含卡片）」。
   - 实测：3 秒内只有两种状态（加载 → 7 卡/67 行），二次进入 100ms 内同画面，无后补。
 
+- **一进会话，正文与交付卡像"重新加载"一遍。** React 的 key 落在了 `row.id`：没有
+  `turn/step` 的行（用户消息、系统行、流式早期行）在网络页落地后 id 全变 → 卸载重挂 → 整屏重渲染。
+  - 修法：`messageKey` 改成与合并身份同一条位置规则（`turn.step` → `seq` → `startSeq` → `id`）。
+  - 实测：缓存命中进入 67 行，4 秒后首帧节点存活 **67/67 = 100%**（只增量更新）。
+- **首屏尾窗自适应**：按最近 3 次进会话耗时在 2 MB / 512 KB 之间自动选择
+  （>1200ms 退回 512 KB），窗口由 `mobile.logTail` 的 `windowBytes` 传给宿主。
+
 ### Tests
 
 - 新增 `pnpm verify:secrets`（内置密钥扫描，有 gitleaks 就用它、没有则内置规则兜底），并作为

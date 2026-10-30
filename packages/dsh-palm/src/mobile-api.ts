@@ -4369,7 +4369,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         // rows 再回给手机。宿主的 session.page 每次都整文件解压（52 MB 实测
         // 4.1 s），而尾部帧只有几十毫秒 —— 大会话首屏的差距全在这里。
         // 这条通道只读、只给尾部；翻旧页仍然走宿主（它维护投影与窗口缓存）。
-        const body = parsed.payload as { sessionId?: unknown; maxRows?: unknown } | undefined
+        const body = parsed.payload as { sessionId?: unknown; maxRows?: unknown; windowBytes?: unknown } | undefined
         const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
         if (sessionId === '') {
           writeJson(res, 200, {
@@ -4386,7 +4386,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         try {
           // 服务端就折叠成 rows：原始事件约是可见行的两倍（52 MB 会话实测
           // 408 KB 事件 → 约 210 KB 行），弱网下这段字节差比解压更值钱。
-          const page = await readChatTailPage(sessionId, maxRows)
+          // 首屏自适应：客户端按自己实测的进会话耗时在 512 KB / 2 MB 之间选。
+        // 上限夹在 4 MB，防止旧客户端传一个离谱的值把内存读爆。
+        const rawWindow = body?.windowBytes
+        const windowBytes = typeof rawWindow === 'number' && Number.isFinite(rawWindow)
+          ? Math.min(Math.max(128 * 1024, Math.round(rawWindow)), 4 * 1024 * 1024)
+          : undefined
+        const page = await readChatTailPage(sessionId, maxRows, windowBytes)
           if (page === undefined) {
             // 找不到日志（会话刚建、或压缩存储换了布局）：让手机回落到宿主路径。
             writeJson(res, 200, {

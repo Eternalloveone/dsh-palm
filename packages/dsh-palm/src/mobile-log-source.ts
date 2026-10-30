@@ -403,6 +403,8 @@ function lastTurnBoundaryOf(events: readonly WireEvent[]): { type: 'turn/start' 
 export async function readChatTailPage(
   sessionId: string,
   maxRows: number = DEFAULT_TAIL_ROWS,
+  /** 尾部字节窗口。客户端会按自己实测的进会话耗时在 512 KB / 2 MB 之间选。 */
+  windowBytes: number = TURN_START_WINDOW_BYTES,
 ): Promise<ChatPage | undefined> {
   // 帧窗口必须跟着「要多少行」走。
   //
@@ -422,7 +424,7 @@ export async function readChatTailPage(
   // 真机表现就是「进去先短后长」。这里按 2 MB 的尾部窗口读，一次取够。
   const tail = await readSessionLogTailPage(sessionId, {
     maxFrames: frameBudget,
-    windowBytes: TURN_START_WINDOW_BYTES,
+    windowBytes,
   })
   if (tail === undefined) return undefined
   let events = tail.lines.map(line => line.event) as unknown as WireEvent[]

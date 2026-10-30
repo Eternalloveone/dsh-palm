@@ -756,10 +756,13 @@ export async function logTail(
   sessionId: string,
   maxRows?: number,
   signal?: AbortSignal,
+  windowBytes?: number,
 ): Promise<ChatPage> {
   return await callUnary<ChatPage>('mobile.logTail', {
     sessionId,
     ...(maxRows !== undefined ? { maxRows } : {}),
+    // 首屏自适应：设备慢过一次就退回 512 KB（见 entry-perf.ts）。
+    ...(windowBytes !== undefined ? { windowBytes } : {}),
   }, signal)
 }
 
