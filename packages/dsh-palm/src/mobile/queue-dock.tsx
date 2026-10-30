@@ -45,7 +45,10 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
   const [pending, setPending] = useState<{ id: string; verb: 'remove' | 'steer' } | null>(null)
 
   const queue = items.filter(item => item.placement === 'queued')
-  if (queue.length === 0) return null
+  // 「已经插进本轮」的条目（宿主 next-step 队列）：对话里还没有它，排队条又不显示的话，
+  // 消息在手机上就是**两边都没有**（实测：steer 回执 ok，10 秒内无气泡、无排队条）。
+  const steering = items.filter(item => item.placement === 'steering')
+  if (queue.length === 0 && steering.length === 0) return null
   const listVisible = queue.length === 1 || expanded
 
   const startEdit = (item: QueueItemView): void => {
@@ -125,10 +128,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                 </div>
               ) : (
                 <>
-                  <span className="queue-dockText" title={item.text}>
-                    {item.text}
-                    {item.placement === 'steering' && <span className="queue-dockTag">已插入本轮</span>}
-                  </span>
+                  <span className="queue-dockText" title={item.text}>{item.text}</span>
                   <span className="queue-dockActions">
                     <button
                       type="button"
@@ -152,7 +152,6 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                       aria-label="立即插入当前回合"
                       disabled={!running || busy}
                       title={running ? '不用等这一轮结束，现在就发' : '当前没有运行中的回合'}
-                      hidden={item.placement === 'steering'}
                       onClick={() => { void run(onSteer, item.id, 'steer') }}
                     >
                       <svg className="queue-dockBtnIcon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
@@ -164,6 +163,27 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                   </span>
                 </>
               )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {steering.length > 0 && (
+        <ul className="queue-dockList queue-dockSteering">
+          {steering.map(item => (
+            <li key={item.id} className="queue-dockRow" data-placement="steering">
+              <span className="queue-dockText" title={item.text}>
+                <span className="queue-dockTag">已插入本轮</span>
+                {item.text}
+              </span>
+              <span className="queue-dockActions">
+                <button
+                  type="button"
+                  className="queue-dockBtn"
+                  aria-label="撤回插队消息"
+                  disabled={busy}
+                  onClick={() => { void run(onRemove, item.id, 'remove') }}
+                >{pending?.id === item.id && pending.verb === 'remove' ? '撤回中…' : '撤回'}</button>
+              </span>
             </li>
           ))}
         </ul>

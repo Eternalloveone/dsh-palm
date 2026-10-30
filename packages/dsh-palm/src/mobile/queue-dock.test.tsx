@@ -36,7 +36,10 @@ describe('QueueDock', () => {
     expect(screen.getByText('第三条')).toBeTruthy()
   })
 
-  it('renders only queued rows (steering/context are not user-pending)', () => {
+  it('插队（steering）单独一行：标「已插入本轮」，不给「立即发送」，但可以撤回', () => {
+    // 契约变更（2026-10-30）：桌面端只画 queued，手机端照抄会让插队的消息**两边都没有** ——
+    // 它已经离开 next-turn（排队条不显示），又还没落成对话里的用户消息（要等下一步边界）。
+    // 实测：steer 回执 ok，10 秒内既无气泡也无排队条。所以这里单独画一行，只给「撤回」。
     const props = baseProps({
       items: [
         queued('q1', '第一条'),
@@ -46,8 +49,19 @@ describe('QueueDock', () => {
     })
     render(<QueueDock {...props} />)
     expect(screen.getByText('第一条')).toBeTruthy()
-    expect(screen.queryByText('插话中')).toBeNull()
+    expect(screen.getByText(/插话中/)).toBeTruthy()
+    expect(screen.getByText('已插入本轮')).toBeTruthy()
+    // 只有一个「立即发送」（属于 queued 那条），steering 那条没有
+    expect(screen.getAllByText('立即发送')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '撤回插队消息' })).toBeTruthy()
+    // context（宿主的上下文注入）仍然不画
     expect(screen.queryByText('注入上下文')).toBeNull()
+  })
+
+  it('只有 steering 项时条也照常出现（不能因为 queued 为空就整条消失）', () => {
+    render(<QueueDock {...baseProps({ items: [{ id: 's1', placement: 'steering', text: '插话中', editable: true }] })} />)
+    expect(screen.getByText(/插话中/)).toBeTruthy()
+    expect(screen.queryByText('立即发送')).toBeNull()
   })
 
   it('disables edit for non-plain-text rows and keeps remove/steer enabled', () => {
