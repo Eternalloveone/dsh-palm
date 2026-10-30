@@ -60,11 +60,22 @@ export default [
       const button = page.locator('button', { hasText: '加载更早的消息' }).first()
       ctx.assert((await button.count()) > 0, '没有「加载更早的消息」按钮')
       await userScroll(page, 0)
-      await page.waitForTimeout(400)
-      await button.click({ force: true })
-      await page.waitForTimeout(2_600)
+      // 按钮在「正在加载」时是 disabled 的：直接 force click 会点在禁用按钮上，
+      // 行数自然不涨（实测 2026-10-30 一次 114 → 114 的假失败，重跑就 114 → 124）。
+      // 先等它变成可点，点完再等行数真的增长，而不是睡固定 2.6 秒。
+      await button.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {})
+      for (let i = 0; i < 40 && (await button.isDisabled()); i += 1) await page.waitForTimeout(150)
+      ctx.assert(!(await button.isDisabled()), '「加载更早的消息」一直是禁用的（上一页还没读完？）')
+      await button.click()
+      const grew = await page
+        .waitForFunction(
+          count => document.querySelectorAll('[data-message-id]').length > count,
+          before,
+          { timeout: 12_000 },
+        )
+        .then(() => true, () => false)
       const after = (await chatMetrics(page)).rows
-      ctx.assert(after > before, `行数没有增加（${before} → ${after}）`)
+      ctx.assert(grew && after > before, `行数没有增加（${before} → ${after}）`)
       return `${before} → ${after}`
     },
   },
