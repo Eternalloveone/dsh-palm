@@ -48,6 +48,7 @@ import {
   type FinishedRun,
 } from '../recent-finished.ts'
 import { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns } from '../api.ts'
+import { cachedRunOverview, rememberRunOverview } from '../run-overview-cache.ts'
 
 /** Roster pages fetched at most while building the running-session baseline. */
 const ROSTER_PAGE_LIMIT = 8
@@ -253,7 +254,16 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     () => mux?.jobsSnapshot() ?? [],
   )
   /** Roster baseline: titles + running flags (fetched once per page open). */
-  const [roster, setRoster] = useState<ReadonlyMap<string, RosterRow>>(new Map())
+  // 首屏缓存：上次稳定下来的标题/详情/在跑集合先铺上，再在后台对齐。
+  // 没有缓存（第一次进来、或超过 10 分钟）时就是空 Map，行为与以前一致。
+  const cache = cachedRunOverview()
+  const [roster, setRoster] = useState<ReadonlyMap<string, RosterRow>>(() => {
+    const seed = new Map<string, RosterRow>()
+    for (const [sessionId, title] of Object.entries(cache?.titles ?? {})) {
+      seed.set(sessionId, { sessionId, title, running: true } as RosterRow)
+    }
+    return seed
+  })
   /** 实时标题：会话标题投影一旦生成，mux 就会推一帧。列表快照可能早于它，
    *  于是卡片只能退回目录名或短 id —— 这就是"标题不正确"的来源。 */
   const [liveTitles, setLiveTitles] = useState<ReadonlyMap<string, string>>(new Map())
@@ -261,16 +271,23 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
   const [liveSessions, setLiveSessions] = useState<ReadonlySet<string>>(() => {
     const initial = new Set<string>()
     for (const id of mux?.runningSessionsSnapshot() ?? []) initial.add(id)
+    // 缓存里的在跑集合也先并进来：宿主那边还没回话的这几百毫秒，卡片不该是空的。
+    for (const id of cache?.liveIds ?? []) initial.add(id)
     return initial
   })
-  const liveRef = useRef<Set<string>>(new Set(mux?.runningSessionsSnapshot() ?? []))
+  const liveRef = useRef<Set<string>>(new Set([
+    ...(mux?.runningSessionsSnapshot() ?? []),
+    ...(cache?.liveIds ?? []),
+  ]))
   /** Foreground children per session. A missing key means "the host has not
    *  answered yet" — the card must then keep its background-job rows. */
   const [childrenBySession, setChildrenBySession] = useState<ReadonlyMap<string, readonly SubagentFlatNode[]>>(
     () => new Map(),
   )
   /** 每个在跑会话的"在干什么/第几步/跑了多久"（来自尾页折叠）。 */
-  const [details, setDetails] = useState<ReadonlyMap<string, RunDetail>>(() => new Map())
+  const [details, setDetails] = useState<ReadonlyMap<string, RunDetail>>(
+    () => new Map(Object.entries(cache?.details ?? {})) as ReadonlyMap<string, RunDetail>,
+  )
   /** 刚结束的会话（localStorage 账本，跨页面/跨刷新都在）。 */
   const [finished, setFinished] = useState<readonly FinishedRun[]>(() => finishedRuns())
   /** 正在向宿主校准（顶部 2px 细条）：没有它，卡片静悄悄换内容像个 bug。 */
@@ -294,6 +311,25 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
   }
 
   useEffect(() => subscribeFinishedRuns(setFinished), [])
+
+  /**
+   * 把「这一屏稳定下来的样子」存起来，供下次进入秒开。
+   *
+   * 只存卡片要用的三样：在跑集合、标题、详情。去抖 500ms —— 详情是每 6 秒刷一次、
+   * 子代理每几秒一次，逐帧写 localStorage 会白白占主线程。
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      rememberRunOverview({
+        liveIds: [...liveSessions],
+        titles: Object.fromEntries([...roster.entries()]
+          .filter(([, row]) => typeof row.title === 'string' && row.title !== '')
+          .map(([id, row]) => [id, row.title as string])),
+        details: Object.fromEntries(details.entries()),
+      })
+    }, 500)
+    return () => { clearTimeout(timer) }
+  }, [liveSessions, roster, details])
   // 账本跟机器走：进页面读一次宿主那边那份（换浏览器/清缓存也在），把本地并进去。
   // 之后每条新的收工都上报 —— 只上报一次是幂等的（宿主按会话去重）。
   useEffect(() => {
