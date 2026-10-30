@@ -398,11 +398,11 @@ describe('inbox snapshot staleness', () => {
     expect(shouldRefreshInbox({ 'next-turn': [] }, 9_999_999, null)).toBe(true)
     expect(shouldRefreshInbox(null, 9_999_999, null)).toBe(true)
     expect(shouldRefreshInbox(undefined, 9_999_999, null)).toBe(true)
-    // 节流：刚读过就不再读，超过 10 秒才再读一次
-    expect(shouldRefreshInbox({ 'next-turn': [] }, 5_000, 1_000)).toBe(false)
-    expect(shouldRefreshInbox({ 'next-turn': [] }, 11_000, 1_000)).toBe(true)
+    // 节流：刚读过就不再读，超过 3 秒才再读一次（2026-10-30 用户要求从 10s 收紧到 3s）
+    expect(shouldRefreshInbox({ 'next-turn': [] }, 3_500, 1_000)).toBe(false)
+    expect(shouldRefreshInbox({ 'next-turn': [] }, 4_100, 1_000)).toBe(true)
     // 形状不对（不是数组）按空处理，同样会被节流现读
-    expect(shouldRefreshInbox({ 'next-turn': 'oops' }, 11_000, 1_000)).toBe(true)
+    expect(shouldRefreshInbox({ 'next-turn': 'oops' }, 4_100, 1_000)).toBe(true)
   })
 })
 

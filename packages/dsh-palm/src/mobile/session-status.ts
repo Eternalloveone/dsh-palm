@@ -387,6 +387,18 @@ export interface QueueInputs {
   readonly emptyHold?: { readonly items: readonly QueueItemView[]; readonly until: number }
   /** 已经进了对话的正文（宿主认领成这一轮的用户消息），乐观项据此退场。 */
   readonly spokenTexts?: ReadonlySet<string>
+  /**
+   * 对话里**最新**那条用户消息的正文（归一化后）。
+   *
+   * 宿主队列来自投影快照，认领之后它还会挂一阵子（投影按分钟级刷新）。手机端如果不
+   * 用「这条已经出现在对话最后了」来兜底，排队条就会在消息发出去之后继续挂着 ——
+   * 真机 2026-10-30：同一条「摄像头画面需要加一个时间水印」既是 13:31 的用户气泡，
+   * 又还是底部排队条。
+   *
+   * 只比**最新**那条而不是全部历史：用户可能把同一句话再说一遍（"继续"），拿全历史
+   * 比会把真正排队的那条误当成已发送。
+   */
+  readonly lastUserText?: string
   /** 正文归一化（默认原样比较）。 */
   readonly normalize?: (text: string) => string
 }
@@ -424,6 +436,8 @@ export function visibleQueue(inputs: QueueInputs, now: number): readonly QueueIt
   const host = inputs.host.filter(item => {
     if (hidden(item.id)) return false
     if (seenHost.has(item.id)) return false
+    // 这条已经作为「最新一条用户消息」进了对话 → 宿主早认领了，队列里这条是投影残留。
+    if (inputs.lastUserText !== undefined && normalize(item.text) === inputs.lastUserText) return false
     seenHost.add(item.id)
     return true
   })

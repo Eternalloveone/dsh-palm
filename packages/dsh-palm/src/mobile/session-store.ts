@@ -175,6 +175,7 @@ export function queueView(sessionId: string): QueueItemView[] {
     hiddenIds: new Set(entry.hidden.keys()),
     hiddenAt: entry.hiddenAt,
     spokenTexts: userTextsOf(entry),
+    ...(lastUserTextOf(entry) === undefined ? {} : { lastUserText: lastUserTextOf(entry) }),
     normalize: normalizeQueueText,
     ...(entry.emptyHold === undefined ? {} : { emptyHold: entry.emptyHold }),
   }, Date.now())]
@@ -227,6 +228,18 @@ export function applyQueueItems(sessionId: string, items: QueueItemView[]): void
 
 /** 隐藏表的兜底寿命：宿主迟迟不收敛时别永久屏蔽这一条。 */
 export const HIDDEN_TTL_MS = QUEUE_HIDDEN_MS
+
+/** 对话里最新一条用户消息的正文（归一化）；没有就是 undefined。 */
+function lastUserTextOf(entry: Entry): string | undefined {
+  const rows = entry.snapshot?.rows ?? []
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]
+    if (row?.kind !== 'user') continue
+    const text = normalizeQueueText(row.text ?? '')
+    if (text !== '') return text
+  }
+  return undefined
+}
 
 /** 最近这些行里用户自己说的话（归一化后的文本集合）。 */
 function userTextsOf(entry: Entry): Set<string> {

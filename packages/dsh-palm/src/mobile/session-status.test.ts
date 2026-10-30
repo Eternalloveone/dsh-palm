@@ -312,3 +312,33 @@ describe('排队条不许出现「一模一样的第二条」', () => {
     expect(visibleQueue({ ...base, optimistic }, at + 200)).toHaveLength(2)
   })
 })
+
+describe('排队条：投递完成之后不能再挂着（2026-10-30 真机）', () => {
+  const item = (id: string, text: string) => ({ id, placement: 'queued' as const, text, editable: true })
+
+  it('宿主投影还挂着、但对话里已经是最后一条用户消息 → 不显示', () => {
+    // 真机：13:31 的用户气泡和底部排队条是同一条正文 —— 宿主认领之后投影没刷新。
+    const visible = visibleQueue({
+      host: [item('q1', '摄像头画面需要加一个时间水印')],
+      optimistic: [],
+      hiddenIds: new Set(),
+      hiddenAt: new Map(),
+      lastUserText: '摄像头画面需要加一个时间水印',
+      normalize: text => text.trim(),
+    }, 1_000)
+    expect(visible).toHaveLength(0)
+  })
+
+  it('只比最新一条：同类正文的历史消息不会误伤真正排队的那条', () => {
+    const visible = visibleQueue({
+      host: [item('q2', '继续')],
+      optimistic: [],
+      hiddenIds: new Set(),
+      hiddenAt: new Map(),
+      // 最新一条是别的话，历史上的「继续」不该让这条消失
+      lastUserText: '换个话题',
+      normalize: text => text.trim(),
+    }, 1_000)
+    expect(visible.map(entry => entry.text)).toEqual(['继续'])
+  })
+})

@@ -1101,7 +1101,7 @@ const INBOX_FRESH_INTERVAL_MS = 4000
  * 只是可以慢一点：手机轮询最快 1.5 秒一次，宿主这边 10 秒真读一次足够，也避免
  * 每次都去抢同会话的聊天读。
  */
-const INBOX_EMPTY_FRESH_INTERVAL_MS = 10_000
+const INBOX_EMPTY_FRESH_INTERVAL_MS = 3_000
 
 /**
  * 快照里的 inbox 还挂着待发项时，是否需要现读一次真值。
