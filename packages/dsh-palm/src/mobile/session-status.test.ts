@@ -374,7 +374,7 @@ describe('乐观项按「宿主多出新条目」退场（2026-10-30 架构修�
     // 这里的形状是：提交前队列里已有 h1（别人的），提交后多出 h2（我这条，正文被改写）。
     const alive = optimisticAlive(
       intent({ knownHostIds: ['h1'] }),
-      { host: [item('h1', '别人的消息'), item('h2', '[图片] 带图的消息')], optimistic: [] },
+      { host: [item('h1', '别人的消息'), item('h2', '[图片] 带图的消息')], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
       2_000,
     )
     expect(alive).toBe(false)
@@ -383,7 +383,7 @@ describe('乐观项按「宿主多出新条目」退场（2026-10-30 架构修�
   it('提交前就存在的同文条目不算「我的那条」（不会误退）', () => {
     const alive = optimisticAlive(
       intent({ knownHostIds: ['h1'] }),
-      { host: [item('h1', '带图的消息')], optimistic: [] },
+      { host: [item('h1', '带图的消息')], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
       2_000,
     )
     expect(alive).toBe(true)
@@ -392,7 +392,7 @@ describe('乐观项按「宿主多出新条目」退场（2026-10-30 架构修�
   it('正文一致仍然退场（老路径不受影响）', () => {
     const alive = optimisticAlive(
       intent({ knownHostIds: [] }),
-      { host: [item('h9', '带图的消息')], optimistic: [] },
+      { host: [item('h9', '带图的消息')], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
       2_000,
     )
     expect(alive).toBe(false)
