@@ -1219,6 +1219,15 @@ const HOST_REFRESH_DELAY_MS = 1_500
  * read fails — the two paths converge on the same {@link ChatPageResult}
  * shape, so the surface never has to know which one served it.
  */
+/**
+ * 首屏（尾页）一次取多少行。
+ *
+ * 以前是 25 行，进会话之后再补 2~4 页「更早」并把列表往上一顶 —— 每补一页都要重排、
+ * 重钉底，真机上就是「一进会话闪一下」或者「跳到前面某轮」。宿主这条路本来能到 200 行，
+ * 一次取够就没有中途插入这回事：**一次请求、一次提交、一次钉底**。
+ */
+export const ENTRY_TAIL_ROWS = 120
+
 export async function loadChatPage(
   sessionId: string,
   beforeSeq?: number,
@@ -1234,7 +1243,10 @@ export async function loadChatPage(
   // 而尾部几十帧只要几十毫秒，折叠也在宿主侧做好了。
   if (isTail) {
     try {
-      const tail = await logTail(sessionId, undefined, signal)
+      // 首屏一次取够：以前尾页只给 25 行，进会话后再补 2~4 页「更早」，
+      // 每补一页都把列表往上一顶 —— 真机上就是「一进会话闪一下 / 跳到前面某轮」。
+      // 宿主这条路本来就能到 200 行，一次取回就没有中途插入这回事了。
+      const tail = await logTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal)
       const fast = foldChatPage(tail, true)
       // 快路径的结果先落缓存：下一次打开直接命中，不必再解日志。
       void saveCachedHistory(sessionId, fast)
