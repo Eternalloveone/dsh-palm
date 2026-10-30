@@ -38,8 +38,17 @@ export interface SessionSnapshot {
   maxSeq: number
   /** 排队等下一轮的消息。 */
   queue: QueueItemView[]
-  /** 队列版本：每次入队/插队/删除都会 +1，用来判"这份快照比我的写操作新吗"。 */
+  /** 队列版本：只有**手机端自己的写操作**会 +1，用来判"我那次写落地了吗"。 */
   queueRevision: number
+  /**
+   * 队列**内容指纹**（宿主按 id + 正文长度算）：任何客户端改了队列它都会变。
+   *
+   * 为什么要它：`queueRevision` 只由手机端自己的写操作递增，桌面端排一条消息时它不变，
+   * 而下面按「版本没变 = 队列没变」处理 —— 桌面排的消息手机永远看不到（2026-10-30 真机
+   * 复现：宿主 queue=1、手机 25 秒无排队条）。判定"权威队列变了没"必须用内容，而不是
+   * 谁写的计数器。老宿主没有这个字段时退回 `queueRevision` 判据。
+   */
+  queueToken?: string
   /** 回合状态（与 `mobile.turnState` 同形）。 */
   turn: { running: boolean; turnStartAt?: number; lastEventAt?: number }
   /** 折叠时的宿主时间。 */
@@ -326,7 +335,10 @@ export function applySnapshot(snapshot: SessionSnapshot): boolean {
   } else {
     // 行按水位、队列按版本各自单调：允许"行更新但队列更旧"这种部分更新。
     const rowsNewer = snapshot.maxSeq > current.maxSeq
-    const queueNewer = snapshot.queueRevision > current.queueRevision
+    // 队列"变了没"看内容指纹优先：桌面端入队不会动 queueRevision，只认计数器就会把
+    // 权威队列挡在门外（真机：宿主 queue=1，手机一直没有排队条）。
+    const queueTokenChanged = snapshot.queueToken !== undefined && snapshot.queueToken !== current.queueToken
+    const queueNewer = snapshot.queueRevision > current.queueRevision || queueTokenChanged
     const turnChanged = current.turn.running !== snapshot.turn.running
       || current.turn.turnStartAt !== snapshot.turn.turnStartAt
     if (rowsNewer || queueNewer || turnChanged) {
@@ -336,6 +348,9 @@ export function applySnapshot(snapshot: SessionSnapshot): boolean {
         maxSeq: rowsNewer ? snapshot.maxSeq : current.maxSeq,
         queue: queueNewer ? snapshot.queue : current.queue,
         queueRevision: queueNewer ? snapshot.queueRevision : current.queueRevision,
+        ...(queueNewer && snapshot.queueToken !== undefined
+          ? { queueToken: snapshot.queueToken }
+          : (current.queueToken === undefined ? {} : { queueToken: current.queueToken })),
         turn: turnChanged || rowsNewer ? snapshot.turn : current.turn,
         asOf: snapshot.asOf,
       }

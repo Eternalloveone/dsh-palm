@@ -301,3 +301,31 @@ describe('排队条不残留（2026-10-29 真机：发送完 / 插队后消息�
     expect(queueView('s-2')).toHaveLength(0)
   })
 })
+
+describe('队列内容指纹（2026-10-30 桌面端入队看不到）', () => {
+  it('queueRevision 不变、但内容指纹变了 → 必须换成宿主的权威队列', () => {
+    // 真机：桌面端点了一条排队消息，宿主那边 queue=1，手机 25 秒都没出现排队条。
+    // 原因是受理判据只看 queueRevision，而它只由**手机端自己的写操作**递增。
+    applySnapshot(snapshot({ queue: [], queueRevision: 3, queueToken: '' }))
+    expect(queueView(SESSION)).toHaveLength(0)
+
+    const incoming = [item('q1', '桌面端排的消息')]
+    applySnapshot(snapshot({ queue: incoming, queueRevision: 3, queueToken: 'q1:8' }))
+    expect(queueView(SESSION).map(entry => entry.text)).toEqual(['桌面端排的消息'])
+  })
+
+  it('内容指纹相同（只是重复轮询）→ 判为无变化', () => {
+    const incoming = [item('q1', '同一条')]
+    applySnapshot(snapshot({ queue: incoming, queueRevision: 1, queueToken: 'q1:3' }))
+    // 同一个克隆再应用一次：状态没变就不许报告 changed（避免多余重渲染）。
+    const changed = applySnapshot(snapshot({ queue: [...incoming], queueRevision: 1, queueToken: 'q1:3' }))
+    expect(changed).toBe(false)
+    expect(queueView(SESSION).map(entry => entry.text)).toEqual(['同一条'])
+  })
+
+  it('老宿主没有 queueToken 时退回 queueRevision 判据（不破坏兼容）', () => {
+    applySnapshot(snapshot({ queue: [], queueRevision: 1 }))
+    applySnapshot(snapshot({ queue: [item('q2', '旧宿主')], queueRevision: 2 }))
+    expect(queueView(SESSION)).toHaveLength(1)
+  })
+})

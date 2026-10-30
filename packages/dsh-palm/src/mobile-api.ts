@@ -245,6 +245,22 @@ function bumpQueueRevision(sessionId: string): void {
 }
 
 /**
+ * 队列**内容指纹**：任何来源的改动都会让它变。
+ *
+ * `queueRevision` 只有手机端自己的写操作会 +1 —— 桌面端排一条消息时它不变，而手机端
+ * 按「版本没变 = 队列没变」处理，于是**桌面排的消息手机永远看不到**（2026-10-30 真机，
+ * 已用「另一客户端入队 + 手机采样」复现：宿主 queue=1，手机 25 秒无排队条）。
+ *
+ * 这里再给一个从队列内容算出来的指纹（id + 正文长度），手机端用它判"权威队列变了没"：
+ * 谁改的都算。两个数各司其职：
+ *   - `queueRevision`：只回答「我那次写操作落地了吗」（乐观项退场用）；
+ *   - `queueToken`：只回答「权威队列本身变了没」（任何客户端）。
+ */
+function queueTokenOf(items: readonly { id: string; text: string }[]): string {
+  return items.map(item => `${item.id}:${item.text.length}`).join('|')
+}
+
+/**
  * 队列投影读取（`mobile.inbox` 与 `mobile.sessionState` 共用）。
  *
  * 花名册快照是几分钟前枚举的：删除/编辑之后还拿它就会把已经删掉的行又画回来，看起来
@@ -3731,6 +3747,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
               maxSeq: page.maxSeq,
               queue: queueItems,
               queueRevision: queueRevisionOf(sessionId),
+              queueToken: queueTokenOf(queueItems),
               ...(page.todo === undefined ? {} : { todo: page.todo }),
               goal: goalView.goal,
               ...(goalView.activation === undefined ? {} : { goalActivation: goalView.activation }),

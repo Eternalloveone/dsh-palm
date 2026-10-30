@@ -413,6 +413,8 @@ export async function sessionState(
   maxSeq: number
   queue: QueueItemView[]
   queueRevision: number
+  /** 队列内容指纹（任何客户端改动队列它都会变；老宿主缺省）。 */
+  queueToken?: string
   turn: { running: boolean; turnStartAt?: number; lastEventAt?: number }
   /** 目标投影（与 mobile.goal 同一个形状），同一切面下发。 */
   goal?: unknown

@@ -2543,7 +2543,7 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
       out.push(message)
     }
   }
-  return dedupeProcessAcrossSameTurn(out)
+  return mergeProcessCardsByTurn(out)
 }
 
 /**
@@ -2563,25 +2563,54 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
  * 修法：同轮跨段时，后面那段只保留自己新增的工具/工具流；已经在前一段展示过的
  * （按 callId 认）不再重复。正文与思考过程不动 —— 那是这两段真正的区别。
  */
-export function dedupeProcessAcrossSameTurn(messages: readonly RenderMessage[]): RenderMessage[] {
-  const shown = new Map<number, Set<string>>()
-  return messages.map(row => {
-    if (row.kind !== 'assistant' || row.turn === undefined) return row
-    let calls = shown.get(row.turn)
-    if (calls === undefined) {
-      calls = new Set<string>()
-      shown.set(row.turn, calls)
+export function mergeProcessCardsByTurn(messages: readonly RenderMessage[]): RenderMessage[] {
+  // 同一轮的步骤**统一挂在本轮第一段**上，后段只留正文/思考。
+  //
+  // 真机证据（2026-10-30，turn 147）：
+  // ```
+  // 23: assistant turn=147 step=1  text=0     tools=39   ← 第一张卡
+  // 24: turn(本轮报告卡)        turn=147
+  // 25: user                    text=251                ← 回合中途插话
+  // 26: assistant turn=147 step=40 text=1489  tools=39   ← 第二张卡，同一批工具
+  // ```
+  // 两段之间有真的用户行，`coalesceTurnMessages` 不能合并（插话必须切开内容），于是
+  // 屏幕上两张卡，列的还是同一批步骤。判据摆在这里：**过程卡是"这一轮做了什么"的
+  // 汇总，按 turn 归属，不按行归属** —— 所以同轮所有步骤都归第一段，后段不再画卡。
+  const firstByTurn = new Map<number, number>()
+  const laterTools = new Map<number, ToolCallInfo[]>()
+  const laterFlow = new Map<number, FlowPart[]>()
+  messages.forEach((row, index) => {
+    if (row.kind !== 'assistant' || row.turn === undefined) return
+    if (!firstByTurn.has(row.turn)) {
+      firstByTurn.set(row.turn, index)
+      return
     }
-    const tools = (row.tools ?? []).filter(tool => !calls.has(tool.callId))
-    const flow = row.flow?.filter(part => part.kind !== 'tool' || !calls.has(part.callId))
-    for (const tool of row.tools ?? []) calls.add(tool.callId)
-    for (const part of row.flow ?? []) if (part.kind === 'tool') calls.add(part.callId)
-    const toolsChanged = row.tools !== undefined && tools.length !== row.tools.length
-    const flowChanged = row.flow !== undefined && flow !== undefined && flow.length !== row.flow.length
-    if (!toolsChanged && !flowChanged) return row
+    if (row.tools !== undefined) laterTools.set(row.turn, [...(laterTools.get(row.turn) ?? []), ...row.tools])
+    if (row.flow !== undefined) laterFlow.set(row.turn, [...(laterFlow.get(row.turn) ?? []), ...row.flow.filter(part => part.kind === 'tool')])
+  })
+  if (laterTools.size === 0 && laterFlow.size === 0) return messages.slice()
+
+  return messages.map((row, index) => {
+    if (row.kind !== 'assistant' || row.turn === undefined) return row
+    const first = firstByTurn.get(row.turn)
+    if (first === index) {
+      const seen = new Set((row.tools ?? []).map(tool => tool.callId))
+      const extra = (laterTools.get(row.turn) ?? []).filter(tool => !seen.has(tool.callId))
+      const tools = [...(row.tools ?? []), ...extra]
+      const seenFlow = new Set((row.flow ?? []).filter(part => part.kind === 'tool').map(part => part.callId))
+      const extraFlow = (laterFlow.get(row.turn) ?? []).filter(part => part.kind === 'tool' && !seenFlow.has(part.callId))
+      const flow = [...(row.flow ?? []), ...extraFlow]
+      return {
+        ...row,
+        ...(tools.length === 0 ? {} : { tools }),
+        ...(flow.length === 0 ? {} : { flow }),
+      }
+    }
+    // 后段：步骤上提之后自己不再画卡，只留正文与思考。
+    const flow = row.flow?.filter(part => part.kind !== 'tool')
     return {
       ...row,
-      ...(row.tools === undefined ? {} : { tools }),
+      ...(row.tools === undefined ? {} : { tools: [] }),
       ...(flow === undefined ? {} : { flow }),
     }
   })
