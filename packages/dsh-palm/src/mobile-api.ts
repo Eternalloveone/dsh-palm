@@ -339,7 +339,7 @@ async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFres
  * 只认 ① 的时候，投影过来的每一条正文都是空的 —— 手机上就是「2 条排队」加两行空白
  * （真机截图）。所以这里先看行上的 `content`，再退回 `message.content`。
  */
-export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; receipts?: string[]; keepParts?: unknown[] }> {
+export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; requestId?: string; receipts?: string[]; keepParts?: unknown[] }> {
   const box = inbox as { 'next-turn'?: unknown; 'next-step'?: unknown } | null | undefined
   // 两条列都要：只读 next-turn 会让「插队」的消息在手机上**完全看不到**——它不在排队条上，
   // 也还没进对话（要等下一步边界消费）。实测 2026-10-30：steer 回执 ok，手机 12 秒既无气泡
@@ -356,8 +356,17 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       placement?: unknown
       content?: unknown
       text?: unknown
-      message?: { content?: unknown; text?: unknown }
+      requestId?: unknown
+      rpcId?: unknown
+      source?: { rpcId?: unknown; requestId?: unknown }
+      message?: { content?: unknown; text?: unknown; requestId?: unknown; source?: { rpcId?: unknown; requestId?: unknown } }
     }
+    // 投递身份：客户端发 prompt 时带的 `requestId`，宿主会在 durable `user/message`
+    // 的 source 上以 `rpcId` 回显（见 @deepseek-ai/dsh-session-controller 的契约）。
+    // 有它就能按「身份」去重/退场；没有就只能按正文猜 —— 那正是重复条的根源。
+    const requestId = [record.requestId, record.rpcId, record.source?.rpcId, record.source?.requestId,
+      record.message?.requestId, record.message?.source?.rpcId, record.message?.source?.requestId]
+      .find(value => typeof value === 'string' && value !== '') as string | undefined
     const blocks = record.content ?? record.message?.content
     const rawText = record.text ?? record.message?.text
     const receipts: string[] = []
@@ -388,6 +397,7 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       placement: record.placement === 'steering' ? 'steering' : record.placement === 'context' ? 'context' : listPlacement,
       text,
       editable,
+      ...(requestId === undefined ? {} : { requestId }),
       // 文件附件只带收据（给界面显示用）；`keepParts` 是编辑时要拼回去的原样块。
       ...(receipts.length === 0 ? {} : { receipts }),
       ...(keepParts.length === 0 ? {} : { keepParts }),

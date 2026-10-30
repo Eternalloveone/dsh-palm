@@ -358,3 +358,43 @@ describe('排队条：投递完成之后不能再挂着（2026-10-30 真机）',
     expect(visible.map(entry => entry.text)).toEqual(['继续'])
   })
 })
+
+describe('乐观项按「宿主多出新条目」退场（2026-10-30 架构修法）', () => {
+  const intent = (over: Partial<Parameters<typeof optimisticAlive>[0]> = {}) => ({
+    pendingId: 'local-1',
+    text: '带图的消息',
+    placement: 'queued' as const,
+    at: 1_000,
+    ...over,
+  })
+
+  it('正文被宿主改写了（图片前缀 / 引用块 / 折行），靠"多出新 id"退场', () => {
+    // 真机：带附件的消息，宿主那行正文变成「[图片] 带图的消息」，与本地正文永不相等，
+    // 乐观项要挂到 45 秒 TTL 才走 —— 这 45 秒里屏幕上是两条排队条。
+    // 这里的形状是：提交前队列里已有 h1（别人的），提交后多出 h2（我这条，正文被改写）。
+    const alive = optimisticAlive(
+      intent({ knownHostIds: ['h1'] }),
+      { host: [item('h1', '别人的消息'), item('h2', '[图片] 带图的消息')], optimistic: [] },
+      2_000,
+    )
+    expect(alive).toBe(false)
+  })
+
+  it('提交前就存在的同文条目不算「我的那条」（不会误退）', () => {
+    const alive = optimisticAlive(
+      intent({ knownHostIds: ['h1'] }),
+      { host: [item('h1', '带图的消息')], optimistic: [] },
+      2_000,
+    )
+    expect(alive).toBe(true)
+  })
+
+  it('正文一致仍然退场（老路径不受影响）', () => {
+    const alive = optimisticAlive(
+      intent({ knownHostIds: [] }),
+      { host: [item('h9', '带图的消息')], optimistic: [] },
+      2_000,
+    )
+    expect(alive).toBe(false)
+  })
+})

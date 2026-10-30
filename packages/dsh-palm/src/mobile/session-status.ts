@@ -367,6 +367,15 @@ export interface QueueIntent {
   readonly text: string
   readonly placement: 'queued' | 'steering'
   readonly at: number
+  /**
+   * 提交那一刻宿主队列里已有的条目 id。
+   *
+   * 退场判据用它：**提交之后宿主队列里多出一条新 id**，就认为我这次投递落地了。
+   * 以前只比「正文相同」，一旦正文被宿主改写（带图片 → `[图片] 正文`、带引用 →
+   * 拼进去的引用块、多行被压成一行），就永远对不上，乐观项要挂到 45 秒 TTL 才走
+   * —— 屏幕上正好是「一条消息两条排队条」。按"新出现"判，与正文无关。
+   */
+  readonly knownHostIds?: readonly string[]
 }
 
 export interface QueueInputs {
@@ -417,8 +426,15 @@ export function optimisticAlive(intent: QueueIntent, inputs: QueueInputs, now: n
   if (now - intent.at >= QUEUE_OPTIMISTIC_MS) return false
   const normalize = inputs.normalize ?? ((text: string): string => text)
   const text = normalize(intent.text)
-  if (inputs.host.some(item => normalize(item.text) === text)) return false
+  const known = intent.knownHostIds
+  // 只有「提交之后新出现的行」才算这次投递的结果；提交前就在队列里的同文行是别人的/上一次的。
+  const fresh = known === undefined ? inputs.host : inputs.host.filter(item => !known.includes(item.id))
+  // ① 正文对上（宿主原样保存时的主路径）。
+  if (fresh.some(item => normalize(item.text) === text)) return false
+  // ② 已经进了对话正文。
   if (inputs.spokenTexts?.has(text) === true) return false
+  // ③ 新出现了行（正文被改写：图片前缀 / 引用块 / 折行 → 正文永远对不上）。
+  if (known !== undefined && fresh.length > 0) return false
   return true
 }
 

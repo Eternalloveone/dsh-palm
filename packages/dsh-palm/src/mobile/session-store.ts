@@ -64,6 +64,8 @@ export interface OptimisticQueueItem {
   baseRevision: number
   placement: 'queued' | 'steering'
   at: number
+  /** 提交那一刻宿主队列里已有的条目 id（用于「多出新条目」退场判据）。 */
+  knownHostIds?: readonly string[]
 }
 
 /** 仓里一个会话的完整状态。 */
@@ -309,12 +311,16 @@ export function claimQueueHead(sessionId: string): void {
   // TTL 也从它算），pendingId 换成新的，调用方拿到的 id 才是屏幕上那一条。
   const key = normalizeQueueText(item.text)
   const kept = entry.optimistic.filter(existing => normalizeQueueText(existing.text) !== key)
+  // 记下提交那一刻宿主队列里已有的条目：之后只要多出新 id，就说明这次投递落地了
+  // （正文可能被宿主改写 —— 图片/引用/折行 —— 只靠正文比对会永远对不上）。
+  const knownHostIds = (entry.snapshot?.queue ?? entry.fallbackQueue ?? []).map(existing => existing.id)
   entry.optimistic = [...kept, {
     pendingId,
     text: item.text,
     baseRevision: entry.snapshot?.queueRevision ?? -1,
     placement: item.placement,
     at: Date.now(),
+    knownHostIds,
   }]
   publish(sessionId)
   return pendingId
