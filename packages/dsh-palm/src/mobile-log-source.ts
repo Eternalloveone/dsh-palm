@@ -239,6 +239,10 @@ export async function readSessionLogTailPage(
 
 /** 一屏折叠结果的默认消息条数（与 mobile.readChat 的默认页大小一致）。 */
 const DEFAULT_TAIL_ROWS = 25
+/** 一个可见行平均要消耗多少原始事件帧（实测 ~12，见 readChatTailPage 里注释）。 */
+const FRAMES_PER_ROW = 12
+/** 尾窗最多读多少帧：`maxRows * FRAMES_PER_ROW` 再大也压到这个数（大会话首屏仍有上限）。 */
+const TAIL_FRAME_CAP = 8192
 
 /** 事件里带轮号（`assistant/message`、`tool/call`、`turn/start` 等都带）。 */
 function turnOfEvent(event: WireEvent | undefined): number | undefined {
@@ -400,7 +404,20 @@ export async function readChatTailPage(
   sessionId: string,
   maxRows: number = DEFAULT_TAIL_ROWS,
 ): Promise<ChatPage | undefined> {
-  const tail = await readSessionLogTailPage(sessionId, {})
+  // 帧窗口必须跟着「要多少行」走。
+  //
+  // 以前这里固定读默认帧数（48），再把折出来的行截到 maxRows —— 于是**请求 120 行也
+  // 只有 25 帧能折出的 13 行**：进会话的首屏和写进 IndexedDB 的缓存都是这一小份，
+  // cache-first 只能画出 13 行（实测：200ms 13 行 / 网络页 114 行）。
+  // 一个可见行大约 2~3 个事件，这里按 3 倍取，并留一个下限与上限。
+  // 实测比例（2026-10-30，628d 会话）：360 帧 → 29 个可见行，约 **12 帧/行**
+  // （一个助手行会把整轮的思考+工具+正文合成一行）。所以按 12 倍取预算；
+  // 3 倍那次只折出 29 行，首屏还是不够。
+  const frameBudget = Math.min(
+    TAIL_FRAME_CAP,
+    Math.max(DEFAULT_TAIL_FRAMES, maxRows * FRAMES_PER_ROW),
+  )
+  const tail = await readSessionLogTailPage(sessionId, { maxFrames: frameBudget })
   if (tail === undefined) return undefined
   const events = tail.lines.map(line => line.event) as unknown as WireEvent[]
   // 窗口里看不到这一轮的 turn/start 时，先把真起点从日志里捞出来交给折叠：
