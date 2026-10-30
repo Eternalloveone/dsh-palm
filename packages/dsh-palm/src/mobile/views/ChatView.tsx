@@ -748,6 +748,10 @@ export function ChatView({
   // 每次列表变了就把"这一场当前画的样子"记进内存快照，供下次进会话第一帧直接铺。
   useEffect(() => {
     rememberChatSnapshot(session.sessionId, messages, hasOlder)
+    // 进会话时列表是**分段长出来**的（缓存 → 尾页 → 自动补页链），而补拍窗口只有 1.5 秒。
+    // 后到的补页把高度再拉长一次，落点就停在半路 —— 真机「刚进会话没跳到最末尾」。
+    // 只在「进会话 8 秒内」补，且由滚动状态机自己判断读者有没有动手（maySettlePin）。
+    if (Date.now() - openedAtRef.current < 8_000) settleBottomRef.current()
   }, [session.sessionId, messages, hasOlder])
   // Latest loadOlder (the tail-load effect's closure is stale by the time the
   // page lands); the auto-extend on open calls through this ref. Assigned
@@ -759,6 +763,8 @@ export function ChatView({
   const autoExtendedRef = useRef(false)
   // 这一轮"进会话铺开"已经补了几页（每开一次会话归零）。
   const openChainPagesRef = useRef(0)
+  /** 这一次进会话的时刻：补页链落地后还要再钉底。 */
+  const openedAtRef = useRef(Date.now())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
   const [input, setInput] = useState(() => loadDraft(session.sessionId))
@@ -2977,6 +2983,7 @@ export function ChatView({
    * 的地方（真机实测 gap=34）。rAF 一拍解决绝大多数，120ms 那一拍兜字体/图片。
    * 只在读者本来就贴底时补，往上翻历史的人不受影响。
    */
+  const settleBottomRef = useRef<() => void>(() => {})
   const settleBottomAfterCommit = useCallback(() => {
     const pinIfShort = (): void => {
       const el = scrollRef.current
@@ -2998,6 +3005,7 @@ export function ChatView({
       window.setTimeout(() => { pinIfShort() }, delay)
     }
   }, [setScrollTopProgrammatically])
+  settleBottomRef.current = settleBottomAfterCommit
 
   /**
    * 手指按下/抬起：这段时间里**绝不抢滚动**。

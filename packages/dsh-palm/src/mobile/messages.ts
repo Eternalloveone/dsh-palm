@@ -2571,7 +2571,7 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
  * 修法：同轮跨段时，后面那段只保留自己新增的工具/工具流；已经在前一段展示过的
  * （按 callId 认）不再重复。正文与思考过程不动 —— 那是这两段真正的区别。
  */
-export function mergeProcessCardsByTurn(messages: readonly RenderMessage[]): RenderMessage[] {
+export function mergeProcessCardsByTurn(source: readonly RenderMessage[]): RenderMessage[] {
   // 同一轮的步骤**统一挂在本轮第一段**上，后段只留正文/思考。
   //
   // 真机证据（2026-10-30，turn 147）：
@@ -2584,6 +2584,20 @@ export function mergeProcessCardsByTurn(messages: readonly RenderMessage[]): Ren
   // 两段之间有真的用户行，`coalesceTurnMessages` 不能合并（插话必须切开内容），于是
   // 屏幕上两张卡，列的还是同一批步骤。判据摆在这里：**过程卡是"这一轮做了什么"的
   // 汇总，按 turn 归属，不按行归属** —— 所以同轮所有步骤都归第一段，后段不再画卡。
+  // 先给「缺轮号」的助手行补轮号：缓存页/实时折出来的行偶尔没有 turn，而按轮去重的
+  // 判据只认 turn —— 补不上就会出现「两张卡、列同一批步骤」（真机：进会话瞬间缓存那一份
+  // 与前一份并存）。补的规则保守：中间没有用户行插进来，就沿用上一条助手行的轮号。
+  const withTurn: RenderMessage[] = source.slice()
+  let carryTurn: number | undefined
+  for (let i = 0; i < withTurn.length; i += 1) {
+    const row = withTurn[i]!
+    if (row.kind === 'user') { carryTurn = undefined; continue }
+    if (row.kind !== 'assistant') continue
+    if (row.turn !== undefined) { carryTurn = row.turn; continue }
+    if (carryTurn !== undefined) withTurn[i] = { ...row, turn: carryTurn }
+  }
+  const messages = withTurn
+
   const firstByTurn = new Map<number, number>()
   const laterTools = new Map<number, ToolCallInfo[]>()
   const laterFlow = new Map<number, FlowPart[]>()
