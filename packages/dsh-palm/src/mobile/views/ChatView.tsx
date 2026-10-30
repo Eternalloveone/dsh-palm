@@ -461,7 +461,7 @@ const MIN_CACHE_TAIL_ROWS = 12
  * 快网（<800ms）走无闪路径：只画一次最终内容；慢网（隧道/大会话冷读）白屏 2 秒以上
  * 比闪一下更难受，所以退一步先给内容。
  */
-const SLOW_NETWORK_CACHE_MS = 800
+const SLOW_NETWORK_CACHE_MS = 250
 /** 交付卡补读只覆盖最近几轮：再往前的历史轮次不该在翻页时「长出来」。 */
 const REPORT_RECOVERY_WINDOW_TURNS = 2
 
@@ -1857,6 +1857,9 @@ export function ChatView({
       // 够一整页的缓存：立刻上屏（快网也就是一闪而过的过渡）。
       // 半页缓存（上一次只看到开头几行）：先不画 —— 画上去网络页一到就整屏换掉，
       // 正文/过程条/卡片一起变，就是「进会话闪一下」。
+      // 250ms 还没等到网络页就把手上这份先画出来（原 800ms）：实测冷启铺满 90% 要
+      // 700~1300ms，那段时间屏幕是空的。半页缓存画上去之后网络页照旧合并，
+      // 有位置身份兜着，不会再出现"整屏换掉"的闪。
       if (cached.rows.length >= MIN_CACHE_TAIL_ROWS) {
         paintCache(cached)
         return

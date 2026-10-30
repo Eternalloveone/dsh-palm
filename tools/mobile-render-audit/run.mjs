@@ -43,7 +43,8 @@ const PAGES = [
     identity: 'data-message-id',
     list: true,
     /** 再进一次，量「有缓存时」的首帧完整率。 */
-    warmSeconds: 2,
+    /** 整页刷新但 IndexedDB 还在 —— 真机上「第二次打开这个会话」走的就是这条路。 */
+    warmViaReload: true,
   },
   {
     id: 'run-overview',
@@ -117,36 +118,43 @@ for (const spec of PAGES) {
       let shrank = false
       let maxDuplicates = 0
       let stable = null
+      const samples = []
       for (let i = 1; i <= 30; i += 1) {
         await page.waitForTimeout(100)
         const snap = await sample(page, spec)
+        samples.push({ at: i * 100, units: snap.units })
         if (i === 2) first = snap.units
         if (snap.units < prevUnits) shrank = true
         prevUnits = Math.max(prevUnits, snap.units)
         maxDuplicates = Math.max(maxDuplicates, snap.duplicates)
         stable = snap
       }
-      return { first, shrank, maxDuplicates, stable }
+      // 「多久铺到稳定态的 90%」比"200ms 时有多少"更能说明问题：前者与页面快慢无关。
+      const goal = Math.ceil((stable?.units ?? 0) * 0.9)
+      const hit = samples.find(item => item.units >= goal)
+      return { first, shrank, maxDuplicates, stable, ttft90: goal === 0 ? 0 : (hit?.at ?? 3000) }
     }
     const cold = await measure()
     let first = cold.first
     let shrank = cold.shrank
     let maxDuplicates = cold.maxDuplicates
     let stable = cold.stable
-    if (spec.warmSeconds !== undefined) {
-      await page.goto(`${BASE}/m/`, { waitUntil: 'domcontentloaded' })
-      await page.waitForTimeout(spec.warmSeconds * 1000)
-      await page.goto(spec.url, { waitUntil: 'domcontentloaded' })
+    if (spec.warmViaReload === true) {
+      // 整页刷新（内存快照清空、IndexedDB 缓存还在）：走的是 cache-first 那条路。
+      await page.reload({ waitUntil: 'domcontentloaded' })
       const warm = await measure()
       entry.warmFirstFrame = warm.first
       entry.warmUnitsStable = warm.stable?.units ?? 0
-      first = warm.first
+      entry.warmTtft90 = warm.ttft90
+      entry.warmFirstFrameRate = (warm.stable?.units ?? 0) === 0
+        ? 1
+        : Math.round(((warm.first ?? 0) / (warm.stable?.units ?? 1)) * 100) / 100
       shrank = shrank || warm.shrank
       maxDuplicates = Math.max(maxDuplicates, warm.maxDuplicates)
-      stable = warm.stable
     }
     entry.unitsStable = stable?.units ?? 0
     entry.unitsFirstFrame = first ?? 0
+    entry.ttft90 = cold.ttft90
     entry.firstFrameRate = (stable?.units ?? 0) === 0
       ? 1
       : Math.round(((first ?? 0) / (stable?.units ?? 1)) * 100) / 100
@@ -180,8 +188,10 @@ if (JSON_OUT) {
     console.log(
       `${verdict}  ${row.title.padEnd(10, ' ')} 单元 ${String(row.unitsFirstFrame).padStart(3)}→${String(row.unitsStable).padStart(3)}` +
       ` 首帧完整率 ${(row.firstFrameRate * 100).toFixed(0)}%` +
-      (row.warmFirstFrame === undefined ? '' : `（有缓存 ${row.warmFirstFrame}/${row.warmUnitsStable}）`) +
-      ` 行数回退 ${row.shrank ? '是' : '否'}` +
+      (row.warmFirstFrame === undefined
+        ? ''
+        : `（再进一次 ${row.warmFirstFrame}/${row.warmUnitsStable}，${row.warmTtft90}ms 铺满 90%）`) +
+      ` 铺满90%用时 ${row.ttft90 ?? '-'}ms 行数回退 ${row.shrank ? '是' : '否'}` +
       ` 身份重复 ${row.duplicateIdentity} 离底 ${row.gap}px` +
       (row.error === undefined ? '' : ` 错误 ${row.error}`) +
       (row.reason === undefined ? '' : ` 跳过原因 ${row.reason}`),
