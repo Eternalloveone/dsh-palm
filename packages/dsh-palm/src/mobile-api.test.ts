@@ -391,12 +391,18 @@ describe('inbox snapshot staleness', () => {
     expect(shouldRefreshInbox(pending, 5_000, 1_000)).toBe(true)
   })
 
-  it('does not touch the host when the snapshot is empty or shapeless', () => {
-    // 没有待发项就没什么可核对的：轮询读快照就够，不必每次都读宿主。
-    expect(shouldRefreshInbox({ 'next-turn': [] }, 9_999_999, null)).toBe(false)
-    expect(shouldRefreshInbox(null, 9_999_999, null)).toBe(false)
-    expect(shouldRefreshInbox(undefined, 9_999_999, null)).toBe(false)
-    expect(shouldRefreshInbox({ 'next-turn': 'oops' }, 9_999_999, null)).toBe(false)
+  it('also re-reads when the snapshot is empty — but slower', () => {
+    // 真机（2026-10-30）：桌面端排了一条消息，手机端一直没有排队条。原因是空快照
+    // 一律不现读，而快照只在枚举会话时刷新 —— 桌面往队列里塞消息不会改它。
+    // 现在两个方向都要对账：有项时 4 秒一次，空的 10 秒一次（第一次立即读）。
+    expect(shouldRefreshInbox({ 'next-turn': [] }, 9_999_999, null)).toBe(true)
+    expect(shouldRefreshInbox(null, 9_999_999, null)).toBe(true)
+    expect(shouldRefreshInbox(undefined, 9_999_999, null)).toBe(true)
+    // 节流：刚读过就不再读，超过 10 秒才再读一次
+    expect(shouldRefreshInbox({ 'next-turn': [] }, 5_000, 1_000)).toBe(false)
+    expect(shouldRefreshInbox({ 'next-turn': [] }, 11_000, 1_000)).toBe(true)
+    // 形状不对（不是数组）按空处理，同样会被节流现读
+    expect(shouldRefreshInbox({ 'next-turn': 'oops' }, 11_000, 1_000)).toBe(true)
   })
 })
 

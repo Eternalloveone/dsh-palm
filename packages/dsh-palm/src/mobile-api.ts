@@ -1077,6 +1077,17 @@ const inboxFreshAt = new Map<string, number>()
 const INBOX_FRESH_INTERVAL_MS = 4000
 
 /**
+ * 快照里**没有**待发项时的现读节流（比上面松）。
+ *
+ * 空快照原来一律不现读 —— 于是「桌面端新排了一条」手机永远发现不了：快照只在枚举
+ * 会话时刷新，桌面往队列里塞消息不会改它，手机就一直按这份空快照画（真机反馈：
+ * 桌面有排队消息、手机没有排队条，2026-10-30）。空快照也要能发现新出现的东西，
+ * 只是可以慢一点：手机轮询最快 1.5 秒一次，宿主这边 10 秒真读一次足够，也避免
+ * 每次都去抢同会话的聊天读。
+ */
+const INBOX_EMPTY_FRESH_INTERVAL_MS = 10_000
+
+/**
  * 快照里的 inbox 还挂着待发项时，是否需要现读一次真值。
  *
  * 花名册快照只在枚举会话时刷新，宿主把排队消息认领成下一轮并不会更新它——照快照
@@ -1088,11 +1099,15 @@ export function shouldRefreshInbox(
   now: number,
   lastFreshAt: number | null,
   intervalMs: number = INBOX_FRESH_INTERVAL_MS,
+  emptyIntervalMs: number = INBOX_EMPTY_FRESH_INTERVAL_MS,
 ): boolean {
   const rows = (inbox as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
-  if (!Array.isArray(rows) || rows.length === 0) return false
+  // 快照里还有待发项：要盯着它被宿主认领（否则卡片永远挂「排队中」）。
+  // 快照里是空的：也要（更慢地）现读 —— 桌面可能在手机看不到的地方新排了消息，
+  // 而快照不会因为队列变化而刷新。两个方向都必须对账。
+  const pending = Array.isArray(rows) && rows.length > 0
   if (lastFreshAt === null) return true
-  return now - lastFreshAt >= intervalMs
+  return now - lastFreshAt >= (pending ? intervalMs : emptyIntervalMs)
 }
 /** 尾页随消息一起下发的投影键（首屏渲染要用的那几个，都很小）。
  *  turnOutline 刻意不在里面：它能有 87 KB，而首屏并不需要它。 */
