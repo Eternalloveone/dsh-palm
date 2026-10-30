@@ -23,7 +23,7 @@ import { usePageVisible } from '../foreground.ts'
 import { useLiveClock } from '../live-clock.ts'
 import { formatDuration, isRowRunning } from '../process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
-import { recallChatSnapshot, rememberChatSnapshot } from '../chat-snapshot.ts'
+import { recallChatSnapshot, recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
@@ -1887,7 +1887,7 @@ export function ChatView({
       if (values['turnOutline'] !== undefined) setTurnOutlineRaw(values['turnOutline'])
       if (values['inbox'] !== undefined) applyInbox(values['inbox'])
     }).then(
-      (page) => {
+      async (page) => {
         stopIntentKeepAlive()
         if (cancelled) return
         networkLanded = true
@@ -1899,7 +1899,30 @@ export function ChatView({
         tailLoadingRef.current = false
         const folder = new EventFolder(page.rows, page.maxSeq)
         folderRef.current = folder
-        const foldedRows = folder.fold(buffered)
+        let foldedRows = folder.fold(buffered)
+        // 交付卡跟着正文**同一次提交**落地。
+        //
+        // 以前这里只提交正文，缺卡的轮次交给几秒后的 cardRecovery 去补 —— 用户看到的
+        // 就是「点进会话，卡片一张张动态长出来」，违反稳定渲染原则（I4 一次成型）。
+        // 现在把已收工却缺卡的轮次一次读齐，合并进同一次 setMessages；读不到就照原样
+        // 提交（不猜、不占位），绝不为了"快"先画一半再改。
+        // 交付卡一次性到位：**只用记忆缓存里已解析好的卡**（零延迟、内容不会再变）。
+        //
+        // 不在这里当场读卡：读卡要翻历史，会把首屏从 350ms 拖到 800ms，而且读回来
+        // 常常只是"半轮"的卡，几秒后还要被正式版替换 —— 那正是用户看到的
+        // "点进会话卡片动态加载"。第一次进（没有缓存）就交给 cardRecovery 后台补，
+        // 补到就记住；**第二次起这一场就是一次成型**。
+        const lackingCards = missingTurnReports(foldedRows).slice(-4)
+        if (lackingCards.length > 0) {
+          const remembered = recallTurnReports(session.sessionId, lackingCards)
+          if (remembered.length > 0) {
+            foldedRows = renderRows(mergeTurnReports(foldedRows, remembered))
+            for (const card of remembered) {
+              if (card.turn !== undefined) cardRecoveryRef.current.confirmed.add(card.turn)
+            }
+          }
+        }
+        if (cancelled) return
         applyMessages(foldedRows)
         setHasOlder(page.hasMore)
         // Seed the plan strip from the page's todo snapshot (newest
@@ -2762,7 +2785,12 @@ export function ChatView({
         row.kind === 'turn' && row.turn !== undefined && wantedSet.has(row.turn)
       ))
       // 同上：交付卡回读也必须过唯一入口，否则和缓存页各自画一份。
-      if (recovered.length > 0) commitRows(previous => mergeTurnReports(previous, recovered))
+      if (recovered.length > 0) {
+        // 记住这次读到的真卡：下次进这一场，卡就能和正文同一次提交落地，
+        // 不再出现「点进会话，卡片一张张长出来」。
+        rememberTurnReports(session.sessionId, recovered)
+        commitRows(previous => mergeTurnReports(previous, recovered))
+      }
       else reportCardDiagnostic(rows, wanted, { pages, whole, source: 'network' })
       markTried()
     }
@@ -4673,6 +4701,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           try {
             const cards = await loadTurnReportRows(session.sessionId, lackingTurns)
             if (cards.length > 0) {
+              // 记住：下次进这一场，卡就能和正文同一次提交落地，不再"长出来"。
+              rememberTurnReports(session.sessionId, cards)
               older = renderRows(mergeTurnReports(older, cards), false)
               for (const turn of lackingTurns) cardRecoveryRef.current.confirmed.add(turn)
             }

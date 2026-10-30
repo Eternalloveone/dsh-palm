@@ -56,3 +56,47 @@ export function forgetChatSnapshot(sessionId: string): void {
 export function clearChatSnapshots(): void {
   snapshots.clear()
 }
+
+/**
+ * 已解析的交付卡（按会话 × 轮）缓存。
+ *
+ * 交付卡是"翻历史才补得回来"的东西：首次进会话要额外读一段日志，几秒后才出现。
+ * 记住读到的结果之后，**再次进同一场**就能和正文同一次提交里出现 —— 用户看到的是
+ * 稳定的、一次成型的画面，而不是"卡片一张张长出来"。
+ */
+const turnReports = new Map<string, Map<number, RenderMessage>>()
+const MAX_REPORT_SESSIONS = 4
+
+/** 记住这一场已经解析出来的交付卡。 */
+export function rememberTurnReports(sessionId: string, cards: readonly RenderMessage[]): void {
+  if (sessionId === '' || cards.length === 0) return
+  const existing = turnReports.get(sessionId) ?? new Map<number, RenderMessage>()
+  for (const card of cards) {
+    if (card.kind !== 'turn' || card.turn === undefined) continue
+    existing.set(card.turn, card)
+  }
+  turnReports.delete(sessionId)
+  turnReports.set(sessionId, existing)
+  while (turnReports.size > MAX_REPORT_SESSIONS) {
+    const oldest = turnReports.keys().next()
+    if (oldest.done === true) break
+    turnReports.delete(oldest.value)
+  }
+}
+
+/** 取这一场已缓存的交付卡（只返回被要求的那几轮）。 */
+export function recallTurnReports(sessionId: string, turns: readonly number[]): RenderMessage[] {
+  const cached = turnReports.get(sessionId)
+  if (cached === undefined || turns.length === 0) return []
+  const picked: RenderMessage[] = []
+  for (const turn of turns) {
+    const card = cached.get(turn)
+    if (card !== undefined) picked.push(card)
+  }
+  return picked
+}
+
+/** 测试用：清空交付卡缓存。 */
+export function clearTurnReportCache(): void {
+  turnReports.clear()
+}

@@ -18,7 +18,7 @@ import { answeredApprovals } from '../approval-batches.ts'
 import { answeredQuestions } from '../question-batches.ts'
 import { RpcCallError } from '../rpc.ts'
 import { readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
-import { clearChatSnapshots } from '../chat-snapshot.ts'
+import { clearChatSnapshots, clearTurnReportCache } from '../chat-snapshot.ts'
 import { loadCachedHistory } from '../history-cache.ts'
 import { clearLocateIntent, rememberLocateIntent } from '../locate-intent.ts'
 
@@ -338,6 +338,8 @@ beforeEach(() => {
   resetToastsForTest()
   // 内存快照是模块级状态：每条用例都从'没打开过这场'开始。
   clearChatSnapshots()
+  // 交付卡记忆也是模块级：不清会让下一条用例带着上一条的卡，误判"已有真卡"。
+  clearTurnReportCache()
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
   promptMock.mockResolvedValue(undefined)
   modelsMock.mockResolvedValue({

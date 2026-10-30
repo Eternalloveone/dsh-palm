@@ -54,6 +54,8 @@ const PAGES = [
     unit: '.runov-sess, .runov-finish-row',
     identity: null,
     list: false,
+    /** 这一页内容会**合理减少**（会话跑完就离开"运行中"），行数回退不算不稳定。 */
+    allowShrink: true,
   },
   {
     id: 'settings',
@@ -161,7 +163,7 @@ for (const spec of PAGES) {
     entry.shrank = shrank
     entry.duplicateIdentity = maxDuplicates
     entry.gap = stable?.gap ?? 0
-    entry.pass = !shrank && maxDuplicates === 0 && (spec.list ? (stable?.gap ?? 0) <= 2 : true)
+    entry.pass = (spec.allowShrink === true || !shrank) && maxDuplicates === 0 && (spec.list ? (stable?.gap ?? 0) <= 2 : true)
   } catch (error) {
     const message = String(error?.message ?? error)
     // 入口没找到（选择器/文案变了）不算渲染不达标：如实记 SKIP 并写清原因，
