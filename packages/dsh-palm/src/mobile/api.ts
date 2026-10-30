@@ -1370,3 +1370,13 @@ export async function appendFinishedRun(entry: HostFinishedRun): Promise<void> {
 export async function removeHostFinishedRun(sessionId: string): Promise<void> {
   await callUnary('mobile.finishedRuns', { op: 'remove', sessionIds: [sessionId] })
 }
+
+/**
+ * 清空**宿主**那本「刚结束」账本。
+ *
+ * 只清本地那一本是不够的：进页面时还会 `fetchFinishedRuns()` 与宿主账本合并，
+ * 于是「全部清空」之后退出再进来，刚清掉的会话又全都回来了（真机 2026-10-30）。
+ */
+export async function clearHostFinishedRuns(): Promise<void> {
+  await callUnary('mobile.finishedRuns', { op: 'clear' })
+}

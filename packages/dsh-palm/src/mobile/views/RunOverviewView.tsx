@@ -47,7 +47,7 @@ import {
   subscribeFinishedRuns,
   type FinishedRun,
 } from '../recent-finished.ts'
-import { appendFinishedRun, fetchFinishedRuns } from '../api.ts'
+import { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns } from '../api.ts'
 
 /** Roster pages fetched at most while building the running-session baseline. */
 const ROSTER_PAGE_LIMIT = 8
@@ -594,7 +594,15 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
                 <div className="runov-group-title">
                   刚结束
                   <span className="runov-group-cnt">{visibleFinished.length}</span>
-                  <button type="button" className="runov-group-action" onClick={() => { clearFinishedRuns() }}>
+                  <button type="button" className="runov-group-action" onClick={() => {
+                  // 两本账都要清：本地那本决定现在显示什么，宿主那本决定「下次进来还在不在」。
+                  // 只清本地 → 退出再进时 fetchFinishedRuns() 又把它们合并回来（真机复现）。
+                  clearFinishedRuns()
+                  void clearHostFinishedRuns().then(
+                    () => undefined,
+                    () => { /* 宿主账本没清掉：本地已清，下次进来以宿主为准 */ },
+                  )
+                }}>
                     全部清空
                   </button>
                 </div>

@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   // 页面必须照常工作，只有显式 stub 的用例才走同步路径。
   fetchFinishedRuns: vi.fn(() => Promise.reject(new Error('unavailable'))),
   appendFinishedRun: vi.fn(() => Promise.resolve()),
+    clearHostFinishedRuns: vi.fn(async () => undefined),
 }))
 
 vi.mock('../api.ts', () => api)
@@ -347,6 +348,9 @@ describe('RunOverviewView 刚结束', () => {
     await waitFor(() => expect(screen.getByText('跑完的会话')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: '全部清空' }))
     await waitFor(() => expect(screen.queryByText('跑完的会话')).toBeNull())
+    // 宿主那本账也必须清：只清本地的话，退出再进时 fetchFinishedRuns() 会把它们合并回来
+    // （真机 2026-10-30：「全部清空」后重进又都出现）。
+    await waitFor(() => expect(api.clearHostFinishedRuns).toHaveBeenCalled())
   })
 
   it('hides a finished entry once that session runs again', async () => {
