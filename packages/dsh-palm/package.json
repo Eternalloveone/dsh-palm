@@ -17,6 +17,7 @@
     "verify:mobile": "node ../../tools/mobile-verify/run.mjs",
     "verify:mobile:fast": "node ../../tools/mobile-verify/run.mjs --groups=entry,scroll,cards,composer",
     "verify:adapt": "node ../../packages/dsh-palm/scripts/adapt-matrix.mjs",
+    "verify:render": "node ../../tools/mobile-render-audit/run.mjs",
     "verify:secrets": "node scripts/secrets-scan.mjs",
     "verify:all": "pnpm typecheck && pnpm test && pnpm verify:mobile"
   },
