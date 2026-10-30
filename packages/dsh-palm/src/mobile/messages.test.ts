@@ -1,6 +1,8 @@
 /** foldEvents: message-list folding from a session event stream. */
 import { describe, expect, it } from 'vitest'
-import { coalesceTurnMessages, mergeProcessCardsByTurn, ensureTurnTails, preferRicherRows, expectsTurnReport, keepTurnReports, missingTurnReports, EventFolder, filesFromContent, foldEvents, foldTodoEvent, foldTodoSnapshot, mergeTurnReports, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent } from './messages.ts'
+import { coalesceTurnMessages, mergeProcessCardsByTurn, ensureTurnTails, preferRicherRows, expectsTurnReport, keepTurnReports, missingTurnReports, EventFolder, filesFromContent, foldEvents, foldTodoEvent, foldTodoSnapshot, mergeTurnReports, lastOpenTurnStartTime, latestTodoSnapshot, parseTodoList, type RenderMessage, type WireEvent,
+  normalizeTranscriptRows,
+} from './messages.ts'
 
 /** Assemble one event with an auto-incrementing seq / time. */
 function makeEvent(
@@ -2005,5 +2007,43 @@ describe('同一轮只画一张过程卡（2026-10-30 真机）', () => {
     const rows: RenderMessage[] = [row({ id: 'a1', turn: 5, step: 1, tools: [tool('c1')] })]
     const out = mergeProcessCardsByTurn(rows)
     expect(out[0]).toBe(rows[0])
+  })
+})
+
+describe('行的身份是位置，不是生产者给的 id（2026-10-30 架构修法）', () => {
+  const row = (overrides: Partial<RenderMessage>): RenderMessage => ({
+    id: 'x',
+    kind: 'assistant',
+    text: '',
+    seq: 1,
+    ...overrides,
+  } as RenderMessage)
+
+  it('尾页那份与实时帧那份是同一行 → 合并成一行（不再各画一张卡）', () => {
+    // 真机：进会话瞬间「缓存/尾页」和「实时帧」都给了这一行，id 不同但 seq 相同。
+    const page = [row({ id: 'page-1', turn: 7, step: 1, seq: 210, tools: [{ callId: 'c1' }] as never })]
+    const live = [row({ id: 'live-abc', seq: 210, step: 1, tools: [{ callId: 'c1' }] as never })]
+    const merged = preferRicherRows(page, live)
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.tools?.[0]?.callId).toBe('c1')
+  })
+
+  it('实时行没有轮号：按前一条助手行补齐后，与尾页那行对齐', () => {
+    const page = [
+      row({ id: 'p-1', turn: 7, step: 1, seq: 200, text: '开头' }),
+      row({ id: 'p-2', turn: 7, step: 2, seq: 240, text: '正文' }),
+    ]
+    const live = [row({ id: 'l-9', seq: 240, text: '正文' })]
+    const normalized = normalizeTranscriptRows([page[0]!, ...live])
+    expect(normalized[1]?.turn).toBe(7)
+    expect(preferRicherRows(page, live)).toHaveLength(2)
+  })
+
+  it('同一轮不同步 → 仍然是两行（不许过度合并）', () => {
+    const rows = [
+      row({ id: 'a', turn: 7, step: 1, seq: 200 }),
+      row({ id: 'b', turn: 7, step: 5, seq: 260 }),
+    ]
+    expect(preferRicherRows([], rows)).toHaveLength(2)
   })
 })

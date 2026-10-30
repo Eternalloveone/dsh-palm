@@ -1863,9 +1863,52 @@ const MAX_KEPT_OLDER_ROWS = 200
 /** 换列表时，页里已经没有那一轮的行，仍替屏幕上保留几张最近的交付卡。 */
 export const KEEP_ORPHAN_REPORT_TURNS = 2
 
-function rowIdentity(row: RenderMessage): string {
-  return row.turn !== undefined && row.step !== undefined ? `t${row.turn}.${row.step}` : row.id
+/**
+ * 给缺轮号的助手行补上轮号（**合并之前**跑，全客户端只此一份实现）。
+ *
+ * 为什么必须有：行的身份是 `(turn, step)`，而实时折出来的行早期没有 turn。
+ * 之前身份会退化到 `row.id`，而缓存快照 / 尾页 / 实时帧三个生产者给的 id 各不相同
+ * —— 同一行于是被存成两条，屏幕上就是同一轮两张过程卡（进会话那一刻最容易撞上）。
+ *
+ * 规则保守：中间没有用户行插进来，就沿用上一条助手行的轮号；遇到用户行即清空。
+ * 没有需要补的行时返回**原数组**（保持引用，避免多余重渲染）。
+ */
+export function normalizeTranscriptRows(rows: readonly RenderMessage[]): readonly RenderMessage[] {
+  let carried: number | undefined
+  let out: RenderMessage[] | undefined
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]!
+    if (row.kind === 'user') {
+      carried = undefined
+      continue
+    }
+    if (row.kind !== 'assistant') continue
+    if (row.turn !== undefined) {
+      carried = row.turn
+      continue
+    }
+    if (carried === undefined) continue
+    if (out === undefined) out = rows.slice()
+    out[i] = { ...row, turn: carried }
+  }
+  return out ?? rows
 }
+
+function rowIdentity(row: RenderMessage): string {
+  // 身份只描述「这一行在对话里的位置」，且必须**在流式过程中保持不变**：
+  //   · 交付卡按轮唯一（它和本轮最后一条助手行可能共享 seq，先认轮号才不会并进正文）；
+  //   · 有 (turn, step) 就按它 —— 宿主折叠、实时帧、缓存快照给的都是这个位置；
+  //   · 有 turn 但还没分步（流式早期）：按「本轮的未分步行」算一个身份，**不能按 seq**，
+  //     否则每个 chunk 都换身份，同一条消息会被当成一串新行（重复的过程条正是这么来的）；
+  //   · 连 turn 都没有（极早期）：才退 seq / startSeq，最后退 id。
+  if (row.kind === 'turn' && row.turn !== undefined) return `turn${row.turn}`
+  if (row.turn !== undefined && row.step !== undefined) return `t${row.turn}.${row.step}`
+  if (row.turn !== undefined && row.pending === true) return `t${row.turn}~`
+  if (typeof row.seq === 'number' && Number.isFinite(row.seq)) return `s${row.seq}`
+  if (typeof row.startSeq === 'number' && Number.isFinite(row.startSeq)) return `ss${row.startSeq}`
+  return `id${row.id}`
+}
+
 
 /**
  * 同一次工具调用的两个版本，合并成"状态取新的、内容取全的"。
@@ -1901,9 +1944,13 @@ function richerTool(next: ToolCallInfo, previous: ToolCallInfo | undefined): Too
  * @returns the rows to render; `previous` itself when nothing changed.
  */
 export function preferRicherRows(
-  previous: readonly RenderMessage[],
-  next: readonly RenderMessage[],
+  previousInput: readonly RenderMessage[],
+  nextInput: readonly RenderMessage[],
 ): RenderMessage[] {
+  // 三个生产者（缓存快照 / 尾页 / 实时帧）的行都从这里进，先统一补轮号再谈身份 ——
+  // 身份一旦只认位置，同一行就不可能出现两份。
+  const previous = normalizeTranscriptRows(previousInput)
+  const next = normalizeTranscriptRows(nextInput)
   if (previous.length === 0 || next.length === 0) return [...next]
   const previousById = new Map<string, RenderMessage>()
   /** step → 屏幕上的那一行：只在**来行缺轮号**时兜底用。 */
