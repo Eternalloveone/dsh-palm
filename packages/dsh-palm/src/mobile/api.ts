@@ -822,12 +822,33 @@ export async function previews(
  * text plus attached images (`{ type: 'image', mediaType, data, name? }`);
  * the host promotes image bytes to durable references.
  */
-export async function prompt(sessionId: string, parts: PromptPart[]): Promise<void> {
+export async function prompt(
+  sessionId: string,
+  parts: PromptPart[],
+  /**
+   * 本次投递的幂等键。
+   *
+   * 宿主按 `requestId` 去重（同一个 id 重复提交只入队一次，实测 2026-10-30：同 id 再发
+   * 队列条数不变），而手机端此前**根本不带**这个字段 —— 于是任何重复投递（双击、弱网
+   * 重发、两条链路同时发）都会在排队条上变成两条一模一样的消息，用户无从分辨。
+   *
+   * 重试要复用同一个 id 才有效；新的发送意图必须换新 id。
+   */
+  requestId: string = newRequestId(),
+): Promise<void> {
   await callUnary<{ accepted: true }>('session.prompt', {
     sessionId,
     mode: 'queue',
     content: parts,
+    requestId,
   })
+}
+
+/** 一次投递意图的幂等键（碰撞概率可忽略；无需与宿主格式一致）。 */
+export function newRequestId(): string {
+  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+  if (typeof cryptoObj?.randomUUID === 'function') return cryptoObj.randomUUID()
+  return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /** One pending inbox occurrence in the host's `session/queue` snapshot. */

@@ -771,6 +771,10 @@ export function ChatView({
   // treat an in-flight send as "nothing sent yet" and revoke the session).
   const sendingRef = useRef(sending)
   sendingRef.current = sending
+  /** 发送请求在飞行中（同步互斥，挡同一 tick 的连点）。 */
+  const sendInFlightRef = useRef(false)
+  /** 上一次提交（正文 + 时刻）：短窗内同文重复提交视为同一次意图。 */
+  const lastSubmitRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const pendingRef = useRef(false)
   /** 一页在飞时被挡下的翻页请求（落地后补发，别把点击丢掉）。 */
@@ -5518,6 +5522,14 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   const send = useCallback(() => {
     const text = input.trim()
     if ((text === '' && attachImages.length === 0 && attachFiles.length === 0) || sending) return
+    // 同步互斥：`sending` 是 state，同一帧里连点两下时它还没更新，两次都会走到发请求
+    // —— 宿主照单全收，排队条上就是两条一模一样的消息（真机截图）。ref 在同一 tick 内
+    // 立刻生效。
+    if (sendInFlightRef.current) return
+    // 同一条正文在 1.5 秒内重复提交：用户在等界面反馈，又点了一次。视为同一次意图。
+    const stamp = `${session.sessionId}\u0000${text}`
+    if (text !== '' && lastSubmitRef.current.text === stamp && Date.now() - lastSubmitRef.current.at < 1_500) return
+    lastSubmitRef.current = { text: stamp, at: Date.now() }
     // 附件还在上传：这一刻发出去会少一个文件，用户却以为发全了。
     if (uploadingFiles > 0) {
       toast('附件还在上传，稍等一下')
@@ -5602,8 +5614,10 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     const optimisticId = queuedByRunning && queueText !== ''
       ? addOptimisticQueueItem(session.sessionId, { text: queueText, placement: 'queued' })
       : undefined
+    sendInFlightRef.current = true
     void prompt(session.sessionId, body).then(
       () => {
+        sendInFlightRef.current = false
         setSending(false)
         setInput('')
         removeDraft(session.sessionId)
@@ -5652,6 +5666,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         // stale-host hint when the host may still run an old allowlist) so a
         // failed send never looks silent.
         setSending(false)
+        // 互斥也要放开，否则一次失败会把发送按钮永久挡住。
+        sendInFlightRef.current = false
         // 没送出去：本地那条乐观排队项必须撤掉，否则会留一张永远不会发出去的卡。
         if (optimisticId !== undefined) dropOptimisticQueueItem(session.sessionId, optimisticId)
         const message = errorText(reason)

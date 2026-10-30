@@ -399,6 +399,15 @@ export interface QueueInputs {
    * 比会把真正排队的那条误当成已发送。
    */
   readonly lastUserText?: string
+  /**
+   * 宿主是否只给「投影快照」那套（没有 `queueToken`）。
+   *
+   * `lastUserText` 是给**老宿主**的兜底：它们的队列来自分钟级快照，认领之后条目还挂着。
+   * 新宿主走活 agent 的 `inbox.nextTurn`，本来就准 —— 这时再拿「对话里最后一条用户消息」
+   * 去隐藏条目就会误伤：刚发出去的消息在这条新判据下会**立刻从排队条上消失**
+   * （实测 2026-10-30：宿主队列 1 条、屏幕上 0 行，用户既看不到也没法撤回）。
+   */
+  readonly legacyQueue?: boolean
   /** 正文归一化（默认原样比较）。 */
   readonly normalize?: (text: string) => string
 }
@@ -436,8 +445,12 @@ export function visibleQueue(inputs: QueueInputs, now: number): readonly QueueIt
   const host = inputs.host.filter(item => {
     if (hidden(item.id)) return false
     if (seenHost.has(item.id)) return false
-    // 这条已经作为「最新一条用户消息」进了对话 → 宿主早认领了，队列里这条是投影残留。
-    if (inputs.lastUserText !== undefined && normalize(item.text) === inputs.lastUserText) return false
+    // 老宿主的投影残留兜底（见 `legacyQueue`）：只有它才需要这条判据。
+    if (
+      inputs.legacyQueue === true
+      && inputs.lastUserText !== undefined
+      && normalize(item.text) === inputs.lastUserText
+    ) return false
     seenHost.add(item.id)
     return true
   })

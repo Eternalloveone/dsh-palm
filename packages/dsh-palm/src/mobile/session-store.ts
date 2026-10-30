@@ -175,7 +175,10 @@ export function queueView(sessionId: string): QueueItemView[] {
     hiddenIds: new Set(entry.hidden.keys()),
     hiddenAt: entry.hiddenAt,
     spokenTexts: userTextsOf(entry),
-    ...(lastUserTextOf(entry) === undefined ? {} : { lastUserText: lastUserTextOf(entry) }),
+    // 新宿主（带 queueToken）的队列是活的，不需要「已进对话」兜底；只有老宿主才用。
+    ...(entry.snapshot?.queueToken === undefined && lastUserTextOf(entry) !== undefined
+      ? { lastUserText: lastUserTextOf(entry), legacyQueue: true }
+      : {}),
     normalize: normalizeQueueText,
     ...(entry.emptyHold === undefined ? {} : { emptyHold: entry.emptyHold }),
   }, Date.now())]

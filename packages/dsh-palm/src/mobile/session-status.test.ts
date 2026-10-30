@@ -316,17 +316,33 @@ describe('排队条不许出现「一模一样的第二条」', () => {
 describe('排队条：投递完成之后不能再挂着（2026-10-30 真机）', () => {
   const item = (id: string, text: string) => ({ id, placement: 'queued' as const, text, editable: true })
 
-  it('宿主投影还挂着、但对话里已经是最后一条用户消息 → 不显示', () => {
-    // 真机：13:31 的用户气泡和底部排队条是同一条正文 —— 宿主认领之后投影没刷新。
+  it('老宿主（无 queueToken）投影还挂着、但对话里已是最后一条用户消息 → 不显示', () => {
+    // 真机：13:31 的用户气泡和底部排队条是同一条正文 —— 老宿主认领之后投影没刷新。
     const visible = visibleQueue({
       host: [item('q1', '摄像头画面需要加一个时间水印')],
       optimistic: [],
       hiddenIds: new Set(),
       hiddenAt: new Map(),
       lastUserText: '摄像头画面需要加一个时间水印',
+      legacyQueue: true,
       normalize: text => text.trim(),
     }, 1_000)
     expect(visible).toHaveLength(0)
+  })
+
+  it('新宿主（有 queueToken）不吃这条兜底：刚排上的消息不能被自己隐藏掉', () => {
+    // 实测 2026-10-30：新宿主队列 1 条，但对话里已有同一句（本地回显），
+    // 兜底判据把排队条整条隐藏 → 用户既看不到也没法撤回。
+    const visible = visibleQueue({
+      host: [item('q1', '第二条消息')],
+      optimistic: [],
+      hiddenIds: new Set(),
+      hiddenAt: new Map(),
+      lastUserText: '第二条消息',
+      legacyQueue: false,
+      normalize: text => text.trim(),
+    }, 1_000)
+    expect(visible.map(entry => entry.text)).toEqual(['第二条消息'])
   })
 
   it('只比最新一条：同类正文的历史消息不会误伤真正排队的那条', () => {
