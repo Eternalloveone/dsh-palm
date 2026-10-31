@@ -225,7 +225,7 @@ describe('SessionListView creation', () => {
     renderList()
     await screen.findByText(/还没有会话/)
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }))
 
     await waitFor(() => {
       expect(createSessionMock).toHaveBeenCalledWith({ workspaceId: 'w-1' })
@@ -260,7 +260,7 @@ describe('SessionListView creation', () => {
     expect(trigger.textContent).toContain('Router Standard')
     fireEvent.click(trigger)
     fireEvent.click(await screen.findByRole('button', { name: /Router Spec/ }))
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }))
 
     await waitFor(() => {
       expect(createSessionMock).toHaveBeenCalledWith({ workspaceId: 'w-1', agentPreset: 'router-spec' })
@@ -314,7 +314,7 @@ describe('SessionListView creation', () => {
     renderList()
     await screen.findByText(/还没有会话/)
 
-    const button = await screen.findByRole('button', { name: '+ 新建会话' })
+    const button = await screen.findByRole('button', { name: '新建会话' })
     await waitFor(() => { expect(button.hasAttribute('disabled')).toBe(false) })
     fireEvent.click(button)
 
@@ -328,7 +328,7 @@ describe('SessionListView creation', () => {
     listAgentPresetsMock.mockReturnValue(new Promise(resolve => { resolvePresets = resolve }))
     renderList()
 
-    const button = screen.getByRole('button', { name: '+ 新建会话' })
+    const button = screen.getByRole('button', { name: '新建会话' })
     expect(button.hasAttribute('disabled')).toBe(true)
 
     resolvePresets({ presets: [], authorable: false, hasDocument: false })
@@ -341,7 +341,7 @@ describe('SessionListView creation', () => {
     renderList()
     await screen.findByText(/还没有会话/)
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }))
     const button = await screen.findByRole('button', { name: '创建中…' })
     expect(button.hasAttribute('disabled')).toBe(true)
 
@@ -354,7 +354,7 @@ describe('SessionListView creation', () => {
     renderList()
     await screen.findByText(/还没有会话/)
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }))
 
     expect(await screen.findByText(/HTTP 403/)).toBeTruthy()
     expect(await screen.findByText(/重启 dsh web/)).toBeTruthy()

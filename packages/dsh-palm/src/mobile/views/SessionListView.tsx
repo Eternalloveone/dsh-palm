@@ -1175,7 +1175,7 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
           disabled={creating || presetsLoading}
           onClick={() => { void handleCreate() }}
         >
-          {creating ? '创建中…' : '+ 新建会话'}
+          {creating ? '创建中…' : '新建会话'}
         </button>
       </div>
       {createError !== undefined && (
