@@ -37,8 +37,13 @@ export const scenario = {
 
       // 刷新后保持
       await page.reload({ waitUntil: 'domcontentloaded' })
-      await page.waitForTimeout(1800)
-      const afterReload = await themeOf(page)
+      // 刷新后本地存的主题要"读回来再应用"，宿主忙时不止 1.8 秒
+      let afterReload = await themeOf(page)
+      for (let i = 0; i < 20; i += 1) {
+        await page.waitForTimeout(400)
+        afterReload = await themeOf(page)
+        if (afterReload.dataTheme === after.dataTheme && afterReload.bodyClass === after.bodyClass) break
+      }
       check('theme-persists-after-reload', afterReload.dataTheme === after.dataTheme
         && afterReload.bodyClass === after.bodyClass, { after, afterReload })
 

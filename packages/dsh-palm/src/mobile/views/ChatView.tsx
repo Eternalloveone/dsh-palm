@@ -2910,6 +2910,11 @@ export function ChatView({
    *
    * 这里做粘性兜底：当前行里找不到过程信息时，用快照合成一行补在末尾。
    * **展示过的东西不会再消失。**
+   *
+   * 定位（2026-11-01）：这是**二次防线**，不是正确性来源。
+   * 正确性来源是"回合状态单一权威源"（`applyTurnVerdict` + 宿主 `turnState`）与
+   * "交付卡必须有收工证据"（`closedTurnsRef`）。这份快照只在"宿主结论还没到、
+   * 而行又被整份替换"的极短窗口里防止过程条闪断；一旦宿主结论到达，它就不再参与。
    */
   const liveProcSnapshotRef = useRef<Map<number, {
     tools?: RenderMessage['tools']
