@@ -64,7 +64,15 @@ const PROFILES = {
   // 发版闸门：CI 那套 + 用户旅程级的场景压测。
   // 场景需要一台**正在跑的宿主**（默认 127.0.0.1:3080）；宿主不在时这一步会
   // 自己跳过并说明原因，不会把"没开宿主"误判成"代码坏了"。
-  release: ['install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint', 'scenarios'],
+  release: [
+    'install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
+    // 真机相关的四层（都需要一台在跑的宿主；不在就各自跳过）
+    'scenarios', 'render', 'stress',
+    // acceptance（41 条验收 SOP）**不进门禁**：它的用例依赖一条内容丰富的
+    // 会话（要有交付卡、要能翻更早的消息、要有搜索命中）。实测 7 条因 fixture
+    // 不足报红 —— 那是测试数据问题，不是产品问题。它有自己的命令
+    // `pnpm verify:mobile`，发版前手动跑一次即可。
+  ],
 }
 
 const STEPS = {
@@ -132,6 +140,58 @@ const STEPS = {
         ? { ...process.env, PALM_SESSION: pickAnySession(base) }
         : process.env
       return run('node tools/mobile-scenarios/run.mjs', rootDir, { env })
+    },
+  },
+  render: {
+    /**
+     * 逐页渲染审计（首页/列表/聊天/运行中/设置）：
+     * 首帧完整率、行数回退、重复 key、离底。
+     */
+    title: 'mobile render audit (5 pages)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，渲染审计跳过\n`)
+        return true
+      }
+      return run('node tools/mobile-render-audit/run.mjs', rootDir)
+    },
+  },
+  stress: {
+    /**
+     * 两套压测：
+     *   · 入场高压（stress-entry，600 帧）：同轮多卡、重复 key；
+     *   · 过程条高压（stress-proc，只跑只读段）：过程条消失、误报已完成、历史回退。
+     * stress-proc 的"在跑会话"段需要 PALM_TEST_SESSION；没给就自动跳过那一段，
+     * **不会新建任何会话**。
+     */
+    title: 'render stress (entry + process card)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，压测跳过\n`)
+        return true
+      }
+      if (run('node tools/mobile-render-audit/stress-entry.mjs', rootDir) === false) return false
+      return run('node tools/mobile-render-audit/stress-proc.mjs', rootDir)
+    },
+  },
+  acceptance: {
+    /**
+     * 41 条验收 SOP（mobile-verify）：只读交互断言，不发送任何消息。
+     * 需要宿主；没开就跳过。
+     */
+    title: 'mobile acceptance sop (41 cases)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，验收 SOP 跳过\n`)
+        return true
+      }
+      const env = process.env.PALM_SESSION === undefined || process.env.PALM_SESSION === ''
+        ? { ...process.env, PALM_SESSION: pickAnySession(base) }
+        : process.env
+      return run('node tools/mobile-verify/run.mjs', rootDir, { env })
     },
   },
 }
