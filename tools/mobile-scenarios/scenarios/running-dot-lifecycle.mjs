@@ -51,7 +51,7 @@ export const scenario = {
 
       // ① 绿点亮起
       let litAt
-      const litDeadline = Date.now() + 20_000
+      const litDeadline = Date.now() + 12_000
       while (Date.now() < litDeadline) {
         if (await dotInRow() > 0) { litAt = Date.now(); break }
         await page.waitForTimeout(500)
@@ -61,7 +61,9 @@ export const scenario = {
       // ② 绿点熄灭：直接看绿点自己（不再依赖 session.list 的 running，
       //    那条在这台宿主上对脚本启动的回合经常给不出 true）。
       let darkAt
-      const darkDeadline = Date.now() + 240_000
+      // 宿主答复前会逐条核实候选（日志边界 = 证据），所以熄灭不再等 5 分钟兜底。
+      // 给到 90 秒：5 秒轮询 + 一次核实 + 网络，绰绰有余。
+      const darkDeadline = Date.now() + 90_000
       while (Date.now() < darkDeadline) {
         if (await dotInRow() === 0) { darkAt = Date.now(); break }
         await page.waitForTimeout(1000)
@@ -69,7 +71,7 @@ export const scenario = {
       check('dot-goes-out', darkAt !== undefined, {})
       // 亮起/熄灭的延迟（毫秒）打在详情里，方便以后回归时对比
       check('dot-latency-ok', litAt !== undefined && darkAt !== undefined
-        && (litAt - litStartedAt) <= 20_000, { litMs: litAt === undefined ? null : litAt - litStartedAt })
+        && (litAt - litStartedAt) <= 12_000, { litMs: litAt === undefined ? null : litAt - litStartedAt, darkMs: darkAt === undefined ? null : darkAt - (litAt ?? litStartedAt) })
     } finally {
       await page.close()
     }

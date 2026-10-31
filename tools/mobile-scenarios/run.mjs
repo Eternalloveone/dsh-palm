@@ -61,6 +61,60 @@ if (has('list')) {
   process.exit(0)
 }
 
+/**
+ * 专用测试会话的**缓存文件**：记住上一次用的那条，下次复用，不重复开会话。
+ * 放在 tools/mobile-scenarios 下（.gitignore 掉），跑完可随手删。
+ */
+const TEST_SESSION_CACHE = new URL('./.test-session.json', import.meta.url)
+const TEST_SESSION_ID = 'palm-e2e'
+
+/** 读缓存的测试会话 id（不存在/损坏都当没有）。 */
+async function readCachedTestSession() {
+  try {
+    const { readFile } = await import('node:fs/promises')
+    const raw = JSON.parse(await readFile(TEST_SESSION_CACHE, 'utf8'))
+    return typeof raw.host === 'string' && raw.host === BASE && typeof raw.sessionId === 'string'
+      ? raw.sessionId
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function writeCachedTestSession(sessionId) {
+  try {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(TEST_SESSION_CACHE, JSON.stringify({ host: BASE, sessionId }, null, 2), 'utf8')
+  } catch { /* 缓存写不了不影响本次运行 */ }
+}
+
+/** 这条会话还在列表里吗（缓存可能已经过期：用户把它删了/归档了）。 */
+async function sessionExists(sessionId) {
+  const list = (await rpc('session.list', { workspaceId: WORKSPACE }))?.value?.items ?? []
+  return list.some(item => (item.sessionId ?? item.id) === sessionId)
+}
+
+/**
+ * 准备一条**专用测试会话**（只在 `--manual` 且需要发回合时调用）。
+ *
+ * 顺序：环境变量 → 缓存文件 → 新建（仅当显式 `--create-test-session`）。
+ * 绝不退回用户的只读会话 —— 2026-10-31 真出过测试提示词漏进用户会话。
+ */
+async function ensureTestSession() {
+  const explicit = process.env.PALM_TEST_SESSION
+  if (explicit !== undefined && explicit !== '') return { sessionId: explicit, created: false }
+  const cached = await readCachedTestSession()
+  if (cached !== undefined && await sessionExists(cached)) return { sessionId: cached, created: false }
+  if (!has('create-test-session')) return { sessionId: undefined, created: false }
+  const created = await rpc('session.create', { workspaceId: WORKSPACE })
+  const sessionId = created?.value?.sessionId ?? created?.sessionId
+  if (typeof sessionId !== 'string' || sessionId === '') return { sessionId: undefined, created: false }
+  await writeCachedTestSession(sessionId)
+  // 给新会话一个可辨识的标题前缀不好做（标题由第一条消息决定），
+  // 所以测试提示词统一以「[palm-e2e]」开头 —— 列表里一眼能认出来。
+  return { sessionId, created: true }
+}
+
 const only = valueOf('only', '')
 const repeat = Number(valueOf('repeat', '1'))
 const withManual = has('manual')
@@ -100,9 +154,8 @@ const sessionId = await pickSession()
  * 由 `PALM_TEST_SESSION` 指定；没给就不跑这几条（跳过并说明），
  * 想强行用当前会话请显式加 `--allow-real-session`。
  */
-const testSessionId = process.env.PALM_TEST_SESSION !== undefined && process.env.PALM_TEST_SESSION !== ''
-  ? process.env.PALM_TEST_SESSION
-  : (has('allow-real-session') ? sessionId : undefined)
+const prepared = withManual ? await ensureTestSession() : { sessionId: undefined, created: false }
+const testSessionId = prepared.sessionId ?? (has('allow-real-session') ? sessionId : undefined)
 
 /** 会话总数（用来确认场景没有偷偷新建会话）。 */
 async function countSessions() {
@@ -168,8 +221,10 @@ const blocking = violations.filter(item => {
   return scenario?.flaky !== true
 })
 function check_sessions_unchanged(before, after) {
-  if (after > before) {
-    violations.push({ scenario: 'runner', kind: 'no-new-sessions', detail: { before, after } })
+  // 允许"本次运行**自己**新建的那一条测试会话"（--create-test-session）：除此之外不许增加。
+  const allowance = prepared.created ? 1 : 0
+  if (after > before + allowance) {
+    violations.push({ scenario: 'runner', kind: 'no-new-sessions', detail: { before, after, allowance } })
     console.log(`  ✗ runner 场景新建了会话：${before} → ${after}（本套场景不允许新建会话）`)
   } else {
     console.log(`会话总数未变（${after} 条），没有新建测试会话 ✓`)
@@ -178,6 +233,15 @@ function check_sessions_unchanged(before, after) {
 
 // 用户要求（2026-10-31）：**不要开一堆会话来测**。场景只复用同一条会话，
 // 这里兜底校验：跑完会话总数不许增加。
+if (prepared.created === true && prepared.sessionId !== undefined && !has('keep-test-session')) {
+  // 自建的测试会话跑完就归档，别在你的会话列表里留垃圾（用户明确讨厌测试残留）。
+  const archived = await rpc('workspace.archiveSession', { sessionId: prepared.sessionId })
+    .then(() => true, () => false)
+  console.log(archived
+    ? `已归档本次新建的测试会话（${String(prepared.sessionId).slice(0, 20)}）；想留用加 --keep-test-session`
+    : `测试会话归档失败（${String(prepared.sessionId).slice(0, 20)}），请手动清理`)
+}
+
 const sessionsAfter = await countSessions()
 check_sessions_unchanged(sessionsBefore, sessionsAfter)
 

@@ -30,3 +30,8 @@ docs/superpowers/
 
 # PowerShell module-analysis cache (a PS session whose cwd was inside a package)
 packages/*/Microsoft/
+
+# 场景压测用的专用测试会话缓存（本机生成）
+
+# cached dedicated test session for scenario runs (generated locally)
+tools/mobile-scenarios/.test-session.json

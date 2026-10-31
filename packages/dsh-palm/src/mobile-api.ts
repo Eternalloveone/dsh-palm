@@ -1309,6 +1309,39 @@ function adoptRunningBaseline(sessionIds: string[]): void {
 let liveRunningBaseline: ReadonlySet<string> = new Set()
 
 /** 清掉「帧和基线都没再提到」的运行记录，给漏掉的 turn/end 兜底。 */
+/**
+ * 把"镜像认为在跑"的候选逐条核实（日志边界 = 硬证据），并把不成立的从镜像里摘掉。
+ *
+ * 2026-11-01 真机：一轮早就结束了，宿主的花名册还在把它算在"在跑"里 ——
+ * 因为镜像靠 turn/start / turn/end 帧攒集合，而宿主只有在**有人订阅**那条会话时
+ * 才看得到边界帧；没订阅就永远收不到 turn/end，只能等 5 分钟的静默兜底。
+ * 绿点因此能挂好几分钟（实测一条挂了 20 分钟以上）。
+ *
+ * 现在改成答复前核实：候选最多 {@link RUNNING_VERIFY_LIMIT} 条，逐条读日志边界
+ * （宿主服务端折好的尾页，实测 ~20ms）。核实不成立的就从镜像里摘掉，下一次连读都不用读。
+ */
+async function verifiedRunningSessionIds(): Promise<string[]> {
+  const candidates = [...liveRunningSessionIds].slice(0, RUNNING_VERIFY_LIMIT)
+  const verified: string[] = []
+  const extra = [...liveRunningSessionIds].slice(RUNNING_VERIFY_LIMIT)
+  for (const sessionId of candidates) {
+    try {
+      const verdict = await computeTurnState(sessionId)
+      if (verdict.running) {
+        verified.push(sessionId)
+      } else {
+        // 日志边界说这一轮结束了：镜像跟着改，别让下一个人再看到它。
+        liveRunningSessionIds.delete(sessionId)
+        liveRunningEvidence.delete(sessionId)
+      }
+    } catch {
+      // 读不到就当它还在跑（宁可多亮一会儿，也不要让真在跑的回合掉绿点）
+      verified.push(sessionId)
+    }
+  }
+  return [...verified, ...extra]
+}
+
 function pruneRunningEvidence(now: number = Date.now()): void {
   for (const sessionId of staleRunningEvidence(liveRunningEvidence, liveRunningBaseline, now)) {
     liveRunningEvidence.delete(sessionId)
@@ -1433,6 +1466,9 @@ function unwrapProxyValue(reply: unknown): unknown {
   const result = (reply as { result?: { ok?: boolean; value?: unknown } } | null | undefined)?.result
   return result?.ok === true ? result.value : undefined
 }
+
+/** 核实候选的上限：再多就超出一次答复的预算（每条一次内存/尾页读）。 */
+const RUNNING_VERIFY_LIMIT = 8
 
 export const TURN_ABANDONED_MS = 3 * 60_000
 
@@ -3964,7 +4000,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           // 因为清理只发生在 reseed（最多 5 分钟一次）里，而徽标每几十秒就问一次，
           // 问到的一直是没清过的旧集合。这里把清理挪到答复路径上，最多晚一轮。
           pruneRunningEvidence()
-          const sessionIds = [...liveRunningSessionIds]
+          const sessionIds = await verifiedRunningSessionIds()
           mobileRunningCache = { at: Date.now(), proxy: apiProxy, sessionIds }
           writeJson(res, 200, {
             type: 'server-response',
@@ -3979,7 +4015,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           // 一直把桌面端的开始/结束送进镜像。
           await reseedRunning()
           if (liveRunningSeededAt === 0) throw new Error('running baseline unavailable')
-          const sessionIds = [...liveRunningSessionIds]
+          pruneRunningEvidence()
+          const sessionIds = await verifiedRunningSessionIds()
           mobileRunningCache = { at: Date.now(), proxy: apiProxy, sessionIds }
           writeJson(res, 200, {
             type: 'server-response',
