@@ -1042,6 +1042,25 @@ export function ChatView({
    * session switch, and removal once the text is sent (or emptied). The
    * draft survives chat round-trips and PWA cold starts, per session.
    */
+  /**
+   * 进会话时把草稿恢复回来（2026-10-31 修）。
+   *
+   * `useState(() => loadDraft(...))` 只在**首次挂载**跑一次；而聊天页常常先以
+   * "还没有 session" 的形态挂上，拿到的 sessionId 是空串，于是草稿永远是空。
+   * 真机表现：写了半句话去别的会话看看，回来草稿没了（其实 localStorage 里还在）。
+   *
+   * 这里在拿到真实 sessionId 后补一次：只在该会话**还没恢复过**、且输入框仍为空时填。
+   */
+  const draftRestoredRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (draftRestoredRef.current === session.sessionId) return
+    if (inputRef.current !== '') { draftRestoredRef.current = session.sessionId; return }
+    const stored = loadDraft(session.sessionId)
+    if (stored === '') return
+    draftRestoredRef.current = session.sessionId
+    setInput(stored)
+  }, [session.sessionId])
+
   useEffect(() => {
     if (input === '') {
       removeDraft(session.sessionId)
@@ -4488,6 +4507,13 @@ export function ChatView({
         if (buffered.length > 0) {
           const folder = folderRef.current
           applyMessages(folder === undefined ? foldEvents(buffered) : folder.fold(buffered))
+        }
+        // 一页都没读到、也没有任何缓冲：**明确告诉用户打不开**。
+        //
+        // 真机（2026-10-31）：点一条已被删掉的会话 / 失效链接，页面永远停在
+        // "加载中…"，用户只能反复刷新。这里把失败说出来（下面的渲染会显示 error）。
+        if (folderRef.current === undefined && buffered.length === 0) {
+          setError('打不开这个会话：它可能已被删除，或链接已失效')
         }
       },
     )

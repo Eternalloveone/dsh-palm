@@ -37,6 +37,11 @@ const SCENARIOS = [
   (await import('./scenarios/two-devices-same-session.mjs')).scenario,
   (await import('./scenarios/pwa-cold-start.mjs')).scenario,
   (await import('./scenarios/error-paths.mjs')).scenario,
+  // 只读补充（第三批）：切会话保状态 / 回到底部 / 设置即时生效 / 图片与代码
+  (await import('./scenarios/switch-session-keep-state.mjs')).scenario,
+  (await import('./scenarios/new-message-while-reading.mjs')).scenario,
+  (await import('./scenarios/settings-apply-instantly.mjs')).scenario,
+  (await import('./scenarios/preview-media-and-code.mjs')).scenario,
   // 会发消息（manual）：审批、命令行卡片、附件、子代理、输入法
   (await import('./scenarios/approval-decide.mjs')).scenario,
   (await import('./scenarios/command-card-lifecycle.mjs')).scenario,
