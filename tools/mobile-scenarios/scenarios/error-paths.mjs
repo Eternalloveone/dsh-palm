@@ -22,8 +22,10 @@ export const scenario = {
         await page.waitForTimeout(500)
         const done = await page.evaluate(() => {
           const text = document.body.innerText ?? ''
-          return /失败|错误|不存在|找不到|无法打开|打不开|还没有消息/.test(text)
-            || document.querySelectorAll('textarea, [contenteditable=true]').length > 0
+          // 输入框一直都有（加载中也在），**不能**拿它当"处理完了"的凭据：
+          // 那样会在错误提示出现之前就跳出轮询（实测假红）。
+          if (/失败|错误|不存在|找不到|无法打开|打不开|还没有消息|新建会话/.test(text)) return true
+          return !/加载中|正在加载/.test(text) && document.querySelectorAll('[data-message-id]').length > 0
         })
         if (done) break
       }

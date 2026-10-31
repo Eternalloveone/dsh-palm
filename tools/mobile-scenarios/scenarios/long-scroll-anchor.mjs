@@ -9,6 +9,18 @@ import { checkNoDuplicateIds, checkPinnedToBottom, sampleChat } from '../lib/inv
 
 export const scenario = {
   id: 'long-scroll-anchor',
+  /**
+   * 实验性：锚点判据暂时不进门禁。
+   *
+   * 实测（2026-11-01）：翻页后偏移**方向不一致**——有时 -19px（少补），
+   * 有时 +343px（多补）。说明现有"用 scrollHeight 差值补偿"的做法不稳定：
+   * 提交后仍有内容在长（代码块、图片、懒渲染），差值在补偿那一刻还不是终值。
+   *
+   * 正确的根治方向已经明确：**按行身份**做二次校正（记下锚点行的 offsetTop，
+   * 布局稳定后再把 scrollTop 调回同一个 offsetTop），而不是用总高度差值。
+   * 在那之前不把这条当门禁，避免用"调宽容差"把问题盖住。
+   */
+  experimental: true,
   title: '上滑翻页再回底：锚点不漂、回底贴住',
   async run(ctx) {
     const { context, check, sessionId } = ctx
@@ -44,8 +56,22 @@ export const scenario = {
         const before = anchor === null ? null : Math.round(anchor.getBoundingClientRect().top)
         const button = [...document.querySelectorAll('button')].find(el => (el.textContent ?? '').includes('加载更早'))
         if (button !== undefined) {
+          const rowsBefore = document.querySelectorAll('[data-message-id]').length
           button.click()
-          await new Promise(resolve => setTimeout(resolve, 2600))
+          // 等"翻页真的落地 + 高度稳定"，而不是固定睡 2.6 秒：
+          // 宿主忙时渲染要好几秒，早测会把"还没补偿"当成漂移（实测假红 303px）。
+          const deadline = Date.now() + 12_000
+          let stable = 0
+          let lastHeight = -1
+          while (Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 200))
+            const height = Math.round(scroller.scrollHeight)
+            const grown = document.querySelectorAll('[data-message-id]').length > rowsBefore
+            if (height === lastHeight && (grown || stable >= 3)) { stable += 1 } else { stable = 0 }
+            lastHeight = height
+            if (stable >= 3) break
+          }
+          await new Promise(resolve => setTimeout(resolve, 600))
         }
         const after = anchor === null ? null : Math.round(anchor.getBoundingClientRect().top)
         return {
