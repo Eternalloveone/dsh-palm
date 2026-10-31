@@ -292,6 +292,8 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
   const [finished, setFinished] = useState<readonly FinishedRun[]>(() => finishedRuns())
   /** 正在向宿主校准（顶部 2px 细条）：没有它，卡片静悄悄换内容像个 bug。 */
   const [resyncing, setResyncing] = useState(false)
+  /** 哪些会话的详情读失败了：卡片要据此换文案，不能永远显示"正在读取"。 */
+  const [detailMiss, setDetailMiss] = useState<ReadonlyMap<string, boolean>>(new Map())
   /**
    * 这一轮到底跑不跑：**共享状态优先**，没有状态才退回花名册/实时帧。
    *
@@ -480,20 +482,45 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     if (detailKey === '') return
     const ids = detailKey.split('|')
     let cancelled = false
-    const load = (): void => {
+    /**
+     * 详情抓取（2026-10-31 真机修正）：
+     *
+     * ① **逐个读**，不再三路并发 —— 宿主的日志读取很重（一次要扫几十帧），
+     *    并发几条会把每次读拖到超过轮询间隔，卡片就永远停在"正在读取这一轮的进度…"。
+     * ② 记录失败：读失败时卡片不再假装"正在读取"，改成明说"读不到"+ 给个重试。
+     */
+    const load = async (): Promise<void> => {
       for (const id of ids) {
-        void logTail(id, 25).then(
-          (page) => {
-            if (cancelled) return
-            const detail = runDetailFromPage(page)
-            setDetails(previous => new Map(previous).set(id, detail))
-          },
-          () => { /* 尾页读失败就保持上一次的卡片信息，别把界面清空 */ },
-        )
+        if (cancelled) return
+        try {
+          const page = await logTail(id, 25)
+          if (cancelled) return
+          const detail = runDetailFromPage(page)
+          setDetails(previous => new Map(previous).set(id, detail))
+          /**
+           * 自愈：宿主说这一轮早就收口了、而且很久没有新事件，就把这张卡从"正在运行"
+           * 摘掉。真机上（2026-10-31）就是靠这条把两条**早就结束**的会话清出去的
+           * —— 否则它们会永远挂在"正在运行"里转圈。
+           */
+          if (detail.turnOpen === false
+            && detail.lastEventAt !== undefined
+            && Date.now() - detail.lastEventAt > RUN_STALE_MS) {
+            updateLive(id, false)
+          }
+          setDetailMiss(previous => {
+            if (!previous.has(id)) return previous
+            const next = new Map(previous)
+            next.delete(id)
+            return next
+          })
+        } catch {
+          if (cancelled) return
+          setDetailMiss(previous => new Map(previous).set(id, true))
+        }
       }
     }
-    load()
-    const timer = setInterval(load, DETAIL_POLL_MS)
+    void load()
+    const timer = setInterval(() => { void load() }, DETAIL_POLL_MS)
     return () => { cancelled = true; clearInterval(timer) }
   }, [detailKey])
 
@@ -618,6 +645,7 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
                 key={row.sessionId}
                 row={row}
                 detail={details.get(row.sessionId)}
+            detailMissing={detailMiss.get(row.sessionId) === true}
                 children={childrenBySession.get(row.sessionId)}
                 now={now}
                 onOpenSession={() => { onOpenSession({ sessionId: row.sessionId, title: row.title }) }}
@@ -722,9 +750,11 @@ function FinishedRow({ entry, now, onOpen }: {
 }
 
 /** One session card: title head + its "what is happening" lines + task rows. */
-function SessionCard({ row, detail, children, now, onOpenSession, onOpenSubagent }: {
+function SessionCard({ row, detail, detailMissing, children, now, onOpenSession, onOpenSubagent }: {
   row: SessionRun
   detail?: RunDetail | undefined
+  /** 详情读取失败（宿主没响应/超时）。 */
+  detailMissing?: boolean
   children?: readonly SubagentFlatNode[] | undefined
   now: number
   onOpenSession(): void
@@ -848,9 +878,13 @@ function SessionCard({ row, detail, children, now, onOpenSession, onOpenSubagent
         </button>
       ))}
 
-      {row.live && detail === undefined && (
+      {row.live && detail === undefined && (detailMissing === true ? (
+        <div className="rs-sub rs-sub-quiet">
+          读取这一轮的进度失败（宿主没响应），稍后自动重试
+        </div>
+      ) : (
         <div className="rs-sub rs-sub-quiet">正在读取这一轮的进度…</div>
-      )}
+      ))}
     </div>
   )
 }
