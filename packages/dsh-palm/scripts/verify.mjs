@@ -66,8 +66,10 @@ const PROFILES = {
   // 自己跳过并说明原因，不会把"没开宿主"误判成"代码坏了"。
   release: [
     'install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
-    // 真机相关的四层（都需要一台在跑的宿主；不在就各自跳过）
+    // 真机相关的六层（都需要一台在跑的宿主；不在就各自跳过）
     'scenarios', 'render', 'stress', 'acceptance',
+    // 性能预算与视觉回归（2026-11-01 新增：前者管"顺不顺"，后者管"看着对不对"）
+    'perf', 'visual',
   ],
 }
 
@@ -151,6 +153,40 @@ const STEPS = {
         return true
       }
       return run('node tools/mobile-render-audit/run.mjs', rootDir)
+    },
+  },
+  perf: {
+    /**
+     * 性能基线：首屏 / 滚动帧率 / 输入延迟。
+     *
+     * 其它判据都只管"有没有、对不对"，这一条管"顺不顺"。预算写死在
+     * tools/mobile-perf/budget.json；超了就红（实测值 1601ms / 59fps / 13ms）。
+     */
+    title: 'mobile perf baseline (first paint / fps / input)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，性能基线跳过\n`)
+        return true
+      }
+      return run('node tools/mobile-perf/run.mjs', rootDir)
+    },
+  },
+  visual: {
+    /**
+     * 视觉回归：四个界面截图与基线逐像素比（阈值 1.5%，设置页 4%）。
+     *
+     * 基线在 tools/mobile-visual/baseline/。确认是**预期改动**才 `--update` 重建基线，
+     * 没基线就跳过（不制造假红）。
+     */
+    title: 'mobile visual regression (4 surfaces)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，视觉回归跳过\n`)
+        return true
+      }
+      return run('node tools/mobile-visual/run.mjs', rootDir)
     },
   },
   stress: {

@@ -1,0 +1,33 @@
+{
+  "at": "2026-10-31T23:53:42.632Z",
+  "results": [
+    {
+      "id": "sessions",
+      "title": "会话列表",
+      "threshold": 1.5,
+      "diffPct": 0,
+      "ok": true
+    },
+    {
+      "id": "home",
+      "title": "首页",
+      "threshold": 1.5,
+      "diffPct": 0,
+      "ok": true
+    },
+    {
+      "id": "settings",
+      "title": "设置页",
+      "threshold": 4,
+      "diffPct": 2.11,
+      "ok": true
+    },
+    {
+      "id": "chat-composer",
+      "title": "聊天输入区",
+      "threshold": 1.5,
+      "diffPct": 0,
+      "ok": true
+    }
+  ]
+}
