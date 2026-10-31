@@ -28,6 +28,14 @@ const SCENARIOS = [
   (await import('./scenarios/background-return.mjs')).scenario,
   (await import('./scenarios/long-session-window.mjs')).scenario,
   (await import('./scenarios/running-dot-lifecycle.mjs')).scenario,
+  // 只读补充（2026-10-31）：搜索定位 / 断流补齐 / 长会话滚动 / 弱网
+  (await import('./scenarios/search-and-jump.mjs')).scenario,
+  (await import('./scenarios/reconnect-backfill.mjs')).scenario,
+  (await import('./scenarios/long-scroll-anchor.mjs')).scenario,
+  (await import('./scenarios/weak-network-3g.mjs')).scenario,
+  // 会发消息（manual）：审批、命令行卡片
+  (await import('./scenarios/approval-decide.mjs')).scenario,
+  (await import('./scenarios/command-card-lifecycle.mjs')).scenario,
 ]
 
 if (has('list')) {

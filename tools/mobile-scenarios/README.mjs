@@ -23,8 +23,12 @@
  *
  * | 类别 | 场景 | 默认是否运行 |
  * |---|---|---|
- * | 只读 | `cross-page-round-trip`、`background-return`、`long-session-window` | **跑** |
- * | 会发消息（`manual`） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle` | **不跑**，必须 `--manual` + `PALM_TEST_SESSION` |
+ * | 只读 | `cross-page-round-trip`、`background-return`、`long-session-window`、`search-and-jump`、`reconnect-backfill`、`long-scroll-anchor`、`weak-network-3g` | **跑** |
+ * | 会发消息（`manual`） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle`、`approval-decide`、`command-card-lifecycle` | **不跑**，必须 `--manual` + `PALM_TEST_SESSION` |
+ *
+ * 只读 7 个覆盖的用户动作：进会话 / 跨页往返 / 切后台 / 长会话反复进 / 搜索定位 /
+ * SSE 断流补齐 / 长会话滚动锚点 / 3G 弱网。发消息 6 个覆盖：排队连点 / 慢回执 /
+ * 通道不可用 / 绿点生命周期 / 审批拒绝 / 命令卡片落定。
  *
  * 另外两道硬约束：
  *   1. `PALM_TEST_SESSION` 与只读会话相同 → **直接拒绝发送**（`FAIL … 拒绝发消息`）；
@@ -49,6 +53,12 @@
  * | 场景 | 覆盖的用户旅程 | 主要判据 |
  * |---|---|---|
  * | `cross-page-round-trip` | 聊天 ↔ 列表 ↔ 首页 ↔ 运行中 ×3 | 行数单调、无重复 key、过程条在、卡片文案不变、贴底 |
+ * | `search-and-jump` | 首页搜索 → 点结果 → 进会话 | 搜得到、跳得动、落地有内容、无重复身份 |
+ * | `reconnect-backfill` | SSE 断 8 秒再恢复 | 断流不掉行、恢复不重复、不留"连接中断" |
+ * | `long-scroll-anchor` | 上滑翻页 → 回底 | 锚点漂移 ≤32px、回底 gap ≤4px |
+ * | `weak-network-3g` | 3G 节流进会话 | 15 秒内出正文、之后不退化成骨架 |
+ * | `approval-decide`（manual） | 触发审批 → 点拒绝 | 面板出现、点完消失 |
+ * | `command-card-lifecycle`（manual） | 跑一条命令 | 卡片出现、状态落定不转圈 |
  * | `queue-while-running` | 跑着排队 + 连点发送 | 队列只 1 条、收工后消失、正文只 1 次、宿主队列空 |
  * | `send-slow-response` | 宿主回执很慢（8s） | 不许谎报"发送失败" |
  *

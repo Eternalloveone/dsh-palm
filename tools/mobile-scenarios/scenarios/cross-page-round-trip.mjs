@@ -41,16 +41,22 @@ export const scenario = {
           if (i === 11) checkPinnedToBottom(check, snap, `round${round}-chat`)
         }
 
-        // 2. 列表
+        // 2. 列表（轮询等渲染：宿主忙时 1.2 秒会拿到 0 行，实测假失败）
         await page.goto(listUrl(), { waitUntil: 'domcontentloaded' })
-        await page.waitForTimeout(1200)
-        const listRows = await sampleUnits(page, '.mobile-row-sess')
+        let listRows = 0
+        for (let i = 0; i < 20 && listRows === 0; i += 1) {
+          await page.waitForTimeout(400)
+          listRows = await sampleUnits(page, '.mobile-row-sess')
+        }
         check('list-has-rows', listRows > 0, { round, listRows })
 
-        // 3. 首页（谁在跑）
+        // 3. 首页（谁在跑）同样轮询
         await page.goto(homeUrl(), { waitUntil: 'domcontentloaded' })
-        await page.waitForTimeout(1200)
-        const homeRows = await sampleUnits(page, '.mobile-row')
+        let homeRows = 0
+        for (let i = 0; i < 20 && homeRows === 0; i += 1) {
+          await page.waitForTimeout(400)
+          homeRows = await sampleUnits(page, '.mobile-row')
+        }
         check('home-has-rows', homeRows > 0, { round, homeRows })
 
         // 4. 运行中
