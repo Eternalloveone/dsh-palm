@@ -784,7 +784,7 @@ export function ChatView({
     const allowGuessedTails = options.allowGuessedTails !== false
     setMessages(previous => {
       const raw = typeof rows === 'function' ? rows(previous) : rows
-      const next = renderRows(keepTurnReports(previous, raw), allowGuessedTails)
+      const next = renderRows(keepTurnReports(previous, raw), allowGuessedTails, openTurnRef.current)
       const merged = merge ? preferRicherRows(previous, next) : next
       // 现场取证：真机上偶尔还会出现「同一轮两张卡」。与其继续猜，不如在它真的发生时
       // 把当时的行数据存到宿主（每个会话 1 分钟最多一次，失败静默）。
@@ -2742,6 +2742,16 @@ export function ChatView({
   const liveTurn = turnLive ? (runningTurn ?? newestLiveTurn) : undefined
 
   /**
+   * 正在跑的那一轮（来自实时流，不靠猜）。
+   *
+   * 渲染期直接赋值而不是放 effect 里：commitRows 常常在本拍更早的位置被调用，
+   * effect 会晚一拍 —— 那一拍 openTurn 还是 undefined，"正在跑的回合"就被当成收工，
+   * 猜出一张卡（真机：一进会话过程条消失 / 卡片乱冒）。
+   */
+  const openTurnRef = useRef<number | undefined>(undefined)
+  openTurnRef.current = turnLive ? (runningTurn ?? newestFoldTurn(messages) ?? undefined) : undefined
+
+  /**
    * 现场取证：**正在跑的那一轮，过程卡却不在屏幕上**（只剩正文/时间）。
    *
    * 真机截图（2026-10-31 07:46 → 07:51）：同一轮先有「深度求索中 / 思考中 / 改了 1 个文件」，
@@ -2862,7 +2872,7 @@ export function ChatView({
     //    基线、往上补页），卡跟着没了；靠"补过一次就记账"会把它永久丢掉，真机就是
     //    这样「点进会话，卡片突然又消失」。
     // ② 卡在，但还没被日志确认过（页里那版是猜的）—— 读一次拿到真清单就不再读。
-    const missing = new Set(missingTurnReports(rows))
+    const missing = new Set(missingTurnReports(rows, openTurnRef.current))
     const now = Date.now()
     const done = completedTurns(rows)
     // 只补「最近两轮」的卡。历史轮次也补的话，往上翻的那几秒里卡片会一张张冒出来 ——
@@ -6516,8 +6526,13 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           // 行全渲染：不可见行交给 content-visibility（浏览器自己记住布局过的
           // 真实高度，不是我们估的数）。尾部 CONTENT_VISIBILITY_KEEP_BOTTOM 行
           // 保持真实布局，贴底时 el.scrollHeight 才是精确值。
-          // 跑着的那一轮不画报告卡（turn/end 之后才出）。
-          if (message.kind === 'turn' && liveTurn !== undefined && message.turn === liveTurn) return null
+          // 注意：**不要**因为"这一轮在跑"就把 turn 行整行藏掉。
+          //
+          // 以前这里 `return null`，结果真机（2026-10-31 08:52）上：正在跑的那一轮，
+          // 过程条（深度求索中 / 用时 / 思考中）跟着 turn 行一起消失，只剩一个时间戳。
+          // 「在跑的回合不许显示已完成卡」这件事已经在**数据层**解决（ensureTurnTails /
+          // missingTurnReports 都跳过 openTurn，不会为它猜卡），所以这里可以正常渲染：
+          // 真有 turn/end 才会有 turn 行，既然在跑，它本身就是"进行中"的样子。
           const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
             ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${estimateMessageHeight(message)}px` }
             : undefined
