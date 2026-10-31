@@ -3953,6 +3953,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         // 有基线就立刻答复，过期与否都在后台刷新：手机上等一次枚举的代价是
         // 整屏"运行中"迟到（冷启动实测 24.7 秒），比偶尔一份稍旧的答案糟糕。
         if (liveRunningSeededAt !== 0) {
+          // 答复前先清一次"很久没有任何证据"的记录。
+          //
+          // 2026-10-31 真机：没有任何会话在跑，工作区徽标还写着「运行中 9」——
+          // 因为清理只发生在 reseed（最多 5 分钟一次）里，而徽标每几十秒就问一次，
+          // 问到的一直是没清过的旧集合。这里把清理挪到答复路径上，最多晚一轮。
+          pruneRunningEvidence()
           const sessionIds = [...liveRunningSessionIds]
           mobileRunningCache = { at: Date.now(), proxy: apiProxy, sessionIds }
           writeJson(res, 200, {
