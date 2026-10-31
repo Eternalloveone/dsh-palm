@@ -7,6 +7,7 @@
  *   node tools/mobile-scenarios/run.mjs --repeat=3            # 抓偶发
  *   node tools/mobile-scenarios/run.mjs --headed              # 看着跑
  *   node tools/mobile-scenarios/run.mjs --list                # 看有哪些场景
+ *   node tools/mobile-scenarios/run.mjs --manual              # 连"会发消息"的场景一起跑（需 PALM_TEST_SESSION）
  *
  * 退出码：0 = 全部判据通过；1 = 有违规或场景报错。
  */
@@ -31,15 +32,24 @@ const SCENARIOS = [
 
 if (has('list')) {
   for (const scenario of SCENARIOS) {
-    console.log(`${scenario.id}\t${scenario.experimental === true ? '[实验性] ' : ''}${scenario.title}`)
+    const tags = [scenario.manual === true ? '[会发消息·manual]' : '', scenario.experimental === true ? '[实验性]' : '']
+      .filter(tag => tag !== '').join(' ')
+    console.log(`${scenario.id}\t${tags === '' ? '' : tags + ' '}${scenario.title}`)
   }
   process.exit(0)
 }
 
 const only = valueOf('only', '')
 const repeat = Number(valueOf('repeat', '1'))
+const withManual = has('manual')
 const withExperimental = has('experimental')
-const pool = withExperimental ? SCENARIOS : SCENARIOS.filter(scenario => scenario.experimental !== true)
+// 默认只跑"永不发消息"的场景：只读、可重复、不碰用户会话。
+// manual 场景（会发提示词）必须 `--manual` + PALM_TEST_SESSION 才跑。
+const pool = SCENARIOS.filter(scenario => {
+  if (scenario.manual === true && !withManual) return false
+  if (scenario.experimental === true && !withExperimental) return false
+  return true
+})
 const picked = only === '' ? pool : SCENARIOS.filter(scenario => scenario.id === only)
 if (picked.length === 0) {
   console.error(`没有这个场景: ${only}`)

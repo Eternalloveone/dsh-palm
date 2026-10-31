@@ -16,10 +16,27 @@
  *
  * ## 用法
  *
+ * ## 铁律：场景**绝不新建会话**、默认**绝不发消息**
+ *
+ * 2026-10-31 出过事故：场景把测试提示词发进了用户正在聊的会话（用户在会话里
+ * 直接看到「用 bash 跑 python -c ...」「场景排队 1221」）。因此现在：
+ *
+ * | 类别 | 场景 | 默认是否运行 |
+ * |---|---|---|
+ * | 只读 | `cross-page-round-trip`、`background-return`、`long-session-window` | **跑** |
+ * | 会发消息（`manual`） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle` | **不跑**，必须 `--manual` + `PALM_TEST_SESSION` |
+ *
+ * 另外两道硬约束：
+ *   1. `PALM_TEST_SESSION` 与只读会话相同 → **直接拒绝发送**（`FAIL … 拒绝发消息`）；
+ *   2. 跑完核对会话总数，涨了就是违规（`no-new-sessions`）。
+ *
+ * `createScratchSession()` 已删除 —— 永不新建会话。
+ *
  * ```bash
- * node tools/mobile-scenarios/run.mjs                     # 全部场景 ×1
+ * node tools/mobile-scenarios/run.mjs                     # 只跑只读场景 ×1
  * node tools/mobile-scenarios/run.mjs --repeat=3          # 抓偶发（这几天的问题都是"有时候"）
- * node tools/mobile-scenarios/run.mjs --only=queue-while-running
+ * node tools/mobile-scenarios/run.mjs --manual              # 连会发消息的场景一起（需 PALM_TEST_SESSION）
+ * node tools/mobile-scenarios/run.mjs --only=queue-while-running --manual
  * node tools/mobile-scenarios/run.mjs --headed            # 看着它跑
  * node tools/mobile-scenarios/run.mjs --list
  * ```

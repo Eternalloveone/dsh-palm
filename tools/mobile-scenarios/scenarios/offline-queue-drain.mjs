@@ -14,6 +14,12 @@ import { chatUrl, sleep } from '../lib/env.mjs'
 
 export const scenario = {
   id: 'offline-queue-drain',
+  /**
+   * manual：这条场景会**往会话里发消息**，永远不进自动门禁、默认也不跑。
+   * 只有同时满足「命令行给了 --manual」和「PALM_TEST_SESSION 指向专用测试会话」
+   * 才会执行 —— 2026-10-31 因为往用户会话里灌提示词出过事故，这是硬约束。
+   */
+  manual: true,
   /** 需要"已预热"的专用测试会话才算得准；fixture 稳定前不挡门禁。 */
   flaky: true,
   needsTurn: true,
