@@ -1487,7 +1487,7 @@ export function turnVerdict(input: {
 /** 一轮的实时状态；帧镜像与日志边界按 seq 取较新者，都没有就说没在跑。 */
 export async function computeTurnState(
   sessionId: string,
-): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number }> {
+): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number; seq: number }> {
   // 日志是记录：它写下的边界谁也改不了；帧镜像只是"更快知道"，所以两者按 seq 比新。
   const boundary = await readTurnBoundary(sessionId)
   const mirror = turnBoundaryMirror.get(sessionId)
@@ -1505,11 +1505,15 @@ export async function computeTurnState(
     turnStartedBeforeHost: startAt !== undefined && startAt < HOST_STARTED_AT,
     now: asOf,
   })
+  // 这次判断是**基于哪一条证据**得出的（日志边界 seq / 帧镜像 seq，取较新者）。
+  // 手机端拿它做单调门控：晚到的旧答复不许覆盖新结论（单一权威源的前提）。
+  const evidenceSeq = Math.max(boundarySeq, mirror?.seq ?? -1)
   return {
     running: verdict.running,
     ...(verdict.running && startAt !== undefined ? { turnStartAt: startAt } : {}),
     ...(boundary?.lastEventAt === undefined ? {} : { lastEventAt: boundary.lastEventAt }),
     asOf,
+    seq: evidenceSeq,
   }
 }
 /**

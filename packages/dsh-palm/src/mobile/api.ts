@@ -488,6 +488,13 @@ export interface TurnState {
   lastEventAt?: number
   /** 宿主作答的时刻（用于判断这份答案有多旧）。 */
   asOf: number
+  /**
+   * 这个结论**基于哪一条证据**（日志边界 seq 或帧镜像 seq，取较新者）。
+   *
+   * 手机端用它做单调门控：晚到的旧答复不许覆盖已经应用的新结论。
+   * 旧宿主没有这个字段时按 -1 处理（等于"没有证据序号"，退化为按到达顺序）。
+   */
+  seq?: number
 }
 export async function runningSessions(): Promise<{ sessionIds: string[] }> {
   return await callUnary<{ sessionIds: string[] }>('mobile.runningSessions', {})

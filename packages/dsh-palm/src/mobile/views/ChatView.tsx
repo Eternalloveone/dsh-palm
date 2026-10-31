@@ -1131,6 +1131,55 @@ export function ChatView({
    *  在回合切换的瞬间拿到旧 send）。 */
   const runningRef = useRef(running)
   runningRef.current = running
+
+  /**
+   * 「这一轮在不在跑」的**唯一裁决入口**（2026-10-31 根治）。
+   *
+   * 证据有两类，但它们只是**同一个状态机的输入**，不是两套判断：
+   *   · 实时帧（turn/start、turn/end、session/status）—— 快；
+   *   · 宿主对账（`mobile.turnState`）—— 权威，带证据 seq。
+   *
+   * 规则：**证据按 seq 单调**。序号更旧的结论一律丢弃（晚到的旧答复不许把已经
+   * 收工的回合重新点着，也不许把正在跑的回合判成收工）。
+   *
+   * 以前的写法是各处直接 `setRunning(...)`：帧一说就改、对账一说又改，两者谁后到谁
+   * 生效 —— 这就是"有时候卡片/过程条状态不对"的根源。现在只剩这一个入口。
+   */
+  const verdictSeqRef = useRef(Number.NEGATIVE_INFINITY)
+  const applyTurnVerdict = useCallback((verdict: {
+    running: boolean
+    seq?: number | undefined
+    turn?: number | undefined
+    startAt?: number | undefined
+    /**
+     * 绕过 seq 门控。
+     *
+     * 只给"宿主花名册说这一轮停了"用：那是**停止纠正**，它的作用就是在边界帧丢掉时
+     * 把状态拉回来，不能因为它的序号（或没有序号）比日志 seq 小而丢掉。
+     * 反过来"说在跑"不走 force —— 迟到的 status(true) 不许把已收工的回合重新点着。
+     */
+    force?: boolean | undefined
+  }): void => {
+    const seq = typeof verdict.seq === 'number' && Number.isFinite(verdict.seq)
+      ? verdict.seq
+      : Number.NEGATIVE_INFINITY
+    if (verdict.force !== true) {
+      // 旧证据：直接忽略
+      if (seq < verdictSeqRef.current) return
+      if (seq > verdictSeqRef.current) verdictSeqRef.current = seq
+    }
+    setRunning(previous => (previous === verdict.running ? previous : verdict.running))
+    if (verdict.running) {
+      if (verdict.turn !== undefined) setRunningTurn(verdict.turn)
+      if (verdict.startAt !== undefined) {
+        setTurnStartAt(previous => previous ?? verdict.startAt as number)
+      }
+      return
+    }
+    // 收工：指针与秒表锚点一起清掉，否则上一轮会一直匹配 liveTurn
+    setRunningTurn(undefined)
+    setTurnStartAt(null)
+  }, [])
   /**
    * 当前活跃轮次的**轮号**（turn/start 帧里带回来的那一个）。它与 {@link running}
    * 同生同灭：凡是写 running 的地方都一起写这里（帧里的 turn/start、turn/end、
@@ -2384,7 +2433,13 @@ export function ChatView({
       if (frame.type === 'session/status') {
         if (frame.sessionId !== session.sessionId) return
         const hostRunning = frame.running === true
-        setRunning(hostRunning)
+        if (hostRunning) {
+          // 迟到的"在跑"不许把已收工的回合重新点着：只有在本地也认为没在跑时才采纳
+          if (!runningRef.current) applyTurnVerdict({ running: true, seq: (frame as { seq?: number }).seq })
+        } else {
+          // 停止纠正：边界帧可能已经丢了，这条必须生效
+          applyTurnVerdict({ running: false, force: true })
+        }
         // 花名册优先级最低：能被实时帧/宿主快照盖掉，只负责纠正「帧丢了」的残留。
         shadowEvent({ type: 'turn', at: Date.now(), source: 'roster', running: hostRunning })
         if (!hostRunning) {
@@ -2406,9 +2461,13 @@ export function ChatView({
         // Track the turn running state for the "outputting" indicator (#1017).
         if (typeof event.type === 'string') {
           if (event.type === 'turn/start') {
-            setRunning(true);             // 同一帧带着轮号：行级"还在跑"判据靠它认出"这一步属于正在跑的那一轮"
-            // （宿主按步发 assistant/message，按步定格的行自己看不出回合还开着）。
-            setRunningTurn(turnNumberOf(event))
+            // 走唯一裁决入口：帧只是"证据之一"，带 seq 参与单调比较
+            applyTurnVerdict({
+              running: true,
+              turn: turnNumberOf(event),
+              startAt: typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now(),
+              seq: (event as { seq?: number }).seq,
+            })
         setAbandonedTurn(undefined)
             // Anchor the turn clock at the logged start (desktop parity):
             // a mid-turn reload keeps the real elapsed time.
@@ -2445,7 +2504,7 @@ export function ChatView({
             // 带 tool/result 的 meta），不必再为它回读日志。
             const closed = turnNumberOf(event)
             if (closed !== undefined) liveClosedTurnsRef.current.add(closed)
-            setRunning(false)
+            applyTurnVerdict({ running: false, seq: (event as { seq?: number }).seq })
             // 亲眼看到的收尾：frame 优先级，只有 local（宿主复核）能再改它。
             shadowEvent({
               type: 'turn',
