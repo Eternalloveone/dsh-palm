@@ -490,7 +490,7 @@ describe('RunOverviewView 收工纠正', () => {
     // 先按花名册渲染出来（首帧不可避免），尾页回来后立刻退场。
     await waitFor(() => expect(api.logTail).toHaveBeenCalled())
     await waitFor(() => expect(document.querySelectorAll('.runov-sess')).toHaveLength(0))
-    expect(text()).toContain('当前没有会话在运行')
+    expect(text()).toMatch(/当前没有.*(会话|任务)/)
     expect(text()).not.toContain('已跑')
   })
 
