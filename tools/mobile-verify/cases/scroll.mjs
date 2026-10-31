@@ -14,6 +14,25 @@ export default [
     title: '往上滑之后不被自动拽回底部',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
+      // 会话**正在跑**时正文还在长，「跟手跟随」是预期行为（不是 yank）。
+      // 这条判据只对静置会话有意义 —— 否则测的是跟随，不是被拽回。
+      const busy = await page.evaluate(() => {
+        const chip = document.querySelector('.chat-turn-status')
+        return chip === null ? false : (chip.textContent ?? '').includes('输出中')
+      })
+      if (busy) { ctx.skip('会话在跑，内容持续增长，跳过 yank 判据'); return }
+      // 页面还在"缓存页 → 网络页"的替换过程中时，行数/高度会变一次 —— 那不是 yank，
+      // 是加载。先等它稳定（高度 1.2 秒不变）再开始测手势。
+      {
+        let last = -1
+        let stableSince = Date.now()
+        const deadline = Date.now() + 20_000
+        while (Date.now() < deadline) {
+          await page.waitForTimeout(200)
+          const height = await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollHeight ?? 0)
+          if (height !== last) { last = height; stableSince = Date.now() } else if (Date.now() - stableSince > 1_200) break
+        }
+      }
       const target = await page.evaluate(() => {
         const el = document.querySelector('.chat-scroll')
         return el === null ? 0 : el.scrollHeight - el.clientHeight - 600
