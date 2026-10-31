@@ -286,8 +286,32 @@ describe('SessionListView creation', () => {
     fireEvent.click(help)
 
     const sheet = await screen.findByRole('dialog', { name: 'Agent 模式说明' })
-    expect(within(sheet).getByText(/这个模式没有写说明/)).toBeTruthy()
+    // 宿主没写说明时用 dsh-palm 的内置说明（否则用户点开只看到一段通用解释，
+    // 等于"没有显示每个模式的特点"）。
+    expect(within(sheet).getByText(/全量工具集/)).toBeTruthy()
+    expect(within(sheet).getByText(/dsh-palm 内置说明/)).toBeTruthy()
     expect(within(sheet).getByText(/已有会话保持原样/)).toBeTruthy()
+  })
+
+
+  it('模式说明面板列出每一个模式，而不是只显示当前那个', async () => {
+    listAgentPresetsMock.mockResolvedValue({
+      presets: [
+        { id: 'standard', name: 'standard', trust: 'system', isDefault: true },
+        { id: 'ptc', name: 'ptc', trust: 'system', isDefault: false },
+        { id: 'minimal', name: 'minimal', trust: 'system', isDefault: false },
+      ],
+      authorable: false,
+      hasDocument: false,
+    })
+    renderList()
+
+    fireEvent.click(await screen.findByRole('button', { name: '模式说明' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Agent 模式说明' })
+    expect(within(sheet).getByText('standard')).toBeTruthy()
+    expect(within(sheet).getByText('ptc')).toBeTruthy()
+    expect(within(sheet).getByText('minimal')).toBeTruthy()
+    expect(within(sheet).getByText(/程序化工具调用/)).toBeTruthy()
   })
 
   it('skips a broken default preset and disables it in the picker', async () => {

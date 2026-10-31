@@ -6387,6 +6387,54 @@ button.settings-row:focus-visible {
   line-height: 1.6;
 }
 
+/* 「Agent 模式说明」面板：把每个模式逐条列出来。
+   以前只显示当前模式的一句话，宿主没写 description 时整块看着像空的。 */
+.preset-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 4px 16px;
+}
+
+.preset-help-item {
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+}
+
+.preset-help-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.preset-help-name {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.preset-help-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.preset-help-tag-current {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.preset-help-item .sheet-confirm-desc {
+  margin: 0;
+}
+
 
 /* 「关于」里检查更新旁边那颗仓库图标：与主按钮同高（44px）、同圆角，只占一颗方键的
    宽度，点一下直接开 GitHub 仓库。 */

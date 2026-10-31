@@ -29,6 +29,7 @@ import { removeOutboxForSession } from '../offline.ts'
 import { toast } from '../toast.tsx'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
+import { presetHelpIsBuiltin, presetHelpText } from '../agent-preset-help.ts'
 import { ConfirmDialog } from '../dialog.tsx'
 import {
   loadPersistedList,
@@ -1324,16 +1325,36 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
       )}
       {presetHelpOpen && (
         <Sheet title="Agent 模式说明" onClose={() => { setPresetHelpOpen(false) }}>
-          <p className="sheet-confirm-desc">
-            {selectedPresetEntry?.name ?? selectedPreset ?? '当前模式'}
-            {presetDescription !== undefined && presetDescription !== '' ? '：' + presetDescription : ''}
-          </p>
-          {presetDescription === undefined || presetDescription === '' ? (
+          {/* 以前这里只显示"当前选中那个模式"的一句说明，而且宿主没写 description 时
+              就只剩一段通用解释 —— 真机上看起来就是「点了问号，什么模式说明都没有」。
+              现在把**每个模式**都列出来，各带自己的特点说明。 */}
+          {presets.length === 0 ? (
             <p className="sheet-confirm-desc">
-              这个模式没有写说明。它决定新会话的系统提示词与可用工具集；点上方那一行可以切换，
-              选好后再点「新建会话」——改动只影响之后新建的会话，已存在的会话不受影响。
+              宿主还没返回可用的 Agent 模式。模式决定新会话的系统提示词与可用工具集；
+              加载完成后这里会列出每个模式的特点。
             </p>
-          ) : null}
+          ) : (
+            <div className="preset-help-list">
+              {presets.map(entry => {
+                const current = entry.id === selectedPreset
+                return (
+                  <div key={entry.id} className="preset-help-item">
+                    <div className="preset-help-head">
+                      <span className="preset-help-name">{entry.name ?? entry.id}</span>
+                      {entry.isDefault === true && <span className="preset-help-tag">默认</span>}
+                      {current && <span className="preset-help-tag preset-help-tag-current">当前</span>}
+                      {entry.broken !== undefined && <span className="preset-help-tag">不可用</span>}
+                    </div>
+                    <p className="sheet-confirm-desc">
+                      {presetHelpText(entry.id, entry.description)
+                        ?? '这个模式没有写说明（仍可用：它决定新会话的系统提示词与工具集）。'}
+                      {presetHelpIsBuiltin(entry.id, entry.description) ? '（dsh-palm 内置说明）' : ''}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           <p className="sheet-confirm-desc">
             模式对本工作区生效：切换后新建的会话才用新模式，已有会话保持原样。
           </p>
