@@ -183,6 +183,48 @@ function reportCardDiagnostic(
  * settles, replaying the msg-in animation and dropping open states
  * (expanded diff cards, reasoning folds).
  */
+/**
+ * 发出去的那条消息，宿主**到底收到了没有**。
+ *
+ * 超时只说明"等回执等太久"，不等于没送到：长回合里宿主很慢，`session.prompt`
+ * 常在回执之前就被客户端判超时。真机（2026-10-31）因此出现"消息已经排队并在跑，
+ * 界面却弹发送失败、还把原文退回输入框"。
+ *
+ * 这里查两条独立证据，任一成立就算送到：
+ *   ① 宿主队列里（inbox 的 nextTurn / nextStep）有这条；
+ *   ② 日志尾部已经出现这条用户消息。
+ * 都查不到才叫真失败。
+ */
+async function verifyDelivered(sessionId: string, text: string, requestId: string): Promise<boolean> {
+  const needle = text.trim()
+  if (needle === '') return false
+  const same = (candidate: string): boolean => {
+    const other = candidate.trim()
+    if (other === '') return false
+    if (other === needle) return true
+    const head = needle.slice(0, 40)
+    return other.includes(head) || needle.includes(other.slice(0, 40))
+  }
+  try {
+    const value = await inboxOf(sessionId, { fresh: true })
+    const queue = (value as unknown as { inbox?: { nextTurn?: readonly { text?: string; requestId?: string }[]; nextStep?: readonly { text?: string; requestId?: string }[] } }).inbox
+    const items = [...(queue?.nextTurn ?? []), ...(queue?.nextStep ?? [])]
+    // 队列这一层**只认 requestId**：按文本匹配会把"本地乐观项"算成证据（它就是同一条文本），
+    // 于是真失败也会被误判成送达。requestId 是提交身份，宿主侧只有真收下才会有。
+    for (const item of items) {
+      if (item.requestId !== undefined && item.requestId === requestId) return true
+    }
+  } catch {
+    // 队列读不到就退到正文证据。
+  }
+  try {
+    const page = await logTail(sessionId, 60)
+    return page.rows.some(row => row.kind === 'user' && same(String(row.text ?? '')))
+  } catch {
+    return false
+  }
+}
+
 function messageKey(message: RenderMessage): string {
   return message.turn !== undefined && message.step !== undefined
     ? `t${message.turn}.${message.step}`
@@ -5798,8 +5840,35 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         if (optimisticId !== undefined) dropOptimisticQueueItem(session.sessionId, optimisticId)
         const message = errorText(reason)
         const hint = staleHostHint(message)
-        setError(hint !== undefined ? `${message} ${hint}` : message)
-        toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
+        const failText = hint !== undefined ? `${message} ${hint}` : message
+        // 先核实再报错：超时/断流并不等于"没送到"。
+        //
+        // 真机（2026-10-31）：消息明明已经排队并在跑，界面却弹"发送失败"并把原文退回
+        // 输入框 —— 因为 `session.prompt` 的等待超时了（长回合里宿主很慢），而宿主其实
+        // 早就收下了。这里在报错前查一次证据：队列里有我们这个 requestId，或正文尾部
+        // 已经出现这条用户消息 —— 任一成立就按成功收尾，绝不谎报失败。
+        void verifyDelivered(session.sessionId, queueText, sendRequestId).then((delivered) => {
+          if (!mountedRef.current) return
+          if (!delivered) {
+            setError(failText)
+            toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
+            return
+          }
+          // 已经送到：按成功收尾（输入框/附件清空），不弹失败提示。
+          if (optimisticId !== undefined) dropOptimisticQueueItem(session.sessionId, optimisticId)
+          setInput('')
+          removeDraft(session.sessionId)
+          setAttachImages([])
+          setAttachFiles([])
+          setQuoted(undefined)
+          if (queuedByRunning) toast('已排队，本轮结束后自动发送')
+          refreshInbox({ fresh: true })
+          mux?.poke()
+        }).catch(() => {
+          if (!mountedRef.current) return
+          setError(failText)
+          toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
+        })
       },
     )
   }, [input, attachImages, attachFiles, uploadingFiles, sending, session.sessionId, mux, quoted, runCommand, refreshInbox, refreshGoal, claimedCommand])

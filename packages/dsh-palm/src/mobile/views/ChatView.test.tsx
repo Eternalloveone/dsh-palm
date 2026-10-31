@@ -4036,7 +4036,7 @@ describe('ChatView pending-message queue dock', () => {
     // 否则上次排进来的消息在这台手机上永远看不到。
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
-    inboxMock.mockResolvedValueOnce({ inbox: { 'next-turn': [{ id: 'q1', role: 'user', content: [{ type: 'text', text: '打开时就该看见' }], source: { kind: 'user' } }] } })
+    inboxMock.mockResolvedValue({ inbox: { 'next-turn': [{ id: 'q1', role: 'user', content: [{ type: 'text', text: '打开时就该看见' }], source: { kind: 'user' } }] } })
     render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     expect(await screen.findByText('打开时就该看见')).toBeTruthy()
   })
@@ -6696,5 +6696,26 @@ describe('loadTurnReportRows：按轮号读交付卡', () => {
     historyMock.mockClear()
     expect(await loadTurnReportRows('s-1', [])).toEqual([])
     expect(historyMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatView send：超时但宿主其实收到了', () => {
+  it('回执超时、队列里已有同 requestId → 不报失败、不留草稿', async () => {
+    // 真机（2026-10-31）：消息已经排队并在跑，界面却弹"发送失败"并把原文退回输入框。
+    // 现在失败分支会先取证：队列里出现我们这个 requestId，就按成功收尾。
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    const inboxMock = vi.mocked(await import('../api.ts')).inboxOf
+    inboxMock.mockResolvedValue({
+      inbox: { nextTurn: [{ id: 'host-1', placement: 'queued', text: '其实已经排上了', editable: true, requestId: 'test-request-id' }], nextStep: [] },
+    } as never)
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '其实已经排上了' } })
+    vi.mocked(promptMock).mockRejectedValueOnce(new Error('timeout after 30000ms'))
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false })
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText('说点什么...') as HTMLInputElement).value).toBe('')
+    })
+    expect(screen.queryByText(/发送失败/)).toBeNull()
   })
 })
