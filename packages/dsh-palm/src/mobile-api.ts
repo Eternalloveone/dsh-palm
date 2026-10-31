@@ -1372,7 +1372,7 @@ const turnBoundaryMirror = new Map<string, { running: boolean; startAt?: number;
  */
 export function noteRunningFrame(
   frame: { payload?: unknown },
-): { sessionId: string; running: boolean } | undefined {
+): { sessionId: string; running: boolean; seq?: number } | undefined {
   const payload = frame.payload as { type?: string; sessionId?: unknown; running?: unknown; event?: unknown } | undefined
   const sessionId = payload?.sessionId
   if (typeof sessionId !== 'string' || sessionId === '') return undefined
@@ -1410,7 +1410,8 @@ export function noteRunningFrame(
     seq,
     at: Date.now(),
   })
-  return { sessionId, running }
+  // 带上证据序号：手机端按它做单调排序，晚到的旧"停/起"不许覆盖新结论。
+  return { sessionId, running, ...(seq >= 0 ? { seq } : {}) }
 }
 
 /**
@@ -4767,7 +4768,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             type: 'server-request' as const,
             rpcId: frame.rpcId,
             method: 'events.mux',
-            payload: { type: 'session/status', sessionId: boundary.sessionId, running: boundary.running },
+            payload: {
+              type: 'session/status',
+              sessionId: boundary.sessionId,
+              running: boundary.running,
+              ...(boundary.seq === undefined ? {} : { seq: boundary.seq }),
+            },
           }
           try { res.write(`data: ${JSON.stringify(verdict)}\n\n`) } catch { /* close handler tears it down */ }
         }

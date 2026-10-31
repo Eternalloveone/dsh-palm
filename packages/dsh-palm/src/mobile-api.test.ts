@@ -262,10 +262,11 @@ describe('noteRunningFrame verdicts', () => {
   // 手机端的运行状态与桌面端同源：宿主在轮次边界直接把结论推过去，手机不再自己
   // 拿日志边界去猜（猜错就会把还在跑的回合显示成已完成）。
   it('reports every turn boundary so the host can push session/status', () => {
+    // 边界帧的结论**带上证据序号**：手机端按 seq 单调采纳（晚到的旧结论不许覆盖新的）。
     expect(noteRunningFrame({ payload: { type: 'session/event', sessionId: 's-push', event: { type: 'turn/start', seq: 5, time: 1 } } }))
-      .toEqual({ sessionId: 's-push', running: true })
+      .toEqual({ sessionId: 's-push', running: true, seq: 5 })
     expect(noteRunningFrame({ payload: { type: 'session/event', sessionId: 's-push', event: { type: 'turn/end', seq: 6, time: 2 } } }))
-      .toEqual({ sessionId: 's-push', running: false })
+      .toEqual({ sessionId: 's-push', running: false, seq: 6 })
   })
 
   it('stays quiet for frames that are not a boundary', () => {

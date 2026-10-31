@@ -1158,6 +1158,13 @@ export function ChatView({
    * 只有亲眼看到这一轮收工（宿主说停了、或收到 turn/end），它才允许显示。
    */
   const closedTurnsRef = useRef<Set<number>>(new Set())
+  /**
+   * `mobile.sessionState` 这条原子快照通道是否可用（读到过至少一次带 turn 的快照）。
+   *
+   * 它是手机上**唯一权威**的回合结论：回合、行、队列、目标、待办是同一次往返里的
+   * 同一个切面（桌面端同一份 store）。所以只要它可用，就不再让尾页/花名册另判一份。
+   */
+  const snapshotAliveRef = useRef(false)
   const verdictSeqRef = useRef(Number.NEGATIVE_INFINITY)
   const applyTurnVerdict = useCallback((verdict: {
     running: boolean
@@ -1300,6 +1307,15 @@ export function ChatView({
           // 快照进状态仓（行/队列/回合一起对齐），队列视图再从仓里取 —— 界面只有一个
           // 权威来源，乐观项与权威值不会互相覆盖（见 session-store.ts）。
           applySnapshot(snapshot)
+          // 原子快照里的回合结论就是权威：走唯一裁决入口，不再让尾页/花名册另判一份。
+          const snapshotTurn = (snapshot as { turn?: { running?: boolean; turnStartAt?: number } }).turn
+          if (snapshotTurn !== undefined && typeof snapshotTurn.running === 'boolean') {
+            snapshotAliveRef.current = true
+            applyTurnVerdict({
+              running: snapshotTurn.running,
+              ...(snapshotTurn.turnStartAt === undefined ? {} : { startAt: snapshotTurn.turnStartAt }),
+            })
+          }
           setQueueItems(queueView(session.sessionId))
           // 目标与待办跟着同一份快照落地：以前目标条要靠自己的 15/20 秒轮询，
           // 电脑上改了目标手机上要等十几秒；现在跟着聊天本身的对账节奏（1.5~8 秒）走，
@@ -2282,6 +2298,38 @@ export function ChatView({
    *  那段等待本身就是用户眼里的"刷新很慢"。旧宿主没有尾页通道时才退回
    *  宿主列表 + 历史窗口扫描。 */
   const reconcileRunning = useCallback((): void => {
+    // 原子快照（`mobile.sessionState`）可用时，回合结论已由它给出（同一份切面、与桌面端同源）。
+    // 这时尾页/运行集合/花名册**不再产生回合判断** —— 它们只负责"宿主还活着吗"。
+    // 以前两条路各判一份、谁后到谁生效，就是"有时候状态不对"的最后一个来源。
+    if (snapshotAliveRef.current) {
+      if (reconcileInFlightRef.current) return
+      reconcileInFlightRef.current = true
+      void sessionState(session.sessionId).then(
+        (snapshot) => {
+          reconcileFailureRef.current = 0
+          if (aliveRef.current) setHostLost(false)
+          const snapshotTurn = (snapshot as { turn?: { running?: boolean; turnStartAt?: number } }).turn
+          if (snapshotTurn !== undefined && typeof snapshotTurn.running === 'boolean') {
+            const wasRunning = runningRef.current
+            applyTurnVerdict({
+              running: snapshotTurn.running,
+              ...(snapshotTurn.turnStartAt === undefined ? {} : { startAt: snapshotTurn.turnStartAt }),
+            })
+            if (wasRunning && !snapshotTurn.running) {
+              normalizeTurnEndTodo()
+              folderRef.current?.clearOpenTurnStart()
+            }
+          }
+        },
+        () => {
+          // 这一条读失败不代表链路断了（其它通道还在），但连续失败要能标"连接中断"。
+          reconcileFailureRef.current += 1
+          if (aliveRef.current && reconcileFailureRef.current >= RECONCILE_FAILURE_LIMIT) setHostLost(true)
+        },
+      ).finally(() => { reconcileInFlightRef.current = false })
+      return
+    }
+
     if (reconcileInFlightRef.current) return
     reconcileInFlightRef.current = true
     const reachable = (): void => {
