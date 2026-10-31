@@ -109,6 +109,12 @@ All notable changes to this project are documented here. The format is based on 
   - 实测：首帧 `7 卡 / 24 行` → 4 秒后完全一致；首帧节点存活 24/24；
     **卡片文案被改写 0/7**。
 
+- **排队消息已在跑，却弹"发送失败"并退回输入框。** `session.prompt` 等回执超时（长回合里宿主慢）
+  就被当成没送到；其实宿主早已收下。
+  - 修法（新不变式 **I9：失败判定必须可举证**）：失败前先查两条证据 —— 队列里有本次 `requestId`，
+    或正文尾部已出现这条用户消息；任一成立按成功收尾，都不成立才报失败。
+  - 顺带修掉：原失败分支 `hint` 声明在 `return` 之后，会抛 TDZ 异常导致**连错误提示都没有**。
+
 ### Tests
 
 - 新增 `pnpm verify:secrets`（内置密钥扫描，有 gitleaks 就用它、没有则内置规则兜底），并作为
