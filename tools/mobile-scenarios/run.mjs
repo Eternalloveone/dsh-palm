@@ -26,13 +26,17 @@ const SCENARIOS = [
 ]
 
 if (has('list')) {
-  for (const scenario of SCENARIOS) console.log(`${scenario.id}\t${scenario.title}`)
+  for (const scenario of SCENARIOS) {
+    console.log(`${scenario.id}\t${scenario.experimental === true ? '[实验性] ' : ''}${scenario.title}`)
+  }
   process.exit(0)
 }
 
 const only = valueOf('only', '')
 const repeat = Number(valueOf('repeat', '1'))
-const picked = only === '' ? SCENARIOS : SCENARIOS.filter(scenario => scenario.id === only)
+const withExperimental = has('experimental')
+const pool = withExperimental ? SCENARIOS : SCENARIOS.filter(scenario => scenario.experimental !== true)
+const picked = only === '' ? pool : SCENARIOS.filter(scenario => scenario.id === only)
 if (picked.length === 0) {
   console.error(`没有这个场景: ${only}`)
   process.exit(1)
