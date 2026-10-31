@@ -693,6 +693,7 @@ export function ChatView({
     commitRows(rows)
   }
 
+
   const [hasOlder, setHasOlder] = useState(false)
 
 
@@ -2687,6 +2688,51 @@ export function ChatView({
     return newest
   })()
   const liveTurn = turnLive ? (runningTurn ?? newestLiveTurn) : undefined
+
+  /**
+   * 现场取证：**正在跑的那一轮，过程卡却不在屏幕上**（只剩正文/时间）。
+   *
+   * 真机截图（2026-10-31 07:46 → 07:51）：同一轮先有「深度求索中 / 思考中 / 改了 1 个文件」，
+   * 几分钟后只剩时间。100ms 探针没能复现，所以改成**在真机上抓现场**：只要
+   * 「这一轮在跑 且 行里确实有过程内容 且 屏幕上没有过程卡」成立，就把当时的行数据
+   * 写到宿主（每轮最多一次，失败静默），下次再露头就有证据。
+   */
+  const procVanishTurnsRef = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    if (liveTurn === undefined) return
+    if (procVanishTurnsRef.current.has(liveTurn)) return
+    const turnRows = messages.filter(row => row.turn === liveTurn)
+    if (turnRows.length === 0) return
+    const hasProcess = turnRows.some(row => (
+      (row.tools?.length ?? 0) > 0 || (row.flow?.length ?? 0) > 0 || (row.reasoning ?? '') !== ''
+    ))
+    if (!hasProcess) return
+    const timer = setTimeout(() => {
+      if (typeof document === 'undefined') return
+      if (document.querySelector('.chat-proc') !== null) return
+      procVanishTurnsRef.current.add(liveTurn)
+      // 复用重复卡的上报通道：形状一致（kind + rows + pairs），宿主那张错误快照能直接看。
+      void reportError({
+        kind: 'proc-vanish',
+        sessionId: session.sessionId,
+        at: Date.now(),
+        rows: messages.slice(-24).map(row => ({
+          id: row.id,
+          kind: row.kind,
+          turn: row.turn ?? null,
+          step: row.step ?? null,
+          seq: row.seq,
+          startSeq: row.startSeq ?? null,
+          pending: row.pending === true,
+          textLength: (row.text ?? '').length,
+          textHead: (row.text ?? '').slice(0, 40),
+          toolCalls: (row.tools ?? []).map(tool => tool.callId),
+        })),
+        pairs: [],
+      }, 'proc-vanish').catch(() => {})
+    }, 400)
+    return () => { clearTimeout(timer) }
+  }, [messages, liveTurn, session.sessionId])
   /**
    * 秒表心跳：只有存在活跃回合、且页面可见时才跑。它每秒变的这个数会作为 prop
    * 传给"正在跑"的那几行（见 live-clock.ts）—— 于是哪怕那一行自己的定时器被

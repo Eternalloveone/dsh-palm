@@ -2109,3 +2109,29 @@ describe('回归闸门：正在跑的那一轮不许有「已完成」卡', () =
     expect(missingTurnReports(rows, 9)).toEqual([8])
   })
 })
+
+describe('回归闸门：在跑的回合，过程信息不能被"更穷的页"抹掉', () => {
+  // 真机现场（2026-10-31 截图）：会话在跑，过程条突然消失，只剩左侧时间。
+  // 机制嫌疑：进会话/权威页落地会把实时行换成"更穷"的页行（页的窗口从回合中间开始，
+  // 工具行没带回来），一旦取页那版胜出，过程卡就没有内容可画。
+  const tool = (callId: string) => ({ callId, name: 'bash', state: 'done', arguments: '{}' })
+  const row = (overrides: Record<string, unknown>): RenderMessage => ({
+    id: 'x', kind: 'assistant', text: '', seq: 1, ...overrides,
+  } as RenderMessage)
+
+  it('实时行有 6 个工具、页行 0 个 → 保留 6 个', () => {
+    const live = [row({ id: 'live', turn: 9, step: 3, seq: 100, tools: [1, 2, 3, 4, 5, 6].map(n => tool(`c${n}`)) })]
+    const page = [row({ id: 'page', turn: 9, step: 3, seq: 100, tools: [] })]
+    const merged = preferRicherRows(live, page)
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.tools).toHaveLength(6)
+  })
+
+  it('实时行只有一个空的流式行、页行也没工具 → 合并后仍只有一行（不会凭空多一行空行）', () => {
+    const live = [row({ id: 'live', turn: 9, step: 3, seq: 100, text: '正在输出' })]
+    const page = [row({ id: 'page', turn: 9, step: 3, seq: 100, text: '' })]
+    const merged = preferRicherRows(live, page)
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.text).toBe('正在输出')
+  })
+})

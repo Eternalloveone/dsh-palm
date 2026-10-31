@@ -60,10 +60,11 @@ const PAGES = [
   {
     id: 'settings',
     title: '设置',
-    url: `${BASE}/m/`,
-    clickLabel: '快捷操作',
-    thenClick: '设置',
-    unit: '.mobile-row, [class*=set-row]',
+    // 设置入口在**会话列表页**的顶部按钮（aria-label="设置"），不在首页。
+    // 以前写成从首页"快捷操作"点进去，选择器根本对不上，于是这一页长期是 SKIP。
+    url: `${BASE}/m/?workspace=${WS}`,
+    clickLabel: '设置',
+    unit: '.mobile-row, [class*=set-row], [class*=setting]',
     identity: null,
     list: false,
   },
