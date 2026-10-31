@@ -1064,10 +1064,10 @@ export function ChatView({
   }, [session.sessionId])
 
   useEffect(() => {
-    if (input === '') {
-      removeDraft(session.sessionId)
-      return
-    }
+    // 输入框为空**不再删除草稿**（2026-10-31 真机：切走再回来草稿没了）。
+    // 空输入可能只是这一帧还没恢复或用户刚清空又后悔，删掉就真丢了；
+    // 草稿只在**发送成功后**由发送路径 removeDraft。过期与容量由 TTL(7 天)+LRU(50) 兜。
+    if (input === '') return
     const id = setTimeout(() => { saveDraft(session.sessionId, input) }, DRAFT_SAVE_DEBOUNCE_MS)
     return () => { clearTimeout(id) }
   }, [input, session.sessionId])

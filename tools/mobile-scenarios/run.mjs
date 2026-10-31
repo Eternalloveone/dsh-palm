@@ -42,6 +42,8 @@ const SCENARIOS = [
   (await import('./scenarios/new-message-while-reading.mjs')).scenario,
   (await import('./scenarios/settings-apply-instantly.mjs')).scenario,
   (await import('./scenarios/preview-media-and-code.mjs')).scenario,
+  // 根治后的守卫：回合状态/交付卡必须以宿主结论为准
+  (await import('./scenarios/turn-state-authoritative.mjs')).scenario,
   // 会发消息（manual）：审批、命令行卡片、附件、子代理、输入法
   (await import('./scenarios/approval-decide.mjs')).scenario,
   (await import('./scenarios/command-card-lifecycle.mjs')).scenario,

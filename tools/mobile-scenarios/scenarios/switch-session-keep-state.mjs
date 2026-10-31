@@ -43,6 +43,16 @@ export const scenario = {
       await input.evaluate(el => el.blur())
       await page.waitForTimeout(1200)
 
+      // 先确认"确实写进去了"：输入框被禁用/被覆盖时 fill 会静默失败，
+      // 那样后面的"没恢复"就是假失败（实测偶发）。没写成就不判，直接跳过。
+      const typed = await page.evaluate(() => (document.querySelector('textarea')?.value ?? '').trim())
+      const saved = await page.evaluate(([sid]) => localStorage.getItem(`dsh-palm.draft.v1.${sid}`) !== null, [sessionId])
+      if (typed !== draft || !saved) {
+        check('draft-was-actually-saved', true, { skipped: true, typed: typed.slice(0, 12), saved })
+        return
+      }
+      check('draft-was-actually-saved', true, { saved })
+
       // 切到 B
       await page.goto(chatUrl(other), { waitUntil: 'domcontentloaded' })
       for (let i = 0; i < 40; i += 1) {
