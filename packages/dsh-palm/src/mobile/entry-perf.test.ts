@@ -17,16 +17,16 @@ beforeEach(() => {
 })
 
 describe('首屏窗口自适应', () => {
-  it('没有历史数据时用宽松窗口（第一次尽量一次拿全）', () => {
-    expect(preferredTailWindowBytes()).toBe(TAIL_WINDOW_WIDE_BYTES)
+  it('没有历史数据时用保守窗口（先快出内容，历史由缓存负责）', () => {
+    expect(preferredTailWindowBytes()).toBe(TAIL_WINDOW_NARROW_BYTES)
   })
 
-  it('快过一次 → 仍然宽松', () => {
+  it('快过一次（≤800ms）→ 放宽到 2 MB', () => {
     rememberEntryLatency(400)
     expect(preferredTailWindowBytes()).toBe(TAIL_WINDOW_WIDE_BYTES)
   })
 
-  it('慢过一次 → 退回保守窗口（先保证出内容快）', () => {
+  it('慢过一次 → 守住保守窗口', () => {
     rememberEntryLatency(ENTRY_SLOW_MS + 800)
     expect(preferredTailWindowBytes()).toBe(TAIL_WINDOW_NARROW_BYTES)
   })
@@ -43,6 +43,6 @@ describe('首屏窗口自适应', () => {
   it('非法耗时被忽略（0 / NaN 不污染判断）', () => {
     rememberEntryLatency(0)
     rememberEntryLatency(Number.NaN)
-    expect(preferredTailWindowBytes()).toBe(TAIL_WINDOW_WIDE_BYTES)
+    expect(preferredTailWindowBytes()).toBe(TAIL_WINDOW_NARROW_BYTES)
   })
 })

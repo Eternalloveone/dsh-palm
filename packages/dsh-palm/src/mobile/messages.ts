@@ -1899,6 +1899,43 @@ export function normalizeTranscriptRows(rows: readonly RenderMessage[]): readonl
   return out ?? rows
 }
 
+/**
+ * 两行"画出来会一模一样"吗（用来复用旧对象，避免无意义重渲染）。
+ *
+ * 为什么需要：进会话时网络页会给出同一行的一份新对象（内容相同），React 收到新对象
+ * 就重渲染 —— 交付卡、工具卡都会"重新画一遍"，用户看到的就是"卡片重新渲染显示"。
+ * 内容等价时**返回旧对象**，React 就跳过这次渲染。
+ *
+ * 只比较影响渲染的字段，不比对象引用，也不做深比较（开销可控）。
+ */
+function sameRenderedRow(left: RenderMessage, right: RenderMessage): boolean {
+  if (left === right) return true
+  if (left.kind !== right.kind) return false
+  if (left.turn !== right.turn || left.step !== right.step) return false
+  if (left.seq !== right.seq) return false
+  if (left.pending !== right.pending) return false
+  if ((left.text ?? '') !== (right.text ?? '')) return false
+  if ((left.reasoning ?? '') !== (right.reasoning ?? '')) return false
+  if ((left.toolSummary ?? '') !== (right.toolSummary ?? '')) return false
+  const leftTools = left.tools ?? []
+  const rightTools = right.tools ?? []
+  if (leftTools.length !== rightTools.length) return false
+  for (let index = 0; index < leftTools.length; index += 1) {
+    const a = leftTools[index]
+    const b = rightTools[index]
+    if (a === undefined || b === undefined) return false
+    if (a.callId !== b.callId || a.state !== b.state || a.name !== b.name) return false
+  }
+  const leftFiles = left.deliverables ?? []
+  const rightFiles = right.deliverables ?? []
+  if (leftFiles.length !== rightFiles.length) return false
+  for (let index = 0; index < leftFiles.length; index += 1) {
+    if (leftFiles[index]?.path !== rightFiles[index]?.path) return false
+  }
+  if ((left.flow?.length ?? 0) !== (right.flow?.length ?? 0)) return false
+  return true
+}
+
 function rowIdentity(row: RenderMessage): string {
   // 身份只描述「这一行在对话里的位置」，且必须**在流式过程中保持不变**：
   //   · 交付卡按轮唯一（它和本轮最后一条助手行可能共享 seq，先认轮号才不会并进正文）；
@@ -1987,7 +2024,10 @@ export function preferRicherRows(
     // ①页里没有这张卡、它又被 keptOlder 留着时，页再推一遍 → 同一行两份，屏幕上就是
     // 多条过程条 + 闪一下；②页那份是「瘦版」（没有 plan / 交付物 / 用时），直接把更全的
     // 那份顶掉 → 计划和交付卡消失。现在所有行走同一条合并路径。
-    merged[at] = mergeRows(merged[at]!, row)
+    // 内容等价时**复用旧对象**：React 拿到同一个引用就跳过这次渲染，
+    // 交付卡/工具卡不会在"网络页到达"那一拍被重画一遍（真机："卡片重新渲染显示"）。
+    const mergedRow = mergeRows(merged[at]!, row)
+    merged[at] = sameRenderedRow(merged[at]!, mergedRow) ? merged[at]! : mergedRow
   }
   for (const older of keptOlder) pushOrMerge(older)
   for (const row of next) {
