@@ -40,6 +40,37 @@ export default [
     },
   },
   {
+    id: 'settings.switch-shape',
+    group: 'settings',
+    surface: 'sessions',
+    title: '开关形状：轨道是胶囊、滑钮垂直居中',
+    async run(ctx, { page }) {
+      await page.waitForTimeout(1_800)
+      await page.locator('[aria-label="设置"]').first().click()
+      await page.waitForTimeout(2_200)
+      // 真机反馈（2026-10-31）：开关看着"形状怪" —— 轨道圆角 12 像圆角方块，
+      // 滑钮写死 top:2px 在 32 高的轨道里偏上 4px。这里把几何关系钉住。
+      const shapes = await page.evaluate(() => [...document.querySelectorAll('[role="switch"]')].map(el => {
+        const rect = el.getBoundingClientRect()
+        const knob = getComputedStyle(el, '::after')
+        const radius = parseFloat(getComputedStyle(el).borderRadius)
+        const knobTop = parseFloat(knob.top)
+        const knobHeight = parseFloat(knob.height)
+        // ::after 的 translateY 会体现在 transform 里；用 top + 变换后的实际中心算
+        const match = /matrix\(1, 0, 0, 1, [\d.-]+, ([-\d.]+)\)/.exec(knob.transform)
+        const shiftY = match === null ? 0 : Number(match[1])
+        const knobCenter = knobTop + shiftY + knobHeight / 2
+        return { width: Math.round(rect.width), height: Math.round(rect.height), radius, knobCenter: Math.round(knobCenter * 10) / 10, trackCenter: Math.round(rect.height / 2 * 10) / 10 }
+      }))
+      ctx.assert(shapes.length > 0, '没有开关')
+      for (const shape of shapes) {
+        ctx.assert(Math.abs(shape.radius - shape.height / 2) <= 1, `轨道不是胶囊：radius=${shape.radius} height=${shape.height}`)
+        ctx.assert(Math.abs(shape.knobCenter - shape.trackCenter) <= 1.5, `滑钮不居中：knob=${shape.knobCenter} track=${shape.trackCenter}`)
+      }
+      return `${shapes.length} 个开关几何正常`
+    },
+  },
+  {
     id: 'settings.switch-toggles',
     group: 'settings',
     surface: 'sessions',

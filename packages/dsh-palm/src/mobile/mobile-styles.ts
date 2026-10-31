@@ -1749,17 +1749,21 @@ button.settings-row:focus-visible {
   min-height: 32px;
   padding: 0;
   border: none;
-  border-radius: 12px;
+  /* 32 高 + 16 半径 = 胶囊。原来是 12，深色下看着像"圆角方块"，用户反馈看不懂 */
+  border-radius: 16px;
   background: var(--border-default);
   cursor: pointer;
   transition: background-color 0.18s ease;
 }.settings-switch::after{
   content: '';
   position: absolute;
-  top: 2px;
+  /* 垂直居中：轨道 32、钮 20 → 上下各 6。原来写死 top:2px，钮偏上 4px，
+     真机看着就是"开关歪了/形状怪"。 */
+  top: 50%;
   left: 2px;
   width: 20px;
   height: 20px;
+  transform: translateY(-50%);
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -1767,7 +1771,7 @@ button.settings-row:focus-visible {
 }.settings-switch-on{
   background: var(--accent);
 }.settings-switch-on::after{
-  transform: translateX(20px);
+  transform: translate(20px, -50%);
 }
 
 .settings-input {
