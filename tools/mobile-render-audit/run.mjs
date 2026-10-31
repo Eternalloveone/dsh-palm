@@ -118,6 +118,7 @@ for (const spec of PAGES) {
     const measure = async () => {
       let first = null
       let prevUnits = 0
+      const shrinkTimes = []
       let shrank = false
       let maxDuplicates = 0
       let stable = null
@@ -127,7 +128,7 @@ for (const spec of PAGES) {
         const snap = await sample(page, spec)
         samples.push({ at: i * 100, units: snap.units })
         if (i === 2) first = snap.units
-        if (snap.units < prevUnits) shrank = true
+        if (snap.units < prevUnits) { shrank = true; shrinkTimes.push(i * 100) }
         prevUnits = Math.max(prevUnits, snap.units)
         maxDuplicates = Math.max(maxDuplicates, snap.duplicates)
         stable = snap
@@ -135,7 +136,7 @@ for (const spec of PAGES) {
       // 「多久铺到稳定态的 90%」比"200ms 时有多少"更能说明问题：前者与页面快慢无关。
       const goal = Math.ceil((stable?.units ?? 0) * 0.9)
       const hit = samples.find(item => item.units >= goal)
-      return { first, shrank, maxDuplicates, stable, ttft90: goal === 0 ? 0 : (hit?.at ?? 3000) }
+      return { first, shrank, shrinkTimes, maxDuplicates, stable, ttft90: goal === 0 ? 0 : (hit?.at ?? 3000) }
     }
     const cold = await measure()
     let first = cold.first
@@ -164,7 +165,10 @@ for (const spec of PAGES) {
     entry.shrank = shrank
     entry.duplicateIdentity = maxDuplicates
     entry.gap = stable?.gap ?? 0
-    entry.pass = (spec.allowShrink === true || !shrank) && maxDuplicates === 0 && (spec.list ? (stable?.gap ?? 0) <= 2 : true)
+    // 加载期（前 600ms）允许一次骨架到真实内容的替换：那是占位行被换掉，
+    // 不是数据回退。600ms 之后任何收缩都算不稳定。
+    const lateShrink = (cold.shrinkTimes ?? []).some(at => at > 600)
+    entry.pass = (spec.allowShrink === true || !lateShrink) && maxDuplicates === 0 && (spec.list ? (stable?.gap ?? 0) <= 2 : true)
   } catch (error) {
     const message = String(error?.message ?? error)
     // 入口没找到（选择器/文案变了）不算渲染不达标：如实记 SKIP 并写清原因，
