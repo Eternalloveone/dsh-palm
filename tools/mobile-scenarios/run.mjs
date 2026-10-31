@@ -26,6 +26,7 @@ const SCENARIOS = [
   (await import('./scenarios/offline-queue-drain.mjs')).scenario,
   (await import('./scenarios/background-return.mjs')).scenario,
   (await import('./scenarios/long-session-window.mjs')).scenario,
+  (await import('./scenarios/running-dot-lifecycle.mjs')).scenario,
 ]
 
 if (has('list')) {

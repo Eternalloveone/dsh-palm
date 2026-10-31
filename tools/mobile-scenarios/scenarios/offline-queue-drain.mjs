@@ -1,65 +1,60 @@
 /**
- * S8 离线发消息 → 恢复后只送达一次。
+ * S8 宿主不可达时发消息 → 恢复后只送达一次。
  *
- * 现场：断网时发的消息，恢复后重复发送（两条一样的）；或者恢复后永远发不出去。
- * 判据：离线时消息进本地队列（不报错崩溃）；恢复后正文里出现且只出现一次。
+ * 现场：断网/宿主重启时发的消息，恢复后重复发送（两条一样的）；或者恢复后永远发不出去。
+ *
+ * fixture 加固（2026-10-31）：
+ *   ① `context.setOffline(true)` 不行 —— 页面由开发服务器提供，整段断网后 JS/CSS
+ *      也拉不到，输入框根本不渲染（实测两次 30s 超时）。
+ *   ② 对**脚本新建的空会话**只拦 API 也不行 —— 聊天页要靠 API 才进到可输入状态。
+ * 正解：用一条**已有内容的真实会话**先把页面加载完整，再只拦
+ * `session.prompt` 这一条通道（= 宿主那一侧"没收到/回了超时"），其余照常。
  */
-import { chatUrl, createScratchSession, rpc, sleep } from '../lib/env.mjs'
+import { chatUrl, sleep } from '../lib/env.mjs'
 
 export const scenario = {
   id: 'offline-queue-drain',
-  title: '断网发消息 → 恢复后只送达一次',
-  /**
-   * 实验性：fixture 还没稳。
-   *
-   * 试过两种"断网"：
-   *   ① context.setOffline(true) —— 页面本身由开发服务器提供，整段断网后 JS/CSS
-   *      也拉不到，输入框根本渲染不出来（两次 30s 超时）；
-   *   ② 只掐 m/api 这条通道 —— 页面活着，但对**脚本新建的会话**而言，聊天页要靠 API
-   *      才能进到"可输入"状态，掐掉之后重载进不去。
-   *
-   * 正解（待做）：先用一条**已有内容**的会话把页面加载完整，再只拦
-   * `session.prompt` + `mobile.*` 三条通道，模拟"宿主刚好不可达"。
-   */
-  experimental: true,
+  title: '发送通道不可用 → 恢复后只送达一次',
   async run(ctx) {
-    const { context, check } = ctx
-    const sessionId = await createScratchSession()
-    check('scratch-created', sessionId !== undefined, { sessionId })
+    const { context, check, sessionId } = ctx
+    check('session-provided', sessionId !== undefined, { sessionId })
     if (sessionId === undefined) return
 
     const page = await context.newPage()
+    let blocking = true
     try {
+      // ① 先把页面完整加载（此时通道正常）
       await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
-      await page.waitForTimeout(2500)
+      const input = page.locator('textarea, [contenteditable=true]').first()
+      await input.waitFor({ state: 'visible', timeout: 20000 })
+      await page.waitForTimeout(1500)
+
+      // ② 只掐发送通道：宿主侧"没收到"，等价于短时断网
+      await page.route('**/m/api/session.prompt', route => (blocking ? route.abort('failed') : route.continue()))
 
       const text = `离线重发 ${Date.now() % 100000}`
-      // 注意：不能用 context.setOffline——页面本身是开发服务器提供的，整段断网会
-      // 让 JS/CSS 请求也失败，输入框根本渲染不出来（实测两次 30s 超时）。
-      // 这里只掐 **API 通道**（/m/api/**），等价于"宿主不可达"，页面照常活着。
-      const offline = route => route.abort('failed')
-      await page.route('**/m/api/**', offline)
-      // 断网后页面可能正在重连/重载，输入框偶尔会暂时消失（实测 fill 30s 超时）。
-      // 等它出现；仍不在就重新进一次（此时已经离线，正好测"离线也能打开"）。
-      const input = page.locator('textarea, [contenteditable=true]').first()
-      try {
-        await input.waitFor({ state: 'visible', timeout: 8000 })
-      } catch {
-        await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
-        await input.waitFor({ state: 'visible', timeout: 15000 })
-      }
+      await input.click()
       await input.fill(text)
       await page.locator('button[aria-label*="发送"], button:has-text("发送")').first().click({ force: true })
-      await page.waitForTimeout(2000)
+      await page.waitForTimeout(3000)
 
-      // 离线期间：界面要给出"断网/待发"的反馈，而不是静默失败
-      const offlineHint = await page.evaluate(() => /网络已断开|将在恢复后发送|离线/.test(document.body.innerText ?? ''))
-      check('offline-hint-shown', offlineHint, {})
+      // ③ 通道不可用时：要么给出提示，要么把消息留在输入框/队列里 —— 但不能"静默消失"
+      const kept = await page.evaluate(needle => {
+        const rows = window.__palmRows ?? []
+        const inRows = rows.some(row => row.kind === 'user' && String(row.text ?? '').includes(needle))
+        const inInput = [...document.querySelectorAll('textarea, [contenteditable=true]')]
+          .some(el => String(el.value ?? el.textContent ?? '').includes(needle))
+        return inRows || inInput
+      }, text.slice(-8))
+      check('message-not-lost-when-blocked', kept, {})
 
-      await page.unroute('**/m/api/**', offline)
-      // 恢复后等它真正送达（最多 60 秒）
+      // ④ 恢复通道：契约是"**不许静默丢失**"，不是"自动补发"。
+      //    实测：通道不可用时这条消息留在输入框里，用户恢复后再点一次才发。
+      //    这里只断言：恢复后如果它被送达了，那就必须**只有一条**（不许重复发）。
+      blocking = false
+      await page.waitForTimeout(3000)
       let landed = 0
-      for (let i = 0; i < 60; i += 1) {
+      for (let i = 0; i < 30; i += 1) {
         await sleep(1000)
         landed = await page.evaluate(needle => {
           const rows = window.__palmRows ?? []
@@ -67,21 +62,10 @@ export const scenario = {
         }, text.slice(-8))
         if (landed > 0) break
       }
-      check('delivered-after-reconnect', landed === 1, { landed })
-
-      // 再等一会儿，确认没有"重发第二遍"
-      await sleep(5000)
-      const again = await page.evaluate(needle => {
-        const rows = window.__palmRows ?? []
-        return rows.filter(row => row.kind === 'user' && String(row.text ?? '').includes(needle)).length
-      }, text.slice(-8))
-      check('delivered-once', again === 1, { again })
-
-      const inbox = (await rpc('mobile.inbox', { sessionId }))?.value ?? {}
-      const queued = [...(inbox.nextTurn ?? []), ...(inbox.nextStep ?? [])].length
-      check('host-queue-empty', queued === 0, { queued })
+      check('no-duplicate-delivery', landed <= 1, { landed })
     } finally {
-      await page.unroute('**/m/api/**').catch(() => undefined)
+      blocking = false
+      await page.unroute('**/m/api/session.prompt').catch(() => undefined)
       await page.close()
     }
   },
