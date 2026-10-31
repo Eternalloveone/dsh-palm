@@ -94,6 +94,13 @@ for (const scenario of picked) {
       skipped += 1
       continue
     }
+    // 硬闸：测试会话**不许**等于只读会话（只读会话往往就是用户正在聊的那条）。
+    // 2026-10-31 真出过：场景把 prompt 发进用户会话，用户直接看到我的测试提示词。
+    if (scenario.needsTurn === true && testSessionId === sessionId) {
+      scenarioErrors.push({ scenario: label, error: '测试会话与只读会话是同一个：拒绝发送 prompt' })
+      console.log(`FAIL  ${label.padEnd(28)} 测试会话 == 只读会话，拒绝发消息`)
+      continue
+    }
 
     const { browser, context } = await launch({ headed: has('headed') })
     const check = (kind, ok, detail) => {
