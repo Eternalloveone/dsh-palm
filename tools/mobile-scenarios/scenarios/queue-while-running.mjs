@@ -8,41 +8,53 @@
  */
 import { chatUrl, rpc, sleep, startLongTurn, WORKSPACE } from '../lib/env.mjs'
 
+/**
+ * 排队坞现场。
+ *
+ * 选择器是**读源码核实过的**（src/mobile/queue-dock.tsx）：
+ *   · 容器 `.queue-dock[data-queue-dock]`
+ *   · 计数 `.queue-dockCount` → 文本「N 条排队」
+ *   · 行   `.queue-dockRow`
+ * 以前用 `[class*=queue]` 猜，抓不到 / 抓到空容器，导致这条场景一直 flaky。
+ */
 const queueRows = page => page.evaluate(() => {
-  const dock = document.querySelector('[class*=queue]')
+  const dock = document.querySelector('[data-queue-dock]')
   if (dock === null) return []
-  return [...dock.querySelectorAll('[class*=item], li, [class*=row]')]
+  return [...dock.querySelectorAll('.queue-dockRow')]
     .map(el => (el.textContent ?? '').replace(/\s+/g, ' ').trim())
-    .filter(text => text.length > 2)
+    .filter(text => text.length > 0)
+})
+
+/** 排队坞自己报的条数（`N 条排队`），没有坞就是 0。 */
+const queueCount = page => page.evaluate(() => {
+  const head = document.querySelector('.queue-dockCount')
+  if (head === null) return 0
+  const match = /(\d+)\s*条排队/.exec(head.textContent ?? '')
+  return match === null ? 0 : Number(match[1])
 })
 
 export const scenario = {
   id: 'queue-while-running',
-  /**
-   * flaky：排队坞那一行的 DOM 判据还没核实。
-   *
-   * 实测：换会话、把观察窗口拉到 30 秒、两次尝试，仍会偶发 0 行（也偶发通过）。
-   * 在把排队坞的 class 结构 dump 清楚之前，这条不挡发版，但其余判据
-   * （宿主队列 ≤1）照常卡。待办写在 scenario 里，别删。
-   */
+  /** 需要"已预热"的专用测试会话才算得准；fixture 稳定前不挡门禁。 */
   flaky: true,
+  needsTurn: true,
   title: '跑着排队 + 连点：只入队一条，送达后自动消失',
   async run(ctx) {
-    const { context, check, sessionId } = ctx
-    check('session-provided', sessionId !== undefined, { sessionId })
-    if (sessionId === undefined) return
+    const { context, check, testSessionId } = ctx
+    check('test-session-provided', testSessionId !== undefined, { testSessionId })
+    if (testSessionId === undefined) return
 
     const page = await context.newPage()
     try {
       // 顺序很关键：**先把聊天页打开**（此时空闲），再从外面起回合，然后以
       // 页面上的"输出中"作为"确实在跑"的判据 —— 实测 session.list 的 running
       // 在这条会话上一直给不出 true，用它判会把消息发成新一轮（排队条不出现）。
-      await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
+      await page.goto(chatUrl(testSessionId), { waitUntil: 'domcontentloaded' })
       const input = page.locator('textarea, [contenteditable=true]').first()
       await input.waitFor({ state: 'visible', timeout: 20000 })
       await page.waitForTimeout(1500)
 
-      await startLongTurn(sessionId, '用 bash 跑 python -c "import time; time.sleep(40)"，完成后说一句"第一步完成"，然后停下等我。')
+      await startLongTurn(testSessionId, '用 bash 跑 python -c "import time; time.sleep(40)"，完成后说一句"第一步完成"，然后停下等我。')
       let running = false
       for (let i = 0; i < 60; i += 1) {
         await page.waitForTimeout(1000)
@@ -54,13 +66,15 @@ export const scenario = {
       /** 采样一段时间里排队条的最大条数（点时刻判断会被"刚好已送达"骗到）。 */
       const watchQueue = async durationMs => {
         let max = 0
+        let maxReported = 0
         const deadline = Date.now() + durationMs
         while (Date.now() < deadline) {
           const rows = await queueRows(page)
           max = Math.max(max, rows.length)
+          maxReported = Math.max(maxReported, await queueCount(page))
           await new Promise(resolve => setTimeout(resolve, 300))
         }
-        return max
+        return { max, maxReported }
       }
 
       const send = page.locator('button[aria-label*="发送"], button:has-text("发送")').first()
@@ -75,19 +89,23 @@ export const scenario = {
       // 最多两次尝试：发送通道偶发"点了没入队"（实测一次 0 条），
       // 但**判据本身不变** —— 每次尝试窗口内排队条都必须 ≤1。
       let maxRows = 0
+      let maxReported = 0
       let attempts = 0
       while (attempts < 2 && maxRows === 0) {
         attempts += 1
         await sendOnce(`场景排队 ${Date.now() % 100000}`)
-        maxRows = await watchQueue(30_000)
+        const seen = await watchQueue(30_000)
+        maxRows = seen.max
+        maxReported = Math.max(maxReported, seen.maxReported)
       }
-      check('queue-row-appears', maxRows > 0, { maxRows, attempts })
-      check('queue-row-single', maxRows <= 1, { maxRows, attempts })
+      // 「坞自己报的数」与「行数」任一 >0 就算看见了（两者互相印证，避免选择器再漂）
+      check('queue-dock-appears', maxRows > 0 || maxReported > 0, { maxRows, maxReported, attempts })
+      check('queue-dock-single', maxRows <= 1 && maxReported <= 1, { maxRows, maxReported, attempts })
 
       // 宿主侧必须收下且只有一条（这才是"排队真的入队了"的硬证据）。
       // 不再断言"排队坞那一行什么时候消失"：那属于排队坞自身的展示语义，
       // 实测 4 分钟仍可能挂着，拿来当不变量会把产品行为误判成缺陷。
-      const inbox = (await rpc('mobile.inbox', { sessionId }))?.value ?? {}
+      const inbox = (await rpc('mobile.inbox', { sessionId: testSessionId }))?.value ?? {}
       const queued = [...(inbox.nextTurn ?? []), ...(inbox.nextStep ?? [])].length
       check('host-queue-single', queued <= 1, { queued })
     } finally {

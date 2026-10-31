@@ -31,7 +31,10 @@ export const scenario = {
         for (let i = 0; i < 12; i += 1) {
           await page.waitForTimeout(150)
           const snap = await sampleChat(page)
-          monotonic(snap)
+          // 长会话（>100 行）另算：DOM 只保留一屏+缓冲，行数本来就会随滚动裁剪。
+          // 实测 session-628d1093（213 轮）进入后 132 → 61，这是**可行的裁剪**，
+          // 不是"数据回退"。长会话的真正不变量在 long-session-window 里查（首帧不回落）。
+          if (snap.rows < 100) monotonic(snap)
           cardText(snap)
           checkNoDuplicateIds(check, snap, `round${round}-chat`)
           checkProcessVisibleWhileRunning(check, snap, `round${round}-chat`)

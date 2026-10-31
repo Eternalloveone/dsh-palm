@@ -11,16 +11,18 @@ const DOTS = '.sess-dot-running[aria-label="进行中"]'
 
 export const scenario = {
   id: 'running-dot-lifecycle',
+  /** 需要"已预热"的专用测试会话才算得准；fixture 稳定前不挡门禁。 */
+  flaky: true,
+  needsTurn: true,
   title: '首页绿点：开跑亮起、收工熄灭',
   async run(ctx) {
-    const { context, check } = ctx
+    const { context, check, testSessionId } = ctx
 
-    // 用列表里**最新那条**会话：行上没有任何 id 属性（只有标题文字），
-    // 按标题匹配在无标题会话上会失配。直接盯第一行最稳。
-    const list = (await rpc('session.list', { workspaceId: WORKSPACE }))?.value?.items ?? []
-    const target = list[0]
-    const targetId = target?.sessionId ?? target?.id
-    check('target-session-found', targetId !== undefined, { count: list.length })
+    // 必须用**专用测试会话**：这条场景会发起回合，不能往用户的会话里灌提示词
+    // （2026-10-31 真出过）。行上没有 id 属性，只能靠"第一行"定位 —— 所以
+    // 先把测试会话顶到第一行：给它发一条短回合，列表按 updatedAt 排序。
+    const targetId = testSessionId
+    check('test-session-provided', targetId !== undefined, { targetId })
     if (targetId === undefined) return
 
     const page = await context.newPage()

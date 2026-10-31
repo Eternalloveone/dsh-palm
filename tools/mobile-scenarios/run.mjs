@@ -55,16 +55,46 @@ async function pickSession() {
   return row?.sessionId ?? row?.id
 }
 
+/**
+ * 只读用的会话：跨页/切后台/长会话这些场景**只看不发**，用哪条都行。
+ */
 const sessionId = await pickSession()
-console.log(`宿主 ${WORKSPACE}｜会话 ${String(sessionId).slice(0, 20)}｜场景 ${picked.length} 个 × ${repeat} 遍\n`)
+
+/**
+ * 会**发起回合**的场景（排队/慢回执/通道不可用/绿点）必须用**专用测试会话**，
+ * 绝不能往用户正在聊的会话里灌提示词 —— 2026-10-31 真出过：用户在自己的
+ * 会话里看到「用 bash 跑 python -c ...」「场景排队 1221」。
+ *
+ * 由 `PALM_TEST_SESSION` 指定；没给就不跑这几条（跳过并说明），
+ * 想强行用当前会话请显式加 `--allow-real-session`。
+ */
+const testSessionId = process.env.PALM_TEST_SESSION !== undefined && process.env.PALM_TEST_SESSION !== ''
+  ? process.env.PALM_TEST_SESSION
+  : (has('allow-real-session') ? sessionId : undefined)
+
+/** 会话总数（用来确认场景没有偷偷新建会话）。 */
+async function countSessions() {
+  const list = (await rpc('session.list', { workspaceId: WORKSPACE }))?.value?.items ?? []
+  return list.length
+}
+const sessionsBefore = await countSessions()
+console.log(`宿主 ${WORKSPACE}｜只读会话 ${String(sessionId).slice(0, 20)}｜测试会话 ${testSessionId === undefined ? '（未指定：会发回合的场景将跳过）' : String(testSessionId).slice(0, 20)}｜场景 ${picked.length} 个 × ${repeat} 遍\n`)
 
 let totalChecks = 0
 const violations = []
 const scenarioErrors = []
+let skipped = 0
 
 for (const scenario of picked) {
   for (let round = 1; round <= repeat; round += 1) {
     const label = repeat === 1 ? scenario.id : `${scenario.id}#${round}`
+    // 会发回合的场景必须用专用测试会话；没配置就跳过（不制造假红）。
+    if (scenario.needsTurn === true && testSessionId === undefined) {
+      console.log(`SKIP  ${label.padEnd(28)} 需要 PALM_TEST_SESSION（避免往你的会话里发消息）`)
+      skipped += 1
+      continue
+    }
+
     const { browser, context } = await launch({ headed: has('headed') })
     const check = (kind, ok, detail) => {
       totalChecks += 1
@@ -72,7 +102,7 @@ for (const scenario of picked) {
     }
     const startedAt = Date.now()
     try {
-      await scenario.run({ browser, context, check, sessionId, rpc })
+      await scenario.run({ browser, context, check, sessionId, testSessionId, rpc })
     } catch (error) {
       scenarioErrors.push({ scenario: label, error: String(error?.message ?? error).slice(0, 200) })
     } finally {
@@ -86,7 +116,7 @@ for (const scenario of picked) {
   }
 }
 
-console.log(`\n共 ${totalChecks} 条判据｜违规 ${violations.length} 条｜场景异常 ${scenarioErrors.length} 个`)
+console.log(`\n共 ${totalChecks} 条判据｜违规 ${violations.length} 条｜场景异常 ${scenarioErrors.length} 个｜跳过 ${skipped} 个`)
 for (const item of violations.slice(0, 10)) {
   console.log('  ✗', item.scenario, item.kind, JSON.stringify(item.detail).slice(0, 140))
 }
@@ -98,6 +128,20 @@ const blocking = violations.filter(item => {
   const scenario = picked.find(candidate => item.scenario === candidate.id || item.scenario.startsWith(`${candidate.id}#`))
   return scenario?.flaky !== true
 })
+function check_sessions_unchanged(before, after) {
+  if (after > before) {
+    violations.push({ scenario: 'runner', kind: 'no-new-sessions', detail: { before, after } })
+    console.log(`  ✗ runner 场景新建了会话：${before} → ${after}（本套场景不允许新建会话）`)
+  } else {
+    console.log(`会话总数未变（${after} 条），没有新建测试会话 ✓`)
+  }
+}
+
+// 用户要求（2026-10-31）：**不要开一堆会话来测**。场景只复用同一条会话，
+// 这里兜底校验：跑完会话总数不许增加。
+const sessionsAfter = await countSessions()
+check_sessions_unchanged(sessionsBefore, sessionsAfter)
+
 const ok = blocking.length === 0 && scenarioErrors.length === 0
 console.log(ok
   ? `结论：门禁通过 ✓${violations.length === 0 ? '' : `（有 ${violations.length} 条来自 flaky 场景，仅记录）`}`

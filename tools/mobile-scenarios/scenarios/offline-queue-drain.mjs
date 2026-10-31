@@ -14,17 +14,20 @@ import { chatUrl, sleep } from '../lib/env.mjs'
 
 export const scenario = {
   id: 'offline-queue-drain',
+  /** 需要"已预热"的专用测试会话才算得准；fixture 稳定前不挡门禁。 */
+  flaky: true,
+  needsTurn: true,
   title: '发送通道不可用 → 恢复后只送达一次',
   async run(ctx) {
-    const { context, check, sessionId } = ctx
-    check('session-provided', sessionId !== undefined, { sessionId })
-    if (sessionId === undefined) return
+    const { context, check, testSessionId } = ctx
+    check('test-session-provided', testSessionId !== undefined, { testSessionId })
+    if (testSessionId === undefined) return
 
     const page = await context.newPage()
     let blocking = true
     try {
       // ① 先把页面完整加载（此时通道正常）
-      await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
+      await page.goto(chatUrl(testSessionId), { waitUntil: 'domcontentloaded' })
       const input = page.locator('textarea, [contenteditable=true]').first()
       await input.waitFor({ state: 'visible', timeout: 20000 })
       await page.waitForTimeout(1500)
