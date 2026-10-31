@@ -47,13 +47,17 @@ const sampleOnce = page => page.evaluate(() => {
     const model = (window.__palmRows ?? []).find(entry => entry.id === id)
     const turn = model?.turn
     if (turn === undefined) { noTurnCards += 1; continue }
-    byTurn.set(turn, (byTurn.get(turn) ?? 0) + 1)
+    // 一轮里**多个步骤**各自带过程卡是正常的（多步工具调用各画一张）。
+    // 真正要防的是「同一步骤被画了两遍」——所以才按 轮次+步骤 分组。
+    const step = model?.step
+    const key = step === undefined ? `turn${turn}:step?` : `turn${turn}:step${step}`
+    byTurn.set(key, (byTurn.get(key) ?? 0) + 1)
   }
   const ids = [...document.querySelectorAll('[data-message-id]')].map(el => el.getAttribute('data-message-id'))
   return {
     cards: cards.length,
     noTurnCards,
-    sameTurnDuplicates: [...byTurn.entries()].filter(([, n]) => n > 1).map(([turn, n]) => `turn${turn}x${n}`),
+    sameStepDuplicates: [...byTurn.entries()].filter(([, n]) => n > 1).map(([key, n]) => `${key}x${n}`),
     dupIds: ids.length - new Set(ids).size,
   }
 })
@@ -74,7 +78,7 @@ async function enterAndWatch(sessionId, rounds, label) {
       await page.waitForTimeout(50)
       const snap = await sampleOnce(page)
       total += 1
-      if (snap.sameTurnDuplicates.length > 0 || snap.dupIds > 0) {
+      if (snap.sameStepDuplicates.length > 0 || snap.dupIds > 0) {
         violations += 1
         if (offenders.length < 6) {
           offenders.push({ label, session: String(sessionId).slice(0, 14), round, at: `${(i + 1) * 50}ms`, ...snap })

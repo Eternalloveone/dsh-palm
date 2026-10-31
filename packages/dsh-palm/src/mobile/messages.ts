@@ -1914,27 +1914,53 @@ export const KEEP_ORPHAN_REPORT_TURNS = 2
  * 二者都明确相等时才合并，保留信息更全的那份（工具更多 / 正文更长）。
  */
 export function dedupeSameStep(rows: readonly RenderMessage[]): readonly RenderMessage[] {
+  const scoreOf = (item: RenderMessage): number =>
+    (item.tools?.length ?? 0) * 100 + (item.text?.length ?? 0) + (item.deliverables?.length ?? 0) * 50
+  /** 这一行"画出来会不会有过程卡"。 */
+  const hasProcess = (item: RenderMessage): boolean =>
+    item.kind === 'assistant'
+    && (item.tools !== undefined || item.flow !== undefined || item.reasoning !== undefined)
+  /** 一轮一步的稳定身份：同一批工具调用就是同一步（缓存页/网络页会给不同 id 和 seq）。 */
+  const stepKeyOf = (item: RenderMessage): string | undefined => {
+    if (item.kind !== 'assistant' || item.turn === undefined) return undefined
+    if (item.step !== undefined) return `t${item.turn}s${item.step}`
+    const callIds = (item.tools ?? []).map(tool => tool.callId).filter(id => typeof id === 'string')
+    if (callIds.length > 0) return `t${item.turn}c${[...callIds].sort().join(',')}`
+    return undefined
+  }
+
   const best = new Map<string, number>()
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]
-    if (row === undefined || row.kind !== 'assistant') continue
-    if (row.turn === undefined || row.step === undefined) continue
-    const key = `${row.turn}:${row.step}`
+    if (row === undefined) continue
+    const key = stepKeyOf(row)
+    if (key === undefined) continue
     const previous = best.get(key)
     if (previous === undefined) { best.set(key, i); continue }
-    const a = rows[previous] as RenderMessage
-    const scoreOf = (item: RenderMessage): number =>
-      (item.tools?.length ?? 0) * 100 + (item.text?.length ?? 0) + (item.deliverables?.length ?? 0) * 50
-    if (scoreOf(row) >= scoreOf(a)) best.set(key, i)
+    if (scoreOf(row) >= scoreOf(rows[previous] as RenderMessage)) best.set(key, i)
   }
+
+  // 合成补位行（`live-proc:`）：同一轮已经有**真实行**带过程信息时，它必须让位。
   let drop: Set<number> | undefined
-  for (const [, keep] of best) {
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = rows[i]
-      if (row === undefined || row.kind !== 'assistant') continue
-      if (row.turn === undefined || row.step === undefined) continue
-      if (i === keep) continue
-      if (best.get(`${row.turn}:${row.step}`) !== keep) continue
+  const syntheticTurns = new Set<number>()
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]
+    if (row === undefined) continue
+    if (typeof row.id === 'string' && row.id.startsWith('live-proc:')) continue
+    if (row.turn !== undefined && hasProcess(row)) syntheticTurns.add(row.turn)
+  }
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]
+    if (row === undefined) continue
+    const key = stepKeyOf(row)
+    if (key !== undefined && best.get(key) !== i) {
+      if (drop === undefined) drop = new Set()
+      drop.add(i)
+      continue
+    }
+    if (typeof row.id === 'string' && row.id.startsWith('live-proc:')
+      && row.turn !== undefined && syntheticTurns.has(row.turn)) {
       if (drop === undefined) drop = new Set()
       drop.add(i)
     }

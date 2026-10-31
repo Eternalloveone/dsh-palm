@@ -49,6 +49,15 @@ const sampleOnce = page => page.evaluate(() => {
     doneCards: cards.filter(card => /已完成/.test(card.textContent ?? '')).length,
     running: /输出中|生成中|深度求索中|正在/.test(body),
     firstCardText: (cards[0]?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24),
+    // 按行 id 记录每张卡的文案：**同一张卡**被改写才算改写。
+    // 以前比"第一张卡"的文案 —— 旧卡被新卡挤到后面时当然会变，那是假失败（实测两条）。
+    cardTextById: cards.reduce((acc, card) => {
+      const row = card.closest('[data-message-id]')
+      const id = row?.getAttribute('data-message-id') ?? ''
+      if (id === '') return acc
+      acc[id] = (card.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24)
+      return acc
+    }, {}),
   }
 })
 
@@ -132,17 +141,31 @@ for (const id of idleIds) {
   let previousRows = 0
   let previousCards = 0
   let previousText = ''
+  /** 每张卡（按行 id）上一次的文案：只有**同一张卡**被改写才算问题。 */
+  const previousCardText = new Map()
   for (let i = 0; i < FRAMES; i += 1) {
     await page.waitForTimeout(50)
     const snap = await sampleOnce(page)
     frames += 1
     if (snap.rows < previousRows) note('rows-went-backwards', { session: String(id).slice(0, 13), at: `${(i + 1) * 50}ms`, from: previousRows, to: snap.rows })
-    if (previousText !== '' && snap.firstCardText !== '' && snap.firstCardText !== previousText) {
-      note('card-text-rewritten', { session: String(id).slice(0, 13), at: `${(i + 1) * 50}ms`, from: previousText, to: snap.firstCardText })
+    // 会话**正在跑**时不判：这一轮还在产出，卡片本来就该跟着变。
+    // 判据要的是"收工后同一张卡不再被改写"。
+    const busy = await page.evaluate(() => {
+      const chip = document.querySelector('.chat-turn-status')
+      return chip === null ? false : (chip.textContent ?? '').includes('输出中')
+    })
+    if (!busy) {
+      for (const [cardId, current] of Object.entries(snap.cardTextById ?? {})) {
+        const previous = previousCardText.get(cardId)
+        if (previous !== undefined && previous !== current) {
+          note('card-text-rewritten', { session: String(id).slice(0, 13), at: `${(i + 1) * 50}ms`, from: previous, to: current })
+        }
+        previousCardText.set(cardId, current)
+      }
     }
     previousRows = Math.max(previousRows, snap.rows)
     previousCards = Math.max(previousCards, snap.cards ?? previousCards)
-    if (snap.firstCardText !== '') previousText = snap.firstCardText
+    previousText = snap.firstCardText
   }
   await page.close()
 }
