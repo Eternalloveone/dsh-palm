@@ -1905,6 +1905,44 @@ export const KEEP_ORPHAN_REPORT_TURNS = 2
  * 规则保守：中间没有用户行插进来，就沿用上一条助手行的轮号；遇到用户行即清空。
  * 没有需要补的行时返回**原数组**（保持引用，避免多余重渲染）。
  */
+/**
+ * 合并"同一回合的同一个步骤"被两份页各画了一次的行。
+ *
+ * 为什么需要（2026-11-01 压测实测 `turn112x2`）：进会话时先画缓存页、再换网络页，
+ * 同一步骤在两份页里的 `seq` 可能不同，于是 `sameRenderedRow` 认不出它们是同一行，
+ * 屏幕上就短暂出现**同一轮两张过程卡**。判据用"轮次 + 步骤"（`turn` + `step`），
+ * 二者都明确相等时才合并，保留信息更全的那份（工具更多 / 正文更长）。
+ */
+export function dedupeSameStep(rows: readonly RenderMessage[]): readonly RenderMessage[] {
+  const best = new Map<string, number>()
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]
+    if (row === undefined || row.kind !== 'assistant') continue
+    if (row.turn === undefined || row.step === undefined) continue
+    const key = `${row.turn}:${row.step}`
+    const previous = best.get(key)
+    if (previous === undefined) { best.set(key, i); continue }
+    const a = rows[previous] as RenderMessage
+    const scoreOf = (item: RenderMessage): number =>
+      (item.tools?.length ?? 0) * 100 + (item.text?.length ?? 0) + (item.deliverables?.length ?? 0) * 50
+    if (scoreOf(row) >= scoreOf(a)) best.set(key, i)
+  }
+  let drop: Set<number> | undefined
+  for (const [, keep] of best) {
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i]
+      if (row === undefined || row.kind !== 'assistant') continue
+      if (row.turn === undefined || row.step === undefined) continue
+      if (i === keep) continue
+      if (best.get(`${row.turn}:${row.step}`) !== keep) continue
+      if (drop === undefined) drop = new Set()
+      drop.add(i)
+    }
+  }
+  if (drop === undefined) return rows
+  return rows.filter((_, index) => drop?.has(index) !== true)
+}
+
 export function normalizeTranscriptRows(rows: readonly RenderMessage[]): readonly RenderMessage[] {
   let carried: number | undefined
   let out: RenderMessage[] | undefined

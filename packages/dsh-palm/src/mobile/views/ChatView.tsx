@@ -31,7 +31,7 @@ import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage, type PromptPart } from '../image.ts'
 import { uploadAttachment, type UploadedAttachment } from '../api.ts'
-import { coalesceTurnMessages, completedTurns, ensureTurnTails, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
+import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
 import { reportDuplicateCards } from '../duplicate-report.ts'
 import { reportError } from '../api.ts'
 import {
@@ -790,10 +790,13 @@ export function ChatView({
       const merged = merge ? preferRicherRows(previous, next) : next
       // 现场取证：真机上偶尔还会出现「同一轮两张卡」。与其继续猜，不如在它真的发生时
       // 把当时的行数据存到宿主（每个会话 1 分钟最多一次，失败静默）。
-      reportDuplicateCards(session.sessionId, merged, report => {
+      // 进会话时缓存页与网络页可能把同一轮同一步骤各画一次（seq 不同，
+      // 合并判据认不出来）—— 短暂出现同一轮两张过程卡。按 (turn, step) 去重。
+      const deduped = [...dedupeSameStep(merged)]
+      reportDuplicateCards(session.sessionId, deduped, report => {
         void reportError(report, 'duplicate-cards').catch(() => {})
       })
-      return merged
+      return deduped
     })
   }, [session.sessionId])
   // 「离开聊天即清」：定位意图只在这一次进入里有效。转场里聊天页会短暂挂两个实例，
