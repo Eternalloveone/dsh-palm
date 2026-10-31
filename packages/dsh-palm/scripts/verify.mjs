@@ -20,6 +20,7 @@
  *
  *   pnpm verify                       # full CI mirror
  *   pnpm verify --profile push        # what the pre-push hook runs
+ *   pnpm verify --profile release     # ci + 场景压测（需要宿主在跑）
  *   pnpm verify --only hygiene,pack   # ad-hoc subset
  *   pnpm verify --skip coverage,audit
  *   pnpm verify --message "v1.3.3: release dsh-palm (...)"
@@ -60,6 +61,10 @@ const HYGIENE_EXCLUDES = [
 const PROFILES = {
   ci: ['install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint'],
   push: ['hygiene', 'secrets', 'tests', 'commitlint'],
+  // 发版闸门：CI 那套 + 用户旅程级的场景压测。
+  // 场景需要一台**正在跑的宿主**（默认 127.0.0.1:3080）；宿主不在时这一步会
+  // 自己跳过并说明原因，不会把"没开宿主"误判成"代码坏了"。
+  release: ['install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint', 'scenarios'],
 }
 
 const STEPS = {
@@ -106,6 +111,62 @@ const STEPS = {
     title: 'commitlint',
     run: commitlint,
   },
+  scenarios: {
+    /**
+     * 用户旅程级场景压测（跨页往返 / 排队 / 慢回执 / 恢复 / 切后台 / 长会话 / 绿点）。
+     *
+     * 为什么放在这里：这一整周的疑难杂症（过程条消失、交付卡提前出现、卡片被改写、
+     * 灰点不变绿、假失败）**没有一个是单次操作断言能抓到的**，全靠真机反复进出撞出来。
+     * 场景集就是把这些旅程固化成可重跑的门禁。
+     *
+     * 依赖一台在跑的宿主；不在就跳过（返回 true + 明确原因），不制造假红。
+     */
+    title: 'mobile scenarios (user journeys)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，场景压测跳过（发版前请先开宿主）\n`)
+        return true
+      }
+      const env = process.env.PALM_SESSION === undefined || process.env.PALM_SESSION === ''
+        ? { ...process.env, PALM_SESSION: pickAnySession(base) }
+        : process.env
+      return run('node tools/mobile-scenarios/run.mjs', rootDir, { env })
+    },
+  },
+}
+
+/**
+ * 宿主在不在？只探一次 /m/ 的 HTTP 状态，超时 2 秒。
+ * 这是同步脚本（verify 全流程同步），所以用 node 的 execFileSync 同步 curl。
+ */
+function hostIsUp(base) {
+  const probe = spawnSync(process.execPath, ['-e', `
+    fetch(${JSON.stringify(base)} + '/m/', { method: 'GET' })
+      .then(res => { process.stdout.write(String(res.status)); process.exit(0) })
+      .catch(() => process.exit(1))
+  `], { encoding: 'utf8', timeout: 5000 })
+  return probe.status === 0
+}
+
+/** 挑一条"内容最多"的会话给场景用；挑不到就空着（场景自己会跳过）。 */
+function pickAnySession(base) {
+  const probe = spawnSync(process.execPath, ['-e', `
+    fetch(${JSON.stringify(base)} + '/m/api/session.list', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: 'dsh_pair=' + (process.env.PALM_PAIR ?? '') },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'pick', method: 'session.list', payload: {} }),
+    }).then(r => r.json()).then(body => {
+      const items = body?.result?.value?.items ?? []
+      // 挑**轮数最多**的那条：跨页/长会话场景要一条有内容的真实会话；
+      // 取"最新"会拿到刚建的 scratch 空会话，判据全是空跑（实测假失败 3 条）。
+      const sorted = [...items].sort((a, b) => (b.turns ?? 0) - (a.turns ?? 0))
+      const best = sorted[0]
+      process.stdout.write(String(best?.sessionId ?? best?.id ?? ''))
+      process.exit(0)
+    }).catch(() => process.exit(1))
+  `], { encoding: 'utf8', timeout: 15000 })
+  return probe.status === 0 ? probe.stdout.trim() : ''
 }
 
 const options = parseArgs(process.argv.slice(2))

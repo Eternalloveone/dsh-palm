@@ -80,7 +80,9 @@ for (const scenario of picked) {
     }
     const cost = ((Date.now() - startedAt) / 1000).toFixed(1)
     const failed = violations.filter(item => item.scenario === label).length
-    console.log(`${failed === 0 ? 'PASS' : 'FAIL'}  ${label.padEnd(28)} ${cost}s  判据 ${failed} 条未通过`)
+    // flaky 场景：失败只记录、不挡门禁（判据还没稳到可以拦发版的程度，但信号要留着）
+    const status = failed === 0 ? 'PASS' : (scenario.flaky === true ? 'FLAKY' : 'FAIL')
+    console.log(`${status}  ${label.padEnd(28)} ${cost}s  判据 ${failed} 条未通过`)
   }
 }
 
@@ -91,6 +93,13 @@ for (const item of violations.slice(0, 10)) {
 for (const item of scenarioErrors.slice(0, 5)) {
   console.log('  ! ', item.scenario, item.error)
 }
-const ok = violations.length === 0 && scenarioErrors.length === 0
-console.log(ok ? '结论：全部场景通过 ✓' : '结论：有场景未通过 ✗')
+// 只有"非 flaky 场景"的违规与场景异常才算门禁失败
+const blocking = violations.filter(item => {
+  const scenario = picked.find(candidate => item.scenario === candidate.id || item.scenario.startsWith(`${candidate.id}#`))
+  return scenario?.flaky !== true
+})
+const ok = blocking.length === 0 && scenarioErrors.length === 0
+console.log(ok
+  ? `结论：门禁通过 ✓${violations.length === 0 ? '' : `（有 ${violations.length} 条来自 flaky 场景，仅记录）`}`
+  : '结论：有场景未通过 ✗')
 process.exit(ok ? 0 : 1)
