@@ -2810,6 +2810,22 @@ export function ChatView({
   })()
 
   /**
+   * 列表里**票号最大**的那一轮。
+   *
+   * 用途：只知道"会话在跑"、却不知道是哪一轮时（实时帧丢了、刚重连），拿它当保守的
+   * "本轮"——宁可先把最新那张交付卡藏起来，也不要让"跑着的时候冒出交付卡"再发生一次。
+   */
+  const newestCardTurn = ((): number | undefined => {
+    let turn: number | undefined
+    for (const message of messages) {
+      const candidate = message.turn
+      if (candidate === undefined) continue
+      if (turn === undefined || candidate > turn) turn = candidate
+    }
+    return turn
+  })()
+
+  /**
    * 正在跑的那一轮的**过程快照**：一旦展示过工具/思考/flow，就记住。
    *
    * 为什么要它：过程条是画在"行"上的，而行会在（缓存页 → 网络页 → 权威页、窗口截断）
@@ -6653,7 +6669,13 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           //
           // 之前只藏"不带过程信息的卡"，于是带过程的卡照样把"本轮产出"显示出来
           // （真机 2026-10-31）。现在一律藏；过程条由下面的粘性快照保证不丢。
-          if (message.kind === 'turn' && running && message.turn !== undefined && message.turn === activeTurn) {
+          // 在跑的时候，本轮交付卡一律不显示。
+          // 优先用"最后一条用户消息之后的轮次"（位置判据）；拿不到时（实时帧丢了、
+          // 刚重连、这一轮还没产生任何行）退回"票号最大的一轮"——**保守优先**：
+          // 宁可先把最新那张卡藏起来，也不要在跑着的时候冒出交付卡（真机多次反馈）。
+          const liveTurnNumber = activeTurn ?? (running ? newestCardTurn : undefined)
+          if (message.kind === 'turn' && running && message.turn !== undefined
+            && message.turn === liveTurnNumber) {
             return null
           }
           const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
