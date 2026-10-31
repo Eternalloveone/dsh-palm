@@ -1142,7 +1142,10 @@ export function ChatView({
     if (messages.length === 0) return
     const timer = setTimeout(() => {
       const maxSeq = messages.reduce((max, row) => (row.seq > max ? row.seq : max), 0)
-      void saveCachedHistory(session.sessionId, { rows: messages, maxSeq, hasOlder })
+      // 猜出来的交付卡不进缓存：下次进入先画它、几秒后被真卡替换，
+      // 用户看到的就是"卡片内容又变了一次"。缓存只留真卡（turn/end 或回读写到的）。
+      const cacheable = messages.filter(row => row.guessed !== true)
+      void saveCachedHistory(session.sessionId, { rows: cacheable, maxSeq, hasOlder })
     }, 400)
     return () => { clearTimeout(timer) }
   }, [messages, hasOlder, session.sessionId])

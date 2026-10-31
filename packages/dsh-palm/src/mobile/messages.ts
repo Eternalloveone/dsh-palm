@@ -52,6 +52,13 @@ export interface TurnDeliverable {
 }
 
 export interface RenderMessage {
+  /**
+   * 这张交付卡是**猜出来的**（按工具行重建，没有真正的 turn/end）。
+   *
+   * 猜的卡内容可能不全（文件清单少一两个），真卡一到就会被替换 —— 用户看到的就是
+   * "卡片内容又变了一次"。所以：猜的卡**不进缓存**，也不许盖掉真卡。
+   */
+  readonly guessed?: boolean
   /** Stable message identity — the wire id when present, else the event seq. */
   readonly id: string
   readonly kind: 'user' | 'assistant' | 'command' | 'turn'
@@ -2078,6 +2085,9 @@ function mergeRows(before: RenderMessage, row: RenderMessage): RenderMessage {
   const richer: RenderMessage = {
     ...before,
     ...row,
+    // 只要有一侧是**真卡**（不是按工具行猜的），合并结果就是真卡。
+    // 否则猜的标记会一直粘着，缓存永远不肯收这张卡。
+    ...(before.guessed === true && row.guessed === true ? { guessed: true } : { guessed: undefined }),
     // 缺轮号的一侧跟着另一侧补齐（与 coalesce 同一条规则）：标识客户是同一轮，
     // 不补的话下游认不出「这一行属于正在跑的第 98 轮」，过程卡的状态与秒表都会丢。
     ...(row.turn === undefined && before.turn !== undefined ? { turn: before.turn } : {}),
@@ -2254,6 +2264,8 @@ export function ensureTurnTails(rows: readonly RenderMessage[], openTurn?: numbe
       kind: 'turn',
       text: '',
       turn,
+      // 这是"按工具行重建"的推测卡：有可能不完整，标记出来别让它进缓存。
+      guessed: true,
       // 报告行不是某一步的行：把锚点行的 step 清掉。留着它的话，行 key 会退化成
       // `(turn, step)`，和锚点行撞成同一个 key —— React 遇到重复 key 的行为是
       // "可能重复或丢弃子节点"，真机表现就是卡片时有时无。

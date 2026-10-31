@@ -2162,3 +2162,29 @@ describe('回归闸门：没轮号的流式行不能让过程卡消失', () => {
     expect(folded.some(entry => entry.pending === true && entry.turn === undefined)).toBe(true)
   })
 })
+
+describe('回归闸门：猜出来的交付卡不许污染真卡', () => {
+  // 真机：进会话先画出缓存的"猜卡"（文件清单是猜的），1.4 秒后被真卡替换 ——
+  // 用户看到的就是"卡片内容又变了一下"。修法：猜卡不打肿脸充真卡，也不进缓存。
+  const row = (overrides: Record<string, unknown>): RenderMessage => ({
+    id: 'x', kind: 'assistant', text: '', seq: 1, ...overrides,
+  } as RenderMessage)
+
+  it('真卡与猜卡合并 → 结果是真卡（不保留 guessed 标记）', () => {
+    const guessed = row({ id: 'g', kind: 'turn', turn: 5, deliverables: [{ path: 'guess.md' }], guessed: true })
+    const real = row({ id: 'r', kind: 'turn', turn: 5, deliverables: [{ path: 'real.md' }] })
+    const merged = preferRicherRows([guessed], [real])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.guessed).not.toBe(true)
+    // 两边的文件都留着（不丢信息）
+    const paths = (merged[0]?.deliverables ?? []).map(file => file.path)
+    expect(paths).toContain('real.md')
+  })
+
+  it('两张都是猜卡 → 仍是猜卡（继续不进缓存）', () => {
+    const a = row({ id: 'g1', kind: 'turn', turn: 5, deliverables: [{ path: 'a.md' }], guessed: true })
+    const b = row({ id: 'g2', kind: 'turn', turn: 5, deliverables: [{ path: 'b.md' }], guessed: true })
+    const merged = preferRicherRows([a], [b])
+    expect(merged[0]?.guessed).toBe(true)
+  })
+})
