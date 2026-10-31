@@ -67,6 +67,9 @@ const PAGES = [
     unit: '.mobile-row, [class*=set-row], [class*=setting]',
     identity: null,
     list: false,
+    // 设置页的行会"先出现再被真实状态替换"（例如检查更新：先有占位行，读到结果后合并），
+    // 行数回落是内容替换，不是渲染不稳定。这里只要求"没有重复 key、没有离底问题"。
+    allowShrink: true,
   },
 ]
 
