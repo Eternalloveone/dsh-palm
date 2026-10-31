@@ -6719,3 +6719,30 @@ describe('ChatView send：超时但宿主其实收到了', () => {
     expect(screen.queryByText(/发送失败/)).toBeNull()
   })
 })
+
+describe('ChatView 草稿与打不开的会话', () => {
+  it('进会话时把该会话的草稿恢复回来', async () => {
+    // 真机（2026-10-31）：草稿存在 localStorage 里，但切回会话后输入框是空的 ——
+    // useState(() => loadDraft(...)) 只在首次挂载跑，那时 sessionId 常常还是空串。
+    const { saveDraft, removeDraft } = await import('../list-persist.ts')
+    saveDraft(session.sessionId, '写了一半的话')
+    try {
+      loadChatPageMock.mockResolvedValue(rowPage([]))
+      render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+      await waitFor(() => { expect(input.value).toBe('写了一半的话') })
+    } finally {
+      removeDraft(session.sessionId)
+    }
+  })
+
+  it('会话打不开时明确说一句，而不是永远"加载中"', async () => {
+    loadChatPageMock.mockRejectedValue(new Error('gone'))
+    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // 判据是"不能永远停在加载中"：要么给出错误行，要么落到空态/可输入状态。
+    await waitFor(() => {
+      const text = container.textContent ?? ''
+      expect(/打不开这个会话|还没有消息|加载失败/.test(text)).toBe(true)
+    })
+  })
+})

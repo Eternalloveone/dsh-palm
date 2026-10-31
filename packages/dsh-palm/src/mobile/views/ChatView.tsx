@@ -936,6 +936,8 @@ export function ChatView({
   const liveBufferRef = useRef<WireEvent[]>([])
   /** Incremental folder for this session's stream (indexes stay hot across events). */
   const folderRef = useRef<EventFolder | undefined>(undefined)
+  /** 这个会话是否**成功加载过**一页：用来区分"打不开"和"还在加载"。 */
+  const loadedPageRef = useRef(false)
   /**
    * rAF micro-batch for live message events. SSE `onmessage` is a separate
    * macrotask per frame, so folding each event straight into `setMessages`
@@ -1942,6 +1944,7 @@ export function ChatView({
       if (cancelled || networkLanded || cached === undefined || cacheHit) return
       cacheHit = true
       const folder = new EventFolder(cached.rows, cached.maxSeq)
+      loadedPageRef.current = true
       folderRef.current = folder
       applyMessages(folder.fold([]))
       setHasOlder(cached.hasMore)
@@ -1994,7 +1997,8 @@ export function ChatView({
         liveBufferRef.current = []
         tailLoadingRef.current = false
         const folder = new EventFolder(page.rows, page.maxSeq)
-        folderRef.current = folder
+        loadedPageRef.current = true
+      folderRef.current = folder
         let foldedRows = folder.fold(buffered)
         // 交付卡跟着正文**同一次提交**落地。
         //
@@ -4484,7 +4488,8 @@ export function ChatView({
         liveBufferRef.current = []
         tailLoadingRef.current = false
         const folder = new EventFolder(page.rows, page.maxSeq)
-        folderRef.current = folder
+        loadedPageRef.current = true
+      folderRef.current = folder
         const foldedRows = folder.fold(buffered)
         applyMessages(foldedRows)
         setHasOlder(page.hasMore)
@@ -4512,7 +4517,7 @@ export function ChatView({
         //
         // 真机（2026-10-31）：点一条已被删掉的会话 / 失效链接，页面永远停在
         // "加载中…"，用户只能反复刷新。这里把失败说出来（下面的渲染会显示 error）。
-        if (folderRef.current === undefined && buffered.length === 0) {
+        if (!loadedPageRef.current) {
           setError('打不开这个会话：它可能已被删除，或链接已失效')
         }
       },
