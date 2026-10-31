@@ -6526,13 +6526,16 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           // 行全渲染：不可见行交给 content-visibility（浏览器自己记住布局过的
           // 真实高度，不是我们估的数）。尾部 CONTENT_VISIBILITY_KEEP_BOTTOM 行
           // 保持真实布局，贴底时 el.scrollHeight 才是精确值。
-          // 注意：**不要**因为"这一轮在跑"就把 turn 行整行藏掉。
-          //
-          // 以前这里 `return null`，结果真机（2026-10-31 08:52）上：正在跑的那一轮，
-          // 过程条（深度求索中 / 用时 / 思考中）跟着 turn 行一起消失，只剩一个时间戳。
-          // 「在跑的回合不许显示已完成卡」这件事已经在**数据层**解决（ensureTurnTails /
-          // missingTurnReports 都跳过 openTurn，不会为它猜卡），所以这里可以正常渲染：
-          // 真有 turn/end 才会有 turn 行，既然在跑，它本身就是"进行中"的样子。
+          // 正在跑的那一轮：**纯交付卡**先不显示（turn/end 之后才算收工，
+          // 否则会话还在跑、屏幕上先冒出一张"本轮产出"）。但带过程信息的那一行
+          // 必须照常渲染 —— 它就是"深度求索中 / 用时 / 思考中"这条过程条，
+          // 一律藏掉的话会表现为"过程条消失，只剩时间"（2026-10-31 真机）。
+          if (message.kind === 'turn' && liveTurn !== undefined && message.turn === liveTurn) {
+            const carriesProcess = (message.tools?.length ?? 0) > 0
+              || (message.flow?.length ?? 0) > 0
+              || (message.reasoning ?? '') !== ''
+            if (!carriesProcess) return null
+          }
           const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
             ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${estimateMessageHeight(message)}px` }
             : undefined
