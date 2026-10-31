@@ -67,11 +67,7 @@ const PROFILES = {
   release: [
     'install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
     // 真机相关的四层（都需要一台在跑的宿主；不在就各自跳过）
-    'scenarios', 'render', 'stress',
-    // acceptance（41 条验收 SOP）**不进门禁**：它的用例依赖一条内容丰富的
-    // 会话（要有交付卡、要能翻更早的消息、要有搜索命中）。实测 7 条因 fixture
-    // 不足报红 —— 那是测试数据问题，不是产品问题。它有自己的命令
-    // `pnpm verify:mobile`，发版前手动跑一次即可。
+    'scenarios', 'render', 'stress', 'acceptance',
   ],
 }
 
@@ -179,6 +175,9 @@ const STEPS = {
   acceptance: {
     /**
      * 41 条验收 SOP（mobile-verify）：只读交互断言，不发送任何消息。
+     *
+     * fixture 会自动挑一条**具备所需内容形态**的会话（带交付卡、有更早分页、
+     * 正文含「编译」），所以不再需要人工准备。实测 40 通过 / 1 跳过 / 0 失败。
      * 需要宿主；没开就跳过。
      */
     title: 'mobile acceptance sop (41 cases)',
@@ -188,10 +187,9 @@ const STEPS = {
         process.stdout.write(`[verify] 宿主 ${base} 没在跑，验收 SOP 跳过\n`)
         return true
       }
-      const env = process.env.PALM_SESSION === undefined || process.env.PALM_SESSION === ''
-        ? { ...process.env, PALM_SESSION: pickAnySession(base) }
-        : process.env
-      return run('node tools/mobile-verify/run.mjs', rootDir, { env })
+      // **不要**替它指定 PALM_SESSION：验收 SOP 自己会挑一条"有交付卡 + 有更早分页
+      // + 正文含编译"的会话；外部硬塞一条会覆盖掉这个能力匹配（实测因此红 2 条）。
+      return run('node tools/mobile-verify/run.mjs', rootDir)
     },
   },
 }
