@@ -2638,7 +2638,13 @@ export function ChatView({
       // 这里只覆盖"边界帧被断流丢了"——所以只在跑着的时候排下一拍，没在跑就停，
       // 回合开始由那条推送叫醒。
       reconcileRunning()
-      if (running) timer = setTimeout(tick, RUNNING_RECONCILE_MS)
+      // 只要**还在跑**或者**还挂着"连接中断"**就继续对账。
+      //
+      // 真机（2026-10-31）：SSE 断过之后，"连接中断"这颗 chip 会一直挂着 ——
+      // 因为对账只在 running 为真时排下一拍，而断流时常常正好是"这一轮已经结束"
+      // 的状态，于是再也没人去过问，用户只能靠刷新页面把横幅消掉。
+      // 这里让 hostLost 也驱动重试：一旦某次对账成功，横幅自动消失、循环停下。
+      if (running || hostLost) timer = setTimeout(tick, RUNNING_RECONCILE_MS)
     }
     // 打开会话、回到前台、running 翻转：先让推送落地，再兜一次。
     timer = setTimeout(tick, INITIAL_RECONCILE_MS)
@@ -2647,7 +2653,7 @@ export function ChatView({
       aliveRef.current = false
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [running, session.sessionId, mux, foreground, reconcileRunning])
+  }, [running, hostLost, session.sessionId, mux, foreground, reconcileRunning])
   // Foreground subagents: fetch on mount/session-switch, and refetch on
   // turn/start (see onFrame). One flat subagents.list call — no recursive
   // tree walk. The live host/session-status overlay keeps running flips

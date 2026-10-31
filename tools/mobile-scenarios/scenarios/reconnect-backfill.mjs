@@ -9,6 +9,22 @@
 import { chatUrl, sleep } from '../lib/env.mjs'
 import { checkNoDuplicateIds, makeMonotonicGuard, sampleChat } from '../lib/invariants.mjs'
 
+/**
+ * 是否正挂着"连接中断"。
+ *
+ * ⚠️ 只读底部那颗状态 chip（`.chat-turn-status` 的 aria-label / 文本），
+ * **绝不全文匹配** —— 实测就栽过：会话正文里正好有一句
+ * "不掉行、不重复、不留「连接中断」"，全文匹配会把用户自己的话当成断线横幅，
+ * 于是场景永远红（假失败）。
+ */
+const disconnectBanner = page => page.evaluate(() => {
+  const chip = document.querySelector('.chat-turn-status')
+  if (chip === null) return false
+  const text = (chip.textContent ?? '').trim()
+  const aria = chip.getAttribute('aria-label') ?? ''
+  return text.includes('连接中断') || aria.includes('连接中断')
+})
+
 export const scenario = {
   id: 'reconnect-backfill',
   title: 'SSE 断 8 秒再恢复：不重复、不丢、不永久断线',
@@ -49,18 +65,19 @@ export const scenario = {
       checkNoDuplicateIds(check, after, 'after-reconnect')
       check('rows-not-duplicated', after.domDuplicateIds === 0, { duplicates: after.domDuplicateIds })
 
-      // 断线提示：正常情况下 1~2 秒就消失（实测）。这里给 60 秒窗口；
-      // 如果它一直挂着、但**数据仍然正确**（上面已经断言过不丢不重），
-      // 那就记录成"横幅残留"，算通过 —— 数据正确是硬要求，横幅是观感。
+      // 断线横幅：正常 1~2 秒就消失（实测 1014ms）。这里给 20 秒窗口 ——
+      // EventSource 有自己的重连退避（3 秒起）+ 页面 stall 阈值（12 秒）。
       let banner = true
       let clearedAfterMs
       const bannerStart = Date.now()
-      for (let i = 0; i < 120; i += 1) {
+      for (let i = 0; i < 40; i += 1) {
         await page.waitForTimeout(500)
-        banner = await page.evaluate(() => /连接中断/.test(document.body.innerText ?? ''))
+        banner = await disconnectBanner(page)
         if (!banner) { clearedAfterMs = Date.now() - bannerStart; break }
       }
-      check('reconnect-data-intact', after.rows >= Math.max(0, before.rows - 2) && after.domDuplicateIds === 0, {
+      check('disconnect-banner-clears', !banner, { clearedAfterMs })
+
+check('reconnect-data-intact', after.rows >= Math.max(0, before.rows - 2) && after.domDuplicateIds === 0, {
         before: before.rows,
         after: after.rows,
         duplicates: after.domDuplicateIds,
