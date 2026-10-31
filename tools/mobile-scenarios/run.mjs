@@ -33,9 +33,16 @@ const SCENARIOS = [
   (await import('./scenarios/reconnect-backfill.mjs')).scenario,
   (await import('./scenarios/long-scroll-anchor.mjs')).scenario,
   (await import('./scenarios/weak-network-3g.mjs')).scenario,
-  // 会发消息（manual）：审批、命令行卡片
+  // 只读补充（第二批）：多设备 / PWA 冷启 / 错误路径
+  (await import('./scenarios/two-devices-same-session.mjs')).scenario,
+  (await import('./scenarios/pwa-cold-start.mjs')).scenario,
+  (await import('./scenarios/error-paths.mjs')).scenario,
+  // 会发消息（manual）：审批、命令行卡片、附件、子代理、输入法
   (await import('./scenarios/approval-decide.mjs')).scenario,
   (await import('./scenarios/command-card-lifecycle.mjs')).scenario,
+  (await import('./scenarios/attachment-upload.mjs')).scenario,
+  (await import('./scenarios/subagent-roundtrip.mjs')).scenario,
+  (await import('./scenarios/ime-composing-send.mjs')).scenario,
 ]
 
 if (has('list')) {

@@ -23,8 +23,16 @@
  *
  * | 类别 | 场景 | 默认是否运行 |
  * |---|---|---|
- * | 只读 | `cross-page-round-trip`、`background-return`、`long-session-window`、`search-and-jump`、`reconnect-backfill`、`long-scroll-anchor`、`weak-network-3g` | **跑** |
- * | 会发消息（`manual`） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle`、`approval-decide`、`command-card-lifecycle` | **不跑**，必须 `--manual` + `PALM_TEST_SESSION` |
+ * | 只读（10 个） | `cross-page-round-trip`、`background-return`、`long-session-window`、`search-and-jump`、`reconnect-backfill`、`long-scroll-anchor`、`weak-network-3g`、`two-devices-same-session`、`pwa-cold-start`、`error-paths` | **跑** |
+ * | 会发消息（`manual`，9 个） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle`、`approval-decide`、`command-card-lifecycle`、`attachment-upload`、`subagent-roundtrip`、`ime-composing-send` | **不跑**，必须 `--manual` + `PALM_TEST_SESSION` |
+ *
+ * 覆盖面（用户旅程）：进会话 / 跨页往返 / 切后台 / 长会话反复进 / 搜索定位 /
+ * SSE 断流补齐 / 长会话滚动锚点 / 3G 弱网 / 双设备一致 / PWA 冷启与清缓存 /
+ * 打不开的会话 / 排队连点 / 慢回执 / 通道不可用 / 绿点生命周期 / 审批拒绝 /
+ * 命令卡片落定 / 附件上传 / 子代理往返 / 输入法组合态。
+ *
+ * 已知观感问题（记录、不判红）：断流恢复后"输出中/连接中断"的状态 chip 可能
+ * 60 秒内仍停在"连接中断"，但数据已完全恢复（不丢行不重复）。
  *
  * 只读 7 个覆盖的用户动作：进会话 / 跨页往返 / 切后台 / 长会话反复进 / 搜索定位 /
  * SSE 断流补齐 / 长会话滚动锚点 / 3G 弱网。发消息 6 个覆盖：排队连点 / 慢回执 /
@@ -59,6 +67,12 @@
  * | `weak-network-3g` | 3G 节流进会话 | 15 秒内出正文、之后不退化成骨架 |
  * | `approval-decide`（manual） | 触发审批 → 点拒绝 | 面板出现、点完消失 |
  * | `command-card-lifecycle`（manual） | 跑一条命令 | 卡片出现、状态落定不转圈 |
+ * | `two-devices-same-session` | 两个客户端看同一会话 | 行数一致、互不破坏 |
+ * | `pwa-cold-start` | 冷启动 + 清缓存后重进 | 15 秒内出正文、不白屏 |
+ * | `error-paths` | 打不开的会话 | 明确提示、不永远骨架 |
+ * | `attachment-upload`（manual） | 选图 → 出现芯片 → 删除 | 芯片出现、可移除 |
+ * | `subagent-roundtrip`（manual） | 委派子代理 → 进子会话 → 返回 | 卡片出现、父会话不塌 |
+ * | `ime-composing-send`（manual） | 组合态按回车 | 不误发、文本保留 |
  * | `queue-while-running` | 跑着排队 + 连点发送 | 队列只 1 条、收工后消失、正文只 1 次、宿主队列空 |
  * | `send-slow-response` | 宿主回执很慢（8s） | 不许谎报"发送失败" |
  *
