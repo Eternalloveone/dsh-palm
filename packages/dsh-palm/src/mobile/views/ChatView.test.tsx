@@ -636,9 +636,11 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
     expect(screen.getByText('本轮产出文件')).toBeTruthy()
   })
 
-  it('keeps the deliverable card after a reload that serves rows without a tail row', async () => {
-    // 刷新后的复现：宿主折叠页只有行，没有那一轮的 turn/end，也就没有尾巴行。
-    // 「本轮产出」不能因此消失 —— 卡片该由行里的事实重建。
+  it('does not paint a guessed deliverable card on entry (avoids rewrite a second later)', async () => {
+    // 契约变更（2026-10-31，long-session 场景实测）：宿主折叠页只有行、没有 turn/end 时，
+    // 客户端过去会"按工具行重建"一张猜卡 —— 但猜卡内容可能不全，真卡一到就把它替换掉，
+    // 用户看到的就是"卡片内容又被改写一遍"（真机：`·memory` → `PS1restart-dsh`）。
+    // 现在进会话这一拍不画猜卡：真卡由 turn/end 或 cardRecovery 从日志读出来。
     loadChatPageMock.mockResolvedValue({
       rows: [
         { id: 'u-1', kind: 'user', text: '写报告', seq: 0, time: 0 },
@@ -657,11 +659,9 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
     } as unknown as ChatPageResult)
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('本轮产出')
-    expect(title.closest('.chat-turn-tail')).not.toBeNull()
-    const tailRow = container.querySelector('.chat-turn-tail') as HTMLElement
-    expect(tailRow.textContent).toContain('1 个文件')
-    expect(tailRow.textContent).toContain('report.md')
+    // 先等这一页真的落地（正文出现），再看有没有卡片。
+    await screen.findByText('好了')
+    expect(container.querySelector('.chat-turn-tail')).toBeNull()
   })
 
   it('reads the log for the card when the page kept only tool names (no arguments)', async () => {

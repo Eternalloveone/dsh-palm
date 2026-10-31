@@ -1767,16 +1767,21 @@ export function missingTurnReports(rows: readonly RenderMessage[], openTurn?: nu
  * @returns the row to display.
  */
 function preferRecoveredReport(guessed: RenderMessage, recovered: RenderMessage): RenderMessage {
-  const deliverables = [...(recovered.deliverables ?? [])]
+  // 顺序：**屏幕上已显示的那些先保留原顺序**，真卡多出来的追加在后面。
+  //
+  // 以前是"真卡在前 + 猜卡补漏"，于是同一个 1 文件的卡会从 `·memory` 变成
+  // `PS1restart-dsh` —— 用户看到"卡片内容被改写了"（2026-10-31 long-session 场景复现）。
+  // 内容取并集是对的，但**顺序必须稳定**：只追加、不重排。
+  const deliverables = [...(guessed.deliverables ?? [])]
   const seenDeliverable = new Set(deliverables.map(file => file.path))
-  for (const file of guessed.deliverables ?? []) {
+  for (const file of recovered.deliverables ?? []) {
     if (seenDeliverable.has(file.path)) continue
     seenDeliverable.add(file.path)
     deliverables.push(file)
   }
-  const produced = [...(recovered.produced ?? [])]
+  const produced = [...(guessed.produced ?? [])]
   const seenProduced = new Set(produced)
-  for (const path of guessed.produced ?? []) {
+  for (const path of recovered.produced ?? []) {
     if (seenProduced.has(path)) continue
     seenProduced.add(path)
     produced.push(path)

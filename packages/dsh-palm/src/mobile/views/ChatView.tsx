@@ -736,17 +736,19 @@ export function ChatView({
     rawPageRef.current = [...rows, ...kept].slice(0, 400)
   }
 
-  const applyMessages = (rows: RenderMessage[]): void => {
+  const applyMessages = (rows: RenderMessage[], options: { allowGuessedTails?: boolean } = {}): void => {
     // 换列表时把已经画出来的「本轮产出」带走：页自己不带报告行，换一次卡片就闪没
     // 一次（真机：「点进会话，卡片突然又消失了」）。
     // 页更权威但更穷（参数被剥、不带报告行）：同身份的行取两边并集，别把屏幕上
     // 更全的那份换成残缺版 —— 真机「拉历史的时候闪一下」就是这一步造成的。
     rememberRawPage(rows)
-    commitRows(rows)
+    commitRows(rows, options)
   }
 
 
   const [hasOlder, setHasOlder] = useState(false)
+
+
 
 
   /**
@@ -1998,7 +2000,11 @@ export function ChatView({
           }
         }
         if (cancelled) return
-        applyMessages(foldedRows)
+        // 进会话**不画猜的交付卡**：猜卡是按工具行重建的，内容可能不全（真机：
+        // 先显示 `·memory`、随后被真卡改成 `PS1restart-dsh`，看着像"卡片被改写"）。
+        // 真卡由 turn/end 或 cardRecovery 从日志读到；没有真卡的回合宁可先不显示卡片，
+        // 也不要在用户眼前改一次。
+        applyMessages(foldedRows, { allowGuessedTails: false })
         // 把**首屏完整这一份**（含交付卡）写进缓存。
         //
         // 以前缓存里存的是 host 尾页那一小份（29 行、3 张卡），于是再次进入先画 29 行、

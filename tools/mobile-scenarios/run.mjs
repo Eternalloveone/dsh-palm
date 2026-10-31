@@ -23,6 +23,9 @@ const SCENARIOS = [
   (await import('./scenarios/cross-page-round-trip.mjs')).scenario,
   (await import('./scenarios/queue-while-running.mjs')).scenario,
   (await import('./scenarios/send-slow-response.mjs')).scenario,
+  (await import('./scenarios/offline-queue-drain.mjs')).scenario,
+  (await import('./scenarios/background-return.mjs')).scenario,
+  (await import('./scenarios/long-session-window.mjs')).scenario,
 ]
 
 if (has('list')) {
