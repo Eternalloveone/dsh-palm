@@ -1147,6 +1147,14 @@ export function ChatView({
    */
   /** 宿主没有 `mobile.turnState`（旧版本）：之后的对账直接走旧路径。 */
   const turnStateUnsupportedRef = useRef(false)
+  /**
+   * **已收工**的轮号集合 —— 交付卡出现的唯一凭据。
+   *
+   * 真机多次反馈："会话还在跑，屏幕上已经冒出「本轮产出」"。根因是这张卡出现的
+   * 判据一直在猜（猜哪一轮在跑、猜位置、拿不到就保守藏）。现在改成**要有证据**：
+   * 只有亲眼看到这一轮收工（宿主说停了、或收到 turn/end），它才允许显示。
+   */
+  const closedTurnsRef = useRef<Set<number>>(new Set())
   const verdictSeqRef = useRef(Number.NEGATIVE_INFINITY)
   const applyTurnVerdict = useCallback((verdict: {
     running: boolean
@@ -1179,7 +1187,10 @@ export function ChatView({
       }
       return
     }
-    // 收工：指针与秒表锚点一起清掉，否则上一轮会一直匹配 liveTurn
+    // 收工：指针与秒表锚点一起清掉，否则上一轮会一直匹配 liveTurn；
+    // 同时把这一轮的轮号记进"已收工"集合 —— 交付卡凭它才允许出现。
+    if (runningTurnRef.current !== undefined) closedTurnsRef.current.add(runningTurnRef.current)
+    if (verdict.turn !== undefined) closedTurnsRef.current.add(verdict.turn)
     setRunningTurn(undefined)
     setTurnStartAt(null)
   }, [])
@@ -6738,9 +6749,17 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           // 优先用"最后一条用户消息之后的轮次"（位置判据）；拿不到时（实时帧丢了、
           // 刚重连、这一轮还没产生任何行）退回"票号最大的一轮"——**保守优先**：
           // 宁可先把最新那张卡藏起来，也不要在跑着的时候冒出交付卡（真机多次反馈）。
-          const liveTurnNumber = activeTurn ?? (running ? newestCardTurn : undefined)
-          if (message.kind === 'turn' && running && message.turn !== undefined
-            && message.turn === liveTurnNumber) {
+          //
+          // **最终判据（2026-10-31 根治）**：交付卡必须带"已收工"证据。
+          //   · 这一轮亲眼收工（宿主说停 / 收到 turn/end）→ 画；
+          //   · 比最新一轮更早的轮次（后面又开了新一轮）→ 等价于已收工 → 画；
+          //   · 其余（还在跑、或不知道）→ 不画。
+          // 不再取决于"是否知道哪一轮在跑"，也不再有"保守藏起来"这种猜测。
+          const cardHasEvidence = message.turn !== undefined && (
+            closedTurnsRef.current.has(message.turn)
+            || (newestCardTurn !== undefined && message.turn < newestCardTurn)
+          )
+          if (message.kind === 'turn' && running && !cardHasEvidence) {
             return null
           }
           const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
