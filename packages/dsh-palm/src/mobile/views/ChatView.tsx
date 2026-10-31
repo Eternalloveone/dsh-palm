@@ -1145,6 +1145,8 @@ export function ChatView({
    * 以前的写法是各处直接 `setRunning(...)`：帧一说就改、对账一说又改，两者谁后到谁
    * 生效 —— 这就是"有时候卡片/过程条状态不对"的根源。现在只剩这一个入口。
    */
+  /** 宿主没有 `mobile.turnState`（旧版本）：之后的对账直接走旧路径。 */
+  const turnStateUnsupportedRef = useRef(false)
   const verdictSeqRef = useRef(Number.NEGATIVE_INFINITY)
   const applyTurnVerdict = useCallback((verdict: {
     running: boolean
@@ -1160,11 +1162,12 @@ export function ChatView({
      */
     force?: boolean | undefined
   }): void => {
-    const seq = typeof verdict.seq === 'number' && Number.isFinite(verdict.seq)
-      ? verdict.seq
-      : Number.NEGATIVE_INFINITY
-    if (verdict.force !== true) {
-      // 旧证据：直接忽略
+    const hasSeq = typeof verdict.seq === 'number' && Number.isFinite(verdict.seq)
+    const seq = hasSeq ? verdict.seq as number : Number.NEGATIVE_INFINITY
+    if (verdict.force !== true && hasSeq) {
+      // 只有**带序号**的证据之间才比新旧：晚到的旧答复不许覆盖已经应用的新结论。
+      // 没有序号的证据（旧宿主的对账/尾页、宿主花名册）是"当刻读到的事实"，
+      // 不做门控 —— 否则它会被一个更大的帧序号永久挡住（真机：指示器不再熄灭）。
       if (seq < verdictSeqRef.current) return
       if (seq > verdictSeqRef.current) verdictSeqRef.current = seq
     }
@@ -1814,9 +1817,8 @@ export function ChatView({
         // offering steer on a finished turn.
         unhideQueueItem(session.sessionId, itemId)
         toast('当前轮次已结束，无法插话')
-        setRunning(false)
-        setRunningTurn(undefined)
-        setTurnStartAt(null)
+        // 宿主明说这一轮结束了 → 停止纠正，走唯一裁决入口
+        applyTurnVerdict({ running: false, force: true })
         return
       }
       // queue-item-not-found (already claimed / cold session) or a
@@ -1970,7 +1972,10 @@ export function ChatView({
     // 这个字段本身不可信（实测刚跑完的会话仍是 true），但**不能**在连不上宿主时把它
     // 收掉 —— 那正是「网络抖一下，秒表被清零」的老毛病；连不上只标链路（连接中断），
     // 回合和时钟都留着。
-    setRunning(session.running === true)
+    // 会话切换：证据水位归零（上一场的序号不能挡住这一场的结论），
+    // 再用宿主在这条会话上给的初始值播种。
+    verdictSeqRef.current = Number.NEGATIVE_INFINITY
+    applyTurnVerdict({ running: session.running === true })
     setStopArmed(false)
     // 会话切换：上一轮的轮号绝不能留给下一场（名单恢复的 running 会把它当成
     // 活跃轮次，把上一场那一轮的卡片误判成运行中）。
@@ -2277,7 +2282,8 @@ export function ChatView({
     }
     const adopt = (open: boolean, startAt: number | undefined): void => {
       if (!aliveRef.current) return
-      setRunning(previous => (previous === open ? previous : open))
+      // 走唯一裁决入口：对账与实时帧共用同一个状态机（seq 单调，谁新谁算）
+      applyTurnVerdict({ running: open, startAt })
       if (!open) {
         // 探针也是 turn/end：活跃轮次同样清空，行级判据不能停在旧轮上。
         setRunningTurn(undefined)
