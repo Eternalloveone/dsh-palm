@@ -2135,3 +2135,30 @@ describe('回归闸门：在跑的回合，过程信息不能被"更穷的页"�
     expect(merged[0]?.text).toBe('正在输出')
   })
 })
+
+describe('回归闸门：没轮号的流式行不能让过程卡消失', () => {
+  // 真机现场（2026-10-31 08:13）：会话在跑，辅助行只剩一句正文和最左边的时间，
+  // 过程卡整块不见了。成因：那一行是流式行，turn 还是 undefined（turn/start 没到，
+  // 或窗口从回合中间开始），过程信息配不到任何行 —— 屏幕上就只剩正文。
+  const tool = { callId: 'c1', name: 'bash', state: 'done', arguments: '{}' }
+  const row = (overrides: Record<string, unknown>): RenderMessage => ({
+    id: 'x', kind: 'assistant', text: '', seq: 1, ...overrides,
+  } as RenderMessage)
+
+  const rows = () => [
+    row({ id: 'a', turn: 12, step: 1, seq: 10, tools: [tool] }),
+    row({ id: 'u', kind: 'user', seq: 11, text: '插一句' }),
+    row({ id: 'c', step: 40, seq: 12, pending: true, text: '正在输出' }),
+  ]
+
+  it('给了 openTurn：流式行归属到这一轮，过程卡仍在', () => {
+    const folded = coalesceTurnMessages(rows(), 12)
+    expect(folded.filter(entry => (entry.tools?.length ?? 0) > 0)).toHaveLength(1)
+    expect(folded.some(entry => entry.pending === true && entry.turn === 12)).toBe(true)
+  })
+
+  it('不给 openTurn：这一行没有轮号（这就是旧行为，过程信息配不上）', () => {
+    const folded = coalesceTurnMessages(rows())
+    expect(folded.some(entry => entry.pending === true && entry.turn === undefined)).toBe(true)
+  })
+})

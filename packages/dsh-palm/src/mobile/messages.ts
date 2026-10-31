@@ -2534,7 +2534,10 @@ export function triggerEmojiOf(sourceKind: string): string | undefined {
  */
 
 
-export function coalesceTurnMessages(messages: readonly RenderMessage[]): RenderMessage[] {
+export function coalesceTurnMessages(
+  messages: readonly RenderMessage[],
+  openTurn?: number,
+): RenderMessage[] {
   const out: RenderMessage[] = []
   for (const message of messages) {
     const previous = out.length > 0 ? out[out.length - 1] : undefined
@@ -2653,7 +2656,7 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
       out.push(message)
     }
   }
-  return mergeProcessCardsByTurn(out)
+  return mergeProcessCardsByTurn(out, openTurn)
 }
 
 /**
@@ -2673,7 +2676,10 @@ export function coalesceTurnMessages(messages: readonly RenderMessage[]): Render
  * 修法：同轮跨段时，后面那段只保留自己新增的工具/工具流；已经在前一段展示过的
  * （按 callId 认）不再重复。正文与思考过程不动 —— 那是这两段真正的区别。
  */
-export function mergeProcessCardsByTurn(source: readonly RenderMessage[]): RenderMessage[] {
+export function mergeProcessCardsByTurn(
+  source: readonly RenderMessage[],
+  openTurn?: number,
+): RenderMessage[] {
   // 同一轮的步骤**统一挂在本轮第一段**上，后段只留正文/思考。
   //
   // 真机证据（2026-10-30，turn 147）：
@@ -2696,7 +2702,24 @@ export function mergeProcessCardsByTurn(source: readonly RenderMessage[]): Rende
     if (row.kind === 'user') { carryTurn = undefined; continue }
     if (row.kind !== 'assistant') continue
     if (row.turn !== undefined) { carryTurn = row.turn; continue }
-    if (carryTurn !== undefined) withTurn[i] = { ...row, turn: carryTurn }
+    // 流式行在 turn/start 还没到、或窗口从回合中间开始时没有轮号。
+    // 这时如果知道「哪一轮正在跑」（openTurn，来自实时流），就把它归到那一轮 ——
+    // 否则过程信息配不到任何行，屏幕上就只剩正文和左侧时间（真机 2026-10-31 08:13）。
+    if (carryTurn !== undefined) {
+      withTurn[i] = { ...row, turn: carryTurn }
+      continue
+    }
+    if (openTurn !== undefined && row.pending === true) withTurn[i] = { ...row, turn: openTurn }
+  }
+  // 末尾还没轮号、但确实是"这一轮在输出"的行，同样归到 openTurn。
+  if (openTurn !== undefined) {
+    for (let i = withTurn.length - 1; i >= 0; i -= 1) {
+      const row = withTurn[i]!
+      if (row.kind === 'user') break
+      if (row.kind !== 'assistant') continue
+      if (row.turn !== undefined) break
+      withTurn[i] = { ...row, turn: openTurn }
+    }
   }
   const messages = withTurn
 

@@ -117,9 +117,19 @@ export async function loadTurnReportRows(
  * `turn/end` 会把它换成正式版（文件清单可能从 1 个变成 3 个）—— 两次渲染之间内容变了，
  * 用户看到的就是「翻历史时交付卡闪一下」。历史轮次宁可先不给卡，也不要给了又改。
  */
-export function renderRows(rows: readonly RenderMessage[], allowGuessedTails = true): RenderMessage[] {
-  const folded = coalesceTurnMessages(rows)
-  return allowGuessedTails ? ensureTurnTails(folded) : folded
+export function renderRows(
+  rows: readonly RenderMessage[],
+  allowGuessedTails = true,
+  /**
+   * 正在跑的那一轮（来自实时流）。
+   *
+   * 一是给"没有轮号的流式行"归属（否则过程信息配不到行，屏幕上只剩正文和时间），
+   * 二是让"正在跑的回合"不猜已完成卡。
+   */
+  openTurn?: number,
+): RenderMessage[] {
+  const folded = coalesceTurnMessages(rows, openTurn)
+  return allowGuessedTails ? ensureTurnTails(folded, openTurn) : folded
 }
 
 /**
