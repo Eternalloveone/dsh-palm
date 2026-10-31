@@ -242,10 +242,21 @@ describe('排队条可见判定（三个 TTL 收成一个语义）', () => {
     }, at + 100)).toBe(false)
   })
 
-  it('读到空队列时，4 秒观察窗内仍显示上一份（宿主刷新瞬态），过窗清空', () => {
+  it('读到空队列时不因"超时"消失，只有正面证据（已进对话）才消失', () => {
+    // 契约变更（2026-10-31 真机："排队条有时候莫名其妙消失"）：
+    // 空快照不再在 N 秒后无条件清空 —— 宿主的队列投影本来就常常慢半拍。
     const emptyHold = { items: host, until: at + QUEUE_EMPTY_HOLD_MS }
-    expect(visibleQueue({ ...base, host: [], emptyHold }, at + 1_000).map(entry => entry.id)).toEqual(['h1'])
+    // 刚过旧窗口（4 秒）也要保留
+    expect(visibleQueue({ ...base, host: [], emptyHold }, at + 10_000).map(entry => entry.id)).toEqual(['h1'])
+    // 兜底期限到了才算"没有证据"
     expect(visibleQueue({ ...base, host: [], emptyHold }, at + QUEUE_EMPTY_HOLD_MS + 1)).toHaveLength(0)
+    // 正面证据：这条正文已经出现在对话里 → 立刻消失
+    expect(visibleQueue({
+      ...base,
+      host: [],
+      emptyHold,
+      spokenTexts: new Set([String(host[0]?.text ?? '')]),
+    }, at + 10_000)).toHaveLength(0)
   })
 
   it('隐藏表对观察窗里那份也生效（不留幽灵行）', () => {

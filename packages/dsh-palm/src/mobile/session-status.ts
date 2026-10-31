@@ -359,7 +359,13 @@ export function barsSignature(view: BarsView): string {
 export const STALL_HINT_MS = 20_000
 export const QUEUE_HIDDEN_MS = 90_000
 export const QUEUE_OPTIMISTIC_MS = 45_000
-export const QUEUE_EMPTY_HOLD_MS = 4_000
+/**
+ * 空快照观察窗的**兜底**期限。
+ *
+ * 语义已经变了：不再"4 秒后无条件清空"，而是"没有正面证据就保留"，
+ * 这个值只是防止极端情况下永远不消失（比如本地状态坏了）。
+ */
+export const QUEUE_EMPTY_HOLD_MS = 30 * 60_000
 
 /** 本地乐观项（发送后、宿主快照回来之前先画）。 */
 export interface QueueIntent {
@@ -493,9 +499,22 @@ export function visibleQueue(inputs: QueueInputs, now: number): readonly QueueIt
   }
   const combined = [...host, ...extra]
   if (combined.length > 0) return combined
-  // 读到空：观察窗内仍然显示上一次的非空队列（宿主刷新中的瞬时空态）。
+  /**
+   * 读到空：**不因为一次空快照就把排队条擦掉**。
+   *
+   * 2026-10-31 真机反馈："排队消息条有时候会莫名其妙消失"。根因是这里的判据：
+   * 只要一次读空空了、并且超过 4 秒观察窗，界面就清空 —— 而宿主的队列投影本来就
+   * 经常慢半拍到几十秒（弱网/日志很大时更明显），于是条子凭空消失，过一会儿又回来。
+   *
+   * 新判据（正面证据才允许消失）：
+   *   · 这条的正文已经出现在对话里（说明它真的开始跑了）→ 消失；
+   *   · 用户自己删了（隐藏表）→ 消失；
+   *   · 其余情况一律保留，直到 `until` 这个**很长的**兜底期限（30 分钟）到期。
+   */
   if (inputs.emptyHold !== undefined && inputs.emptyHold.until > now) {
-    return inputs.emptyHold.items.filter(item => !hidden(item.id))
+    const spoken = (text: string): boolean => inputs.spokenTexts?.has(normalize(text)) === true
+    const kept = inputs.emptyHold.items.filter(item => !hidden(item.id) && !spoken(item.text))
+    if (kept.length > 0) return kept
   }
   return []
 }
