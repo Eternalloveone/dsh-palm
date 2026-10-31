@@ -16,15 +16,6 @@ import {
 export const scenario = {
   id: 'long-session-window',
   title: '长会话反复进入 4 次：首帧不回落、卡片不改写',
-  /**
-   * 实验性：**它现在抓到一条真问题**（因此不能直接进门禁）。
-   *
-   * 现场：`session-628d1093` 里某张卡显示 `本轮产出 1 个文件 · ·memory`，1 秒后变成
-   * `PS1restart-dsh` —— 两张都来自真数据（不是猜卡：进会话已经禁止猜卡），
-   * 说明"页面给的卡"和"cardRecovery 从日志读到的卡"内容不一致，合并后显示的第一个
-   * 文件名变了。待查：这两处的 deliverables 顺序/来源，统一取舍。
-   */
-  experimental: true,
   async run(ctx) {
     const { context, check, sessionId } = ctx
     const page = await context.newPage()

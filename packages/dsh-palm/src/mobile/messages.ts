@@ -1640,18 +1640,33 @@ function metaPathsOf(toolName: string, meta: Record<string, unknown>): string[] 
  */
 function producedPathsOf(tool: ToolCallInfo): string[] {
   const fromView: string[] = []
-  for (const diff of tool.view?.diffs ?? []) fromView.push(diff.path)
+  for (const diff of tool.view?.diffs ?? []) {
+    if (looksLikePath(diff.path)) fromView.push(diff.path)
+  }
   if (fromView.length > 0) return fromView
-  if ((tool.metaPaths?.length ?? 0) > 0) return [...(tool.metaPaths ?? [])]
+  const fromMeta = (tool.metaPaths ?? []).filter(path => looksLikePath(path))
+  if (fromMeta.length > 0) return fromMeta
   if (!MUTATING_TOOL_NAMES.has(tool.name.toLowerCase())) return []
   const args = parseArguments(tool.arguments)
   if (args === undefined) return []
   const out: string[] = []
   for (const key of ARG_PATH_KEYS) {
     const path = pickString(args[key])
-    if (path !== undefined && path !== '') out.push(path)
+    if (path !== undefined && path !== '' && looksLikePath(path)) out.push(path)
   }
   return out
+}
+
+/**
+ * 看起来像"文件路径"吗？
+ *
+ * 真机证据（2026-10-31，turn=114）：某个写类工具的路径参数解析出裸词 `memory`，
+ * 于是"本轮产出"卡片上多出一条 `·memory` —— 用户看到的是一个本不存在的文件。
+ * 交付物必须是路径：带分隔符，或者带扩展名。裸词一律不算。
+ */
+function looksLikePath(path: string): boolean {
+  if (path.includes('/') || path.includes('\\')) return true
+  return /\.[A-Za-z0-9]{1,8}$/.test(path)
 }
 
 /** Files a `present` call declared, recovered from its arguments. */
