@@ -2755,6 +2755,54 @@ export function ChatView({
   openTurnRef.current = turnLive ? (runningTurn ?? newestFoldTurn(messages) ?? undefined) : undefined
 
   /**
+   * 正在跑的那一轮的**过程快照**：一旦展示过工具/思考/flow，就记住。
+   *
+   * 为什么要它：过程条是画在"行"上的，而行会在（缓存页 → 网络页 → 权威页、窗口截断）
+   * 之间被整份替换。只要某一帧把带过程信息的那一行换掉，屏幕上就只剩正文和时间 ——
+   * 真机反复出现的"过程条消失"。
+   *
+   * 这里做粘性兜底：当前行里找不到过程信息时，用快照合成一行补在末尾。
+   * **展示过的东西不会再消失。**
+   */
+  const liveProcSnapshotRef = useRef<Map<number, {
+    tools?: RenderMessage['tools']
+    flow?: RenderMessage['flow']
+    reasoning?: string
+  }>>(new Map())
+  const stickyProcRow = ((): RenderMessage | undefined => {
+    if (liveTurn === undefined) return undefined
+    const carries = (row: RenderMessage): boolean => (
+      (row.tools?.length ?? 0) > 0 || (row.flow?.length ?? 0) > 0 || (row.reasoning ?? '') !== ''
+    )
+    const withProc = messages.find(row => row.turn === liveTurn && carries(row))
+    if (withProc !== undefined) {
+      liveProcSnapshotRef.current.set(liveTurn, {
+        tools: withProc.tools,
+        flow: withProc.flow,
+        reasoning: withProc.reasoning,
+      })
+      return undefined
+    }
+    const snapshot = liveProcSnapshotRef.current.get(liveTurn)
+    if (snapshot === undefined) return undefined
+    if ((snapshot.tools?.length ?? 0) === 0 && (snapshot.flow?.length ?? 0) === 0 && (snapshot.reasoning ?? '') === '') {
+      return undefined
+    }
+    const lastRow = messages[messages.length - 1]
+    return {
+      id: `live-proc:${liveTurn}`,
+      kind: 'assistant',
+      text: '',
+      turn: liveTurn,
+      seq: (lastRow?.seq ?? 0) + 0.001,
+      pending: true,
+      ...(snapshot.tools === undefined ? {} : { tools: snapshot.tools }),
+      ...(snapshot.flow === undefined ? {} : { flow: snapshot.flow }),
+      ...(snapshot.reasoning === undefined ? {} : { reasoning: snapshot.reasoning }),
+    } as RenderMessage
+  })()
+
+  /**
    * 现场取证：**正在跑的那一轮，过程卡却不在屏幕上**（只剩正文/时间）。
    *
    * 真机截图（2026-10-31 07:46 → 07:51）：同一轮先有「深度求索中 / 思考中 / 改了 1 个文件」，
@@ -6566,6 +6614,28 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
               />
             )
           })}
+        {stickyProcRow !== undefined && (
+          <MessageRow
+            key={stickyProcRow.id}
+            enter={false}
+            message={stickyProcRow}
+            sessionId={session.sessionId}
+            showToolCalls={showToolCalls}
+            showSystemMessages={showSystemMessages}
+            clockOffsetMs={hostClockOffsetRef.current}
+            liveTurnStartAt={clockAnchor ?? undefined}
+            liveTurn={liveTurn}
+            settled={false}
+            liveClockTick={liveClockTick}
+            showTime={false}
+            focused={false}
+            focusedQuery={''}
+            style={undefined}
+            onOpenFile={(path) => { setPreviewPath(path) }}
+            onRegenerate={() => undefined}
+            regenerateState={regenerateState}
+          />
+        )}
         {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
         {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
         {running && (

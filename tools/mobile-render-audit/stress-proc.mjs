@@ -83,6 +83,11 @@ for (let entry = 1; entry <= ENTRIES; entry += 1) {
     const snap = await sampleOnce(page)
     frames += 1
     if (snap.hasProcessData) framesWithProcessData += 1
+    // 数据层消失：这一次进入里明明出现过过程数据（工具/思考/flow），后来又没了。
+    // 这不是"卡片没画出来"，而是**行被换掉了** —— 真机上表现同样是过程条消失。
+    if (framesWithProcessData > 0 && !snap.hasProcessData && snap.rows > 0) {
+      note('process-data-dropped', { entry, at: `${(i + 1) * 50}ms`, rows: snap.rows })
+    }
     if (snap.proc > 0) sawProc = true
     // 判据一：数据里已经有过程内容（工具/思考/flow），屏幕上却没有过程卡 → 真·消失
     if (snap.hasProcessData && snap.proc === 0) {
