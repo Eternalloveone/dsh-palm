@@ -2755,6 +2755,26 @@ export function ChatView({
   openTurnRef.current = turnLive ? (runningTurn ?? newestFoldTurn(messages) ?? undefined) : undefined
 
   /**
+   * 本轮的轮号：**最后一条用户消息之后**出现的那一轮。
+   *
+   * 用它而不是 liveTurn：liveTurn 依赖实时帧/注册，手机偶尔拿不到；而"在跑的时候
+   * 本轮的交付卡不该出现"这件事，只看位置就够了。
+   */
+  const activeTurn = ((): number | undefined => {
+    let lastUser = -1
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.kind === 'user') { lastUser = i; break }
+    }
+    let turn: number | undefined
+    for (let i = lastUser + 1; i < messages.length; i += 1) {
+      const candidate = messages[i]?.turn
+      if (candidate === undefined) continue
+      if (turn === undefined || candidate > turn) turn = candidate
+    }
+    return turn
+  })()
+
+  /**
    * 正在跑的那一轮的**过程快照**：一旦展示过工具/思考/flow，就记住。
    *
    * 为什么要它：过程条是画在"行"上的，而行会在（缓存页 → 网络页 → 权威页、窗口截断）
@@ -6581,11 +6601,17 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           // 否则会话还在跑、屏幕上先冒出一张"本轮产出"）。但带过程信息的那一行
           // 必须照常渲染 —— 它就是"深度求索中 / 用时 / 思考中"这条过程条，
           // 一律藏掉的话会表现为"过程条消失，只剩时间"（2026-10-31 真机）。
-          if (message.kind === 'turn' && liveTurn !== undefined && message.turn === liveTurn) {
-            const carriesProcess = (message.tools?.length ?? 0) > 0
-              || (message.flow?.length ?? 0) > 0
-              || (message.reasoning ?? '') !== ''
-            if (!carriesProcess) return null
+          // 在跑的时候，**本轮**的交付卡一律不显示。
+          //
+          // 判据不再依赖"知道哪一轮在跑"（liveTurn 有时是 undefined：手机没收到
+          // 注册/帧），而是看**位置**：最后一条用户消息之后出现的轮次 = 本轮。
+          // 这一轮只要还在跑（底部"输出中"），它的"本轮产出"就不该出现 —— 收工
+          // 之后自然就有了。
+          //
+          // 之前只藏"不带过程信息的卡"，于是带过程的卡照样把"本轮产出"显示出来
+          // （真机 2026-10-31）。现在一律藏；过程条由下面的粘性快照保证不丢。
+          if (message.kind === 'turn' && running && message.turn !== undefined && message.turn === activeTurn) {
+            return null
           }
           const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
             ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${estimateMessageHeight(message)}px` }
