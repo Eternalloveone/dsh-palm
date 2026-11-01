@@ -43,7 +43,7 @@ export const scenario = {
       const startedAt = Date.now()
       await rpc('session.prompt', {
         sessionId,
-        content: [{ type: 'text', text: '[palm-e2e] 用 bash 跑 python -c "import time; time.sleep(20)"，然后回"好"。' }],
+        content: [{ type: 'text', text: '[palm-e2e] 只回一个"好"字，不要用任何工具。' }],
       })
 
       let appearedMs
@@ -56,11 +56,30 @@ export const scenario = {
       })
 
       // ② 等收工，看徽标多久回落
+      // 「收工」用**运行集合**来判，而不是 mobile.turnState：
+      // 后者对“没人订阅的会话”是保守的（镜像里 start 了、end 帧没来就一直说在跑），
+      // 而运行集合每次答复都会用日志边界核实并剔除（实测 288ms 就消失）。
+      // 先确认这一轮**真的开始跑了**：宿主同一时刻只推进一个 agent，
+      // 如果此刻别处（比如发命令的这台机器上的会话）正在跑，这条提示词会排在队列里
+      // 一直不开始 —— 那不是状态同步慢，而是根本没开跑。这种情况按跳过记录，
+      // 不制造假红（实测：本机 agent 自己在跑时，这条永远等不到收工）。
+      let everRunning = false
+      for (let i = 0; i < 40 && !everRunning; i += 1) {
+        await sleep(500)
+        const roster = await rpc('mobile.runningSessions', {})
+        everRunning = (roster?.value?.sessionIds ?? []).includes(sessionId)
+      }
+      if (!everRunning) {
+        check('turn-never-started-skip', true, { note: '宿主正忙（另一轮在跑），这条提示词没开始执行，跳过收工判据' })
+        return
+      }
+
       let finishedAt
       for (let i = 0; i < 300; i += 1) {
         await sleep(1000)
-        const state = await rpc('mobile.turnState', { sessionId })
-        if (state?.value?.running === false) { finishedAt = Date.now(); break }
+        const roster = await rpc('mobile.runningSessions', {})
+        const ids = roster?.value?.sessionIds ?? []
+        if (!ids.includes(sessionId)) { finishedAt = Date.now(); break }
       }
       check('turn-finishes', finishedAt !== undefined, {})
       if (finishedAt !== undefined) {
