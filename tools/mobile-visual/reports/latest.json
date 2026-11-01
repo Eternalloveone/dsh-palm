@@ -1,11 +1,11 @@
 {
-  "at": "2026-11-01T00:38:43.469Z",
+  "at": "2026-11-01T01:24:59.743Z",
   "results": [
     {
       "id": "sessions",
       "title": "会话列表",
       "threshold": 3,
-      "diffPct": 1.66,
+      "diffPct": 1.73,
       "ok": true
     },
     {
