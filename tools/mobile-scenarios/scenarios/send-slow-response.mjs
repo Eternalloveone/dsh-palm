@@ -46,10 +46,13 @@ export const scenario = {
 
       const text = `慢回执 ${Date.now() % 100000}`
       const input = page.locator('textarea, [contenteditable=true]').first()
-      const send = page.locator('button[aria-label*="发送"], button:has-text("发送")').first()
       await input.click()
       await input.fill(text)
-      await send.click({ force: true })
+      // **用回车发送**：上一段 startLongTurn 让会话在跑，这时输入区的按钮是
+      // 「排队发送」/「停止」，按 aria-label 找「发送」会点空 → 一次请求都不发，
+      // 于是 delayed 永远是 0（2026-11-01 实测，和排队场景同一个坑）。
+      await page.waitForTimeout(300)
+      await page.keyboard.press('Enter')
 
       // 观察 20 秒：出现"发送失败"就算违规
       let failureSeen = false

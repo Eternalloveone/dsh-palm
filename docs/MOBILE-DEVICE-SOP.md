@@ -58,11 +58,13 @@
 
 ```powershell
 cd dsh-source/dsh-palm/packages/dsh-palm
-pnpm verify --profile release      # 15 步：CI + 场景 + 渲染审计 + 压测 + 验收 SOP + 性能 + 视觉
-node tools/mobile-scenarios/run.mjs --manual --create-test-session   # 9 个"会发消息"的场景
+pnpm verify --profile release      # 16 步：CI + 只读场景 + 渲染审计 + 压测 + 验收 SOP + 性能 + 视觉 + 手工场景
+# 只想单独复跑"会发消息"的那 9 个旅程：
+node tools/mobile-scenarios/run.mjs --manual --create-test-session
 ```
 
-第二条会自己建一条专用测试会话（标题带 `[palm-e2e]`）、跑完自动归档，不会碰你自己的会话。
+`verify --profile release` 里已经包含手工场景那一步；单跑第二条是为了快速定位。
+两者都会自己建一条专用测试会话（标题带 `[palm-e2e]`）、跑完自动归档，不会碰你自己的会话。
 
 ## 七、发现问题怎么报
 
