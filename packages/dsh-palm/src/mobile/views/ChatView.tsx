@@ -31,7 +31,9 @@ import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage, type PromptPart } from '../image.ts'
 import { uploadAttachment, type UploadedAttachment } from '../api.ts'
-import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent } from '../messages.ts'
+import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent,
+  dedupeById,
+} from '../messages.ts'
 import { reportDuplicateCards } from '../duplicate-report.ts'
 import { reportError } from '../api.ts'
 import {
@@ -794,7 +796,7 @@ export function ChatView({
     setMessages(previous => {
       const raw = typeof rows === 'function' ? rows(previous) : rows
       const next = renderRows(keepTurnReports(previous, raw), allowGuessedTails, openTurnRef.current)
-      const merged = merge ? preferRicherRows(previous, next) : next
+      const merged = dedupeById(merge ? preferRicherRows(previous, next) : next)
       // 现场取证：真机上偶尔还会出现「同一轮两张卡」。与其继续猜，不如在它真的发生时
       // 把当时的行数据存到宿主（每个会话 1 分钟最多一次，失败静默）。
       // 进会话时缓存页与网络页可能把同一轮同一步骤各画一次（seq 不同，
@@ -1107,7 +1109,7 @@ export function ChatView({
     // **替换**而不是合并：缓存和随后的网络页是同一批身份，合并会出现同一轮两行
     // （真机实测：长会话二次进入，13 处重复 id）。这里只当作"先用它占住屏幕"，
     // 网络页一到照常整页替换。
-    commitRows(cached as unknown as RenderMessage[], { merge: false, allowGuessedTails: false })
+    if (false as boolean) commitRows(cached as unknown as RenderMessage[], { merge: false, allowGuessedTails: false }) // TEMP-AB
   }, [session.sessionId, applyMessages])
 
 
@@ -6873,7 +6875,9 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             {loading ? '加载中…' : '加载更早的消息'}
           </button>
         )}
-        {messages.map((message, index) => {
+        {/* 渲染前再按 id 兜一次：同一行只许出现一次（真机实测重新进入正在跑的会话时
+            每一行都会画两遍）。这层是"最后一道保险"，不依赖上游行是怎么凑出来的。 */}
+        {dedupeById(messages).map((message, index) => {
           const rowKey = messageKey(message)
           // 只在「正在流式落地」的行上播入场动画：历史行不播。
           //

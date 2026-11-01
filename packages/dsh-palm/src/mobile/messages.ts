@@ -2076,6 +2076,37 @@ function richerTool(next: ToolCallInfo, previous: ToolCallInfo | undefined): Too
  * @param next - 新折出来的那份（更新，但可能更穷）。
  * @returns the rows to render; `previous` itself when nothing changed.
  */
+/**
+ * 最后一道保险：**同一个 message id 只许出现一次**。
+ *
+ * 2026-11-01 真机：重新进入一条**正在跑**的会话时，屏幕上每一行都出现了两遍
+ * （实测 16 个 id 各 2 份 / 32 行）。根因是同一轮的行从两个来源进来时"身份"算得不一样
+ * （一个带轮号一个不带），preferRicherRows 按身份去重就漏了它们。
+ *
+ * 这里按**渲染键**（DOM 上那个 id）再兜一次：保留信息更全的那一条，位置用第一次出现的。
+ */
+export function dedupeById(rows: readonly RenderMessage[]): RenderMessage[] {
+  const seen = new Map<string, number>()
+  const out: RenderMessage[] = []
+  for (const row of rows) {
+    const index = seen.get(row.id)
+    if (index === undefined) {
+      seen.set(row.id, out.length)
+      out.push(row)
+      continue
+    }
+    const kept = out[index]!
+    // 保留"更全"的那份：正文更长 / 带交付物 / 带计划 的胜出
+    const score = (candidate: RenderMessage): number =>
+      (candidate.text?.length ?? 0)
+      + (candidate.deliverables?.length ?? 0) * 1000
+      + (candidate.produced?.length ?? 0) * 500
+      + (candidate.plan === undefined ? 0 : 300)
+    if (score(row) > score(kept)) out[index] = row
+  }
+  return out
+}
+
 export function preferRicherRows(
   previousInput: readonly RenderMessage[],
   nextInput: readonly RenderMessage[],
