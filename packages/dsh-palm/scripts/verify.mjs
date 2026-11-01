@@ -67,7 +67,7 @@ const PROFILES = {
   release: [
     'install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
     // 真机相关的六层（都需要一台在跑的宿主；不在就各自跳过）
-    'scenarios', 'render', 'stress', 'acceptance',
+    'model', 'scenarios', 'render', 'stress', 'acceptance',
     // 性能预算与视觉回归（2026-11-01 新增：前者管"顺不顺"，后者管"看着对不对"）
     'perf', 'visual',
     // 会发消息的用户旅程（自建专用测试会话，跑完归档）
@@ -141,6 +141,20 @@ const STEPS = {
         : process.env
       return run('node tools/mobile-scenarios/run.mjs', rootDir, { env })
     },
+  },
+  model: {
+    /**
+     * 测试模型的**登记一致性**：每个场景必须在 `tools/mobile-scenarios/model.mjs`
+     * 里声明它守哪几格（旅程 × 不变式）。没登记、或登记了不存在的场景，这一步就红。
+     *
+     * 为什么值得单独一步：新加的场景最容易"写完就跑"，没人回头看它到底补了哪一格；
+     * 这一步把"这场景守什么"变成门禁的一部分，缺口才可能被算出来。
+     *
+     * 注意这里**不卡 --strict**：还有没覆盖的必守格是已知状态，
+     * 用 `node tools/mobile-scenarios/coverage.mjs --strict` 单独看缺口清单。
+     */
+    title: 'mobile test model (journeys × invariants registry)',
+    run: () => run('node tools/mobile-scenarios/coverage.mjs', rootDir),
   },
   manual: {
     /**

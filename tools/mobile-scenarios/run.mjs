@@ -50,6 +50,11 @@ const SCENARIOS = [
   // 真机补充：真失败要说清楚、多工作区不串
   (await import('./scenarios/send-really-fails.mjs')).scenario,
   (await import('./scenarios/workspace-isolation.mjs')).scenario,
+  // 按「旅程 × 不变式」矩阵补的格子（见 tools/mobile-scenarios/model.mjs）
+  (await import('./scenarios/home-stage-clarity.mjs')).scenario,
+  (await import('./scenarios/list-operability-and-speed.mjs')).scenario,
+  (await import('./scenarios/read-cache-first.mjs')).scenario,
+  (await import('./scenarios/process-stage-copy.mjs')).scenario,
   // 会发消息（manual）：审批、命令行卡片、附件、子代理、输入法
   (await import('./scenarios/approval-decide.mjs')).scenario,
   (await import('./scenarios/command-card-lifecycle.mjs')).scenario,
