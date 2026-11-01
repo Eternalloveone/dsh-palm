@@ -1276,7 +1276,14 @@ export function isLiveSessionNotRunningConfirmed(sessionId: string): boolean {
  * 也就是说基线恒为空、真正的运行集合全靠 `session/status` 帧喂；把间隔改小
  * 只会让 reseed 反复把这套集合清空，正在跑的会话反而被抹掉。
  */
-const LIVE_RUNNING_RESEED_MS = 5 * 60_000
+const LIVE_RUNNING_RESEED_MS = 45_000
+/**
+ * 重扫基线时核实多少条最近会话。
+ *
+ * 每条 ~20ms（宿主折好的日志尾页），12 条 ≈ 240ms，跑在后台不影响答复；
+ * 再多就没意义了 —— 正在跑的会话必然在"最近更新"的头部。
+ */
+const RUNNING_BASELINE_SCAN_LIMIT = 12
 let liveRunningReseedInFlight = false
 let liveRunningReseedPromise: Promise<void> | undefined
 
@@ -1367,13 +1374,42 @@ async function runReseed(): Promise<void> {
     } as never)
     const items = (list as { result?: { ok?: boolean; value?: { items?: Array<{
       sessionId: string
+      updatedAt?: number
       origin?: 'subagent'
       running?: boolean
       blank?: boolean
     }> } } }).result?.value?.items ?? []
-    adoptRunningBaseline(items
-      .filter(item => item.origin !== 'subagent' && item.running === true && item.blank !== true)
-      .map(item => String(item.sessionId)))
+    /**
+     * **不再相信宿主的 `running` 字段**（实测恒为 false，含正在跑的那一轮）。
+     *
+     * 2026-11-01 真机："运行状态很不实时"。真因就是这里：基线只把 `running===true`
+     * 的会话拉进镜像，而那个字段永远是 false ⇒ 镜像里只剩下"手机订阅过的那几条"，
+     * 别处（电脑/CLI）刚起的一轮手机上根本不会出现"运行中"，直到有人去打开它。
+     *
+     * 改成：取**最近更新的一批**会话，逐条读日志边界核实（`computeTurnState`，
+     * 实测单条 ~20ms），核实为在跑的并入镜像。这样"别处开始跑"最多晚一个重扫周期。
+     */
+    const candidates = items
+      .filter(item => item.origin !== 'subagent' && item.blank !== true)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, RUNNING_BASELINE_SCAN_LIMIT)
+      .map(item => String(item.sessionId))
+    const verified: string[] = []
+    for (const sessionId of candidates) {
+      try {
+        const verdict = await computeTurnState(sessionId)
+        if (verdict.running === true) verified.push(sessionId)
+      } catch {
+        // 单条读不出来不影响其它候选：宁可少一条，也不要整份基线作废。
+      }
+    }
+    // 宿主的 running 字段也并进去（新版本宿主可能会填它），两边取并集。
+    for (const item of items) {
+      if (item.running === true && item.origin !== 'subagent' && item.blank !== true) {
+        verified.push(String(item.sessionId))
+      }
+    }
+    adoptRunningBaseline(verified)
   } catch {
     // 失败就把上一次的基线留着：过期的答案比没有答案强。
   } finally {

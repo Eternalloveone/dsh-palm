@@ -90,6 +90,7 @@ export const SCENARIO_CELLS = {
   'previous-content-kept-on-send': { journeys: ['J4'], invariants: ['I3'] },
   'session-rename-and-archive': { journeys: ['J7'], invariants: ['D', 'U', 'I9'] },
   'file-preview-failure': { journeys: ['J6'], invariants: ['I9'] },
+  'running-state-latency': { journeys: ['J5'], invariants: ['S'] },
 }
 
 /**

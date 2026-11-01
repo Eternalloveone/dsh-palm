@@ -761,7 +761,11 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
       )
     }
     probe()
-    timer = setInterval(probe, 30_000)
+    // 4 秒一次（原来 30 秒 —— 真机 2026-11-01："运行状态很不实时"）。
+    // 首页/工作区页**没有订阅任何会话**，因此收不到 `session/status` 帧，
+    // 运行集合只能靠这里问；30 秒的节奏意味着别处刚起一轮，手机上最多要干等半分钟。
+    // 这个调用很轻（只回一组 sessionId），4 秒的代价远小于"看起来没在跑"的代价。
+    timer = setInterval(probe, 4_000)
     return () => { cancelled = true; if (timer !== undefined) clearInterval(timer) }
   }, [route.kind, recomputeActive, foreground])
 
