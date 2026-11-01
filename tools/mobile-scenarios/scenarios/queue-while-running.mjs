@@ -87,7 +87,17 @@ export const scenario = {
       const sendOnce = async text => {
         await input.click()
         await input.fill(text)
+        // 等 React 把这次输入落地（发送按钮变可点）再点：
+        // fill() 之后立刻点，send() 读到的是空输入 → 直接 return，界面毫无反应
+        // 也不发请求（2026-11-01 实测：同动作改成"填写 → 回车"就正常）。
+        for (let i = 0; i < 20; i += 1) {
+          const ready = await send.isEnabled().catch(() => false)
+          const typed = await input.inputValue().catch(() => '')
+          if (ready && typed.trim() !== '') break
+          await page.waitForTimeout(100)
+        }
         await send.click({ force: true })
+        // 连点第二下：故意保留，验证"同一意图只入队一条"
         await page.waitForTimeout(150)
         await send.click({ force: true }).catch(() => undefined)
       }

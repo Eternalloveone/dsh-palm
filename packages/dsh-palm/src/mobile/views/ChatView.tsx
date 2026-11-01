@@ -613,7 +613,10 @@ const LOCATE_MAX_FIXES = 3
  * follower off the true bottom. Keeping the last ~1.5 viewports real keeps the
  * follow exact while the rows above (history) skip layout/paint.
  */
-export const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
+export /** 发送互斥的失效上限：超过这个时间还没结果，就允许用户重发。 */
+const SEND_IN_FLIGHT_TIMEOUT_MS = 30_000
+
+const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
 /** Older pages paged for a focus-locate before giving up (bounded IO). */
 // Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
 // paging bounded, but large enough to reach any result that search can return.
@@ -839,7 +842,17 @@ export function ChatView({
   const sendingRef = useRef(sending)
   sendingRef.current = sending
   /** 发送请求在飞行中（同步互斥，挡同一 tick 的连点）。 */
-  const sendInFlightRef = useRef(false)
+  /**
+   * 发送互斥（带时间戳）。
+   *
+   * 2026-11-01 真机：一条会话里点发送**完全没反应** —— 输入框里的字不动、也不发请求。
+   * 根因是这个互斥旗标是布尔值：只要有一次 `session.prompt` 挂住不返回（隧道抖动、
+   * 请求被拦），`finally` 就永远跑不到，旗标永远是 true，之后所有发送都被静默吞掉。
+   *
+   * 现在记"这次是什么时候发出去的"：超过 {@link SEND_IN_FLIGHT_TIMEOUT_MS} 就当作
+   * 那次已经死了，允许用户重发（同一次连点仍然被挡在 1.5 秒内，见 lastSubmitRef）。
+   */
+  const sendInFlightRef = useRef(0)
   /** 上一次提交（正文 + 时刻）：短窗内同文重复提交视为同一次意图。 */
   const lastSubmitRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
@@ -5968,7 +5981,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     // 同步互斥：`sending` 是 state，同一帧里连点两下时它还没更新，两次都会走到发请求
     // —— 宿主照单全收，排队条上就是两条一模一样的消息（真机截图）。ref 在同一 tick 内
     // 立刻生效。
-    if (sendInFlightRef.current) return
+    const inFlightAt = sendInFlightRef.current
+    if (inFlightAt !== 0 && Date.now() - inFlightAt < SEND_IN_FLIGHT_TIMEOUT_MS) return
     // 同一条正文在 1.5 秒内重复提交：用户在等界面反馈，又点了一次。视为同一次意图。
     const stamp = `${session.sessionId}\u0000${text}`
     if (text !== '' && lastSubmitRef.current.text === stamp && Date.now() - lastSubmitRef.current.at < 1_500) return
@@ -6060,10 +6074,10 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     const optimisticId = queuedByRunning && queueText !== ''
       ? addOptimisticQueueItem(session.sessionId, { text: queueText, placement: 'queued', requestId: sendRequestId })
       : undefined
-    sendInFlightRef.current = true
+    sendInFlightRef.current = Date.now()
     void prompt(session.sessionId, body, sendRequestId).then(
       () => {
-        sendInFlightRef.current = false
+        sendInFlightRef.current = 0
         setSending(false)
         setInput('')
         removeDraft(session.sessionId)
@@ -6113,7 +6127,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         // failed send never looks silent.
         setSending(false)
         // 互斥也要放开，否则一次失败会把发送按钮永久挡住。
-        sendInFlightRef.current = false
+        sendInFlightRef.current = 0
         // 没送出去：本地那条乐观排队项必须撤掉，否则会留一张永远不会发出去的卡。
         if (optimisticId !== undefined) dropOptimisticQueueItem(session.sessionId, optimisticId)
         const message = errorText(reason)
