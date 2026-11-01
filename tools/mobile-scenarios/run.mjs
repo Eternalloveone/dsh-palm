@@ -55,6 +55,10 @@ const SCENARIOS = [
   (await import('./scenarios/list-operability-and-speed.mjs')).scenario,
   (await import('./scenarios/read-cache-first.mjs')).scenario,
   (await import('./scenarios/process-stage-copy.mjs')).scenario,
+  (await import('./scenarios/error-stage-and-retry.mjs')).scenario,
+  (await import('./scenarios/previous-content-kept-on-send.mjs')).scenario,
+  (await import('./scenarios/session-rename-and-archive.mjs')).scenario,
+  (await import('./scenarios/file-preview-failure.mjs')).scenario,
   // 会发消息（manual）：审批、命令行卡片、附件、子代理、输入法
   (await import('./scenarios/approval-decide.mjs')).scenario,
   (await import('./scenarios/command-card-lifecycle.mjs')).scenario,

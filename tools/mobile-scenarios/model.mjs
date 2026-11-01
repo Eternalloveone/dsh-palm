@@ -86,6 +86,10 @@ export const SCENARIO_CELLS = {
   'list-operability-and-speed': { journeys: ['J2'], invariants: ['U', 'P'] },
   'read-cache-first': { journeys: ['J3'], invariants: ['I5', 'P'] },
   'process-stage-copy': { journeys: ['J5'], invariants: ['I6'] },
+  'error-stage-and-retry': { journeys: ['J9'], invariants: ['I6', 'U'] },
+  'previous-content-kept-on-send': { journeys: ['J4'], invariants: ['I3'] },
+  'session-rename-and-archive': { journeys: ['J7'], invariants: ['D', 'U', 'I9'] },
+  'file-preview-failure': { journeys: ['J6'], invariants: ['I9'] },
 }
 
 /**

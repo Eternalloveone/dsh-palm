@@ -6883,7 +6883,19 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           //   · 比最新一轮更早的轮次（后面又开了新一轮）→ 等价于已收工 → 画；
           //   · 其余（还在跑、或不知道）→ 不画。
           // 不再取决于"是否知道哪一轮在跑"，也不再有"保守藏起来"这种猜测。
-          const cardHasEvidence = message.turn !== undefined && (
+          // **正在跑的那一轮，永远不画交付卡**（真机 2026-11-01 又复现："会话还没结束
+          // 就冒出交付结果卡"）。原因是我给"露过面就记为已收工"开的后门：
+          // 流式中间只要有一帧"没在跑"（重连、快照空格、被别处的停/起带一下），
+          // 这一轮就被记成已收工；之后 running 再变回 true，它就成了"有证据"的卡。
+          // 所以再加一条硬约束：**票号等于本轮（最后一条用户消息之后的最大轮次）时，
+          // 无论证据如何都不画** —— 证据只能放行"更早的轮次"。
+          // 只认**位置判据**（最后一条用户消息之后的轮次）：这一轮还没产出任何行时
+          // activeTurn 是 undefined，此时所有卡都属于更早的轮次 —— 必须照常显示，
+          // 否则又会退回到"发新消息把上一轮卡片弄没"的老毛病。
+          const isActiveTurn = message.turn !== undefined
+            && activeTurn !== undefined
+            && message.turn === activeTurn
+          const cardHasEvidence = message.turn !== undefined && !isActiveTurn && (
             closedTurnsRef.current.has(message.turn)
             || (newestCardTurn !== undefined && message.turn < newestCardTurn)
           )
