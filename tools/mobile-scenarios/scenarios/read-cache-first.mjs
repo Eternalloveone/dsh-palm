@@ -62,10 +62,9 @@ export const scenario = {
         chars: offlineRows,
         sample: offlineText.slice(0, 40),
       })
-      check('offline-cache-renders-body-or-not', true, {
-        note: offlineRows > 40 ? '缓存已生效（能出正文）' : '当前不跨刷新缓存正文（已知缺口 J3×I5）',
-        chars: offlineRows,
-      })
+      // 正文缓存已经做了（chat-cache.ts）：断网重进必须能看到上次的内容。
+      // 注意别把"错误提示也算有字"——这里只认**消息行**。
+      check('offline-cache-renders-body', offlineRows > 40, { chars: offlineRows })
 
       // ③ 走缓存也不能卡
       const fps = await page.evaluate(async () => {

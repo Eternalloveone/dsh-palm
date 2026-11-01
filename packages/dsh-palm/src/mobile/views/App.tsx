@@ -122,6 +122,7 @@ import { recordFinishedRun, shortSessionId, type FinishedRun } from '../recent-f
 import { SessionListView } from './SessionListView.tsx'
 import { WorkspaceView as WorkspaceRoster } from './WorkspaceView.tsx'
 import { PairRequiredView } from '../PairRequiredView.tsx'
+import { hasAnyChatCache } from '../chat-cache.ts'
 
 /** One navigation level. */
 type Route =
@@ -446,6 +447,22 @@ export function App({ initialPairError }: AppProps) {
     )
   }
   if (pairState === 'unavailable') {
+    // 连不上宿主 ≠ 什么都看不到：本地有上次的正文缓存就照常进主界面，
+    // 顶部挂一条离线提示（用户原则："所见即所得，稳定可靠呈现每一项内容"）。
+    // 只有"确实没有任何缓存"时才退回那句错误 —— 否则空白页比旧内容更糟。
+    if (hasAnyChatCache()) {
+      return (
+        <>
+          <div className="mobile-offline-bar" role="status">
+            离线：显示的是上次缓存的，连上后会更新
+            <button type="button" className="mobile-offline-retry" onClick={() => { window.location.reload() }}>
+              重试
+            </button>
+          </div>
+          <PairedApp onUnpaired={() => { setPairState('unpaired') }} />
+        </>
+      )
+    }
     return (
       <main className="mobile mobile-empty">
         <p className="mobile-error" role="alert">无法连接到运行中的 DSH host。</p>

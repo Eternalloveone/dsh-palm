@@ -44,6 +44,7 @@ import {
   type ScrollState,
 } from '../scroll-machine.ts'
 import { SessionHud } from '../session-hud.tsx'
+import { loadChatCache, saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
 import {
   barsSignature,
@@ -1085,6 +1086,32 @@ export function ChatView({
     draftReadyRef.current = true
     if (stored !== '') setInput(stored)
   }, [session.sessionId])
+
+  /**
+   * 聊天正文的本地缓存（用户原则："所见即所得、稳定可靠呈现每一项内容"）。
+   *
+   * 恢复：进会话时**先用上次画过的那一屏**把界面填上，再去拉网络页 —— 断网或隧道抖动
+   * 时也能看到内容，而不是只剩一句"无法连接"。（2026-11-01 实测：断网刷新后正文全没。）
+   * 保存：屏幕上的行变化后防抖 1.2 秒落盘（流式期间不会每帧写）。
+   */
+  const chatCacheRestoredRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (session.sessionId === '' || chatCacheRestoredRef.current === session.sessionId) return
+    chatCacheRestoredRef.current = session.sessionId
+    if (messagesRef.current.length > 0) return
+    const cached = loadChatCache(session.sessionId)
+    if (cached.length === 0) return
+    // 缓存行是纯数据、形状与渲染行一致；坏数据在 loadChatCache 里已经剔过。
+    applyMessages(cached as unknown as RenderMessage[], { allowGuessedTails: false })
+  }, [session.sessionId, applyMessages])
+
+  useEffect(() => {
+    if (session.sessionId === '' || messages.length === 0) return
+    const id = setTimeout(() => {
+      saveChatCache(session.sessionId, messages as unknown as CachedRow[])
+    }, 1_200)
+    return () => { clearTimeout(id) }
+  }, [messages, session.sessionId])
 
   /**
    * 上一次**非空**的输入内容，以及它属于哪个会话。

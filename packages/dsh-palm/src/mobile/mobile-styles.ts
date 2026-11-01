@@ -9028,6 +9028,30 @@ details.think-block[open] .chat-disclosure-caret {
 }
 
 /* ===== 收工浮层：任何页面都能看到"哪个会话跑完了" ===== */
+.mobile-offline-bar {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--warning, #f5a524) 18%, var(--bg-elevated, #1a1a1a));
+  border-bottom: 1px solid var(--border-focus);
+}
+
+.mobile-offline-retry {
+  margin-left: auto;
+  padding: 4px 10px;
+  font: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border-focus);
+  border-radius: 999px;
+}
+
 .finish-toast {
   /**
    * **钉在顶部**，不钉底部（2026-11-01 真机："又从底部弹出来了"）。
