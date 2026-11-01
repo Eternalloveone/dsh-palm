@@ -70,6 +70,8 @@ const PROFILES = {
     'scenarios', 'render', 'stress', 'acceptance',
     // 性能预算与视觉回归（2026-11-01 新增：前者管"顺不顺"，后者管"看着对不对"）
     'perf', 'visual',
+    // 会发消息的用户旅程（自建专用测试会话，跑完归档）
+    'manual',
   ],
 }
 
@@ -138,6 +140,28 @@ const STEPS = {
         ? { ...process.env, PALM_SESSION: pickAnySession(base) }
         : process.env
       return run('node tools/mobile-scenarios/run.mjs', rootDir, { env })
+    },
+  },
+  manual: {
+    /**
+     * 会**发消息**的用户旅程（排队连点 / 慢回执 / 离线补齐 / 绿点 / 审批 /
+     * 命令卡 / 附件 / 子代理 / 输入法组合态）。
+     *
+     * 怎么做到"可重复又不污染用户会话"：runner 自己建一条专用测试会话
+     * （提示词带 `[palm-e2e]` 前缀），跑完自动归档并清掉缓存 —— 你的会话列表里
+     * 不会多出一条死会话（2026-11-01 实测：归档后不清缓存，下一轮会在死会话上跑，
+     * 表现为整片假红）。
+     *
+     * 依赖在跑的宿主；不在就跳过。
+     */
+    title: 'mobile scenarios (manual · dedicated session)',
+    run: () => {
+      const base = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
+      if (!hostIsUp(base)) {
+        process.stdout.write(`[verify] 宿主 ${base} 没在跑，手工场景跳过\n`)
+        return true
+      }
+      return run('node tools/mobile-scenarios/run.mjs --manual --create-test-session', rootDir)
     },
   },
   render: {

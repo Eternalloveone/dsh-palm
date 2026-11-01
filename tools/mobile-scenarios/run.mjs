@@ -11,7 +11,7 @@
  *
  * 退出码：0 = 全部判据通过；1 = 有违规或场景报错。
  */
-import { launch, rpc, WORKSPACE } from './lib/env.mjs'
+import { launch, rpc, waitUntilIdle, WORKSPACE } from './lib/env.mjs'
 
 const args = process.argv.slice(2)
 const has = name => args.includes(`--${name}`)
@@ -79,6 +79,14 @@ async function readCachedTestSession() {
   } catch {
     return undefined
   }
+}
+
+/** 清掉缓存（归档之后调用：让下一轮重新建一条活的）。 */
+async function clearCachedTestSession() {
+  try {
+    const { rm } = await import('node:fs/promises')
+    await rm(TEST_SESSION_CACHE, { force: true })
+  } catch { /* 缓存本来就没了 */ }
 }
 
 async function writeCachedTestSession(sessionId) {
@@ -187,6 +195,11 @@ for (const scenario of picked) {
       continue
     }
 
+    // 手工场景共用一条测试会话：开跑前必须等上一轮收工，否则"排队/绿点/慢回执"
+    // 这些场景会带着上一条场景的余温开跑，表现为整片假红（2026-11-01 实测）。
+    if (scenario.needsTurn === true && testSessionId !== undefined) {
+      await waitUntilIdle(testSessionId, 180_000).catch(() => undefined)
+    }
     const { browser, context } = await launch({ headed: has('headed') })
     const check = (kind, ok, detail) => {
       totalChecks += 1
@@ -237,6 +250,9 @@ if (prepared.created === true && prepared.sessionId !== undefined && !has('keep-
   // 自建的测试会话跑完就归档，别在你的会话列表里留垃圾（用户明确讨厌测试残留）。
   const archived = await rpc('workspace.archiveSession', { sessionId: prepared.sessionId })
     .then(() => true, () => false)
+  // 归档了就**把缓存清掉**：归档会话收不到提示词，缓存留着只会让下一轮
+  // 在一条死会话上跑，表现为"场景莫名其妙全红"（2026-11-01 实测）。
+  if (archived) await clearCachedTestSession()
   console.log(archived
     ? `已归档本次新建的测试会话（${String(prepared.sessionId).slice(0, 20)}）；想留用加 --keep-test-session`
     : `测试会话归档失败（${String(prepared.sessionId).slice(0, 20)}），请手动清理`)

@@ -34,8 +34,10 @@ export const scenario = {
         const el = document.querySelector('textarea, [contenteditable=true]')
         if (el === null) return
         el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+        // 真机的组合态回车带 `isComposing: true`（keyCode 229 只是老式标记）。
+        // 两个都给，才能覆盖"用 isComposing 判断"和"用 keyCode 判断"两种实现。
         el.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'Enter', code: 'Enter', keyCode: 229, which: 229, bubbles: true, cancelable: true,
+          key: 'Enter', code: 'Enter', keyCode: 229, which: 229, bubbles: true, cancelable: true, isComposing: true,
         }))
       })
       await page.waitForTimeout(1500)
