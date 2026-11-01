@@ -749,7 +749,11 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
   // re-verifies every stale claim with `mobile.turnState` (the very call the
   // chat page makes), so the chip and the chat can no longer disagree.
   useEffect(() => {
-    if (route.kind !== 'workspaces' || !foreground) return
+    // 只要不是聊天页就要核对：徽标/运行中入口在**首页、会话列表、运行中页**都显示，
+    // 而原来只给 'workspaces' 开着 —— 那几页上的徽标就成了只涨不落（真机 2026-11-01：
+    // 运行中页挂着 5 条早就结束的会话，收工之后再也不消失）。
+    const badgeRouted = route.kind !== 'chat' && route.kind !== 'sub-chat' && route.kind !== 'settings'
+    if (!badgeRouted || !foreground) return
     let cancelled = false
     let timer: ReturnType<typeof setInterval> | undefined
     const probe = (): void => {
