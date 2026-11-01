@@ -112,13 +112,24 @@ export const scenario = {
       let maxRows = 0
       let maxReported = 0
       let attempts = 0
+      // 发送前先数一遍交付卡：发消息不该让**上一轮**的交付卡消失
+      // （2026-11-01 真机：发送瞬间 1 → 0 → 1，闪一下约 2 秒）。
+      const cardsBefore = await page.evaluate(() => document.querySelectorAll('.chat-turn-tail').length)
+      let cardsDuringSend = cardsBefore
       while (attempts < 2 && maxRows === 0) {
         attempts += 1
         await sendOnce(`场景排队 ${Date.now() % 100000}`)
+        // 发送窗口内持续采样卡片数量（取最小值）
+        for (let i = 0; i < 10; i += 1) {
+          await page.waitForTimeout(300)
+          const now = await page.evaluate(() => document.querySelectorAll('.chat-turn-tail').length)
+          cardsDuringSend = Math.min(cardsDuringSend, now)
+        }
         const seen = await watchQueue(30_000)
         maxRows = seen.max
         maxReported = Math.max(maxReported, seen.maxReported)
       }
+      check('card-not-dropped-on-send', cardsDuringSend >= cardsBefore, { cardsBefore, cardsDuringSend })
       // 「坞自己报的数」与「行数」任一 >0 就算看见了（两者互相印证，避免选择器再漂）
       check('queue-dock-appears', maxRows > 0 || maxReported > 0, { maxRows, maxReported, attempts })
       check('queue-dock-single', maxRows <= 1 && maxReported <= 1, { maxRows, maxReported, attempts })

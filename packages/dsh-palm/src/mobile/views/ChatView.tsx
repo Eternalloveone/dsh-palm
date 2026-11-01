@@ -1171,6 +1171,26 @@ export function ChatView({
    * 只有亲眼看到这一轮收工（宿主说停了、或收到 turn/end），它才允许显示。
    */
   const closedTurnsRef = useRef<Set<number>>(new Set())
+
+  /**
+   * 只要一轮的交付卡**在"没在跑"的时候露过面**，就记进已收工集合。
+   *
+   * 为什么需要（2026-11-01 真机）：发消息的那一刻，上一轮的交付卡会闪一下消失
+   * （实测 1 → 0 → 1，约 2 秒）。原因是那一刻 `running` 已经翻成 true，而这一轮的
+   * 轮号可能还没从对账/帧里补上，于是 `closedTurns` 里没有它、卡片被当成"没证据"藏掉。
+   * 卡都露过面了，它就是收工过的 —— 这个事实不该因为"下一轮开始了"而失效。
+   */
+  useEffect(() => {
+    if (running) return
+    let changed = false
+    for (const message of messages) {
+      if (message.kind !== 'turn' || message.turn === undefined) continue
+      if (closedTurnsRef.current.has(message.turn)) continue
+      closedTurnsRef.current.add(message.turn)
+      changed = true
+    }
+    void changed
+  }, [messages, running])
   /**
    * `mobile.sessionState` 这条原子快照通道是否可用（读到过至少一次带 turn 的快照）。
    *
