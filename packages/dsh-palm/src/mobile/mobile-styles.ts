@@ -9029,10 +9029,17 @@ details.think-block[open] .chat-disclosure-caret {
 
 /* ===== 收工浮层：任何页面都能看到"哪个会话跑完了" ===== */
 .finish-toast {
+  /**
+   * **钉在顶部**，不钉底部（2026-11-01 真机："又从底部弹出来了"）。
+   *
+   * 底部那条会压住内容、也压住输入框；聊天页早就改成顶部条了，其它页面却还是底部浮层，
+   * 于是同一个通知在两个页面出现位置不一样。现在统一到顶部（标题栏下方），
+   * 动画也改成从上方滑入 —— 通知出现在视线开始的地方，不遮正在看的东西。
+   */
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
   z-index: 60;
   display: flex;
   align-items: center;
@@ -9042,7 +9049,7 @@ details.think-block[open] .chat-disclosure-caret {
   border-radius: 14px;
   background: var(--toast-bg);
   color: var(--toast-text);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
   cursor: pointer;
   text-align: left;
   font: inherit;
@@ -9050,7 +9057,7 @@ details.think-block[open] .chat-disclosure-caret {
 }
 
 @keyframes finish-toast-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 

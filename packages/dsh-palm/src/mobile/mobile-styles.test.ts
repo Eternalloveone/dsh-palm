@@ -64,6 +64,17 @@ describe('mobileCss long-token wrapping contract', () => {
     expect(css).toContain('.chat-artifact-stat-del { color: var(--diff-del); }')
   })
 
+  it('anchors the finish notice at the TOP, never at the bottom', () => {
+    const css = compact(mobileCss)
+    // 真机（2026-11-01）：会话跑完的通知又从底部弹出来了 —— 底部那条会压住内容/输入框，
+    // 而聊天页早就改成顶部条，同一个通知在两个页面出现位置不一样。
+    // 这里钉死"顶部锚定"：出现 top，且**不许**再出现 bottom 锚定。
+    const block = css.slice(css.indexOf('.finish-toast {'), css.indexOf('.finish-toast {') + 320)
+    expect(block).toContain('position: fixed')
+    expect(block).toContain('top: calc(env(safe-area-inset-top, 0px) + 64px)')
+    expect(block).not.toContain('bottom:')
+  })
+
   it('never scales a swipe row on press (the red delete action sits right behind it)', () => {
     const css = compact(mobileCss)
     // The session row rides on top of the swipe wrapper's always-present delete
