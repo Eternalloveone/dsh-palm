@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-31T23:53:42.632Z",
+  "at": "2026-11-01T00:13:11.586Z",
   "results": [
     {
       "id": "sessions",
@@ -12,14 +12,14 @@
       "id": "home",
       "title": "首页",
       "threshold": 1.5,
-      "diffPct": 0,
+      "diffPct": 0.03,
       "ok": true
     },
     {
       "id": "settings",
       "title": "设置页",
       "threshold": 4,
-      "diffPct": 2.11,
+      "diffPct": 0,
       "ok": true
     },
     {

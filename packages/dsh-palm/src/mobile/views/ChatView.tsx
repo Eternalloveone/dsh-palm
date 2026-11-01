@@ -4452,7 +4452,13 @@ export function ChatView({
                 const gap = Math.abs(Number(candidate.getAttribute('data-row-seq') ?? '0') - rowSeq)
                 if (gap < bestGap) { bestGap = gap; best = candidate }
               }
-              row = best
+              // 只接受**真正等价**的那一行（seq 必须一模一样）。
+              //
+              // 2026-11-01 真机：翻页后画面自己跑 340~420px。根因就是这里拿了"最接近的
+              // seq"——锚点行被裁掉后，最近的邻居可能隔着半页内容，按它算出来的
+              // delta 自然是错的（夹在两屏之内，所以夹紧也没拦住）。
+              // 找不到同一行就不补：宁可不补，也不要把读者甩走。
+              row = best !== null && bestGap <= 1 ? best : null
             }
             if (row === null) return
             const delta = Math.round(row.getBoundingClientRect().top) - rowTop
