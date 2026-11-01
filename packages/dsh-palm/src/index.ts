@@ -40,6 +40,7 @@ import { NotifyStore } from './notify/notify-store.ts'
 import { deliverL2, deliverL3 } from './notify/notify-deliver.ts'
 import { PendingTracker } from './mobile-pending.ts'
 import { RpcId } from './api-proxy-types'
+import { noteRunningFrame } from './mobile-api.ts'
 import { mountOnce } from './mount-once.ts'
 import { UUID_POLYFILL_SCRIPT } from './uuid-polyfill.ts'
 import { lanIPv4Addresses } from './lan.ts'
@@ -412,6 +413,13 @@ function applyImpl(ctx: Context, config?: Config): void {
               pendingTracker.onFrame(frame)
               chatWindows.onFrame(frame)
               previews.onFrame(frame)
+              // 「谁在跑」的服务端镜像也从**这条全局流**记账。
+              //
+              // 以前只在"把帧转发给手机"时才记 —— 于是只有手机订阅过的会话进镜像，
+              // 电脑/CLI 上刚起的一轮手机上永远看不到「运行中」（2026-11-01 真机：
+              // 起跑 15 秒都没亮）。这条背景流本来就在收所有会话的事件，顺带记一笔
+              // 等于零成本把延迟从"重扫周期"降到"一帧"。
+              noteRunningFrame(frame as { payload?: unknown })
             }
           } catch {
             // The stream ended or was aborted; the watch is best-effort.
