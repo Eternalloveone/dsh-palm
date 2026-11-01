@@ -4,7 +4,7 @@
  * 用户场景：点一下"切到浅色/深色"，界面必须马上变；刷新之后还是那个样子。
  * 判据：切换后主题属性变化 → 刷新后仍是新值 → 还原成初始值（不改变用户偏好）。
  */
-import { homeUrl } from '../lib/env.mjs'
+import { rpc, homeUrl } from '../lib/env.mjs'
 
 const themeOf = page => page.evaluate(() => ({
   dataTheme: document.documentElement.getAttribute('data-theme'),
@@ -34,6 +34,15 @@ export const scenario = {
         || after.bodyClass !== before.bodyClass
         || after.scheme !== before.scheme
       check('theme-applies-instantly', changed, { before, after })
+
+      // 主题会写回宿主偏好；**等它真的落盘再 reload**，否则满载时会读到旧值
+      // （整轮跑时偶发：before=dark 但 restored=light）。
+      for (let i = 0; i < 20; i += 1) {
+        const prefs = await rpc('mobile.preferences', {}).then(value => value, () => undefined)
+        const hostTheme = prefs?.value?.theme ?? prefs?.theme
+        if (hostTheme === undefined || hostTheme === after.dataTheme) break
+        await page.waitForTimeout(400)
+      }
 
       // 刷新后保持
       await page.reload({ waitUntil: 'domcontentloaded' })
