@@ -23,8 +23,8 @@
  *
  * | 类别 | 场景 | 默认是否运行 |
  * |---|---|---|
- * | 只读（10 个） | `cross-page-round-trip`、`background-return`、`long-session-window`、`search-and-jump`、`reconnect-backfill`、`long-scroll-anchor`、`weak-network-3g`、`two-devices-same-session`、`pwa-cold-start`、`error-paths` | **跑** |
- * | 会发消息（`manual`，9 个） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle`、`approval-decide`、`command-card-lifecycle`、`attachment-upload`、`subagent-roundtrip`、`ime-composing-send` | **不跑**，必须 `--manual` + `PALM_TEST_SESSION` |
+ * | 只读（15 个，含 2 个实验性） | `cross-page-round-trip`、`background-return`、`long-session-window`、`search-and-jump`、`reconnect-backfill`、`long-scroll-anchor`〔实验〕、`weak-network-3g`、`two-devices-same-session`、`pwa-cold-start`、`error-paths`、`switch-session-keep-state`、`new-message-while-reading`〔实验〕、`settings-apply-instantly`、`preview-media-and-code`、`turn-state-authoritative` | **跑** |
+ * | 会发消息（`manual`，9 个） | `queue-while-running`、`send-slow-response`、`offline-queue-drain`、`running-dot-lifecycle`、`approval-decide`、`command-card-lifecycle`、`attachment-upload`、`subagent-roundtrip`、`ime-composing-send` | **不跑**，必须 `--manual`；会话由 runner 自建（`--create-test-session`，跑完自动归档）或由 `PALM_TEST_SESSION` 指定 |
  *
  * 覆盖面（用户旅程）：进会话 / 跨页往返 / 切后台 / 长会话反复进 / 搜索定位 /
  * SSE 断流补齐 / 长会话滚动锚点 / 3G 弱网 / 双设备一致 / PWA 冷启与清缓存 /
