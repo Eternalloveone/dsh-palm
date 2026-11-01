@@ -183,6 +183,8 @@ export function queueView(sessionId: string): QueueItemView[] {
       : {}),
     normalize: normalizeQueueText,
     ...(entry.emptyHold === undefined ? {} : { emptyHold: entry.emptyHold }),
+    // 这一轮还在跑 → 排队项不按时间淘汰（消息要等本轮结束才会被取走，可能好几分钟）。
+    running: entry.snapshot?.turn.running === true,
   }, Date.now())]
 }
 

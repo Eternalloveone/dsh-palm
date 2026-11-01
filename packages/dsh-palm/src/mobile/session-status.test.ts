@@ -400,6 +400,40 @@ describe('乐观项按「宿主多出新条目」退场（2026-10-30 架构修�
     expect(alive).toBe(true)
   })
 
+  it('这一轮还在跑：排队项不许按时间淘汰（长回合里排队条自己消失就是它）', () => {
+    // 真机（2026-11-01）："排队消息有时候显示消失"。排队消息要等**这一轮结束**才被
+    // 宿主取走，而一轮可能跑好几分钟；乐观项原本 45 秒就过期，于是长回合里排队条
+    // 自己没了 —— 消息其实还在宿主队列里。
+    const idle = optimisticAlive(
+      intent({}),
+      { host: [], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
+      60_000,
+    )
+    expect(idle).toBe(false) // 空闲时仍然按 TTL 兜底（宿主静默丢弃不能永久挂着）
+
+    const running = optimisticAlive(
+      intent({}),
+      { host: [], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map(), running: true },
+      60_000,
+    )
+    expect(running).toBe(true)
+
+    // 但"已经进了对话正文"这条证据在跑着的时候同样有效，照样退场
+    const spoken = optimisticAlive(
+      intent({}),
+      {
+        host: [],
+        optimistic: [],
+        hiddenIds: new Set(),
+        hiddenAt: new Map(),
+        running: true,
+        spokenTexts: new Set(['带图的消息']),
+      },
+      60_000,
+    )
+    expect(spoken).toBe(false)
+  })
+
   it('正文一致仍然退场（老路径不受影响）', () => {
     const alive = optimisticAlive(
       intent({ knownHostIds: [] }),

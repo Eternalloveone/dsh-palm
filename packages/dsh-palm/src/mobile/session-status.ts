@@ -405,6 +405,16 @@ export interface QueueInputs {
   /** 已经进了对话的正文（宿主认领成这一轮的用户消息），乐观项据此退场。 */
   readonly spokenTexts?: ReadonlySet<string>
   /**
+   * 这一轮是不是还在跑。
+   *
+   * 为什么影响排队项的寿命（2026-11-01 真机："排队消息有时候显示消失"）：
+   * 排队消息只有在**当前这一轮结束**时才会被宿主取走，而一轮可能跑好几分钟；
+   * 而乐观项原本 45 秒就超时退场 —— 于是长回合里排队条会自己消失（消息其实还在）。
+   * 所以：**在跑的时候不按时间淘汰**，只按"已送达/已进正文"这类证据退场；
+   * 空下来之后仍然按 TTL 兜底，避免宿主静默丢弃时永久挂着。
+   */
+  readonly running?: boolean
+  /**
    * 对话里**最新**那条用户消息的正文（归一化后）。
    *
    * 宿主队列来自投影快照，认领之后它还会挂一阵子（投影按分钟级刷新）。手机端如果不
@@ -431,7 +441,8 @@ export interface QueueInputs {
 
 /** 乐观项退场判据：宿主队列里出现同一条正文、或已经进了对话、或超时。 */
 export function optimisticAlive(intent: QueueIntent, inputs: QueueInputs, now: number): boolean {
-  if (now - intent.at >= QUEUE_OPTIMISTIC_MS) return false
+  // 在跑的时候不按时间淘汰：排队消息要等这一轮结束才会被取走，而一轮可能很久。
+  if (inputs.running !== true && now - intent.at >= QUEUE_OPTIMISTIC_MS) return false
   const normalize = inputs.normalize ?? ((text: string): string => text)
   const text = normalize(intent.text)
   // ① 身份对上（插件侧身份桥把 requestId 标在宿主行上）：最可靠，和正文无关。

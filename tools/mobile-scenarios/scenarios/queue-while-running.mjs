@@ -125,7 +125,9 @@ export const scenario = {
           const now = await page.evaluate(() => document.querySelectorAll('.chat-turn-tail').length)
           cardsDuringSend = Math.min(cardsDuringSend, now)
         }
-        const seen = await watchQueue(30_000)
+        // 观察 **70 秒**：排队项的乐观 TTL 是 45 秒，窗口太短就抓不到
+        // "长回合里排队条自己消失"（2026-11-01 真机反馈的问题）。
+        const seen = await watchQueue(70_000)
         maxRows = seen.max
         maxReported = Math.max(maxReported, seen.maxReported)
       }
