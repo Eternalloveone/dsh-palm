@@ -6721,6 +6721,25 @@ describe('ChatView send：超时但宿主其实收到了', () => {
 })
 
 describe('ChatView 草稿与打不开的会话', () => {
+  it('删光输入框里的字，草稿也要一起删掉（不然下次进来又冒出来）', async () => {
+    // 真机（2026-11-01）：发送前想删，删完退出会话再进来，删掉的文字又回来了。
+    // 根因：输入框为空时不删草稿（为了不误删"还没恢复"的那一份），
+    // 于是一整段被删掉的文字永远躺在 localStorage 里。
+    const { loadDraft, removeDraft } = await import('../list-persist.ts')
+    removeDraft(session.sessionId)
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+
+    fireEvent.change(input, { target: { value: '要删掉的草稿内容' } })
+    // 草稿落盘有 1.5 秒防抖：给足真实时间，别用默认 1 秒的 waitFor
+    await waitFor(() => { expect(loadDraft(session.sessionId)).toBe('要删掉的草稿内容') }, { timeout: 5000 })
+
+    fireEvent.change(input, { target: { value: '' } })
+    await waitFor(() => { expect(loadDraft(session.sessionId)).toBe('') })
+    expect(input.value).toBe('')
+  })
+
   it('进会话时把该会话的草稿恢复回来', async () => {
     // 真机（2026-10-31）：草稿存在 localStorage 里，但切回会话后输入框是空的 ——
     // useState(() => loadDraft(...)) 只在首次挂载跑，那时 sessionId 常常还是空串。

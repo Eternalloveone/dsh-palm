@@ -1070,20 +1070,47 @@ export function ChatView({
    * 这里在拿到真实 sessionId 后补一次：只在该会话**还没恢复过**、且输入框仍为空时填。
    */
   const draftRestoredRef = useRef<string | undefined>(undefined)
+  /**
+   * 这个会话的草稿**已经处理过一次**（恢复过、或确认本来就没有）。
+   *
+   * 有了它，"输入框被清空"才能安全地解释成"用户删光了"而不是"还没恢复"——
+   * 2026-11-01 真机：删干净后退出会话再进来，删掉的文字又冒出来（草稿没清）。
+   */
+  const draftReadyRef = useRef(false)
   useEffect(() => {
     if (draftRestoredRef.current === session.sessionId) return
-    if (inputRef.current !== '') { draftRestoredRef.current = session.sessionId; return }
+    if (inputRef.current !== '') { draftRestoredRef.current = session.sessionId; draftReadyRef.current = true; return }
     const stored = loadDraft(session.sessionId)
-    if (stored === '') return
     draftRestoredRef.current = session.sessionId
-    setInput(stored)
+    draftReadyRef.current = true
+    if (stored !== '') setInput(stored)
   }, [session.sessionId])
 
+  /**
+   * 上一次**非空**的输入内容，以及它属于哪个会话。
+   *
+   * 判"用户删光了"必须看**状态迁移**（非空 → 空），不能看"当前是空"：
+   * 恢复草稿的那一帧里，save effect 还会用旧的空值跑一次，按"当前是空"判会
+   * 把刚恢复的草稿立刻删掉（实测：写一半切走再回来，草稿没了）。
+   */
+  const lastNonEmptyInputRef = useRef('')
+  const draftCacheSessionRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    // 输入框为空**不再删除草稿**（2026-10-31 真机：切走再回来草稿没了）。
-    // 空输入可能只是这一帧还没恢复或用户刚清空又后悔，删掉就真丢了；
-    // 草稿只在**发送成功后**由发送路径 removeDraft。过期与容量由 TTL(7 天)+LRU(50) 兜。
-    if (input === '') return
+    if (draftCacheSessionRef.current !== session.sessionId) {
+      // 换会话：清掉"上一个会话的输入"，否则会用别的会话的内容做迁移判断。
+      draftCacheSessionRef.current = session.sessionId
+      lastNonEmptyInputRef.current = ''
+    }
+    if (input === '') {
+      // 只有"非空 → 空"才算用户删光了，这时必须把草稿一起删掉，
+      // 否则删掉的字下次进会话又回来（2026-11-01 真机）。
+      if (lastNonEmptyInputRef.current !== '') {
+        removeDraft(session.sessionId)
+        lastNonEmptyInputRef.current = ''
+      }
+      return
+    }
+    lastNonEmptyInputRef.current = input
     const id = setTimeout(() => { saveDraft(session.sessionId, input) }, DRAFT_SAVE_DEBOUNCE_MS)
     return () => { clearTimeout(id) }
   }, [input, session.sessionId])
