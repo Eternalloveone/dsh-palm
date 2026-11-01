@@ -44,6 +44,12 @@ const SCENARIOS = [
   (await import('./scenarios/preview-media-and-code.mjs')).scenario,
   // 根治后的守卫：回合状态/交付卡必须以宿主结论为准
   (await import('./scenarios/turn-state-authoritative.mjs')).scenario,
+  // 真机补充：长按选中复制、跑着时按停止
+  (await import('./scenarios/select-and-copy.mjs')).scenario,
+  (await import('./scenarios/stop-mid-turn.mjs')).scenario,
+  // 真机补充：真失败要说清楚、多工作区不串
+  (await import('./scenarios/send-really-fails.mjs')).scenario,
+  (await import('./scenarios/workspace-isolation.mjs')).scenario,
   // 会发消息（manual）：审批、命令行卡片、附件、子代理、输入法
   (await import('./scenarios/approval-decide.mjs')).scenario,
   (await import('./scenarios/command-card-lifecycle.mjs')).scenario,

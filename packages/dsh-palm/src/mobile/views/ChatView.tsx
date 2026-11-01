@@ -6378,7 +6378,12 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     if (stopping) return
     setStopping(true)
     void cancelSession(session.sessionId).then(
-      () => { setStopping(false) },
+      () => {
+        setStopping(false)
+        // 按了停止要给一句回应：以前只有「输出中」消失，用户不知道是停了还是崩了
+        // （2026-11-01 真机：按停止后界面上什么都没发生，只能再看一遍列表）。
+        toast('已停止这一轮')
+      },
       (reason: unknown) => {
         setStopping(false)
         setError(errorText(reason))
