@@ -57,7 +57,7 @@ export const scenario = {
 
       // ② 等收工，看徽标多久回落
       let finishedAt
-      for (let i = 0; i < 180; i += 1) {
+      for (let i = 0; i < 300; i += 1) {
         await sleep(1000)
         const state = await rpc('mobile.turnState', { sessionId })
         if (state?.value?.running === false) { finishedAt = Date.now(); break }

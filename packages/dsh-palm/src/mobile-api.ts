@@ -1218,7 +1218,14 @@ const TAIL_PAGE_PROJECTION_KEYS = ['permissions', 'contextPressure'] as const
 const ROSTER_TTL_MS = 30_000
 /** TTL for mobile.runningSessions (the badge is not latency-critical and the
  *  host enumeration is the same session.list walk, so the caches align). */
-const RUNNING_SESSIONS_TTL_MS = 15_000
+/**
+ * mobile.runningSessions 的答复缓存。
+ *
+ * 15 秒 → 4 秒（2026-11-01 重启后实测：别处起跑后手机要 13 秒才看见「运行中」，
+ * 其中 15 秒缓存就是主因 —— 缓存窗口比前端的 4 秒核对还长，前端问得再勤也是旧答案）。
+ * 这个调用本身只是内存读 + 少量日志边界核实，4 秒完全撑得住。
+ */
+const RUNNING_SESSIONS_TTL_MS = 4_000
 /** 查"谁在跑"时只看最近更新的这一批会话：运行中的会话每一帧都在写
  *  updatedAt，必然落在这一批里，而全量枚举几千条是几秒到几十秒的活——
  *  手机上这个请求常常等不到答复，"进行中"就永远退不掉。 */
@@ -1276,7 +1283,7 @@ export function isLiveSessionNotRunningConfirmed(sessionId: string): boolean {
  * 也就是说基线恒为空、真正的运行集合全靠 `session/status` 帧喂；把间隔改小
  * 只会让 reseed 反复把这套集合清空，正在跑的会话反而被抹掉。
  */
-const LIVE_RUNNING_RESEED_MS = 45_000
+const LIVE_RUNNING_RESEED_MS = 15_000
 /**
  * 重扫基线时核实多少条最近会话。
  *
