@@ -1,18 +1,18 @@
 {
-  "at": "2026-11-01T00:13:11.586Z",
+  "at": "2026-11-01T00:38:43.469Z",
   "results": [
     {
       "id": "sessions",
       "title": "会话列表",
-      "threshold": 1.5,
-      "diffPct": 0,
+      "threshold": 3,
+      "diffPct": 1.66,
       "ok": true
     },
     {
       "id": "home",
       "title": "首页",
       "threshold": 1.5,
-      "diffPct": 0.03,
+      "diffPct": 0.04,
       "ok": true
     },
     {

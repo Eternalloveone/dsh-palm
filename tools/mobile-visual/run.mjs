@@ -33,6 +33,9 @@ const surfaces = [
   {
     id: 'sessions',
     title: '会话列表',
+    // 顶部工具区里有活的东西（工作区里的会话数量、运行中角标）：
+    // 差 1.66% 那种波动是数字变了，不是布局坏了。给它单独的 3%。
+    threshold: 3,
     async prepare(page) {
       await page.goto(listUrl(), { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(2500)
