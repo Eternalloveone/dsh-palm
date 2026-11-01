@@ -40,6 +40,7 @@ import {
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../notify-triggers.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
+import { dropAllChatCaches } from '../chat-cache.ts'
 
 /** Props for the settings page. */
 export interface SettingsViewProps {
@@ -226,9 +227,15 @@ function OptionSheet<T extends string>({ title, options, value, onPick, onClose 
   )
 }
 
-/** Drop CacheStorage + service workers (the offline shell). */
+/**
+ * Drop CacheStorage + service workers (the offline shell)，以及**本地正文缓存**。
+ *
+ * 用户点「清除缓存」的心智是"把本机存的东西清干净"；只清 CacheStorage 而留下
+ * localStorage 里的正文缓存，会出现点了清除、离线重进还能看到旧内容。
+ */
 async function clearAppCaches(): Promise<void> {
   try {
+    dropAllChatCaches()
     if (typeof caches !== 'undefined') {
       const keys = await caches.keys()
       await Promise.all(keys.map(key => caches.delete(key)))

@@ -741,6 +741,9 @@ export function ChatView({
   }
 
   const applyMessages = (rows: RenderMessage[], options: { allowGuessedTails?: boolean } = {}): void => {
+    // 存**宿主那一页原始行**（不是渲染后的行）：两者 id 体系一致，恢复后再合并
+    // 不会重复。曾经存渲染行，结果长会话二次进入时同一轮被画两遍（13 处重复 id）。
+    saveChatCache(session.sessionId, rows as unknown as CachedRow[])
     // 换列表时把已经画出来的「本轮产出」带走：页自己不带报告行，换一次卡片就闪没
     // 一次（真机：「点进会话，卡片突然又消失了」）。
     // 页更权威但更穷（参数被剥、不带报告行）：同身份的行取两边并集，别把屏幕上
@@ -1101,17 +1104,12 @@ export function ChatView({
     if (messagesRef.current.length > 0) return
     const cached = loadChatCache(session.sessionId)
     if (cached.length === 0) return
-    // 缓存行是纯数据、形状与渲染行一致；坏数据在 loadChatCache 里已经剔过。
-    applyMessages(cached as unknown as RenderMessage[], { allowGuessedTails: false })
+    // **替换**而不是合并：缓存和随后的网络页是同一批身份，合并会出现同一轮两行
+    // （真机实测：长会话二次进入，13 处重复 id）。这里只当作"先用它占住屏幕"，
+    // 网络页一到照常整页替换。
+    commitRows(cached as unknown as RenderMessage[], { merge: false, allowGuessedTails: false })
   }, [session.sessionId, applyMessages])
 
-  useEffect(() => {
-    if (session.sessionId === '' || messages.length === 0) return
-    const id = setTimeout(() => {
-      saveChatCache(session.sessionId, messages as unknown as CachedRow[])
-    }, 1_200)
-    return () => { clearTimeout(id) }
-  }, [messages, session.sessionId])
 
   /**
    * 上一次**非空**的输入内容，以及它属于哪个会话。

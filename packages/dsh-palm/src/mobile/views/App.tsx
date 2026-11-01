@@ -123,6 +123,7 @@ import { SessionListView } from './SessionListView.tsx'
 import { WorkspaceView as WorkspaceRoster } from './WorkspaceView.tsx'
 import { PairRequiredView } from '../PairRequiredView.tsx'
 import { hasAnyChatCache } from '../chat-cache.ts'
+import { loadChatCache } from '../chat-cache.ts'
 
 /** One navigation level. */
 type Route =
@@ -923,6 +924,33 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
     if (messageId !== undefined) focusMessageIdRef.current = undefined
     if (partId !== undefined) focusPartIdRef.current = undefined
   }, [navigate])
+
+  /**
+   * 离线深链：`?session=` 指向的会话在本机有正文缓存时，**直接进聊天页**。
+   *
+   * 宿主连不上时，深链原本要靠会话列表确认这条会话存在才敢进 —— 断网就永远停在
+   * 工作区首页，缓存里的正文根本没机会画出来（2026-11-01 实测）。
+   * 现在只要有本地缓存就直接进；连上之后各视图会自己校准归属与状态。
+   */
+  const offlineDeepLinkRef = useRef(false)
+  useEffect(() => {
+    if (offlineDeepLinkRef.current) return
+    if (typeof window === 'undefined') return
+    const target = mobileSessionTarget(window.location.search)
+    if (target === undefined) return
+    if (loadChatCache(target).length === 0) return
+    offlineDeepLinkRef.current = true
+    navigate({
+      kind: 'chat',
+      session: {
+        sessionId: target,
+        title: `会话 ${target.slice(-6)}`,
+        running: false,
+        updatedAt: Date.now(),
+      } as never,
+      workspace: { id: initialWorkspaceId ?? '', name: '离线', path: '', sessionCount: 0, pinned: false } as unknown as WorkspaceRow,
+    } as never)
+  }, [navigate, initialWorkspaceId])
 
   const openWorkspace = useCallback((workspace: WorkspaceRow) => {
     if (initialWorkspaceId !== undefined || initialSessionId !== undefined) {

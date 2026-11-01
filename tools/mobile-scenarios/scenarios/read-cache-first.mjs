@@ -29,7 +29,10 @@ export const scenario = {
         if (warmRows > 0) break
       }
       check('warm-visit-has-rows', warmRows > 0, { warmRows })
-      await page.waitForTimeout(1200)
+      // 缓存落盘是**防抖 1.2 秒**：等够两拍再断开网络，否则测的是还没写完
+      await page.waitForTimeout(3000)
+      const cachedKeys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('chat-cache')).length)
+      check('cache-written-after-visit', cachedKeys > 0, { cachedKeys })
 
       // ② 断网重进：仍要能看到上次的内容
       await page.route('**/m/api/**', route => route.abort())
