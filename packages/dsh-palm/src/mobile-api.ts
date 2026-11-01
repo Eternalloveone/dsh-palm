@@ -1512,6 +1512,13 @@ function unwrapProxyValue(reply: unknown): unknown {
 
 /** 核实候选的上限：再多就超出一次答复的预算（每条一次内存/尾页读）。 */
 const RUNNING_VERIFY_LIMIT = 8
+/**
+ * 「日志说这一轮还开着」但**十几分钟没有任何事件** ⇒ 判它已经死了。
+ *
+ * 只影响"仅凭日志边界在跑"这一条路径（镜像/帧证据仍然优先）；
+ * 取 12 分钟是为了不把真正安静的长命令（编译、跑测试）误杀 —— 那些也会有步骤事件。
+ */
+const STALE_OPEN_TURN_MS = 12 * 60_000
 
 export const TURN_ABANDONED_MS = 3 * 60_000
 
@@ -1574,7 +1581,21 @@ export async function computeTurnState(
   const asOf = Date.now()
   const boundarySeq = boundary?.seq ?? -1
   const fromMirror = mirror !== undefined && mirror.seq >= boundarySeq
-  const open = fromMirror ? mirror.running : boundary?.type === 'turn/start'
+  /**
+   * 日志最后一条边界是 `turn/start`、却**十几分钟一个事件都没有** —— 这一轮已经死了。
+   *
+   * 2026-11-01 真机：运行中页面挂着 5 条「已跑 20~30 分钟」的会话。它们都是
+   * **回合跑到一半会话被归档/进程被杀**，宿主没来得及写 `turn/end`，
+   * 于是日志边界永远停在 turn/start，界面就一直说"在跑"。
+   *
+   * 真正在跑的一轮不会十几分钟没有任何事件（步骤、工具输出都会写）。
+   * 所以给"只靠日志边界判在跑"的情况加一条静默上限：超过 {@link STALE_OPEN_TURN_MS}
+   * 没有任何事件，就当作已中断，不再计入运行集合。
+   */
+  const staleOpen = boundary?.type === 'turn/start'
+    && boundary.lastEventAt !== undefined
+    && Date.now() - boundary.lastEventAt > STALE_OPEN_TURN_MS
+  const open = fromMirror ? mirror.running : (boundary?.type === 'turn/start' && !staleOpen)
   const startAt = fromMirror ? mirror.startAt : boundary?.type === 'turn/start' ? boundary.time : undefined
   const verdict = turnVerdict({
     boundaryOpen: open === true,
