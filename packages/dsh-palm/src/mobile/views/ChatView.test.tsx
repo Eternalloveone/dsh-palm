@@ -421,6 +421,19 @@ function expectCalledWithPrefix(mock: { mock: { calls: unknown[][] } }, ...args:
   expect(hit).toBe(true)
 }
 
+/**
+ * 交付卡**默认折叠**（2026-11-01 用户要求）。这个文件里的用例大多在断言"卡里到底
+ * 列了哪些文件"这类数据管线问题，不是折叠交互本身；统一在这里自动点开，
+ * 免得十几处重复写点击。折叠交互本身另有专门用例（message-row-process-group.test.tsx）。
+ */
+const tailAutoExpand = new MutationObserver(() => {
+  for (const head of document.querySelectorAll('.chat-turn-tail-head[aria-expanded="false"]')) {
+    fireEvent.click(head as HTMLElement)
+  }
+})
+beforeAll(() => { tailAutoExpand.observe(document.body, { childList: true, subtree: true }) })
+afterAll(() => { tailAutoExpand.disconnect() })
+
 describe('ChatView message folds', () => {
   it('keeps reasoning inside the collapsed process group and reveals it after two taps', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(settledTurnEvents()))

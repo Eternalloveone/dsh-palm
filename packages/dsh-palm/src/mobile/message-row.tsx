@@ -155,8 +155,14 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   // entry is tappable and opens the file preview (text/image inline).
   // 计划胶囊的展开状态：整数行被 memo 包着，状态放在本行里最省事（不会牵动别的行）。
   const [planOpen, setPlanOpen] = useState(false)
-  /** 交付卡整体是否展开（默认展开：刚跑完就想知道交回了什么）。 */
-  const [tailOpen, setTailOpen] = useState(true)
+  /**
+   * 交付卡整体是否展开。
+   *
+   * **默认折叠**（2026-11-01 用户要求）：一回合交回七八个文件时，展开的卡片能把半屏
+   * 占满，一条会话翻下来全是文件清单。折叠后头部仍然给出结论（「本轮产出 · N 个文件」），
+   * 想看清单点一下头部即可 —— 结论先给，明细按需。
+   */
+  const [tailOpen, setTailOpen] = useState(false)
   const planDone = (message.plan?.items ?? []).filter(item => item.status === 'completed').length
   if (message.kind === 'turn') {
     // 计时已经在过程组折叠头里（本轮用了 X），这里只报"交回了什么"：
@@ -176,7 +182,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
         style={style}
       >
         {/* 头部就是开关：长回合交回七八个文件时，卡片能把半屏占满 —— 先给结论，
-            要看清单再点开。默认展开（首次看到就知道交回了什么）。 */}
+            要看清单再点开。**默认折叠**（用户明示）。 */}
         <button
           type="button"
           className="chat-turn-tail-head"

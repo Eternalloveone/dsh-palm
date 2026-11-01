@@ -530,6 +530,34 @@ describe('P11：卡面的报错信号 / 步数入展开体 / 未改动文件 / �
 })
 
 describe('回合尾报告卡：只报交回了什么', () => {
+  it('交付卡默认折叠，点头部才展开清单', () => {
+    // 用户要求（2026-11-01）：交付卡默认折叠，别一进会话就铺满半屏文件清单。
+    const { container } = renderRow({
+      id: 'turn-tail:0',
+      kind: 'turn',
+      text: '',
+      seq: 19,
+      time: 200_000,
+      turn: 1,
+      durationMs: 384_000,
+      deliverables: [{ path: 'report.md', description: '交付报告' }],
+      produced: ['src/a.ts'],
+    })
+
+    const head = container.querySelector('.chat-turn-tail-head')!
+    // 默认折叠：头部仍给结论，清单不渲染
+    expect(head.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('.chat-turn-tail-count')!.textContent).toBe('2 个文件')
+    expect(container.textContent).not.toContain('交付物')
+    expect(container.textContent).not.toContain('本轮产出文件')
+
+    // 点一下展开
+    fireEvent.click(head)
+    expect(head.getAttribute('aria-expanded')).toBe('true')
+    expect(container.textContent).toContain('交付物')
+    expect(container.textContent).toContain('本轮产出文件')
+  })
+
   it('有交付物与产出文件时报数量、列清单、打"已交付"徽标', () => {
     const { container } = renderRow({
       id: 'turn-tail:1',
@@ -545,8 +573,10 @@ describe('回合尾报告卡：只报交回了什么', () => {
 
     expect(container.querySelector('.chat-turn-tail-title')!.textContent).toBe('本轮产出')
     expect(container.querySelector('.chat-turn-tail-count')!.textContent).toBe('2 个文件')
-    expect(screen.getByText('交付物')).toBeTruthy()
-    expect(screen.getByText('本轮产出文件')).toBeTruthy()
+    // 默认折叠 → 先点开头部再看清单
+    fireEvent.click(container.querySelector('.chat-turn-tail-head')!)
+    expect(container.textContent).toContain('交付物')
+    expect(container.textContent).toContain('本轮产出文件')
     expect(container.querySelector('.chat-turn-tail-badge')!.textContent).toBe('已交付')
     // 用时不在尾巴里重复报（组头报一次）。
     expect(container.querySelector('.chat-turn-tail-time')).toBeNull()
