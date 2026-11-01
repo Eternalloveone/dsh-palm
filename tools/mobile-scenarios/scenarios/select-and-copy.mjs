@@ -44,7 +44,10 @@ export const scenario = {
         if (target === null) return { skip: 'no-text-block' }
         const style = getComputedStyle(target)
         const scroller = document.querySelector('.chat-scroll')
-        const beforeTop = scroller === null ? 0 : Math.round(scroller.scrollTop)
+        // 用「离底部多远」而不是 scrollTop：content-visibility 的估值高度在选中时
+        // 会被真实高度替换，scrollTop 会跟着变，但**读者看到的位置没变**（仍贴着底）。
+        const gapOf = el => el === null ? 0 : Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)
+        const beforeGap = gapOf(scroller)
 
         // 选中第一行文字（模拟长按选中的结果）
         const node = [...target.childNodes].find(child => (child.textContent ?? '').trim() !== '')
@@ -59,13 +62,15 @@ export const scenario = {
             selected = selection.toString().trim()
           }
         }
-        const afterTop = scroller === null ? 0 : Math.round(scroller.scrollTop)
+        const afterGap = gapOf(scroller)
         return {
           userSelect: style.userSelect || style.webkitUserSelect,
           textLength: (target.textContent ?? '').trim().length,
           selectedLength: selected.length,
           selectedSample: selected.slice(0, 12),
-          scrollDelta: Math.abs(afterTop - beforeTop),
+          gapDelta: Math.abs(afterGap - beforeGap),
+          beforeGap,
+          afterGap,
         }
       })
 
@@ -89,7 +94,7 @@ export const scenario = {
         sample: result.selectedSample,
       })
       // ③ 选中不把页面顶飞（只在空闲会话上判）
-      if (idle) check('selection-does-not-scroll', result.scrollDelta <= 8, { scrollDelta: result.scrollDelta })
+      if (idle) check('selection-does-not-scroll', result.gapDelta <= 8, { gapDelta: result.gapDelta, beforeGap: result.beforeGap, afterGap: result.afterGap })
 
       await page.evaluate(() => { window.getSelection()?.removeAllRanges() })
     } finally {

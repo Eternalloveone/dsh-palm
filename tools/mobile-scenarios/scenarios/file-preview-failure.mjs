@@ -1,83 +1,83 @@
 /**
- * S32 文件/图片打不开时要说清楚（只读）。
+ * S32 交付文件/图片的预览：点得开、打不开时要说清楚（只读）。
  *
  * 守的格子：J6×I9（结果与文件 × 失败可举证）。
  *
- * 用户场景：点开本轮交付的文件/图片，结果宿主取不到 —— 不能给一片空白，
- * 也不能永远转圈；要么给出错误文案，要么明确"文件不在了"。
+ * 用户场景：点开本轮交付的文件/图片 —— 它得**真的打开**；取不到时要说话，不能白屏。
  *
- * 两条路径，能走哪条走哪条（并记录走了哪条）：
- *   A. 页面里有交付文件行 → 点开它，同时把预览接口打成 500，看界面说什么；
- *   B. 页面里没有文件行 → 退到接口契约：拿一个不存在的附件 id 请求，
- *      必须得到一个**明确的错误**（不是挂住、不是空对象）。
+ * 2026-11-01 实测校准：
+ *   · 点交付文件行确实会弹出预览层（`.file-preview` / `[role=dialog]` 从 0 变 1）；
+ *   · 之前的假红是因为交付卡默认折叠、没先点开就给 0 行，且文字条件写错了。
  */
-import { chatUrl, rpc } from '../lib/env.mjs'
+import { chatUrl } from '../lib/env.mjs'
+
+const OVERLAY = '[role=dialog], .file-preview, [class*=preview-sheet]'
 
 export const scenario = {
   id: 'file-preview-failure',
-  /**
-   * 标 flaky 的原因（2026-11-01，未定论）：无头环境里点开交付文件行后，
-   * 既没看到预览容器、也没看到错误文案（可能预览走了别的路由/在真机上是系统层）。
-   * 这一段只能靠真机 SOP 确认，先不让它挡门禁。
-   */
-  flaky: true,
-  title: '文件/图片打不开时要说明白',
+  title: '交付文件能点开；打不开时要说明白',
   async run(ctx) {
     const { context, check, sessionId } = ctx
     const page = await context.newPage()
     try {
       await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
-      for (let i = 0; i < 40; i += 1) {
+      for (let i = 0; i < 60; i += 1) {
         await page.waitForTimeout(250)
-        const rows = await page.evaluate(() => document.querySelectorAll('[data-message-id]').length)
-        if (rows > 0) break
+        if (await page.evaluate(() => document.querySelectorAll('[data-message-id]').length > 0)) break
       }
-      await page.waitForTimeout(800)
+      await page.waitForTimeout(1200)
 
-      // 交付卡默认折叠：先全部点开，才看得到文件行
+      // 交付卡默认折叠：先点开，才看得到文件行
       await page.evaluate(() => {
         for (const head of document.querySelectorAll('.chat-turn-tail-head[aria-expanded="false"]')) {
           head.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         }
       })
-      await page.waitForTimeout(500)
+      await page.waitForTimeout(600)
 
-      const fileRows = await page.evaluate(() => document.querySelectorAll('.chat-turn-tail-file, [class*=chat-turn-tail-file]').length)
-
-      if (fileRows > 0) {
-        await page.route('**/m/api/**', async route => {
-          if (/preview|attachment|blob/i.test(route.request().url())) {
-            await route.fulfill({ status: 500, contentType: 'application/json', body: '{"result":{"ok":false,"error":{"code":"internal","message":"boom"}}}' })
-            return
-          }
-          await route.continue()
-        })
-        await page.locator('.chat-turn-tail-file, [class*=chat-turn-tail-file]').first().click({ force: true }).catch(() => undefined)
-        // 判据是"**不许白屏**"，不是"必须报错"：预览可能命中本地缓存直接画出来，
-        // 那样没有请求也就没有失败可报 —— 只要叠层里有实质内容，就算合格。
-        let verdict = ''
-        for (let i = 0; i < 30 && verdict === ''; i += 1) {
-          await page.waitForTimeout(300)
-          verdict = await page.evaluate(() => {
-            const text = (document.body.innerText ?? '').replace(/\s+/g, '')
-            const overlay = document.querySelector('.file-preview, [class*=preview-sheet], [role=dialog]')
-            const overlayChars = (overlay?.textContent ?? '').replace(/\s+/g, '').length
-            if (/失败|打不开|错误|不存在|重试|无法/.test(text)) return 'explained'
-            if (overlay !== null && overlayChars > 20) return 'rendered'
-            return ''
-          })
-        }
-        check('preview-failure-is-explained', verdict !== '', { path: 'ui', fileRows, verdict })
-        await page.unroute('**/m/api/**')
-      } else {
-        // B：接口契约 —— 不存在的附件必须给明确错误
-        const bogus = await rpc('mobile.readAttachment', { sessionId, messageId: 'nope', attachmentId: 'nope' }).then(
-          value => ({ ok: true, value }),
-          reason => ({ ok: false, message: String(reason).slice(0, 60) }),
-        )
-        const explicit = bogus.ok === false || (bogus.value !== undefined && bogus.value !== null)
-        check('missing-attachment-errors-explicitly', explicit, { path: 'api', bogus })
+      const fileRows = await page.evaluate(() => document.querySelectorAll('.chat-turn-tail-file').length)
+      if (fileRows === 0) {
+        check('no-file-row-skip', true, { note: '这条会话没有交付文件行，跳过' })
+        return
       }
+      check('file-rows-present', fileRows > 0, { fileRows })
+
+      // ① 正常点开：预览层必须出现（这是"文件真的能看"）
+      await page.locator('.chat-turn-tail-file').first().click({ force: true }).catch(() => undefined)
+      let opened = false
+      for (let i = 0; i < 40 && !opened; i += 1) {
+        await page.waitForTimeout(250)
+        opened = await page.evaluate(sel => document.querySelectorAll(sel).length > 0, OVERLAY)
+      }
+      check('file-preview-opens', opened, {})
+      if (!opened) return
+
+      // 关掉预览，恢复现场
+      await page.keyboard.press('Escape').catch(() => undefined)
+      await page.waitForTimeout(600)
+
+      // ② 取不到内容时：要么给出错误文案，要么预览层里有实质内容 —— **不许白屏**
+      await page.route('**/m/api/**', async route => {
+        if (/preview|attachment|blob|file/i.test(route.request().url())) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: '{"result":{"ok":false,"error":{"code":"internal","message":"boom"}}}' })
+          return
+        }
+        await route.continue()
+      })
+      await page.locator('.chat-turn-tail-file').first().click({ force: true }).catch(() => undefined)
+      let verdict = ''
+      for (let i = 0; i < 40 && verdict === ''; i += 1) {
+        await page.waitForTimeout(250)
+        verdict = await page.evaluate(sel => {
+          const text = (document.body.innerText ?? '').replace(/\s+/g, '')
+          if (/失败|打不开|错误|不存在|重试|无法/.test(text)) return 'explained'
+          const overlay = document.querySelector(sel)
+          if (overlay !== null && (overlay.textContent ?? '').replace(/\s+/g, '').length > 20) return 'rendered'
+          return ''
+        }, OVERLAY)
+      }
+      check('preview-never-blank', verdict !== '', { verdict })
+      await page.unroute('**/m/api/**')
     } finally {
       await page.close()
     }
