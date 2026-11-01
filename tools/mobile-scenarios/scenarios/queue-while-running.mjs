@@ -41,8 +41,12 @@ export const scenario = {
    * 才会执行 —— 2026-10-31 因为往用户会话里灌提示词出过事故，这是硬约束。
    */
   manual: true,
-  /** 需要"已预热"的专用测试会话才算得准；fixture 稳定前不挡门禁。 */
-  flaky: true,
+  /**
+   * 曾经标 flaky：靠在跑的会话里点「发送」按钮 —— 那时按钮已经变成
+   * 「排队发送」/「停止」，按 aria-label 找按钮会点空，排队条永远不出现。
+   * 改成**回车发送**（用户的真实动作，且走同一个 send()）后连跑 3 次全过，
+   * 所以它现在是硬判据。
+   */
   needsTurn: true,
   title: '跑着排队 + 连点：只入队一条，送达后自动消失',
   async run(ctx) {
@@ -87,20 +91,21 @@ export const scenario = {
       const sendOnce = async text => {
         await input.click()
         await input.fill(text)
-        // 等 React 把这次输入落地（发送按钮变可点）再点：
-        // fill() 之后立刻点，send() 读到的是空输入 → 直接 return，界面毫无反应
-        // 也不发请求（2026-11-01 实测：同动作改成"填写 → 回车"就正常）。
+        // **用回车发送**，不用点按钮：会话在跑的时候，输入区那颗按钮会变成
+        // 「排队发送」（没内容时甚至是「停止」），按 aria-label 找按钮会找不到、点空
+        // （2026-11-01 实测：靠在跑时会话里点发送 → 一次请求都不发，排队条永远不出现）。
+        // 回车走的是同一个 send()，而且是用户的真实动作。
         for (let i = 0; i < 20; i += 1) {
-          const ready = await send.isEnabled().catch(() => false)
           const typed = await input.inputValue().catch(() => '')
-          if (ready && typed.trim() !== '') break
+          if (typed.trim() !== '') break
           await page.waitForTimeout(100)
         }
-        await send.click({ force: true })
+        await page.keyboard.press('Enter')
         // 连点第二下：故意保留，验证"同一意图只入队一条"
         await page.waitForTimeout(150)
-        await send.click({ force: true }).catch(() => undefined)
+        await page.keyboard.press('Enter').catch(() => undefined)
       }
+      void send
 
       // 最多两次尝试：发送通道偶发"点了没入队"（实测一次 0 条），
       // 但**判据本身不变** —— 每次尝试窗口内排队条都必须 ≤1。
