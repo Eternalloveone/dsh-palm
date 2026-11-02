@@ -151,3 +151,46 @@ jobs:
         run: pnpm publish --registry https://npm.pkg.github.com --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # 让 tag 同时变成一个**可见的 GitHub Release**（正文取本版 CHANGELOG）。
+  # 只打 tag 不建 Release 时，仓库首页 "Releases" 里什么都没有 —— 看起来就像没发版。
+  github-release:
+    needs: [publish]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build release notes from CHANGELOG
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          node -e '
+            const fs = require("node:fs")
+            const version = process.argv[1]
+            const text = fs.readFileSync("CHANGELOG.md", "utf8")
+            const start = text.indexOf("## [" + version + "]")
+            if (start < 0) process.exit(0)
+            const rest = text.slice(start + 3)
+            const next = rest.indexOf("\n## [")
+            const body = (next < 0 ? rest : rest.slice(0, next)).trim()
+            fs.writeFileSync("release-notes.md", body + "\n")
+          ' "$version"
+          if [ -f release-notes.md ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME 已存在 - 跳过"
+            exit 0
+          fi
+          if [ "${{ steps.notes.outputs.have }}" = "true" ]; then
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md --verify-tag
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          fi
