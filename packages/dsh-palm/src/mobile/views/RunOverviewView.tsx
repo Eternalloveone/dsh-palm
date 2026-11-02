@@ -159,6 +159,8 @@ interface SessionRun {
   live: boolean
   /** True when the session runs but owns no background jobs. */
   runningOnly: boolean
+  /** 正在等用户处理：回答一个问题 / 确认一次操作。 */
+  waiting?: 'approval' | 'question'
   /** 工作区名（cwd 尾段），用于区分同名会话。 */
   workspace?: string
 }
@@ -172,6 +174,7 @@ function buildRows(
   roster: ReadonlyMap<string, RosterRow>,
   liveSessionIds: ReadonlySet<string>,
   titles?: ReadonlyMap<string, string>,
+  pending: ReadonlyArray<{ sessionId: string; kind: 'approval' | 'question' }> = [],
 ): SessionRun[] {
   const cards = new Map<string, SessionRun>()
   const add = (sessionId: string): void => {
@@ -194,6 +197,17 @@ function buildRows(
     card.jobs = row.jobs
     card.live = row.jobs.some(job => isLive(job))
   }
+  // 在等用户处理的会话**必须**出现在这里：它们既不"在跑"（回合停在等输入上）
+  // 也不"刚结束"，不给一条卡片用户就完全不知道有东西在等自己。
+  for (const row of pending) {
+    add(row.sessionId)
+    const card = cards.get(row.sessionId)!
+    card.waiting = row.kind
+    if (card.title.startsWith('会话 ')) {
+      const better = roster.get(row.sessionId)?.title ?? titles?.get(row.sessionId)
+      if (better !== undefined) card.title = better
+    }
+  }
   // Running sessions with no retained jobs still belong in the overview.
   for (const sessionId of liveSessionIds) {
     add(sessionId)
@@ -209,6 +223,8 @@ function buildRows(
   }
   const rows = [...cards.values()]
   rows.sort((a, b) => {
+    // 等用户处理的排最前：它是**唯一**需要用户动手的那类。
+    if ((a.waiting !== undefined) !== (b.waiting !== undefined)) return a.waiting !== undefined ? -1 : 1
     if (a.live !== b.live) return a.live ? -1 : 1
     if (a.runningOnly !== b.runningOnly) return a.runningOnly ? -1 : 1
     return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0
@@ -232,6 +248,8 @@ export interface RunOverviewMux {
   jobsSnapshot(): Array<{ sessionId: string; jobs: readonly JobView[] }>
   /** Sessions whose turn is open, tracked for the mux's whole lifetime. */
   runningSessionsSnapshot(): string[]
+  /** 正在等用户回答/确认的会话（缺省时按没有处理）。 */
+  pendingSnapshot?(): Array<{ sessionId: string; kind: 'approval' | 'question' }>
   /** 让 mux 重新问一次宿主（对过期证据逐个复核）。缺省时页面只信快照。 */
   refreshRunning?(): Promise<void>
   onFrame(listener: (frame: MuxFrame) => void): () => void
@@ -252,6 +270,10 @@ function useNowGauge(active: boolean): number {
 export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: RunOverviewViewProps) {
   const [snapshot, setSnapshot] = useState<Array<{ sessionId: string; jobs: readonly JobView[] }>>(
     () => mux?.jobsSnapshot() ?? [],
+  )
+  /** 正在等用户处理的会话（回答/确认）。这些既不"在跑"也不"刚结束"。 */
+  const [pendingRows, setPendingRows] = useState<Array<{ sessionId: string; kind: 'approval' | 'question' }>>(
+    () => mux?.pendingSnapshot?.() ?? [],
   )
   /** Roster baseline: titles + running flags (fetched once per page open). */
   // 首屏缓存：上次稳定下来的标题/详情/在跑集合先铺上，再在后台对齐。
@@ -426,6 +448,11 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
         setSnapshot(mux.jobsSnapshot())
         return
       }
+      if (frame.type === 'approval/requested' || frame.type === 'approval/resolved'
+        || frame.type === 'question/requested' || frame.type === 'question/resolved') {
+        setPendingRows(mux.pendingSnapshot?.() ?? [])
+        return
+      }
       if (frame.type === 'session/event') {
         const eventType = (frame.event as { type?: string }).type
         const sessionId = String(frame.sessionId)
@@ -443,10 +470,11 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     }
     const unsubscribe = mux.onFrame(onFrame)
     setSnapshot(mux.jobsSnapshot())
+    setPendingRows(mux.pendingSnapshot?.() ?? [])
     return unsubscribe
   }, [mux])
 
-  const rows = buildRows(snapshot, roster, liveSessions, liveTitles)
+  const rows = buildRows(snapshot, roster, liveSessions, liveTitles, pendingRows)
 
   // Foreground subagents: asked for the running sessions only, while this page
   // is mounted. One `subagent.list` per live session per tick (bounded by
@@ -539,7 +567,8 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     return ids
   })()
   const liveCount = rows.reduce((sum, row) => sum + row.jobs.filter(job => isLive(job)).length, 0)
-  const liveRows = rows.filter(row => row.live
+  // 等用户处理的会话虽然"不在跑"，也必须显示（否则用户看不到有东西在等自己）。
+  const liveRows = rows.filter(row => (row.live || row.waiting !== undefined)
     && !childSessionIds.has(row.sessionId)
     // 尾页说这一轮收工了（最后一条边界就是 turn/end）就退场：花名册那一行经常
     // 还在说 running=true，光信它会留下一张"跑完了还在数秒"的卡（真机现场）。
@@ -619,7 +648,9 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
         {rows.length === 0 && visibleFinished.length === 0 && (
           <div className="mobile-empty" style={{ paddingTop: 28 }}>
             <div className="empty-icon"><InboxIcon /></div>
-            <p className="empty-title">当前没有运行中的会话或任务</p>
+            <p className="empty-title">
+            {rows.some(row => row.waiting !== undefined) ? '有会话在等你处理' : '当前没有运行中的会话或任务'}
+          </p>
             <p className="empty-desc">会话输出、子代理委派、命令运行会实时显示在这里</p>
           </div>
         )}
@@ -786,7 +817,9 @@ function SessionCard({ row, detail, detailMissing, children, now, onOpenSession,
         <span className="rs-body">
           <span className="rs-title">{row.title}</span>
           <span className="rs-meta">
-            <span className="rs-action">{detail?.action ?? '等待输出'}</span>
+            <span className={row.waiting === undefined ? 'rs-action' : 'rs-action rs-action-waiting'}>
+              {row.waiting === 'approval' ? '等你确认' : row.waiting === 'question' ? '等你回答' : detail?.action ?? '等待输出'}
+            </span>
             {detail?.actionHint !== undefined && (
               <>
                 <span className="sep">·</span>

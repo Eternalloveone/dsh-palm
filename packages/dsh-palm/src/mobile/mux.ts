@@ -222,6 +222,8 @@ export class MuxClient {
    * chat can replay its session's last known tasks on entry.
    */
   private readonly cachedJobsBySession = new Map<string, JobView[]>()
+  /** 会话 → 它在等用户做什么（approval/question）。 */
+  private readonly pendingBySession = new Map<string, 'approval' | 'question'>()
   /**
    * Latest `session/queue` snapshot per session, retained regardless of
    * whether a ChatView listener was mounted when the frame arrived (same
@@ -711,8 +713,35 @@ export class MuxClient {
     if (frame.type === 'session/jobs') this.rememberJobs(frame)
     if (frame.type === 'session/queue') this.rememberQueue(frame)
     if (frame.type === 'session/subscribed') this.rememberSubscribed(frame)
+    this.trackPending(frame)
     this.trackTurnState(frame)
     this.emit(frame, envelope.rpcId)
+  }
+
+  /**
+   * 谁在**等用户**：面板开着（approval/question requested）就记一条，解决/答复后删掉。
+   *
+   * 为什么运行中页需要它：会话卡在问题面板等回答时，宿主那边不算"在跑"（回合已经停在
+   * 等输入上），于是运行中页一条都不显示 —— 用户根本不知道有东西在等自己（真机：
+   * 会话卡了一整晚，运行中页是空的，既不在"正在运行"也不在"刚结束"）。
+   */
+  private trackPending(frame: MuxFrame): void {
+    const type = frame.type
+    if (type !== 'approval/requested' && type !== 'approval/resolved'
+      && type !== 'question/requested' && type !== 'question/resolved') return
+    const sessionId = String((frame as { sessionId?: unknown }).sessionId ?? '')
+    if (sessionId === '') return
+    const asked = type === 'approval/requested' || type === 'question/requested'
+    if (asked) {
+      this.pendingBySession.set(sessionId, type === 'approval/requested' ? 'approval' : 'question')
+    } else {
+      this.pendingBySession.delete(sessionId)
+    }
+  }
+
+  /** 正在等用户处理（回答/确认）的会话。 */
+  pendingSnapshot(): Array<{ sessionId: string; kind: 'approval' | 'question' }> {
+    return [...this.pendingBySession.entries()].map(([sessionId, kind]) => ({ sessionId, kind }))
   }
 
   /** Update the running-session mirror from a session/event frame's turn

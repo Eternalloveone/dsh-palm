@@ -1120,6 +1120,31 @@ export function mergeFinishedRuns(
   return [...bySession.values()].sort((a, b) => b.finishedAt - a.finishedAt).slice(0, FINISHED_RUNS_MAX)
 }
 
+/**
+ * 宿主记账：全局 mux 流里看到某会话 `turn/end` 就写一条「刚结束」。
+ *
+ * 为什么必须在宿主侧：客户端的账本只覆盖"手机当时开着、并且看到了这一轮"的会话。
+ * 手机没开、或者这一轮是在桌面端跑完的，就永远进不了账本 —— 真机表现是
+ * 「刚跑完的会话在运行中页的『刚结束』里找不到」。
+ *
+ * 标题留空：这里拿不到会话标题，客户端合并时会用自己已知的标题补上（见 recent-finished）。
+ */
+export function noteHostFinishedRun(sessionId: string, finishedAt: number, status: 'done' | 'stopped' | 'error' = 'done'): void {
+  if (finishedRunsFile === undefined || sessionId === '') return
+  try {
+    const now = Date.now()
+    const merged = mergeFinishedRuns(readFinishedRuns(finishedRunsFile, now), [{
+      sessionId,
+      title: '',
+      finishedAt,
+      status,
+    }], now)
+    writeFinishedRuns(finishedRunsFile, merged)
+  } catch {
+    // 账本写失败不能影响实时流
+  }
+}
+
 /** 写账本（失败静默：账本丢一条不能影响聊天）。 */
 export function writeFinishedRuns(file: string | undefined, entries: readonly FinishedRunEntry[]): void {
   if (file === undefined) return
@@ -1479,6 +1504,13 @@ export function noteRunningFrame(
     liveNotRunningConfirmed.delete(sessionId)
   } else {
     liveRunningSessionIds.delete(sessionId)
+    // **收工当场记账（宿主视角）**。
+    //
+    // 以前「刚结束」只靠手机端自己看到 turn/end 才记一条，再用宿主的账本合并；手机没开着、
+    // 或者这条会话是在桌面端跑完的，就**永远不会进账本**（真机：明明刚跑完，运行中页的
+    // 「刚结束」里没有它）。宿主在全局 mux 流里本来就看得到所有会话的边界帧，顺手记下来，
+    // 账本才完整。
+    noteHostFinishedRun(sessionId, time ?? Date.now())
   }
   turnBoundaryMirror.set(sessionId, {
     running,

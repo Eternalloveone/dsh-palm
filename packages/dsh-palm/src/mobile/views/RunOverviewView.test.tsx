@@ -30,13 +30,15 @@ type Listener = (frame: MuxFrame) => void
 type Row = { sessionId: string; jobs: unknown[] }
 
 /** A minimal MuxClient stand-in exposing the snapshot surface the page uses. */
-function muxStub(initial: Row[] = [], runningSeed: string[] = []) {
+function muxStub(initial: Row[] = [], runningSeed: string[] = [], pendingSeed: Array<{ sessionId: string; kind: 'approval' | 'question' }> = []) {
   const rows: Row[] = [...initial]
   const runningIds: string[] = [...runningSeed]
+  const pendingRows = [...pendingSeed]
   const listeners = new Set<Listener>()
   return {
     jobsSnapshot: () => [...rows],
     runningSessionsSnapshot: () => [...runningIds],
+    pendingSnapshot: () => [...pendingRows],
     onFrame(listener: Listener): () => void {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
@@ -158,6 +160,15 @@ afterEach(() => {
 const text = (): string => document.body.textContent ?? ''
 
 describe('RunOverviewView', () => {
+
+  it('卡在问题面板等回答的会话也在运行中页（否则用户根本不知道有东西在等自己）', async () => {
+    // 真机 2026-11-03：会话停在"等你回答"面板上一整晚，运行中页既不在"正在运行"
+    // 也不在"刚结束"里 —— 完全看不出来有东西卡住了。
+    api.listSessions.mockResolvedValue([] as never)
+    const mux = muxStub([], [], [{ sessionId: 's-waiting', kind: 'question' }])
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} onOpenSubagent={() => {}} />)
+    await waitFor(() => { expect(screen.getByText('等你回答')).toBeTruthy() })
+  })
   it('renders the empty state when nothing runs and nothing finished', async () => {
     const mux = muxStub()
     api.listSessions.mockResolvedValue(emptyPage)
