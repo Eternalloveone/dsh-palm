@@ -460,7 +460,7 @@ export function App({ initialPairError }: AppProps) {
               重试
             </button>
           </div>
-          <PairedApp onUnpaired={() => { setPairState('unpaired') }} />
+          <PairedApp onUnpaired={() => { setPairState('unpaired') }} offline />
         </>
       )
     }
@@ -510,7 +510,7 @@ function isEditableFocused(): boolean {
 }
 
 /** The existing remote mobile surface, mounted only after device pairing succeeds. */
-function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
+function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; offline?: boolean}) {
   // Foreground gate: every polling effect on this surface reads it, so a
   // backgrounded (frozen) PWA schedules nothing and the host is told to stop
   // streaming to it (see the observe effect below).
@@ -934,12 +934,20 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
    */
   const offlineDeepLinkRef = useRef(false)
   useEffect(() => {
+    // **只有连不上宿主时**才走这条捷径。在线时 URL 里的 `?session=` 由正常链路
+    // （会话列表确认后进入）处理 —— 在这里抢跑会和用户的正常导航打架，
+    // 表现为"页面套页面 / 同一行出现两份 / 点击超时"（2026-11-01 验收 SOP 实测）。
+    if (!offline) return
     if (offlineDeepLinkRef.current) return
     if (typeof window === 'undefined') return
     const target = mobileSessionTarget(window.location.search)
     if (target === undefined) return
     if (loadChatCache(target).length === 0) return
     offlineDeepLinkRef.current = true
+    // 摘掉 ?session=：免得这一页重新挂载时又跳一次
+    const url = new URL(window.location.href)
+    url.searchParams.delete('session')
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
     navigate({
       kind: 'chat',
       session: {
@@ -950,7 +958,7 @@ function PairedApp({ onUnpaired }: { onUnpaired: () => void }) {
       } as never,
       workspace: { id: initialWorkspaceId ?? '', name: '离线', path: '', sessionCount: 0, pinned: false } as unknown as WorkspaceRow,
     } as never)
-  }, [navigate, initialWorkspaceId])
+  }, [navigate, initialWorkspaceId, offline])
 
   const openWorkspace = useCallback((workspace: WorkspaceRow) => {
     if (initialWorkspaceId !== undefined || initialSessionId !== undefined) {

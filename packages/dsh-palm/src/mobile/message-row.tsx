@@ -33,6 +33,18 @@ const WHALE_REST_PATH = 'M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.9
 /** / 重生成按钮的三态：待点、已发出、发出失败。 */
 export type RegenerateState = 'idle' | 'busy' | 'failed'
 
+/**
+ * 一轮的起点**只可能变早、不会变晚**。
+ *
+ * 真机（2026-11-02）：过程条计时从「5分10秒」突然跳回「1分20秒」，再从小往大长。
+ * 原因是重连/翻页后 `turnStartAt` 被重新算成"窗口里第一条事件的时间"（晚了几分钟）。
+ *
+ * 这里只拦**跳变**（晚 30 秒以上）：几秒级的校准是正常的，照常采纳。
+ * 记忆放在**行自己的 ref** 里，不跨行、不跨会话、不跨测试 —— 模块级状态会被
+ * 下一条用例继承，表现为"读数突然变大了"（实测）。
+ */
+const TURN_ANCHOR_JUMP_MS = 30_000
+
 export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick }: {
   message: RenderMessage
   /**
@@ -509,7 +521,16 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand
   // （ChatView 从宿主帧推出来的）。原先兜底用的 firstSeenAt 是"手机第一次看到这一行"的
   // 本地时间 —— 中途打开页面、或回合在手机连上之前就开始时，它比宿主真正的回合开始晚
   // 一大截，真机表现就是"手机读数比桌面端偏小"。拿不到宿主锚点就干脆不报秒表（宁缺勿错）。
-  const clockAnchor = message.turnStartAt ?? liveTurnStartAt
+  const rawAnchor = message.turnStartAt ?? liveTurnStartAt
+  // 同上：晚 30 秒以上的锚点跳变一律不采用（读数因此只增不减）。
+  const anchorRef = useRef<number | undefined>(undefined)
+  if (rawAnchor !== undefined) {
+    const kept = anchorRef.current
+    if (kept === undefined || rawAnchor - kept < TURN_ANCHOR_JUMP_MS) anchorRef.current = rawAnchor
+  }
+  const clockAnchor = rawAnchor !== undefined && anchorRef.current !== undefined
+    ? Math.min(rawAnchor, anchorRef.current)
+    : rawAnchor ?? anchorRef.current
   // 每一帧都直接按墙钟重算：读数 = 现在 + 宿主偏移 − 锚点，取整由 formatDuration
   // 统一向下取整（桌面端同样口径）。
   //

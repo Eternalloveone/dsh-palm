@@ -308,6 +308,37 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(currentLineOf(answering.container.querySelector('.chat-proc-head') as HTMLElement)).toBe('正在回答')
   })
 
+  it('同一轮的锚点只能变早：更晚的 turnStartAt 不许把秒表打回去', () => {
+    // 真机（2026-11-02）：过程条计时从「5分10秒」突然跳回「1分20秒」，然后从小往大长。
+    // 根因是重连/翻页后 turnStartAt 被算成窗口里第一条事件的时间（更晚）——
+    // 一轮的起点是既成事实，只能被更准的值纠正，不能变晚。
+    vi.useFakeTimers()
+    try {
+      const t0 = 1_700_000_000_000
+      vi.setSystemTime(t0)
+      const early: RenderMessage = {
+        ...baseMessage(true),
+        turnStartAt: t0 - 310_000,
+      }
+      const view = render(
+        <MessageRow message={early} showToolCalls showSystemMessages={false} clockOffsetMs={0} />,
+      )
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分10秒')
+
+      // 锚点被换成"晚 230 秒"的那个值：读数必须**顶住**，不能变成 1分20秒
+      const late: RenderMessage = { ...early, turnStartAt: t0 - 80_000 }
+      view.rerender(<MessageRow message={late} showToolCalls showSystemMessages={false} clockOffsetMs={0} />)
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分10秒')
+
+      // 更早的锚点是"更准的纠正"，允许采纳
+      const corrected: RenderMessage = { ...early, turnStartAt: t0 - 330_000 }
+      view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} clockOffsetMs={0} />)
+      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分30秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('行内秒表走宿主时间：锚点优先 turnStartAt，clockOffsetMs 把用时整体平移', () => {
     vi.useFakeTimers()
     try {

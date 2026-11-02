@@ -38,7 +38,10 @@ async function rpc(method, payload = {}) {
 
 /** 一帧：同轮多卡 / 重复 key。 */
 const sampleOnce = page => page.evaluate(() => {
-  const cards = [...document.querySelectorAll('.chat-proc')]
+  // 同样只看**当前页**：转场期间旧页还挂着，两页各有一份过程卡，
+  // 按 轮次+步骤 分组时就会变成"同一步骤两张卡"（2026-11-01 实测，纯转场假红）。
+  const onActivePage = el => el.closest('[class*=page-exit]') === null
+  const cards = [...document.querySelectorAll('.chat-proc')].filter(onActivePage)
   const byTurn = new Map()
   let noTurnCards = 0
   for (const card of cards) {
@@ -53,7 +56,11 @@ const sampleOnce = page => page.evaluate(() => {
     const key = step === undefined ? `turn${turn}:step?` : `turn${turn}:step${step}`
     byTurn.set(key, (byTurn.get(key) ?? 0) + 1)
   }
-  const ids = [...document.querySelectorAll('[data-message-id]')].map(el => el.getAttribute('data-message-id'))
+  // 只数**当前页**：切页动画期间旧页还挂在 DOM 里（.page-exit-*），两页渲染同一条会话时
+  // 同一个 id 会同时出现两份 —— 那是滑动转场，不是重复渲染（2026-11-01 实测 120~550ms）。
+  const ids = [...document.querySelectorAll('[data-message-id]')]
+    .filter(el => el.closest('[class*=page-exit]') === null)
+    .map(el => el.getAttribute('data-message-id'))
   return {
     cards: cards.length,
     noTurnCards,
