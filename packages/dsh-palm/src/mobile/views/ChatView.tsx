@@ -2952,7 +2952,31 @@ export function ChatView({
   const runningTurnRef = useRef<number | undefined>(runningTurn)
   useEffect(() => { runningTurnRef.current = runningTurn }, [runningTurn])
 
-  const clockAnchor = turnStartAt ?? (running ? (newestTurnAnchor(messages) ?? mountTimeRef.current) : null)
+  /**
+   * 一轮的秒表锚点**只许变早**（真机 2026-11-02 / 11-03 反复出现：过程条从「5分10秒」
+   * 跳回「1分20秒」再从小往大长）。
+   *
+   * 放到 ChatView 而不是行内：行会在 turn/step 到位时卸载重挂（历史遗留的 key 变化），
+   * 行内的记忆跟着丢，于是又跳一次 —— 这正是"修了还在跳"的原因。
+   * 同一轮里后来的更晚锚点一律不采信：一轮的起点是既成事实，只可能被更准的值纠正。
+   */
+  const anchorMemoryRef = useRef<{ turn: number | undefined; at: number } | undefined>(undefined)
+  const rawClockAnchor = turnStartAt ?? (running ? (newestTurnAnchor(messages) ?? mountTimeRef.current) : null)
+  const clockAnchor = (() => {
+    if (rawClockAnchor === null || rawClockAnchor === undefined) return rawClockAnchor
+    if (!running) {
+      anchorMemoryRef.current = undefined
+      return rawClockAnchor
+    }
+    const memory = anchorMemoryRef.current
+    if (memory === undefined || memory.turn !== runningTurn) {
+      anchorMemoryRef.current = { turn: runningTurn, at: rawClockAnchor }
+      return rawClockAnchor
+    }
+    const kept = Math.min(memory.at, rawClockAnchor)
+    anchorMemoryRef.current = { turn: runningTurn, at: kept }
+    return kept
+  })()
   /**
    * 当前活跃轮次（没有活跃回合时 undefined）—— 逐层传给 MessageRow → AssistantBody
    * → ProcessGroup 的 liveTurn，行级"还在跑"判据的第三个分量。

@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { SessionModels } from '../../api-proxy-types'
 import { ChatView, loadTurnReportRows, MAX_TAIL_BUFFER_EVENTS, offersRegenerate, quotePathForReference, renderRows, RUNNING_RECONCILE_MS } from './ChatView.tsx'
+import { resetTurnAnchors } from '../message-row.tsx'
 import { addOptimisticQueueItem, resetSessionStoreForTest } from '../session-store.ts'
 import { resetToastsForTest, ToastHost } from '../toast.tsx'
 
@@ -340,6 +341,9 @@ beforeEach(() => {
   clearChatSnapshots()
   // 交付卡记忆也是模块级：不清会让下一条用例带着上一条的卡，误判"已有真卡"。
   clearTurnReportCache()
+  // 秒表锚点记忆落在 sessionStorage（跨重挂/跨刷新用）：用例之间必须清，
+  // 否则上一条用例记下的更早锚点会被这一条继承，读数对不上。
+  resetTurnAnchors()
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
   promptMock.mockResolvedValue(undefined)
   modelsMock.mockResolvedValue({

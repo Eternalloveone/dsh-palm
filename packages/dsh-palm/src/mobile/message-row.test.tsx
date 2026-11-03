@@ -11,9 +11,9 @@
  * 哪一步"（没有可说的一步时整行不渲染）；静态头（纯文本/只有时钟）是同一套
  * 两行，但没有 caret、没有 aria-expanded。秒表走宿主时间（clockOffsetMs）。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { MessageRow } from './message-row.tsx'
+import { MessageRow, forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from './message-row.tsx'
 import type { RenderMessage, ToolCallInfo } from './messages.ts'
 
 // 图片字节走 attachment-images（内容寻址缓存）：测试里当作已缓存，组件同步渲染。
@@ -87,7 +87,29 @@ function currentLineOf(head: HTMLElement): string {
   return head.querySelector('.chat-proc-current-text')?.textContent ?? ''
 }
 
+describe('秒表锚点记忆（跨重挂/跨刷新只许变早）', () => {
+  beforeEach(() => { resetTurnAnchors() })
+
+  it('同一轮重复取锚点永远取最早的：晚到的锚点不会把读数打回去', () => {
+    // 真机 2026-11-03：行在 turn/step 到位时会卸载重挂，行内记忆丢了就再跳一次。
+    // 现在记忆落在 sessionStorage（按 会话:轮次），重挂、刷新都在。
+    expect(stableTurnAnchor('s:1', 10_000)).toBe(10_000)
+    expect(stableTurnAnchor('s:1', 40_000)).toBe(10_000)
+    // 更早的锚点是更准的纠正，允许采纳
+    expect(stableTurnAnchor('s:1', 9_000)).toBe(9_000)
+  })
+
+  it('回合收工后清掉，下一轮从新锚点开始', () => {
+    expect(stableTurnAnchor('s:2', 10_000)).toBe(10_000)
+    forgetTurnAnchor('s:2')
+    expect(stableTurnAnchor('s:2', 50_000)).toBe(50_000)
+  })
+})
+
 describe('MessageRow flow body (layout stability)', () => {
+  // 锚点记忆落在 sessionStorage：用例之间必须清，否则上一条的锚点会被这一条继承。
+  beforeEach(() => { resetTurnAnchors() })
+
   it('renders pending and settled rows with the identical collapsed process group and trailing answer', () => {
     const pending = render(
       <MessageRow message={baseMessage(true)} showToolCalls showSystemMessages={false} />,

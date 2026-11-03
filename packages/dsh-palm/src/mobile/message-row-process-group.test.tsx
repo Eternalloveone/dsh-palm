@@ -10,8 +10,8 @@
  * 7. P11：本回合确定没改动文件时报「未改动文件」，运行中不报（会误报）。
  */
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { MessageRow } from './message-row.tsx'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { MessageRow, resetTurnAnchors } from './message-row.tsx'
 import type { RenderMessage, ToolCallInfo } from './messages.ts'
 
 const diffTool: ToolCallInfo = {
@@ -37,7 +37,12 @@ function renderRow(message: RenderMessage, showToolCalls = true, liveTurn?: numb
   )
 }
 
+// 秒表锚点记忆落在 sessionStorage：整轮跑时会被别的用例继承，必须在**每条用例**前清掉
+// （放在顶层，不能只放某一个 describe 里 —— 那样其它 describe 的用例还是会继承）。
+beforeEach(() => { resetTurnAnchors() })
+
 describe('过程组：默认折叠，答案优先', () => {
+
   const message = assistant({
     text: '第一段\n\n第二段',
     durationMs: 384_000,

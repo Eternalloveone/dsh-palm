@@ -34,16 +34,72 @@ const WHALE_REST_PATH = 'M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.9
 export type RegenerateState = 'idle' | 'busy' | 'failed'
 
 /**
- * 一轮的起点**只可能变早、不会变晚**。
+ * 一轮的起点**只可能变早、不会变晚** —— 秒表读数的地基。
  *
- * 真机（2026-11-02）：过程条计时从「5分10秒」突然跳回「1分20秒」，再从小往大长。
- * 原因是重连/翻页后 `turnStartAt` 被重新算成"窗口里第一条事件的时间"（晚了几分钟）。
+ * 真机（2026-11-02 / 11-03 反复出现）：过程条计时从「5分10秒」突然跳回「1分20秒」，
+ * 然后从小往大长。原因是重连/翻页/换页之后 `turnStartAt` 被重新算成"窗口里第一条
+ * 事件的时间"，比真实起点晚了几分钟。
  *
- * 这里只拦**跳变**（晚 30 秒以上）：几秒级的校准是正常的，照常采纳。
- * 记忆放在**行自己的 ref** 里，不跨行、不跨会话、不跨测试 —— 模块级状态会被
- * 下一条用例继承，表现为"读数突然变大了"（实测）。
+ * 前两次修法都不够：① 行内 ref —— 行会在 turn/step 到位时**卸载重挂**，记忆跟着丢；
+ * ② 只拦 30 秒以上跳变 —— 重挂之后新锚点照样生效。
+ *
+ * 现在：记忆按「会话 + 轮次」落在 **sessionStorage**，跨行、跨重挂、跨刷新都在，
+ * 同一轮一律取**见过的最早**锚点（几秒级的校准也一并挡住 —— 一轮的起点是既成事实，
+ * 没有任何"变晚"是合法的）。回合结束后清掉。
  */
-const TURN_ANCHOR_JUMP_MS = 30_000
+const TURN_ANCHOR_PREFIX = 'dsh-palm.turn-anchor.v1.'
+/** 锚点最多记这么久（一轮再长也不至于 6 小时）。 */
+const TURN_ANCHOR_TTL_MS = 6 * 60 * 60_000
+
+function anchorStorage(): Storage | undefined {
+  try {
+    return typeof sessionStorage === 'undefined' ? undefined : sessionStorage
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 取这一轮**见过的最早**锚点，并把更早的值记下来。
+ * @param key - `${sessionId}:${turn}`。
+ * @param candidate - 本次渲染拿到的宿主锚点。
+ */
+export function stableTurnAnchor(key: string, candidate: number | undefined): number | undefined {
+  if (candidate === undefined) return undefined
+  const store = anchorStorage()
+  if (store === undefined) return candidate
+  const storageKey = TURN_ANCHOR_PREFIX + key
+  let previous: number | undefined
+  try {
+    const raw = store.getItem(storageKey)
+    const parsed = raw === null ? Number.NaN : Number(raw)
+    if (Number.isFinite(parsed) && candidate - parsed < TURN_ANCHOR_TTL_MS && candidate - parsed > -TURN_ANCHOR_TTL_MS) {
+      previous = parsed
+    }
+  } catch {
+    previous = undefined
+  }
+  const kept = previous === undefined ? candidate : Math.min(previous, candidate)
+  if (kept !== previous) {
+    try { store.setItem(storageKey, String(kept)) } catch { /* 配额满：退回不记忆 */ }
+  }
+  return kept
+}
+
+/** 测试用：清掉所有锚点记忆。 */
+export function resetTurnAnchors(): void {
+  const store = anchorStorage()
+  if (store === undefined) return
+  try {
+    const keys = Object.keys(store).filter(key => key.startsWith(TURN_ANCHOR_PREFIX))
+    for (const key of keys) store.removeItem(key)
+  } catch { /* 忽略 */ }
+}
+
+/** 回合收工时清掉这一轮的锚点记忆。 */
+export function forgetTurnAnchor(key: string): void {
+  try { anchorStorage()?.removeItem(TURN_ANCHOR_PREFIX + key) } catch { /* 忽略 */ }
+}
 
 export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick }: {
   message: RenderMessage
@@ -522,15 +578,11 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand
   // 本地时间 —— 中途打开页面、或回合在手机连上之前就开始时，它比宿主真正的回合开始晚
   // 一大截，真机表现就是"手机读数比桌面端偏小"。拿不到宿主锚点就干脆不报秒表（宁缺勿错）。
   const rawAnchor = message.turnStartAt ?? liveTurnStartAt
-  // 同上：晚 30 秒以上的锚点跳变一律不采用（读数因此只增不减）。
-  const anchorRef = useRef<number | undefined>(undefined)
-  if (rawAnchor !== undefined) {
-    const kept = anchorRef.current
-    if (kept === undefined || rawAnchor - kept < TURN_ANCHOR_JUMP_MS) anchorRef.current = rawAnchor
-  }
-  const clockAnchor = rawAnchor !== undefined && anchorRef.current !== undefined
-    ? Math.min(rawAnchor, anchorRef.current)
-    : rawAnchor ?? anchorRef.current
+  // 见 `stableTurnAnchor`：同一轮只认见过的最早锚点（跨重挂、跨刷新都在）。
+  const anchorKey = `${sessionId ?? ''}:${message.turn ?? message.id}`
+  const clockAnchor = running
+    ? stableTurnAnchor(anchorKey, rawAnchor)
+    : (forgetTurnAnchor(anchorKey), rawAnchor)
   // 每一帧都直接按墙钟重算：读数 = 现在 + 宿主偏移 − 锚点，取整由 formatDuration
   // 统一向下取整（桌面端同样口径）。
   //
