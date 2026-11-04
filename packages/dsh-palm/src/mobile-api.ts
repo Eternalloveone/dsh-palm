@@ -1129,6 +1129,18 @@ export function mergeFinishedRuns(
  *
  * 标题留空：这里拿不到会话标题，客户端合并时会用自己已知的标题补上（见 recent-finished）。
  */
+/** 从花名册缓存里取一条会话的标题（取不到就空串，客户端会兜底）。 */
+function titleForSession(sessionId: string): string {
+  const items = sessionListTtlCache?.rawItems
+  if (items === undefined) return ''
+  for (const item of items) {
+    if (String(item.sessionId) !== sessionId) continue
+    const title = item.projections?.values?.title
+    return typeof title === 'string' ? title : ''
+  }
+  return ''
+}
+
 export function noteHostFinishedRun(sessionId: string, finishedAt: number, status: 'done' | 'stopped' | 'error' = 'done'): void {
   // 只记**主会话**：子代理的子会话 id 不带 `session-` 前缀（实测形如
   // `27620806-5737-4663-…`），它们不该出现在用户的「刚结束」清单里。
@@ -1136,9 +1148,11 @@ export function noteHostFinishedRun(sessionId: string, finishedAt: number, statu
   if (finishedRunsFile === undefined || sessionId === '') return
   try {
     const now = Date.now()
+    // 标题尽力从花名册缓存里捞（有就填，没有就留空由客户端补）。
+    const title = titleForSession(sessionId)
     const merged = mergeFinishedRuns(readFinishedRuns(finishedRunsFile, now), [{
       sessionId,
-      title: '',
+      title,
       finishedAt,
       status,
     }], now)

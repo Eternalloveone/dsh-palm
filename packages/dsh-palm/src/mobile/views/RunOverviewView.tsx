@@ -817,7 +817,11 @@ function FinishedRow({ entry, now, onOpen }: {
     <button type="button" className="rf-row" onClick={onOpen}>
       <StatusGlyph status={entry.status} />
       <span className="rf-body">
-        <span className="rf-title">{entry.title}</span>
+        {/* 宿主记账时拿不到标题（只有一个会话 id），补标题失败时至少让人认得出是哪条，
+            而不是留一行空白（真机 2026-11-04：刚结束里有 4 行只有"已完成 · 12 分钟前"）。 */}
+        <span className="rf-title">
+          {entry.title === '' ? `会话 ${shortSessionId(entry.sessionId)}` : entry.title}
+        </span>
         <span className="rf-meta">
           <span>{STATUS_TEXT[entry.status]}</span>
           {entry.durationMs !== undefined && <span className="sep">·</span>}
