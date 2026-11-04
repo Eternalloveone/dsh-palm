@@ -469,6 +469,21 @@ describe('RunOverviewView 子代理', () => {
     expect(api.subagentsList).not.toHaveBeenCalledWith(`s-${SUBAGENT_SESSION_MAX}`)
   })
 
+  it('父会话已收工、子代理还在跑时，运行中页也要显示它（真机 2026-11-04）', async () => {
+    // 现场：子代理在后台跑，父会话的回合早就收工了 —— session.list 说它没在跑、
+    // 活集合里也没有它，于是页面整页空白，用户以为子代理根本没起来。
+    const mux = muxStub()
+    api.listSessions.mockResolvedValue({
+      // updatedAt 用「刚刚」，命中"最近还在动"的兜底轮询
+      items: [{ ...sessionRow('s-parent', false), updatedAt: Date.now() }],
+      nextCursor: undefined,
+      hasMore: false,
+    })
+    api.subagentsList.mockResolvedValue(catalog([child('c-child', '跑真机回归', { activity: 'running' })]))
+    render(<RunOverviewView mux={mux} onBack={() => {}} onOpenSession={() => {}} />)
+    await waitFor(() => { expect(screen.getByText('跑真机回归')).toBeTruthy() }, { timeout: 3000 })
+  })
+
   it('不把子会话单独列成一张卡（它已经挂在父卡片的子代理行里）', async () => {
     // 子代理自己也会 emit turn/start，于是它同样出现在运行集合里。以前它会顶着一张
     // "会话 632d7f42"这样的无名卡，跟父卡片下那行子代理重复。

@@ -67,6 +67,15 @@ export const DETAIL_POLL_MS = 6_000
 /** 最多给几个在跑会话拉尾页（正常一屏 1~3 个；多的说明宿主很忙）。 */
 export const DETAIL_SESSION_MAX = 6
 
+/**
+ * "最近还在动"的门槛：更新过会话的子代理才会被额外轮询。
+ *
+ * 为什么需要：父会话的回合可能已经收工，而它派出去的子代理还在跑 —— 这时
+ * `session.list` 的 running 是 false、活集合里也没有它，页面就完全看不到子代理在跑
+ * （真机 2026-11-04）。只问 10 分钟内更新过的会话，成本有界，也不会让安静页面空转。
+ */
+export const RECENT_ACTIVITY_MS = 10 * 60_000
+
 /** 运行集合的校准间隔（问宿主"这些真的还在跑吗"，顺带纠正花名册的旧旗标）。 */
 export const RUNNING_RESYNC_MS = 30_000
 
@@ -108,6 +117,8 @@ export interface RosterRow {
   workspace?: string
   running: boolean
   blank: boolean
+  /** 最近更新时间（宿主给的），用来挑"最可能正在跑子代理"的会话。 */
+  updatedAt?: number
 }
 
 /** Page through session.list (bounded) to snapshot running sessions + titles.
@@ -139,6 +150,7 @@ export async function fetchRoster(
         ...(workspace === undefined ? {} : { workspace }),
         running: item.running === true,
         blank: item.blank === true,
+        ...(typeof item.updatedAt === 'number' ? { updatedAt: item.updatedAt } : {}),
       }
       rows.push(row)
       landed.push(row)
@@ -175,6 +187,8 @@ function buildRows(
   liveSessionIds: ReadonlySet<string>,
   titles?: ReadonlyMap<string, string>,
   pending: ReadonlyArray<{ sessionId: string; kind: 'approval' | 'question' }> = [],
+  /** 自己没在跑、但**子代理在跑**的会话：也必须出现在这一页。 */
+  activeIds: readonly string[] = [],
 ): SessionRun[] {
   const cards = new Map<string, SessionRun>()
   const add = (sessionId: string): void => {
@@ -207,6 +221,12 @@ function buildRows(
       const better = roster.get(row.sessionId)?.title ?? titles?.get(row.sessionId)
       if (better !== undefined) card.title = better
     }
+  }
+  for (const sessionId of activeIds) {
+    add(sessionId)
+    const card = cards.get(sessionId)!
+    card.live = true
+    if (card.jobs.length === 0) card.runningOnly = true
   }
   // Running sessions with no retained jobs still belong in the overview.
   for (const sessionId of liveSessionIds) {
@@ -474,14 +494,41 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     return unsubscribe
   }, [mux])
 
-  const rows = buildRows(snapshot, roster, liveSessions, liveTitles, pendingRows)
+  // 父会话自己没在跑、但子代理在跑的那些会话（真机 2026-11-04：整页看不到）。
+  const subagentActiveIds = [...childrenBySession.entries()]
+    .filter(([, nodes]) => runningSubagents(nodes).length > 0)
+    .map(([sessionId]) => sessionId)
+  const rows = buildRows(snapshot, roster, liveSessions, liveTitles, pendingRows, subagentActiveIds)
 
   // Foreground subagents: asked for the running sessions only, while this page
   // is mounted. One `subagent.list` per live session per tick (bounded by
   // SUBAGENT_SESSION_MAX); the effect restarts whenever the live set changes,
   // so a session that starts or stops mid-view is picked up — and a page with
   // nothing running makes no request at all.
-  const pollSessionIds = rows.filter(row => row.live).map(row => row.sessionId).slice(0, SUBAGENT_SESSION_MAX)
+  // 轮询范围：活会话 ∪ 花名册里标着 running 的会话。
+  //
+  // 真机（2026-11-04）：子代理在跑，但父会话自己的回合已经收工（活集合里没有它），
+  // 于是**根本不去问它的子代理**，页面上什么都看不到 —— 用户以为子代理没在跑。
+  const pollSessionIds = (() => {
+    const ids = rows.filter(row => row.live || row.waiting !== undefined).map(row => row.sessionId)
+    for (const [sessionId, row] of roster) {
+      if (row.running && !ids.includes(sessionId)) ids.push(sessionId)
+    }
+    // 兜底：**最近还在动的会话**也问一遍（10 分钟内更新过的，最多 N 个）。
+    //
+    // `session.list` 的 running 对"父会话回合已收工、子代理还在跑"这种情况是 false
+    // （活集合里也没有它），只看上面两路就会漏 —— 真机表现是"子代理在跑，页面什么都没有"。
+    // 只问"最近动过"的：既覆盖正在跑的，又不会让一个安静页面一直空打 RPC。
+    const recentAfter = Date.now() - RECENT_ACTIVITY_MS
+    const recent = [...roster.entries()]
+      .filter(([, row]) => row.blank !== true && (row.updatedAt ?? 0) >= recentAfter)
+      .sort((a, b) => (b[1].updatedAt ?? 0) - (a[1].updatedAt ?? 0))
+    for (const [sessionId] of recent) {
+      if (ids.length >= SUBAGENT_SESSION_MAX) break
+      if (!ids.includes(sessionId)) ids.push(sessionId)
+    }
+    return ids.slice(0, SUBAGENT_SESSION_MAX)
+  })()
   const pollKey = pollSessionIds.join('|')
   useEffect(() => {
     if (pollKey === '') return
@@ -568,7 +615,9 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
   })()
   const liveCount = rows.reduce((sum, row) => sum + row.jobs.filter(job => isLive(job)).length, 0)
   // 等用户处理的会话虽然"不在跑"，也必须显示（否则用户看不到有东西在等自己）。
-  const liveRows = rows.filter(row => (row.live || row.waiting !== undefined)
+  // 子代理在跑的会话同理：父回合可能已收工，但活还在跑。
+  const liveRows = rows.filter(row => (row.live || row.waiting !== undefined
+      || runningSubagents(childrenBySession.get(row.sessionId) ?? []).length > 0)
     && !childSessionIds.has(row.sessionId)
     // 尾页说这一轮收工了（最后一条边界就是 turn/end）就退场：花名册那一行经常
     // 还在说 running=true，光信它会留下一张"跑完了还在数秒"的卡（真机现场）。
@@ -793,7 +842,9 @@ function SessionCard({ row, detail, detailMissing, children, now, onOpenSession,
 }) {
   const [showAllSubagents, setShowAllSubagents] = useState(false)
   const [showJobs, setShowJobs] = useState(false)
-  const allChildren = row.live ? sortSubagentsRunningFirst(children ?? []) : []
+  // 父会话自己不一定"在跑"（回合可能已收工），但只要子代理在跑就要列出来 ——
+  // 真机（2026-11-04）：子代理在跑时这一行整个被藏掉，用户以为没在跑。
+  const allChildren = sortSubagentsRunningFirst(children ?? [])
   const hiddenChildren = Math.max(0, allChildren.length - SUBAGENT_VISIBLE_MAX)
   const visibleChildren = showAllSubagents || hiddenChildren === 0
     ? allChildren
