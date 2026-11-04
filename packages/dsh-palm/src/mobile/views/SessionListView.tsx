@@ -87,6 +87,12 @@ interface LiveListState {
   /** 每条 status 是 mux 帧什么时候写下的。宿主那份运行集合自带 30 秒缓存，
    *  比刚到的帧还旧；没有这个时间戳，一次核对就会把刚亮的绿点抹掉。 */
   statusAt: Map<string, number>
+  /** 最近一次被**宿主运行集合 / 尾页边界**确认为"在跑"的时刻。
+   *
+   *  mux 只推**当前打开会话**的事件；一个正在等子代理搬砖的父会话可以十几分钟
+   *  没有任何帧，绿点就按 5 分钟的静默规则灭了（真机 2026-11-04）。
+   *  宿主的一次确认应当像一帧活动一样给它续命。 */
+  confirmedAt: Map<string, number>
   activity: Map<string, number>
   error: Map<string, string>
   removed: Set<string>
@@ -94,7 +100,7 @@ interface LiveListState {
 
 function emptyLiveState(): LiveListState {
   return {
-    added: new Map(), status: new Map(), statusAt: new Map(),
+    added: new Map(), status: new Map(), statusAt: new Map(), confirmedAt: new Map(),
     activity: new Map(), error: new Map(), removed: new Set(),
   }
 }
@@ -165,7 +171,10 @@ function patchRow(row: SessionView, live: LiveListState, now = Date.now()): Sess
   // 来自会话每推一次事件就刷新的 session/activity；没有活动帧时退回 status 帧
   // 的时间戳（宿主偶尔才发一次，所以它只是兜底，不是主判据）。
   const lastActivity = live.activity.get(row.sessionId)
-  const heartbeatAt = lastActivity ?? live.statusAt.get(row.sessionId)
+  // 脉搏 = max(活动帧, status 帧, 宿主/尾页确认)。宿主确认过在跑的会话（比如正等
+  // 子代理搬砖，十几分钟没有父会话事件）不会因为手机收不到帧就被判死。
+  const confirmedAt = live.confirmedAt.get(row.sessionId) ?? 0
+  const heartbeatAt = Math.max(lastActivity ?? 0, live.statusAt.get(row.sessionId) ?? 0, confirmedAt) || undefined
   const quiet = heartbeatAt !== undefined && now - heartbeatAt > RUNNING_STALE_MS
   const running = (reported === true && quiet) ? false : reported
   const updatedAt = live.activity.get(row.sessionId)
@@ -390,6 +399,9 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
       (page) => {
         if (!aliveRef.current) return
         const next = page.turnStartAt !== undefined
+        // 尾页证据也算一次"脉搏"：宿主确认在跑的会话不该因为手机收不到帧而掉绿点。
+        if (next) live.confirmedAt.set(sessionId, Date.now())
+        else live.confirmedAt.delete(sessionId)
         if (live.status.get(sessionId) === next) return
         live.status.set(sessionId, next)
         live.statusAt.set(sessionId, Date.now())
@@ -469,6 +481,9 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
         //     显眼（列表重挂载／mux 重连都会触发这次核对）。现在核实通过（尾页最后一条
         //     边界是 turn/start）才亮，中间那一闪没有了。
         for (const id of host) {
+          // 宿主（= 桌面端同源：agent 是否在跑）说在跑，就先给它记一次"脉搏"，
+          // 免得尾页读不出边界时又被 5 分钟静默规则判死。
+          live.confirmedAt.set(id, now)
           if (live.status.get(id) === true && fresh(id)) continue
           confirmRunning(id, live)
         }

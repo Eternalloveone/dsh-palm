@@ -1364,6 +1364,11 @@ async function verifiedRunningSessionIds(): Promise<string[]> {
   const verified: string[] = []
   const extra = [...liveRunningSessionIds].slice(RUNNING_VERIFY_LIMIT)
   for (const sessionId of candidates) {
+    // 宿主说在跑（桌面端口径）= 直接采信，不再靠日志边界反推。
+    if (hostReportedRunning.has(sessionId)) {
+      verified.push(sessionId)
+      continue
+    }
     try {
       const verdict = await computeTurnState(sessionId)
       if (verdict.running) {
@@ -1381,8 +1386,24 @@ async function verifiedRunningSessionIds(): Promise<string[]> {
   return [...verified, ...extra]
 }
 
+/**
+ * **宿主自己说在跑的会话**（`session.list` 的 `running` 字段）。
+ *
+ * 这就是桌面端的口径：`running: ctx.agents.get(session.id)?.status === 'running'`
+ * （见 dsh `packages/api/session-controller/src/list.ts`）—— 也就是"这个会话的 agent
+ * 现在是不是 runnig 状态"。父会话在等子代理时，它的 agent 仍然是 running，
+ * 所以桌面端这期间一直是绿点。
+ *
+ * 手机端以前只用"帧 + 日志边界"推断，长时间没有新事件就按静默判死 —— 子代理跑十几
+ * 分钟、父会话一条事件都不产生时，绿点就灭了（真机 2026-11-04 就是这个）。
+ * 现在把宿主这份答案当作**权威**：进来就不再被静默规则清掉。
+ */
+let hostReportedRunning = new Set<string>()
+
 function pruneRunningEvidence(now: number = Date.now()): void {
   for (const sessionId of staleRunningEvidence(liveRunningEvidence, liveRunningBaseline, now)) {
+    // 宿主（= 桌面端同一口径）说它还在跑就别清：长回合/等子代理期间可以长时间无事件。
+    if (hostReportedRunning.has(sessionId)) continue
     liveRunningEvidence.delete(sessionId)
     liveRunningSessionIds.delete(sessionId)
   }
@@ -1435,12 +1456,16 @@ async function runReseed(): Promise<void> {
         // 单条读不出来不影响其它候选：宁可少一条，也不要整份基线作废。
       }
     }
-    // 宿主的 running 字段也并进去（新版本宿主可能会填它），两边取并集。
+    // 宿主的 running 字段**就是桌面端用的那个**（agent 是否在跑）：既并进基线，
+    // 也单独记一份"权威在跑"，后续静默清理与日志核实都要让路。
+    const hostRunning = new Set<string>()
     for (const item of items) {
-      if (item.running === true && item.origin !== 'subagent' && item.blank !== true) {
-        verified.push(String(item.sessionId))
-      }
+      if (item.running !== true || item.origin === 'subagent' || item.blank === true) continue
+      const sessionId = String(item.sessionId)
+      hostRunning.add(sessionId)
+      verified.push(sessionId)
     }
+    hostReportedRunning = hostRunning
     adoptRunningBaseline(verified)
   } catch {
     // 失败就把上一次的基线留着：过期的答案比没有答案强。
