@@ -1130,6 +1130,9 @@ export function mergeFinishedRuns(
  * 标题留空：这里拿不到会话标题，客户端合并时会用自己已知的标题补上（见 recent-finished）。
  */
 export function noteHostFinishedRun(sessionId: string, finishedAt: number, status: 'done' | 'stopped' | 'error' = 'done'): void {
+  // 只记**主会话**：子代理的子会话 id 不带 `session-` 前缀（实测形如
+  // `27620806-5737-4663-…`），它们不该出现在用户的「刚结束」清单里。
+  if (!sessionId.startsWith('session-')) return
   if (finishedRunsFile === undefined || sessionId === '') return
   try {
     const now = Date.now()

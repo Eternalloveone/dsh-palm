@@ -93,6 +93,17 @@ interface LiveListState {
    *  没有任何帧，绿点就按 5 分钟的静默规则灭了（真机 2026-11-04）。
    *  宿主的一次确认应当像一帧活动一样给它续命。 */
   confirmedAt: Map<string, number>
+  /**
+   * 宿主 `mobile.runningSessions` 的**最近一次答复**（会话 → 在跑？）。
+   *
+   * 桌面端的绿点就是这么来的：`running: ctx.agents.get(id)?.status === 'running'`
+   * （dsh `packages/api/session-controller/src/list.ts`）。手机端以前靠"帧 + 尾页边界 +
+   * 5 分钟静默"自己推断，两个方向都会错：
+   *  - 父会话等子代理时十几分钟没有事件 ⇒ 被静默规则误判成已结束（绿点灭）；
+   *  - 老的、边界一直开着的会话 ⇒ 尾页核实永远"在跑"（绿点长亮，实测 9 月的会话还亮着）。
+   * 有了这份快照，绿点只回答一个问题：**宿主说它在跑吗。**
+   */
+  host: Map<string, boolean>
   activity: Map<string, number>
   error: Map<string, string>
   removed: Set<string>
@@ -101,6 +112,7 @@ interface LiveListState {
 function emptyLiveState(): LiveListState {
   return {
     added: new Map(), status: new Map(), statusAt: new Map(), confirmedAt: new Map(),
+    host: new Map(),
     activity: new Map(), error: new Map(), removed: new Set(),
   }
 }
@@ -162,6 +174,8 @@ function applyListFrame(live: LiveListState, frame: MuxFrame, workspace: Workspa
 /** One row with its live status/activity/error patches applied. */
 function patchRow(row: SessionView, live: LiveListState, now = Date.now()): SessionView {
   const reported = live.status.get(row.sessionId)
+  // 宿主有结论时它是唯一的答案（桌面端同源），不再让静默规则参与。
+  const hostSaid = live.host.get(row.sessionId)
   // 一个"在跑"的标记必须有东西持续续命。宿主的结束帧丢了、宿主的核对要枚举
   // 几千个会话（冷启动实测 24 秒，手机上根本等不到），只靠这两样，绿点就会
   // 挂着不下来。跑了这么久还没有任何一条关于它的事件，就按没在跑处理。
@@ -176,7 +190,7 @@ function patchRow(row: SessionView, live: LiveListState, now = Date.now()): Sess
   const confirmedAt = live.confirmedAt.get(row.sessionId) ?? 0
   const heartbeatAt = Math.max(lastActivity ?? 0, live.statusAt.get(row.sessionId) ?? 0, confirmedAt) || undefined
   const quiet = heartbeatAt !== undefined && now - heartbeatAt > RUNNING_STALE_MS
-  const running = (reported === true && quiet) ? false : reported
+  const running = hostSaid !== undefined ? hostSaid : ((reported === true && quiet) ? false : reported)
   const updatedAt = live.activity.get(row.sessionId)
   const error = live.error.get(row.sessionId)
   // A session that runs again has moved past its failure. The mark may have
@@ -221,7 +235,7 @@ function muxRunningIds(mux: MuxClient | undefined): Set<string> {
  *  list is sorted by updatedAt desc — session-controller list.ts:142). */
 function applyLive(rows: SessionView[], live: LiveListState): SessionView[] {
   if (live.added.size === 0 && live.removed.size === 0 && live.status.size === 0
-    && live.activity.size === 0 && live.error.size === 0) {
+    && live.activity.size === 0 && live.error.size === 0 && live.host.size === 0) {
     return rows
   }
   const out: SessionView[] = []
@@ -398,7 +412,11 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
     void logTail(sessionId).then(
       (page) => {
         if (!aliveRef.current) return
-        const next = page.turnStartAt !== undefined
+        // 只用来熄灯：点亮一律交给宿主那份集合（桌面端口径）。
+        // 以前这里凭"尾页最后一条边界是 turn/start"点亮，于是一个几十年前开着的回合
+        // 会让绿点长亮（实测 9 月的会话 11 月还标着「进行中」）。
+        if (page.turnStartAt !== undefined) return
+        const next = false
         // 尾页证据也算一次"脉搏"：宿主确认在跑的会话不该因为手机收不到帧而掉绿点。
         if (next) live.confirmedAt.set(sessionId, Date.now())
         else live.confirmedAt.delete(sessionId)
@@ -442,6 +460,15 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
         const host = new Set(sessionIds)
         const live = liveRef.current
         const now = Date.now()
+        // 记下"宿主这一次的答复"：绿点以它为准（桌面端同源）。
+        // 之前知道过的、这次不在集合里的会话一律记 false —— 熄灯方向永远安全。
+        for (const id of new Set([...live.host.keys(), ...host])) {
+          live.host.set(id, host.has(id))
+        }
+        for (const id of host) live.host.set(id, true)
+        // 宿主的结论一变，绿点就要跟着变 —— **两个方向**都要重画一次。
+        // （以前只在"熄灯"那一支里 setRows，宿主说在跑时界面根本不更新。）
+        setRows(previous => applyLive(previous, live))
         /** 刚由 mux 帧写下的状态更可信：宿主那份集合自带 30 秒缓存。 */
         const fresh = (id: string): boolean => {
           const writtenAt = live.statusAt.get(id)

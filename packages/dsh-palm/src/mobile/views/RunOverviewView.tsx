@@ -674,7 +674,9 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
   // 等标题到位了就把它补成真标题 —— 别让"刚结束"里留一条看不懂的记录。
   useEffect(() => {
     for (const entry of finished) {
-      if (!entry.title.startsWith('会话 ')) continue
+      // 宿主在 turn/end 当场记账时**拿不到标题**（它只有一个会话 id），
+      // 所以标题会是空串或"会话 xxxxx"的兜底 —— 两种都要在这里补成真标题。
+      if (entry.title !== '' && !entry.title.startsWith('会话 ')) continue
       const better = roster.get(entry.sessionId)?.title ?? liveTitles.get(entry.sessionId)
       if (better === undefined || better === '') continue
       recordFinishedRun({ ...entry, title: better })
