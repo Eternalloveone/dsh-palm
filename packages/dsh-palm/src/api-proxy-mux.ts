@@ -45,15 +45,72 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Per-subscription byte cap.
+ *
+ * The SSE writer already applies backpressure (`await drain` when `write`
+ * returns false), but that only stops the CONSUMER: the queue keeps accepting
+ * frames, and a phone on a bad tunnel can sit for minutes while the host fills
+ * memory at `frames × subscribers`. 512 KiB per subscriber is roughly a large
+ * `tool/result` plus a burst; past that the data frames are dropped and the
+ * client is told to re-read (a full refetch is the only honest recovery — the
+ * dropped frames are gone).
+ */
+const MAX_QUEUE_BYTES = 512 * 1024
+
+/**
+ * Frames that must survive an overflow: they are small, control-shaped, and
+ * losing one stalls the UI (a missing approval card, a stale running dot).
+ */
+const CONTROL_FRAME_TYPES: ReadonlySet<string> = new Set([
+  'approval/requested',
+  'approval/resolved',
+  'question/requested',
+  'question/resolved',
+  'session/status',
+  'session/error',
+  'stream/error',
+  'mux/ping',
+  'session/added',
+  'session/removed',
+])
+
+/** Rough wire size of one frame (the writer stringifies it anyway). */
+function frameBytesOf(frame: MuxFrame): number {
+  try {
+    return JSON.stringify(frame).length
+  } catch {
+    return 1024
+  }
+}
+
+/** A queued frame plus its accounting. */
+interface QueuedFrame {
+  frame: RpcRequest<MuxFrame>
+  bytes: number
+}
+
 /** 一个可推入的异步队列（events.mux 的订阅端）。 */
 class MuxQueue implements AsyncIterable<RpcRequest<MuxFrame>> {
-  private readonly buffer: Array<RpcRequest<MuxFrame>> = []
+  private readonly buffer: QueuedFrame[] = []
   private waiter: (() => void) | undefined
   private closed = false
+  /** Bytes currently buffered. */
+  private bytes = 0
+  /** Data frames were dropped since the last drain; the next drain explains it. */
+  private dropped = false
 
-  push(frame: RpcRequest<MuxFrame>): void {
+  push(frame: RpcRequest<MuxFrame>, bytes: number): void {
     if (this.closed) return
-    this.buffer.push(frame)
+    const control = CONTROL_FRAME_TYPES.has(frame.payload.type)
+    if (!control && this.bytes + bytes > MAX_QUEUE_BYTES) {
+      // Drop the data frame. Advancing nothing on purpose: the client's refetch
+      // is keyed off the synthetic stream/error emitted below.
+      this.dropped = true
+      return
+    }
+    this.buffer.push({ frame, bytes })
+    this.bytes += bytes
     this.waiter?.()
   }
 
@@ -65,7 +122,23 @@ class MuxQueue implements AsyncIterable<RpcRequest<MuxFrame>> {
 
   async *[Symbol.asyncIterator](): AsyncIterator<RpcRequest<MuxFrame>> {
     while (true) {
-      while (this.buffer.length > 0) yield this.buffer.shift() as RpcRequest<MuxFrame>
+      if (this.dropped) {
+        this.dropped = false
+        // One synthetic frame per drop window: the client reloads the open
+        // session instead of silently showing a hole in the transcript.
+        yield {
+          rpcId: RpcId(`mux-slow-${randomUUID()}`),
+          payload: {
+            type: 'stream/error',
+            error: { code: 'slow-consumer', message: '你落后太多，正在重新加载', details: {} },
+          },
+        }
+      }
+      while (this.buffer.length > 0) {
+        const next = this.buffer.shift() as QueuedFrame
+        this.bytes -= next.bytes
+        yield next.frame
+      }
       if (this.closed) return
       await new Promise<void>(resolve => { this.waiter = resolve })
       this.waiter = undefined
@@ -86,9 +159,11 @@ export class MuxBroadcast {
   /** 用指定 rpcId 推一帧（respond 桥接用：手机以该 rpcId 应答）。 */
   emitWithRpcId(rpcId: RpcId, frame: MuxFrame): void {
     const wrapped: RpcRequest<MuxFrame> = { rpcId, payload: frame }
+    // Measured once per emit, not per subscriber: the frame is identical.
+    const bytes = frameBytesOf(frame)
     for (const [sub, accept] of this.subscribers) {
       if (accept !== undefined && !accept(frame)) continue
-      sub.push(wrapped)
+      sub.push(wrapped, bytes)
     }
   }
 

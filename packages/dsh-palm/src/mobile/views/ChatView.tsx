@@ -1001,6 +1001,12 @@ export function ChatView({
   const reloadEpochRef = useRef(0)
   /** Abort the previous reloadTail when a new one starts (no cross-resolve). */
   const reloadControllerRef = useRef<AbortController | undefined>(undefined)
+  /**
+   * Latest `reloadTail`, for the live-frame effect (defined above it): a
+   * `stream/error{slow-consumer}` means the host dropped frames for this
+   * subscriber, and re-reading the tail is the only honest recovery.
+   */
+  const reloadTailRef = useRef<() => void>(() => {})
 
   /** The session's permission select (absent = capability not composed). */
   const [permissions, setPermissions] = useState<PermissionSelectValue | undefined>(undefined)
@@ -2555,6 +2561,14 @@ export function ChatView({
     return mux.onFrame((frame: MuxFrame, frameRpcId?: string) => {
       // 帧能到就是通的：安卓上 navigator.onLine 会撒谎，实时帧不会。
       reportConnectivity(true)
+      // The host dropped frames for this subscriber (its queue hit the byte
+      // cap on a slow tunnel). One synthetic frame per drop window; the only
+      // recovery is a fresh tail read — the dropped frames are gone.
+      if (frame.type === 'stream/error' && frame.error.code === 'slow-consumer') {
+        toast('你落后太多，正在重新加载这一步')
+        reloadTailRef.current()
+        return
+      }
       // Every live host event frame carries a `time` the host wrote moments
       // before dispatch, so it calibrates the host-clock offset. The running
       // turn's elapsed math then matches the DESKTOP clock (same host)
@@ -4788,6 +4802,10 @@ export function ChatView({
       },
     )
   }, [session.sessionId, refillGap])
+
+  // Keep the slow-consumer recovery path (in the live-frame effect above) pointed
+  // at the current reloadTail.
+  useEffect(() => { reloadTailRef.current = reloadTail }, [reloadTail])
 
   /**
    * Run one slash-command line through the host registry. A matched line is

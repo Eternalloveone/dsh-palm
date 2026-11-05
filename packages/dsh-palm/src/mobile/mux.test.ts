@@ -973,3 +973,52 @@ describe('MuxClient running mirror', () => {
     mux.stop()
   })
 })
+
+describe('MuxClient poll/SSE race (gap refill)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('discards a refill batch collected while SSE delivered again', async () => {
+    // The losing sequence, pre-fix: stall → poll starts → tunnel recovers and
+    // delivers seq 100 → poll (still awaiting) finally emits 90..99 → the fold
+    // watermark is already at 100, so every row is dropped as a replay and the
+    // gap is lost for good (desktop looks fine, phone stays stale).
+    const { factory, sources } = makeSources()
+    let releaseFirstPoll: (() => void) | undefined
+    let pollCalls = 0
+    const pollLatest = vi.fn(async () => {
+      pollCalls += 1
+      if (pollCalls === 1) {
+        await new Promise<void>(resolve => { releaseFirstPoll = resolve })
+        return pageOf([1, 2, 3])
+      }
+      return pageOf([3, 4])
+    })
+    const client = new MuxClient('/m/api/events.mux', baseOptions(pollLatest, factory))
+    const frames: Array<{ type?: string; event?: { seq?: number } }> = []
+    client.onFrame(frame => { frames.push(frame as never) })
+    client.start()
+    client.observe('s1')
+
+    // Let the stall window pass: the fallback poll starts and hangs.
+    await vi.advanceTimersByTimeAsync(1_300)
+    expect(pollLatest).toHaveBeenCalledTimes(1)
+
+    // SSE recovers mid-poll with a newer seq.
+    sources[0]?.onmessage?.({
+      data: envelopeWith({ type: 'session/event', sessionId: 's1', event: { type: 'user/message', seq: 3, time: 3, data: {} } }),
+    })
+
+    // The poll resolves afterwards: its rows must not be emitted.
+    releaseFirstPoll?.()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(frames.filter(frame => frame.type === 'session/event').map(frame => frame.event?.seq)).toEqual([3])
+
+    // And the watermark was not advanced past the gap: a later poll still runs
+    // (a live stream that delivered once gets three stall windows).
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(pollLatest.mock.calls.length).toBeGreaterThan(1)
+    client.stop()
+  })
+})

@@ -92,6 +92,12 @@ export interface RpcErrorDetailsMap {
   'subagent-unauthorized': { childSessionId: SessionId }
   'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': Record<string, never>
+  /**
+   * Transport-level: the host dropped frames because a subscriber fell too far
+   * behind (its queue hit the byte cap). The phone's only recovery is to re-read
+   * the session, which is why this rides the normal frame channel.
+   */
+  'slow-consumer': Record<string, never>
 }
 
 /** 闭包错误码联合。 */

@@ -204,4 +204,40 @@ describe('setupMuxSources', () => {
     const broadcast = new MuxBroadcast()
     expect(() => setupMuxSources(ctx, idleSession(), broadcast, new AbortController().signal)).not.toThrow()
   })
+
+  it('caps a slow subscriber: drops data frames, keeps control frames, and explains it once', async () => {
+    const broadcast = new MuxBroadcast()
+    const slow = collector(broadcast)
+
+    // One huge data frame alone exceeds the 512 KiB per-subscriber cap.
+    const huge = 'x'.repeat(600 * 1024)
+    broadcast.emit({
+      type: 'session/event',
+      sessionId: 's-1',
+      event: { type: 'tool/result', seq: 5, time: 5, data: { text: huge } } as never,
+    })
+    // A control frame behind it must survive the overflow.
+    broadcast.emit({
+      type: 'approval/requested',
+      sessionId: 's-1',
+      approvalId: 'a-1',
+      toolName: 'bash',
+    })
+    await slow.settle()
+
+    expect(slow.frames.map(frame => frame.type)).toEqual(['stream/error', 'approval/requested'])
+    const error = slow.frames[0] as { error?: { code?: string } }
+    expect(error.error?.code).toBe('slow-consumer')
+    await slow.stop()
+  })
+
+  it('keeps normal-sized data frames (the cap must not fire on a healthy stream)', async () => {
+    const broadcast = new MuxBroadcast()
+    const ok = collector(broadcast)
+    broadcast.emit({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/start', seq: 1 } as never })
+    broadcast.emit({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/end', seq: 2 } as never })
+    await ok.settle()
+    expect(ok.frames.map(frame => frame.type)).toEqual(['session/event', 'session/event'])
+    await ok.stop()
+  })
 })

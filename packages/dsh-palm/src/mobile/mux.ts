@@ -109,6 +109,22 @@ const DEFAULT_POLL_PAGE_SIZE = 50
  * keeps the map from growing without limit across the roster.
  */
 const MAX_CACHED_JOBS_SESSION = 64
+/**
+ * Bound on the other session-keyed mirrors (queue snapshot, waiting-for-user,
+ * perf seq). They are fed by frames for sessions the user never opens, so a
+ * long-lived PWA on a host with hundreds of sessions would otherwise grow them
+ * for the whole page lifetime — the jobs mirror was capped, these were not.
+ */
+const MAX_CACHED_SESSION_MIRRORS = 64
+
+/** Evict the oldest insertion while a session-keyed map exceeds `limit`. */
+function capSessionMirror<K, V>(map: Map<K, V>, limit: number = MAX_CACHED_SESSION_MIRRORS): void {
+  while (map.size > limit) {
+    const oldest = map.keys().next().value
+    if (oldest === undefined) return
+    map.delete(oldest)
+  }
+}
 /** 基线帧的密集程度小于这个间隔 = 新一条连接（宿主每次重连都重订阅所有会话）。 */
 const SUBSCRIBED_GENERATION_GAP_MS = 5_000
 /** 运行集合的周期性校准间隔：漏掉的 turn/end 帧只能在下一轮探针里被纠正。 */
@@ -255,6 +271,13 @@ export class MuxClient {
   private sseAlive = false
   /** Per-session highest event seq already emitted, for poll dedup. */
   private readonly pollWatermark = new Map<string, number>()
+  /**
+   * Bumped by every delivered SSE frame. A fallback poll that started before
+   * the frame arrived must not emit its (older) refill: the fold watermark has
+   * already advanced, so the batch would be discarded as replay and the gap it
+   * was fetching would be lost for good. See {@link pollTick}.
+   */
+  private pollGeneration = 0
   /** Single scheduler tick: both the stall check and the poll cadence ride this one interval. */
   private tickTimer: ReturnType<typeof setInterval> | undefined
   private polling = false
@@ -514,6 +537,13 @@ export class MuxClient {
       this.stopPolling()
       return
     }
+    // Snapshot the generation BEFORE the first await. Any SSE frame delivered
+    // while this poll is paging bumps the counter; the batch collected from a
+    // stream that has since recovered must not be emitted — the fold's
+    // watermark already advanced past it, so those rows would be dropped as
+    // replays and the gap would never be fetched again (the watermark was not
+    // advanced either, so the next poll re-fetches it).
+    const generation = this.pollGeneration
     let emitted = 0
     const seqOf = (entry: HistoryEntry): number => {
       const seq = entry?.event?.seq
@@ -603,9 +633,9 @@ export class MuxClient {
         chainTop = oldestSeq
         beforeSeq = oldestSeq
       }
-      if (coveredToFloor) {
+      if (coveredToFloor && generation === this.pollGeneration) {
         this.pollWatermark.set(sessionId, maxSeq)
-      } else {
+      } else if (!coveredToFloor) {
         // Page cap hit with a gap still open: hold the watermark where it
         // was and retry next poll (re-emitting is safe — the fold is
         // idempotent by seq), so the missing range is NOT silently dropped.
@@ -616,8 +646,19 @@ export class MuxClient {
       // Emit the whole refill chain only now, oldest page first: the fold
       // consumer's watermark must never jump past rows that have not reached
       // it yet (see the pending collection note above).
-      pending.sort((left, right) => left.seq - right.seq)
-      for (const item of pending) this.emit(item.frame)
+      //
+      // Generation check: if SSE delivered anything while the pages were in
+      // flight, the live stream owns the transcript now and this batch is
+      // already behind its watermark. Emitting it would be a no-op (the fold
+      // drops rows ≤ maxSeq) AND advance nothing, so dropping it merely avoids
+      // a pointless round trip; the unchanged watermark makes the next poll
+      // re-fetch the same range.
+      if (generation === this.pollGeneration) {
+        pending.sort((left, right) => left.seq - right.seq)
+        for (const item of pending) this.emit(item.frame)
+      } else {
+        pending.length = 0
+      }
     } catch (error) {
       // A terminal error means the device is no longer paired (revoked, or
       // remote control stopped): the host refuses every gated request with
@@ -681,6 +722,7 @@ export class MuxClient {
             perfAnomaly('seq-gap', `session=${sessionId} last=${last} got=${eventSeq}`)
           }
           this.lastEventSeqBySession.set(sessionId, eventSeq)
+          capSessionMirror(this.lastEventSeqBySession)
         }
       }
     }
@@ -690,6 +732,8 @@ export class MuxClient {
     this.sseAlive = true
     this.lastDataAt = this.now()
     if (this.polling) this.stopPolling()
+    // Anything the fallback poll is currently paging is now stale.
+    this.pollGeneration += 1
     if (frame.type === 'session/jobs') this.rememberJobs(frame)
     if (frame.type === 'session/queue') this.rememberQueue(frame)
     if (frame.type === 'session/subscribed') this.rememberSubscribed(frame)
@@ -714,6 +758,7 @@ export class MuxClient {
     const asked = type === 'approval/requested' || type === 'question/requested'
     if (asked) {
       this.pendingBySession.set(sessionId, type === 'approval/requested' ? 'approval' : 'question')
+      capSessionMirror(this.pendingBySession)
     } else {
       this.pendingBySession.delete(sessionId)
     }
@@ -808,6 +853,7 @@ export class MuxClient {
       message: item.message as never,
     }))
     this.cachedQueueBySession.set(sessionId, items)
+    capSessionMirror(this.cachedQueueBySession)
   }
 
   /**
