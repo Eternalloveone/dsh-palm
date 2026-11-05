@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  buildHealthReport,
   countPromptFileParts,
   mergeFinishedRuns,
   readFinishedRuns,
@@ -279,6 +280,37 @@ describe('noteRunningFrame verdicts', () => {
       .toBeUndefined()
   })
 })
+describe('buildHealthReport', () => {
+  it('answers protocol version, frame set, method surface and clock', () => {
+    const report = buildHealthReport({}, 123)
+    expect(report.wire).toBe(1)
+    expect(report.palmVersion).toMatch(/^\d+\.\d+\.\d+/)
+    // The host must declare the frames it can publish; `goal/activation` and
+    // the split turn-boundary arm are exactly what used to be missing.
+    expect(report.frames).toContain('goal/activation')
+    expect(report.frames).toContain('session/turn-boundary')
+    expect(report.methods).toContain('session.prompt')
+    expect(report.checks).toEqual([])
+    expect(report.now).toBe(123)
+    expect(report.push).toBeUndefined()
+  })
+
+  it('includes push subscription count and delivery summary when notify is composed', () => {
+    const report = buildHealthReport({
+      notify: {
+        store: {
+          listSubscriptions: () => ({ 'dev-a': {}, 'dev-b': {} }),
+          deliverySummary: () => ({ total: 3, sent: 2, failed: 1, dropped: 0, since: 5, byChannel: [], byKind: [] }),
+        },
+      } as never,
+    }, 9)
+    expect(report.push).toEqual({
+      subscriptions: 2,
+      delivery: { total: 3, sent: 2, failed: 1, dropped: 0, since: 5 },
+    })
+  })
+})
+
 describe('mobile method fence', () => {
   it('exposes subagent.list so the phone subagent badge has data', () => {
     // 实测过：不在名单里时 /m/api/subagent.list 直接 403，手机上的子代理徽标

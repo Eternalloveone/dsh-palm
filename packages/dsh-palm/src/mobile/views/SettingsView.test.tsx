@@ -29,8 +29,16 @@ vi.mock('../api.ts', () => ({
   notifyEvents: vi.fn(),
   latestVersion: vi.fn(),
   testNotifyChannels: vi.fn(),
+  readDiagnostics: vi.fn(async () => ({
+    checks: [],
+    palmVersion: '0.0.0-test',
+    wire: 1,
+    frames: ['session/event'],
+    methods: ['session.prompt'],
+    now: Date.now(),
+  })),
 }))
-import { fetchHostVoiceServices, fetchUsage, latestVersion, listAgentPresets, notifyEvents, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, listAgentPresets, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
@@ -166,6 +174,26 @@ describe('SettingsView card list', () => {
     // The version comes from package.json (not a hardcoded literal); it
     // appears both in the row description and the About sheet.
     expect((await screen.findAllByText(/版本 \d+\.\d+\.\d+/)).length).toBeGreaterThan(0)
+  })
+
+  it('shows the host health block in the About sheet (protocol / push / broken contracts)', async () => {
+    // 「为什么手机没响」「升级后哪条契约断了」要能在这块一眼看到：
+    // 协议与帧数说明两端还在同一代，契约失败项说明到底哪条断了。
+    vi.mocked(readDiagnostics).mockResolvedValueOnce({
+      checks: [{ name: 'session/event', kind: 'event', ok: false, reason: 'renamed', frames: 0 }],
+      palmVersion: '1.7.1',
+      wire: 1,
+      frames: ['session/event', 'session/turn-boundary'],
+      methods: ['session.prompt', 'session.history'],
+      push: { subscriptions: 2, delivery: { total: 4, sent: 3, failed: 1, dropped: 0, since: 1 } },
+      now: 1,
+    })
+    render(<SettingsView onBack={() => {}} />)
+    fireEvent.click(await screen.findByText('关于'))
+    expect(await screen.findByText(/协议 wire 1/)).toBeTruthy()
+    expect(screen.getByText(/推送订阅 2/)).toBeTruthy()
+    expect(screen.getByText(/1 条不可用/)).toBeTruthy()
+    expect(screen.getByText(/session\/event/)).toBeTruthy()
   })
   it('links straight to the repository from the About sheet', async () => {
     // 「关于」就是版本更新界面：检查更新旁边那颗 GitHub 图标直接开仓库主页

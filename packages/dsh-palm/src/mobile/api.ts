@@ -333,11 +333,37 @@ export interface DependencyCheckView {
 }
 
 /**
+ * Health report behind the About sheet's 健康 block.
+ *
+ * Everything past `checks`/`now` is optional on purpose: a host that predates
+ * the health extension answers the old `{ checks, now }` shape and the UI must
+ * simply omit those rows instead of showing `undefined`.
+ */
+export interface MobileHealthView {
+  /** Dependency self-check (setup registration + runtime frame counts). */
+  checks: DependencyCheckView[]
+  /** dsh-palm version answering. */
+  palmVersion?: string
+  /** Mobile wire revision. */
+  wire?: number
+  /** Frame discriminants the host may publish. */
+  frames?: string[]
+  /** Methods the host exposes on /m/api. */
+  methods?: string[]
+  /** Push state; absent when the notify feature is not composed. */
+  push?: {
+    subscriptions: number
+    delivery?: { total: number; sent: number; failed: number; dropped: number; since: number }
+  }
+  now: number
+}
+
+/**
  * 依赖自检：宿主契约是否在位 + 各总线事件运行期收到过多少帧。
  * 事件被改名或停发时订阅仍会成功，所以 `frames === 0` 才是"这条断了"的证据。
  */
-export async function readDiagnostics(): Promise<{ checks: DependencyCheckView[]; now: number }> {
-  return await callUnary<{ checks: DependencyCheckView[]; now: number }>('mobile.diagnostics', {})
+export async function readDiagnostics(): Promise<MobileHealthView> {
+  return await callUnary<MobileHealthView>('mobile.diagnostics', {})
 }
 
 /**

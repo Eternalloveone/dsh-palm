@@ -14,6 +14,7 @@ import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
 import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'
+import { readDiagnostics, type MobileHealthView } from '../api.ts'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
 import { IosInstallHint } from '../ios-install-hint.tsx'
@@ -578,7 +579,24 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const [autoScroll, setAutoScrollState] = useState(() => getAutoScroll())
   const [haptics, setHapticsState] = useState(() => getHaptics())
   const [sheet, setSheet] = useState<'theme' | 'font' | 'density' | 'about' | null>(null)
+  // Health report for the About sheet. Fetched on open (never cached): a stale
+  // report would show a broken contract as healthy, which is the one thing this
+  // block exists to prevent.
+  const [health, setHealth] = useState<MobileHealthView | undefined>(undefined)
   const [confirmClear, setConfirmClear] = useState(false)
+  // Bring the health report in whenever the About sheet opens.
+  useEffect(() => {
+    if (sheet !== 'about') return
+    let alive = true
+    void readDiagnostics().then(
+      (value) => { if (alive) setHealth(value) },
+      () => { if (alive) setHealth(undefined) },
+    )
+    return () => { alive = false }
+  }, [sheet])
+  const healthFailing = health?.checks.filter(check => !check.ok) ?? []
+  const swControlled = typeof navigator !== 'undefined'
+    && navigator.serviceWorker !== undefined && navigator.serviceWorker.controller !== null
   // Voice transcription services (phone-local, sent with every transcribe).
   const [voiceServices, setVoiceServicesState] = useState<VoiceService[]>(() => getVoiceServices())
   const [voiceSheet, setVoiceSheet] = useState<'list' | 'form' | null>(null)
@@ -2010,6 +2028,29 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           </div>
           {versionStatus !== undefined && (
             <p className="settings-fieldDesc" role="status">{versionStatus}</p>
+          )}
+          {/* 健康：升级后"哪条契约断了""为什么推送没来"要能一眼看到，而不是去翻
+              COMPATIBILITY.md 的五步人工清单。老宿主不回这些字段时整块不显示。 */}
+          {health !== undefined && (
+            <div className="settings-field">
+              <p className="settings-fieldDesc">
+                协议 wire {health.wire ?? '—'} · 帧 {health.frames?.length ?? '—'} · 方法 {health.methods?.length ?? '—'}
+                <br />
+                推送订阅 {health.push?.subscriptions ?? 0}
+                {health.push?.delivery !== undefined && (
+                  ` · 已投递 ${health.push.delivery.sent}/${health.push.delivery.total}`
+                )}
+                <br />
+                服务工作线程 {swControlled ? '已接管' : '未接管'}
+                {' · '}
+                宿主契约 {healthFailing.length === 0 ? '全部在位' : `${healthFailing.length} 条不可用`}
+              </p>
+              {healthFailing.length > 0 && (
+                <p className="settings-fieldDesc" role="alert">
+                  {healthFailing.slice(0, 6).map(check => check.name).join('、')}
+                </p>
+              )}
+            </div>
           )}
         </Sheet>
       )}

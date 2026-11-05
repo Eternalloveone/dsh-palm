@@ -26,6 +26,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ApiProxy, MuxFrame, RpcRequest, SubagentCatalog } from './api-proxy-types'
 import { RpcId } from './api-proxy-types'
+import { MUX_FRAME_TYPES } from './shared/mux-frames.ts'
 import { mergeRunningBaseline, staleRunningEvidence } from './running-baseline.ts'
 import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
@@ -2248,6 +2249,72 @@ ode:sqlite 时整套索引关闭，搜索退回宿主 FTS + 子串补扫的旧�
    * 生产不设（建库全程后台，首个 pass 延迟 15s）。
    */
   searchIndexEager?: boolean | undefined
+}
+
+/**
+ * What the phone's "关于 → 健康" block shows.
+ *
+ * `csv`-style single facts are not enough to answer "why is my phone silent":
+ * the host must say which protocol/frames it speaks (contract drift), how many
+ * push subscriptions exist, and whether deliveries are failing. Combined with
+ * the client-side service-worker state this replaces the old manual
+ * `COMPATIBILITY.md` checklist ("go look at five places").
+ */
+export interface MobileHealthReport {
+  /** dsh-palm version answering this request. */
+  palmVersion: string
+  /** Mobile wire revision (bumped only on breaking frame/method changes). */
+  wire: number
+  /** Frame discriminants this host may publish. */
+  frames: string[]
+  /** Methods this host exposes on /m/api. */
+  methods: string[]
+  /** Dependency self-check snapshot (setup registration + runtime frame counts). */
+  checks: unknown[]
+  /** Push state; absent when the notify feature is not composed. */
+  push?: {
+    subscriptions: number
+    delivery?: { total: number; sent: number; failed: number; dropped: number; since: number }
+  }
+  /** Epoch ms this report was built. */
+  now: number
+}
+
+/**
+ * Build the health report from the live deps.
+ * @param deps - notify + diagnostics sources (both optional).
+ * @param now - clock seam for tests.
+ * @returns the payload `mobile.diagnostics` answers with.
+ */
+export function buildHealthReport(
+  deps: Pick<MobileApiDeps, 'notify' | 'diagnostics'>,
+  now: number = Date.now(),
+): MobileHealthReport {
+  const notify = deps.notify
+  let push: MobileHealthReport['push']
+  if (notify !== undefined) {
+    const subscriptions = Object.keys(notify.store.listSubscriptions()).length
+    const summary = notify.store.deliverySummary()
+    push = {
+      subscriptions,
+      delivery: {
+        total: summary.total,
+        sent: summary.sent,
+        failed: summary.failed,
+        dropped: summary.dropped,
+        since: summary.since,
+      },
+    }
+  }
+  return {
+    palmVersion: pkg.version,
+    wire: 1,
+    frames: [...MUX_FRAME_TYPES],
+    methods: [...MOBILE_ALLOWLIST].sort(),
+    checks: deps.diagnostics?.snapshot() ?? [],
+    ...(push !== undefined ? { push } : {}),
+    now,
+  }
 }
 
 /** Perf captures kept on disk: newest `PERF_CAPTURE_KEEP` win, older pruned. */
@@ -4685,22 +4752,14 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: { observing: sessionId ?? null } },
         })
       } else if (method === MOBILE_DIAGNOSTICS_METHOD) {
-        // 依赖自检（v3.4）：palm 与宿主的耦合点都是内部契约，升级时可能静默失效
-        // （订阅都在 try/catch 里降级）。这里把 setup 期登记与运行期帧计数交出去，
-        // 让"哪条断了"在手机上一眼可见。
-        const diagnostics = deps.diagnostics
-        if (diagnostics === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '自检服务不可用' } },
-          })
-          return
-        }
+        // 依赖自检 + 健康报告：palm 与宿主的耦合点都是内部契约，升级时可能静默
+        // 失效（订阅都在 try/catch 里降级）。这里把 setup 期登记、运行期帧计数、
+        // 协议/帧/方法面、推送订阅与投递结果一起交出去，让"哪条断了""为什么手机
+        // 没响"在手机上一眼可见 —— 不再靠 COMPATIBILITY.md 的人工五步核对。
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
-          result: { ok: true, value: { checks: diagnostics.snapshot(), now: Date.now() } },
+          result: { ok: true, value: buildHealthReport(deps) },
         })
       } else if (method === MOBILE_READ_ATTACHMENT_METHOD) {
         // 图片字节（0.1.5 起事件只带 attachmentId 引用）。宿主按"该会话确实引用过
