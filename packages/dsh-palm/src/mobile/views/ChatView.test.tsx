@@ -6818,6 +6818,7 @@ describe('ChatView export (F4)', () => {
     expect(await screen.findByRole('menuitem', { name: /复制 Markdown/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /下载 \.md/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /下载单文件 HTML/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /保存长图/ })).toBeTruthy()
     // The user must be told BEFORE sharing that secrets are masked; this is a
     // promise the redact module keeps, not a marketing line.
     expect(screen.getAllByText(/疑似密钥/).length).toBeGreaterThan(0)

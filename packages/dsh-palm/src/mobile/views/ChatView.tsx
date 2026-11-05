@@ -301,6 +301,7 @@ function turnNumberOf(event: WireEvent): number | undefined {
 import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../run-status.tsx'
 import { copyText, openFilePath, shareText } from '../code-actions.ts'
 import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../export.ts'
+import { drawLongImage, LONG_IMAGE_DEFAULTS } from '../long-image.ts'
 import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll, subscribeDisplayPrefs } from '../display-prefs.ts'
@@ -1990,6 +1991,40 @@ export function ChatView({
     window.setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
     toast(format === 'html' ? '已导出单文件 HTML' : '已导出 Markdown')
   }, [buildExport, title])
+
+  /**
+   * F4 长图：draw the transcript into a canvas and save the PNG.
+   *
+   * Long sessions are capped by `LONG_IMAGE_DEFAULTS.maxHeight` (the layout adds
+   * a "分段导出" note); a browser without a 2D context falls back to a toast
+   * telling the user to use Markdown — never a silent no-op.
+   */
+  const downloadLongImage = useCallback((): void => {
+    try {
+      const canvas = document.createElement('canvas')
+      drawLongImage(canvas, title, exportRows(), LONG_IMAGE_DEFAULTS)
+      const save = (url: string): void => {
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = `${(title === '' ? '会话' : title).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}.png`
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        window.setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
+        toast('长图已保存')
+      }
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob((blob) => {
+          if (blob === null) { toast('长图生成失败，请改用 Markdown'); return }
+          save(URL.createObjectURL(blob))
+        }, 'image/png')
+        return
+      }
+      save(canvas.toDataURL('image/png'))
+    } catch {
+      toast('当前浏览器不支持长图，请改用 Markdown')
+    }
+  }, [exportRows, title])
 
   /** Steer a queued message into the running turn (only while running). */
   const handleQueueSteer = useCallback(async (itemId: string): Promise<void> => {
@@ -7906,6 +7941,17 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">下载单文件 HTML</span>
                 <span className="sheet-option-desc">无需联网、无外部资源，双击即可读</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setExportOpen(false); downloadLongImage() }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">保存长图（PNG）</span>
+                <span className="sheet-option-desc">整段对话一张图；超长会自动截断并提示分段</span>
               </span>
             </button>
           </div>
