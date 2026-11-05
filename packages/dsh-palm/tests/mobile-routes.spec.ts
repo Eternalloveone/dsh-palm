@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingHttpHeaders } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { makeMobileRoutes } from '../src/mobile-routes.ts'
+import { makeMobileRoutes, serviceWorkerSource } from '../src/mobile-routes.ts'
 
 // 生产模块用的是 node:zlib 的具名导入，vi.spyOn 改不了 ESM 命名空间；用 vi.mock
 // 包一层只数同步 brotli 的调用，其它 API（含异步压缩）保持原样。拆包路由的请求
@@ -248,8 +248,16 @@ describe('mobile routes', () => {
       expect(worker.body).toContain('async function cacheFirst(request)')
       expect(worker.body).toContain("url.search === '' ? networkFirst(request, request) : cacheFirst(request)")
       expect(worker.body).toContain('response.status >= 500')
-      expect(worker.body).not.toContain('skipWaiting')
-      expect(worker.body).not.toContain('clients.claim')
+      // Build-stamped worker: the cache name carries the bundle hash, so every
+      // build ships different bytes (the browser only installs changed bytes).
+      // Without that, a bundle-only release left the old worker — and its old
+      // caches — in place forever.
+      expect(worker.body).not.toContain('__BUILD_HASH__')
+      expect(worker.body).toContain('dsh-remote-mobile-shell-')
+      // New builds must take over instead of waiting for every client to close:
+      // an iOS home-screen PWA is frozen rather than destroyed.
+      expect(worker.body).toContain('skipWaiting')
+      expect(worker.body).toContain('clients.claim')
       expect(worker.body).not.toContain('BackgroundSync')
     } finally {
       await server.close()
@@ -472,5 +480,18 @@ describe('mobile routes', () => {
     } finally {
       await server.close()
     }
+  })
+})
+
+describe('serviceWorkerSource', () => {
+  it('substitutes every build-hash placeholder', () => {
+    const template = 'const BUILD_HASH = \'__BUILD_HASH__\'\nconst CACHE_NAME = `shell-__BUILD_HASH__`'
+    expect(serviceWorkerSource(template, 'abc12345')).toBe(
+      'const BUILD_HASH = \'abc12345\'\nconst CACHE_NAME = `shell-abc12345`',
+    )
+  })
+
+  it('leaves a template without the placeholder untouched', () => {
+    expect(serviceWorkerSource('const x = 1', 'abc12345')).toBe('const x = 1')
   })
 })

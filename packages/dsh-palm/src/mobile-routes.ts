@@ -228,6 +228,22 @@ export interface MobileRoutesOptions {
 }
 
 /**
+ * Substitute the build hash into the service worker source before it is served.
+ *
+ * The worker's cache name carries this hash, which is what makes each build a
+ * *different* worker: the browser only installs changed bytes, so without it a
+ * bundle-only release never updates the worker and the activate cleanup never
+ * runs (old caches then pile up against the same origin quota as the outbox).
+ * Exported so the substitution is testable without booting a route handler.
+ * @param template - on-disk worker source (contains `__BUILD_HASH__`).
+ * @param buildHash - current mobile bundle hash.
+ * @returns the source the phone should receive.
+ */
+export function serviceWorkerSource(template: string, buildHash: string): string {
+  return template.replaceAll('__BUILD_HASH__', buildHash)
+}
+
+/**
  * Build the mobile page routes.
  * @returns Exact routes for the canonical page, static shell, and PWA assets.
  */
@@ -338,22 +354,28 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     writeStatic(res, 200, 'text/javascript', bundle.body)
   }
 
-  let workerBody: string | undefined
+  let workerTemplate: string | undefined
   const handleWorker = async (_req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    if (workerBody === undefined) {
+    if (workerTemplate === undefined) {
       const path = mobileAssetPath('mobile-service-worker.js')
       if (!existsSync(path)) {
         writeStatic(res, 503, 'text/plain', 'mobile service worker not found')
         return
       }
       try {
-        workerBody = await readFile(path, 'utf8')
+        workerTemplate = await readFile(path, 'utf8')
       } catch {
         writeStatic(res, 500, 'text/plain', 'failed to read the mobile service worker')
         return
       }
     }
-    writeServiceWorker(res, workerBody)
+    // The build hash rides the served bytes so every build ships a *different*
+    // worker: that is what makes the browser install it and run the activate
+    // cleanup (the old hardcoded cache name meant bundle-only releases never
+    // updated the worker and old caches never went away). Substituted per
+    // request, so a rebuild is picked up without a host restart.
+    const buildHash = (await ensureBundle())?.hash ?? 'dev'
+    writeServiceWorker(res, serviceWorkerSource(workerTemplate, buildHash))
   }
 
   const makeIconHandler = (asset: string): WebRoute['handler'] => async (_req, res) => {

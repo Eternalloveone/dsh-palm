@@ -25,7 +25,14 @@
    the versioned bundle; any stale entry is dropped on activate together with
    the previous shell cache, so the bumped name below also clears the chunks the
    old bundle referenced. */
-const CACHE_NAME = 'dsh-remote-mobile-shell-v6'
+// Build hash is injected by the host when it serves this file
+// (`mobile-routes.ts` substitutes __BUILD_HASH__ with the current bundle hash).
+// A new build therefore ships different worker bytes, which is what makes the
+// browser install a new worker and run the activate cleanup below. A hardcoded
+// name (the old `-v6`) meant bundle-only releases never touched the cache and
+// old bundles piled up forever, eating the IndexedDB/outbox quota.
+const BUILD_HASH = '__BUILD_HASH__'
+const CACHE_NAME = `dsh-remote-mobile-shell-${BUILD_HASH}`
 const OFFLINE_URL = '/m/offline.html'
 const SHELL_PATHS = new Set([
   '/m/',
@@ -54,6 +61,10 @@ self.addEventListener('install', event => {
       // Offline install or an unreachable host: the cache-first path fills the
       // entry on the next successful load instead.
     }
+    // Take over on the next page load instead of waiting for every client to
+    // close: an iOS home-screen PWA is frozen, not destroyed, so "waiting" can
+    // last for days and the user keeps the old build.
+    await self.skipWaiting()
   })())
 })
 
@@ -61,23 +72,16 @@ self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const keys = await caches.keys()
     for (const key of keys) {
-      if (!key.startsWith('dsh-remote-mobile-shell-')) continue
-      if (key !== CACHE_NAME) {
+      // Every build gets its own cache (name carries the build hash); anything
+      // else is from an older build and is dead weight.
+      if (key.startsWith('dsh-remote-mobile-shell-') && key !== CACHE_NAME) {
         await caches.delete(key)
-        continue
-      }
-      // Drop every cached bundle entry: the current page already references
-      // this activation's hash, so any older bundle key is dead weight.
-      const cache = await caches.open(key)
-      const requests = await cache.keys()
-      for (const request of requests) {
-        const url = new URL(request.url)
-        if (url.pathname === '/m/mobile.js' && url.search !== '') await cache.delete(request)
-        // Split chunks: a build's chunk names carry its hash, so anything left
-        // here from an earlier build can never be requested again.
-        if (url.pathname.startsWith('/m/mobile/')) await cache.delete(request)
       }
     }
+    // NOTE: the current cache must NOT be pruned here. It used to delete every
+    // `/m/mobile.js?v=…` entry and every `/m/mobile/` chunk, which is exactly
+    // what install had just precached — making the precache 100% wasted work.
+    await self.clients.claim()
   })())
 })
 
