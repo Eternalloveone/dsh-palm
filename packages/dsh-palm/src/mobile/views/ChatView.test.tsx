@@ -1532,12 +1532,35 @@ describe('ChatView composer', () => {
     await waitFor(() => {
       expectCalledWithPrefix(promptMock, 's-1', [{ type: 'text', text: '第一行' }])
     })
+    // F3: a plain send keeps the host's default delivery mode.
+    expect(promptMock.mock.calls[0]?.[3]).toBe('queue')
 
     // Shift+Enter stays a newline gesture and never sends.
     promptMock.mockClear()
     const shifted = pressEnter(input, true)
     expect(shifted.defaultPrevented).toBe(false)
     expect(promptMock).not.toHaveBeenCalled()
+  })
+
+  it('long-press opens the delivery sheet and 插话 sends with mode=steer (F3)', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+
+    const input = inputBox()
+    fireEvent.change(input, { target: { value: '插一句' } })
+    vi.useFakeTimers()
+    const sendButton = screen.getByRole('button', { name: '发送' })
+    fireEvent.pointerDown(sendButton)
+    act(() => { vi.advanceTimersByTime(600) })
+    fireEvent.pointerUp(sendButton)
+    vi.useRealTimers()
+
+    // The sheet, not a plain send: the long-press click is swallowed.
+    const steer = await screen.findByRole('menuitem', { name: /插话/ })
+    fireEvent.click(steer)
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+    expect(promptMock.mock.calls[0]?.[3]).toBe('steer')
   })
 
   it('inserts a newline on Enter and sends only from the button when the preference is false', async () => {

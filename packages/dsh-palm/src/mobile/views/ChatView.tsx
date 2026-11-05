@@ -366,6 +366,15 @@ const REGENERATE_WATCHDOG_MS = 15_000
 const APPROVAL_ARGS_LIMIT = 8 * 1024
 
 /**
+ * How the next send is delivered (F3).
+ *
+ * `queue` and `steer` are host modes; `interrupt` is OUR composition (cancel
+ * the running turn, then queue) — the host has no third mode, and the sheet
+ * says so instead of pretending it does.
+ */
+type SendIntent = 'queue' | 'steer' | 'interrupt'
+
+/**
  * 「重新生成」这个按钮该不该出现在这一行上。
  *
  * 之前判据只看本地的 running：宿主重启/断流把回合打断后，running 立刻变 false，而
@@ -851,6 +860,10 @@ export function ChatView({
   const inputRef = useRef(input)
   inputRef.current = input
   const [sending, setSending] = useState(false)
+  /** F3: the send-intent sheet (long-press on the send button). */
+  const [sendIntentOpen, setSendIntentOpen] = useState(false)
+  const sendHoldTimerRef = useRef<number | undefined>(undefined)
+  const sendHoldFiredRef = useRef(false)
   // Live mirror of `sending` for the back handler (a stale closure must not
   // treat an in-flight send as "nothing sent yet" and revoke the session).
   const sendingRef = useRef(sending)
@@ -1917,6 +1930,24 @@ export function ChatView({
       toast(`删除没成功（${code ?? 'network'}），请再试一次`)
     }
   }, [session.sessionId, refreshInbox, queueItems])
+
+  /**
+   * F3: pull a queued message back into the composer.
+   *
+   * "撤回" ≠ "删除": delete throws the message away, withdraw returns it so the
+   * user can edit and resend. It reuses the remove RPC (the host has no
+   * withdraw verb) and then puts the exact text back — plus drops the local
+   * queued-echo, otherwise the lost-queue reconciliation would "rescue" the
+   * same text into the composer a second time.
+   */
+  const handleQueueWithdraw = useCallback(async (itemId: string): Promise<void> => {
+    const text = queueItems.find(item => item.id === itemId)?.text ?? ''
+    await handleQueueRemove(itemId)
+    if (text === '') return
+    forgetQueuedEcho(session.sessionId, text)
+    setInput(previous => previous.trim() === '' ? text : `${previous}\n${text}`)
+    toast('已放回输入框')
+  }, [queueItems, handleQueueRemove, session.sessionId])
 
   /** Steer a queued message into the running turn (only while running). */
   const handleQueueSteer = useCallback(async (itemId: string): Promise<void> => {
@@ -6119,8 +6150,9 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   }, [commands, input, claimedCommand, claimCommand])
 
   /** Send the drafted prompt (the echoed user/message arrives over mux).
-   * Offline: queue in IndexedDB instead — the reconnect effect drains it. */
-  const send = useCallback(() => {
+   * Offline: queue in IndexedDB instead — the reconnect effect drains it.
+   * @param intent - queue (default) / steer into the running turn / interrupt-then-queue. */
+  const send = useCallback((intent: SendIntent = 'queue') => {
     const text = input.trim()
     if ((text === '' && attachImages.length === 0 && attachFiles.length === 0) || sending) return
     // 同步互斥：`sending` 是 state，同一帧里连点两下时它还没更新，两次都会走到发请求
@@ -6145,7 +6177,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     // 点下发送这一刻回合是否在跑：**必须在发请求前定格**。宿主接单后立刻开出新回合，
     // turn/start 帧往往比这 promise 的 resolve 先到，回调里再读 running 就永远是 true
     // —— 明明没人跑，也会弹"已排队"。
-    const queuedByRunning = runningRef.current
+    // steer 不进队列（插进正在跑的回合），所以它不参与"排队"语义。
+    const queuedByRunning = intent !== 'steer' && runningRef.current
     // Offline: images can't queue (too big for the outbox), text can.
     if (offline) {
       if (text === '') {
@@ -6220,7 +6253,14 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
       ? addOptimisticQueueItem(session.sessionId, { text: queueText, placement: 'queued', requestId: sendRequestId })
       : undefined
     sendInFlightRef.current = Date.now()
-    void prompt(session.sessionId, body, sendRequestId).then(
+    // `interrupt` 是客户端组合：先取消当前轮（尽力而为），再按 queue 投递。
+    // 取消失败也不拦发送 —— 消息仍会排队到下一轮，那是安全的方向。
+    const beforeSend = intent === 'interrupt'
+      ? cancelSession(session.sessionId).catch(() => undefined)
+      : Promise.resolve()
+    void beforeSend
+      .then(() => prompt(session.sessionId, body, sendRequestId, intent === 'steer' ? 'steer' : 'queue'))
+      .then(
       () => {
         sendInFlightRef.current = 0
         setSending(false)
@@ -6231,8 +6271,11 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         setQuoted(undefined)
         // 回合进行中发出去的消息是**排队**（session.prompt 的 mode=queue），本轮结束后
         // 宿主自己接着发：不告诉用户，他会以为消息丢了。判据用发请求前的那一刻。
-        if (queuedByRunning) {
-      toast('已排队，本轮结束后自动发送')
+        // steer 是插进当前回合，不排队也不留底稿；interrupt 走 queue，因此仍需留底稿。
+        if (intent === 'steer') {
+          toast('已插入当前回合')
+        } else if (queuedByRunning) {
+      toast(intent === 'interrupt' ? '已停止本轮，消息排队中' : '已排队，本轮结束后自动发送')
       // 队列只活在宿主内存里：宿主一重启，这条就无声消失。本地留一份原文，
       // 等排队卡片对不上号时再交还给用户（见下面的对账 effect）。
       // 底稿必须和宿主 inbox 里那行逐字一致（引用消息是拼进去的），
@@ -6298,7 +6341,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           setAttachImages([])
           setAttachFiles([])
           setQuoted(undefined)
-          if (queuedByRunning) toast('已排队，本轮结束后自动发送')
+          if (intent === 'steer') toast('已插入当前回合')
+          else if (queuedByRunning) toast(intent === 'interrupt' ? '已停止本轮，消息排队中' : '已排队，本轮结束后自动发送')
           refreshInbox({ fresh: true })
           mux?.poke()
         }).catch(() => {
@@ -7125,6 +7169,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             onEdit={handleQueueEdit}
             onRemove={handleQueueRemove}
             onSteer={handleQueueSteer}
+            onWithdraw={handleQueueWithdraw}
           />
         ) : undefined}
         status={(finishedElsewhere === undefined && bars.statusBar === undefined) ? undefined : (
@@ -7561,7 +7606,44 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
               ? { 'aria-label': stopping ? '停止中' : '停止' }
               : { 'aria-label': running ? '排队发送' : '发送' })}
             disabled={primaryStops ? stopping : sending || draftEmpty}
-            onClick={() => { if (primaryStops) void stopTurn(); else void send() }}
+            onPointerDown={() => {
+              // F3: long-press opens the delivery-intent sheet. A plain tap keeps
+              // today's behavior (queue), so nothing changes for users who never
+              // discover the long-press.
+              if (primaryStops) return
+              sendHoldFiredRef.current = false
+              if (sendHoldTimerRef.current !== undefined) window.clearTimeout(sendHoldTimerRef.current)
+              sendHoldTimerRef.current = window.setTimeout(() => {
+                sendHoldTimerRef.current = undefined
+                sendHoldFiredRef.current = true
+                setSendIntentOpen(true)
+              }, 500)
+            }}
+            onPointerUp={() => {
+              if (sendHoldTimerRef.current !== undefined) {
+                window.clearTimeout(sendHoldTimerRef.current)
+                sendHoldTimerRef.current = undefined
+              }
+            }}
+            onPointerCancel={() => {
+              if (sendHoldTimerRef.current !== undefined) {
+                window.clearTimeout(sendHoldTimerRef.current)
+                sendHoldTimerRef.current = undefined
+              }
+            }}
+            onPointerLeave={() => {
+              if (sendHoldTimerRef.current !== undefined) {
+                window.clearTimeout(sendHoldTimerRef.current)
+                sendHoldTimerRef.current = undefined
+              }
+            }}
+            onClick={() => {
+              if (primaryStops) { void stopTurn(); return }
+              // The long-press already opened the sheet; its click must not also
+              // send a plain queue message.
+              if (sendHoldFiredRef.current) { sendHoldFiredRef.current = false; return }
+              void send()
+            }}
           >
             {/* 三种形态必须一眼可辨：发送（纸飞机）／排队（胶囊上写「排队」）／停止（方块）。
                 排队态原来是「纸飞机 + 角上一只小钟」，既挤又看不出什么意思；直接写字最省解释。 */}
@@ -7577,6 +7659,47 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           </button>
         </div>
       </div>
+      {sendIntentOpen && (
+        <Sheet title="怎么发送" onClose={() => { setSendIntentOpen(false) }}>
+          {/* 三档语义按宿主能力如实写：排队/插话是宿主模式，"中断并发送"是两次调用
+              的组合（先 cancel 再 queue），所以它单独一行说明代价。 */}
+          <div role="menu" aria-label="发送方式">
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setSendIntentOpen(false); void send('queue') }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">排队</span>
+                <span className="sheet-option-desc">本轮结束后自动发送（默认）</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setSendIntentOpen(false); void send('steer') }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">插话</span>
+                <span className="sheet-option-desc">不打断，插进正在跑的这轮</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setSendIntentOpen(false); void send('interrupt') }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">中断并发送</span>
+                <span className="sheet-option-desc">先停掉当前这轮，再发这条</span>
+              </span>
+            </button>
+          </div>
+        </Sheet>
+      )}
       {plusOpen && (
         <PlusSheet
           onPickImage={() => { setPlusOpen(false); openPicker('image') }}

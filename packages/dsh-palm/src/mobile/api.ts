@@ -854,9 +854,21 @@ export async function previews(
 }
 
 /**
- * Send a prompt (queued: the agent picks it up in order). `parts` supports
- * text plus attached images (`{ type: 'image', mediaType, data, name? }`);
- * the host promotes image bytes to durable references.
+ * Delivery mode the host understands for `session.prompt`.
+ *
+ * Only two exist (`queue` appends a turn, `steer` injects into the running one);
+ * "interrupt and send" is a client-side composition of cancel + queue, and the
+ * chat view labels it as such rather than pretending the host has a third mode.
+ */
+export type PromptMode = 'queue' | 'steer'
+
+/**
+ * Send a prompt. `parts` supports text plus attached images
+ * (`{ type: 'image', mediaType, data, name? }`); the host promotes image bytes
+ * to durable references.
+ *
+ * @param mode - `queue` (default) appends a turn; `steer` injects into the
+ *   running turn so the model sees it at its next step.
  */
 export async function prompt(
   sessionId: string,
@@ -871,10 +883,11 @@ export async function prompt(
    * 重试要复用同一个 id 才有效；新的发送意图必须换新 id。
    */
   requestId: string = newRequestId(),
+  mode: PromptMode = 'queue',
 ): Promise<void> {
   await callUnary<{ accepted: true }>('session.prompt', {
     sessionId,
-    mode: 'queue',
+    mode,
     content: parts,
     requestId,
   })

@@ -11,6 +11,7 @@ function baseProps(overrides: Partial<QueueDockProps> = {}): QueueDockProps {
     onEdit: vi.fn(async () => {}),
     onRemove: vi.fn(async () => {}),
     onSteer: vi.fn(async () => {}),
+    onWithdraw: vi.fn(async () => {}),
     ...overrides,
   }
 }
@@ -26,6 +27,13 @@ describe('QueueDock', () => {
   it('renders nothing for an empty queue', () => {
     const { container } = render(<QueueDock {...baseProps()} />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('offers 撤回 next to 删除 (withdraw returns the text, delete discards it)', () => {
+    const onWithdraw = vi.fn(async () => {})
+    render(<QueueDock {...baseProps({ items: [queued('q-1', '改一下这句')], onWithdraw })} />)
+    fireEvent.click(screen.getByRole('button', { name: '撤回排队消息到输入框' }))
+    expect(onWithdraw).toHaveBeenCalledWith('q-1')
   })
 
   it('shows every queued row without a tap, so the order is visible', () => {

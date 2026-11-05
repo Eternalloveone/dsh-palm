@@ -23,9 +23,11 @@ export interface QueueDockProps {
   onEdit(itemId: string, text: string): Promise<void>
   onRemove(itemId: string): Promise<void>
   onSteer(itemId: string): Promise<void>
+  /** F3: take the message out of the queue and put it back in the composer. */
+  onWithdraw(itemId: string): Promise<void>
 }
 
-export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDockProps) {
+export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdraw }: QueueDockProps) {
   /** 默认展开：排了三条只显示一行「3 条排队」时，用户不知道排了什么、顺序对不对。 */
   const [expanded, setExpanded] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -42,7 +44,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
    * 期间界面毫无变化，用户以为点空了就再点一遍 —— 这正是「点击插队没及时显示」
    * 的观感来源。这里让被点的那一行当场变成「发送中…／删除中…」。
    */
-  const [pending, setPending] = useState<{ id: string; verb: 'remove' | 'steer' } | null>(null)
+  const [pending, setPending] = useState<{ id: string; verb: 'remove' | 'steer' | 'withdraw' } | null>(null)
 
   const queue = items.filter(item => item.placement === 'queued')
   // 「已经插进本轮」的条目（宿主 next-step 队列）：对话里还没有它，排队条又不显示的话，
@@ -73,7 +75,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
   const run = async (
     action: (itemId: string) => Promise<void>,
     itemId: string,
-    verb: 'remove' | 'steer',
+    verb: 'remove' | 'steer' | 'withdraw',
   ): Promise<void> => {
     if (busyRef.current) return
     busyRef.current = true
@@ -141,6 +143,10 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer }: QueueDo
                       onClick={() => { startEdit(item) }}
                     >编辑</button>
                     <button type="button" className="queue-dockBtn" aria-label="删除排队消息" disabled={busy} onClick={() => { void run(onRemove, item.id, 'remove') }}>{pending?.id === item.id && pending.verb === 'remove' ? '删除中…' : '删除'}</button>
+                    {/* 「撤回」与「删除」的区别是**这条消息还回来**：删除是丢弃，
+                        撤回是放回输入框再改再发。用户在手机上排错了一句，不该只能
+                        重打一遍。 */}
+                    <button type="button" className="queue-dockBtn" aria-label="撤回排队消息到输入框" disabled={busy} onClick={() => { void run(onWithdraw, item.id, 'withdraw') }}>{pending?.id === item.id && pending.verb === 'withdraw' ? '撤回中…' : '撤回'}</button>
                     {/* 主操作要说人话：这条不排在队尾等下一轮，而是立刻塞进正在跑的这轮。
                         「插话」两个字普通用户看不懂，按钮还长得和编辑/删除一模一样。
 
