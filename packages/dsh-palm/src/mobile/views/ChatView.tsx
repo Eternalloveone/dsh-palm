@@ -300,6 +300,7 @@ function turnNumberOf(event: WireEvent): number | undefined {
 }
 import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../run-status.tsx'
 import { copyText, openFilePath, shareText } from '../code-actions.ts'
+import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../export.ts'
 import { MuxClient } from '../mux.ts'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { getAutoScroll, subscribeDisplayPrefs } from '../display-prefs.ts'
@@ -1626,6 +1627,8 @@ export function ChatView({
   const [title, setTitle] = useState(session.title)
   /** The header 更多 menu (rename / copy session id). */
   const [moreOpen, setMoreOpen] = useState(false)
+  /** F4 export sheet (Markdown / single-file HTML, redacted). */
+  const [exportOpen, setExportOpen] = useState(false)
   /** The read-only git sheet (branch / changes / commits). */
   const [gitOpen, setGitOpen] = useState(false)
   /** Turn-list bottom sheet visibility. */
@@ -1948,6 +1951,45 @@ export function ChatView({
     setInput(previous => previous.trim() === '' ? text : `${previous}\n${text}`)
     toast('已放回输入框')
   }, [queueItems, handleQueueRemove, session.sessionId])
+
+  /* ── F4 export (Markdown / single-file HTML, redacted) ─────────────── */
+
+  /** Transcript rows worth exporting: real talk + commands, no turn cards. */
+  const exportRows = useCallback((): ExportRow[] => messages
+    .filter(message => message.kind === 'user' || message.kind === 'assistant' || message.kind === 'command')
+    .filter(message => message.text.trim() !== '')
+    .map((message): ExportRow => ({
+      // The filter above already dropped 'turn' cards; the cast only tells TS.
+      role: message.kind as ExportRow['role'],
+      text: message.kind === 'command' && message.commandLine !== undefined
+        ? `${message.commandLine}\n${message.text}`.trim()
+        : message.text,
+    })), [messages])
+
+  const buildExport = useCallback((format: 'md' | 'html'): string => (
+    format === 'html'
+      ? exportSingleFileHtml(title, exportRows())
+      : exportMarkdown(title, exportRows())
+  ), [title, exportRows])
+
+  const copyExport = useCallback((format: 'md' | 'html'): void => {
+    void copyText(buildExport(format), '已复制，疑似密钥已隐藏')
+  }, [buildExport])
+
+  /** Save via a blob anchor: no host round-trip, works offline. */
+  const downloadExport = useCallback((format: 'md' | 'html'): void => {
+    const body = buildExport(format)
+    const blob = new Blob([body], { type: format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${(title === '' ? '会话' : title).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}.${format}`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
+    toast(format === 'html' ? '已导出单文件 HTML' : '已导出 Markdown')
+  }, [buildExport, title])
 
   /** Steer a queued message into the running turn (only while running). */
   const handleQueueSteer = useCallback(async (itemId: string): Promise<void> => {
@@ -7791,6 +7833,17 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
                 <span className="sheet-option-title">复制会话 ID</span>
               </span>
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setMoreOpen(false); setExportOpen(true) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">导出对话</span>
+                <span className="sheet-option-desc">Markdown / 单文件 HTML，自动隐藏疑似密钥</span>
+              </span>
+            </button>
             {session.cwd !== undefined && session.cwd !== '' && (
               <button
                 type="button"
@@ -7816,6 +7869,49 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
               </span>
             </button>
           </div>
+        </Sheet>
+      )}
+      {exportOpen && (
+        <Sheet title="导出对话" onClose={() => { setExportOpen(false) }}>
+          {/* 分享出去的文本会进 issue、群聊、邮件 —— 一旦发出去就收不回。
+              所以每条路径都先过 redact.ts（不是各调用点自己记得脱敏）。 */}
+          <div role="menu" aria-label="导出方式">
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setExportOpen(false); copyExport('md') }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">复制 Markdown</span>
+                <span className="sheet-option-desc">整段对话，适合贴进 issue / 笔记</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setExportOpen(false); downloadExport('md') }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">下载 .md</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setExportOpen(false); downloadExport('html') }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">下载单文件 HTML</span>
+                <span className="sheet-option-desc">无需联网、无外部资源，双击即可读</span>
+              </span>
+            </button>
+          </div>
+          <p className="sheet-note">
+            导出内容会自动隐藏疑似密钥（sk-…、Bearer、URL 里的密码、私钥块等）。
+          </p>
         </Sheet>
       )}
       {gitOpen && session.cwd !== undefined && session.cwd !== '' && (

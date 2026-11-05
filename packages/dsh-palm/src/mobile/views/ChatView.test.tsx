@@ -6805,3 +6805,21 @@ describe('ChatView 草稿与打不开的会话', () => {
     })
   })
 })
+
+describe('ChatView export (F4)', () => {
+  it('offers Markdown / single-file HTML from the 更多 menu and states the redaction', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+
+    fireEvent.click(screen.getByRole('button', { name: '更多' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /导出对话/ }))
+
+    expect(await screen.findByRole('menuitem', { name: /复制 Markdown/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /下载 \.md/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /下载单文件 HTML/ })).toBeTruthy()
+    // The user must be told BEFORE sharing that secrets are masked; this is a
+    // promise the redact module keeps, not a marketing line.
+    expect(screen.getAllByText(/疑似密钥/).length).toBeGreaterThan(0)
+  })
+})
