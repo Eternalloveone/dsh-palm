@@ -6,10 +6,12 @@
  * @module dsh-palm/mobile/sheets
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorText, staleHostHint } from './views/App.tsx'
 import { sendCommand, respondApproval, respondQuestion, fetchGitSummary, listDirectory, type CommandDescriptor, type DirectoryListing, type GitSummary } from './api.ts'
 import type { PendingApproval, PendingQuestionItem } from './api.ts'
+import { RpcCallError } from './rpc.ts'
+import { toast } from './toast.tsx'
 import { latestBatchOf } from './question-batches.ts'
 import { Sheet } from './sheet.tsx'
 import type { TurnEntry } from './turn-outline.ts'
@@ -476,49 +478,134 @@ export function TurnListSheet({ entries, currentTurn, onPick, onClose }: {
   )
 }
 
-/** One pending tool approval card with allow/reject actions. */
-export function ApprovalPanel({ approval, sessionId, onResolved, preview }: {
+/** Risk pill copy. Unknown/older host omits `risk`; the panel then reads `write`. */
+const RISK_LABEL: Record<'read' | 'write' | 'exec' | 'install', string> = {
+  read: '只读',
+  write: '写入',
+  exec: '执行命令',
+  install: '插件变更',
+}
+
+/** How long the user must hold the allow button for an exec-risk tool. */
+const HOLD_TO_ALLOW_MS = 1500
+
+/**
+ * One pending tool approval card with allow/reject actions.
+ *
+ * F2 hardening: the host now classifies the tool (`risk`), the card shows that
+ * judgement as a pill, a one-line preview becomes expandable into the FULL
+ * arguments (8 KB cap host-side), and a command execution needs a 1.5 s hold
+ * instead of a tap. Before this, `bash` and `read_file` looked identical and
+ * `pnpm build && curl … | sh` was cut to `pnpm build && curl …` at 120 chars.
+ */
+export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsText }: {
   approval: PendingApproval
   sessionId: string
   onResolved(approvalId: string): void
   /** 这次调用的参数压成的一行（来自会话日志里同 callId 的 tool/call）。 */
   preview?: string
+  /** 原始参数（展开区用；宿主侧已按 8 KB 截断）。 */
+  argsText?: string
 }) {
   const [busy, setBusy] = useState(false)
   const [panelError, setPanelError] = useState<string | undefined>(undefined)
+  const [expanded, setExpanded] = useState(false)
+  const [holding, setHolding] = useState(false)
+  const holdTimerRef = useRef<number | undefined>(undefined)
+  const risk = approval.risk ?? 'write'
+  const requiresHold = risk === 'exec'
+
+  const clearHold = useCallback((): void => {
+    if (holdTimerRef.current !== undefined) {
+      window.clearTimeout(holdTimerRef.current)
+      holdTimerRef.current = undefined
+    }
+    setHolding(false)
+  }, [])
+
+  // A panel unmounted mid-hold must not fire the approval afterwards.
+  useEffect(() => () => {
+    if (holdTimerRef.current !== undefined) window.clearTimeout(holdTimerRef.current)
+  }, [])
 
   const act = (outcome: 'allowed-once' | 'rejected'): void => {
     if (busy) return
+    clearHold()
     setBusy(true)
     setPanelError(undefined)
     void respondApproval(approval.rpcId, sessionId, approval.approvalId, outcome).then(
       () => { onResolved(approval.approvalId) },
       (reason: unknown) => {
         setBusy(false)
+        // Already answered on the desktop (or another phone): the host retired
+        // the pending item, so answering now is `not-found`. That is a success
+        // for this panel — retiring it beats showing an error the user retries
+        // into the same error forever.
+        if (reason instanceof RpcCallError && reason.error.code === 'not-found') {
+          toast('已由其他端处理')
+          onResolved(approval.approvalId)
+          return
+        }
         setPanelError(reason instanceof Error ? reason.message : String(reason))
       },
     )
+  }
+
+  const startHold = (): void => {
+    if (busy || !requiresHold || holdTimerRef.current !== undefined) return
+    setHolding(true)
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = undefined
+      setHolding(false)
+      act('allowed-once')
+    }, HOLD_TO_ALLOW_MS)
   }
 
   return (
     <div className="chat-approval-panel" role="alert">
       <div className="chat-approval-header">
         <span className="chat-tool-pill">{approval.toolName}</span>
+        <span className={`chat-risk-pill chat-risk-${risk}`}>{RISK_LABEL[risk]}</span>
         {approval.reason !== undefined && (
           <span className="chat-approval-reason">{approval.reason}</span>
         )}
       </div>
       {/* host 的帧只带工具名：把「要执行什么」摆在同一张卡上，否则用户是在盲批。 */}
       {preview !== undefined && <p className="chat-approval-preview">{preview}</p>}
+      {argsText !== undefined && (
+        <>
+          <button
+            type="button"
+            className="chat-approval-expand"
+            aria-expanded={expanded}
+            onClick={() => { setExpanded(value => !value) }}
+          >
+            {expanded ? '收起参数' : '展开完整参数'}
+          </button>
+          {expanded && <pre className="chat-approval-args">{argsText}</pre>}
+        </>
+      )}
       {panelError !== undefined && <p className="chat-approval-error">{panelError}</p>}
       <div className="chat-approval-actions">
         <button
           type="button"
-          className="chat-approval-allow"
+          className={`chat-approval-allow${requiresHold ? ' chat-approval-allow-hold' : ''}${holding ? ' chat-approval-allow-holding' : ''}`}
           disabled={busy}
-          onClick={() => { act('allowed-once') }}
+          onPointerDown={startHold}
+          onPointerUp={clearHold}
+          onPointerLeave={clearHold}
+          onPointerCancel={clearHold}
+          onClick={(event) => {
+            // An exec-risk tool is allowed by HOLDING (the timer fires). Pointer
+            // clicks are ignored here; keyboard activation (detail 0) still works.
+            if (requiresHold) {
+              if (event.detail === 0) act('allowed-once')
+              return
+            }
+            act('allowed-once')
+          }}
         >
-          {busy ? '提交中…' : '允许一次'}
+          {busy ? '提交中…' : holding ? '继续按住…' : requiresHold ? '按住 1.5 秒允许' : '允许一次'}
         </button>
         <button
           type="button"

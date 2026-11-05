@@ -358,6 +358,14 @@ import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../
 const REGENERATE_WATCHDOG_MS = 15_000
 
 /**
+ * Upper bound on the raw tool-call arguments handed to the approval panel's
+ * expandable block. A command line needs a few hundred bytes; 8 KB is far past
+ * that, and it keeps a hostile/giant `tool/call` from turning the panel into a
+ * memory and layout hole on a phone.
+ */
+const APPROVAL_ARGS_LIMIT = 8 * 1024
+
+/**
  * 「重新生成」这个按钮该不该出现在这一行上。
  *
  * 之前判据只看本地的 running：宿主重启/断流把回合打断后，running 立刻变 false，而
@@ -4657,6 +4665,27 @@ export function ChatView({
     return undefined
   }, [messages])
 
+  /**
+   * 审批卡片「展开参数」用的原文（同 callId 的 tool/call.arguments）。
+   *
+   * 预览那行固定 120 字，`pnpm build && curl … | sh` 会被截在管道之前 —— 用户
+   * 看到的是一条无害的构建命令。展开区给原文，宿主侧已经在 8 KB 截断。
+   */
+  const approvalArgsOf = useCallback((approval: PendingApproval): string | undefined => {
+    if (approval.callId === undefined) return undefined
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const tools = messages[i]!.tools
+      if (tools === undefined) continue
+      const hit = tools.find(tool => tool.callId === approval.callId)
+      if (hit !== undefined) {
+        const text = hit.arguments
+        if (typeof text !== 'string' || text.trim() === '') return undefined
+        return text.length > APPROVAL_ARGS_LIMIT ? text.slice(0, APPROVAL_ARGS_LIMIT) : text
+      }
+    }
+    return undefined
+  }, [messages])
+
   /** Auto-dismiss the context menu after 3s without action, or on Esc. */
   useEffect(() => {
     if (ctxMenu === undefined) return
@@ -7034,6 +7063,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             key={approval.approvalId}
             approval={approval}
             preview={approvalPreviewOf(approval)}
+            argsText={approvalArgsOf(approval)}
             sessionId={session.sessionId}
             onResolved={(id) => {
               noteAnsweredApproval(session.sessionId, id)

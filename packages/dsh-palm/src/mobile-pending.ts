@@ -7,6 +7,12 @@ export interface PendingApproval {
   toolName: string
   callId?: string
   reason?: string
+  /**
+   * Host-side danger judgement (tool-risk.ts), echoed so the polling fallback
+   * keeps the same hold-to-allow gate the live frame arrived with. Absent =
+   * older host; the client then treats it as `write`.
+   */
+  risk?: 'read' | 'write' | 'exec' | 'install'
 }
 
 /**
@@ -100,12 +106,17 @@ export class PendingTracker {
       // and urgent events skip the engine's dedupe window, so the third-party
       // channels (which have no `tag` collapsing) delivered it twice.
       const alreadyKnown = state.approvals.has(approvalId)
+      const risk = payload.risk === 'read' || payload.risk === 'write'
+        || payload.risk === 'exec' || payload.risk === 'install'
+        ? payload.risk
+        : undefined
       state.approvals.set(approvalId, {
         rpcId: frame.rpcId,
         approvalId,
         toolName,
         ...(typeof payload.callId === 'string' ? { callId: payload.callId } : {}),
         ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}),
+        ...(risk !== undefined ? { risk } : {}),
       })
       if (alreadyKnown) return
       this._notifyDecision({

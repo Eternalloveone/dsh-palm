@@ -336,7 +336,9 @@ export interface QueuedInboxItem {
 export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
-  | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: string; reason?: string }
+  // `risk` 是宿主对工具名的危险度判断（tool-risk.ts）。缺省=旧宿主，客户端按
+  // `write` 处理（要求确认、展开参数），绝不因为"没声明"就放行。
+  | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: string; reason?: string; risk?: 'read' | 'write' | 'exec' | 'install' }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }

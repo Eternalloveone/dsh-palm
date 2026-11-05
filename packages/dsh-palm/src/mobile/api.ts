@@ -1163,6 +1163,11 @@ export interface PendingApproval {
   toolName: string
   callId?: string
   reason?: string
+  /**
+   * Host-side danger judgement. Absent on an older host → the panel treats it
+   * as `write` (confirm + show arguments), never as read.
+   */
+  risk?: 'read' | 'write' | 'exec' | 'install'
 }
 
 /** One pending question group awaiting the user's answer. */

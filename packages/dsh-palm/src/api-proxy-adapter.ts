@@ -43,6 +43,7 @@ import type {
   ApprovalOutcome,
 } from './api-proxy-types.ts'
 import { RpcId } from './api-proxy-types.ts'
+import { toolRiskOf } from './tool-risk.ts'
 import { HistoryAdapter } from './api-proxy-history.ts'
 import { permissionOptionsSource } from './permission-options.ts'
 import { WorkspaceListAdapter } from './api-proxy-workspace.ts'
@@ -387,6 +388,10 @@ export function makeApiProxyAdapter(
       sessionId: sessionId as never,
       approvalId: approvalId as never,
       toolName: request.toolName,
+      // Host-side risk: the phone must not be able to talk a `bash` down to
+      // `read`. Old clients ignore the field; old hosts omit it (client then
+      // treats it as `write`).
+      risk: toolRiskOf(request.toolName),
       ...(request.callId !== undefined ? { callId: request.callId } : {}),
       ...(request.reason !== undefined ? { reason: request.reason } : {}),
     }

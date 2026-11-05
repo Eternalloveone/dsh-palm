@@ -4810,6 +4810,64 @@ button.settings-row:focus-visible {
   font-size: var(--text-sm);
 }
 
+/* F2: the host classifies the tool; the judgement must be visible BEFORE the
+   buttons (a bash card must not look like a read_file card). */
+.chat-risk-pill {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11.5px;
+}
+
+.chat-risk-read {
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+.chat-risk-write {
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.chat-risk-exec {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.chat-risk-install {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.chat-approval-expand {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+}
+
+.chat-approval-args {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 40vh;
+  overflow: auto;
+  border-radius: var(--radius-chip);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-approval-allow-holding {
+  filter: brightness(0.92);
+}
+
 .chat-approval-actions {
   display: flex;
   gap: var(--space-2);

@@ -272,3 +272,25 @@ describe('PendingTracker decision dedupe (approval notifications)', () => {
     expect(decisions).toEqual(['a1', 'a2'])
   })
 })
+
+describe('PendingTracker approval risk (F2)', () => {
+  it('carries the host-side risk through the polling fallback', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame({
+      rpcId: 'r1',
+      payload: { type: 'approval/requested', sessionId: 's1', approvalId: 'a1', toolName: 'bash', risk: 'exec' },
+    } as never)
+    // The poll refreshes the panel every few seconds: losing `risk` here would
+    // silently downgrade the card from hold-to-allow back to a single tap.
+    expect(tracker.pending('s1').approvals[0]?.risk).toBe('exec')
+  })
+
+  it('drops an unknown risk value instead of trusting it', () => {
+    const tracker = new PendingTracker()
+    tracker.onFrame({
+      rpcId: 'r1',
+      payload: { type: 'approval/requested', sessionId: 's1', approvalId: 'a1', toolName: 'bash', risk: 'harmless' },
+    } as never)
+    expect(tracker.pending('s1').approvals[0]?.risk).toBeUndefined()
+  })
+})
