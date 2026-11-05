@@ -238,8 +238,50 @@ describe('deliverL2', () => {
     }
   })
 
-  it('does nothing without a VAPID pair', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-notify-'))
+  it('gives a completion notice a 1h TTL, normal urgency and a collapse topic', async () => {
+    const { store, cleanup } = storeWithSubscription()
+    try {
+      await deliverL2(store, event)
+      const options = sendNotificationMock.mock.calls[0]![2] as { TTL?: number; urgency?: string; topic?: string }
+      expect(options.TTL).toBe(3600)
+      expect(options.urgency).toBe('normal')
+      // Topic is a base64url sha256 prefix (Web Push caps it at 32 chars) and
+      // must collapse repeats for the same kind+session, not across sessions.
+      expect(options.topic).toMatch(/^[A-Za-z0-9_-]{32}$/)
+      await deliverL2(store, { ...event, id: 'job-bash-1-x2' })
+      const again = sendNotificationMock.mock.calls[1]![2] as { topic?: string }
+      expect(again.topic).toBe(options.topic)
+      await deliverL2(store, { ...event, sessionId: 's-2' })
+      const other = sendNotificationMock.mock.calls[2]![2] as { topic?: string }
+      expect(other.topic).not.toBe(options.topic)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('gives an approval high urgency and a 5-minute TTL (stale approvals must not surface later)', async () => {
+    const { store, cleanup } = storeWithSubscription()
+    try {
+      const approval: NotifyEvent = {
+        ...event,
+        id: 'approval-a1',
+        kind: 'approval',
+        title: '需要批准',
+        body: 'bash: rm -rf build',
+        decision: { id: 'a1', kind: 'approval', rpcId: 'rpc-1' },
+      }
+      await deliverL2(store, approval)
+      const options = sendNotificationMock.mock.calls[0]![2] as { TTL?: number; urgency?: string; topic?: string }
+      expect(options.TTL).toBe(300)
+      expect(options.urgency).toBe('high')
+      // Approvals are never collapsed: each one needs its own card.
+      expect(options.topic).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('does nothing without a VAPID pair', async () => {    const dir = mkdtempSync(join(tmpdir(), 'dsh-palm-notify-'))
     try {
       const store = new NotifyStore(join(dir, 'notify.json'))
       await deliverL2(store, event)

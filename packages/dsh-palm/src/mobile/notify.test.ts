@@ -120,6 +120,9 @@ beforeEach(() => {
 afterEach(() => {
   stopNotify()
   vi.unstubAllGlobals()
+  // Drop a service-worker stub installed by one test so the next one exercises
+  // the desktop (constructor) path.
+  delete (navigator as { serviceWorker?: unknown }).serviceWorker
 })
 
 describe('notification capability', () => {
@@ -194,6 +197,25 @@ describe('L1 delivery', () => {
     MockNotification.permission = 'granted'
     startNotify()
     deliver(notifyFrame())
+    expect(MockNotification.instances).toHaveLength(0)
+  })
+
+  it('goes through the service worker registration when one exists', async () => {
+    // Android Chrome and iOS Safari implement Notification but refuse the
+    // CONSTRUCTOR; the registration path is the only one that works there.
+    // The old code constructed directly, so every notification threw and the
+    // error was swallowed — "已开启" with nothing ever shown.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    MockNotification.permission = 'granted'
+    const showNotification = vi.fn(async (_title: string, _options?: NotificationOptions) => undefined)
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { ready: Promise.resolve({ showNotification }) },
+      configurable: true,
+    })
+    startNotify()
+    deliver(notifyFrame())
+    await vi.waitFor(() => { expect(showNotification).toHaveBeenCalledOnce() })
+    expect(showNotification.mock.calls[0]?.[0]).toBe('任务完成')
     expect(MockNotification.instances).toHaveLength(0)
   })
 

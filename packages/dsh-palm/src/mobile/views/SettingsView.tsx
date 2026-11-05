@@ -1182,7 +1182,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             <p className="settings-note">任务完成提醒有三条通道，从上到下生效范围越来越广：</p>
             <div className="settings-field">
               <p className="settings-fieldDesc">
-                <b>① 浏览器通知</b>：页面打开时弹提醒。必开，无需配置。<br />
+                <b>① 浏览器通知</b>：只在你刚切到后台的短暂窗口内兜底（页面在前台时不弹）。安卓/iOS 都需要系统授权，iOS 还需先"添加到主屏"。<br />
                 <b>② 推送渠道</b>：页面关闭也能收，微信/iOS 直达、国内可靠。推荐任填一个（WxPusher 或 Server酱）。<br />
                 <b>③ Web Push</b>：系统级推送，但服务（FCM）在大陆不可直连，需代理才可用。大陆用户可不开。
               </p>

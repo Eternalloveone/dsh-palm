@@ -29,9 +29,74 @@ const NOTIFY_EVENTS_URL = '/m/api/events.notify'
 let source: EventSource | undefined
 let active = false
 
-/** Whether the browser can show notifications at all. */
+/** Whether the browser can show notifications at all.
+ *
+ * `typeof Notification !== 'undefined'` is TRUE on Android Chrome and iOS
+ * Safari/WKWebView, but the `Notification` CONSTRUCTOR throws there: both
+ * platforms require `ServiceWorkerRegistration.showNotification`. The old code
+ * checked only existence, opened the L1 stream, and then swallowed a
+ * `TypeError` per event — the settings page said "已开启" while nothing was ever
+ * shown. Capability is therefore split: showing needs either a service worker
+ * registration or a constructor that actually works (desktop).
+ */
 export function notificationSupported(): boolean {
-  return typeof Notification !== 'undefined'
+  if (typeof Notification === 'undefined') return false
+  return true
+}
+
+/** Set when a show attempt failed; surfaced by the health page and the console. */
+let notifyFailures = 0
+let lastNotifyError: string | undefined
+let warnedFailure = false
+
+/** How L1 delivery has behaved on this page (health page / diagnostics). */
+export interface NotifyDeliveryStats {
+  failures: number
+  lastError?: string
+}
+
+/** @returns failure count and the last error message, for the health page. */
+export function notifyDeliveryStats(): NotifyDeliveryStats {
+  return { failures: notifyFailures, ...(lastNotifyError !== undefined ? { lastError: lastNotifyError } : {}) }
+}
+
+/** Record one failed show; warn once per page so logs stay readable. */
+function recordShowFailure(error: unknown): void {
+  notifyFailures += 1
+  lastNotifyError = error instanceof Error ? error.message : String(error)
+  if (!warnedFailure) {
+    warnedFailure = true
+    console.warn('dsh-palm: showing a notification failed; page notifications are unavailable here', error)
+  }
+}
+
+/** @returns the notification payload used by both delivery paths. */
+function notificationOptions(payload: NotifyEventWire['payload']): NotificationOptions {
+  return {
+    body: payload.body,
+    tag: payload.id,
+    data: { sessionId: payload.sessionId, workspaceId: payload.workspaceId },
+  }
+}
+
+/** Desktop-only fallback: the constructor path (no service worker present). */
+function showThroughConstructor(title: string, options: NotificationOptions): void {
+  const Constructor = globalThis.Notification as
+    | (new (title: string, options?: NotificationOptions) => Notification)
+    | undefined
+  if (Constructor === undefined) throw new Error('Notification API unavailable')
+  const notification = new Constructor(title, options)
+  notification.onclick = () => {
+    notification.close()
+    window.focus()
+    const data = options.data as { sessionId?: string; workspaceId?: string } | undefined
+    if (data?.sessionId !== undefined) {
+      const url = new URL('/m/', window.location.origin)
+      if (data.workspaceId !== undefined) url.searchParams.set('workspace', data.workspaceId)
+      url.searchParams.set('session', data.sessionId)
+      window.location.href = url.toString()
+    }
+  }
 }
 
 /** Current permission state ('default' | 'granted' | 'denied' | 'unsupported'). */
@@ -163,14 +228,27 @@ function showNotify(event: NotifyEventWire['payload']): void {
   // Do not disturb someone actively looking at the app.
   if (document.visibilityState === 'visible') return
   buzz()
-  const notification = new Notification(event.title, {
-    body: event.body,
-    tag: event.id,
-    data: { sessionId: event.sessionId, workspaceId: event.workspaceId },
-  })
-  notification.onclick = () => {
-    notification.close()
-    window.focus()
-    window.location.href = notifyDeepLink(event)
+  const options = notificationOptions(event)
+  const serviceWorker = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
+  if (serviceWorker === undefined) {
+    // Desktop without a worker: the constructor is the only path, and it is
+    // synchronous, which keeps the click handler trivial.
+    try {
+      showThroughConstructor(event.title, options)
+    } catch (error) {
+      recordShowFailure(error)
+    }
+    return
   }
+  // Android Chrome and iOS only accept the registration path; the explicit
+  // branch keeps that requirement visible instead of hiding it in a cast.
+  void serviceWorker.ready
+    .then(async (registration) => {
+      if (typeof registration.showNotification === 'function') {
+        await registration.showNotification(event.title, options)
+        return
+      }
+      showThroughConstructor(event.title, options)
+    })
+    .catch((error: unknown) => { recordShowFailure(error) })
 }

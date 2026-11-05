@@ -94,6 +94,12 @@ export class PendingTracker {
       if (sessionId === undefined || approvalId === undefined) return
       const toolName = typeof payload.toolName === 'string' ? payload.toolName : ''
       const state = this._getOrInit(sessionId)
+      // A replayed frame (SSE reconnect window, or the mux baseline re-sent on
+      // a new subscription) must not announce the same approval twice. The
+      // question branch already deduped by rpcId; the approval branch did not,
+      // and urgent events skip the engine's dedupe window, so the third-party
+      // channels (which have no `tag` collapsing) delivered it twice.
+      const alreadyKnown = state.approvals.has(approvalId)
       state.approvals.set(approvalId, {
         rpcId: frame.rpcId,
         approvalId,
@@ -101,6 +107,7 @@ export class PendingTracker {
         ...(typeof payload.callId === 'string' ? { callId: payload.callId } : {}),
         ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}),
       })
+      if (alreadyKnown) return
       this._notifyDecision({
         sessionId,
         rpcId: frame.rpcId,

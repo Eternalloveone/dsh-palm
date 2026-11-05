@@ -12,6 +12,7 @@
  * dead channel must never break the engine or the other channels.
  */
 
+import { createHash } from 'node:crypto'
 import webpush from 'web-push'
 import type { NotifyConfig, NotifyStore } from './notify-store.ts'
 import type { NotifyEvent } from './notify-engine.ts'
@@ -171,6 +172,16 @@ export async function deliverL2(store: NotifyStore, event: NotifyEvent): Promise
       : {}),
   })
   const proxy = pushProxy()
+  // Delivery semantics matter on a phone:
+  // - an approval must arrive now and stop mattering once it is stale, so it
+  //   gets high urgency and a 5-minute TTL (web-push's default 4 weeks would
+  //   surface a week-old "allow?" prompt on the lock screen);
+  // - completion notices can wait, and a `topic` lets the push service collapse
+  //   the repeats one session generates instead of stacking them.
+  const urgent = decision?.kind === 'approval' || decision?.kind === 'question'
+  const topic = event.kind === 'approval' || event.kind === 'question'
+    ? undefined
+    : pushTopicOf(event)
   const subscriptions = store.listSubscriptions()
   await Promise.all(Object.values(subscriptions).map(async (subscription) => {
     try {
@@ -179,6 +190,8 @@ export async function deliverL2(store: NotifyStore, event: NotifyEvent): Promise
         payload,
         {
           ...(proxy !== undefined ? { proxy } : {}),
+          ...(urgent ? { urgency: 'high' as const, TTL: 300 } : { urgency: 'normal' as const, TTL: 3600 }),
+          ...(topic !== undefined ? { topic } : {}),
           vapidDetails: {
             subject: 'https://github.com/Eternalloveone/dsh-palm',
             publicKey: vapid.publicKey,
@@ -213,6 +226,20 @@ function describeError(error: unknown): string {
     return text.slice(0, 120)
   }
   return String(error).slice(0, 120)
+}
+
+/**
+ * Collapse topic for one session's completion notices (max 32 characters, per
+ * the Web Push spec). Two notices for the same session and kind share a topic,
+ * so the push service replaces the older one instead of stacking both on the
+ * lock screen; approvals deliberately get no topic (each one needs its own
+ * card, and they are short-lived anyway).
+ */
+function pushTopicOf(event: NotifyEvent): string {
+  return createHash('sha256')
+    .update(`${event.kind}:${event.sessionId}`, 'utf8')
+    .digest('base64url')
+    .slice(0, 32)
 }
 
 /**

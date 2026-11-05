@@ -237,3 +237,38 @@ describe('PendingTracker.resolveQuestionByRpcId (the answer retires the batch)',
     expect(tracker.pending('s2').approvals).toHaveLength(1)
   })
 })
+
+describe('PendingTracker decision dedupe (approval notifications)', () => {
+  it('announces one approval only once when the frame is replayed', () => {
+    const decisions: string[] = []
+    const tracker = new PendingTracker(notice => { decisions.push(notice.decisionId) })
+    const frame = (rpcId: string) => ({
+      rpcId,
+      payload: { type: 'approval/requested', sessionId: 's1', approvalId: 'a1', toolName: 'bash' },
+    }) as never
+
+    tracker.onFrame(frame('rpc-approve-1'))
+    // SSE reconnect / re-subscription replays the same approval with a fresh
+    // envelope. Before the fix the urgent kind skipped the engine's dedupe
+    // window, so L3 channels (no `tag` collapsing) delivered it twice.
+    tracker.onFrame(frame('rpc-approve-2'))
+
+    expect(decisions).toEqual(['a1'])
+    // The latest envelope still wins, so a respond echoes the live rpcId.
+    expect(tracker.ownerOfRpcId('rpc-approve-2')).toBe('s1')
+  })
+
+  it('announces a genuinely new approval again', () => {
+    const decisions: string[] = []
+    const tracker = new PendingTracker(notice => { decisions.push(notice.decisionId) })
+    tracker.onFrame({
+      rpcId: 'r1',
+      payload: { type: 'approval/requested', sessionId: 's1', approvalId: 'a1', toolName: 'bash' },
+    } as never)
+    tracker.onFrame({
+      rpcId: 'r2',
+      payload: { type: 'approval/requested', sessionId: 's1', approvalId: 'a2', toolName: 'bash' },
+    } as never)
+    expect(decisions).toEqual(['a1', 'a2'])
+  })
+})
