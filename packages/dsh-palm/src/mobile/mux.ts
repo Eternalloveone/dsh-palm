@@ -121,32 +121,13 @@ const RUNNING_VERIFY_STALE_MS = 45_000
 const RUNNING_VERIFY_MAX = 8
 
 /**
- * Known mux frame discriminants, mirroring the host's frame union. Unknown
- * frames are dropped exactly like the schema-validated version did.
+ * Known mux frame discriminants come from the shared table the host validates
+ * against. This module used to keep its own copy, and the drift was real:
+ * `goal/activation` (host emits it, ChatView waits for it) was dropped here, so
+ * the goal bar's pause/resume never followed. Unknown frames are still dropped,
+ * which is what lets a newer host talk to an older cached bundle.
  */
-const MUX_FRAME_TYPES = new Set<string>([
-  'session/event',
-  'session/subscribed',
-  'approval/requested',
-  'approval/resolved',
-  'question/requested',
-  'question/resolved',
-  'session/queue',
-  'session/jobs',
-  'session/projection',
-  'session/added',
-  'session/removed',
-  'session/status',
-  'session/activity',
-  'session/error',
-  'stream/error',
-  // Keep-alive from the host. It carries no state; the client only uses it as
-  // proof the transport is still delivering (see handleMessage). It has to be
-  // a real frame rather than an SSE comment line, because the EventSource spec
-  // discards comments without ever surfacing them to the page — which made an
-  // idle stream look dead and dropped every phone onto 3 s polling.
-  'mux/ping',
-])
+import { isMuxFrame } from '../shared/mux-frames.ts'
 
 /**
  * Structural guard for one SSE payload: a `server-request` envelope whose
@@ -175,13 +156,12 @@ function parseMuxEnvelope(data: string): { frame: MuxFrame; rpcId: string } | un
   if (typeof envelope.rpcId !== 'string' || typeof envelope.method !== 'string') return undefined
   const frame = envelope.payload
   if (typeof frame !== 'object' || frame === null) return undefined
-  const type = (frame as { type?: unknown }).type
-  if (typeof type !== 'string' || !MUX_FRAME_TYPES.has(type)) return undefined
-  if (type === 'session/event') {
+  if (!isMuxFrame(frame)) return undefined
+  if (frame.type === 'session/event') {
     const event = (frame as { event?: unknown }).event
     if (typeof event !== 'object' || event === null) return undefined
   }
-  return { frame: frame as MuxFrame, rpcId: envelope.rpcId }
+  return { frame, rpcId: envelope.rpcId }
 }
 
 /**

@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod'
+import { isMuxFrame } from './shared/mux-frames.ts'
 
 // 本地宽松类型：避免从 @deepseek-ai/dsh-session 等包导入时解析到旧 checkout 的
 // 重复类型（与 host controllers 的 npm 版本冲突）。这些类型只用于旧 apiProxy 形状，
@@ -359,30 +360,14 @@ export type MuxFrame =
  * 只校验 `type` 判别字段是否属于已知 mux 帧类型（未知帧被丢弃，与旧行为一致），
  * 其余字段保持宽松——业务层已按 MuxFrame 形状消费，无需在此深校验。
  */
-export const muxFrameSchema = z.custom<MuxFrame>((data) => {
-  if (typeof data !== 'object' || data === null) return false
-  const type = (data as { type?: unknown }).type
-  return typeof type === 'string' && MUX_FRAME_TYPES.has(type)
-})
+export const muxFrameSchema = z.custom<MuxFrame>((data) => isMuxFrame(data))
 
-/** 已知 mux 帧类型集合（muxFrameSchema 的判别依据）。 */
-const MUX_FRAME_TYPES = new Set<string>([
-  'session/event',
-  'session/subscribed',
-  'approval/requested',
-  'approval/resolved',
-  'question/requested',
-  'question/resolved',
-  'session/queue',
-  'session/jobs',
-  'session/projection',
-  'session/added',
-  'session/removed',
-  'session/status',
-  'session/activity',
-  'session/error',
-  'stream/error',
-])
+/**
+ * 已知 mux 帧类型集合来自 `shared/mux-frames.ts` —— 宿主半与手机半共用同一份，
+ * 不再各自手写（两份集合曾同时漏掉 `goal/activation`，导致目标条的暂停/继续
+ * 按钮永远不跟随）。
+ */
+export { MUX_FRAME_TABLE, MUX_FRAME_TYPES, isMuxFrame } from './shared/mux-frames.ts'
 
 /**
  * server-request 信封的本地宽松 zod schema（复刻旧 `rpc.schema` 的 serverRequestSchema）。
