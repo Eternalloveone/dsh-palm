@@ -272,11 +272,11 @@ const PREVIEW_CONCURRENCY = 3
 /** Preview cache cap (oldest evicted past this). */
 const PREVIEW_CACHE_LIMIT = 200
 /** 向宿主核对「进行中」标记的最小间隔（宿主那份集合自带 30 s 缓存）。 */
-export const RUNNING_RESYNC_MS = 30
+export const RUNNING_RESYNC_MS = 30_000
 /** 停留在列表页时的主动核对间隔（毫秒）：会话在跑但绿点不亮就是靠它收敛。 */
 const RUNNING_POLL_MS = 5_000
 /** 只有最近这么久内活跃过的行才值得花一次尾读去核实（更老的极不可能还在跑）。 */
-const RUNNING_CANDIDATE_AGE_MS = 10 * 60_000_000
+export const RUNNING_CANDIDATE_AGE_MS = 10 * 60_000
 /** 一条「在跑」标记多久没有新活动就作废。宿主的结束帧并不可靠（实测一整轮
  *  零帧），宿主的核对要枚举几千个会话（冷启动实测 24 秒，手机上等不到），
  *  所以绿点还得有自己的心跳：跑着的会话会不断推 session/activity。
