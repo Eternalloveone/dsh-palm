@@ -25,6 +25,15 @@ describe('mux frame table', () => {
     expect(isMuxFrame({ type: 'mux/ping' })).toBe(true)
   })
 
+  it('keeps the inferred turn boundary distinct from the host bus status frame', () => {
+    // Same payload shape, different producer: the client arbitrates by source,
+    // so both must be routable and neither may be aliased to the other.
+    expect(isMuxFrame({ type: 'session/status', sessionId: 's', running: true })).toBe(true)
+    expect(isMuxFrame({ type: 'session/turn-boundary', source: 'inferred', sessionId: 's', running: true })).toBe(true)
+    expect(MUX_FRAME_TYPES.has('session/status')).toBe(true)
+    expect(MUX_FRAME_TYPES.has('session/turn-boundary')).toBe(true)
+  })
+
   it('rejects unknown discriminants and non-objects', () => {
     expect(isMuxFrame({ type: 'session/unknown' })).toBe(false)
     expect(isMuxFrame({ type: 42 })).toBe(false)

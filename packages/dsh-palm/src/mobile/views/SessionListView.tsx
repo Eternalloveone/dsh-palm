@@ -146,7 +146,12 @@ function applyListFrame(live: LiveListState, frame: MuxFrame, workspace: Workspa
       live.removed.add(id)
       return true
     }
-    case 'session/status': {
+    // The host bus publishes `session/status`; the plugin's own turn-boundary
+    // inference publishes `session/turn-boundary` (same payload, different
+    // source). Both move the same badge — the split exists so a client can
+    // arbitrate by source instead of seeing two "status" frames fight.
+    case 'session/status':
+    case 'session/turn-boundary': {
       const id = String(frame.sessionId)
       live.status.set(id, frame.running)
       live.statusAt.set(id, Date.now())

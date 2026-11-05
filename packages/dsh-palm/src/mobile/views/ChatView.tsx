@@ -2599,7 +2599,7 @@ export function ChatView({
       // claimed 输出中 while the desktop showed nothing running. The roster
       // event is the authoritative correction — it carries what the host
       // believes, independently of whether this page saw the boundary.
-      if (frame.type === 'session/status') {
+      if (frame.type === 'session/status' || frame.type === 'session/turn-boundary') {
         if (frame.sessionId !== session.sessionId) return
         const hostRunning = frame.running === true
         if (hostRunning) {

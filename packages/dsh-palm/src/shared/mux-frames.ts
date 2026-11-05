@@ -37,6 +37,7 @@ export const MUX_FRAME_TABLE: Record<MuxFrame['type'], true> = {
   'session/added': true,
   'session/removed': true,
   'session/status': true,
+  'session/turn-boundary': true,
   'session/activity': true,
   'session/error': true,
   'mux/ping': true,

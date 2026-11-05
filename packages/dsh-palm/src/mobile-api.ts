@@ -4977,7 +4977,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             rpcId: frame.rpcId,
             method: 'events.mux',
             payload: {
-              type: 'session/status',
+              // The inferred verdict gets its own discriminant: the host bus
+              // also emits `session/status`, and two frames of the same type
+              // with different semantics (and no version) made the running dot
+              // flicker when a new turn started right after turn/end.
+              type: 'session/turn-boundary',
+              source: 'inferred' as const,
               sessionId: boundary.sessionId,
               running: boundary.running,
               ...(boundary.seq === undefined ? {} : { seq: boundary.seq }),

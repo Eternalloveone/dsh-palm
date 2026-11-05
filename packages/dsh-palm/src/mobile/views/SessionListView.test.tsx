@@ -612,6 +612,20 @@ describe('SessionListView live session frames', () => {
     expect(screen.queryByText('进行中')).toBeNull()
   })
 
+  it('flips the running badge from the inferred turn-boundary frame too', async () => {
+    // The plugin publishes the turn-boundary verdict under its own discriminant
+    // (`session/turn-boundary`) so it cannot be confused with the host bus's
+    // `session/status`; the list must treat both as the same badge input.
+    twoRows()
+    const mux = new FakeMux()
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+    expect(screen.queryByText('进行中')).toBeNull()
+
+    mux.emit({ type: 'session/turn-boundary', source: 'inferred', sessionId: 's-1', running: true })
+    expect(screen.getAllByText('进行中')).toHaveLength(1)
+  })
+
   it('宿主说没在跑就不亮 —— 哪怕尾页最后一条边界还开着', async () => {
     // 真机现象（返回列表时卡片先绿一下）：首页来自宿主，而宿主那边的 running 会滞后
     // ——刚跑完的会话仍然被标成在跑。所以页面的 true 不能直接画。

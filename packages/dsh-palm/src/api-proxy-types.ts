@@ -353,6 +353,19 @@ export type MuxFrame =
   | { type: 'session/added'; summary: SessionSummary }
   | { type: 'session/removed'; sessionId: SessionId }
   | { type: 'session/status'; sessionId: SessionId; running: boolean }
+  // 轮次边界推断帧，与宿主总线的 `session/status` 分开。
+  //
+  // 两处都发同一个 `session/status` 时，同一个 socket 上会出现两条语义不同、
+  // 没有版本号的帧：总线的权威结论与边界推断可以毫秒级互打脸（turn/end 后桌面
+  // 立刻又起一轮时，「绿点闪一下」就是这么来的）。独立 discriminant 让客户端按
+  // 来源仲裁；老 bundle 会按未知帧丢弃，正好退回"只由总线驱动"。
+  | {
+    type: 'session/turn-boundary'
+    sessionId: SessionId
+    running: boolean
+    source: 'inferred'
+    seq?: number
+  }
   | { type: 'session/activity'; sessionId: SessionId; updatedAt: number }
   | { type: 'session/error'; sessionId: SessionId; message: string }
   // 传输层保活帧：不带任何状态，只用来证明这条 SSE 还在送东西。心跳必须是
