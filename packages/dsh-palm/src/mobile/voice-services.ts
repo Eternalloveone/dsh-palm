@@ -79,6 +79,18 @@ export function removeVoiceService(id: string): void {
   emitChange()
 }
 
+/**
+ * Drop every configured service, including its API key.
+ *
+ * Pairing teardown calls this: the keys belong to one device identity, and
+ * leaving them behind after "remove this phone" means the next person to pair
+ * this browser starts with the previous owner's credentials in localStorage.
+ */
+export function clearVoiceServices(): void {
+  try { localStorage.removeItem(SERVICES_KEY) } catch { /* private mode: nothing persisted */ }
+  emitChange()
+}
+
 /** Move one service up (earlier in the fallback order). */
 export function moveVoiceServiceUp(id: string): void {
   const services = readStored()

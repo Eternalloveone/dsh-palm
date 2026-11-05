@@ -12,7 +12,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, setPrimaryDevice, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
 import { errorText } from './App.tsx'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
@@ -455,14 +455,8 @@ function DeviceManagementView({ onBack }: { onBack(): void }) {
     const target = renameTarget
     setRenameTarget(undefined)
     if (target === undefined) return
-    void renameDevice(target.id, name).then(
+    void renameDevice(target.handle, name).then(
       () => { refresh(); toast('已重命名') },
-      (reason: unknown) => { toast(errorText(reason)) },
-    )
-  }
-  const handleSetPrimary = (device: PairedDeviceView): void => {
-    void setPrimaryDevice(device.id).then(
-      () => { refresh(); toast('已设为主设备') },
       (reason: unknown) => { toast(errorText(reason)) },
     )
   }
@@ -470,7 +464,7 @@ function DeviceManagementView({ onBack }: { onBack(): void }) {
     const target = revokeTarget
     setRevokeTarget(undefined)
     if (target === undefined) return
-    void revokeDevice(target.id).then(
+    void revokeDevice(target.handle).then(
       () => { refresh(); toast('已移除该设备') },
       (reason: unknown) => { toast(errorText(reason)) },
     )
@@ -498,7 +492,7 @@ function DeviceManagementView({ onBack }: { onBack(): void }) {
           <div className="settings-card">
             {devices.length === 0 && <p className="settings-note">暂无已配对设备。</p>}
             {devices.map(device => (
-              <div key={device.id} className="device-row">
+              <div key={device.handle} className="device-row">
                 <span className="device-copy">
                   <span className="device-name">
                     {deviceLabel(device)}
@@ -520,20 +514,16 @@ function DeviceManagementView({ onBack }: { onBack(): void }) {
                     aria-label="重命名"
                     onClick={() => { setRenameTarget(device) }}
                   ><PencilIcon /></button>
-                  {device.primary !== true && (
-                    <button
-                      type="button"
-                      className="device-btn"
-                      aria-label="设为主设备"
-                      disabled={busy}
-                      onClick={() => { handleSetPrimary(device) }}
-                    ><ShieldIcon /></button>
-                  )}
-                  {device.current !== true && (
+                  {device.current === true && (
+                    // Only "leave this phone" is offered here: removing *other*
+                    // devices is an anti-theft control, and the host now refuses
+                    // it from a non-loopback caller (a phone can always drop
+                    // itself). Promoting to primary is desktop-only for the same
+                    // reason — the button lived here and is gone on purpose.
                     <button
                       type="button"
                       className="device-btn device-btn-danger"
-                      aria-label="移除设备"
+                      aria-label="退出本机"
                       disabled={busy}
                       onClick={() => { setRevokeTarget(device) }}
                     ><TrashIcon /></button>
@@ -556,7 +546,7 @@ function DeviceManagementView({ onBack }: { onBack(): void }) {
       {revokeTarget !== undefined && (
         <ConfirmDialog
           title="移除设备？"
-          body={`移除「${deviceLabel(revokeTarget)}」后，该设备将无法再访问此电脑，需重新配对。`}
+          body={revokeTarget.current === true ? '退出本机后需要重新扫码配对才能继续使用，聊天缓存与待发消息会一并清除。' : `移除「${deviceLabel(revokeTarget)}」后，该设备将无法再访问此电脑，需重新配对。`}
           confirmLabel="移除"
           tone="danger"
           onCancel={() => { setRevokeTarget(undefined) }}
@@ -1847,7 +1837,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             <SettingsRow
               icon={<ShieldIcon />}
               title="设备管理"
-              desc="查看已配对设备 · 重命名 · 设为主设备 · 移除"
+              desc="查看已配对设备 · 重命名 · 退出本机（设为主设备请在桌面端操作）"
               action={<RowChevron />}
               onClick={() => { setDeviceOpen(true) }}
             />

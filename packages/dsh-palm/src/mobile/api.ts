@@ -1313,7 +1313,12 @@ export async function archiveSession(sessionId: string): Promise<{ archivedSessi
 
 /** One paired device as the phone's device-management screen sees it. */
 export interface PairedDeviceView {
-  id: string
+  /**
+   * Credential-free handle (`sha256(deviceId)` prefix). The host deliberately
+   * never sends the real device id: that id IS the pairing cookie value, so
+   * exposing it would let one paired phone impersonate the others.
+   */
+  handle: string
   createdAt: number
   lastSeenAt: number
   online: boolean
@@ -1335,19 +1340,19 @@ export async function listDevices(): Promise<PairedDevicesView> {
   return await callUnary<PairedDevicesView>('pair.devices', {})
 }
 
-/** Revoke one paired device (its next gated request is refused). */
-export async function revokeDevice(deviceId: string): Promise<{ removed: boolean }> {
-  return await callUnary<{ removed: boolean }>('pair.revoke', { deviceId })
+/** Revoke one paired device (its next gated request is refused). Phone may only revoke itself. */
+export async function revokeDevice(handle: string): Promise<{ removed: boolean }> {
+  return await callUnary<{ removed: boolean }>('pair.revoke', { handle })
 }
 
 /** Assign a user-facing display name to a device (empty clears it). */
-export async function renameDevice(deviceId: string, name: string): Promise<{ renamed: boolean }> {
-  return await callUnary<{ renamed: boolean }>('pair.rename', { deviceId, name })
+export async function renameDevice(handle: string, name: string): Promise<{ renamed: boolean }> {
+  return await callUnary<{ renamed: boolean }>('pair.rename', { handle, name })
 }
 
-/** Promote one device to primary (demotes the previous primary). */
-export async function setPrimaryDevice(deviceId: string): Promise<{ promoted: boolean }> {
-  return await callUnary<{ promoted: boolean }>('pair.setPrimary', { deviceId })
+/** Promote one device to primary (desktop/loopback only; the phone gets `desktop-only`). */
+export async function setPrimaryDevice(handle: string): Promise<{ promoted: boolean }> {
+  return await callUnary<{ promoted: boolean }>('pair.setPrimary', { handle })
 }
 
 

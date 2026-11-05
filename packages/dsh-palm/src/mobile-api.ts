@@ -34,7 +34,8 @@ import type { NotifyService } from './notify/notify-engine.ts'
 import type { NotifyEvent } from './notify/notify-engine.ts'
 import { deliverL2 } from './notify/notify-deliver.ts'
 import { asJsonObject, readBoundedJson, writeJson } from './http.ts'
-import { readCookie } from './gate.ts'
+import { isLoopbackClient, readCookie } from './gate.ts'
+import { deviceHandleOf, resolveDeviceHandle } from './device-handle.ts'
 import { resolveTranscribeServices, transcribeWav } from './voice-transcribe.ts'
 import { buildUsageView, type UsageProviderConfig, type UsageView } from './usage/usage-check.ts'
 import { opendir, rename, stat, readFile as fsReadFile } from 'node:fs/promises'
@@ -3767,9 +3768,15 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       } else if (method === MOBILE_PAIR_DEVICES_METHOD) {
         // Paired-device roster for the phone's device-management screen. The
         // current device's id rides the cookie so the UI can mark "this phone".
+        //
+        // The row carries `handle`, NOT `id`: the id is the session credential
+        // (see pairing.ts DeviceSnapshot), and returning it here would let one
+        // paired phone impersonate every other one — the loopback
+        // /api/pair/status response deliberately strips `devices` for the same
+        // reason (routes.ts). The admin methods below resolve the handle back.
         const currentDeviceId = readCookie(req.headers.cookie, service.config.cookieName)
         const devices = service.snapshot().devices.map(device => ({
-          id: device.id,
+          handle: deviceHandleOf(device.id),
           createdAt: device.createdAt,
           lastSeenAt: device.lastSeenAt,
           online: device.online,
@@ -3784,52 +3791,78 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: { devices, maxDevices: service.config.maxDevices } },
         })
       } else if (method === MOBILE_PAIR_REVOKE_METHOD) {
-        const body = parsed.payload as { deviceId?: unknown } | undefined
-        const deviceId = typeof body?.deviceId === 'string' ? body.deviceId : ''
-        if (deviceId === '') {
+        const body = parsed.payload as { handle?: unknown } | undefined
+        const handle = typeof body?.handle === 'string' ? body.handle : ''
+        const target = resolveDeviceHandle(service.snapshot().devices, handle)
+        if (target === undefined) {
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少设备 id' } },
+            result: { ok: false, error: { code: 'bad-request', message: '设备不存在' } },
           })
           return
         }
-        const removed = service.revoke(deviceId)
+        const currentDeviceId = readCookie(req.headers.cookie, service.config.cookieName)
+        // Revoking *another* device is an anti-theft control, so it must not be
+        // reachable from the device it is meant to constrain: a phone can always
+        // drop itself ("退出本机"), everything else is desktop-only.
+        if (target !== currentDeviceId && !isLoopbackClient(req)) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'desktop-only', message: '移除其他设备请在桌面端操作' } },
+          })
+          return
+        }
+        const removed = service.revoke(target)
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: { removed } },
         })
       } else if (method === MOBILE_PAIR_RENAME_METHOD) {
-        const body = parsed.payload as { deviceId?: unknown; name?: unknown } | undefined
-        const deviceId = typeof body?.deviceId === 'string' ? body.deviceId : ''
+        const body = parsed.payload as { handle?: unknown; name?: unknown } | undefined
+        const handle = typeof body?.handle === 'string' ? body.handle : ''
         const name = typeof body?.name === 'string' ? body.name : ''
-        if (deviceId === '') {
+        const target = resolveDeviceHandle(service.snapshot().devices, handle)
+        if (target === undefined) {
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少设备 id' } },
+            result: { ok: false, error: { code: 'bad-request', message: '设备不存在' } },
           })
           return
         }
-        const renamed = service.renameDevice(deviceId, name)
+        const renamed = service.renameDevice(target, name)
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: { renamed } },
         })
       } else if (method === MOBILE_PAIR_SET_PRIMARY_METHOD) {
-        const body = parsed.payload as { deviceId?: unknown } | undefined
-        const deviceId = typeof body?.deviceId === 'string' ? body.deviceId : ''
-        if (deviceId === '') {
+        // "Primary" is exempt from idle expiry, so promoting a device is a
+        // privilege grant. Handing it to a phone lets a stolen handset promote
+        // itself and kick the owner out — desktop only, same as revoke-other.
+        if (!isLoopbackClient(req)) {
           writeJson(res, 200, {
             type: 'server-response',
             rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少设备 id' } },
+            result: { ok: false, error: { code: 'desktop-only', message: '设为主设备请在桌面端操作' } },
           })
           return
         }
-        const promoted = service.setPrimary(deviceId)
+        const body = parsed.payload as { handle?: unknown } | undefined
+        const handle = typeof body?.handle === 'string' ? body.handle : ''
+        const target = resolveDeviceHandle(service.snapshot().devices, handle)
+        if (target === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'bad-request', message: '设备不存在' } },
+          })
+          return
+        }
+        const promoted = service.setPrimary(target)
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,

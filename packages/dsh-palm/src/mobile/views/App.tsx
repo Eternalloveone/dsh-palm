@@ -29,8 +29,8 @@ import { usePageVisible } from '../foreground.ts'
 import { runningOf, subscribeStatus } from '../session-status-store.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcCallError, RpcTransportError } from '../rpc.ts'
-import { clearPairingCaches } from '../list-persist.ts'
-import { clearHistoryCache, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
+import { runPairingTeardown } from '../teardown.ts'
+import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { preferredTailWindowBytes } from '../entry-perf.ts'
 import { installErrorCapture } from '../errors.ts'
 import { watchBuildRefresh } from '../build-refresh.ts'
@@ -416,12 +416,14 @@ export function App({ initialPairError }: AppProps) {
   }, [])
 
   // Pairing eviction (v3.3): a revoked/unpaired device must not keep
-  // another device's persisted sessions — clear the local caches the moment
-  // the pair state turns out to be broken (or is re-established).
+  // another device's persisted sessions — clear every identity-scoped store the
+  // moment the pair state turns out to be broken. One registry owns the list
+  // (`teardown.ts`); this effect only fires it.
   useEffect(() => {
     if (pairState === 'unpaired') {
-      clearPairingCaches()
-      void clearHistoryCache()
+      void runPairingTeardown().then(({ failed }) => {
+        if (failed.length > 0) console.warn('dsh-palm: pairing teardown left data behind', failed)
+      })
     }
   }, [pairState])
 
@@ -439,10 +441,14 @@ export function App({ initialPairError }: AppProps) {
         initialError={initialPairError}
         onPaired={(path) => {
           // A fresh pairing is a new device identity: drop the previous
-          // identity's persisted sessions before the reload lands.
-          clearPairingCaches()
-          void clearHistoryCache()
-          window.location.replace(path)
+          // identity's persisted sessions before the reload lands. Wait for the
+          // teardown (bounded) so the outbox is gone before navigation, not
+          // merely scheduled: an IndexedDB clear racing `location.replace`
+          // would leave the previous owner's queued text behind.
+          void Promise.race([
+            runPairingTeardown(),
+            new Promise(resolve => { setTimeout(resolve, 800) }),
+          ]).finally(() => { window.location.replace(path) })
         }}
       />
     )

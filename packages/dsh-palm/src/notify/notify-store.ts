@@ -8,7 +8,7 @@
  * convenience, not a security boundary (the same stance as pairing.ts).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import webPush from 'web-push'
 const { generateVAPIDKeys } = webPush
@@ -216,7 +216,15 @@ export class NotifyStore {
     if (!this.dirty) return
     try {
       mkdirSync(dirname(this.file), { recursive: true })
-      writeFileSync(this.file, JSON.stringify(this.data, null, 2), 'utf8')
+      // Owner-only, atomic: this file holds the VAPID private key (enough to
+      // push arbitrary notifications, including the lockscreen approval card)
+      // and every third-party channel token. pairing.ts persists its device
+      // table with the same stance — this store used to say so in a comment
+      // while writing with the default umask.
+      const body = JSON.stringify(this.data, null, 2)
+      const temp = `${this.file}.${process.pid}.${Date.now().toString(36)}.tmp`
+      writeFileSync(temp, body, { mode: 0o600 })
+      renameSync(temp, this.file)
       this.dirty = false
     } catch (error) {
       console.error('dsh-palm: failed to persist notify state', error)

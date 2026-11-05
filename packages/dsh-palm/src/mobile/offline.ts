@@ -163,6 +163,34 @@ export async function removeOutboxForSession(sessionId: string): Promise<void> {
 }
 
 /**
+ * Drop the whole outbox (store + memory fallback).
+ *
+ * Pairing teardown calls this. A queued prompt is addressed to a session under
+ * a specific device identity; leaving it behind means the next pairing would
+ * flush text the previous owner typed — and the host's `session.prompt` has no
+ * idempotency key, so that is a real duplicate send, not a harmless retry.
+ */
+export async function dropOutbox(): Promise<void> {
+  memoryQueue.length = 0
+  memoryOnly = false
+  try {
+    const db = await openDb()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const request = db.transaction(STORE, 'readwrite').objectStore(STORE).clear()
+        request.onsuccess = () => { resolve() }
+        request.onerror = () => { reject(request.error ?? new Error('indexedDB clear failed')) }
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    // IDB unavailable: the memory queue is already empty, which is the whole
+    // state this browser has.
+  }
+}
+
+/**
  * Thrown by a flush {@link send} callback to mark an entry as permanently
  * undeliverable (e.g. the session was deleted and no longer accepts prompts).
  * flushOutbox drops such an entry instead of keeping it queued for the next

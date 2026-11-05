@@ -111,6 +111,18 @@ export interface LostEchoOptions {
 }
 
 /**
+ * Drop every remembered echo.
+ *
+ * Pairing teardown calls this: the copies exist to catch "queued but never
+ * delivered" across a restart, and they belong to the identity that queued
+ * them — keeping them after a revoke would offer the next identity a restore of
+ * somebody else's text.
+ */
+export function clearQueuedEchoes(): void {
+  try { localStorage.removeItem(ECHO_KEY) } catch { /* private mode: nothing persisted */ }
+}
+
+/**
  * Copies the host no longer has and the transcript never received.
  *
  * @param echoes - Remembered queue copies.
