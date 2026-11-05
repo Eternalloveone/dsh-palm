@@ -2198,6 +2198,43 @@ button.settings-row:focus-visible {
   box-shadow: none;
 }
 
+/* F1 session filters: horizontally scrollable chip row under the header.
+   Chips are 32px tall visuals inside a 44px hit area (padding), because the
+   mobile rule is "visual may be small, tappable must not be". */
+.sess-filters {
+  display: flex;
+  gap: 8px;
+  padding: 6px 16px 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.sess-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.sess-chip {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 999px;
+  background: var(--bg-surface, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm, 13px);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sess-chip-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+  font-weight: 500;
+}
+
 .mobile-hint {
   display: block;
   margin-top: 2px;

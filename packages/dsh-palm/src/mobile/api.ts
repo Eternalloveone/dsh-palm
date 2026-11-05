@@ -1421,3 +1421,50 @@ export async function removeHostFinishedRun(sessionId: string): Promise<void> {
 export async function clearHostFinishedRuns(): Promise<void> {
   await callUnary('mobile.finishedRuns', { op: 'clear' })
 }
+
+/* ── session folders (F1) ────────────────────────────────────────────── */
+
+/** One host-side session folder. */
+export interface SessionFolderView {
+  id: string
+  name: string
+  createdAt: number
+}
+
+/** Folders + session→folder assignments. */
+export interface SessionFoldersView {
+  folders: SessionFolderView[]
+  assignments: Record<string, string>
+}
+
+/**
+ * Read the host-side grouping.
+ *
+ * Host-side on purpose: the desktop and every paired phone see the same
+ * folders, and revoking a phone (which wipes its local storage) cannot destroy
+ * the user's organisation. A host that predates the feature answers
+ * `unavailable` — callers then simply hide the chips.
+ */
+export async function readSessionFolders(): Promise<SessionFoldersView> {
+  return await callUnary<SessionFoldersView>('mobile.folders', { action: 'list' })
+}
+
+/** Create a folder; the host refuses duplicate/empty names. */
+export async function createSessionFolder(name: string): Promise<SessionFoldersView & { created?: SessionFolderView }> {
+  return await callUnary<SessionFoldersView & { created?: SessionFolderView }>('mobile.folders', { action: 'create', name })
+}
+
+/** Rename one folder. */
+export async function renameSessionFolder(folderId: string, name: string): Promise<SessionFoldersView> {
+  return await callUnary<SessionFoldersView>('mobile.folders', { action: 'rename', folderId, name })
+}
+
+/** Delete one folder (its sessions return to "no folder"). */
+export async function removeSessionFolder(folderId: string): Promise<SessionFoldersView & { removed?: boolean }> {
+  return await callUnary<SessionFoldersView & { removed?: boolean }>('mobile.folders', { action: 'remove', folderId })
+}
+
+/** File one session into a folder (null clears the assignment). */
+export async function assignSessionFolder(sessionId: string, folderId: string | null): Promise<SessionFoldersView> {
+  return await callUnary<SessionFoldersView>('mobile.folders', { action: 'assign', sessionId, folderId })
+}

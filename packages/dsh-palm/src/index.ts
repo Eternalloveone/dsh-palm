@@ -39,6 +39,7 @@ import { NotifyEngine, type NotifyService } from './notify/notify-engine.ts'
 import { NotifyStore } from './notify/notify-store.ts'
 import { deliverL2, deliverL3 } from './notify/notify-deliver.ts'
 import { PendingTracker } from './mobile-pending.ts'
+import { defaultFoldersFile, SessionFolders } from './folders.ts'
 import { RpcId } from './api-proxy-types'
 import { noteRunningFrame } from './mobile-api.ts'
 import { mountOnce } from './mount-once.ts'
@@ -282,6 +283,10 @@ function applyImpl(ctx: Context, config?: Config): void {
     }
   }
   const service = new PairingService(pairingConfigOf(resolve()))
+  // Session folders (F1): host-side so every paired phone and the desktop agree,
+  // and so revoking a phone (which wipes its local storage) cannot destroy the
+  // user's organisation. Lives beside the device table.
+  const folders = new SessionFolders(defaultFoldersFile())
 
   // 版本检查 + 一键更新（面板底部那一行）。加载时先记下"这次 dsh 是怎么被
   // 拉起来的"：更新成功后由一个独立 helper 进程照这份配方重启，所以配方
@@ -431,6 +436,7 @@ function applyImpl(ctx: Context, config?: Config): void {
           observers,
           diagnostics,
           pendingTracker,
+          folders,
           chatWindows,
           previews,
           // Perf captures land beside the plugin's own state (the devices store

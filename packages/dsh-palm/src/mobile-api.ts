@@ -27,6 +27,7 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ApiProxy, MuxFrame, RpcRequest, SubagentCatalog } from './api-proxy-types'
 import { RpcId } from './api-proxy-types'
 import { MUX_FRAME_TYPES } from './shared/mux-frames.ts'
+import type { SessionFolders } from './folders.ts'
 import { mergeRunningBaseline, staleRunningEvidence } from './running-baseline.ts'
 import type { ApiProxyAdapter } from './api-proxy-adapter.ts'
 import type { PendingTracker } from './mobile-pending.ts'
@@ -626,6 +627,13 @@ const MOBILE_PAIR_DEVICES_METHOD = 'pair.devices'
 const MOBILE_PAIR_REVOKE_METHOD = 'pair.revoke'
 const MOBILE_PAIR_RENAME_METHOD = 'pair.rename'
 const MOBILE_PAIR_SET_PRIMARY_METHOD = 'pair.setPrimary'
+/**
+ * Session folders (F1): one plugin-local method carrying a discriminated
+ * action. Grouping lives host-side so the desktop and every paired phone agree,
+ * and so a revoked phone's local wipe cannot destroy the user's organisation.
+ * Payload: `{ action: 'list' | 'create' | 'rename' | 'remove' | 'assign', … }`.
+ */
+const MOBILE_FOLDERS_METHOD = 'mobile.folders'
 
 /** One directory row the mobile browser can enter (directories + symlinks to dirs). */
 interface MobileDirectoryEntry {
@@ -2245,6 +2253,11 @@ ode:sqlite 时整套索引关闭，搜索退回宿主 FTS + 子串补扫的旧�
    */
   searchIndexPath?: string | undefined
   /**
+   * Session folders (F1). Absent = the phone hides folder chips and
+   * `mobile.folders` answers unavailable (older plugin wiring).
+   */
+  folders?: SessionFolders | undefined
+  /**
    * 测试/端到端用：开跑后**等**第一趟索引走完再返回，这样断言不必和后台赛跑。
    * 生产不设（建库全程后台，首个 pass 延迟 15s）。
    */
@@ -3088,6 +3101,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       || method === MOBILE_PAIR_REVOKE_METHOD
       || method === MOBILE_PAIR_RENAME_METHOD
       || method === MOBILE_PAIR_SET_PRIMARY_METHOD
+      || method === MOBILE_FOLDERS_METHOD
       || isTranscribe
     if (!MOBILE_ALLOWLIST.has(method) && !local) {
       req.resume()
@@ -3934,6 +3948,85 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: { promoted } },
+        })
+      } else if (method === MOBILE_FOLDERS_METHOD) {
+        // Session folders (F1). One method, discriminated action: the surface is
+        // tiny (list/create/rename/remove/assign) and every action answers the
+        // full snapshot so the phone never has to merge partial state.
+        const folders = deps.folders
+        if (folders === undefined) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: false, error: { code: 'unavailable', message: '会话分组不可用' } },
+          })
+          return
+        }
+        const body = parsed.payload as {
+          action?: unknown
+          name?: unknown
+          folderId?: unknown
+          sessionId?: unknown
+        } | undefined
+        const action = typeof body?.action === 'string' ? body.action : 'list'
+        if (action === 'list') {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: folders.list() },
+          })
+          return
+        }
+        if (action === 'create') {
+          const created = folders.create(body?.name)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: created === undefined
+              ? { ok: false, error: { code: 'bad-request', message: '分组名不可用或已存在' } }
+              : { ok: true, value: { ...folders.list(), created } },
+          })
+          return
+        }
+        if (action === 'rename') {
+          const folderId = typeof body?.folderId === 'string' ? body.folderId : ''
+          const renamed = folders.rename(folderId, body?.name)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: renamed
+              ? { ok: true, value: folders.list() }
+              : { ok: false, error: { code: 'bad-request', message: '分组不存在或改名失败' } },
+          })
+          return
+        }
+        if (action === 'remove') {
+          const folderId = typeof body?.folderId === 'string' ? body.folderId : ''
+          const removed = folders.remove(folderId)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: { ok: true, value: { ...folders.list(), removed } },
+          })
+          return
+        }
+        if (action === 'assign') {
+          const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : ''
+          const folderId = typeof body?.folderId === 'string' ? body.folderId : null
+          const assigned = folders.assign(sessionId, folderId)
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId,
+            result: assigned
+              ? { ok: true, value: folders.list() }
+              : { ok: false, error: { code: 'bad-request', message: '分组不存在' } },
+          })
+          return
+        }
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: { ok: false, error: { code: 'bad-request', message: '未知的分组操作' } },
         })
       } else if (method === MOBILE_NOTIFY_EVENTS_METHOD) {
         // The phone's notification inbox: the engine's bounded decision log

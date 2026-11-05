@@ -43,11 +43,18 @@ vi.mock('../api.ts', () => ({
   searchAll: vi.fn(),
   searchMessages: vi.fn(),
   searchSessions: vi.fn(),
+  // F1 session folders: default = host supports the surface with no folders.
+  readSessionFolders: vi.fn(async () => ({ folders: [], assignments: {} })),
+  createSessionFolder: vi.fn(async () => ({ folders: [], assignments: {} })),
+  renameSessionFolder: vi.fn(async () => ({ folders: [], assignments: {} })),
+  removeSessionFolder: vi.fn(async () => ({ folders: [], assignments: {} })),
+  assignSessionFolder: vi.fn(async () => ({ folders: [], assignments: {} })),
+  renameSession: vi.fn(async () => ({})),
 }))
 vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
-import { archiveSession as archiveSessionApi, createSession, listAgentPresets, listSessions, listWorkspaces, logTail, previews, runningSessions, history, searchAll, searchMessages, searchSessions } from '../api.ts'
+import { archiveSession as archiveSessionApi, assignSessionFolder, createSession, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, runningSessions, history, searchAll, searchMessages, searchSessions } from '../api.ts'
 import { removeOutboxForSession } from '../offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
@@ -63,6 +70,8 @@ const searchAllMock = vi.mocked(searchAll)
 const searchMessagesMock = vi.mocked(searchMessages)
 const searchSessionsMock = vi.mocked(searchSessions)
 const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
+const readSessionFoldersMock = vi.mocked(readSessionFolders)
+const assignSessionFolderMock = vi.mocked(assignSessionFolder)
 
 const workspace: WorkspaceRow = {
   workspaceId: 'w-1' as never,
@@ -573,6 +582,8 @@ describe('SessionListView live session frames', () => {
   /** Minimal mux stand-in: captures the list's frame listener for hand-off. */
   class FakeMux {
     listeners = new Set<(frame: unknown) => void>()
+    /** Sessions waiting on the user (F1 "待确认" filter); tests override. */
+    pendingSnapshot = (): Array<{ sessionId: string; kind: 'approval' | 'question' }> => []
     onFrame(listener: (frame: unknown) => void): () => void {
       this.listeners.add(listener)
       return () => { this.listeners.delete(listener) }
@@ -624,6 +635,45 @@ describe('SessionListView live session frames', () => {
 
     mux.emit({ type: 'session/turn-boundary', source: 'inferred', sessionId: 's-1', running: true })
     expect(screen.getAllByText('进行中')).toHaveLength(1)
+  })
+
+  it('shows host-side folder chips and filters the roster by folder', async () => {
+    readSessionFoldersMock.mockResolvedValueOnce({
+      folders: [{ id: 'f-1', name: '客户', createdAt: 1 }],
+      assignments: { 's-1': 'f-1' },
+    })
+    twoRows()
+    renderList({ mux: new FakeMux() as never })
+    await screen.findByText('会话一')
+
+    const chip = await screen.findByRole('tab', { name: '客户' })
+    fireEvent.click(chip)
+    await waitFor(() => { expect(screen.queryByText('会话二')).toBeNull() })
+    expect(screen.getByText('会话一')).toBeTruthy()
+  })
+
+  it('still shows the three fixed chips when the host has no folder surface', async () => {
+    readSessionFoldersMock.mockRejectedValueOnce(new Error('unavailable'))
+    twoRows()
+    renderList({ mux: new FakeMux() as never })
+    await screen.findByText('会话一')
+
+    expect(screen.getByRole('tab', { name: '全部' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '运行中' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '待确认' })).toBeTruthy()
+    expect(screen.queryByRole('tab', { name: '客户' })).toBeNull()
+  })
+
+  it('filters to only the sessions waiting on the user', async () => {
+    twoRows()
+    const mux = new FakeMux()
+    mux.pendingSnapshot = () => [{ sessionId: 's-1', kind: 'approval' as const }]
+    renderList({ mux: mux as never })
+    await screen.findByText('会话一')
+
+    fireEvent.click(screen.getByRole('tab', { name: '待确认' }))
+    await waitFor(() => { expect(screen.queryByText('会话二')).toBeNull() })
+    expect(screen.getByText('会话一')).toBeTruthy()
   })
 
   it('宿主说没在跑就不亮 —— 哪怕尾页最后一条边界还开着', async () => {

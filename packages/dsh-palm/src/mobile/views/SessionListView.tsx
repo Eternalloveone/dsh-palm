@@ -21,7 +21,7 @@ import type { AgentPresetEntry } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
 import type { MuxClient } from '../mux.ts'
-import { archiveSession, createSession, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, runningSessions } from '../api.ts'
+import { archiveSession, assignSessionFolder, createSession, createSessionFolder, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, removeSessionFolder, renameSession, renameSessionFolder, runningSessions, type SessionFoldersView } from '../api.ts'
 import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
@@ -30,7 +30,7 @@ import { toast } from '../toast.tsx'
 import { ThemeToggle } from '../theme-toggle.tsx'
 import { Sheet } from '../sheet.tsx'
 import { presetHelpIsBuiltin, presetHelpText } from '../agent-preset-help.ts'
-import { ConfirmDialog } from '../dialog.tsx'
+import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
   loadPersistedList,
   loadPersistedScroll,
@@ -269,6 +269,16 @@ export function dayBucketFor(updatedAt: number, now = new Date()): DayBucket {
 }
 
 const DAY_BUCKETS: readonly DayBucket[] = ['今天', '昨天', '更早']
+/**
+ * Fixed filters shown ahead of the host-side folders (F1). "待确认" reads the
+ * mux pending mirror — the same source the run-overview page uses — so it needs
+ * no extra host method.
+ */
+const FIXED_FILTERS = [
+  { id: 'all', label: '全部' },
+  { id: 'running', label: '运行中' },
+  { id: 'pending', label: '待确认' },
+] as const
 
 /** How many sessions get a lazily-fetched last-message preview. */
 export const PREVIEW_FETCH_LIMIT = 12
@@ -597,6 +607,20 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
   const pressConsumedRef = useRef<string | undefined>(undefined)
   /** Pinned session ids (local preference, persisted in localStorage). */
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadPinnedSessions())
+  /**
+   * Host-side grouping (F1). `undefined` means either "not loaded yet" or "the
+   * host predates folders" — both render as "no folder chips", so an old host
+   * simply shows the flat list it always showed.
+   */
+  const [folders, setFolders] = useState<SessionFoldersView | undefined>(undefined)
+  /** Active filter: all | running | pending | a folder id. */
+  const [folderFilter, setFolderFilter] = useState<string>('all')
+  /** The session whose "move to folder" sheet is open. */
+  const [folderSheetFor, setFolderSheetFor] = useState<SessionView | undefined>(undefined)
+  /** The session being renamed (PromptDialog). */
+  const [renamingSession, setRenamingSession] = useState<SessionView | undefined>(undefined)
+  /** "新建分组" PromptDialog. */
+  const [creatingFolder, setCreatingFolder] = useState(false)
   /** The session whose delete action is currently swiped open (at most one). */
   const [openSwipeId, setOpenSwipeId] = useState<string | undefined>(undefined)
   /** Active swipe gesture origin (sessionId + start point). */
@@ -611,6 +635,50 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
       savePinnedSessions(next)
       return next
     })
+  }, [])
+
+  // Host-side grouping (F1), fetched once per mount. A host that predates the
+  // feature answers `unavailable`; the chips then never render and the list
+  // behaves exactly as before.
+  useEffect(() => {
+    let alive = true
+    void readSessionFolders().then(
+      (value) => { if (alive) setFolders(value) },
+      () => { if (alive) setFolders(undefined) },
+    )
+    return () => { alive = false }
+  }, [])
+
+  /** File one session into a folder (null = remove from its folder). */
+  const handleAssignFolder = useCallback((row: SessionView, folderId: string | null): void => {
+    setFolderSheetFor(undefined)
+    void assignSessionFolder(row.sessionId, folderId).then(
+      (value) => { setFolders(value) },
+      (reason: unknown) => { toast(`分组未生效：${errorText(reason)}`) },
+    )
+  }, [])
+
+  /** Rename one session through the host (desktop parity), optimistically. */
+  const handleRenameSession = useCallback((title: string): void => {
+    const target = renamingSession
+    setRenamingSession(undefined)
+    if (target === undefined) return
+    setRows(previous => previous.map(row => (
+      row.sessionId === target.sessionId ? { ...row, title } : row
+    )))
+    void renameSession(target.sessionId, title).then(
+      () => { toast('已重命名') },
+      (reason: unknown) => { toast(`重命名未生效：${errorText(reason)}`) },
+    )
+  }, [renamingSession])
+
+  /** Create a folder from the move sheet. */
+  const handleCreateFolder = useCallback((name: string): void => {
+    setCreatingFolder(false)
+    void createSessionFolder(name).then(
+      (value) => { setFolders(value); toast('已新建分组') },
+      (reason: unknown) => { toast(errorText(reason)) },
+    )
   }, [])
 
   /** Pull previews for the newest page's sessions (bounded, best effort).
@@ -1146,9 +1214,20 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
   const [presetPickerOpen, setPresetPickerOpen] = useState(false)
   const presetDescription = selectedPresetEntry?.description
 
+  // Sessions waiting on this user (approval/question). Read synchronously:
+  // the mux mirror is a small Map, frames already re-render this view, and a
+  // subscription would just duplicate the list's own frame handler.
+  const pendingIds = new Set((mux?.pendingSnapshot?.() ?? []).map(entry => entry.sessionId))
+  const folderOf = folders?.assignments ?? {}
+
   // Date-grouped roster: 置顶 → 今天 → 昨天 → 更早, newest first inside each bucket.
   const groups = useMemo(() => {
-    const visible = rows
+    const visible = rows.filter(row => {
+      if (folderFilter === 'all') return true
+      if (folderFilter === 'running') return row.running === true
+      if (folderFilter === 'pending') return pendingIds.has(row.sessionId)
+      return folderOf[row.sessionId] === folderFilter
+    })
     const pinned = visible.filter(row => pinnedIds.has(row.sessionId))
     const rest = visible.filter(row => !pinnedIds.has(row.sessionId))
     const pinnedGroup = pinned.length > 0 ? [{ bucket: '置顶' as const, rows: pinned }] : []
@@ -1157,7 +1236,7 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
       .filter(group => group.rows.length > 0)
     return [...pinnedGroup, ...dayGroups]
     // previewTick: cached previews arrive async — recompute the filter when they land.
-  }, [rows, previewTick, pinnedIds])
+  }, [rows, previewTick, pinnedIds, folderFilter, folders, pendingIds.size])
 
   return (
     <div className="mobile">
@@ -1233,6 +1312,34 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
         </p>
       )}
       </>
+      {/* F1: fixed filters + host-side folders. An old host has no folders, so
+          only the three fixed chips render and the list is unchanged. */}
+      <div className="sess-filters" role="tablist" aria-label="会话筛选">
+        {FIXED_FILTERS.map(entry => (
+          <button
+            key={entry.id}
+            type="button"
+            role="tab"
+            aria-selected={folderFilter === entry.id}
+            className={`sess-chip${folderFilter === entry.id ? ' sess-chip-on' : ''}`}
+            onClick={() => { setFolderFilter(entry.id) }}
+          >
+            {entry.label}
+          </button>
+        ))}
+        {(folders?.folders ?? []).map(folder => (
+          <button
+            key={folder.id}
+            type="button"
+            role="tab"
+            aria-selected={folderFilter === folder.id}
+            className={`sess-chip${folderFilter === folder.id ? ' sess-chip-on' : ''}`}
+            onClick={() => { setFolderFilter(folder.id) }}
+          >
+            {folder.name}
+          </button>
+        ))}
+      </div>
       <ul className="mobile-list">
         {loading && rows.length === 0 && (
           <div aria-hidden="true" role="presentation">
@@ -1425,6 +1532,26 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
               type="button"
               role="menuitem"
               className="sheet-option"
+              onClick={() => { setMenuSession(undefined); setRenamingSession(menuSession) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">重命名</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setMenuSession(undefined); setFolderSheetFor(menuSession) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">移到分组…</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
               onClick={() => { setMenuSession(undefined); setDeleting(menuSession) }}
             >
               <span className="sheet-option-copy">
@@ -1442,6 +1569,64 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
           tone="danger"
           onCancel={() => { setDeleting(undefined) }}
           onConfirm={() => { handleDeleteSession(deleting) }}
+        />
+      )}
+      {folderSheetFor !== undefined && (
+        <Sheet title="移到分组" onClose={() => { setFolderSheetFor(undefined) }}>
+          <div role="menu" aria-label="选择分组">
+            <div className="sheet-option-divider" aria-hidden />
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { handleAssignFolder(folderSheetFor, null) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">移出分组</span>
+              </span>
+            </button>
+            {(folders?.folders ?? []).map(folder => (
+              <button
+                key={folder.id}
+                type="button"
+                role="menuitem"
+                className="sheet-option"
+                onClick={() => { handleAssignFolder(folderSheetFor, folder.id) }}
+              >
+                <span className="sheet-option-copy">
+                  <span className="sheet-option-title">{folder.name}</span>
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setFolderSheetFor(undefined); setCreatingFolder(true) }}
+            >
+              <span className="sheet-option-copy">
+                <span className="sheet-option-title">新建分组…</span>
+              </span>
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {renamingSession !== undefined && (
+        <PromptDialog
+          title="重命名会话"
+          initial={renamingSession.title}
+          confirmLabel="保存"
+          onCancel={() => { setRenamingSession(undefined) }}
+          onConfirm={handleRenameSession}
+        />
+      )}
+      {creatingFolder && (
+        <PromptDialog
+          title="新建分组"
+          initial=""
+          confirmLabel="创建"
+          onCancel={() => { setCreatingFolder(false) }}
+          onConfirm={handleCreateFolder}
         />
       )}
     </div>
