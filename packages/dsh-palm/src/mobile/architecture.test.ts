@@ -43,11 +43,9 @@ const rel = (file: string): string => relative(HERE, file).replace(/\\/g, '/')
 
 /**
  * Views allowed to import App.tsx right now (S1 baseline).
- * This list may only ever get shorter; S5 empties it.
+ * S5 emptied it: no view may import the router shell any more.
  */
-const APP_IMPORTER_WHITELIST = new Set([
-  'views/ChatView.tsx',
-])
+const APP_IMPORTER_WHITELIST = new Set<string>([])
 
 describe('architecture guardrails', () => {
   it('views do not add new App.tsx imports (whitelist may only shrink)', () => {
@@ -67,7 +65,7 @@ describe('architecture guardrails', () => {
       'views/ChatView.tsx': 7_318,
       'views/SettingsView.tsx': 2_080,
       'views/SessionListView.tsx': 1_645,
-      'views/App.tsx': 1_380,
+      'views/App.tsx': 1_121,
       'views/WorkspaceView.tsx': 1_300,
     }
     for (const [file, budget] of Object.entries(budgets)) {
@@ -96,14 +94,14 @@ describe('architecture guardrails', () => {
     const script = join(REPO_ROOT, 'tools', 'dep-cycles.mjs')
     const output = execFileSync(process.execPath, [script, '--json'], { cwd: REPO_ROOT, encoding: 'utf8' })
     const cycles = (JSON.parse(output) as { cycles: string[][] }).cycles
-    // Baseline (2026-11-06): one known pair, plus the App↔views tangle that S5
-    // removes. A third, unrelated cycle fails the gate.
-    expect(cycles.length, `unexpected cycles: ${JSON.stringify(cycles)}`).toBeLessThanOrEqual(2)
+    // Baseline (2026-11-06, S5 之后): 只剩一条与视图无关的已知环
+    // （api-proxy-types ↔ shared/mux-frames）。App↔视图那条已在 S5 拆掉；
+    // 再多一条就是新债，直接失败。
+    expect(cycles.length, `unexpected cycles: ${JSON.stringify(cycles)}`).toBeLessThanOrEqual(1)
     const knownPair = ['api-proxy-types.ts', 'shared/mux-frames.ts']
     for (const cycle of cycles) {
       const isKnownPair = cycle.length === 2 && knownPair.every(name => cycle.includes(name))
-      const isAppTangle = cycle.some(part => part.endsWith('views/App.tsx'))
-      expect(isKnownPair || isAppTangle, `new cycle: ${cycle.join(' -> ')}`).toBe(true)
+      expect(isKnownPair, `new cycle: ${cycle.join(' -> ')}`).toBe(true)
     }
   })
 })

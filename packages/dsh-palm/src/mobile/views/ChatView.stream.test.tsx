@@ -13,7 +13,7 @@ import { ChatView } from './ChatView.tsx'
 import { resetSessionStoreForTest } from '../session-store.ts'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
 import { type SessionView } from '../shared/session-view.ts'
-import { type ChatPageResult } from './App.tsx'
+import { type ChatPageResult } from '../data/chat-page.ts'
 import { escapeHtml, parseSegments, renderMarkdown, safeUrl } from '../markdown.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { WireEvent } from '../messages.ts'
@@ -41,8 +41,14 @@ vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
   return {
     ...actual,
+  }
+})
+// S5c：聊天页读取已搬到 data/chat-page.ts，桩要打在它身上。
+vi.mock('../data/chat-page.ts', async importOriginal => {
+  const actual = await importOriginal<typeof import('../data/chat-page.ts')>()
+  return {
+    ...actual,
     loadChatPage: vi.fn(),
-    prompt: vi.fn(async () => {}),
   }
 })
 // Wrap the real parser with a call counter: pending streams must perform
@@ -52,7 +58,7 @@ vi.mock('../markdown.ts', async importOriginal => {
   return { ...actual, parseSegments: vi.fn(actual.parseSegments) }
 })
 import { fetchMobilePreferences, models, respondQuestion } from '../api.ts'
-import { loadChatPage } from './App.tsx'
+import { loadChatPage } from '../data/chat-page.ts'
 
 const loadChatPageMock = vi.mocked(loadChatPage)
 const fetchMobilePreferencesMock = vi.mocked(fetchMobilePreferences)

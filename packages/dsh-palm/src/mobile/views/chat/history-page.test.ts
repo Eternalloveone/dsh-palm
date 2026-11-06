@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { adoptOlderPage, prepareOlderPage } from './history-page.ts'
 import type { EventFolder, RenderMessage } from '../../messages.ts'
-import type { ChatPageResult } from '../App.tsx'
+import type { ChatPageResult } from '../../data/chat-page.ts'
 
 function row(id: string, seq: number, extra: Partial<RenderMessage> = {}): RenderMessage {
   return { id, role: 'assistant', text: id, seq, ...extra } as RenderMessage

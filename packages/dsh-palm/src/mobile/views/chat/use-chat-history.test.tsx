@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 import { render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ChatPageResult } from '../App.tsx'
+import type { ChatPageResult } from '../../data/chat-page.ts'
 import type { RenderMessage } from '../../messages.ts'
 import { OPEN_HISTORY_TARGET_ROWS, useChatHistory, type ChatHistoryHandle } from './use-chat-history.ts'
 import type { ChatScrollHandle } from './use-chat-scroll.ts'
 
-vi.mock('../App.tsx', () => ({
+vi.mock('../../data/chat-page.ts', () => ({
   loadChatPage: vi.fn(),
 }))
 
-import { loadChatPage } from '../App.tsx'
+import { loadChatPage } from '../../data/chat-page.ts'
 
 const loadChatPageMock = vi.mocked(loadChatPage)
 

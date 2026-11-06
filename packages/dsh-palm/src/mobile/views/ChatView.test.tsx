@@ -11,7 +11,7 @@ import { resetToastsForTest, ToastHost } from '../toast.tsx'
 import { sessionState } from '../api.ts'
 import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
 import { type SessionView } from '../shared/session-view.ts'
-import { type ChatPageResult } from './App.tsx'
+import { type ChatPageResult } from '../data/chat-page.ts'
 import type { HistoryPage, SessionPage } from '../api.ts'
 import { EventFolder, foldEvents, latestTodoSnapshot } from '../messages.ts'
 import type { RenderMessage, WireEvent } from '../messages.ts'
@@ -28,6 +28,7 @@ import { clearLocateIntent, rememberLocateIntent } from '../locate-intent.ts'
 // feed fixed folded pages, its pure helpers (errorText / formatTime) stay real.
 vi.mock('../api.ts', () => ({
   newRequestId: () => 'test-request-id',
+  prompt: vi.fn(async () => {}),
   fetchMobilePreferences: vi.fn(),
   models: vi.fn(),
   selectModel: vi.fn(),
@@ -90,8 +91,14 @@ vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
   return {
     ...actual,
+  }
+})
+// S5c：聊天页读取已搬到 data/chat-page.ts，桩要打在它身上。
+vi.mock('../data/chat-page.ts', async importOriginal => {
+  const actual = await importOriginal<typeof import('../data/chat-page.ts')>()
+  return {
+    ...actual,
     loadChatPage: vi.fn(),
-    prompt: vi.fn(async () => {}),
   }
 })
 vi.mock('../voice-input.ts', () => ({
@@ -115,7 +122,8 @@ vi.mock('../offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
 import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, respondApproval, respondQuestion, listSessions, history, logTail, readChat, runningSessions, turnState, subagentsList, searchSessions, updateQueue as updateQueueMock } from '../api.ts'
-import { loadChatPage, prompt } from './App.tsx'
+import { loadChatPage } from '../data/chat-page.ts'
+import { prompt } from '../api.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
 import { transcribeVoice } from '../api.ts'
 import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'

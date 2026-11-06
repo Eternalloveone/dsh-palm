@@ -21,8 +21,7 @@
  */
 
 import { useCallback, useLayoutEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
-import type { ChatPageResult } from '../App.tsx'
-import { loadChatPage } from '../App.tsx'
+import { loadChatPage, type ChatPageResult } from '../../data/chat-page.ts'
 import type { RenderMessage } from '../../messages.ts'
 import { recallChatSnapshot } from '../../chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../scroll-machine.ts'

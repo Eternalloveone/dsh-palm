@@ -8,6 +8,8 @@ import { type SessionView } from '../shared/session-view.ts'
 
 vi.mock('../api.ts', () => ({
   newRequestId: () => 'test-request-id',
+  // S5c：prompt 改从 api.ts 直接取（以前经 App.tsx re-export），桩要留在这里。
+  prompt: vi.fn(async () => {}),
   // 打开会话时会向宿主要一次排队快照（投影帧到不了手机）。
   inboxOf: vi.fn(async () => ({ inbox: null })),
   // 原子快照（行 + 队列 + 回合）：默认没有任何在跑的回合与排队项，用例自己改。
@@ -28,8 +30,14 @@ vi.mock('./App.tsx', async importOriginal => {
   const actual = await importOriginal<typeof import('./App.tsx')>()
   return {
     ...actual,
+  }
+})
+// S5c：聊天页读取已搬到 data/chat-page.ts，桩要打在它身上。
+vi.mock('../data/chat-page.ts', async importOriginal => {
+  const actual = await importOriginal<typeof import('../data/chat-page.ts')>()
+  return {
+    ...actual,
     loadChatPage: vi.fn(),
-    prompt: vi.fn(async () => {}),
   }
 })
 // Keep the pure builders real; only the DOM-touching pieces are mocked.
@@ -46,7 +54,8 @@ vi.mock('../image.ts', async importOriginal => {
 vi.mock('../toast.tsx', () => ({ toast: vi.fn() }))
 
 import { fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
-import { loadChatPage, prompt } from './App.tsx'
+import { loadChatPage } from '../data/chat-page.ts'
+import { prompt } from '../api.ts'
 import { imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage } from '../image.ts'
 import { buildPromptParts, compressImageFile } from '../image.ts'
 import { toast } from '../toast.tsx'

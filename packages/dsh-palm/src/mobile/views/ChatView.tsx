@@ -15,7 +15,7 @@
 
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
-import { loadChatPage, prompt, type ChatPageResult } from './App.tsx'
+import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
 import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
@@ -37,7 +37,7 @@ import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, 
 import { reportDuplicateCards } from '../duplicate-report.ts'
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
-import { reportError } from '../api.ts'
+import { prompt, reportError } from '../api.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
 import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'

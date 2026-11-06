@@ -42,7 +42,8 @@ vi.mock('./SessionListView.tsx', () => ({ SessionListView: () => <div>sessions-r
 vi.mock('./ChatView.tsx', () => ({ ChatView: () => <div>chat-ready</div> }))
 vi.mock('./SettingsView.tsx', () => ({ SettingsView: () => <div>settings-ready</div> }))
 
-import { App, backTargetOf, createLazyView, loadChatPage, mobilePairStateForError } from './App.tsx'
+import { App, backTargetOf, createLazyView, mobilePairStateForError } from './App.tsx'
+import { loadChatPage } from '../data/chat-page.ts'
 
 afterEach(() => {
   cleanup()
@@ -191,7 +192,7 @@ describe('loadChatPage (v3 folded reads + fallback)', () => {
       projections: { asOfSeq: 7, values: {} },
     }
     api.readChat.mockResolvedValue(page)
-    const { loadChatPage } = await import('./App.tsx')
+    // S5c：loadChatPage 已搬到 data/chat-page.ts，直接用文件顶部的 import
     const result = await loadChatPage('s-1', undefined, new AbortController().signal)
     expect(result).toEqual(page)
     expect(api.readChat).toHaveBeenCalledWith('s-1', undefined, undefined, expect.any(AbortSignal), undefined)
@@ -206,7 +207,7 @@ describe('loadChatPage (v3 folded reads + fallback)', () => {
       extras: { models: { current: { provider: 'fx', model: 'fx-1' }, groups: [] } },
     }
     api.readChat.mockResolvedValue(page)
-    const { loadChatPage } = await import('./App.tsx')
+    // S5c：loadChatPage 已搬到 data/chat-page.ts，直接用文件顶部的 import
     const result = await loadChatPage('s-1', undefined, new AbortController().signal, ['models'])
     expect(api.readChat).toHaveBeenCalledWith('s-1', undefined, undefined, expect.any(AbortSignal), ['models'])
     expect(result.extras).toEqual(page.extras)
@@ -226,7 +227,7 @@ describe('loadChatPage (v3 folded reads + fallback)', () => {
       ],
       hasMore: false,
     })
-    const { loadChatPage } = await import('./App.tsx')
+    // S5c：loadChatPage 已搬到 data/chat-page.ts，直接用文件顶部的 import
     const result = await loadChatPage('s-1')
     // The two paths converge: folded rows + the event watermark.
     expect(result.rows.map(row => row.text)).toEqual(['改一下', '已完成'])
@@ -238,7 +239,7 @@ describe('loadChatPage (v3 folded reads + fallback)', () => {
   it('propagates a fallback-path failure (readChat down AND history down)', async () => {
     api.readChat.mockRejectedValue(new RpcTransportError('HTTP 403'))
     api.history.mockRejectedValue(new RpcTransportError('transport failed: network'))
-    const { loadChatPage } = await import('./App.tsx')
+    // S5c：loadChatPage 已搬到 data/chat-page.ts，直接用文件顶部的 import
     await expect(loadChatPage('s-1')).rejects.toThrow('network')
   })
 })

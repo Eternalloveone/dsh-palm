@@ -16,7 +16,7 @@
  * @module dsh-palm/mobile/views/chat/history-page
  */
 
-import type { ChatPageResult } from '../App.tsx'
+import type { ChatPageResult } from '../../data/chat-page.ts'
 import {
   mergeTurnReports,
   missingTurnReports,
