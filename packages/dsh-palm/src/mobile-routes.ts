@@ -109,15 +109,20 @@ function offlineHtml(): string {
  * control cookie (paired device), so the CSP is the last line of defense
  * behind the renderer: even if a future rendering bug turns agent markdown
  * into script, the browser refuses it. Inline styles stay allowed (the
- * bundle injects one static <style>); images may come from anywhere the
- * markdown renderer allows (data:/blob: for pasted/compressed images,
- * https:/http: for model-referenced URLs); everything else is same-origin.
+ * bundle injects one static <style>); images may come from `https:` (model-
+ * referenced URLs) plus data:/blob: for pasted/compressed images; everything
+ * else is same-origin.
+ *
+ * 2026-11-07：`img-src` 去掉明文 `http:`。理由：公网入口是 https，混合内容本来就由浏览器
+ * 拦着，留着 `http:` 只是给"中间人注入一张明文图"留口子；正文里的外链图基本都在 https 上。
+ * **已知代价**：本地 `http://127.0.0.1:3080` 调试时，正文里若有人贴 `http://` 图片会显示不出来
+ * —— 真遇到就给那个域名单独加白名单，不要整体退回 `http:`。
  */
 const MOBILE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https: http:",
+  "img-src 'self' data: blob: https:",
   "connect-src 'self'",
   "font-src 'self' data:",
   "worker-src 'self'",
