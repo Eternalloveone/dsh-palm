@@ -43,6 +43,7 @@ import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
 import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
 import { useChatSession } from './chat/use-chat-session.ts'
+import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
@@ -795,45 +796,18 @@ export function ChatView({
     },
     getFirstRow: () => folderRef.current?.snapshot()[0] ?? messages[0],
     loadedRowCount: () => folderRef.current?.snapshot().length ?? messages.length,
-    preparePage: async (page) => {
-      let older = renderRows(page.rows, false)
-      // 无感加载历史卡：一页里已经收工、turn/end 落在下一页的轮次，一次读齐再提交。
-      const lackingTurns = missingTurnReports(older).slice(-3)
-      if (lackingTurns.length > 0) {
-        try {
-          const cards = await loadTurnReportRows(session.sessionId, lackingTurns)
-          if (cards.length > 0) {
-            // 记住：下次进这一场，卡就能和正文同一次提交落地，不再"长出来"。
-            rememberTurnReports(session.sessionId, cards)
-            older = renderRows(mergeTurnReports(older, cards), false)
-            for (const turn of lackingTurns) cardRecoveryRef.current.confirmed.add(turn)
-          }
-        } catch {
-          // 读不到就当没有卡：历史翻页不能被一次失败拦住。
-        }
-      }
-      rememberRawPage(page.rows)
-      return older
-    },
-    adoptPage: (older, page, ctx) => {
-      const folder = folderRef.current
-      // 跳转取页（maxRows 有值）取到的可能是和当前窗口不接壤的一段历史：直接
-      // prepend 会把两段拼在一起，中间永久缺一段。这种情况改用这一页重新开窗。
-      const pageMinSeq = older.reduce((min, row) => Math.min(min, row.startSeq ?? row.seq), Number.POSITIVE_INFINITY)
-      const windowMinSeq = ctx.first.startSeq ?? ctx.first.seq
-      const reseed = folder !== undefined && ctx.maxRows !== undefined && older.length > 0 && pageMinSeq >= windowMinSeq
-      if (folder === undefined) {
-        commitRows(previous => [...older, ...previous], { allowGuessedTails: false })
-      } else if (reseed) {
-        const pageMaxSeq = older.reduce((max, row) => Math.max(max, row.seq), Number.NEGATIVE_INFINITY)
-        const keep = folder.snapshot().filter(row => (row.startSeq ?? row.seq) > pageMaxSeq)
-        folder.seed([...older, ...keep])
-        applyMessages(folder.snapshot())
-      } else {
-        folder.prepend(older)
-        applyMessages(folder.snapshot())
-      }
-    },
+    preparePage: (page) => prepareOlderPage(page, {
+      sessionId: session.sessionId,
+      rememberRawPage,
+      cardRecovery: cardRecoveryRef.current,
+      loadCards: loadTurnReportRows,
+      rememberCards: rememberTurnReports,
+    }),
+    adoptPage: (older, _page, ctx) => adoptOlderPage(older, ctx, {
+      folder: folderRef.current,
+      commitRows,
+      applyRows: applyMessages,
+    }),
     onLoading: (loading) => { setLoading(loading) },
     onError: (reason) => { setError(errorText(reason)) },
   })
