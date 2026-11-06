@@ -62,6 +62,7 @@ import { ComposerSection } from './chat/composer-section.tsx'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { dispatchFrame, parseContextPressure, type ContextPressureData, type FrameContext } from './chat/frame-effects.ts'
 import { textParts, useChatComposer, type SendIntent } from './chat/use-chat-composer.ts'
+import { ChatRows } from './chat/chat-rows.tsx'
 
 /** 兼容导出：这个常量原来定义在本文件（测试与调用点从 ChatView 取）。 */
 export { SEND_IN_FLIGHT_TIMEOUT_MS } from './chat/use-chat-composer.ts'
@@ -4953,118 +4954,36 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           cancelLongPress()
         }}
       >
-        {hasOlder && (
-          <button type="button" className="chat-load-older" disabled={loading} onClick={() => { void loadOlder() }}>
-            {loading ? '加载中…' : '加载更早的消息'}
-          </button>
-        )}
-        {/* 渲染前再按 id 兜一次：同一行只许出现一次（真机实测重新进入正在跑的会话时
-            每一行都会画两遍）。这层是"最后一道保险"，不依赖上游行是怎么凑出来的。 */}
-        {dedupeById(messages).map((message, index) => {
-          const rowKey = messageKey(message)
-          // 只在「正在流式落地」的行上播入场动画：历史行不播。
-          //
-          // 原来动画无条件挂在每一行上，而打开会话是"先粗后细"两轮提交（第一轮的行还
-          // 没有 turn/step → key 退化成 id，折完之后 key 变成 turn.step 组合键），
-          // React 把整屏行卸了重挂（实测 113/114 行 remount）→ 动画整屏重播一遍，
-          // 肉眼就是「一打开会话正文闪一下」（2026-10-30 真机）。
-          const animateIn = message.pending === true
-          // 行全渲染：不可见行交给 content-visibility（浏览器自己记住布局过的
-          // 真实高度，不是我们估的数）。尾部 CONTENT_VISIBILITY_KEEP_BOTTOM 行
-          // 保持真实布局，贴底时 el.scrollHeight 才是精确值。
-          // 正在跑的那一轮：**纯交付卡**先不显示（turn/end 之后才算收工，
-          // 否则会话还在跑、屏幕上先冒出一张"本轮产出"）。但带过程信息的那一行
-          // 必须照常渲染 —— 它就是"深度求索中 / 用时 / 思考中"这条过程条，
-          // 一律藏掉的话会表现为"过程条消失，只剩时间"（2026-10-31 真机）。
-          // 在跑的时候，**本轮**的交付卡一律不显示。
-          //
-          // 判据不再依赖"知道哪一轮在跑"（liveTurn 有时是 undefined：手机没收到
-          // 注册/帧），而是看**位置**：最后一条用户消息之后出现的轮次 = 本轮。
-          // 这一轮只要还在跑（底部"输出中"），它的"本轮产出"就不该出现 —— 收工
-          // 之后自然就有了。
-          //
-          // 之前只藏"不带过程信息的卡"，于是带过程的卡照样把"本轮产出"显示出来
-          // （真机 2026-10-31）。现在一律藏；过程条由下面的粘性快照保证不丢。
-          // 在跑的时候，本轮交付卡一律不显示。
-          // 优先用"最后一条用户消息之后的轮次"（位置判据）；拿不到时（实时帧丢了、
-          // 刚重连、这一轮还没产生任何行）退回"票号最大的一轮"——**保守优先**：
-          // 宁可先把最新那张卡藏起来，也不要在跑着的时候冒出交付卡（真机多次反馈）。
-          //
-          // **最终判据（2026-10-31 根治）**：交付卡必须带"已收工"证据。
-          //   · 这一轮亲眼收工（宿主说停 / 收到 turn/end）→ 画；
-          //   · 比最新一轮更早的轮次（后面又开了新一轮）→ 等价于已收工 → 画；
-          //   · 其余（还在跑、或不知道）→ 不画。
-          // 不再取决于"是否知道哪一轮在跑"，也不再有"保守藏起来"这种猜测。
-          // **正在跑的那一轮，永远不画交付卡**（真机 2026-11-01 又复现："会话还没结束
-          // 就冒出交付结果卡"）。原因是我给"露过面就记为已收工"开的后门：
-          // 流式中间只要有一帧"没在跑"（重连、快照空格、被别处的停/起带一下），
-          // 这一轮就被记成已收工；之后 running 再变回 true，它就成了"有证据"的卡。
-          // 所以再加一条硬约束：**票号等于本轮（最后一条用户消息之后的最大轮次）时，
-          // 无论证据如何都不画** —— 证据只能放行"更早的轮次"。
-          // 只认**位置判据**（最后一条用户消息之后的轮次）：这一轮还没产出任何行时
-          // activeTurn 是 undefined，此时所有卡都属于更早的轮次 —— 必须照常显示，
-          // 否则又会退回到"发新消息把上一轮卡片弄没"的老毛病。
-          const isActiveTurn = message.turn !== undefined
-            && activeTurn !== undefined
-            && message.turn === activeTurn
-          const cardHasEvidence = message.turn !== undefined && !isActiveTurn && (
-            hasClosedTurn(message.turn)
-            || (newestCardTurn !== undefined && message.turn < newestCardTurn)
-          )
-          if (message.kind === 'turn' && running && !cardHasEvidence) {
-            return null
-          }
-          const cv = index < messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
-            ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${estimateMessageHeight(message)}px` }
-            : undefined
-          return (
-              <MessageRow
-                key={rowKey}
-                enter={animateIn}
-                message={rowOfInterrupted(message)}
-                sessionId={session.sessionId}
-                showToolCalls={showToolCalls}
-                showSystemMessages={showSystemMessages}
-                clockOffsetMs={hostClockOffsetRef.current}
-                liveTurnStartAt={clockAnchor ?? undefined}
-                liveTurn={liveTurn}
-      settled={settledOf(message)}
-      liveClockTick={isRowRunning(rowOfInterrupted(message), liveTurn, settledOf(message)) ? liveClockTick : undefined}
-                showTime={timeFlags[index] === true}
-                focused={message.id === focusMsgId}
-                focusedQuery={message.id === focusMsgId && chatHitQuery !== '' ? chatHitQuery : effectiveFocusQuery}
-          focusExpand={message.id === focusMsgId && chatHitQuery !== ''}
-                style={cv}
-                onOpenFile={(path) => { setPreviewPath(path) }}
-                onRegenerate={regenerateFor(message)}
-                regenerateState={regenerateState}
-              />
-            )
-          })}
-        {stickyProcRow !== undefined && (
-          <MessageRow
-            key={stickyProcRow.id}
-            enter={false}
-            message={stickyProcRow}
-            sessionId={session.sessionId}
-            showToolCalls={showToolCalls}
-            showSystemMessages={showSystemMessages}
-            clockOffsetMs={hostClockOffsetRef.current}
-            liveTurnStartAt={clockAnchor ?? undefined}
-            liveTurn={liveTurn}
-            settled={false}
-            liveClockTick={liveClockTick}
-            showTime={false}
-            focused={false}
-            focusedQuery={''}
-            style={undefined}
-            onOpenFile={(path) => { setPreviewPath(path) }}
-            onRegenerate={() => undefined}
-            regenerateState={regenerateState}
-          />
-        )}
-        {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
-        {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
+        <ChatRows
+          messages={messages}
+          sessionId={session.sessionId}
+          showToolCalls={showToolCalls}
+          showSystemMessages={showSystemMessages}
+          clockOffsetMs={hostClockOffsetRef.current}
+          clockAnchor={clockAnchor ?? undefined}
+          liveTurn={liveTurn}
+          liveClockTick={liveClockTick}
+          settledOf={settledOf}
+          isRowRunning={(row) => isRowRunning(row, liveTurn, settledOf(row))}
+          timeFlags={timeFlags}
+          running={running}
+          activeTurn={activeTurn}
+          newestCardTurn={newestCardTurn}
+          hasClosedTurn={hasClosedTurn}
+          rowOfInterrupted={rowOfInterrupted}
+          rowKeyOf={messageKey}
+          estimateHeight={estimateMessageHeight}
+          focusMsgId={focusMsgId}
+          chatHitQuery={chatHitQuery}
+          effectiveFocusQuery={effectiveFocusQuery}
+          regenerateFor={regenerateFor}
+          regenerateState={regenerateState}
+          stickyProcRow={stickyProcRow}
+          hasOlder={hasOlder}
+          loading={loading}
+          loadOlder={loadOlder}
+          onOpenFile={(path) => { setPreviewPath(path) }}
+        />
         <TurnStatusLine running={running} hostLost={hostLost} />
         <ChatAttentionPanels
           sessionId={session.sessionId}
