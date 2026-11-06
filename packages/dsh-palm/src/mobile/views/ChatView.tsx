@@ -46,6 +46,7 @@ import { useChatSession } from './chat/use-chat-session.ts'
 import { useChatAttachments } from './chat/use-chat-attachments.ts'
 import { useChatVoice } from './chat/use-chat-voice.ts'
 import { VoiceSheet } from './chat/voice-sheet.tsx'
+import { MessageMenu, type MessageCtxMenuState } from './chat/message-menu.tsx'
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
@@ -1572,21 +1573,7 @@ export function ChatView({
    *  turns carry their payload in flow runs, invisible in `text`). */
   /** 菜单打开的时刻：长按抬手后浏览器还会补一次 click，它会打在背板上把菜单立刻关掉。 */
   const ctxMenuOpenedAtRef = useRef(0)
-  const [ctxMenu, setCtxMenu] = useState<{
-    x: number
-    y: number
-    text: string
-    raw?: string
-    /** Message kind drives the message-specific actions (edit for user). */
-    kind?: RenderMessage['kind']
-    messageId?: string
-    /** 长按落在过程行上：这一行的标题/摘要/状态与命令原文，行级操作用。 */
-    row?: { title: string; summary: string; state: string; command?: string }
-    /** 被长按的元素："选择文字"用它决定在哪一块上建选区。 */
-    target?: Element
-    /** 当前选区里有字（有选区时菜单只留"复制选中内容"）。 */
-    selected?: string
-  } | undefined>(undefined)
+  const [ctxMenu, setCtxMenu] = useState<MessageCtxMenuState | undefined>(undefined)
   /** The user message being edited-and-resent (回填后重发为新 prompt). */
   const [editMessage, setEditMessage] = useState<{ messageId: string; text: string } | undefined>(undefined)
   /** 自动滚动偏好（设置 → 自动滚动）。订阅而不是只在挂载时读一次：在设置里
@@ -6845,150 +6832,22 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         onClose={closeVoice}
         onFinish={finishVoice}
       />
-      {ctxMenu !== undefined && (
-        <>
-          <div
-            className="ctx-backdrop"
-            onClick={() => {
-              // 长按抬手后浏览器会补一次 click：它打在背板上，会把刚打开的菜单
-              // 立刻关掉（真机/模拟器都复现）。刚打开的这一小段窗口内忽略。
-              if (Date.now() - ctxMenuOpenedAtRef.current < 400) return
-              setCtxMenu(undefined)
-            }}
-            onContextMenu={(event) => { event.preventDefault(); setCtxMenu(undefined) }}
-          />
-          <div
-            className="ctx-menu"
-            role="menu"
-            aria-label="消息操作"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
-          >
-            {ctxMenu.row !== undefined && (
-              <div className="ctx-head" role="presentation">
-                <span className="ctx-head-text">
-                  {ctxMenu.row.title}
-                  {ctxMenu.row.summary === '' ? '' : ' · ' + ctxMenu.row.summary}
-                </span>
-                {ctxMenu.row.state !== '' && <span className="ctx-head-state">{ctxMenu.row.state}</span>}
-              </div>
-            )}
-            {ctxMenu.row !== undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => {
-                  const { row } = ctxMenu
-                  setCtxMenu(undefined)
-                  if (row !== undefined) void copyText((row.title + (row.summary === '' ? '' : ' · ' + row.summary)).trim(), '已复制这一行')
-                }}
-              >
-                复制这一行
-              </button>
-            )}
-            {ctxMenu.row?.command !== undefined && ctxMenu.row.command !== '' && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => {
-                  const { row } = ctxMenu
-                  setCtxMenu(undefined)
-                  if (row?.command !== undefined) void copyText(row.command, '已复制命令')
-                }}
-              >
-                复制命令
-              </button>
-            )}
-            {ctxMenu.kind === 'user' && ctxMenu.messageId !== undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => {
-                  const { text, messageId } = ctxMenu
-                  setCtxMenu(undefined)
-                  if (messageId !== undefined) setEditMessage({ messageId, text })
-                }}
-              >
-                编辑并重新发送
-              </button>
-            )}
-            {ctxMenu.raw !== undefined && ctxMenu.row === undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => { const { raw } = ctxMenu; setCtxMenu(undefined); void copyText(raw ?? '', '已复制原文') }}
-              >
-                复制原文
-              </button>
-            )}
-            <button
-              type="button"
-              role="menuitem"
-              className="ctx-item"
-              onClick={() => { const { text } = ctxMenu; setCtxMenu(undefined); void copyText(text) }}
-            >
-              {ctxMenu.row === undefined ? '复制' : '复制整条回复'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="ctx-item"
-              onClick={() => { const { text } = ctxMenu; setCtxMenu(undefined); quoteIntoComposer(text) }}
-            >
-              引用
-            </button>
-            {ctxMenu.row === undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => { const { raw, text } = ctxMenu; setCtxMenu(undefined); void shareText(raw ?? text) }}
-              >
-                分享
-              </button>
-            )}
-            {(() => {
-              const canSelect = ctxMenu.target !== undefined
-              if (!canSelect) return null
-              return (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="ctx-item"
-                  onClick={() => {
-                    const { target } = ctxMenu
-                    setCtxMenu(undefined)
-                    // 建好选区后浏览器会抬起手柄，系统"复制"菜单随之可用。
-                    selectTextBlock(target)
-                  }}
-                >
-                  选择文字
-                </button>
-              )
-            })()}
-            <button
-              type="button"
-              role="menuitem"
-              className="ctx-item ctx-item-cancel"
-              onClick={() => { setCtxMenu(undefined) }}
-            >
-              取消
-            </button>
-          </div>
-        </>
-      )}
-      {editMessage !== undefined && (
-        <PromptDialog
-          title="编辑并重新发送"
-          initial={editMessage.text}
-          confirmLabel="发送"
-          onCancel={() => { setEditMessage(undefined) }}
-          onConfirm={(value) => { sendEditedMessage(editMessage.messageId, value) }}
-        />
-      )}
+      <MessageMenu
+        menu={ctxMenu}
+        openedAtRef={ctxMenuOpenedAtRef}
+        onClose={() => { setCtxMenu(undefined) }}
+        onCopy={(text, message) => { void copyText(text, message) }}
+        onShare={(text) => { void shareText(text) }}
+        onQuote={quoteIntoComposer}
+        onSelectText={selectTextBlock}
+        onEdit={setEditMessage}
+        edit={editMessage}
+        onCancelEdit={() => { setEditMessage(undefined) }}
+        onConfirmEdit={(value) => {
+          const target = editMessage
+          if (target !== undefined) sendEditedMessage(target.messageId, value)
+        }}
+      />
     </div>
   )
 }
