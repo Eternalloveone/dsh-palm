@@ -110,6 +110,12 @@ vi.mock('../voice-input.ts', () => ({
 vi.mock('../history-cache.ts', () => ({
   loadCachedHistory: vi.fn(async () => undefined),
   saveCachedHistory: vi.fn(async () => {}),
+  // 与真实现同口径的守卫（真实现看 rows 是数组 + maxSeq 是数字 + 每行是对象）。
+  // 少了这个导出，ChatView 的 import 会解析成 undefined，读端一调就抛，整份用例全红。
+  isUsableCachedPage: (page: unknown): boolean =>
+    typeof page === 'object' && page !== null
+    && Array.isArray((page as { rows?: unknown }).rows)
+    && typeof (page as { maxSeq?: unknown }).maxSeq === 'number',
 }))
 vi.mock('../offline.ts', () => ({
   enqueuePrompt: vi.fn(),
