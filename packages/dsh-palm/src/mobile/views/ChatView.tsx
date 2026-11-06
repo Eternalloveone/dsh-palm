@@ -51,6 +51,7 @@ import { ChatTools } from './chat/chat-tools.tsx'
 import { SessionSheets } from './chat/session-sheets.tsx'
 import { OfflineBanner } from './chat/offline-banner.tsx'
 import { ChatHeader, ChatSearchBar } from './chat/chat-header.tsx'
+import { ChatAttentionPanels } from './chat/chat-attention-panels.tsx'
 import { JumpControls, TurnStatusLine } from './chat/scroll-controls.tsx'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
@@ -6139,29 +6140,21 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
         {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
         <TurnStatusLine running={running} hostLost={hostLost} />
-        {pendingApprovals.map(approval => (
-          <ApprovalPanel
-            key={approval.approvalId}
-            approval={approval}
-            preview={approvalPreviewOf(approval)}
-            argsText={approvalArgsOf(approval)}
-            sessionId={session.sessionId}
-            onResolved={(id) => {
-              noteAnsweredApproval(session.sessionId, id)
-              setPendingApprovals(prev => prev.filter(a => a.approvalId !== id))
-            }}
-          />
-        ))}
-        {pendingQuestions.length > 0 && (
-          <QuestionPanel
-            questions={pendingQuestions}
-            sessionId={session.sessionId}
-            onResolved={(rpcId) => {
-              noteAnsweredQuestion(session.sessionId, rpcId)
-              setPendingQuestions(prev => prev.filter(q => q.rpcId !== rpcId))
-            }}
-          />
-        )}
+        <ChatAttentionPanels
+          sessionId={session.sessionId}
+          approvals={pendingApprovals}
+          questions={pendingQuestions}
+          previewOf={approvalPreviewOf}
+          argsOf={approvalArgsOf}
+          onApprovalResolved={(id) => {
+            noteAnsweredApproval(session.sessionId, id)
+            setPendingApprovals(prev => prev.filter(a => a.approvalId !== id))
+          }}
+          onQuestionResolved={(rpcId) => {
+            noteAnsweredQuestion(session.sessionId, rpcId)
+            setPendingQuestions(prev => prev.filter(q => q.rpcId !== rpcId))
+          }}
+        />
         <JumpControls
           show={showJumpToLatest}
           hasTurns={turnEntries.length >= 2}
