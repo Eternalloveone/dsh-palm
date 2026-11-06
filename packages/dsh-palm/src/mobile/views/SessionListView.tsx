@@ -20,7 +20,7 @@ import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { AgentPresetEntry } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import type { MuxClient } from '../mux.ts'
-import { archiveSession, assignSessionFolder, createSession, createSessionFolder, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, runningSessions, type SessionFoldersView } from '../api.ts'
+import { archiveSession, assignSessionFolder, createSession, createSessionFolder, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, renameSession, runningSessions, type SessionFoldersView } from '../api.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { previewSummary } from '../ui-text.ts'
@@ -178,6 +178,23 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
     }
   })
   await Promise.all(workers)
+}
+
+/** Props for the session list. */
+export interface SessionListViewProps {
+  workspace: WorkspaceRow
+  /** The live-event client, for the host's session-list frames. */
+  mux?: MuxClient | undefined
+  /** Session carried by a notification deep link; opened after the list loads. */
+  initialSessionId?: string
+  onBack(): void
+  onPick(session: SessionView): void
+  /** Open the mobile settings page (gear in the header). */
+  onOpenSettings(): void
+  /** Locate a session living in another workspace (in-app navigation). */
+  onLocateSession?(sessionId: string, workspaceId: string, seq?: number, query?: string): void
+  /** Open a session scrolled to one of its matched messages. */
+  onPickSeq?(session: SessionView, seq: number, query?: string, messageId?: string, partId?: string): void
 }
 
 /**
