@@ -17,6 +17,7 @@ import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useR
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { refillGap as refillGapRows } from '../data/refill-gap.ts'
+import { reloadTailPage } from '../data/reload-tail.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
 import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
@@ -4411,62 +4412,27 @@ export function ChatView({
     )
   }, [session.sessionId, mux])
 
-  /** Re-pull the tail history page: a settled command may rewrite history
-   * (/compact shadows older turns), which live frames alone cannot undo.
-   * Live events arriving DURING the re-pull are buffered (tailLoadingRef)
-   * and re-folded on top of the fresh page — without the guard they would
-   * fold into the old folder and get lost when it is replaced. Only the
-   * newest reload lands (epoch + abort of the previous one), so two rapid
-   * reloads cannot have a slow first resolve overwrite the second's rows. */
+  /**
+   * 重载尾页：实现已搬到 data/reload-tail.ts（纯逻辑 + 显式注入），这里只把当前会话的
+   * 各个 ref / 写入方打进去。
+   */
   const reloadTail = useCallback((): void => {
-    reloadControllerRef.current?.abort()
-    const controller = new AbortController()
-    reloadControllerRef.current = controller
-    const epoch = reloadEpochRef.current + 1
-    reloadEpochRef.current = epoch
-    tailLoadingRef.current = true
-    void loadChatPage(session.sessionId, undefined, controller.signal).then(
-      (page) => {
-        if (epoch !== reloadEpochRef.current) return
-        const buffered = liveBufferRef.current
-        liveBufferRef.current = []
-        tailLoadingRef.current = false
-        const folder = new EventFolder(page.rows, page.maxSeq)
-        loadedPageRef.current = true
-      folderRef.current = folder
-        const foldedRows = folder.fold(buffered)
-        applyMessages(foldedRows)
-        setHasOlder(page.hasMore)
-        // The re-pull window overflowed too: refill the dropped range like
-        // the initial load does.
-        const gap = dropWindowRef.current
-        if (gap !== undefined) {
-          dropWindowRef.current = undefined
-          liveBufferOverflowRef.current = false
-          refillGap(gap, controller.signal, () => epoch !== reloadEpochRef.current)
-        }
-      },
-      () => {
-        if (epoch !== reloadEpochRef.current) return
-        tailLoadingRef.current = false
-        // Failure: drain the buffered live events into the old folder, or
-        // they linger in the buffer unseen.
-        const buffered = liveBufferRef.current
-        liveBufferRef.current = []
-        if (buffered.length > 0) {
-          const folder = folderRef.current
-          applyMessages(folder === undefined ? foldEvents(buffered) : folder.fold(buffered))
-        }
-        // 一页都没读到、也没有任何缓冲：**明确告诉用户打不开**。
-        //
-        // 真机（2026-10-31）：点一条已被删掉的会话 / 失效链接，页面永远停在
-        // "加载中…"，用户只能反复刷新。这里把失败说出来（下面的渲染会显示 error）。
-        if (!loadedPageRef.current) {
-          setError('打不开这个会话：它可能已被删除，或链接已失效')
-        }
-      },
-    )
-  }, [session.sessionId, refillGap])
+    reloadTailPage({
+      sessionId: session.sessionId,
+      controllerRef: reloadControllerRef,
+      epochRef: reloadEpochRef,
+      tailLoadingRef,
+      liveBufferRef,
+      folderRef,
+      dropWindowRef,
+      liveBufferOverflowRef,
+      loadedPageRef,
+      applyMessages,
+      setHasOlder,
+      setError,
+      refillGap,
+    })
+  }, [session.sessionId, refillGap, applyMessages, setHasOlder])
 
   // Keep the slow-consumer recovery path (in the live-frame effect above) pointed
   // at the current reloadTail.
