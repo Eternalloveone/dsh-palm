@@ -18,6 +18,7 @@ import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { refillGap as refillGapRows } from '../data/refill-gap.ts'
 import { reloadTailPage } from '../data/reload-tail.ts'
+import { createStreamState } from './chat/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
 import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
@@ -677,6 +678,12 @@ export function ChatView({
     getOpenTurn: () => openTurnRef.current,
   })
   const messages = chatSession.rows
+  /**
+   * 流式路径的 9 个字段收成一个对象（S7a-3a/3b）：换会话时整体 reset，
+   * 不再逐字段手工清 —— 漏一个就是跨会话串帧。
+   */
+  const streamRef = useRef(createStreamState())
+  const stream = streamRef.current
   const setMessages = chatSession.setRows
   // Foreground gate for every poll on this view: a frozen background PWA must
   // not keep issuing RPCs (the stream and the host-side follow are released by
@@ -762,8 +769,8 @@ export function ChatView({
       scrollToBottom: () => scrollToBottom(),
       settleBottomAfterCommit: () => settleBottomAfterCommit(),
     },
-    getFirstRow: () => folderRef.current?.snapshot()[0] ?? messages[0],
-    loadedRowCount: () => folderRef.current?.snapshot().length ?? messages.length,
+    getFirstRow: () => stream.folder?.snapshot()[0] ?? messages[0],
+    loadedRowCount: () => stream.folder?.snapshot().length ?? messages.length,
     preparePage: (page) => prepareOlderPage(page, {
       sessionId: session.sessionId,
       rememberRawPage,
@@ -772,7 +779,7 @@ export function ChatView({
       rememberCards: rememberTurnReports,
     }),
     adoptPage: (older, _page, ctx) => adoptOlderPage(older, ctx, {
-      folder: folderRef.current,
+      folder: stream.folder,
       commitRows,
       applyRows: applyMessages,
     }),
@@ -795,9 +802,7 @@ export function ChatView({
   loadOlderRef.current = loadOlder
   /** 「下一条命中」那一页的预取缓存：键 = beforeSeq，取用一次就删。 */
   // One silent auto-extend chain per session open (see the tail-load effect).
-  const autoExtendedRef = useRef(false)
   // 这一轮"进会话铺开"已经补了几页（每开一次会话归零）。
-  const openChainPagesRef = useRef(0)
   /** 这一次进会话的时刻：补页链落地后还要再钉底。 */
   const openedAtRef = useRef(Date.now())
   const [loading, setLoading] = useState(true)
@@ -879,13 +884,9 @@ export function ChatView({
    * flash once, be discarded by the snapshot, and then be skipped forever by
    * the seq watermark.
    */
-  const tailLoadingRef = useRef(true)
   /** Live session events buffered while the initial tail page loads. */
-  const liveBufferRef = useRef<WireEvent[]>([])
   /** Incremental folder for this session's stream (indexes stay hot across events). */
-  const folderRef = useRef<EventFolder | undefined>(undefined)
   /** 这个会话是否**成功加载过**一页：用来区分"打不开"和"还在加载"。 */
-  const loadedPageRef = useRef(false)
   /**
    * rAF micro-batch for live message events. SSE `onmessage` is a separate
    * macrotask per frame, so folding each event straight into `setMessages`
@@ -897,17 +898,16 @@ export function ChatView({
    * (jobs/queue/approvals) and the turn/start·end·todo side-effects stay
    * immediate.
    */
-  const eventBatchRef = useRef<WireEvent[]>([])
   const eventFlushRafRef = useRef<number | undefined>(undefined)
   /** Schedule one rAF flush of the buffered message events (idempotent). */
   const scheduleEventFlush = useCallback((): void => {
     if (eventFlushRafRef.current !== undefined) return
     eventFlushRafRef.current = requestAnimationFrame(() => {
       eventFlushRafRef.current = undefined
-      const batch = eventBatchRef.current
-      eventBatchRef.current = []
+      const batch = stream.eventBatch
+      stream.eventBatch = []
       if (batch.length === 0) return
-      const folder = folderRef.current
+      const folder = stream.folder
       // Opt-in perf mark: decode/fold/coalesce done, state update about to
       // schedule (span recv→state measures the whole client pipeline). The
       // batch is stamped with its newest event's seq.
@@ -920,9 +920,7 @@ export function ChatView({
     })
   }, [])
   /** True once the live buffer hit its cap (oldest events were dropped). */
-  const liveBufferOverflowRef = useRef(false)
   /** Seq window of the events dropped from the tail-load buffer (refill). */
-  const dropWindowRef = useRef<{ from: number; to: number } | undefined>(undefined)
   /** Monotonic reload epoch: only the newest reloadTail lands. */
   const reloadEpochRef = useRef(0)
   /** Abort the previous reloadTail when a new one starts (no cross-resolve). */
@@ -1908,7 +1906,7 @@ export function ChatView({
       gap,
       signal,
       isCancelled,
-      folder: () => folderRef.current,
+      folder: () => stream.folder,
       commitRows,
       applyMessages,
     })
@@ -1934,20 +1932,20 @@ export function ChatView({
     const stopIntentKeepAlive = (): void => {
       if (intentKeepAlive !== undefined) window.clearInterval(intentKeepAlive)
     }
-    tailLoadingRef.current = true
-    liveBufferRef.current = []
-    liveBufferOverflowRef.current = false
-    dropWindowRef.current = undefined
-    autoExtendedRef.current = false
-  openChainPagesRef.current = 0
-    folderRef.current = undefined
+    stream.tailLoading = true
+    stream.liveBuffer = []
+    stream.liveBufferOverflow = false
+    stream.dropWindow = undefined
+    stream.autoExtended = false
+  stream.openChainPages = 0
+    stream.folder = undefined
     // 时钟校准是**本会话**的：换会话就从零开始攒样本，否则上一场的偏移会
     // 直接套到这一场的秒表上（锚点是宿主时间，偏移偏多少秒表就偏多少）。
     hostClockSamplesRef.current = []
     // A session switch must not let a pending rAF flush fold the PREVIOUS
     // session's buffered events into the new session's folder: drop the batch
     // and cancel the scheduled flush.
-    eventBatchRef.current = []
+    stream.eventBatch = []
     if (eventFlushRafRef.current !== undefined) {
       cancelAnimationFrame(eventFlushRafRef.current)
       eventFlushRafRef.current = undefined
@@ -2009,8 +2007,8 @@ export function ChatView({
       if (cancelled || networkLanded || cached === undefined || cacheHit) return
       cacheHit = true
       const folder = new EventFolder(cached.rows, cached.maxSeq)
-      loadedPageRef.current = true
-      folderRef.current = folder
+      stream.loadedPage = true
+      stream.folder = folder
       applyMessages(folder.fold([]))
       setHasOlder(cached.hasMore)
       setLoading(false)
@@ -2058,12 +2056,12 @@ export function ChatView({
         // Buffered live events re-fold on top of the snapshot; the watermark
         // (page.maxSeq — the host window's event floor) drops any the
         // snapshot already includes, so nothing is lost or doubled.
-        const buffered = liveBufferRef.current
-        liveBufferRef.current = []
-        tailLoadingRef.current = false
+        const buffered = stream.liveBuffer
+        stream.liveBuffer = []
+        stream.tailLoading = false
         const folder = new EventFolder(page.rows, page.maxSeq)
-        loadedPageRef.current = true
-      folderRef.current = folder
+        stream.loadedPage = true
+      stream.folder = folder
         let foldedRows = folder.fold(buffered)
         // 交付卡跟着正文**同一次提交**落地。
         //
@@ -2120,10 +2118,10 @@ export function ChatView({
         // 拉完，攒成一份再画一次；中途失败就停在已经拿到的那部分。
         // 带搜索定位打开时不铺开：定位自己会一跳到位（beforeSeq 直指目标页）。
         const locatePending = initialFocusSeq !== undefined || initialFocusMessageId !== undefined
-        if (page.hasMore && !autoExtendedRef.current && !locatePending) {
-          autoExtendedRef.current = true
+        if (page.hasMore && !stream.autoExtended && !locatePending) {
+          stream.autoExtended = true
           void (async (): Promise<void> => {
-            const holder = folderRef.current
+            const holder = stream.folder
             if (holder === undefined) return
             let older: RenderMessage[] = []
             let loaded = holder.snapshot().length
@@ -2171,7 +2169,7 @@ export function ChatView({
           setTurnStartAt(prev => prev ?? page.turnStartAt ?? null)
           // 把这个真起点也种进折叠：窗口里看不到 turn/start 时，收工定格只能退回
           // 「窗口最早一行」当锚点，秒表会在收工时往回跳（真机 8分37秒 → 6分48秒）。
-          folderRef.current?.noteOpenTurnStart(page.turnStartAt)
+          stream.folder?.noteOpenTurnStart(page.turnStartAt)
           // The anchor is a clock, not a verdict. It used to raise the running
           // flag on its own, on the theory that an open boundary outweighs the
           // roster's agent-liveness flag while a subagent runs. In practice a
@@ -2213,10 +2211,10 @@ export function ChatView({
         // consumed (seq <= maxSeq) and the dropped range would stay missing.
         // Best-effort: a failure here only logs, it must not replace the
         // loaded state with an error.
-        if (dropWindowRef.current !== undefined) {
-          const gap = dropWindowRef.current
-          dropWindowRef.current = undefined
-          liveBufferOverflowRef.current = false
+        if (stream.dropWindow !== undefined) {
+          const gap = stream.dropWindow
+          stream.dropWindow = undefined
+          stream.liveBufferOverflow = false
           refillGap(gap, controller.signal, () => cancelled)
         }
       },
@@ -2224,11 +2222,11 @@ export function ChatView({
         stopIntentKeepAlive()
         if (cancelled) return
         // Load failed: flush the buffer so the live stream still renders.
-        const buffered = liveBufferRef.current
-        liveBufferRef.current = []
-        tailLoadingRef.current = false
+        const buffered = stream.liveBuffer
+        stream.liveBuffer = []
+        stream.tailLoading = false
         if (buffered.length > 0) {
-          const folder = folderRef.current
+          const folder = stream.folder
           applyMessages(folder === undefined ? foldEvents(buffered) : folder.fold(buffered))
         }
         setError(errorText(reason))
@@ -2298,7 +2296,7 @@ export function ChatView({
             })
             if (wasRunning && !snapshotTurn.running) {
               normalizeTurnEndTodo()
-              folderRef.current?.clearOpenTurnStart()
+              stream.folder?.clearOpenTurnStart()
             }
           }
         },
@@ -2332,7 +2330,7 @@ export function ChatView({
         setRunningTurn(undefined)
         setTurnStartAt(null)
         // 外部锚点只在"这一轮还开着"时有意义：清掉，免得下一轮收工时拿它定格。
-        folderRef.current?.clearOpenTurnStart()
+        stream.folder?.clearOpenTurnStart()
         normalizeTurnEndTodo()
         return
       }
@@ -2341,7 +2339,7 @@ export function ChatView({
       if (startAt !== undefined) {
         setTurnStartAt(previous => previous ?? startAt)
         // 同一份真起点也交给折叠：否则收工那一刻用时会被"窗口最早一行"缩短。
-        folderRef.current?.noteOpenTurnStart(startAt)
+        stream.folder?.noteOpenTurnStart(startAt)
       }
     }
     // 收工/在跑只有一个来源：宿主的 turnState。它把"转发帧看到过的边界"与"日志写下的
@@ -2581,27 +2579,27 @@ export function ChatView({
           // ignores unknown types, so the message stream is unaffected.
           if (event.type === 'todo/write') startTransition(() => { adoptTodoLatest(event) })
         }
-        if (tailLoadingRef.current) {
-          if (liveBufferRef.current.length >= MAX_TAIL_BUFFER_EVENTS) {
+        if (stream.tailLoading) {
+          if (stream.liveBuffer.length >= MAX_TAIL_BUFFER_EVENTS) {
             // Bound the tail-load window: drop the oldest buffered event and
             // remember its seq window so the follow-up refill can re-fetch
             // exactly the dropped range (a flat tail re-pull would only
             // return events the fold already consumed). Warn once per load.
-            const dropped = liveBufferRef.current.shift()
+            const dropped = stream.liveBuffer.shift()
             if (dropped !== undefined) {
-              const current = dropWindowRef.current
-              dropWindowRef.current = current === undefined
+              const current = stream.dropWindow
+              stream.dropWindow = current === undefined
                 ? { from: dropped.seq, to: dropped.seq }
                 : { from: Math.min(current.from, dropped.seq), to: Math.max(current.to, dropped.seq) }
             }
-            if (!liveBufferOverflowRef.current) {
+            if (!stream.liveBufferOverflow) {
               console.warn(
                 `history tail is slow: live buffer reached ${MAX_TAIL_BUFFER_EVENTS} events; the dropped seq window will be re-fetched`,
               )
-              liveBufferOverflowRef.current = true
+              stream.liveBufferOverflow = true
             }
           }
-          liveBufferRef.current.push(event)
+          stream.liveBuffer.push(event)
           return
         }
         // rAF micro-batch: buffer the event and fold all buffered events on
@@ -2609,7 +2607,7 @@ export function ChatView({
         // per SSE chunk). The immediate side-effects above (turn/start·end,
         // todo/write) already ran synchronously, so the running indicator and
         // plan strip stay responsive; only the message fold is deferred.
-        eventBatchRef.current.push(event)
+        stream.eventBatch.push(event)
         scheduleEventFlush()
         return
       }
@@ -3431,7 +3429,7 @@ export function ChatView({
     let turnStep: number | undefined
     // 从**未合并**的行里数：合并后的一条过程卡只留第一步的 step（合并的意义就是
     // 把多步并成一条），拿它数步序永远得到 1。folder 快照是原始行。
-    const rawRows = folderRef.current?.snapshot() ?? messages
+    const rawRows = stream.folder?.snapshot() ?? messages
     if (activeTurn !== undefined) {
       for (const row of rawRows) {
         if (row.turn !== activeTurn || row.step === undefined) continue
@@ -4419,14 +4417,9 @@ export function ChatView({
   const reloadTail = useCallback((): void => {
     reloadTailPage({
       sessionId: session.sessionId,
+      state: stream,
       controllerRef: reloadControllerRef,
       epochRef: reloadEpochRef,
-      tailLoadingRef,
-      liveBufferRef,
-      folderRef,
-      dropWindowRef,
-      liveBufferOverflowRef,
-      loadedPageRef,
       applyMessages,
       setHasOlder,
       setError,
