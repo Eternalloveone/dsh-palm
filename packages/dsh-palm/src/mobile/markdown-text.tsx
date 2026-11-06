@@ -23,7 +23,7 @@
  * @module dsh-palm/mobile/markdown-text
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { escapeHtml, parseSegments, parseStreamPrefix, safeUrl, type MarkdownSegment, type StreamBlock } from './markdown.ts'
 import { loadLocalImageUrl } from './local-images.ts'
 import { CodeBlock } from './code-block.tsx'
@@ -149,9 +149,8 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
     return html
   }
   /** Inline-promoting preview for short open blocks (visual parity with the
-   *  settled parse); long blocks fall back to {@link previewPlain}. */
-  const previewOf = (value: string): string => {
-    if (value.length > PREVIEW_INLINE_LIMIT) return previewPlain(value)
+   *  settled parse). Extracted so the over-limit path can reuse it for the head. */
+  const inlinePreview = (value: string): string => {
     const escaped = escapeHtml(value)
       .replace(/(^|[^`])`([^`\n]+)`(?=$|[^`])/g, '$1<code>$2</code>')
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -162,6 +161,19 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
         return safe === null ? match : `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>`
       })
     return escaped.split(/\n{2,}/).map(block => `<p>${block.replace(/\n/g, '<br />')}</p>`).join('')
+  }
+  /** Inline-promoting preview for short open blocks (visual parity with the
+   *  settled parse); long blocks keep their head formatted and escape only the
+   *  tail — see the comment below.
+   *
+   *  2026-11-06 真机：长回答写到第 2001 个字符时，屏幕上方**已经看到**的粗体/
+   *  行内代码会当场变回 `**` 与反引号原文，`<p>` 的外边距也消失 → 整段高度跳变。
+   *  旧实现超过阈值就整块退回 {@link previewPlain}。现在只对**新增尾部**退化为
+   *  纯文本：头部 2000 字保持格式化（正则成本仍有上界），已读内容不再被改写。 */
+  const previewOf = (value: string): string => {
+    if (value.length <= PREVIEW_INLINE_LIMIT) return inlinePreview(value)
+    return inlinePreview(value.slice(0, PREVIEW_INLINE_LIMIT))
+      + previewPlain(value.slice(PREVIEW_INLINE_LIMIT))
   }
   const [segments, setSegments] = useState<MarkdownSegment[]>(() => pending
     ? [{ kind: 'html', id: 0, html: previewOf(text) }]
@@ -234,12 +246,39 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
     renderedTextRef.current = text
     streamRef.current = null
     streamPrevTextRef.current = null
-    setSegments(parseSegments(text))
+    const next = parseSegments(text)
+    // 流式尾部一直是 id -1；收尾若换成 0..N，React 会把那一块当新节点卸载重挂
+    // （代码块重挂 = 重新高亮，读者正盯着最后一行时会看到一次闪动）。保留 -1，
+    // 让收尾只**更新**尾部内容，不换节点。过去的稳定块 id 本来就按顺序分配，
+    // 与本次解析一致。
+    if (segments.some(segment => segment.id === -1) && next.length > 0) {
+      const last = next[next.length - 1]
+      if (last !== undefined && last.kind === 'html') last.id = -1
+    }
+    setSegments(next)
   }, [text, pending])
 
   const long = !pending && text.length > LONG_TEXT_LIMIT
   const collapsed = long && !open
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * 内容变短时通知聊天页（收尾折叠到 45vh、流式块被更短的 settled parse 替换）。
+   * 这里只报事实（多高 → 多高、少了多少），是否回钉由 ChatView 判断：
+   * 只有「缩之前就贴底」的读者才该被拉回底部，读历史的人不能被拽走。
+   */
+  const lastBodyHeightRef = useRef(0)
+  useLayoutEffect(() => {
+    const el = bodyRef.current
+    if (el === null) return
+    const height = el.offsetHeight
+    const previous = lastBodyHeightRef.current
+    lastBodyHeightRef.current = height
+    if (previous > 0 && height < previous - 24) {
+      window.dispatchEvent(new CustomEvent('palm:content-shrunk', {
+        detail: { delta: previous - height },
+      }))
+    }
+  }, [segments, collapsed])
   /**
    * Local markdown images carry their path on `data-local-src` (see
    * markdown.ts): the phone bundle has no `/api/file` route, so the bytes

@@ -336,6 +336,8 @@ import { createLiveCaptions, type LiveCaptions } from '../live-captions.ts'
 import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
 import { useToastLift } from '../toast-lift.ts'
+import { scheduleSettleBurst } from '../settle-timers.ts'
+import { shouldRepinAfterShrink } from '../scroll-shrink.ts'
 import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
 import { turnNumberIsStale } from '../turn-liveness.ts'
 import { approvalPreviewText } from '../approval-preview.ts'
@@ -3648,26 +3650,59 @@ export function ChatView({
    * 只在读者本来就贴底时补，往上翻历史的人不受影响。
    */
   const settleBottomRef = useRef<() => void>(() => {})
+  /** 当前这一轮"钉底补拍"的句柄：切换会话/重发时取消旧的，别让旧定时器继续读布局。 */
+  const settleBurstRef = useRef<{ cancel(): void } | null>(null)
   const settleBottomAfterCommit = useCallback(() => {
-    const pinIfShort = (): void => {
+    const pinIfShort = (): boolean => {
       const el = scrollRef.current
-      if (el === undefined) return
-      if (!maySettlePin(scrollStateRef.current, Date.now())) return
+      if (el === undefined) return true
+      if (!maySettlePin(scrollStateRef.current, Date.now())) return true
       const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (gap <= 2) return
+      if (gap <= 2) return true
       setScrollTopProgrammatically(el, el.scrollHeight)
       lastScrollHeightRef.current = el.scrollHeight
+      return false
     }
     // 布局安定前反复补：长列表的高度是分段长出来的（content-visibility 行铺开、
-    // 卡片补进来、字体换行），一次 rAF 只覆盖最简单的情况。拍子递减，最多到 1.5 秒；
-    // 读者一动手（状态机的 userMoved）就整段作废。
-    requestAnimationFrame(pinIfShort)
+    // 卡片补进来、字体换行），一次 rAF 只覆盖最简单的情况。拍子递减，最多到 4 秒；
+    // 读者一动手（状态机的 userMoved）或已经贴底就整段作废 —— 以前这里只是"不再
+    // 钉底"，剩下的定时器仍会逐个触发一次强制布局（审计：长回答期间同时挂 30–70 个）。
+    requestAnimationFrame(() => { pinIfShort() })
     // 尾巴拉长到 4 秒：实测「再次进入」时最后一段高度（交付卡、图片、字体换行）
     // 可能在 1.5 秒之后才长出来，那时停在离底 41px 的地方，最后一行被切一半。
-    // 安全的前提是 pinIfShort 只对「读者没动过手」生效（maySettlePin）。
-    for (const delay of [60, 180, 400, 800, 1_500, 2_500, 3_500, 4_000]) {
-      window.setTimeout(() => { pinIfShort() }, delay)
+    settleBurstRef.current?.cancel()
+    settleBurstRef.current = scheduleSettleBurst([60, 180, 400, 800, 1_500, 2_500, 3_500, 4_000], () => pinIfShort())
+  }, [setScrollTopProgrammatically])
+
+  // 卸载（切换会话/返回列表）时取消补拍：旧实例的定时器没有意义，还会白读布局。
+  useEffect(() => () => {
+    settleBurstRef.current?.cancel()
+    settleBurstRef.current = null
+  }, [])
+
+  /**
+   * 内容变短时回钉（审计 P1：长回答收尾折叠到 45vh，「滚到底的人被抽走内容」）。
+   *
+   * MarkdownText 只报告事实（多高 → 少了多少）；这里判断该不该动：
+   * 只有缩之前就贴底、且没有被手指接管（maySettlePin）的读者才回钉，
+   * 读历史的人一概不动。
+   */
+  useEffect(() => {
+    const onShrunk = (event: Event): void => {
+      const detail = (event as CustomEvent<{ delta?: number }>).detail
+      const delta = typeof detail?.delta === 'number' ? detail.delta : 0
+      requestAnimationFrame(() => {
+        const el = scrollRef.current
+        if (el === undefined) return
+        if (!maySettlePin(scrollStateRef.current, Date.now())) return
+        const after = el.scrollHeight
+        if (!shouldRepinAfterShrink({ before: after + delta, after })) return
+        setScrollTopProgrammatically(el, after)
+        lastScrollHeightRef.current = after
+      })
     }
+    window.addEventListener('palm:content-shrunk', onShrunk)
+    return () => { window.removeEventListener('palm:content-shrunk', onShrunk) }
   }, [setScrollTopProgrammatically])
   settleBottomRef.current = settleBottomAfterCommit
 

@@ -141,3 +141,44 @@ describe('MarkdownText 的本地图片水合', () => {
     expect(readFile).not.toHaveBeenCalled()
   })
 })
+
+describe('长回答跨 2000 字不把已读格式改回原文（2026-11-06 渲染稳定性）', () => {
+  it('已渲染的粗体在文本越过阈值后仍然保留', () => {
+    // 旧实现：>2000 字整块退回纯文本预览，屏幕上方已经看到的 **粗体** 会当场
+    // 变回星号（审计 P1「字变回去了」）。现在只让新增尾部退化。
+    const head = `**重点** ${'A'.repeat(200)}`
+    const view = render(<MarkdownText text={head} pending sessionId="s-1" />)
+    expect(document.querySelector('strong')?.textContent).toBe('重点')
+
+    view.rerender(<MarkdownText text={head + 'B'.repeat(2_200)} pending sessionId="s-1" />)
+    expect(document.querySelector('strong')?.textContent).toBe('重点')
+  })
+
+  it('阈值之后的尾部按纯文本转义，不再解释 Markdown', () => {
+    // 必须是**同一个未闭合段落**：跨段落时上一段已经进了稳定块，走的是真解析，
+    // 不会经过预览阈值。审计里的现场也是"一个很长的段落写到 2000 字"。
+    const single = `**重点** ${'A'.repeat(2_100)}**尾部**`
+    render(<MarkdownText text={single} pending sessionId="s-1" />)
+    // 头部（前 2000 字）仍是格式化后的粗体。
+    expect(document.querySelector('strong')?.textContent).toBe('重点')
+    // 尾部字面量原样显示（证明它走的是纯文本路径，而不是被解析成新的 <strong>）。
+    expect(document.body.textContent).toContain('**尾部**')
+    expect(document.querySelectorAll('strong')).toHaveLength(1)
+  })
+
+  it('收尾时保留代码块与尾部节点（不整段卸载重挂）', () => {
+    // 审计 P1：收尾那一拍 segment id 从稳定块 + tail(-1) 换成 0..N，React 把
+    // 代码块当新节点重挂（重新高亮、可见闪动）。保留 tail 的 -1 后，收尾只应
+    // 更新内容，不该换 DOM 节点。
+    const text = '```ts\nconst a = 1\n```\n\n尾段落正在输出'
+    const view = render(<MarkdownText text={text} pending sessionId="s-1" />)
+    const codeBefore = document.querySelector('.code-block')
+    const tailBefore = document.querySelector('.md-html')
+    expect(codeBefore).not.toBeNull()
+    expect(tailBefore).not.toBeNull()
+
+    view.rerender(<MarkdownText text={text} pending={false} sessionId="s-1" />)
+    expect(document.querySelector('.code-block')).toBe(codeBefore)
+    expect(document.querySelector('.md-html')).toBe(tailBefore)
+  })
+})
