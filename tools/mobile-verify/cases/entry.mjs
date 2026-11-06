@@ -107,6 +107,59 @@ export default [
     },
   },
   {
+    // 真机清单第 9/10 项（弱网、后台回来）在桌面能测的那一半：
+    // 断网 6 秒再恢复 —— 正文不许消失、状态条不许停在"连接中断/输出中"。
+    // （真机上"后台 30 分钟"还涉及进程被回收，那部分只能你验；但"断网再回来会不会卡住"
+    //   是同一套重连逻辑，这里能抓到绝大多数翻车。）
+    id: 'entry.reconnect-recovers',
+    group: 'entry',
+    surface: 'chat',
+    title: '断网 6 秒再恢复：正文还在、状态条不停在中断态',
+    async run(ctx, { page }) {
+      await ctx.waitForChatRows(page)
+      const before = await chatMetrics(page)
+      await page.context().setOffline(true)
+      await page.waitForTimeout(6_000)
+      const during = await page.evaluate(() => ({
+        rows: document.querySelectorAll('[data-message-id]').length,
+        strip: (document.querySelector('.chat-status-strip')?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 20),
+      }))
+      await page.context().setOffline(false)
+      await page.waitForTimeout(4_000)
+      const after = await chatMetrics(page)
+      ctx.equals(during.rows > 0, true, '断网期间正文行消失')
+      ctx.equals(after.rows >= Math.min(before.rows, 1), true, `恢复后行数 ${after.rows} < 恢复前 ${before.rows}`)
+      ctx.equals(/连接中断|重连中|离线/.test(after.strip ?? ''), false, `恢复后状态条仍停在「${after.strip}」`)
+      return `断网 ${during.rows} 行 → 恢复 ${after.rows} 行，状态条「${after.strip === '' ? '无' : after.strip}」`
+    },
+  },
+  {
+    // 真机清单第 8 项（横竖屏切换）的自动化版本。
+    // 判据只取"会真的坏掉"的三条：横屏不许横向溢出、横屏后正文不许消失、
+    // 转回竖屏后不许离底（转屏把读者甩离最新一行，是这一项最常见的翻车方式）。
+    id: 'entry.rotation-keeps-layout',
+    group: 'entry',
+    surface: 'chat',
+    title: '横竖屏切换后不横向溢出、正文还在、不甩离底部',
+    async run(ctx, { page }) {
+      await ctx.waitForChatRows(page)
+      await page.setViewportSize({ width: 844, height: 390 })
+      await page.waitForTimeout(700)
+      const landscape = await page.evaluate(() => ({
+        overflowX: document.documentElement.scrollWidth - window.innerWidth,
+        rows: document.querySelectorAll('[data-message-id]').length,
+      }))
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.waitForTimeout(700)
+      const after = await chatMetrics(page)
+      ctx.equals(landscape.overflowX <= 0, true, `横屏横向溢出 ${landscape.overflowX}px`)
+      ctx.equals(landscape.rows > 0, true, '横屏后正文行消失')
+      ctx.equals(after.rows > 0, true, '转回竖屏后正文行消失')
+      ctx.equals(after.gapToBottom === null || after.gapToBottom <= 24, true, `转回竖屏后离底 ${after.gapToBottom}px`)
+      return `横屏 ${landscape.rows} 行 / 竖屏 ${after.rows} 行 / 离底 ${after.gapToBottom}px`
+    },
+  },
+  {
     id: 'entry.no-horizontal-overflow',
     group: 'entry',
     surface: 'chat',
