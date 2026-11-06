@@ -14,6 +14,23 @@
 export const mobileCss = `/* ── design tokens ───────────────────────────────────────────────────── */
 
 :root {
+  /* 层级表（z-index ladder）：浮层只允许引用这些变量，禁止裸数字。
+     mobile-layers.test.ts 会拦任何裸 z-index（页面转场 1/2 与局部 1 除外）。
+     顺序即语义：header < scrim < popover < composer = picker < voice < sheet <
+     ctx = offline < toast < lightbox。同值两项表示互斥（不会同时出现）。 */
+  --z-header: 10;
+  --z-scrim: 40;
+  --z-popover: 45;
+  --z-composer: 50;
+  --z-voice: 55;
+  --z-sheet: 60;
+  --z-ctx: 70;
+  --z-offline: 70;
+  --z-toast: 80;
+  --z-lightbox: 200;
+  /* Toast 的底边偏移。默认值 = 老行为；ChatView 会把「输入栏 + HUD + 键盘」
+     的实际高度写进这个变量（toast-lift.ts），队列条出现时 toast 自动上移。 */
+  --toast-lift: 104px;
   /* surfaces */
   --bg-page: #f5f5f7;
   --bg-surface: #ffffff;
@@ -509,7 +526,7 @@ body,
 .mobile-header {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: var(--z-header);
   flex-shrink: 0;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto;
@@ -5186,7 +5203,7 @@ button.settings-row:focus-visible {
   position: absolute;
   right: 16px;
   bottom: calc(100% + 10px);
-  z-index: 45;
+  z-index: var(--z-popover);
   min-width: 150px;
   padding: 10px 12px;
   border: 1px solid var(--border-default);
@@ -5226,7 +5243,7 @@ button.settings-row:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 40;
+  z-index: var(--z-scrim);
   background: transparent;
 }
 
@@ -5242,14 +5259,14 @@ button.settings-row:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 40;
+  z-index: var(--z-scrim);
   background: rgba(15, 15, 25, 0.2);
 }
 
 .chat-tools,
 .chat-composer {
   position: relative;
-  z-index: 50;
+  z-index: var(--z-composer);
 }
 
 /* Vertical panel: search field on top, then grouped rows (model) or the
@@ -5257,7 +5274,7 @@ button.settings-row:focus-visible {
    primary discovery path — the search field narrows the list first. */
 .chat-picker-panel {
   position: relative;
-  z-index: 50;
+  z-index: var(--z-composer);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -5937,12 +5954,12 @@ button.settings-row:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 70;
+  z-index: var(--z-ctx);
 }
 
 .ctx-menu {
   position: fixed;
-  z-index: 71;
+  z-index: calc(var(--z-ctx) + 1);
   min-width: 168px;
   padding: var(--space-1);
   border: 1px solid var(--card-border);
@@ -6033,7 +6050,7 @@ button.settings-row:focus-visible {
      scrim at 40 never covers it), and the sheet renders BEFORE the
      composer in the DOM - at the same stacking level the later sibling
      wins, which put the input bar over the panel's bottom. */
-  z-index: 60;
+  z-index: var(--z-sheet);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -6300,7 +6317,7 @@ button.settings-row:focus-visible {
 .lightbox-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: var(--z-lightbox);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6858,7 +6875,7 @@ button.settings-row:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 60;
+  z-index: var(--z-sheet);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6985,13 +7002,30 @@ button.settings-row:focus-visible {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-  z-index: 80;
+  /* 不再写死 104px：输入栏高度会变（多行、附件、键盘），HUD（排队/目标/状态）
+     又会在输入栏上方再叠一层。ChatView 用 --toast-lift 报告"输入栏 + HUD +
+     键盘"的实际高度，toast 永远停在这整摞东西的上沿，不会盖住排队条的撤回。
+     没有 JS（或别的页面）时退回旧值 104px。 */
+  bottom: calc(var(--toast-lift) + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
   pointer-events: none;
+}
+
+/* 有 sheet / 对话框时把 toast 移到顶部：底部那条被遮罩挡住，而且会压住
+   sheet 的主按钮（用户正在 sheet 里操作时最不该被挡）。:has 在目标浏览器
+   （Chrome 105+/Safari 15.4+）都可用；不支持时退回底部旧行为。 */
+body:has(.sheet-backdrop) .toast-host,
+body:has(.dialog-backdrop) .toast-host {
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  bottom: auto;
+}
+
+body:has(.lightbox-backdrop) .toast-host {
+  display: none;
 }
 
 .toast {
@@ -7754,7 +7788,7 @@ button.settings-row:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 55;
+  z-index: var(--z-voice);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -9126,7 +9160,7 @@ details.think-block[open] .chat-disclosure-caret {
 .mobile-offline-bar {
   position: sticky;
   top: 0;
-  z-index: 70;
+  z-index: var(--z-offline);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -9159,7 +9193,7 @@ details.think-block[open] .chat-disclosure-caret {
   left: 12px;
   right: 12px;
   top: calc(env(safe-area-inset-top, 0px) + 64px);
-  z-index: 60;
+  z-index: var(--z-sheet);
   display: flex;
   align-items: center;
   gap: 9px;

@@ -335,6 +335,7 @@ import { voiceStatusClassName, voiceStatusText } from '../voice-status.ts'
 import { createLiveCaptions, type LiveCaptions } from '../live-captions.ts'
 import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
+import { useToastLift } from '../toast-lift.ts'
 import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
 import { turnNumberIsStale } from '../turn-liveness.ts'
 import { approvalPreviewText } from '../approval-preview.ts'
@@ -856,6 +857,9 @@ export function ChatView({
   const openedAtRef = useRef(Date.now())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
+  // Toast 的站位：输入栏 + HUD + 键盘的实际高度写进 --toast-lift，
+  // 否则排队条一出现，固定 104px 的 toast 就会盖住「撤回」（真机截图）。
+  useToastLift()
   const [input, setInput] = useState(() => loadDraft(session.sessionId))
   // Live mirror of `input` for the unmount draft flush (the cleanup closure
   // must read the CURRENT text, not the one its render captured).

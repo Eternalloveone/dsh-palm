@@ -4,13 +4,14 @@
 import cards from './cards.mjs'
 import composer from './composer.mjs'
 import entry from './entry.mjs'
+import overlay from './overlay.mjs'
 import roster from './roster.mjs'
 import runs from './runs.mjs'
 import scroll from './scroll.mjs'
 import search from './search.mjs'
 import settings from './settings.mjs'
 
-export const CASES = [...entry, ...scroll, ...cards, ...composer, ...search, ...roster, ...runs, ...settings]
+export const CASES = [...entry, ...scroll, ...cards, ...composer, ...search, ...roster, ...runs, ...settings, ...overlay]
 
 /** 分组名（用于报告与 --groups 过滤）。 */
 export const GROUPS = [...new Set(CASES.map(item => item.group))]
