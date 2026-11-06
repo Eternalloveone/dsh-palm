@@ -62,11 +62,11 @@ describe('architecture guardrails', () => {
 
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
-      'views/ChatView.tsx': 6_363,
-      'views/SettingsView.tsx': 2_080,
-      'views/SessionListView.tsx': 1_645,
+      'views/ChatView.tsx': 5_874,
+      'views/SettingsView.tsx': 787,
+      'views/SessionListView.tsx': 1_126,
       'views/App.tsx': 1_121,
-      'views/WorkspaceView.tsx': 1_300,
+      'views/WorkspaceView.tsx': 1_071,
     }
     for (const [file, budget] of Object.entries(budgets)) {
       const lines = readFileSync(join(HERE, file), 'utf8').split('\n').length
