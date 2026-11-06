@@ -25,7 +25,7 @@ let workspaceRowsCache: WorkspaceRow[] | undefined
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import { deleteWorkspace, listWorkspaces, listDirectory, createWorkspace, renameWorkspace, searchAll, searchMessages, searchSessions, type DirectoryListing, type DirectoryEntry, type SessionSearchHit } from '../api.ts'
-import { errorText } from './App.tsx'
+import { errorText } from '../shared/error-text.ts'
 import { compactPath, dominantPathPrefix } from '../ui-text.ts'
 import { lastPathSegment, matchText, normalizeTerm, type MatchRanges, type TextMatch } from '../search-match.ts'
 import { rememberLocateIntent } from '../locate-intent.ts'

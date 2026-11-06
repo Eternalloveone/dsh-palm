@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { errorText } from './App.tsx'
+import { errorText } from '../shared/error-text.ts'
 
 /** One curated registry entry (subset of the /dsh-market/registry shape). */
 interface RegistryPlugin {

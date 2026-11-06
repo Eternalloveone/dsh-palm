@@ -14,7 +14,7 @@ import { listAgentPresets, mutateSettings } from '../api.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { fieldMeta } from '../settings-meta.ts'
 import { truncate } from '../shared/text.ts'
-import { errorText } from './App.tsx'
+import { errorText } from '../shared/error-text.ts'
 
 /** One node of the schemastery schema envelope (schema.toJSON()). */
 interface SchemaNode {

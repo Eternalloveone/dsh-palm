@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { errorText, staleHostHint } from './views/App.tsx'
+import { errorText, staleHostHint } from './shared/error-text.ts'
 import { sendCommand, respondApproval, respondQuestion, fetchGitSummary, listDirectory, type CommandDescriptor, type DirectoryListing, type GitSummary } from './api.ts'
 import type { PendingApproval, PendingQuestionItem } from './api.ts'
 import { RpcCallError } from './rpc.ts'

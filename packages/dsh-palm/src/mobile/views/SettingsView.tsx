@@ -13,7 +13,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
 import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
-import { errorText } from './App.tsx'
+import { errorText } from '../shared/error-text.ts'
 import { readDiagnostics, type MobileHealthView } from '../api.ts'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
 import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
