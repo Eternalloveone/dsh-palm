@@ -23,6 +23,8 @@ const STORE = 'history'
 const HISTORY_TTL_MS = 24 * 60 * 60 * 1000
 /** Entry cap: evict the oldest (by savedAt) past this so a long-lived page
  *  never grows the store without limit. */
+import { rowIdentity, type RenderMessage } from './messages.ts'
+
 const HISTORY_MAX_ENTRIES = 50
 
 /** One cached tail page (the caller's page type rides the generic). */
@@ -181,16 +183,52 @@ export function mergeCachedPage<T>(existing: T | undefined, incoming: T): T {
     if (seq === undefined) return incoming
     bySeq.set(seq, row)
   }
-  const rows = [...bySeq.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([, row]) => row)
-    .slice(-CACHE_MAX_ROWS)
+  const rows = collapseByIdentity(
+    [...bySeq.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, row]) => row),
+  ).slice(-CACHE_MAX_ROWS)
   const maxSeq = typeof previous.maxSeq === 'number' ? Math.max(previous.maxSeq, next.maxSeq) : next.maxSeq
   return {
     ...(next as object),
     rows,
     maxSeq,
   } as unknown as T
+}
+
+/**
+ * 按**逻辑身份**再收一次（seq 去重不够）。
+ *
+ * 同一行在"流式快照"里可能带 seq=120，在宿主那一页里带 seq=118（或 startSeq 不同）——
+ * 只按 seq 合并会把它留成两行，界面上就是同一条消息出现两次、id 还相同（历史上那次
+ * 13 处重复 id 正是这个成因）。这里保留 **seq 较大**的那份：它更接近宿主的最终形态。
+ *
+ * 注意：没有数字 seq 的行原样保留（形状不认识就不猜，交给上层 dedupeById 兜底）。
+ */
+function collapseByIdentity(rows: unknown[]): unknown[] {
+  const byIdentity = new Map<string, unknown>()
+  const passthrough: unknown[] = []
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null) { passthrough.push(row); continue }
+    const seq = (row as { seq?: unknown }).seq
+    if (typeof seq !== 'number' || !Number.isFinite(seq)) { passthrough.push(row); continue }
+    const key = rowIdentity(row as RenderMessage)
+    const previous = byIdentity.get(key)
+    if (previous === undefined) {
+      byIdentity.set(key, row)
+      continue
+    }
+    const previousSeq = (previous as { seq?: unknown }).seq
+    if (typeof previousSeq === 'number' && previousSeq > seq) continue
+    byIdentity.set(key, row)
+  }
+  // 折叠会打乱"第一次出现"的顺序（保留的是后到但 seq 更大的那份），所以按 seq 重排一次：
+  // 调用方（renderRows / 缓存读端）都假定行是 seq 升序。
+  const seqOfRow = (row: unknown): number => {
+    const seq = (row as { seq?: unknown }).seq
+    return typeof seq === 'number' && Number.isFinite(seq) ? seq : Number.POSITIVE_INFINITY
+  }
+  return [...byIdentity.values(), ...passthrough].sort((a, b) => seqOfRow(a) - seqOfRow(b))
 }
 
 /** Evict the oldest entries past the cap (by savedAt). */

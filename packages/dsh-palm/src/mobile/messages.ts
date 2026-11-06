@@ -2027,7 +2027,13 @@ function sameRenderedRow(left: RenderMessage, right: RenderMessage): boolean {
   return true
 }
 
-function rowIdentity(row: RenderMessage): string {
+/**
+ * 一行在对话里的**逻辑身份**（不是 id、不是 seq）。
+ *
+ * 导出是给缓存合并用的：缓存按 seq 判重，而同一逻辑行在"流式快照"与"宿主页"里可能带不同
+ * seq —— 只按 seq 合并就会把同一行留两份（历史上那次 13 处重复 id 就是这么来的）。
+ */
+export function rowIdentity(row: RenderMessage): string {
   // 身份只描述「这一行在对话里的位置」，且必须**在流式过程中保持不变**：
   //   · 交付卡按轮唯一（它和本轮最后一条助手行可能共享 seq，先认轮号才不会并进正文）；
   //   · 有 (turn, step) 就按它 —— 宿主折叠、实时帧、缓存快照给的都是这个位置；

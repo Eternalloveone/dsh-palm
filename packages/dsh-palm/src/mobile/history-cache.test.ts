@@ -187,4 +187,50 @@ describe('缓存合并只许变多（I3 单调）', () => {
     expect(merged.rows).toHaveLength(400)
     expect((merged.rows.at(-1) as { seq?: number }).seq).toBe(500)
   })
+
+  /**
+   * 历史上真实发生过的事故：同一逻辑行在"流式快照"和"宿主页"里带不同 seq，
+   * 只按 seq 合并会把它留两份 —— 界面上同一条消息出现两次、id 还相同（当时 13 处）。
+   * 判据：合并后同一 (turn, step) 只剩一行，且留下的是 seq 大的那份。
+   */
+  it('同一行不同 seq 只留一份（保留 seq 大的那份）', () => {
+    const cached = {
+      rows: [
+        { seq: 118, turn: 3, step: 2, id: 'm-turn3-step2', kind: 'assistant' },
+        { seq: 119, turn: 3, step: 3, id: 'm-turn3-step3', kind: 'assistant' },
+      ],
+      maxSeq: 119,
+      hasMore: false,
+    }
+    const incoming = {
+      rows: [
+        // 同一行，宿主给了更大的 seq（流式早期写进缓存的是临时 seq）
+        { seq: 130, turn: 3, step: 2, id: 'm-turn3-step2', kind: 'assistant' },
+        { seq: 131, turn: 4, step: 1, id: 'm-turn4-step1', kind: 'assistant' },
+      ],
+      maxSeq: 131,
+      hasMore: false,
+    }
+    const merged = mergeCachedPage(cached, incoming)
+    const ids = merged.rows.map(row => (row as { id?: string }).id)
+    expect(ids).toEqual(['m-turn3-step3', 'm-turn3-step2', 'm-turn4-step1'])
+    // 留下的是 seq 大的那份（130，不是 118）
+    const kept = merged.rows.find(row => (row as { id?: string }).id === 'm-turn3-step2') as { seq?: number }
+    expect(kept.seq).toBe(130)
+  })
+
+  it('交付卡与正文共享 seq 时不互相吞掉（按轮身份分家）', () => {
+    const cached = {
+      rows: [{ seq: 199, kind: 'turn', turn: 5, id: 'card-5' }],
+      maxSeq: 200,
+      hasMore: false,
+    }
+    const incoming = {
+      rows: [{ seq: 200, kind: 'assistant', turn: 5, step: 4, id: 'body-5-4' }],
+      maxSeq: 200,
+      hasMore: false,
+    }
+    const merged = mergeCachedPage(cached, incoming)
+    expect(merged.rows.map(row => (row as { id?: string }).id)).toEqual(['card-5', 'body-5-4'])
+  })
 })
