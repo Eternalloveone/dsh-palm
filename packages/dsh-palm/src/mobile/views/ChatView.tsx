@@ -36,15 +36,8 @@ import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, 
 } from '../messages.ts'
 import { reportDuplicateCards } from '../duplicate-report.ts'
 import { reportError } from '../api.ts'
-import {
-  createScrollState,
-  FOLLOW_THRESHOLD_PX,
-  mayAutoPin,
-  maySettlePin,
-  scrollReducer,
-  type ScrollEvent,
-  type ScrollState,
-} from '../scroll-machine.ts'
+import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
+import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { loadChatCache, saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
@@ -891,40 +884,30 @@ export function ChatView({
   const sendInFlightRef = useRef(0)
   /** 上一次提交（正文 + 时刻）：短窗内同文重复提交视为同一次意图。 */
   const lastSubmitRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
-  const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const pendingRef = useRef(false)
   /** 一页在飞时被挡下的翻页请求（落地后补发，别把点击丢掉）。 */
   const queuedOlderRef = useRef<{ beforeSeq?: number } | undefined>(undefined)
   // Live mirror of `messages`：回调可能在很久之后才跑（首帧 rAF 甚至晚于尾页
   // 落地），所以它们必须读当前列表，不是闭包创建时的那一份。
   const messagesRef = useRef(messages)
-  const scrollTopRef = useRef(0)
-  /**
-   * True while a programmatic scroll (the opening tail pin, the locate, a
-   * prepend anchor correction) is in flight, so handleScroll can tell it apart
-   * from a user gesture: the FIRST scroll event consumes the flag, and that
-   * event may neither release the locate lock nor record a reading bookmark —
-   * it is the echo of a write, not the reader leaving the bottom.
-   */
-  const programmaticScrollRef = useRef(false)
-  /** 最近一次手指接触屏幕的时刻（判断「这次滚动是不是读者造成的」）。 */
-  const lastTouchAtRef = useRef(0)
-  /** 我们写进去的 scrollTop 与写入时刻：用来认领「这次 scroll 事件是我们自己造成的」。 */
-  const programmaticValueRef = useRef(-1)
-  const programmaticAtRef = useRef(0)
-  /**
-   * 滚动策略的唯一真源（见 `scroll-machine.ts`）。
-   *
-   * 以前这里并排躺着 `gestureUntil`／`locateLock`／`suppressFollowUntil`／`bottomGapAtUserScroll`／
-   * `userScrolled`／`followedBottom` 六个 ref，每处判断都要凑齐其中三四条，漏一条就是真机上的
-   * 「抢手势」「不落底」「卡片闪」。现在只往这台机器里投事件、只问它三个问题：
-   * `mayAutoPin`（新内容到达要不要跟）、`maySettlePin`（布局还在长高要不要补钉）、
-   * `state.gap`（离底部多远）。
-   */
-  const scrollStateRef = useRef<ScrollState>(createScrollState())
-  const scrollEvent = useCallback((event: ScrollEvent): void => {
-    scrollStateRef.current = scrollReducer(scrollStateRef.current, event)
-  }, [])
+  // 滚动机制（容器/程序化认领/状态机/补拍/手势/回钉）统一在 use-chat-scroll 里；
+  // ChatView 只保留业务判断（未读、翻页、定位）。
+  const {
+    scrollRef,
+    scrollTopRef,
+    programmaticScrollRef,
+    programmaticValueRef,
+    programmaticAtRef,
+    lastTouchAtRef,
+    scrollStateRef,
+    scrollEvent,
+    setScrollTopProgrammatically,
+    pinToRealBottom,
+    scrollToBottom,
+    settleBottomRef,
+    settleBottomAfterCommit,
+    lastScrollHeightRef,
+  } = useChatScroll()
   /**
    * 会话状态机：三根条的**唯一判据**（不再是影子，渲染完全由它决定）。
    *
@@ -3608,172 +3591,6 @@ export function ChatView({
     }
   }, [])
 
-  /**
-   * Write a programmatic scroll position. handleScroll reads the flag as "the
-   * next scroll event is the echo of this write, not a reader gesture" — such
-   * an event does not release the locate lock.
-   * Armed only when the write really moves the container: an unchanged
-   * scrollTop fires no scroll event, and the stale flag would then swallow the
-   * reader's next genuine gesture.
-   */
-  const setScrollTopProgrammatically = useCallback((el: HTMLDivElement, value: number): void => {
-    if (el.scrollTop !== value) {
-      programmaticScrollRef.current = true
-      programmaticValueRef.current = value
-      programmaticAtRef.current = Date.now()
-    }
-    el.scrollTop = value
-    scrollTopRef.current = el.scrollTop
-  }, [])
-
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current
-    if (el === undefined) return
-    setScrollTopProgrammatically(el, el.scrollHeight)
-    // 这一写就是「我在最新消息这里」：交给状态机的 pin 事件记账。
-    scrollEvent({ type: 'pin' })
-  }, [setScrollTopProgrammatically, scrollEvent])
-
-  /** 钉到真正的底部。已载入的行全渲染，所以 el.scrollHeight 就是真值 —— 不再有
-   *  "估高 spacer 要补一个修正量"这一步（那正是以前落点永远差一截的来源）。 */
-  const pinToRealBottom = useCallback(() => {
-    const el = scrollRef.current
-    if (el === undefined) return
-    setScrollTopProgrammatically(el, el.scrollHeight)
-  }, [setScrollTopProgrammatically])
-
-  /**
-   * 钉底之后再补两拍。
-   *
-   * commit 那一刻量到的 scrollHeight 常常**已经过期**：计划胶囊、字体、图片、
-   * 「加载更早的消息」按钮都在这一帧之后才把高度长出来，于是首屏停在离底 30~40px
-   * 的地方（真机实测 gap=34）。rAF 一拍解决绝大多数，120ms 那一拍兜字体/图片。
-   * 只在读者本来就贴底时补，往上翻历史的人不受影响。
-   */
-  const settleBottomRef = useRef<() => void>(() => {})
-  /** 当前这一轮"钉底补拍"的句柄：切换会话/重发时取消旧的，别让旧定时器继续读布局。 */
-  const settleBurstRef = useRef<{ cancel(): void } | null>(null)
-  const settleBottomAfterCommit = useCallback(() => {
-    const pinIfShort = (): boolean => {
-      const el = scrollRef.current
-      if (el === undefined) return true
-      if (!maySettlePin(scrollStateRef.current, Date.now())) return true
-      const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (gap <= 2) return true
-      setScrollTopProgrammatically(el, el.scrollHeight)
-      lastScrollHeightRef.current = el.scrollHeight
-      return false
-    }
-    // 布局安定前反复补：长列表的高度是分段长出来的（content-visibility 行铺开、
-    // 卡片补进来、字体换行），一次 rAF 只覆盖最简单的情况。拍子递减，最多到 4 秒；
-    // 读者一动手（状态机的 userMoved）或已经贴底就整段作废 —— 以前这里只是"不再
-    // 钉底"，剩下的定时器仍会逐个触发一次强制布局（审计：长回答期间同时挂 30–70 个）。
-    requestAnimationFrame(() => { pinIfShort() })
-    // 尾巴拉长到 4 秒：实测「再次进入」时最后一段高度（交付卡、图片、字体换行）
-    // 可能在 1.5 秒之后才长出来，那时停在离底 41px 的地方，最后一行被切一半。
-    settleBurstRef.current?.cancel()
-    settleBurstRef.current = scheduleSettleBurst([60, 180, 400, 800, 1_500, 2_500, 3_500, 4_000], () => pinIfShort())
-  }, [setScrollTopProgrammatically])
-
-  // 卸载（切换会话/返回列表）时取消补拍：旧实例的定时器没有意义，还会白读布局。
-  useEffect(() => () => {
-    settleBurstRef.current?.cancel()
-    settleBurstRef.current = null
-  }, [])
-
-  /**
-   * 内容变短时回钉（审计 P1：长回答收尾折叠到 45vh，「滚到底的人被抽走内容」）。
-   *
-   * MarkdownText 只报告事实（多高 → 少了多少）；这里判断该不该动：
-   * 只有缩之前就贴底、且没有被手指接管（maySettlePin）的读者才回钉，
-   * 读历史的人一概不动。
-   */
-  useEffect(() => {
-    const onShrunk = (event: Event): void => {
-      const detail = (event as CustomEvent<{ delta?: number }>).detail
-      const delta = typeof detail?.delta === 'number' ? detail.delta : 0
-      requestAnimationFrame(() => {
-        const el = scrollRef.current
-        if (el === undefined) return
-        if (!maySettlePin(scrollStateRef.current, Date.now())) return
-        const after = el.scrollHeight
-        if (!shouldRepinAfterShrink({ before: after + delta, after })) return
-        setScrollTopProgrammatically(el, after)
-        lastScrollHeightRef.current = after
-      })
-    }
-    window.addEventListener('palm:content-shrunk', onShrunk)
-    return () => { window.removeEventListener('palm:content-shrunk', onShrunk) }
-  }, [setScrollTopProgrammatically])
-  settleBottomRef.current = settleBottomAfterCommit
-
-  /**
-   * 手指按下/抬起：这段时间里**绝不抢滚动**。
-   *
-   * 用原生监听（passive）而不是 JSX 属性：那个容器上已经有缩放/长按的手势处理器，
-   * 再挂 React 的 onTouchStart 会互相吃掉，而且在滚动容器上挂非 passive 监听会拖慢滚动。
-   */
-  useEffect(() => {
-    // 挂在 window 上而不是 scrollRef.current 上：聊天页是「先加载态、后渲染列表」，
-    // 挂载那一刻容器可能还不存在，挂到容器上就永远挂不上 —— 手势于是全被当成
-    // 程序化回声，跟随锁存关不掉（真机：往上翻之后画面又被拽回底部）。
-    const inChat = (target: EventTarget | null): boolean =>
-      target instanceof Element && target.closest('.chat-scroll') !== null
-    const start = (event: Event): void => {
-      if (!inChat(event.target)) return
-      lastTouchAtRef.current = Date.now()
-      scrollEvent({ type: 'touch-start', at: Date.now() })
-    }
-    const end = (event: Event): void => {
-      if (!inChat(event.target)) return
-      lastTouchAtRef.current = Date.now()
-      scrollEvent({ type: 'touch-end', at: Date.now() })
-    }
-    // 滚轮也算读者意图：桌面/宽屏用鼠标滚一圈，同样不该被当成程序化回声。
-    const wheel = (event: Event): void => {
-      if (!inChat(event.target)) return
-      lastTouchAtRef.current = Date.now()
-    }
-    window.addEventListener('touchstart', start, { passive: true })
-    window.addEventListener('touchend', end, { passive: true })
-    window.addEventListener('touchcancel', end, { passive: true })
-    window.addEventListener('wheel', wheel, { passive: true })
-    return () => {
-      window.removeEventListener('touchstart', start)
-      window.removeEventListener('touchend', end)
-      window.removeEventListener('touchcancel', end)
-      window.removeEventListener('wheel', wheel)
-    }
-  }, [scrollEvent])
-
-  /**
-   * 视口自己变了也要跟随：输入框那一带的高度不是恒定的（模型名换行、上下文百分比、
-   * 排队条/状态条出现又消失、键盘弹出），`chat-scroll` 的 clientHeight 一变，
-   * scrollTop 不动就凭空多出几十像素的 gap —— 真机实测 34px、而且**没有任何消息变化**，
-   * 所以只靠 messages 变化触发的跟随永远补不上（诊断：写入时 client=682，之后变成 648）。
-   */
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el === undefined) return
-    if (typeof ResizeObserver === 'undefined') return
-    const pin = (): void => {
-      // 只有「读者本来就贴底」时才补钉；往上翻历史的人不许被拽回来。
-      if (!mayAutoPin(scrollStateRef.current, Date.now())) return
-      const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (gap <= 2) return
-      setScrollTopProgrammatically(el, el.scrollHeight)
-      lastScrollHeightRef.current = el.scrollHeight
-    }
-    const observer = new ResizeObserver(pin)
-    // 容器（视口高度）和**内容**（消息列表）都要盯：以前只盯容器，于是
-    // 「消息没变、内容长高」（卡片展开、图片、字体换行）时收不到通知，gap 一路累积
-    // 到几百像素（真机 243px，最后一行被切一半）。
-    observer.observe(el)
-    const content = el.firstElementChild
-    if (content !== null) observer.observe(content)
-    return () => { observer.disconnect() }
-  }, [setScrollTopProgrammatically])
-
   // Track the last message's fold key so scrolling only fires when the
   // newest message actually changes (seq bump and/or pending flip). Runs
   // after React has committed the render, so scrollHeight reflects the
@@ -3787,7 +3604,7 @@ export function ChatView({
    * （卡片补进来、markdown 展开、图片撑开），scrollTop 不动，内容在视口上方长高，
    * 画面就往上滑了。所以身份相同也要比一次高度。
    */
-  const lastScrollHeightRef = useRef(0)
+  // 高度比较用上一帧值（ref 由 useChatScroll 提供）。
   /** Whether the reader scrolled away from the bottom (jump-to-latest button). */
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   /** New turns that arrived while the reader was away (badge count). One
