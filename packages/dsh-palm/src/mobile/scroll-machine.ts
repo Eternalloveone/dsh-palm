@@ -38,8 +38,6 @@ export interface ScrollState {
   mode: ScrollMode
   /** 最近一次量到的「离底部还有多少像素」。 */
   gap: number
-  /** 手势静默窗口截止时间。 */
-  gestureUntil: number
   /** 显式抑制窗口截止时间（发送后、翻页挂载期间）。 */
   suppressUntil: number
   /** 搜索定位锁的截止时间（到点自解，避免永久挡住跟随）。 */
@@ -89,7 +87,6 @@ export function createScrollState(): ScrollState {
   return {
     mode: 'following',
     gap: 0,
-    gestureUntil: 0,
     suppressUntil: 0,
     locateUntil: 0,
     userMoved: false,
@@ -189,7 +186,6 @@ export function maySettlePin(state: ScrollState, now: number): boolean {
   if (state.userMoved) return false
   if (state.touching) return false
   if (state.locateUntil > now) return false
-  if (now < state.gestureUntil) return false
   if (now < state.suppressUntil) return false
   return true
 }
