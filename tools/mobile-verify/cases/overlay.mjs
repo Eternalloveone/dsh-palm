@@ -133,49 +133,37 @@ export default [
     title: '--toast-lift 跟随 HUD 实际高度（不依赖是否有真排队条）',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
-      const readLift = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--toast-lift')) || 0)
-      const before = await readLift()
-      ctx.assert(before >= 96, `--toast-lift 初值 ${before}px 低于下限`)
+      // 全部在**同一个 JS task** 里完成：注入 → 触发 resize（生产监听同步执行 update）
+      // → 读 → 移除 → 再读。否则宿主的真实 HUD（排队条随回合进出）会在两次读之间变化，
+      // 断言就会被真实状态漂移污染（实测：96 → 197 → 161）。
+      const probe = await page.evaluate(() => {
+        const root = document.documentElement
+        const read = () => parseFloat(getComputedStyle(root).getPropertyValue('--toast-lift')) || 0
+        const before = read()
 
-      // 注入一条 120px 的假 HUD（只在这条用例里存在，结束即删；不碰宿主状态），
-      // 再触发一次 resize，让 measure 逻辑按真实代码路径重算。
-      await page.evaluate(() => {
         const hud = document.createElement('div')
         hud.className = 'chat-hud'
         const bar = document.createElement('div')
-        bar.id = '__overlay_probe_hud'
         bar.style.height = '120px'
         hud.appendChild(bar)
         const composer = document.querySelector('.chat-composer')
         composer?.parentElement?.insertBefore(hud, composer)
         window.dispatchEvent(new Event('resize'))
-      })
-      await page.waitForTimeout(250)
-      const withHud = await readLift()
-      const probe = await page.evaluate(() => {
-        const hud = document.querySelector('.chat-hud')
-        const child = document.getElementById('__overlay_probe_hud')
-        return {
-          huds: document.querySelectorAll('.chat-hud').length,
-          hudH: hud === null ? null : hud.getBoundingClientRect().height,
-          childH: child === null ? null : child.getBoundingClientRect().height,
-        }
-      })
+        const withHud = read()
+        const childHeight = bar.getBoundingClientRect().height
 
-      await page.evaluate(() => {
-        document.getElementById('__overlay_probe_hud')?.parentElement?.remove()
+        hud.remove()
         window.dispatchEvent(new Event('resize'))
+        const after = read()
+        return { before, withHud, after, childHeight }
       })
-      await page.waitForTimeout(250)
-      const after = await readLift()
 
+      ctx.assert(probe.before >= 96, `--toast-lift 初值 ${probe.before}px 低于下限`)
       // 精确值由 toast-lift 的单测钉死；这里证明「HUD 出现 → lift 真的跟着变」。
       // 不要求恰好 120：HUD 与输入栏之间还有 flex 间距，其他状态条也可能在同一区域。
-      ctx.assert(withHud - before >= 90, `HUD 出现后 lift 只抬高了 ${(withHud - before).toFixed(0)}px（lift ${before}→${withHud}，huds=${probe.huds} childH=${probe.childH}）`)
-      // 回落基准用 withHud 而不是 before：用例执行期间宿主可能真的新增/消费了一条排队
-      // 消息（HUD 是活的状态），before 会过期。
-      ctx.assert(withHud - after >= 90, `移除探测 HUD 后没有回落（${before} → ${withHud} → ${after}）`)
-      return `lift ${before} → ${withHud} → ${after}`
+      ctx.assert(probe.withHud - probe.before >= 90, `HUD 出现后 lift 只抬高了 ${(probe.withHud - probe.before).toFixed(0)}px（lift ${probe.before}→${probe.withHud}，childH=${probe.childHeight}）`)
+      ctx.assert(Math.abs(probe.after - probe.before) <= 1, `移除探测 HUD 后没有回落（${probe.before} → ${probe.withHud} → ${probe.after}）`)
+      return `lift ${probe.before} → ${probe.withHud} → ${probe.after}`
     },
   },
   {
