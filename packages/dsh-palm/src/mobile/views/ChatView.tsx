@@ -26,7 +26,7 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
 import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, imageFromClipboard, type PromptPart } from '../image.ts'
@@ -43,6 +43,7 @@ import { usePendingPoll } from './chat/use-pending-poll.ts'
 import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
 import { useChatSession } from './chat/use-chat-session.ts'
 import { useChatAttachments } from './chat/use-chat-attachments.ts'
+import { useChatVoice } from './chat/use-chat-voice.ts'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../chat-cache.ts'
@@ -309,10 +310,8 @@ import {
 } from '../session-store.ts'
 import { goalAction, goalOf, searchSessions, type MobileGoalAction } from '../api.ts'
 import { onConnectivityChange, reportConnectivity, RpcCallError } from '../rpc.ts'
-import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
-import { voiceStatusClassName, voiceStatusText } from '../voice-status.ts'
-import { createLiveCaptions, type LiveCaptions } from '../live-captions.ts'
-import { getVoiceServices } from '../voice-services.ts'
+import { voiceSupported } from '../voice-input.ts'
+import { voiceStatusClassName } from '../voice-status.ts'
 import { toast } from '../toast.tsx'
 import { useToastLift } from '../toast-lift.ts'
 import { scheduleSettleBurst } from '../settle-timers.ts'
@@ -1123,23 +1122,21 @@ export function ChatView({
   const [queuedCount, setQueuedCount] = useState(0)
   /** The queued outbox entries (banner lets the user remove one at a time). */
   const [queuedEntries, setQueuedEntries] = useState<OutboxEntry[]>([])
-  /** Voice recording sheet + the live recorder handle and its phase. */
-  const [voiceOpen, setVoiceOpen] = useState(false)
-  const [voicePartial, setVoicePartial] = useState('')
-  const [voicePhase, setVoicePhase] = useState<'recording' | 'transcribing'>('recording')
-  const voiceRef = useRef<VoiceRecording | undefined>(undefined)
-  /** 波形元素：响度直接写进它的 CSS 变量，免得每 85ms 触发一次整页重渲染。 */
-  const voiceWaveRef = useRef<HTMLDivElement | null>(null)
-  /** 「完成」按钮与打开前的焦点：面板打开把焦点送进来，关掉还回原处。 */
-  const voiceDoneRef = useRef<HTMLButtonElement | null>(null)
-  const voiceReturnFocusRef = useRef<HTMLElement | null>(null)
-  /** 已录秒数：面板上给一个看得见的节奏，别只有一句「正在听...」。 */
-  const [voiceElapsed, setVoiceElapsed] = useState(0)
-  const voiceStatus = voiceStatusText(voicePhase, voicePartial, voiceElapsed)
-  /** 每次打开/关闭都换一个代号：面板关掉之后回来的转写结果按代号丢弃。 */
-  const voiceRunRef = useRef(0)
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
   const mountedRef = useRef(true)
+  /** 语音输入（录音面板 / 实时字幕 / 转写回填）全部归 use-chat-voice（S4b 从本文件搬出）。 */
+  const {
+    voiceOpen,
+    voicePartial,
+    voicePhase,
+    voiceElapsed,
+    voiceStatus,
+    voiceWaveRef,
+    voiceDoneRef,
+    openVoice,
+    finishVoice,
+    closeVoice,
+  } = useChatVoice({ mountedRef, setInput })
   /** Pinch-zoom state for code blocks (one active gesture at a time). */
   const pinchRef = useRef<{ block: HTMLElement; dist0: number; scale0: number } | undefined>(undefined)
   /**
@@ -5769,161 +5766,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     )
   }, [input, attachImages, attachFiles, uploadingFiles, sending, session.sessionId, mux, quoted, runCommand, refreshInbox, refreshGoal, claimedCommand])
 
-  /* ── voice input ───────────────────────────────────────────────────── */
-
-  const voicePartialRef = useRef('')
-  /** 实时字幕机与它的取样定时器（录音中才存在）。 */
-  const voiceCaptionsRef = useRef<LiveCaptions | undefined>(undefined)
-  const voiceCaptionTimerRef = useRef<number | undefined>(undefined)
-  /** 收掉实时字幕：停掉取样定时器，并丢弃在飞的结果。 */
-  const stopCaptions = useCallback((): void => {
-    voiceCaptionsRef.current?.stop()
-    voiceCaptionsRef.current = undefined
-    if (voiceCaptionTimerRef.current !== undefined) {
-      window.clearInterval(voiceCaptionTimerRef.current)
-      voiceCaptionTimerRef.current = undefined
-    }
-  }, [])
-
-  // Release the mic when the chat unmounts (session switch / back): a pending
-  // getUserMedia authorization or a live recorder must never leak the
-  // MediaStream (the browser's recording indicator would stay on). The
-  // mountedRef guard also stops the async openVoice callback from setting
-  // state on an unmounted component.
-  useEffect(() => () => {
-    mountedRef.current = false
-    stopCaptions()
-    voiceRef.current?.cancel()
-    voiceRef.current = undefined
-  }, [stopCaptions])
-
-  // 录音面板上的秒表：只在真的在录的时候走，转写中停住。
-  useEffect(() => {
-    if (!voiceOpen || voicePhase !== 'recording') return
-    const started = Date.now()
-    const timer = window.setInterval(() => {
-      setVoiceElapsed(Math.min(60, Math.floor((Date.now() - started) / 1000)))
-    }, 1000)
-    return () => { window.clearInterval(timer) }
-  }, [voiceOpen, voicePhase])
-
-  /** Discard the current recording and close the sheet. */
-  /**
-   * 面板的焦点管理：打开时记住是谁打开的（语音按钮），关上还给它。
-   * 不做这件事的话，面板一关焦点落回 body，接着按空格会滚动页面而不是再按一次语音。
-   */
-  useEffect(() => {
-    if (!voiceOpen) return
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    voiceReturnFocusRef.current = previous
-    voiceDoneRef.current?.focus()
-    return () => {
-      const target = voiceReturnFocusRef.current
-      voiceReturnFocusRef.current = null
-      if (target !== null && target.isConnected) target.focus()
-    }
-  }, [voiceOpen])
-
-  const closeVoice = useCallback((): void => {
-    // 换代号：正在跑的转写回来时对不上号，就不再往输入框里塞字。
-    voiceRunRef.current += 1
-    stopCaptions()
-    voiceRef.current?.cancel()
-    voiceRef.current = undefined
-    setVoiceElapsed(0)
-    voicePartialRef.current = ''
-    setVoicePartial('')
-    setVoiceOpen(false)
-    setVoicePhase('recording')
-  }, [])
-
-  /** Finish recording → upload the WAV → transcribe → fill the composer. */
-  const finishVoice = useCallback((): void => {
-    const recorder = voiceRef.current
-    if (recorder === undefined) {
-      setVoiceOpen(false)
-      return
-    }
-    voiceRef.current = undefined
-    // 松手之后由最终转写说话，字幕立刻收掉（否则迟到的字幕会让面板闪一下）。
-    stopCaptions()
-    const run = voiceRunRef.current
-    setVoicePhase('transcribing')
-    setVoiceElapsed(0)
-    void recorder.stop().then(
-      (wavBase64) => {
-        voicePartialRef.current = '转写中...'
-        setVoicePartial('转写中...')
-        void transcribeVoice(wavBase64, getVoiceServices()).then(
-          (text) => {
-            // 用户已经关掉面板（取消了这次录音）：结果直接丢弃。
-            if (run !== voiceRunRef.current) return
-            voicePartialRef.current = ''
-            setVoicePartial('')
-            setVoiceOpen(false)
-            setVoicePhase('recording')
-            if (text.trim() !== '') {
-              setInput(previous => (previous.trim() === '' ? text.trim() : `${previous.replace(/\s+$/, '')} ${text.trim()}`))
-            }
-          },
-          (reason: unknown) => {
-            setVoiceOpen(false)
-            setVoicePhase('recording')
-            toast(reason instanceof Error ? reason.message : String(reason))
-          },
-        )
-      },
-      (message: unknown) => {
-        setVoiceOpen(false)
-        setVoicePhase('recording')
-        toast(message instanceof Error ? message.message : String(message))
-      },
-    )
-  }, [])
-
-  /** Open the recording sheet and start capturing audio. */
-  const openVoice = useCallback((): void => {
-    voicePartialRef.current = ''
-    voiceRunRef.current += 1
-    setVoiceElapsed(0)
-    setVoicePhase('recording')
-    void startVoiceRecording({
-      // The 60 s hard cap is reached: auto-finish so the sheet transcribes
-      // what was captured instead of sitting on "正在听..." forever.
-      onTimeout: () => { finishVoice() },
-      // 波形跟着真实响度起伏：麦克风被静音、戴耳机、被别的应用抢占时，用户能自己看出来。
-      onLevel: (level) => { voiceWaveRef.current?.style.setProperty('--voice-level', String(level)) },
-    }).then(
-      (recorder) => {
-        // The chat unmounted while the mic was still authorizing: release
-        // the stream instead of opening a sheet on a dead component.
-        if (!mountedRef.current) {
-          recorder.cancel()
-          return
-        }
-        voiceRef.current = recorder
-        setVoiceOpen(true)
-        // 实时字幕：边录边把已录到的音频送去转写。宿主没有流式 ASR，这里是
-        // 「滚动整段重转」——节流与并发由 live-captions 把关，失败静默。
-        const captions = createLiveCaptions({
-          transcribe: (audio) => transcribeVoice(audio, getVoiceServices()),
-          onText: (text) => {
-            voicePartialRef.current = text
-            setVoicePartial(text)
-          },
-        })
-        voiceCaptionsRef.current = captions
-        // 每 700ms 看一次：真正发不发由字幕机按 2s 节奏与在飞状态决定。
-        voiceCaptionTimerRef.current = window.setInterval(() => {
-          // 传函数而不是值：被节流挡下的那一半就不用编码整段 WAV。
-        captions.offer(() => voiceRef.current?.snapshot())
-        }, 700)
-      },
-      (message: unknown) => {
-        if (mountedRef.current) toast(message instanceof Error ? message.message : String(message))
-      },
-    )
-  }, [finishVoice])
+  /* ── voice input ── 实现见 views/chat/use-chat-voice.ts（S4b 从本文件搬出） ── */
 
   /**
    * Stop the active turn (desktop parity: the composer's primary button
