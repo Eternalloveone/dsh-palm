@@ -26,7 +26,7 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallChatSnapshot, recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
 import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, fetchPending, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage, type PromptPart } from '../image.ts'
@@ -38,6 +38,7 @@ import { reportDuplicateCards } from '../duplicate-report.ts'
 import { reportError } from '../api.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
 import { useChatScroll } from './chat/use-chat-scroll.ts'
+import { usePendingPoll } from './chat/use-pending-poll.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { loadChatCache, saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
@@ -52,8 +53,8 @@ import {
   type StatusEvent,
 } from '../session-status.ts'
 import { perfMark } from '../perf.ts'
-import { adoptPolledQuestions, answeredQuestionsFor, noteAnsweredQuestion } from '../question-batches.ts'
-import { adoptPolledApprovals, answeredApprovalsFor, noteAnsweredApproval } from '../approval-batches.ts'
+import { answeredQuestionsFor, noteAnsweredQuestion } from '../question-batches.ts'
+import { answeredApprovalsFor, noteAnsweredApproval } from '../approval-batches.ts'
 
 /**
  * Rows → rendered list: dedupe the same turn's step rows into one process card,
@@ -536,8 +537,6 @@ const SLOW_NETWORK_CACHE_MS = 250
 /** 交付卡补读只覆盖最近几轮：再往前的历史轮次不该在翻页时「长出来」。 */
 const REPORT_RECOVERY_WINDOW_TURNS = 2
 
-/** Pending-item poll cadence while the SSE stream is delivering (safety net only). */
-export const PENDING_POLL_IDLE_MS = 15_000
 /**
  * 断网横幅挂着的时候自己探宿主的周期。安卓上 `online` 事件经常不来（换基站、
  * 锁屏回来、5G 与流量切换），只靠事件横幅会一直挂着。
@@ -547,8 +546,6 @@ export const OFFLINE_PROBE_MS = 5_000
 export const OFFLINE_PROBE_TIMEOUT_MS = 4_000
 /** 同一条卡补读失败后多久再试：列表整份换掉时卡要靠它自己回来。 */
 export const CARD_SYNC_COOLDOWN_MS = 3_000
-/** Pending-item poll cadence while the SSE stream is stalled (fast coverage). */
-export const PENDING_POLL_FAST_MS = 1_500
 /** Host running-reconciliation cadence while the indicator is on (self-heals a lost turn/end). */
 /**
  * 在跑时的**兜底**核对周期。运行状态的主来源是宿主在轮次边界主动推的
@@ -2933,48 +2930,15 @@ export function ChatView({
     })
   }, [mux, session.sessionId, reconcileRunning, applyInbox])
 
-  // Weak-network polling fallback: when the assistant is running, poll for
-  // pending approvals/questions so the phone can act even if the SSE channel
-  // drops frames (#1025). The cadence adapts to the live stream: while SSE is
-  // delivering (pending items also arrive as frames) poll slowly as a safety
-  // net; only while it is stalled does the poll go fast.
-  useEffect(() => {
-    if (!running || !foreground) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const tick = (): void => {
-      if (cancelled) return
-      void fetchPending(session.sessionId).then(
-        (state) => {
-          if (cancelled) return
-          // Polling is a weak-network fallback: never let an empty poll result
-          // clobber a panel the live SSE stream already showed. A dropped
-          // question/requested frame (tunnel blip) would otherwise make the
-          // panel vanish seconds after it appears. Only adopt non-empty results.
-          startTransition(() => {
-            // A response already in flight when the user answered still carries
-            // the retired approval: filtered out like the question batch is.
-            setPendingApprovals(prev =>
-              adoptPolledApprovals(prev, state.approvals, answeredApprovalsFor(session.sessionId)))
-            // The poll is authoritative for what the host still holds, but the
-            // tracker behind it can carry a batch this phone already answered
-            // (its question/resolved frame was missed): see question-batches.ts.
-            setPendingQuestions(prev =>
-              adoptPolledQuestions(prev, state.questions, answeredQuestionsFor(session.sessionId)))
-          })
-        },
-        () => { /* transient; next tick retries */ },
-      )
-      const live = mux?.isSseLive() ?? true
-      // While SSE is delivering, pending items also arrive as frames — the
-      // poll is only a safety net for dropped frames, so it runs at a long
-      // cadence (4× the idle interval) instead of adding a request every
-      // 15 s on a weak link. Only a stalled SSE goes fast.
-      timer = setTimeout(tick, live ? PENDING_POLL_IDLE_MS * 4 : PENDING_POLL_FAST_MS)
-    }
-    tick()
-    return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
-  }, [running, session.sessionId, mux, foreground])
+  // 弱网兜底轮询（审批/问题）：主来源仍是 SSE 帧，这里只防丢帧。
+  usePendingPoll({
+    sessionId: session.sessionId,
+    running,
+    foreground,
+    mux,
+    setApprovals: setPendingApprovals,
+    setQuestions: setPendingQuestions,
+  })
 
   // Running reconciliation: the live turn/end frame can be lost to a tunnel
   // blip - the EventSource reconnects, its keep-alives resume, the polling
