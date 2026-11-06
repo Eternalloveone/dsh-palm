@@ -75,7 +75,17 @@ export default [
     title: '「加载更早的消息」会追加行',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
-      const before = (await chatMetrics(page)).rows
+      /**
+       * 判据用「**新 id 进来**」而不是「行数变多」。
+       *
+       * 行数会**合理地**变少：一轮正在流式输出时，过程行会被折叠合并（实测全量跑里
+       * 出现过 98 → 97 的假失败，而单跑又是 97 → 124）。旧判据 `after > before` 把
+       * 这种正常折叠当成了缺陷。新判据只看"有没有原来不存在的消息 id 出现"，折叠
+       * 不影响它；真的没翻到更早的消息时它仍然会红。
+       */
+      const idsOf = () => page.evaluate(() =>
+        [...document.querySelectorAll('[data-message-id]')].map(el => el.getAttribute('data-message-id') ?? ''))
+      const before = await idsOf()
       const button = page.locator('button', { hasText: '加载更早的消息' }).first()
       // 先滚到顶再看按钮：这条按钮只在"上面还有更早内容"时渲染，
       // 而贴底进入会话时它常常还没挂上（实测一次误报"没有按钮"）。
@@ -86,21 +96,27 @@ export default [
       ctx.assert((await button.count()) > 0, '没有「加载更早的消息」按钮')
       // 按钮在「正在加载」时是 disabled 的：直接 force click 会点在禁用按钮上，
       // 行数自然不涨（实测 2026-10-30 一次 114 → 114 的假失败，重跑就 114 → 124）。
-      // 先等它变成可点，点完再等行数真的增长，而不是睡固定 2.6 秒。
+      // 先等它变成可点，点完再等新行真的进来，而不是睡固定 2.6 秒。
       await button.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {})
       for (let i = 0; i < 40 && (await button.isDisabled()); i += 1) await page.waitForTimeout(150)
       ctx.assert(!(await button.isDisabled()), '「加载更早的消息」一直是禁用的（上一页还没读完？）')
       await button.click()
       const grew = await page
         .waitForFunction(
-          count => document.querySelectorAll('[data-message-id]').length > count,
+          ids => {
+            const now = [...document.querySelectorAll('[data-message-id]')]
+              .map(el => el.getAttribute('data-message-id') ?? '')
+            const known = new Set(ids)
+            return now.some(id => !known.has(id))
+          },
           before,
           { timeout: 12_000 },
         )
         .then(() => true, () => false)
-      const after = (await chatMetrics(page)).rows
-      ctx.assert(grew && after > before, `行数没有增加（${before} → ${after}）`)
-      return `${before} → ${after}`
+      const after = await idsOf()
+      const added = after.filter(id => !before.includes(id)).length
+      ctx.assert(grew && added > 0, `没有新行进来（${before.length} → ${after.length} 行，新 id ${added} 个）`)
+      return `${before.length} → ${after.length} 行（新 id ${added} 个）`
     },
   },
   {
