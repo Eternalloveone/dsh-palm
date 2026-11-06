@@ -112,7 +112,22 @@ export function useToastLift(): void {
       root.style.setProperty('--toast-lift', `${lift}px`)
     }
     update()
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : undefined
+    // HUD（排队/目标/状态条）是按需挂载的：会话开跑、排进一条消息时才出现，
+    // 而那一刻**输入栏尺寸不变**，ResizeObserver 不会响 —— 真机复现里 toast 仍
+    // 停在旧位置压住排队条，就是漏了这一路。rAF 合帧后重算，避免高频重排。
+    let frame = 0
+    const schedule = (): void => {
+      if (frame !== 0) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        update()
+      })
+    }
+    const mutations = typeof MutationObserver === 'function'
+      ? new MutationObserver(schedule)
+      : undefined
+    mutations?.observe(document.body, { childList: true, subtree: true })
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : undefined
     if (observer !== undefined) {
       for (const selector of ['.chat-composer', '.chat-hud']) {
         for (const element of Array.from(document.querySelectorAll(selector))) observer.observe(element)
@@ -123,7 +138,9 @@ export function useToastLift(): void {
     viewport?.addEventListener('scroll', update)
     window.addEventListener('resize', update)
     return () => {
+      mutations?.disconnect()
       observer?.disconnect()
+      if (frame !== 0) window.cancelAnimationFrame(frame)
       viewport?.removeEventListener('resize', update)
       viewport?.removeEventListener('scroll', update)
       window.removeEventListener('resize', update)
