@@ -60,6 +60,7 @@ import { compactModelName, displayName, fmtTokens, permissionShortLabel, permiss
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
+import { dispatchFrame, parseContextPressure, type ContextPressureData, type FrameContext } from './chat/frame-effects.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
@@ -271,13 +272,6 @@ function newestTurnAnchor(messages: readonly RenderMessage[]): number | undefine
   return own ?? firstSeen ?? lastUser
 }
 
-/** 回合边界事件（turn/start / turn/end）data 里的轮号；缺失或非数字即 undefined。 */
-function turnNumberOf(event: WireEvent): number | undefined {
-  const data = event.data
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) return undefined
-  const turn = (data as Record<string, unknown>)['turn']
-  return typeof turn === 'number' && Number.isFinite(turn) ? turn : undefined
-}
 import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../run-status.tsx'
 import { copyText, openFilePath, shareText } from '../code-actions.ts'
 import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../export.ts'
@@ -398,12 +392,6 @@ const JUMP_PAGE_ROWS = 80
  *  毫秒就到，宽限内到齐就不再单独发 session.models；冷读时最多晚这么久才补取，
  *  补取仍与页面读取并行，所以冷读的体感没有变化。 */
 const MODELS_EXTRAS_GRACE_MS = 120
-
-/**
- * 宿主时钟校准保留多少个样本。样本被链路延迟压低，取最大值才接近真值；
- * 窗口滑动的意义是自愈 —— 一个离谱样本只影响它还在窗口里的那几次读数。
- */
-const HOST_CLOCK_SAMPLE_WINDOW = 24
 
 /**
  * 卡片缺席时回读日志的粒度与上限：每页消息数（与宿主 history 的默认页同量级）
@@ -2046,242 +2034,54 @@ export function ChatView({
   }, [session.sessionId, applyInbox])
 
   // Live frames: fold session events for this session in as they arrive.
+  //
+  // 帧分发器本体已搬到 `views/chat/frame-effects.ts`（S7a-4c）：本文件只负责
+  // ① 每帧先报「链路还活着」（安卓上 navigator.onLine 会撒谎，实时帧不会）；
+  // ② 装配一次 ctx 交给 dispatchFrame。ctx 在 effect 里建立，捕获的是订阅那一刻的
+  //    写入方 —— 与搬走前的巨型闭包语义一致；依赖数组未变，订阅频率不变。
   useEffect(() => {
     if (mux === undefined) return
+    const ctx: FrameContext = {
+      sessionId: session.sessionId,
+      // 流 / 回合（use-chat-stream 的语义接口）
+      clearHostLost,
+      isRunning,
+      applyTurnVerdict,
+      clearActiveTurn,
+      beginTurn,
+      normalizeTurnEndTodo,
+      reconcileRunning,
+      enqueueLiveEvent,
+      reloadTail,
+      // 宿主时钟校准：样本窗口与偏移都是 ref，原地写
+      clockSamples: hostClockSamplesRef.current,
+      setHostClockOffset: (offset: number) => { hostClockOffsetRef.current = offset },
+      // 视图写入方
+      shadowEvent,
+      setTodo,
+      adoptTodoLatest,
+      refreshSubagents: () => { refreshSubagentsRef.current() },
+      refreshInbox: (options?: { fresh?: boolean }) => { refreshInboxRef.current(options) },
+      claimQueueHead,
+      queueView,
+      setQueueItems,
+      applyQueueItems,
+      setJobs,
+      setPermissions,
+      setContextPressure,
+      applyInbox,
+      applyGoal,
+      setGoal,
+      setPendingApprovals,
+      setPendingQuestions,
+      answeredApprovals: answeredApprovalsFor,
+      answeredQuestions: answeredQuestionsFor,
+      liveClosedTurns: liveClosedTurnsRef.current,
+      lastSessionEventAt: lastSessionEventAtRef,
+    }
     return mux.onFrame((frame: MuxFrame, frameRpcId?: string) => {
-      // 帧能到就是通的：安卓上 navigator.onLine 会撒谎，实时帧不会。
       reportConnectivity(true)
-      // The host dropped frames for this subscriber (its queue hit the byte
-      // cap on a slow tunnel). One synthetic frame per drop window; the only
-      // recovery is a fresh tail read — the dropped frames are gone.
-      if (frame.type === 'stream/error' && frame.error.code === 'slow-consumer') {
-        toast('你落后太多，正在重新加载这一步')
-        reloadTail()
-        return
-      }
-      // Every live host event frame carries a `time` the host wrote moments
-      // before dispatch, so it calibrates the host-clock offset. The running
-      // turn's elapsed math then matches the DESKTOP clock (same host)
-      // instead of drifting fast/slow by the phone's NTP skew over a public
-      // link (a few seconds is normal phone-vs-PC clock difference). The
-      // turn/start boundary frame is excluded: it anchors the clock and may
-      // legitimately carry an older logged time.
-      const frameEvent = (frame as { event?: { type?: unknown; time?: unknown } }).event
-      if (typeof frameEvent?.time === 'number'
-        && Number.isFinite(frameEvent.time)
-        && frameEvent.type !== 'turn/start') {
-        // 每个样本都被链路延迟压低（收到本机时间永远晚于事件的宿主时间），
-        // 所以**最小的延迟**才是最近真值的那个，也就是样本里的最大值。
-        // 以前每帧直接覆盖：一帧慢 300ms 就把整体读数顶低 300ms，下一帧又顶回来 ——
-        // 屏幕上就是秒数忽快忽慢、偶尔跨两秒。取最近 N 个样本的最大值，既稳又能
-        // 自愈（一次离谱样本会随窗口滑出）。
-        const samples = hostClockSamplesRef.current
-        samples.push(frameEvent.time - Date.now())
-        if (samples.length > HOST_CLOCK_SAMPLE_WINDOW) samples.shift()
-        hostClockOffsetRef.current = Math.max(...samples)
-      }
-      // Any frame proves the link is back (and the host alive).
-      clearHostLost()
-      // The host's own running verdict. `turn/end` is the usual way the
-      // indicator clears, but that frame can be lost (a reconnect window, a
-      // killed turn, a stream that degraded to polling) and then nothing else
-      // ever lowers it: the page kept painting the last turn as 深度求索中 and
-      // claimed 输出中 while the desktop showed nothing running. The roster
-      // event is the authoritative correction — it carries what the host
-      // believes, independently of whether this page saw the boundary.
-      if (frame.type === 'session/status' || frame.type === 'session/turn-boundary') {
-        if (frame.sessionId !== session.sessionId) return
-        const hostRunning = frame.running === true
-        if (hostRunning) {
-          // 迟到的"在跑"不许把已收工的回合重新点着：只有在本地也认为没在跑时才采纳
-          if (!isRunning()) applyTurnVerdict({ running: true, seq: (frame as { seq?: number }).seq })
-        } else {
-          // 停止纠正：边界帧可能已经丢了，这条必须生效
-          applyTurnVerdict({ running: false, force: true })
-        }
-        // 花名册优先级最低：能被实时帧/宿主快照盖掉，只负责纠正「帧丢了」的残留。
-        shadowEvent({ type: 'turn', at: Date.now(), source: 'roster', running: hostRunning })
-        if (!hostRunning) {
-          // Settling here must also drop the active-turn pointer and the clock
-          // anchor, or the last turn keeps matching `liveTurn` and stays
-          // "running" with a stopwatch that never stops.
-          clearActiveTurn()
-        }
-        return
-      }
-      if (frame.type === 'session/event') {
-        if (frame.sessionId !== session.sessionId) return
-        // 本会话真的在送事件——核对判据之外的旁证，也用于链路活性判断。
-        lastSessionEventAtRef.current = Date.now()
-        const event = frame.view === undefined
-          ? frame.event as WireEvent
-          : { ...frame.event, view: frame.view } as WireEvent
-        // Track the turn running state for the "outputting" indicator (#1017).
-        if (typeof event.type === 'string') {
-          if (event.type === 'turn/start') {
-            // 走唯一裁决入口：帧只是"证据之一"，带 seq 参与单调比较
-            applyTurnVerdict({
-              running: true,
-              turn: turnNumberOf(event),
-              startAt: typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now(),
-              seq: (event as { seq?: number }).seq,
-            })
-            // Anchor the turn clock at the logged start (desktop parity):
-            // a mid-turn reload keeps the real elapsed time.
-            beginTurn(typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now())
-            // A turn start is when subagents spawn; refresh the tree.
-            refreshSubagentsRef.current()
-            // The host clears the todo projection at turn/start; mirror it so
-            // a stale plan never outlives the turn that wrote it.
-            //
-            // 但**水位要留着**：直接 setTodo(undefined) 把上一轮那份计划的 seq 也丢了，
-            // 之后一页更旧的历史（里面带着上一轮的 todo/write）就能把它重新塞回来 ——
-            // 新回合已经开始、屏幕上却还挂着上一轮的计划（真机排查时可见的串轮）。
-            // 保留 seq、清空条目：新回合自己的 todo/write seq 更大，照常落地。
-            setTodo(previous => previous === undefined ? previous : { seq: previous.seq, items: [] })
-            // A turn start claims the pending queue (the agent picks up the
-            // next queued message in FIFO order). The host broadcasts a fresh
-            // session/queue snapshot, but that frame can be lost when the SSE
-            // channel degrades to fallback polling (which does not replay
-            // session/queue). Clear the local queue view so a claimed message
-            // never lingers as a phantom row that can no longer be edited or
-            // removed.
-            // 清空只是"队首被认领"的乐观视图：一轮开始只拿走队首一条，剩下的必须
-            // 留着。以前清完就等下一次轮询（空闲时 20 秒），期间手机上整条队列消失，
-            // 而桌面端（读宿主投影）还挂着 —— 真机就是这个现象。清完立刻问一次真值。
-            // 只认领队首一条（宿主是 FIFO），其余还排着 —— 而且必须**从状态仓里**
-            // 一起移走：只清本地列表的话，下一份快照（可能是几分钟前的投影）会把
-            // 被认领的那条画回来，排队条就「消失→出现」闪一下。
-            claimQueueHead(session.sessionId)
-            startTransition(() => { setQueueItems(queueView(session.sessionId)) })
-            refreshInboxRef.current({ fresh: true })
-          }
-          if (event.type === 'turn/end') {
-            // 这一轮的收尾是**亲眼看到**的：它的卡由实时帧自己折出来（带参数、
-            // 带 tool/result 的 meta），不必再为它回读日志。
-            const closed = turnNumberOf(event)
-            if (closed !== undefined) liveClosedTurnsRef.current.add(closed)
-            applyTurnVerdict({ running: false, seq: (event as { seq?: number }).seq })
-            // 亲眼看到的收尾：frame 优先级，只有 local（宿主复核）能再改它。
-            shadowEvent({
-              type: 'turn',
-              at: Date.now(),
-              source: 'frame',
-              running: false,
-              ...(closed === undefined ? {} : { turnNo: closed }),
-            })
-            // 活跃轮次随之清空：按步定格的行立刻回到 已完成/已中断/失败。
-            clearActiveTurn()
-            // Mirror the host's turn/end normalization (see normalizeTurnEndTodo).
-            normalizeTurnEndTodo()
-          }
-          // todo/write is a full-list snapshot (last-write-wins): adopt it
-          // into the plan strip. It keeps flowing into the fold below, which
-          // ignores unknown types, so the message stream is unaffected.
-          if (event.type === 'todo/write') startTransition(() => { adoptTodoLatest(event) })
-        }
-        enqueueLiveEvent(event)
-        return
-      }
-      // Live projection pushes keep the permission picker and the context
-      // usage chip current.
-      if (frame.type === 'session/projection' && frame.sessionId === session.sessionId) {
-        if (frame.key === 'permissions') setPermissions(parsePermissionSelect(frame.value))
-        if (frame.key === 'contextPressure') setContextPressure(parseContextPressure(frame.value))
-        // 排队消息也走投影：宿主从不发 `session/queue`，发的是 `inbox`。漏了这条，
-        // 手机端就永远看不到"已排队"的那几条。
-        if (frame.key === 'inbox') applyInbox(frame.value)
-        // 目标条也走投影：宿主在目标每次变更后推 key='goal' 的帧。
-        if (frame.key === 'goal') applyGoal(frame.value)
-        return
-      }
-      // 目标激活态帧：桌面端点暂停只撤授权（durable 相位仍 active），投影不会变，
-      // 所以必须靠这一帧把条子的按钮从「暂停」换成「继续」。
-      if (frame.type === 'goal/activation' && frame.sessionId === session.sessionId) {
-        setGoal(current => current === null || current === undefined ? current : { ...current, activation: frame.activation })
-        return
-      }
-      // Background-task snapshot for this session (subagent delegations etc.).
-      // The host sends a full set after every registry commit; adopt it whole.
-      if (frame.type === 'session/jobs' && frame.sessionId === session.sessionId) {
-        startTransition(() => { setJobs(frame.jobs) })
-        return
-      }
-      // New mux-generation baseline: the host re-subscribes every session on
-      // each stream (re)open and pushes its queue/jobs snapshots right after —
-      // and only when non-empty. An omitted baseline means "empty", so any
-      // rows retained from the previous generation would linger as phantoms
-      // (the same re-baseline reset the desktop runtime applies to its queue
-      // mirror on session/subscribed). Drop both views; the frames that follow
-      // this one — if any — repopulate them.
-      if (frame.type === 'session/subscribed' && frame.sessionId === session.sessionId) {
-        startTransition(() => { setQueueItems([]); setJobs([]) })
-        // 新一条连接的基线帧：断线期间丢掉的 turn/end（或 turn/start）不会重放，
-        // 手机就会一直停在"输出中"，或者该亮的时候不亮。基线一到就核一次。
-        reconcileRunning()
-        return
-      }
-      // Pending-message queue snapshot for this session (desktop QueueDock
-      // equivalent): adopt the whole set on every change.
-      if (frame.type === 'session/queue' && frame.sessionId === session.sessionId) {
-        startTransition(() => {
-          // 帧里带 placement，但手机端不采信 steering 这个值：点过「立即发送」之后宿主
-          // 会把它标成 steering，而排队条只渲染 queued —— 于是这条在手机上整个消失，
-          // 桌面端（读 next-turn 投影，那里没有 placement）却一直挂着。宿主的 next-turn
-          // 才是"还在排队"的真值：只要它没把这条移走，两端就该都显示。
-          const items = (frame.items ?? []).map(item => queueItemViewOf({
-            id: String(item.id),
-            placement: 'queued',
-            message: item.message as never,
-          }))
-          // 帧也进状态仓：队列只有一个来源，本地隐藏/乐观项才不会跟帧互相盖掉。
-          applyQueueItems(session.sessionId, items)
-          setQueueItems(queueView(session.sessionId))
-        })
-        return
-      }
-      // Approval/question frames for this session (#1025).
-      if (!('sessionId' in frame) || frame.sessionId !== session.sessionId) return
-      if (frame.type === 'approval/requested') {
-        startTransition(() => {
-          setPendingApprovals(previous => {
-            // This phone already answered it: the host replays what it still
-            // holds, and a replay must never resurrect an answered panel.
-            if (answeredApprovalsFor(session.sessionId).has(frame.approvalId as string)) return previous
-            if (previous.some(a => a.approvalId === frame.approvalId)) return previous
-            return [...previous, {
-              rpcId: frameRpcId ?? '',
-              approvalId: frame.approvalId as string,
-              toolName: frame.toolName,
-              callId: frame.callId as string | undefined,
-              reason: frame.reason,
-            }]
-          })
-        })
-        return
-      }
-      if (frame.type === 'approval/resolved') {
-        startTransition(() => {
-          setPendingApprovals(previous => previous.filter(a => a.approvalId !== frame.approvalId))
-        })
-        return
-      }
-      if (frame.type === 'question/requested') {
-        const items = (frame.questions as Array<{
-          id: string; question: string; detail?: string; header?: string
-          options?: Array<{ label: string; description?: string }>; multiSelect?: boolean
-        }>).map(item => ({ rpcId: frameRpcId ?? '', ...item }))
-        // A batch this phone already answered is never re-shown: the host
-        // replays every still-pending question on each mux (re)subscribe, so a
-        // late replay must not resurrect an answered panel.
-        const unanswered = items.filter(q => !answeredQuestionsFor(session.sessionId).has(q.rpcId))
-        startTransition(() => { setPendingQuestions(unanswered) })
-        return
-      }
-      if (frame.type === 'question/resolved') {
-        startTransition(() => { setPendingQuestions([]) })
-        return
-      }
+      dispatchFrame(ctx, frame, frameRpcId)
     })
   }, [mux, session.sessionId, reconcileRunning, applyInbox])
 
@@ -5847,23 +5647,6 @@ function textParts(text: string): PromptPart[] {
   return [{ type: 'text', text }]
 }
 
-/** Wire shape of the host token-meter context-pressure projection. */
-type ContextPressureData = {
-  contextWindow?: number
-  pressureTokens?: number
-  projectedTokens?: number
-}
-
-/** Loose parse of the contextPressure projection (host augmentation). */
-function parseContextPressure(value: unknown): ContextPressureData | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const v = value as Record<string, unknown>
-  return {
-    ...(typeof v['contextWindow'] === 'number' ? { contextWindow: v['contextWindow'] } : {}),
-    ...(typeof v['pressureTokens'] === 'number' ? { pressureTokens: v['pressureTokens'] } : {}),
-    ...(typeof v['projectedTokens'] === 'number' ? { projectedTokens: v['projectedTokens'] } : {}),
-  }
-}
 
 /* ── bottom sheets ───────────────────────────────────────────────────── */
 
