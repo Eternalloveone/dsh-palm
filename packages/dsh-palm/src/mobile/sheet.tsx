@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useFocusTrap } from './focus-trap.ts'
 
 /** Shared bottom-sheet props. */
 export interface SheetProps {
@@ -25,6 +26,10 @@ const EXPAND_THRESHOLD_PX = 40
 export function Sheet({ title, onClose, children }: SheetProps) {
   const [dragY, setDragY] = useState(0)
   const [full, setFull] = useState(false)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  // 打开即聚焦面板内第一个控件、Tab 不跑出面板、关闭归还给触发元素
+  // （审计 P1：sheet/dialog 无焦点管理）。
+  useFocusTrap(panelRef)
   const dragging = useRef(false)
   const startY = useRef(0)
   // Total drag distance, tracked synchronously: a fast flick ends (touchend)
@@ -51,6 +56,7 @@ export function Sheet({ title, onClose, children }: SheetProps) {
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div
+        ref={panelRef}
         className={'sheet' + (full ? ' sheet-full' : '')}
         role="dialog"
         aria-modal="true"

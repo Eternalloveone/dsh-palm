@@ -16,6 +16,23 @@ import { createHash } from 'node:crypto'
 import webpush from 'web-push'
 import type { NotifyConfig, NotifyStore } from './notify-store.ts'
 import type { NotifyEvent } from './notify-engine.ts'
+import { redactSecrets } from '../mobile/redact.ts'
+
+/**
+ * A failed turn/job notification carries the error text, and that text
+ * routinely contains what the agent just read (an `export TOKEN=…` line, a
+ * curl with credentials, a stack trace with a bearer token). Everything that
+ * leaves the host — third-party channels AND Web Push, which goes through
+ * Google/Apple infrastructure — passes through the same redaction the export
+ * path uses, so a notification can never be the leak.
+ */
+function redactedEvent(event: NotifyEvent): NotifyEvent {
+  return {
+    ...event,
+    title: redactSecrets(event.title),
+    body: redactSecrets(event.body),
+  }
+}
 
 const SERVERCHAN_BASE = 'https://sctapi.ftqq.com'
 const BARK_BASE = 'https://api.day.app'
@@ -124,9 +141,10 @@ export const CHANNEL_ADAPTERS: readonly ChannelAdapter[] = [
 
 /** Deliver one event to every configured L3 channel (best-effort). */
 export async function deliverL3(config: NotifyConfig, event: NotifyEvent, store?: NotifyStore): Promise<void> {
+  const safe = redactedEvent(event)
   await Promise.all(CHANNEL_ADAPTERS.map(async (adapter) => {
     try {
-      await adapter.send(config, event)
+      await adapter.send(config, safe)
       store?.recordDelivery({ at: Date.now(), eventId: event.id, kind: event.kind, channel: adapter.name, status: 'sent' })
     } catch (error) {
       console.error(`dsh-palm: L3 channel ${adapter.name} failed`, error)
@@ -157,9 +175,10 @@ export async function deliverL2(store: NotifyStore, event: NotifyEvent): Promise
   const vapid = config.vapid
   if (vapid === undefined) return
   const decision = event.decision
+  const safe = redactedEvent(event)
   const payload = JSON.stringify({
-    title: event.title,
-    body: event.body,
+    title: safe.title,
+    body: safe.body,
     tag: event.id,
     data: {
       sessionId: event.sessionId,

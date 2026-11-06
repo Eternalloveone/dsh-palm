@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { pairingConfigOf } from './index.ts'
+import { MAX_TOKEN_TTL_MS, pairingConfigOf } from './index.ts'
 import { DEFAULT_IDLE_EXPIRE_MS, PairingService, type PairingClock, type PairingConfig } from './pairing.ts'
 
 const BASE_CONFIG: Omit<PairingConfig, 'devicesFile'> = {
@@ -79,6 +79,19 @@ describe('PairingService device persistence', () => {
       devicesFile: file,
     })
     expect(mapped.devicesFile).toBe(file)
+  })
+
+  it('clamps an absurd token TTL to 24h (1e6 pairing-code space)', () => {
+    // 审计 P1：tokenTtlMs 无上界 → 配对码可在数年窗口里被枚举。
+    const mapped = pairingConfigOf({
+      tokenTtlMs: 365 * 24 * 60 * 60_000,
+      offlineAfterMs: 25_000,
+      maxDevices: 4,
+      idleExpireMs: DEFAULT_IDLE_EXPIRE_MS,
+      cookieName: 'dsh_pair',
+      devicesFile: join(dir, 'devices.json'),
+    })
+    expect(mapped.tokenTtlMs).toBe(MAX_TOKEN_TTL_MS)
   })
 
   it('keeps persisting after a sync-style service.config rebuild', () => {

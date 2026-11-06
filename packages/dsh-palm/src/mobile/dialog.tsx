@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useFocusTrap } from './focus-trap.ts'
 
 /** Confirm/cancel dialog with a danger or primary confirm button. */
 export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', busy = false, onConfirm, onCancel }: {
@@ -16,6 +17,10 @@ export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', bus
   onConfirm(): void
   onCancel(): void
 }) {
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  // 打开聚焦「取消」（首个按钮，误触不执行危险操作），Tab 困在对话框内，
+  // 关闭把焦点还给触发元素（审计 P1）。
+  useFocusTrap(panelRef)
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onCancel()
@@ -33,6 +38,7 @@ export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', bus
   return (
     <div className="dialog-backdrop" onClick={onCancel}>
       <div
+        ref={panelRef}
         className="dialog"
         role="alertdialog"
         aria-modal="true"
@@ -63,6 +69,9 @@ export function PromptDialog({ title, initial, confirmLabel, busy = false, onCon
 }) {
   const [value, setValue] = useState(initial)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  // 输入框是面板里第一个可聚焦元素，打开即聚焦并全选；关闭归还焦点。
+  useFocusTrap(panelRef)
   useEffect(() => {
     inputRef.current?.select()
     const onKey = (event: KeyboardEvent): void => {
@@ -84,6 +93,7 @@ export function PromptDialog({ title, initial, confirmLabel, busy = false, onCon
   return (
     <div className="dialog-backdrop" onClick={onCancel}>
       <div
+        ref={panelRef}
         className="dialog"
         role="dialog"
         aria-modal="true"

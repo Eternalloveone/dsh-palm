@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   disableWebPush, enableWebPush, notificationPermission, notificationSupported,
   notifyActive, notifyDeepLink, requestNotificationPermission, startNotify,
-  stopNotify, webPushState, webPushSupported,
+  stopNotify, watchPushResubscribe, webPushState, webPushSupported,
 } from './notify.ts'
 
 vi.mock('./api.ts', () => ({
@@ -62,6 +62,7 @@ function fakeSubscription(): { endpoint: string; getKey: ReturnType<typeof vi.fn
 function fakePushManager(): {
   getSubscription: ReturnType<typeof vi.fn>
   subscribe: ReturnType<typeof vi.fn>
+  emit(message: unknown): void
   install(): void
 } {
   const pushManager = {
@@ -69,10 +70,20 @@ function fakePushManager(): {
     subscribe: vi.fn(async () => fakeSubscription()),
   }
   const registration = { pushManager }
-  const serviceWorker = { ready: Promise.resolve(registration) }
+  const listeners = new Set<(event: { data: unknown }) => void>()
+  const serviceWorker = {
+    ready: Promise.resolve(registration),
+    addEventListener: (type: string, listener: (event: { data: unknown }) => void): void => {
+      if (type === 'message') listeners.add(listener)
+    },
+    removeEventListener: (type: string, listener: (event: { data: unknown }) => void): void => {
+      if (type === 'message') listeners.delete(listener)
+    },
+  }
   return {
     getSubscription: pushManager.getSubscription,
     subscribe: pushManager.subscribe,
+    emit: (message: unknown) => { for (const listener of listeners) listener({ data: message }) },
     install: () => {
       Object.defineProperty(navigator, 'serviceWorker', { value: serviceWorker, configurable: true })
       vi.stubGlobal('PushManager', class {})
@@ -289,6 +300,23 @@ describe('Web Push (L2)', () => {
     expect(stored.endpoint).toBe('https://push.example/1')
     expect(stored.keys.p256dh).toBeTruthy()
     expect(stored.keys.auth).toBeTruthy()
+  })
+
+  it('re-subscribes when the worker reports a rotated push endpoint', async () => {
+    // 审计 P1：端点轮换后旧 subscription 静默失效。SW 发 palm:resubscribe，
+    // 页面应重新订阅并把新端点交回宿主。
+    const fake = fakePushManager()
+    fake.install()
+    MockNotification.permission = 'granted'
+    const stop = watchPushResubscribe()
+    fake.emit({ type: 'palm:resubscribe' })
+    await vi.waitFor(() => { expect(fake.subscribe).toHaveBeenCalledOnce() })
+    expect(pushSubscribeMock).toHaveBeenCalledOnce()
+
+    stop()
+    fake.emit({ type: 'palm:resubscribe' })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(fake.subscribe).toHaveBeenCalledOnce()
   })
 
   it('enableWebPush refuses without granted permission', async () => {

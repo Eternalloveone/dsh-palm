@@ -241,7 +241,12 @@ describe('mobile routes', () => {
       expect(worker.headers['service-worker-allowed']).toBe('/m/')
       expect(worker.body).toContain("url.pathname === '/m/api'")
       expect(worker.body).toContain("url.pathname === '/api'")
-      expect(worker.body).toContain('networkFirst(request, OFFLINE_URL, false)')
+      // Navigation is network-first but falls back to the CACHED SHELL, not the
+      // static offline page: an offline phone must boot the app and read cached
+      // conversations (audit P1, 2026-11-06).
+      expect(worker.body).toContain('navigationFirst(request)')
+      expect(worker.body).toContain("const SHELL_URL = '/m/'")
+      expect(worker.body).toContain('cache.put(SHELL_URL, response.clone())')
       // The versioned bundle must be cache-first: network-first re-downloaded
       // the whole app on every open (its cache write was skipped for query
       // URLs, so the versioned request was never stored at all).

@@ -17,8 +17,20 @@ interface WorkerHarness {
   setCached(path: string, response: Response): void
   cached(path: string): Response | undefined
   dispatchLifecycle(type: 'install' | 'activate'): Promise<void>
+  dispatchNotificationClick(record: Record<string, unknown> | null, action?: string): Promise<void>
+  dispatchPushSubscriptionChange(): Promise<void>
+  posted: unknown[]
+  clientCalls: { focus: number; navigate: string[] }
   lifecycle: { skipped: number; claimed: number }
   deleted: string[]
+}
+
+/** Fake window clients used by notificationclick / pushsubscriptionchange. */
+interface FakeClient {
+  url: string
+  focus(): void
+  navigate(url: string): void
+  postMessage(message: unknown): void
 }
 
 function cacheKey(input: unknown): string {
@@ -29,11 +41,20 @@ function cacheKey(input: unknown): string {
 async function loadWorker(
   fetcher: (request: WorkerRequest) => Promise<Response>,
   cacheNames: string[] = [CACHE_NAME],
+  windowClientUrls: string[] = [],
 ): Promise<WorkerHarness> {
   const handlers = new Map<string, (event: never) => void>()
   const entries = new Map<string, Response>()
   const deleted: string[] = []
   const lifecycle = { skipped: 0, claimed: 0 }
+  const posted: unknown[] = []
+  const clientCalls = { focus: 0, navigate: [] as string[] }
+  const windowClients: FakeClient[] = windowClientUrls.map(url => ({
+    url,
+    focus: () => { clientCalls.focus += 1 },
+    navigate: (target: string) => { clientCalls.navigate.push(target) },
+    postMessage: (message: unknown) => { posted.push(message) },
+  }))
   const cache = {
     add: async (input: unknown): Promise<void> => {
       const key = cacheKey(input)
@@ -53,10 +74,15 @@ async function loadWorker(
     location: { origin: ORIGIN },
     addEventListener: (type: string, listener: (event: never) => void): void => { handlers.set(type, listener) },
     skipWaiting: async (): Promise<void> => { lifecycle.skipped += 1 },
-    clients: { claim: async (): Promise<void> => { lifecycle.claimed += 1 } },
+    clients: {
+      claim: async (): Promise<void> => { lifecycle.claimed += 1 },
+      matchAll: async (): Promise<FakeClient[]> => windowClients,
+    },
   }
   const source = await readFile(new URL('../assets/mobile-service-worker.js', import.meta.url), 'utf8')
-  runInNewContext(source, { Error, Promise, Response, Set, URL, caches, fetch: fetcher, self })
+  // Browsers expose `clients` both as a global and as self.clients; the worker
+  // uses the global in notificationclick, so the sandbox must provide it.
+  runInNewContext(source, { Error, Promise, Response, Set, URL, caches, fetch: fetcher, self, clients: self.clients })
   const fetchListener = handlers.get('fetch') as FetchListener | undefined
   if (fetchListener === undefined) throw new Error('worker did not register a fetch listener')
 
@@ -80,11 +106,33 @@ async function loadWorker(
       listener({ waitUntil: (promise) => { waits.push(promise) } })
       await Promise.all(waits)
     },
+    dispatchNotificationClick: async (record, action = '') => {
+      const listener = handlers.get('notificationclick') as ((event: unknown) => void) | undefined
+      if (listener === undefined) throw new Error('worker did not register notificationclick')
+      const waits: Array<Promise<unknown>> = []
+      listener({
+        notification: { data: record, close: () => {} },
+        action,
+        waitUntil: (promise: Promise<unknown>) => { waits.push(promise) },
+      })
+      await Promise.all(waits)
+    },
+    dispatchPushSubscriptionChange: async () => {
+      const listener = handlers.get('pushsubscriptionchange') as ((event: unknown) => void) | undefined
+      if (listener === undefined) throw new Error('worker did not register pushsubscriptionchange')
+      const waits: Array<Promise<unknown>> = []
+      listener({ waitUntil: (promise: Promise<unknown>) => { waits.push(promise) } })
+      await Promise.all(waits)
+    },
+    posted,
+    clientCalls,
   }
 }
 
 describe('mobile service worker', () => {
-  it('returns the static offline page for a 503 mobile navigation instead of cached shell HTML', async () => {
+  it('boots the cached shell when a navigation cannot reach the host (real offline)', async () => {
+    // 审计 P1：导航只回 offline.html → 断网时缓存的会话完全打不开。
+    // 现在：网络失败 → 缓存 shell（SPA 自己会显离线条 + 本地缓存）。
     const fetcher = vi.fn().mockResolvedValue(new Response('upstream unavailable', { status: 503 }))
     const worker = await loadWorker(fetcher)
     worker.setCached('/m/', new Response('stale mobile shell'))
@@ -92,8 +140,30 @@ describe('mobile service worker', () => {
 
     const response = await worker.dispatch({ method: 'GET', mode: 'navigate', url: ORIGIN + '/m/' })
     expect(response).toBeDefined()
+    expect(await response?.text()).toBe('stale mobile shell')
+  })
+
+  it('falls back to the static offline page only when no shell was cached', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response('nope', { status: 503 }))
+    const worker = await loadWorker(fetcher)
+    worker.setCached('/m/offline.html', new Response('offline page'))
+
+    const response = await worker.dispatch({ method: 'GET', mode: 'navigate', url: ORIGIN + '/m/' })
     expect(await response?.text()).toBe('offline page')
-    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('caches the shell from a successful navigation (deep links included)', async () => {
+    const fetcher = vi.fn(async () => new Response('<html>fresh shell</html>', { status: 200 }))
+    const worker = await loadWorker(fetcher)
+
+    const response = await worker.dispatch({
+      method: 'GET',
+      mode: 'navigate',
+      url: ORIGIN + '/m/?workspace=w1&session=s1',
+    })
+    expect(await response?.text()).toContain('fresh shell')
+    // 深链的 query 不能成为缓存键；shell 恒以 /m/ 存。
+    expect(await worker.cached('/m/')?.text()).toContain('fresh shell')
   })
 
   it('caches the versioned mobile bundle under its full URL and falls back to the same version offline', async () => {
@@ -151,5 +221,30 @@ describe('mobile service worker', () => {
     const worker = await loadWorker(vi.fn(), [SERVED_CACHE_NAME, CACHE_NAME])
     await worker.dispatchLifecycle('activate')
     expect(worker.deleted).toEqual([CACHE_NAME])
+  })
+
+  it('tapping a notification for the session already open only focuses (no reload)', async () => {
+    // 审计 P1：点通知无条件 navigate → 正在看的会话整页重载，草稿/滚动全丢。
+    const current = ORIGIN + '/m/?workspace=w1&session=s1'
+    const worker = await loadWorker(vi.fn(), [CACHE_NAME], [current])
+    await worker.dispatchNotificationClick({ workspaceId: 'w1', sessionId: 's1' })
+
+    expect(worker.clientCalls.focus).toBe(1)
+    expect(worker.clientCalls.navigate).toEqual([])
+  })
+
+  it('tapping a notification for another session navigates there', async () => {
+    const worker = await loadWorker(vi.fn(), [CACHE_NAME], [ORIGIN + '/m/?workspace=w1&session=s1'])
+    await worker.dispatchNotificationClick({ workspaceId: 'w1', sessionId: 's2' })
+
+    expect(worker.clientCalls.focus).toBe(1)
+    expect(worker.clientCalls.navigate).toHaveLength(1)
+    expect(worker.clientCalls.navigate[0]).toContain('session=s2')
+  })
+
+  it('asks open windows to re-subscribe when the push endpoint rotates', async () => {
+    const worker = await loadWorker(vi.fn(), [CACHE_NAME], [ORIGIN + '/m/'])
+    await worker.dispatchPushSubscriptionChange()
+    expect(worker.posted).toContainEqual({ type: 'palm:resubscribe' })
   })
 })

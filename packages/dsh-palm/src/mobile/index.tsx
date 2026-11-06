@@ -16,6 +16,7 @@ import { applyDisplayPrefs } from './display-prefs.ts'
 import { registerMobilePwa } from '../mobile-pwa.ts'
 import { watchBuildRefresh } from './build-refresh.ts'
 import { consumeMobilePairUrl } from './pairing.ts'
+import { watchPushResubscribe } from './notify.ts'
 
 // Apply the persisted (or default system) theme and the local display
 // preferences before first paint, so the page never flashes the wrong look.
@@ -45,6 +46,9 @@ async function bootMobile(mount: HTMLElement): Promise<void> {
   if (pair.kind === 'failed') window.history.replaceState(null, '', pair.path)
 
   void registerMobilePwa()
+  // 浏览器会悄悄轮换推送端点（pushsubscriptionchange）；SW 通知页面重订阅，
+  // 否则旧端点失效后推送整段生命周期都不再到达。
+  watchPushResubscribe()
   createRoot(mount).render(
     <ErrorBoundary>
       <App initialPairError={pair.kind === 'failed' ? pair.message : undefined} />

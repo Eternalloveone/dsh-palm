@@ -158,6 +158,29 @@ export async function disableWebPush(): Promise<void> {
   await pushUnsubscribe()
 }
 
+/**
+ * Re-subscribe when the browser rotates the push endpoint.
+ *
+ * `pushsubscriptionchange` fires in the worker without any payload; the worker
+ * posts `{ type: 'palm:resubscribe' }` to every open window. Re-running
+ * `enableWebPush()` creates a fresh subscription and re-registers it
+ * host-side — otherwise the old endpoint silently 404s and push dies for the
+ * rest of the install.
+ *
+ * @returns an unsubscribe function (for tests / remounts).
+ */
+export function watchPushResubscribe(): () => void {
+  if (typeof navigator === 'undefined' || navigator.serviceWorker === undefined) return () => {}
+  const onMessage = (event: MessageEvent): void => {
+    const data: unknown = event.data
+    if (data === null || typeof data !== 'object') return
+    if ((data as { type?: unknown }).type !== 'palm:resubscribe') return
+    void enableWebPush().catch(() => undefined)
+  }
+  navigator.serviceWorker.addEventListener('message', onMessage)
+  return () => { navigator.serviceWorker.removeEventListener('message', onMessage) }
+}
+
 /** Decode a base64url VAPID public key into the Uint8Array pushManager wants. */
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4)

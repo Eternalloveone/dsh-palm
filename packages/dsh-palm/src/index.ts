@@ -168,13 +168,29 @@ function readNamespaceValues(
   }
 }
 
+/**
+ * Upper bound on a pairing token's lifetime.
+ *
+ * A six-digit code has a fixed 1e6 search space; with no ceiling, a config of
+ * years makes the code brute-forceable for as long as it lives. 24 h is far
+ * beyond any real pairing flow (the desktop shows a fresh QR/code at will) and
+ * keeps the exposure window bounded.
+ */
+export const MAX_TOKEN_TTL_MS = 24 * 60 * 60_000
+
+/** Clamp a configured token TTL into [60s, 24h]. */
+function clampTokenTtl(value: number): number {
+  if (!Number.isFinite(value)) return 10 * 60_000
+  return Math.min(MAX_TOKEN_TTL_MS, Math.max(60_000, Math.round(value)))
+}
+
 // 显式断言到本插件的 `z<Config>`：
 //   · 不标注 —— 旧 SDK 下推断出的类型引用嵌套 schemastery 副本，报 TS2883「无法命名」；
 //   · 直接标注 —— 新 SDK（0.2.2）里 `z` 与宿主那份 Schema 泛型不是同一个，报 TS2322 不兼容。
 // 两次都栽在「同一个包里有两份 schemastery」，所以这里走断言：类型按我们的 Schema 命名，
 // 值本身仍是 schema 对象，运行时两边都认。
 export const Config = z.object({
-  tokenTtlMs: z.number().step(1).min(60_000).default(10 * 60_000).volatile(),
+  tokenTtlMs: z.number().step(1).min(60_000).max(MAX_TOKEN_TTL_MS).default(10 * 60_000).volatile(),
   offlineAfterMs: z.number().step(1).min(5_000).default(25_000).volatile(),
   maxDevices: z.number().step(1).min(1).max(64).default(4).volatile(),
   idleExpireMs: z.number().step(1).min(60_000).default(DEFAULT_IDLE_EXPIRE_MS).volatile(),
@@ -210,7 +226,7 @@ export function pairingConfigOf(resolved: Pick<
   'tokenTtlMs' | 'offlineAfterMs' | 'maxDevices' | 'idleExpireMs' | 'cookieName' | 'devicesFile'
 >): PairingConfig {
   return {
-    tokenTtlMs: resolved.tokenTtlMs,
+    tokenTtlMs: clampTokenTtl(resolved.tokenTtlMs),
     offlineAfterMs: resolved.offlineAfterMs,
     maxDevices: resolved.maxDevices,
     idleExpireMs: resolved.idleExpireMs,
@@ -251,7 +267,7 @@ function applyImpl(ctx: Context, config?: Config): void {
   // slipped through used to reach readFileSync as a path and silently leave
   // the device store unloaded — see config-values.ts.
   const resolved: ResolvedConfig = {
-    tokenTtlMs: asConfigNumber(config?.tokenTtlMs, DEFAULTS.tokenTtlMs),
+    tokenTtlMs: clampTokenTtl(asConfigNumber(config?.tokenTtlMs, DEFAULTS.tokenTtlMs)),
     offlineAfterMs: asConfigNumber(config?.offlineAfterMs, DEFAULTS.offlineAfterMs),
     maxDevices: asConfigNumber(config?.maxDevices, DEFAULTS.maxDevices),
     idleExpireMs: asConfigNumber(config?.idleExpireMs, DEFAULTS.idleExpireMs),
@@ -270,7 +286,7 @@ function applyImpl(ctx: Context, config?: Config): void {
   const resolve = (): ResolvedConfig => {
     const value = current() as unknown as Record<string, unknown>
     return {
-      tokenTtlMs: asConfigNumber(value.tokenTtlMs, resolved.tokenTtlMs),
+      tokenTtlMs: clampTokenTtl(asConfigNumber(value.tokenTtlMs, resolved.tokenTtlMs)),
       offlineAfterMs: asConfigNumber(value.offlineAfterMs, resolved.offlineAfterMs),
       maxDevices: asConfigNumber(value.maxDevices, resolved.maxDevices),
       idleExpireMs: asConfigNumber(value.idleExpireMs, resolved.idleExpireMs),

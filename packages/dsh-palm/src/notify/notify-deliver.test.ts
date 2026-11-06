@@ -364,3 +364,31 @@ describe('testNotifyEvent', () => {
     expect(test.sessionId).toBe('')
   })
 })
+
+describe('third-party redaction (2026-11-06 audit P1)', () => {
+  const leaky = {
+    ...event,
+    body: '任务失败：api_key: sk-abcdefghijklmnopqrstuvwx 已读取',
+  }
+
+  it('L3 channel bodies are redacted before leaving the host', async () => {
+    const config: NotifyConfig = { turnThresholdMs: 30_000, turnCooldownMs: 120_000, channels: { serverchan: { sendKey: 'SCT-key' } } }
+    await deliverL3(config, leaky)
+    const [, init] = fetchMock.mock.calls[0]!
+    const desp = (init?.body as URLSearchParams).get('desp') ?? ''
+    expect(desp).toContain('[已隐藏]')
+    expect(desp).not.toContain('sk-abcdefghijklmnopqrstuvwx')
+  })
+
+  it('Web Push payloads are redacted too (Google/Apple infrastructure)', async () => {
+    const { store, cleanup } = storeWithSubscription()
+    try {
+      await deliverL2(store, leaky)
+      const parsed = JSON.parse(String(sendNotificationMock.mock.calls[0]![1])) as { body: string }
+      expect(parsed.body).toContain('[已隐藏]')
+      expect(parsed.body).not.toContain('sk-abcdefghijklmnopqrstuvwx')
+    } finally {
+      cleanup()
+    }
+  })
+})

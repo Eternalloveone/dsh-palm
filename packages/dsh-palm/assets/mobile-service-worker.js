@@ -34,6 +34,13 @@
 const BUILD_HASH = '__BUILD_HASH__'
 const CACHE_NAME = `dsh-remote-mobile-shell-${BUILD_HASH}`
 const OFFLINE_URL = '/m/offline.html'
+/**
+ * The shell document, cached under a query-less key. A navigation carries
+ * `?workspace=…&session=…`, so the request URL can never be the cache key; any
+ * offline navigation is answered with this one shell (the SPA reads the query
+ * from `location` after boot).
+ */
+const SHELL_URL = '/m/'
 const SHELL_PATHS = new Set([
   '/m/',
   '/m/manifest.webmanifest',
@@ -54,6 +61,10 @@ self.addEventListener('install', event => {
     // the entry can never go stale.
     try {
       const page = await fetch('/m/', { cache: 'no-store' })
+      // Cache the shell itself (not only its bundle): an offline phone must be
+      // able to boot the cached app and show cached conversations, instead of
+      // the static offline page.
+      await cache.put(SHELL_URL, page.clone())
       const html = await page.text()
       const match = /src="(\/m\/mobile\.js\?v=[0-9a-f]{8})"/.exec(html)
       if (match !== null) await cache.add(match[1])
@@ -185,12 +196,34 @@ self.addEventListener('notificationclick', event => {
     for (const client of windowClients) {
       if ('focus' in client) {
         client.focus()
-        if ('navigate' in client) client.navigate(url.toString())
+        // 已经在这个目标上（同 path+query）就只聚焦，不 navigate：
+        // 旧实现无条件 navigate → 点通知会把正在看的会话整页重载（滚动位置、
+        // 输入框草稿、展开状态全丢）。换成"只在目标不同时才跳"。
+        const sameTarget = (() => {
+          try {
+            const current = new URL(client.url)
+            return current.pathname + current.search === url.pathname + url.search
+          } catch {
+            return false
+          }
+        })()
+        if (!sameTarget && 'navigate' in client) client.navigate(url.toString())
         return
       }
     }
     return clients.openWindow(url.toString())
   }))
+})
+
+/* Subscription rotation (pushsubscriptionchange): the endpoint can be replaced
+   without the page knowing. There is no payload here, so ask every open window
+   to re-subscribe via the normal app path and re-register it host-side; when no
+   window is open the next app start's enableWebPush covers it. */
+self.addEventListener('pushsubscriptionchange', event => {
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    for (const client of windows) client.postMessage({ type: 'palm:resubscribe' })
+  })())
 })
 
 self.addEventListener('fetch', event => {
@@ -223,7 +256,7 @@ self.addEventListener('fetch', event => {
 
   const isMobileNavigation = request.mode === 'navigate' && (url.pathname === '/m/' || url.pathname === '/m')
   if (isMobileNavigation) {
-    event.respondWith(networkFirst(request, OFFLINE_URL, false))
+    event.respondWith(navigationFirst(request))
     return
   }
 
@@ -244,6 +277,27 @@ async function cacheFirst(request) {
     if (response.ok) await cache.put(request, response.clone())
     return response
   } catch {
+    return new Response('', { status: 503, statusText: 'Service Unavailable' })
+  }
+}
+
+/**
+ * Navigation: network-first, cache the shell on success, fall back to the
+ * cached shell when offline (a frozen phone can still boot the app and read
+ * cached conversations), then to the static offline page.
+ */
+async function navigationFirst(request) {
+  const cache = await caches.open(CACHE_NAME)
+  try {
+    const response = await fetch(request)
+    if (response.status >= 500) throw new Error('mobile shell unavailable')
+    if (response.ok) await cache.put(SHELL_URL, response.clone())
+    return response
+  } catch {
+    const shell = await cache.match(SHELL_URL)
+    if (shell !== undefined) return shell
+    const offline = await cache.match(OFFLINE_URL)
+    if (offline !== undefined) return offline
     return new Response('', { status: 503, statusText: 'Service Unavailable' })
   }
 }
