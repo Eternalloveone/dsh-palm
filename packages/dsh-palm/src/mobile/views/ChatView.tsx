@@ -48,6 +48,7 @@ import { useChatVoice } from './chat/use-chat-voice.ts'
 import { VoiceSheet } from './chat/voice-sheet.tsx'
 import { MessageMenu, type MessageCtxMenuState } from './chat/message-menu.tsx'
 import { ChatTools } from './chat/chat-tools.tsx'
+import { SessionSheets } from './chat/session-sheets.tsx'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
@@ -6452,144 +6453,26 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
       {lightboxSrc !== null && (
         <ImageLightbox src={lightboxSrc} alt="聊天图片" onClose={() => { setLightboxSrc(null) }} />
       )}
-      {moreOpen && (
-        <Sheet title={title} onClose={() => { setMoreOpen(false) }}>
-          <div role="menu" aria-label="会话操作">
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); setRenaming(true) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">重命名会话</span>
-              </span>
-              <PencilIcon width={16} height={16} />
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); void copyText(session.sessionId) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">复制会话 ID</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); setExportOpen(true) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">导出对话</span>
-                <span className="sheet-option-desc">Markdown / 单文件 HTML，自动隐藏疑似密钥</span>
-              </span>
-            </button>
-            {session.cwd !== undefined && session.cwd !== '' && (
-              <button
-                type="button"
-                role="menuitem"
-                className="sheet-option"
-                onClick={() => { setMoreOpen(false); setGitOpen(true) }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">查看改动</span>
-                  <span className="sheet-option-desc">分支、未提交的改动、最近提交</span>
-                </span>
-              </button>
-            )}
-            <div className="sheet-option-divider" aria-hidden />
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); setDeleting(true) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title" style={{ color: 'var(--danger)' }}>删除会话</span>
-              </span>
-            </button>
-          </div>
-        </Sheet>
-      )}
-      {exportOpen && (
-        <Sheet title="导出对话" onClose={() => { setExportOpen(false) }}>
-          {/* 分享出去的文本会进 issue、群聊、邮件 —— 一旦发出去就收不回。
-              所以每条路径都先过 redact.ts（不是各调用点自己记得脱敏）。 */}
-          <div role="menu" aria-label="导出方式">
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setExportOpen(false); copyExport('md') }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">复制 Markdown</span>
-                <span className="sheet-option-desc">整段对话，适合贴进 issue / 笔记</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setExportOpen(false); downloadExport('md') }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">下载 .md</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setExportOpen(false); downloadExport('html') }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">下载单文件 HTML</span>
-                <span className="sheet-option-desc">无需联网、无外部资源，双击即可读</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setExportOpen(false); downloadLongImage() }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">保存长图（PNG）</span>
-                <span className="sheet-option-desc">整段对话一张图；超长会自动截断并提示分段</span>
-              </span>
-            </button>
-          </div>
-          <p className="sheet-note">
-            导出内容会自动隐藏疑似密钥（sk-…、Bearer、URL 里的密码、私钥块等）。
-          </p>
-        </Sheet>
-      )}
-      {gitOpen && session.cwd !== undefined && session.cwd !== '' && (
-        <GitSheet cwd={session.cwd} onClose={() => { setGitOpen(false) }} />
-      )}
-      {renaming && (
-        <PromptDialog
-          title="重命名会话"
-          initial={title}
-          confirmLabel="保存"
-          onCancel={() => { setRenaming(false) }}
-          onConfirm={(value) => { void handleRename(value) }}
-        />
-      )}
-      {deleting && (
-        <ConfirmDialog
-          title="删除会话"
-          body={<>确定删除「{title}」吗？该会话将从所有设备消失（电脑上的会话记录保留，可从桌面找回）。</>}
-          confirmLabel="删除"
-          tone="danger"
-          onCancel={() => { setDeleting(false) }}
-          onConfirm={handleDeleteSession}
-        />
-      )}
+      <SessionSheets
+        moreOpen={moreOpen}
+        setMoreOpen={setMoreOpen}
+        exportOpen={exportOpen}
+        setExportOpen={setExportOpen}
+        gitOpen={gitOpen}
+        setGitOpen={setGitOpen}
+        renaming={renaming}
+        setRenaming={setRenaming}
+        deleting={deleting}
+        setDeleting={setDeleting}
+        title={title}
+        cwd={session.cwd}
+        onCopySessionId={() => { void copyText(session.sessionId) }}
+        onRename={(value) => { void handleRename(value) }}
+        onDelete={handleDeleteSession}
+        onCopyExport={copyExport}
+        onDownloadExport={downloadExport}
+        onDownloadLongImage={downloadLongImage}
+      />
       <VoiceSheet
         open={voiceOpen}
         phase={voicePhase}
