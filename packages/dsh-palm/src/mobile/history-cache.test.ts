@@ -5,7 +5,7 @@
  * covering exactly the operations the module performs.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearHistoryCache, isUsableCachedPage, loadCachedHistory, mergeCachedPage, saveCachedHistory } from './history-cache.ts'
+import { CACHE_PAGE_VERSION, clearHistoryCache, isCurrentCacheEntry, isUsableCachedPage, loadCachedHistory, mergeCachedPage, saveCachedHistory } from './history-cache.ts'
 
 interface FakeRequest {
   result?: unknown
@@ -259,5 +259,28 @@ describe('isUsableCachedPage：读端的第一道闸', () => {
 
   it('空页可用（不算坏形状：可能只是上次什么都没存）', () => {
     expect(isUsableCachedPage({ rows: [], maxSeq: 0, hasMore: true })).toBe(true)
+  })
+})
+
+/**
+ * 缓存页版本：**改行模型就必须 +1**。
+ * 老缓存不会自己消失，读端只认这个号；号不一样就当没有（并顺手删掉），
+ * 否则会出现"新代码 + 老形状"的错行 —— 这正是 2026-11-01 那 13 处重复 id 的同族问题。
+ */
+describe('isCurrentCacheEntry：版本闸', () => {
+  it('当前版本放行', () => {
+    expect(isCurrentCacheEntry({ v: CACHE_PAGE_VERSION, savedAt: Date.now(), page: {} })).toBe(true)
+  })
+
+  it('老版本（v1）一律不认，哪怕形状看起来对', () => {
+    expect(isCurrentCacheEntry({ v: 1, savedAt: Date.now(), page: { rows: [], maxSeq: 0 } })).toBe(false)
+  })
+
+  it('缺版本号 / 版本号不是数字 / savedAt 坏了 → 不认', () => {
+    expect(isCurrentCacheEntry({ savedAt: Date.now(), page: {} })).toBe(false)
+    expect(isCurrentCacheEntry({ v: '2', savedAt: Date.now(), page: {} })).toBe(false)
+    expect(isCurrentCacheEntry({ v: CACHE_PAGE_VERSION, savedAt: '昨天', page: {} })).toBe(false)
+    expect(isCurrentCacheEntry(undefined)).toBe(false)
+    expect(isCurrentCacheEntry(null)).toBe(false)
   })
 })

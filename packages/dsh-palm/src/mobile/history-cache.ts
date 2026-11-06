@@ -27,12 +27,33 @@ import { rowIdentity, type RenderMessage } from './messages.ts'
 
 const HISTORY_MAX_ENTRIES = 50
 
+/**
+ * 缓存页形状的版本号。**改行模型/改缓存页字段就必须 +1**：
+ * 老缓存留在库里不会自己消失，读端只认这个号，号不一样就当没有并顺手删掉。
+ *
+ * 历史：
+ *   v1 → v2（2026-11-07）：行身份改按 `rowIdentity`（轮/步）判定、合并时按身份折叠，
+ *   并加了 turn/step/partId 相关字段。v1 的页在新折叠口径下可能出错行，**一律不再使用**。
+ */
+export const CACHE_PAGE_VERSION = 2
+
 /** One cached tail page (the caller's page type rides the generic). */
 interface HistoryCacheEntry<T> {
   key: string
-  v: 1
+  v: number
   savedAt: number
   page: T
+}
+
+/**
+ * 这条缓存还能不能用（版本 + 时间戳）。导出来是为了让读端与测试共用同一条口径 ——
+ * 以前 `v` 判断是写死在读路径里的字面量 1，改版本时容易只改一处。
+ */
+export function isCurrentCacheEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false
+  const candidate = entry as { v?: unknown; savedAt?: unknown }
+  if (candidate.v !== CACHE_PAGE_VERSION) return false
+  return typeof candidate.savedAt === 'number' && Number.isFinite(candidate.savedAt)
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -65,7 +86,12 @@ export async function loadCachedHistory<T>(sessionId: string): Promise<T | undef
         request.onsuccess = () => { resolve(request.result as HistoryCacheEntry<T> | undefined) }
         request.onerror = () => { reject(request.error ?? new Error('indexedDB read failed')) }
       })
-      if (entry === undefined || entry.v !== 1) return undefined
+      if (entry === undefined) return undefined
+      if (!isCurrentCacheEntry(entry)) {
+        // 版本对不上（上一版代码写的页）：删掉再当没有，否则每次进会话都要白读一次。
+        await deleteEntry(db, sessionId)
+        return undefined
+      }
       if (Date.now() - entry.savedAt > HISTORY_TTL_MS) return undefined
       return entry.page
     } finally {
@@ -100,7 +126,7 @@ export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE, 'readwrite')
         const store = tx.objectStore(STORE)
-        store.put({ key: sessionId, v: 1, savedAt: Date.now(), page: merged } satisfies HistoryCacheEntry<T>)
+        store.put({ key: sessionId, v: CACHE_PAGE_VERSION, savedAt: Date.now(), page: merged } satisfies HistoryCacheEntry<T>)
         tx.oncomplete = () => { resolve() }
         tx.onerror = () => { reject(tx.error ?? new Error('indexedDB write failed')) }
         tx.onabort = () => { reject(tx.error ?? new Error('indexedDB write aborted')) }
@@ -118,6 +144,21 @@ export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<
   // prompt for) happens here rather than on first paint. Deliberately not awaited
   // — a prompt must never hold up the chat.
   if (saved) void ensurePersistentStorage()
+}
+
+/** 删一条缓存（同一连接；失败就当没删成，不影响读端降级）。 */
+async function deleteEntry(db: IDBDatabase, sessionId: string): Promise<void> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).delete(sessionId)
+      tx.oncomplete = () => { resolve() }
+      tx.onerror = () => { reject(tx.error ?? new Error('indexedDB delete failed')) }
+      tx.onabort = () => { resolve() }
+    })
+  } catch {
+    // 删不掉也不是错误：读端已经返回 undefined 了
+  }
 }
 
 /** 读一条缓存（同一连接；不存在或读失败就是 undefined）。 */
