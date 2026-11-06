@@ -46,6 +46,7 @@ import { useChatSession } from './chat/use-chat-session.ts'
 import { useChatAttachments } from './chat/use-chat-attachments.ts'
 import { useChatVoice } from './chat/use-chat-voice.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
+import { ComposerSection } from './chat/composer-section.tsx'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../chat-cache.ts'
@@ -841,10 +842,6 @@ export function ChatView({
   /** 输入框草稿（状态 + 按会话持久化）归 use-chat-draft（S4c 从本文件搬出）。 */
   const { input, setInput } = useChatDraft(session.sessionId)
   const [sending, setSending] = useState(false)
-  /** F3: the send-intent sheet (long-press on the send button). */
-  const [sendIntentOpen, setSendIntentOpen] = useState(false)
-  const sendHoldTimerRef = useRef<number | undefined>(undefined)
-  const sendHoldFiredRef = useRef(false)
   // Live mirror of `sending` for the back handler (a stale closure must not
   // treat an in-flight send as "nothing sent yet" and revoke the session).
   const sendingRef = useRef(sending)
@@ -6602,287 +6599,37 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           onClose={() => { setRunStatusOpen(false) }}
         />
       )}
-      <div className="chat-composer">
-        {quoted !== undefined && (
-          <div className="chat-quote-bar" role="note" aria-label="引用消息">
-            <span className="chat-quote-text">{truncate(quoted, 20)}</span>
-            <button type="button" className="chat-quote-close" aria-label="取消引用" onClick={() => { setQuoted(undefined) }}>
-              <CloseIcon width={14} height={14} />
-            </button>
-          </div>
-        )}
-        {attachImages.length > 0 && (
-          <div className="chat-attach-bar" role="list" aria-label="待发送图片">
-            {attachImages.map((image, index) => (
-              <div key={index} className="chat-attach-item" role="listitem">
-                <img className="chat-attach-img" src={image.dataUrl} alt="待发送图片" />
-                <button
-                  type="button"
-                  className="chat-attach-remove"
-                  aria-label="移除图片"
-                  onClick={() => { setAttachImages(previous => previous.filter((_, i) => i !== index)) }}
-                >×</button>
-              </div>
-            ))}
-          </div>
-        )}
-        {attachFiles.length > 0 && (
-          <div className="chat-file-bar" role="list" aria-label="待发送附件">
-            {attachFiles.map((file, index) => (
-              <div key={file.localId} className={`chat-file-item is-${file.status}`} role="listitem">
-                <svg className="chat-file-glyph" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                  <path d="M9 1.5 H4.5 A1.5 1.5 0 0 0 3 3 V13 A1.5 1.5 0 0 0 4.5 14.5 H11.5 A1.5 1.5 0 0 0 13 13 V5.5 Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                  <path d="M9 1.5 V5.5 H13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                </svg>
-                <span className="chat-file-name">{file.name}</span>
-                {file.status === 'ready' && file.bytes !== undefined && (
-                  <span className="chat-file-size">{formatFileSize(file.bytes)}</span>
-                )}
-                {file.status === 'uploading' && (
-                  <>
-                    <span className="chat-file-status">上传中…</span>
-                    <button
-                      type="button"
-                      className="chat-file-cancel"
-                      aria-label={`取消上传 ${file.name}`}
-                      onClick={() => {
-                        file.abort?.abort()
-                        setAttachFiles(previous => previous.filter(item => item.localId !== file.localId))
-                      }}
-                    >取消</button>
-                  </>
-                )}
-                {file.status === 'failed' && (
-                  <button
-                    type="button"
-                    className="chat-file-retry"
-                    aria-label={`重新上传 ${file.name}`}
-                    onClick={() => { retryStaged(file.localId) }}
-                  >上传失败，点按重试</button>
-                )}
-                <button
-                  type="button"
-                  className="chat-file-remove"
-                  aria-label={`移除附件 ${file.name}`}
-                  onClick={() => { setAttachFiles(previous => previous.filter((_, i) => i !== index)) }}
-                >×</button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="chat-inputbar">
-          <button
-            type="button"
-            className="chat-attach-btn"
-            aria-label="添加内容"
-            aria-haspopup="dialog"
-            onClick={() => { setPlusOpen(true) }}
-          >
-            <PlusIcon width={20} height={20} />
-          </button>
-          <button
-            type="button"
-            className="chat-attach-btn"
-            aria-label="斜杠命令"
-            aria-haspopup="dialog"
-            onClick={() => { setCommandOpen(true) }}
-          >
-            <span className="chat-slash-glyph" aria-hidden="true">/</span>
-          </button>
-          {voiceSupported() && (
-            <button
-              type="button"
-              className="chat-attach-btn"
-              aria-label="语音输入"
-              onClick={openVoice}
-            >
-              <MicIcon width={20} height={20} />
-            </button>
-          )}
-          {/* 命令 chip 摆在输入框**里面**（边框和背景挪到 .chat-field 上）：与输入框
-              同一条中心线垂直居中，输入框被挤窄/长高都跟着走，不会像并排摆时那样把
-              框压扁，也不会像单独一行那样把输入区顶起来。 */}
-          <div className="chat-field">
-          {claimedCommand !== undefined && (
-            <span className="chat-command-chip" role="note" aria-label="待发送命令">
-              <span className="chat-command-chipText">/{claimedCommand}</span>
-              <button
-                type="button"
-                className="chat-command-chipClose"
-                aria-label="取消命令"
-                onClick={releaseCommand}
-              >
-                <CloseIcon width={12} height={12} />
-              </button>
-            </span>
-          )}
-          <textarea
-            ref={composerRef}
-            className="chat-input"
-            rows={1}
-            value={input}
-            placeholder={claimedCommand === undefined ? '说点什么...' : '输入命令参数，回车执行'}
-            enterKeyHint={mobileEnterToSend ? 'send' : 'enter'}
-            onChange={(event) => {
-              const value = event.target.value
-              // 手动敲 `/命令名 ` 也算认领：桌面端同样把命令词收成 chip，参数留在后面。
-              const typed = claimedCommand === undefined
-                ? /^\/([A-Za-z][\w-]*)[ \u00a0]+([\s\S]*)$/.exec(value)
-                : null
-              if (typed !== null && commands?.some(command => command.name === typed[1]) === true) {
-                claimCommand(typed[1] ?? '', typed[2] ?? '')
-                return
-              }
-              setInput(value)
-            }}
-            onFocus={() => { setComposerFocused(true) }}
-            onBlur={() => { setComposerFocused(false) }}
-            onPaste={(event) => {
-              const files = imageFromClipboard(event.clipboardData)
-              if (files.length > 0) {
-                event.preventDefault()
-                for (const file of files) addImage(file)
-              }
-            }}
-            onKeyDown={(event) => {
-              // isComposing: skip Enter while a Chinese IME is composing, so
-              // confirming a candidate never fires a send mid-composition.
-              if (mobileEnterToSend && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                void send()
-              }
-            }}
-          />
-          </div>
-          {running && !primaryStops && (
-            <button
-              type="button"
-              className={stopArmed ? 'chat-stop-mini chat-stop-mini-armed' : 'chat-stop-mini'}
-              aria-label={stopping ? '停止中' : stopArmed ? '确认停止' : '停止'}
-              disabled={stopping}
-              onClick={() => {
-                if (!stopArmed) {
-                  // 第一拍只是「举枪」：2.5 秒没人再点就收回，什么都不会发生。
-                  setStopArmed(true)
-                  window.setTimeout(() => { setStopArmed(false) }, 2_500)
-                  return
-                }
-                setStopArmed(false)
-                void stopTurn()
-              }}
-            >
-              {stopArmed ? (
-                <span className="chat-stop-mini-text">确认</span>
-              ) : (
-                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
-                  <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                </svg>
-              )}
-            </button>
-          )}
-          <button
-            type="button"
-            className={primaryStops
-              ? 'chat-send chat-send-stop'
-              : running ? 'chat-send chat-send-queued' : 'chat-send'}
-            {...(primaryStops
-              ? { 'aria-label': stopping ? '停止中' : '停止' }
-              : { 'aria-label': running ? '排队发送' : '发送' })}
-            disabled={primaryStops ? stopping : sending || draftEmpty}
-            onPointerDown={() => {
-              // F3: long-press opens the delivery-intent sheet. A plain tap keeps
-              // today's behavior (queue), so nothing changes for users who never
-              // discover the long-press.
-              if (primaryStops) return
-              sendHoldFiredRef.current = false
-              if (sendHoldTimerRef.current !== undefined) window.clearTimeout(sendHoldTimerRef.current)
-              sendHoldTimerRef.current = window.setTimeout(() => {
-                sendHoldTimerRef.current = undefined
-                sendHoldFiredRef.current = true
-                setSendIntentOpen(true)
-              }, 500)
-            }}
-            onPointerUp={() => {
-              if (sendHoldTimerRef.current !== undefined) {
-                window.clearTimeout(sendHoldTimerRef.current)
-                sendHoldTimerRef.current = undefined
-              }
-            }}
-            onPointerCancel={() => {
-              if (sendHoldTimerRef.current !== undefined) {
-                window.clearTimeout(sendHoldTimerRef.current)
-                sendHoldTimerRef.current = undefined
-              }
-            }}
-            onPointerLeave={() => {
-              if (sendHoldTimerRef.current !== undefined) {
-                window.clearTimeout(sendHoldTimerRef.current)
-                sendHoldTimerRef.current = undefined
-              }
-            }}
-            onClick={() => {
-              if (primaryStops) { void stopTurn(); return }
-              // The long-press already opened the sheet; its click must not also
-              // send a plain queue message.
-              if (sendHoldFiredRef.current) { sendHoldFiredRef.current = false; return }
-              void send()
-            }}
-          >
-            {/* 三种形态必须一眼可辨：发送（纸飞机）／排队（胶囊上写「排队」）／停止（方块）。
-                排队态原来是「纸飞机 + 角上一只小钟」，既挤又看不出什么意思；直接写字最省解释。 */}
-            {primaryStops ? (
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-              </svg>
-            ) : running ? (
-              <span className="chat-send-queuedText" aria-hidden="true">排队</span>
-            ) : (
-              <SendIcon />
-            )}
-          </button>
-        </div>
-      </div>
-      {sendIntentOpen && (
-        <Sheet title="怎么发送" onClose={() => { setSendIntentOpen(false) }}>
-          {/* 三档语义按宿主能力如实写：排队/插话是宿主模式，"中断并发送"是两次调用
-              的组合（先 cancel 再 queue），所以它单独一行说明代价。 */}
-          <div role="menu" aria-label="发送方式">
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setSendIntentOpen(false); void send('queue') }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">排队</span>
-                <span className="sheet-option-desc">本轮结束后自动发送（默认）</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setSendIntentOpen(false); void send('steer') }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">插话</span>
-                <span className="sheet-option-desc">不打断，插进正在跑的这轮</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setSendIntentOpen(false); void send('interrupt') }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">中断并发送</span>
-                <span className="sheet-option-desc">先停掉当前这轮，再发这条</span>
-              </span>
-            </button>
-          </div>
-        </Sheet>
-      )}
+      <ComposerSection
+        input={input}
+        setInput={setInput}
+        composerRef={composerRef}
+        mobileEnterToSend={mobileEnterToSend}
+        commands={commands}
+        claimedCommand={claimedCommand}
+        claimCommand={claimCommand}
+        releaseCommand={releaseCommand}
+        quoted={quoted}
+        setQuoted={setQuoted}
+        attachImages={attachImages}
+        setAttachImages={setAttachImages}
+        attachFiles={attachFiles}
+        setAttachFiles={setAttachFiles}
+        retryStaged={retryStaged}
+        addImage={addImage}
+        setPlusOpen={setPlusOpen}
+        setCommandOpen={setCommandOpen}
+        voiceSupported={voiceSupported()}
+        openVoice={openVoice}
+        running={running}
+        primaryStops={primaryStops}
+        stopArmed={stopArmed}
+        setStopArmed={setStopArmed}
+        stopping={stopping}
+        stopTurn={stopTurn}
+        sending={sending}
+        draftEmpty={draftEmpty}
+        send={send}
+      />
       {plusOpen && (
         <PlusSheet
           onPickImage={() => { setPlusOpen(false); openPicker('image') }}
