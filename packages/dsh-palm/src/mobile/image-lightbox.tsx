@@ -35,12 +35,9 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
     return () => { window.removeEventListener('keydown', onKey) }
   }, [onClose])
 
-  // Lock page scroll while the lightbox is open.
-  useEffect(() => {
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
-  }, [])
+  // 不锁 body 滚动（原来这里有 `body.style.overflow = 'hidden'`）：
+  // document 本来就不滚，动态改它反而会让手机浏览器重算 dvh、把背后页面推一下。
+  // 详见 sheet.tsx 顶部注释。
 
   /** Double-tap toggles fit ↔ full-size (detail reading). */
   const handleTap = (): void => {

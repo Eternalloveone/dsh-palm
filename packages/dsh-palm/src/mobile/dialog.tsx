@@ -26,12 +26,11 @@ export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', bus
       if (event.key === 'Escape') onCancel()
     }
     window.addEventListener('keydown', onKey)
-    // Lock the page scroll while the dialog is open.
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    // 不锁 body 滚动：document 本来就不滚（#root 是 100dvh + overflow:hidden），
+    // 而动态改 body.style.overflow 会让手机浏览器重算 dvh → 背后的会话区跳一下。
+    // 防穿透由静态 CSS 的 overscroll-behavior 负责，详见 sheet.tsx 顶部注释。
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = previous
     }
   }, [onCancel])
   const toneClass = tone === 'danger' ? 'dialog-btn-danger' : 'dialog-btn-primary'
@@ -78,12 +77,11 @@ export function PromptDialog({ title, initial, confirmLabel, busy = false, onCon
       if (event.key === 'Escape') onCancel()
     }
     window.addEventListener('keydown', onKey)
-    // Lock the page scroll while the dialog is open.
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    // 不锁 body 滚动：document 本来就不滚（#root 是 100dvh + overflow:hidden），
+    // 而动态改 body.style.overflow 会让手机浏览器重算 dvh → 背后的会话区跳一下。
+    // 防穿透由静态 CSS 的 overscroll-behavior 负责，详见 sheet.tsx 顶部注释。
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = previous
     }
   }, [onCancel])
   const submit = (): void => {

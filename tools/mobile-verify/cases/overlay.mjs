@@ -406,6 +406,40 @@ export default [
     },
   },
   {
+    /**
+     * 浮层打开时**不许动 <body> 的行内样式**（真机「点 + 或 / 会话区上翻一下又回来」的回归门）。
+     *
+     * 根因：sheet/dialog/lightbox 原来都在打开时写 `body.style.overflow = 'hidden'`。
+     * 本 App 的 document 本来就不滚（`#root` = 100dvh + overflow:hidden），锁它没用；
+     * 但手机浏览器会因此重算可视视口/dvh，`.chat-scroll` 高度跟着变 → 消息区位移 → 关掉再回来。
+     * 防穿透已经由静态 `overscroll-behavior` 负责。
+     *
+     * 这条只判「body 上没有 style 属性」，不判具体实现：将来换成 CSS 类或 inert 都不会误报，
+     * 但谁要是把行内样式写回来，这里立刻红。
+     */
+    id: 'overlay.sheet-does-not-touch-body-style',
+    group: 'overlay',
+    surface: 'chat',
+    title: '打开底部浮层不改动 body 行内样式（不触发 dvh 重算）',
+    async run(ctx, { page }) {
+      await ctx.waitForChatRows(page)
+      const before = await page.evaluate(() => document.body.getAttribute('style') ?? '')
+      await page.locator('[aria-label="添加内容"]').first().click()
+      await page.waitForTimeout(700)
+      const during = await page.evaluate(() => ({
+        style: document.body.getAttribute('style') ?? '',
+        sheet: document.querySelectorAll('.sheet').length,
+      }))
+      ctx.assert(during.sheet > 0, '浮层没打开（选择器或行为变了）')
+      ctx.equals(during.style, before, `浮层打开后 body 行内样式被改了：「${during.style}」`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(400)
+      const after = await page.evaluate(() => document.body.getAttribute('style') ?? '')
+      ctx.equals(after, before, `浮层关闭后 body 行内样式没归位：「${after}」`)
+      return `body style 全程「${before === '' ? '空' : before}」`
+    },
+  },
+  {
     id: 'overlay.offline-bar-clear-of-header',
     group: 'overlay',
     surface: 'chat',

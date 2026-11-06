@@ -45,13 +45,19 @@ export function Sheet({ title, onClose, children }: SheetProps) {
     return () => { window.removeEventListener('keydown', onKey) }
   }, [onClose])
 
-  // Lock the page scroll while the sheet is open (scroll chaining on the
-  // message list behind the backdrop is disorienting on a phone).
-  useEffect(() => {
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
-  }, [])
+  /*
+   * 这里**故意**不锁 body 滚动（原来有 `body.style.overflow = 'hidden'`，2026-11-07 删）。
+   *
+   * 用户真机反馈：点输入区「+」「/」时，会话区会**上翻一下再回来**。根因就是这个动态锁：
+   *   ① 本 App 的 document 根本不会滚（`#root` 是 `height: 100dvh` + `overflow: hidden`，
+   *      实测 scrollHeight-clientHeight = 0），锁它等于什么都没锁；
+   *   ② 但改 `body.style.overflow` 会让手机浏览器**重新评估可视视口/地址栏**，
+   *      `100dvh` 随之变化 → `.chat-scroll` 高度变了 → 消息区整体位移，关掉浮层再回来，
+   *      正好就是"上翻一下又回来"；
+   *   ③ 防滚动穿透这件事已经由静态 CSS 兜住：`html, body { overscroll-behavior-y: contain }`
+   *      以及 `.chat-scroll { overscroll-behavior: contain }`。
+   * 所以锁是"没用且有害"，删除即可。别再加回来。
+   */
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
