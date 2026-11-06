@@ -132,4 +132,30 @@ export default [
       return '0 个'
     },
   },
+  {
+    // 真机清单第 5 项在设置页的那一半（聊天页是 entry.touch-targets-40，列表页是 roster 那条）。
+    id: 'settings.touch-targets-40',
+    group: 'settings',
+    surface: 'sessions',
+    title: '设置页可点区 ≥40px（含 ::after 扩展）',
+    async run(ctx, { page }) {
+      await page.waitForTimeout(1_500)
+      const bad = await page.evaluate(() => {
+        const out = []
+        for (const el of document.querySelectorAll('button,[role="button"],[role="switch"],a')) {
+          const rect = el.getBoundingClientRect()
+          if (rect.height === 0) continue
+          const after = getComputedStyle(el, '::after')
+          const padded = after !== null && after.content !== 'none' && after.content !== '' && (after.inset ?? '') !== '' && after.inset !== 'auto'
+          if (padded) continue
+          if (rect.width >= 40 && rect.height >= 40) continue
+          if (rect.width >= 200 && rect.height >= 34) continue
+          out.push(`${Math.round(rect.width)}x${Math.round(rect.height)} ${(el.getAttribute('aria-label') ?? el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 14)}`)
+        }
+        return out.slice(0, 6)
+      })
+      ctx.equals(bad.length, 0, `可点区不足：${bad.join(' / ') || '无'}`)
+      return '0 个'
+    },
+  },
 ]

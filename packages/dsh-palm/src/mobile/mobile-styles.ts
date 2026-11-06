@@ -1355,7 +1355,9 @@ body,
 }
 /* 首次引导里的「知道了」：40x24 太难点（审计实测），给到 32px 高 */
 .mobile-welcomeClose {
-  min-height: 32px;
+  /* 32 → 40：首页新手卡上的「知道了」是拇指常按的位置（真机清单第 5 项，
+     实测 56×32 是全站除聊天页外唯一一个不足 40px 的可点控件）。 */
+  min-height: 40px;
   flex-shrink: 0;
   border: 0;
   background: transparent;

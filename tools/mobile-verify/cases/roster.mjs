@@ -127,4 +127,31 @@ export default [
       return '0 个'
     },
   },
+  {
+    // 真机清单第 5 项的跨页版本：聊天页有 entry.touch-targets-40，这里补齐首页/列表/设置。
+    // 口径与聊天页那条一致：判 40px、认 ::after 扩出来的命中区、整行宽控件不算。
+    id: 'roster.touch-targets-40',
+    group: 'roster',
+    surface: 'sessions',
+    title: '首页与列表页可点区 ≥40px',
+    async run(ctx, { page }) {
+      await page.waitForTimeout(2_200)
+      const bad = await page.evaluate(() => {
+        const out = []
+        for (const el of document.querySelectorAll('button,[role="button"],[role="switch"],a')) {
+          const rect = el.getBoundingClientRect()
+          if (rect.height === 0) continue
+          const after = getComputedStyle(el, '::after')
+          const padded = after !== null && after.content !== 'none' && after.content !== '' && (after.inset ?? '') !== '' && after.inset !== 'auto'
+          if (padded) continue
+          if (rect.width >= 40 && rect.height >= 40) continue
+          if (rect.width >= 200 && rect.height >= 34) continue
+          out.push(`${Math.round(rect.width)}x${Math.round(rect.height)} ${(el.getAttribute('aria-label') ?? el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 14)}`)
+        }
+        return out.slice(0, 6)
+      })
+      ctx.equals(bad.length, 0, `可点区不足：${bad.join(' / ') || '无'}`)
+      return '0 个'
+    },
+  },
 ]
