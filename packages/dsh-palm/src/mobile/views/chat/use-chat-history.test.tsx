@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatPageResult } from '../App.tsx'
 import type { RenderMessage } from '../../messages.ts'
 import { OPEN_HISTORY_TARGET_ROWS, useChatHistory, type ChatHistoryHandle } from './use-chat-history.ts'
+import type { ChatScrollHandle } from './use-chat-scroll.ts'
 
 vi.mock('../App.tsx', () => ({
   loadChatPage: vi.fn(),
@@ -27,9 +28,18 @@ let handle: ChatHistoryHandle | undefined
 let adopted: RenderMessage[][] = []
 let prepared: ChatPageResult[] = []
 
-function Harness({ firstSeq = 10, loaded = 20 }: { firstSeq?: number; loaded?: number }) {
+function Harness({ firstSeq = 10, loaded = 20, messages = [] as RenderMessage[], scroll, actions }: {
+  firstSeq?: number
+  loaded?: number
+  messages?: RenderMessage[]
+  scroll?: ChatScrollHandle
+  actions?: { scrollToBottom(): void; settleBottomAfterCommit(): void }
+}) {
   handle = useChatHistory({
     sessionId: 's-1',
+    messages,
+    getScroll: () => scroll,
+    actions: actions ?? { scrollToBottom: () => {}, settleBottomAfterCommit: () => {} },
     getFirstRow: () => row(firstSeq),
     loadedRowCount: () => loaded,
     preparePage: async (source) => { prepared.push(source); return [...source.rows] },
@@ -105,5 +115,21 @@ describe('useChatHistory', () => {
     // No chain flag: exactly one page.
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(loadChatPageMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-follows the tail after markFollowAfterPrepend once rows change', () => {
+    const scrollToBottom = vi.fn()
+    const settle = vi.fn()
+    const scroll = {
+      scrollRef: { current: {} },
+      scrollStateRef: { current: { stick: true, gap: 0 } },
+      setScrollTopProgrammatically: () => {},
+      lastScrollHeightRef: { current: 0 },
+    } as unknown as ChatScrollHandle
+    const view = render(<Harness messages={[]} scroll={scroll} actions={{ scrollToBottom, settleBottomAfterCommit: settle }} />)
+    handle?.markFollowAfterPrepend()
+    view.rerender(<Harness messages={[row(1)]} scroll={scroll} actions={{ scrollToBottom, settleBottomAfterCommit: settle }} />)
+    expect(scrollToBottom).toHaveBeenCalledTimes(1)
+    expect(settle).toHaveBeenCalledTimes(1)
   })
 })

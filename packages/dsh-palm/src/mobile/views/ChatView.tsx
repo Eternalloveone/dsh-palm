@@ -817,6 +817,12 @@ export function ChatView({
   // 分页历史：取页/缓存/在飞合并/链式补页在 use-chat-history 里；折叠与锚点在这里。
   const pager = useChatHistory({
     sessionId: session.sessionId,
+    messages,
+    getScroll: () => scrollHandle,
+    actions: {
+      scrollToBottom: () => scrollToBottom(),
+      settleBottomAfterCommit: () => settleBottomAfterCommit(),
+    },
     getFirstRow: () => folderRef.current?.snapshot()[0] ?? messages[0],
     loadedRowCount: () => folderRef.current?.snapshot().length ?? messages.length,
     preparePage: async (page) => {
@@ -839,24 +845,6 @@ export function ChatView({
       rememberRawPage(page.rows)
       return older
     },
-    captureAnchor: () => {
-      const el = scrollRef.current
-      const anchorRow = (() => {
-        const rows = el?.querySelectorAll('[data-message-id]') ?? []
-        for (const row of rows) {
-          const rect = row.getBoundingClientRect()
-          if (rect.bottom > 80) {
-            return {
-              id: row.getAttribute('data-message-id') ?? '',
-              top: Math.round(rect.top),
-              seq: Number(row.getAttribute('data-row-seq') ?? '0'),
-            }
-          }
-        }
-        return undefined
-      })()
-      return { top: scrollTopRef.current, height: el?.scrollHeight, row: anchorRow }
-    },
     adoptPage: (older, page, ctx) => {
       const folder = folderRef.current
       // 跳转取页（maxRows 有值）取到的可能是和当前窗口不接壤的一段历史：直接
@@ -875,25 +863,11 @@ export function ChatView({
         folder.prepend(older)
         applyMessages(folder.snapshot())
       }
-      const anchor = ctx.anchor as { top?: number; height?: number; row?: { id: string; top: number; seq: number } } | undefined
-      const el = scrollRef.current
-      if (el !== undefined && older.length > 0 && ctx.maxRows === undefined && anchor !== undefined) {
-        if (ctx.silent && scrollStateRef.current.gap <= FOLLOW_THRESHOLD_PX) {
-          // 静默补页 prepend 在尾部之上：把回钉交给 commit 期（见 followAfterPrependRef）。
-          followAfterPrependRef.current = true
-        } else {
-          prependAnchorRef.current = {
-            top: anchor.top ?? el.scrollTop,
-            height: anchor.height ?? el.scrollHeight,
-            ...(anchor.row === undefined ? {} : { rowId: anchor.row.id, rowTop: anchor.row.top, rowSeq: anchor.row.seq }),
-          }
-        }
-      }
     },
     onLoading: (loading) => { setLoading(loading) },
     onError: (reason) => { setError(errorText(reason)) },
   })
-  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder } = pager
+  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend } = pager
   // 每次列表变了就把"这一场当前画的样子"记进内存快照，供下次进会话第一帧直接铺。
   useEffect(() => {
     rememberChatSnapshot(session.sessionId, messages, hasOlder)
@@ -952,6 +926,7 @@ export function ChatView({
   const messagesRef = useRef(messages)
   // 滚动机制（容器/程序化认领/状态机/补拍/手势/回钉）统一在 use-chat-scroll 里；
   // ChatView 只保留业务判断（未读、翻页、定位）。
+  const scrollHandle = useChatScroll()
   const {
     scrollRef,
     scrollTopRef,
@@ -967,7 +942,7 @@ export function ChatView({
     settleBottomRef,
     settleBottomAfterCommit,
     lastScrollHeightRef,
-  } = useChatScroll()
+  } = scrollHandle
   /**
    * 会话状态机：三根条的**唯一判据**（不再是影子，渲染完全由它决定）。
    *
@@ -983,33 +958,6 @@ export function ChatView({
     // 单向发布：运行中页 / 首页徽标读同一份结论，不再各自拿花名册猜。
     dispatchStatusEvent(session.sessionId, event)
   }, [session.sessionId])
-  /**
-   * One deferred re-follow after the silent auto-extend prepend (open-time
-   * older page). The old implementation re-followed from a rAF that reads
-   * `el.scrollHeight` — but on a real browser the rAF can run BEFORE React
-   * commits the prepended rows (each heavy row is expensive to render), so
-   * the follow read the STALE height, pinned to the old tail, and — with the
-   * prepend committed on top of it — the view stranded mid-history with no
-   * corrector left (the stream follower key is unchanged by a prepend, the
-   * windowed re-pin effect is gated on `windowed`, and the correction effect
-   * returns on a missing prefix). Pinned instead by the commit-time effect
-   * below, where the DOM already contains the new rows.
-   */
-  const followAfterPrependRef = useRef(false)
-  /**
-   * 手动翻页的锚点补偿：commit 后用**真实 scrollHeight 差值**把视野钉住。
-   *
-   * 以前用 estimateMessageHeight 累加估算，长卡片/代码块一多就偏（实测同一行被
-   * 推开 1895px，等于翻一页就丢了刚才在看的地方）。高度只有渲染完才知道，所以
-   * 记下翻页前的高度，提交后量差值。
-   */
-  const prependAnchorRef = useRef<{
-    top: number
-    height: number
-    rowId?: string
-    rowTop?: number
-    rowSeq?: number
-  } | undefined>(undefined)
   // The bottom gap at the USER's last gesture (recorded on every scroll
   // event). Passive content growth — a pending message finalizing into
   // taller markdown, an appended reply — changes scrollHeight without firing
@@ -2434,7 +2382,7 @@ export function ChatView({
             }
             holder.prepend(older)
             // 铺开的行插在尾部之上：让提交后的贴底逻辑把视野钉回最新一条。
-            followAfterPrependRef.current = true
+            markFollowAfterPrepend()
             applyMessages(holder.snapshot())
             setHasOlder(hasMore)
           })()
@@ -4534,83 +4482,6 @@ export function ChatView({
     lastScrollHeightRef.current = el.scrollHeight
     settleBottomAfterCommit()
   }, [messages, scrollToBottom, autoScroll, settleBottomAfterCommit])
-
-  // Silent prepend re-follow, run at COMMIT time: this fires right after
-  // React has committed the prepended auto-extend page (before the next
-  // paint), so scrollToBottom reads the real post-prepend scrollHeight.
-  // See followAfterPrependRef for why the follow cannot run from loadOlder's
-  // own rAF — that can land before the commit and strand the view in
-  // history with nothing left to correct it.
-  useLayoutEffect(() => {
-    // 翻页锚点补偿优先：它必须在本次 commit 之后、下一次绘制之前量高度。
-    const pending = prependAnchorRef.current
-    if (pending !== undefined) {
-      prependAnchorRef.current = undefined
-      const box = scrollRef.current
-      if (box !== undefined) {
-        // 有「具体的那一行」时**只按行校准**：高度差在窗口化渲染下会低估（占位行还没量），
-        // 也会因为并发插入而高估到整页高度 —— 高估就等于把读者直接扔到最底部（实测 17793px）。
-        // 行位置是屏幕上真实发生的事，不会过冲。
-        if (pending.rowId === undefined) {
-          const grown = box.scrollHeight - pending.height
-          if (grown > 0) {
-            // 程序化移动：这次位移不是读者离开底部，不该记书签。
-            setScrollTopProgrammatically(box, pending.top + grown)
-            lastScrollHeightRef.current = box.scrollHeight
-          }
-        }
-        // 二次校准：按「那条锚点行现在在哪」把差补回去。窗口化渲染让高度差不可靠，
-        // 而行位置是屏幕上真实发生的事。跑两拍，覆盖行陆续量出高度的情况。
-        if (pending.rowId !== undefined && pending.rowTop !== undefined) {
-          const rowId = pending.rowId
-          const rowTop = pending.rowTop
-          const rowSeq = pending.rowSeq
-          const correct = (): void => {
-            const scroller = scrollRef.current
-            if (scroller === undefined) return
-            let row = scroller.querySelector(`[data-message-id="${CSS.escape(rowId)}"]`)
-            if (row === null && typeof rowSeq === 'number' && rowSeq > 0) {
-              // 那一条被换成了新 id（页面行/实时行两套 id）：找 seq 最接近的等价行。
-              let best: Element | null = null
-              let bestGap = Number.POSITIVE_INFINITY
-              for (const candidate of scroller.querySelectorAll('[data-row-seq]')) {
-                const gap = Math.abs(Number(candidate.getAttribute('data-row-seq') ?? '0') - rowSeq)
-                if (gap < bestGap) { bestGap = gap; best = candidate }
-              }
-              // 只接受**真正等价**的那一行（seq 必须一模一样）。
-              //
-              // 2026-11-01 真机：翻页后画面自己跑 340~420px。根因就是这里拿了"最接近的
-              // seq"——锚点行被裁掉后，最近的邻居可能隔着半页内容，按它算出来的
-              // delta 自然是错的（夹在两屏之内，所以夹紧也没拦住）。
-              // 找不到同一行就不补：宁可不补，也不要把读者甩走。
-              row = best !== null && bestGap <= 1 ? best : null
-            }
-            if (row === null) return
-            const delta = Math.round(row.getBoundingClientRect().top) - rowTop
-            // 夹住异常值：相差超过两屏说明拿到了错的元素，宁可不补也不要把读者甩走。
-            if (Math.abs(delta) <= 2 || Math.abs(delta) > scroller.clientHeight * 2) return
-            setScrollTopProgrammatically(scroller, Math.max(0, scroller.scrollTop + delta))
-          }
-          correct()
-          requestAnimationFrame(correct)
-          for (const delay of [80, 200, 400, 800]) window.setTimeout(correct, delay)
-        }
-      }
-      // 静默补页那条路走下面的跟随逻辑，手动翻页到这里就结束。
-      if (!followAfterPrependRef.current) return
-    }
-    if (!followAfterPrependRef.current) return
-    followAfterPrependRef.current = false
-    // 判据用 stick（读者没上滑过），不用「当前 gap ≤ 80」：补页本身会把内容撑高，
-    // 等落地后再看 gap 早就超过 80 了，于是永远不跟随、停在半路（真机 423px）。
-    if (!scrollStateRef.current.stick && scrollStateRef.current.gap > FOLLOW_THRESHOLD_PX) return
-    scrollToBottom()
-    const box = scrollRef.current
-    if (box !== undefined) lastScrollHeightRef.current = box.scrollHeight
-    // 页面是「先铺估算高度、再量真实行高」的：只滚一次会停在离底几百像素的地方
-    // （实测 245~437px），而这一刻之后往往不再有新的 commit 来纠正。补钉尾巴必须跟上。
-    settleBottomAfterCommit()
-  }, [messages, scrollToBottom, settleBottomAfterCommit])
 
   // The question/approval panels mount below the message list; when one
   // appears, bring it into view — the reader is usually watching the turn and
