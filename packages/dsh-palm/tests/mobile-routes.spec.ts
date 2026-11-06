@@ -188,8 +188,28 @@ describe('mobile routes', () => {
     }
   })
 
-  it('re-reads the bundle after a rebuild instead of pinning the first read', async () => {
-    // 原来这份缓存认"进程内不变"：pnpm build 之后不重启，页面还下发旧 body 和旧
+  /**
+   * CSP 的 `img-src` 2026-11-07 去掉了明文 `http:`（只留 `'self' data: blob: https:`）。
+   * 理由：公网入口是 https，混合内容本来就由浏览器拦着，留 `http:` 只是给"中间人注入
+   * 一张明文图"留口子。这条断言钉的是**真正下发到浏览器的响应头**，不是源码里的常量。
+   */
+  it('serves the /m/ page with img-src locked to https/data/blob (no plaintext http:)', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      const page = await get(server.port, '/m/')
+      const csp = page.headers['content-security-policy']
+      const header = typeof csp === 'string' ? csp : ''
+      expect(header).toContain("img-src 'self' data: blob: https:")
+      expect(header).not.toContain('http:')
+      // 其它几条不能顺手被放宽：脚本仍然只许同源。
+      expect(header).toContain("script-src 'self'")
+      expect(header).toContain("frame-ancestors 'none'")
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('re-reads the bundle after a rebuild instead of pinning the first read', async () => {    // 原来这份缓存认"进程内不变"：pnpm build 之后不重启，页面还下发旧 body 和旧
     // ?v=hash，手机端按旧 hash 拿到的入口引用的分块已被新构建清掉（404 兜底换壳）。
     const server = await serve(makeMobileRoutes())
     const first = await get(server.port, '/m/')
