@@ -22,7 +22,9 @@ import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
 import type { MuxClient } from '../mux.ts'
 import { archiveSession, assignSessionFolder, createSession, createSessionFolder, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, removeSessionFolder, renameSession, renameSessionFolder, runningSessions, type SessionFoldersView } from '../api.ts'
-import { errorText, formatFullTime, staleHostHint, toSessionView, type SessionView } from './App.tsx'
+import { errorText, staleHostHint, toSessionView, type SessionView } from './App.tsx'
+import { formatFullTime } from '../shared/time.ts'
+import { resolveSessionRunning } from '../shared/session-state.ts'
 import { previewSummary } from '../ui-text.ts'
 import { foldEvents, type WireEvent } from '../messages.ts'
 import { removeOutboxForSession } from '../offline.ts'
@@ -195,7 +197,7 @@ function patchRow(row: SessionView, live: LiveListState, now = Date.now()): Sess
   const confirmedAt = live.confirmedAt.get(row.sessionId) ?? 0
   const heartbeatAt = Math.max(lastActivity ?? 0, live.statusAt.get(row.sessionId) ?? 0, confirmedAt) || undefined
   const quiet = heartbeatAt !== undefined && now - heartbeatAt > RUNNING_STALE_MS
-  const running = hostSaid !== undefined ? hostSaid : ((reported === true && quiet) ? false : reported)
+  const running = resolveSessionRunning({ hostSaid, reported, quiet })
   const updatedAt = live.activity.get(row.sessionId)
   const error = live.error.get(row.sessionId)
   // A session that runs again has moved past its failure. The mark may have

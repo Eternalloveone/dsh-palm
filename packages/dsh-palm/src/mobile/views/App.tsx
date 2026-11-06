@@ -283,30 +283,8 @@ export function toSessionView(item: {
   }
 }
 
-/** Human clock, e.g. "14:05" or "昨天 20:31". */
-export function formatTime(epochMs: number): string {
-  const date = new Date(epochMs)
-  const clock = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-  const today = new Date()
-  if (date.toDateString() === today.toDateString()) return clock
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  if (date.toDateString() === yesterday.toDateString()) return `昨天 ${clock}`
-  return `${String(date.getMonth() + 1)}月${String(date.getDate())}日 ${clock}`
-}
-
-/** Full timestamp for roster rows, e.g. "08-29 14:05" (year added when not
- * the current one) — same-named sessions stay distinguishable by date. */
-export function formatFullTime(epochMs: number): string {
-  const date = new Date(epochMs)
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const clock = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-  const year = date.getFullYear()
-  return year === new Date().getFullYear()
-    ? `${month}-${day} ${clock}`
-    : `${year}-${month}-${day} ${clock}`
-}
+/** 时钟措辞已移入 `shared/time.ts`（单一实现）；此处保留 re-export 直到 S5 改完调用方。 */
+export { formatFullTime, formatTime } from '../shared/time.ts'
 
 /** Props accepted by the mobile root before it begins paired-device RPC calls. */
 export interface AppProps {

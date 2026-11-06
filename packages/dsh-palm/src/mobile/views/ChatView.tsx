@@ -337,6 +337,7 @@ import { getVoiceServices } from '../voice-services.ts'
 import { toast } from '../toast.tsx'
 import { useToastLift } from '../toast-lift.ts'
 import { scheduleSettleBurst } from '../settle-timers.ts'
+import { sanitizeFileName, truncate } from '../shared/text.ts'
 import { shouldRepinAfterShrink } from '../scroll-shrink.ts'
 import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
 import { turnNumberIsStale } from '../turn-liveness.ts'
@@ -1990,7 +1991,7 @@ export function ChatView({
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `${(title === '' ? '会话' : title).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}.${format}`
+    anchor.download = `${sanitizeFileName(title, 60)}.${format}`
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
@@ -2012,7 +2013,7 @@ export function ChatView({
       const save = (url: string): void => {
         const anchor = document.createElement('a')
         anchor.href = url
-        anchor.download = `${(title === '' ? '会话' : title).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}.png`
+        anchor.download = `${sanitizeFileName(title, 60)}.png`
         document.body.appendChild(anchor)
         anchor.click()
         anchor.remove()
@@ -7538,7 +7539,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
       <div className="chat-composer">
         {quoted !== undefined && (
           <div className="chat-quote-bar" role="note" aria-label="引用消息">
-            <span className="chat-quote-text">{quoted.slice(0, 20)}{quoted.length > 20 ? '…' : ''}</span>
+            <span className="chat-quote-text">{truncate(quoted, 20)}</span>
             <button type="button" className="chat-quote-close" aria-label="取消引用" onClick={() => { setQuoted(undefined) }}>
               <CloseIcon width={14} height={14} />
             </button>

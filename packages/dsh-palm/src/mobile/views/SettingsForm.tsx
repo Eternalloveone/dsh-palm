@@ -13,6 +13,7 @@ import type { AgentPresetEntry } from '../../api-proxy-types'
 import { listAgentPresets, mutateSettings } from '../api.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { fieldMeta } from '../settings-meta.ts'
+import { truncate } from '../shared/text.ts'
 import { errorText } from './App.tsx'
 
 /** One node of the schemastery schema envelope (schema.toJSON()). */
@@ -342,7 +343,7 @@ function valueText(value: unknown): string {
   if (Array.isArray(value)) return value.length === 0 ? '（空）' : value.map(item => String(item)).join(' · ')
   if (typeof value === 'object' && value !== null) {
     const text = JSON.stringify(value)
-    return text !== undefined && text.length > 60 ? `${text.slice(0, 57)}…` : (text ?? '—')
+    return text === undefined ? '—' : truncate(text, 60)
   }
   return String(value)
 }

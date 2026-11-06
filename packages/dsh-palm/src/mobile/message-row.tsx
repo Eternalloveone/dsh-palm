@@ -9,7 +9,7 @@
  */
 
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
-import { formatTime } from './views/App.tsx'
+import { formatTime } from './shared/time.ts'
 import type { MessageFile, MessageImage, RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { triggerEmojiOf, triggerTitleOf } from './messages.ts'
 import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from './attachment-images.ts'

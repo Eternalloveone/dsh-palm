@@ -15,6 +15,8 @@
  *   （见 processStepsText，用户拍板：步数移出卡面、展开才看）。
  */
 import type { RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
+import { isRowRunning } from './shared/session-state.ts'
+import { formatDuration } from './shared/time.ts'
 import { stepModel, type StepVariant } from './step-view.ts'
 
 /** 一段思考：缩进文本块，折叠时只看标题，展开才看正文。 */
@@ -57,40 +59,8 @@ export function processStateText(outcome: ProcessOutcome): string {
   return OUTCOME_TEXT[outcome]
 }
 
-/**
- * 这一轮"还在跑"的唯一判据。真机实测：宿主是按步发 assistant/message 的，一行可能
- * 在回合中途就被标成已结束（`pending` 已落、最后一个工具也已返回结果），所以只认
- * pending/工具会让运行中的卡片读成"已完成"、秒表也不出现。
- *
- * 三个分量，缺一不可：
- * - `pending === true`：流式行（宿主还在往这一步里灌 delta）；
- * - 还有工具在跑：turn/end 会把在跑的工具翻成 stopped，所以不会把已结束的回合
- *   误判成运行中；
- * - `message.turn === liveTurn`：**这一行属于当前活跃的那一轮**（活跃轮次由宿主
- *   的 turn/start..turn/end 划定，ChatView 把它逐层传下来）。这一步是"按步定格"
- *   的行的唯一救生索 —— 它自己看不出回合还开着，只有视图级的活跃轮次知道。
- *   行没有 turn 字段、或活跃轮次已翻到下一轮（turn/end 到了）时，这一条不成立。
- *
- * 折叠头的状态词/秒表（message-row）与第二行（currentStepOf）必须共用这一个判据，
- * 否则会出现头读"深度求索中"、第二行却走"已结束"分支的自相矛盾。
- *
- * `settled` 是宿主给出的裁决：这一轮确定不在跑了。它为真时一律返回 false ——
- * 回合中途断流/被杀时，最后一次流式的行永远不会收到定稿的 assistant/message，
- * `pending` 就留在 true 上；只靠这个判据的话，那个过程框会永远显示"深度求索中"、
- * 秒表也永远不停。宿主说停了就是停了，残留的 pending / running 工具都不算数。
- *
- * 旧轮次的行同样一律不算在跑：活跃轮次已经翻过去，说明那一轮早就结束了。它的
- * `pending` 或"还在跑"的工具只是那一轮自己的收尾丢了（turn/end 没到、工具结果没
- * 回），不能拿它当"此刻还在跑"的证据 —— 否则手机在跑最新一轮时，上面几个旧过程框
- * 会一起转圈。
- */
-export function isRowRunning(message: RenderMessage, liveTurn?: number, settled?: boolean): boolean {
-  if (settled === true) return false
-  if (liveTurn !== undefined && message.turn !== undefined && message.turn < liveTurn) return false
-  return message.pending === true
-    || (message.tools ?? []).some(tool => tool.state === 'running')
-    || (liveTurn !== undefined && message.turn !== undefined && message.turn === liveTurn)
-}
+/** 判据的单一实现在 `shared/session-state.ts`（保留此处导出以兼容既有导入）。 */
+export { isRowRunning }
 
 /** 成败的真源：turn/end 的 failed / max-tokens，以及被它收尾的 stopped 工具。 */
 export function processOutcome(message: RenderMessage, liveTurn?: number, settled?: boolean): ProcessOutcome {
@@ -158,26 +128,8 @@ export function toolDiffLines(text: string): string[] {
   return body.split('\n')
 }
 
-/**
- * Human turn duration: `9分29秒` / `19秒` / `1小时2分`.
- *
- * Desktop parity (`formatRunDuration` in the desktop chat chrome): whole
- * seconds are FLOORED, never rounded. Rounding put the phone up to half a
- * second ahead of the desktop, and because the reading is re-derived from the
- * wall clock on every render, a tick that landed just past the half-second
- * showed one second more than the desktop at the same instant — read as "手机
- * 的秒表比桌面快". Floor makes the two numbers identical.
- */
-export function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = total % 60
-  // 超过一小时也要带秒：长回合里只看"几分"根本看不出还在不在动（用户要求）。
-  if (hours > 0) return `${hours}小时${minutes}分${seconds}秒`
-  if (minutes > 0) return `${minutes}分${seconds}秒`
-  return `${seconds}秒`
-}
+/** 时长措辞的单一实现在 `shared/time.ts`（保留此处导出以兼容既有导入）。 */
+export { formatDuration }
 
 /** Non-empty line count of a reasoning run (the think block's `N 行`). */
 export function lineCount(text: string): number {
