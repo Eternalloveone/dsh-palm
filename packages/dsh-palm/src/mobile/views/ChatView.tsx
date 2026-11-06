@@ -45,6 +45,7 @@ import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, 
 import { useChatSession } from './chat/use-chat-session.ts'
 import { useChatAttachments } from './chat/use-chat-attachments.ts'
 import { useChatVoice } from './chat/use-chat-voice.ts'
+import { VoiceSheet } from './chat/voice-sheet.tsx'
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
@@ -6835,57 +6836,15 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           onConfirm={handleDeleteSession}
         />
       )}
-      {voiceOpen && (
-        <div className="voice-backdrop" onClick={() => { closeVoice() }}>
-          <div
-            className="voice-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label="语音输入"
-            onClick={(event) => { event.stopPropagation() }}
-            onKeyDown={(event) => {
-              // 键盘（iPad 外接键盘/桌面浏览器）与读屏用户：Esc 必须能退出，
-              // 否则这个面板只能靠点背景关掉，而背景正好在手指最容易误触的位置。
-              if (event.key === 'Escape') {
-                event.stopPropagation()
-                closeVoice()
-              }
-            }}
-          >
-            <div
-              ref={voiceWaveRef}
-              className={'voice-wave' + (voicePhase === 'transcribing' ? ' voice-wave-idle' : '')}
-              data-live={voicePhase === 'recording' ? '1' : undefined}
-              aria-hidden
-            >
-              <span /><span /><span /><span /><span />
-            </div>
-            {/* 文案与警示色都来自 voiceStatusText：最后 10 秒提醒，转写中/有部分转写时不提醒。 */}
-            <div
-              className={voiceStatusClassName(voiceStatus)}
-              role="status"
-            >
-              {voiceStatus.text}
-            </div>
-            <div className="voice-actions">
-              <button
-                type="button"
-                className="voice-cancel"
-                onClick={closeVoice}
-              >取消</button>
-              <button
-                ref={voiceDoneRef}
-                type="button"
-                className="voice-done"
-                disabled={voicePhase === 'transcribing'}
-                onClick={finishVoice}
-              >
-                {voicePhase === 'transcribing' ? '请稍候' : '完成'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <VoiceSheet
+        open={voiceOpen}
+        phase={voicePhase}
+        status={voiceStatus}
+        waveRef={voiceWaveRef}
+        doneRef={voiceDoneRef}
+        onClose={closeVoice}
+        onFinish={finishVoice}
+      />
       {ctxMenu !== undefined && (
         <>
           <div
