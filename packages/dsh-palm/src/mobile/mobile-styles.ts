@@ -2991,7 +2991,10 @@ button.settings-row:focus-visible {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* 按钮从 32 抬到 40、间距从 2 抬到 8：代码块右上角那排（复制/插入/新标签/运行）
+     是手机上高频点击，32×32 实测只有拇指尖能点准（真机清单第 5 项）。
+     40 是折中：iOS 建议 44、安卓 48，但这排要塞进 390px 宽的代码头行，44×4 会挤掉语言名。 */
+  gap: 8px;
 }
 
 .code-btn {
@@ -2999,9 +3002,11 @@ button.settings-row:focus-visible {
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  min-width: 32px;
-  height: 32px;
-  padding: 0 6px;
+  /* 32×32 → 40×40：见 .code-actions 的说明（真机清单第 5 项，触摸目标）。
+     视觉只大一圈，但拇指命中率差别明显。 */
+  min-width: 40px;
+  height: 40px;
+  padding: 0 8px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -5920,6 +5925,9 @@ button.settings-row:focus-visible {
 .chat-load-older {
   align-self: center;
   margin: 4px 0;
+  /* 36 → 44 的可点高度（真机清单第 5 项）：文字按钮本身矮，点"加载更早"经常
+     点到下面的正文。只抬可点高度，字号颜色都不动。 */
+  min-height: 44px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
