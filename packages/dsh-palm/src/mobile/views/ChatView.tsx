@@ -23,7 +23,7 @@ import { usePageVisible } from '../foreground.ts'
 import { useLiveClock } from '../live-clock.ts'
 import { formatDuration, isRowRunning } from '../process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
-import { recallChatSnapshot, recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
+import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
 import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from './App.tsx'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, transcribeVoice, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
@@ -39,9 +39,9 @@ import { reportError } from '../api.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
 import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
-import { OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
+import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
 import { SessionHud } from '../session-hud.tsx'
-import { loadChatCache, saveChatCache, type CachedRow } from '../chat-cache.ts'
+import { saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
 import {
   barsSignature,
@@ -718,7 +718,7 @@ export function ChatView({
   /** 高亮用的关键词：props 丢了就用意图里那份（否则只会滚、不会涂黄）。 */
   const effectiveFocusQuery = initialFocusQuery ?? locateIntent?.query
   // 第一帧就用上一场的内存快照：进会话不再“空一帧、再内容”（真机：进会话闪一下）。
-  const [messages, setMessages] = useState<RenderMessage[]>(() => recallChatSnapshot(session.sessionId)?.rows ?? [])
+  const [messages, setMessages] = useState<RenderMessage[]>(() => initialSnapshotRows(session.sessionId)?.rows ?? [])
   // Foreground gate for every poll on this view: a frozen background PWA must
   // not keep issuing RPCs (the stream and the host-side follow are released by
   // App's observe effect; returning resyncs them).
@@ -867,7 +867,7 @@ export function ChatView({
     onLoading: (loading) => { setLoading(loading) },
     onError: (reason) => { setError(errorText(reason)) },
   })
-  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend } = pager
+  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend, recallSnapshot } = pager
   // 每次列表变了就把"这一场当前画的样子"记进内存快照，供下次进会话第一帧直接铺。
   useEffect(() => {
     rememberChatSnapshot(session.sessionId, messages, hasOlder)
@@ -1120,24 +1120,14 @@ export function ChatView({
   }, [session.sessionId])
 
   /**
-   * 聊天正文的本地缓存（用户原则："所见即所得、稳定可靠呈现每一项内容"）。
+   * 聊天正文的持久化缓存：**写入端保留，读取端暂时关闭**。
    *
-   * 恢复：进会话时**先用上次画过的那一屏**把界面填上，再去拉网络页 —— 断网或隧道抖动
-   * 时也能看到内容，而不是只剩一句"无法连接"。（2026-11-01 实测：断网刷新后正文全没。）
-   * 保存：屏幕上的行变化后防抖 1.2 秒落盘（流式期间不会每帧写）。
+   * 2026-11-01 曾打开「进会话先用 IndexedDB 缓存占屏」，同批身份缓存与网络页
+   * 合并后出现同一轮两行（真机 13 处重复 id），随后以 TEMP-AB 开关关掉并遗留
+   * 了 `if (false) ...` 死分支。2026-11-06 清理死分支、行为维持不变（不恢复读取），
+   * 决策记录在 audit/refactor-plan.md：先修身份合并，再决定是否恢复。
+   * 写入端仍在（save 见下方 effect），恢复读取时不用重新铺链路。
    */
-  const chatCacheRestoredRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    if (session.sessionId === '' || chatCacheRestoredRef.current === session.sessionId) return
-    chatCacheRestoredRef.current = session.sessionId
-    if (messagesRef.current.length > 0) return
-    const cached = loadChatCache(session.sessionId)
-    if (cached.length === 0) return
-    // **替换**而不是合并：缓存和随后的网络页是同一批身份，合并会出现同一轮两行
-    // （真机实测：长会话二次进入，13 处重复 id）。这里只当作"先用它占住屏幕"，
-    // 网络页一到照常整页替换。
-    if (false as boolean) commitRows(cached as unknown as RenderMessage[], { merge: false, allowGuessedTails: false }) // TEMP-AB
-  }, [session.sessionId, applyMessages])
 
 
   /**
@@ -2186,7 +2176,7 @@ export function ChatView({
     lastMessageKeyRef.current = undefined
     // 这一场本次运行里打开过：直接把上次画的行同步铺上来，网络页到了再覆盖。
     // 没打开过才回到空表 + 加载中（跨刷新的场景仍由 IndexedDB 缓存兜底）。
-    const seeded = recallChatSnapshot(session.sessionId)
+    const seeded = pager.recallSnapshot()
     setLoading(seeded === undefined)
     setError(undefined)
     // 走唯一提交入口：缓存页与网络页可能是两套 id，直接 setMessages 会绕过

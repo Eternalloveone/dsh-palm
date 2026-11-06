@@ -24,6 +24,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type Dispatch, type Mut
 import type { ChatPageResult } from '../App.tsx'
 import { loadChatPage } from '../App.tsx'
 import type { RenderMessage } from '../../messages.ts'
+import { recallChatSnapshot } from '../../chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../scroll-machine.ts'
 import type { ChatScrollHandle } from './use-chat-scroll.ts'
 
@@ -72,6 +73,11 @@ export interface ChatHistoryOptions {
   onError(reason: unknown): void
 }
 
+/** First-paint rows from the in-memory session snapshot (sync; used by useState). */
+export function initialSnapshotRows(sessionId: string): { rows: RenderMessage[]; hasOlder: boolean } | undefined {
+  return recallChatSnapshot(sessionId)
+}
+
 /** Anchor captured before a prepend, restored after the commit. */
 interface PrependAnchor {
   top: number
@@ -100,6 +106,8 @@ export interface ChatHistoryHandle {
   loadOlder(silent?: boolean, beforeSeq?: number, chain?: boolean, maxRows?: number): void
   /** Ask the next commit to re-follow the tail (silent auto-extend). */
   markFollowAfterPrepend(): void
+  /** The in-memory snapshot for this session (open-time seeding). */
+  recallSnapshot(): { rows: RenderMessage[]; hasOlder: boolean } | undefined
 }
 
 /** Row at the top of the viewport: its screen position survives a prepend. */
@@ -320,5 +328,7 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
     actionsRef.current.settleBottomAfterCommit()
   }, [messages])
 
-  return { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend }
+  const recallSnapshot = useCallback(() => recallChatSnapshot(sessionId), [sessionId])
+
+  return { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend, recallSnapshot }
 }
