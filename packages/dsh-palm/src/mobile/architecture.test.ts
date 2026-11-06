@@ -69,7 +69,7 @@ describe('architecture guardrails', () => {
 
   it('keeps the largest view files inside their budget', () => {
     const budgets: Record<string, number> = {
-      'views/ChatView.tsx': 8_050,
+      'views/ChatView.tsx': 7_935,
       'views/SettingsView.tsx': 2_080,
       'views/SessionListView.tsx': 1_645,
       'views/App.tsx': 1_380,

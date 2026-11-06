@@ -39,6 +39,7 @@ import { reportError } from '../api.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
 import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
+import { OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { loadChatCache, saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
@@ -576,21 +577,7 @@ export const TURN_CLOCK_THRESHOLD_MS = 3_000
 /** Composer draft debounce: localStorage writes wait this long after the
  *  last keystroke (unmount flushes immediately regardless). */
 export const DRAFT_SAVE_DEBOUNCE_MS = 1_500
-/** Ceiling for one "load older messages" request before it aborts and errors.
- *
- *  15 s 只够热宿主：宿主刚起来、或者这个大会话被换出内存之后，第一次锚定读
- *  （`session.history?beforeSeq=`）实测 44~60 s，尾页 17~109 s。超时一响就只剩
- *  空白聊天页，用户看到的就是「点了搜索结果，进去什么都没有」——所以这里给到
- *  90 s，宁可在真断网时多等一会，也不要稳定地失败。 */
-export const LOAD_OLDER_TIMEOUT_MS = 90_000
-/**
- * 进会话时静默铺开的上下文跨度（真机反馈：一进会话就挂着「加载更早的消息」，
- * 长会话要点很多次）。一页 25 行对长会话太短，所以进会话后连续补页，直到行数
- * 够看或者页数用完；每一页都是后台静默的，首屏不等它们。
- */
-export const OPEN_HISTORY_TARGET_ROWS = 120
-/** 进会话时最多连续补几页（4 页 ≈ 再铺开 100 行）。 */
-export const OPEN_HISTORY_MAX_PAGES = 4
+/** 翻页超时与铺开上限见 chat/use-chat-history.ts（LOAD_OLDER_TIMEOUT_MS / OPEN_HISTORY_*）。 */
 /** 读到这里以内就自动接上一页，不再非得点按钮（无限上翻）。 */
 export const NEAR_TOP_LOAD_PX = 240
 
@@ -768,7 +755,6 @@ export function ChatView({
   }
 
 
-  const [hasOlder, setHasOlder] = useState(false)
 
 
 
@@ -828,6 +814,86 @@ export function ChatView({
     holdLocateIntent(session.sessionId)
     return () => { releaseLocateIntent(session.sessionId) }
   }, [session.sessionId])
+  // 分页历史：取页/缓存/在飞合并/链式补页在 use-chat-history 里；折叠与锚点在这里。
+  const pager = useChatHistory({
+    sessionId: session.sessionId,
+    getFirstRow: () => folderRef.current?.snapshot()[0] ?? messages[0],
+    loadedRowCount: () => folderRef.current?.snapshot().length ?? messages.length,
+    preparePage: async (page) => {
+      let older = renderRows(page.rows, false)
+      // 无感加载历史卡：一页里已经收工、turn/end 落在下一页的轮次，一次读齐再提交。
+      const lackingTurns = missingTurnReports(older).slice(-3)
+      if (lackingTurns.length > 0) {
+        try {
+          const cards = await loadTurnReportRows(session.sessionId, lackingTurns)
+          if (cards.length > 0) {
+            // 记住：下次进这一场，卡就能和正文同一次提交落地，不再"长出来"。
+            rememberTurnReports(session.sessionId, cards)
+            older = renderRows(mergeTurnReports(older, cards), false)
+            for (const turn of lackingTurns) cardRecoveryRef.current.confirmed.add(turn)
+          }
+        } catch {
+          // 读不到就当没有卡：历史翻页不能被一次失败拦住。
+        }
+      }
+      rememberRawPage(page.rows)
+      return older
+    },
+    captureAnchor: () => {
+      const el = scrollRef.current
+      const anchorRow = (() => {
+        const rows = el?.querySelectorAll('[data-message-id]') ?? []
+        for (const row of rows) {
+          const rect = row.getBoundingClientRect()
+          if (rect.bottom > 80) {
+            return {
+              id: row.getAttribute('data-message-id') ?? '',
+              top: Math.round(rect.top),
+              seq: Number(row.getAttribute('data-row-seq') ?? '0'),
+            }
+          }
+        }
+        return undefined
+      })()
+      return { top: scrollTopRef.current, height: el?.scrollHeight, row: anchorRow }
+    },
+    adoptPage: (older, page, ctx) => {
+      const folder = folderRef.current
+      // 跳转取页（maxRows 有值）取到的可能是和当前窗口不接壤的一段历史：直接
+      // prepend 会把两段拼在一起，中间永久缺一段。这种情况改用这一页重新开窗。
+      const pageMinSeq = older.reduce((min, row) => Math.min(min, row.startSeq ?? row.seq), Number.POSITIVE_INFINITY)
+      const windowMinSeq = ctx.first.startSeq ?? ctx.first.seq
+      const reseed = folder !== undefined && ctx.maxRows !== undefined && older.length > 0 && pageMinSeq >= windowMinSeq
+      if (folder === undefined) {
+        commitRows(previous => [...older, ...previous], { allowGuessedTails: false })
+      } else if (reseed) {
+        const pageMaxSeq = older.reduce((max, row) => Math.max(max, row.seq), Number.NEGATIVE_INFINITY)
+        const keep = folder.snapshot().filter(row => (row.startSeq ?? row.seq) > pageMaxSeq)
+        folder.seed([...older, ...keep])
+        applyMessages(folder.snapshot())
+      } else {
+        folder.prepend(older)
+        applyMessages(folder.snapshot())
+      }
+      const anchor = ctx.anchor as { top?: number; height?: number; row?: { id: string; top: number; seq: number } } | undefined
+      const el = scrollRef.current
+      if (el !== undefined && older.length > 0 && ctx.maxRows === undefined && anchor !== undefined) {
+        if (ctx.silent && scrollStateRef.current.gap <= FOLLOW_THRESHOLD_PX) {
+          // 静默补页 prepend 在尾部之上：把回钉交给 commit 期（见 followAfterPrependRef）。
+          followAfterPrependRef.current = true
+        } else {
+          prependAnchorRef.current = {
+            top: anchor.top ?? el.scrollTop,
+            height: anchor.height ?? el.scrollHeight,
+            ...(anchor.row === undefined ? {} : { rowId: anchor.row.id, rowTop: anchor.row.top, rowSeq: anchor.row.seq }),
+          }
+        }
+      }
+    },
+    onLoading: (loading) => { setLoading(loading) },
+    onError: (reason) => { setError(errorText(reason)) },
+  })
+  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder } = pager
   // 每次列表变了就把"这一场当前画的样子"记进内存快照，供下次进会话第一帧直接铺。
   useEffect(() => {
     rememberChatSnapshot(session.sessionId, messages, hasOlder)
@@ -840,8 +906,8 @@ export function ChatView({
   // page lands); the auto-extend on open calls through this ref. Assigned
   // after the useCallback below (TDZ).
   const loadOlderRef = useRef<(silent?: boolean, beforeSeq?: number, chain?: boolean, maxRows?: number) => void>(() => {})
+  loadOlderRef.current = loadOlder
   /** 「下一条命中」那一页的预取缓存：键 = beforeSeq，取用一次就删。 */
-  const pageCacheRef = useRef(new Map<number, Awaited<ReturnType<typeof loadChatPage>>>())
   // One silent auto-extend chain per session open (see the tail-load effect).
   const autoExtendedRef = useRef(false)
   // 这一轮"进会话铺开"已经补了几页（每开一次会话归零）。
@@ -881,9 +947,6 @@ export function ChatView({
   const sendInFlightRef = useRef(0)
   /** 上一次提交（正文 + 时刻）：短窗内同文重复提交视为同一次意图。 */
   const lastSubmitRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
-  const pendingRef = useRef(false)
-  /** 一页在飞时被挡下的翻页请求（落地后补发，别把点击丢掉）。 */
-  const queuedOlderRef = useRef<{ beforeSeq?: number } | undefined>(undefined)
   // Live mirror of `messages`：回调可能在很久之后才跑（首帧 rAF 甚至晚于尾页
   // 落地），所以它们必须读当前列表，不是闭包创建时的那一份。
   const messagesRef = useRef(messages)
@@ -5109,184 +5172,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   /** Load one older page and prepend it. The fold is directional (incremental
    *  tails only), so the older page folds standalone and concatenates ahead —
    *  host page boundaries never cut a message, so the seam is exact. */
-  const loadOlder = useCallback((silent = false, beforeSeqOverride?: number, chain = false, maxRows?: number) => {
-    if (pendingRef.current) {
-      // 已经有一页在飞：记下这次请求，落地后接着发出。直接 return 会让调用方以为
-      // 翻过了——搜索「下一个」正好撞在这个时序上（刚翻完一条命中，下一条点击进来
-      // 时上一页还没落地），真机表现就是计数变了、画面一动不动。
-      queuedOlderRef.current = { beforeSeq: beforeSeqOverride }
-      return
-    }
-    pendingRef.current = true
-    // The auto-extend on open must not flash the button's "加载中…" state.
-    if (!silent) setLoading(true)
-    // The folder snapshot is authoritative (the auto-extend on open runs
-    // before React re-renders, so the closure's `messages` is still stale).
-    const first = folderRef.current?.snapshot()[0] ?? messages[0]
-    if (first === undefined) {
-      pendingRef.current = false
-      if (!silent) setLoading(false)
-      return
-    }
-    // A stalled older-page load must not leave "加载中…" forever: abort it
-    // and surface a retryable error (weak links time out instead of hanging).
-    const controller = new AbortController()
-    const timeout = setTimeout(() => {
-      controller.abort(new DOMException('load older timed out', 'TimeoutError'))
-    }, LOAD_OLDER_TIMEOUT_MS)
-    // A coalesced turn message spans many step rows; page by its FIRST row's
-    // seq, otherwise the request re-fetches already-shown steps of the same
-    // turn and prepending duplicates their text. A search-locate may override
-    // the cursor to jump straight to the target's page (one RPC instead of
-    // paging back one page at a time through deep history).
-    const beforeSeq = beforeSeqOverride ?? (first.startSeq ?? first.seq)
-    // 「下一个」要现场读页时最费时间（宿主折页 + 对齐回合，手机上 1~3 秒）。落地后
-    // 空闲时已经把下一条命中的那一页预取到这里，点击时直接命中，不再等网络。
-    const cached = pageCacheRef.current.get(beforeSeq)
-    if (cached !== undefined) pageCacheRef.current.delete(beforeSeq)
-    // Record the anchor BEFORE the fetch: React's commit-time focus scroll
-    // restoration can zero the container's scrollTop while the old page is
-    // swapped, which would make the anchor shift below the wrong content.
-    const anchorTop = silent ? undefined : (scrollRef.current?.scrollTop ?? scrollTopRef.current)
-    // 高度也要在**发请求之前**记：请求落地后 React 可能已经提交了新内容，那时量到的
-    // 是增量之后的高度，差值就是 0（补偿会失效）。
-    const heightBefore = scrollRef.current?.scrollHeight
-    // 同时记一条**具体的行**：窗口化渲染时 scrollHeight 会滞后（占位行还没量），
-    // 只按高度差补偿会少补几百像素。落地后用这一行的位移做二次校准。
-    const anchorRow = silent
-      ? undefined
-      : (() => {
-        const rows = scrollRef.current?.querySelectorAll('[data-message-id]') ?? []
-        for (const row of rows) {
-          const rect = row.getBoundingClientRect()
-          if (rect.bottom > 80) {
-            return {
-              id: row.getAttribute('data-message-id') ?? '',
-              top: Math.round(rect.top),
-              // 也记 seq：页面合并会把同一条换成另一个 id（页面行 vs 实时行），
-              // 只按 id 找不到时还能按「seq 最接近的那一行」校准。
-              seq: Number(row.getAttribute('data-row-seq') ?? '0'),
-            }
-          }
-        }
-        return undefined
-      })()
-    const pageRequest = cached === undefined
-      ? loadChatPage(session.sessionId, beforeSeq, controller.signal, undefined, undefined, maxRows)
-      : Promise.resolve(cached)
-    void pageRequest.then(
-      async (page) => {
-        clearTimeout(timeout)
-        pendingRef.current = false
-        if (!silent) setLoading(false)
-        let older = renderRows(page.rows, false)
-        // 无感加载历史卡：这一页里已经收工、却因为 turn/end 落在下一页而没有卡的轮次，
-        // 在这里**一次读齐再提交**。页与卡同一次 setMessages 落地 —— 用户看不到
-        // 「卡片后来才长出来」的那一下。读不到就照原样提交（不猜、不占位）。
-        //
-        // 上限 3 轮：一页 25 行最多就跨两三轮，读再多只是拖慢翻页。
-        const lackingTurns = missingTurnReports(older).slice(-3)
-        if (lackingTurns.length > 0) {
-          try {
-            const cards = await loadTurnReportRows(session.sessionId, lackingTurns)
-            if (cards.length > 0) {
-              // 记住：下次进这一场，卡就能和正文同一次提交落地，不再"长出来"。
-              rememberTurnReports(session.sessionId, cards)
-              older = renderRows(mergeTurnReports(older, cards), false)
-              for (const turn of lackingTurns) cardRecoveryRef.current.confirmed.add(turn)
-            }
-          } catch {
-            // 读不到就当没有卡：历史翻页不能被一次失败拦住。
-          }
-        }
-        rememberRawPage(page.rows)
-        const folder = folderRef.current
-        // 跳转取页（maxRows 有值）取到的可能是**和当前窗口不接壤**的一段历史：窗口停在
-        // 更早那一屏，而这一次的命中在更靠后的位置。直接 prepend 会把两段不相邻的历史
-        // 拼在一起，中间那一段就永久缺了 —— 落在缺口里的命中只能就近贴到一条覆盖范围
-        // 虚高的行上（真机 失败 4/28、5/28：两条都贴在 6d15fd97、一个高亮都没有，
-        // scrollTop 却在动）。这种情况下改用这一页重新开窗，让窗口永远是一段连续历史。
-        const pageMinSeq = older.reduce((min, row) => Math.min(min, row.startSeq ?? row.seq), Number.POSITIVE_INFINITY)
-        const windowMinSeq = first.startSeq ?? first.seq
-        const reseed = folder !== undefined && maxRows !== undefined && older.length > 0 && pageMinSeq >= windowMinSeq
-        if (folder === undefined) {
-          // 走统一入口：补页同样要保住上一轮的交付卡（直接 renderRows 会把它挤掉），
-          // 并且与其它提交一样做「同身份并集合并」。历史页不猜卡。
-          commitRows(previous => [...older, ...previous], { allowGuessedTails: false })
-        } else if (reseed) {
-          const pageMaxSeq = older.reduce((max, row) => Math.max(max, row.seq), Number.NEGATIVE_INFINITY)
-          const keep = folder.snapshot().filter(row => (row.startSeq ?? row.seq) > pageMaxSeq)
-          folder.seed([...older, ...keep])
-          applyMessages(folder.snapshot())
-        } else {
-          folder.prepend(older)
-          applyMessages(folder.snapshot())
-        }
-        // 空页不写 hasOlder：一个偏掉的游标也会回空页，把它当成「到头了」写下去，
-        // 整条历史就再也翻不动了（每次点都只弹「没有更早的轮次」）。
-        if (older.length > 0) setHasOlder(page.hasMore)
-
-        // Keep the visual anchor: the prepend pushes content down by the
-        // inserted rows' real height, so advance the scroll position by the
-        // same amount (行全渲染，量到的就是真值)。
-        // 搜索跳转的取页（maxRows 有值）例外：这一页的存在意义就是把命中行送到位，
-        // 落点由 locateSeq 决定。锚点补偿的 rAF 恰好会和它抢滚动位置 —— 实测有一处
-        // 命中被补偿甩到列表最顶端（scrollTop 20、焦点落在没有高亮的行上）。
-        const el = scrollRef.current
-        if (el !== undefined && older.length > 0 && maxRows === undefined) {
-          if (silent && scrollStateRef.current.gap <= FOLLOW_THRESHOLD_PX) {
-            // The silent auto-extend on open prepends ABOVE the tail: the
-            // tail page already followed to the bottom, and a plain anchor
-            // shift would strand the view mid-history (the last message's
-            // key never changes, so the stream follower never re-fires).
-            // Defer the re-follow to the commit-time effect (see
-            // followAfterPrependRef): a rAF here can run before React has
-            // committed the prepend, and a scrollToBottom that reads the
-            // pre-commit scrollHeight pins to the OLD tail — leaving the
-            // view stranded in history once the prepend lands.
-            followAfterPrependRef.current = true
-          } else {
-            // 记下翻页前的真实高度与锚点，commit 后按 scrollHeight 差值补偿。
-            // （估算高度在长卡片/代码块上会差出上千像素。）
-            prependAnchorRef.current = {
-              top: anchorTop ?? el.scrollTop,
-              height: heightBefore ?? el.scrollHeight,
-              ...(anchorRow === undefined ? {} : { rowId: anchorRow.id, rowTop: anchorRow.top, rowSeq: anchorRow.seq }),
-            }
-          }
-        }
-        // 铺开链放在锚点/跟随之后：先保证这一页落地的视野不动，再决定要不要
-        // 接着补。静默补页、行数够了或页数到顶就停。
-        if (chain && page.hasMore && openChainPagesRef.current < OPEN_HISTORY_MAX_PAGES) {
-          const loadedRows = folderRef.current?.snapshot().length ?? (messages.length + older.length)
-          if (loadedRows < OPEN_HISTORY_TARGET_ROWS) {
-            openChainPagesRef.current += 1
-            loadOlderRef.current(true, undefined, true)
-          }
-        }
-        // 被挡住的那一发补上（见 loadOlder 开头的排队分支）。
-        const queued = queuedOlderRef.current
-        if (queued !== undefined) {
-          queuedOlderRef.current = undefined
-          loadOlderRef.current(true, queued.beforeSeq, false, maxRows)
-        }
-      },
-      (reason: unknown) => {
-        clearTimeout(timeout)
-        pendingRef.current = false
-        setLoading(false)
-        // The auto-extend on open is best-effort: a failure keeps the loaded
-        // tail and the manual button — it must not surface an error.
-        if (!silent) setError(errorText(reason))
-        const queued = queuedOlderRef.current
-        if (queued !== undefined) {
-          queuedOlderRef.current = undefined
-          loadOlderRef.current(true, queued.beforeSeq, false, maxRows)
-        }
-      },
-    )
-  }, [session.sessionId, messages, scrollToBottom, setScrollTopProgrammatically])
-  loadOlderRef.current = loadOlder
 
   // Focus-locate (search-hit open): scroll the chat to the row covering the
   // target message seq once it loads, paging back a bounded number of times
