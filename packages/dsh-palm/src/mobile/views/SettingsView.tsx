@@ -9,553 +9,39 @@
  *   non-whitelisted fields read-only. Secrets never ride the wire.
  */
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, latestVersion, listDevices, mutateSettings, notifyEvents, readNotifyConfig, readSettings, renameDevice, revokeDevice, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type NotifyEventView, type PairedDeviceView, type UsageProviderView, type UsageView } from '../api.ts'
+import { fetchHostVoiceServices, fetchUsage, latestVersion, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type MobileHealthView, type NotifyEventView, type UsageView } from '../api.ts'
 import { errorText } from '../shared/error-text.ts'
-import { readDiagnostics, type MobileHealthView } from '../api.ts'
-import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush, webPushSupported } from '../notify.ts'
-import { getMobileThemeMode, setMobileThemeMode, subscribeMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
-import { IosInstallHint } from '../ios-install-hint.tsx'
-import { PerfReportRow } from '../perf-report.tsx'
-import { BUILD_HASH } from '../build-info.ts'
+import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush } from '../notify.ts'
+import { getMobileThemeMode, subscribeMobileTheme } from '../mobile-theme.ts'
+import { toast } from '../toast.tsx'
 import {
-  DENSITY_LABEL, FONT_SCALE_LABEL, applyDisplayPrefs,
   getAutoScroll, getDensity, getFontScale, getHaptics, getLineNumbers,
-  setAutoScroll, setDensity, setFontScale, setHaptics, setLineNumbers,
   type Density, type FontScale,
 } from '../display-prefs.ts'
-import { toast } from '../toast.tsx'
-import { Sheet } from '../sheet.tsx'
-import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import {
-  ChevronUpIcon, ContrastIcon, GaugeIcon, GitHubIcon, HashIcon, InfoIcon, MicIcon,
-  PencilIcon, PlusIcon, RowsIcon, ScrollDownIcon, ShieldIcon, SlidersIcon,
-  TrashIcon, TypeIcon, UpperRightIcon, VibrateIcon, BellIcon,
-} from '../icons.tsx'
-import {
-  getVoiceServices, moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService,
-  subscribeVoiceServices, syncHostVoiceServices, upsertVoiceService, type VoiceService,
+  getVoiceServices, subscribeVoiceServices, syncHostVoiceServices, type VoiceService,
 } from '../voice-services.ts'
+import { SlidersIcon } from '../icons.tsx'
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../notify-triggers.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
-import { dropAllChatCaches } from '../chat-cache.ts'
+import { AdvancedSection, type SettingsGroupRow } from './settings/advanced-section.tsx'
+import { AppearanceSection } from './settings/appearance-section.tsx'
+import { DeviceManagementView, DeviceSection } from './settings/device-section.tsx'
+import { NotifyPage } from './settings/notify-page.tsx'
+import { NotifySection } from './settings/notify-section.tsx'
+import { OtherSection } from './settings/other-section.tsx'
+import { SettingsOverlays } from './settings/settings-overlays.tsx'
+import { RowChevron } from './settings/settings-shared.tsx'
+import { UsageSection } from './settings/usage-section.tsx'
+import { VoicePage, VoiceSection } from './settings/voice-section.tsx'
+import { SETTINGS_GROUPS, SETTINGS_INDEX, type SettingsIndexEntry } from './settings/settings-groups.tsx'
 
-/** Props for the settings page. */
 export interface SettingsViewProps {
   onBack(): void
-}
-
-/** Source badge: where a setting takes effect / can be changed. */
-function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend' }) {
-  // 「本机」是绝大多数项的默认：每行都挂一枚等于没有信息，还把副标题挤成省略号
-  // （真机：一屏 6~7 个「本机」）。只在"不是本机"时才标，读者自然知道没标的就是本机。
-  if (scope === 'phone') return null
-  const label = scope === 'sync' ? '同步桌面' : scope === 'desktop' ? '桌面端' : scope === 'ro' ? '只读' : '推荐'
-  return <span className={`settings-badge settings-badge-${scope}`}>{label}</span>
-}
-
-/** Channel credential presence: the host stores the value, the phone never
- *  sees it — show the configured state instead of a deceptively empty field. */
-function ChannelState({ configured }: { configured: boolean }) {
-  return (
-    <span className={`settings-channelState${configured ? ' settings-channelState-on' : ''}`}>
-      {configured ? '已配置 ✓（凭据存于电脑端）' : '未配置'}
-    </span>
-  )
-}
-
-/** Inbox row time: today → HH:mm, otherwise MM-DD HH:mm. */
-function formatInboxTime(ts: number): string {
-  const date = new Date(ts)
-  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-  const now = new Date()
-  const sameDay = date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate()
-  return sameDay
-    ? time
-    : `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${time}`
-}
-
-/** Merged card groups: semantically related namespaces share one card. */
-const SETTINGS_GROUPS: Array<{ id: string; title: string; namespaces: string[] }> = [
-  { id: 'general', title: '通用', namespaces: ['ui-theme', 'ui-conversation'] },
-  { id: 'models', title: '模型', namespaces: ['llm-pi-ai', 'llm-deepseek', 'subagent-model-selection-settings', 'agent-default-model'] },
-  { id: 'search', title: '搜索', namespaces: ['web-search-free', 'web-search-deepseek'] },
-  { id: 'memory', title: '记忆', namespaces: ['mnemon'] },
-  { id: 'tools', title: '工具', namespaces: ['agent-loop', 'subagent'] },
-  { id: 'system', title: '系统', namespaces: ['permission', 'pwsh-sandbox'] },
-  { id: 'sidebar', title: '侧边栏', namespaces: ['better-sidebar'] },
-  { id: 'remote', title: '远程访问', namespaces: ['dsh-palm'] },
-]
-
-/** One searchable sub-configuration entry: lives INSIDE the notify / voice
- *  sub-pages, which the main-page keyword filter cannot reach. Tapping a
- *  search hit opens the owning sub-page and scrolls the entry into view
- *  with a one-shot pulse (data-locate-id anchor on the rendered entry). */
-interface SettingsIndexEntry {
-  /** The entry's `data-locate-id` anchor on the rendered sub-page. */
-  id: string
-  label: string
-  group: string
-  keywords: string[]
-  open: 'notify' | 'voice'
-}
-
-const SETTINGS_INDEX: SettingsIndexEntry[] = [
-  { id: 'notify-browser', label: '浏览器通知（启用）', group: '通知', keywords: ['浏览器通知', '通知权限', 'notify', 'enable'], open: 'notify' },
-  { id: 'notify-kinds', label: '通知内容（三类事件开关）', group: '通知', keywords: ['通知内容', '规划完成', '后台任务', '长回复'], open: 'notify' },
-  { id: 'notify-wxpusher', label: '推送渠道 · WxPusher SPT', group: '通知', keywords: ['wxpusher', 'spt', '微信推送', '微信直达'], open: 'notify' },
-  { id: 'notify-pushplus', label: '推送渠道 · PushPlus（已降级）', group: '通知', keywords: ['pushplus', 'token', '微信直达', '已降级'], open: 'notify' },
-  { id: 'notify-serverchan', label: '推送渠道 · Server酱 SendKey', group: '通知', keywords: ['serverchan', 'sendkey', 'server酱', 'sct'], open: 'notify' },
-  { id: 'notify-bark', label: '推送渠道 · Bark Key', group: '通知', keywords: ['bark', 'bark key', 'ios 直达'], open: 'notify' },
-  { id: 'notify-tg', label: '推送渠道 · Telegram', group: '通知', keywords: ['telegram', 'bot token', 'chat id', 'tg'], open: 'notify' },
-  { id: 'notify-webpush', label: 'Web Push（系统推送）', group: '通知', keywords: ['web push', '系统推送', 'fcm', '代理'], open: 'notify' },
-  { id: 'notify-triggers', label: '触发条件（阈值与间隔）', group: '通知', keywords: ['触发条件', '阈值', '间隔', 'cooldown'], open: 'notify' },
-  { id: 'notify-privacy', label: '隐私（锁屏隐藏详情）', group: '通知', keywords: ['隐私', '锁屏隐藏', '隐藏详情'], open: 'notify' },
-  { id: 'voice-add', label: '语音 · 添加/编辑转写服务', group: '语音', keywords: ['添加服务', '语音服务', 'transcribe', '转写', 'baseurl'], open: 'voice' },
-  { id: 'voice-list', label: '语音 · 服务列表管理', group: '语音', keywords: ['语音列表', '排序', '上移', '下移', '删除服务'], open: 'voice' },
-]
-
-/** One row of the unified settings card: icon · title/value · control. */
-function SettingsRow({ icon, title, desc, action, onClick, locateId, focused, scope = 'phone' }: {
-  icon: ReactNode
-  title: string
-  desc?: string
-  action?: ReactNode
-  onClick?(): void
-  /** data-locate-id anchor for the settings search (find + scroll + pulse). */
-  locateId?: string
-  /** One-shot pulse when this row is the active search target. */
-  focused?: boolean
-  /**
-   * 这一项改在哪生效，显示成标题旁的角标。默认「本机」——这一页的开关绝大多数
-   * 只写本地偏好；同步到桌面、只能在桌面改的必须显式传，否则图例上那三种颜色
-   * 等于没标，用户会以为整页都没标记。
-   */
-  scope?: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend'
-}) {
-  const body = (
-    <>
-      <span className="card-icon"><span aria-hidden>{icon}</span></span>
-      <span className="card-main">
-        <span className="card-title"><span className="card-titleText">{title}</span><ScopeBadge scope={scope} /></span>
-        {desc !== undefined && <span className="card-desc">{desc}</span>}
-      </span>
-      <span className="card-action">{action}</span>
-    </>
-  )
-  const attributes = locateId === undefined ? {} : { 'data-locate-id': locateId }
-  const cls = 'settings-row' + (focused === true ? ' settings-focus' : '')
-  if (onClick === undefined) {
-    return <li className={cls} {...attributes}>{body}</li>
-  }
-  return (
-    <li>
-      <button type="button" className={cls} onClick={onClick} {...attributes}>
-        {body}
-      </button>
-    </li>
-  )
-}
-
-/** 主机配置各组的一句话说明（原来自动拼的标题重复、术语直出，普通用户读不懂）。 */
-const HOST_GROUP_DESC: Record<string, string> = {
-  general: '语言、区域和通用偏好',
-  models: '手机和子代理用哪个模型',
-  search: '联网搜索、免费搜索',
-  memory: '长期记忆里存了什么',
-  tools: 'agent 怎么循环、子代理怎么开',
-  system: '手机端能做哪些操作（发命令、改文件）',
-  sidebar: '桌面端侧边栏的显示',
-  remote: '从外网连回这台电脑',
-}
-
-function hostGroupDesc(group: { id: string; title: string }): string {
-  return HOST_GROUP_DESC[group.id] ?? group.title
-}
-
-/** 分组图标：按语义挑一个，不再 8 行共用一个滑杆。 */
-function hostGroupIcon(id: string): ReactNode {
-  switch (id) {
-    case 'general': return <TypeIcon />
-    case 'models': return <GaugeIcon />
-    case 'search': return <HashIcon />
-    case 'memory': return <InfoIcon />
-    case 'tools': return <SlidersIcon />
-    case 'system': return <ShieldIcon />
-    case 'sidebar': return <RowsIcon />
-    default: return <UpperRightIcon />
-  }
-}
-
-/** A chevron affordance for row cards that open a sheet. */
-function RowChevron() {
-  return <span className="mobile-chevron" aria-hidden>›</span>
-}
-
-/** Generic single-choice sheet. */
-function OptionSheet<T extends string>({ title, options, value, onPick, onClose }: {
-  title: string
-  options: Array<{ value: T; label: string }>
-  value: T
-  onPick(value: T): void
-  onClose(): void
-}) {
-  return (
-    <Sheet title={title} onClose={onClose}>
-      <div role="listbox" aria-label={title}>
-        {options.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            role="option"
-            aria-selected={option.value === value}
-            className={`sheet-option${option.value === value ? ' sheet-option-selected' : ''}`}
-            onClick={() => { onPick(option.value); onClose() }}
-          >
-            <span className="sheet-option-copy">
-              <span className="sheet-option-title">{option.label}</span>
-            </span>
-            {option.value === value && <span className="sheet-option-check" aria-hidden>✓</span>}
-          </button>
-        ))}
-      </div>
-    </Sheet>
-  )
-}
-
-/**
- * Drop CacheStorage + service workers (the offline shell)，以及**本地正文缓存**。
- *
- * 用户点「清除缓存」的心智是"把本机存的东西清干净"；只清 CacheStorage 而留下
- * localStorage 里的正文缓存，会出现点了清除、离线重进还能看到旧内容。
- */
-async function clearAppCaches(): Promise<void> {
-  try {
-    dropAllChatCaches()
-    if (typeof caches !== 'undefined') {
-      const keys = await caches.keys()
-      await Promise.all(keys.map(key => caches.delete(key)))
-    }
-    if (typeof navigator !== 'undefined' && navigator.serviceWorker !== undefined) {
-      const registrations = await navigator.serviceWorker.getRegistrations()
-      await Promise.all(registrations.map(registration => registration.unregister()))
-    }
-    toast('缓存已清除')
-  } catch {
-    toast('清除缓存失败')
-  }
-}
-
-/** One toggle row bound to a boolean display pref. */
-function ToggleRow({ icon, title, desc, value, onChange, scope }: {
-  icon: ReactNode
-  title: string
-  desc: string
-  value: boolean
-  onChange(next: boolean): void
-  /** 透传给 SettingsRow；不传就是本机。 */
-  scope?: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend'
-}) {
-  return (
-    <SettingsRow
-      icon={icon}
-      title={title}
-      desc={desc}
-      scope={scope}
-      action={
-        <button
-          type="button"
-          role="switch"
-          aria-label={title}
-          aria-checked={value}
-          className={`settings-switch${value ? ' settings-switch-on' : ''}`}
-          onClick={() => { onChange(!value) }}
-        />
-      }
-    />
-  )
-}
-
-/** Collapsed one-line summary of the usage surface. */
-function usageSummaryText(usage: UsageView): string {
-  const ok = usage.providers.filter(provider => provider.status === 'ok')
-  if (ok.length === 0) return `已配置 ${usage.providers.length} 个提供方`
-  return ok.slice(0, 3).map(provider => {
-    if (provider.kind === 'usage' && provider.usedPercent !== undefined) {
-      return `${provider.name} · 余量 ${Math.round((1 - provider.usedPercent) * 100)}%`
-    }
-    if (provider.summary !== undefined) {
-      // 没有配额上限的用量提供方（Ollama Cloud 现在只报请求数）：如实摘要。
-      return `${provider.name} · ${provider.summary}`
-    }
-    if (provider.kind === 'balance' && provider.balance !== undefined) {
-      return `${provider.name} · ${provider.balance}`
-    }
-    return provider.name
-  }).join(' · ')
-}
-
-/** 配额窗口的重置说明；提供方给了重置时刻就显示真实时间，否则说明它是滑动窗口。 */
-function resetNote(resetsAt: number | undefined): string {
-  if (resetsAt === undefined) return '窗口随请求持续滑动，无固定重置时刻'
-  const at = new Date(resetsAt)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `重置于 ${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
-}
-
-/** Traffic-light status badge for one provider's usage/balance row. */
-function UsageStatusBadge({ provider }: { provider: UsageProviderView }) {
-  if (provider.status === 'ok') {
-    // 中转站只有「累计已花」，标成「余额」会被读成「还剩这么多」——按标签说话。
-    const label = provider.kind === 'usage'
-      ? (provider.plan ?? '可用')
-      : (provider.balanceLabel ?? '余额')
-    return <span className="usage-badge usage-badge-ok">{label}</span>
-  }
-  if (provider.status === 'no-key') return <span className="usage-badge usage-badge-no">未配置</span>
-  if (provider.status === 'unsupported') return <span className="usage-badge usage-badge-na">不支持</span>
-  return <span className="usage-badge usage-badge-err">失败</span>
-}
-
-/** One provider's usage/balance card in the expanded usage group. */
-function UsageProviderCard({ provider }: { provider: UsageProviderView }) {
-  const baseLabel = provider.baseURL !== undefined
-    ? (() => { try { return new URL(provider.baseURL).hostname } catch { return provider.baseURL } })()
-    : undefined
-  return (
-    <div className="usage-provider">
-      <div className="usage-providerHead">
-        <span className="usage-providerName">
-          {provider.name}
-          {baseLabel !== undefined && <span className="usage-providerBase">{baseLabel}</span>}
-        </span>
-        <UsageStatusBadge provider={provider} />
-      </div>
-      {provider.status === 'ok' && provider.kind === 'usage' && provider.usedPercent !== undefined && (
-        <>
-          {provider.sessionUsed !== undefined && (
-            <div className="usage-block">
-              <div className="usage-row">
-                <span className="usage-rowLabel">近 5 小时</span>
-                <span className="usage-rowValue">{(provider.sessionUsed * 100).toFixed(0)}%</span>
-              </div>
-              <div className="usage-meter">
-                <div className="usage-meterFill" style={{ width: `${(provider.sessionUsed * 100).toFixed(0)}%` }} />
-              </div>
-              <p className="usage-resetNote">{resetNote(provider.sessionResetsAt)}</p>
-            </div>
-          )}
-          <div className="usage-block">
-            <div className="usage-row">
-              <span className="usage-rowLabel">本周</span>
-              <span className="usage-rowValue">
-                {(provider.usedPercent * 100).toFixed(1)}% · 余 {((1 - provider.usedPercent) * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="usage-meter">
-              <div className="usage-meterFill" style={{ width: `${(provider.usedPercent * 100).toFixed(0)}%` }} />
-            </div>
-            <p className="usage-resetNote">{resetNote(provider.weeklyResetsAt)}</p>
-          </div>
-        </>
-      )}
-      {provider.status === 'ok' && provider.kind === 'usage' && provider.summary !== undefined && (
-        <div className="usage-stats"><span><b>{provider.summary}</b></span><span /></div>
-      )}
-      {provider.status === 'ok' && provider.kind === 'balance' && (
-        <div className="usage-stats">
-          <span>{provider.balanceLabel ?? '账户余额'} <b>{provider.balance ?? '—'}</b></span>
-          <span />
-        </div>
-      )}
-      {provider.status === 'no-key' && <p className="settings-note">桌面端未配置 API Key，已按用量计费无法查询</p>}
-      {provider.status === 'unsupported' && (
-        <p className="settings-note">
-          {provider.detail ?? '该提供方无公开余额/用量接口'}
-          {provider.consoleUrl !== undefined && (
-            <>
-              {' '}
-              <button
-                type="button"
-                className="usage-consoleLink"
-                onClick={() => { window.open(provider.consoleUrl, '_blank', 'noopener') }}
-              >去控制台看用量 ›
-              </button>
-            </>
-          )}
-        </p>
-      )}
-      {provider.status === 'error' && (
-        <p className="settings-note">
-          {provider.detail ?? '用量查询失败，请稍后重试'}
-          {provider.consoleUrl !== undefined && (
-            <>
-              {' '}
-              <button
-                type="button"
-                className="usage-consoleLink"
-                onClick={() => { window.open(provider.consoleUrl, '_blank', 'noopener') }}
-              >去控制台核对 ›
-              </button>
-            </>
-          )}
-        </p>
-      )}
-      {provider.models !== undefined && provider.models.length > 0 && (
-        <div className="usage-models">
-          {provider.models.map(model => (
-            <div key={model.name} className="usage-model">
-              <span className="usage-modelName">{model.name}</span>
-              <span className="usage-modelCount">{model.requestCount.toLocaleString()} 次</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * Paired-device management (P2/P3): list every paired device with its status,
- * and let the user rename, promote to primary, or revoke one. The current
- * device (this phone) is marked so the user never revokes the phone they are
- * holding. The primary device is never auto-evicted by the device cap.
- */
-function DeviceManagementView({ onBack }: { onBack(): void }) {
-  const [devices, setDevices] = useState<PairedDeviceView[] | undefined>(undefined)
-  const [maxDevices, setMaxDevices] = useState(4)
-  const [error, setError] = useState<string | undefined>(undefined)
-  const [busy, setBusy] = useState(false)
-  // Rename / revoke targets (undefined = no dialog open).
-  const [renameTarget, setRenameTarget] = useState<PairedDeviceView | undefined>(undefined)
-  const [revokeTarget, setRevokeTarget] = useState<PairedDeviceView | undefined>(undefined)
-
-  const refresh = (): void => {
-    setBusy(true)
-    void listDevices().then(
-      (view) => {
-        setDevices(view.devices)
-        setMaxDevices(view.maxDevices)
-        setError(undefined)
-        setBusy(false)
-      },
-      (reason: unknown) => {
-        setError(errorText(reason))
-        setBusy(false)
-      },
-    )
-  }
-  useEffect(() => { refresh() }, [])
-
-  const handleRename = (name: string): void => {
-    const target = renameTarget
-    setRenameTarget(undefined)
-    if (target === undefined) return
-    void renameDevice(target.handle, name).then(
-      () => { refresh(); toast('已重命名') },
-      (reason: unknown) => { toast(errorText(reason)) },
-    )
-  }
-  const handleRevoke = (): void => {
-    const target = revokeTarget
-    setRevokeTarget(undefined)
-    if (target === undefined) return
-    void revokeDevice(target.handle).then(
-      () => { refresh(); toast('已移除该设备') },
-      (reason: unknown) => { toast(errorText(reason)) },
-    )
-  }
-
-  const deviceLabel = (device: PairedDeviceView): string =>
-    device.name !== undefined && device.name !== '' ? device.name : '未命名设备'
-
-  return (
-    <div className="mobile">
-      <header className="mobile-header">
-        <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
-        </div>
-        <h1 className="mobile-title">设备管理</h1>
-        <div className="mobile-headerSlot mobile-headerSlot-right" />
-      </header>
-      <div className="mobile-scroll">
-        <p className="settings-note">
-          已配对 {devices?.length ?? 0} / {maxDevices} 台设备。主设备不会被自动移除；设备数满时，闲置设备会先被淘汰，在线设备不会被挤掉。
-        </p>
-        {error !== undefined && <p className="mobile-error" role="alert">{error}</p>}
-        {devices === undefined && error === undefined && <p className="settings-note">加载中…</p>}
-        {devices !== undefined && (
-          <div className="settings-card">
-            {devices.length === 0 && <p className="settings-note">暂无已配对设备。</p>}
-            {devices.map(device => (
-              <div key={device.handle} className="device-row">
-                <span className="device-copy">
-                  <span className="device-name">
-                    {deviceLabel(device)}
-                    {device.primary === true && <span className="device-badge device-badge-primary">主设备</span>}
-                    {device.current === true && <span className="device-badge device-badge-current">本机</span>}
-                  </span>
-                  <span className="device-desc">
-                    <span className={`device-status${device.online ? ' device-status-on' : ''}`}>
-                      {device.online ? '在线' : '闲置'}
-                    </span>
-                    {' · '}{formatInboxTime(device.lastSeenAt)}
-                    {device.userAgent !== undefined && <span className="device-ua"> · {device.userAgent.slice(0, 40)}</span>}
-                  </span>
-                </span>
-                <span className="device-actions">
-                  <button
-                    type="button"
-                    className="device-btn"
-                    aria-label="重命名"
-                    onClick={() => { setRenameTarget(device) }}
-                  ><PencilIcon /></button>
-                  {device.current === true && (
-                    // Only "leave this phone" is offered here: removing *other*
-                    // devices is an anti-theft control, and the host now refuses
-                    // it from a non-loopback caller (a phone can always drop
-                    // itself). Promoting to primary is desktop-only for the same
-                    // reason — the button lived here and is gone on purpose.
-                    <button
-                      type="button"
-                      className="device-btn device-btn-danger"
-                      aria-label="退出本机"
-                      disabled={busy}
-                      onClick={() => { setRevokeTarget(device) }}
-                    ><TrashIcon /></button>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      {renameTarget !== undefined && (
-        <PromptDialog
-          title="重命名设备"
-          initial={renameTarget.name ?? ''}
-          confirmLabel="保存"
-          onCancel={() => { setRenameTarget(undefined) }}
-          onConfirm={handleRename}
-        />
-      )}
-      {revokeTarget !== undefined && (
-        <ConfirmDialog
-          title="移除设备？"
-          body={revokeTarget.current === true ? '退出本机后需要重新扫码配对才能继续使用，聊天缓存与待发消息会一并清除。' : `移除「${deviceLabel(revokeTarget)}」后，该设备将无法再访问此电脑，需重新配对。`}
-          confirmLabel="移除"
-          tone="danger"
-          onCancel={() => { setRevokeTarget(undefined) }}
-          onConfirm={handleRevoke}
-        />
-      )}
-    </div>
-  )
 }
 
 /**
@@ -1004,178 +490,24 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   // services as the editable list, and the add/edit form as a sheet.
   if (voiceOpen) {
     return (
-      <div className="mobile">
-        <header className="mobile-header">
-          <div className="mobile-headerSlot">
-            <button type="button" className="mobile-back" aria-label="返回" onClick={() => { setVoiceOpen(false) }}>‹</button>
-          </div>
-          <h1 className="mobile-title">语音服务</h1>
-          <div className="mobile-headerSlot mobile-headerSlot-right" />
-        </header>
-        <div className="mobile-scroll">
-          <p className="settings-note">语音转写按列表顺序尝试，失败自动回退到下一个服务。</p>
-          {hostVoiceServices.length > 0 && (
-            <p className="settings-hostNote">
-              ✓ 桌面端已配置 {hostVoiceServices.length} 个转写服务，手机语音输入将自动使用，无需重复配置。
-            </p>
-          )}
-          {hostVoiceServices.length > 0 && (
-            <>
-              <div className="settings-subhead">桌面端配置（只读）</div>
-              <div className="settings-card">
-                {hostVoiceServices.map(service => (
-                  <div key={service.name} className="voice-service-row">
-                    <span className="voice-service-copy">
-                      <span className="voice-service-name">
-                        {service.name} <span className="settings-roTag">桌面端</span>
-                      </span>
-                      <span className="voice-service-desc">{service.model} · {service.baseURL}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          <div className="settings-subhead">手机端服务</div>
-          <div className="settings-card" {...locateProps('voice-list')}>
-            {voiceServices.length === 0 && (
-              <p className="settings-note">尚未配置服务 — 点击下方「添加服务」。</p>
-            )}
-            {voiceServices.map((service, index) => (
-              <div key={service.id} className="voice-service-row">
-                <span className="voice-service-copy">
-                  <span className="voice-service-name">{service.name !== '' ? service.name : service.model}</span>
-                  <span className="voice-service-desc">{service.model} · {service.baseURL}</span>
-                </span>
-                <span className="voice-service-actions">
-                  <button
-                    type="button"
-                    className="voice-service-btn"
-                    aria-label="上移"
-                    disabled={index === 0}
-                    onClick={() => { moveVoiceServiceUp(service.id) }}
-                  ><ChevronUpIcon /></button>
-                  <button
-                    type="button"
-                    className="voice-service-btn voice-service-btn-down"
-                    aria-label="下移"
-                    disabled={index === voiceServices.length - 1}
-                    onClick={() => { moveVoiceServiceDown(service.id) }}
-                  ><ChevronUpIcon /></button>
-                  <button
-                    type="button"
-                    className="voice-service-btn"
-                    aria-label="编辑"
-                    onClick={() => {
-                      setEditingService(service)
-                      setFormName(service.name)
-                      setFormBaseURL(service.baseURL)
-                      setFormApiKey(service.apiKey)
-                      setFormModel(service.model)
-                      setVoiceSheet('form')
-                    }}
-                  ><PencilIcon /></button>
-                  <button
-                    type="button"
-                    className="voice-service-btn voice-service-btn-danger"
-                    aria-label="删除"
-                    onClick={() => { removeVoiceService(service.id) }}
-                  ><TrashIcon /></button>
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="sheet-confirm-actions" {...locateProps('voice-add')}>
-            <button
-              type="button"
-              className="mobile-button"
-              onClick={() => {
-                setEditingService(undefined)
-                setFormName('')
-                setFormBaseURL('')
-                setFormApiKey('')
-                setFormModel('')
-                setVoiceSheet('form')
-              }}
-            ><PlusIcon /> 添加服务</button>
-          </div>
-        </div>
-        {voiceSheet === 'form' && (
-          <Sheet title={editingService === undefined ? '添加服务' : '编辑服务'} onClose={() => { setVoiceSheet(null) }}>
-            <div className="voice-form">
-              <label className="voice-form-field">
-                <span className="voice-form-label">名称</span>
-                <input
-                  className="voice-form-input"
-                  value={formName}
-                  placeholder="如：硅基流动"
-                  onChange={(event) => { setFormName(event.target.value) }}
-                />
-              </label>
-              <label className="voice-form-field">
-                <span className="voice-form-label">API 地址（baseURL）</span>
-                <input
-                  className="voice-form-input"
-                  value={formBaseURL}
-                  placeholder="https://api.siliconflow.cn/v1"
-                  inputMode="url"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  onChange={(event) => { setFormBaseURL(event.target.value) }}
-                />
-              </label>
-              <label className="voice-form-field">
-                <span className="voice-form-label">API Key</span>
-                <input
-                  className="voice-form-input"
-                  value={formApiKey}
-                  placeholder="sk-…"
-                  type="password"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  onChange={(event) => { setFormApiKey(event.target.value) }}
-                />
-              </label>
-              <label className="voice-form-field">
-                <span className="voice-form-label">模型</span>
-                <input
-                  className="voice-form-input"
-                  value={formModel}
-                  placeholder="FunAudioLLM/SenseVoiceSmall"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  onChange={(event) => { setFormModel(event.target.value) }}
-                />
-              </label>
-              <p className="sheet-note">支持任意 OpenAI 兼容的 /audio/transcriptions 服务。</p>
-              <div className="sheet-confirm-actions">
-                <button type="button" className="mobile-button" onClick={() => { setVoiceSheet(null) }}>取消</button>
-                <button
-                  type="button"
-                  className="mobile-button mobile-button-primary"
-                  disabled={formBaseURL.trim() === '' || formApiKey.trim() === '' || formModel.trim() === ''}
-                  onClick={() => {
-                    upsertVoiceService({
-                      id: editingService?.id
-                        ?? (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-                          ? crypto.randomUUID()
-                          : `svc-${Date.now()}`),
-                      name: formName.trim(),
-                      baseURL: formBaseURL.trim(),
-                      apiKey: formApiKey.trim(),
-                      model: formModel.trim(),
-                    })
-                    setVoiceSheet(null)
-                  }}
-                >保存</button>
-              </div>
-            </div>
-          </Sheet>
-        )}
-      </div>
+      <VoicePage
+        setVoiceOpen={setVoiceOpen}
+        hostVoiceServices={hostVoiceServices}
+        locateProps={locateProps}
+        voiceServices={voiceServices}
+        setEditingService={setEditingService}
+        setFormName={setFormName}
+        setFormBaseURL={setFormBaseURL}
+        setFormApiKey={setFormApiKey}
+        setFormModel={setFormModel}
+        setVoiceSheet={setVoiceSheet}
+        voiceSheet={voiceSheet}
+        editingService={editingService}
+        formName={formName}
+        formBaseURL={formBaseURL}
+        formApiKey={formApiKey}
+        formModel={formModel}
+      />
     )
   }
 
@@ -1183,428 +515,47 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   // Web Push (L2) and third-party channels (L3) in one place.
   if (notifyOpen) {
     return (
-      <div className="mobile">
-        <header className="mobile-header">
-          <div className="mobile-headerSlot">
-            <button type="button" className="mobile-back" aria-label="返回" onClick={() => { setNotifyOpen(false) }}>‹</button>
-          </div>
-          <h1 className="mobile-title">通知</h1>
-          <div className="mobile-headerSlot mobile-headerSlot-right" />
-        </header>
-        <div className="mobile-scroll">
-          {/* 引导：三种通道怎么选（先看这里） */}
-          <div className="settings-card">
-            <div className="settings-cardHead">
-              <span className="settings-cardTitle">该开哪个？</span>
-            </div>
-            <p className="settings-note">任务完成提醒有三条通道，从上到下生效范围越来越广：</p>
-            <div className="settings-field">
-              <p className="settings-fieldDesc">
-                <b>① 浏览器通知</b>：只在你刚切到后台的短暂窗口内兜底（页面在前台时不弹）。安卓/iOS 都需要系统授权，iOS 还需先"添加到主屏"。<br />
-                <b>② 推送渠道</b>：页面关闭也能收，微信/iOS 直达、国内可靠。推荐任填一个（WxPusher 或 Server酱）。<br />
-                <b>③ Web Push</b>：系统级推送，但服务（FCM）在大陆不可直连，需代理才可用。大陆用户可不开。
-              </p>
-            </div>
-          </div>
-
-          {/* 送达情况：手机没响的时候，先看这里分清"没发"还是"没送到" */}
-          {inboxStats !== undefined && inboxStats.total > 0 && (
-            <div className="settings-card">
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">送达情况</span>
-              </div>
-              <p className="settings-note">
-                共 {inboxStats.total} 次推送尝试 · 成功 {inboxStats.sent} · 失败 {inboxStats.failed} · 已过滤 {inboxStats.dropped}
-              </p>
-              {inboxStats.byChannel.length > 0 && (
-                <p className="settings-note">
-                  {inboxStats.byChannel.map(channel => `${channel.channel} ${channel.sent}/${channel.sent + channel.failed + channel.dropped}`).join(' · ')}
-                </p>
-              )}
-              {(inboxDeliveries ?? []).filter(record => record.status !== 'sent').slice(0, 8).map(record => (
-                <p className="settings-note" key={`${record.at}-${record.eventId}-${record.channel}`}>
-                  {new Date(record.at).toLocaleTimeString()} · {record.channel} · {record.status === 'dropped' ? '已过滤' : '失败'}
-                  {record.detail !== undefined ? ` · ${record.detail}` : ''}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {/* 最近通知：主机的判定记录（错过即丢的兜底） */}
-          <div className="settings-card">
-            <div className="settings-cardHead">
-              <span className="settings-cardTitle">最近通知</span>
-            </div>
-            {inboxBusy ? (
-              <p className="settings-note">加载中…</p>
-            ) : inbox.length === 0 ? (
-              <p className="settings-note">暂无通知——任务完成或长回复结束时，这里会留下记录可回看。</p>
-            ) : (
-              <div className="settings-inbox">
-                {inbox.slice(0, 20).map(item => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className="settings-inboxRow"
-                    onClick={() => {
-                      // 通知里不一定带 workspaceId（宿主没给时就空）：以前这种行是
-                      // disabled 的，点了没反应。现在照样能跳——没工作区就只带会话 id，
-                      // 反而不要把空的 workspace 参数写进去（会被当成「未分组」）。
-                      const url = new URL(window.location.href)
-                      if (item.workspaceId === undefined || item.workspaceId === '') url.searchParams.delete('workspace')
-                      else url.searchParams.set('workspace', item.workspaceId)
-                      url.searchParams.set('session', item.sessionId)
-                      window.location.href = `${url.pathname}${url.search}`
-                    }}
-                  >
-                    <span className="settings-inboxLine">
-                      <span className={`settings-inboxKind settings-inboxKind-${item.kind}`}>
-                        {item.kind === 'task-done' ? '完成' : item.kind === 'task-failed' ? '失败' : item.kind === 'todo-done' ? '规划' : '回复'}
-                      </span>
-                      <span className="settings-inboxTitle">{item.title}</span>
-                      <span className="settings-inboxTime">{formatInboxTime(item.ts)}</span>
-                    </span>
-                    <span className="card-desc">{item.body}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* L1 浏览器通知（页内提醒） */}
-          <div className="settings-card" {...locateProps('notify-browser')}>
-            <div className="settings-cardHead">
-              <span className="settings-cardTitle">浏览器通知</span>
-              <ScopeBadge scope="sync" />
-            </div>
-            <div className="settings-field">
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">启用</span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-label="浏览器通知"
-                aria-checked={notifyPermission === 'granted'}
-                className={`settings-switch${notifyPermission === 'granted' ? ' settings-switch-on' : ''}`}
-                disabled={notifyBusy}
-                onClick={() => { void handleNotifyClick() }}
-              />
-              <p className="settings-fieldDesc">{notifyDesc}</p>
-            </div>
-          </div>
-
-          {/* 通知内容：三类事件分别开关（先决定通知什么） */}
-          {notifyConfig !== undefined && (
-            <div className="settings-card" {...locateProps('notify-kinds')}>
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">通知内容</span>
-                <ScopeBadge scope="sync" />
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">规划完成</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="规划完成"
-                  aria-checked={kindsOn.todo}
-                  className={`settings-switch${kindsOn.todo ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleKindToggle('todo', !kindsOn.todo) }}
-                />
-                <p className="settings-fieldDesc">任务规划全部完成时通知（推荐开启）</p>
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">后台任务</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="后台任务"
-                  aria-checked={kindsOn.jobs}
-                  className={`settings-switch${kindsOn.jobs ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleKindToggle('jobs', !kindsOn.jobs) }}
-                />
-                <p className="settings-fieldDesc">每个命令 / 子任务完成或失败都会提醒，容易打扰（默认关闭）</p>
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">长回复</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="长回复"
-                  aria-checked={kindsOn.turns}
-                  className={`settings-switch${kindsOn.turns ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleKindToggle('turns', !kindsOn.turns) }}
-                />
-                <p className="settings-fieldDesc">超过时长阈值的回复完成时提醒（默认关闭）</p>
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">审批与提问</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="审批与提问"
-                  aria-checked={kindsOn.approvals}
-                  className={`settings-switch${kindsOn.approvals ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleKindToggle('approvals', !kindsOn.approvals) }}
-                />
-                <p className="settings-fieldDesc">需要你批准或回答时提醒（默认开启，建议保留）</p>
-              </div>
-            </div>
-          )}
-
-          {/* L3 推送渠道（重点：关页面也能收） */}
-          <div className="settings-card" {...locateProps('notify-wxpusher')}>
-            <div className="settings-cardHead">
-              <span className="settings-cardTitle">推送渠道</span>
-              <ScopeBadge scope="sync" />
-            </div>
-            <p className="settings-note">页面关闭时也能收到，通过第三方应用直达（微信 / iOS / Telegram）。国内网络可用，任选其一即可；留空保存将清除该渠道。</p>
-            <div className="settings-field">
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">WxPusher SPT</span>
-                <ScopeBadge scope="recommend" />
-              </div>
-              <input
-                type="text"
-                className="settings-input"
-                value={wxpusherSpt}
-                placeholder="SPT_…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => { setWxpusherSpt(event.target.value) }}
-              />
-              <p className="settings-fieldDesc">微信直达 · 免费 · 国内直连。推荐首选。 <ChannelState configured={notifyConfig?.channels.wxpusher.configured === true} /></p>
-              <details className="settings-details">
-                <summary>如何获取 SPT（2 步）</summary>
-                <div className="settings-detailsBody">
-                  1. 打开 wxpusher.zjiecode.com/docs 的「极简推送 SPT」一节，手机微信扫码<br />
-                  2. 复制 SPT_ 开头的令牌，粘贴到上方并保存
-                </div>
-              </details>
-            </div>
-            <div className="settings-field" {...locateProps('notify-serverchan')}>
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">Server酱 SendKey</span>
-              </div>
-              <input
-                type="text"
-                className="settings-input"
-                value={serverchanKey}
-                placeholder="SCT…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => { setServerchanKey(event.target.value) }}
-              />
-              <p className="settings-fieldDesc">微信直达 · 国内直连（免费版每日条数有限）。 <ChannelState configured={notifyConfig?.channels.serverchan.configured === true} /></p>
-            </div>
-            <div className="settings-field" {...locateProps('notify-bark')}>
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">Bark Key</span>
-              </div>
-              <input
-                type="text"
-                className="settings-input"
-                value={barkKey}
-                placeholder="…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => { setBarkKey(event.target.value) }}
-              />
-              <p className="settings-fieldDesc">iOS 直达：iPhone / iPad 装 Bark 应用后获取 Key。 <ChannelState configured={notifyConfig?.channels.bark.configured === true} /></p>
-            </div>
-            <div className="settings-field" {...locateProps('notify-tg')}>
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">Telegram Bot Token</span>
-              </div>
-              <input
-                type="text"
-                className="settings-input"
-                value={tgToken}
-                placeholder="123456:ABC…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => { setTgToken(event.target.value) }}
-              />
-            </div>
-            <div className="settings-field">
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">Telegram Chat ID</span>
-              </div>
-              <input
-                type="text"
-                className="settings-input"
-                value={tgChatId}
-                placeholder="…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => { setTgChatId(event.target.value) }}
-              />
-              <p className="settings-fieldDesc">Telegram 需要能访问境外网络。 <ChannelState configured={notifyConfig?.channels.telegram.configured === true} /></p>
-            </div>
-            {/* 降级渠道：放在最后，不给推荐徽章，仅保证旧 Token 继续能发 */}
-            <div className="settings-field" {...locateProps('notify-pushplus')}>
-              <div className="settings-fieldHead">
-                <span className="settings-fieldLabel">PushPlus Token（已降级）</span>
-              </div>
-              <input
-                type="text"
-                className="settings-input"
-                value={pushplusToken}
-                placeholder="…（到 pushplus.plus 复制）"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => { setPushplusToken(event.target.value) }}
-              />
-              <p className="settings-fieldDesc">微信直达 · 国内直连。pushplus 现已要求付费认证，故降级为兼容保留（旧 Token 仍可发）；新配置请用上方 WxPusher。 <ChannelState configured={notifyConfig?.channels.pushplus.configured === true} /></p>
-            </div>
-            <div className="sheet-confirm-actions">
-              <button
-                type="button"
-                className="mobile-button"
-                disabled={notifyBusy}
-                onClick={() => { void handleTestNotify() }}
-              >发送测试</button>
-              <button
-                type="button"
-                className="mobile-button mobile-button-primary"
-                aria-label="保存推送渠道"
-                disabled={notifyBusy}
-                onClick={() => { void saveChannels() }}
-              >保存</button>
-            </div>
-          </div>
-
-          {/* L2 Web Push（可选，大陆受限） */}
-          {webPushSupported() && (
-            <div className="settings-card" {...locateProps('notify-webpush')}>
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">Web Push</span>
-                <ScopeBadge scope="sync" />
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">启用</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="Web Push"
-                  aria-checked={webPushOn === true}
-                  className={`settings-switch${webPushOn === true ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleWebPushToggle(!(webPushOn === true)) }}
-                />
-                <p className="settings-fieldDesc">页面关闭时由浏览器系统推送。推送服务（FCM）在大陆网络不可直连，开启需要代理；大陆用户建议用上方「推送渠道」代替。</p>
-              </div>
-            </div>
-          )}
-
-          {/* 高级：触发条件 */}
-          {notifyConfig !== undefined && (
-            <div className="settings-card" {...locateProps('notify-triggers')}>
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">触发条件（可选）</span>
-                <ScopeBadge scope="sync" />
-              </div>
-              <p className="settings-note">默认：仅当回复耗时超过阈值时才提醒，避免被打断。</p>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">回复时长阈值（秒）</span>
-                </div>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="off"
-                  className="settings-input"
-                  aria-label="回复时长阈值"
-                  value={thresholdInput}
-                  onChange={(event) => { setThresholdInput(event.target.value) }}
-                />
-                <p className="settings-fieldDesc">超过此时长的回复完成时通知</p>
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">通知间隔（分钟）</span>
-                </div>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="off"
-                  className="settings-input"
-                  aria-label="通知间隔"
-                  value={cooldownInput}
-                  onChange={(event) => { setCooldownInput(event.target.value) }}
-                />
-                <p className="settings-fieldDesc">同一会话两次通知的最小间隔</p>
-              </div>
-              <div className="sheet-confirm-actions">
-                <button
-                  type="button"
-                  className="mobile-button mobile-button-primary"
-                  aria-label="保存触发条件"
-                  disabled={notifyBusy}
-                  onClick={() => { void saveNotifyTriggers() }}
-                >保存</button>
-              </div>
-            </div>
-          )}
-
-          {/* 隐私：锁屏不泄露标题/任务名 */}
-          {notifyConfig !== undefined && (
-            <div className="settings-card" {...locateProps('notify-privacy')}>
-              <div className="settings-cardHead">
-                <span className="settings-cardTitle">隐私</span>
-                <ScopeBadge scope="sync" />
-              </div>
-              <div className="settings-field">
-                <div className="settings-fieldHead">
-                  <span className="settings-fieldLabel">锁屏隐藏通知详情</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="锁屏隐藏通知详情"
-                  aria-checked={hideDetailsOn}
-                  className={`settings-switch${hideDetailsOn ? ' settings-switch-on' : ''}`}
-                  disabled={notifyBusy}
-                  onClick={() => { void handleHideDetailsToggle(!hideDetailsOn) }}
-                />
-                <p className="settings-fieldDesc">通知不显示会话标题与任务名，避免锁屏时被旁人看到内容</p>
-              </div>
-            </div>
-          )}
-        </div>
-        {confirmClearChannels && (
-          <ConfirmDialog
-            title="清除已配置的推送渠道？"
-            body="输入框均为空，保存将清除电脑端已保存的通道凭据（Server酱 / Bark / Telegram / WxPusher / PushPlus），之后这些渠道将收不到通知。如果要保留，请取消后不要点保存。"
-            confirmLabel="清除"
-            tone="danger"
-            onCancel={() => { setConfirmClearChannels(false) }}
-            onConfirm={() => { setConfirmClearChannels(false); void persistChannels() }}
-          />
-        )}
-      </div>
+      <NotifyPage
+        setNotifyOpen={setNotifyOpen}
+        inboxStats={inboxStats}
+        inboxDeliveries={inboxDeliveries}
+        inboxBusy={inboxBusy}
+        inbox={inbox}
+        locateProps={locateProps}
+        notifyPermission={notifyPermission}
+        notifyDesc={notifyDesc}
+        notifyBusy={notifyBusy}
+        handleNotifyClick={handleNotifyClick}
+        notifyConfig={notifyConfig}
+        kindsOn={kindsOn}
+        handleKindToggle={handleKindToggle}
+        wxpusherSpt={wxpusherSpt}
+        setWxpusherSpt={setWxpusherSpt}
+        serverchanKey={serverchanKey}
+        setServerchanKey={setServerchanKey}
+        barkKey={barkKey}
+        setBarkKey={setBarkKey}
+        tgToken={tgToken}
+        setTgToken={setTgToken}
+        tgChatId={tgChatId}
+        setTgChatId={setTgChatId}
+        pushplusToken={pushplusToken}
+        setPushplusToken={setPushplusToken}
+        handleTestNotify={handleTestNotify}
+        saveChannels={saveChannels}
+        webPushOn={webPushOn}
+        handleWebPushToggle={handleWebPushToggle}
+        thresholdInput={thresholdInput}
+        setThresholdInput={setThresholdInput}
+        cooldownInput={cooldownInput}
+        setCooldownInput={setCooldownInput}
+        saveNotifyTriggers={saveNotifyTriggers}
+        hideDetailsOn={hideDetailsOn}
+        handleHideDetailsToggle={handleHideDetailsToggle}
+        confirmClearChannels={confirmClearChannels}
+        setConfirmClearChannels={setConfirmClearChannels}
+        persistChannels={persistChannels}
+      />
     )
   }
 
@@ -1668,6 +619,36 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     }
   }
 
+  // 搜索命中在主渲染里按原顺序求值：hit() 的命中计数语义与拆分前一致。
+  const show = {
+    theme: hit('主题', 'theme', '深色', '浅色', '外观'),
+    font: hit('字体大小', 'font'),
+    density: hit('消息密度', 'density', '紧凑', '舒适'),
+    lineNumbers: hit('代码块行号', '行号', 'line'),
+    autoScroll: hit('自动滚动', 'scroll'),
+    haptics: hit('震动', 'vibrate', '通知震动'),
+    usage: hit('用量', '余量', '配额', '余额'),
+    notify: hit('通知', 'notify', '推送', '提醒', '阈值', '间隔'),
+    voice: hit('语音服务', '转写', 'voice', '语音'),
+    device: hit('设备管理', '配对', '设备', 'device', 'pair'),
+    cache: hit('清除缓存', 'cache'),
+    feedback: hit('反馈', '意见', '建议', 'feedback', 'issue', 'github'),
+    about: hit('关于', 'about', '版本'),
+  }
+
+  // 主机配置分组：成员与可写性照旧，搜索命中在这里结算（与 show 同一套计数）。
+  const groupRows: SettingsGroupRow[] = namespaces === undefined ? [] : SETTINGS_GROUPS.map(group => {
+    const members = group.namespaces
+      .map(ns => namespaces.find(entry => entry.ns === ns))
+      .filter((entry): entry is SettingsNamespaceView => entry !== undefined)
+    if (members.length === 0) return undefined
+    if (!hit(group.title, ...members.map(entry => namespaceTitle(entry.ns)))) return undefined
+    const writable = members.some(entry =>
+      Object.keys((entry.value as Record<string, unknown> | undefined) ?? {})
+        .some(field => isWritableField(entry.ns, field)))
+    return { group, writable }
+  }).filter((row): row is SettingsGroupRow => row !== undefined)
+
   return (
     <div className="mobile">
       <header className="mobile-header">
@@ -1715,238 +696,64 @@ export function SettingsView({ onBack }: SettingsViewProps) {
 
         {/* 图例不再占首屏：默认项不带角标，「只在桌面端改」的说明统一放页脚。 */}
 
-        <ul className="settings-group">
-          <li className="settings-groupTitle">外观 <span className="settings-groupDesc">显示效果</span></li>
-          {hit('主题', 'theme', '深色', '浅色', '外观') && (
-            <SettingsRow
-              icon={<ContrastIcon />}
-              title="主题"
-              desc="深色 / 浅色 / 跟随系统"
-              action={<><span className="settings-rowValue">{themeLabel}</span><RowChevron /></>}
-              onClick={() => { setSheet('theme') }}
-            />
-          )}
-          {hit('字体大小', 'font') && (
-            <SettingsRow
-              icon={<TypeIcon />}
-              title="字体大小"
-              desc="聊天文本的字号"
-              action={<><span className="settings-rowValue">{FONT_SCALE_LABEL[fontScale]}</span><RowChevron /></>}
-              onClick={() => { setSheet('font') }}
-            />
-          )}
-          {hit('消息密度', 'density', '紧凑', '舒适') && (
-            <SettingsRow
-              icon={<RowsIcon />}
-              title="消息密度"
-              desc="消息之间的间距"
-              action={<><span className="settings-rowValue">{DENSITY_LABEL[density]}</span><RowChevron /></>}
-              onClick={() => { setSheet('density') }}
-            />
-          )}
-          {hit('代码块行号', '行号', 'line') && (
-            <ToggleRow
-              icon={<HashIcon />}
-              title="代码块行号"
-              desc="在代码块左侧显示行号"
-              value={lineNumbers}
-              onChange={(next) => { setLineNumbers(next); setLineNumbersState(next) }}
-            />
-          )}
-        </ul>
+        <AppearanceSection
+          showTheme={show.theme}
+          showFont={show.font}
+          showDensity={show.density}
+          showLineNumbers={show.lineNumbers}
+          showAutoScroll={show.autoScroll}
+          showHaptics={show.haptics}
+          themeLabel={themeLabel}
+          fontScale={fontScale}
+          density={density}
+          lineNumbers={lineNumbers}
+          autoScroll={autoScroll}
+          haptics={haptics}
+          setSheet={setSheet}
+          setLineNumbersState={setLineNumbersState}
+          setAutoScrollState={setAutoScrollState}
+          setHapticsState={setHapticsState}
+        />
 
-        <ul className="settings-group">
-          <li className="settings-groupTitle">对话 <span className="settings-groupDesc">聊天体验</span></li>
-          {hit('自动滚动', 'scroll') && (
-            <ToggleRow
-              icon={<ScrollDownIcon />}
-              title="自动滚动"
-              desc="新消息到达时自动滚动到底部"
-              value={autoScroll}
-              onChange={(next) => { setAutoScroll(next); setAutoScrollState(next) }}
-            />
-          )}
-          {hit('震动', 'vibrate', '通知震动') && (
-            <ToggleRow
-              icon={<VibrateIcon />}
-              title="通知震动"
-              desc="只对通知生效：任务完成、审批到达时轻震一下；其他操作不震"
-              value={haptics}
-              onChange={(next) => { setHaptics(next); setHapticsState(next) }}
-            />
-          )}
-        </ul>
+        <UsageSection
+          show={show.usage}
+          usage={usage}
+          error={error}
+          visibleUsage={visibleUsage}
+          usageOpen={usageOpen}
+          usageBusy={usageBusy}
+          setUsageOpen={setUsageOpen}
+          refreshUsage={refreshUsage}
+        />
 
-        {hit('用量', '余量', '配额', '余额') && (
-          <ul className="settings-group">
-            <li className="settings-groupTitle">用量 <span className="settings-groupDesc">套餐与配额</span></li>
-            {usage === undefined && error === undefined && (
-              // 余额查询要跑好几个 provider（实测 3 秒+）。只有一行"加载中…"时
-              // 看不出是在等还是卡死了，给一条骨架。
-              <li className="settings-note" aria-busy="true">
-                <span className="settings-skeleton" aria-hidden />
-                正在读取用量…
-              </li>
-            )}
-            {/* Providers with no balance/usage endpoint are hidden: only rows
-                the host can actually query (ok / no-key / error) render. */}
-            {visibleUsage !== undefined && visibleUsage.providers.length > 0 && !usageOpen && (
-              <SettingsRow
-                icon={<GaugeIcon />}
-                title="用量"
-                desc={usageSummaryText(visibleUsage)}
-                action={<RowChevron />}
-                onClick={() => { setUsageOpen(true) }}
-              />
-            )}
-            {visibleUsage !== undefined && visibleUsage.providers.length > 0 && usageOpen && (
-              <li>
-                {visibleUsage.providers.map(provider => (
-                  <UsageProviderCard key={provider.name} provider={provider} />
-                ))}
-                <div className="usage-actions">
-                  <button type="button" className="mobile-button" onClick={() => { setUsageOpen(false) }}>收起</button>
-                  <button
-                    type="button"
-                    className="mobile-button mobile-button-primary"
-                    disabled={usageBusy}
-                    onClick={() => { void refreshUsage() }}
-                  >
-                    {usageBusy ? '查询中…' : '刷新'}
-                  </button>
-                </div>
-              </li>
-            )}
-          </ul>
-        )}
+        <NotifySection show={show.notify} notifyState={notifyState} setNotifyOpen={setNotifyOpen} />
 
-        <ul className="settings-group">
-          <li className="settings-groupTitle">通知 <span className="settings-groupDesc">任务完成提醒</span></li>
-          {hit('通知', 'notify', '推送', '提醒', '阈值', '间隔') && (
-            <SettingsRow
-              icon={<BellIcon />}
-              title="通知"
-              desc="浏览器通知 · 推送渠道 · Web Push"
-              action={<><span className="settings-rowValue">{notifyState}</span><RowChevron /></>}
-              onClick={() => { setNotifyOpen(true) }}
-            />
-          )}
-        </ul>
+        <VoiceSection
+          show={show.voice}
+          voiceServices={voiceServices}
+          hostVoiceServices={hostVoiceServices}
+          openVoicePage={openVoicePage}
+        />
 
-        <ul className="settings-group">
-          <li className="settings-groupTitle">语音 <span className="settings-groupDesc">语音输入与转写</span></li>
-          {hit('语音服务', '转写', 'voice', '语音') && (
-            <SettingsRow
-              icon={<MicIcon />}
-              title="语音服务"
-              desc={voiceServices.length === 0
-                ? (hostVoiceServices.length > 0 ? `桌面端已配置 ${hostVoiceServices.length} 个转写服务` : '语音转写服务，按序回退')
-                : `${voiceServices.length} 个服务 · 按序回退`}
-              action={<RowChevron />}
-              onClick={() => { openVoicePage() }}
-            />
-          )}
-        </ul>
+        <DeviceSection show={show.device} setDeviceOpen={setDeviceOpen} />
 
-        <ul className="settings-group">
-          <li className="settings-groupTitle">设备 <span className="settings-groupDesc">已配对设备管理</span></li>
-          <IosInstallHint />
-          {hit('设备管理', '配对', '设备', 'device', 'pair') && (
-            <SettingsRow
-              icon={<ShieldIcon />}
-              title="设备管理"
-              desc="查看已配对设备 · 重命名 · 退出本机（设为主设备请在桌面端操作）"
-              action={<RowChevron />}
-              onClick={() => { setDeviceOpen(true) }}
-            />
-          )}
-        </ul>
+        <AdvancedSection
+          showAdvanced={showAdvanced}
+          term={term}
+          namespaces={namespaces}
+          error={error}
+          groupRows={groupRows}
+          setShowAdvanced={setShowAdvanced}
+          setOpenGroup={setOpenGroup}
+        />
 
-        <ul className="settings-group">
-          <li className="settings-groupTitle">进阶 <span className="settings-groupDesc">模型 · 搜索 · 记忆 · 工具 · 系统 · 远程访问</span></li>
-          <li>
-            <button type="button" className="mobile-row" aria-expanded={showAdvanced} onClick={() => { setShowAdvanced(value => !value) }}>
-              <span className="card-icon"><span aria-hidden><SlidersIcon /></span></span>
-              <span className="card-main">
-                <span className="card-title"><span className="card-titleText">主机配置</span></span>
-                <span className="card-desc">{showAdvanced ? '点一下收起' : '模型、搜索、记忆、工具、系统、侧边栏、远程访问'}</span>
-              </span>
-              <span className="card-action">
-                <span className={`settings-advChev${showAdvanced ? ' settings-advChev-open' : ''}`} aria-hidden>›</span>
-              </span>
-            </button>
-          </li>
-        </ul>
-
-        {(showAdvanced || term !== '') && (
-        <ul className="settings-group">
-          <li className="settings-groupTitle">主机配置 <span className="settings-groupDesc">按类别分组</span></li>
-          {namespaces === undefined && error === undefined && (
-            <li className="settings-note">加载中…</li>
-          )}
-          {namespaces !== undefined && SETTINGS_GROUPS.map(group => {
-            const members = group.namespaces
-              .map(ns => namespaces.find(entry => entry.ns === ns))
-              .filter((entry): entry is SettingsNamespaceView => entry !== undefined)
-            if (members.length === 0) return null
-            if (!hit(group.title, ...members.map(entry => namespaceTitle(entry.ns)))) return null
-            const writable = members.some(entry =>
-              Object.keys((entry.value as Record<string, unknown> | undefined) ?? {})
-                .some(field => isWritableField(entry.ns, field)))
-            return (
-              <li key={group.id}>
-                <button type="button" className="mobile-row" onClick={() => { setOpenGroup(group.id) }}>
-                  <span className="card-icon"><span aria-hidden>{hostGroupIcon(group.id)}</span></span>
-                  <span className="card-main">
-                    <span className="card-title">
-                      <span className="card-titleText">{group.title}</span>
-                      {writable ? <ScopeBadge scope="sync" /> : <ScopeBadge scope="ro" />}
-                    </span>
-                    <span className="card-desc">{hostGroupDesc(group)}</span>
-                  </span>
-                  <span className="card-action"><RowChevron /></span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-        )}
-
-        <ul className="settings-group">
-          <li className="settings-groupTitle">其他</li>
-          {hit('清除缓存', 'cache') && (
-            <SettingsRow
-              icon={<TrashIcon />}
-              title="清除缓存"
-              desc="清除离线壳缓存（PWA）"
-              action={<RowChevron />}
-              onClick={() => { setConfirmClear(true) }}
-            />
-          )}
-          {hit('反馈', '意见', '建议', 'feedback', 'issue', 'github') && (
-            <SettingsRow
-              icon={<UpperRightIcon />}
-              title="反馈与建议"
-              desc="遇到问题或想要新功能，去 GitHub 告诉我"
-              action={<RowChevron />}
-              onClick={() => { window.open('https://github.com/Eternalloveone/dsh-palm/issues/new', '_blank', 'noopener') }}
-            />
-          )}
-          {hit('关于', 'about', '版本') && (
-            <SettingsRow
-              icon={<InfoIcon />}
-              title="关于"
-              desc={`掌上 DSH · 版本 ${pkg.version}${BUILD_HASH === undefined ? '' : ` · 构建 ${BUILD_HASH}`}`}
-              action={<RowChevron />}
-              onClick={() => { setSheet('about') }}
-            />
-          )}
-          <PerfReportRow />
-        </ul>
-
-        <p className="settings-note">
-          密钥类配置永不显示、不可在手机端修改。带「只读」的项只能在桌面端改；带「同步桌面」的项会一并改掉桌面端设置。
-        </p>
+        <OtherSection
+          showCache={show.cache}
+          showFeedback={show.feedback}
+          showAbout={show.about}
+          setConfirmClear={setConfirmClear}
+          setSheet={setSheet}
+        />
 
         {term !== '' && hitCount === 0 && indexHits.length === 0 && (
           <div className="mobile-empty">
@@ -1955,115 +762,23 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         )}
       </div>
 
-      {sheet === 'theme' && (
-        <OptionSheet
-          title="主题"
-          value={themeMode}
-          options={[
-            { value: 'dark', label: '深色' },
-            { value: 'light', label: '浅色' },
-            { value: 'system', label: '跟随系统' },
-          ]}
-          onPick={(value: MobileThemeMode) => {
-            setMobileThemeMode(value)
-            void mutateSettings('ui-theme', [{ op: 'set', path: ['preference'], value }]).catch(() => {})
-          }}
-          onClose={() => { setSheet(null) }}
-        />
-      )}
-      {sheet === 'font' && (
-        <OptionSheet
-          title="字体大小"
-          value={fontScale}
-          options={[
-            { value: 'small', label: '小' },
-            { value: 'standard', label: '标准' },
-            { value: 'large', label: '大' },
-          ]}
-          onPick={(value: FontScale) => { setFontScale(value); setFontScaleState(value); applyDisplayPrefs() }}
-          onClose={() => { setSheet(null) }}
-        />
-      )}
-      {sheet === 'density' && (
-        <OptionSheet
-          title="消息密度"
-          value={density}
-          options={[
-            { value: 'compact', label: '紧凑' },
-            { value: 'cozy', label: '舒适' },
-          ]}
-          onPick={(value: Density) => { setDensity(value); setDensityState(value); applyDisplayPrefs() }}
-          onClose={() => { setSheet(null) }}
-        />
-      )}
-      {sheet === 'about' && (
-        <Sheet title="关于" onClose={() => { setSheet(null) }}>
-          <p className="sheet-confirm-desc">
-                掌上 DSH（dsh-palm）· 版本 {pkg.version}
-                <br />
-                {/* 构建号是当前这一版 JS 的内容指纹：报问题时报它，一秒就能分清是旧缓存还是新代码。 */}
-                构建 {BUILD_HASH ?? '无法读取'}
-          </p>
-          <div className="sheet-confirm-actions">
-            <button
-              type="button"
-              className="mobile-button"
-              disabled={versionBusy}
-              onClick={() => { void handleVersionCheck() }}
-            >
-              {versionBusy ? '检查中…' : '检查更新'}
-            </button>
-            {/* 一键直达仓库：版本这块最常被问的就是"有没有新版本/源码在哪"，
-                检查更新旁边放一个 GitHub 图标，省掉去设置里翻「反馈」那一步。 */}
-            <a
-              className="sheet-icon-link"
-              href="https://github.com/Eternalloveone/dsh-palm"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="打开 GitHub 仓库"
-              title="欢迎 Star 和提交 Issue"
-            >
-              <GitHubIcon width={20} height={20} />
-            </a>
-          </div>
-          {versionStatus !== undefined && (
-            <p className="settings-fieldDesc" role="status">{versionStatus}</p>
-          )}
-          {/* 健康：升级后"哪条契约断了""为什么推送没来"要能一眼看到，而不是去翻
-              COMPATIBILITY.md 的五步人工清单。老宿主不回这些字段时整块不显示。 */}
-          {health !== undefined && (
-            <div className="settings-field">
-              <p className="settings-fieldDesc">
-                协议 wire {health.wire ?? '—'} · 帧 {health.frames?.length ?? '—'} · 方法 {health.methods?.length ?? '—'}
-                <br />
-                推送订阅 {health.push?.subscriptions ?? 0}
-                {health.push?.delivery !== undefined && (
-                  ` · 已投递 ${health.push.delivery.sent}/${health.push.delivery.total}`
-                )}
-                <br />
-                服务工作线程 {swControlled ? '已接管' : '未接管'}
-                {' · '}
-                宿主契约 {healthFailing.length === 0 ? '全部在位' : `${healthFailing.length} 条不可用`}
-              </p>
-              {healthFailing.length > 0 && (
-                <p className="settings-fieldDesc" role="alert">
-                  {healthFailing.slice(0, 6).map(check => check.name).join('、')}
-                </p>
-              )}
-            </div>
-          )}
-        </Sheet>
-      )}
-      {confirmClear && (
-        <ConfirmDialog
-          title="清除缓存"
-          body="将删除本机的离线壳缓存（PWA CacheStorage）并重新注册。偏好与配对状态不受影响。"
-          confirmLabel="清除"
-          tone="danger"
-          onCancel={() => { setConfirmClear(false) }}
-          onConfirm={() => { setConfirmClear(false); void clearAppCaches() }}
-        />
-      )}
+      <SettingsOverlays
+        sheet={sheet}
+        setSheet={setSheet}
+        themeMode={themeMode}
+        fontScale={fontScale}
+        density={density}
+        setFontScaleState={setFontScaleState}
+        setDensityState={setDensityState}
+        versionBusy={versionBusy}
+        versionStatus={versionStatus}
+        handleVersionCheck={handleVersionCheck}
+        health={health}
+        swControlled={swControlled}
+        healthFailing={healthFailing}
+        confirmClear={confirmClear}
+        setConfirmClear={setConfirmClear}
+      />
     </div>
   )
 }
