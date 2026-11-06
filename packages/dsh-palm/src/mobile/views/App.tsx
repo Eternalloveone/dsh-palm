@@ -10,6 +10,7 @@ import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import { claimChunkAutoReload, isChunkLoadFailure } from '../chunk-recovery.ts'
 import {
   fetchMobilePreferences,
+  listWorkspaces,
   logTail,
   observeSession,
   prompt,
@@ -116,6 +117,7 @@ import { WorkspaceView as WorkspaceRoster } from './WorkspaceView.tsx'
 import { PairRequiredView } from '../PairRequiredView.tsx'
 import { hasAnyChatCache } from '../chat-cache.ts'
 import { loadChatCache } from '../chat-cache.ts'
+import { loadPersistedList } from '../list-persist.ts'
 
 /** One navigation level. */
 type Route =
@@ -146,6 +148,37 @@ const STANDALONE_WORKSPACE: WorkspaceRow = {
   sessionIds: [] as never,
   createdAt: '',
   updatedAt: '',
+}
+
+/**
+ * 冷启动时 URL 指名了会话（刷新 / PWA 重开 / 通知深链）：第一帧就直接落会话页。
+ *
+ * 以前刷新要先走 首页 →（拉工作区列表）→ 会话列表 →（拉第一页）→ 会话，两跳
+ * 网络之后才挂上聊天页 —— 本地缓存住的行根本没机会出现在首帧里（渲染审计的
+ * 「聊天 warm 0/0」）。URL 里已经指名了会话，就直接开这一页：ChatView 自己会
+ * 先画缓存、再向宿主校准；标题优先取会话列表的本地缓存，工作区信息由后台那条
+ * 补数据的效果填回来。
+ */
+export function chatRouteFromUrl(workspaceId: string, sessionId: string, seq?: number, title?: string): Route {
+  return {
+    kind: 'chat',
+    session: {
+      sessionId,
+      title: title !== undefined && title !== '' ? title : `会话 ${sessionId.slice(-6)}`,
+      updatedAt: 0,
+      running: false,
+      blank: false,
+    },
+    workspace: {
+      workspaceId: workspaceId as never,
+      path: '',
+      title: '',
+      sessionIds: [] as never,
+      createdAt: '',
+      updatedAt: '',
+    },
+    ...(seq === undefined ? {} : { focusSeq: seq }),
+  }
 }
 
 /**
@@ -220,6 +253,38 @@ export function mobileDecisionTarget(search: string): { id: string; kind: 'appro
   const id = params.get('decision')
   if (id === null || id === '') return undefined
   return { id, kind: params.get('decisionKind') === 'question' ? 'question' : 'approval' }
+}
+
+/**
+ * 「当前所在位置」对应的查询串。
+ *
+ * 刷新 / PWA 重启必须回到原来那一页：以前进入会话后 `?workspace=&session=`
+ * 被消费掉就再也不写回，一刷新就落回工作区首页 —— IndexedDB 里的会话缓存根本
+ * 没有被读到的机会（真机与渲染审计里的「聊天 warm 0/0」就是这么来的）。
+ *
+ * - 会话页：写回 `workspace` + `session`（seq 不写：刷新后不该再定位到某条消息，
+ *   那是搜索点进来的瞬态意图）；
+ * - 会话列表 / 设置页：只写 `workspace`，刷新仍回到这个工作区；
+ * - 首页 / 运行中 / 子会话：只清 `session`、`seq`，`workspace` 原样保留。
+ *
+ * `debug`、`perf` 这类与位置无关的参数一律原样保留。
+ */
+export function routeUrlSearch(search: string, route: Route): string {
+  const params = new URLSearchParams(search)
+  // 离线深链造出来的占位工作区没有 workspaceId：这时不要覆盖 URL 里原有的值。
+  const workspaceId = route.kind === 'chat' || route.kind === 'sessions' || route.kind === 'settings'
+    ? String(route.workspace.workspaceId ?? '')
+    : ''
+  if (workspaceId !== '') params.set('workspace', workspaceId)
+  if (route.kind === 'chat') {
+    params.set('session', route.session.sessionId)
+    params.delete('seq')
+  } else {
+    params.delete('session')
+    params.delete('seq')
+  }
+  const query = params.toString()
+  return query === '' ? '' : `?${query}`
 }
 
 /** 时钟措辞已移入 `shared/time.ts`（单一实现）；此处保留 re-export 直到 S5 改完调用方。 */
@@ -438,8 +503,37 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   // backgrounded (frozen) PWA schedules nothing and the host is told to stop
   // streaming to it (see the observe effect below).
   const foreground = usePageVisible()
+  /**
+   * URL 指名了会话（刷新 / PWA 重开 / 通知深链）：首帧直接进会话页。
+   *
+   * 只在**在线**时这么走：离线那条深链捷径（见下面的 offlineDeepLink 效果）已经在
+   * 处理"连不上宿主但有缓存"的情形，两条同时出手会重复 navigate 同一页。
+   */
+  const [bootedChat] = useState(() => {
+    if (offline || typeof window === 'undefined') return undefined
+    const workspaceId = mobileWorkspaceTarget(window.location.search)
+    const sessionId = mobileSessionTarget(window.location.search)
+    if (workspaceId === undefined || sessionId === undefined) return undefined
+    // 标题只能从本地缓存里**同步**取：ChatView 的标题在同一个会话内只认
+    // session.title（切换会话才重读），拿不到标题就退回原来的深链链路 ——
+    // 那条路会从会话列表拿到真标题，而且它是「第一次来这个会话」的常态。
+    const persisted = loadPersistedList(workspaceId)
+    const cachedTitle = persisted?.rows.find(row => String(row.sessionId) === sessionId)?.title
+    if (cachedTitle === undefined || cachedTitle === '') return undefined
+    return {
+      workspaceId,
+      sessionId,
+      seq: mobileFocusSeqTarget(window.location.search),
+      title: cachedTitle,
+    }
+  })
   const [transition, setTransition] = useState<TransitionState>({
-    current: { route: { kind: 'workspaces' }, forward: true },
+    current: {
+      route: bootedChat === undefined
+        ? { kind: 'workspaces' }
+        : chatRouteFromUrl(bootedChat.workspaceId, bootedChat.sessionId, bootedChat.seq, bootedChat.title),
+      forward: true,
+    },
     leaving: undefined,
   })
   const route = transition.current.route
@@ -448,15 +542,17 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   routeRef.current = route
   const forward = transition.current.forward
   const exitTimerRef = useRef<number | undefined>(undefined)
+  // 首帧已经落在会话页时，URL 里的深链目标就已经被这一跳消费掉了：再留给
+  // 列表页的 initialSessionId 会让「返回」又自动打开同一个会话。
   const [initialWorkspaceId, setInitialWorkspaceId] = useState<string | undefined>(
-    () => mobileWorkspaceTarget(window.location.search),
+    () => (bootedChat === undefined ? mobileWorkspaceTarget(window.location.search) : undefined),
   )
   const [initialSessionId, setInitialSessionId] = useState<string | undefined>(
-    () => mobileSessionTarget(window.location.search),
+    () => (bootedChat === undefined ? mobileSessionTarget(window.location.search) : undefined),
   )
   /** Message-seq target from a locate link; consumed by the first chat open. */
   const [initialFocusSeq, setInitialFocusSeq] = useState<number | undefined>(
-    () => mobileFocusSeqTarget(window.location.search),
+    () => (bootedChat === undefined ? mobileFocusSeqTarget(window.location.search) : undefined),
   )
   // The seq travels through the workspace→list→chat open chain via a ref:
   // the callbacks that consume it (openChat) are stable, so a state read
@@ -732,6 +828,54 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   useEffect(() => {
     muxRef.current?.observe(route.kind === 'chat' ? route.session.sessionId : undefined)
   }, [route])
+
+  /**
+   * 把「当前所在位置」写回 URL（见 {@link routeUrlSearch}）：刷新 / PWA 重启
+   * 回到原页面，会话缓存（IndexedDB 里的 history）才真正用得上。
+   *
+   * 用 `replaceState` 而不是 `pushState`：这不是一次用户导航，多出来的历史条目
+   * 会让手机上的「返回」要多按一次才退出一页。首帧跳过：冷启动 URL 里的
+   * `?workspace=&session=` 就是深链本身，先让上面那条导航链路把它消费掉，
+   * 免得抢跑把还没被读到的目标删了。
+   */
+  const urlSyncedRef = useRef(false)
+  useEffect(() => {
+    if (!urlSyncedRef.current) {
+      urlSyncedRef.current = true
+      return
+    }
+    if (typeof window === 'undefined') return
+    const next = window.location.pathname + routeUrlSearch(window.location.search, route) + window.location.hash
+    const current = window.location.pathname + window.location.search + window.location.hash
+    if (next === current) return
+    window.history.replaceState(null, '', next)
+  }, [route])
+
+  /**
+   * 首帧直接落进会话页时，把工作区信息补回来（标题来自会话列表的本地缓存，
+   * 见 bootedChat 的初始值）。
+   *
+   * 只改 `transition.current.route` 的字段、不写 `leaving`：这不是一次切页，
+   * 聊天页实例原地更新（routeKey 没变），不会出现「同一个会话两份」。
+   */
+  useEffect(() => {
+    if (bootedChat === undefined) return
+    let cancelled = false
+    void listWorkspaces().then(
+      (rows) => {
+        if (cancelled) return
+        const fresh = rows.find(row => String(row.workspaceId) === bootedChat.workspaceId)
+        if (fresh === undefined) return
+        setTransition((previous) => {
+          const current = previous.current.route
+          if (current.kind !== 'chat' || current.session.sessionId !== bootedChat.sessionId) return previous
+          return { ...previous, current: { ...previous.current, route: { ...current, workspace: fresh } } }
+        })
+      },
+      () => { /* 非致命：从会话页返回列表时那边会自己再拉一次 */ },
+    )
+    return () => { cancelled = true }
+  }, [bootedChat])
 
   // Tell the HOST which session is on screen (v3.4): it opens exactly one
   // assistant-stream follow for it, and that is what makes the phone stream
