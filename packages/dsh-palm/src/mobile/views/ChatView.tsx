@@ -50,6 +50,7 @@ import { MessageMenu, type MessageCtxMenuState } from './chat/message-menu.tsx'
 import { ChatTools } from './chat/chat-tools.tsx'
 import { SessionSheets } from './chat/session-sheets.tsx'
 import { OfflineBanner } from './chat/offline-banner.tsx'
+import { ChatHeader, ChatSearchBar } from './chat/chat-header.tsx'
 import { JumpControls, TurnStatusLine } from './chat/scroll-controls.tsx'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
@@ -5923,89 +5924,31 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
 
   return (
     <div className="chat">
-      <header className="mobile-header">
-        <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={handleBack}>‹</button>
-        </div>
-        <div className="mobile-titleWrap">
-          <h1 className="mobile-title mobile-titleInline">{title}</h1>
-        </div>
-        <div className="mobile-headerSlot mobile-headerSlot-right">
-          <button
-            type="button"
-            className="mobile-iconbtn"
-            aria-label="搜索本会话"
-            onClick={() => {
-              setChatSearchOpen(open => !open)
-              setChatSearchTerm('')
-            }}
-          >
-            <SearchIcon />
-          </button>
-          <button type="button" className="mobile-iconbtn" aria-label="更多" onClick={() => { setMoreOpen(true) }}>
-            <MoreIcon />
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
-      {chatSearchOpen && (
-        <div className="chat-search" role="search">
-          <input
-            type="search"
-            className="chat-search-input"
-            placeholder="搜索本会话…"
-            aria-label="搜索本会话"
-            autoFocus
-            value={chatSearchTerm}
-            onChange={(event) => { setChatSearchTerm(event.target.value) }}
-            onCompositionStart={() => { chatSearchComposingRef.current = true }}
-            onCompositionEnd={(event) => {
-              chatSearchComposingRef.current = false
-              setChatSearchTerm(event.currentTarget.value)
-              setChatSearchComposeTick(tick => tick + 1)
-            }}
-          />
-          <span className="chat-search-count" role="status">
-            {chatSearchBusy
-              ? '搜索中…'
-              : chatSearchWarming
-                ? '索引建立中'
-                : chatSearchHits.length === 0
-                  ? '无命中'
-                  : `${chatSearchAt + 1}/${chatSearchHits.length}${chatSearchHasMore ? '+' : ''}`}
-          </span>
-          {/* 命中在窗口外、正在翻那一页：计数旁边单独一句，别把数字挤掉。 */}
-          {chatSearchJumping && !chatSearchBusy && chatSearchHits.length > 0 && (
-            <span className="chat-search-hint">载入中…</span>
-          )}
-          <button
-            type="button"
-            className="mobile-iconbtn"
-            aria-label="上一个"
-            disabled={chatSearchHits.length === 0}
-            onClick={() => { gotoChatHit(chatSearchHits, (chatSearchAt - 1 + chatSearchHits.length) % chatSearchHits.length) }}
-          >
-            <ChevronUpIcon />
-          </button>
-          <button
-            type="button"
-            className="mobile-iconbtn"
-            aria-label="下一个"
-            disabled={chatSearchHits.length === 0}
-            onClick={() => { gotoChatHit(chatSearchHits, (chatSearchAt + 1) % chatSearchHits.length) }}
-          >
-            <ChevronDownIcon />
-          </button>
-          <button
-            type="button"
-            className="mobile-iconbtn"
-            aria-label="关闭搜索"
-            onClick={() => { setChatSearchOpen(false); setChatSearchTerm('') }}
-          >
-            <CloseIcon />
-          </button>
-        </div>
-      )}
+      <ChatHeader
+        title={title}
+        onBack={handleBack}
+        onToggleSearch={() => {
+          setChatSearchOpen(open => !open)
+          setChatSearchTerm('')
+        }}
+        onMore={() => { setMoreOpen(true) }}
+      />
+      <ChatSearchBar
+        open={chatSearchOpen}
+        term={chatSearchTerm}
+        setTerm={setChatSearchTerm}
+        composingRef={chatSearchComposingRef}
+        onCompositionEnded={() => { setChatSearchComposeTick(tick => tick + 1) }}
+        busy={chatSearchBusy}
+        warming={chatSearchWarming}
+        hits={chatSearchHits.length}
+        at={chatSearchAt}
+        hasMore={chatSearchHasMore}
+        jumping={chatSearchJumping}
+        onPrev={() => { gotoChatHit(chatSearchHits, (chatSearchAt - 1 + chatSearchHits.length) % chatSearchHits.length) }}
+        onNext={() => { gotoChatHit(chatSearchHits, (chatSearchAt + 1) % chatSearchHits.length) }}
+        onClose={() => { setChatSearchOpen(false); setChatSearchTerm('') }}
+      />
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
       <OfflineBanner
         offline={offline}
