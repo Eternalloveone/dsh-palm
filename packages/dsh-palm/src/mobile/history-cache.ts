@@ -231,6 +231,24 @@ function collapseByIdentity(rows: unknown[]): unknown[] {
   return [...byIdentity.values(), ...passthrough].sort((a, b) => seqOfRow(a) - seqOfRow(b))
 }
 
+/**
+ * 缓存页能不能用（**读端的第一道闸**）。
+ *
+ * IndexedDB 里的东西是**上一版代码**写的：旧 schema、半截写、手工改过的库都可能出现。
+ * 没有这道闸，坏形状会一路流到 `new EventFolder(...)` 里抛 TypeError ——
+ * 界面上只是"没画出来"，但那是**没被抓住的 rejection**，不是设计好的降级。
+ *
+ * 判据只看"够不够画"：有 rows 数组、每行是对象、maxSeq 是数字。
+ * 不认识的形状一律当没有（宁可白屏 200ms 等网络页，也不要画出半页错行）。
+ */
+export function isUsableCachedPage(page: unknown): page is { rows: unknown[]; maxSeq: number; hasMore?: boolean } {
+  if (typeof page !== 'object' || page === null) return false
+  const candidate = page as { rows?: unknown; maxSeq?: unknown }
+  if (!Array.isArray(candidate.rows)) return false
+  if (typeof candidate.maxSeq !== 'number' || !Number.isFinite(candidate.maxSeq)) return false
+  return candidate.rows.every(row => typeof row === 'object' && row !== null)
+}
+
 /** Evict the oldest entries past the cap (by savedAt). */
 async function trimHistory(db: IDBDatabase): Promise<void> {
   try {

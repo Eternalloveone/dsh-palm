@@ -26,7 +26,7 @@ import { useLiveClock } from '../live-clock.ts'
 import { formatDuration, isRowRunning } from '../process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
-import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
+import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
 import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, history, logTail, readChat, reportPerf, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
 import type { SessionModels } from '../../api-proxy-types'
@@ -1705,7 +1705,9 @@ export function ChatView({
     let cacheHit = false
     /** 把缓存页画上去（只在还没有网络页时有效）。 */
     const paintCache = (cached: ChatPageResult | undefined): void => {
-      if (cancelled || networkLanded || cached === undefined || cacheHit) return
+      // 形状守卫：IndexedDB 里可能是上一版代码写的页（旧 schema / 半截写），
+      // 直接送进 EventFolder 会在下面抛 TypeError —— 那是没被抓住的 rejection，不是降级。
+      if (cancelled || networkLanded || !isUsableCachedPage(cached) || cacheHit) return
       cacheHit = true
       const folder = new EventFolder(cached.rows, cached.maxSeq)
       stream.loadedPage = true
@@ -1716,7 +1718,8 @@ export function ChatView({
       reportCardDiagnostic(renderRows(folder.fold([])), [], { pages: 0, whole: false, source: 'cache' })
     }
     void loadCachedHistory<ChatPageResult>(session.sessionId).then(cached => {
-      if (cancelled || networkLanded || cached === undefined) return
+      // 同一个形状守卫（paintCache 里也有一道）：坏缓存当没有，等网络页。
+      if (cancelled || networkLanded || !isUsableCachedPage(cached)) return
       // 够一整页的缓存：立刻上屏（快网也就是一闪而过的过渡）。
       // 半页缓存（上一次只看到开头几行）：先不画 —— 画上去网络页一到就整屏换掉，
       // 正文/过程条/卡片一起变，就是「进会话闪一下」。

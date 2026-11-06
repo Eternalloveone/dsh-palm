@@ -5,7 +5,7 @@
  * covering exactly the operations the module performs.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearHistoryCache, loadCachedHistory, mergeCachedPage, saveCachedHistory } from './history-cache.ts'
+import { clearHistoryCache, isUsableCachedPage, loadCachedHistory, mergeCachedPage, saveCachedHistory } from './history-cache.ts'
 
 interface FakeRequest {
   result?: unknown
@@ -232,5 +232,32 @@ describe('缓存合并只许变多（I3 单调）', () => {
     }
     const merged = mergeCachedPage(cached, incoming)
     expect(merged.rows.map(row => (row as { id?: string }).id)).toEqual(['card-5', 'body-5-4'])
+  })
+})
+
+/**
+ * 形状守卫：IndexedDB 里的页可能是上一版代码写的（旧 schema / 半截写）。
+ * 没有这道闸，坏形状会一路流进 `new EventFolder(...)` 抛 TypeError —— 那是没被抓住的
+ * rejection，界面上表现为"没画出来"，不是设计好的降级。
+ */
+describe('isUsableCachedPage：读端的第一道闸', () => {
+  it('正常页放行', () => {
+    expect(isUsableCachedPage({ rows: [{ seq: 1 }], maxSeq: 1, hasMore: false })).toBe(true)
+    expect(isUsableCachedPage({ rows: [], maxSeq: 0 })).toBe(true)
+  })
+
+  it('坏形状一律当没有（undefined / 非对象 / rows 不是数组 / maxSeq 不是数字 / 行不是对象）', () => {
+    expect(isUsableCachedPage(undefined)).toBe(false)
+    expect(isUsableCachedPage(null)).toBe(false)
+    expect(isUsableCachedPage('rows')).toBe(false)
+    expect(isUsableCachedPage({ maxSeq: 1 })).toBe(false)
+    expect(isUsableCachedPage({ rows: [], maxSeq: '1' })).toBe(false)
+    expect(isUsableCachedPage({ rows: [], maxSeq: Number.NaN })).toBe(false)
+    expect(isUsableCachedPage({ rows: [1, 2], maxSeq: 2 })).toBe(false)
+    expect(isUsableCachedPage({ rows: [null], maxSeq: 2 })).toBe(false)
+  })
+
+  it('空页可用（不算坏形状：可能只是上次什么都没存）', () => {
+    expect(isUsableCachedPage({ rows: [], maxSeq: 0, hasMore: true })).toBe(true)
   })
 })
