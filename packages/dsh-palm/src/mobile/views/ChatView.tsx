@@ -16,6 +16,7 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
+import { refillGap as refillGapRows } from '../data/refill-gap.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
 import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
@@ -1896,44 +1897,21 @@ export function ChatView({
     return () => { cancelled = true }
   }, [plusOpen, commandOpen, commands, session.sessionId, input])
 
-  /** Refill a dropped seq window (tail overflow) page by page, from its
-   * newest edge backwards, trimming rows already present in the fold (the
-   * page below the window's bottom overlaps the tail snapshot). Best-effort:
-   * a failure only logs. */
+  /**
+   * 缺口回填：实现已搬到 data/refill-gap.ts（纯逻辑，入参显式），这里只把当前
+   * 会话的折叠器 / 行列表写入方打进去。
+   */
   const refillGap = useCallback((gap: { from: number; to: number }, signal: AbortSignal, isCancelled: () => boolean): void => {
-    let beforeSeq = gap.to + 1
-    const refill = (): void => {
-      void loadChatPage(session.sessionId, beforeSeq, signal).then(
-        (fresh) => {
-          if (isCancelled()) return
-          const folder = folderRef.current
-          const older = renderRows(fresh.rows)
-          // Drop rows at/below the window's bottom edge: they already live in
-          // the tail snapshot and prepending them would duplicate rows.
-          const trimmed = older.filter(row => (row.startSeq ?? row.seq) >= gap.from)
-          if (trimmed.length > 0) {
-            if (folder === undefined) {
-              commitRows(previous => [...trimmed, ...previous])
-            } else {
-              folder.prepend(trimmed)
-              applyMessages(folder.snapshot())
-            }
-          }
-          const oldestSeq = trimmed.length > 0 ? (trimmed[0]?.startSeq ?? trimmed[0]?.seq) : undefined
-          // Stop when the page reached the window's bottom edge, history
-          // ended, or the cursor failed to advance (no older rows).
-          if (oldestSeq === undefined || oldestSeq <= gap.from || !fresh.hasMore) return
-          if (oldestSeq >= beforeSeq) return
-          beforeSeq = oldestSeq
-          refill()
-        },
-        (reason: unknown) => {
-          if (!isCancelled()) console.warn('history gap refill failed', reason)
-        },
-      )
-    }
-    refill()
-  }, [session.sessionId])
+    refillGapRows({
+      sessionId: session.sessionId,
+      gap,
+      signal,
+      isCancelled,
+      folder: () => folderRef.current,
+      commitRows,
+      applyMessages,
+    })
+  }, [session.sessionId, commitRows, applyMessages])
 
   // Tail page on open (content loads only when the session is opened).
   useEffect(() => {
