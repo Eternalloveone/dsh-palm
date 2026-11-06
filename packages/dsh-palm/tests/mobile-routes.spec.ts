@@ -323,8 +323,13 @@ describe('mobile routes', () => {
       // Minified the app is ~520 KB; the same sources unminified are ~1120 KB,
       // so this catches a build that silently stopped minifying (or a
       // dependency that doubles the app) long before a phone notices.
+      //
+      // 2026-11-07 900_000 → 920_000：新增了 `mobile/debug-jump-log.ts`（真机跳动取证面板），
+      // 只在 URL 带 `jumpdebug=1` 时挂载，但代码照样打进包里，实测总量 901,384 字节。
+      // 这不是"静默停止压缩"，是唯一一次刻意加的 1.4 KB 诊断代码；删掉那个模块时**必须**把
+      // 这个数改回 900_000，否则预算会慢慢失效。
       expect(total).toBeGreaterThan(300_000)
-      expect(total).toBeLessThan(900_000)
+      expect(total).toBeLessThan(920_000)
     } finally {
       await server.close()
     }

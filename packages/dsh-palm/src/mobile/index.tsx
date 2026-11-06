@@ -16,6 +16,7 @@ import { applyDisplayPrefs } from './display-prefs.ts'
 import { registerMobilePwa } from '../mobile-pwa.ts'
 import { watchBuildRefresh } from './build-refresh.ts'
 import { consumeMobilePairUrl } from './pairing.ts'
+import { installJumpProbeIfRequested } from './debug-jump-log.ts'
 import { watchPushResubscribe } from './notify.ts'
 
 // Apply the persisted (or default system) theme and the local display
@@ -54,4 +55,6 @@ async function bootMobile(mount: HTMLElement): Promise<void> {
       <App initialPairError={pair.kind === 'failed' ? pair.message : undefined} />
     </ErrorBoundary>,
   )
+  // 真机跳动取证：只在 URL 带 `jumpdebug=1` 时挂一层采集面板，正常打开零影响。
+  installJumpProbeIfRequested()
 }
