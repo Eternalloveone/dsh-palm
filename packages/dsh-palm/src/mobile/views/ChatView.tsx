@@ -31,15 +31,18 @@ import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, compressImageFile, imageFromClipboard, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage, type PromptPart } from '../image.ts'
 import { uploadAttachment, type UploadedAttachment } from '../api.ts'
-import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent,
+import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, renderRows, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent,
   dedupeById,
 } from '../messages.ts'
 import { reportDuplicateCards } from '../duplicate-report.ts'
+/** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
+export { renderRows }
 import { reportError } from '../api.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
 import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
 import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
+import { useChatSession } from './chat/use-chat-session.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../chat-cache.ts'
 import { dispatchStatusEvent } from '../session-status-store.ts'
@@ -108,27 +111,7 @@ export async function loadTurnReportRows(
   ))
 }
 
-/**
- * `allowGuessedTails=false`：只保留页里**真的带着** `turn/end` 折出来的卡，不猜。
- *
- * 往上翻历史时用这个模式。猜出来的卡是「从工具行推的」，几秒后 `cardRecovery` 读到真
- * `turn/end` 会把它换成正式版（文件清单可能从 1 个变成 3 个）—— 两次渲染之间内容变了，
- * 用户看到的就是「翻历史时交付卡闪一下」。历史轮次宁可先不给卡，也不要给了又改。
- */
-export function renderRows(
-  rows: readonly RenderMessage[],
-  allowGuessedTails = true,
-  /**
-   * 正在跑的那一轮（来自实时流）。
-   *
-   * 一是给"没有轮号的流式行"归属（否则过程信息配不到行，屏幕上只剩正文和时间），
-   * 二是让"正在跑的回合"不猜已完成卡。
-   */
-  openTurn?: number,
-): RenderMessage[] {
-  const folded = coalesceTurnMessages(rows, openTurn)
-  return allowGuessedTails ? ensureTurnTails(folded, openTurn) : folded
-}
+
 
 /**
  * Report what a page actually looked like when its report card could not be
@@ -718,7 +701,14 @@ export function ChatView({
   /** 高亮用的关键词：props 丢了就用意图里那份（否则只会滚、不会涂黄）。 */
   const effectiveFocusQuery = initialFocusQuery ?? locateIntent?.query
   // 第一帧就用上一场的内存快照：进会话不再“空一帧、再内容”（真机：进会话闪一下）。
-  const [messages, setMessages] = useState<RenderMessage[]>(() => initialSnapshotRows(session.sessionId)?.rows ?? [])
+  // 行模型（折叠/合并）由 use-chat-session 持有；这里只拿 rows 与唯一提交点。
+  const chatSession = useChatSession({
+    sessionId: session.sessionId,
+    initialRows: initialSnapshotRows(session.sessionId)?.rows ?? [],
+    getOpenTurn: () => openTurnRef.current,
+  })
+  const messages = chatSession.rows
+  const setMessages = chatSession.setRows
   // Foreground gate for every poll on this view: a frozen background PWA must
   // not keep issuing RPCs (the stream and the host-side follow are released by
   // App's observe effect; returning resyncs them).
@@ -786,27 +776,7 @@ export function ChatView({
   }, [messages])
 
 
-  const commitRows = useCallback((
-    rows: readonly RenderMessage[] | ((previous: readonly RenderMessage[]) => readonly RenderMessage[]),
-    options: { merge?: boolean; allowGuessedTails?: boolean } = {},
-  ): void => {
-    const merge = options.merge !== false
-    const allowGuessedTails = options.allowGuessedTails !== false
-    setMessages(previous => {
-      const raw = typeof rows === 'function' ? rows(previous) : rows
-      const next = renderRows(keepTurnReports(previous, raw), allowGuessedTails, openTurnRef.current)
-      const merged = dedupeById(merge ? preferRicherRows(previous, next) : next)
-      // 现场取证：真机上偶尔还会出现「同一轮两张卡」。与其继续猜，不如在它真的发生时
-      // 把当时的行数据存到宿主（每个会话 1 分钟最多一次，失败静默）。
-      // 进会话时缓存页与网络页可能把同一轮同一步骤各画一次（seq 不同，
-      // 合并判据认不出来）—— 短暂出现同一轮两张过程卡。按 (turn, step) 去重。
-      const deduped = [...dedupeSameStep(merged)]
-      reportDuplicateCards(session.sessionId, deduped, report => {
-        void reportError(report, 'duplicate-cards').catch(() => {})
-      })
-      return deduped
-    })
-  }, [session.sessionId])
+  const commitRows = chatSession.commitRows
   // 「离开聊天即清」：定位意图只在这一次进入里有效。转场里聊天页会短暂挂两个实例，
   // 所以卸载后留 2 秒宽限、新实例挂载即取消；真离开则宽限到点清掉，不会残留到
   // 下一次普通打开（早先 20 秒 TTL 会让「刚看完命中又点回来」莫名再跳一次）。

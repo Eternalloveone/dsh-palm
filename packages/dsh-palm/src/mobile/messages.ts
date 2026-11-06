@@ -3110,3 +3110,25 @@ function snapshotOf(state: FoldState): RenderMessage[] {
   // Array.sort is stable: equal-seq rows keep their event insertion order.
   return ordered ? out : out.sort((a, b) => a.seq - b.seq)
 }
+
+/**
+ * Fold a page of raw rows into what the view paints.
+ *
+ * `allowGuessedTails=false` keeps only report cards backed by a real
+ * `turn/end` in the page: guessing a card while paging history makes it appear
+ * and then change seconds later (the card "flashes"). `openTurn` lets rows
+ * without a turn join the running turn and keeps that turn's card unguessed.
+ *
+ * @param rows - raw rows from the host page or fold.
+ * @param allowGuessedTails - whether tool rows may guess a report card.
+ * @param openTurn - the turn currently running, if any.
+ * @returns folded rows ready to render.
+ */
+export function renderRows(
+  rows: readonly RenderMessage[],
+  allowGuessedTails = true,
+  openTurn?: number,
+): RenderMessage[] {
+  const folded = coalesceTurnMessages(rows, openTurn)
+  return allowGuessedTails ? ensureTurnTails(folded, openTurn) : folded
+}
