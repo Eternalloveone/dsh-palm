@@ -16,8 +16,6 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
-import { refillGap as refillGapRows } from '../data/refill-gap.ts'
-import { reloadTailPage } from '../data/reload-tail.ts'
 import { createStreamState } from './chat/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
@@ -30,7 +28,7 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
 import { loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, listSessions, history, logTail, readChat, reportPerf, runningSessions, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
+import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, history, logTail, readChat, reportPerf, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { PendingApproval, PendingQuestionItem } from '../api.ts'
 import { buildPromptParts, imageFromClipboard, type PromptPart } from '../image.ts'
@@ -46,6 +44,8 @@ import { useChatScroll } from './chat/use-chat-scroll.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
 import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
 import { useChatSession } from './chat/use-chat-session.ts'
+import { newestFoldTurn } from './chat/stream-state.ts'
+import { useChatStream } from './chat/use-chat-stream.ts'
 import { useChatAttachments } from './chat/use-chat-attachments.ts'
 import { useChatVoice } from './chat/use-chat-voice.ts'
 import { VoiceSheet } from './chat/voice-sheet.tsx'
@@ -230,21 +230,6 @@ function messageKey(message: RenderMessage): string {
 }
 
 /**
- * 折叠里最新的一轮号（只看 assistant 行：user 行不带 turn 字段，轮次尾报告卡
- * 只是产出清单、不承载过程）。活跃轮次号缺席时的兜底 —— 中途重开一个还开着的
- * 回合时，running 是从会话名单或尾页锚点恢复的，那一帧 turn/start 没经手，
- * 而正在跑的那一轮必然是折叠里最后出现的一轮。
- */
-function newestFoldTurn(messages: readonly RenderMessage[]): number | undefined {
-  let newest: number | undefined
-  for (const message of messages) {
-    if (message.kind !== 'assistant' || message.turn === undefined) continue
-    if (newest === undefined || message.turn > newest) newest = message.turn
-  }
-  return newest
-}
-
-/**
  * 最新一轮的起点，按可信度从高到低取：
  *
  *   1. 行上的 `turnStartAt` —— 折叠盖上去的 turn/start 时间，最准；
@@ -312,7 +297,6 @@ import { FilePreviewSheet } from '../file-preview-sheet.tsx'
 import { ImageLightbox } from '../image-lightbox.tsx'
 import { inboxOf, sessionState, updateQueue, queueItemViewOf, type QueueItemView } from '../api.ts'
 import {
-  cachedSnapshot,
   addOptimisticQueueItem,
   applyQueueItems,
   applySnapshot,
@@ -460,11 +444,10 @@ export interface ChatViewProps {
 }
 
 /**
- * Hard cap on live events buffered while the initial history tail page is in
- * flight. Beyond this the oldest buffered event is dropped and a follow-up
- * history tail re-pull closes the seam.
+ * 流式缓冲上限与对账周期已经搬到 `chat/use-chat-stream.ts`（S7a-4，随逻辑一起走）。
+ * 这两个仍从这里转出：既有测试按 `./ChatView.tsx` 取。
  */
-export const MAX_TAIL_BUFFER_EVENTS = 500
+export { MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './chat/stream-state.ts'
 
 
 /** Compact token count for the context meter: 800 → "800", 30k, 1.2M. */
@@ -504,30 +487,6 @@ export const OFFLINE_PROBE_MS = 5_000
 export const OFFLINE_PROBE_TIMEOUT_MS = 4_000
 /** 同一条卡补读失败后多久再试：列表整份换掉时卡要靠它自己回来。 */
 export const CARD_SYNC_COOLDOWN_MS = 3_000
-/** Host running-reconciliation cadence while the indicator is on (self-heals a lost turn/end). */
-/**
- * 在跑时的**兜底**核对周期。运行状态的主来源是宿主在轮次边界主动推的
- * `session/status`（见 mobile-api 的 noteRunningFrame）—— 与桌面端同源，回合开始/
- * 结束那一刻手机就知道。这一条只防"边界帧被断流丢了"，所以只在 running 时跑；
- * 没在跑时完全不轮询（以前二十秒一次的 idle 探测已删，回合开始由推送叫醒）。
- */
-export const RUNNING_RECONCILE_MS = 10_000
-/** 尾页最后一条事件"多久算旧"：回合活着时事件不会停这么久，超过即认为那一轮
- *  已收工、只是 turn/end 帧丢了。真在跑的回合会被下一个事件翻回运行中，所以
- *  这个阈值宁短勿长——它只影响一次误判的时长，不影响正确性。 */
-export const TURN_SILENCE_MS = 60_000
-/** 状态仓里的快照多久算旧：超过就顺手催一次对账（不只是回合，队列/目标/待办一起吃新）。 */
-export const SNAPSHOT_STALE_MS = 12_000
-
-/** 没在跑的时候也要偶尔核对一次：断线期间开始的轮次不会自己冒出来。 */
-/** 打开会话/回到前台后的一次性核对延迟：先让宿主推的 status 帧落地，再兜一次。 */
-export const INITIAL_RECONCILE_MS = 2_500
-/** Consecutive listSessions failures (each RUNNING_RECONCILE_MS apart) that
- * prove the host is unreachable - the process stopped or the link is down.
- * The reconciliation can only self-heal a lost turn/end while the host answers;
- * once it has been silent this long, the indicator can never clear on its own,
- * so drop it instead of showing 输出中 for a host that is no longer running. */
-export const RECONCILE_FAILURE_LIMIT = 3
 /** The turn clock (desktop parity) appears once the turn has clearly been
  * running this long; shorter turns keep the plain label. */
 export const TURN_CLOCK_THRESHOLD_MS = 3_000
@@ -887,50 +846,6 @@ export function ChatView({
   /** Live session events buffered while the initial tail page loads. */
   /** Incremental folder for this session's stream (indexes stay hot across events). */
   /** 这个会话是否**成功加载过**一页：用来区分"打不开"和"还在加载"。 */
-  /**
-   * rAF micro-batch for live message events. SSE `onmessage` is a separate
-   * macrotask per frame, so folding each event straight into `setMessages`
-   * triggers one React reconcile per chunk — a fast model + many tool calls
-   * can push 30+ reconciles/sec. Events are buffered here and folded together
-   * on the next animation frame (one reconcile per frame, ~60/s). The fold is
-   * incremental and seq-idempotent, so batching is safe; the auto-follow only
-   * lags by one frame (~16ms), which is imperceptible. Non-message frames
-   * (jobs/queue/approvals) and the turn/start·end·todo side-effects stay
-   * immediate.
-   */
-  const eventFlushRafRef = useRef<number | undefined>(undefined)
-  /** Schedule one rAF flush of the buffered message events (idempotent). */
-  const scheduleEventFlush = useCallback((): void => {
-    if (eventFlushRafRef.current !== undefined) return
-    eventFlushRafRef.current = requestAnimationFrame(() => {
-      eventFlushRafRef.current = undefined
-      const batch = stream.eventBatch
-      stream.eventBatch = []
-      if (batch.length === 0) return
-      const folder = stream.folder
-      // Opt-in perf mark: decode/fold/coalesce done, state update about to
-      // schedule (span recv→state measures the whole client pipeline). The
-      // batch is stamped with its newest event's seq.
-      const last = batch[batch.length - 1]
-      perfMark('state', { seq: last?.seq, frame: 'session/event', detail: `batch:${batch.length}` })
-      // 实时折叠的基线是 EventFolder 的快照，而它只装"页给的行"：日志补回来的报告
-      // 行不在里面。以前这一步直接覆盖，于是**下一条消息一来**（用户发送、宿主推帧），
-      // 上一轮的交付物卡就被快照吃掉 —— 真机「发送完当前消息，上一条的卡消失」。
-      commitRows(previous => (folder === undefined ? foldEvents(batch, previous) : folder.fold(batch)))
-    })
-  }, [])
-  /** True once the live buffer hit its cap (oldest events were dropped). */
-  /** Seq window of the events dropped from the tail-load buffer (refill). */
-  /** Monotonic reload epoch: only the newest reloadTail lands. */
-  const reloadEpochRef = useRef(0)
-  /** Abort the previous reloadTail when a new one starts (no cross-resolve). */
-  const reloadControllerRef = useRef<AbortController | undefined>(undefined)
-  /**
-   * Latest `reloadTail`, for the live-frame effect (defined above it): a
-   * `stream/error{slow-consumer}` means the host dropped frames for this
-   * subscriber, and re-reading the tail is the only honest recovery.
-   */
-  const reloadTailRef = useRef<() => void>(() => {})
 
   /** The session's permission select (absent = capability not composed). */
   const [permissions, setPermissions] = useState<PermissionSelectValue | undefined>(undefined)
@@ -1026,125 +941,8 @@ export function ChatView({
    * the legacy Enter-to-send behavior until the preference loads).
    */
   const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
-  /** Whether the assistant is currently generating (turn/start..turn/end). */
-  const [running, setRunning] = useState(false)
-  /** 同值的 ref 镜像：send() 的成功回调要知道"这条消息是排队发出去的"，但它不该
-   *  因为每轮 running 翻转就重建（回调里的闭包会过期，而重建会让输入区的 onKeyDown
-   *  在回合切换的瞬间拿到旧 send）。 */
-  const runningRef = useRef(running)
-  runningRef.current = running
-
-  /**
-   * 「这一轮在不在跑」的**唯一裁决入口**（2026-10-31 根治）。
-   *
-   * 证据有两类，但它们只是**同一个状态机的输入**，不是两套判断：
-   *   · 实时帧（turn/start、turn/end、session/status）—— 快；
-   *   · 宿主对账（`mobile.turnState`）—— 权威，带证据 seq。
-   *
-   * 规则：**证据按 seq 单调**。序号更旧的结论一律丢弃（晚到的旧答复不许把已经
-   * 收工的回合重新点着，也不许把正在跑的回合判成收工）。
-   *
-   * 以前的写法是各处直接 `setRunning(...)`：帧一说就改、对账一说又改，两者谁后到谁
-   * 生效 —— 这就是"有时候卡片/过程条状态不对"的根源。现在只剩这一个入口。
-   */
   /** 宿主没有 `mobile.turnState`（旧版本）：之后的对账直接走旧路径。 */
   const turnStateUnsupportedRef = useRef(false)
-  /**
-   * **已收工**的轮号集合 —— 交付卡出现的唯一凭据。
-   *
-   * 真机多次反馈："会话还在跑，屏幕上已经冒出「本轮产出」"。根因是这张卡出现的
-   * 判据一直在猜（猜哪一轮在跑、猜位置、拿不到就保守藏）。现在改成**要有证据**：
-   * 只有亲眼看到这一轮收工（宿主说停了、或收到 turn/end），它才允许显示。
-   */
-  const closedTurnsRef = useRef<Set<number>>(new Set())
-
-  /**
-   * 只要一轮的交付卡**在"没在跑"的时候露过面**，就记进已收工集合。
-   *
-   * 为什么需要（2026-11-01 真机）：发消息的那一刻，上一轮的交付卡会闪一下消失
-   * （实测 1 → 0 → 1，约 2 秒）。原因是那一刻 `running` 已经翻成 true，而这一轮的
-   * 轮号可能还没从对账/帧里补上，于是 `closedTurns` 里没有它、卡片被当成"没证据"藏掉。
-   * 卡都露过面了，它就是收工过的 —— 这个事实不该因为"下一轮开始了"而失效。
-   */
-  useEffect(() => {
-    if (running) return
-    let changed = false
-    for (const message of messages) {
-      if (message.kind !== 'turn' || message.turn === undefined) continue
-      if (closedTurnsRef.current.has(message.turn)) continue
-      closedTurnsRef.current.add(message.turn)
-      changed = true
-    }
-    void changed
-  }, [messages, running])
-  /**
-   * `mobile.sessionState` 这条原子快照通道是否可用（读到过至少一次带 turn 的快照）。
-   *
-   * 它是手机上**唯一权威**的回合结论：回合、行、队列、目标、待办是同一次往返里的
-   * 同一个切面（桌面端同一份 store）。所以只要它可用，就不再让尾页/花名册另判一份。
-   */
-  const snapshotAliveRef = useRef(false)
-  const verdictSeqRef = useRef(Number.NEGATIVE_INFINITY)
-  const applyTurnVerdict = useCallback((verdict: {
-    running: boolean
-    seq?: number | undefined
-    turn?: number | undefined
-    startAt?: number | undefined
-    /**
-     * 绕过 seq 门控。
-     *
-     * 只给"宿主花名册说这一轮停了"用：那是**停止纠正**，它的作用就是在边界帧丢掉时
-     * 把状态拉回来，不能因为它的序号（或没有序号）比日志 seq 小而丢掉。
-     * 反过来"说在跑"不走 force —— 迟到的 status(true) 不许把已收工的回合重新点着。
-     */
-    force?: boolean | undefined
-  }): void => {
-    const hasSeq = typeof verdict.seq === 'number' && Number.isFinite(verdict.seq)
-    const seq = hasSeq ? verdict.seq as number : Number.NEGATIVE_INFINITY
-    if (verdict.force !== true && hasSeq) {
-      // 只有**带序号**的证据之间才比新旧：晚到的旧答复不许覆盖已经应用的新结论。
-      // 没有序号的证据（旧宿主的对账/尾页、宿主花名册）是"当刻读到的事实"，
-      // 不做门控 —— 否则它会被一个更大的帧序号永久挡住（真机：指示器不再熄灭）。
-      if (seq < verdictSeqRef.current) return
-      if (seq > verdictSeqRef.current) verdictSeqRef.current = seq
-    }
-    setRunning(previous => (previous === verdict.running ? previous : verdict.running))
-    if (verdict.running) {
-      if (verdict.turn !== undefined) setRunningTurn(verdict.turn)
-      if (verdict.startAt !== undefined) {
-        setTurnStartAt(previous => previous ?? verdict.startAt as number)
-      }
-      return
-    }
-    // 收工：指针与秒表锚点一起清掉，否则上一轮会一直匹配 liveTurn；
-    // 同时把这一轮的轮号记进"已收工"集合 —— 交付卡凭它才允许出现。
-    if (runningTurnRef.current !== undefined) closedTurnsRef.current.add(runningTurnRef.current)
-    if (verdict.turn !== undefined) closedTurnsRef.current.add(verdict.turn)
-    setRunningTurn(undefined)
-    setTurnStartAt(null)
-  }, [])
-  /**
-   * 当前活跃轮次的**轮号**（turn/start 帧里带回来的那一个）。它与 {@link running}
-   * 同生同灭：凡是写 running 的地方都一起写这里（帧里的 turn/start、turn/end、
-   * 名单/尾页锚点的恢复、reconcile 探针、steer 被拒），所以行级判据看到的活跃
-   * 轮次永远就是底部状态行看到的那一轮。轮号缺席（中途重开时 running 是从名单
-   * 或尾页锚点恢复的，手上没有那一帧）时由 {@link liveTurn} 退回折叠里的最新一轮。
-   */
-  const [runningTurn, setRunningTurn] = useState<number | undefined>(undefined)
-  /**
-   * 被宿主放弃的回合（重启/被杀/断流，turn/end 永远没来）。
-   *
-   * 之前这种回合会在 reconcile 判停后落到 `ok` 分支：卡片显示「已完成 ✅ 用时 X」，
-   * 正文却是断在半句的 partial 或者空白 —— 假成功，桌面端同一轮是中断态。这里把
-   * 它记下来，渲染时给整轮盖上 maxTokens（已有的「已中断」通道），文案与桌面端一致。
-   */
-  const [abandonedTurn, setAbandonedTurn] = useState<number | undefined>(undefined)
-  /** 渲染前给被打断的那一轮盖「已中断」标记（见 abandonedTurn）。 */
-  const rowOfInterrupted = (message: RenderMessage): RenderMessage => (
-    abandonedTurn !== undefined && message.turn === abandonedTurn && message.maxTokens !== true
-      ? { ...message, maxTokens: true }
-      : message
-  )
 
   /**
    * 缓存 = **屏幕稳定之后的完整画面**（含交付卡）。
@@ -1205,6 +1003,75 @@ export function ChatView({
     applyQueueItems(session.sessionId, items)
     startTransition(() => { setQueueItems(queueView(session.sessionId)) })
   }, [session.sessionId])
+  /** 计划条（todo/write 快照）：流 hook 的待办归一化要在构造时就拿到 setter。 */
+  const [todo, setTodo] = useState<TodoSnapshot | undefined>(undefined)
+  /** On turn/end, mirror the host projection's normalization: a task still
+   * `in_progress` when the turn ends reads as completed (agents routinely skip
+   * the final all-done write, which would otherwise leave the strip stuck on an
+   * intermediate state until the next turn/start). `pending` items were never
+   * started and stay untouched; the next turn/start clears the whole list. */
+  const normalizeTurnEndTodo = useCallback((): void => {
+    setTodo(previous => previous === undefined ? previous : {
+      seq: previous.seq,
+      items: previous.items.map(item => item.status === 'in_progress'
+        ? { ...item, status: 'completed' }
+        : item),
+    })
+  }, [])
+  /** 帧回调/对账要"立刻问一次宿主"：走 ref，免得为它重订阅事件流。 */
+  const refreshInboxRef = useRef<(options?: { fresh?: boolean }) => void>(() => {})
+  /**
+   * 流式 + 回合状态（S7a-4，从本文件搬出）。
+   *
+   * 这里拿到的是**所有权**：五个回合状态、唯一裁决入口、运行状态对账、缺口回填、
+   * 重载尾页、换会话重置、rAF 合批。`mux.onFrame` 仍是本文件的视图分发器 —— 它把帧
+   * 分给 todo/jobs/queue/permissions/… 十几个视图状态，属于装配而不是流状态。
+   */
+  const chatStream = useChatStream({
+    sessionId: session.sessionId,
+    mux,
+    stream,
+    messages,
+    commitRows,
+    applyMessages,
+    setHasOlder,
+    setError,
+    refreshInboxRef,
+    normalizeTurnEndTodo,
+    foreground,
+  })
+  const {
+    running,
+    runningTurn,
+    turnStartAt,
+    abandonedTurn,
+    hostLost,
+    applyTurnVerdict,
+    reconcileRunning,
+    refillGap,
+    reloadTail,
+    resetForSession,
+    clearHostLost,
+    clearActiveTurn,
+    beginTurn,
+    enqueueLiveEvent,
+    noteTailPageAnchor,
+    hasClosedTurn,
+    markSnapshotAlive,
+    isRunning,
+    getRunningTurn,
+  } = chatStream
+  /** 同值的 ref 镜像：send() 的成功回调要知道"这条消息是排队发出去的"，但它不该
+   *  因为每轮 running 翻转就重建（回调里的闭包会过期，而重建会让输入区的 onKeyDown
+   *  在回合切换的瞬间拿到旧 send）。 */
+  const runningRef = useRef(running)
+  runningRef.current = running
+  /** 渲染前给被打断的那一轮盖「已中断」标记（见 abandonedTurn）。 */
+  const rowOfInterrupted = (message: RenderMessage): RenderMessage => (
+    abandonedTurn !== undefined && message.turn === abandonedTurn && message.maxTokens !== true
+      ? { ...message, maxTokens: true }
+      : message
+  )
   /**
    * 立刻向宿主问一次排队快照（投影帧在手机上到不了，这是唯一可靠来源）。
    *
@@ -1233,7 +1100,7 @@ export function ChatView({
           // 原子快照里的回合结论就是权威：走唯一裁决入口，不再让尾页/花名册另判一份。
           const snapshotTurn = (snapshot as { turn?: { running?: boolean; turnStartAt?: number } }).turn
           if (snapshotTurn !== undefined && typeof snapshotTurn.running === 'boolean') {
-            snapshotAliveRef.current = true
+            markSnapshotAlive()
             applyTurnVerdict({
               running: snapshotTurn.running,
               ...(snapshotTurn.turnStartAt === undefined ? {} : { startAt: snapshotTurn.turnStartAt }),
@@ -1251,6 +1118,7 @@ export function ChatView({
     }
     ask(true)
   }, [session.sessionId, applyInbox])
+  refreshInboxRef.current = refreshInbox
   /**
    * 目标 / 待办的落地函数在下面才定义（refreshInbox 要先声明）：用 ref 转一手，
    * 免得为了它们把整个回调挪位置、再牵动依赖数组。
@@ -1350,13 +1218,6 @@ export function ChatView({
     // 回合状态不同步。这里留着是为了**老宿主**（快照里没有 goal 字段）仍然能显示。
     refreshGoal()
   }, [refreshGoal])
-  /**
-   * The running turn's logged `turn/start` event time (epoch ms), the turn
-   * clock's anchor (desktop parity). Null while no turn is open or when the
-   * boundary fell outside the loaded window — the clock then falls back to
-   * the view's mount time, exactly like the desktop TurnStatus.
-   */
-  const [turnStartAt, setTurnStartAt] = useState<number | null>(null)
   /** 当前计时锚点的即时值（effect 里要判断「锚点是不是过期了」）。 */
   const turnStartAtRef = useRef<number | null>(null)
   useEffect(() => { turnStartAtRef.current = turnStartAt }, [turnStartAt])
@@ -1371,19 +1232,6 @@ export function ChatView({
   /** 本会话最后一次真的送来事件流的时间。只有本会话的 session/event 才算数
    *  （心跳和别的会话的帧不算），所以它不会因为链路空闲就被刷新。 */
   const lastSessionEventAtRef = useRef(0)
-  /** 一次只跑一个运行状态核对（重连基线帧与定时器会同时想查）。 */
-  const reconcileInFlightRef = useRef(false)
-  /** 连续几次核对拿不到宿主答复（宿主进程没了/链路断了）。 */
-  const reconcileFailureRef = useRef(0)
-  /** 组件是否还挂着：核对是异步的，回来时可能已经换页。 */
-  const aliveRef = useRef(true)
-    /** Sustained host silence (RECONCILE_FAILURE_LIMIT failed roster reads):
-   * the live channel is gone and nothing local can prove the turn ended. The
-   * clock and its anchor are deliberately KEPT - a phone that switched
-   * networks or woke from a locked screen must not lose the elapsed time it
-   * was watching - and only the wording changes until an answer (or a live
-   * frame) comes back. */
-  const [hostLost, setHostLost] = useState(false)
   /** Latest `session/jobs` snapshot for this session (background tasks the
    * parent owns: subagent delegations, bash/pwsh runs, …). The host pushes a
    * full snapshot after every registry commit; empty = no tasks. The initial
@@ -1395,7 +1243,6 @@ export function ChatView({
    * newest message). Adoption is last-write-wins by seq: history pages and
    * live frames can race, and an older page must never clobber a newer live
    * snapshot. Cleared on turn/start (the host clears the projection there). */
-  const [todo, setTodo] = useState<TodoSnapshot | undefined>(undefined)
   const adoptTodo = useCallback((next: TodoSnapshot | undefined): void => {
     if (next === undefined) return
     setTodo(previous => (previous !== undefined && next.seq <= previous.seq ? previous : next))
@@ -1407,19 +1254,6 @@ export function ChatView({
     if (items === undefined) return
     adoptTodo({ seq: event.seq, items })
   }, [adoptTodo])
-  /** On turn/end, mirror the host projection's normalization: a task still
-   * `in_progress` when the turn ends reads as completed (agents routinely skip
-   * the final all-done write, which would otherwise leave the strip stuck on an
-   * intermediate state until the next turn/start). `pending` items were never
-   * started and stay untouched; the next turn/start clears the whole list. */
-  const normalizeTurnEndTodo = useCallback((): void => {
-    setTodo(previous => previous === undefined ? previous : {
-      seq: previous.seq,
-      items: previous.items.map(item => item.status === 'in_progress'
-        ? { ...item, status: 'completed' }
-        : item),
-    })
-  }, [])
   /** Foreground subagents for this session (the flat live delegation list).
    * Built from `subagents.list` and overlaid with host/session-status flips. */
   const [subagents, setSubagents] = useState<SubagentFlatNode[]>([])
@@ -1896,22 +1730,6 @@ export function ChatView({
     return () => { cancelled = true }
   }, [plusOpen, commandOpen, commands, session.sessionId, input])
 
-  /**
-   * 缺口回填：实现已搬到 data/refill-gap.ts（纯逻辑，入参显式），这里只把当前
-   * 会话的折叠器 / 行列表写入方打进去。
-   */
-  const refillGap = useCallback((gap: { from: number; to: number }, signal: AbortSignal, isCancelled: () => boolean): void => {
-    refillGapRows({
-      sessionId: session.sessionId,
-      gap,
-      signal,
-      isCancelled,
-      folder: () => stream.folder,
-      commitRows,
-      applyMessages,
-    })
-  }, [session.sessionId, commitRows, applyMessages])
-
   // Tail page on open (content loads only when the session is opened).
   useEffect(() => {
     let cancelled = false
@@ -1932,24 +1750,14 @@ export function ChatView({
     const stopIntentKeepAlive = (): void => {
       if (intentKeepAlive !== undefined) window.clearInterval(intentKeepAlive)
     }
+    // 换会话：流状态整体归零 + 取消待折的 rAF 帧 + 用名单的 running 播种回合状态
+    // （逐字段手工清是这套状态历史上唯一反复出问题的地方，见 resetForSession）。
+    resetForSession(session.running === true)
+    // 页还没到：实时帧先入缓冲（resetStreamState 把它清成 false，这里重新拉起）。
     stream.tailLoading = true
-    stream.liveBuffer = []
-    stream.liveBufferOverflow = false
-    stream.dropWindow = undefined
-    stream.autoExtended = false
-  stream.openChainPages = 0
-    stream.folder = undefined
     // 时钟校准是**本会话**的：换会话就从零开始攒样本，否则上一场的偏移会
     // 直接套到这一场的秒表上（锚点是宿主时间，偏移偏多少秒表就偏多少）。
     hostClockSamplesRef.current = []
-    // A session switch must not let a pending rAF flush fold the PREVIOUS
-    // session's buffered events into the new session's folder: drop the batch
-    // and cancel the scheduled flush.
-    stream.eventBatch = []
-    if (eventFlushRafRef.current !== undefined) {
-      cancelAnimationFrame(eventFlushRafRef.current)
-      eventFlushRafRef.current = undefined
-    }
     setTitle(session.title)
     // A session switch starts a fresh read position: the next fold key change
     // (the new tail page) must follow to the bottom unconditionally.
@@ -1981,15 +1789,8 @@ export function ChatView({
     // 这个字段本身不可信（实测刚跑完的会话仍是 true），但**不能**在连不上宿主时把它
     // 收掉 —— 那正是「网络抖一下，秒表被清零」的老毛病；连不上只标链路（连接中断），
     // 回合和时钟都留着。
-    // 会话切换：证据水位归零（上一场的序号不能挡住这一场的结论），
-    // 再用宿主在这条会话上给的初始值播种。
-    verdictSeqRef.current = Number.NEGATIVE_INFINITY
-    applyTurnVerdict({ running: session.running === true })
+    // 会话切换：证据水位归零 + 名单播种 + 清活跃轮号/秒表锚点，都在 resetForSession 里。
     setStopArmed(false)
-    // 会话切换：上一轮的轮号绝不能留给下一场（名单恢复的 running 会把它当成
-    // 活跃轮次，把上一场那一轮的卡片误判成运行中）。
-    setRunningTurn(undefined)
-    setTurnStartAt(null)
     // Cache-first: seed the view from the cached tail page immediately so a
     // reopen paints instantly (stale-while-revalidate); the network load
     // below overwrites with fresh data and refreshes the cache. `networkLanded`
@@ -2160,36 +1961,14 @@ export function ChatView({
           })()
         }
         setLoading(false)
-        // Restore the turn-clock anchor from the tail window (desktop
-        // parity): the window carries the open turn/start's logged time when
-        // the boundary is within reach, so a mid-turn reload keeps the real
-        // elapsed time instead of counting from mount. A live turn/start
-        // frame already anchored it (newer) — never overwrite that.
-        if (page.turnStartAt !== undefined) {
-          setTurnStartAt(prev => prev ?? page.turnStartAt ?? null)
-          // 把这个真起点也种进折叠：窗口里看不到 turn/start 时，收工定格只能退回
-          // 「窗口最早一行」当锚点，秒表会在收工时往回跳（真机 8分37秒 → 6分48秒）。
-          stream.folder?.noteOpenTurnStart(page.turnStartAt)
-          // The anchor is a clock, not a verdict. It used to raise the running
-          // flag on its own, on the theory that an open boundary outweighs the
-          // roster's agent-liveness flag while a subagent runs. In practice a
-          // turn that died without writing its turn/end left exactly that
-          // boundary behind, so every reopen of that chat painted 输出中 over a
-          // session the desktop knew was idle. Opening a chat now takes the
-          // roster's `running` as the verdict (seeded above, and corrected by
-          // the host's `session/status` frame as soon as one lands); the anchor
-          // only decides where the stopwatch starts.
-          //
-          // 名单说这个会话不在跑，页面却留了一条开着的边界：这一轮是被打断的（宿主重启、
-          // 进程被杀、断流），不是正常收工。记下来，渲染时写「已中断」而不是「已完成」。
-          // 只有「名单说不跑」还不够 —— 一轮正跑着时名单也可能滞后；再加一条日志彻底静默
-          // 的证据（宿主集合与日志都在说这轮没了），才判它被打断。
-          const silent = page.lastEventAt !== undefined && Date.now() - page.lastEventAt > TURN_SILENCE_MS
-          if (session.running !== true && silent) {
-            setAbandonedTurn(previous => previous ?? newestFoldTurn(foldedRows))
-          }
-          setRunningTurn(undefined)
-        }
+        // 回合锚点与「被打断」判定归 use-chat-stream（S7a-4）：它只写回合状态，
+        // 不碰这一页的视图状态。
+        noteTailPageAnchor({
+          startAt: page.turnStartAt,
+          lastEventAt: page.lastEventAt,
+          rosterRunning: session.running === true,
+          foldedRows,
+        })
         // The page's projection baseline seeds the permission picker.
         // The `permissions` key is declared by the deployment's permission
         // plugin (augmentation), so the base SDK map is indexed loosely.
@@ -2265,181 +2044,6 @@ export function ChatView({
       controller.abort()
     }
   }, [session.sessionId, applyInbox])
-  /** 帧回调里要"立刻问一次宿主"（turn/start 清空队列之后）：走 ref，免得为它重订阅事件流。 */
-  const refreshInboxRef = useRef(refreshInbox)
-  refreshInboxRef.current = refreshInbox
-
-
-  /** 校正"这一轮到底还在不在跑"。
-   *
-   *  以日志尾页的轮次边界为准：宿主在服务端就折好了尾页（实测 17~31 ms /
-   *  99 KB），而 session.history 要解压整份日志——52 MB 的会话实测 34 秒，
-   *  那段等待本身就是用户眼里的"刷新很慢"。旧宿主没有尾页通道时才退回
-   *  宿主列表 + 历史窗口扫描。 */
-  const reconcileRunning = useCallback((): void => {
-    // 原子快照（`mobile.sessionState`）可用时，回合结论已由它给出（同一份切面、与桌面端同源）。
-    // 这时尾页/运行集合/花名册**不再产生回合判断** —— 它们只负责"宿主还活着吗"。
-    // 以前两条路各判一份、谁后到谁生效，就是"有时候状态不对"的最后一个来源。
-    if (snapshotAliveRef.current) {
-      if (reconcileInFlightRef.current) return
-      reconcileInFlightRef.current = true
-      void sessionState(session.sessionId).then(
-        (snapshot) => {
-          reconcileFailureRef.current = 0
-          if (aliveRef.current) setHostLost(false)
-          const snapshotTurn = (snapshot as { turn?: { running?: boolean; turnStartAt?: number } }).turn
-          if (snapshotTurn !== undefined && typeof snapshotTurn.running === 'boolean') {
-            const wasRunning = runningRef.current
-            applyTurnVerdict({
-              running: snapshotTurn.running,
-              ...(snapshotTurn.turnStartAt === undefined ? {} : { startAt: snapshotTurn.turnStartAt }),
-            })
-            if (wasRunning && !snapshotTurn.running) {
-              normalizeTurnEndTodo()
-              stream.folder?.clearOpenTurnStart()
-            }
-          }
-        },
-        () => {
-          // 这一条读失败不代表链路断了（其它通道还在），但连续失败要能标"连接中断"。
-          reconcileFailureRef.current += 1
-          if (aliveRef.current && reconcileFailureRef.current >= RECONCILE_FAILURE_LIMIT) setHostLost(true)
-        },
-      ).finally(() => { reconcileInFlightRef.current = false })
-      return
-    }
-
-    if (reconcileInFlightRef.current) return
-    reconcileInFlightRef.current = true
-    const reachable = (): void => {
-      reconcileFailureRef.current = 0
-      if (aliveRef.current) setHostLost(false)
-    }
-    const unreachable = (): void => {
-      reconcileFailureRef.current += 1
-      // 连续失败只标记"链路没了"，不动运行状态：撤掉会让用户正在看的
-      // 运行时钟凭空消失（见 hostLost 的说明）。
-      if (aliveRef.current && reconcileFailureRef.current >= RECONCILE_FAILURE_LIMIT) setHostLost(true)
-    }
-    const adopt = (open: boolean, startAt: number | undefined): void => {
-      if (!aliveRef.current) return
-      // 走唯一裁决入口：对账与实时帧共用同一个状态机（seq 单调，谁新谁算）
-      applyTurnVerdict({ running: open, startAt })
-      if (!open) {
-        // 探针也是 turn/end：活跃轮次同样清空，行级判据不能停在旧轮上。
-        setRunningTurn(undefined)
-        setTurnStartAt(null)
-        // 外部锚点只在"这一轮还开着"时有意义：清掉，免得下一轮收工时拿它定格。
-        stream.folder?.clearOpenTurnStart()
-        normalizeTurnEndTodo()
-        return
-      }
-      // Anchor the clock at the logged start (desktop parity): a live frame
-      // that already supplied a newer anchor wins.
-      if (startAt !== undefined) {
-        setTurnStartAt(previous => previous ?? startAt)
-        // 同一份真起点也交给折叠：否则收工那一刻用时会被"窗口最早一行"缩短。
-        stream.folder?.noteOpenTurnStart(startAt)
-      }
-    }
-    // 收工/在跑只有一个来源：宿主的 turnState。它把"转发帧看到过的边界"与"日志写下的
-    // 边界"按 seq 比一次再回答；手机不再拿静默时长、日志窗口里看不看得见边界、会话表
-    // 行的 running 去推断——那三条都曾经把正跑着的一轮判成已完成。旧宿主没有这个方法
-    // （或这一次读失败）时才退回尾页那套。
-    const reconcileFromTail = (): void => {
-    void logTail(session.sessionId).then(
-      (page) => {
-        // 尾页本身就是宿主可达的证明。
-        reachable()
-        if (page.turnOpen === false) {
-          // 日志最后一条边界是 turn/end：这一轮确实收工了。
-          adopt(false, undefined)
-          return
-        }
-        // 静默**不是**收工的凭据。一条编译命令跑三分钟、一次大文件读写，这段时间日志
-        // 里一行事件都没有；此前"最后事件已经很久就判收工"正是"命令还在跑、过程框却
-        // 写着已完成"的来源（工具行还停在运行中，头尾自相矛盾）。收工只认两条硬证据：
-        // 日志最后一条边界是 turn/end（上面那条），或者宿主自己说这轮不跑了。
-        //
-        // 这里问的是 runningSessions 而不是 session.list 行上的 running：实测列表行会
-        // 说谎——一轮正跑着（尾页锚点开着、最新事件 0 秒前），列表那一行还是 running=false，
-        // 专用集合却把它算在里面。拿列表行当收工凭据，就会在每一轮跑到一半时把过程框
-        // 判成已完成。
-        const openedAt = page.turnStartAt
-        const moving = page.lastEventAt !== undefined && Date.now() - page.lastEventAt <= TURN_SILENCE_MS
-        void runningSessions().then(
-          ({ sessionIds }) => {
-            reachable()
-            // 宿主集合说在跑就是在跑——哪怕日志一声不响（命令正跑着）。
-            if (sessionIds.includes(session.sessionId)) { adopt(true, openedAt); return }
-            // 集合说没在跑、可日志刚刚还在动：这一轮确实活着（集合靠帧维护，会落后）。
-            if (moving) { adopt(true, openedAt); return }
-            // 两条都没有：边界开着却彻底静了，集合也不认——这一轮是死在断流窗口里了。
-            // 记下这一轮：它不是正常收工（没有 turn/end），要写「已中断」而不是「已完成」。
-            setAbandonedTurn(previous => previous ?? runningTurnRef.current ?? newestFoldTurn(messagesRef.current))
-            adopt(false, undefined)
-          },
-          () => { adopt(true, openedAt) },
-        )
-        // 尾页说"还开着"就是真的还开着：宿主那一侧的窗口是从日志尾部折的，
-        // turn/end 是最后一条边界，读不到它意味着它真的还没写下来。这里不再
-        // 去问宿主的运行集合——实测宿主一整轮只推了一条 session/status（260 秒
-        // 的监听里零条 running=false），那个集合既不能及时亮也不会及时灭，问了
-        // 反而把正确的判断改错。
-        adopt(true, page.turnStartAt)
-      },
-      () => {
-        // 旧宿主读不到日志尾页：退回宿主列表判可达性 + 历史窗口扫描。
-        void listSessions().then(
-          (page) => {
-            reachable()
-            const row = page.items.find(item => item.sessionId === session.sessionId)
-            // 只有明确说"跑着"的行才短路。缺行不算：列表按 updatedAt 分页，
-            // 一个安静了一阵的会话会掉出首页，把它当"不跑"会让指示器永远卡住。
-            if (row !== undefined && row.running !== false) return
-            void (async (): Promise<void> => {
-              try {
-                const hpage = await history(session.sessionId, undefined, 1)
-                for (let i = hpage.events.length - 1; i >= 0; i--) {
-                  const type = hpage.events[i]?.event?.type
-                  if (type === 'turn/end') {
-        // 正常收工：清掉中断标记，下一轮不许继承。
-        setAbandonedTurn(undefined)
-        adopt(false, undefined)
-        return
-      }
-                  if (type === 'turn/start') {
-                    const time = hpage.events[i]?.event?.time
-                    adopt(true, typeof time === 'number' && Number.isFinite(time) ? time : undefined)
-                    return
-                  }
-                }
-              } catch { /* transient; the next cadence retries */ }
-            })()
-          },
-          () => { unreachable() },
-        )
-      },
-    ).finally(() => { reconcileInFlightRef.current = false })
-    }
-    // 回合判定不再单独打 `mobile.turnState`：原子快照里已经有 turn（和行/队列同一个
-    // 切面），这里直接读状态仓里那份。快照太旧（空闲时 chat 侧每 8 秒一问）就顺手
-    // 催一次对账 —— 一次往返同时服务队列、回合、目标和待办，省掉一整条通道。
-    const cached = cachedSnapshot(session.sessionId)
-    const snapshotAge = cached === undefined ? Number.POSITIVE_INFINITY : Date.now() - cached.asOf
-    if (cached === undefined || snapshotAge > SNAPSHOT_STALE_MS) {
-      refreshInboxRef.current()
-    }
-    if (cached === undefined) {
-      // 第一次核对还没有快照可读：退回尾页那套（宿主老、或刚打开还没落地）。
-      reconcileFromTail()
-      reconcileInFlightRef.current = false
-      return
-    }
-    reachable()
-    adopt(cached.turn.running === true, cached.turn.turnStartAt)
-    reconcileInFlightRef.current = false
-  }, [session.sessionId, normalizeTurnEndTodo])
 
   // Live frames: fold session events for this session in as they arrive.
   useEffect(() => {
@@ -2452,7 +2056,7 @@ export function ChatView({
       // recovery is a fresh tail read — the dropped frames are gone.
       if (frame.type === 'stream/error' && frame.error.code === 'slow-consumer') {
         toast('你落后太多，正在重新加载这一步')
-        reloadTailRef.current()
+        reloadTail()
         return
       }
       // Every live host event frame carries a `time` the host wrote moments
@@ -2477,7 +2081,7 @@ export function ChatView({
         hostClockOffsetRef.current = Math.max(...samples)
       }
       // Any frame proves the link is back (and the host alive).
-      setHostLost(false)
+      clearHostLost()
       // The host's own running verdict. `turn/end` is the usual way the
       // indicator clears, but that frame can be lost (a reconnect window, a
       // killed turn, a stream that degraded to polling) and then nothing else
@@ -2490,7 +2094,7 @@ export function ChatView({
         const hostRunning = frame.running === true
         if (hostRunning) {
           // 迟到的"在跑"不许把已收工的回合重新点着：只有在本地也认为没在跑时才采纳
-          if (!runningRef.current) applyTurnVerdict({ running: true, seq: (frame as { seq?: number }).seq })
+          if (!isRunning()) applyTurnVerdict({ running: true, seq: (frame as { seq?: number }).seq })
         } else {
           // 停止纠正：边界帧可能已经丢了，这条必须生效
           applyTurnVerdict({ running: false, force: true })
@@ -2501,8 +2105,7 @@ export function ChatView({
           // Settling here must also drop the active-turn pointer and the clock
           // anchor, or the last turn keeps matching `liveTurn` and stays
           // "running" with a stopwatch that never stops.
-          setRunningTurn(undefined)
-          setTurnStartAt(null)
+          clearActiveTurn()
         }
         return
       }
@@ -2523,10 +2126,9 @@ export function ChatView({
               startAt: typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now(),
               seq: (event as { seq?: number }).seq,
             })
-        setAbandonedTurn(undefined)
             // Anchor the turn clock at the logged start (desktop parity):
             // a mid-turn reload keeps the real elapsed time.
-            setTurnStartAt(typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now())
+            beginTurn(typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now())
             // A turn start is when subagents spawn; refresh the tree.
             refreshSubagentsRef.current()
             // The host clears the todo projection at turn/start; mirror it so
@@ -2569,8 +2171,7 @@ export function ChatView({
               ...(closed === undefined ? {} : { turnNo: closed }),
             })
             // 活跃轮次随之清空：按步定格的行立刻回到 已完成/已中断/失败。
-            setRunningTurn(undefined)
-            setTurnStartAt(null)
+            clearActiveTurn()
             // Mirror the host's turn/end normalization (see normalizeTurnEndTodo).
             normalizeTurnEndTodo()
           }
@@ -2579,36 +2180,7 @@ export function ChatView({
           // ignores unknown types, so the message stream is unaffected.
           if (event.type === 'todo/write') startTransition(() => { adoptTodoLatest(event) })
         }
-        if (stream.tailLoading) {
-          if (stream.liveBuffer.length >= MAX_TAIL_BUFFER_EVENTS) {
-            // Bound the tail-load window: drop the oldest buffered event and
-            // remember its seq window so the follow-up refill can re-fetch
-            // exactly the dropped range (a flat tail re-pull would only
-            // return events the fold already consumed). Warn once per load.
-            const dropped = stream.liveBuffer.shift()
-            if (dropped !== undefined) {
-              const current = stream.dropWindow
-              stream.dropWindow = current === undefined
-                ? { from: dropped.seq, to: dropped.seq }
-                : { from: Math.min(current.from, dropped.seq), to: Math.max(current.to, dropped.seq) }
-            }
-            if (!stream.liveBufferOverflow) {
-              console.warn(
-                `history tail is slow: live buffer reached ${MAX_TAIL_BUFFER_EVENTS} events; the dropped seq window will be re-fetched`,
-              )
-              stream.liveBufferOverflow = true
-            }
-          }
-          stream.liveBuffer.push(event)
-          return
-        }
-        // rAF micro-batch: buffer the event and fold all buffered events on
-        // the next animation frame (one reconcile per frame instead of one
-        // per SSE chunk). The immediate side-effects above (turn/start·end,
-        // todo/write) already ran synchronously, so the running indicator and
-        // plan strip stay responsive; only the message fold is deferred.
-        stream.eventBatch.push(event)
-        scheduleEventFlush()
+        enqueueLiveEvent(event)
         return
       }
       // Live projection pushes keep the permission picker and the context
@@ -2723,41 +2295,6 @@ export function ChatView({
     setQuestions: setPendingQuestions,
   })
 
-  // Running reconciliation: the live turn/end frame can be lost to a tunnel
-  // blip - the EventSource reconnects, its keep-alives resume, the polling
-  // fallback never arms, and the indicator would stay on for a finished turn
-  // until the next full reload. The same is true in reverse: a turn that starts
-  // while the phone is dozing never announces itself. So this cadence runs in
-  // BOTH directions and stays cheap - `reconcileRunning` reads the server-folded
-  // log tail (~20 ms) instead of session.history (34 s on a 52 MB session).
-  useEffect(() => {
-    aliveRef.current = true
-    if (!foreground) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const tick = (): void => {
-      if (cancelled) return
-      // 兜底核对。运行状态的主来源现在是宿主在轮次边界主动推的 session/status
-      // （与桌面端同源）：回合开始/结束那一刻手机就知道，不再每十秒重新怀疑一次。
-      // 这里只覆盖"边界帧被断流丢了"——所以只在跑着的时候排下一拍，没在跑就停，
-      // 回合开始由那条推送叫醒。
-      reconcileRunning()
-      // 只要**还在跑**或者**还挂着"连接中断"**就继续对账。
-      //
-      // 真机（2026-10-31）：SSE 断过之后，"连接中断"这颗 chip 会一直挂着 ——
-      // 因为对账只在 running 为真时排下一拍，而断流时常常正好是"这一轮已经结束"
-      // 的状态，于是再也没人去过问，用户只能靠刷新页面把横幅消掉。
-      // 这里让 hostLost 也驱动重试：一旦某次对账成功，横幅自动消失、循环停下。
-      if (running || hostLost) timer = setTimeout(tick, RUNNING_RECONCILE_MS)
-    }
-    // 打开会话、回到前台、running 翻转：先让推送落地，再兜一次。
-    timer = setTimeout(tick, INITIAL_RECONCILE_MS)
-    return () => {
-      cancelled = true
-      aliveRef.current = false
-      if (timer !== undefined) clearTimeout(timer)
-    }
-  }, [running, hostLost, session.sessionId, mux, foreground, reconcileRunning])
   // Foreground subagents: fetch on mount/session-switch, and refetch on
   // turn/start (see onFrame). One flat subagents.list call — no recursive
   // tree walk. The live host/session-status overlay keeps running flips
@@ -2810,14 +2347,10 @@ export function ChatView({
     if (runningTurn === undefined) return
     const newer = turnNumberIsStale(runningTurn, messages)
     if (!newer) return
-    setRunningTurn(undefined)
-    setTurnStartAt(null)
+    clearActiveTurn()
   }, [messages, runningTurn])
 
 
-  /** reconcile 是长寿命 effect：ref 里放最新轮号（messages 已有 messagesRef）。 */
-  const runningTurnRef = useRef<number | undefined>(runningTurn)
-  useEffect(() => { runningTurnRef.current = runningTurn }, [runningTurn])
 
   /**
    * 一轮的秒表锚点**只许变早**（真机 2026-11-02 / 11-03 反复出现：过程条从「5分10秒」
@@ -3325,9 +2858,6 @@ export function ChatView({
     }
   }, [hasOlder, markSeen])
 
-  useEffect(() => () => {
-    if (eventFlushRafRef.current !== undefined) cancelAnimationFrame(eventFlushRafRef.current)
-  }, [])
 
   // Drop any pending reading timer when the view goes away: the timer only
   // drove the retired 「回到上次」 bookmark, so nothing else needs flushing.
@@ -3378,12 +2908,13 @@ export function ChatView({
         if (typeof time === 'number' && (lastActivityAt === undefined || time > lastActivityAt)) lastActivityAt = time
       }
       const at = Date.now()
+      const activeTurn = getRunningTurn()
       shadowEvent({
         type: 'turn',
         at,
         source: 'frame',
         running: true,
-        ...(runningTurnRef.current === undefined ? {} : { turnNo: runningTurnRef.current }),
+        ...(activeTurn === undefined ? {} : { turnNo: activeTurn }),
         ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
       })
       // 任务/后台任务/目标也一起续租：它们在跑动期间不会变，但租约会过期 ——
@@ -4410,26 +3941,6 @@ export function ChatView({
     )
   }, [session.sessionId, mux])
 
-  /**
-   * 重载尾页：实现已搬到 data/reload-tail.ts（纯逻辑 + 显式注入），这里只把当前会话的
-   * 各个 ref / 写入方打进去。
-   */
-  const reloadTail = useCallback((): void => {
-    reloadTailPage({
-      sessionId: session.sessionId,
-      state: stream,
-      controllerRef: reloadControllerRef,
-      epochRef: reloadEpochRef,
-      applyMessages,
-      setHasOlder,
-      setError,
-      refillGap,
-    })
-  }, [session.sessionId, refillGap, applyMessages, setHasOlder])
-
-  // Keep the slow-consumer recovery path (in the live-frame effect above) pointed
-  // at the current reloadTail.
-  useEffect(() => { reloadTailRef.current = reloadTail }, [reloadTail])
 
   /**
    * Run one slash-command line through the host registry. A matched line is
@@ -6019,7 +5530,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             && activeTurn !== undefined
             && message.turn === activeTurn
           const cardHasEvidence = message.turn !== undefined && !isActiveTurn && (
-            closedTurnsRef.current.has(message.turn)
+            hasClosedTurn(message.turn)
             || (newestCardTurn !== undefined && message.turn < newestCardTurn)
           )
           if (message.kind === 'turn' && running && !cardHasEvidence) {
