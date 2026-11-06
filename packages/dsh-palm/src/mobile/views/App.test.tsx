@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { RpcTransportError } from '../rpc.ts'
 import { clearOutlineCache } from '../outline-cache.ts'
@@ -37,13 +37,49 @@ vi.mock('../mux.ts', () => ({
     refreshRunning(): Promise<void> { mux.refreshRunning(); return Promise.resolve() }
   },
 }))
-vi.mock('./WorkspaceView.tsx', () => ({ WorkspaceView: () => <div>workspace-ready</div> }))
-vi.mock('./SessionListView.tsx', () => ({ SessionListView: () => <div>sessions-ready</div> }))
-vi.mock('./ChatView.tsx', () => ({ ChatView: () => <div>chat-ready</div> }))
+vi.mock('./WorkspaceView.tsx', () => ({
+  WorkspaceView: (props: { onPick(workspace: unknown): void }) => (
+    <div>
+      workspace-ready
+      <button
+        type="button"
+        onClick={() => props.onPick({
+          workspaceId: 'w-url', path: 'D:/w-url', title: 'w-url', sessionIds: [], createdAt: '', updatedAt: '',
+        })}
+      >
+        pick-workspace
+      </button>
+    </div>
+  ),
+}))
+vi.mock('./SessionListView.tsx', () => ({
+  SessionListView: (props: { onPick(session: unknown): void }) => (
+    <div>
+      sessions-ready
+      {/* 会话列表点一行 = 进入会话；URL 位置同步的两条用例靠它驱动。 */}
+      <button
+        type="button"
+        onClick={() => props.onPick({ sessionId: 's-url', title: 't', updatedAt: 0, running: false, blank: false })}
+      >
+        pick-session
+      </button>
+    </div>
+  ),
+}))
+vi.mock('./ChatView.tsx', () => ({
+  ChatView: (props: { session: { title: string }; onBack(): void }) => (
+    <div>
+      chat-ready
+      <span>{props.session.title}</span>
+      <button type="button" onClick={() => props.onBack()}>leave-chat</button>
+    </div>
+  ),
+}))
 vi.mock('./SettingsView.tsx', () => ({ SettingsView: () => <div>settings-ready</div> }))
 
 import { App, backTargetOf, createLazyView, mobilePairStateForError } from './App.tsx'
 import { loadChatPage } from '../data/chat-page.ts'
+import { savePersistedList } from '../list-persist.ts'
 
 afterEach(() => {
   cleanup()
@@ -447,5 +483,83 @@ describe('lazy view warm-up (no blank frame on route change)', () => {
     retry.click()
     await waitFor(() => { expect(screen.getByText('第二次成功')).toBeTruthy() })
     expect(loader).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * 「当前位置」必须留在 URL 里。
+ *
+ * 真机取证（2026-11-06）：进会话后 URL 变成 `/m/?debug=1`，`session=` 被删掉，
+ * 一刷新就落回工作区首页（0 行、无 chat 容器），IndexedDB 里那份 82 行的会话缓存
+ * 永远读不到 —— 渲染审计的「聊天 warm 0/0」就是这么来的。
+ */
+describe('会话位置留在 URL 里（刷新 / 重启回原会话）', () => {
+  const WORKSPACE_ID = 'w-url'
+  const SESSION_ID = 's-url'
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/')
+    api.fetchMobilePreferences.mockResolvedValue({ mobileEnterToSend: true })
+  })
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  /** 首页 → 会话列表 → 聊天：视图是 mock，不依赖宿主。 */
+  async function enterChat(): Promise<void> {
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('workspace-ready')).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'pick-workspace' }))
+    await waitFor(() => expect(screen.getByText('sessions-ready')).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'pick-session' }))
+    await waitFor(() => expect(screen.getByText('chat-ready')).toBeDefined())
+  }
+
+  it('进入会话后 URL 带上 workspace 与 session（刷新能回到原会话）', async () => {
+    window.history.replaceState(null, '', '/?debug=1')
+    await enterChat()
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search)
+      expect(params.get('workspace')).toBe(WORKSPACE_ID)
+      expect(params.get('session')).toBe(SESSION_ID)
+    })
+    // 与位置无关的参数不能被顺手清掉（调试/性能开关是用户自己开的）。
+    expect(new URLSearchParams(window.location.search).get('debug')).toBe('1')
+  })
+
+  it('离开会话后清掉 session，但保留 workspace', async () => {
+    await enterChat()
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).get('session')).toBe(SESSION_ID)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'leave-chat' }))
+    await waitFor(() => expect(screen.getByText('sessions-ready')).toBeDefined())
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search)
+      expect(params.get('session')).toBeNull()
+      expect(params.get('workspace')).toBe(WORKSPACE_ID)
+    })
+  })
+
+  it('URL 指名会话且本地存着标题时，首帧直接进会话页（不必先走 首页→列表 两跳）', async () => {
+    api.logTail.mockResolvedValue({ rows: [], maxSeq: 0, hasMore: false })
+    api.listWorkspaces.mockResolvedValue([
+      { workspaceId: 'w-url', path: 'D:/w-url', title: 'w-url', sessionIds: [], createdAt: '', updatedAt: '' },
+    ])
+    // 上一次逛过会话列表（它把标题一并持久化了）：这是「热启动」的前提。
+    savePersistedList('w-url', {
+      rows: [{ sessionId: 's-url', title: '双端问题面板同步方案', updatedAt: 0, running: false, blank: false }],
+      hasMore: false,
+    })
+    window.history.replaceState(null, '', '/?workspace=w-url&session=s-url')
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('chat-ready')).toBeDefined())
+    // 会话页是首帧：刷新不必等首页与会话列表各自的一次网络往返，缓存才有机会先画出来。
+    expect(screen.queryByText('workspace-ready')).toBeNull()
+    expect(screen.queryByText('sessions-ready')).toBeNull()
+    // 标题也从那份本地缓存来（不然刷新后标题栏只剩「会话 628d10」这种占位）。
+    expect(screen.getByText('双端问题面板同步方案')).toBeDefined()
+    window.localStorage.removeItem('dsh-palm.list.v1.w-url')
   })
 })
