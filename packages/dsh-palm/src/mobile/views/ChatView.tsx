@@ -49,6 +49,8 @@ import { VoiceSheet } from './chat/voice-sheet.tsx'
 import { MessageMenu, type MessageCtxMenuState } from './chat/message-menu.tsx'
 import { ChatTools } from './chat/chat-tools.tsx'
 import { SessionSheets } from './chat/session-sheets.tsx'
+import { OfflineBanner } from './chat/offline-banner.tsx'
+import { JumpControls, TurnStatusLine } from './chat/scroll-controls.tsx'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
@@ -6005,43 +6007,13 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         </div>
       )}
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
-      {(offline || queuedCount > 0) && (
-        <div
-          className="chat-offline-banner"
-          role="status"
-          style={{ flexDirection: 'column', alignItems: 'stretch', padding: '8px 16px' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <span>
-              {offline
-                ? '网络已断开，消息将在恢复后发送'
-                : queuedCount > 0
-                  ? `${queuedCount} 条离线消息待发送`
-                  : ''}
-            </span>
-            {!offline && queuedCount > 0 && (
-              <button type="button" className="chat-offline-retry" onClick={flushQueue}>重试</button>
-            )}
-          </div>
-          {queuedEntries.length > 0 && (
-            <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {queuedEntries.map(entry => (
-                <li key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)' }}>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.text}</span>
-                  <button
-                    type="button"
-                    className="chat-offline-retry"
-                    aria-label="移除待发送消息"
-                    onClick={() => { removeQueuedEntry(entry.id) }}
-                  >
-                    移除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      <OfflineBanner
+        offline={offline}
+        queuedCount={queuedCount}
+        entries={queuedEntries}
+        onFlush={flushQueue}
+        onRemove={removeQueuedEntry}
+      />
       <div
         className="chat-scroll"
         ref={ref => { scrollRef.current = ref ?? undefined }}
@@ -6223,11 +6195,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         )}
         {loading && messages.length === 0 && <p className="chat-typing">加载中…</p>}
         {!loading && messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
-        {running && (
-          <div className="chat-turn-status" role="status" aria-label={hostLost ? '连接中断' : '输出中'}>
-            {hostLost ? '连接中断' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
-          </div>
-        )}
+        <TurnStatusLine running={running} hostLost={hostLost} />
         {pendingApprovals.map(approval => (
           <ApprovalPanel
             key={approval.approvalId}
@@ -6251,32 +6219,20 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             }}
           />
         )}
-        {showJumpToLatest && turnEntries.length >= 2 && (
-          <button
-            type="button"
-            className={'chat-jump-turns' + (scrubIndex !== undefined ? ' chat-jump-turns-live' : '')}
-            aria-label="轮次导航：轻点开清单，按住拖动刮擦"
-            onPointerDown={startScrub}
-            onPointerMove={moveScrub}
-            onPointerUp={endScrub}
-            onPointerCancel={cancelScrub}
-            onLostPointerCapture={cancelScrub}
-            onClick={(event) => { if (event.detail === 0) setTurnListOpen(true) }}
-          >
-            <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
-          </button>
-        )}
-        {showJumpToLatest && (
-          <button
-            type="button"
-            className={'chat-jump-latest' + (unreadCount > 0 ? ' chat-jump-latest-hot' : '')}
-            aria-label="回到最新消息"
-            onClick={jumpToLatest}
-          >
-            <ChevronDownIcon width={20} height={20} />
-            {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
-          </button>
-        )}
+        <JumpControls
+          show={showJumpToLatest}
+          hasTurns={turnEntries.length >= 2}
+          scrubbing={scrubIndex !== undefined}
+          shownTurn={shownTurn}
+          maxTurn={maxTurn}
+          unreadCount={unreadCount}
+          onScrubDown={startScrub}
+          onScrubMove={moveScrub}
+          onScrubUp={endScrub}
+          onScrubCancel={cancelScrub}
+          onOpenTurnList={() => { setTurnListOpen(true) }}
+          onJumpLatest={jumpToLatest}
+        />
       </div>
       {/* 排队/目标/状态已经统一收进下面的 SessionHud。 */}
       {/*
