@@ -16,7 +16,7 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
-import { dropSessionFromCaches, loadDraft, removeDraft, saveDraft } from '../list-persist.ts'
+import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
 import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
 import { forgetFinishedRun } from '../recent-finished.ts'
 import { usePageVisible } from '../foreground.ts'
@@ -44,6 +44,7 @@ import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, 
 import { useChatSession } from './chat/use-chat-session.ts'
 import { useChatAttachments } from './chat/use-chat-attachments.ts'
 import { useChatVoice } from './chat/use-chat-voice.ts'
+import { useChatDraft } from './chat/use-chat-draft.ts'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { SessionHud } from '../session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../chat-cache.ts'
@@ -559,7 +560,7 @@ export const RECONCILE_FAILURE_LIMIT = 3
 export const TURN_CLOCK_THRESHOLD_MS = 3_000
 /** Composer draft debounce: localStorage writes wait this long after the
  *  last keystroke (unmount flushes immediately regardless). */
-export const DRAFT_SAVE_DEBOUNCE_MS = 1_500
+export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/use-chat-draft.ts'
 /** 翻页超时与铺开上限见 chat/use-chat-history.ts（LOAD_OLDER_TIMEOUT_MS / OPEN_HISTORY_*）。 */
 /** 读到这里以内就自动接上一页，不再非得点按钮（无限上翻）。 */
 export const NEAR_TOP_LOAD_PX = 240
@@ -836,11 +837,8 @@ export function ChatView({
   // Toast 的站位：输入栏 + HUD + 键盘的实际高度写进 --toast-lift，
   // 否则排队条一出现，固定 104px 的 toast 就会盖住「撤回」（真机截图）。
   useToastLift()
-  const [input, setInput] = useState(() => loadDraft(session.sessionId))
-  // Live mirror of `input` for the unmount draft flush (the cleanup closure
-  // must read the CURRENT text, not the one its render captured).
-  const inputRef = useRef(input)
-  inputRef.current = input
+  /** 输入框草稿（状态 + 按会话持久化）归 use-chat-draft（S4c 从本文件搬出）。 */
+  const { input, setInput } = useChatDraft(session.sessionId)
   const [sending, setSending] = useState(false)
   /** F3: the send-intent sheet (long-press on the send button). */
   const [sendIntentOpen, setSendIntentOpen] = useState(false)
@@ -1024,84 +1022,6 @@ export function ChatView({
     openPicker,
   } = attachments
 
-  /**
-   * Composer draft persistence: debounced writes while typing (a keystroke
-   * must not hit localStorage every key), an immediate flush on unmount /
-   * session switch, and removal once the text is sent (or emptied). The
-   * draft survives chat round-trips and PWA cold starts, per session.
-   */
-  /**
-   * 进会话时把草稿恢复回来（2026-10-31 修）。
-   *
-   * `useState(() => loadDraft(...))` 只在**首次挂载**跑一次；而聊天页常常先以
-   * "还没有 session" 的形态挂上，拿到的 sessionId 是空串，于是草稿永远是空。
-   * 真机表现：写了半句话去别的会话看看，回来草稿没了（其实 localStorage 里还在）。
-   *
-   * 这里在拿到真实 sessionId 后补一次：只在该会话**还没恢复过**、且输入框仍为空时填。
-   */
-  const draftRestoredRef = useRef<string | undefined>(undefined)
-  /**
-   * 这个会话的草稿**已经处理过一次**（恢复过、或确认本来就没有）。
-   *
-   * 有了它，"输入框被清空"才能安全地解释成"用户删光了"而不是"还没恢复"——
-   * 2026-11-01 真机：删干净后退出会话再进来，删掉的文字又冒出来（草稿没清）。
-   */
-  const draftReadyRef = useRef(false)
-  useEffect(() => {
-    if (draftRestoredRef.current === session.sessionId) return
-    if (inputRef.current !== '') { draftRestoredRef.current = session.sessionId; draftReadyRef.current = true; return }
-    const stored = loadDraft(session.sessionId)
-    draftRestoredRef.current = session.sessionId
-    draftReadyRef.current = true
-    if (stored !== '') setInput(stored)
-  }, [session.sessionId])
-
-  /**
-   * 聊天正文的持久化缓存：**写入端保留，读取端暂时关闭**。
-   *
-   * 2026-11-01 曾打开「进会话先用 IndexedDB 缓存占屏」，同批身份缓存与网络页
-   * 合并后出现同一轮两行（真机 13 处重复 id），随后以 TEMP-AB 开关关掉并遗留
-   * 了 `if (false) ...` 死分支。2026-11-06 清理死分支、行为维持不变（不恢复读取），
-   * 决策记录在 audit/refactor-plan.md：先修身份合并，再决定是否恢复。
-   * 写入端仍在（save 见下方 effect），恢复读取时不用重新铺链路。
-   */
-
-
-  /**
-   * 上一次**非空**的输入内容，以及它属于哪个会话。
-   *
-   * 判"用户删光了"必须看**状态迁移**（非空 → 空），不能看"当前是空"：
-   * 恢复草稿的那一帧里，save effect 还会用旧的空值跑一次，按"当前是空"判会
-   * 把刚恢复的草稿立刻删掉（实测：写一半切走再回来，草稿没了）。
-   */
-  const lastNonEmptyInputRef = useRef('')
-  const draftCacheSessionRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    if (draftCacheSessionRef.current !== session.sessionId) {
-      // 换会话：清掉"上一个会话的输入"，否则会用别的会话的内容做迁移判断。
-      draftCacheSessionRef.current = session.sessionId
-      lastNonEmptyInputRef.current = ''
-    }
-    if (input === '') {
-      // 只有"非空 → 空"才算用户删光了，这时必须把草稿一起删掉，
-      // 否则删掉的字下次进会话又回来（2026-11-01 真机）。
-      if (lastNonEmptyInputRef.current !== '') {
-        removeDraft(session.sessionId)
-        lastNonEmptyInputRef.current = ''
-      }
-      return
-    }
-    lastNonEmptyInputRef.current = input
-    const id = setTimeout(() => { saveDraft(session.sessionId, input) }, DRAFT_SAVE_DEBOUNCE_MS)
-    return () => { clearTimeout(id) }
-  }, [input, session.sessionId])
-  useEffect(() => {
-    return () => {
-      // Unmount / session switch: flush the CURRENT text immediately (the
-      // debounce timer may never fire if the view is torn down first).
-      if (inputRef.current !== '') saveDraft(session.sessionId, inputRef.current)
-    }
-  }, [session.sessionId])
   /** 输入框元素句柄：认领命令后把焦点移到参数区。 */
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -1270,6 +1190,10 @@ export function ChatView({
    * 进会话是两拍：先尾页（29 行），再自动补页合成完整一屏（114 行）。
    * 只在第一拍写缓存的话，下次进入会先画 29 行再被整份换成 114 行 ——
    * 用户看到的就是「进去先短后长、卡片又长一遍」。这里等画面稳定再写。
+   *
+   * 读端已归 `chat/use-chat-history.ts`（S3b-3，`initialSnapshotRows`）；TEMP-AB 那次
+   * 「缓存首屏 → 同一轮两行（真机 13 处重复 id）」的教训与决策记在
+   * audit/refactor-plan.md：先修身份合并，再谈扩大缓存读取面。
    */
   useEffect(() => {
     if (messages.length === 0) return
