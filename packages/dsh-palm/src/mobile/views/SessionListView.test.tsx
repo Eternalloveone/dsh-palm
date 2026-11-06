@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testi
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { ChatPage } from '../api.ts'
 import { SessionListView, sessionListCache, sessionPreviewCache, RUNNING_STALE_MS, FIRST_PAGE_TIMEOUT_MS, type SessionListViewProps } from './SessionListView.tsx'
-import { type SessionView } from './App.tsx'
+import { type SessionView } from '../shared/session-view.ts'
 
 // The api module is fully mocked; the view's App.tsx helpers stay real.
 vi.mock('../api.ts', () => ({

@@ -37,6 +37,7 @@ import { watchBuildRefresh } from '../build-refresh.ts'
 import { installErrorReporter } from '../errors-report.ts'
 import { installPerfWindowHook, startPerfSampler } from '../perf.ts'
 import { getCachedOutline, setCachedOutline } from '../outline-cache.ts'
+import { toSessionView, type SessionView } from '../shared/session-view.ts'
 import { ToastHost } from '../toast.tsx'
 // B（拆包）：聊天页与设置页只在真正进入时才需要，改成独立 chunk，首包因此
 // 不再带上它们的 150KB 未压缩代码。
@@ -156,22 +157,6 @@ const STANDALONE_WORKSPACE: WorkspaceRow = {
   updatedAt: '',
 }
 
-/** The session-list row model (list + chat share it). */
-export interface SessionView {
-  sessionId: string
-  title: string
-  /** Latest-message preview from the host projection (absent most of the time). */
-  preview?: string
-  /** Turn count from the sessionStats projection (preview fallback line). */
-  turns?: number
-  cwd?: string
-  updatedAt: number
-  running: boolean
-  blank: boolean
-  /** Host-reported failure (`api-session/error`); cleared when it runs again. */
-  error?: string
-}
-
 /**
  * 「返回」该落到哪一页。
  *
@@ -244,43 +229,6 @@ export function mobileDecisionTarget(search: string): { id: string; kind: 'appro
   const id = params.get('decision')
   if (id === null || id === '') return undefined
   return { id, kind: params.get('decisionKind') === 'question' ? 'question' : 'approval' }
-}
-
-/** Map a list row to the surface model; the title comes from projections when present. */
-export function toSessionView(item: {
-  sessionId: string
-  updatedAt: number
-  running: boolean
-  blank: boolean
-  cwd?: string
-  projections?: { values?: Record<string, unknown> }
-}): SessionView {
-  const values = item.projections?.values
-  const titleValue = values?.title
-  // Windows cwd is a backslash path, so splitting on '/' alone would return the
-  // whole `D:\dev\app` as a "title" — every session of one directory then
-  // showed the same truncated path.
-  const cwdTail = item.cwd !== undefined && item.cwd !== ''
-    ? item.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? item.cwd
-    : undefined
-  const title = typeof titleValue === 'string' && titleValue !== ''
-    ? titleValue
-    : cwdTail ?? '新会话'
-  const previewValue = values?.preview
-  const stats = values?.sessionStats
-  const turns = typeof stats === 'object' && stats !== null
-    ? (stats as Record<string, unknown>).turns
-    : undefined
-  return {
-    sessionId: item.sessionId,
-    title,
-    ...(typeof previewValue === 'string' && previewValue !== '' ? { preview: previewValue } : {}),
-    ...(typeof turns === 'number' && turns > 0 ? { turns } : {}),
-    ...(item.cwd !== undefined ? { cwd: item.cwd } : {}),
-    updatedAt: item.updatedAt,
-    running: item.running,
-    blank: item.blank,
-  }
 }
 
 /** 时钟措辞已移入 `shared/time.ts`（单一实现）；此处保留 re-export 直到 S5 改完调用方。 */

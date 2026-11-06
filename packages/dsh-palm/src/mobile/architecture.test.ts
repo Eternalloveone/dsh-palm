@@ -47,11 +47,6 @@ const rel = (file: string): string => relative(HERE, file).replace(/\\/g, '/')
  */
 const APP_IMPORTER_WHITELIST = new Set([
   'views/ChatView.tsx',
-  'views/MarketView.tsx',
-  'views/SessionListView.tsx',
-  'views/SettingsForm.tsx',
-  'views/SettingsView.tsx',
-  'views/WorkspaceView.tsx',
 ])
 
 describe('architecture guardrails', () => {

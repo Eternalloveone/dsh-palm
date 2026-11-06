@@ -25,7 +25,7 @@ import {
   savePersistedScroll,
   savePinnedSessions,
 } from './list-persist.ts'
-import type { SessionView } from './views/App.tsx'
+import type { SessionView } from './shared/session-view.ts'
 
 const row = (sessionId: string): SessionView => ({
   sessionId,

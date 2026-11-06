@@ -11,7 +11,7 @@
  * persistence silently (the caches still work in memory for the session).
  */
 
-import type { SessionView } from './views/App.tsx'
+import type { SessionView } from './shared/session-view.ts'
 
 /**
  * Cross-mount list cache (v3.2): returning from a chat remounts the list

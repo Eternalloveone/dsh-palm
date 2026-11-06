@@ -15,7 +15,8 @@
 
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
-import { loadChatPage, prompt, type ChatPageResult, type SessionView } from './App.tsx'
+import { loadChatPage, prompt, type ChatPageResult } from './App.tsx'
+import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
 import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
 import { forgetFinishedRun } from '../recent-finished.ts'

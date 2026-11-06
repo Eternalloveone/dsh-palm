@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
 import { resetSessionStoreForTest } from '../session-store.ts'
-import { type SessionView } from './App.tsx'
+import { type SessionView } from '../shared/session-view.ts'
 
 vi.mock('../api.ts', () => ({
   newRequestId: () => 'test-request-id',
