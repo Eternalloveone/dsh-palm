@@ -47,6 +47,8 @@ import { useChatAttachments } from './chat/use-chat-attachments.ts'
 import { useChatVoice } from './chat/use-chat-voice.ts'
 import { VoiceSheet } from './chat/voice-sheet.tsx'
 import { MessageMenu, type MessageCtxMenuState } from './chat/message-menu.tsx'
+import { ChatTools } from './chat/chat-tools.tsx'
+import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
@@ -458,48 +460,7 @@ export const MAX_TAIL_BUFFER_EVENTS = 500
 
 
 /** Compact token count for the context meter: 800 → "800", 30k, 1.2M. */
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
-  return String(n)
-}
 
-/** Lazy in-place model-catalog state for the quick picker strip. */
-type ModelPickerCatalog =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; data: SessionModels }
-
-/** Compact model label for the pill: drop a provider-y prefix, keep the
- *  last two dash segments (x-preview-f-free → f-free, deepseek-v4-flash →
- *  v4-flash); short ids stay verbatim. The full id lives in the title. */
-function compactModelName(id: string): string {
-  const parts = id.split('-').filter(Boolean)
-  return parts.length <= 2 ? id : parts.slice(-2).join('-')
-}
-
-/** Permission tone for the shield pill: read = neutral, write = accent,
- *  full access = danger (the human-vision status channel). */
-function permissionTone(value: string): 'read' | 'write' | 'full' | undefined {
-  if (value === 'danger-full-access') return 'full'
-  if (value.includes('write')) return 'write'
-  if (value.includes('read')) return 'read'
-  return undefined
-}
-
-/**
- * 权限 pill 的可见短名。这个 pill 只有 32px 高、且和模型 pill 并排，完整值
- * （danger-full-access）会被省略号吃掉，剩 "danger-full-..."——用户看不到自己
- * 现在是哪一档。可见文本用中文短名，aria-label / title 仍保留完整值。
- */
-function permissionShortLabel(value: string): string {
-  const tone = permissionTone(value)
-  if (tone === 'full') return '完全访问'
-  if (tone === 'write') return '可写'
-  if (tone === 'read') return '只读'
-  return displayName(value)
-}
 
 /**
  * Distance from the bottom (px) within which streaming output still auto-follows.
@@ -660,11 +621,7 @@ export function estimateMessageHeight(message: RenderMessage): number {
   return height + 16
 }
 
-/** One display-name transform for kebab-case machine names (web-UI parity). */
-function displayName(name: string): string {
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
-  return name.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
-}
+/** displayName 已与工具栏共用一份，见 views/chat/tool-labels.ts。 */
 
 
 /**
@@ -6368,217 +6325,27 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         <TurnScrubber entries={turnEntries} index={scrubIndex} total={maxTurn} />
       )}
 
-      <div className="chat-tools">
-        <div className="chat-tools-actions">
-          <button
-            type="button"
-            className="chat-pill"
-            onClick={openModelPicker}
-            aria-haspopup="listbox"
-            aria-label={currentModel === undefined ? '切换模型' : `切换模型：${compactModelName(currentModel.model)}`}
-            title={currentModel === undefined ? undefined : `${currentModel.provider}/${currentModel.model}`}
-          >
-            <ModelIcon width={16} height={16} />
-            <span className="chat-pill-name">{currentModel === undefined ? '模型' : compactModelName(currentModel.model)}</span>
-            <span className="chat-pill-chevron" aria-hidden>▾</span>
-          </button>
-          <button
-            type="button"
-            className={'chat-pill chat-pill-perm chat-pill-perm-' + (permissions === undefined ? 'read' : permissionTone(permissions.currentValue) ?? 'read')}
-            onClick={permissions === undefined ? requestPermissionsOnce : openPermissionPicker}
-            aria-haspopup="listbox"
-            aria-label={permissions === undefined ? '切换权限：读取中' : `切换权限：${permissionLabel}`}
-            title={permissions === undefined ? '读取权限档位' : permissionLabel}
-          >
-            <ShieldIcon width={16} height={16} />
-            <span className="chat-pill-name">{permissions === undefined ? '权限' : permissionShortLabel(permissions.currentValue)}</span>
-          </button>
-        </div>
-        <div
-          className={"chat-context" + (contextUsage !== undefined && contextUsage.pct >= 80 ? " chat-context-warn" : "")}
-          role="status"
-          onClick={toggleContextPop}
-          aria-expanded={contextOpen}
-        >
-          {contextUsage === undefined ? (
-            <>上下文 --</>
-          ) : (
-            <>
-              <svg className="chat-context-ring" width="26" height="26" viewBox="0 0 26 26" aria-hidden>
-                <circle className="chat-context-ring-track" cx="13" cy="13" r="10.5" fill="none" strokeWidth="3.5" />
-                <circle
-                  className="chat-context-ring-fill"
-                  cx="13" cy="13" r="10.5" fill="none" strokeWidth="3.5"
-                  strokeDasharray={`${contextUsage.pct / 100 * 65.97} 65.97`}
-                  transform="rotate(-90 13 13)"
-                />
-              </svg>
-              <span
-                title={`${fmtTokens(contextUsage.pressure)}/${fmtTokens(contextUsage.window)}`}
-              >{contextUsage.pct}%</span>
-            </>
-          )}
-        </div>
-        {contextOpen && contextUsage !== undefined && (
-          <div className="chat-context-pop" role="tooltip">
-            <div className="chat-context-pop-title">上下文用量</div>
-            <div className="chat-context-pop-figures">
-              {fmtTokens(contextUsage.pressure)}<span>/</span>{fmtTokens(contextUsage.window)}
-            </div>
-            <div className="chat-context-pop-sub">已使用 {contextUsage.pct}%</div>
-          </div>
-        )}
-      </div>
-      {contextOpen && <div className="chat-context-pop-scrim" onClick={() => { setContextOpen(false) }} />}
-      {picker !== null && <div className="chat-picker-scrim" onClick={() => { setPicker(null) }} />}
-      {picker === 'model' && (
-        <div className="chat-picker-panel" role="menu" aria-label="选择模型">
-          {modelCatalog.status === 'loading' && <span className="chat-picker-status">正在加载模型目录…</span>}
-          {modelCatalog.status === 'error' && (
-            <>
-              <span className="chat-picker-status chat-picker-error">{modelCatalog.message}</span>
-              {staleHostHint(modelCatalog.message) !== undefined && (
-                <span className="chat-picker-status chat-picker-hint">{staleHostHint(modelCatalog.message)}</span>
-              )}
-              <button type="button" className="chat-picker-more" onClick={loadModelCatalog}>重试</button>
-            </>
-          )}
-          {modelCatalog.status === 'ready' && (
-            <>
-              {(() => {
-                const current = currentModel ?? modelCatalog.data.current
-                // 同名模型（两个 provider 各有一个 V4.1-Flash）在列表里长得一模一样，
-                // 只能靠猜；重名时才补 provider 名，没重名的保持干净。
-                const nameCounts = new Map<string, number>()
-                for (const group of modelCatalog.data.groups) {
-                  for (const model of group.models) nameCounts.set(model.name, (nameCounts.get(model.name) ?? 0) + 1)
-                }
-                const modelRow = (group: { id: string; name: string }, model: SessionModels['groups'][number]['models'][number]): ReactNode => {
-                  const isSelected = current !== undefined && current.provider === group.id && current.model === model.id
-                  const shownName = (nameCounts.get(model.name) ?? 0) > 1 ? `${model.name} · ${group.name}` : model.name
-                  return (
-                    <button
-                      type="button"
-                      key={`${group.id}:${model.id}`}
-                      className={'chat-picker-row' + (isSelected ? ' chat-picker-row-selected' : '')}
-                      disabled={pickerBusy}
-                      onClick={() => {
-                        applyModel({
-                          provider: group.id,
-                          model: model.id,
-                          ...(model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: model.reasoning.defaultEffort }),
-                        })
-                      }}
-                    >
-                      <span className="chat-picker-row-check" aria-hidden>
-                        {isSelected ? <CheckIcon width={14} height={14} /> : null}
-                      </span>
-                      <span className="chat-picker-row-copy">
-                        <span className="chat-picker-row-title">{shownName}</span>
-                      </span>
-                    </button>
-                  )
-                }
-                // 宿主报的当前模型可能不在目录里（实测 chip 是 v4.1-flash:1017，目录里
-                // 只有深索 V4.1-Flash / V4-Pro），那种情况下整张表没有一项打勾，用户
-                // 看不出自己在用什么。补一个"当前"分组把在用的那项摆出来。
-                const inCatalog = current !== undefined && modelCatalog.data.groups.some(
-                  group => group.id === current.provider && group.models.some(model => model.id === current.model),
-                )
-                const currentGroup = current !== undefined && !inCatalog
-                  ? (
-                      <div className="chat-picker-group" key="__current">
-                        <div className="chat-picker-group-title">当前</div>
-                        <button type="button" className="chat-picker-row chat-picker-row-selected" disabled={pickerBusy} onClick={() => {}}>
-                          <span className="chat-picker-row-check" aria-hidden><CheckIcon width={14} height={14} /></span>
-                          <span className="chat-picker-row-copy">
-                            <span className="chat-picker-row-title">{current.model}</span>
-                            <span className="chat-picker-row-sub">{current.provider}</span>
-                          </span>
-                        </button>
-                      </div>
-                    )
-                  : null
-                return (
-                  <>
-                    {currentGroup}
-                    {modelCatalog.data.groups.map(group => (
-                      <div className="chat-picker-group" key={group.id}>
-                        <div className="chat-picker-group-title">{group.name}</div>
-                        {group.models.map(model => modelRow(group, model))}
-                      </div>
-                    ))}
-                  </>
-                )
-              })()}
-              {(() => {
-                // Thinking-effort choices for the currently selected model.
-                // Derived by the shared helper so this popover and any other
-                // surface can never disagree on which effort is in force.
-                const selected = currentModel ?? modelCatalog.data.current
-                const { choices: effortChoices, effective: effectiveEffort } = buildEffortChoices(modelCatalog.data, selected)
-                if (effortChoices.length === 0) return null
-                return (
-                  <div className="chat-picker-group">
-                    <div className="chat-picker-group-title">思考强度</div>
-                    {effortChoices.map(choice => {
-                      const isSelected = effectiveEffort === choice.effort
-                      return (
-                        <button
-                          type="button"
-                          key={choice.key}
-                          className={'chat-picker-row' + (isSelected ? ' chat-picker-row-selected' : '')}
-                          disabled={pickerBusy}
-                          onClick={() => {
-                            applyModel({
-                              provider: selected.provider,
-                              model: selected.model,
-                              ...(choice.effort !== undefined ? { reasoningEffort: choice.effort } : {}),
-                            })
-                          }}
-                        >
-                          <span className="chat-picker-row-check" aria-hidden>
-                            {isSelected ? <CheckIcon width={14} height={14} /> : null}
-                          </span>
-                          <span className="chat-picker-row-copy">
-                            <span className="chat-picker-row-title">{choice.label}</span>
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )
-              })()}
-            </>
-          )}
-        </div>
-      )}
-      {picker === 'permission' && permissions !== undefined && (
-        <div className="chat-picker-panel" role="menu" aria-label="选择权限">
-          {permissions.options.map(option => {
-            const isSelected = option.value === permissions.currentValue
-            return (
-              <button
-                type="button"
-                key={option.value}
-                className={'chat-picker-row'
-                  + (isSelected ? ' chat-picker-row-selected' : '')
-                  + (option.value === 'danger-full-access' ? ' chat-picker-row-danger' : '')}
-                disabled={pickerBusy}
-                onClick={() => { applyPermission(option.value) }}
-              >
-                <span className="chat-picker-row-check" aria-hidden>
-                  {isSelected ? <CheckIcon width={14} height={14} /> : null}
-                </span>
-                <span className="chat-picker-row-copy">
-                  <span className="chat-picker-row-title">{option.name}</span>
-                  {option.description !== undefined && <span className="chat-picker-row-sub">{option.description}</span>}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      )}
+      <ChatTools
+        currentModel={currentModel}
+        permissions={permissions}
+        permissionLabel={permissionLabel}
+        modelCatalog={modelCatalog}
+        contextUsage={contextUsage}
+        picker={picker}
+        setPicker={setPicker}
+        pickerBusy={pickerBusy}
+        contextOpen={contextOpen}
+        setContextOpen={setContextOpen}
+        toggleContextPop={toggleContextPop}
+        openModelPicker={openModelPicker}
+        openPermissionPicker={openPermissionPicker}
+        requestPermissionsOnce={requestPermissionsOnce}
+        loadModelCatalog={loadModelCatalog}
+        applyModel={applyModel}
+        applyPermission={applyPermission}
+        staleHint={staleHostHint}
+        displayName={displayName}
+      />
       {runStatusOpen && (
         <RunStatusSheet
           todo={todo}
