@@ -60,7 +60,7 @@ describe('architecture guardrails', () => {
     expect([...importers].sort()).toEqual([...APP_IMPORTER_WHITELIST].sort())
   })
 
-  it('keeps the largest view files inside their budget', () => {
+  it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
       'views/ChatView.tsx': 6_651,
       'views/SettingsView.tsx': 2_080,
@@ -72,6 +72,34 @@ describe('architecture guardrails', () => {
       const lines = readFileSync(join(HERE, file), 'utf8').split('\n').length
       expect(lines, `${file} grew past its budget (${lines} > ${budget})`).toBeLessThanOrEqual(budget)
     }
+  })
+
+  /**
+   * 目标线（2026-11-06 用户拍板改判据）。
+   *
+   * 原来是「ChatView ≤ 600、最大文件 ≤ 1200」。600 行是按"ChatView 只剩壳"反推的，
+   * 而它里面还有约 4000 行是会话逻辑本体（SSE 折叠、缺口回填、轮次裁决、定位搜索、
+   * 队列对账），不是拆组件能消掉的 —— 追 600 只会堆出巨型 deps 的 hook。改判：
+   *
+   * - `views/ChatView.tsx` ≤ 2500 行（壳 + 协调器）；
+   * - 任何 `src/mobile` 下的生产文件 ≤ 1200 行（当前违规：ChatView / SettingsView /
+   *   SessionListView，靠后续拆分区解决）；
+   * - 单个 hook / 组件 ≤ 400 行。
+   *
+   * 用 `it.fails` 表达"目标尚未达成"：现在这条断言必然失败，所以它以"预期失败"计通过；
+   * 一旦真的达标，它会变绿并让本用例失败 —— 那时把 `it.fails` 改成 `it` 并把这条注释
+   * 删掉，就是把目标线升格成硬门禁的时刻。
+   */
+  it.fails('reaches the target budgets (see comment: flip to it() once green)', () => {
+    const violations: string[] = []
+    for (const file of SOURCES) {
+      const relPath = rel(file)
+      if (!/^(views|data|shared|chat)\//.test(relPath.replace(/^mobile\//, ''))) continue
+      const lines = readFileSync(file, 'utf8').split('\n').length
+      if (lines > 1_200) violations.push(`${relPath} = ${lines} > 1200`)
+      if (relPath === 'views/ChatView.tsx' && lines > 2_500) violations.push(`ChatView = ${lines} > 2500`)
+    }
+    expect(violations).toEqual([])
   })
 
   it('has exactly one definition of each shared helper', () => {
