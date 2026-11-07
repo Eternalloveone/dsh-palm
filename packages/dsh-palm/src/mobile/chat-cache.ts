@@ -23,6 +23,9 @@ export interface CachedRow {
   [key: string]: unknown
 }
 
+// 字节裁剪的算法在 Cache 内核里（W4）——这条只是借用它的"丢头保尾 + 下限"。
+import { fitByteBudget } from './kernels/cache.ts'
+
 const PREFIX = 'dsh-palm.chat-cache.v1.'
 const INDEX_KEY = 'dsh-palm.chat-cache.v1.index'
 
@@ -104,17 +107,15 @@ export function saveChatCache(sessionId: string, rows: readonly CachedRow[], now
   } catch {
     return
   }
-  // 超字节上限就继续砍头部（保留最新的一屏）
-  let kept = stable
-  while (payload.length > CHAT_CACHE_MAX_BYTES && kept.length > 8) {
-    kept = kept.slice(Math.ceil(kept.length / 8))
-    try {
-      payload = JSON.stringify({ at: now, rows: kept })
-    } catch {
-      return
-    }
+  // 超字节上限就继续砍头部（保留最新的一屏）。裁法在 Cache 内核里（W4），
+  // 连"至少留 8 条"这条下限也一起交出去：装不下就整条放弃，别存残缺的。
+  const kept = fitByteBudget(stable, rows => JSON.stringify({ at: now, rows }), CHAT_CACHE_MAX_BYTES, 8)
+  if (kept === undefined) return
+  try {
+    payload = JSON.stringify({ at: now, rows: kept })
+  } catch {
+    return
   }
-  if (payload.length > CHAT_CACHE_MAX_BYTES) return
   try {
     store.setItem(PREFIX + sessionId, payload)
     touchIndex(sessionId, now)

@@ -5,7 +5,7 @@
  * "刚存进去就没了"，而且都不报错。
  */
 import { describe, expect, it } from 'vitest'
-import { createCache } from './cache.ts'
+import { createCache, fitByteBudget } from './cache.ts'
 
 /** 可控时钟。 */
 function clock(start = 1_700_000_000_000) {
@@ -147,5 +147,42 @@ describe('createCache · has', () => {
     expect(cache.has('a')).toBe(true)
     time.advance(101)
     expect(cache.has('a')).toBe(false)
+  })
+})
+
+describe('fitByteBudget', () => {
+  /** 每条 10 个字符，编码后 JSON 长度可预估。 */
+  const encode = (items: readonly string[]): string => JSON.stringify(items)
+
+  it('装得下就原样返回（不裁）', () => {
+    const items = ['a', 'b']
+    expect(fitByteBudget(items, encode, 1_000)).toEqual(items)
+  })
+
+  it('装不下就从最老的（头部）开始丢，保尾部', () => {
+    const items = Array.from({ length: 50 }, (_, i) => `row-${i}`)
+    const kept = fitByteBudget(items, encode, 200)
+    expect(kept).toBeDefined()
+    expect(kept!.length).toBeLessThan(items.length)
+    // 最后一条必须还在（缓存存的是"最近的一屏"）
+    expect(kept![kept!.length - 1]).toBe('row-49')
+    expect(encode(kept!).length).toBeLessThanOrEqual(200)
+  })
+
+  it('连最小条数都装不下时返回 undefined（宁可整个放弃，不存残缺的）', () => {
+    const items = ['x'.repeat(100), 'y'.repeat(100)]
+    expect(fitByteBudget(items, encode, 10, 2)).toBeUndefined()
+  })
+
+  it('下限之内能装下就返回下限条数', () => {
+    const items = Array.from({ length: 30 }, (_, i) => `r${i}`)
+    const kept = fitByteBudget(items, encode, 60, 4)
+    expect(kept).toBeDefined()
+    expect(encode(kept!).length).toBeLessThanOrEqual(60)
+    expect(kept!.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('空数组永远装得下', () => {
+    expect(fitByteBudget([], encode, 0)).toEqual([])
   })
 })

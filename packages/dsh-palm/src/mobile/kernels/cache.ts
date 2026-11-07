@@ -126,3 +126,35 @@ export function createCache<V>(policy: CachePolicy<V> = {}): CacheStore<V> {
     },
   }
 }
+
+/**
+ * 把一串记录裁进字节预算里（序列化之后才量得准，所以调用方给 `encode`）。
+ *
+ * 从**最老的（数组头部）**开始丢：缓存存的都是"最近的一屏"，丢头保尾。
+ * 每次按总长度的 1/8 往下砍，避免一条一条试序列化（几十次 JSON.stringify 在手机上
+ * 是能感觉到的）。
+ *
+ * @param items - 已按时间排好的记录（越靠后越新）
+ * @param encode - 怎么序列化（同一个函数既用来量长度，也用来产出最终 payload）
+ * @param maxBytes - 上限（通常按 UTF-16 字符数粗略当字节）
+ * @param minItems - 至少留几条；连这个都装不下就返回 undefined，让调用方**整个放弃**，
+ *   而不是存一份残缺的东西
+ * @returns 裁好的记录；undefined 表示装不下
+ */
+export function fitByteBudget<T>(
+  items: readonly T[],
+  encode: (items: readonly T[]) => string,
+  maxBytes: number,
+  minItems = 0,
+): T[] | undefined {
+  // 空的就没有"装不下"这回事：返回空数组，让调用方按"没东西可存"处理。
+  if (items.length === 0) return []
+  if (encode(items).length <= maxBytes) return [...items]
+  let kept = [...items]
+  while (kept.length > minItems) {
+    const drop = Math.max(1, Math.ceil(kept.length / 8))
+    kept = kept.slice(drop)
+    if (encode(kept).length <= maxBytes) return kept
+  }
+  return encode(kept).length <= maxBytes ? kept : undefined
+}
