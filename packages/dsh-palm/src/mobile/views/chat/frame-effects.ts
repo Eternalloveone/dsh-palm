@@ -16,14 +16,13 @@ import { toast } from '../../toast.tsx'
 import type { TurnVerdict } from './stream-state.ts'
 
 /**
- * 宿主时钟样本窗口。
+ * 宿主时钟：校准逻辑已经搬到 `../../host-clock.ts`。
  *
- * 每个样本都被链路延迟压低（收到本机时间永远晚于事件的宿主时间），所以**最小的延迟**
- * 才是最近真值的那个，也就是样本里的最大值。以前每帧直接覆盖：一帧慢 300ms 就把整体
- * 读数顶低 300ms，下一帧又顶回来 —— 屏幕上就是秒数忽快忽慢、偶尔跨两秒。取最近 N 个
- * 样本的最大值，既稳又能自愈（一次离谱样本会随窗口滑出）。
+ * 这里原来有一个"最近 24 个样本取最大偏移"的窗口（上面那段注释描述的就是它）。
+ * 它解决的是抖动，但没解决"墙钟被拨动"和"锚点用旧偏移、现在用新偏移"这两件事，
+ * 真机上表现为秒表突然变成个莫名其妙的数、重进会话才恢复。现在统一交给宿主时钟：
+ * 单调本地时钟推宿主时间，读数只做宿主时间域内的减法。
  */
-export const HOST_CLOCK_SAMPLE_WINDOW = 24
 
 export interface ContextPressureData { contextWindow?: number; pressureTokens?: number; projectedTokens?: number }
 
@@ -68,8 +67,8 @@ export interface FrameContext {
   enqueueLiveEvent: (event: WireEvent) => void
   reloadTail: () => void
 
-  clockSamples: number[]
-  setHostClockOffset: (offset: number) => void
+  /** 用一帧的宿主时间戳校准宿主时钟（见 host-clock.ts）。 */
+  syncHostClock: (hostMs: number) => void
 
   shadowEvent: (event: StatusEvent) => void
   setTodo: Dispatch<SetStateAction<TodoSnapshot | undefined>>
@@ -183,10 +182,11 @@ function calibrateHostClock(ctx: FrameContext, frame: MuxFrame): void {
   if (typeof frameEvent?.time === 'number'
     && Number.isFinite(frameEvent.time)
     && frameEvent.type !== 'turn/start') {
-    const samples = ctx.clockSamples
-    samples.push(frameEvent.time - Date.now())
-    if (samples.length > HOST_CLOCK_SAMPLE_WINDOW) samples.shift()
-    ctx.setHostClockOffset(Math.max(...samples))
+    // 只把帧时间喂给宿主时钟（`host-clock.ts`）：由它用单调时钟把宿主时间往前推，
+    // 读数 = 宿主时间 − 宿主锚点，手机墙钟完全不参与。老写法"样本里取最大偏移"
+    // 在真机上会跳（墙钟被 NTP 拽、快包把偏移永久顶高），详见该模块顶部注释。
+    // turn/start 照旧排除：它锚定秒表、携带更早的日志时间，拿来校准会把时钟往回拽。
+    ctx.syncHostClock(frameEvent.time)
   }
 }
 

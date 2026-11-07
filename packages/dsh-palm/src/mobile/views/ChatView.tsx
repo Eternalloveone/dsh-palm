@@ -23,6 +23,7 @@ import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateInten
 import { forgetFinishedRun } from '../recent-finished.ts'
 import { usePageVisible } from '../foreground.ts'
 import { useLiveClock } from '../live-clock.ts'
+import { useHostClock } from './chat/use-host-clock.ts'
 import { formatDuration, isRowRunning } from '../process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
@@ -1148,10 +1149,8 @@ export function ChatView({
   useEffect(() => { turnStartAtRef.current = turnStartAt }, [turnStartAt])
   /** Turn-clock mount fallback (see turnStartAt). */
   const mountTimeRef = useRef(Date.now())
-  /** Host−phone clock delta, calibrated by every live frame (see onFrame). */
-  const hostClockOffsetRef = useRef(0)
-  /** 最近几次校准样本（宿主事件时间 − 收到时的本机时间），只留最后这一小撮。 */
-  const hostClockSamplesRef = useRef<number[]>([])
+  /** 宿主时钟（见 chat/host-clock.ts）：读数在宿主时间域里减法，手机墙钟不参与。 */
+  const hostClock = useHostClock()
   /** 权限投影补给进行中（按钮可以连点）。 */
   const permissionPullRef = useRef(false)
   /** 本会话最后一次真的送来事件流的时间。只有本会话的 session/event 才算数
@@ -1657,7 +1656,8 @@ export function ChatView({
     stream.tailLoading = true
     // 时钟校准是**本会话**的：换会话就从零开始攒样本，否则上一场的偏移会
     // 直接套到这一场的秒表上（锚点是宿主时间，偏移偏多少秒表就偏多少）。
-    hostClockSamplesRef.current = []
+    // 换会话：时钟基准重置（锚点是宿主时间，基准错了秒表就错；重进会话能修好正是因为它重置）。
+    hostClock.reset()
     setTitle(session.title)
     // A session switch starts a fresh read position: the next fold key change
     // (the new tail page) must follow to the bottom unconditionally.
@@ -1969,8 +1969,7 @@ export function ChatView({
       enqueueLiveEvent,
       reloadTail,
       // 宿主时钟校准：样本窗口与偏移都是 ref，原地写
-      clockSamples: hostClockSamplesRef.current,
-      setHostClockOffset: (offset: number) => { hostClockOffsetRef.current = offset },
+      syncHostClock: hostClock.sync,
       // 视图写入方
       shadowEvent,
       setTodo,
@@ -2291,7 +2290,7 @@ export function ChatView({
     if (goal === null || goal === undefined) return undefined
     const parts: string[] = []
     if (running && turnStartAt !== null) {
-      const elapsed = Date.now() - turnStartAt + hostClockOffsetRef.current
+      const elapsed = Date.now() + hostClock.offsetNow() - turnStartAt
       if (elapsed > 1_000) parts.push(`已跑 ${formatDuration(elapsed)}`)
     }
     const newest = messages.length > 0 ? messages[messages.length - 1] : undefined
@@ -4962,7 +4961,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           sessionId={session.sessionId}
           showToolCalls={showToolCalls}
           showSystemMessages={showSystemMessages}
-          clockOffsetMs={hostClockOffsetRef.current}
+          clockOffsetMs={hostClock.offsetNow()}
           clockAnchor={clockAnchor ?? undefined}
           liveTurn={liveTurn}
           liveClockTick={liveClockTick}
