@@ -14,7 +14,7 @@
  */
 
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
-import { useChatSearch, useChatUi } from './chat/chat-machine.ts'
+import { useChatReading, useChatSearch, useChatUi } from './chat/chat-machine.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -871,6 +871,12 @@ export function ChatView({
   const [uiState, uiSetters] = useChatUi()
   const { contextOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, turnListOpen, renaming, deleting, runStatusOpen } = uiState
   const { contextOpen: setContextOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, turnListOpen: setTurnListOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
+
+  // 滚动与阅读位置收进 reducer（S1-C）：4 个 useState → 1 个。
+  // 它们必须同属一个状态机，否则会出现「按钮出现了但未读数没清」这类只在真机复现的错位。
+  const [readingState, readingSetters] = useChatReading()
+  const { currentTurn, showJumpToLatest, unreadCount, locateTick } = readingState
+  const { currentTurn: setCurrentTurn, showJumpToLatest: setShowJumpToLatest, unreadCount: setUnreadCount, locateTick: setLocateTick } = readingSetters
   useEffect(() => {
     const anyOpen = picker !== null || moreOpen || runStatusOpen || turnListOpen || gitOpen || contextOpen || plusOpen || commandOpen
     if (!anyOpen) return undefined
@@ -912,8 +918,6 @@ export function ChatView({
   /** The newest turn the turn handle judges against: the host outline when it
    *  has landed, the merged outline (local rows only) before that. */
   const newestTurn = hostNewestTurn > 0 ? hostNewestTurn : maxTurn
-  /** The currently-viewed turn (the row nearest the top of the viewport). */
-  const [currentTurn, setCurrentTurn] = useState(0)
   /** What the handle and the sheet highlight show: the tracked reading turn,
    *  falling back to the newest turn until the first scroll reports a position. */
   const shownTurn = currentTurn > 0 ? currentTurn : maxTurn
@@ -930,8 +934,6 @@ export function ChatView({
    *  boundary seq, the turn NUMBER to match once a page lands (the seq alone
    *  cannot match — see locateSeq), and how many follow-up pages this jump has
    *  already spent. */
-  /** 每次定位 +1：同一条消息里有多处命中时 focusMsgId 不变，只靠它触发重定位。 */
-  const [locateTick, setLocateTick] = useState(0)
   const pendingTurnSeqRef = useRef<number | undefined>(undefined)
   const pendingTurnNumberRef = useRef<number | undefined>(undefined)
   /** 搜索命中落在哪一段（一行里多处命中时用来说明是哪一处）。 */
@@ -1912,8 +1914,6 @@ export function ChatView({
    * 画面就往上滑了。所以身份相同也要比一次高度。
    */
   // 高度比较用上一帧值（ref 由 useStickToBottom 提供）。
-  /** Whether the reader scrolled away from the bottom (jump-to-latest button). */
-  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const { handleScroll } = useScrollFollow({
     scrollRef, scrollTopRef, programmaticScrollRef, programmaticValueRef, programmaticAtRef,
     lastTouchAtRef, scrollStateRef, pendingRef, loadOlderRef, scrollEvent,
@@ -1922,7 +1922,6 @@ export function ChatView({
   /** New turns that arrived while the reader was away (badge count). One
    * agent reply — however many messages and tool calls it spans — counts as
    * one, so the badge grows at reply pace, not message pace. */
-  const [unreadCount, setUnreadCount] = useState(0)
   /** Highest turn the reader has seen; the unread tally counts above it. */
   const lastSeenTurnRef = useRef(0)
 

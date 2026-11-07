@@ -192,3 +192,78 @@ export function useChatSearch(): readonly [ChatSearchState, ChatSearchSetters] {
 
   return [state, setters] as const
 }
+
+
+/* ── 滚动与阅读位置（S1-C） ─────────────────────────────────────────────
+ *
+ * 这四个值由滚动驱动（`handleScroll` 与定位流程），是**读者在哪**的投影：
+ *
+ *   currentTurn       视口顶部那一行的轮次（滑条读数、轮次高亮）
+ *   showJumpToLatest  离底超过阈值才出现的「回到最新」按钮
+ *   unreadCount       没读到的轮次数（滚回底就清零）
+ *   locateTick        定位 effect 的触发键（每次定位 +1）
+ *
+ * 它们不能只当"几个数字"看：**必须同时是同一个状态机的一部分**，否则会出现
+ * 「按钮出现了但未读数没清」「定位触发了但轮次没跟」这类只在真机复现的错位。
+ */
+
+/** 阅读位置状态。 */
+export interface ChatReadingState {
+  /** 视口顶部那一行的轮次；0 表示还没有位置（渲染侧回退到最新轮）。 */
+  currentTurn: number
+  /** 是否显示「回到最新消息」按钮。 */
+  showJumpToLatest: boolean
+  /** 未读轮次计数。 */
+  unreadCount: number
+  /** 定位触发键：每次定位递增，驱动定位 effect 重跑。 */
+  locateTick: number
+}
+
+/** 阅读位置初值。 */
+export const INITIAL_CHAT_READING: ChatReadingState = {
+  currentTurn: 0,
+  showJumpToLatest: false,
+  unreadCount: 0,
+  locateTick: 0,
+}
+
+/** 阅读位置的状态键。 */
+export const CHAT_READING_KEYS = [
+  'currentTurn', 'showJumpToLatest', 'unreadCount', 'locateTick',
+] as const satisfies ReadonlyArray<keyof ChatReadingState>
+
+/** 动作。 */
+export type ChatReadingAction = {
+  [K in keyof ChatReadingState]: { type: 'set'; key: K; value: ChatReadingState[K] }
+}[keyof ChatReadingState]
+
+/** 纯 reducer。 */
+export function chatReadingReducer(state: ChatReadingState, action: ChatReadingAction): ChatReadingState {
+  if (state[action.key] === action.value) return state
+  return { ...state, [action.key]: action.value } as ChatReadingState
+}
+
+/** 各字段 setter（与 useState 的 setter 同签名）。 */
+export type ChatReadingSetters = {
+  [K in keyof ChatReadingState]: (value: ChatReadingState[K] | ((previous: ChatReadingState[K]) => ChatReadingState[K])) => void
+}
+
+/** @returns 阅读位置状态 + setter。 */
+export function useChatReading(): readonly [ChatReadingState, ChatReadingSetters] {
+  const [state, dispatch] = useReducer(chatReadingReducer, INITIAL_CHAT_READING)
+  const latest = useRef(state)
+  latest.current = state
+  const setters = useMemo(() => {
+    const built: Record<string, unknown> = {}
+    for (const key of CHAT_READING_KEYS) {
+      built[key] = (value: unknown) => {
+        const next = typeof value === 'function'
+          ? (value as (previous: unknown) => unknown)(latest.current[key])
+          : value
+        dispatch({ type: 'set', key, value: next } as ChatReadingAction)
+      }
+    }
+    return built as unknown as ChatReadingSetters
+  }, [])
+  return [state, setters] as const
+}
