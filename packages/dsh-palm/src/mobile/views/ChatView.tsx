@@ -18,6 +18,7 @@ import { useChatExport } from './chat/use-chat-export.ts'
 import { useQueueActions } from './chat/use-queue-actions.ts'
 import { useChatInbox } from './chat/use-chat-inbox.ts'
 import { useChatGoal } from './chat/use-chat-goal.ts'
+import { useChatConnectivity } from './chat/use-chat-connectivity.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -1059,74 +1060,7 @@ export function ChatView({
     })
   }, [])
 
-  /**
-   * 探一次宿主：成功即在线，失败/超时即仍断。
-   *
-   * 自带短超时：默认 60 秒的请求超时在"弱网挂着"的场景下会让探测本身卡住，横幅
-   * 既不会撤也不会重探。4 秒没答话就当这次没通。
-   */
-  const probeHost = useCallback((): Promise<boolean> => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => { resolve(false) }, OFFLINE_PROBE_TIMEOUT_MS)
-    })
-    const call = Promise.resolve()
-      .then(() => history(session.sessionId, undefined, 1))
-      .then(() => true, () => false)
-    return Promise.race([call, timeout]).finally(() => {
-      if (timer !== undefined) clearTimeout(timer)
-    })
-  }, [session.sessionId])
-
-  /**
-   * 连通性：真值来自真实请求（rpc 总线），`navigator.onLine` 只当"可能断了"的提示。
-   *
-   * 断着的时候自己探：每 5 秒一次，另外在回到前台、重新聚焦、页面从缓存恢复时立刻
-   * 探一次 —— 安卓换网/锁屏回来最常见的就是 `online` 事件不来了，只靠事件横幅会一
-   * 直挂着，发出去的话也一直进离线队列。
-   */
-  useEffect(() => {
-    const unsubscribe = onConnectivityChange(online => { setOffline(!online) })
-    const onOfflineHint = (): void => { setOffline(true) }
-    const onOnlineHint = (): void => { void probeHost().then(reachable => { setOffline(!reachable) }) }
-    window.addEventListener('offline', onOfflineHint)
-    window.addEventListener('online', onOnlineHint)
-    window.addEventListener('focus', onOnlineHint)
-    window.addEventListener('pageshow', onOnlineHint)
-    document.addEventListener('visibilitychange', onOnlineHint)
-    return () => {
-      unsubscribe()
-      window.removeEventListener('offline', onOfflineHint)
-      window.removeEventListener('online', onOnlineHint)
-      window.removeEventListener('focus', onOnlineHint)
-      window.removeEventListener('pageshow', onOnlineHint)
-      document.removeEventListener('visibilitychange', onOnlineHint)
-    }
-  }, [probeHost])
-
-  // 断开期间自己恢复：每 5 秒探一次宿主（通了就撤横幅，队列随即自动发出去）。
-  useEffect(() => {
-    refreshOutbox()
-  }, [refreshOutbox])
-  useEffect(() => {
-    if (!offline) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const tick = (): void => {
-      if (cancelled) return
-      void probeHost().then((reachable) => {
-        if (cancelled) return
-        if (reachable) {
-          setOffline(false)
-          refreshOutbox()
-        } else {
-          timer = setTimeout(tick, OFFLINE_PROBE_MS)
-        }
-      })
-    }
-    timer = setTimeout(tick, OFFLINE_PROBE_MS)
-    return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
-  }, [offline, session.sessionId, refreshOutbox])
+  const { probeHost } = useChatConnectivity({ sessionId: session.sessionId, offline, setOffline, refreshOutbox })
 
   // 四个排队动作在 use-queue-actions.ts（失败路径的分支比动作本身多）。
 
