@@ -24,7 +24,7 @@
 
 export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/directory.ts'
 /** Short-lived cache: the phone's settings page must not hammer provider APIs. */
-let usageCache: { at: number; view: UsageView } | undefined
+import { processState } from './mobile/api/process-state.ts'
 const USAGE_CACHE_TTL_MS = 60_000
 
 import {
@@ -49,7 +49,7 @@ export type { FinishedRunEntry } from './host/finished-runs.ts'
 import { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf, rememberRequestBody } from './host/queue-inbox.ts'
 
 async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFresh: boolean): Promise<unknown> {
-  let inbox: unknown = sessionProjectionSnapshots.get(sessionId)?.block.values?.['inbox']
+  let inbox: unknown = processState.sessionProjectionSnapshots.get(sessionId)?.block.values?.['inbox']
   // 快照里还挂着待发项时不能信它：那一项可能早就被宿主投递出去了（投递不改这份
   // 快照），手机端就会一直显示一条已经发出去的排队消息。此时现读一次，带节流。
   const autoFresh = shouldRefreshInbox(inbox, Date.now(), inboxFreshAt.get(sessionId) ?? null)
@@ -274,7 +274,7 @@ async function readGoalProjection(
   wantsFresh: boolean,
 ): Promise<{ goal: unknown; activation?: 'armed' | 'disarmed' }> {
   const live = goalSnapshotOf(deps, sessionId)
-  let goal: unknown = preferLiveGoal(live, sessionProjectionSnapshots.get(sessionId)?.block.values?.['goal'])
+  let goal: unknown = preferLiveGoal(live, processState.sessionProjectionSnapshots.get(sessionId)?.block.values?.['goal'])
   if (wantsFresh && live === undefined) {
     try {
       const page = await proxy.sessions.history({ rpcId: RpcId('dsh-palm-mobile-goal'), payload: { sessionId, maxMessages: 1, fresh: true } } as never)
@@ -515,7 +515,6 @@ const MAX_SSE_SUBSCRIBERS = 8
 let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
 
 /** 「刚结束」账本的落盘文件（位置同样由 perfDir 决定，源码里不出现本机路径）。 */
-import { processState } from './mobile/api/process-state.ts'
 /** 两次后台刷新之间的最小间隔：枚举要 6~30 秒，刷太勤会把宿主变成其他界面的瓶颈。 */
 const SESSION_LIST_REFRESH_MIN_MS = 60_000
 /** 落盘快照的体积上限；超出即视为异常文件，不读。实测花名册快照约 2.3 MB（全局所有
@@ -580,7 +579,6 @@ const SESSION_LIST_TTL_MS = 30_000
  *  消息事件。直接为主页补一次 `sessions.list` 是不可接受的：枚举三千多个会话
  *  要 6~30 秒（见 refreshSessionRoster 的注释）。枚举本来就在跑（列表页），顺手
  *  把每行的投影留下即可，尾页读取只是查表。 */
-let sessionProjectionSnapshots = new Map<string, { at: number; block: { asOfSeq?: number; values?: Record<string, unknown> } }>()
 /**
  * 排队投影（inbox）上一次"现读"的时刻。
  *
@@ -684,12 +682,6 @@ function scheduleSearchSync(): void {
 const LOCATE_TTL_MS = 60_000
 /** 当前在跑的索引器（宿主进程内唯一）：写操作后可以立刻催它增量同步。 */
 let activeSearchIndexer: SearchIndexer | undefined
-let locateSessionCache: {
-  at: number
-  workspace: Map<string, string>
-  title: Map<string, string>
-  workspaceTitle: Map<string, string>
-} | undefined
 
 /**
  * sessionId → owning workspaceId + display title, from workspace.list's
@@ -703,8 +695,8 @@ async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
   workspaceTitle: Map<string, string>
 }> {
   const now = Date.now()
-  if (locateSessionCache !== undefined && now - locateSessionCache.at < LOCATE_TTL_MS) {
-    return locateSessionCache
+  if (processState.locateSessionCache !== undefined && now - processState.locateSessionCache.at < LOCATE_TTL_MS) {
+    return processState.locateSessionCache
   }
   const workspace = new Map<string, string>()
   const title = new Map<string, string>()
@@ -751,8 +743,8 @@ async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
   } catch {
     // best-effort attribution
   }
-  locateSessionCache = { at: now, workspace, title, workspaceTitle }
-  return locateSessionCache
+  processState.locateSessionCache = { at: now, workspace, title, workspaceTitle }
+  return processState.locateSessionCache
 }
 /** Message-level hits kept per expanded session hit (bounded view). */
 const SEARCH_MESSAGES_LIMIT = 8
@@ -2213,7 +2205,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
           return
         }
-        let outline: unknown = sessionProjectionSnapshots.get(sessionId)?.block.values?.['turnOutline']
+        let outline: unknown = processState.sessionProjectionSnapshots.get(sessionId)?.block.values?.['turnOutline']
         if (!Array.isArray(outline)) {
           // 现开一帧 follow，从 `session.history` 的投影基线里取。这条比枚举快照贵
           // （大会话能到几十 KB，实测 279 轮约 53 KB），但客户端有五分钟缓存，一次
@@ -2741,16 +2733,16 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         // host-side only; the phone receives display facts alone.
         const body = parsed.payload as { refresh?: unknown } | undefined
         const force = body?.refresh === true
-        const cached = usageCache !== undefined
+        const cached = processState.usageCache !== undefined
           && !force
-          && Date.now() - usageCache.at < USAGE_CACHE_TTL_MS
+          && Date.now() - processState.usageCache.at < USAGE_CACHE_TTL_MS
         let fresh: UsageView | undefined
         if (!cached) {
           try {
             const providers = await discoverUsageProviders(apiProxy)
             const view = await buildUsageView(providers, refName =>
               deps.resolveKey === undefined ? Promise.resolve(undefined) : deps.resolveKey(refName))
-            usageCache = { at: Date.now(), view }
+            processState.usageCache = { at: Date.now(), view }
             fresh = view
           } catch (error) {
             // Internal failures (a settings read glitch, a provider adapter
@@ -2766,7 +2758,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
         // Serve the fresh view, else the still-valid cached one (never reached
         // without either: cached implies usageCache is populated).
-        const served: UsageView | undefined = fresh ?? usageCache?.view
+        const served: UsageView | undefined = fresh ?? processState.usageCache?.view
         if (served === undefined) {
           writeJson(res, 200, {
             type: 'server-response',
@@ -2915,7 +2907,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           // 只带首屏要用的键：整块里 turnOutline 一个就 87 KB（尾页消息自己才
           // 99 KB），那部分留给稍后的宿主权威页。
           if (page.projections === undefined) {
-            const snapshot = sessionProjectionSnapshots.get(sessionId)
+            const snapshot = processState.sessionProjectionSnapshots.get(sessionId)
             if (snapshot !== undefined) {
               const values: Record<string, unknown> = {}
               for (const key of TAIL_PAGE_PROJECTION_KEYS) {
@@ -3532,7 +3524,7 @@ function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ f
           snapshots.set(item.sessionId, { at: enumeratedAt, block: item.projections })
         }
       }
-      sessionProjectionSnapshots = snapshots
+      processState.sessionProjectionSnapshots = snapshots
       setRosterTtlCache({
         at: Date.now(),
         proxy: apiProxy,

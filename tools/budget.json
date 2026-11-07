@@ -9,7 +9,7 @@
   "dirs": {
     "src/mobile": 57000,
     "src/mobile/styles": 340,
-    "src/mobile/api": 120,
+    "src/mobile/api": 140,
     "src/mobile/components": 2570,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
@@ -45,7 +45,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/api": {
-      "reason": "P2 第一步：process-state.ts 承载进程级共享状态（finishedRunsFile 已迁入）",
+      "reason": "P2：process-state.ts 已收纳 4 个进程级状态（finishedRunsFile/usageCache/sessionProjectionSnapshots/locateSessionCache）",
       "expires": "2027-03-31"
     }
   }

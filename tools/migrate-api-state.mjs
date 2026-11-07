@@ -19,6 +19,23 @@ if (declIndex < 0) {
   process.exit(1)
 }
 
+// 多行声明：从声明行开始，一直吃到类型闭合（下一行不再缩进，或遇到新的语句关键字）
+const consumeDeclaration = (start) => {
+  let end = start
+  if (/=\s*$|=\s*[^;]+$/.test(lines[start]) && !/\{$/.test(lines[start])) return end
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const text = lines[i]
+    if (text.trim() === '') break
+    if (/^\s{2,}\S/.test(text) && !/^\s*(const|let|var|function|export|import|if|for|while|return|async)\b/.test(text)) {
+      end = i
+      if (/\}\s*(\|\s*undefined)?\s*$/.test(text)) break
+      continue
+    }
+    break
+  }
+  return end
+}
+
 const isComment = line => /^\s*(\/\/|\*|\/\*)/.test(line)
 const word = new RegExp(`\\b${name}\\b`, 'g')
 
