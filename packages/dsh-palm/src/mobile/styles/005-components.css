@@ -235,3 +235,10 @@
   font-size: var(--palm-t-m);
   line-height: var(--palm-lh-body);
 }
+
+/* ── 布局契约：grow 槽吃剩余空间（由 SlotLayout 打标记，不写行内样式） ── */
+[data-grow] {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
