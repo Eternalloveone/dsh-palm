@@ -14,6 +14,7 @@
  */
 
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
+import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
 import { useChatExport } from './chat/use-chat-export.ts'
@@ -4299,63 +4300,32 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           onClose={() => { setPendingPermission(undefined) }}
         />
       )}
-      {turnListOpen && (
-        <TurnListSheet
-          entries={turnEntries}
-          currentTurn={shownTurn}
-          onPick={jumpToTurn}
-          onClose={() => { setTurnListOpen(false) }}
-        />
-      )}
-      {previewPath !== null && (
-        <FilePreviewSheet path={previewPath} sessionId={session.sessionId} onClose={() => { setPreviewPath(null) }} />
-      )}
-      {lightboxSrc !== null && (
-        <ImageLightbox src={lightboxSrc} alt="聊天图片" onClose={() => { setLightboxSrc(null) }} />
-      )}
-      <SessionSheets
-        moreOpen={moreOpen}
-        setMoreOpen={setMoreOpen}
-        exportOpen={exportOpen}
-        setExportOpen={setExportOpen}
-        gitOpen={gitOpen}
-        setGitOpen={setGitOpen}
-        renaming={renaming}
-        setRenaming={setRenaming}
-        deleting={deleting}
-        setDeleting={setDeleting}
-        title={title}
-        cwd={session.cwd}
-        onCopySessionId={() => { void copyText(session.sessionId) }}
-        onRename={(value) => { void handleRename(value) }}
-        onDelete={handleDeleteSession}
-        onCopyExport={copyExport}
-        onDownloadExport={downloadExport}
-        onDownloadLongImage={downloadLongImage}
-      />
-      <VoiceSheet
-        open={voiceOpen}
-        phase={voicePhase}
-        status={voiceStatus}
-        waveRef={voiceWaveRef}
-        doneRef={voiceDoneRef}
-        onClose={closeVoice}
-        onFinish={finishVoice}
-      />
-      <MessageMenu
-        menu={ctxMenu}
-        openedAtRef={ctxMenuOpenedAtRef}
-        onClose={() => { setCtxMenu(undefined) }}
-        onCopy={(text, message) => { void copyText(text, message) }}
-        onShare={(text) => { void shareText(text) }}
-        onQuote={quoteIntoComposer}
-        onSelectText={selectTextBlock}
-        onEdit={setEditMessage}
-        edit={editMessage}
-        onCancelEdit={() => { setEditMessage(undefined) }}
-        onConfirmEdit={(value) => {
-          const target = editMessage
-          if (target !== undefined) sendEditedMessage(target.messageId, value)
+      <ChatOverlays
+        turnList={turnListOpen ? { entries: turnEntries, currentTurn: shownTurn, onPick: jumpToTurn, onClose: () => { setTurnListOpen(false) } } : undefined}
+        filePreview={previewPath !== null ? { path: previewPath, sessionId: session.sessionId, onClose: () => { setPreviewPath(null) } } : undefined}
+        lightbox={lightboxSrc !== null ? { src: lightboxSrc, alt: '聊天图片', onClose: () => { setLightboxSrc(null) } } : undefined}
+        sessionSheets={{
+          moreOpen, setMoreOpen, exportOpen, setExportOpen, gitOpen, setGitOpen,
+          renaming, setRenaming, deleting, setDeleting,
+          title, cwd: session.cwd,
+          onCopySessionId: () => { void copyText(session.sessionId) },
+          onRename: (value) => { void handleRename(value) },
+          onDelete: handleDeleteSession,
+          onCopyExport: copyExport, onDownloadExport: downloadExport, onDownloadLongImage: downloadLongImage,
+        }}
+        voice={{ open: voiceOpen, phase: voicePhase, status: voiceStatus, waveRef: voiceWaveRef, doneRef: voiceDoneRef, onClose: closeVoice, onFinish: finishVoice }}
+        messageMenu={{
+          menu: ctxMenu, openedAtRef: ctxMenuOpenedAtRef,
+          onClose: () => { setCtxMenu(undefined) },
+          onCopy: (text, message) => { void copyText(text, message) },
+          onShare: (text) => { void shareText(text) },
+          onQuote: quoteIntoComposer, onSelectText: selectTextBlock,
+          onEdit: setEditMessage, edit: editMessage,
+          onCancelEdit: () => { setEditMessage(undefined) },
+          onConfirmEdit: (value) => {
+            const target = editMessage
+            if (target !== undefined) sendEditedMessage(target.messageId, value)
+          },
         }}
       />
     </div>
