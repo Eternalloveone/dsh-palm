@@ -1040,6 +1040,7 @@ import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
 import type { MobileApiCtx } from './mobile/api/context.ts'
 import { LOCATE_TTL_MS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_TTL_MS } from './mobile/api/constants.ts'
 import { wrap } from './mobile/api/wrap.ts'
+import { workspaceList } from './mobile/api/workspace-list.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -3637,18 +3638,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   // envelope session.list builds above.
   const methods = makeMobileDispatchTable<ProxyContext, unknown>([
     ...sessionList,
-    ['workspace.list', async (ctx) => {
-    const { apiProxy, request } = ctx
-    // v3.2: short-TTL the workspace roster — the session list re-fetches it
-    // on every visit, and it only changes on create/rename/delete.
-    const cached = processState.workspaceListTtlCache
-    if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
-      return wrap(rpcId, cached.response)
-    }
-    const response = await apiProxy.workspace.list(request as never)
-    processState.workspaceListTtlCache = { at: Date.now(), proxy: apiProxy, response }
-    return wrap(rpcId, response)
-  }],
+    ['workspace.list', async (ctx) => workspaceList({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request })],
   ['workspace.create', async (ctx) => {
     const { apiProxy, request } = ctx
     invalidateRosterCaches()
