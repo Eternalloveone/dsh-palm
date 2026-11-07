@@ -1038,6 +1038,7 @@ import { sessionList as sessionListHandler } from './mobile/api/session-list-han
 import { pushConfig } from './mobile/api/push-config.ts'
 import { mobilePending, mobilePreferences, mobileTranscribe } from './mobile/api/mobile-handlers.ts'
 import { mobileCommands, mobileGitSummary, mobileLatestVersion } from './mobile/api/mobile-info-handlers.ts'
+import { mobileListDirectoryHandler, mobileVoiceServices } from './mobile/api/mobile-fs-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1399,31 +1400,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       }],
-      [MOBILE_LIST_DIRECTORY_METHOD, async (ctx) => {
-        const { res, parsed, rpcId } = ctx
-        const payload = parsed.payload as { path?: unknown; files?: unknown } | undefined
-        try {
-          // files=true：连文件一起列（手机端「电脑文件」挑选用）。缺省仍只列目录，
-          // 工作区浏览那些老调用方拿到的还是原来那套形状。
-          const listing = await mobileListDirectory(
-            typeof payload?.path === 'string' ? payload.path : undefined,
-            payload?.files === true,
-          )
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: listing },
-          })
-        } catch {
-          // The host path must not leak to the phone; a generic refusal is
-          // enough to render the "不可读" state in the picker.
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'directory-unreadable', message: '目录不可读' } },
-          })
-        }
-      }],
+      [MOBILE_LIST_DIRECTORY_METHOD, async (ctx) => mobileListDirectoryHandler(ctx)],
       [MOBILE_READ_FILE_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps, apiProxy } = ctx
         // Text-file preview for the chat's file-path links. The phone is a
@@ -1639,30 +1616,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           },
         })
       }],
-      [MOBILE_VOICE_SERVICES_METHOD, async (ctx) => {
-        const { res, rpcId, service } = ctx
-        // The host-side fallback services (dsh-palm.yaml `transcribe:`), so
-        // the phone can show what the desktop config provides. The host API
-        // key NEVER leaves the host: the phone cannot use these services
-        // directly (transcription rides the host channel, which falls back
-        // to this config when the phone sends no services), so only the
-        // display facts are returned.
-        const dedicated = await resolveTranscribeServices()
-        const services = dedicated === undefined
-          ? []
-          : dedicated.flatMap(entry => 'error' in entry
-            ? []
-            : [{
-              name: entry.service.name ?? 'host 配置',
-              baseURL: entry.service.baseURL.replace(/\/+$/, ''),
-              model: entry.service.model,
-            }])
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { services } },
-        })
-      }],
+      [MOBILE_VOICE_SERVICES_METHOD, async (ctx) => mobileVoiceServices(ctx)],
       [MOBILE_PUSH_SUBSCRIBE_METHOD, async (ctx) => pushSubscribe(ctx)],
       [MOBILE_PUSH_UNSUBSCRIBE_METHOD, async (ctx) => pushUnsubscribe(ctx)],
       [MOBILE_PUSH_CONFIG_METHOD, async (ctx) => pushConfig(ctx)],
