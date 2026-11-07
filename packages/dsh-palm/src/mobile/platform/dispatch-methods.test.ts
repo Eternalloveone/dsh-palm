@@ -1,11 +1,12 @@
 // 已注册 RPC 方法名快照：拆 mobile-api.ts 时，任何「语法合法但方法静默消失」都会在这里红。
-// 这类回归 typecheck 抓不到、单测也不一定覆盖，只能靠方法名清单。
+// 两个来源都算数：mobile-api.ts 的分发表 + api/*.ts 的处理器数组，所以"搬家"不会假报丢失。
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const PKG = join(import.meta.dirname, '..', '..', '..')
 const SRC = join(PKG, 'src', 'mobile-api.ts')
+const API_DIR = join(PKG, 'src', 'mobile', 'api')
 const GOLDEN = join(PKG, 'tests', 'golden', 'dispatch-methods.json')
 
 interface Snapshot {
@@ -33,6 +34,12 @@ function registeredMethods(): string[] {
     if (inline) { methods.add(inline[1]); continue }
     const viaConst = /^\s*\[([A-Z][A-Z0-9_]*),/.exec(bare)
     if (viaConst && constToMethod.has(viaConst[1])) methods.add(constToMethod.get(viaConst[1])!)
+  }
+
+  for (const name of readdirSync(API_DIR)) {
+    if (!name.endsWith('.ts') || name.endsWith('.test.ts')) continue
+    const text = readFileSync(join(API_DIR, name), 'utf8')
+    for (const m of text.matchAll(/^\s*\['([a-z][\w]*\.[\w]+)',/gm)) methods.add(m[1])
   }
   return [...methods].sort()
 }
