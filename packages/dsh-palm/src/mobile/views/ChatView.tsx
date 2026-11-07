@@ -15,6 +15,7 @@
 
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
 import { useChatExport } from './chat/use-chat-export.ts'
+import { useQueueActions } from './chat/use-queue-actions.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -1197,153 +1198,21 @@ export function ChatView({
     return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
   }, [offline, session.sessionId, refreshOutbox])
 
-  /**
-   * 排队底稿必须跟着宿主动作走：编辑要换成新文本、删除/插话要一并删除。
-   * 否则被删掉的排队消息会在 20 秒后「自己回到输入框」，用户以为见鬼。
-   */
-  const handleQueueEdit = useCallback(async (itemId: string, text: string): Promise<void> => {
-    const item = queueItems.find(entry => entry.id === itemId)
-    const previous = item?.text
-    // 附件/图片原样带回去：只改正文，不能把排队项里的文件丢掉（宿主那边收据还在）。
-    const keep = Array.isArray(item?.keepParts) ? item.keepParts : []
-    const content = [
-      ...(text.trim() === '' ? [] : [{ type: 'text' as const, text }]),
-      ...(keep as Array<{ type: 'file'; receiptId: string } | { type: 'image'; attachmentId: string }>),
-    ]
-    try {
-      await updateQueue(session.sessionId, itemId, { kind: 'edit', content })
-      if (previous !== undefined) forgetQueuedEcho(session.sessionId, previous)
-      rememberQueuedEcho({ sessionId: session.sessionId, text, at: Date.now() })
-      refreshInbox({ fresh: true })
-    } catch (reason: unknown) {
-      // 宿主拒绝了这次改动。和删除一样要分清两种原因：id 在宿主队列里已经找不到
-      // （手机上那份是旧快照），还是请求根本没送到（隧道抖动）。
-      // 队列数据以宿主为准，所以不凭空删行 —— 但要**立刻现查一次**：手机上投影帧
-      // 本来就不来，只留一句「已开始发送」、卡片继续挂着，用户看到的就是"发了却没清"。
-      refreshInbox({ fresh: true })
-      const code = reason instanceof RpcCallError ? reason.error.code : undefined
-      if (code === 'queue-item-not-found') {
-        setQueueItems(rows => rows.filter(item => item.id !== itemId))
-        toast('这条已经不在队列里了，已从列表移除')
-        return
-      }
-      toast('编辑没送到宿主，检查一下网络再试')
-    }
-  }, [session.sessionId, refreshInbox, queueItems])
-
-  /** Remove a queued message on the host. */
-  const handleQueueRemove = useCallback(async (itemId: string): Promise<void> => {
-    const previous = queueItems.find(item => item.id === itemId)?.text
-    // 还没被宿主认下来的乐观项（id 以 local- 开头）：宿主根本不知道这一条，
-    // 拿它去调 session.updateQueue 只会得到 bad-request/not-found，界面却弹
-    // 「删除没送到宿主」（真机：点了删除、队列条还在，只多一条报错）。本地删掉即可。
-    if (itemId.startsWith('local-')) {
-      dropOptimisticQueueItem(session.sessionId, itemId)
-      setQueueItems(queueView(session.sessionId))
-      if (previous !== undefined) forgetQueuedEcho(session.sessionId, previous)
-      refreshInbox({ fresh: true })
-      return
-    }
-    // 本地先摘掉（状态仓的隐藏表），宿主快照回来之前卡片就消失；失败再放回去。
-    hideQueueItem(session.sessionId, itemId)
-    try {
-      await updateQueue(session.sessionId, itemId, { kind: 'remove' })
-      // 宿主已确认删除：本机先摘掉这一行。宿主的待发投影不会主动推到手机
-      // （只有 fresh 查询才拿得到），不摘就会一直挂着一条已经删掉的排队消息。
-      setQueueItems(rows => rows.filter(item => item.id !== itemId))
-      // 删掉的就是不会发送了：底稿一起清，否则对账会把它「救」回输入框。
-      if (previous !== undefined) forgetQueuedEcho(session.sessionId, previous)
-      refreshInbox({ fresh: true })
-    } catch (reason: unknown) {
-      const code = reason instanceof RpcCallError ? reason.error.code : undefined
-      // 两种失败天差地别，不能混成一句「已开始发送」：
-      //   queue-item-not-found —— 宿主队列里没有这个 id。手机手里那份可能是打开会话
-      //     时的旧快照（宿主的投影帧到不了手机），拿旧 id 去删当然删不到。这时卡片
-      //     已经没有任何对应的队列项，留在屏幕上只会变成一张"删不掉的幽灵"。
-      //   其它 —— 请求根本没到宿主（隧道抖动）。队列里也许还留着，界面什么都不该动。
-      refreshInbox({ fresh: true })
-      if (code === 'queue-item-not-found') {
-        setQueueItems(rows => rows.filter(item => item.id !== itemId))
-        toast('这条已经不在队列里了，已从列表移除')
-        return
-      }
-      // 真失败：撤掉本地隐藏，让权威队列重新显示这一条。
-      // 错误码一起说出来：隧道超时（network）与宿主拒绝（host）要分别处理，
-      // 只写「没送到宿主」时下次还得靠猜（真机反馈过这条）。
-      unhideQueueItem(session.sessionId, itemId)
-      toast(`删除没成功（${code ?? 'network'}），请再试一次`)
-    }
-  }, [session.sessionId, refreshInbox, queueItems])
-
-  /**
-   * F3: pull a queued message back into the composer.
-   *
-   * "撤回" ≠ "删除": delete throws the message away, withdraw returns it so the
-   * user can edit and resend. It reuses the remove RPC (the host has no
-   * withdraw verb) and then puts the exact text back — plus drops the local
-   * queued-echo, otherwise the lost-queue reconciliation would "rescue" the
-   * same text into the composer a second time.
-   */
-  const handleQueueWithdraw = useCallback(async (itemId: string): Promise<void> => {
-    const text = queueItems.find(item => item.id === itemId)?.text ?? ''
-    await handleQueueRemove(itemId)
-    if (text === '') return
-    forgetQueuedEcho(session.sessionId, text)
-    setInput(previous => previous.trim() === '' ? text : `${previous}\n${text}`)
-    toast('已放回输入框')
-  }, [queueItems, handleQueueRemove, session.sessionId])
+  // 四个排队动作在 use-queue-actions.ts（失败路径的分支比动作本身多）。
 
   /* ── F4 export (Markdown / single-file HTML, redacted) ─────────────── */
 
   /** Transcript rows worth exporting: real talk + commands, no turn cards. */
   const { copyExport, downloadExport, downloadLongImage } = useChatExport(title, messages, toast)
-  /** Steer a queued message into the running turn (only while running). */
-  const handleQueueSteer = useCallback(async (itemId: string): Promise<void> => {
-    const previous = queueItems.find(item => item.id === itemId)?.text
-    // 同上：本地乐观项宿主还没收下，插队一定失败。与其弹一句看不懂的报错，
-    // 不如直说「还在发送中」。
-    if (itemId.startsWith('local-')) {
-      toast('这条还在发送中，稍等一下再插队')
-      return
-    }
-    // 点下去就让它从队列里消失：插队的语义是"进当前回合"，不该在排队条上多留几百毫秒。
-    hideQueueItem(session.sessionId, itemId)
-    try {
-      await updateQueue(session.sessionId, itemId, { kind: 'steer' })
-      // 宿主已把这条塞进当前回合：它不再排队，本机立刻摘行。宿主的待发投影不会
-      // 推到手机，只等帧的话那张卡片会一直挂到下一轮对账 —— 用户看到的就是
-      // 「插队发送之后排队条没及时消失」。
-      setQueueItems(rows => rows.filter(item => item.id !== itemId))
-      // 插话成功了：这条已经进了当前回合，底稿不清就会被对账判成「没送达」再回输入框。
-      if (previous !== undefined) forgetQueuedEcho(session.sessionId, previous)
-      refreshInbox({ fresh: true })
-      toast('已插入当前回合')
-    } catch (reason: unknown) {
-      const code = reason instanceof RpcCallError ? reason.error.code : undefined
-      if (code === 'steer-unavailable') {
-        // The host says the current turn no longer accepts steering — it
-        // ended, but the turn/end frame may have been lost to a degraded
-        // SSE channel. Mirror the host's running state so the UI stops
-        // offering steer on a finished turn.
-        unhideQueueItem(session.sessionId, itemId)
-        toast('当前轮次已结束，无法插话')
-        // 宿主明说这一轮结束了 → 停止纠正，走唯一裁决入口
-        applyTurnVerdict({ running: false, force: true })
-        return
-      }
-      // queue-item-not-found (already claimed / cold session) or a
-      // transport failure: the agent may still be running, so the running
-      // indicator stays untouched. The queue dock itself is authoritative
-      // host data and is never cleared here — the next snapshot converges it.
-      if (code === 'queue-item-not-found') {
-        refreshInbox({ fresh: true })
-      } else {
-        // 真失败（请求没到宿主）：把这一条放回排队条。
-        unhideQueueItem(session.sessionId, itemId)
-      }
-      toast(code === 'queue-item-not-found' ? '消息已开始发送，无法插话' : '插话失败')
-    }
-  }, [session.sessionId, refreshInbox])
+  const { handleQueueEdit, handleQueueRemove, handleQueueSteer, handleQueueWithdraw } = useQueueActions({
+    sessionId: session.sessionId,
+    queueItems,
+    setQueueItems,
+    refreshInbox,
+    setInput,
+    toast,
+    applyTurnVerdict,
+  })
 
   // The + menu's command directory loads lazily on first open (weak links
   // never pay for it up front); a failure degrades to an empty list. The
