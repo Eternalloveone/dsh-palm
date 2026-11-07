@@ -27,6 +27,11 @@ export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/direct
 let usageCache: { at: number; view: UsageView } | undefined
 const USAGE_CACHE_TTL_MS = 60_000
 
+import { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/finished-runs.ts'
+// `export … from` 不进本文件作用域（这条踩过多次）：noteHostFinishedRun 还要用这个类型。
+import type { FinishedRunEntry } from './host/finished-runs.ts'
+export { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/finished-runs.ts'
+export type { FinishedRunEntry } from './host/finished-runs.ts'
 import { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf, rememberRequestBody } from './host/queue-inbox.ts'
 
 async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFresh: boolean): Promise<unknown> {
@@ -365,15 +370,6 @@ const MOBILE_PERF_METHOD = 'mobile.perf'
  * 就空了。账本放宿主这边（跟着 perfDir 走），同一台机器的任何客户端读到同一份。
  */
 const MOBILE_FINISHED_RUNS_METHOD = 'mobile.finishedRuns'
-/** 账本最多留多少条（够放一两天的工作，按会话去重）。 */
-const FINISHED_RUNS_MAX = 60
-/**
- * 一条账本存活多久。
- *
- * 真机口径（2026-10-29）：运行中页的「刚结束」应该是**我没点进去看过**的那些会话，
- * 而不是「最近半小时结束的」。所以存活期给到 7 天，真正的剔除靠「打开过就删」。
- */
-const FINISHED_RUNS_TTL_MS = 7 * 24 * 60 * 60_000
 /**
  * Write-only error-report intake. The always-on mobile error ring hands each
  * debounced record here; the host validates the (already-sanitized) shape,
@@ -613,56 +609,6 @@ function hydrateSessionRoster(apiProxy: ApiProxy): void {
 }
 
 
-/** 账本里的一条（与客户端 `FinishedRun` 同形，宿主只存不解释）。 */
-export interface FinishedRunEntry {
-  sessionId: string
-  title: string
-  finishedAt: number
-  status: 'done' | 'error' | 'stopped'
-  durationMs?: number
-  summary?: string
-}
-
-/** 读账本（文件不存在/坏文件都当空）。顺手按 TTL 与条数上限裁剪。 */
-export function readFinishedRuns(file: string | undefined, now: number): FinishedRunEntry[] {
-  if (file === undefined) return []
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((entry): entry is FinishedRunEntry => {
-      if (typeof entry !== 'object' || entry === null) return false
-      const row = entry as Partial<FinishedRunEntry>
-      return typeof row.sessionId === 'string'
-        && typeof row.title === 'string'
-        && typeof row.finishedAt === 'number'
-        && (row.status === 'done' || row.status === 'error' || row.status === 'stopped')
-        && now - row.finishedAt < FINISHED_RUNS_TTL_MS
-    }).slice(0, FINISHED_RUNS_MAX)
-  } catch {
-    return []
-  }
-}
-
-/**
- * 合并一次上报的账本条目，返回合并后的全量。
- *
- * 合并语义用**会话 + 收工时刻**做键：同一会话只保留最新一条（与客户端一致），
- * 不同客户端先后上报同一条也不会重复。
- */
-export function mergeFinishedRuns(
-  current: readonly FinishedRunEntry[],
-  incoming: readonly FinishedRunEntry[],
-  now: number,
-): FinishedRunEntry[] {
-  const bySession = new Map<string, FinishedRunEntry>()
-  for (const entry of [...current, ...incoming]) {
-    if (typeof entry.finishedAt !== 'number' || now - entry.finishedAt >= FINISHED_RUNS_TTL_MS) continue
-    const previous = bySession.get(entry.sessionId)
-    if (previous === undefined || entry.finishedAt >= previous.finishedAt) bySession.set(entry.sessionId, entry)
-  }
-  return [...bySession.values()].sort((a, b) => b.finishedAt - a.finishedAt).slice(0, FINISHED_RUNS_MAX)
-}
-
 /**
  * 宿主记账：全局 mux 流里看到某会话 `turn/end` 就写一条「刚结束」。
  *
@@ -702,17 +648,6 @@ export function noteHostFinishedRun(sessionId: string, finishedAt: number, statu
     writeFinishedRuns(finishedRunsFile, merged)
   } catch {
     // 账本写失败不能影响实时流
-  }
-}
-
-/** 写账本（失败静默：账本丢一条不能影响聊天）。 */
-export function writeFinishedRuns(file: string | undefined, entries: readonly FinishedRunEntry[]): void {
-  if (file === undefined) return
-  try {
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, JSON.stringify(entries))
-  } catch {
-    // 磁盘满/只读：保持内存行为即可
   }
 }
 
