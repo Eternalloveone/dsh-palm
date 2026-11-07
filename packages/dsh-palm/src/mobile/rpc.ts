@@ -100,6 +100,34 @@ export function reportConnectivity(online: boolean): void {
  * @param timeoutMs - built-in ceiling (default 60 s; pass 0 to disable).
  * @returns the response value.
  */
+/**
+ * **传输层 IO**（W4-2）：RPC 唯一碰网络的地方。
+ *
+ * 为什么要有这一层：`callUnary` 里内联 `fetch` 意味着"超时/断网/宿主 4xx"这三条最
+ * 容易出错的路径只能靠 mock 全局 `fetch` 来测——mock 全局的代价是每条用例都要记得
+ * 还原，漏一次就污染整份测试文件。注入之后，失败面变成显式对象，测试里给一个会
+ * 抛错的假 IO 就够了。
+ */
+export interface RpcIO {
+  fetch: (input: string, init: RequestInit) => Promise<Response>
+}
+
+const defaultIO: RpcIO = {
+  fetch: (input, init) => fetch(input, init),
+}
+
+let io: RpcIO = defaultIO
+
+/** 换掉传输层（测试用；生产代码不要调）。 */
+export function setRpcIO(next: RpcIO): void {
+  io = next
+}
+
+/** 还原默认传输层。 */
+export function resetRpcIO(): void {
+  io = defaultIO
+}
+
 export async function callUnary<T>(
   method: string,
   payload: unknown,
@@ -123,7 +151,7 @@ export async function callUnary<T>(
   let response: Response
   try {
     try {
-      response = await fetch(`/m/api/${method}`, {
+      response = await io.fetch(`/m/api/${method}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
