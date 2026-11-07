@@ -512,7 +512,6 @@ const SESSION_PAGE_SIZE = 40
 const MAX_SSE_SUBSCRIBERS = 8
 
 /** session.list sort cache: content key -> sorted row array (see dispatch). */
-let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
 
 /** 「刚结束」账本的落盘文件（位置同样由 perfDir 决定，源码里不出现本机路径）。 */
 /** 两次后台刷新之间的最小间隔：枚举要 6~30 秒，刷太勤会把宿主变成其他界面的瓶颈。 */
@@ -638,9 +637,7 @@ const ROSTER_TTL_MS = 30_000
  * 这个调用本身只是内存读 + 少量日志边界核实，4 秒完全撑得住。
  */
 /** reseedRunning 需要的那份代理，随每次请求刷新。 */
-let workspaceListTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
 /** agentPreset.list TTL cache (see dispatch). */
-let agentPresetTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: string; result: unknown } } | undefined
 
 /**
  * Drop the roster caches after a mutation the phone itself performed
@@ -650,7 +647,7 @@ let agentPresetTtlCache: { at: number; proxy: ApiProxy; response: { rpcId: strin
  */
 function invalidateRosterCaches(): void {
   setRosterTtlCache(undefined)
-  workspaceListTtlCache = undefined
+  processState.workspaceListTtlCache = undefined
   ordinarySearchSnapshotCache = undefined
   // 会话新增/归档/改名：索引要尽快跟上（否则新会话搜不到、已归档的还在）。
   scheduleSearchSync()
@@ -668,20 +665,18 @@ function invalidateSessionSearch(): void {
 }
 
 /** One deferred incremental index pass, coalescing bursts of mutations. */
-let searchSyncTimer: ReturnType<typeof setTimeout> | undefined
 function scheduleSearchSync(): void {
-  if (searchSyncTimer !== undefined) return
-  searchSyncTimer = setTimeout(() => {
-    searchSyncTimer = undefined
-    void activeSearchIndexer?.runOnce().catch(() => undefined)
+  if (processState.searchSyncTimer !== undefined) return
+  processState.searchSyncTimer = setTimeout(() => {
+    processState.searchSyncTimer = undefined
+    void processState.activeSearchIndexer?.runOnce().catch(() => undefined)
   }, SEARCH_SYNC_DEBOUNCE_MS)
-  searchSyncTimer.unref?.()
+  processState.searchSyncTimer.unref?.()
 }
 
 /** TTL for the session→workspace/title attribution backing mobile.searchAll. */
 const LOCATE_TTL_MS = 60_000
 /** 当前在跑的索引器（宿主进程内唯一）：写操作后可以立刻催它增量同步。 */
-let activeSearchIndexer: SearchIndexer | undefined
 
 /**
  * sessionId → owning workspaceId + display title, from workspace.list's
@@ -775,7 +770,6 @@ let ordinarySearchSnapshotCache: { at: number; proxy: ApiProxy; value: OrdinaryS
  * 晚几分钟更新，不会漏出不该看的会话）。
  */
 const SESSION_SNAPSHOT_STALE_MS = 5 * 60_000
-let ordinarySearchSnapshotRefresh: Promise<unknown> | undefined
 
 async function ordinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
   const cached = ordinarySearchSnapshotCache
@@ -785,13 +779,13 @@ async function ordinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearc
   if (stale) {
     // 后台刷新：失败就算了（旧名册还能用），下次再试。必须吞掉异常，否则后台
     // Promise 变成 unhandledRejection 会把宿主进程带走。
-    ordinarySearchSnapshotRefresh ??= loadOrdinarySearchSnapshot(apiProxy)
+    processState.ordinarySearchSnapshotRefresh ??= loadOrdinarySearchSnapshot(apiProxy)
       .catch(() => undefined)
-      .finally(() => { ordinarySearchSnapshotRefresh = undefined })
+      .finally(() => { processState.ordinarySearchSnapshotRefresh = undefined })
     return cached.value
   }
   const pending = loadOrdinarySearchSnapshot(apiProxy)
-  ordinarySearchSnapshotRefresh = pending.catch(() => undefined).finally(() => { ordinarySearchSnapshotRefresh = undefined })
+  processState.ordinarySearchSnapshotRefresh = pending.catch(() => undefined).finally(() => { processState.ordinarySearchSnapshotRefresh = undefined })
   return await pending
 }
 
@@ -1192,7 +1186,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         log: (message) => { console.log('[dsh-palm search-index]', message) },
       })
       ctx.searchIndexer = indexer
-      activeSearchIndexer = indexer
+      processState.activeSearchIndexer = indexer
       indexer.start()
       // 端到端测试要确定性：先把第一趟跑完，免得断言和后台建库赛跑。
       if (deps.searchIndexEager === true) await indexer.runOnce()
@@ -3495,10 +3489,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
  *  并发调用共享同一个 Promise —— 埋点里那些相隔 0.5 秒、成对出现的 22 秒调用就是重复
  *  枚举，这条把它们合并成一次。成功即刷新快照与工作区归属；业务失败把 host 的 result
  *  交回调用方（首屏需要那个 envelope），异常静默（后台刷新不该打断请求）。 */
-let sessionRosterInFlight: Promise<{ failure?: unknown }> | undefined
 
 function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ failure?: unknown }> {
-  const existing = sessionRosterInFlight
+  const existing = processState.sessionRosterInFlight
   if (existing !== undefined) return existing
   markRosterRefreshed()
   const run = (async (): Promise<{ failure?: unknown }> => {
@@ -3542,10 +3535,10 @@ function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ f
     } catch {
       return {}
     } finally {
-      sessionRosterInFlight = undefined
+      processState.sessionRosterInFlight = undefined
     }
   })()
-  sessionRosterInFlight = run
+  processState.sessionRosterInFlight = run
   return run
 }
 
@@ -3639,13 +3632,13 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     // 表现为"列表串工作区"。
     const contentKey = `${workspaceId ?? ''}|${scopedItems.map(item => `${item.sessionId}:${item.updatedAt}`).join(',')}`
     let items = scopedItems
-    if (sessionListSortedCache?.key !== contentKey) {
+    if (processState.sessionListSortedCache?.key !== contentKey) {
       scopedItems.sort((a, b) => b.updatedAt - a.updatedAt
         || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-      sessionListSortedCache = { key: contentKey, items: scopedItems }
+      processState.sessionListSortedCache = { key: contentKey, items: scopedItems }
       items = scopedItems
     } else {
-      items = sessionListSortedCache.items
+      items = processState.sessionListSortedCache.items
     }
     const position = cursor === undefined ? undefined : parseSessionListCursor(cursor)
     const from = position === undefined ? 0 : items.findIndex(row => afterCursor(row, position))
@@ -3684,12 +3677,12 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const { apiProxy, request } = ctx
     // v3.2: short-TTL the workspace roster — the session list re-fetches it
     // on every visit, and it only changes on create/rename/delete.
-    const cached = workspaceListTtlCache
+    const cached = processState.workspaceListTtlCache
     if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
       return wrap(cached.response)
     }
     const response = await apiProxy.workspace.list(request as never)
-    workspaceListTtlCache = { at: Date.now(), proxy: apiProxy, response }
+    processState.workspaceListTtlCache = { at: Date.now(), proxy: apiProxy, response }
     return wrap(response)
   }],
   ['workspace.create', async (ctx) => {
@@ -3720,12 +3713,12 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   ['agentPreset.list', async (ctx) => {
     const { apiProxy, request } = ctx
     // v3.2: the preset roster only changes on the desktop; short-TTL it.
-    const cached = agentPresetTtlCache
+    const cached = processState.agentPresetTtlCache
     if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
       return wrap(cached.response)
     }
     const response = await apiProxy.agentPresets.list(request as never)
-    agentPresetTtlCache = { at: Date.now(), proxy: apiProxy, response }
+    processState.agentPresetTtlCache = { at: Date.now(), proxy: apiProxy, response }
     return wrap(response)
   }],
   ['session.create', async (ctx) => {
