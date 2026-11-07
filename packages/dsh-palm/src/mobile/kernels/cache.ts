@@ -11,11 +11,19 @@
  * @module dsh-palm/mobile/kernels/cache
  */
 
-export interface CachePolicy {
+export interface CachePolicy<V = unknown> {
   /** 一条记录最多活多久（毫秒）；不填表示不过期。 */
   ttlMs?: number
   /** 最多留几条；不填表示不限。 */
   maxEntries?: number
+  /**
+   * 总量最多多少（单位由 {@link sizeOf} 定，通常是字节）。
+   *
+   * 这是 localStorage 那类存储的真实约束：条数不多但每条很大照样会把配额吃满。
+   */
+  maxBytes?: number
+  /** 怎么量一条记录的大小；给了 `maxBytes` 就必须给。 */
+  sizeOf?: (value: V) => number
   /** 注入时钟（测试用，默认 `Date.now`）。 */
   now?: () => number
 }
@@ -23,6 +31,8 @@ export interface CachePolicy {
 export interface CacheStore<V> {
   /** 取一条；过期会被顺手删掉并返回 undefined。 */
   get(key: string): V | undefined
+  /** 有没有（同样认过期）。 */
+  has(key: string): boolean
   /** 写一条：同 key 覆盖，并把它的"最近用过"顺序推到最新。 */
   set(key: string, value: V): void
   /** 只删一条。 */
@@ -44,9 +54,11 @@ interface Entry<V> {
  * 淘汰顺序是**插入顺序**（Map 的天然顺序）：`set` 一个已存在的 key 会先删再加，
  * 于是它变成"最新用过"的那条。容量满时淘汰最老的那条。
  */
-export function createCache<V>(policy: CachePolicy = {}): CacheStore<V> {
+export function createCache<V>(policy: CachePolicy<V> = {}): CacheStore<V> {
   const ttlMs = policy.ttlMs
   const maxEntries = policy.maxEntries
+  const maxBytes = policy.maxBytes
+  const sizeOf = policy.sizeOf
   const now = policy.now ?? (() => Date.now())
   const entries = new Map<string, Entry<V>>()
 
@@ -82,6 +94,21 @@ export function createCache<V>(policy: CachePolicy = {}): CacheStore<V> {
           entries.delete(oldest.value)
         }
       }
+      // 字节预算：从最老的开始砍，直到装得下。刚写进来的那条不砍（否则大对象
+      // 永远存不进去，调用方还以为缓存生效了）。
+      if (maxBytes !== undefined && sizeOf !== undefined) {
+        let total = 0
+        for (const entry of entries.values()) total += sizeOf(entry.value)
+        for (const oldest of [...entries.keys()]) {
+          if (total <= maxBytes || oldest === key) break
+          const dropped = entries.get(oldest)
+          if (dropped !== undefined) total -= sizeOf(dropped.value)
+          entries.delete(oldest)
+        }
+      }
+    },
+    has(key: string): boolean {
+      return this.get(key) !== undefined
     },
     delete(key: string): void {
       entries.delete(key)

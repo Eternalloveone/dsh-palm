@@ -111,3 +111,41 @@ describe('createCache · 基本操作', () => {
     expect(cache.get('a')).toBeUndefined()
   })
 })
+
+describe('createCache · 字节预算', () => {
+  it('总量超上限时从最老的开始砍', () => {
+    const time = clock()
+    const cache = createCache<string>({ maxBytes: 100, sizeOf: v => v.length, now: time.now })
+    cache.set('a', 'x'.repeat(40))
+    time.advance(1)
+    cache.set('b', 'y'.repeat(40))
+    time.advance(1)
+    cache.set('c', 'z'.repeat(40))          // 120 > 100，砍掉最老的 a
+    expect(cache.has('a')).toBe(false)
+    expect(cache.has('b')).toBe(true)
+    expect(cache.has('c')).toBe(true)
+  })
+
+  it('刚写进来的那条不会被自己砍掉（大对象也要能存住）', () => {
+    const cache = createCache<string>({ maxBytes: 10, sizeOf: v => v.length, now: clock().now })
+    cache.set('big', 'x'.repeat(50))
+    expect(cache.has('big')).toBe(true)
+  })
+
+  it('只给 maxBytes 不给 sizeOf 时不参与淘汰', () => {
+    const cache = createCache<string>({ maxBytes: 1, now: clock().now })
+    cache.set('a', 'x'.repeat(50))
+    expect(cache.has('a')).toBe(true)
+  })
+})
+
+describe('createCache · has', () => {
+  it('认过期：过期的 has 是 false', () => {
+    const time = clock()
+    const cache = createCache<string>({ ttlMs: 100, now: time.now })
+    cache.set('a', '甲')
+    expect(cache.has('a')).toBe(true)
+    time.advance(101)
+    expect(cache.has('a')).toBe(false)
+  })
+})

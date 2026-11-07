@@ -26,6 +26,29 @@ import type { RenderMessage } from '../../messages.ts'
 import { recallChatSnapshot } from '../../chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../scroll-machine.ts'
 import type { ChatScrollHandle } from '../../ui/hooks/use-stick-to-bottom.ts'
+import { createCache } from '../../kernels/cache.ts'
+
+/** 预取页缓存最多留几页：够"下一个/上一个"来回切，又不至于把长会话的正文攒在内存里。 */
+const PREFETCH_MAX_PAGES = 4
+
+/** 预取页缓存（数字游标 → 页）。有界，见 {@link PREFETCH_MAX_PAGES}。 */
+export interface PagePrefetchCache {
+  get(beforeSeq: number): ChatPageResult | undefined
+  has(beforeSeq: number): boolean
+  set(beforeSeq: number, page: ChatPageResult): void
+  delete(beforeSeq: number): void
+}
+
+/** 用 Cache 内核做一份带容量上限的预取缓存（内核键是字符串，这里转一层）。 */
+function createPagePrefetchCache(): PagePrefetchCache {
+  const store = createCache<ChatPageResult>({ maxEntries: PREFETCH_MAX_PAGES })
+  return {
+    get: beforeSeq => store.get(String(beforeSeq)),
+    has: beforeSeq => store.has(String(beforeSeq)),
+    set: (beforeSeq, page) => { store.set(String(beforeSeq), page) },
+    delete: beforeSeq => { store.delete(String(beforeSeq)) },
+  }
+}
 
 /** Abort an older-page request that never answers (weak links hang, not fail). */
 export const LOAD_OLDER_TIMEOUT_MS = 90_000
@@ -94,7 +117,7 @@ export interface ChatHistoryHandle {
   /** True while a page is in flight (also gates the near-top auto-load). */
   pendingRef: MutableRefObject<boolean>
   /** Prefetched pages by cursor (search "next" hit fetches ahead of time). */
-  pageCacheRef: MutableRefObject<Map<number, ChatPageResult>>
+  pageCacheRef: MutableRefObject<PagePrefetchCache>
   /**
    * Load one older page.
    * @param silent - auto-extend (no "加载中…" flash, failures stay quiet).
@@ -135,7 +158,10 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
   const [hasOlder, setHasOlder] = useState(false)
   const pendingRef = useRef(false)
   const queuedRef = useRef<{ beforeSeq?: number } | undefined>(undefined)
-  const pageCacheRef = useRef(new Map<number, ChatPageResult>())
+  // 预取页缓存有上限（Cache 内核，W4）：以前是个裸 Map，一次搜索跳转就塞一页，
+  // 长会话里来回跳几十次就是几十页正文常驻内存。预取的意义只是"下一次点击不用等"，
+  // 留最近几页足够。
+  const pageCacheRef = useRef<PagePrefetchCache>(createPagePrefetchCache())
   const chainPagesRef = useRef(0)
   const followAfterPrependRef = useRef(false)
   const prependAnchorRef = useRef<PrependAnchor | undefined>(undefined)
