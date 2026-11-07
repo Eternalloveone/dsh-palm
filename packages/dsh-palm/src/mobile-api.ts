@@ -27,6 +27,10 @@ export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/direct
 let usageCache: { at: number; view: UsageView } | undefined
 const USAGE_CACHE_TTL_MS = 60_000
 
+import { afterCursor, parseSessionListCursor, sessionListCursor, toRosterItems, trimSessionListRow, visibleSessionRows } from './host/session-list.ts'
+export { toRosterItems, trimSessionListRow, visibleSessionRows } from './host/session-list.ts'
+export type { RosterItem } from './host/session-list.ts'
+import type { RosterItem } from './host/session-list.ts'
 import { subagentCatalogWithActivity, unwrapProxyValue, LIVE_RUNNING_RESEED_MS, RUNNING_SESSIONS_TTL_MS, liveRunningSeededAtOf, mobileRunningCacheOf, setFinishedRunNotifier, setMobileRunningCache, setRunningProxy, isLiveSessionRunning, isLiveSessionNotRunningConfirmed, noteRunningFrame, noteRunningEvidence, adoptRunningBaseline, pruneRunningEvidence, reseedRunning, verifiedRunningSessionIds, computeTurnState, turnVerdict, TURN_ABANDONED_MS } from './host/running-evidence.ts'
 export { isLiveSessionRunning, isLiveSessionNotRunningConfirmed, noteRunningFrame, noteRunningEvidence, adoptRunningBaseline, pruneRunningEvidence, reseedRunning, verifiedRunningSessionIds, computeTurnState, turnVerdict, TURN_ABANDONED_MS } from './host/running-evidence.ts'
 import { documentRows, excludedText, rowSearchableText, searchCorpusOf, searchableText, stripHiddenAssistantText } from './host/search-text.ts'
@@ -506,40 +510,6 @@ const MAX_SSE_SUBSCRIBERS = 8
 let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
 
 /**
- * 列表行在手机端真正被读取的字段：`mobile/views/App.tsx` 的 `toSessionView` 取
- * sessionId / updatedAt / running / blank / cwd 与 `projections.values` 里的
- * title、preview、sessionStats，`RunOverviewView` 只再要 title / running / blank。
- *
- * 宿主返回的每一行都带着全部投影：实测一页 40 行 248~384 KB，其中 99% 是别的投影
- * （单行 `turnOutline` 最大 53 KB / 279 轮）。这些字节在 4G 上要走 1~2 秒、还要被
- * 手机解析和 JSON 序列化一次，然后丢掉。这里在发车前沿白名单裁掉。
- */
-const SESSION_LIST_KEPT_PROJECTIONS = ['title', 'preview', 'sessionStats'] as const
-
-/** Strip a host roster row down to the fields the phone surface actually reads. */
-export function trimSessionListRow<T extends { updatedAt: number; sessionId: string }>(row: T): T {
-  const projections = (row as { projections?: { values?: Record<string, unknown> } }).projections
-  const values = projections?.values
-  // 没有投影：这行本来就小（只剩 id/时间/状态），原样发。
-  if (projections === undefined || values === undefined) return row
-  const kept: Record<string, unknown> = {}
-  let keptCount = 0
-  for (const key of SESSION_LIST_KEPT_PROJECTIONS) {
-    const value = values[key]
-    if (value !== undefined) {
-      kept[key] = value
-      keptCount += 1
-    }
-  }
-  // 三个白名单键都没有：整块投影都没用，连外壳一起省掉（比留着空对象再小一点）。
-  if (keptCount === 0) {
-    const { projections: _dropped, ...rest } = row as T & { projections?: unknown }
-    return rest as T
-  }
-  return { ...row, projections: { ...projections, values: kept } }
-}
-
-/**
  * 会话归属：workspaceId → 该工作区拥有的 sessionId 集合。与 sessionListTtlCache 在
  * 同一次 workspace.list 枚举里一起刷新，因此续页复用旧快照时依然能按工作区过滤。
  */
@@ -556,33 +526,6 @@ let sessionRosterLastRefreshAt = 0
 /** 落盘快照的体积上限；超出即视为异常文件，不读。实测花名册快照约 2.3 MB（全局所有
  *  会话），所以这里必须留足余量 —— 上限设成 2 MB 时会被静默跳过、冷启动修复形同失效。 */
 const ROSTER_SNAPSHOT_MAX_BYTES = 16_000_000
-
-/**
- * One roster row: a host `session.list` item kept as-is. The snapshot persists
- * these rows and serves paged lists from them, so the item must keep every
- * field the phone renders — `projections.values` carries the title, the
- * preview line and the turn count, and dropping them turned every row into
- * "新会话" (2026-10-20). `blank` is the flag the phone filters on.
- */
-export interface RosterItem {
-  updatedAt: number
-  sessionId: string
-  origin?: 'subagent'
-  blank?: boolean
-  running?: boolean
-  cwd?: string
-  projections?: { values?: Record<string, unknown> }
-  [field: string]: unknown
-}
-
-/**
- * Copy host session rows into roster rows. A shallow copy only: the snapshot
- * must round-trip everything the row renders (see {@link RosterItem}), and the
- * previous narrowing here is what erased the titles.
- */
-export function toRosterItems(items: ReadonlyArray<RosterItem>): RosterItem[] {
-  return items.map(item => ({ ...item }))
-}
 
 /**
  * 首帧前把落盘的花名册快照读回内存 —— 这是"跨 DSH 重启也不冷启动"的关键：重启后
@@ -1003,53 +946,6 @@ type SearchAllHit = {
  * or a jittery tunnel while still being cheap: the frame is ~130 bytes.
  */
 const DEFAULT_EVENTS_HEARTBEAT_MS = 5_000
-
-/** Encode one list position as an opaque continuation cursor. */
-function sessionListCursor(updatedAt: number, sessionId: string): string {
-  return `${updatedAt}:${sessionId}`
-}
-
-/** Parse a cursor; malformed cursors mean "start over" (safe failure mode). */
-function parseSessionListCursor(cursor: string): { updatedAt: number; sessionId: string } | undefined {
-  const separator = cursor.indexOf(':')
-  if (separator < 0) return undefined
-  const updatedAt = Number(cursor.slice(0, separator))
-  if (!Number.isFinite(updatedAt)) return undefined
-  return { updatedAt, sessionId: cursor.slice(separator + 1) }
-}
-
-/** Whether a row comes strictly after the cursor position. */
-function afterCursor(row: { updatedAt: number; sessionId: string }, position: { updatedAt: number; sessionId: string }): boolean {
-  return row.updatedAt < position.updatedAt
-    || (row.updatedAt === position.updatedAt && row.sessionId > position.sessionId)
-}
-
-/**
- * Rows the phone surface may show, in host order: main-agent sessions
- * (origin not 'subagent') that were not archived with
- * `workspace.deleteSession` / `workspace.archiveSession`, and that hold
- * something. The host archive set (from `workspace.list`) hides removed
- * sessions on the desktop, but the host `session.list` still returns attached
- * ones from its live registry — without this filter a session deleted on the
- * desktop reappears on the phone roster (and in pagination, since the page
- * slices come from this filtered array).
- *
- * Blank sessions (`blank: true`, no turn ever sent) are hidden for the same
- * reason the desktop tree hides them (`ui-workspace` keeps only the current
- * one): the desktop mints a blank session per "new chat" and per workspace
- * switch, and 542 of them had accumulated here by 2026-10-20 — the phone used
- * to list every one. The phone has no "current blank session" notion, so all
- * of them go.
- */
-export function visibleSessionRows(
-  rawItems: ReadonlyArray<RosterItem>,
-  archivedSessionIds: ReadonlySet<string>,
-): Array<{ updatedAt: number; sessionId: string }> {
-  return rawItems.filter(item =>
-    item.origin !== 'subagent'
-    && item.blank !== true
-    && !archivedSessionIds.has(String(item.sessionId)))
-}
 
 /**
  * The set of subagent session ids (origin: 'subagent'). Search must exclude
