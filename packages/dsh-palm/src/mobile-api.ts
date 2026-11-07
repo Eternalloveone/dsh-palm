@@ -556,7 +556,6 @@ export function noteHostFinishedRun(sessionId: string, finishedAt: number, statu
  *  30s because the phone's list view re-renders cached rows immediately and
  *  re-validates in the background — the TTL only bounds the background
  *  refresh's host cost, and freshness is carried by the row-level update. */
-const SESSION_LIST_TTL_MS = 30_000
 /** The TTL cache: host rows + archive set, re-served within the window.
  *  Bound to the apiProxy instance so independent proxies (tests spin up one
  *  per server) never share a stale enumeration. */
@@ -614,7 +613,6 @@ export function shouldRefreshInbox(
  *  turnOutline 刻意不在里面：它能有 87 KB，而首屏并不需要它。 */
 const TAIL_PAGE_PROJECTION_KEYS = ['permissions', 'contextPressure'] as const
 /** TTL for the workspace roster / agent-preset roster caches (v3.2). */
-const ROSTER_TTL_MS = 30_000
 /** TTL for mobile.runningSessions (the badge is not latency-critical and the
  *  host enumeration is the same session.list walk, so the caches align). */
 /**
@@ -663,7 +661,6 @@ function scheduleSearchSync(): void {
 }
 
 /** TTL for the session→workspace/title attribution backing mobile.searchAll. */
-const LOCATE_TTL_MS = 60_000
 /** 当前在跑的索引器（宿主进程内唯一）：写操作后可以立刻催它增量同步。 */
 
 /**
@@ -730,7 +727,6 @@ async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
   return processState.locateSessionCache
 }
 /** Message-level hits kept per expanded session hit (bounded view). */
-const SEARCH_MESSAGES_LIMIT = 8
 
 
 /**
@@ -818,9 +814,7 @@ interface SearchDocument {
 
 
 /** 手机侧写操作后多久安排一次增量同步（多次操作合并成一次）。 */
-const SEARCH_SYNC_DEBOUNCE_MS = 3_000
 /** 旧入口 mobile.searchAll 最多回多少个会话（老客户端的分页语义）。 */
-const SEARCH_ALL_SESSIONS = 20
 /** Short-lived cache for mobile.searchAll (query keyed). */
 type SearchAllHit = {
   kind: 'title' | 'message'
@@ -1044,6 +1038,7 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  */
 import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
 import type { MobileApiCtx } from './mobile/api/context.ts'
+import { LOCATE_TTL_MS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_TTL_MS } from './mobile/api/constants.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
