@@ -1,14 +1,13 @@
 /**
- * Shared bottom-sheet chrome: backdrop + slide-up panel with a drag handle
- * (pull down past ~80px to dismiss; pulling up past ~40px expands the panel
- * to full height — drag gestures live on the grab header, so the scrollable
- * body below gets every vertical gesture for itself). Escape closes for
- * keyboard users. Used by the chat pickers, the settings pickers, and the
- * workspace long-press menu.
+ * 共享底部浮层外壳：遮罩 + 上滑面板 + 拖拽把手（下拉 ~80px 关闭、上拉 ~40px 全屏）。
+ * 由聊天的选择器、设置页的选择器、工作区长按菜单共用。
+ *
+ * W1-4 起，遮罩/焦点/Esc/aria 全部交给 `ui/overlay.tsx`，这里只剩**拖拽**这一件
+ * 它独有的东西。以前每个浮层各挂一个 Esc 监听，两层同时打开时一次 Esc 会关掉两层。
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useFocusTrap } from './focus-trap.ts'
+import { useRef, useState, type ReactNode } from 'react'
+import { Overlay } from './ui/overlay.tsx'
 
 /** Shared bottom-sheet props. */
 export interface SheetProps {
@@ -26,24 +25,12 @@ const EXPAND_THRESHOLD_PX = 40
 export function Sheet({ title, onClose, children }: SheetProps) {
   const [dragY, setDragY] = useState(0)
   const [full, setFull] = useState(false)
-  const panelRef = useRef<HTMLDivElement | null>(null)
-  // 打开即聚焦面板内第一个控件、Tab 不跑出面板、关闭归还给触发元素
-  // （审计 P1：sheet/dialog 无焦点管理）。
-  useFocusTrap(panelRef)
   const dragging = useRef(false)
   const startY = useRef(0)
   // Total drag distance, tracked synchronously: a fast flick ends (touchend)
   // in the same frame as its last move, before the move's setState flushes,
   // so the end handler reads the distance from a ref, never from state.
   const dragDy = useRef(0)
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [onClose])
 
   /*
    * 这里**故意**不锁 body 滚动（原来有 `body.style.overflow = 'hidden'`，2026-11-07 删）。
@@ -60,56 +47,52 @@ export function Sheet({ title, onClose, children }: SheetProps) {
    */
 
   return (
-    <div className="sheet-backdrop" onClick={onClose}>
+    <Overlay
+      title={title}
+      onClose={onClose}
+      scrimClassName="sheet-backdrop"
+      panelClassName={'sheet' + (full ? ' sheet-full' : '')}
+      panelStyle={dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}
+    >
+      {/*
+        * Grab header: drag gestures live here (touch-action: none), so the
+        * scrollable body below gets every vertical gesture for itself.
+        * Down past DISMISS_THRESHOLD closes; up past EXPAND_THRESHOLD
+        * expands the panel to full height (a long task list needs both).
+        */}
       <div
-        ref={panelRef}
-        className={'sheet' + (full ? ' sheet-full' : '')}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        style={dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}
-        onClick={(event) => { event.stopPropagation() }}
+        className="sheet-grab"
+        onTouchStart={(event) => {
+          dragging.current = true
+          dragDy.current = 0
+          startY.current = event.touches[0]?.clientY ?? 0
+        }}
+        onTouchMove={(event) => {
+          if (!dragging.current) return
+          const dy = (event.touches[0]?.clientY ?? 0) - startY.current
+          dragDy.current = dy
+          // Upward drag is only recorded (the panel transform applies below
+          // zero only), so the expand check sees the real distance; in the
+          // expanded state the panel cannot rise above full height.
+          setDragY(full ? Math.max(0, dy) : dy)
+        }}
+        onTouchEnd={() => {
+          if (!dragging.current) return
+          dragging.current = false
+          const dy = dragDy.current
+          dragDy.current = 0
+          if (dy > DISMISS_THRESHOLD_PX) {
+            onClose()
+          } else if (!full && dy < -EXPAND_THRESHOLD_PX) {
+            setFull(true)
+          }
+          setDragY(0)
+        }}
       >
-        {/*
-          * Grab header: drag gestures live here (touch-action: none), so the
-          * scrollable body below gets every vertical gesture for itself.
-          * Down past DISMISS_THRESHOLD closes; up past EXPAND_THRESHOLD
-          * expands the panel to full height (a long task list needs both).
-          */}
-        <div
-          className="sheet-grab"
-          onTouchStart={(event) => {
-            dragging.current = true
-            dragDy.current = 0
-            startY.current = event.touches[0]?.clientY ?? 0
-          }}
-          onTouchMove={(event) => {
-            if (!dragging.current) return
-            const dy = (event.touches[0]?.clientY ?? 0) - startY.current
-            dragDy.current = dy
-            // Upward drag is only recorded (the panel transform applies below
-            // zero only), so the expand check sees the real distance; in the
-            // expanded state the panel cannot rise above full height.
-            setDragY(full ? Math.max(0, dy) : dy)
-          }}
-          onTouchEnd={() => {
-            if (!dragging.current) return
-            dragging.current = false
-            const dy = dragDy.current
-            dragDy.current = 0
-            if (dy > DISMISS_THRESHOLD_PX) {
-              onClose()
-            } else if (!full && dy < -EXPAND_THRESHOLD_PX) {
-              setFull(true)
-            }
-            setDragY(0)
-          }}
-        >
-          <div className="sheet-handle" aria-hidden onClick={() => { onClose() }} />
-          <div className="sheet-title">{title}</div>
-        </div>
-        <div className="sheet-body">{children}</div>
+        <div className="sheet-handle" aria-hidden onClick={() => { onClose() }} />
+        <div className="sheet-title">{title}</div>
       </div>
-    </div>
+      <div className="sheet-body">{children}</div>
+    </Overlay>
   )
 }

@@ -2,10 +2,12 @@
  * Centered confirm dialog (16px radius, primary action right): destructive
  * confirms (workspace delete) and small text prompts (workspace rename)
  * that are too heavy for a toast but don't need a full sheet.
+ *
+ * W1-4 起遮罩/焦点/Esc/aria 由 `ui/overlay.tsx` 统一提供；这里只留内容与按钮。
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useFocusTrap } from './focus-trap.ts'
+import { Overlay } from './ui/overlay.tsx'
 
 /** Confirm/cancel dialog with a danger or primary confirm button. */
 export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', busy = false, onConfirm, onCancel }: {
@@ -17,43 +19,24 @@ export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', bus
   onConfirm(): void
   onCancel(): void
 }) {
-  const panelRef = useRef<HTMLDivElement | null>(null)
-  // 打开聚焦「取消」（首个按钮，误触不执行危险操作），Tab 困在对话框内，
-  // 关闭把焦点还给触发元素（审计 P1）。
-  useFocusTrap(panelRef)
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    // 不锁 body 滚动：document 本来就不滚（#root 是 100dvh + overflow:hidden），
-    // 而动态改 body.style.overflow 会让手机浏览器重算 dvh → 背后的会话区跳一下。
-    // 防穿透由静态 CSS 的 overscroll-behavior 负责，详见 sheet.tsx 顶部注释。
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onCancel])
   const toneClass = tone === 'danger' ? 'dialog-btn-danger' : 'dialog-btn-primary'
   return (
-    <div className="dialog-backdrop" onClick={onCancel}>
-      <div
-        ref={panelRef}
-        className="dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(event) => { event.stopPropagation() }}
-      >
-        <h2 className="dialog-title">{title}</h2>
-        <div className="dialog-body">{body}</div>
-        <div className="dialog-actions">
-          <button type="button" className="dialog-btn" disabled={busy} onClick={onCancel}>取消</button>
-          <button type="button" className={`dialog-btn ${toneClass}`} disabled={busy} onClick={onConfirm}>
-            {busy ? '处理中…' : confirmLabel}
-          </button>
-        </div>
+    <Overlay
+      title={title}
+      onClose={onCancel}
+      role="alertdialog"
+      scrimClassName="dialog-backdrop"
+      panelClassName="dialog"
+    >
+      <h2 className="dialog-title">{title}</h2>
+      <div className="dialog-body">{body}</div>
+      <div className="dialog-actions">
+        <button type="button" className="dialog-btn" disabled={busy} onClick={onCancel}>取消</button>
+        <button type="button" className={`dialog-btn ${toneClass}`} disabled={busy} onClick={onConfirm}>
+          {busy ? '处理中…' : confirmLabel}
+        </button>
       </div>
-    </div>
+    </Overlay>
   )
 }
 
@@ -68,63 +51,48 @@ export function PromptDialog({ title, initial, confirmLabel, busy = false, onCon
 }) {
   const [value, setValue] = useState(initial)
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const panelRef = useRef<HTMLDivElement | null>(null)
-  // 输入框是面板里第一个可聚焦元素，打开即聚焦并全选；关闭归还焦点。
-  useFocusTrap(panelRef)
+  // 输入框是面板里第一个可聚焦元素：Overlay 的焦点陷阱会聚焦它，这里再全选一次。
+  // 关闭归还焦点也由焦点陷阱负责（同样 preventScroll）。
   useEffect(() => {
     inputRef.current?.select()
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    // 不锁 body 滚动：document 本来就不滚（#root 是 100dvh + overflow:hidden），
-    // 而动态改 body.style.overflow 会让手机浏览器重算 dvh → 背后的会话区跳一下。
-    // 防穿透由静态 CSS 的 overscroll-behavior 负责，详见 sheet.tsx 顶部注释。
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onCancel])
+  }, [])
   const submit = (): void => {
     const trimmed = value.trim()
     if (trimmed !== '') onConfirm(trimmed)
   }
   return (
-    <div className="dialog-backdrop" onClick={onCancel}>
-      <div
-        ref={panelRef}
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
+    <Overlay
+      title={title}
+      onClose={onCancel}
+      scrimClassName="dialog-backdrop"
+      panelClassName="dialog"
+    >
+      <h2 className="dialog-title">{title}</h2>
+      <input
+        ref={inputRef}
+        className="dialog-input"
+        value={value}
         aria-label={title}
-        onClick={(event) => { event.stopPropagation() }}
-      >
-        <h2 className="dialog-title">{title}</h2>
-        <input
-          ref={inputRef}
-          className="dialog-input"
-          value={value}
-          aria-label={title}
-          disabled={busy}
-          onChange={(event) => { setValue(event.target.value) }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              submit()
-            }
-          }}
-        />
-        <div className="dialog-actions">
-          <button type="button" className="dialog-btn" disabled={busy} onClick={onCancel}>取消</button>
-          <button
-            type="button"
-            className="dialog-btn dialog-btn-primary"
-            disabled={busy || value.trim() === ''}
-            onClick={submit}
-          >
-            {busy ? '保存中…' : confirmLabel}
-          </button>
-        </div>
+        disabled={busy}
+        onChange={(event) => { setValue(event.target.value) }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <div className="dialog-actions">
+        <button type="button" className="dialog-btn" disabled={busy} onClick={onCancel}>取消</button>
+        <button
+          type="button"
+          className="dialog-btn dialog-btn-primary"
+          disabled={busy || value.trim() === ''}
+          onClick={submit}
+        >
+          {busy ? '保存中…' : confirmLabel}
+        </button>
       </div>
-    </div>
+    </Overlay>
   )
 }

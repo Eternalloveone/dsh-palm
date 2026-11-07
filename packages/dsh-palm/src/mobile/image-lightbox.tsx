@@ -11,8 +11,9 @@
  * @module dsh-palm/mobile/image-lightbox
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { CloseIcon } from './icons.tsx'
+import { Overlay } from './ui/overlay.tsx'
 
 export interface ImageLightboxProps {
   /** Image source: remote URL or data URL. */
@@ -27,18 +28,6 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
   const [zoom, setZoom] = useState<'fit' | 'full'>('fit')
   const lastTapRef = useRef(0)
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [onClose])
-
-  // 不锁 body 滚动（原来这里有 `body.style.overflow = 'hidden'`）：
-  // document 本来就不滚，动态改它反而会让手机浏览器重算 dvh、把背后页面推一下。
-  // 详见 sheet.tsx 顶部注释。
-
   /** Double-tap toggles fit ↔ full-size (detail reading). */
   const handleTap = (): void => {
     const now = Date.now()
@@ -51,7 +40,9 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
   }
 
   return (
-    <div className="lightbox-backdrop" role="dialog" aria-modal="true" aria-label={alt} onClick={onClose}>
+    // 灯箱没有内层面板：整块就是舞台，所以用 bare（遮罩即 aria 载体）。
+    // Esc 与焦点陷阱（关闭后归还给触发它的图片）由 Overlay 负责。
+    <Overlay bare title={alt} onClose={onClose} scrimClassName="lightbox-backdrop">
       <button type="button" className="lightbox-close" aria-label="关闭" onClick={onClose}>
         <CloseIcon />
       </button>
@@ -65,6 +56,6 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
         />
       </div>
       <div className="lightbox-hint" aria-hidden>双击放大/还原 · 点背景关闭</div>
-    </div>
+    </Overlay>
   )
 }

@@ -7,6 +7,7 @@
  */
 import type { MutableRefObject } from 'react'
 import { voiceStatusClassName, type VoiceStatus } from '../../voice-status.ts'
+import { Overlay } from '../../ui/overlay.tsx'
 
 export interface VoiceSheetProps {
   open: boolean
@@ -23,23 +24,15 @@ export interface VoiceSheetProps {
 export function VoiceSheet({ open, phase, status, waveRef, doneRef, onClose, onFinish }: VoiceSheetProps) {
   if (!open) return null
   return (
-    <div className="voice-backdrop" onClick={() => { onClose() }}>
+    // 遮罩/焦点/Esc 由 ui/overlay 统一：以前 Esc 挂在面板 onKeyDown 上，只有焦点
+    // 恰好在面板内才生效；现在即使焦点还停在背后的输入栏也能退出。
+    <Overlay
+      title="语音输入"
+      onClose={onClose}
+      scrimClassName="voice-backdrop"
+      panelClassName="voice-sheet"
+    >
       <div
-        className="voice-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="语音输入"
-        onClick={(event) => { event.stopPropagation() }}
-        onKeyDown={(event) => {
-          // 键盘（iPad 外接键盘/桌面浏览器）与读屏用户：Esc 必须能退出，
-          // 否则这个面板只能靠点背景关掉，而背景正好在手指最容易误触的位置。
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onClose()
-          }
-        }}
-      >
-        <div
           ref={waveRef}
           className={'voice-wave' + (phase === 'transcribing' ? ' voice-wave-idle' : '')}
           data-live={phase === 'recording' ? '1' : undefined}
@@ -70,7 +63,6 @@ export function VoiceSheet({ open, phase, status, waveRef, doneRef, onClose, onF
             {phase === 'transcribing' ? '请稍候' : '完成'}
           </button>
         </div>
-      </div>
-    </div>
+    </Overlay>
   )
 }
