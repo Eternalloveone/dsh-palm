@@ -1033,6 +1033,7 @@ import { workspaceList } from './mobile/api/workspace-list.ts'
 import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
 import { settingsRead, settingsMutate } from './mobile/api/settings-handlers.ts'
 import { pushSubscribe, pushUnsubscribe } from './mobile/api/push-handlers.ts'
+import { pairDevices, pairRevoke, pairRename, pairSetPrimary } from './mobile/api/pair-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1830,117 +1831,10 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: { saved: true } },
         })
       }],
-      [MOBILE_PAIR_DEVICES_METHOD, async (ctx) => {
-        const { req, res, rpcId, service } = ctx
-        // Paired-device roster for the phone's device-management screen. The
-        // current device's id rides the cookie so the UI can mark "this phone".
-        //
-        // The row carries `handle`, NOT `id`: the id is the session credential
-        // (see pairing.ts DeviceSnapshot), and returning it here would let one
-        // paired phone impersonate every other one — the loopback
-        // /api/pair/status response deliberately strips `devices` for the same
-        // reason (routes.ts). The admin methods below resolve the handle back.
-        const currentDeviceId = readCookie(req.headers.cookie, service.config.cookieName)
-        const devices = service.snapshot().devices.map(device => ({
-          handle: deviceHandleOf(device.id),
-          createdAt: device.createdAt,
-          lastSeenAt: device.lastSeenAt,
-          online: device.online,
-          ...(device.userAgent !== undefined ? { userAgent: device.userAgent } : {}),
-          ...(device.name !== undefined ? { name: device.name } : {}),
-          ...(device.primary === true ? { primary: true } : {}),
-          current: device.id === currentDeviceId,
-        }))
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { devices, maxDevices: service.config.maxDevices } },
-        })
-      }],
-      [MOBILE_PAIR_REVOKE_METHOD, async (ctx) => {
-        const { req, res, parsed, rpcId, service } = ctx
-        const body = parsed.payload as { handle?: unknown } | undefined
-        const handle = typeof body?.handle === 'string' ? body.handle : ''
-        const target = resolveDeviceHandle(service.snapshot().devices, handle)
-        if (target === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '设备不存在' } },
-          })
-          return
-        }
-        const currentDeviceId = readCookie(req.headers.cookie, service.config.cookieName)
-        // Revoking *another* device is an anti-theft control, so it must not be
-        // reachable from the device it is meant to constrain: a phone can always
-        // drop itself ("退出本机"), everything else is desktop-only.
-        if (target !== currentDeviceId && !isLoopbackClient(req)) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'desktop-only', message: '移除其他设备请在桌面端操作' } },
-          })
-          return
-        }
-        const removed = service.revoke(target)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { removed } },
-        })
-      }],
-      [MOBILE_PAIR_RENAME_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, service } = ctx
-        const body = parsed.payload as { handle?: unknown; name?: unknown } | undefined
-        const handle = typeof body?.handle === 'string' ? body.handle : ''
-        const name = typeof body?.name === 'string' ? body.name : ''
-        const target = resolveDeviceHandle(service.snapshot().devices, handle)
-        if (target === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '设备不存在' } },
-          })
-          return
-        }
-        const renamed = service.renameDevice(target, name)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { renamed } },
-        })
-      }],
-      [MOBILE_PAIR_SET_PRIMARY_METHOD, async (ctx) => {
-        const { req, res, parsed, rpcId, service } = ctx
-        // "Primary" is exempt from idle expiry, so promoting a device is a
-        // privilege grant. Handing it to a phone lets a stolen handset promote
-        // itself and kick the owner out — desktop only, same as revoke-other.
-        if (!isLoopbackClient(req)) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'desktop-only', message: '设为主设备请在桌面端操作' } },
-          })
-          return
-        }
-        const body = parsed.payload as { handle?: unknown } | undefined
-        const handle = typeof body?.handle === 'string' ? body.handle : ''
-        const target = resolveDeviceHandle(service.snapshot().devices, handle)
-        if (target === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '设备不存在' } },
-          })
-          return
-        }
-        const promoted = service.setPrimary(target)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { promoted } },
-        })
-      }],
+      [MOBILE_PAIR_DEVICES_METHOD, async (ctx) => pairDevices(ctx)],
+      [MOBILE_PAIR_REVOKE_METHOD, async (ctx) => pairRevoke(ctx)],
+      [MOBILE_PAIR_RENAME_METHOD, async (ctx) => pairRename(ctx)],
+      [MOBILE_PAIR_SET_PRIMARY_METHOD, async (ctx) => pairSetPrimary(ctx)],
       [MOBILE_FOLDERS_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps } = ctx
         // Session folders (F1). One method, discriminated action: the surface is
