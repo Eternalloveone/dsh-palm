@@ -1,0 +1,113 @@
+/**
+ * Cache 内核的契约（W4）：过期与淘汰的边界条件。
+ *
+ * 这些边界以前散在四个缓存模块里，各写一遍；任何一条写错都表现为"数据一直在"或
+ * "刚存进去就没了"，而且都不报错。
+ */
+import { describe, expect, it } from 'vitest'
+import { createCache } from './cache.ts'
+
+/** 可控时钟。 */
+function clock(start = 1_700_000_000_000) {
+  let value = start
+  return { now: () => value, advance: (ms: number) => { value += ms } }
+}
+
+describe('createCache · TTL', () => {
+  it('没过期就取得到', () => {
+    const time = clock()
+    const cache = createCache<string>({ ttlMs: 1_000, now: time.now })
+    cache.set('a', '甲')
+    time.advance(999)
+    expect(cache.get('a')).toBe('甲')
+  })
+
+  it('过期后取不到，并被顺手删掉（不是留着占容量）', () => {
+    const time = clock()
+    const cache = createCache<string>({ ttlMs: 1_000, now: time.now })
+    cache.set('a', '甲')
+    time.advance(1_001)
+    expect(cache.get('a')).toBeUndefined()
+    expect(cache.size()).toBe(0)
+  })
+
+  it('不填 ttlMs 就永不过期', () => {
+    const time = clock()
+    const cache = createCache<string>({ now: time.now })
+    cache.set('a', '甲')
+    time.advance(10 * 365 * 24 * 3600_000)
+    expect(cache.get('a')).toBe('甲')
+  })
+
+  it('size()/keys() 不会把过期项算进去', () => {
+    const time = clock()
+    const cache = createCache<string>({ ttlMs: 1_000, now: time.now })
+    cache.set('a', '甲')
+    cache.set('b', '乙')
+    time.advance(500)
+    cache.set('b', '乙2')            // b 重新计时
+    time.advance(600)                // a 已过期，b 还没
+    expect(cache.size()).toBe(1)
+    expect(cache.keys()).toEqual(['b'])
+  })
+})
+
+describe('createCache · 容量', () => {
+  it('满了淘汰最老的（插入顺序）', () => {
+    const time = clock()
+    const cache = createCache<string>({ maxEntries: 2, now: time.now })
+    cache.set('a', '甲')
+    time.advance(1)
+    cache.set('b', '乙')
+    time.advance(1)
+    cache.set('c', '丙')
+    expect(cache.get('a')).toBeUndefined()
+    expect(cache.get('b')).toBe('乙')
+    expect(cache.get('c')).toBe('丙')
+  })
+
+  it('重写一个已有的 key 会让它变成最新（不会被下一个挤掉）', () => {
+    const time = clock()
+    const cache = createCache<string>({ maxEntries: 2, now: time.now })
+    cache.set('a', '甲')
+    time.advance(1)
+    cache.set('b', '乙')
+    time.advance(1)
+    cache.set('a', '甲2')            // a 变成最新
+    time.advance(1)
+    cache.set('c', '丙')             // 该淘汰 b 而不是 a
+    expect(cache.get('a')).toBe('甲2')
+    expect(cache.get('b')).toBeUndefined()
+    expect(cache.get('c')).toBe('丙')
+  })
+
+  it('不填 maxEntries 就不限条数', () => {
+    const cache = createCache<number>({ now: clock().now })
+    for (let i = 0; i < 500; i += 1) cache.set(`k${i}`, i)
+    expect(cache.size()).toBe(500)
+  })
+})
+
+describe('createCache · 基本操作', () => {
+  it('delete / clear', () => {
+    const cache = createCache<string>({ now: clock().now })
+    cache.set('a', '甲')
+    cache.set('b', '乙')
+    cache.delete('a')
+    expect(cache.get('a')).toBeUndefined()
+    cache.clear()
+    expect(cache.size()).toBe(0)
+  })
+
+  it('没存过的 key 取不到（不抛）', () => {
+    const cache = createCache<string>({ now: clock().now })
+    expect(cache.get('never')).toBeUndefined()
+  })
+
+  it('undefined 作为值也能被区分出来（靠 has 语义看 keys）', () => {
+    const cache = createCache<string | undefined>({ now: clock().now })
+    cache.set('a', undefined)
+    expect(cache.keys()).toEqual(['a'])
+    expect(cache.get('a')).toBeUndefined()
+  })
+})

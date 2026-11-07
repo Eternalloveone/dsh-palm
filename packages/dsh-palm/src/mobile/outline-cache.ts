@@ -8,38 +8,25 @@
  *
  * 只留内存、按会话存一份、5 分钟后过期：换设备或重开 App 自然重新取，不会出现
  * "清单里有、宿主已经不认"的陈旧项；条数封顶，长会话来回切也不会把内存撑大。
+ *
+ * 过期与淘汰由 Cache 内核负责（W4）——这层只管"存什么"。
  */
+import { createCache } from './kernels/cache.ts'
+
 const OUTLINE_TTL_MS = 5 * 60 * 1000
 const OUTLINE_MAX_ENTRIES = 8
 
-interface OutlineEntry {
-  at: number
-  turns: unknown
-}
-
-const entries = new Map<string, OutlineEntry>()
+const entries = createCache<unknown>({ ttlMs: OUTLINE_TTL_MS, maxEntries: OUTLINE_MAX_ENTRIES })
 
 /** 取一份还没过期的大纲；没有（或过期）返回 undefined。 */
 export function getCachedOutline(sessionId: string): unknown | undefined {
-  const entry = entries.get(sessionId)
-  if (entry === undefined) return undefined
-  if (Date.now() - entry.at > OUTLINE_TTL_MS) {
-    entries.delete(sessionId)
-    return undefined
-  }
-  return entry.turns
+  return entries.get(sessionId)
 }
 
 /** 记下这次取到的大纲；空值不缓存——宿主那时还没有快照，下次打开应该再问一次。 */
 export function setCachedOutline(sessionId: string, turns: unknown): void {
   if (turns === null || turns === undefined) return
-  entries.delete(sessionId)
-  entries.set(sessionId, { at: Date.now(), turns })
-  while (entries.size > OUTLINE_MAX_ENTRIES) {
-    const oldest = entries.keys().next()
-    if (oldest.done === true) break
-    entries.delete(oldest.value)
-  }
+  entries.set(sessionId, turns)
 }
 
 /** 清空（切换会话集合、退出配对、测试之间）。 */
