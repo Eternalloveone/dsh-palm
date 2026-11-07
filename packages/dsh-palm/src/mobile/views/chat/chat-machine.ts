@@ -1,24 +1,91 @@
 /**
- * **聊天页的界面状态机**（S1：把 `ChatView.tsx` 里的 `useState` 收进一个 reducer）。
+ * **聊天页的界面状态机**（S1：把 `ChatView.tsx` 里的 30 个 `useState` 收进四个切片）。
  *
  * ## 为什么要有这个文件
  *
  * `ChatView.tsx` 原本散着 30 个 `useState`、37 个 `useEffect`、39 个 `useRef`。行数只是症状，
  * 真正的病是**状态的先后顺序靠 effect 的执行顺序维持**——改一处不知道会推倒哪一处。
  *
- * 这里先把「纯界面开关」这一类收进 reducer：它们**没有异步、没有派生**，只有开和关。
- * 收益不是省行数，而是**状态集合变成可枚举的**：想知道这个页面同时可能处于哪些界面
- * 状态，看 `ChatUiState` 一个接口就够了。
+ * 收进切片之后，「这个页面同时可能处于哪些界面状态」变成四个可枚举的接口：
+ *
+ * | 切片 | 管什么 | 特点 |
+ * |---|---|---|
+ * | `ChatUiState` | 浮层开关 | 纯布尔，无异步 |
+ * | `ChatSearchState` | 会话内搜索 | **有异步阶段**（warming / busy / jumping） |
+ * | `ChatReadingState` | 滚动与阅读位置 | 由滚动驱动，**必须同属一个状态机** |
+ * | `ChatComposerState` | 输入区与连接 | 两个值的外部真相源要写清楚 |
+ *
+ * ## 四个切片共用一套机器
+ *
+ * 四个切片的行为一模一样（都是"给某个字段赋值，值相等就不换引用"），所以只写一份
+ * `useSlice`，每个切片只是「接口 + 初值 + 键表」。**重复四遍的代码本身就是新的债务**。
  *
  * ## 为什么还留一层 setter
  *
  * 调用点目前形如 `setMoreOpen(false)` / `setRenaming(prev => !prev)`。直接全改成 `dispatch`
- * 会同时触碰上百个调用点，门禁红了也定位不到是谁坏的。所以给每个键生成一个**与 `useState`
- * 的 setter 同签名**的函数（支持函数式更新），调用点一行都不用改；后续切片再逐个换成 dispatch。
+ * 会同时触碰上百个调用点，门禁红了也定位不到是谁坏的。所以 setter 与 `useState` 的
+ * setter 同签名（支持函数式更新），调用点一行都不用改；后续切片再逐个换成 dispatch。
  *
  * @module dsh-palm/mobile/views/chat/chat-machine
  */
 import { useMemo, useReducer, useRef } from 'react'
+
+/* ── 共用机器 ─────────────────────────────────────────────────────────── */
+
+/** 一个切片上的"给某字段赋值"动作。 */
+type SetAction<S> = { [K in keyof S]: { type: 'set'; key: K; value: S[K] } }[keyof S]
+
+/**
+ * 纯 reducer：只做赋值，值相等时**返回原引用**（React 会跳过重渲染）。
+ *
+ * 因为除了赋值什么都不做，所以**不可能出现顺序依赖**——这正是它比 30 个
+ * `useState` + 37 个 `useEffect` 好推理的地方。
+ */
+export function sliceReducer<S extends object>(state: S, action: SetAction<S>): S {
+  if (state[action.key] === action.value) return state
+  return { ...state, [action.key]: action.value } as S
+}
+
+/** 每个字段一个 setter，签名与 `useState` 的 setter 一致。 */
+export type SliceSetters<S> = {
+  [K in keyof S]: (value: S[K] | ((previous: S[K]) => S[K])) => void
+}
+
+/**
+ * 一个切片的 React 适配层。
+ *
+ * @param initial 初值（同时定义这个切片有哪些键）
+ * @param keys 键表（用于生成 setter；键必须与 `initial` 一致）
+ */
+function useSlice<S extends object>(
+  initial: S,
+  keys: readonly (keyof S)[],
+): readonly [S, SliceSetters<S>] {
+  const [state, dispatch] = useReducer(
+    (current: S, action: SetAction<S>) => sliceReducer(current, action),
+    initial,
+  )
+  // 函数式更新要看到**当前**值，闭包里的 state 会过期，所以用 ref 兜住。
+  const latest = useRef(state)
+  latest.current = state
+
+  const setters = useMemo(() => {
+    const built: Record<string, unknown> = {}
+    for (const key of keys) {
+      built[String(key)] = (value: unknown) => {
+        const next = typeof value === 'function'
+          ? (value as (previous: unknown) => unknown)(latest.current[key])
+          : value
+        dispatch({ type: 'set', key, value: next } as SetAction<S>)
+      }
+    }
+    return built as unknown as SliceSetters<S>
+  }, [keys])
+
+  return [state, setters] as const
+}
+
+/* ── 切片一：浮层开关（S1-A） ─────────────────────────────────────────── */
 
 /** 纯界面开关。加字段前先想：它会不会被异步改变？会的话它不属于这一组。 */
 export interface ChatUiState {
@@ -46,13 +113,13 @@ export interface ChatUiState {
   runStatusOpen: boolean
 }
 
-/** 状态键集合（运行时也用得上：setter 按它生成）。 */
+/** 状态键。 */
 export const CHAT_UI_KEYS = [
   'contextOpen', 'plusOpen', 'hostFileOpen', 'commandOpen', 'moreOpen',
   'exportOpen', 'gitOpen', 'turnListOpen', 'renaming', 'deleting', 'runStatusOpen',
 ] as const satisfies ReadonlyArray<keyof ChatUiState>
 
-/** 初始状态：全部关闭。 */
+/** 初值：全部关闭。 */
 export const INITIAL_CHAT_UI: ChatUiState = {
   contextOpen: false,
   plusOpen: false,
@@ -67,62 +134,27 @@ export const INITIAL_CHAT_UI: ChatUiState = {
   runStatusOpen: false,
 }
 
-/** 动作：给某个开关赋值（值在外面算好，reducer 保持纯）。 */
-export type ChatUiAction = { type: 'set'; key: keyof ChatUiState; value: boolean }
-
-/** 纯 reducer：除了赋值什么都不做，因此不可能出现"顺序依赖"。 */
-export function chatUiReducer(state: ChatUiState, action: ChatUiAction): ChatUiState {
-  if (state[action.key] === action.value) return state
-  return { ...state, [action.key]: action.value }
+/** @returns 浮层开关状态 + setter。 */
+export function useChatUi(): readonly [ChatUiState, SliceSetters<ChatUiState>] {
+  return useSlice(INITIAL_CHAT_UI, CHAT_UI_KEYS)
 }
 
-/** 与 `useState` 的 setter 同签名：既接受值，也接受 `prev => next`。 */
-export type UiSetter = (value: boolean | ((previous: boolean) => boolean)) => void
+/* ── 切片二：会话内搜索（S1-B） ───────────────────────────────────────── */
 
-/** 每个键一个 setter，调用点无需改动。 */
-export type ChatUiSetters = Record<keyof ChatUiState, UiSetter>
-
-/** @returns 当前开关状态 + 每个键的 setter（setter 在整个生命周期内稳定）。 */
-export function useChatUi(): readonly [ChatUiState, ChatUiSetters] {
-  const [state, dispatch] = useReducer(chatUiReducer, INITIAL_CHAT_UI)
-  // 函数式更新要看到**当前**值，闭包里的 state 会过期，所以用 ref 兜住。
-  const latest = useRef(state)
-  latest.current = state
-
-  const setters = useMemo(() => {
-    const built = {} as ChatUiSetters
-    for (const key of CHAT_UI_KEYS) {
-      built[key] = (value) => {
-        const next = typeof value === 'boolean' ? value : value(latest.current[key])
-        dispatch({ type: 'set', key, value: next })
-      }
-    }
-    return built as unknown as ChatUiSetters
-  }, [])
-
-  return [state, setters] as const
-}
-
-
-/* ── 会话内搜索（S1-B） ─────────────────────────────────────────────────
+/**
+ * 搜索和"浮层开关"不一样：它有**异步阶段**。原来这些字段散成 8 个 useState，
+ * "谁能同时为真"完全靠读代码推。收进一个接口后：
  *
- * 搜索和"浮层开关"不一样：它有**异步阶段**。原来这些字段散成 7 个 useState，
- * 谁能同时为真完全靠读代码推。收进一个接口后，"搜索现在处于什么阶段"变成一眼可见：
- *
- *   idle      → term 空、busy 假、warming 假
- *   warming   → 索引还在后台建（宿主回 fallback），如实提示，别假装搜过
- *   busy      → 查询在飞
- *   jumping   → 命中在已加载窗口之外，正在翻那一页（1~3 秒），计数旁要说一声
- *   done      → busy 假、hasMore 表示"宿主上限以上还有"
+ * - `warming`：索引还在后台建（宿主回 fallback），如实提示，别假装搜过
+ * - `busy`：查询在飞
+ * - `jumping`：命中在已加载窗口之外、正在翻那一页（1~3 秒），计数旁要说一声
  */
-
-/** 会话内搜索的界面字段。 */
 export interface ChatSearchState {
   /** 搜索条是否展开。 */
   open: boolean
-  /** 当前搜索词（输入框的实时值）。 */
+  /** 当前搜索词（输入框实时值）。 */
   term: string
-  /** 命中总数/当前下标的基准时间戳（用于"结果没变就别重算"）。 */
+  /** 结果基准时间戳（"结果没变就别重算"）。 */
   at: number
   /** 查询在飞。 */
   busy: boolean
@@ -132,11 +164,16 @@ export interface ChatSearchState {
   hasMore: boolean
   /** 索引还在后台建（宿主回 fallback）。 */
   warming: boolean
-  /** "正在输入"计数：输入法组字期间不触发查询。 */
+  /** 输入法组字计数：组字期间不触发查询。 */
   composeTick: number
 }
 
-/** 搜索切片的初始值。 */
+/** 状态键。 */
+export const CHAT_SEARCH_KEYS = [
+  'open', 'term', 'at', 'busy', 'jumping', 'hasMore', 'warming', 'composeTick',
+] as const satisfies ReadonlyArray<keyof ChatSearchState>
+
+/** 初值。 */
 export const INITIAL_CHAT_SEARCH: ChatSearchState = {
   open: false,
   term: '',
@@ -148,66 +185,18 @@ export const INITIAL_CHAT_SEARCH: ChatSearchState = {
   composeTick: 0,
 }
 
-/** 搜索切片的状态键。 */
-export const CHAT_SEARCH_KEYS = [
-  'open', 'term', 'at', 'busy', 'jumping', 'hasMore', 'warming', 'composeTick',
-] as const satisfies ReadonlyArray<keyof ChatSearchState>
-
-/** 动作：给某个字段赋值（值在外面算好，reducer 保持纯）。 */
-export type ChatSearchAction = {
-  [K in keyof ChatSearchState]: { type: 'set'; key: K; value: ChatSearchState[K] }
-}[keyof ChatSearchState]
-
-/** 纯 reducer。 */
-export function chatSearchReducer(state: ChatSearchState, action: ChatSearchAction): ChatSearchState {
-  if (state[action.key] === action.value) return state
-  return { ...state, [action.key]: action.value } as ChatSearchState
+/** @returns 搜索界面状态 + setter。 */
+export function useChatSearch(): readonly [ChatSearchState, SliceSetters<ChatSearchState>] {
+  return useSlice(INITIAL_CHAT_SEARCH, CHAT_SEARCH_KEYS)
 }
 
-/** 每个字段一个 setter，签名与 useReducer 的 dispatch 用法一致。 */
-export type ChatSearchSetters = {
-  [K in keyof ChatSearchState]: (value: ChatSearchState[K] | ((previous: ChatSearchState[K]) => ChatSearchState[K])) => void
-}
+/* ── 切片三：滚动与阅读位置（S1-C） ──────────────────────────────────── */
 
-/** @returns 搜索界面状态 + 各字段 setter。 */
-export function useChatSearch(): readonly [ChatSearchState, ChatSearchSetters] {
-  const [state, dispatch] = useReducer(chatSearchReducer, INITIAL_CHAT_SEARCH)
-  const latest = useRef(state)
-  latest.current = state
-
-  const setters = useMemo(() => {
-    // 逐键赋值用宽类型累加，最后一次性断言：联合键索引写入会让 TS 生成交叉函数类型。
-    const built: Record<string, unknown> = {}
-    for (const key of CHAT_SEARCH_KEYS) {
-      // 每个键的 setter 都接受"值"或"prev => next"，语义与 useState 一致。
-      built[key] = ((value: unknown) => {
-        const next = typeof value === 'function'
-          ? (value as (previous: unknown) => unknown)(latest.current[key])
-          : value
-        dispatch({ type: 'set', key, value: next } as ChatSearchAction)
-      }) as ChatSearchSetters[typeof key]
-    }
-    return built as unknown as ChatSearchSetters
-  }, [])
-
-  return [state, setters] as const
-}
-
-
-/* ── 滚动与阅读位置（S1-C） ─────────────────────────────────────────────
- *
- * 这四个值由滚动驱动（`handleScroll` 与定位流程），是**读者在哪**的投影：
- *
- *   currentTurn       视口顶部那一行的轮次（滑条读数、轮次高亮）
- *   showJumpToLatest  离底超过阈值才出现的「回到最新」按钮
- *   unreadCount       没读到的轮次数（滚回底就清零）
- *   locateTick        定位 effect 的触发键（每次定位 +1）
- *
- * 它们不能只当"几个数字"看：**必须同时是同一个状态机的一部分**，否则会出现
- * 「按钮出现了但未读数没清」「定位触发了但轮次没跟」这类只在真机复现的错位。
+/**
+ * 这几个值由滚动驱动，是**读者在哪**的投影。它们不能只当"几个数字"看：必须同时是同一个
+ * 状态机的一部分，否则会出现「按钮出现了但未读数没清」「定位触发了但轮次没跟」这类
+ * 只在真机复现的错位。
  */
-
-/** 阅读位置状态。 */
 export interface ChatReadingState {
   /** 视口顶部那一行的轮次；0 表示还没有位置（渲染侧回退到最新轮）。 */
   currentTurn: number
@@ -221,7 +210,12 @@ export interface ChatReadingState {
   cardSyncTick: number
 }
 
-/** 阅读位置初值。 */
+/** 状态键。 */
+export const CHAT_READING_KEYS = [
+  'currentTurn', 'showJumpToLatest', 'unreadCount', 'locateTick', 'cardSyncTick',
+] as const satisfies ReadonlyArray<keyof ChatReadingState>
+
+/** 初值。 */
 export const INITIAL_CHAT_READING: ChatReadingState = {
   currentTurn: 0,
   showJumpToLatest: false,
@@ -230,65 +224,28 @@ export const INITIAL_CHAT_READING: ChatReadingState = {
   cardSyncTick: 0,
 }
 
-/** 阅读位置的状态键。 */
-export const CHAT_READING_KEYS = [
-  'currentTurn', 'showJumpToLatest', 'unreadCount', 'locateTick', 'cardSyncTick',
-] as const satisfies ReadonlyArray<keyof ChatReadingState>
-
-/** 动作。 */
-export type ChatReadingAction = {
-  [K in keyof ChatReadingState]: { type: 'set'; key: K; value: ChatReadingState[K] }
-}[keyof ChatReadingState]
-
-/** 纯 reducer。 */
-export function chatReadingReducer(state: ChatReadingState, action: ChatReadingAction): ChatReadingState {
-  if (state[action.key] === action.value) return state
-  return { ...state, [action.key]: action.value } as ChatReadingState
-}
-
-/** 各字段 setter（与 useState 的 setter 同签名）。 */
-export type ChatReadingSetters = {
-  [K in keyof ChatReadingState]: (value: ChatReadingState[K] | ((previous: ChatReadingState[K]) => ChatReadingState[K])) => void
-}
-
 /** @returns 阅读位置状态 + setter。 */
-export function useChatReading(): readonly [ChatReadingState, ChatReadingSetters] {
-  const [state, dispatch] = useReducer(chatReadingReducer, INITIAL_CHAT_READING)
-  const latest = useRef(state)
-  latest.current = state
-  const setters = useMemo(() => {
-    const built: Record<string, unknown> = {}
-    for (const key of CHAT_READING_KEYS) {
-      built[key] = (value: unknown) => {
-        const next = typeof value === 'function'
-          ? (value as (previous: unknown) => unknown)(latest.current[key])
-          : value
-        dispatch({ type: 'set', key, value: next } as ChatReadingAction)
-      }
-    }
-    return built as unknown as ChatReadingSetters
-  }, [])
-  return [state, setters] as const
+export function useChatReading(): readonly [ChatReadingState, SliceSetters<ChatReadingState>] {
+  return useSlice(INITIAL_CHAT_READING, CHAT_READING_KEYS)
 }
 
+/* ── 切片四：输入区与连接（S1-D） ─────────────────────────────────────── */
 
-/* ── 输入区与连接（S1-D） ───────────────────────────────────────────────
+/**
+ * 这一片里有两个值**不是纯界面开关**，而是外部事实的投影：
  *
- * 这一片里有两个值**不是纯界面开关**，而是外部事实的投影，进 reducer 时要说清楚：
+ * | 值 | 真相源 | 这里的角色 |
+ * |---|---|---|
+ * | `offline` | 连通性探测（use-chat-connectivity） | 只记录最近一次已知值，不判断 |
+ * | `mobileEnterToSend` | 宿主偏好（fetchMobilePreferences） | 同上 |
  *
- *   offline            真相源是连通性探测（use-chat-connectivity）。这里存的是"最近一次
- *                      已知值"，reducer 不判断连通性，只记录。
- *   mobileEnterToSend  真相源是宿主偏好（fetchMobilePreferences）。同理，只记录。
- *
- * 放在一起的理由：它们和输入区是**同一屏、同一批交互**（离线时要不要禁用发送、
- * 回车是换行还是发送）。分开存会出现"离线了但发送键还亮着"这类不一致。
+ * 放在一起的理由：它们和输入区是**同一屏、同一批交互**（离线要不要禁用发送、
+ * 回车是发送还是换行）。分开存会出现"离线了但发送键还亮着"这类不一致。
  */
-
-/** 输入区与连接状态。 */
 export interface ChatComposerState {
   /** 「+」面板里正在挑文件（宿主往返中）。 */
   pickerBusy: boolean
-  /** 输入框是否有焦点（决定移动端键盘行为）。 */
+  /** 输入框是否有焦点。 */
   composerFocused: boolean
   /** 回车是发送还是换行（真相源：宿主偏好）。 */
   mobileEnterToSend: boolean
@@ -300,6 +257,11 @@ export interface ChatComposerState {
   offline: boolean
 }
 
+/** 状态键。 */
+export const CHAT_COMPOSER_KEYS = [
+  'pickerBusy', 'composerFocused', 'mobileEnterToSend', 'goalBusy', 'stopArmed', 'offline',
+] as const satisfies ReadonlyArray<keyof ChatComposerState>
+
 /** 初值。 */
 export const INITIAL_CHAT_COMPOSER: ChatComposerState = {
   pickerBusy: false,
@@ -310,43 +272,7 @@ export const INITIAL_CHAT_COMPOSER: ChatComposerState = {
   offline: false,
 }
 
-/** 状态键。 */
-export const CHAT_COMPOSER_KEYS = [
-  'pickerBusy', 'composerFocused', 'mobileEnterToSend', 'goalBusy', 'stopArmed', 'offline',
-] as const satisfies ReadonlyArray<keyof ChatComposerState>
-
-/** 动作。 */
-export type ChatComposerAction = {
-  [K in keyof ChatComposerState]: { type: 'set'; key: K; value: ChatComposerState[K] }
-}[keyof ChatComposerState]
-
-/** 纯 reducer。 */
-export function chatComposerReducer(state: ChatComposerState, action: ChatComposerAction): ChatComposerState {
-  if (state[action.key] === action.value) return state
-  return { ...state, [action.key]: action.value } as ChatComposerState
-}
-
-/** 各字段 setter。 */
-export type ChatComposerSetters = {
-  [K in keyof ChatComposerState]: (value: ChatComposerState[K] | ((previous: ChatComposerState[K]) => ChatComposerState[K])) => void
-}
-
 /** @returns 输入区状态 + setter。 */
-export function useChatComposerState(): readonly [ChatComposerState, ChatComposerSetters] {
-  const [state, dispatch] = useReducer(chatComposerReducer, INITIAL_CHAT_COMPOSER)
-  const latest = useRef(state)
-  latest.current = state
-  const setters = useMemo(() => {
-    const built: Record<string, unknown> = {}
-    for (const key of CHAT_COMPOSER_KEYS) {
-      built[key] = (value: unknown) => {
-        const next = typeof value === 'function'
-          ? (value as (previous: unknown) => unknown)(latest.current[key])
-          : value
-        dispatch({ type: 'set', key, value: next } as ChatComposerAction)
-      }
-    }
-    return built as unknown as ChatComposerSetters
-  }, [])
-  return [state, setters] as const
+export function useChatComposerState(): readonly [ChatComposerState, SliceSetters<ChatComposerState>] {
+  return useSlice(INITIAL_CHAT_COMPOSER, CHAT_COMPOSER_KEYS)
 }
