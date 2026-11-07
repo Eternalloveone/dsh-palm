@@ -7,8 +7,8 @@
     "src/mobile/views/ChatView.tsx": 4138
   },
   "dirs": {
-    "src/mobile": 56600,
-    "src/mobile/styles": 130,
+    "src/mobile": 56900,
+    "src/mobile/styles": 340,
     "src/mobile/api": 97,
     "src/mobile/components": 2570,
     "src/mobile/data": 1687,
@@ -16,20 +16,29 @@
     "src/mobile/dev": 191,
     "src/mobile/kernels": 617,
     "src/mobile/message-row": 958,
-    "src/mobile/platform": 4409,
+    "src/mobile/platform": 4420,
     "src/mobile/projections": 530,
     "src/mobile/render": 6912,
     "src/mobile/runtime": 225,
     "src/mobile/session": 2775,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/styles": 130,
     "src/mobile/ui": 1056,
     "src/mobile/views": 20500,
     "src/mobile/wire": 246
   },
   "dirsRaised": {
-    "src/mobile": { "reason": "P1 设计系统新增 000-tokens.css（+123 行）；P8 删除旧样式时回收，净额必须下降", "expires": "2027-03-31" },
-    "src/mobile/styles": { "reason": "首次纳入统计：设计令牌唯一来源文件", "expires": "2027-03-31" }
+    "src/mobile": {
+      "reason": "P1 设计系统新增 000-tokens.css + 005-components.css；P8 删除旧样式回收，净额必须下降",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/styles": {
+      "reason": "令牌与组件层首次纳入统计（P1）；旧样式文件在 P8 删除后本值回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/platform": {
+      "reason": "P0.1 模块图断言引擎（module-graph.ts 环检测 + 自检用例）落在 platform/",
+      "expires": "2027-03-31"
+    }
   }
 }

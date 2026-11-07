@@ -54,6 +54,10 @@ export const mobileCss = `${designTokensCss()}
 
   /* ── 触摸目标 ── */
   --palm-hit: 44px;
+
+  /* 物性：1px 细线与焦点环宽度（组件层不写裸 px） */
+  --palm-hair: 1px;
+  --palm-focus: 2px;
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -133,6 +137,243 @@ html[data-skin='nocturne'] {
   --palm-sh2: 0 6px 22px rgba(0, 0, 0, 0.7);
   --palm-shadow: 0 0 0 1px rgba(120, 180, 255, 0.16), 0 10px 30px rgba(0, 0, 0, 0.7);
   color-scheme: dark;
+}
+/* ── 组件层 · 物性骨架（P1 设计系统） ─────────────────────────── */
+/*
+ * 约束（由 quality-budget 守着）：
+ *   · 不写裸色值（hex 预算）、不写裸尺寸（px 预算）、不用强制提升；
+ *   · 变体用 data-* 属性，不加新类名（类名预算）；
+ *   · 所有尺寸/颜色引用 000-tokens.css。
+ * 变体：<div class="palm-card" data-elevation="raised">…
+ *       <button class="palm-btn" data-variant="primary">…
+ */
+
+/* ── 卡片：内容卡 / 浮层卡 / 平铺卡 ── */
+.palm-card {
+  padding: var(--palm-s4);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-l);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+  color: var(--palm-fg);
+}
+
+.palm-card[data-elevation='raised'] {
+  background: var(--palm-sur-2);
+  box-shadow: var(--palm-hi), var(--palm-sh2);
+}
+
+.palm-card[data-elevation='flat'] {
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+}
+
+/* ── 按钮：主 / 次 / 成功 / 危险（统一触摸目标高度） ── */
+.palm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--palm-s2);
+  block-size: var(--palm-hit);
+  padding-inline: var(--palm-s4);
+  border: var(--palm-hair) solid transparent;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+  transition: transform 0.06s ease, filter 0.12s ease;
+}
+
+.palm-btn[data-variant='primary'] {
+  background: linear-gradient(180deg, var(--palm-accent), var(--palm-accent-2));
+  color: var(--palm-bg);
+}
+
+.palm-btn[data-variant='ghost'] {
+  background: var(--palm-sur-2);
+  border-color: var(--palm-line);
+}
+
+.palm-btn[data-variant='ok'] {
+  background: var(--palm-tint-ok);
+  border-color: var(--palm-ok);
+  color: var(--palm-ok);
+}
+
+.palm-btn[data-variant='danger'] {
+  background: var(--palm-tint-danger);
+  border-color: var(--palm-danger);
+  color: var(--palm-danger);
+}
+
+.palm-btn:active {
+  transform: translateY(var(--palm-hair));
+  filter: brightness(0.94);
+}
+
+.palm-btn:disabled {
+  opacity: 0.36;
+  pointer-events: none;
+}
+
+.palm-btn:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+/* ── 输入框 / 输入条 ── */
+.palm-input {
+  inline-size: 100%;
+  min-block-size: 3.4em;
+  padding: 0 var(--palm-s4);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-l);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-hi);
+  color: var(--palm-fg);
+  font-size: var(--palm-t-m);
+}
+
+.palm-input::placeholder {
+  color: var(--palm-fg-3);
+}
+
+.palm-input:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+/* ── chip（模型 / 批准方式 / 上下文） ── */
+.palm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  block-size: 2.14em;
+  padding-inline: var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-hi);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+}
+
+.palm-chip[data-tone='warn'] {
+  background: var(--palm-tint-warn);
+  border-color: var(--palm-warn);
+  color: var(--palm-warn);
+}
+
+/* ── 列表行 ── */
+.palm-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s3);
+  padding: var(--palm-s3) var(--palm-s4);
+  border-block-end: var(--palm-hair) solid var(--palm-line);
+}
+
+.palm-row:last-child {
+  border-block-end: none;
+}
+
+/* ── 标签 ── */
+.palm-tag {
+  flex: none;
+  padding: 0 var(--palm-s2);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+}
+
+.palm-tag[data-tone='ok'] {
+  background: var(--palm-tint-ok);
+  color: var(--palm-ok);
+}
+
+.palm-tag[data-tone='warn'] {
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
+}
+
+/* ── 图标容器（线性 SVG 落在里面） ── */
+.palm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2em;
+  block-size: 2em;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-accent);
+}
+
+/* ── 脚注（思考时长 / 工具次数 / tokens） ── */
+.palm-foot {
+  margin-block-start: var(--palm-s3);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+}
+
+/* ── 结论卡：四态只换边框与标签色，骨架不动 ── */
+.palm-verdict {
+  padding: var(--palm-s4);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-l);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+}
+
+.palm-verdict[data-state='done'] {
+  border-color: var(--palm-ok);
+}
+
+.palm-verdict[data-state='approve'] {
+  background: var(--palm-sur-2);
+  border-color: var(--palm-warn);
+  box-shadow: var(--palm-hi), var(--palm-sh2);
+}
+
+.palm-verdict[data-state='failed'] {
+  border-color: var(--palm-danger);
+}
+
+.palm-verdict-label {
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+  letter-spacing: 0.06em;
+}
+
+.palm-verdict[data-state='done'] .palm-verdict-label {
+  color: var(--palm-ok);
+}
+
+.palm-verdict[data-state='approve'] .palm-verdict-label {
+  color: var(--palm-warn);
+}
+
+.palm-verdict[data-state='failed'] .palm-verdict-label {
+  color: var(--palm-danger);
+}
+
+.palm-verdict-title {
+  margin-block: var(--palm-s2) 0;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+}
+
+.palm-verdict-body {
+  margin-block-start: var(--palm-s1);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-m);
+  line-height: var(--palm-lh-body);
 }
 /* ── base + mobile-browser hardening ─────────────────────────────────── */
 
