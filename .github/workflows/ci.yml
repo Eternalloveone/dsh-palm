@@ -46,6 +46,48 @@ jobs:
         # and skips that half of the check accordingly.
         run: pnpm verify --only pack
 
+  # Visual regression: pixel-diff of four stable surfaces against the committed
+  # baselines in tools/mobile-visual/baseline (docs/MOBILE-VISUAL-GATE.md).
+  # It needs a reachable instance of the mobile surface, which only exists on
+  # the maintainer's host — so it reads repository variables and degrades to a
+  # warning when they are unset, exactly like the hygiene scan below (fork and
+  # Dependabot runs cannot read them and must not go red for it).
+  visual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build mobile bundle
+        working-directory: packages/dsh-palm
+        run: pnpm build
+      - name: Pixel diff (four surfaces)
+        env:
+          PALM_BASE: ${{ vars.PALM_VISUAL_BASE }}
+          PALM_PAIR: ${{ vars.PALM_VISUAL_PAIR }}
+        # The harness exits 1 on any surface over its threshold and writes the
+        # live screenshot into reports/<id>.png, so a red run always ships the
+        # evidence with it.
+        run: |
+          if [ -z "$PALM_BASE" ]; then
+            echo "::warning::visual gate skipped: PALM_VISUAL_BASE is not configured"
+            exit 0
+          fi
+          node tools/mobile-visual/run.mjs
+      - name: Upload visual reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-visual-reports
+          path: tools/mobile-visual/reports/**
+          if-no-files-found: ignore
+
   # Release preflight: the checks `node scripts/release.mjs <version>` runs at
   # release time (the same ones `pnpm verify` runs), moved forward to every
   # push so a leak or packaging problem is caught long before a release.

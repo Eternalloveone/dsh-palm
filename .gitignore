@@ -35,3 +35,7 @@ packages/*/Microsoft/
 
 # cached dedicated test session for scenario runs (generated locally)
 tools/mobile-scenarios/.test-session.json
+
+
+# 视觉门禁产物（每次运行都变，CI 用 artifact 收走）
+tools/mobile-visual/reports/

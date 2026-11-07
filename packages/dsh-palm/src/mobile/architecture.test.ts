@@ -63,12 +63,15 @@ describe('architecture guardrails', () => {
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
       'views/ChatView.tsx': 5_250,
-      'views/SettingsView.tsx': 787,
-      'views/SessionListView.tsx': 1_126,
+      'views/SettingsView.tsx': 783,
+      'views/SessionListView.tsx': 1_124,
       // 2026-11-07：P1 会话位置写回 URL + 首帧直达会话（刷新/重启回原会话）是**功能新增**，
       // 不是重构漏量；1121 → 1265 已按实测收紧，之后只许降。
-      'views/App.tsx': 1_265,
-      'views/WorkspaceView.tsx': 1_071,
+      'views/App.tsx': 1_264,
+      'views/WorkspaceView.tsx': 1_063,
+      // W2-6 补登记：这两屏此前没有预算，等于可以无声长大。
+      'views/RunOverviewView.tsx': 981,
+      'views/SubChatView.tsx': 177,
     }
     for (const [file, budget] of Object.entries(budgets)) {
       const lines = readFileSync(join(HERE, file), 'utf8').split('\n').length

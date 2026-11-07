@@ -157,13 +157,19 @@ for (const surface of surfaces) {
   }
   const asUrl = data => `data:image/png;base64,${data.toString('base64')}`
   const ratio = await diffRatio(page, asUrl(baseline), asUrl(buffer))
+  const ok = ratio >= 0 && ratio <= (surface.threshold ?? DIFF_THRESHOLD_PCT)
   results.push({
     id: surface.id,
     title: surface.title,
     threshold: surface.threshold ?? DIFF_THRESHOLD_PCT,
     diffPct: Number(ratio.toFixed(2)),
-    ok: ratio >= 0 && ratio <= (surface.threshold ?? DIFF_THRESHOLD_PCT),
+    ok,
   })
+  // 失败时把"现在长什么样"存下来：CI 里只有数字没人看得懂，得能翻出图。
+  if (!ok || process.env.PALM_VISUAL_SAVE === '1') {
+    await mkdir(REPORT_DIR, { recursive: true })
+    await writeFile(new URL(`${surface.id}.png`, REPORT_DIR), buffer)
+  }
 }
 
 await browser.close()
