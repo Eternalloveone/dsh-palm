@@ -1043,6 +1043,7 @@ import { mobileNotifyEvents, mobileObserve, mobileReadAttachment, mobileTurnStat
 import { mobilePerf, mobileTurnOutline } from './mobile/api/mobile-runtime-handlers.ts'
 import { mobileError, mobileSearchMessages } from './mobile/api/mobile-search-handlers.ts'
 import { mobileCommandExec, mobilePreviews } from './mobile/api/mobile-action-handlers.ts'
+import { mobileFinishedRuns } from './mobile/api/mobile-finished-runs.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1192,66 +1193,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
 
   type MethodContext = MobileDispatchContext & typeof ctx
   const localHandlers = makeMobileDispatchTable<MethodContext>([
-      [MOBILE_FINISHED_RUNS_METHOD, async (ctx) => {
-        const { res, parsed, rpcId } = ctx
-        // 「刚结束」账本：读 / 追加 / 清空。文件跟着 perfDir 走，客户端不传任何路径。
-        const body = parsed.payload as { op?: unknown; entries?: unknown; sessionIds?: unknown } | undefined
-        const op = body?.op
-        try {
-          if (op === 'read') {
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: true, value: { entries: readFinishedRuns(processState.finishedRunsFile, Date.now()) } },
-            })
-            return
-          }
-          if (op === 'clear') {
-            writeFinishedRuns(processState.finishedRunsFile, [])
-            writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value: { accepted: true } } })
-            return
-          }
-          if (op === 'remove') {
-            // 打开过就删：这就是「只保留没点进去看过的」的实现。
-            const ids = Array.isArray(body?.sessionIds)
-              ? body.sessionIds.filter((id): id is string => typeof id === 'string')
-              : []
-            const now = Date.now()
-            const kept = readFinishedRuns(processState.finishedRunsFile, now).filter(entry => !ids.includes(entry.sessionId))
-            writeFinishedRuns(processState.finishedRunsFile, kept)
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: true, value: { entries: kept } },
-            })
-            return
-          }
-          if (op === 'append') {
-            const incoming = Array.isArray(body?.entries) ? body.entries : []
-            const now = Date.now()
-            const merged = mergeFinishedRuns(readFinishedRuns(processState.finishedRunsFile, now), incoming as FinishedRunEntry[], now)
-            writeFinishedRuns(processState.finishedRunsFile, merged)
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: true, value: { entries: merged } },
-            })
-            return
-          }
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '未知的账本操作' } },
-          })
-        } catch (error) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: String(error) } },
-          })
-        }
-        return
-      }],
+      [MOBILE_FINISHED_RUNS_METHOD, async (ctx) => mobileFinishedRuns(ctx)],
       [MOBILE_PERF_METHOD, async (ctx) => mobilePerf(ctx)],
       [MOBILE_ERROR_METHOD, async (ctx) => mobileError(ctx)],
       [MOBILE_PREFERENCES_METHOD, async (ctx) => mobilePreferences(ctx)],
