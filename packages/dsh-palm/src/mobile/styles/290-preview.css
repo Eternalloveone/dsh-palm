@@ -1,0 +1,160 @@
+/* ── file preview sheet (in-chat .file-link taps) ─────────────────────── */
+
+/* The preview content needs most of the sheet: keep the body roomy and let
+   the pre scroll inside the sheet's own scroll container. */
+.fp-body {
+  margin: 0;
+  padding: 4px 2px 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--text-md);
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* 文件预览正文允许选中复制：body 全局 user-select:none 只豁免输入框和
+     消息正文，这里放开代码/纯文本预览，长按走系统选择复制。 */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The Shiki <pre class="shiki"> inside .fp-body gets its own themed colors;
+   strip default margins so it aligns with the plain-text fallback. */
+.fp-body pre.shiki {
+  margin: 0;
+}
+
+/* Markdown previews inside the sheet have no .chat-msg ancestor to inherit
+   its 1.7 rhythm from — set the base here so prose, lists and code read the
+   same as in the chat. */
+.fp-md {
+  line-height: 1.7;
+  /* 同 .md-html：正文里的长 URL / 路径必须能断行，否则会被 .fp-scroll 裁掉。 */
+  overflow-wrap: anywhere;
+  /* 同 .fp-body：markdown 预览正文允许选中复制（body 全局 user-select:none
+     不豁免这里，长按走系统选择复制）。 */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Long plain/code/log previews fold like chat long-text: a bounded body
+   with a soft fade and an 展开全部 toggle below. */
+.fp-scroll {
+  position: relative;
+  overflow: hidden;
+}
+
+.fp-scroll-folded {
+  max-height: 45vh;
+  overflow-y: hidden;
+}
+
+.fp-scroll-folded::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  background: linear-gradient(transparent, var(--bg-surface));
+  pointer-events: none;
+}
+
+.fp-fold-btn {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin-top: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.fp-fold-btn:active {
+  background: var(--fill);
+}
+
+.fp-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 10px;
+}
+
+.fp-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.fp-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.fp-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.fp-loading,
+.fp-error {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+}
+
+.fp-error {
+  color: var(--danger, #d5484a);
+}
+
+/* Sandboxed HTML preview: a white canvas keeps un-styled documents readable
+   in both themes; the iframe scrolls inside the sheet like the code body. */
+.fp-html {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 230px);
+  min-height: 240px;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* Local image preview inside the sheet: fit width, auto height, scrollable. */
+.fp-image-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+.fp-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+

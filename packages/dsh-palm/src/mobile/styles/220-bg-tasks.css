@@ -1,0 +1,189 @@
+/* ── background-task status bar (session/jobs) ───────────────────────── */
+
+.chat-taskbar {
+  margin: 0 12px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.chat-taskbar-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-taskbar-head:active {
+  background: var(--fill);
+}
+
+.chat-taskbar-label {
+  flex: none;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.chat-taskbar-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
+.chat-taskbar-open .chat-disclosure-caret {
+  transform: rotate(180deg);
+}
+
+.chat-taskbar-body {
+  padding: 4px 12px 10px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-task-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: var(--radius-full);
+  background: var(--text-quaternary);
+}
+
+.chat-task-dot-running {
+  background: var(--accent);
+  animation: breathe 1.4s infinite ease-in-out;
+}
+
+.chat-task-dot-stopping {
+  background: var(--warning, #d9a13b);
+}
+
+.chat-task-dot-completed {
+  background: var(--positive);
+}
+
+.chat-task-dot-killed {
+  background: var(--text-quaternary);
+}
+
+.chat-task-dot-failed {
+  background: var(--danger, #d9534f);
+}
+
+.chat-task-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-task-label {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-task-meta {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  /* job.detail is host text (often a path): wrap it rather than sticking out
+     of the copy column and being clipped by the taskbar. */
+  overflow-wrap: anywhere;
+}
+
+.chat-task-time {
+  color: var(--text-quaternary);
+  font-size: var(--text-xs);
+}
+
+/* 子代理行之间必须有竖向间隔：这一层是列表容器，行本身是 flex 行，
+   没有 gap 时两条记录贴在一起，看起来像一条记录换行。 */
+.chat-subagent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-subagent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-subagent-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: var(--radius-full);
+  background: var(--text-quaternary);
+}
+
+.chat-subagent-dot-running {
+  background: var(--accent);
+  animation: breathe 1.4s infinite ease-in-out;
+}
+
+.chat-subagent-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-subagent-label {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-subagent-meta {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Run-status sheet fold row: truncates long subagent lists past the visible max. */
+.chat-run-fold {
+  display: block;
+  width: 100%;
+  border: none;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.chat-run-fold:active {
+  background: var(--fill);
+}
+

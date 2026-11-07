@@ -1,0 +1,33 @@
+/* ── dashed create card ──────────────────────────────────────────────── */
+
+.mobile-createCard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: calc(100% - 32px);
+  margin: 4px 16px 16px;
+  min-height: 56px;
+  border: 1.5px dashed var(--border-default);
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+}
+
+.mobile-createCard svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mobile-createCard:active {
+  transform: scale(0.98);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+

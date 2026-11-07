@@ -1,0 +1,66 @@
+/* ── header: 48px + safe-area, frosted glass ─────────────────────────── */
+
+.mobile-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1);
+  padding: calc(env(safe-area-inset-top, 0px) + 4px) 4px 4px;
+  min-height: calc(48px + env(safe-area-inset-top, 0px));
+  background: var(--header-bg);
+  /* No backdrop-filter here: the sticky header sits over the scrolling
+     message list, and blur is the most expensive compositing operation on
+     mobile — every scroll frame would re-sample the background. The header
+     background is near-opaque instead (see --header-bg), which reads the
+     same while scrolling stays cheap. */
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mobile-headerSlot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 48px;
+}
+
+.mobile-headerSlot-right {
+  justify-content: flex-end;
+}
+
+.mobile-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-titleWrap {
+  min-width: 0;
+}
+
+.mobile-titleInline {
+  display: block;
+}
+
+/* Path metadata: small, mono, subordinate — never competing with the title. */
+.mobile-titlePath {
+  margin: 1px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--text-quaternary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

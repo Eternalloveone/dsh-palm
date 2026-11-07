@@ -1,0 +1,154 @@
+/* ── page transitions: parallax push / pop (250ms) ───────────────────── */
+
+.page-stage {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Lazy-view placeholder (a split chunk still loading). It only holds the
+   layout: a full-height, page-coloured box with the same shape as the page
+   that is about to mount, so a cold chunk cannot make the shell jump. */
+/* 冷启动直接落进懒加载页时的骨架：页头留白 + 几条等宽灰条。以前这里是纯空
+   背景，切页时会看着像"闪一下"。 */
+.page-loading {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-page);
+}
+
+.page-loading-head {
+  flex: none;
+  height: 52px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.page-loading-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 16px;
+}
+
+.page-loading-rows span {
+  height: 13px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-surface) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
+}
+
+.page-loading-rows span:nth-child(1) { width: 72%; }
+.page-loading-rows span:nth-child(2) { width: 94%; }
+.page-loading-rows span:nth-child(3) { width: 86%; }
+.page-loading-rows span:nth-child(4) { width: 55%; }
+
+.page-loading-retry {
+  margin: 24px 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.page {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Stacking is stated per direction instead of falling out of the box model: a
+   push slides the entering page in above the leaving one, a pop slides the
+   leaving page away above the entering one. Both are flex items of
+   .page-stage, which honour z-index even with position: static. */
+.page-enter-fwd {
+  z-index: 2;
+  animation: page-in-fwd 0.25s ease-out both;
+}
+
+.page-exit-fwd {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
+  animation: page-out-fwd 0.25s ease-out both;
+}
+
+.page-enter-back {
+  z-index: 1;
+  animation: page-in-back 0.25s ease-out both;
+}
+
+.page-exit-back {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 2;
+  animation: page-out-back 0.25s ease-out both;
+}
+
+@keyframes page-in-fwd {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes page-out-fwd {
+  from {
+    transform: none;
+    opacity: 1;
+  }
+  to {
+    /* End fully transparent and off-stage: an opacity-only fade to 0.8 +
+       fill-mode both left the leaving page ghosting through the frost-glass
+       header on forward navigations (search-hit locate), producing a
+       stacked double-image. Match the back direction: disappear entirely. */
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes page-in-back {
+  from {
+    transform: translateX(-30%);
+    opacity: 0.8;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes page-out-back {
+  from {
+    transform: none;
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+

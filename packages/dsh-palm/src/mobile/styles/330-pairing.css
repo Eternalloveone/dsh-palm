@@ -1,0 +1,50 @@
+/* ── installed-app pairing ───────────────────────────────────────────── */
+
+.mobile-pair {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.mobile-pairCard {
+  display: grid;
+  width: min(100%, 420px);
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-lg);
+}
+
+.mobile-pairLabel {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.mobile-pairInput {
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 9px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.mobile-pairInput:focus-visible {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
+}
+
+.mobile-pairSubmit {
+  width: 100%;
+  margin: 0;
+}
+

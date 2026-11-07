@@ -1,0 +1,581 @@
+/* ── chat ────────────────────────────────────────────────────────────── */
+
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  /* Anchor the viewport to the newest content while streaming: browser
+     scroll anchoring keeps the visible region stable when frames above it
+     change height (Chromium WebView supports this natively). */
+  overflow-anchor: auto;
+  padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  display: flex;
+  flex-direction: column;
+  /* 用户定的节奏（2026-10-13）：12px。卡片与紧随其后的正文另有 12px
+     （见 .chat-* + .chat-flow-text 规则），所以卡片上下读起来正好是 12px ＋ 12px。
+     注意：这是**全列表**的行间距，普通文字消息也按 12px 排。 */
+  gap: 12px;
+}
+
+/* Scroll children never shrink. The bubbles pin an explicit min-height
+   (48px tier), which replaces flex's automatic min-content floor — without
+   this, a long column of messages gets crushed to 48px each and the
+   overflow visually overlaps the neighbours. */
+.chat-scroll > * {
+  flex-shrink: 0;
+}
+
+/* Density preference (settings): 紧凑把整个消息节奏收紧一格。
+   只改 .chat-scroll 的 gap 时每条只差 4px（12→8），一屏八条才差 28px，真机上
+   等于看不出（实测反馈）。所以连用户气泡的内边距、段落间距、正文行高一起收。 */
+[data-density='compact'] .chat-scroll {
+  gap: 8px;
+}
+
+[data-density='compact'] .chat-msg-user {
+  padding: 8px 14px;
+}
+
+[data-density='compact'] .chat-md + .chat-md,
+[data-density='compact'] .chat-flow-text + .chat-flow-text,
+[data-density='compact'] .chat-md + .chat-flow-text,
+[data-density='compact'] .chat-flow-text + .chat-md {
+  margin-top: 10px;
+}
+
+[data-density='compact'] .chat-md-body p + p {
+  margin-top: 10px;
+}
+
+[data-density='compact'] .chat-md-body {
+  line-height: 1.55;
+}
+
+/* Jump-to-latest: a floating round button pinned to the bottom-right of
+   the message viewport (sticky inside the scroll container, so it never
+   rides the content). Appears once the reader scrolled away from the
+   bottom; the badge counts messages that arrived while away. */
+.chat-jump-latest {
+  position: sticky;
+  bottom: 12px;
+  align-self: flex-end;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  /* Same press-vs-selection guard as the turn handle: a held press on the
+     round button must still count as a tap. */
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  animation: chat-jump-in 160ms ease-out;
+}
+.chat-jump-latest:active {
+  transform: scale(0.92);
+}
+/* New messages arrived while away: pulse the button to draw the eye. */
+.chat-jump-latest-hot {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: chat-jump-in 160ms ease-out, chat-jump-pulse 1.6s ease-in-out infinite;
+}
+.chat-jump-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+@keyframes chat-jump-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes chat-jump-pulse {
+  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
+  50% { box-shadow: 0 2px 18px var(--accent-soft, rgba(124, 108, 255, 0.45)); }
+}
+
+/* Font-size preference: 小 / 标准 / 大。三档是 13 / 15 / 18px —— 原先 14/15/16.5
+   只差 1px，等于没做（实测反馈看不出）。同时覆盖气泡与助手正文：只改 .chat-msg
+   的话，助手那种长回复的字号根本不变。 */
+[data-font-scale='small'] .chat-msg,
+[data-font-scale='small'] .chat-md-body,
+[data-font-scale='small'] .chat-flow-text,
+[data-font-scale='small'] .chat-think-body {
+  font-size: 13px;
+}
+
+[data-font-scale='large'] .chat-msg,
+[data-font-scale='large'] .chat-md-body,
+[data-font-scale='large'] .chat-flow-text,
+[data-font-scale='large'] .chat-think-body {
+  font-size: 18px;
+}
+
+/* Message bubbles — the large-card tier. */
+.chat-msg {
+  max-width: 85%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border-radius: var(--radius-card);
+  font-size: var(--text-base);
+  font-weight: 400;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* 入场动画只给「第一次出现的行」。
+ *
+ * 打开会话时是"先粗后细"两轮提交：第一轮的行还没有 turn/step（key 退化成 id），
+ * 事件折完之后 key 变成 turn.step 组合键 —— React 于是把整屏行卸了重挂（实测
+ * 113/114 行 remount），动画挂在 .chat-msg 上就跟着重播一遍，肉眼是「一打开会话
+ * 正文闪一下」（2026-10-30 真机）。键变了没法避免重挂，但重挂不该重播动画。
+ */
+.chat-msg:not(.chat-msg-no-enter) {
+  animation: msg-in 0.18s ease both;
+}
+
+/* 消息正文长按走自定义菜单（编辑/复制/引用）；同时允许长按选字——一旦产生
+   选区，ChatView 的 openCtxFromTarget 会让位给系统（局部复制优先），不弹
+   自定义菜单。代码块/diff 仍允许选择复制。
+   另外把 * 上禁掉的 touch-callout 在这些块里放开：iOS 长按选字后要能看到系统那个
+   "拷贝/查询"气泡，否则只能拖手柄、拿不到复制入口。 */
+.chat-msg-text,
+.chat-msg-plain,
+.chat-md-body,
+.chat-flow-text,
+.chat-think-body,
+.chat-tool-args {
+  min-width: 0;
+  max-width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}.code-block pre{
+  min-width: 0;
+  max-width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.chat-msg-user {
+  align-self: flex-end;
+  width: auto;
+  max-width: 85%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 3px var(--accent-glow);
+}
+
+/* 消息图片：0.1.5 起事件只带 attachmentId 引用，字节由 mobile.readAttachment
+   按需取（见 attachment-images.ts）。缩略图固定上限高度，含图的行才不会把
+   窗口化的高度估算撑爆；点一下由 ChatView 的滚动点击开全屏。 */
+.chat-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* 消息里的文件附件（桌面端文件卡片的手机版）：一条一枚，图标 + 名字 + 扩展名·大小。
+   比图片组更宽：文件名要能读出来，所以整行铺开、名字可截断。 */
+.chat-msg-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chat-msg-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.chat-msg-file-glyph {
+  flex: none;
+  color: var(--accent, #4f7cff);
+}
+
+.chat-msg-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.chat-msg-file-meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.chat-msg-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 260px);
+  max-height: 220px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--fill);
+}
+
+.chat-msg-image-placeholder {
+  min-width: 128px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-default);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted, #888);
+  font-size: 12px;
+}
+
+.chat-msg-image-failed {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Assistant messages are full-width flat rows (Kimi-style, no bubble):
+   the visual hierarchy comes from the content itself — code-block and
+   diff cards, headings, blockquotes — not from a card frame around the
+   whole message. Only user messages keep a light bubble. */
+.chat-msg-assistant {
+  align-self: stretch;
+  width: auto;
+  max-width: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.chat-msg-failed {
+  border-color: var(--danger);
+}
+
+.chat-msg-failtag {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-chip);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.chat-msg-maxtokens {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning, #e69641);
+  border-radius: var(--radius-card, 8px);
+  background: color-mix(in srgb, var(--warning, #e69641) 10%, transparent);
+  color: var(--warning, #e69641);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.chat-msg-time {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-quaternary);
+  font-size: var(--text-xs);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slash-command result card (command/run + command/done fold): a centered
+   narrow strip, desktop-parity with the conversation command node. */
+.chat-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  width: calc(100% - 32px);
+  margin: 6px auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-chip);
+  background: var(--card-bg);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  /* The command line and its output are agent/user text and can carry a path
+     or a URL: wrap a lone token so this flex row cannot widen the viewport. */
+  overflow-wrap: anywhere;
+}
+
+.chat-command-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.chat-command-result {
+  color: var(--text-tertiary);
+  min-width: 0;
+}
+
+.chat-command-error .chat-command-result {
+  color: var(--danger);
+}
+
+.chat-msg-user .chat-msg-time {
+  color: rgba(255, 255, 255, 0.6);
+  text-align: right;
+}
+
+.chat-msg-toggle {
+  display: block;
+  margin-top: 8px;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.chat-msg > .chat-msg-text,
+.chat-msg > .chat-md,
+.chat-msg > .chat-msg-plain {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  writing-mode: horizontal-tb;
+  direction: ltr;
+}
+
+.chat-md {
+  white-space: normal;
+}
+
+/* 流式中纯文本（不做 markdown 渲染，减少 CPU） */
+.chat-msg-plain {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* 只裁正文容器（.chat-md-body），「展开全文」按钮是它的兄弟节点，永远可点。 */
+.chat-md-body.chat-md-collapsed {
+  max-height: 45vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.chat-md-body.chat-md-collapsed::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  background: linear-gradient(transparent, var(--card-bg));
+  pointer-events: none;
+}
+
+/* Paragraph rhythm, margin-top based. margin-bottom is deliberately NOT
+   used: paragraphs live inside .md-html runs and a run usually holds a
+   single <p>, so any "last paragraph" / :last-child rule matches EVERY
+   paragraph and zeroes the whole rhythm. Spacing therefore only exists
+   BETWEEN two adjacent paragraphs (16px) and before/after component
+   cards (12px); the message row gap owns the tail spacing. */
+.chat-md-body p { margin: 0; }
+.chat-md-body p + p { margin-top: 16px; }
+/* While a turn streams, the open tail lives in its own .md-html run next
+   to the stable run(s); a blank line between two paragraphs then splits
+   them across runs and the p + p rule above stops matching — the gap
+   would collapse to 0 while streaming and pop to 16px the moment the
+   tail closes into the same run. Keep the same rhythm across runs. */
+.chat-md .md-html + .md-html { margin-top: 16px; }
+/* A flow splits one message into several MarkdownText bodies (tool calls
+   interleave text runs): adjacent bodies must keep the same paragraph
+   rhythm, or the paragraph gap collapses to 0 the moment a tool lands.
+   The MarkdownText root is .chat-msg-text.chat-md (the .chat-md-body is
+   its inner wrapper), so the sibling rhythm lives on .chat-md edges. Flow
+   rows wrap each text run in a <div data-step-seq class="chat-flow-text">,
+   so the selector must also match the wrapper — otherwise adjacent runs
+   collapse to 0 while streaming. */
+.chat-md + .chat-md,
+.chat-flow-text + .chat-flow-text,
+.chat-md + .chat-flow-text,
+.chat-flow-text + .chat-md { margin-top: 16px; }
+/* Paragraph → code/diff card: the card is a sibling of the .md-html run
+   (not of the <p> inside it), so the gap lives on the run boundary. */
+.chat-md .md-html + .code-block,
+.chat-md .md-html + .diff-block { margin-top: 12px; }/* Text run → diff artifact card (and back): FlowBody renders the card as a
+   sibling of the .chat-md runs, leaving the card glued to the text. Flow rows wrap each
+   text run in a <div data-step-seq class="chat-flow-text">, so the sibling
+   selector must match both the bare .chat-md and the .chat-flow-text wrapper
+   — otherwise the card glues to the text (gap collapses to 0). */
+.chat-md + .chat-artifact, .chat-flow-text + .chat-artifact{ margin-top: 12px; }
+.chat-artifact + .chat-md,
+.chat-artifact + .chat-flow-text,
+.chat-proc + .chat-md,
+.chat-proc + .chat-flow-text,
+.chat-command + .chat-md,
+.chat-command + .chat-flow-text,
+.chat-trigger + .chat-md,
+.chat-trigger + .chat-flow-text { margin-top: 12px; }
+/* Soft line breaks (single-\n markdown lists, agent status lines) render as
+   <br /> inside a paragraph: give each a small air gap, or consecutive
+   single-line writes read as one dense block. */
+.chat-md-body p br {
+  display: block;
+  content: '';
+  margin-top: 6px;
+}
+/* In-body thinking folds ride the message tail as a quiet footnote. */
+.chat-md-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: 12px;
+}
+.chat-md-notes .chat-disclosure {
+  margin: 0;
+}
+.chat-md-body h1, .chat-md-body h2, .chat-md-body h3,
+.chat-md-body h4, .chat-md-body h5, .chat-md-body h6 {
+  margin: 12px 0 6px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.chat-md-body h1 { font-size: 1.35em; }
+.chat-md-body h2 { font-size: 1.25em; }
+.chat-md-body h3 { font-size: 1.15em; }
+.chat-md-body h4, .chat-md-body h5, .chat-md-body h6 { font-size: 1.05em; }
+.chat-md-body code {
+  font-family: var(--font-mono);
+  font-size: 0.88em; /* ≈13px at the default 15px message size */
+  background: var(--bg-elevated);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: none;
+  box-shadow: none;
+}
+.chat-md-body ul, .chat-md-body ol { margin: 6px 0 10px; padding-left: 20px; }
+.chat-md-body li { margin: 3px 0; }
+.chat-md-body blockquote {
+  margin: 10px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 var(--radius-chip) var(--radius-chip) 0;
+  color: var(--text-secondary);
+}
+.chat-md-body table {
+  margin: 8px 0;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  font-size: var(--text-md);
+}
+.chat-md-body th, .chat-md-body td {
+  border: 1px solid var(--border-default);
+  padding: 6px 10px;
+}
+.chat-md-body th { background: var(--fill); font-weight: 500; text-align: left; }
+.chat-md-body a { color: var(--accent); }
+.chat-md-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 10px 0; }
+.chat-md-body img { max-width: 100%; border-radius: var(--radius-chip); }
+/* 正文里的本地图（agent 引用的工作区文件）：markdown 只带 data-local-src，
+   挂载后经 mobile.readFile 取回 data URL 再填 src（见 local-images.ts）。
+   取回前先占住尺寸，避免整段文字在图片到达时跳一下；取不回时给出可见的
+   失败态，而不是让浏览器渲染一个破图图标。 */
+.chat-md-body img.md-local-img {
+  display: block;
+  min-width: 96px;
+  min-height: 56px;
+  background: var(--fill);
+  border: 1px dashed var(--border-subtle);
+}
+.chat-md-body img.md-local-img[data-local-state='loading'] {
+  /* 内容尚未到达：占位框不显示 alt 文字被浏览器裁断的碎片。 */
+  color: transparent;
+}
+.chat-md-body img.md-local-img[data-local-state='loaded'] {
+  border: none;
+}
+.chat-md-body img.md-local-img[data-local-state='failed'] {
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 10px;
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+}
+/* 文档/消息正文里的超长路径（无空格的连续 token）必须在文本 run 处可折，
+   否则它会把消息或文件预览（.fp-md 没有 .chat-msg 祖先，继承不到任何
+   overflow-wrap）撑出屏幕、整屏横向漂移。作用域限定在 .md-html 文本 run：
+   代码块与 diff 卡是它的兄弟段（不是后代），横向滚动语义不受影响；而
+   .code-block/.diff-block 用 min-width: max-content / overflow-x 自行处理
+   长行。anywhere 而不是 break-word：只有 anywhere 会压低内容的 min-content
+   尺寸，flex 布局下 break-word 并不会阻止 flex 项被长 token 撑宽。 */
+.chat-md-body .md-html {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.chat-md-body .md-html p,
+.chat-md-body .md-html li,
+.chat-md-body .md-html blockquote,
+.chat-md-body .md-html th,
+.chat-md-body .md-html td {
+  min-width: 0;
+}
+

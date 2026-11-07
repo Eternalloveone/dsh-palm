@@ -1,0 +1,116 @@
+/* ── D1 turn scrubber ──────────────────────────────────────────────────
+   Docks above the composer while the turn handle is held: target turn +
+   prompt on one line, the response preview beneath it, then a full-width
+   rail carrying one tick per turn and a knob at the pointed turn. The
+   gesture runs on the handle (which owns the pointer capture), so the card
+   itself stays pointer-inert and never steals the drag. */
+.turn-scrub {
+  margin: 8px 16px 0;
+  padding: 10px 14px 9px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  animation: chat-jump-in 160ms ease-out;
+  pointer-events: none;
+}
+.turn-scrub-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.turn-scrub-num {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.turn-scrub-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.turn-scrub-sub {
+  margin-top: 1px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The track is taller than the rail so the knob has room to sit proud. */
+.turn-scrub-track {
+  position: relative;
+  height: 26px;
+  margin-top: 6px;
+}
+.turn-scrub-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill);
+}
+.turn-scrub-fill {
+  position: absolute;
+  left: 0;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+/* 已加载的那一段：滑条轴按宿主全量轮次算，可手机只加载了尾部，没这一段
+   就是一片空白，用户不知道能往哪拖。 */
+.turn-scrub-loaded {
+  position: absolute;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.turn-scrub-tick {
+  position: absolute;
+  top: 9px;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--border-default);
+}
+.turn-scrub-tick-at {
+  background: var(--text-secondary);
+}
+.turn-scrub-knob {
+  position: absolute;
+  top: 2px;
+  width: 22px;
+  height: 22px;
+  /* 两端收进轨道内：纯百分比会让滑块有一半悬在卡外面。
+     位置由行内样式按当前轮次给（--knob-pct），这里的默认值让变量有定义。 */
+  --knob-pct: 0%;
+  left: clamp(11px, var(--knob-pct), calc(100% - 11px));
+  margin-left: -11px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 3px solid var(--accent);
+}
+.turn-scrub-hint {
+  margin-top: 3px;
+  font-size: var(--text-sm);
+  color: var(--text-quaternary);
+}
+/* Held: the handle reads as the live scrub control. */
+.chat-jump-turns-live {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+

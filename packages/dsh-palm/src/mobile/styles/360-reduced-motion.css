@@ -1,0 +1,55 @@
+/* ── reduced motion ──────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-fwd,
+  .page-exit-fwd,
+  .page-enter-back,
+  .page-exit-back,
+  .mobile-back,
+  .mobile-theme-toggle,
+  .mobile-iconbtn,
+  .mobile-headerAction,
+  .mobile-quickchip,
+  .mobile-row,
+  .mobile-createCard,
+  .mobile-button,
+  .mobile-button-muted,
+  .mobile-new,
+  .chat-send,
+  .chat-chip,
+  .chat-msg,
+  .chat-msg-toggle,
+  .chat-load-older,
+  .chat-disclosure-head,
+  .chat-disclosure-caret,
+  .chat-disclosure-body,
+  .sess-dot-running,
+  .boot-dot,
+  .skel,
+  .toast,
+  .ctx-menu,
+  .dialog,
+  .sheet-backdrop,
+  .sheet,
+  .sheet-option,
+  .sheet-confirm-danger,
+  .settings-switch::after,
+  .sheet-toggle-switch-knob,
+  .chat-input,
+  .chat-turn-dots span,
+  .settings-themeOption,
+  .settings-optionChip {
+    animation: none;
+    transition: none;
+  }
+
+  /* Nothing animates in this branch, so there is no transition to watch: drop
+     the stacked leaving page instead of keeping it mounted. It is an opaque,
+     absolutely positioned full-stage overlay, so leaving it in the tree hid the
+     entering page for the whole 260ms window and then popped it into view when
+     it unmounted - reported from iOS Safari with Reduce Motion on (#10). */
+  .page-exit-fwd,
+  .page-exit-back {
+    display: none;
+  }
+}

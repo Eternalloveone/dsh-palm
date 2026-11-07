@@ -1,0 +1,220 @@
+/* ── in-body think blocks ─────────────────────────────────────────────
+   The interactive message body mounts the shared ReasoningDisclosure
+   (chat-disclosure chrome: #16161f bg, 10px radius, 36px collapsed row,
+   5 visible lines) — no extra CSS. These rules only fix the native
+   <details> chrome used by the static string renderer on top of the same
+   classes: hide the summary marker and rotate the caret when open. */
+
+details.think-block,
+details.think-block .chat-disclosure-head {
+  list-style: none;
+}
+
+details.think-block summary::-webkit-details-marker {
+  display: none;
+}
+
+details.think-block summary {
+  cursor: pointer;
+}
+
+details.think-block[open] .chat-disclosure-caret {
+  transform: rotate(180deg);
+}
+
+/* Long-token fallback for every multi-line text container: unwrapped
+   paths/URLs (Windows drives, command lines, service endpoints) wrap
+   anywhere instead of overflowing the row and drifting the layout. */
+.settings-note,
+.settings-fieldDesc,
+.sheet-option-desc,
+.mobile-error,
+.empty-desc,
+.mobile-muted,
+.settings-inboxRow .card-desc {
+  overflow-wrap: anywhere;
+}
+
+/* Search result notes (truncation / scope hints). */
+/* 搜索命中高亮：底色只用强调色的淡版，文字颜色保持不变，避免整行花掉。 */
+.mobile mark {
+  background: var(--accent-soft);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+/* 「加载更多结果」：整行点击区，和列表行一样高，手指好按。 */
+/* 会话内搜索条：夹在头部和聊天区之间，一行放输入 + 记数 + 上/下一个 + 关闭。 */
+.chat-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.chat-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chat-search-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.chat-search-count {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.search-more {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 8px 16px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.search-more:active {
+  background: var(--accent-soft);
+}
+.search-hitsNote {
+  margin: 0;
+  padding: 4px 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+/* 首页搜索结果的一行：会话名命中和「消息」命中都是这一种行，正文命中多一行摘要；
+   键盘上下键选中的那一行给一圈内描边（不换背景，避免和按压态打架）。 */
+.search-hitRow {
+  align-items: flex-start;
+}
+.search-hitRow-active {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  border-radius: 12px;
+}
+.search-hitBadge {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+.search-hitNote {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+/* 方案 C：命中段落。摘要只有一个窗口宽，看不出是哪句话命中；段落直接给三行。
+   换行保留（段落本来就是多行正文），超出三行截断并给省略号。 */
+.card-desc.search-hitPara {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  line-height: 18px;
+}
+/* 搜索中的骨架：三行灰条，比一句「正在搜索…」更能说明"结果正在填进来"。 */
+.search-skeletonRow {
+  display: block;
+  padding: 12px 16px;
+}
+.search-skeletonLine {
+  display: block;
+  height: 11px;
+  margin: 5px 0;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-default) 50%, var(--bg-input) 75%);
+  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
+}
+.search-skeletonLine-thin {
+  height: 9px;
+}
+
+/* Focus-locate highlight: a one-shot ring pulse on the located row.
+   只用 box-shadow，**绝不碰 background-color**：.chat-msg-focus 带
+   animation-fill-mode: forwards，动画写到 100% 的 background-color: transparent 会
+   永久覆盖 .chat-msg-user 的强调色底——气泡变透明、而 color 仍是白字，浅色模式下
+   整段看不见（真机截图就是这个）。描边不会改底色，安全。 */
+@keyframes dshPalmFocusPulse {
+  0% {
+    box-shadow:
+      inset 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  70% {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 14px 2px color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 2px transparent,
+      0 0 0 0 transparent;
+  }
+}
+
+/* 真机反馈「搜索命中之后没有高亮」：底色脉冲在气泡里看不见（气泡自己有底），
+   所以补一圈内描边并把保持时间拉长到 3.2s；词级 <mark> 由 focusedQuery 负责。 */
+.chat-msg-focus {
+  animation: dshPalmFocusPulse 3.2s ease-out forwards;
+}
+
+/* 定位落点的词级高亮。两个坑：
+   1) 用户气泡是强调色底 + 白字（.chat-msg-user），半透明紫底叠上去等于白字白底，
+      浅色模式下整个词看不见 —— 气泡内必须反相（白底深字）。
+   2) 代码块的 token 自带内联 color，继承不到主题正文色，也要显式压回正文色。
+   用 .mobile 提一级特异性，避免被上面 .mobile mark 的 background 盖掉。 */
+.mobile .chat-search-mark {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 26%, var(--bg-elevated));
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+.mobile .chat-msg-user .chat-search-mark {
+  color: #1a1a2e;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.mobile .chat-md pre .chat-search-mark,
+.mobile .chat-md code .chat-search-mark {
+  color: var(--text-primary) !important;
+}
+
+/* Settings-search locate: the anchored sub-page entry pulses once on
+   arrival, so the user sees which control the search found. */
+[data-locate-id][data-focus] {
+  animation: dshPalmFocusPulse 2.2s ease-out forwards;
+}
+

@@ -1,0 +1,56 @@
+/* ── skeleton loading (gradient shimmer, no spinners) ────────────────── */
+
+.skel {
+  border-radius: var(--radius-chip);
+  background: linear-gradient(90deg, var(--fill) 25%, var(--fill-strong) 50%, var(--fill) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Skeleton rows mirror the real card tiers (72px medium / 56px small). */
+.skel-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: var(--space-3);
+  height: 72px;
+  margin: 0 16px 8px;
+  padding: 0 16px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+}
+
+.skel-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.skel-lines {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skel-line-title {
+  height: 14px;
+  width: 52%;
+}
+
+.skel-line-sub {
+  height: 11px;
+  width: 78%;
+  border-radius: var(--radius-chip);
+}
+

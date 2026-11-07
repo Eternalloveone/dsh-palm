@@ -1,0 +1,318 @@
+/* ── approval / question panels ──────────────────────────────────────── */
+
+/*
+ * Both panels print agent-supplied text: a tool id full of underscores, a
+ * workspace path, a git ref, a command inside an approval reason. One long
+ * unbreakable token used to set a flex item's min-content width, which widened
+ * the whole chat column past the viewport and drifted the page sideways.
+ * overflow-wrap: anywhere is inherited by every child and — unlike break-word —
+ * it also lowers the min-content size, which is exactly what a flex item's
+ * automatic minimum looks at. The rows carry min-width: 0 so the guard survives
+ * a child that resets the property.
+ */
+.chat-approval-panel,
+.chat-question-panel {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.chat-approval-header,
+.chat-approval-reason,
+.chat-question-option,
+.chat-question-option-label,
+.chat-question-option-desc {
+  min-width: 0;
+}
+
+/* 「将要执行什么」：等宽、两行封顶。审批卡片不能因为一条长命令把整页顶宽。 */
+.chat-approval-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-chip);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The header is a row: a long reason drops onto its own line, and a long tool
+   id wraps inside the pill instead of forcing the row wider than the screen. */
+.chat-approval-header {
+  flex-wrap: wrap;
+}
+
+.chat-approval-header .chat-tool-pill {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.chat-approval-panel {
+  margin: 4px 0;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.chat-approval-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 10px;
+}
+
+.chat-approval-reason {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.chat-approval-error {
+  margin: 4px 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+/* F2: the host classifies the tool; the judgement must be visible BEFORE the
+   buttons (a bash card must not look like a read_file card). */
+.chat-risk-pill {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11.5px;
+}
+
+.chat-risk-read {
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+.chat-risk-write {
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.chat-risk-exec {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.chat-risk-install {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.chat-approval-expand {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+}
+
+.chat-approval-args {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 40vh;
+  overflow: auto;
+  border-radius: var(--radius-chip);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-approval-allow-holding {
+  filter: brightness(0.92);
+}
+
+.chat-approval-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chat-approval-allow {
+  flex: 1;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.chat-approval-allow:active {
+  transform: scale(0.98);
+  filter: brightness(1.08);
+}
+
+.chat-approval-allow:disabled {
+  opacity: 0.6;
+  transform: none;
+}
+
+.chat-approval-reject {
+  flex: 1;
+  height: 44px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+.chat-approval-reject:active {
+  transform: scale(0.98);
+  background: var(--fill);
+}
+
+.chat-approval-reject:disabled {
+  opacity: 0.6;
+  transform: none;
+}
+
+.chat-question-panel {
+  margin: 4px 0;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-question-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-question-header {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.chat-question-text {
+  font-size: var(--text-md);
+  font-weight: 400;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.chat-question-detail {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.chat-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: var(--text-md);
+  transition: border-color 0.12s ease, background-color 0.12s ease, transform 0.1s ease;
+}
+
+.chat-question-option:active {
+  transform: scale(0.98);
+}
+
+.chat-question-option input {
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.chat-question-option-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chat-question-option-label {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.chat-question-option-desc {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.chat-question-custom {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.chat-question-custom:focus-visible {
+  border-color: var(--border-focus);
+}
+
+.chat-question-submit {
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.chat-question-submit:active {
+  transform: scale(0.98);
+  filter: brightness(1.08);
+}
+
+.chat-question-submit:disabled {
+  opacity: 0.6;
+  transform: none;
+}
+

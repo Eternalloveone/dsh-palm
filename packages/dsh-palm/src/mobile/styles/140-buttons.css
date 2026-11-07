@@ -1,0 +1,216 @@
+/* ── buttons ─────────────────────────────────────────────────────────── */
+
+.mobile-button {
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease, border-color 0.1s ease;
+}
+
+.mobile-button:active {
+  transform: scale(0.98);
+  background: var(--fill);
+  border-color: var(--border-focus);
+}
+
+.mobile-button:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+
+.mobile-block {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 4px 16px;
+}
+
+.mobile-new {
+  display: block;
+  width: calc(100% - 32px);
+  height: 48px;
+  margin: 0 16px;
+  border: none;
+  border-radius: var(--radius-card);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--accent-glow);
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.mobile-new:active {
+  transform: scale(0.98);
+  filter: brightness(1.1);
+}
+
+.mobile-new:disabled {
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+/* F1 session filters: horizontally scrollable chip row under the header.
+   Chips are 32px tall visuals inside a 44px hit area (padding), because the
+   mobile rule is "visual may be small, tappable must not be". */
+.sess-filters {
+  display: flex;
+  gap: 8px;
+  padding: 6px 16px 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.sess-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.sess-chip {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 999px;
+  background: var(--bg-surface, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm, 13px);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sess-chip-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+  font-weight: 500;
+}
+
+.mobile-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.mobile-pad {
+  padding: 8px 16px;
+}
+
+.mobile-create {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.mobile-preset {
+  display: grid;
+}
+
+/* Agent-mode selector card (small-card tier): custom trigger + "?" hint.
+ * The trigger opens a bottom-sheet option list (no native select popup). */
+.mobile-presetCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px 48px;
+  align-items: center;
+  column-gap: var(--space-1);
+  margin: 0 16px 8px;
+  min-height: 56px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.mobile-presetTrigger {
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 0 8px 16px;
+  display: flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.mobile-presetTrigger:active {
+  background: var(--fill);
+}
+
+.mobile-presetTrigger:disabled {
+  opacity: 0.6;
+}
+
+.mobile-presetTriggerCopy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-presetTriggerTitle {
+  font-size: var(--text-base);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-presetTriggerDesc {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-presetCaret {
+  pointer-events: none;
+  color: var(--text-quaternary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.mobile-presetHelp {
+  width: 48px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.mobile-presetHelp svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mobile-presetHelp:active {
+  background: var(--fill);
+}
+
+.mobile-presetHelp:disabled {
+  opacity: 0.4;
+}
+

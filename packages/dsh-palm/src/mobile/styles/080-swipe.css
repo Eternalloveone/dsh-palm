@@ -1,0 +1,334 @@
+/* ── swipe-to-delete wrapper ────────────────────────────────────────────
+   The row lives inside a swipe wrapper: a left swipe translates the inner
+   (row) left to reveal the delete action behind it. The wrapper owns the
+   card's margin/radius; the row inside drops its own so the reveal edge
+   stays flush. The translate lives on the inner (not the row) so the row's
+   :active press-scale never fights the swipe offset. */
+.mobile-row-swipe {
+  position: relative;
+  /* 与会话卡片的 12px 内缩对齐（见 .mobile-row），否则滑动露出层会错边。 */
+  margin: 0 12px 8px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.mobile-row-swipe .mobile-row {
+  margin: 0;
+  width: 100%;
+  border-radius: 0;
+}
+.mobile-row-swipe-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+}
+.mobile-row-swipe-inner {
+  transition: transform 0.2s ease;
+}
+.mobile-row-swipe-inner.swiped {
+  transform: translateX(-80px);
+}
+
+/* 按压态：滑动行的正后方就是那条常驻的红色删除按钮（.mobile-row-swipe-action），
+   而全局的 .mobile-row:active 会把卡片缩到 98%——右缘于是漏出一条红边，每一次
+   点击都闪一下，看起来像"删除按钮冒出来了"（见 swipe-active-probe 探针）。这里
+   只取消缩放，保留上文的变亮/描边按压反馈。 */
+.mobile-row-swipe .mobile-row:active {
+  transform: none;
+}
+
+/* iOS 主屏安装提示（设置 → 设备，见 ios-install-hint.tsx）：一行说明 + 一个小
+   按钮，只在 iOS Safari 且尚未装到主屏时出现。 */
+.settings-installHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* 「知道了」：40x24 摸着太费劲（审计实测），给到 32px 高 */
+.settings-installHint-btn {
+  min-height: 32px;
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+/* 上报性能数据（设置 → 通用，见 perf-report.tsx）：两个小按钮并排。 */
+.settings-perfActions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Icon zone: a fixed 48px column; the icon itself is 40px. */
+.card-icon,
+.ws-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-icon > *,
+.ws-icon > * {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.ws-icon svg,
+.card-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+/* Icon tints per project kind. */
+.ws-icon-active > * {
+  background: color-mix(in srgb, var(--positive) 15%, transparent);
+  color: var(--positive);
+}
+
+.ws-icon-code > * {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Content zone. */
+.card-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 12px 0;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.card-titleText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-subtitle {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-desc {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right action zone: right-aligned, min 48px, always in the same place.
+   会话行只放一个箭头，宽度由 .mobile-row-sess 收到 24px。 */
+.card-action {
+  min-width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.card-badge {
+  padding: 4px 10px;
+  border-radius: var(--radius-chip);
+  background: var(--bg-elevated);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.mobile-chevron {
+  flex: none;
+  color: var(--text-quaternary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Legacy column layout still used by a few stacked rows (settings forms). */
+.mobile-rowMain {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 14px 0;
+}
+
+.mobile-rowBottom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mobile-rowTitle {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--text-base);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.mobile-rowMeta {
+  flex: 1;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+/* Active workspace: 3px accent rail + tinted icon. */
+.mobile-row-active {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border));
+}
+
+.mobile-row-active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+.ws-pin {
+  flex: none;
+  display: flex;
+  color: var(--warning);
+}
+
+.ws-pin svg {
+  width: 12px;
+  height: 12px;
+}
+
+.sess-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+}
+
+/* 状态点是 8px 的小圆，不是图标：.card-icon > * 会把直接子元素撑成 40px 的
+   圆角方块，运行中的绿点于是变成一个绿色大方块（真机反馈 2026-10-20）。这里用
+   两个类名的选择器压回去，勾选标记也一并放回自然尺寸（它本来没有底板）。 */
+.card-icon > .sess-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.card-icon > .sess-check {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+
+.sess-dot-running {
+  background: var(--positive);
+  animation: pulse 2s infinite ease-in-out;
+}
+
+/* Title line: the title owns the line and wraps instead of truncating.
+   日期与状态移到下一行的小字里（.sess-meta）：原来是"标题 · 日期"挤在一行，
+   标题被日期挤成一截加省略号，看不全会话名。 */
+.sess-titleline {
+  display: block;
+  min-width: 0;
+}
+
+.sess-title {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+/* 元信息行：状态徽标 + 时间，自动换行，不与标题抢宽度。 */
+.sess-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.sess-sep {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.sess-time {
+  /* 不可压缩：原来是 flex: 0 1 auto + min-width:0 + ellipsis，标题一长就把日期
+     挤成 "09-1…"（真机截图）。标题本来就该承担压缩（它已经显示成 "子代理状态展…"），
+     日期必须完整可读 —— 只读信息不该被省略号吃掉。 */
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
+}
+

@@ -1,0 +1,117 @@
+/* ── run-status strip + sheet (todo plan / background jobs) ───────────── */
+
+.chat-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 12px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-status-strip:active {
+  color: var(--text-primary);
+}
+
+.chat-status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--text-quaternary);
+}
+
+.chat-status-dot-live {
+  background: var(--accent);
+  animation: breathe 1.6s infinite ease-in-out;
+}
+
+.chat-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One content section inside the run-status sheet. */
+.chat-run-section {
+  padding: 2px 0 6px;
+}
+
+.chat-run-section + .chat-run-section {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 8px;
+  padding-top: 10px;
+}
+
+.chat-run-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+
+.chat-run-section-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chat-run-section-count {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-quaternary);
+}
+
+.chat-run-todo-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-run-todo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.chat-run-todo.chat-run-todo-completed .chat-run-todo-content {
+  color: var(--text-quaternary);
+  text-decoration: line-through;
+}
+
+.chat-run-todo-mark {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--text-quaternary);
+}
+
+.chat-run-todo.chat-run-todo-in_progress .chat-run-todo-mark {
+  color: var(--accent);
+}
+
+.chat-run-todo.chat-run-todo-completed .chat-run-todo-mark {
+  color: var(--positive);
+}
+
+.chat-run-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+

@@ -1,0 +1,129 @@
+/* ── centered confirm dialog ─────────────────────────────────────────── */
+
+.dialog-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sheet);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--backdrop);
+  animation: sheet-fade 0.18s ease;
+}
+
+.dialog {
+  width: min(100%, 340px);
+  padding: var(--space-5);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-menu);
+  background: var(--dialog-bg);
+  box-shadow: var(--shadow-lg);
+  animation: dialog-in 0.2s ease-out both;
+  /* A dialog title can be a workspace name or a path: wrap it rather than
+     letting it bleed past the fixed-width box. */
+  overflow-wrap: anywhere;
+}
+
+@keyframes dialog-in {
+  from {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.dialog-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.dialog-body {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.dialog-btn {
+  min-width: 72px;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+.dialog-btn:active {
+  transform: scale(0.98);
+  background: var(--fill);
+}
+
+.dialog-btn:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+
+.dialog-btn-primary {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.dialog-btn-primary:active {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+.dialog-btn-danger {
+  border: none;
+  background: var(--danger);
+  color: #fff;
+}
+
+.dialog-btn-danger:active {
+  background: var(--danger);
+  filter: brightness(1.08);
+}
+
+/* ≥16px: iOS zoom prevention on the prompt input. */
+.dialog-input {
+  width: 100%;
+  height: 44px;
+  margin: 0 0 16px;
+  padding: 0 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dialog-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+

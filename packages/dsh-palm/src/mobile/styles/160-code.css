@@ -1,0 +1,244 @@
+/* ── code blocks: 12px card, 40px head bar, action buttons, Shiki body ── */
+
+.code-block {
+  /* Top gap after a paragraph comes from .chat-md-body p + .code-block
+     (12px, margin collapse); between components the block keeps 12px. */
+  margin: 0 0 12px;
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-card);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: 40px;
+  padding: 0 16px;
+  background: var(--code-head-bg);
+  border-bottom: 1px solid var(--code-head-border);
+}
+
+.code-lang {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.code-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  /* 按钮从 32 抬到 40、间距从 2 抬到 8：代码块右上角那排（复制/插入/新标签/运行）
+     是手机上高频点击，32×32 实测只有拇指尖能点准（真机清单第 5 项）。
+     40 是折中：iOS 建议 44、安卓 48，但这排要塞进 390px 宽的代码头行，44×4 会挤掉语言名。 */
+  gap: 8px;
+}
+
+.code-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  /* 32×32 → 40×40：见 .code-actions 的说明（真机清单第 5 项，触摸目标）。
+     视觉只大一圈，但拇指命中率差别明显。 */
+  min-width: 40px;
+  height: 40px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.code-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.code-btn:active {
+  background: var(--fill);
+}
+
+@media (hover: hover) {
+  .code-btn:hover {
+    color: var(--text-primary);
+  }
+}
+
+.code-btn:disabled {
+  opacity: 0.5;
+}
+
+.code-btn-done {
+  color: var(--positive);
+}
+
+.code-btn-label {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.code-body-zone {
+  position: relative;
+}
+
+.code-body {
+  padding: 12px 16px;
+  overflow-x: auto;
+  /* 长行能横滑，但滚动条被藏起来时用户根本不知道这里能滑：给一条 3px 的细条。 */
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.code-body::-webkit-scrollbar {
+  height: 3px;
+}
+
+.code-body::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+/* Folded long blocks clamp to ~15 lines; the mask fades the cut edge. */
+.code-body-folded {
+  max-height: calc(15 * 1.6 * 13px + 24px);
+  overflow-y: hidden;
+}
+
+.code-fold-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  background: linear-gradient(transparent, var(--code-bg));
+  pointer-events: none;
+}
+
+.code-fold-btn {
+  display: block;
+  width: 100%;
+  height: 36px;
+  border: none;
+  border-top: 1px solid var(--code-border);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.code-fold-btn:active {
+  background: var(--fill);
+}
+
+.code-block pre {
+  margin: 0;
+  background: transparent;
+  color: var(--code-text);
+  border-radius: 0;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-block pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Lightweight highlighter tokens (github-dark/light palette parity): the
+   tokenizer emits .tok-* spans; the palette picks the active color, so a
+   theme switch is a pure CSS flip with the 300ms transition above. */
+.code-body .tok-keyword { color: var(--tok-keyword); }
+.code-body .tok-string { color: var(--tok-string); }
+.code-body .tok-comment { color: var(--tok-comment); }
+.code-body .tok-number { color: var(--tok-number); }
+.code-body .tok-type { color: var(--tok-type); }
+.code-body .tok-func { color: var(--tok-func); }
+.code-body .tok-prop { color: var(--tok-prop); }
+/* Highlighted HTML fades in (150ms) once the async Shiki render lands. */
+.code-fade {
+  animation: code-fade-in 0.15s ease both;
+}
+
+@keyframes code-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Optional line numbers (settings toggle): a 40px right-aligned gutter
+   with a 1px divider, over both the plain fallback and Shiki line spans. */
+.code-line {
+  display: block;
+}
+
+.shiki .line {
+  display: block;
+}
+
+.code-block pre {
+  counter-reset: code-line;
+}
+
+[data-line-numbers='1'] .code-line::before,
+[data-line-numbers='1'] .shiki .line::before {
+  content: counter(code-line);
+  counter-increment: code-line;
+  display: inline-block;
+  width: 40px;
+  margin-right: 12px;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+/* Sandbox run output (bash / python blocks). */
+.code-run {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.code-run-ok {
+  color: var(--positive);
+}
+
+.code-run-error {
+  color: var(--danger);
+}
+

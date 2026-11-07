@@ -1,25 +1,16 @@
 /**
- * Mobile surface stylesheet, compiled to a standalone CSS file at build time
- * (scripts/build-css.mjs → lib/mobile/app.css) and loaded by the page's
- * <link>; it is no longer injected as a <style> at boot.
+ * 手机端样式表（**自动生成，勿手改**）。
  *
- * Token 部分（调色板 + 层级/字体/圆角/间距/字阶）已搬到 design/tokens.ts，
- * 这里只保留组件样式；不要在下方手写 `--var` 定义。
+ * 真源：`src/mobile/styles/*.css`（按文件名排序拼接）。
+ * 重新生成：`pnpm gen:css`；`pnpm build` 也会先跑一遍。
+ * 手改本文件会被 `mobile-styles.freshness.test.ts` 拦下。
  *
- * Design system (2026-08 v2): one token vocabulary (--bg-page / --card-bg /
- * --text-primary …), one unified card spec — width 100% of the 16px-inset
- * column, 14px radius, --card-bg/--card-border/--card-shadow, fixed height
- * tiers (small 56 / medium 72 / bubble min 48) — and one internal alignment
- * grid (48px icon zone · fluid text · ≥48px right action zone) shared by
- * every card. The light palette is the :root default; dark applies through
- * data-theme='dark' and through prefers-color-scheme when the mode is
- * 'system'. Radii: chip 10 / card 14 / sheet 20 / menu 12 / capsule 24.
+ * 构建期由 scripts/build-css.mjs 编译成 lib/mobile/app.css，页面用 <link> 引入。
+ * token（调色板 + 层级/字体/圆角/间距/字阶）在 design/tokens.ts。
  */
 
 import { designTokensCss } from './design/tokens.ts'
-
 export const mobileCss = `${designTokensCss()}
-
 /* ── base + mobile-browser hardening ─────────────────────────────────── */
 
 * {

@@ -1,0 +1,31 @@
+/* ── file-path links (host file opener) ───────────────────────────────── */
+
+.chat-md-body a.file-link {
+  /* 审计实测 189x16：正文里的文件链接太矮，点不中。上下各扩 8px 热区、
+     用负 margin 抵消，行高不变（否则正文会散）。 */
+  display: inline-block;
+  padding: 8px 2px;
+  margin: -8px 0;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  .chat-md-body a.file-link:hover {
+    text-decoration: underline;
+  }
+}
+
+.chat-md-body pre:not(.code-block pre):not(.diff-block pre) {
+  margin: 8px 0;
+  padding: var(--space-3);
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: 10px;
+  overflow-x: auto;
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+

@@ -1,0 +1,53 @@
+/* ── icon buttons (48px hot zones) ───────────────────────────────────── */
+
+.mobile-back,
+.mobile-theme-toggle,
+.mobile-iconbtn {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.mobile-back:active,
+.mobile-theme-toggle:active,
+.mobile-iconbtn:active {
+  background: var(--fill);
+  transform: scale(0.94);
+}
+
+.mobile-theme-toggle svg,
+.mobile-iconbtn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mobile-headerAction {
+  flex: none;
+  height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.mobile-headerAction:active {
+  background: var(--accent-soft);
+}
+

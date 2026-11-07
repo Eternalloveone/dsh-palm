@@ -1,0 +1,610 @@
+/* ── v2.1 increments: workspace tints / search morph / status semantics ──
+   / previews / reasoning clamp / quote bar / quick commands /
+   voice sheet / offline banner / settings feedback. Appended after the base
+   system so the established spec stays untouched. */
+
+/* Plain folder (workspace without sessions): gray tile. */
+.ws-icon-plain > * {
+  background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
+  color: var(--text-tertiary);
+}
+
+/* Empty-group placeholder card (72px tier, centered copy + 创建). */
+.mobile-empty-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: calc(100% - 32px);
+  margin: 0 16px 8px;
+  min-height: 72px;
+  border: 1px dashed var(--card-border);
+  border-radius: var(--radius-card);
+  color: var(--text-quaternary);
+  font-size: var(--text-md);
+}
+
+.mobile-empty-groupBtn {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  padding: 8px 10px;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+
+.mobile-empty-groupBtn:active {
+  background: var(--accent-soft);
+}
+
+/* Session-list header search morph (200ms) + its input. */
+.mobile-headerSearch {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  animation: search-morph 0.2s ease both;
+}
+
+@keyframes search-morph {
+  from {
+    opacity: 0;
+    transform: scaleX(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.mobile-headerSearchInput {
+  width: 100%;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-capsule);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mobile-headerSearchInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Session status semantics: running pulse + label, settled check. */
+.sess-status {
+  flex: none;
+  color: var(--positive);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.sess-check {
+  display: flex;
+  color: var(--text-quaternary);
+}
+
+.sess-check svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Reasoning clamp expander. */
+.chat-reasoning-more {
+  display: block;
+  width: 100%;
+  border: none;
+  border-top: 1px dashed var(--border-subtle);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 7px 12px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.chat-reasoning-more:active {
+  background: var(--fill);
+}
+
+/* Code pre keeps pinch-zoom transforms contained. */
+.code-block pre {
+  transition: transform 0.05s linear;
+  will-change: transform;
+}
+
+/* Message footer: the timestamp line. */
+.chat-msg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.chat-msg-footer .chat-msg-time {
+  flex: 1;
+}
+
+/* Regenerate affordance on the last settled assistant reply: ONE icon at the
+   right end of the timestamp line. The verb was dropped on purpose — on a phone
+   "重新生成" costs ~48px of a line that otherwise carries only a time, and this
+   is a utility, not a decision. The meaning lives in aria-label/title. The
+   negative vertical margins keep a 32px finger target from growing the row. */
+.chat-msg-regenerate {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -8px 0 -8px 4px;
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.chat-msg-regenerate:active {
+  background: var(--fill);
+  color: var(--accent);
+}
+
+/* 已发出：原地转圈并禁用，直到这一轮真的开跑（按钮随之被收走）。 */
+.chat-msg-regenerate-busy {
+  color: var(--accent);
+  cursor: default;
+}
+
+.chat-msg-regenerate-busy .chat-msg-regenerate-icon {
+  display: inline-block;
+  animation: chat-regenerate-spin 0.9s linear infinite;
+}
+
+/* 没发出去：变红，允许直接再点。 */
+.chat-msg-regenerate-failed {
+  color: var(--danger);
+}
+
+.chat-msg-regenerate-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+@keyframes chat-regenerate-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Pending-message queue dock (desktop QueueDock equivalent): the messages
+   queued while the current turn runs, floating above the model/permission row
+   — outside the composer box, so it reads as "what goes out next" rather than
+   as a part of the input field. */
+.queue-dock {
+  flex: none;
+  /* 宽度跟内容走时，三个按钮一撑就接近满宽，右边却仍按内容截断，于是这条和
+     下面的目标条/输入框左右都不齐（真机："布局怎么这么奇怪"）。现在它自己占满
+     可用宽度（与目标条同宽），文字左齐、按钮右齐，上下都是一条整齐的边。 */
+  align-self: stretch;
+  margin: 0 12px 4px;
+  /* 用户连着两轮说"还是太高"：外层 8→6→4px、行内 6→0、按钮 44→30px，
+     整条从 62px 压到 40px。左右仍留 12px，文字不贴自己的边框。 */
+  padding: 4px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+.queue-dockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.queue-dockCount {
+  color: var(--accent, #4f7cff);
+}
+.queue-dockChevron {
+  color: var(--text-tertiary);
+}
+.queue-dockList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* 只有一条的时候上面没有"N 条排队"那一行，6px 的顶间距就变成了一条空带：
+   整条卡片因此显得头重脚轻。第一条贴在顶边上。 */
+.queue-dock > .queue-dockList:first-child {
+  margin-top: 0;
+}
+.queue-dockRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 行内再铺一层不同的底色就等于"卡片套卡片"，真机上看是两层框。整条只留外层
+     底板，行本身透明；插话那条的左侧竖线仍然保留。 */
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+.queue-dockRow[data-placement='steering'] {
+  border-left: 2px solid var(--accent, #4f7cff);
+}
+.queue-dockText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.queue-dockActions {
+  flex: 0 0 auto;
+  display: flex;
+  /* 删除与插话相邻且只有 4px 间隔，误删不可撤销：把间距和命中区一起放大。 */
+  gap: 10px;
+}
+/* 插队条目（已经插进本轮）的小标签：和「排队中」区分开，别让用户以为它还在等。 */
+.queue-dockTag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.queue-dockBtn {
+  flex: none;
+  /* 用户两轮反馈"还是太高"：纵向收到 30px、横向留 40px，相邻间距加到 10px ——
+     靠间距而不是按钮自身的空白来兜住误点。整条因此从 62px 压到 40px，
+     和一条消息气泡差不多高。 */
+  min-height: 30px;
+  min-width: 40px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.queue-dockBtn-primary {
+  /* 主操作要在一行里被一眼认出来：实心强调色，不再是和编辑/删除同款的描边。 */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-color: transparent;
+  background: var(--accent, #4f7cff);
+  color: #fff;
+  font-weight: 600;
+}
+.queue-dockBtnIcon {
+  flex: none;
+}
+.queue-dockBtn:disabled {
+  opacity: 0.4;
+}
+.queue-dockEdit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.queue-dockInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+/* Offline / queued banner (32px, warning wash, slide-down). */
+.chat-offline-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 0 16px;
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  animation: banner-in 0.2s ease both;
+}
+
+@keyframes banner-in {
+  from {
+    transform: translateY(-32px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.chat-offline-retry {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+
+.chat-offline-retry:active {
+  background: var(--danger-soft);
+}
+
+/* Quote bar above the composer (3px accent rail, first 20 chars). */
+.chat-quote-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-chip);
+  background: var(--bg-elevated);
+  animation: quote-in 0.18s ease both;
+}
+
+@keyframes quote-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 已认领命令（桌面端 composer 里那颗 chip）：命令词一块蓝色，参数在输入框里。
+   排在与输入框同一行的中心线上，输入框长高时跟着垂直居中。 */
+.chat-command-chip {
+  flex: 0 1 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 40%;
+  margin-left: 4px;
+  padding: 3px 4px 3px 9px;
+  border-radius: calc(var(--radius-chip) + 4px);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+}
+
+.chat-command-chipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-command-chipClose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+}
+.chat-quote-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.chat-quote-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.chat-quote-close:active {
+  background: var(--fill);
+}
+
+/* Voice recording sheet: 200px, waveform bars, live transcript. */
+.voice-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-voice);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--backdrop);
+  animation: sheet-fade 0.18s ease;
+}
+
+/* 面板底部两个动作：取消在左、完成在右，取消是明确的可退出路径（以前只能点背景）。
+   注释里不用反引号和模板占位符，样式文件里那些字符会破坏模板字符串。 */
+.voice-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.voice-cancel {
+  min-width: 96px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.voice-sheet {
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  animation: sheet-up 0.3s ease-out both;
+}
+
+/* 录音快到 60 秒上限时的提醒：只变颜色和字重，不改字号（避免面板跳动）。 */
+.voice-text-warn {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* 实时字幕：说完一句就换一行，最多三行（再多会把录音按钮挤出屏幕）。 */
+.voice-text.voice-text-live {
+  /* 复合选择器是必须的：voice-text 是给"说一句话"的状态行写的（居中、单行、省略号），
+     两者同特异性且它在后，单写 voice-text-live 会被它的 nowrap 吃掉，字幕只剩一行被截断。 */
+  white-space: normal;
+  text-overflow: clip;
+  overflow: visible;
+  text-align: left;
+  max-height: 4.6em;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  -webkit-overflow-scrolling: touch;
+}
+
+.voice-wave {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 44px;
+}
+
+.voice-wave span {
+  width: 5px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  animation: voice-bar 1s ease-in-out infinite;
+}
+
+/* 有实时响度时：停掉固定动画，柱高跟着 --voice-level 走（每根柱子乘一个固定系数，
+   看起来才像波形而不是一条线）。拿不到响度时保持原来的动画。 */
+.voice-wave[data-live='1'] span {
+  animation: none;
+  transform: scaleY(calc((0.18 + var(--voice-level, 0.5) * 1.2) * var(--m, 1)));
+  transition: transform 0.1s linear;
+}
+
+.voice-wave span:nth-child(1) { --m: 0.8; animation-delay: 0s; }
+.voice-wave span:nth-child(2) { --m: 1.15; animation-delay: 0.12s; }
+.voice-wave span:nth-child(3) { --m: 1.3; animation-delay: 0.24s; }
+.voice-wave span:nth-child(4) { --m: 1.05; animation-delay: 0.36s; }
+.voice-wave span:nth-child(5) { --m: 0.7; animation-delay: 0.48s; }
+
+@keyframes voice-bar {
+  0%, 100% {
+    transform: scaleY(0.35);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1.25);
+    opacity: 1;
+  }
+}
+
+.voice-text {
+  max-width: 82vw;
+  min-height: 22px;
+  color: var(--accent);
+  font-size: 14px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-done {
+  /* 44px 是拇指能稳稳按到的下限；40px 在真机上要低头瞄准，而且这是录音结束时唯一的出口。 */
+  height: 44px;
+  padding: 0 24px;
+  border: none;
+  border-radius: var(--radius-capsule);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.voice-done:active {
+  transform: scale(0.97);
+  filter: brightness(1.08);
+}
+
+/* Settings search field. */
+.settings-search {
+  padding: 0 16px 12px;
+}/* Toggle knob spring (overshoot then settle, 200ms). */
+.settings-switch::after{
+  transition: transform 0.2s cubic-bezier(0.34, 1.8, 0.64, 1);
+}
+
+/* Tapped setting row flashes the elevated wash (100ms). */
+button.settings-row {
+  transition: background-color 0.1s ease;
+}
+
+button.settings-row:active {
+  background: var(--bg-elevated) !important;
+}
+

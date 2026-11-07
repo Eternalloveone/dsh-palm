@@ -1,0 +1,114 @@
+/* ── bottom sheets ───────────────────────────────────────────────────── */
+
+.sheet-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  /* Above the composer: the composer carries z-index 50 (so the picker
+     scrim at 40 never covers it), and the sheet renders BEFORE the
+     composer in the DOM - at the same stacking level the later sibling
+     wins, which put the input bar over the panel's bottom. */
+  z-index: var(--z-sheet);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--backdrop);
+  animation: sheet-fade 0.18s ease;
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet {
+  /* Host data fills the sheets - model ids, slash-command names, permission
+     ids, failure messages - so a long unbreakable token wraps here instead of
+     running past the sheet edge, where overflow:hidden would clip it. */
+  overflow-wrap: anywhere;
+  /* Content-sized sheet: no height cap by default, so every list item is
+     always fully visible - nothing to scroll for ordinary content. Only
+     extreme content (a hundred tasks) is bounded, and the sheet then
+     overflows the top of the screen while its bottom stays visible (the
+     list's last item is never silently clipped). */
+  max-height: 100vh;
+  display: block;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-bottom: none;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  box-shadow: var(--shadow-lg);
+  /* Clip any overflow to the rounded sheet. */
+  overflow: hidden;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  animation: sheet-up 0.3s ease-out both;
+}
+
+/* Expanded (pulled up past the expand threshold): full viewport height. */
+.sheet-full {
+  max-height: 100vh;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Grab header: the only place drag gestures are captured (touch-action:
+   none), so the scrollable body below owns every other vertical gesture.
+   Column flex centers the handle and title (a plain block container would
+   keep the handle flush left - align-self needs a flex/grid context). */
+.sheet-grab {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet-handle {
+  flex: none;
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  margin: 8px 0 2px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+.sheet-title {
+  flex: none;
+  padding: 12px 16px 14px;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.sheet-body {
+  /* Content-sized (height auto): an ordinary task list fits entirely and is
+     always fully visible with nothing to scroll. The generous max-height
+     only engages for extreme content, and the sheet above overflows the top
+     of the viewport before this cap is ever hit. */
+  height: auto;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 12px 8px;
+}
+
+.sheet-full .sheet-body {
+  max-height: calc(100vh - 96px);
+}
+

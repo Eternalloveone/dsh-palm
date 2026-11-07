@@ -1,0 +1,69 @@
+/* ── THE unified card ──────────────────────────────────────────────────
+   One spec for every list card: full-width of the 16px-inset column,
+   14px radius, --card-bg/--card-border/--card-shadow, press scale 0.98
+   + 5% lighten over 100ms. Internal alignment grid: 48px icon zone ·
+   fluid text · ≥48px right action zone (right-aligned, never drifts). */
+
+.mobile-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  /* <button> is shrink-to-fit on width:auto — pin the card to the 12px-inset column. */
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  padding: 0 12px;
+  min-height: 72px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease, color 0.3s ease;
+}
+
+@media (hover: hover) {
+  .mobile-row:hover {
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+/* 会话卡片的标题列要尽量宽：图标列 48→36px、右箭头列 48→24px、间距 12→8px。
+   只加在会话行上（.mobile-row-sess），工作区/设置行仍按原来的 48px 列排版 ——
+   它们的图标是 48px 的 .ws-icon，套窄列会溢出。 */
+.mobile-row-sess {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.mobile-row-sess .card-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.mobile-row-sess .card-icon > * {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.mobile-row-sess .card-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.mobile-row-sess .card-action {
+  min-width: 24px;
+}
+
+/* 按压态：scale(0.98) + 背景变亮 5% */
+.mobile-row:active {
+  transform: scale(0.98);
+  background: color-mix(in srgb, var(--text-primary) 5%, var(--card-bg));
+  border-color: var(--border-default);
+}
+

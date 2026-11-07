@@ -1,0 +1,19 @@
+/* ── reduced motion additions ────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-headerSearch,
+  .mobile-empty-groupBtn,
+  .chat-reasoning-more,
+  .chat-offline-banner,
+  .chat-offline-retry,
+  .chat-quote-bar,
+  .chat-msg-regenerate-icon,
+  .voice-backdrop,
+  .voice-sheet,
+  .voice-wave span,
+  .voice-done {
+    animation: none;
+    transition: none;
+  }
+}
+

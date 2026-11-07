@@ -1,0 +1,75 @@
+/* ── toast ───────────────────────────────────────────────────────────── */
+
+.toast-host {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* 不再写死 104px：输入栏高度会变（多行、附件、键盘），HUD（排队/目标/状态）
+     又会在输入栏上方再叠一层。ChatView 用 --toast-lift 报告"输入栏 + HUD +
+     键盘"的实际高度，toast 永远停在这整摞东西的上沿，不会盖住排队条的撤回。
+     没有 JS（或别的页面）时退回旧值 104px。 */
+  bottom: calc(var(--toast-lift) + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+/* 有 sheet / 对话框时把 toast 移到顶部：底部那条被遮罩挡住，而且会压住
+   sheet 的主按钮（用户正在 sheet 里操作时最不该被挡）。:has 在目标浏览器
+   （Chrome 105+/Safari 15.4+）都可用；不支持时退回底部旧行为。 */
+body:has(.sheet-backdrop) .toast-host,
+body:has(.dialog-backdrop) .toast-host {
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  bottom: auto;
+}
+
+body:has(.lightbox-backdrop) .toast-host {
+  display: none;
+}
+
+.toast {
+  max-width: 78vw;
+  padding: 9px 16px;
+  border-radius: var(--radius-full);
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  font-size: var(--text-md);
+  font-weight: 400;
+  box-shadow: var(--shadow-lg);
+  animation: toast-in 0.25s ease-out both;
+  /* A toast prints a file path when a perf report is filed; the pill is capped
+     at 78vw, so wrap the token instead of letting it bleed out both sides. */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.toast-out {
+  animation: toast-out 0.2s ease both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}/* ── focus rings ─────────────────────────────────────────────────────── */
+
+.mobile-back:focus-visible, .mobile-theme-toggle:focus-visible, .mobile-iconbtn:focus-visible, .mobile-headerAction:focus-visible, .mobile-quickchip:focus-visible, .mobile-searchInput:focus-visible, .mobile-row:focus-visible, .mobile-createCard:focus-visible, .mobile-presetTrigger:focus-visible, .mobile-presetHelp:focus-visible, .mobile-button:focus-visible, .mobile-new:focus-visible, .settings-themeOption:focus-visible, .settings-optionChip:focus-visible, .settings-switch:focus-visible, .dialog-btn:focus-visible, .dialog-input:focus-visible, .chat-send:focus-visible, .chat-msg-toggle:focus-visible, .chat-load-older:focus-visible, .chat-disclosure-head:focus-visible, .chat-question-option:focus-within, .ctx-item:focus-visible, .sheet-option:focus-visible, .sheet-confirm-danger:focus-visible, .chat-input:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
+}
+

@@ -1,0 +1,26 @@
+/* ── grouped lists + group titles ────────────────────────────────────── */
+
+.mobile-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+.mobile-groupTitle {
+  height: 32px;
+  padding: 0 16px;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
