@@ -1035,6 +1035,7 @@ import { settingsRead, settingsMutate } from './mobile/api/settings-handlers.ts'
 import { pushSubscribe, pushUnsubscribe } from './mobile/api/push-handlers.ts'
 import { pairDevices, pairRevoke, pairRename, pairSetPrimary } from './mobile/api/pair-handlers.ts'
 import { agentPresetList, subagentList } from './mobile/api/roster-handlers.ts'
+import { sessionCreate, sessionHistory, sessionSearch, sessionPrompt, sessionModels, sessionSelectModel, sessionRename, sessionCancel, sessionUpdateQueue } from './mobile/api/session-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -3487,56 +3488,15 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
     ['workspace.archiveSession', async (ctx) => workspaceArchiveSession({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
   ['agentPreset.list', async (ctx) => agentPresetList(ctx)],
-  ['session.create', async (ctx) => {
-    const { apiProxy, request } = ctx
-    // The new session attaches to a workspace: the roster + list change.
-    invalidateRosterCaches()
-    return wrap(rpcId, await apiProxy.sessions.create(request as never))
-  }],
-  ['session.history', async (ctx) => {
-    const { apiProxy, request } = ctx
-    return wrap(rpcId, await apiProxy.sessions.history(request as never))
-  }],
-  ['session.search', async (ctx) => {
-    const { apiProxy, signal, request } = ctx
-    return wrap(rpcId, await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
-  }],
-  ['session.prompt', async (ctx) => {
-    const { apiProxy, payload, request } = ctx
-    const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
-    invalidateSessionSearch()
-    const reply = await apiProxy.sessions.prompt(request as never)
-    // 队列版本 +1：手机端的乐观排队项据此退场（见 mobile/session-store.ts）。
-    if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
-    return wrap(rpcId, reply)
-  }],
-  ['session.models', async (ctx) => {
-    const { apiProxy, request } = ctx
-    return wrap(rpcId, await apiProxy.sessions.models(request as never))
-  }],
-  ['session.selectModel', async (ctx) => {
-    const { apiProxy, request } = ctx
-    return wrap(rpcId, await apiProxy.sessions.selectModel(request as never))
-  }],
-  ['session.rename', async (ctx) => {
-    const { apiProxy, request } = ctx
-    // The list row's title comes from projections; drop the cached envelope
-    // so the renamed title shows on the next visit.
-    invalidateRosterCaches()
-    return wrap(rpcId, await apiProxy.sessions.rename(request as never))
-  }],
-  ['session.cancel', async (ctx) => {
-    const { apiProxy, request } = ctx
-    return wrap(rpcId, await apiProxy.sessions.cancel(request as never))
-  }],
-  ['session.updateQueue', async (ctx) => {
-    const { apiProxy, payload, request } = ctx
-    const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
-    const reply = await apiProxy.sessions.updateQueue(request as never)
-    // 编辑/删除/插队都会让队列换代：手机端的乐观项与快照都靠这个版本号对齐。
-    if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
-    return wrap(rpcId, reply)
-  }],
+  ['session.create', async (ctx) => sessionCreate({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.history', async (ctx) => sessionHistory({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.search', async (ctx) => sessionSearch({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.prompt', async (ctx) => sessionPrompt({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.models', async (ctx) => sessionModels({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.selectModel', async (ctx) => sessionSelectModel({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.rename', async (ctx) => sessionRename({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.cancel', async (ctx) => sessionCancel({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.updateQueue', async (ctx) => sessionUpdateQueue({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['subagent.list', async (ctx) => subagentList(ctx)],
     ['settings.read', async (ctx) => settingsRead(ctx)],
     ['settings.mutate', async (ctx) => settingsMutate(ctx)],
