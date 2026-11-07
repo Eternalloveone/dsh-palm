@@ -1032,6 +1032,7 @@ import { wrap } from './mobile/api/wrap.ts'
 import { workspaceList } from './mobile/api/workspace-list.ts'
 import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
 import { settingsRead, settingsMutate } from './mobile/api/settings-handlers.ts'
+import { pushSubscribe, pushUnsubscribe } from './mobile/api/push-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1690,57 +1691,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: { services } },
         })
       }],
-      [MOBILE_PUSH_SUBSCRIBE_METHOD, async (ctx) => {
-        const { req, res, parsed, rpcId, deps, service } = ctx
-        // L2: store this device's Web Push subscription. The paired-device
-        // cookie IS the device identity — the same full-trust credential the
-        // rest of /m/api rides — so the subscription is bound to it without a
-        // separate handshake. The notify feature is optional: without it the
-        // method answers 403 like any unknown local method.
-        const notify = deps.notify
-        if (notify === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } },
-          })
-          return
-        }
-        const body = parsed.payload as { subscription?: unknown } | undefined
-        const subscription = body?.subscription as { endpoint?: unknown; keys?: unknown } | undefined
-        const endpoint = typeof subscription?.endpoint === 'string' ? subscription.endpoint : ''
-        const keys = subscription?.keys as { p256dh?: unknown; auth?: unknown } | undefined
-        const p256dh = typeof keys?.p256dh === 'string' ? keys.p256dh : ''
-        const auth = typeof keys?.auth === 'string' ? keys.auth : ''
-        const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
-        if (deviceId === undefined || endpoint === '' || p256dh === '' || auth === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '订阅信息不完整' } },
-          })
-          return
-        }
-        notify.store.addSubscription(deviceId, { endpoint, keys: { p256dh, auth } })
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { stored: true } },
-        })
-      }],
-      [MOBILE_PUSH_UNSUBSCRIBE_METHOD, async (ctx) => {
-        const { req, res, rpcId, deps, service } = ctx
-        const notify = deps.notify
-        if (notify !== undefined) {
-          const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
-          if (deviceId !== undefined) notify.store.removeSubscription(deviceId)
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { stored: false } },
-        })
-      }],
+      [MOBILE_PUSH_SUBSCRIBE_METHOD, async (ctx) => pushSubscribe(ctx)],
+      [MOBILE_PUSH_UNSUBSCRIBE_METHOD, async (ctx) => pushUnsubscribe(ctx)],
       [MOBILE_PUSH_CONFIG_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps } = ctx
         // Read (redacted) or write the notify config. Reads never return
