@@ -79,8 +79,21 @@ wire/           与宿主的协议：帧形状、版本握手、mux 连接
 
 | 欠账 | 现状 | 影响 |
 |---|---|---|
-| `ChatView` ≤800 行 | 仍 5,000+ 行（已拆出搜索匹配、缓存、翻页等） | 改聊天主流程仍要在大文件里找 |
-| 桌面令牌同源（W5-4） | 未开始，只有 ADR 提案 | 两端配色各写一套，改一次改两处 |
-| host 层拆域（W5-1） | 未开始 | 宿主 `host/api` 仍是单文件，与移动端的分层不对称 |
+| `ChatView` ≤800 行 | **4,434 行**（从 5,121 减 687）。已拆出 8 个 hook：`chat-layout` / `chat-scroll` / `chat-turn-report` / `use-chat-export` / `use-queue-actions` / `use-chat-inbox` / `use-chat-goal` / `use-chat-connectivity` / `use-chat-subagents` / `use-chat-actions` / `use-chat-scroll-follow` | 距 800 行**仍很远**。组件体内还有 40 个 `useEffect` + 30 个 `useCallback`，剩余部分是**互相咬合的状态机**，不是"搬走就完"的代码 |
+| 桌面令牌同源（W5-4） | **漂移已锁死**（`design/desktop-parity.ts` + 5 条断言）：11 对映射里只有 `--bg-page` 一致，其余 10 对写入账本、每条带原因 | 有人只改一端会立刻红。**色值统一本身未做**——要逐屏过视觉门禁 |
+| host 层拆域（W5-1） | **已完成**：10 个域（perf-capture / error-report / directory / commands-goals / queue-inbox / finished-runs / search-text / running-evidence / session-list / session-roster），`mobile-api.ts` 5,564 → 3,744 | 每域 87~517 行，全部 ≤600；剩下的是 RPC 分发（装配，按 ADR 0003 不该搬） |
 | `mobile-types.ts` 500 行 | 47 个类型挤一处 | 再加类型该按域再分 |
 | 移动端 class 前缀 / `@layer` | 830 个类未加前缀 | 与嵌入式样式表共存时有覆盖风险 |
+
+### 关于「ChatView ≤800」这条的诚实结论
+
+**在"每轮门禁全绿 + 行数预算只降不升"的约束下，做不到。** 已投入 12 轮，减了 687 行
+（平均 57 行/轮）。按这个速度到 800 还要 60+ 轮。
+
+要真正到 800，必须改做法：**把组件体内的 40 个 effect 重组为若干状态机模块**，而不是继续
+按块搬。那需要重新设计边界、可能改动渲染结构，属于"另一个项目"级别的改动，且中间态会
+不可避免地出现"门禁不绿"。
+
+替代目标（可达）：**≤3,900 行 + 关键 hook 全部独立成文件**——对维护性的收益与 800 行接近，
+因为"改聊天主流程要在大文件里找"这个问题，主要是**找不到逻辑在哪**，而不是文件行数本身。
+
