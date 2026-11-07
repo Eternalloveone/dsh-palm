@@ -143,3 +143,20 @@ export function resetLocateIntentsForTest(): void {
   for (const timer of PENDING_CLEARS.values()) clearTimeout(timer)
   PENDING_CLEARS.clear()
 }
+
+/**
+ * 让定位意图在**慢页面**期间活着（每 5 秒续一次），返回停止函数。
+ *
+ * 为什么需要：带着定位意图进来时，这一页可能要等 40~160 秒（冷启动/大会话被换出内存），
+ * 而意图只活 20 秒。不续命的表现是「页到了、关键词早丢了」——滚到那条附近，但一个字都没高亮。
+ *
+ * 没有意图时返回 undefined 且**不起定时器**（别为没有的东西每秒唤醒一次）。
+ *
+ * @param sessionId 会话
+ * @param everyMs 续命间隔，默认 5 秒
+ */
+export function keepLocateIntentAlive(sessionId: string, everyMs = 5_000): (() => void) | undefined {
+  if (locateIntentFor(sessionId) === undefined) return undefined
+  const timer = window.setInterval(() => { touchLocateIntent(sessionId) }, everyMs)
+  return () => { window.clearInterval(timer) }
+}

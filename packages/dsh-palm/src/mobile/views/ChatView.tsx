@@ -47,7 +47,7 @@ import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { createStreamState } from './chat/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
 import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
-import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent } from '../locate-intent.ts'
+import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent, keepLocateIntentAlive } from '../locate-intent.ts'
 import { forgetFinishedRun } from '../recent-finished.ts'
 import { usePageVisible } from '../foreground.ts'
 import { useLiveClock } from '../live-clock.ts'
@@ -1008,12 +1008,7 @@ export function ChatView({
     // 带着定位意图进来的：这一页可能要等 40~160 秒（冷启动/大会话），而意图只活
     // 20 秒。等的这段时间里每 5 秒续一次，页落地就停 —— 否则页到了、关键词早丢了，
     // 表现就是「滚到那条附近，但一个字都没高亮」。
-    const intentKeepAlive = locateIntentFor(session.sessionId) === undefined
-      ? undefined
-      : window.setInterval(() => { touchLocateIntent(session.sessionId) }, 5_000)
-    const stopIntentKeepAlive = (): void => {
-      if (intentKeepAlive !== undefined) window.clearInterval(intentKeepAlive)
-    }
+    const stopIntentKeepAlive = keepLocateIntentAlive(session.sessionId) ?? (() => {})
     // 换会话：流状态整体归零 + 取消待折的 rAF 帧 + 用名单的 running 播种回合状态
     // （逐字段手工清是这套状态历史上唯一反复出问题的地方，见 resetForSession）。
     resetForSession(session.running === true)
