@@ -11,6 +11,7 @@ import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '../
 import type { SubagentCatalog } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
+import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow } from './mobile-types.ts'
 import { coalescedRead, invalidateReadCoalescing } from './data/read-coalescing.ts'
 
 export { invalidateReadCoalescing }
@@ -244,11 +245,6 @@ export async function notifyEvents(): Promise<{
   }>('mobile.notifyEvents', {})
 }
 
-/** The published latest version + whether the local one is behind. */
-export async function latestVersion(): Promise<{ latest: string; isNewer: boolean }> {
-  return await callUnary<{ latest: string; isNewer: boolean }>('mobile.latestVersion', {})
-}
-
 /**
  * 读一张会话里引用过的图片，返回可直接放进 `<img src>` 的 data URL。
  *
@@ -261,79 +257,6 @@ export async function latestVersion(): Promise<{ latest: string; isNewer: boolea
  */
 export async function readAttachment(sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }> {
   return await callUnary<{ mediaType: string; dataUrl: string }>('mobile.readAttachment', { sessionId, attachmentId })
-}
-
-/** 一条宿主依赖的自检结果（手机端「关于」里的自检列表）。 */
-export interface DependencyCheckView {
-  /** 依赖名（总线事件名或 session 方法名）。 */
-  name: string
-  /** `event` = 宿主总线事件；`method` = 宿主 session 方法。 */
-  kind: 'event' | 'method'
-  /** setup 期：订阅是否被接受 / 方法是否存在。 */
-  ok: boolean
-  /** `ok === false` 时的原因。 */
-  reason?: string
-  /** 运行期收到过多少帧。 */
-  frames: number
-  /** 运行期最近一次收到的时刻（epoch ms）。 */
-  lastAt?: number
-}
-
-/**
- * Health report behind the About sheet's 健康 block.
- *
- * Everything past `checks`/`now` is optional on purpose: a host that predates
- * the health extension answers the old `{ checks, now }` shape and the UI must
- * simply omit those rows instead of showing `undefined`.
- */
-export interface MobileHealthView {
-  /** Dependency self-check (setup registration + runtime frame counts). */
-  checks: DependencyCheckView[]
-  /** dsh-palm version answering. */
-  palmVersion?: string
-  /** Mobile wire revision. */
-  wire?: number
-  /** Frame discriminants the host may publish. */
-  frames?: string[]
-  /** Methods the host exposes on /m/api. */
-  methods?: string[]
-  /** Push state; absent when the notify feature is not composed. */
-  push?: {
-    subscriptions: number
-    delivery?: { total: number; sent: number; failed: number; dropped: number; since: number }
-  }
-  now: number
-}
-
-/**
- * 依赖自检：宿主契约是否在位 + 各总线事件运行期收到过多少帧。
- * 事件被改名或停发时订阅仍会成功，所以 `frames === 0` 才是"这条断了"的证据。
- */
-export async function readDiagnostics(): Promise<MobileHealthView> {
-  return await callUnary<MobileHealthView>('mobile.diagnostics', {})
-}
-
-/**
- * Hand one perf capture to the host (`mobile.perf`), which writes it beside its
- * own state and answers with the file name. Write-only and host-named: the phone
- * never chooses a path, and the host validates the shape and prunes old captures
- * (see mobile-api.ts). Callers fall back to the clipboard when this rejects —
- * the capture only exists in this page's memory.
- */
-export async function reportPerf(capture: unknown, label: string): Promise<{ file: string; bytes: number }> {
-  return await callUnary<{ file: string; bytes: number }>('mobile.perf', { capture, label })
-}
-
-/**
- * Hand one error record to the host (`mobile.error`), which validates its shape,
- * writes it under `dsh-palm-errors/` and pushes on first sight. The payload is
- * exactly the sanitized shape `errors.ts` already keeps — no full stack, no
- * origin, no argument text — and the file name is generated host-side, so the
- * record's strings can never steer a path. Write-only and best-effort: the
- * errors-report outbox swallows failures by contract.
- */
-export async function reportError(report: unknown, label: string): Promise<{ file: string; bytes: number; pushed: boolean }> {
-  return await callUnary<{ file: string; bytes: number; pushed: boolean }>('mobile.error', { report, label })
 }
 
 /**
@@ -659,41 +582,6 @@ export async function history(
 /** 打开会话时可以顺带取回的小目录（服务端白名单，见 mobile-api readChatInclude）。 */
 export type ChatOpenInclude = 'models' | 'subagents'
 
-/** 同一次 `mobile.readChat` 响应里带回来的小目录。 */
-export interface ChatOpenExtras {
-  models?: SessionModels
-  subagents?: SubagentCatalog
-}
-
-/** One folded chat page (v3 `mobile.readChat`): rows, watermark, and seeds. */
-export interface ChatPage {
-  /** Folded message rows (never coalesced — the surface coalesces at render). */
-  rows: RenderMessage[]
-  /** Event-seq watermark of the page's source window (replay floor for live
-   *  frames that may overlap a previous open of the same session). */
-  maxSeq: number
-  hasMore: boolean
-  /** Newest valid todo/write in the page's events, when any. */
-  todo?: TodoSnapshot
-  /** Tail-page projection baseline, when available. */
-  projections?: SessionProjectionsBlock
-  /** The running turn's logged `turn/start` time (epoch ms) when the window
-   *  holds an open turn boundary — the turn-clock anchor (desktop parity).
-   *  Tail reads carry it; older-page reads never do. */
-  turnStartAt?: number
-  /** Timestamp of the newest event in the page (epoch ms). A live turn emits
-   *  events constantly, so an "open" boundary whose newest event is old belongs
-   *  to a finished turn whose turn/end frame never arrived. */
-  lastEventAt?: number
-  /** 这一轮还开着吗：true＝最后一条边界是 turn/start，false＝turn/end，缺席＝这一页
-   *  根本没见到边界（不知道）。**不能**把缺席当成 false：一轮工具跑二十几步时，几十帧
-   *  的尾切里全是工具事件，边界还在更远处——那样会把正跑着的一轮判成已完成。 */
-  turnOpen?: boolean
-  /** 随页面一起回来的模型/子代理目录（A）。缺省表示宿主没带回来，调用方按老
-   *  路径单独取一次即可。只出现在请求了 include 的那一次响应里。 */
-  extras?: ChatOpenExtras
-}
-
 /**
  * Folded-view chat read (v3): the host serves message rows from its mux-fed
  * window cache instead of the raw event stream — a repeat visit to a session
@@ -722,28 +610,6 @@ export async function readChat(
     ...(maxRows !== 25 ? { maxRows } : {}),
     ...(include !== undefined && include.length > 0 ? { include: [...include] } : {}),
   }, signal, timeoutMs)
-}
-
-/**
- * 会话日志尾部直读（C）：宿主只解日志尾部若干 zstd 帧，在服务端就折叠成与
- * readChat 同形的页（rows/maxSeq/todo/turnStartAt），手机拿到直接渲染。
- *
- * 宿主的 readChat 冷读要整文件解压（52 MB 会话实测 4.1 s），这条通道几十
- * 毫秒，用来铺首屏；翻旧页仍走 readChat，它掌握投影与窗口缓存。宿主不认这个
- * 方法时（旧插件）调用会失败，调用方回落到 readChat。
- */
-export async function logTail(
-  sessionId: string,
-  maxRows?: number,
-  signal?: AbortSignal,
-  windowBytes?: number,
-): Promise<ChatPage> {
-  return await callUnary<ChatPage>('mobile.logTail', {
-    sessionId,
-    ...(maxRows !== undefined ? { maxRows } : {}),
-    // 首屏自适应：设备慢过一次就退回 512 KB（见 entry-perf.ts）。
-    ...(windowBytes !== undefined ? { windowBytes } : {}),
-  }, signal)
 }
 
 /**
@@ -1013,55 +879,6 @@ export async function fetchHostVoiceServices(): Promise<Array<{ name: string; ba
 }
 
 /* ── per-provider usage / balance display ─────────────────────────────── */
-
-/** Per-model usage inside a provider's report. */
-export interface UsageModelRow {
-  name: string
-  requestCount: number
-}
-
-/** One provider's displayed usage/balance row (display facts only, no keys). */
-export interface UsageProviderView {
-  name: string
-  baseURL?: string
-  kind: 'usage' | 'balance'
-  status: 'ok' | 'no-key' | 'unsupported' | 'error'
-  plan?: string
-  usedPercent?: number
-  sessionUsed?: number
-  /** 最近 5 小时窗口的下次重置时刻（epoch millis）。 */
-  sessionResetsAt?: number
-  /** 每周窗口的下次重置时刻（epoch millis）。 */
-  weeklyResetsAt?: number
-  /** 没有配额百分比可画时的一句话事实（如「近 7 天 9,447 次请求」）。 */
-  summary?: string
-  models?: UsageModelRow[]
-  balance?: string
-  /** 这行数字是什么（账户余额 / 累计已用 …）。缺省按「账户余额」显示。 */
-  balanceLabel?: string
-  /** 失败/不支持的一句话原因（401=key 无效、410=接口下线、超时…）。 */
-  detail?: string
-  /** 该提供方的控制台计费页；不支持的行走这个深链，而不是只显示「不支持」。 */
-  consoleUrl?: string
-  fetchedAt: number
-}
-
-/** The full usage surface, synced from the desktop's configured providers. */
-export interface UsageView {
-  providers: UsageProviderView[]
-  fetchedAt: number
-}
-
-/**
- * Fetch the per-provider usage/balance surface (`mobile.usage`, answered by the
- * plugin host-side). The desktop's configured providers drive the rows; a
- * provider with no public balance/usage endpoint is labelled `unsupported`, one
- * the desktop has no key for is `no-key`. Pass `refresh` to bypass the host's
- * short cache.
- */
-export async function fetchUsage(refresh?: boolean): Promise<UsageView> {
-  return await callUnary<UsageView>('mobile.usage', refresh === true ? { refresh: true } : {})
-}
 
 /** Rename one session (the chat page's 更多 menu). */
 export async function renameSession(sessionId: string, title: string): Promise<unknown> {
@@ -1347,46 +1164,6 @@ export async function setPrimaryDevice(handle: string): Promise<{ promoted: bool
 }
 
 
-/** 宿主侧「刚结束」账本的一条（与 `recent-finished.ts` 同形）。 */
-export interface HostFinishedRun {
-  sessionId: string
-  title: string
-  finishedAt: number
-  status: 'done' | 'error' | 'stopped'
-  durationMs?: number
-  summary?: string
-}
-
-/** 读宿主账本（跨刷新、跨设备都在）。失败就当没有。 */
-export async function fetchFinishedRuns(): Promise<HostFinishedRun[]> {
-  const value = await callUnary<{ entries: HostFinishedRun[] }>('mobile.finishedRuns', { op: 'read' })
-  return Array.isArray(value.entries) ? value.entries : []
-}
-
-/** 记一条到宿主账本（fire-and-forget：本地已经先记了，这里只是同步）。 */
-export async function appendFinishedRun(entry: HostFinishedRun): Promise<void> {
-  await callUnary('mobile.finishedRuns', { op: 'append', entries: [entry] })
-}
-
-/**
- * 从宿主账本里删掉一个会话的「刚结束」记录（用户已经点进去看过了）。
- *
- * 只删这一条：运行中页的口径是「只保留没打开过的」，所以打开即删。
- */
-export async function removeHostFinishedRun(sessionId: string): Promise<void> {
-  await callUnary('mobile.finishedRuns', { op: 'remove', sessionIds: [sessionId] })
-}
-
-/**
- * 清空**宿主**那本「刚结束」账本。
- *
- * 只清本地那一本是不够的：进页面时还会 `fetchFinishedRuns()` 与宿主账本合并，
- * 于是「全部清空」之后退出再进来，刚清掉的会话又全都回来了（真机 2026-10-30）。
- */
-export async function clearHostFinishedRuns(): Promise<void> {
-  await callUnary('mobile.finishedRuns', { op: 'clear' })
-}
-
 /* ── session folders (F1) ────────────────────────────────────────────── */
 
 /** One host-side session folder. */
@@ -1433,3 +1210,15 @@ export async function removeSessionFolder(folderId: string): Promise<SessionFold
 export async function assignSessionFolder(sessionId: string, folderId: string | null): Promise<SessionFoldersView> {
   return await callUnary<SessionFoldersView>('mobile.folders', { action: 'assign', sessionId, folderId })
 }
+
+
+// diag 域的实现已搬到 data/impl/diag.ts（W4-4）；这里只转出，对外 API 不变。
+export { latestVersion, logTail, readDiagnostics, reportError, reportPerf } from './data/impl/diag.ts'
+
+
+// usage 域的实现已搬到 data/impl/usage.ts（W4-4）；这里只转出，对外 API 不变。
+export { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns, fetchUsage, removeHostFinishedRun } from './data/impl/usage.ts'
+
+
+// 共享类型搬到 mobile-types.ts（W4-4）；这里只转出。
+export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow } from './mobile-types.ts'
