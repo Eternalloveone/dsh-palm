@@ -19,6 +19,7 @@ import { useQueueActions } from './chat/use-queue-actions.ts'
 import { useChatInbox } from './chat/use-chat-inbox.ts'
 import { useChatGoal } from './chat/use-chat-goal.ts'
 import { useChatConnectivity } from './chat/use-chat-connectivity.ts'
+import { useChatSubagents } from './chat/use-chat-subagents.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -1478,28 +1479,16 @@ export function ChatView({
     setQuestions: setPendingQuestions,
   })
 
-  // Foreground subagents: fetch on mount/session-switch, and refetch on
-  // turn/start (see onFrame). One flat subagents.list call — no recursive
-  // tree walk. The live host/session-status overlay keeps running flips
-  // instant between fetches.
-  const refreshSubagents = useCallback(() => {
-    void fetchSubagentsFlat(session.sessionId).then(
-      (nodes) => { startTransition(() => { setSubagents(nodes) }) },
-      () => { /* transient; the next trigger retries */ },
-    )
-  }, [session.sessionId])
-  const refreshSubagentsRef = useRef(refreshSubagents)
-  refreshSubagentsRef.current = refreshSubagents
-  useEffect(() => {
-    refreshSubagents()
-  }, [refreshSubagents])
-  // While the turn is open, poll the flat list so the run-status sheet stays
-  // fresh (new subagents spawn mid-turn; the host stream is not forwarded).
-  useEffect(() => {
-    if (!running || !foreground) return
-    const id = setInterval(() => { refreshSubagentsRef.current() }, SUBAGENT_POLL_MS)
-    return () => { clearInterval(id) }
-  }, [running, foreground])
+  // 前台子代理在 use-chat-subagents.ts（宿主不转发子代理事件，只能轮询）。
+  const refreshSubagentsRef = useRef<() => void>(() => {})
+  const { refreshSubagents } = useChatSubagents({
+    sessionId: session.sessionId,
+    running,
+    foreground,
+    setSubagents,
+    startTransition,
+    refreshSubagentsRef,
+  })
 
   // The turn clock (desktop parity) anchors HERE: this file owns the anchor (the
   // logged turn/start, fallback: mount time) and the host-time offset. The 1 Hz
