@@ -14,6 +14,7 @@
  */
 
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
+import { useChatUi } from './chat/chat-machine.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -538,18 +539,14 @@ export function ChatView({
   /** Which in-place quick picker strip is open below the toolbar. */
   const [picker, setPicker] = useState<'model' | 'permission' | null>(null)
   /** Whether the context-usage popover (ring tap) is open. */
-  const [contextOpen, setContextOpen] = useState(false)
   /** In-flight guard for one-shot picker actions. */
   const [pickerBusy, setPickerBusy] = useState(false)
   /** Lazily cached model directory backing the quick picker (fresh per open
    *  until it loads once; the full sheet re-fetches on its own). */
   const [modelCatalog, setModelCatalog] = useState<ModelPickerCatalog>({ status: 'idle' })
   /** Whether the composer's + menu is open (图片 / 命令). */
-  const [plusOpen, setPlusOpen] = useState(false)
   /** 「电脑文件」选择面板：手机上系统选择器只给相机相册时，从这里挑宿主机上的文件。 */
-  const [hostFileOpen, setHostFileOpen] = useState(false)
   /** The slash-command sheet, opened straight from the composer. */
-  const [commandOpen, setCommandOpen] = useState(false)
   /**
    * 已认领的命令名（桌面端那颗蓝色 chip）。
    *
@@ -857,7 +854,6 @@ export function ChatView({
    * Built from `subagents.list` and overlaid with host/session-status flips. */
   const [subagents, setSubagents] = useState<SubagentFlatNode[]>([])
   /** Whether the run-status bottom sheet (subagents + todo plan + background jobs) is up. */
-  const [runStatusOpen, setRunStatusOpen] = useState(false)
   /** Pending tool approvals awaiting user decision (#1025). */
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
   /** Pending questions awaiting user answer (#1025). */
@@ -866,15 +862,15 @@ export function ChatView({
   const title = chat.state.title ?? session.title
   const setTitle = chat.setTitle
   /** The header 更多 menu (rename / copy session id). */
-  const [moreOpen, setMoreOpen] = useState(false)
   /** F4 export sheet (Markdown / single-file HTML, redacted). */
-  const [exportOpen, setExportOpen] = useState(false)
   /** The read-only git sheet (branch / changes / commits). */
-  const [gitOpen, setGitOpen] = useState(false)
   /** Turn-list bottom sheet visibility. */
-  const [turnListOpen, setTurnListOpen] = useState(false)
   // Esc 关弹层：手机上没有这个键，但平板/桌面浏览器/外接键盘上它是第一反应。
   // 实测此前按 Esc 什么都不发生——遮罩拦着，只能去点空白处。
+  // 纯界面开关收在一个 reducer 里：11 个 useState → 1 个（S1-A）。
+  const [uiState, uiSetters] = useChatUi()
+  const { contextOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, turnListOpen, renaming, deleting, runStatusOpen } = uiState
+  const { contextOpen: setContextOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, turnListOpen: setTurnListOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
   useEffect(() => {
     const anyOpen = picker !== null || moreOpen || runStatusOpen || turnListOpen || gitOpen || contextOpen || plusOpen || commandOpen
     if (!anyOpen) return undefined
@@ -959,9 +955,7 @@ export function ChatView({
     { pointerId: number; startX: number; moved: boolean } | undefined
   >(undefined)
   /** Rename dialog visibility. */
-  const [renaming, setRenaming] = useState(false)
   /** Delete-session confirm dialog visibility. */
-  const [deleting, setDeleting] = useState(false)
   /** Long-press message menu: viewport position + the bubble's plain text,
    *  plus the message's RAW markdown when it differs (tool-interleaved flow
    *  turns carry their payload in flow runs, invisible in `text`). */
