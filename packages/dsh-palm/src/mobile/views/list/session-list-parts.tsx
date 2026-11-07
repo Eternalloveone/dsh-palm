@@ -7,6 +7,7 @@ import type { AgentPresetEntry, WorkspaceView as WorkspaceRow } from '../../../a
 import type { SessionFoldersView } from '../../api.ts'
 import { HelpIcon } from '../../icons.tsx'
 import { ThemeToggle } from '../../theme-toggle.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface SessionListHeaderProps {
   workspace: WorkspaceRow
@@ -19,7 +20,7 @@ export function SessionListHeader({ workspace, onBack, onOpenSettings }: Session
   return (
       <header className="mobile-header">
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+          <Button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</Button>
         </div>
         <div className="mobile-titleWrap">
           <h1 className="mobile-title mobile-titleInline">{workspace.title}</h1>
@@ -27,12 +28,12 @@ export function SessionListHeader({ workspace, onBack, onOpenSettings }: Session
           <p className="mobile-titlePath">{workspace.path}</p>
         </div>
         <div className="mobile-headerSlot mobile-headerSlot-right">
-          <button type="button" className="mobile-iconbtn" aria-label="设置" onClick={onOpenSettings}>
+          <Button type="button" className="mobile-iconbtn" aria-label="设置" onClick={onOpenSettings}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
                   <circle cx="12" cy="12" r="3" />
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
                 </svg>
-              </button>
+              </Button>
           <ThemeToggle />
         </div>
       </header>
@@ -62,7 +63,7 @@ export function SessionListCreate({
       <div className="mobile-create">
         {presets.length > 0 && (
           <div className="mobile-presetCard">
-            <button
+            <Button
               type="button"
               className="mobile-presetTrigger"
               aria-label="Agent 模式"
@@ -79,9 +80,9 @@ export function SessionListCreate({
                   <span className="mobile-presetTriggerDesc">{selectedPresetEntry.description}</span>
                 )}
               </span>
-            </button>
+            </Button>
             <span className="mobile-presetCaret" aria-hidden>▾</span>
-            <button
+            <Button
               type="button"
               className="mobile-presetHelp"
               aria-label="模式说明"
@@ -91,17 +92,17 @@ export function SessionListCreate({
               onClick={() => { onOpenHelp() }}
             >
               <HelpIcon />
-            </button>
+            </Button>
           </div>
         )}
-        <button
+        <Button
           type="button"
           className="mobile-new"
           disabled={creating || presetsLoading}
           onClick={() => { onCreate() }}
         >
           {creating ? '创建中…' : '新建会话'}
-        </button>
+        </Button>
       </div>
       {createError !== undefined && (
         <p className="mobile-error mobile-pad">
@@ -137,7 +138,7 @@ export function SessionListFilters({ folderFilter, folders, onSelect }: SessionL
   return (
       <div className="sess-filters" role="tablist" aria-label="会话筛选">
         {FIXED_FILTERS.map(entry => (
-          <button
+          <Button
             key={entry.id}
             type="button"
             role="tab"
@@ -146,10 +147,10 @@ export function SessionListFilters({ folderFilter, folders, onSelect }: SessionL
             onClick={() => { onSelect(entry.id) }}
           >
             {entry.label}
-          </button>
+          </Button>
         ))}
         {(folders?.folders ?? []).map(folder => (
-          <button
+          <Button
             key={folder.id}
             type="button"
             role="tab"
@@ -158,7 +159,7 @@ export function SessionListFilters({ folderFilter, folders, onSelect }: SessionL
             onClick={() => { onSelect(folder.id) }}
           >
             {folder.name}
-          </button>
+          </Button>
         ))}
       </div>
   )

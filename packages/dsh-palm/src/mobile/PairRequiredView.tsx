@@ -7,6 +7,7 @@
  */
 import { type FormEvent, useState } from 'react'
 import { acceptMobilePair, mobilePairPath, parseMobilePairInput } from './pairing.ts'
+import { Button } from './ui/primitives.tsx'
 
 export interface PairRequiredViewProps {
   initialError?: string
@@ -94,9 +95,9 @@ export function PairRequiredView({ initialError, onPaired, navigate }: PairRequi
           spellCheck={false}
         />
         {error === undefined ? null : <p className="mobile-error" role="alert">{error}</p>}
-        <button className="mobile-new mobile-pairSubmit" type="submit" disabled={submitting}>
+        <Button className="mobile-new mobile-pairSubmit" type="submit" disabled={submitting}>
           {submitting ? '正在配对' : '配对'}
-        </button>
+        </Button>
       </form>
     </main>
   )

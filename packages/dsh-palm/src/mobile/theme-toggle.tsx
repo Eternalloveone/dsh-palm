@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from 'react'
 import { getMobileTheme, subscribeMobileTheme, toggleMobileTheme } from './mobile-theme.ts'
 import { mutateSettings } from './api.ts'
+import { Button } from './ui/primitives.tsx'
 
 /** Sun glyph: circle + eight rays (inline SVG, no emoji). */
 function SunIcon() {
@@ -36,7 +37,7 @@ export function ThemeToggle() {
   const theme = useSyncExternalStore(subscribeMobileTheme, getMobileTheme)
   const dark = theme === 'dark'
   return (
-    <button
+    <Button
       type="button"
       className="mobile-theme-toggle"
       aria-label={dark ? '切换到浅色' : '切换到深色'}
@@ -49,6 +50,6 @@ export function ThemeToggle() {
       }}
     >
       {dark ? <SunIcon /> : <MoonIcon />}
-    </button>
+    </Button>
   )
 }

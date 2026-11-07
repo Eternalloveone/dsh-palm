@@ -1,3 +1,4 @@
+import { Button } from '../../ui/primitives.tsx'
 /**
  * 离线/待发条：断网提示、待发条数与逐条移除。
  *
@@ -32,7 +33,7 @@ export function OfflineBanner({ offline, queuedCount, entries, onFlush, onRemove
               : ''}
         </span>
         {!offline && queuedCount > 0 && (
-          <button type="button" className="chat-offline-retry" onClick={onFlush}>重试</button>
+          <Button type="button" className="chat-offline-retry" onClick={onFlush}>重试</Button>
         )}
       </div>
       {entries.length > 0 && (
@@ -40,14 +41,14 @@ export function OfflineBanner({ offline, queuedCount, entries, onFlush, onRemove
           {entries.map(entry => (
             <li key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)' }}>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.text}</span>
-              <button
+              <Button
                 type="button"
                 className="chat-offline-retry"
                 aria-label="移除待发送消息"
                 onClick={() => { onRemove(entry.id) }}
               >
                 移除
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

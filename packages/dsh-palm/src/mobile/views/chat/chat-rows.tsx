@@ -8,6 +8,7 @@
 import type { CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../messages.ts'
 import { MessageRow } from '../../message-row.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 /** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */
 export const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
@@ -98,9 +99,9 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
   return (
     <>
       {view.hasOlder && (
-        <button type="button" className="chat-load-older" disabled={view.loading} onClick={() => { void view.loadOlder() }}>
+        <Button type="button" className="chat-load-older" disabled={view.loading} onClick={() => { void view.loadOlder() }}>
           {view.loading ? '加载中…' : '加载更早的消息'}
-        </button>
+        </Button>
       )}
       {rows.map((message, index) => {
         // 只在「正在流式落地」的行上播入场动画：历史行不播。

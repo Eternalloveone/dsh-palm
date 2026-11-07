@@ -11,6 +11,7 @@
  */
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { ChevronDownIcon } from '../../icons.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface TurnStatusLineProps {
   /** 当前回合在跑（或刚发出去还没收到 turn/start）。 */
@@ -54,7 +55,7 @@ export function JumpControls(props: JumpControlsProps) {
   return (
     <>
       {show && hasTurns && (
-        <button
+        <Button
           type="button"
           className={'chat-jump-turns' + (scrubbing ? ' chat-jump-turns-live' : '')}
           aria-label="轮次导航：轻点开清单，按住拖动刮擦"
@@ -66,10 +67,10 @@ export function JumpControls(props: JumpControlsProps) {
           onClick={(event) => { if (event.detail === 0) onOpenTurnList() }}
         >
           <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
-        </button>
+        </Button>
       )}
       {show && (
-        <button
+        <Button
           type="button"
           className={'chat-jump-latest' + (unreadCount > 0 ? ' chat-jump-latest-hot' : '')}
           aria-label="回到最新消息"
@@ -77,7 +78,7 @@ export function JumpControls(props: JumpControlsProps) {
         >
           <ChevronDownIcon width={20} height={20} />
           {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
-        </button>
+        </Button>
       )}
     </>
   )

@@ -25,6 +25,7 @@ import { reportPerf } from './api.ts'
 import { errorStats } from './errors.ts'
 import { perfEnabled } from './perf.ts'
 import { toast } from './toast.tsx'
+import { Button } from './ui/primitives.tsx'
 
 /** The slice of the perf window hook this row needs (see perf.ts). */
 interface PerfCapture {
@@ -141,32 +142,32 @@ export function PerfReportRow() {
       <span className="settings-perfActions">
         {armed && (
           <>
-            <button
+            <Button
               type="button"
               className="settings-installHint-btn"
               disabled={busy || hook === undefined}
               onClick={() => { submit(false) }}
             >
               {busy ? '上报中…' : '上报摘要'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="settings-installHint-btn"
               disabled={busy || hook === undefined}
               onClick={() => { submit(true) }}
             >
               上报原始
-            </button>
+            </Button>
           </>
         )}
         {errors.total > 0 && (
-          <button
+          <Button
             type="button"
             className="settings-installHint-btn"
             onClick={copyErrors}
           >
             复制错误
-          </button>
+          </Button>
         )}
       </span>
     </li>

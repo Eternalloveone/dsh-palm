@@ -10,6 +10,7 @@ import { formatFullTime } from '../../shared/time.ts'
 import type { SessionView } from '../../shared/session-view.ts'
 import { ChatBubbleIcon, CheckIcon } from '../../icons.tsx'
 import type { DayBucket } from './session-list-model.ts'
+import { Button } from '../../ui/primitives.tsx'
 
 /** Pointer handlers the view builds per row (long-press / swipe / tap). */
 export interface SessionRowHandlers {
@@ -78,16 +79,16 @@ export function SessionListRoster({
                 const swiped = openSwipeId === row.sessionId
                 return (
                   <div key={row.sessionId} className="mobile-row-swipe" style={cvStyle}>
-                    <button
+                    <Button
                       type="button"
                       className="mobile-row-swipe-action"
                       aria-label="删除会话"
                       onClick={() => { onDeleteRow(row) }}
                     >
                       删除
-                    </button>
+                    </Button>
                     <div className={'mobile-row-swipe-inner' + (swiped ? ' swiped' : '')}>
-                      <button type="button" className="mobile-row mobile-row-sess" {...rowHandlers(row)}>
+                      <Button type="button" className="mobile-row mobile-row-sess" {...rowHandlers(row)}>
                         <span className="card-icon">
                           {row.running ? (
                             <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
@@ -110,7 +111,7 @@ export function SessionListRoster({
                         <span className="card-action">
                           <span className="mobile-chevron" aria-hidden>›</span>
                         </span>
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )
@@ -122,14 +123,14 @@ export function SessionListRoster({
           <li style={{ listStyle: 'none' }}>
             <div className="mobile-pad">
               <div ref={ref => { sentinelRef.current = ref ?? undefined }} aria-hidden="true" />
-              <button
+              <Button
                 type="button"
                 className="mobile-button mobile-block"
                 disabled={loading}
                 onClick={() => { onLoadMore() }}
               >
                 {loading ? '加载中…' : '加载更多会话'}
-              </button>
+              </Button>
             </div>
           </li>
         )}

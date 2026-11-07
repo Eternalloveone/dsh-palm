@@ -7,6 +7,7 @@ import type { ReactNode } from 'react'
 import { Sheet } from '../../sheet.tsx'
 import { toast } from '../../toast.tsx'
 import { dropAllChatCaches } from '../../chat-cache.ts'
+import { Button } from '../../ui/primitives.tsx'
 
 /** Source badge: where a setting takes effect / can be changed. */
 export function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend' }) {
@@ -75,9 +76,9 @@ export function SettingsRow({ icon, title, desc, action, onClick, locateId, focu
   }
   return (
     <li>
-      <button type="button" className={cls} onClick={onClick} {...attributes}>
+      <Button type="button" className={cls} onClick={onClick} {...attributes}>
         {body}
-      </button>
+      </Button>
     </li>
   )
 }
@@ -99,7 +100,7 @@ export function OptionSheet<T extends string>({ title, options, value, onPick, o
     <Sheet title={title} onClose={onClose}>
       <div role="listbox" aria-label={title}>
         {options.map(option => (
-          <button
+          <Button
             key={option.value}
             type="button"
             role="option"
@@ -111,7 +112,7 @@ export function OptionSheet<T extends string>({ title, options, value, onPick, o
               <span className="sheet-option-title">{option.label}</span>
             </span>
             {option.value === value && <span className="sheet-option-check" aria-hidden>✓</span>}
-          </button>
+          </Button>
         ))}
       </div>
     </Sheet>
@@ -135,7 +136,7 @@ export function ToggleRow({ icon, title, desc, value, onChange, scope }: {
       desc={desc}
       scope={scope}
       action={
-        <button
+        <Button
           type="button"
           role="switch"
           aria-label={title}

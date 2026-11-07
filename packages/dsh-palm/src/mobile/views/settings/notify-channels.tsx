@@ -6,6 +6,7 @@ import type { NotifyConfigView } from '../../api.ts'
 import { webPushSupported } from '../../notify.ts'
 import { ConfirmDialog } from '../../dialog.tsx'
 import { ChannelState, ScopeBadge } from './settings-shared.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface NotifyChannelsProps {
   locateProps: (id: string) => Record<string, string>
@@ -158,19 +159,19 @@ export function NotifyChannels({
               <p className="settings-fieldDesc">微信直达 · 国内直连。pushplus 现已要求付费认证，故降级为兼容保留（旧 Token 仍可发）；新配置请用上方 WxPusher。 <ChannelState configured={notifyConfig?.channels.pushplus.configured === true} /></p>
             </div>
             <div className="sheet-confirm-actions">
-              <button
+              <Button
                 type="button"
                 className="mobile-button"
                 disabled={notifyBusy}
                 onClick={() => { void handleTestNotify() }}
-              >发送测试</button>
-              <button
+              >发送测试</Button>
+              <Button
                 type="button"
                 className="mobile-button mobile-button-primary"
                 aria-label="保存推送渠道"
                 disabled={notifyBusy}
                 onClick={() => { void saveChannels() }}
-              >保存</button>
+              >保存</Button>
             </div>
           </div>
 
@@ -185,7 +186,7 @@ export function NotifyChannels({
                 <div className="settings-fieldHead">
                   <span className="settings-fieldLabel">启用</span>
                 </div>
-                <button
+                <Button
                   type="button"
                   role="switch"
                   aria-label="Web Push"
@@ -240,13 +241,13 @@ export function NotifyChannels({
                 <p className="settings-fieldDesc">同一会话两次通知的最小间隔</p>
               </div>
               <div className="sheet-confirm-actions">
-                <button
+                <Button
                   type="button"
                   className="mobile-button mobile-button-primary"
                   aria-label="保存触发条件"
                   disabled={notifyBusy}
                   onClick={() => { void saveNotifyTriggers() }}
-                >保存</button>
+                >保存</Button>
               </div>
             </div>
           )}
@@ -262,7 +263,7 @@ export function NotifyChannels({
                 <div className="settings-fieldHead">
                   <span className="settings-fieldLabel">锁屏隐藏通知详情</span>
                 </div>
-                <button
+                <Button
                   type="button"
                   role="switch"
                   aria-label="锁屏隐藏通知详情"

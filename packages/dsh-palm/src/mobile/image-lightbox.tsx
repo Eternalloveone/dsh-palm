@@ -14,6 +14,7 @@
 import { useRef, useState } from 'react'
 import { CloseIcon } from './icons.tsx'
 import { Overlay } from './ui/overlay.tsx'
+import { Button } from './ui/primitives.tsx'
 
 export interface ImageLightboxProps {
   /** Image source: remote URL or data URL. */
@@ -43,9 +44,9 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
     // 灯箱没有内层面板：整块就是舞台，所以用 bare（遮罩即 aria 载体）。
     // Esc 与焦点陷阱（关闭后归还给触发它的图片）由 Overlay 负责。
     <Overlay bare title={alt} onClose={onClose} scrimClassName="lightbox-backdrop">
-      <button type="button" className="lightbox-close" aria-label="关闭" onClick={onClose}>
+      <Button type="button" className="lightbox-close" aria-label="关闭" onClick={onClose}>
         <CloseIcon />
-      </button>
+      </Button>
       <div className={'lightbox-stage' + (zoom === 'full' ? ' lightbox-stage-full' : '')} onClick={(event) => { event.stopPropagation() }}>
         <img
           className="lightbox-img"

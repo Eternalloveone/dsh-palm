@@ -11,6 +11,7 @@ import { Sheet } from '../../sheet.tsx'
 import { ConfirmDialog } from '../../dialog.tsx'
 import { GitHubIcon } from '../../icons.tsx'
 import { OptionSheet, clearAppCaches } from './settings-shared.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface SettingsOverlaysProps {
   sheet: 'theme' | 'font' | 'density' | 'about' | null
@@ -87,14 +88,14 @@ export function SettingsOverlays({
                 构建 {BUILD_HASH ?? '无法读取'}
           </p>
           <div className="sheet-confirm-actions">
-            <button
+            <Button
               type="button"
               className="mobile-button"
               disabled={versionBusy}
               onClick={() => { void handleVersionCheck() }}
             >
               {versionBusy ? '检查中…' : '检查更新'}
-            </button>
+            </Button>
             {/* 一键直达仓库：版本这块最常被问的就是"有没有新版本/源码在哪"，
                 检查更新旁边放一个 GitHub 图标，省掉去设置里翻「反馈」那一步。 */}
             <a

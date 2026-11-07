@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import type { JobView } from '../api-proxy-types'
 import { ChevronDownIcon } from './icons.tsx'
+import { Button } from './ui/primitives.tsx'
 
 /** Human wording for each job lifecycle state. */
 const STATUS_LABEL: Record<JobView['status'], string> = {
@@ -102,7 +103,7 @@ export function TaskStatusBar({ jobs }: { jobs: JobView[] }) {
 
   return (
     <div className={'chat-taskbar' + (open ? ' chat-taskbar-open' : '')}>
-      <button
+      <Button
         type="button"
         className="chat-taskbar-head"
         aria-expanded={open}
@@ -113,7 +114,7 @@ export function TaskStatusBar({ jobs }: { jobs: JobView[] }) {
         <span className="chat-disclosure-caret" aria-hidden>
           <ChevronDownIcon width={14} height={14} />
         </span>
-      </button>
+      </Button>
       {open && (
         <div className="chat-taskbar-body" role="list" aria-label="后台任务列表">
           {/* In-flight jobs first, settled ones after; stable sort keeps the

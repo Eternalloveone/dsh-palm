@@ -19,6 +19,7 @@ import { Sheet } from './sheet.tsx'
 import { TaskRow } from './task-status.tsx'
 import type { TodoItem, TodoSnapshot } from './messages.ts'
 import { countRunningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from './subagent-tree.ts'
+import { Button } from './ui/primitives.tsx'
 
 /** 淡出动画时长：内容清空后先留这么久播收起动画，再整条卸载（不占位）。 */
 export const STATUS_LEAVE_MS = 320
@@ -96,9 +97,9 @@ function SubagentSection({ nodes }: { nodes: readonly SubagentFlatNode[] }) {
         {visible.map(node => <SubagentRow key={node.id} node={node} />)}
       </div>
       {hidden > 0 && (
-        <button type="button" className="chat-run-fold" onClick={() => { setExpanded(value => !value) }}>
+        <Button type="button" className="chat-run-fold" onClick={() => { setExpanded(value => !value) }}>
           {expanded ? '收起' : `… 还有 ${hidden} 个子代理`}
-        </button>
+        </Button>
       )}
     </section>
   )
@@ -193,14 +194,14 @@ export function RunStatusBar({
     || countRunningSubagents(subagents) > 0
 
   return (
-    <button
+    <Button
       type="button"
       className={'chat-status-strip' + (leaving ? ' chat-status-strip-leaving' : '')}
       onClick={onOpen}
     >
       <span className={'chat-status-dot' + (busy ? ' chat-status-dot-live' : '')} aria-hidden />
       <span className="chat-status-text">{shown.join(' · ')}</span>
-    </button>
+    </Button>
   )
 }
 
@@ -252,7 +253,7 @@ export function FinishedElsewhereBar({
         {durationMs === undefined ? '' : ` · ${formatRunDuration(durationMs)}`}
       </span>
       <span className="chat-finished-chev" aria-hidden>›</span>
-      <button
+      <Button
         type="button"
         className="chat-finished-dismiss"
         aria-label="收起这条提示"
@@ -262,7 +263,7 @@ export function FinishedElsewhereBar({
         }}
       >
         ✕
-      </button>
+      </Button>
     </div>
   )
 }

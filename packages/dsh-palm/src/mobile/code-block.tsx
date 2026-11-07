@@ -22,6 +22,7 @@ import { copyText, insertCode, openCodeInTab, runCode, type RunResult } from './
 import { toast } from './toast.tsx'
 import { escapeHtml } from './markdown.ts'
 import { CheckIcon, CopyIcon, EnterIcon, PlayIcon, UpperRightIcon } from './icons.tsx'
+import { Button } from './ui/primitives.tsx'
 
 /** Fold threshold: blocks with more lines fold; the folded view shows this many. */
 export const FOLD_THRESHOLD = 20
@@ -186,7 +187,7 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
         <span className="code-lang">{info.label}</span>
         <div className="code-actions">
           {info.runnable && (
-            <button
+            <Button
               type="button"
               className="code-btn"
               aria-label="运行代码"
@@ -194,9 +195,9 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
               onClick={handleRun}
             >
               <PlayIcon width={16} height={16} />
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
             className={'code-btn' + (copied ? ' code-btn-done' : '')}
             aria-label="复制代码"
@@ -204,13 +205,13 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
           >
             {copied ? <CheckIcon width={16} height={16} /> : <CopyIcon width={16} height={16} />}
             {copied && <span className="code-btn-label">已复制</span>}
-          </button>
-          <button type="button" className="code-btn" aria-label="插入到编辑器" onClick={handleInsert}>
+          </Button>
+          <Button type="button" className="code-btn" aria-label="插入到编辑器" onClick={handleInsert}>
             <EnterIcon width={16} height={16} />
-          </button>
-          <button type="button" className="code-btn" aria-label="新标签页打开" onClick={handleOpen}>
+          </Button>
+          <Button type="button" className="code-btn" aria-label="新标签页打开" onClick={handleOpen}>
             <UpperRightIcon width={16} height={16} />
-          </button>
+          </Button>
         </div>
       </div>
       <div className="code-body-zone">
@@ -242,9 +243,9 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
         {folded && <div className="code-fold-mask" aria-hidden="true" />}
       </div>
       {foldable && (
-        <button type="button" className="code-fold-btn" onClick={() => { setExpanded(value => !value) }}>
+        <Button type="button" className="code-fold-btn" onClick={() => { setExpanded(value => !value) }}>
           {folded ? '展开全部' : '收起'}
-        </button>
+        </Button>
       )}
       {run.result !== undefined && (
         <pre className={'code-run' + (run.result.error === true ? ' code-run-error' : ' code-run-ok')}>

@@ -19,6 +19,7 @@ import { escapeHtml, parseSegments } from './markdown.ts'
 import { CodeBlock } from './code-block.tsx'
 import { DiffView } from './diff-view.tsx'
 import { CopyIcon } from './icons.tsx'
+import { Button } from './ui/primitives.tsx'
 /** Extension → shiki language key (best effort; unknown → plain text). */
 const EXT_LANG: Record<string, string> = {
   ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', mjs: 'js', cjs: 'js',
@@ -101,10 +102,10 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
           <div className="fp-actions">
             <span className="fp-path" title={ready.path}>{ready.path}</span>
             {!isImage && (
-              <button type="button" className="fp-copy" onClick={() => { void copyText(ready.text, '已复制文件原文') }}>
+              <Button type="button" className="fp-copy" onClick={() => { void copyText(ready.text, '已复制文件原文') }}>
                 <CopyIcon />
                 复制原文
-              </button>
+              </Button>
             )}
           </div>
           {isImage ? (
@@ -188,13 +189,13 @@ function FpLongText({ text, children }: { text: string; children: React.ReactNod
     <>
       <div className={'fp-scroll' + (folded ? ' fp-scroll-folded' : '')}>{children}</div>
       {foldable && (
-        <button
+        <Button
           type="button"
           className="fp-fold-btn"
           onClick={() => { setExpanded(value => !value) }}
         >
           {folded ? `展开全部（共 ${lineCount} 行）` : '收起'}
-        </button>
+        </Button>
       )}
     </>
   )

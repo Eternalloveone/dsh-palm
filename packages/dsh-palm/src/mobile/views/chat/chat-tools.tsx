@@ -9,6 +9,7 @@ import { CheckIcon, ModelIcon, ShieldIcon } from '../../icons.tsx'
 import type { SessionModels } from '../../../api-proxy-types'
 import { buildEffortChoices, flattenModelChoices } from '../../model-choice.ts'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './tool-labels.ts'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface ChatToolsProps {
   currentModel: { provider: string; model: string } | undefined
@@ -48,7 +49,7 @@ export function ChatTools(props: ChatToolsProps) {
     <>
       <div className="chat-tools">
         <div className="chat-tools-actions">
-          <button
+          <Button
             type="button"
             className="chat-pill"
             onClick={openModelPicker}
@@ -59,8 +60,8 @@ export function ChatTools(props: ChatToolsProps) {
             <ModelIcon width={16} height={16} />
             <span className="chat-pill-name">{currentModel === undefined ? '模型' : compactModelName(currentModel.model)}</span>
             <span className="chat-pill-chevron" aria-hidden>▾</span>
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className={'chat-pill chat-pill-perm chat-pill-perm-' + (permissions === undefined ? 'read' : permissionTone(permissions.currentValue) ?? 'read')}
             onClick={permissions === undefined ? requestPermissionsOnce : openPermissionPicker}
@@ -70,7 +71,7 @@ export function ChatTools(props: ChatToolsProps) {
           >
             <ShieldIcon width={16} height={16} />
             <span className="chat-pill-name">{permissions === undefined ? '权限' : permissionShortLabel(permissions.currentValue)}</span>
-          </button>
+          </Button>
         </div>
         <div
           className={"chat-context" + (contextUsage !== undefined && contextUsage.pct >= 80 ? " chat-context-warn" : "")}
@@ -118,7 +119,7 @@ export function ChatTools(props: ChatToolsProps) {
               {staleHint(modelCatalog.message) !== undefined && (
                 <span className="chat-picker-status chat-picker-hint">{staleHint(modelCatalog.message)}</span>
               )}
-              <button type="button" className="chat-picker-more" onClick={loadModelCatalog}>重试</button>
+              <Button type="button" className="chat-picker-more" onClick={loadModelCatalog}>重试</Button>
             </>
           )}
           {modelCatalog.status === 'ready' && (
@@ -135,7 +136,7 @@ export function ChatTools(props: ChatToolsProps) {
                   const isSelected = current !== undefined && current.provider === group.id && current.model === model.id
                   const shownName = (nameCounts.get(model.name) ?? 0) > 1 ? `${model.name} · ${group.name}` : model.name
                   return (
-                    <button
+                    <Button
                       type="button"
                       key={`${group.id}:${model.id}`}
                       className={'chat-picker-row' + (isSelected ? ' chat-picker-row-selected' : '')}
@@ -154,7 +155,7 @@ export function ChatTools(props: ChatToolsProps) {
                       <span className="chat-picker-row-copy">
                         <span className="chat-picker-row-title">{shownName}</span>
                       </span>
-                    </button>
+                    </Button>
                   )
                 }
                 // 宿主报的当前模型可能不在目录里（实测 chip 是 v4.1-flash:1017，目录里
@@ -167,13 +168,13 @@ export function ChatTools(props: ChatToolsProps) {
                   ? (
                       <div className="chat-picker-group" key="__current">
                         <div className="chat-picker-group-title">当前</div>
-                        <button type="button" className="chat-picker-row chat-picker-row-selected" disabled={pickerBusy} onClick={() => {}}>
+                        <Button type="button" className="chat-picker-row chat-picker-row-selected" disabled={pickerBusy} onClick={() => {}}>
                           <span className="chat-picker-row-check" aria-hidden><CheckIcon width={14} height={14} /></span>
                           <span className="chat-picker-row-copy">
                             <span className="chat-picker-row-title">{current.model}</span>
                             <span className="chat-picker-row-sub">{current.provider}</span>
                           </span>
-                        </button>
+                        </Button>
                       </div>
                     )
                   : null
@@ -202,7 +203,7 @@ export function ChatTools(props: ChatToolsProps) {
                     {effortChoices.map(choice => {
                       const isSelected = effectiveEffort === choice.effort
                       return (
-                        <button
+                        <Button
                           type="button"
                           key={choice.key}
                           className={'chat-picker-row' + (isSelected ? ' chat-picker-row-selected' : '')}
@@ -221,7 +222,7 @@ export function ChatTools(props: ChatToolsProps) {
                           <span className="chat-picker-row-copy">
                             <span className="chat-picker-row-title">{choice.label}</span>
                           </span>
-                        </button>
+                        </Button>
                       )
                     })}
                   </div>
@@ -236,7 +237,7 @@ export function ChatTools(props: ChatToolsProps) {
           {permissions.options.map(option => {
             const isSelected = option.value === permissions.currentValue
             return (
-              <button
+              <Button
                 type="button"
                 key={option.value}
                 className={'chat-picker-row'
@@ -252,7 +253,7 @@ export function ChatTools(props: ChatToolsProps) {
                   <span className="chat-picker-row-title">{option.name}</span>
                   {option.description !== undefined && <span className="chat-picker-row-sub">{option.description}</span>}
                 </span>
-              </button>
+              </Button>
             )
           })}
         </div>

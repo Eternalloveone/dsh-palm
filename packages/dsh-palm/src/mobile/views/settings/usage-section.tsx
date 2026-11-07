@@ -5,6 +5,7 @@
 import type { UsageProviderView, UsageView } from '../../api.ts'
 import { GaugeIcon } from '../../icons.tsx'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 /** Collapsed one-line summary of the usage surface. */
 export function usageSummaryText(usage: UsageView): string {
@@ -105,12 +106,12 @@ export function UsageProviderCard({ provider }: { provider: UsageProviderView })
           {provider.consoleUrl !== undefined && (
             <>
               {' '}
-              <button
+              <Button
                 type="button"
                 className="usage-consoleLink"
                 onClick={() => { window.open(provider.consoleUrl, '_blank', 'noopener') }}
               >去控制台看用量 ›
-              </button>
+              </Button>
             </>
           )}
         </p>
@@ -121,12 +122,12 @@ export function UsageProviderCard({ provider }: { provider: UsageProviderView })
           {provider.consoleUrl !== undefined && (
             <>
               {' '}
-              <button
+              <Button
                 type="button"
                 className="usage-consoleLink"
                 onClick={() => { window.open(provider.consoleUrl, '_blank', 'noopener') }}
               >去控制台核对 ›
-              </button>
+              </Button>
             </>
           )}
         </p>
@@ -189,15 +190,15 @@ export function UsageSection({
                   <UsageProviderCard key={provider.name} provider={provider} />
                 ))}
                 <div className="usage-actions">
-                  <button type="button" className="mobile-button" onClick={() => { setUsageOpen(false) }}>收起</button>
-                  <button
+                  <Button type="button" className="mobile-button" onClick={() => { setUsageOpen(false) }}>收起</Button>
+                  <Button
                     type="button"
                     className="mobile-button mobile-button-primary"
                     disabled={usageBusy}
                     onClick={() => { void refreshUsage() }}
                   >
                     {usageBusy ? '查询中…' : '刷新'}
-                  </button>
+                  </Button>
                 </div>
               </li>
             )}

@@ -25,6 +25,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { ERROR_MESSAGE_MAX, recordError } from './errors.ts'
 import { claimChunkAutoReload, isChunkLoadFailure } from './chunk-recovery.ts'
+import { Button } from './ui/primitives.tsx'
 
 interface ErrorBoundaryState {
   /** A short readable reason, or null while the app tree is mounted. */
@@ -80,7 +81,7 @@ export class ErrorBoundary extends Component<{ children?: ReactNode }, ErrorBoun
           <h1 className="errorpage-title">前端已更新</h1>
           <p className="errorpage-reason">页面还在跑旧版本，重新加载即可继续。</p>
           <div className="errorpage-actions">
-            <button type="button" className="mobile-button" onClick={this.reload}>重新加载</button>
+            <Button type="button" className="mobile-button" onClick={this.reload}>重新加载</Button>
           </div>
         </main>
       )
@@ -90,8 +91,8 @@ export class ErrorBoundary extends Component<{ children?: ReactNode }, ErrorBoun
         <h1 className="errorpage-title">页面出错了</h1>
         <p className="errorpage-reason">{reason}</p>
         <div className="errorpage-actions">
-          <button type="button" className="mobile-button" onClick={this.retry}>重试</button>
-          <button type="button" className="mobile-button-muted" onClick={this.reload}>重新加载</button>
+          <Button type="button" className="mobile-button" onClick={this.retry}>重试</Button>
+          <Button type="button" className="mobile-button-muted" onClick={this.reload}>重新加载</Button>
         </div>
       </main>
     )

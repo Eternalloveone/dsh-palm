@@ -10,6 +10,7 @@ import { ConfirmDialog, PromptDialog } from '../../dialog.tsx'
 import { PencilIcon, ShieldIcon, TrashIcon } from '../../icons.tsx'
 import { IosInstallHint } from '../../ios-install-hint.tsx'
 import { RowChevron, SettingsRow, formatInboxTime } from './settings-shared.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface DeviceSectionProps {
   show: boolean
@@ -92,7 +93,7 @@ export function DeviceManagementView({ onBack }: { onBack(): void }) {
     <div className="mobile">
       <header className="mobile-header">
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+          <Button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</Button>
         </div>
         <h1 className="mobile-title">设备管理</h1>
         <div className="mobile-headerSlot mobile-headerSlot-right" />
@@ -123,25 +124,25 @@ export function DeviceManagementView({ onBack }: { onBack(): void }) {
                   </span>
                 </span>
                 <span className="device-actions">
-                  <button
+                  <Button
                     type="button"
                     className="device-btn"
                     aria-label="重命名"
                     onClick={() => { setRenameTarget(device) }}
-                  ><PencilIcon /></button>
+                  ><PencilIcon /></Button>
                   {device.current === true && (
                     // Only "leave this phone" is offered here: removing *other*
                     // devices is an anti-theft control, and the host now refuses
                     // it from a non-loopback caller (a phone can always drop
                     // itself). Promoting to primary is desktop-only for the same
                     // reason — the button lived here and is gone on purpose.
-                    <button
+                    <Button
                       type="button"
                       className="device-btn device-btn-danger"
                       aria-label="退出本机"
                       disabled={busy}
                       onClick={() => { setRevokeTarget(device) }}
-                    ><TrashIcon /></button>
+                    ><TrashIcon /></Button>
                   )}
                 </span>
               </div>

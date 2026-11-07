@@ -10,6 +10,7 @@
 
 import { useState } from 'react'
 import { dismissInstallHint, installHintDismissed, iosInstallHintNeeded } from './install-hint.ts'
+import { Button } from './ui/primitives.tsx'
 
 /** A settings note row, or nothing when the device does not need it. */
 export function IosInstallHint() {
@@ -18,13 +19,13 @@ export function IosInstallHint() {
   return (
     <li className="settings-note settings-installHint">
       <span>装到主屏才是全屏 App（也能收推送）：Safari 底部「分享」→「添加到主屏幕」。</span>
-      <button
+      <Button
         type="button"
         className="settings-installHint-btn"
         onClick={() => { dismissInstallHint(); setDismissed(true) }}
       >
         知道了
-      </button>
+      </Button>
     </li>
   )
 }

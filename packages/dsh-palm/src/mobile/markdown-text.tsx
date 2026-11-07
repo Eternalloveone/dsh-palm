@@ -29,6 +29,7 @@ import { loadLocalImageUrl } from './local-images.ts'
 import { CodeBlock } from './code-block.tsx'
 import { DiffView } from './diff-view.tsx'
 import { ChevronUpIcon, SearchIcon } from './icons.tsx'
+import { Button } from './ui/primitives.tsx'
 
 export const LONG_TEXT_LIMIT = 6000
 /** Preview length for collapsed long text (exported for height estimation). */
@@ -84,7 +85,7 @@ export function ReasoningDisclosure({ text, pending, label = '深度思考' }: {
     : text
   return (
     <div className={`chat-disclosure chat-reasoning${open ? ' chat-disclosure-open' : ''}`} data-pending={pending || undefined}>
-      <button
+      <Button
         type="button"
         className="chat-disclosure-head"
         aria-expanded={open}
@@ -94,18 +95,18 @@ export function ReasoningDisclosure({ text, pending, label = '深度思考' }: {
         <span className="chat-disclosure-label">{pending ? '思考中…' : label}</span>
         {!open && <span className="chat-disclosure-summary">{summary}</span>}
         <span className="chat-disclosure-caret" aria-hidden><ChevronUpIcon /></span>
-      </button>
+      </Button>
       {open && (
         <>
           <div className="chat-disclosure-body" ref={bodyRef}>{visibleText}</div>
           {hiddenLines > 0 && (
-            <button
+            <Button
               type="button"
               className="chat-reasoning-more"
               onClick={() => { setShowAll(value => !value) }}
             >
               {showAll ? '收起' : `还有 ${hiddenLines} 行思考...`}
-            </button>
+            </Button>
           )}
         </>
       )}
@@ -344,14 +345,14 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
         )}
       </div>
       {long && (
-        <button
+        <Button
           type="button"
           className="chat-msg-toggle"
           aria-expanded={open}
           onClick={() => { setOpen(value => !value) }}
         >
           {open ? '收起' : '展开全文（' + text.length + ' 字）'}
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -371,9 +372,9 @@ export function CollapsibleText({ text, forceOpen = false, highlightQuery }: { t
   return (
     <span className="chat-msg-text" data-part-id="body">
       {highlighted(shown)}{!open ? '…' : ''}
-      <button type="button" className="chat-msg-toggle" onClick={() => { setOpen(value => !value) }}>
+      <Button type="button" className="chat-msg-toggle" onClick={() => { setOpen(value => !value) }}>
         {open ? '收起' : `展开全文（${text.length} 字）`}
-      </button>
+      </Button>
     </span>
   )
 }

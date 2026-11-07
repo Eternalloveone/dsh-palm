@@ -5,6 +5,7 @@
 import type { DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView } from '../../api.ts'
 import { ScopeBadge, formatInboxTime } from './settings-shared.tsx'
 import { NotifyChannels, NotifyClearConfirm } from './notify-channels.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface NotifyPageProps {
   setNotifyOpen: (open: boolean) => void
@@ -62,7 +63,7 @@ export function NotifyPage({
       <div className="mobile">
         <header className="mobile-header">
           <div className="mobile-headerSlot">
-            <button type="button" className="mobile-back" aria-label="返回" onClick={() => { setNotifyOpen(false) }}>‹</button>
+            <Button type="button" className="mobile-back" aria-label="返回" onClick={() => { setNotifyOpen(false) }}>‹</Button>
           </div>
           <h1 className="mobile-title">通知</h1>
           <div className="mobile-headerSlot mobile-headerSlot-right" />
@@ -118,7 +119,7 @@ export function NotifyPage({
             ) : (
               <div className="settings-inbox">
                 {inbox.slice(0, 20).map(item => (
-                  <button
+                  <Button
                     type="button"
                     key={item.id}
                     className="settings-inboxRow"
@@ -141,7 +142,7 @@ export function NotifyPage({
                       <span className="settings-inboxTime">{formatInboxTime(item.ts)}</span>
                     </span>
                     <span className="card-desc">{item.body}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -157,7 +158,7 @@ export function NotifyPage({
               <div className="settings-fieldHead">
                 <span className="settings-fieldLabel">启用</span>
               </div>
-              <button
+              <Button
                 type="button"
                 role="switch"
                 aria-label="浏览器通知"
@@ -181,7 +182,7 @@ export function NotifyPage({
                 <div className="settings-fieldHead">
                   <span className="settings-fieldLabel">规划完成</span>
                 </div>
-                <button
+                <Button
                   type="button"
                   role="switch"
                   aria-label="规划完成"
@@ -196,7 +197,7 @@ export function NotifyPage({
                 <div className="settings-fieldHead">
                   <span className="settings-fieldLabel">后台任务</span>
                 </div>
-                <button
+                <Button
                   type="button"
                   role="switch"
                   aria-label="后台任务"
@@ -211,7 +212,7 @@ export function NotifyPage({
                 <div className="settings-fieldHead">
                   <span className="settings-fieldLabel">长回复</span>
                 </div>
-                <button
+                <Button
                   type="button"
                   role="switch"
                   aria-label="长回复"
@@ -226,7 +227,7 @@ export function NotifyPage({
                 <div className="settings-fieldHead">
                   <span className="settings-fieldLabel">审批与提问</span>
                 </div>
-                <button
+                <Button
                   type="button"
                   role="switch"
                   aria-label="审批与提问"

@@ -65,8 +65,8 @@ for (const file of process.argv.slice(2)) {
   const before = readFileSync(path, 'utf8')
   const opens = (before.match(/<button\b/g) ?? []).length
   const closes = (before.match(/<\/button>/g) ?? []).length
-  if (opens !== closes) {
-    results.push(`${file}: 跳过（开 ${opens} / 闭 ${closes} 不匹配）`)
+  if (opens < closes) {
+    results.push(`${file}: 跳过（开 ${opens} / 闭 ${closes}，闭多于开）`)
     continue
   }
   if (opens === 0) continue
@@ -76,7 +76,8 @@ for (const file of process.argv.slice(2)) {
   if (!hasImport) after = addImport(after, importPathFor(file))
 
   writeFileSync(path, after)
-  results.push(`${file}: ${opens} 处已替换`)
+  const selfClosed = opens - closes
+  results.push(`${file}: ${opens} 处已替换${selfClosed > 0 ? `（含 ${selfClosed} 处自闭合）` : ''}`)
 }
 
 for (const line of results) console.log('[codemod] ' + line)

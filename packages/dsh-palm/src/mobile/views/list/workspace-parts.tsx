@@ -12,6 +12,7 @@ import { errorText } from '../../shared/error-text.ts'
 import { toast } from '../../toast.tsx'
 import { Sheet } from '../../sheet.tsx'
 import type { MatchRanges, TextMatch } from '../../search-match.ts'
+import { Button } from '../../ui/primitives.tsx'
 
 /**
  * 只给「连成一整段」的命中上色：子序列命中（「工区」命中「工作区」）会把几个
@@ -90,7 +91,7 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
     <div className="mobile dir-browser">
       <header className="mobile-header">
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-headerAction" onClick={onCancel}>返回</button>
+          <Button type="button" className="mobile-headerAction" onClick={onCancel}>返回</Button>
         </div>
         <h1 className="mobile-title">选择目录</h1>
         <div className="mobile-headerSlot mobile-headerSlot-right" />
@@ -100,13 +101,13 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
         <div className="dir-crumbs">
           {listing.crumbs.map((crumb, idx) => (
             <span key={crumb.path}>
-              <button
+              <Button
                 type="button"
                 className="dir-crumb"
                 onClick={() => setPath(crumb.path)}
               >
                 {crumb.name || '/'}
-              </button>
+              </Button>
               {idx < listing.crumbs.length - 1 && <span className="dir-crumb-separator">/</span>}
             </span>
           ))}
@@ -116,7 +117,7 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
       {error !== undefined ? (
         <div className="mobile-empty">
           <p className="mobile-error">{error}</p>
-          <button type="button" className="mobile-button" onClick={() => setReload(n => n + 1)}>重试</button>
+          <Button type="button" className="mobile-button" onClick={() => setReload(n => n + 1)}>重试</Button>
         </div>
       ) : listing === undefined ? (
         <div className="mobile-empty">
@@ -131,7 +132,7 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
           ) : (
             listing.entries.map((entry: DirectoryEntry) => (
               <li key={entry.path}>
-                <button
+                <Button
                   type="button"
                   className={`mobile-row dir-entry ${entry.hidden ? 'dir-entry-hidden' : ''}`}
                   onClick={() => setPath(entry.path)}
@@ -140,7 +141,7 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
                     <span className="mobile-rowTitle">{entry.name}</span>
                   </span>
                   <span className="mobile-chevron" aria-hidden>›</span>
-                </button>
+                </Button>
               </li>
             ))
           )}
@@ -148,7 +149,7 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
       )}
 
       <div className="dir-select">
-        <button
+        <Button
           type="button"
           className="mobile-button"
           // listing 还没读出来时不再禁用（禁用＝点了没反应，用户不知道该怎么办）：
@@ -163,7 +164,7 @@ export function DirectoryBrowser({ onCancel, onPick }: DirectoryBrowserProps) {
           }}
         >
           {creating ? '创建中…' : listing === undefined ? '重新读取目录' : '选择此目录'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -202,7 +203,7 @@ export function WorkspaceMenu({ target, pinned, onClose, onPinnedChange, onRenam
     <Sheet title={workspace.title} onClose={onClose}>
       <div role="menu" aria-label={`工作区操作：${workspace.title}`}>
         {actions.map(action => (
-          <button
+          <Button
             key={action.key}
             type="button"
             role="menuitem"
@@ -214,7 +215,7 @@ export function WorkspaceMenu({ target, pinned, onClose, onPinnedChange, onRenam
                 {action.label}
               </span>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
     </Sheet>

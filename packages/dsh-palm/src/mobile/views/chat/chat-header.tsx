@@ -8,6 +8,7 @@
 import type { MutableRefObject } from 'react'
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MoreIcon, SearchIcon } from '../../icons.tsx'
 import { ThemeToggle } from '../../theme-toggle.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface ChatHeaderProps {
   title: string
@@ -21,23 +22,23 @@ export function ChatHeader({ title, onBack, onToggleSearch, onMore }: ChatHeader
   return (
     <header className="mobile-header">
       <div className="mobile-headerSlot">
-        <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+        <Button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</Button>
       </div>
       <div className="mobile-titleWrap">
         <h1 className="mobile-title mobile-titleInline">{title}</h1>
       </div>
       <div className="mobile-headerSlot mobile-headerSlot-right">
-        <button
+        <Button
           type="button"
           className="mobile-iconbtn"
           aria-label="搜索本会话"
           onClick={onToggleSearch}
         >
           <SearchIcon />
-        </button>
-        <button type="button" className="mobile-iconbtn" aria-label="更多" onClick={onMore}>
+        </Button>
+        <Button type="button" className="mobile-iconbtn" aria-label="更多" onClick={onMore}>
           <MoreIcon />
-        </button>
+        </Button>
         <ThemeToggle />
       </div>
     </header>
@@ -101,7 +102,7 @@ export function ChatSearchBar(props: ChatSearchBarProps) {
       {jumping && !busy && hits > 0 && (
         <span className="chat-search-hint">载入中…</span>
       )}
-      <button
+      <Button
         type="button"
         className="mobile-iconbtn"
         aria-label="上一个"
@@ -109,8 +110,8 @@ export function ChatSearchBar(props: ChatSearchBarProps) {
         onClick={onPrev}
       >
         <ChevronUpIcon />
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         className="mobile-iconbtn"
         aria-label="下一个"
@@ -118,15 +119,15 @@ export function ChatSearchBar(props: ChatSearchBarProps) {
         onClick={onNext}
       >
         <ChevronDownIcon />
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         className="mobile-iconbtn"
         aria-label="关闭搜索"
         onClick={onClose}
       >
         <CloseIcon />
-      </button>
+      </Button>
     </div>
   )
 }

@@ -6,6 +6,7 @@ import type { SettingsNamespaceView } from '../../../api-proxy-types'
 import { SlidersIcon } from '../../icons.tsx'
 import { hostGroupDesc, hostGroupIcon } from './settings-groups.tsx'
 import { RowChevron, ScopeBadge } from './settings-shared.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface SettingsGroupRow {
   group: { id: string; title: string; namespaces: string[] }
@@ -30,7 +31,7 @@ export function AdvancedSection({
         <ul className="settings-group">
           <li className="settings-groupTitle">进阶 <span className="settings-groupDesc">模型 · 搜索 · 记忆 · 工具 · 系统 · 远程访问</span></li>
           <li>
-            <button type="button" className="mobile-row" aria-expanded={showAdvanced} onClick={() => { setShowAdvanced(value => !value) }}>
+            <Button type="button" className="mobile-row" aria-expanded={showAdvanced} onClick={() => { setShowAdvanced(value => !value) }}>
               <span className="card-icon"><span aria-hidden><SlidersIcon /></span></span>
               <span className="card-main">
                 <span className="card-title"><span className="card-titleText">主机配置</span></span>
@@ -39,7 +40,7 @@ export function AdvancedSection({
               <span className="card-action">
                 <span className={`settings-advChev${showAdvanced ? ' settings-advChev-open' : ''}`} aria-hidden>›</span>
               </span>
-            </button>
+            </Button>
           </li>
         </ul>
 
@@ -51,7 +52,7 @@ export function AdvancedSection({
         )}
         {namespaces !== undefined && groupRows.map(row => (
           <li key={row.group.id}>
-            <button type="button" className="mobile-row" onClick={() => { setOpenGroup(row.group.id) }}>
+            <Button type="button" className="mobile-row" onClick={() => { setOpenGroup(row.group.id) }}>
               <span className="card-icon"><span aria-hidden>{hostGroupIcon(row.group.id)}</span></span>
               <span className="card-main">
                 <span className="card-title">
@@ -61,7 +62,7 @@ export function AdvancedSection({
                 <span className="card-desc">{hostGroupDesc(row.group)}</span>
               </span>
               <span className="card-action"><RowChevron /></span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

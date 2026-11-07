@@ -99,7 +99,7 @@ function PageSkeleton({ failed, onRetry }: { failed?: boolean; onRetry?: () => v
     <div className="page-loading" aria-busy={failed === true ? undefined : true}>
       <div className="page-loading-head" />
       {failed === true
-        ? <button type="button" className="page-loading-retry" onClick={onRetry}>加载失败，点一下重试</button>
+        ? <Button type="button" className="page-loading-retry" onClick={onRetry}>加载失败，点一下重试</Button>
         : (
           <div className="page-loading-rows" aria-hidden="true">
             <span /><span /><span /><span />
@@ -118,6 +118,7 @@ import { PairRequiredView } from '../PairRequiredView.tsx'
 import { hasAnyChatCache } from '../chat-cache.ts'
 import { loadChatCache } from '../chat-cache.ts'
 import { loadPersistedList } from '../list-persist.ts'
+import { Button } from '../ui/primitives.tsx'
 
 /** One navigation level. */
 type Route =
@@ -444,9 +445,9 @@ export function App({ initialPairError }: AppProps) {
         <>
           <div className="mobile-offline-bar" role="status">
             离线：显示的是上次缓存的，连上后会更新
-            <button type="button" className="mobile-offline-retry" onClick={() => { window.location.reload() }}>
+            <Button type="button" className="mobile-offline-retry" onClick={() => { window.location.reload() }}>
               重试
-            </button>
+            </Button>
           </div>
           <PairedApp onUnpaired={() => { setPairState('unpaired') }} offline />
         </>
@@ -455,7 +456,7 @@ export function App({ initialPairError }: AppProps) {
     return (
       <main className="mobile mobile-empty">
         <p className="mobile-error" role="alert">无法连接到运行中的 DSH host。</p>
-        <button className="mobile-new" type="button" onClick={() => { window.location.reload() }}>重试</button>
+        <Button className="mobile-new" type="button" onClick={() => { window.location.reload() }}>重试</Button>
       </main>
     )
   }
@@ -1235,7 +1236,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
         </div>
       </div>
       {finishToast !== undefined && route.kind !== 'chat' && route.kind !== 'sub-chat' && (
-        <button
+        <Button
           type="button"
           className="finish-toast"
           onClick={() => {
@@ -1254,7 +1255,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             <span className="finish-toast-dur">{formatRunDuration(finishToast.durationMs)}</span>
           )}
           <span className="finish-toast-chev" aria-hidden>›</span>
-        </button>
+        </Button>
       )}
       <ToastHost />
     </div>
