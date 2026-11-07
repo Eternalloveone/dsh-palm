@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
-import { deleteWorkspace, listWorkspaces, createWorkspace, renameWorkspace, searchAll, searchMessages, searchSessions, type SessionSearchHit } from '../api.ts'
+import { createWorkspace, deleteWorkspace, listWorkspaces, renameWorkspace, searchAll, searchMessages, searchSessions, type SessionSearchHit } from '../data/workspace-page.ts'
 import { errorText } from '../shared/error-text.ts'
 import { compactPath, dominantPathPrefix } from '../ui-text.ts'
 import { lastPathSegment, matchText, normalizeTerm, type MatchRanges } from '../search-match.ts'

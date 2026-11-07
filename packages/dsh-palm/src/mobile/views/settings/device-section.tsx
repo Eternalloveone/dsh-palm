@@ -3,7 +3,8 @@
  * 设备页的数据与对话框状态本来就在自包含组件里，这里原样搬迁。
  */
 import { useEffect, useState } from 'react'
-import { listDevices, renameDevice, revokeDevice, type PairedDeviceView } from '../../api.ts'
+import { listDevices, renameDevice, revokeDevice } from '../../data/settings.ts'
+import type { PairedDeviceView } from '../../api.ts'
 import { errorText } from '../../shared/error-text.ts'
 import { toast } from '../../toast.tsx'
 import { ConfirmDialog, PromptDialog } from '../../dialog.tsx'

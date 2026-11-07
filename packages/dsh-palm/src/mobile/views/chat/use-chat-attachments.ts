@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { compressImageFile, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage } from '../../image.ts'
-import { uploadAttachment } from '../../api.ts'
+import { uploadAttachment } from '../../data/workspace.ts'
 import { toast } from '../../toast.tsx'
 
 /**

@@ -30,9 +30,10 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
 import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
-import { fetchMobilePreferences, models, renameSession, selectModel, sendCommand, cancelSession, archiveSession, listCommands, history, logTail, readChat, reportPerf, turnState, type CommandDescriptor, newRequestId } from '../api.ts'
+import { archiveSession, cancelSession, history, inboxOf, newRequestId, queueItemViewOf, prompt, readChat, renameSession, sendCommand, sessionState, turnState, updateQueue } from '../data/session.ts'
+import { fetchMobilePreferences, models, selectModel, listCommands } from '../data/settings.ts'
 import type { SessionModels } from '../../api-proxy-types'
-import type { PendingApproval, PendingQuestionItem } from '../api.ts'
+import type { CommandDescriptor, MobileGoalAction, PendingApproval, PendingQuestionItem, QueueItemView } from '../api.ts'
 import { buildPromptParts, imageFromClipboard, type PromptPart } from '../image.ts'
 import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, renderRows, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent,
   dedupeById,
@@ -40,7 +41,7 @@ import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, 
 import { reportDuplicateCards } from '../duplicate-report.ts'
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
-import { prompt, reportError } from '../api.ts'
+import { logTail, reportError, reportPerf } from '../data/diag.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
 import { useStickToBottom } from '../ui/hooks/use-stick-to-bottom.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
@@ -257,7 +258,6 @@ import {
 } from '../goal-projection.ts'
 import { FilePreviewSheet } from '../file-preview-sheet.tsx'
 import { ImageLightbox } from '../image-lightbox.tsx'
-import { inboxOf, sessionState, updateQueue, queueItemViewOf, type QueueItemView } from '../api.ts'
 import {
   addOptimisticQueueItem,
   applyQueueItems,
@@ -269,7 +269,7 @@ import {
   subscribeSessionStore,
   unhideQueueItem,
 } from '../session-store.ts'
-import { goalAction, goalOf, searchSessions, type MobileGoalAction } from '../api.ts'
+import { goalAction, goalOf, searchSessions } from '../data/session.ts'
 import { onConnectivityChange, reportConnectivity, RpcCallError } from '../rpc.ts'
 import { voiceSupported } from '../voice-input.ts'
 import { voiceStatusClassName } from '../voice-status.ts'

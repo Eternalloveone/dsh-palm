@@ -35,7 +35,7 @@ export const QUALITY_BUDGET = {
   /** `!important` 次数：层叠失控的信号。 */
   cssImportant: { value: 2, why: '应为 0；出现即说明选择器权重已经打起来' },
   /** `views/` 里直接 import 数据层（api.ts / mux.ts）的文件数：W4 归零。 */
-  viewDataImports: { value: 27, why: '屏幕只该读 selector；直连让缓存与降级无从下手' },
+  viewDataImports: { value: 20, why: '屏幕只该读 selector；直连让缓存与降级无从下手' },
 } as const satisfies Record<string, Budget>
 
 export type BudgetKey = keyof typeof QUALITY_BUDGET

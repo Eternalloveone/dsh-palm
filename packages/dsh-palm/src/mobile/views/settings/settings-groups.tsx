@@ -47,6 +47,19 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
   { id: 'voice-list', label: '语音 · 服务列表管理', group: '语音', keywords: ['语音列表', '排序', '上移', '下移', '删除服务'], open: 'voice' },
 ]
 
+/** 按关键词筛子页索引（空词 = 不筛，返回空数组：设置页据此判断"要不要显示索引"）。 */
+export function matchSettingsIndex(term: string): SettingsIndexEntry[] {
+  if (term === '') return []
+  return SETTINGS_INDEX.filter(item =>
+    item.label.toLowerCase().includes(term)
+    || item.keywords.some(keyword => keyword.toLowerCase().includes(term)))
+}
+
+/** 设置搜索的定位锚点属性：`data-locate-id` + 命中时的脉冲标记（CSS 用 `[data-focus]`）。 */
+export function settingsLocateProps(id: string, focusId: string | undefined): Record<string, string> {
+  return focusId === id ? { 'data-locate-id': id, 'data-focus': '' } : { 'data-locate-id': id }
+}
+
 /** 主机配置各组的一句话说明（原来自动拼的标题重复、术语直出，普通用户读不懂）。 */
 export const HOST_GROUP_DESC: Record<string, string> = {
   general: '语言、区域和通用偏好',

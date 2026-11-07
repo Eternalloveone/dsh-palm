@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RenderMessage } from '../../messages.ts'
-import { sessionState } from '../../api.ts'
+import { sessionState } from '../../data/session.ts'
 import { cachedSnapshot } from '../../session-store.ts'
 import { probeTurnAtTail } from '../../data/reload-tail.ts'
 import {

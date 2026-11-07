@@ -13,7 +13,8 @@
  */
 
 import { startTransition, useEffect, type Dispatch, type SetStateAction } from 'react'
-import { fetchPending, type PendingApproval, type PendingQuestionItem } from '../../api.ts'
+import { fetchPending } from '../../data/notify.ts'
+import type { PendingApproval, PendingQuestionItem } from '../../api.ts'
 import { adoptPolledApprovals, answeredApprovalsFor } from '../../approval-batches.ts'
 import { adoptPolledQuestions, answeredQuestionsFor } from '../../question-batches.ts'
 

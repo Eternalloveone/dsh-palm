@@ -3,7 +3,8 @@
  * 以及清除缓存确认。它们与 .mobile-scroll 同级，DOM 顺序与拆分前一致。
  */
 import pkg from '../../../../package.json'
-import { mutateSettings, type MobileHealthView } from '../../api.ts'
+import { mutateSettings } from '../../data/settings.ts'
+import type { MobileHealthView } from '../../api.ts'
 import { setMobileThemeMode, type MobileThemeMode } from '../../mobile-theme.ts'
 import { applyDisplayPrefs, setDensity, setFontScale, type Density, type FontScale } from '../../display-prefs.ts'
 import { BUILD_HASH } from '../../build-info.ts'

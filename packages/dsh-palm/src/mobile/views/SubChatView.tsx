@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ChatPage } from '../api.ts'
-import { logTail } from '../api.ts'
+import { logTail } from '../data/diag.ts'
 import type { RenderMessage, ToolCallInfo } from '../messages.ts'
 import { stepModel } from '../step-view.ts'
 import { formatAgo, formatRunDuration, runDetailFromPage } from '../run-detail.ts'

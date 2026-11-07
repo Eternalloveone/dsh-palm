@@ -12,7 +12,12 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { SettingsNamespaceView } from '../../api-proxy-types'
 import pkg from '../../../package.json'
-import { fetchHostVoiceServices, fetchUsage, latestVersion, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, testNotifyChannels, writeNotifyConfig, type DeliveryRecordView, type DeliveryStatsView, type MobileHealthView, type NotifyEventView, type UsageView } from '../api.ts'
+import { latestVersion, readDiagnostics } from '../data/diag.ts'
+import { notifyEvents, readNotifyConfig, testNotifyChannels, writeNotifyConfig } from '../data/notify.ts'
+import { readSettings } from '../data/settings.ts'
+import { fetchUsage } from '../data/usage.ts'
+import { fetchHostVoiceServices } from '../data/voice.ts'
+import type { DeliveryRecordView, DeliveryStatsView, MobileHealthView, NotifyEventView, UsageView } from '../api.ts'
 import { errorText } from '../shared/error-text.ts'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush } from '../notify.ts'
 import { getMobileThemeMode, subscribeMobileTheme } from '../mobile-theme.ts'
@@ -39,7 +44,7 @@ import { SettingsOverlays } from './settings/settings-overlays.tsx'
 import { RowChevron } from './settings/settings-shared.tsx'
 import { UsageSection } from './settings/usage-section.tsx'
 import { VoicePage, VoiceSection } from './settings/voice-section.tsx'
-import { SETTINGS_GROUPS, SETTINGS_INDEX, type SettingsIndexEntry } from './settings/settings-groups.tsx'
+import { SETTINGS_GROUPS, matchSettingsIndex, settingsLocateProps, type SettingsIndexEntry } from './settings/settings-groups.tsx'
 
 export interface SettingsViewProps {
   onBack(): void
@@ -251,15 +256,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const [focusId, setFocusId] = useState<string | undefined>(undefined)
   // Sub-page entries matching the term (the main-page rows already filter by
   // keyword; this index surfaces what lives inside the notify/voice pages).
-  const indexHits = term === ''
-    ? []
-    : SETTINGS_INDEX.filter(item =>
-      item.label.toLowerCase().includes(term)
-      || item.keywords.some(keyword => keyword.toLowerCase().includes(term)))
-  /** Settings-search locate anchor props: data-locate-id + the pulse marker
-   *  when this entry is the active target (CSS pulses [data-focus]). */
-  const locateProps = (id: string): Record<string, string> =>
-    focusId === id ? { 'data-locate-id': id, 'data-focus': '' } : { 'data-locate-id': id }
+  // 纯函数搬去 settings-groups.tsx（W4-3 期间顺手收行数，行为不变）。
+  const indexHits = matchSettingsIndex(term)
+  /** Settings-search locate anchor props: data-locate-id + the pulse marker. */
+  const locateProps = (id: string): Record<string, string> => settingsLocateProps(id, focusId)
 
   // Settings-search locate: once the target sub-page renders (focusId is set
   // together with opening it), scroll the anchored entry into view so the

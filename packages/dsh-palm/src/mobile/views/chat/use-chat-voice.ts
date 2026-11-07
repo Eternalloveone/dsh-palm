@@ -13,7 +13,7 @@
  * - 卸载必须 `cancel()` 麦克风，否则浏览器的录音指示一直亮着。
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
-import { transcribeVoice } from '../../api.ts'
+import { transcribeVoice } from '../../data/voice.ts'
 import { createLiveCaptions, type LiveCaptions } from '../../live-captions.ts'
 import { toast } from '../../toast.tsx'
 import { startVoiceRecording, type VoiceRecording } from '../../voice-input.ts'

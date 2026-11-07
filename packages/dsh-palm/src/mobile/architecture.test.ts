@@ -230,4 +230,33 @@ describe('architecture guardrails', () => {
       .map(match => match[1] ?? '')
     expect(valueImports, `Identity 内核出现了运行时依赖：${valueImports.join(', ')}`).toEqual([])
   })
+
+  /*
+   * W4-3：视图不再直接从 `api.ts` 取数。
+   *
+   * 直连的代价不是多写一行 import，而是"数据从哪来"这件事散在 18 个视图里：想加缓存、
+   * 想改重试、想换传输，都得挨个视图改。类型导入不算直连——那是两端的 wire 契约，
+   * 本来就该直接引用。这条断言是 W4-3 的护栏：迁完就不许再长回去。
+   */
+  it('views/ 不直接 import api.ts 的取数函数（只允许 import type）', () => {
+    const violations: string[] = []
+    const walk = (dir: string): string[] => {
+      const out: string[] = []
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) out.push(...walk(full))
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\./.test(entry.name)) out.push(full)
+      }
+      return out
+    }
+    for (const file of walk(join(HERE, 'views'))) {
+      const text = readFileSync(file, 'utf8')
+      for (const match of text.matchAll(/^import\s+(\{[^}]*\})\s+from\s+['"][^'"]*api\.ts['"]/gm)) {
+        const specifiers = (match[1] ?? '').slice(1, -1).split(',').map(item => item.trim()).filter(Boolean)
+        const values = specifiers.filter(item => !item.startsWith('type '))
+        if (values.length > 0) violations.push(`${rel(file)}: ${values.join(', ')}`)
+      }
+    }
+    expect(violations, `视图仍在直连 api.ts：\n${violations.join('\n')}`).toEqual([])
+  })
 })

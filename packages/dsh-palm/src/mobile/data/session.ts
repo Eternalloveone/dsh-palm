@@ -21,17 +21,27 @@ export {
   goalOf,
   history,
   inboxOf,
+  invalidateReadCoalescing,
   listSessions,
+  newRequestId,
   observeSession,
   prompt,
   queueItemViewOf,
   readChat,
   readSessionFolders,
   renameSession,
+  respondApproval,
+  respondQuestion,
+  runningSessions,
   searchAll,
   searchMessages,
   searchSessions,
   sendCommand,
   sessionState,
+  subagentsList,
+  turnState,
   updateQueue,
 } from '../api.ts'
+
+/** 门面也转类型：视图从域里一次拿全，避免"值在 data、类型在 api"的两头找。 */
+export type { SessionFoldersView, SessionSearchHit } from '../api.ts'

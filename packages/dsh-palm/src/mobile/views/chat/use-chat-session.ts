@@ -29,7 +29,7 @@ import {
   renderRows,
 } from '../../messages.ts'
 import { reportDuplicateCards } from '../../duplicate-report.ts'
-import { reportError } from '../../api.ts'
+import { reportError } from '../../data/diag.ts'
 
 /** Options for the row model. */
 export interface ChatSessionOptions {

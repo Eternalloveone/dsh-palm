@@ -8,15 +8,10 @@
 import { createElement, useCallback, useEffect, useReducer, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import { claimChunkAutoReload, isChunkLoadFailure } from '../chunk-recovery.ts'
-import {
-  fetchMobilePreferences,
-  listWorkspaces,
-  logTail,
-  observeSession,
-  prompt,
-  readSettings,
-  reportError,
-} from '../api.ts'
+import { logTail, reportError } from '../data/diag.ts'
+import { observeSession, prompt } from '../data/session.ts'
+import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
+import { listWorkspaces } from '../data/workspace.ts'
 import { MuxClient } from '../mux.ts'
 import { startNotify, stopNotify } from '../notify.ts'
 import { usePageVisible } from '../foreground.ts'
