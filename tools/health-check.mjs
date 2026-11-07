@@ -46,7 +46,10 @@ function run(name, command, args, options = {}) {
     return { ok: true, output }
   } catch (error) {
     const output = `${error.stdout ?? ''}\n${error.stderr ?? ''}\n${error.code === 'ENOENT' ? `找不到命令 ${command}` : ''}`
-    results.push({ name, ok: false, ms: Date.now() - started, tail: tailLines(output, options.lines ?? 12) })
+    // 失败时多留几行：只用 4 行的话，vitest 的失败摘要里既看不到用例名也看不到断言，
+    // 于是「偶发红」只能靠反复重跑猜（本项目已经这样猜过三次）。
+    // 注意：这只改变**显示多少**，不改变通过/失败的判定。
+    results.push({ name, ok: false, ms: Date.now() - started, tail: tailLines(output, Math.max(options.lines ?? 12, 40)) })
     return { ok: false, output }
   }
 }
