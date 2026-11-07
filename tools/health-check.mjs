@@ -34,9 +34,11 @@ function run(name, command, args, options = {}) {
       cwd: options.cwd ?? REPO,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      // Windows 上 pnpm 是 .cmd 垫片：不带 shell 直接 execFile 会 ENOENT，
-      // 而且错误是空的（连 stderr 都没有），看起来像"命令跑了但立刻失败"。
-      shell: process.platform === 'win32',
+      // Windows 上 pnpm/npm 是 .cmd 垫片：不带 shell 直接 execFile 会 ENOENT，而且
+      // 错误是空的（连 stderr 都没有），看起来像"命令跑了但立刻失败"。
+      // 但**只有垫片需要 shell**——node.exe 的路径带空格（C:\Program Files\…），
+      // 走 shell 会被拆成两段，报 `'C:\Program' is not recognized`。
+      shell: process.platform === 'win32' && /^(pnpm|npm|npx)$/i.test(command),
       env: { ...process.env, ...(options.env ?? {}) },
       maxBuffer: 64 * 1024 * 1024,
     })
