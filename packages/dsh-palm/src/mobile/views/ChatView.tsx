@@ -17,6 +17,7 @@ import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/chat-machine.ts'
 import { useChatSessionLifecycle } from './chat/use-chat-session-lifecycle.ts'
 import { useNativeSelection, useQueueStoreSubscription } from './chat/use-chat-subscriptions.ts'
+import { useChatOutboxFlush } from './chat/use-chat-outbox-flush.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -2800,14 +2801,7 @@ export function ChatView({
     clearEditMessage: () => { setEditMessage(undefined) },
   })
 
-  // Connection restored: drain the outbox automatically.
-  useEffect(() => {
-    if (offline) return
-    void listOutbox().then(entries => {
-      if (entries.length === 0) return
-      flushQueue()
-    })
-  }, [offline, flushQueue])
+  useChatOutboxFlush(offline, flushQueue)
 
   /**
    * 目标动作（暂停/恢复/编辑/清除）都走宿主命令注册表：手机端没有桌面那条
