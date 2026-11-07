@@ -19,6 +19,7 @@ import type { RenderMessage, ToolCallInfo } from '../messages.ts'
 import { stepModel } from '../step-view.ts'
 import { formatAgo, formatRunDuration, runDetailFromPage } from '../run-detail.ts'
 import { usePageVisible } from '../foreground.ts'
+import { Button, IconButton } from '../ui/primitives.tsx'
 
 /** 子代理页面的刷新间隔：它可能还在跑，别让内容停在被点开的那一刻。 */
 export const SUBCHAT_POLL_MS = 5_000
@@ -138,7 +139,7 @@ export function SubChatView({ sessionId, label, parentTitle, onBack }: SubChatVi
     <div className="mobile">
       <header className="mobile-header" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 4px)' }}>
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+          <IconButton className="mobile-back" label="返回" onClick={onBack}>‹</IconButton>
         </div>
         <h1 className="mobile-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
           子代理会话 <span className="subchat-badge">只读</span>
@@ -167,7 +168,7 @@ export function SubChatView({ sessionId, label, parentTitle, onBack }: SubChatVi
 
         <div className="subchat-foot">
           <span>只读视图 · 子代理不能从这里接收新消息</span>
-          <button type="button" className="subchat-foot-link" onClick={onBack}>回到运行中 ›</button>
+          <Button className="subchat-foot-link" onClick={onBack}>回到运行中 ›</Button>
         </div>
       </div>
     </div>

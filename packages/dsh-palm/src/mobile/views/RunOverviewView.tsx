@@ -28,6 +28,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { Button, IconButton } from '../ui/primitives.tsx'
 import type { JobView } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
@@ -687,7 +688,7 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     <div className="mobile">
       <header className="mobile-header" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 4px)' }}>
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+          <IconButton className="mobile-back" label="返回" onClick={onBack}>‹</IconButton>
         </div>
         <h1 className="mobile-title">运行中</h1>
         <div className="mobile-headerSlot mobile-headerSlot-right" />
@@ -740,7 +741,7 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
                 <div className="runov-group-title">
                   刚结束
                   <span className="runov-group-cnt">{visibleFinished.length}</span>
-                  <button type="button" className="runov-group-action" onClick={() => {
+                  <Button className="runov-group-action" onClick={() => {
                   // 两本账都要清：本地那本决定现在显示什么，宿主那本决定「下次进来还在不在」。
                   // 只清本地 → 退出再进时 fetchFinishedRuns() 又把它们合并回来（真机复现）。
                   clearFinishedRuns()
@@ -750,7 +751,7 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
                   )
                 }}>
                     全部清空
-                  </button>
+                  </Button>
                 </div>
                 <div className="runov-finish">
                   {visibleFinished.map(entry => (
@@ -814,7 +815,7 @@ function FinishedRow({ entry, now, onOpen }: {
   onOpen(): void
 }) {
   return (
-    <button type="button" className="rf-row" onClick={onOpen}>
+    <Button className="rf-row" onClick={onOpen}>
       <StatusGlyph status={entry.status} />
       <span className="rf-body">
         {/* 宿主记账时拿不到标题（只有一个会话 id），补标题失败时至少让人认得出是哪条，
@@ -831,7 +832,7 @@ function FinishedRow({ entry, now, onOpen }: {
         </span>
       </span>
       <span className="rf-chev" aria-hidden>›</span>
-    </button>
+    </Button>
   )
 }
 
@@ -867,7 +868,7 @@ function SessionCard({ row, detail, detailMissing, children, now, onOpenSession,
 
   return (
     <div className="runov-sess">
-      <button type="button" className="runov-sess-head" onClick={onOpenSession}>
+      <Button className="runov-sess-head" onClick={onOpenSession}>
         <span className="rs-glyph">
           <span className={stale ? 'rs-dot rs-dot-stale' : 'rs-dot'} aria-hidden />
         </span>
@@ -913,7 +914,7 @@ function SessionCard({ row, detail, detailMissing, children, now, onOpenSession,
           </span>
         </span>
         <span className="rs-chev" aria-hidden>›</span>
-      </button>
+      </Button>
 
       {visibleChildren.length > 0 && (
         <div className="rs-agents">
@@ -946,15 +947,14 @@ function SessionCard({ row, detail, detailMissing, children, now, onOpenSession,
         </div>
       )}
       {hiddenChildren > 0 && (
-        <button
-          type="button"
+        <Button
           className="rs-more"
           aria-expanded={showAllSubagents}
           onClick={() => { setShowAllSubagents(value => !value) }}
         >
           <span>{showAllSubagents ? '收起子代理' : `还有 ${hiddenChildren} 个子代理`}</span>
           <span className="rs-more-chev" aria-hidden>{showAllSubagents ? '▾' : '▸'}</span>
-        </button>
+        </Button>
       )}
 
       {shownLiveJobs.length > 0 && (showJobs ? (
@@ -962,10 +962,10 @@ function SessionCard({ row, detail, detailMissing, children, now, onOpenSession,
           {shownLiveJobs.map(job => <TaskRow key={job.id} job={job} />)}
         </div>
       ) : (
-        <button type="button" className="rs-more" aria-expanded={false} onClick={() => { setShowJobs(true) }}>
+        <Button className="rs-more" aria-expanded={false} onClick={() => { setShowJobs(true) }}>
           <span>另有 {shownLiveJobs.length} 个后台任务</span>
           <span className="rs-more-chev" aria-hidden>›</span>
-        </button>
+        </Button>
       ))}
 
       {row.live && detail === undefined && (detailMissing === true ? (

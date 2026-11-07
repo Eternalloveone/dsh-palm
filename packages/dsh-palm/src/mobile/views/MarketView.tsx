@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { errorText } from '../shared/error-text.ts'
+import { Button, IconButton } from '../ui/primitives.tsx'
 
 /** One curated registry entry (subset of the /dsh-market/registry shape). */
 interface RegistryPlugin {
@@ -180,7 +181,7 @@ export function MarketView({ onBack }: MarketViewProps) {
   return (
     <div className="mobile">
       <header className="mobile-header">
-        <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+        <IconButton className="mobile-back" label="返回" onClick={onBack}>‹</IconButton>
         <h1 className="mobile-title mobile-titleInline">插件市场</h1>
       </header>
       <div className="mobile-scroll">
@@ -216,14 +217,13 @@ export function MarketView({ onBack }: MarketViewProps) {
                       {plugin.description?.zh ?? plugin.description?.en ?? plugin.owner}
                     </span>
                   </div>
-                  <button
-                    type="button"
+                  <Button
                     className="market-install"
                     disabled={busy || isInstalled || busyUrl !== undefined}
                     onClick={() => { install(plugin) }}
                   >
                     {busy ? '安装中…' : isInstalled ? '已安装' : '安装'}
-                  </button>
+                  </Button>
                 </li>
               )
             })}
