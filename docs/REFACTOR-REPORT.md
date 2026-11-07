@@ -41,7 +41,7 @@
 
 | 目标 | 实测 | 差额 |
 |---|---|---|
-| ChatView ≤ 800 行 | **5,121 行** | 差 4,321 行 |
+| ChatView ≤ 800 行 | **4,370 行** | 差 3,570 行 |
 | App.tsx 拆分 | 已拆 shell | 完成 |
 | 搜索匹配逻辑外移 | `chat-search-match.ts` + 21 测试 | 完成 |
 | 缓存外移 | `chat-cache` / `outline-cache` / `history-cache` 全接内核 | 完成 |
@@ -77,7 +77,7 @@
 | 子项 | 状态 | 实测 |
 |---|---|---|
 | W5-5 治理收口 | ✅ | 6 条 ADR + `docs/UI.md` + `tools/health-check.mjs` |
-| W5-1 host 拆域 | 🚧 | `mobile-api.ts` 5,564 → **4,749 行（-14.6%）**，搬出 4 域 900 行 |
+| W5-1 host 拆域 | ✅ | `mobile-api.ts` 5,564 → **3,744 行（-32.7%）**，搬出 **10 域 1,986 行** |
 | W5-4 桌面 token | ⬜ | 只有 ADR 提案（0006） |
 | W5-2 bridge | ⬜ | 未动 |
 | W5-3 routes 拆分 | ⬜ | 未动 |
