@@ -14,9 +14,9 @@
   --palm-text: #1a1a1e;
   --palm-text-secondary: #6b6b74;
   --palm-text-muted: #9a9aa3;
-  --palm-accent: #6366f1;
-  --palm-accent-hover: #4f46e5;
-  --palm-accent-soft: rgba(99, 102, 241, 0.12);
+  --palm-accent: #5b5cf0;
+  --palm-accent-hover: #4a4bd4;
+  --palm-accent-soft: rgba(91, 92, 240, 0.12);
   --palm-success: #22c55e;
   --palm-success-soft: rgba(34, 197, 94, 0.12);
   --palm-warning: #d97706;
@@ -41,9 +41,9 @@
     --palm-text: #f2f2f5;
     --palm-text-secondary: #a0a0ab;
     --palm-text-muted: #6b6b76;
-    --palm-accent: #6366f1;
-    --palm-accent-hover: #818cf8;
-    --palm-accent-soft: rgba(99, 102, 241, 0.18);
+    --palm-accent: #5b5cf0;
+    --palm-accent-hover: #8485f5;
+    --palm-accent-soft: rgba(91, 92, 240, 0.18);
     --palm-success-soft: rgba(34, 197, 94, 0.16);
     --palm-warning-soft: rgba(217, 119, 6, 0.16);
     --palm-danger-soft: rgba(220, 38, 38, 0.16);

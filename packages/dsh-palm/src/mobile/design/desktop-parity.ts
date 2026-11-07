@@ -57,7 +57,6 @@ export const KNOWN_DIVERGENCES: Readonly<Record<string, string>> = {
   '--text-secondary': '移动端更深（#4a4a5a vs #6b6b74），手机阳光下的可读性优先',
   '--text-muted': '两端深浅相反（移动端偏深、桌面偏浅），语义一致但不是同一个值',
   '--border-default': '移动端略冷（#e2e4e8 vs #e5e5e8），肉眼不可分辨但值不同',
-  '--accent': '**不能直接统一**：桌面 #6366f1 上放白字实测 4.47:1，低于 WCAG AA 的 4.5；移动端 #5b5cf0 达标。要统一应让桌面改用移动端值（或更深一档），而不是反过来',
   '--accent-soft': '跟随主色，主色统一后自动一致',
   '--positive': '桌面只有一个值（无深色变体），移动端深浅分开',
   '--warning': '移动端更亮（琥珀 #f59e0b vs 深琥珀 #d97706）',
@@ -103,9 +102,13 @@ export function comparePalettes(
     const mobileValues = [light[mobile], dark[mobile]].filter((value): value is string => value !== undefined)
     const desktopValues = desktop.get(desktopName) ?? []
     const missing = mobileValues.length === 0 || desktopValues.length === 0
+    // 桌面端同一值只声明一次就同时服务浅色/深色，所以比的是**去重后的取值集合**，
+    // 而不是逐下标对齐（否则「两端值完全相同」会被判成不一致）。
+    const mobileSet = [...new Set(mobileValues)].sort()
+    const desktopSet = [...new Set(desktopValues)].sort()
     const same = !missing
-      && mobileValues.length === desktopValues.length
-      && mobileValues.every((value, index) => value === desktopValues[index])
+      && mobileSet.length === desktopSet.length
+      && mobileSet.every((value, index) => value === desktopSet[index])
     return { mobile, desktop: desktopName, mobileValues, desktopValues, same, missing }
   })
 }
