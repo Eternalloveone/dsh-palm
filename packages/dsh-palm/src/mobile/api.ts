@@ -11,8 +11,9 @@ import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '../
 import type { SubagentCatalog } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
+import { SESSION_PREVIEW_BATCH_LIMIT } from './data/limits.ts'
 import { OBSERVE_ASSERT_MIN_MS, PREFERENCES_TTL_MS, MODELS_TTL_MS, WORKSPACE_ROSTER_TTL_MS } from './data/limits.ts'
-import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem } from './mobile-types.ts'
+import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView } from './mobile-types.ts'
 import { coalescedRead, invalidateReadCoalescing } from './data/read-coalescing.ts'
 
 export { invalidateReadCoalescing }
@@ -55,39 +56,8 @@ export interface HistoryPage {
   projections?: SessionProjectionsBlock
 }
 
-/** Read-only display preferences the plugin answers locally on `/m/api`. */
-export interface MobilePreferences {
-  /** Plain Enter sends the drafted prompt (false: Enter inserts a newline). */
-  mobileEnterToSend: boolean
-}
-
 /** The desktop theme preference (host `ui-theme`), synced to the phone. */
 export type ThemePreference = 'light' | 'dark' | 'system'
-
-/** The full redacted settings surface (desktop-parity configuration cards). */
-export interface MobileSettingsRead {
-  writable: boolean
-  hasDocument: boolean
-  namespaces: import('../api-proxy-types').SettingsNamespaceView[]
-}
-
-/** Read the full redacted settings surface (schemas + values, no secrets). */
-export async function readSettings(): Promise<MobileSettingsRead> {
-  return await callUnary<MobileSettingsRead>('settings.read', {})
-}
-
-/** Write whitelisted host setting paths (see SETTINGS_WRITE_WHITELIST). */
-export async function mutateSettings(
-  ns: string,
-  ops: Array<{ op: 'set'; path: string[]; value: unknown }>,
-  expectedRevision?: number,
-): Promise<void> {
-  const payload: Record<string, unknown> = { ns, ops }
-  if (expectedRevision !== undefined) payload.expectedRevision = expectedRevision
-  await callUnary<unknown>('settings.mutate', payload)
-  // 写成功即让显示偏好的复用窗口失效（设置页改完返回，读到的必须是新值）。
-  invalidateReadCoalescing()
-}
 
 let workspaceRosterInFlight: Promise<WorkspaceView[]> | undefined
 let workspaceRosterCached: { at: number; items: WorkspaceView[] } | undefined
@@ -118,14 +88,6 @@ export function invalidateWorkspaceRoster(): void {
   workspaceRosterCached = undefined
 }
 
-/** Read-only mobile display preferences (answered by the plugin, not the host proxy). */
-export async function fetchMobilePreferences(): Promise<MobilePreferences> {
-  // 显示偏好只在设置页里改，且改完会走 mutateSettings 清窗口：30s 的复用窗口足够。
-  // 真机实测：每次进会话都会再读一次（与启动那次隔 2.2s，恰好落在 1.2s 窗口外），
-  // 白跑一个往返。
-  return await coalescedRead<MobilePreferences>('mobile.preferences', {}, PREFERENCES_TTL_MS)
-}
-
 /** Store this device's Web Push subscription host-side (L2). */
 export async function pushSubscribe(subscription: {
   endpoint: string
@@ -137,20 +99,6 @@ export async function pushSubscribe(subscription: {
 /** Remove this device's Web Push subscription host-side (L2). */
 export async function pushUnsubscribe(): Promise<void> {
   await callUnary<unknown>('push.unsubscribe', {})
-}
-
-/**
- * 读一张会话里引用过的图片，返回可直接放进 `<img src>` 的 data URL。
- *
- * 0.1.5 起图片字节不在会话事件里（事件只带 `attachmentId` 引用），宿主按
- * "该会话确实引用过这张图"授权后才给字节；attachmentId 是内容寻址的 sha256，
- * 宿主侧按 id 长期缓存，所以重复调用很便宜。
- * @param sessionId - 授权与校验引用关系的会话。
- * @param attachmentId - 事件里折出来的附件 id。
- * @returns 媒体类型与 data URL。
- */
-export async function readAttachment(sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }> {
-  return await callUnary<{ mediaType: string; dataUrl: string }>('mobile.readAttachment', { sessionId, attachmentId })
 }
 
 /**
@@ -530,36 +478,6 @@ export async function observeSession(sessionId: string | undefined, signal?: Abo
   }
 }
 
-/** One batch preview row (summary is '' when the session has no text yet). */
-export interface SessionPreview {
-  sessionId: string
-  summary: string
-  updatedAt: number
-}
-
-/** Cap on one batch preview request (host-side limit is the same). */
-export const SESSION_PREVIEW_BATCH_LIMIT = 200
-
-/**
- * Batch last-message previews (v3.1): the session-list page's preview lines
- * served by the host in ONE call — cached rows cost zero host log reads; a
- * session without a cache entry costs one lazy tail read. Fall back to
- * per-row {@link history} reads when the host answers unavailable (older
- * plugin); see SessionListView.loadPreviews.
- */
-export async function previews(
-  sessionIds: readonly string[],
-  // 合并后的读无法逐个取消：保留参数只为调用点签名稳定。
-  _signal?: AbortSignal,
-): Promise<SessionPreview[]> {
-  const ids = sessionIds.filter(id => id !== '').slice(0, SESSION_PREVIEW_BATCH_LIMIT)
-  if (ids.length === 0) return []
-  // 预览只是列表的摘要行：同一批 id 在一次进列表里会被触发多次（真机实测 3 次，
-  // 其中两次相隔 100ms），合并成一次即可。signal 不参与合并——这是可放弃的读。
-  const response = await coalescedRead<{ items: SessionPreview[] }>('mobile.previews', { sessionIds: ids })
-  return response.items
-}
-
 /**
  * Delivery mode the host understands for `session.prompt`.
  *
@@ -678,23 +596,6 @@ export async function updateQueue(sessionId: string, itemId: string, action: Que
   await callUnary<{ accepted: true }>('session.updateQueue', { sessionId, itemId, action })
 }
 
-/** One slash command the host registry advertises (name + description). */
-export interface CommandDescriptor {
-  name: string
-  description: string
-  input?: { hint?: string }
-}
-
-/**
- * List the host's registered slash commands for one session (read-only
- * discovery). The session id resolves the agent whose effective command view
- * the phone shows — the same catalog the desktop composer's `/` popup lists.
- */
-export async function listCommands(sessionId: string): Promise<CommandDescriptor[]> {
-  const response = await callUnary<{ items?: CommandDescriptor[] }>('mobile.commands', { sessionId })
-  return response.items ?? []
-}
-
 /** One executed slash-command outcome from the host registry. */
 export interface CommandExecOutcome {
   /** false: the line did not resolve to a registered command (nothing ran). */
@@ -775,33 +676,6 @@ export async function subagentsList(parentSessionId: string): Promise<SubagentCa
   return await coalescedRead<SubagentCatalog>('subagent.list', { parentSessionId })
 }
 
-/**
- * Fresh advisory model directory for one session (current + groups + failures).
- *
- * 模型目录只在用户改选择或宿主配置变更时变，而手机端每次进会话、每次点开会
- * 选择器都会重读一遍（真机实测 4G 下 ~190ms、弱网 ~1s）。这里给 30 秒窗口，
- * 改过选择（selectModel）立刻清窗，所以不会看到旧选中项。
- */
-export async function models(sessionId: string): Promise<SessionModels> {
-  return await coalescedRead<SessionModels>('session.models', { sessionId }, MODELS_TTL_MS)
-}
-
-/** Select the complete model selection (provider/model/reasoning effort) for a session. */
-export async function selectModel(
-  sessionId: string,
-  selection: { provider: string; model: string; reasoningEffort?: string },
-): Promise<{ selected: { provider: string; model: string; reasoningEffort?: string } }> {
-  const result = await callUnary<{ selected: { provider: string; model: string; reasoningEffort?: string } }>('session.selectModel', {
-    sessionId,
-    provider: selection.provider,
-    model: selection.model,
-    ...(selection.reasoningEffort !== undefined ? { reasoningEffort: selection.reasoningEffort } : {}),
-  })
-  // 换了模型就必须让缓存里的目录（current 字段）失效，否则选择器会显示旧选中项。
-  invalidateReadCoalescing()
-  return result
-}
-
 /* ── pending approvals / questions (#1025) ───────────────────────────── */
 
 /* ── read-only git summary ───────────────────────────────────────────── */
@@ -865,52 +739,10 @@ export async function respondQuestion(
 
 /* ── directory browsing / workspace creation (#977) ──────────────────── */
 
-/** One entry in a directory listing. */
-export interface DirectoryEntry {
-  name: string
-  path: string
-  hidden: boolean
-  /** files=true 时才有：区分目录与文件。 */
-  kind?: 'dir' | 'file'
-  /** 文件的字节数（只有 kind === 'file' 时有）。 */
-  bytes?: number
-}
-
-/** The host directory listing result (one level, with ancestor breadcrumbs). */
-export interface DirectoryListing {
-  path: string
-  home: string
-  crumbs: DirectoryEntry[]
-  entries: DirectoryEntry[]
-  truncated: boolean
-}
-
 /** The result of creating a workspace from an existing directory. */
 export interface WorkspaceCreateResult {
   workspace: WorkspaceView
   created: boolean
-}
-
-/** Browse one directory level on the host (defaults to home directory). */
-export async function listDirectory(path?: string, options?: { files?: boolean }): Promise<DirectoryListing> {
-  // Local patch (2026-08-23): host.listDirectory is gated on the composed
-  // directory-picker capability (native on Windows loopback binds), so the
-  // mobile browser uses the plugin's own fs listing instead.
-  return await callUnary<DirectoryListing>('mobile.listDirectory', {
-    ...(path === undefined ? {} : { path }),
-    ...(options?.files === true ? { files: true } : {}),
-  })
-}
-
-/** One file read back from the host for the chat's preview sheet. */
-export type FilePreview =
-  | { kind: 'text'; path: string; name: string; text: string }
-  | { kind: 'image'; path: string; name: string; dataUrl: string }
-
-/** Read one host file (text/image) for preview. A relative path resolves
- * against the owning session's cwd when `sessionId` is given. */
-export async function readFile(path: string, sessionId?: string): Promise<FilePreview> {
-  return await callUnary<FilePreview>('mobile.readFile', sessionId === undefined ? { path } : { path, sessionId })
 }
 
 /** Create a workspace from an existing host directory (does not mkdir). */
@@ -952,51 +784,6 @@ export async function archiveSession(sessionId: string): Promise<{ archivedSessi
 }
 
 /* ── paired-device management (P1/P2/P3) ─────────────────────────────── */
-
-/** One paired device as the phone's device-management screen sees it. */
-export interface PairedDeviceView {
-  /**
-   * Credential-free handle (`sha256(deviceId)` prefix). The host deliberately
-   * never sends the real device id: that id IS the pairing cookie value, so
-   * exposing it would let one paired phone impersonate the others.
-   */
-  handle: string
-  createdAt: number
-  lastSeenAt: number
-  online: boolean
-  userAgent?: string
-  name?: string
-  primary?: boolean
-  /** Whether this row is the device the phone is currently running on. */
-  current: boolean
-}
-
-/** The paired-device roster + the cap the host enforces. */
-export interface PairedDevicesView {
-  devices: PairedDeviceView[]
-  maxDevices: number
-}
-
-/** List every paired device (the phone's device-management screen). */
-export async function listDevices(): Promise<PairedDevicesView> {
-  return await callUnary<PairedDevicesView>('pair.devices', {})
-}
-
-/** Revoke one paired device (its next gated request is refused). Phone may only revoke itself. */
-export async function revokeDevice(handle: string): Promise<{ removed: boolean }> {
-  return await callUnary<{ removed: boolean }>('pair.revoke', { handle })
-}
-
-/** Assign a user-facing display name to a device (empty clears it). */
-export async function renameDevice(handle: string, name: string): Promise<{ renamed: boolean }> {
-  return await callUnary<{ renamed: boolean }>('pair.rename', { handle, name })
-}
-
-/** Promote one device to primary (desktop/loopback only; the phone gets `desktop-only`). */
-export async function setPrimaryDevice(handle: string): Promise<{ promoted: boolean }> {
-  return await callUnary<{ promoted: boolean }>('pair.setPrimary', { handle })
-}
-
 
 /* ── session folders (F1) ────────────────────────────────────────────── */
 
@@ -1055,7 +842,7 @@ export { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns, fetchUsage
 
 
 // 共享类型搬到 mobile-types.ts（W4-4）；这里只转出。
-export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem } from './mobile-types.ts'
+export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView } from './mobile-types.ts'
 
 
 // notify 域的实现已搬到 data/impl/notify.ts（W4-4）；这里只转出，对外 API 不变。
@@ -1064,3 +851,11 @@ export { fetchPending, notifyEvents, readNotifyConfig, testNotifyChannels, write
 
 // voice 域的实现已搬到 data/impl/voice.ts（W4-4）；这里只转出，对外 API 不变。
 export { fetchHostVoiceServices, transcribeVoice } from './data/impl/voice.ts'
+
+
+// fs 域的实现已搬到 data/impl/fs.ts（W4-4）；这里只转出，对外 API 不变。
+export { readFile, readAttachment, listDirectory, previews } from './data/impl/fs.ts'
+
+
+// settings 域的实现已搬到 data/impl/settings.ts（W4-4）；这里只转出，对外 API 不变。
+export { readSettings, mutateSettings, fetchMobilePreferences, selectModel, models, listCommands, listDevices, renameDevice, revokeDevice, setPrimaryDevice } from './data/impl/settings.ts'

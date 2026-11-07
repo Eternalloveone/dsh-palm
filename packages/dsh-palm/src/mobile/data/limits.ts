@@ -26,3 +26,6 @@ export const MODELS_TTL_MS = 30_000
  *  往返。这里让并发调用共享同一个请求、并在 5 秒内复用结果，把往返砍到 1/3。
  *  只缓存成功的结果，失败照旧抛出（调用方各自处理）。 */
 export const WORKSPACE_ROSTER_TTL_MS = 5_000
+
+/** Cap on one batch preview request (host-side limit is the same). */
+export const SESSION_PREVIEW_BATCH_LIMIT = 200

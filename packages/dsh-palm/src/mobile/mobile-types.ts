@@ -216,3 +216,79 @@ export interface PendingQuestionItem {
   options?: Array<{ label: string; description?: string }>
   multiSelect?: boolean
 }
+
+/** The host directory listing result (one level, with ancestor breadcrumbs). */
+export interface DirectoryListing {
+  path: string
+  home: string
+  crumbs: DirectoryEntry[]
+  entries: DirectoryEntry[]
+  truncated: boolean
+}
+
+/** One entry in a directory listing. */
+export interface DirectoryEntry {
+  name: string
+  path: string
+  hidden: boolean
+  /** files=true 时才有：区分目录与文件。 */
+  kind?: 'dir' | 'file'
+  /** 文件的字节数（只有 kind === 'file' 时有）。 */
+  bytes?: number
+}
+
+/** One file read back from the host for the chat's preview sheet. */
+export type FilePreview =
+  | { kind: 'text'; path: string; name: string; text: string }
+  | { kind: 'image'; path: string; name: string; dataUrl: string }
+
+/** One batch preview row (summary is '' when the session has no text yet). */
+export interface SessionPreview {
+  sessionId: string
+  summary: string
+  updatedAt: number
+}
+
+/** One slash command the host registry advertises (name + description). */
+export interface CommandDescriptor {
+  name: string
+  description: string
+  input?: { hint?: string }
+}
+
+/** Read-only display preferences the plugin answers locally on `/m/api`. */
+export interface MobilePreferences {
+  /** Plain Enter sends the drafted prompt (false: Enter inserts a newline). */
+  mobileEnterToSend: boolean
+}
+
+/** The full redacted settings surface (desktop-parity configuration cards). */
+export interface MobileSettingsRead {
+  writable: boolean
+  hasDocument: boolean
+  namespaces: import('../api-proxy-types').SettingsNamespaceView[]
+}
+
+/** The paired-device roster + the cap the host enforces. */
+export interface PairedDevicesView {
+  devices: PairedDeviceView[]
+  maxDevices: number
+}
+
+/** One paired device as the phone's device-management screen sees it. */
+export interface PairedDeviceView {
+  /**
+   * Credential-free handle (`sha256(deviceId)` prefix). The host deliberately
+   * never sends the real device id: that id IS the pairing cookie value, so
+   * exposing it would let one paired phone impersonate the others.
+   */
+  handle: string
+  createdAt: number
+  lastSeenAt: number
+  online: boolean
+  userAgent?: string
+  name?: string
+  primary?: boolean
+  /** Whether this row is the device the phone is currently running on. */
+  current: boolean
+}
