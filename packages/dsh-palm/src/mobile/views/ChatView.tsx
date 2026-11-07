@@ -23,6 +23,7 @@ import { useScrollGestures } from './chat/use-chat-scroll-gestures.ts'
 import { ChatInputSheets } from './chat/chat-input-sheets.tsx'
 import { useStaleTurnHeal } from './chat/use-stale-turn-heal.ts'
 import { useMobilePreferences } from './chat/use-mobile-preferences.ts'
+import { useChatTimerCleanup } from './chat/use-chat-timer-cleanup.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -1822,12 +1823,6 @@ export function ChatView({
 
   // Drop any pending reading timer when the view goes away: the timer only
   // drove the retired 「回到上次」 bookmark, so nothing else needs flushing.
-  useEffect(() => () => {
-    if (readingTimerRef.current !== undefined) {
-      window.clearTimeout(readingTimerRef.current)
-      readingTimerRef.current = undefined
-    }
-  }, [])
 
   // Track the last message's fold key so scrolling only fires when the
   // newest message actually changes (seq bump and/or pending flip). Runs
@@ -3856,9 +3851,8 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     setRegenerateState('idle')
   }, [running])
 
-  useEffect(() => () => {
-    if (regenerateWatchdogRef.current !== undefined) clearTimeout(regenerateWatchdogRef.current)
-  }, [])
+  // 卸载时清掉两个计时器（阅读位置防抖 / 重新生成看门狗）——漏一个的后果相同。
+  useChatTimerCleanup({ readingTimerRef, regenerateWatchdogRef })
 
   // Regenerate affordance: only the LAST settled assistant reply gets a
   // ↻ button (re-running an older reply would detach from current context).
