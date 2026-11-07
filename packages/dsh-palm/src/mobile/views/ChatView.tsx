@@ -24,6 +24,7 @@ import { ChatInputSheets } from './chat/chat-input-sheets.tsx'
 import { useStaleTurnHeal } from './chat/use-stale-turn-heal.ts'
 import { useMobilePreferences } from './chat/use-mobile-preferences.ts'
 import { useChatTimerCleanup } from './chat/use-chat-timer-cleanup.ts'
+import { useCardRecoveryReset } from './chat/use-card-recovery-reset.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -1658,10 +1659,8 @@ export function ChatView({
    * 亲眼看过 turn/end 的回合跳过：它的卡本来就是从同一批实时事件折出来的。
    */
   /** 补读跑着的时候列表又变了：跑完再补一轮（否则那一批回合永远轮不到）。 */
-  useEffect(() => {
-    cardRecoveryRef.current = { busy: false, pending: false, cooling: new Map(), confirmed: new Set() }
-    liveClosedTurnsRef.current = new Set()
-  }, [session.sessionId])
+  // 换会话重置「卡片补读」与「实时关闭回合」的记忆：两个记忆都是按会话成立的。
+  useCardRecoveryReset({ sessionId: session.sessionId, cardRecoveryRef, liveClosedTurnsRef })
   useEffect(() => {
     const state = cardRecoveryRef.current
     if (state.busy) { state.pending = true; return }
