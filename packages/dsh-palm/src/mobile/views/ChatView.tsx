@@ -21,6 +21,7 @@ import { useChatGoal } from './chat/use-chat-goal.ts'
 import { useChatConnectivity } from './chat/use-chat-connectivity.ts'
 import { useChatSubagents } from './chat/use-chat-subagents.ts'
 import { useChatActions } from './chat/use-chat-actions.ts'
+import { BOTTOM_FOLLOW_THRESHOLD_PX, NEAR_TOP_LOAD_PX, useScrollFollow } from './chat/use-chat-scroll-follow.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -275,7 +276,6 @@ export { MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './chat/stream-stat
  * A reader who scrolled farther up than this is left alone while new chunks
  * arrive.
  */
-export const BOTTOM_FOLLOW_THRESHOLD_PX = 80
 /** 内容高度差小于这个值不触发补钉（布局取整、行内 padding 都会带来 1~2px 抖动）。 */
 const HEIGHT_DRIFT_PX = 24
 /**
@@ -309,8 +309,6 @@ export const TURN_CLOCK_THRESHOLD_MS = 3_000
  *  last keystroke (unmount flushes immediately regardless). */
 export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/use-chat-draft.ts'
 /** 翻页超时与铺开上限见 chat/use-chat-history.ts（LOAD_OLDER_TIMEOUT_MS / OPEN_HISTORY_*）。 */
-/** 读到这里以内就自动接上一页，不再非得点按钮（无限上翻）。 */
-export const NEAR_TOP_LOAD_PX = 240
 
 /* ── long sessions：已载入的行全渲染 ────────────────────────────────────
    这里原来是"行窗格 + 估高 spacer"的虚拟化：超过阈值只渲染滚动位置附近的行，
@@ -1958,78 +1956,6 @@ export function ChatView({
   }
 
 
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (el === undefined) return
-    // 先取旧位置再覆盖：以前是先写 scrollTopRef 再比较，于是 `up` 永远是 false，
-    // 「读者往上滑」这个最重要的意图一直没被识别出来（跟手冲突、翻页被拽到底都源于此）。
-    const previousTop = scrollTopRef.current
-    const movingUp = el.scrollTop < previousTop - 1
-    scrollTopRef.current = el.scrollTop
-    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-    // A programmatic scroll (the opening tail pin, the locate, a prepend
-    // anchor correction) must not be mistaken for a user gesture: it would
-    // release the locate lock and let the follower re-pin the viewport to the
-    // tail. Only a genuine user scroll releases the lock — and, below, only a
-    // genuine user gesture may record a reading bookmark.
-    // 这次 scroll 是不是我们自己写的？必须**值也对得上**才算：只认标记的话，一次没有
-    // 回声的写入会把读者接下来的真实手势吃掉（继而被当成「他贴在底部」而拽走画面）。
-    const claimed = programmaticScrollRef.current
-      && Math.abs(el.scrollTop - programmaticValueRef.current) <= 2
-      && Date.now() - programmaticAtRef.current < 250
-    programmaticScrollRef.current = false
-    const programmatic = claimed
-    // 位置**永远**按量到的写：程序化写入的回声里 el.scrollTop 已经变了，它就是读者
-    // 此刻的真实位置（老代码也是无条件记 gap 的，漏掉这一步会让「读者在历史里」
-    // 被当成「贴底」，随后新消息一到就把画面拽走）。
-    scrollEvent({ type: 'measure', gap })
-    // 只有**手指参与过**的滚动才算读者手势：
-    //  · 手指还按着，或刚松手 800ms 内（惯性滑行）；
-    //  · 否则一律当成回声/浏览器滚动锚定 —— 这类事件以前会被误判成手势，
-    //    把跟随锁存（stick）和补钉（userMoved）一起关掉，结果进会话停在离底 245px 的地方。
-    const touchedRecently = Date.now() - lastTouchAtRef.current < 800
-    if (!programmatic && (touchedRecently || scrollStateRef.current.touching)) {
-      // 真实手势再补一层语义：见过手势、顺延静默窗口、释放定位锁。
-      scrollEvent({ type: 'gesture', at: Date.now(), gap, up: movingUp })
-      scrollEvent({ type: 'locate-end' })
-    }
-    // The jump-to-latest button appears once the reader scrolled away from
-    // the bottom (same threshold the auto-follower uses); React bails out on
-    // unchanged values, so this costs nothing while scrolling.
-    setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
-    // A bookmark means "the reader left the bottom to read history", so it is
-    // guarded by the same gap criterion as the 「回到最新消息」 button. Settling
-    // at (or near) the bottom is reading the newest content — the opening pin
-    // lands mid-history only because the container still carries estimated
-    // heights at that moment, and that must never become a bookmark.
-    const leftBottom = gap > BOTTOM_FOLLOW_THRESHOLD_PX
-    if (!programmatic) {
-      // Track the turn whose row sits nearest the top of the viewport (the
-      // reader's position): drives the turn-list highlight and the handle's
-      // current/total readout. Mirrors locateWindow's scrollTop→row conversion.
-      // 0 means "no position yet"; the render falls back to the newest turn
-      // once. A programmatic event is the echo of a write, not the reader's
-      // position, so it must not overwrite the tracked turn either.
-      const readPosition = deriveCurrentTurn(el.scrollTop) ?? 0
-      setCurrentTurn(readPosition)
-    }
-    // Scrolling back to the bottom counts as reading: clear the unread
-    // badge and advance the seen-turn baseline, so a reader who manually
-    // scrolls down (instead of tapping the jump button) also clears the
-    // tally. React bails out on an unchanged count, so this is free while
-    // the reader is already at the bottom.
-    if (gap <= BOTTOM_FOLLOW_THRESHOLD_PX) markSeen()
-    // 「读者滚过没有」由状态机在 gesture 事件里记（见 scroll-machine.ts）。
-    // 无限上翻：读到接近顶部就自动接上一页，不再让用户为了"再往前看一点"
-    // 反复点按钮。要求内容确实比视口高（否则刚挂载时的 scrollTop=0 会被当成
-    // 读到顶）、并且当前没有在飞的请求。prepend 之后锚点会把 scrollTop 抬高，
-    // 条件自然失效，不会连发。
-    if (hasOlder && !pendingRef.current
-        && el.scrollHeight > el.clientHeight
-        && el.scrollTop <= NEAR_TOP_LOAD_PX) {
-      loadOlderRef.current(true)
-    }
-  }, [hasOlder, markSeen])
 
 
   // Drop any pending reading timer when the view goes away: the timer only
@@ -2057,6 +1983,11 @@ export function ChatView({
   // 高度比较用上一帧值（ref 由 useStickToBottom 提供）。
   /** Whether the reader scrolled away from the bottom (jump-to-latest button). */
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const { handleScroll } = useScrollFollow({
+    scrollRef, scrollTopRef, programmaticScrollRef, programmaticValueRef, programmaticAtRef,
+    lastTouchAtRef, scrollStateRef, pendingRef, loadOlderRef, scrollEvent,
+    setShowJumpToLatest, setCurrentTurn, deriveCurrentTurn, markSeen, hasOlder,
+  })
   /** New turns that arrived while the reader was away (badge count). One
    * agent reply — however many messages and tool calls it spans — counts as
    * one, so the badge grows at reply pace, not message pace. */
