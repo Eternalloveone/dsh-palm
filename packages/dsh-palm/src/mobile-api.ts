@@ -25,6 +25,7 @@
 export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/directory.ts'
 /** Short-lived cache: the phone's settings page must not hammer provider APIs. */
 import { processState, type OrdinarySearchSession, type OrdinarySearchSnapshot } from './mobile/api/process-state.ts'
+import { isAllowedSettingsOp } from './mobile/api/settings.ts'
 const USAGE_CACHE_TTL_MS = 60_000
 
 import {
@@ -3805,14 +3806,3 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
 
 /** Whether a path-addressed op names exactly one whitelisted path (set only).
  * A `'*'` entry matches any single field of the namespace. */
-function isAllowedSettingsOp(op: unknown, allowed: readonly (readonly string[])[]): boolean {
-  if (typeof op !== 'object' || op === null) return false
-  const record = op as Record<string, unknown>
-  if (record.op !== 'set' || !Array.isArray(record.path)) return false
-  const path = record.path.map(part => (typeof part === 'string' ? part : ''))
-  return allowed.some(allowedPath => {
-    if (allowedPath.length === 1 && allowedPath[0] === '*') return path.length === 1
-    return allowedPath.length === path.length
-      && allowedPath.every((part, index) => part === path[index])
-  })
-}
