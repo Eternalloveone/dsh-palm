@@ -1034,6 +1034,7 @@ import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSess
 import { settingsRead, settingsMutate } from './mobile/api/settings-handlers.ts'
 import { pushSubscribe, pushUnsubscribe } from './mobile/api/push-handlers.ts'
 import { pairDevices, pairRevoke, pairRename, pairSetPrimary } from './mobile/api/pair-handlers.ts'
+import { agentPresetList, subagentList } from './mobile/api/roster-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -3485,17 +3486,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   // was a local-only removal and the session resurrected on the next roster
   // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
     ['workspace.archiveSession', async (ctx) => workspaceArchiveSession({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
-  ['agentPreset.list', async (ctx) => {
-    const { apiProxy, request } = ctx
-    // v3.2: the preset roster only changes on the desktop; short-TTL it.
-    const cached = processState.agentPresetTtlCache
-    if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
-      return wrap(rpcId, cached.response)
-    }
-    const response = await apiProxy.agentPresets.list(request as never)
-    processState.agentPresetTtlCache = { at: Date.now(), proxy: apiProxy, response }
-    return wrap(rpcId, response)
-  }],
+  ['agentPreset.list', async (ctx) => agentPresetList(ctx)],
   ['session.create', async (ctx) => {
     const { apiProxy, request } = ctx
     // The new session attaches to a workspace: the roster + list change.
@@ -3546,10 +3537,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
     return wrap(rpcId, reply)
   }],
-  ['subagent.list', async (ctx) => {
-    const { apiProxy, request } = ctx
-    return wrap(rpcId, await subagentCatalogWithActivity(request, apiProxy))
-  }],
+  ['subagent.list', async (ctx) => subagentList(ctx)],
     ['settings.read', async (ctx) => settingsRead(ctx)],
     ['settings.mutate', async (ctx) => settingsMutate(ctx)],
   ])
