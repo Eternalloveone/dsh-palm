@@ -41,7 +41,7 @@ for (let t = 0; t < tableStarts.length; t += 1) {
       }
       if (started && depth <= 0) { end = j; break }
     }
-    const owner = head[1] ? head[1].slice(0, head[1].indexOf('.')) : methodOf.get(head[2])
+    const owner = head[1] ?? methodOf.get(head[2])
     entries.push({ start: i, end, owner, table: t })
     i = end
   }
@@ -88,7 +88,7 @@ for (const entry of removed) lines.splice(entry.start, entry.end - entry.start +
 
 const tableIndex = picked[0].table
 lines.splice(tableStarts[tableIndex] + 1, 0, `    ...(${domain}Handlers as unknown as never[]),`)
-lines.splice(tableStarts[0], 0, `import { ${domain}Handlers } from './mobile/api/${domain}.ts'`)
+lines.splice(0, 0, `import { ${domain}Handlers } from './mobile/api/${domain}.ts'`)
 writeFileSync(API, lines.join('\n'))
 
 console.log(`搬出 ${picked.length} 个 ${domain} 处理器（第 ${tableIndex + 1} 张表），导入 ${need.length} 个符号`)
