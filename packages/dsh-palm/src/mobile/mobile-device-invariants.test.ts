@@ -47,6 +47,9 @@ function stripComments(source: string): string {
 
 const styles = stripComments(readFileSync(join(HERE, 'mobile-styles.ts'), 'utf8'))
 const chatView = stripComments(readFileSync(join(HERE, 'views', 'ChatView.tsx'), 'utf8'))
+// W2-5：键盘订阅从 ChatView 挪到内核 hook，两处合起来才算数。
+const keyboardHook = stripComments(readFileSync(join(HERE, 'ui', 'hooks', 'use-keyboard-inset.ts'), 'utf8'))
+const viewportSources = chatView + '\n' + keyboardHook
 const routes = stripComments(readFileSync(join(HERE, '..', 'mobile-routes.ts'), 'utf8'))
 
 describe('设备适配不变式（真机 1/2/4/7 的代码前提）', () => {
@@ -66,9 +69,10 @@ describe('设备适配不变式（真机 1/2/4/7 的代码前提）', () => {
     // 软键盘弹出只改 visual viewport，不改 layout viewport；不监听它就没法在键盘
     // 顶起时把输入框和最新一行留在可见区。漏掉 removeEventListener 会在切换会话后
     // 累积多个监听，表现为"发一条消息滚好几次"。
-    expect(chatView).toContain('window.visualViewport')
-    expect(chatView).toContain("addEventListener('resize'")
-    expect(chatView).toContain("removeEventListener('resize'")
+    // W2-5 起订阅在 ui/hooks/use-keyboard-inset.ts，ChatView 只是调用方。
+    expect(viewportSources).toContain('window.visualViewport')
+    expect(viewportSources).toContain("addEventListener('resize'")
+    expect(viewportSources).toContain("removeEventListener('resize'")
   })
 
   it('输入区在键盘顶起时会让出空间（composer 有底部安全区或视口补偿）', () => {

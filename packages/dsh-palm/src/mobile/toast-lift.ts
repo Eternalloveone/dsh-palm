@@ -16,7 +16,8 @@
  * @module dsh-palm/mobile/toast-lift
  */
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { keyboardInsetPx, useKeyboardInset } from './ui/hooks/use-keyboard-inset.ts'
 
 /** Inputs for the lift computation (all CSS px). */
 export interface ToastLiftInput {
@@ -75,9 +76,7 @@ function composerRectOf(): DOMRect | undefined {
 
 /** Current keyboard occlusion (CSS px); 0 when the layout viewport already shrank. */
 export function keyboardHeightPx(): number {
-  const viewport = typeof window === 'undefined' ? undefined : window.visualViewport
-  if (viewport === undefined || viewport === null) return 0
-  return Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+  return keyboardInsetPx()
 }
 
 /**
@@ -93,6 +92,10 @@ export function keyboardHeightPx(): number {
  * unmount so the next screen falls back to the default.
  */
 export function useToastLift(): void {
+  /** 键盘订阅在 effect 之外建立，所以通过 ref 调 effect 里最新的 update。 */
+  const updateRef = useRef<() => void>(() => {})
+  useKeyboardInset(() => { updateRef.current() })
+
   useEffect(() => {
     if (typeof document === 'undefined') return undefined
     const root = document.documentElement
@@ -111,6 +114,7 @@ export function useToastLift(): void {
       })
       root.style.setProperty('--toast-lift', `${lift}px`)
     }
+    updateRef.current = update
     update()
     // HUD（排队/目标/状态条）是按需挂载的：会话开跑、排进一条消息时才出现，
     // 而那一刻**输入栏尺寸不变**，ResizeObserver 不会响 —— 真机复现里 toast 仍
@@ -133,17 +137,10 @@ export function useToastLift(): void {
         for (const element of Array.from(document.querySelectorAll(selector))) observer.observe(element)
       }
     }
-    const viewport = window.visualViewport
-    viewport?.addEventListener('resize', update)
-    viewport?.addEventListener('scroll', update)
-    window.addEventListener('resize', update)
     return () => {
       mutations?.disconnect()
       observer?.disconnect()
       if (frame !== 0) window.cancelAnimationFrame(frame)
-      viewport?.removeEventListener('resize', update)
-      viewport?.removeEventListener('scroll', update)
-      window.removeEventListener('resize', update)
       root.style.removeProperty('--toast-lift')
     }
   }, [])

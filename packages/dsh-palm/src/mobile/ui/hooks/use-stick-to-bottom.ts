@@ -13,7 +13,7 @@
  * and who moved it". Extracting it is step S2 of the refactor plan: ChatView
  * keeps the JSX and the feature wiring, the mechanics live here.
  *
- * @module dsh-palm/mobile/views/chat/use-chat-scroll
+ * @module dsh-palm/mobile/ui/hooks/use-stick-to-bottom
  */
 
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
@@ -59,7 +59,7 @@ export interface ChatScrollHandle {
  * Create the scroll layer for one chat view.
  * @returns refs and actions; stable for the lifetime of the component.
  */
-export function useChatScroll(): ChatScrollHandle {
+export function useStickToBottom(): ChatScrollHandle {
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const scrollTopRef = useRef(0)
   const programmaticScrollRef = useRef(false)

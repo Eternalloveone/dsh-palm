@@ -25,7 +25,7 @@ import { loadChatPage, type ChatPageResult } from '../../data/chat-page.ts'
 import type { RenderMessage } from '../../messages.ts'
 import { recallChatSnapshot } from '../../chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../scroll-machine.ts'
-import type { ChatScrollHandle } from './use-chat-scroll.ts'
+import type { ChatScrollHandle } from '../../ui/hooks/use-stick-to-bottom.ts'
 
 /** Abort an older-page request that never answers (weak links hang, not fail). */
 export const LOAD_OLDER_TIMEOUT_MS = 90_000

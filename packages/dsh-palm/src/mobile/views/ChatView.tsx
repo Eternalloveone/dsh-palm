@@ -41,7 +41,7 @@ import { reportDuplicateCards } from '../duplicate-report.ts'
 export { renderRows }
 import { prompt, reportError } from '../api.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
-import { useChatScroll } from './chat/use-chat-scroll.ts'
+import { useStickToBottom } from '../ui/hooks/use-stick-to-bottom.ts'
 import { usePendingPoll } from './chat/use-pending-poll.ts'
 import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/use-chat-history.ts'
 import { useChatSession } from './chat/use-chat-session.ts'
@@ -61,6 +61,7 @@ import { compactModelName, displayName, fmtTokens, permissionShortLabel, permiss
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
 import { useLongPress } from '../ui/hooks/use-long-press.ts'
+import { useKeyboardInset } from '../ui/hooks/use-keyboard-inset.ts'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { dispatchFrame, parseContextPressure, type ContextPressureData, type FrameContext } from './chat/frame-effects.ts'
 import { textParts, useChatComposer, type SendIntent } from './chat/use-chat-composer.ts'
@@ -720,9 +721,9 @@ export function ChatView({
   // Live mirror of `messages`：回调可能在很久之后才跑（首帧 rAF 甚至晚于尾页
   // 落地），所以它们必须读当前列表，不是闭包创建时的那一份。
   const messagesRef = useRef(messages)
-  // 滚动机制（容器/程序化认领/状态机/补拍/手势/回钉）统一在 use-chat-scroll 里；
+  // 滚动机制（容器/程序化认领/状态机/补拍/手势/回钉）统一在 ui/hooks/use-stick-to-bottom 里；
   // ChatView 只保留业务判断（未读、翻页、定位）。
-  const scrollHandle = useChatScroll()
+  const scrollHandle = useStickToBottom()
   const {
     scrollRef,
     scrollTopRef,
@@ -2596,7 +2597,7 @@ export function ChatView({
    * （卡片补进来、markdown 展开、图片撑开），scrollTop 不动，内容在视口上方长高，
    * 画面就往上滑了。所以身份相同也要比一次高度。
    */
-  // 高度比较用上一帧值（ref 由 useChatScroll 提供）。
+  // 高度比较用上一帧值（ref 由 useStickToBottom 提供）。
   /** Whether the reader scrolled away from the bottom (jump-to-latest button). */
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   /** New turns that arrived while the reader was away (badge count). One
@@ -3516,18 +3517,12 @@ export function ChatView({
 
   // Keyboard: when the visual viewport resizes (soft keyboard opens), keep
   // the composer pinned above the keyboard and the newest message visible.
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (vv == null) return
-    const viewport = vv
-    const onResize = (): void => {
-      if (!autoScroll) return
-      if (!mayAutoPin(scrollStateRef.current, Date.now())) return
-      scrollToBottom()
-    }
-    viewport.addEventListener('resize', onResize)
-    return () => { viewport.removeEventListener('resize', onResize) }
-  }, [autoScroll, scrollToBottom])
+  // 订阅收进 ui/hooks/use-keyboard-inset（W2-5）：与 toast 定位共用同一套视口事件。
+  useKeyboardInset(() => {
+    if (!autoScroll) return
+    if (!mayAutoPin(scrollStateRef.current, Date.now())) return
+    scrollToBottom()
+  })
 
   /* ── message context menu (long-press) ─────────────────────────────── */
 

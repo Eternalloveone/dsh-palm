@@ -2,13 +2,13 @@
 import { render } from '@testing-library/react'
 import type { Ref } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useChatScroll, type ChatScrollHandle } from './use-chat-scroll.ts'
+import { useStickToBottom, type ChatScrollHandle } from './use-stick-to-bottom.ts'
 
 /** Expose the hook to the test through a mutable slot. */
 let handle: ChatScrollHandle | undefined
 
 function Harness() {
-  handle = useChatScroll()
+  handle = useStickToBottom()
   return <div ref={handle.scrollRef as Ref<HTMLDivElement>} className="chat-scroll" />
 }
 
@@ -18,7 +18,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('useChatScroll', () => {
+describe('useStickToBottom', () => {
   it('pins the state machine when scrolling to the bottom', () => {
     render(<Harness />)
     if (handle === undefined) throw new Error('hook did not run')
