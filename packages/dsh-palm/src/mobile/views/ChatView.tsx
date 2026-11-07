@@ -13,6 +13,10 @@
  *   permission pickers, both as bottom sheets.
  */
 
+import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
+// 这两个原本从这里导出、被测试直接引用；搬走后保持对外形状不变（测试不该被迫改 import）。
+export { offersRegenerate, quotePathForReference } from './chat/chat-scroll.ts'
+import { estimateMessageHeight, messageKey } from './chat/chat-layout.ts'
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
@@ -186,20 +190,6 @@ function reportCardDiagnostic(
 }
 
 /**
- * Stable row key: (turn, step) when the row carries them, else the id.
- * Streaming rows keep (turn, step) across the pending→settled id swap
- * (synthetic `assistant,<turn>.<step>#<seq>` → host id), while the id
- * itself changes — keying by id would remount the whole message when it
- * settles, replaying the msg-in animation and dropping open states
- * (expanded diff cards, reasoning folds).
- */
-function messageKey(message: RenderMessage): string {
-  return message.turn !== undefined && message.step !== undefined
-    ? `t${message.turn}.${message.step}`
-    : message.id
-}
-
-/**
  * 最新一轮的起点，按可信度从高到低取：
  *
  *   1. 行上的 `turnStartAt` —— 折叠盖上去的 turn/start 时间，最准；
@@ -310,32 +300,6 @@ const REGENERATE_WATCHDOG_MS = 15_000
  */
 const APPROVAL_ARGS_LIMIT = 8 * 1024
 
-/**
- * 「重新生成」这个按钮该不该出现在这一行上。
- *
- * 之前判据只看本地的 running：宿主重启/断流把回合打断后，running 立刻变 false，而
- * 这一轮的过程框还挂着（turnStartAt 来自日志、没有配对的 turn/end），于是用户在
- * 「深度求索中 · 用时 3 分 55 秒」的卡片右下角看到一颗 ↻ —— 界面一边说在跑，一边
- * 让人重新生成。判据必须和过程框同源：turnLive 为真就不给按钮。
- */
-export function offersRegenerate(input: {
-  isLastMessage: boolean
-  isAssistant: boolean
-  pending: boolean
-  turnLive: boolean
-}): boolean {
-  return input.isLastMessage && input.isAssistant && !input.pending && !input.turnLive
-}
-
-const TURN_SCRUB_MOVE_PX = 8
-const TURN_SCRUB_TRACK_INSET_PX = 30
-
-/** Right-hand x of the scrub track inside the viewport (kept above the left edge
- *  even on an absurdly narrow window, so the span can never invert). */
-function scrubTrackRight(): number {
-  return Math.max(TURN_SCRUB_TRACK_INSET_PX + 40, window.innerWidth - TURN_SCRUB_TRACK_INSET_PX)
-}
-
 /** Page budget for one turn jump. The first request jumps straight to the
  *  target turn's page, so this only bounds a jump whose cursor missed. */
 const TURN_JUMP_MAX_PAGES = 24
@@ -444,23 +408,6 @@ export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/use-chat-draft.ts'
 /** 读到这里以内就自动接上一页，不再非得点按钮（无限上翻）。 */
 export const NEAR_TOP_LOAD_PX = 240
 
-/** 定位落点：锚点距容器顶的留白（px），量级同桌面的 align(row, 24)。 */
-/**
- * `@路径` 引用：含空白的路径用双引号包起来，其余原样。
- *
- * 这套系统的既定写法是 `@绝对路径`，解析端按空白切词，所以 `D:\my project\a.ts`
- * 会被切成 `@D:\my` —— 手机上点了文件却读不到，症状还很难看出来。
- */
-export function quotePathForReference(path: string): string {
-  return /\s/u.test(path) ? `"${path}"` : path
-}
-
-const LOCATE_TOP_GAP = 8
-/** 定位判据的容差（px）：锚点进入「顶 + 留白」这个带内就算落位。 */
-const LOCATE_TOLERANCE_PX = 2
-/** 读回落点之后的增量补偿帧数上限（桌面是写一次 + 读回，这里多给两帧兜 clamp）。 */
-const LOCATE_MAX_FIXES = 3
-
 /* ── long sessions：已载入的行全渲染 ────────────────────────────────────
    这里原来是"行窗格 + 估高 spacer"的虚拟化：超过阈值只渲染滚动位置附近的行，
    上下用估算高度撑开。落点于是全是估出来的 —— 跳轮次永远差一截（真机「定位
@@ -470,35 +417,10 @@ const LOCATE_MAX_FIXES = 3
    content-visibility（浏览器会记住它自己布局过的真实高度，不是我们的估算）。
    未载入的更早历史只由一条固定高的「加载更早」按钮代表：它的高度是样式常数，
    所以"翻页之后目标轮就在顶部"可以直接写成 scrollTop = 0，全程不做高度估算。
-   代价是首次进入深历史的渲染量变大，收益是落点变成精确值、滚动不再抖。 */
-/**
- * Rows at the tail that always render with real layout (no content-visibility)
- * in the non-windowed path. The auto-follow reads `el.scrollHeight` to pin the
- * bottom; content-visibility substitutes `contain-intrinsic-size` estimates for
- * off-screen rows, which would make that height approximate and land the
- * follower off the true bottom. Keeping the last ~1.5 viewports real keeps the
- * follow exact while the rows above (history) skip layout/paint.
- */
-const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
 /** Older pages paged for a focus-locate before giving up (bounded IO). */
 // Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
 // paging bounded, but large enough to reach any result that search can return.
 export const FOCUS_MAX_PAGES = 4096
-
-/** Estimated line height of one rendered message row (px). */
-const ESTIMATE_LINE_HEIGHT = 22
-/** Approximate CJK-friendly characters per line on a phone-width column. */
-const ESTIMATE_CHARS_PER_LINE = 38
-/** Rows a collapsed long message clamps to (matches chat-md-collapsed). */
-const ESTIMATE_MAX_LINES = 12
-
-/** Escape a value for use inside a quoted CSS attribute selector, safe on
- *  every runtime (no reliance on `CSS.escape`, which is missing in jsdom and
- *  some embedded webviews). Message ids carry only `"`/`\` that need it. */
-function escapeAttr(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
 
 /**
  * 一条排队消息要「连续多久没在宿主队列里出现」才算丢了。
@@ -506,31 +428,6 @@ function escapeAttr(value: string): string {
  * 又短到用户真丢了消息时能及时拿回原文。
  */
 const LOST_ECHO_QUIET_MS = 20_000
-
-/** 一张消息图片的估算高度（缩略图上限 + 间距，见 .chat-msg-image）。 */
-const IMAGE_TILE_ESTIMATE = 220
-
-/** Estimate one message row's rendered height in px (spacers use this). */
-export function estimateMessageHeight(message: RenderMessage): number {
-  if (message.kind === 'user') {
-    const lines = Math.max(1, Math.ceil(message.text.length / ESTIMATE_CHARS_PER_LINE))
-    // 图片是固定高的缩略图（.chat-msg-image 的 max-height）：按张数补高度，
-    // 否则含图的行在窗口化路径里会被低估，滚动位置会跳。
-    const imageHeight = (message.images?.length ?? 0) * IMAGE_TILE_ESTIMATE
-    return 28 + lines * ESTIMATE_LINE_HEIGHT + imageHeight
-  }
-  let height = 20
-  if (message.reasoning !== undefined && message.reasoning !== '') height += 32
-  if (message.tools !== undefined && message.tools.length > 0) height += 28
-  const text = message.text
-  if (text === '') return height + 24
-  const collapsed = !message.pending && text.length > LONG_TEXT_LIMIT
-  const shownChars = collapsed ? LONG_TEXT_PREVIEW : text.length
-  const lines = Math.max(1, Math.ceil(shownChars / ESTIMATE_CHARS_PER_LINE))
-  height += Math.min(lines, ESTIMATE_MAX_LINES) * ESTIMATE_LINE_HEIGHT
-  if (collapsed) height += 30
-  return height + 16
-}
 
 /** displayName 已与工具栏共用一份，见 views/chat/tool-labels.ts。 */
 
