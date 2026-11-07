@@ -1084,6 +1084,7 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  * @returns the routes to register on webServer.
  */
 import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
+import type { MobileApiCtx } from './mobile/api/context.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1092,25 +1093,45 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
   setRosterFile(deps.perfDir === undefined ? undefined : join(deps.perfDir, 'roster-snapshot.json'))
   finishedRunsFile = deps.perfDir === undefined ? undefined : join(deps.perfDir, 'finished-runs.json')
   const { service, apiProxy, mobileEnterToSend } = deps
-  const eventsHeartbeatMs = deps.eventsHeartbeatMs ?? DEFAULT_EVENTS_HEARTBEAT_MS
 
-  // ---- 自建搜索索引（期 1：影子模式，不改变任何现有返回）----
-  let searchIndexPromise: Promise<SearchIndex | undefined> | undefined
-  let searchIndexer: SearchIndexer | undefined
+  // ---- B2：闭包状态收拢到 ctx ----
+  // 只收「一个 makeMobileApiRoutes 实例内部、被多个分支共用」的可变状态与三个共享
+  // 工具函数。模块级单例缓存（locateSessionCache / workspaceListTtlCache /
+  // agentPresetTtlCache / ordinarySearchSnapshotCache / searchSyncTimer /
+  // sessionProjectionSnapshots / inboxFreshAt / sessionListSortedCache / usageCache）
+  // 搬进来会从「进程一份」变成「实例一份」，语义会变，原样留在模块作用域；
+  // finishedRunsFile 同理 —— 模块级 noteHostFinishedRun() 也要读写它，不能收进实例。
+  const ctx: MobileApiCtx<MobileApiDeps> = {
+    deps,
+    service,
+    apiProxy,
+    mobileEnterToSend,
+    eventsHeartbeatMs: deps.eventsHeartbeatMs ?? DEFAULT_EVENTS_HEARTBEAT_MS,
+    // 下面三个是函数声明（hoisted），所以可以在这里先引用、后面再定义；
+    // 别把它们改回 const 箭头函数 —— 那样这个初始化会踩 TDZ。
+    // ---- 自建搜索索引（期 1：影子模式，不改变任何现有返回）----
+    searchIndexPromise: undefined,
+    searchIndexer: undefined,
+    ensureSearchIndex,
+    touchDeviceFor,
+    gateOk,
+    activeEvents: 0,
+    activeNotifyEvents: 0,
+  }
 
   /**
    * 第一次手机请求时才起索引。宿主启动不抢资源；建库在后台按 60ms/页限速跑，
    * 手机照旧用旧路径，索引追上之前不给任何结论。
    */
-  const ensureSearchIndex = async (): Promise<SearchIndex | undefined> => {
-    if (searchIndexPromise !== undefined) return await searchIndexPromise
-    searchIndexPromise = (async () => {
+  async function ensureSearchIndex(): Promise<SearchIndex | undefined> {
+    if (ctx.searchIndexPromise !== undefined) return await ctx.searchIndexPromise
+    ctx.searchIndexPromise = (async () => {
       const path = deps.searchIndexPath
       if (path === undefined) return undefined
       const index = await SearchIndex.open(path)
       if (index === undefined) return undefined
       registerSearchIndex(index)
-      searchIndexer = new SearchIndexer({
+      const indexer = new SearchIndexer({
         index,
         // 花名册复用搜索那套快照：subagent / 空会话 / 已归档会话都在这里被排除。
         listSessions: async () => (await ordinarySearchSnapshot(apiProxy)).sessions,
@@ -1178,18 +1199,19 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         },
         log: (message) => { console.log('[dsh-palm search-index]', message) },
       })
-      activeSearchIndexer = searchIndexer
-      searchIndexer.start()
+      ctx.searchIndexer = indexer
+      activeSearchIndexer = indexer
+      indexer.start()
       // 端到端测试要确定性：先把第一趟跑完，免得断言和后台建库赛跑。
-      if (deps.searchIndexEager === true) await searchIndexer.runOnce()
+      if (deps.searchIndexEager === true) await indexer.runOnce()
       return index
     })()
-    return await searchIndexPromise
+    return await ctx.searchIndexPromise
   }
 
   // 构造即开跑：索引在后台自己建，手机就算一直不开也会追上（首个 pass 延迟 15s，
   // 建库按 60ms/页限速，不占宿主启动时间）。
-  void ensureSearchIndex().catch(() => undefined)
+  void ctx.ensureSearchIndex().catch(() => undefined)
 
   /**
    * Refresh the paired device's presence and report whether it is live.
@@ -1199,18 +1221,17 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
    * idle-but-connected phone ages past `offlineAfterMs` and the desktop panel
    * wrongly reports it as disconnected.
    */
-  const touchDeviceFor = (req: IncomingMessage): boolean => {
+  function touchDeviceFor(req: IncomingMessage): boolean {
     const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
     if (deviceId === undefined) return false
     return service.touchDevice(deviceId)
   }
 
   /** The phone gate: a live paired-device cookie, or nothing else proceeds. */
-  const gateOk = (req: IncomingMessage): boolean => {
-    return touchDeviceFor(req)
+  function gateOk(req: IncomingMessage): boolean {
+    return ctx.touchDeviceFor(req)
   }
 
-  const ctx = { deps, service, apiProxy, mobileEnterToSend, ensureSearchIndex }
   type MethodContext = MobileDispatchContext & typeof ctx
   const localHandlers = makeMobileDispatchTable<MethodContext>([
       [MOBILE_FINISHED_RUNS_METHOD, async (ctx) => {
@@ -3095,8 +3116,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       return
     }
     // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
-    void ensureSearchIndex().catch(() => undefined)
-    if (!gateOk(req)) {
+    void ctx.ensureSearchIndex().catch(() => undefined)
+    if (!ctx.gateOk(req)) {
       // Rejected early: drain whatever body the client sent so the request
       // stream (and the keep-alive connection) is released, not stalled.
       req.resume()
@@ -3191,10 +3212,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
     await handler({ ...ctx, req, res, method, parsed, rpcId })
   }
 
-  /** Concurrent SSE mux subscriptions (each holds a host mux stream + timer). */
-  let activeEvents = 0
-  /** Concurrent notify SSE subscriptions (shared budget with the mux stream). */
-  let activeNotifyEvents = 0
+  // 并发 SSE 预算（activeEvents / activeNotifyEvents）已收进 ctx，见函数开头。
 
   /** Bridge the host mux stream over SSE: one `data:` frame per mux frame. */
   const handleEvents = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -3204,8 +3222,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       return
     }
     // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
-    void ensureSearchIndex().catch(() => undefined)
-    if (!gateOk(req)) {
+    void ctx.ensureSearchIndex().catch(() => undefined)
+    if (!ctx.gateOk(req)) {
       writeJson(res, 403, {
         ok: false,
         error: { code: 'unpaired', message: 'mobile session is not paired' },
@@ -3215,11 +3233,11 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
     // Cap concurrent subscriptions so one device (or a reconnect storm) cannot
     // hold an unbounded number of host mux streams and heartbeat timers. The
     // EventSource reconnects, so a refusal is transient.
-    if (activeEvents >= MAX_SSE_SUBSCRIBERS) {
+    if (ctx.activeEvents >= MAX_SSE_SUBSCRIBERS) {
       writeJson(res, 429, { ok: false, error: { code: 'too-many-events', message: 'too many live streams' } })
       return
     }
-    activeEvents += 1
+    ctx.activeEvents += 1
     ;(apiProxy as ApiProxyAdapter).setPhoneConnected(true)
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -3276,8 +3294,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       closed = true
       controller.abort()
       clearInterval(heartbeat)
-      activeEvents -= 1
-      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(activeEvents > 0)
+      ctx.activeEvents -= 1
+      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(ctx.activeEvents > 0)
       // The live stream is the observation's lifetime: a device that is gone
       // must not stay registered. A second tab on the same device re-asserts
       // through `mobile.observe` within its refresh cadence, so this cannot
@@ -3295,7 +3313,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // An open SSE stream proves the phone is still live even while the agent
       // idles (no RPC traffic), so refresh presence alongside the transport
       // keepalive — otherwise an idle phone drifts to "disconnected".
-      touchDeviceFor(req)
+      ctx.touchDeviceFor(req)
       try {
         // A real mux frame, not an SSE comment. Comments are legal transport
         // keep-alives, but the EventSource spec drops them before the page ever
@@ -3306,13 +3324,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       } catch {
         // The write failed; the close handler tears the subscription down.
       }
-    }, eventsHeartbeatMs)
+    }, ctx.eventsHeartbeatMs)
     const onClose = (): void => {
       if (closed) return
       closed = true
       controller.abort()
       clearInterval(heartbeat)
-      activeEvents -= 1
+      ctx.activeEvents -= 1
       // The plain socket close (tunnel blip, app backgrounded, phone gone) used
       // to decrement the count and stop: only endStream() — the revocation path
       // — ever refreshed the flag, so ONE closed stream left the host believing
@@ -3320,7 +3338,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // bridge keep a phone-side branch alive for a stream nobody reads; the
       // desktop's own panel is what answers in that state (dual-answer race in
       // api-proxy-adapter.ts), so the flag must track the live subscriptions.
-      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(activeEvents > 0)
+      ;(apiProxy as ApiProxyAdapter).setPhoneConnected(ctx.activeEvents > 0)
       disposeObserved?.()
     }
     res.on('close', onClose)
@@ -3407,17 +3425,17 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       return
     }
     // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
-    void ensureSearchIndex().catch(() => undefined)
-    if (!gateOk(req)) {
+    void ctx.ensureSearchIndex().catch(() => undefined)
+    if (!ctx.gateOk(req)) {
       req.resume()
       writeJson(res, 403, { ok: false, error: { code: 'unpaired', message: 'mobile session is not paired' } })
       return
     }
-    if (activeNotifyEvents >= MAX_SSE_SUBSCRIBERS) {
+    if (ctx.activeNotifyEvents >= MAX_SSE_SUBSCRIBERS) {
       writeJson(res, 429, { ok: false, error: { code: 'too-many-events', message: 'too many live streams' } })
       return
     }
-    activeNotifyEvents += 1
+    ctx.activeNotifyEvents += 1
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
@@ -3432,7 +3450,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       if (closed) return
       closed = true
       clearInterval(heartbeat)
-      activeNotifyEvents -= 1
+      ctx.activeNotifyEvents -= 1
       res.end()
     }
     const heartbeat = setInterval(() => {
@@ -3441,13 +3459,13 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         endStream()
         return
       }
-      touchDeviceFor(req)
+      ctx.touchDeviceFor(req)
       try {
         res.write(': ping\n\n')
       } catch {
         // The write failed; the close handler tears the subscription down.
       }
-    }, eventsHeartbeatMs)
+    }, ctx.eventsHeartbeatMs)
     const unsubscribe = notify.engine.subscribe((event) => {
       if (closed) return
       if (!deviceStillPaired()) {
@@ -3466,7 +3484,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       if (closed) return
       closed = true
       clearInterval(heartbeat)
-      activeNotifyEvents -= 1
+      ctx.activeNotifyEvents -= 1
       unsubscribe()
     }
     res.on('close', onClose)
