@@ -24,6 +24,8 @@ import { ChatInputSheets } from './chat/components/chat-input-sheets.tsx'
 import { useStaleTurnHeal } from './chat/hooks/use-stale-turn-heal.ts'
 import { useMobilePreferences } from './chat/hooks/use-mobile-preferences.ts'
 import { useChatTimerCleanup } from './chat/hooks/use-chat-timer-cleanup.ts'
+import { useLatestRef } from './chat/hooks/use-latest-ref.ts'
+import { useSearchPrefill } from './chat/hooks/use-search-prefill.ts'
 import { useCardRecoveryReset } from './chat/hooks/use-card-recovery-reset.ts'
 import { useCardDomProbe } from './chat/hooks/use-card-dom-probe.ts'
 import { ChatOverlays } from './chat/components/chat-overlays.tsx'
@@ -811,8 +813,9 @@ export function ChatView({
     // 只兜这一次：目标现在随 `mobile.sessionState` 的原子快照一起回来（和回合状态
     // 同一时刻），不再自己开 15/20 秒的轮询 —— 那既慢（电脑上改了要等十几秒）又和
   /** 当前计时锚点的即时值（effect 里要判断「锚点是不是过期了」）。 */
-  const turnStartAtRef = useRef<number | null>(null)
-  useEffect(() => { turnStartAtRef.current = turnStartAt }, [turnStartAt])
+  // 当前计时锚点的即时值：effect 里要判断「锚点是不是过期了」。用 useLatestRef 而不是
+  // 「useRef + 一个只同步 ref 的 effect」——那个 effect 没有任何副作用。
+  const turnStartAtRef = useLatestRef<number | null>(turnStartAt ?? null)
   /** Turn-clock mount fallback (see turnStartAt). */
   const mountTimeRef = useRef(Date.now())
   /** 宿主时钟（见 chat/host-clock.ts）：读数在宿主时间域里减法，手机墙钟不参与。 */
@@ -3090,16 +3093,13 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   // 只认**意图表**里的那份（props 的 initialFocusQuery 是普通「进入并定位」路径，
   // 那条路径本来就不该弹出搜索框）。
   const searchPrefillRef = useRef('')
-  useEffect(() => {
-    const intent = locateIntentFor(session.sessionId)
-    const query = (intent?.query ?? '').trim()
-    if (query === '') return
-    const key = `${session.sessionId}#${query}`
-    if (searchPrefillRef.current === key) return
-    searchPrefillRef.current = key
-    setChatSearchOpen(true)
-    setChatSearchTerm(query)
-  }, [session.sessionId])
+  // 带关键词进来时预填搜索框（只认意图表里的 query，不认 props 的 initialFocusQuery）。
+  useSearchPrefill({
+    sessionId: session.sessionId,
+    prefillRef: searchPrefillRef,
+    setOpen: setChatSearchOpen,
+    setTerm: setChatSearchTerm,
+  })
   useEffect(() => {
     // 每帧现取：useMemo 一旦在意图写入之前跑过，就永远缓存 undefined（表现为
     // 「第一次进有高亮、之后同样的点击没有」）。
