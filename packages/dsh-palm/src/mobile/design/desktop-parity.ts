@@ -57,7 +57,7 @@ export const KNOWN_DIVERGENCES: Readonly<Record<string, string>> = {
   '--text-secondary': '移动端更深（#4a4a5a vs #6b6b74），手机阳光下的可读性优先',
   '--text-muted': '两端深浅相反（移动端偏深、桌面偏浅），语义一致但不是同一个值',
   '--border-default': '移动端略冷（#e2e4e8 vs #e5e5e8），肉眼不可分辨但值不同',
-  '--accent': '品牌主色差一档（#5b5cf0 vs #6366f1）；这是**唯一真正该统一**的一对，改动会动到全部强调色',
+  '--accent': '**不能直接统一**：桌面 #6366f1 上放白字实测 4.47:1，低于 WCAG AA 的 4.5；移动端 #5b5cf0 达标。要统一应让桌面改用移动端值（或更深一档），而不是反过来',
   '--accent-soft': '跟随主色，主色统一后自动一致',
   '--positive': '桌面只有一个值（无深色变体），移动端深浅分开',
   '--warning': '移动端更亮（琥珀 #f59e0b vs 深琥珀 #d97706）',
