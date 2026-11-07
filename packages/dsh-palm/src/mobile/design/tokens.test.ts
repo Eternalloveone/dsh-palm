@@ -92,47 +92,43 @@ describe('design tokens', () => {
 
 /* ── 对比度 ──────────────────────────────────────────────────────────── */
 
-interface Pair {
-  theme: 'light' | 'dark'
-  fg: `--${string}`
-  bg: `--${string}`
-  /** 当前实现的下限；只许变好。 */
-  floor: number
-}
-
-/** 正文/代码这类「必须 AA」的组合。 */
-const MUST_PASS: Array<Omit<Pair, 'floor'>> = [
+/**
+ * 对比度：**全部**必须达到 WCAG AA（4.5:1）。
+ *
+ * W2-1 之前这里还有一张 `KNOWN_LOW` 表（quaternary 2.55、muted 1.96、tone inks 2.4–4.1…），
+ * 意思是"已知偏低，只许变好"。那一批现在全部修掉了：
+ * - 文字收敛成三级，quaternary/muted 成为 tertiary 的兼容别名（层级交给字号与字重）；
+ * - accent 压深到 #5b5cf0（白字 4.96，它自己当文字用也是 4.96）；
+ * - 四个 tone ink 重新取值，最低 4.55。
+ *
+ * 深色的 tone-*-ink 背景是 rgba，需与卡片底色合成才能算，仍不在此表（W2 屏级重写时补）。
+ */
+const MUST_PASS: Array<{ theme: 'light' | 'dark'; fg: `--${string}`; bg: `--${string}` }> = [
   { theme: 'light', fg: '--text-primary', bg: '--bg-page' },
   { theme: 'light', fg: '--text-secondary', bg: '--bg-page' },
   { theme: 'light', fg: '--text-tertiary', bg: '--bg-page' },
+  { theme: 'light', fg: '--text-quaternary', bg: '--bg-page' },
+  { theme: 'light', fg: '--text-muted', bg: '--bg-page' },
   { theme: 'light', fg: '--text-primary', bg: '--card-bg' },
   { theme: 'light', fg: '--text-secondary', bg: '--card-bg' },
   { theme: 'light', fg: '--text-tertiary', bg: '--card-bg' },
   { theme: 'light', fg: '--code-text', bg: '--code-bg' },
+  { theme: 'light', fg: '--accent-contrast', bg: '--accent' },
+  { theme: 'light', fg: '--accent', bg: '--card-bg' },
+  { theme: 'light', fg: '--tone-positive-ink', bg: '--tone-positive-soft' },
+  { theme: 'light', fg: '--tone-warning-ink', bg: '--tone-warning-soft' },
+  { theme: 'light', fg: '--tone-info-ink', bg: '--tone-info-soft' },
+  { theme: 'light', fg: '--tone-neutral-ink', bg: '--tone-neutral-soft' },
   { theme: 'dark', fg: '--text-primary', bg: '--bg-page' },
   { theme: 'dark', fg: '--text-secondary', bg: '--bg-page' },
+  { theme: 'dark', fg: '--text-tertiary', bg: '--bg-page' },
+  { theme: 'dark', fg: '--text-quaternary', bg: '--bg-page' },
+  { theme: 'dark', fg: '--text-muted', bg: '--bg-page' },
   { theme: 'dark', fg: '--text-primary', bg: '--card-bg' },
   { theme: 'dark', fg: '--text-secondary', bg: '--card-bg' },
+  { theme: 'dark', fg: '--text-tertiary', bg: '--card-bg' },
   { theme: 'dark', fg: '--code-text', bg: '--code-bg' },
-]
-
-/**
- * 已知低于 AA 的组合（W2 视觉重构待办）。数值是当前实测下限：只许上升。
- * 深色的 tone-*-ink 背景是 rgba，需要与卡片底色合成才能算，暂不在此表。
- */
-const KNOWN_LOW: Pair[] = [
-  { theme: 'light', fg: '--text-quaternary', bg: '--bg-page', floor: 2.55 },
-  { theme: 'light', fg: '--text-muted', bg: '--bg-page', floor: 1.96 },
-  { theme: 'light', fg: '--accent-contrast', bg: '--accent', floor: 4.47 },
-  { theme: 'light', fg: '--tone-positive-ink', bg: '--tone-positive-soft', floor: 3.12 },
-  { theme: 'light', fg: '--tone-warning-ink', bg: '--tone-warning-soft', floor: 2.41 },
-  { theme: 'light', fg: '--tone-info-ink', bg: '--tone-info-soft', floor: 4.06 },
-  { theme: 'light', fg: '--tone-neutral-ink', bg: '--tone-neutral-soft', floor: 2.39 },
-  { theme: 'dark', fg: '--text-tertiary', bg: '--bg-page', floor: 3.72 },
-  { theme: 'dark', fg: '--text-tertiary', bg: '--card-bg', floor: 3.48 },
-  { theme: 'dark', fg: '--text-quaternary', bg: '--bg-page', floor: 2.27 },
-  { theme: 'dark', fg: '--text-muted', bg: '--bg-page', floor: 1.77 },
-  { theme: 'dark', fg: '--accent-contrast', bg: '--accent', floor: 4.47 },
+  { theme: 'dark', fg: '--accent-contrast', bg: '--accent' },
 ]
 
 function ratio(theme: 'light' | 'dark', fg: `--${string}`, bg: `--${string}`): number {
@@ -152,18 +148,25 @@ describe('token 对比度', () => {
     }
   })
 
-  it('已知偏低的组合不再变差', () => {
-    for (const { theme, fg, bg, floor } of KNOWN_LOW) {
-      const value = ratio(theme, fg, bg)
-      expect(value, `${theme}: ${fg} on ${bg} 退化了（${value.toFixed(2)} < ${floor}）`)
-        .toBeGreaterThanOrEqual(floor - 0.005)
+  it('文字层级收敛成三级：quaternary / muted 是 tertiary 的别名', () => {
+    // 不是"顺手抄一个同色值"：三者必须完全相等，否则又会有人拿更浅的灰去做元信息，
+    // 把 4.5 的底线重新破掉。层级交给字号与字重，不再交给亮度。
+    for (const theme of ['light', 'dark'] as const) {
+      const palette = theme === 'light' ? LIGHT_PALETTE : DARK_PALETTE
+      expect(palette['--text-quaternary']).toBe(palette['--text-tertiary'])
+      expect(palette['--text-muted']).toBe(palette['--text-tertiary'])
     }
   })
 
-  it('同一组合不会同时被要求「必须通过」和「已知偏低」', () => {
-    const key = (p: { theme: string; fg: string; bg: string }): string => `${p.theme}|${p.fg}|${p.bg}`
-    const must = new Set(MUST_PASS.map(key))
-    const overlap = KNOWN_LOW.filter(p => must.has(key(p)))
-    expect(overlap).toEqual([])
+  it('accent 上放白字达标，accent 当文字用在白底上也达标', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      expect(ratio(theme, '--accent-contrast', '--accent')).toBeGreaterThanOrEqual(4.5)
+    }
+    expect(ratio('light', '--accent', '--card-bg')).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('深色主题的 accent 当文字用仍不足（已知缺口，W2 屏级重写时补 --accent-text）', () => {
+    // 钉成"已知问题"而不是默默忽略：现在暗底上 #5b5cf0 只有 3.98。
+    expect(ratio('dark', '--accent', '--bg-page')).toBeLessThan(4.5)
   })
 })
