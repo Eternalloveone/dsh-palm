@@ -18,6 +18,7 @@ import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from '
 import { useChatSessionLifecycle } from './chat/use-chat-session-lifecycle.ts'
 import { useNativeSelection, useQueueStoreSubscription } from './chat/use-chat-subscriptions.ts'
 import { useChatOutboxFlush } from './chat/use-chat-outbox-flush.ts'
+import { useChatEscape } from './chat/use-chat-escape.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -858,24 +859,12 @@ export function ChatView({
   const [composerState, composerSetters] = useChatComposerState()
   const { pickerBusy, composerFocused, mobileEnterToSend, goalBusy, stopArmed, offline } = composerState
   const { pickerBusy: setPickerBusy, composerFocused: setComposerFocused, mobileEnterToSend: setMobileEnterToSend, goalBusy: setGoalBusy, stopArmed: setStopArmed, offline: setOffline } = composerSetters
-  useEffect(() => {
-    const anyOpen = picker !== null || moreOpen || runStatusOpen || turnListOpen || gitOpen || contextOpen || plusOpen || commandOpen
-    if (!anyOpen) return undefined
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      setPicker(null)
-      setMoreOpen(false)
-      setRunStatusOpen(false)
-      setTurnListOpen(false)
-      setGitOpen(false)
-      setContextOpen(false)
-      setPlusOpen(false)
-      setCommandOpen(false)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [picker, moreOpen, runStatusOpen, turnListOpen, gitOpen, contextOpen, plusOpen, commandOpen])
+  useChatEscape({
+    ui: uiState,
+    setters: uiSetters,
+    pickerOpen: picker !== null,
+    closePicker: () => { setPicker(null) },
+  })
   /** The host `turnOutline` projection raw value (parsed into the merged
    *  list below). Absent until the tail projection baseline lands. */
   const [turnOutlineRaw, setTurnOutlineRaw] = useState<unknown>(undefined)
