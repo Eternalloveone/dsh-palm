@@ -60,9 +60,18 @@ describe('architecture guardrails', () => {
     expect([...importers].sort()).toEqual([...APP_IMPORTER_WHITELIST].sort())
   })
 
+  it('ChatView 的 useState 数量只减不增（比行数更能反映结构）', () => {
+    // 行数预算可以被 useMemo / 内联函数骗过去，useState 骗不了：每一个都代表一处
+    // 散落在组件里的界面状态。S1 把它从 30 收到 0；之后只许更少。
+    // 想加回去？先想清楚它能不能进 chat-machine 的某个切片。
+    const text = readFileSync(join(PACKAGE_ROOT, 'src', 'mobile', 'views', 'ChatView.tsx'), 'utf8')
+    const count = (text.match(/useState\(/g) ?? []).length
+    expect(count, `ChatView 里又出现了 ${count} 个 useState（预算 0）`).toBeLessThanOrEqual(0)
+  })
+
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
-      'views/ChatView.tsx': 4_331,
+      'views/ChatView.tsx': 4_330,
       'views/SettingsView.tsx': 783,
       'views/SessionListView.tsx': 1_124,
       // 2026-11-07：P1 会话位置写回 URL + 首帧直达会话（刷新/重启回原会话）是**功能新增**，

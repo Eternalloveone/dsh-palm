@@ -870,8 +870,8 @@ export function ChatView({
   // 滚动与阅读位置收进 reducer（S1-C）：4 个 useState → 1 个。
   // 它们必须同属一个状态机，否则会出现「按钮出现了但未读数没清」这类只在真机复现的错位。
   const [readingState, readingSetters] = useChatReading()
-  const { currentTurn, showJumpToLatest, unreadCount, locateTick } = readingState
-  const { currentTurn: setCurrentTurn, showJumpToLatest: setShowJumpToLatest, unreadCount: setUnreadCount, locateTick: setLocateTick } = readingSetters
+  const { currentTurn, showJumpToLatest, unreadCount, locateTick, cardSyncTick } = readingState
+  const { currentTurn: setCurrentTurn, showJumpToLatest: setShowJumpToLatest, unreadCount: setUnreadCount, locateTick: setLocateTick, cardSyncTick: setCardSyncTick } = readingSetters
   // 输入区与连接收进 reducer（S1-D）：6 个 useState → 1 个。
   // 注意 offline / mobileEnterToSend 的**真相源在外部**（连通性探测 / 宿主偏好），
   // 这里只记录最近一次已知值，不做判断。
@@ -1728,7 +1728,6 @@ export function ChatView({
    * 亲眼看过 turn/end 的回合跳过：它的卡本来就是从同一批实时事件折出来的。
    */
   /** 补读跑着的时候列表又变了：跑完再补一轮（否则那一批回合永远轮不到）。 */
-  const [cardSyncTick, setCardSyncTick] = useState(0)
   useEffect(() => {
     cardRecoveryRef.current = { busy: false, pending: false, cooling: new Map(), confirmed: new Set() }
     liveClosedTurnsRef.current = new Set()

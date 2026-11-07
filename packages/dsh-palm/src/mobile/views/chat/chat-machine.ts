@@ -217,6 +217,8 @@ export interface ChatReadingState {
   unreadCount: number
   /** 定位触发键：每次定位递增，驱动定位 effect 重跑。 */
   locateTick: number
+  /** 卡片同步触发键：宿主推来的卡片需要重算时递增。 */
+  cardSyncTick: number
 }
 
 /** 阅读位置初值。 */
@@ -225,11 +227,12 @@ export const INITIAL_CHAT_READING: ChatReadingState = {
   showJumpToLatest: false,
   unreadCount: 0,
   locateTick: 0,
+  cardSyncTick: 0,
 }
 
 /** 阅读位置的状态键。 */
 export const CHAT_READING_KEYS = [
-  'currentTurn', 'showJumpToLatest', 'unreadCount', 'locateTick',
+  'currentTurn', 'showJumpToLatest', 'unreadCount', 'locateTick', 'cardSyncTick',
 ] as const satisfies ReadonlyArray<keyof ChatReadingState>
 
 /** 动作。 */
