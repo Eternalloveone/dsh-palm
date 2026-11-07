@@ -79,11 +79,17 @@ const ROWS = [
 
 const TITLES = { M: '机器（进 store / 内核）', R: '渲染派生（应删）', L: 'UI 局部（留组件）' }
 
+/** 已经办掉的项（迁移进度直接写在表里，免得表变成过期文档）。 */
+const DONE = {
+  title: '✅ W3-2 已迁入 store',
+  queuedCount: '✅ W3-2 已删（改用 queuedEntries.length）',
+}
+
 const group = (kind) => ROWS.filter(([, k]) => k === kind)
 const table = (kind) => [
-  `| 变量 | 归属 | 理由 |`,
-  `|---|---|---|`,
-  ...group(kind).map(([name, , owner, why]) => `| \`${name}\` | ${owner} | ${why} |`),
+  `| 变量 | 归属 | 理由 | 进展 |`,
+  `|---|---|---|---|`,
+  ...group(kind).map(([name, , owner, why]) => `| \`${name}\` | ${owner} | ${why} | ${DONE[name] ?? '⬜'} |`),
 ]
 
 const lines = [

@@ -15,6 +15,7 @@
 
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
+import { useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { createStreamState } from './chat/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
@@ -844,7 +845,6 @@ export function ChatView({
    * 自己探一次，答话就恢复。
    */
   const [offline, setOffline] = useState(false)
-  const [queuedCount, setQueuedCount] = useState(0)
   /** The queued outbox entries (banner lets the user remove one at a time). */
   const [queuedEntries, setQueuedEntries] = useState<OutboxEntry[]>([])
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
@@ -1191,8 +1191,12 @@ export function ChatView({
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
   /** Pending questions awaiting user answer (#1025). */
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestionItem[]>([])
-  /** Displayed title (renames apply locally right away). */
-  const [title, setTitle] = useState(session.title)
+  /** Displayed title (renames apply locally right away) — W3-2 起由 Chat Store 持有。 */
+  const chat = useChatSessionStore(session.title)
+  const title = chat.state.title ?? session.title
+  const setTitle = useCallback((next: string): void => {
+    chat.store.dispatch({ type: 'session/titled', title: next })
+  }, [chat.store])
   /** The header 更多 menu (rename / copy session id). */
   const [moreOpen, setMoreOpen] = useState(false)
   /** F4 export sheet (Markdown / single-file HTML, redacted). */
@@ -1317,10 +1321,9 @@ export function ChatView({
 
   /* ── offline mode ──────────────────────────────────────────────────── */
 
-  /** Refresh the queued count + entry list (banner reads both). */
+  /** Refresh the queued entry list (banner count is derived from it, not stored twice). */
   const refreshOutbox = useCallback((): void => {
     void listOutbox().then(entries => {
-      setQueuedCount(entries.length)
       setQueuedEntries(entries)
     })
   }, [])
@@ -4874,7 +4877,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
       <OfflineBanner
         offline={offline}
-        queuedCount={queuedCount}
+        queuedCount={queuedEntries.length}
         entries={queuedEntries}
         onFlush={flushQueue}
         onRemove={removeQueuedEntry}
