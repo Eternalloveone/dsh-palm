@@ -1042,6 +1042,7 @@ import { mobileListDirectoryHandler, mobileVoiceServices } from './mobile/api/mo
 import { mobileNotifyEvents, mobileObserve, mobileReadAttachment, mobileTurnState } from './mobile/api/mobile-stream-handlers.ts'
 import { mobilePerf, mobileTurnOutline } from './mobile/api/mobile-runtime-handlers.ts'
 import { mobileError, mobileSearchMessages } from './mobile/api/mobile-search-handlers.ts'
+import { mobileCommandExec, mobilePreviews } from './mobile/api/mobile-action-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1486,54 +1487,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
       }],
       [MOBILE_COMMANDS_METHOD, async (ctx) => mobileCommands(ctx)],
-      [MOBILE_COMMAND_EXEC_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        // Execute one slash-command line through the host CommandRuntime —
-        // the same interception the desktop composer's adjudicated path uses.
-        // `session.prompt` never dispatches commands, so this local method is
-        // the phone's only channel that cannot leak a `/`-line to the model.
-        // A long command like /compact summarizes through the model, so the
-        // answer waits with the phone: the request abort (device left
-        // mid-call) cancels the host-side handler signal.
-        const body = parsed.payload as { sessionId?: unknown; line?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined
-        const line = typeof body?.line === 'string' ? body.line : undefined
-        const abort = new AbortController()
-        res.on('close', () => { if (!res.writableEnded) abort.abort() })
-        let execution: { commandId: string; result: { kind: string; text?: string } } | undefined
-        try {
-          const agent = sessionId === undefined || deps.agents === undefined
-            ? undefined
-            : deps.agents.get(sessionId)
-          execution = agent === undefined || deps.commands === undefined || line === undefined
-            ? undefined
-            : await deps.commands.execute(agent, line, [], abort.signal)
-        } catch (error) {
-          // Aborted device or a handler crash: the lifecycle is already logged
-          // host-side; the phone only needs a terminal envelope. The host's
-          // error message is internal and never echoed to the phone.
-          console.error('mobile.commandExec failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: {
-              ok: false,
-              error: { code: 'command-failed', message: '命令执行失败，请稍后重试' },
-            },
-          })
-          return
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: {
-            ok: true,
-            value: execution === undefined
-              ? { matched: false }
-              : { matched: true, kind: execution.result.kind, ...(execution.result.text !== undefined ? { text: execution.result.text } : {}) },
-          },
-        })
-      }],
+      [MOBILE_COMMAND_EXEC_METHOD, async (ctx) => mobileCommandExec(ctx)],
       [MOBILE_VOICE_SERVICES_METHOD, async (ctx) => mobileVoiceServices(ctx)],
       [MOBILE_PUSH_SUBSCRIBE_METHOD, async (ctx) => pushSubscribe(ctx)],
       [MOBILE_PUSH_UNSUBSCRIBE_METHOD, async (ctx) => pushUnsubscribe(ctx)],
@@ -2281,51 +2235,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         })
       }],
       [MOBILE_READ_ATTACHMENT_METHOD, async (ctx) => mobileReadAttachment(ctx)],
-      [MOBILE_PREVIEWS_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        // Batch last-message previews (v3.1): one call for the list page's
-        // preview burst, served from the host's mux-fed cache — cached rows
-        // cost zero log reads, cold rows one lazy tail read each. A session
-        // that cannot be read is answered with an empty summary (the row
-        // falls back to its stats line), never an error.
-        const previews = deps.previews
-        if (previews === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '预览服务不可用' } },
-          })
-          return
-        }
-        const body = parsed.payload as { sessionIds?: unknown } | undefined
-        const rawIds = Array.isArray(body?.sessionIds) ? body.sessionIds : []
-        const sessionIds = rawIds
-          .filter((id): id is string => typeof id === 'string' && id !== '')
-          .slice(0, PREVIEWS_MAX_SESSIONS)
-        if (sessionIds.length === 0) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { items: [] } },
-          })
-          return
-        }
-        try {
-          const items = await previews.previews(sessionIds)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { items } },
-          })
-        } catch (error) {
-          console.error('mobile.previews failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '预览读取失败，请稍后重试' } },
-          })
-        }
-      }],
+      [MOBILE_PREVIEWS_METHOD, async (ctx) => mobilePreviews(ctx)],
       [MOBILE_TRANSCRIBE_METHOD, async (ctx) => mobileTranscribe(ctx)],
   ])
 
