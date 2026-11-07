@@ -30,6 +30,22 @@ export function focusableWithin(container: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * 聚焦但**不请求滚动**。
+ *
+ * 真机事故（2026-11-07，安卓 Chrome）：点输入区「+」「/」时，会话区会往上跳一下再回来。
+ * 根因就在这里——底部浮层带入场动画（`@keyframes sheet-up`，从 `translateY(100%)` 滑上来），
+ * 而 `useFocusTrap` 在挂载瞬间就 `focus()` 第一个选项。此刻那个选项还在屏幕下方之外，
+ * 浏览器为了让"聚焦元素可见"会去滚/平移可视视口 → 整页看起来被往上推了一下，
+ * 动画结束再回到原位。桌面 headless 里没有这个平移，所以一直复现不出来。
+ *
+ * `preventScroll: true` 就是干这个的：焦点照样给，别替我倒滚。老浏览器会忽略这个选项，
+ * 行为退化成今天这样（可接受，不是错误）。
+ */
+export function focusWithoutScroll(target: HTMLElement): void {
+  target.focus({ preventScroll: true })
+}
+
+/**
  * Trap focus inside `containerRef` while it is mounted.
  *
  * The container must exist on mount (the sheet/dialog is conditionally
@@ -46,10 +62,10 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>): void 
 
     const first = focusableWithin(container)[0]
     if (first !== undefined) {
-      first.focus()
+      focusWithoutScroll(first)
     } else {
       container.setAttribute('tabindex', '-1')
-      container.focus()
+      focusWithoutScroll(container)
     }
 
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -71,7 +87,9 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>): void 
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
-      if (previous !== null && previous.isConnected) previous.focus()
+      // 归还焦点同样不要滚动：浮层关掉时把焦点还给触发按钮，若它此刻在视口外，
+      // 浏览器又会替我们滚一次，效果和打开时一样糟。
+      if (previous !== null && previous.isConnected) focusWithoutScroll(previous)
     }
   }, [containerRef])
 }

@@ -103,11 +103,13 @@ export function useChatVoice(options: {
     if (!voiceOpen) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     voiceReturnFocusRef.current = previous
-    voiceDoneRef.current?.focus()
+    // preventScroll：语音面板也是滑上来的，挂载瞬间那个"完成"按钮还在视口外，
+    // 普通的 focus() 会让安卓浏览器去滚可视视口把页面顶一下（同 sheet 的坑，见 focus-trap.ts）。
+    voiceDoneRef.current?.focus({ preventScroll: true })
     return () => {
       const target = voiceReturnFocusRef.current
       voiceReturnFocusRef.current = null
-      if (target !== null && target.isConnected) target.focus()
+      if (target !== null && target.isConnected) target.focus({ preventScroll: true })
     }
   }, [voiceOpen])
 

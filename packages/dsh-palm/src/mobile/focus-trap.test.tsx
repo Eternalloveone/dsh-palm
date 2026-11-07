@@ -59,4 +59,36 @@ describe('useFocusTrap', () => {
     view.rerender(<Harness open={false} />)
     expect(document.activeElement).toBe(trigger)
   })
+
+  /**
+   * 真机「点 + / 会话区上翻一下又回来」的回归门。
+   *
+   * 浮层是滑上来的（`@keyframes sheet-up` 从 `translateY(100%)` 起），挂载瞬间第一个选项
+   * 还在视口外；不带 `preventScroll` 的 focus() 会让浏览器去滚可视视口把"聚焦元素"露出来，
+   * 整页就被往上推一下。这里直接钉住"每次聚焦都带 preventScroll"，比在 E2E 里观察
+   * 平移可靠（桌面 headless 根本不产生那次平移，观察不到）。
+   */
+  it('每次聚焦都带 preventScroll（否则安卓上会替我们把页面滚一下）', () => {
+    const calls: Array<Record<string, unknown> | undefined> = []
+    const original = HTMLElement.prototype.focus
+    HTMLElement.prototype.focus = function patched(this: HTMLElement, options?: FocusOptions) {
+      calls.push(options as Record<string, unknown> | undefined)
+      original.call(this, options)
+    }
+    try {
+      const view = render(<Harness open={false} />)
+      const trigger = screen.getByText('trigger')
+      trigger.focus()
+      calls.length = 0
+      view.rerender(<Harness open />)
+      // 打开：聚焦面板内第一个控件
+      expect(calls.at(-1)).toEqual({ preventScroll: true })
+      view.rerender(<Harness open={false} />)
+      // 关闭：把焦点还给触发按钮
+      expect(calls.at(-1)).toEqual({ preventScroll: true })
+      expect(calls.every(call => call?.preventScroll === true)).toBe(true)
+    } finally {
+      HTMLElement.prototype.focus = original
+    }
+  })
 })
