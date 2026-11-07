@@ -82,6 +82,8 @@ const TITLES = { M: '机器（进 store / 内核）', R: '渲染派生（应删�
 /** 已经办掉的项（迁移进度直接写在表里，免得表变成过期文档）。 */
 const DONE = {
   title: '✅ W3-2 已迁入 store',
+  loading: '✅ W3-2 已迁入 store（phase）',
+  error: '✅ W3-2 已迁入 store（notice 字段，与装载 error 分开）',
   queuedCount: '✅ W3-2 已删（改用 queuedEntries.length）',
 }
 

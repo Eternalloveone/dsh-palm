@@ -44,6 +44,23 @@ describe('chatReducer', () => {
     expect(chatReducer(titled, { type: 'session/titled', title: '新名字' })).toBe(titled)
   })
 
+  it('瞬时提示与装载错误分开：发送失败不该把整页切成错误页', () => {
+    const notice = chatReducer(INITIAL_CHAT_STATE, { type: 'notice/set', notice: '发送失败' })
+    expect(notice.notice).toBe('发送失败')
+    expect(notice.phase).toBe('idle')
+
+    const failed = chatReducer(INITIAL_CHAT_STATE, { type: 'session/failed', error: '加载失败' })
+    expect(failed.phase).toBe('error')
+    expect(failed.notice).toBeUndefined()
+  })
+
+  it('清除提示是幂等的（重复 clear 不换对象）', () => {
+    const withNotice = chatReducer(INITIAL_CHAT_STATE, { type: 'notice/set', notice: 'x' })
+    const cleared = chatReducer(withNotice, { type: 'notice/clear' })
+    expect(cleared.notice).toBeUndefined()
+    expect(chatReducer(cleared, { type: 'notice/clear' })).toBe(cleared)
+  })
+
   it('未知 action 原样返回（升级期新旧代码混跑）', () => {
     const weird = { type: 'future/action' } as unknown as Parameters<typeof chatReducer>[1]
     expect(chatReducer(INITIAL_CHAT_STATE, weird)).toBe(INITIAL_CHAT_STATE)

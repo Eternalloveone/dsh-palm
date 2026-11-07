@@ -25,6 +25,14 @@ export type RegeneratePhase = 'idle' | 'busy' | 'failed'
 export interface ChatState {
   /** 会话装载阶段：决定骨架屏/错误页/正文。 */
   readonly phase: SessionPhase
+  /**
+   * **瞬时**提示文案（发送失败、权限没注册……）。
+   *
+   * 与 `error` 分开是刻意的：`phase='error'` 表示"整页加载失败，只该看到错误页"，
+   * 而这类提示出现在正文旁边，页面本身是好的。混成一个字段，一次发送失败就会
+   * 把整屏切成错误页。
+   */
+  readonly notice?: string
   /** 装载失败原因（用户可见文案）。 */
   readonly error?: string
   /** 会话标题；重命名后由 `session/titled` 覆盖。 */
@@ -51,6 +59,8 @@ export type ChatAction =
   | { type: 'session/ready' }
   | { type: 'session/failed'; error: string }
   | { type: 'session/titled'; title: string }
+  | { type: 'notice/set'; notice: string }
+  | { type: 'notice/clear' }
   | { type: 'intent/send-start'; at: number }
   | { type: 'intent/send-settled' }
   | { type: 'intent/stop-start' }
@@ -72,6 +82,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, phase: 'error', error: action.error }
     case 'session/titled':
       return state.title === action.title ? state : { ...state, title: action.title }
+    case 'notice/set':
+      return state.notice === action.notice ? state : { ...state, notice: action.notice }
+    case 'notice/clear':
+      return state.notice === undefined ? state : { ...state, notice: undefined }
     case 'intent/send-start':
       return state.sending ? state : { ...state, sending: true, lastSentAt: action.at }
     case 'intent/send-settled':

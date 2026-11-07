@@ -707,8 +707,12 @@ export function ChatView({
   // 这一轮"进会话铺开"已经补了几页（每开一次会话归零）。
   /** 这一次进会话的时刻：补页链落地后还要再钉底。 */
   const openedAtRef = useRef(Date.now())
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | undefined>(undefined)
+  /** 装载态、瞬时提示、标题都在 Chat Store 里（W3-2）；setter 由 store hook 一并给出。 */
+  const chat = useChatSessionStore(session.title)
+  const loading = chat.state.phase === 'loading'
+  const error = chat.state.notice
+  const { setError } = chat
+  const setLoading = chat.setLoading
   // Toast 的站位：输入栏 + HUD + 键盘的实际高度写进 --toast-lift，
   // 否则排队条一出现，固定 104px 的 toast 就会盖住「撤回」（真机截图）。
   useToastLift()
@@ -1192,11 +1196,8 @@ export function ChatView({
   /** Pending questions awaiting user answer (#1025). */
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestionItem[]>([])
   /** Displayed title (renames apply locally right away) — W3-2 起由 Chat Store 持有。 */
-  const chat = useChatSessionStore(session.title)
   const title = chat.state.title ?? session.title
-  const setTitle = useCallback((next: string): void => {
-    chat.store.dispatch({ type: 'session/titled', title: next })
-  }, [chat.store])
+  const setTitle = chat.setTitle
   /** The header 更多 menu (rename / copy session id). */
   const [moreOpen, setMoreOpen] = useState(false)
   /** F4 export sheet (Markdown / single-file HTML, redacted). */

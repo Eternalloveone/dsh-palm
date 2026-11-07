@@ -95,7 +95,13 @@ export interface UseChatComposerOptions {
   refreshGoal: () => void
   runCommand: (line: string) => Promise<void>
   removeDraft: (sessionId: string) => void
-  setError: Dispatch<SetStateAction<string | undefined>>
+  /**
+   * 显示一条瞬时错误（undefined 表示清除）。
+   *
+   * 收窄成普通函数而不是 `Dispatch<SetStateAction>`：这里从来只用字符串形态，
+   * 留着 updater 形态会让"错误文案存在 Chat Store（W3-2）"这件事无法直接对接。
+   */
+  setError: (message: string | undefined) => void
   mountedRef: { current: boolean }
   refreshOutbox: () => void
   focusComposer: () => void
