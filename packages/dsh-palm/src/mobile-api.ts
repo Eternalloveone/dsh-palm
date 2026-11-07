@@ -1041,6 +1041,7 @@ import { mobileCommands, mobileGitSummary, mobileLatestVersion } from './mobile/
 import { mobileListDirectoryHandler, mobileVoiceServices } from './mobile/api/mobile-fs-handlers.ts'
 import { mobileNotifyEvents, mobileObserve, mobileReadAttachment, mobileTurnState } from './mobile/api/mobile-stream-handlers.ts'
 import { mobilePerf, mobileTurnOutline } from './mobile/api/mobile-runtime-handlers.ts'
+import { mobileError, mobileSearchMessages } from './mobile/api/mobile-search-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1251,48 +1252,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         return
       }],
       [MOBILE_PERF_METHOD, async (ctx) => mobilePerf(ctx)],
-      [MOBILE_ERROR_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        const payload = parsed.payload as { report?: unknown; label?: unknown }
-        // Write-only, inert and path-free, exactly like mobile.perf: the file
-        // name is generated host-side from the clock and the fingerprint, the
-        // body must pass strict shape validation (including basename-only frames
-        // — a path separator is refused), and nothing here can read or
-        // overwrite anything else. On first sight of a fingerprint the intake
-        // pushes once (cooldown-gated); a missing notify feature writes and
-        // returns without pushing, never an error.
-        const rejection = validateErrorReport(payload?.report)
-        if (rejection !== undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: rejection } },
-          })
-          return
-        }
-        if (deps.errorDir === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '宿主未启用错误上报目录' } },
-          })
-          return
-        }
-        try {
-          const result = ingestErrorReport({ dir: deps.errorDir, report: payload?.report, notify: deps.notify, now: Date.now() })
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { file: basename(result.file), bytes: result.bytes, pushed: result.pushed } },
-          })
-        } catch (error) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入错误上报失败' } },
-          })
-        }
-      }],
+      [MOBILE_ERROR_METHOD, async (ctx) => mobileError(ctx)],
       [MOBILE_PREFERENCES_METHOD, async (ctx) => mobilePreferences(ctx)],
       [MOBILE_PENDING_METHOD, async (ctx) => mobilePending(ctx)],
       [MOBILE_RESPOND_METHOD, async (ctx) => {
@@ -2097,46 +2057,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       }],
-      [MOBILE_SEARCH_MESSAGES_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, ensureSearchIndex } = ctx
-        // 会话内定位：一次索引查询。旧实现要把这个会话的历史翻到底（最多
-        // 4096 页）才能确定 seq，现在命中行本身就带 seq。
-        const body = parsed.payload as { sessionId?: unknown; query?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
-        const query = typeof body?.query === 'string' ? body.query.trim() : ''
-        if (sessionId === '' || query === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少会话或搜索词' } },
-          })
-          return
-        }
-        try {
-          const index = await ensureSearchIndex()
-          const hits = index === undefined ? [] : index.query(query, { sessionId, limit: SEARCH_MESSAGES_LIMIT })
-          const items = hits.map(hit => ({
-            seq: hit.seq,
-            ...(hit.messageId === undefined ? {} : { messageId: hit.messageId }),
-            ...(hit.partId === undefined ? {} : { partId: hit.partId }),
-            snippet: hit.snippet,
-            ...(hit.paragraph === undefined ? {} : { paragraph: hit.paragraph }),
-            ...(hit.matchIndex === undefined ? {} : { matchIndex: hit.matchIndex }),
-          }))
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { items } },
-          })
-        } catch (error) {
-          console.error('mobile.searchMessages failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '消息定位失败，请稍后重试' } },
-          })
-        }
-      }],
+      [MOBILE_SEARCH_MESSAGES_METHOD, async (ctx) => mobileSearchMessages(ctx)],
       [MOBILE_USAGE_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps, apiProxy } = ctx
         // Per-provider usage/balance, synced from the desktop's configured
