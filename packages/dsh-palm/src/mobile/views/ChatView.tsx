@@ -20,6 +20,7 @@ import { useNativeSelection, useQueueStoreSubscription } from './chat/use-chat-s
 import { useChatOutboxFlush } from './chat/use-chat-outbox-flush.ts'
 import { useChatEscape } from './chat/use-chat-escape.ts'
 import { useScrollGestures } from './chat/use-chat-scroll-gestures.ts'
+import { ChatInputSheets } from './chat/chat-input-sheets.tsx'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -4155,37 +4156,25 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           onClose={() => { setPlusOpen(false) }}
         />
       )}
-      {hostFileOpen && (
-        <HostFileSheet
-          {...(session.cwd === undefined ? {} : { rootPath: session.cwd })}
-          onClose={() => { setHostFileOpen(false) }}
-          onPick={(pickedPath, pickedName) => {
-            setHostFileOpen(false)
-            // 引用而不是搬运：手机上系统选择器给不了文件时，这条把宿主机上的路径写进
-            // 输入框（`@路径` 是这套系统的既定写法），agent 直接按路径读，不用上传字节。
-            setInput(previous => {
-              const trimmed = previous.replace(/\s+$/u, '')
-              // 路径里有空格必须包起来：`@D:\my project\a.ts` 会被读成 `@D:\my`，
-              // agent 于是去读一个不存在的文件（真机上就是「引用了但读不到」）。
-              const ref = `@${quotePathForReference(pickedPath)}`
-              return trimmed === '' ? `${ref} ` : `${trimmed} ${ref} `
-            })
-            toast(`已引用 ${pickedName}`)
-          }}
-        />
-      )}      {commandOpen && (
-        <CommandSheet
-          commands={commands}
-          onPickCommand={(line) => {
-            setCommandOpen(false)
-            // 桌面端行为：选中命令只把它填进输入框（蓝色 chip，光标在参数区），
-            // 由用户补参数、自己按发送。原来这里直接执行，`/goal` 这类带参命令
-            // 在手机上一次填参数的机会都没有。
-            claimCommand(line.replace(/^\//, ''))
-          }}
-          onClose={() => { setCommandOpen(false) }}
-        />
-      )}
+      <ChatInputSheets
+        hostFileOpen={hostFileOpen}
+        closeHostFile={() => { setHostFileOpen(false) }}
+        cwd={session.cwd}
+        appendReference={(path) => {
+          // 引用而不是搬运：把宿主路径写进输入框，agent 按路径读，不上传字节。
+          setInput(previous => {
+            const trimmed = previous.replace(/\s+$/u, '')
+            const ref = `@${path}`
+            return trimmed === '' ? `${ref} ` : `${trimmed} ${ref} `
+          })
+        }}
+        notify={toast}
+        commandOpen={commandOpen}
+        closeCommand={() => { setCommandOpen(false) }}
+        commands={commands}
+        claimCommand={claimCommand}
+        quotePathForReference={quotePathForReference}
+      />
 
       {pendingPermission !== undefined && (
         <PermissionConfirmSheet
