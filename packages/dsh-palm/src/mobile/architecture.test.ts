@@ -211,6 +211,15 @@ describe('architecture guardrails', () => {
   })
 
   /*
+   * W3-2：Chat Store 必须能脱离 React 回放 —— 不 import React 是"纯 reducer"的
+   * 唯一硬约束。一旦它开始用 useState，迁移就又变回"把 state 从组件搬到组件"。
+   */
+  it('Chat Store 不 import React（纯 reducer，可离线回放）', () => {
+    const text = readFileSync(join(HERE, 'runtime', 'chat', 'store.ts'), 'utf8')
+    expect(/from\s+['"]react['"]/.test(text), 'Chat Store 里出现了 React 依赖').toBe(false)
+  })
+
+  /*
    * W2-1：Identity 内核是六个内核里最底层的一个，必须保持"纯"——
    * 只能有 `import type`（类型在编译期擦除），不能有运行时依赖。
    * 一旦它开始 import 运行时代码，messages.ts → kernels → messages.ts 就会成环。
