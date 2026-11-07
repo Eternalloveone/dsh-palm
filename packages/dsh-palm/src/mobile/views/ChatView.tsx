@@ -15,6 +15,7 @@
 
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/chat-machine.ts'
+import { useChatSessionLifecycle } from './chat/use-chat-session-lifecycle.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -300,14 +301,8 @@ export function ChatView({
    */
   const locateIntentRef = useRef(locateIntentFor(session.sessionId))
   const locateIntent = locateIntentRef.current
-  useEffect(() => {
-    // 挂载即消费：之后只有转场里的第二个实例（2 秒内）能复用它。
-    takeLocateIntent(session.sessionId)
-  }, [session.sessionId])
-  useEffect(() => {
-    // 打开过就不该再挂在运行中页的「刚结束」里（真机口径：只保留没点进去看过的）。
-    forgetFinishedRun(session.sessionId)
-  }, [session.sessionId])
+  // 换会话时的三个一次性动作（消费定位意图 / 清「刚结束」/ 持住定位意图）在 S2-A 搬出。
+  useChatSessionLifecycle(session.sessionId)
   /** 高亮用的关键词：props 丢了就用意图里那份（否则只会滚、不会涂黄）。 */
   const effectiveFocusQuery = initialFocusQuery ?? locateIntent?.query
   // 第一帧就用上一场的内存快照：进会话不再“空一帧、再内容”（真机：进会话闪一下）。
@@ -393,13 +388,6 @@ export function ChatView({
 
 
   const commitRows = chatSession.commitRows
-  // 「离开聊天即清」：定位意图只在这一次进入里有效。转场里聊天页会短暂挂两个实例，
-  // 所以卸载后留 2 秒宽限、新实例挂载即取消；真离开则宽限到点清掉，不会残留到
-  // 下一次普通打开（早先 20 秒 TTL 会让「刚看完命中又点回来」莫名再跳一次）。
-  useEffect(() => {
-    holdLocateIntent(session.sessionId)
-    return () => { releaseLocateIntent(session.sessionId) }
-  }, [session.sessionId])
   // 分页历史：取页/缓存/在飞合并/链式补页在 use-chat-history 里；折叠与锚点在这里。
   const pager = useChatHistory({
     sessionId: session.sessionId,
