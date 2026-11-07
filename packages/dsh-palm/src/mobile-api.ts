@@ -1040,6 +1040,7 @@ import { mobilePending, mobilePreferences, mobileTranscribe } from './mobile/api
 import { mobileCommands, mobileGitSummary, mobileLatestVersion } from './mobile/api/mobile-info-handlers.ts'
 import { mobileListDirectoryHandler, mobileVoiceServices } from './mobile/api/mobile-fs-handlers.ts'
 import { mobileNotifyEvents, mobileObserve, mobileReadAttachment, mobileTurnState } from './mobile/api/mobile-stream-handlers.ts'
+import { mobilePerf, mobileTurnOutline } from './mobile/api/mobile-runtime-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1249,51 +1250,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
         return
       }],
-      [MOBILE_PERF_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        const payload = parsed.payload as { capture?: unknown; label?: unknown }
-        // Write-only, inert and path-free: the name is generated host-side from
-        // the clock and a sanitized label, the body must look like a perf
-        // aggregate, and nothing in this branch can read or overwrite anything
-        // else — a phone can only ever append a capture to the capture dir.
-        const rejection = validatePerfCapture(payload?.capture)
-        if (rejection !== undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: rejection } },
-          })
-          return
-        }
-        if (deps.perfDir === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '宿主未启用性能抓取目录' } },
-          })
-          return
-        }
-        try {
-          const file = writePerfCapture(
-            deps.perfDir,
-            payload.capture,
-            typeof payload.label === 'string' ? payload.label : 'device',
-            Date.now(),
-            perfCaptureKind(payload.capture) === 'raw' ? 'raw' : 'aggregate',
-          )
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { file: basename(file), bytes: Buffer.byteLength(JSON.stringify(payload.capture)) } },
-          })
-        } catch (error) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入性能抓取失败' } },
-          })
-        }
-      }],
+      [MOBILE_PERF_METHOD, async (ctx) => mobilePerf(ctx)],
       [MOBILE_ERROR_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps } = ctx
         const payload = parsed.payload as { report?: unknown; label?: unknown }
@@ -1709,46 +1666,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       [MOBILE_NOTIFY_EVENTS_METHOD, async (ctx) => mobileNotifyEvents(ctx)],
       [MOBILE_GIT_SUMMARY_METHOD, async (ctx) => mobileGitSummary(ctx)],
       [MOBILE_LATEST_VERSION_METHOD, async (ctx) => mobileLatestVersion(ctx)],
-      [MOBILE_TURN_OUTLINE_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, apiProxy } = ctx
-        // 轮次大纲有两个来源，按可靠度排：枚举快照 → 现读一次宿主投影。
-        //
-        // 只信枚举快照是不够的：那一页是"最近更新的 N 个会话"，打开一个很久
-        // 以前的会话时它根本不在里面，手机端就只剩本地已加载的那几轮 —— 真机
-        // 表现是「轮次 · 共 5 轮」，滑条分母 549 却一格历史都点不开。
-        const body = parsed.payload as { sessionId?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
-        if (sessionId === '' ) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
-          })
-          return
-        }
-        let outline: unknown = processState.sessionProjectionSnapshots.get(sessionId)?.block.values?.['turnOutline']
-        if (!Array.isArray(outline)) {
-          // 现开一帧 follow，从 `session.history` 的投影基线里取。这条比枚举快照贵
-          // （大会话能到几十 KB，实测 279 轮约 53 KB），但客户端有五分钟缓存，一次
-          // 打开只付一次；总比"历史永远列不出来"强。
-          try {
-            const page = await apiProxy.sessions.history({
-              rpcId: RpcId('dsh-palm-mobile-outline'),
-              payload: { sessionId, maxMessages: 1, fresh: true },
-            } as never)
-            if (page.result.ok) {
-              const values = (page.result.value as { projections?: { values?: Record<string, unknown> } })
-                .projections?.values
-              if (Array.isArray(values?.['turnOutline'])) outline = values['turnOutline']
-            }
-          } catch { /* 拿不到就维持原样，界面显示本地那几轮 */ }
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { turns: outline === undefined ? null : outline } },
-        })
-      }],
+      [MOBILE_TURN_OUTLINE_METHOD, async (ctx) => mobileTurnOutline(ctx)],
       [MOBILE_INBOX_METHOD, async (ctx) => {
         const { res, parsed, rpcId, apiProxy } = ctx
         // 排队消息：同一份花名册快照里就有（inbox 投影），不读日志、不解压。
