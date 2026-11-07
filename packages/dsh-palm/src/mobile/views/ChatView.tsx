@@ -14,7 +14,7 @@
  */
 
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
-import { useChatReading, useChatSearch, useChatUi } from './chat/chat-machine.ts'
+import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/chat-machine.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -540,7 +540,6 @@ export function ChatView({
   const [picker, setPicker] = useState<'model' | 'permission' | null>(null)
   /** Whether the context-usage popover (ring tap) is open. */
   /** In-flight guard for one-shot picker actions. */
-  const [pickerBusy, setPickerBusy] = useState(false)
   /** Lazily cached model directory backing the quick picker (fresh per open
    *  until it loads once; the full sheet re-fetches on its own). */
   const [modelCatalog, setModelCatalog] = useState<ModelPickerCatalog>({ status: 'idle' })
@@ -580,13 +579,11 @@ export function ChatView({
   /** Quoted message (context bar above the composer; sent as a blockquote preamble). */
   const [quoted, setQuoted] = useState<string | undefined>(undefined)
   /** Whether the composer holds focus (quick-command bar shows with the keyboard). */
-  const [composerFocused, setComposerFocused] = useState(false)
   /**
    * 是否连不上宿主。判据不是 `navigator.onLine`（安卓上它会一直停在 false），
    * 而是"最近一次真实请求有没有答话"——见 rpc.ts 的连通性总线；断着的时候每 5 秒
    * 自己探一次，答话就恢复。
    */
-  const [offline, setOffline] = useState(false)
   /** The queued outbox entries (banner lets the user remove one at a time). */
   const [queuedEntries, setQueuedEntries] = useState<OutboxEntry[]>([])
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
@@ -610,7 +607,6 @@ export function ChatView({
    * Composer preference from the plugin's host settings (default true keeps
    * the legacy Enter-to-send behavior until the preference loads).
    */
-  const [mobileEnterToSend, setMobileEnterToSend] = useState(true)
   /** 宿主没有 `mobile.turnState`（旧版本）：之后的对账直接走旧路径。 */
   const turnStateUnsupportedRef = useRef(false)
 
@@ -646,7 +642,6 @@ export function ChatView({
    */
   const [goal, setGoal] = useState<MobileGoal | null | undefined>(undefined)
   /** 目标命令在途中：四个按钮同时置灰，避免连点发出两条 /goal。 */
-  const [goalBusy, setGoalBusy] = useState(false)
 
   const [queueItems, setQueueItems] = useState<QueueItemView[]>(() => {
     // 先用状态仓里的缓存秒开（重进会话不空白），没有再退回 mux 保留的那份。
@@ -877,6 +872,12 @@ export function ChatView({
   const [readingState, readingSetters] = useChatReading()
   const { currentTurn, showJumpToLatest, unreadCount, locateTick } = readingState
   const { currentTurn: setCurrentTurn, showJumpToLatest: setShowJumpToLatest, unreadCount: setUnreadCount, locateTick: setLocateTick } = readingSetters
+  // 输入区与连接收进 reducer（S1-D）：6 个 useState → 1 个。
+  // 注意 offline / mobileEnterToSend 的**真相源在外部**（连通性探测 / 宿主偏好），
+  // 这里只记录最近一次已知值，不做判断。
+  const [composerState, composerSetters] = useChatComposerState()
+  const { pickerBusy, composerFocused, mobileEnterToSend, goalBusy, stopArmed, offline } = composerState
+  const { pickerBusy: setPickerBusy, composerFocused: setComposerFocused, mobileEnterToSend: setMobileEnterToSend, goalBusy: setGoalBusy, stopArmed: setStopArmed, offline: setOffline } = composerSetters
   useEffect(() => {
     const anyOpen = picker !== null || moreOpen || runStatusOpen || turnListOpen || gitOpen || contextOpen || plusOpen || commandOpen
     if (!anyOpen) return undefined
@@ -2136,7 +2137,6 @@ export function ChatView({
    * 运行中主键是「排队」、紧挨着一个小方块「停止」——两个都点过一次的人知道有多容易
    * 打错。破坏性动作改成两拍：第一拍把按钮变成「确认停止」，2.5 秒不动自动收回。
    */
-  const [stopArmed, setStopArmed] = useState(false)
   const chatSearchAbortRef = useRef<AbortController | undefined>(undefined)
   /** 上一次「上一个/下一个」真正落在哪一行、第几处：连着落在同一处时说明画面不会动。 */
   const lastChatLandingRef = useRef<{ rowId: string; occurrence: number } | undefined>(undefined)

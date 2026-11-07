@@ -267,3 +267,83 @@ export function useChatReading(): readonly [ChatReadingState, ChatReadingSetters
   }, [])
   return [state, setters] as const
 }
+
+
+/* ── 输入区与连接（S1-D） ───────────────────────────────────────────────
+ *
+ * 这一片里有两个值**不是纯界面开关**，而是外部事实的投影，进 reducer 时要说清楚：
+ *
+ *   offline            真相源是连通性探测（use-chat-connectivity）。这里存的是"最近一次
+ *                      已知值"，reducer 不判断连通性，只记录。
+ *   mobileEnterToSend  真相源是宿主偏好（fetchMobilePreferences）。同理，只记录。
+ *
+ * 放在一起的理由：它们和输入区是**同一屏、同一批交互**（离线时要不要禁用发送、
+ * 回车是换行还是发送）。分开存会出现"离线了但发送键还亮着"这类不一致。
+ */
+
+/** 输入区与连接状态。 */
+export interface ChatComposerState {
+  /** 「+」面板里正在挑文件（宿主往返中）。 */
+  pickerBusy: boolean
+  /** 输入框是否有焦点（决定移动端键盘行为）。 */
+  composerFocused: boolean
+  /** 回车是发送还是换行（真相源：宿主偏好）。 */
+  mobileEnterToSend: boolean
+  /** 目标条上有个动作在飞。 */
+  goalBusy: boolean
+  /** 停止按钮已进入二次确认（2.5 秒不动自动收回）。 */
+  stopArmed: boolean
+  /** 宿主不可达（真相源：连通性探测）。 */
+  offline: boolean
+}
+
+/** 初值。 */
+export const INITIAL_CHAT_COMPOSER: ChatComposerState = {
+  pickerBusy: false,
+  composerFocused: false,
+  mobileEnterToSend: true,
+  goalBusy: false,
+  stopArmed: false,
+  offline: false,
+}
+
+/** 状态键。 */
+export const CHAT_COMPOSER_KEYS = [
+  'pickerBusy', 'composerFocused', 'mobileEnterToSend', 'goalBusy', 'stopArmed', 'offline',
+] as const satisfies ReadonlyArray<keyof ChatComposerState>
+
+/** 动作。 */
+export type ChatComposerAction = {
+  [K in keyof ChatComposerState]: { type: 'set'; key: K; value: ChatComposerState[K] }
+}[keyof ChatComposerState]
+
+/** 纯 reducer。 */
+export function chatComposerReducer(state: ChatComposerState, action: ChatComposerAction): ChatComposerState {
+  if (state[action.key] === action.value) return state
+  return { ...state, [action.key]: action.value } as ChatComposerState
+}
+
+/** 各字段 setter。 */
+export type ChatComposerSetters = {
+  [K in keyof ChatComposerState]: (value: ChatComposerState[K] | ((previous: ChatComposerState[K]) => ChatComposerState[K])) => void
+}
+
+/** @returns 输入区状态 + setter。 */
+export function useChatComposerState(): readonly [ChatComposerState, ChatComposerSetters] {
+  const [state, dispatch] = useReducer(chatComposerReducer, INITIAL_CHAT_COMPOSER)
+  const latest = useRef(state)
+  latest.current = state
+  const setters = useMemo(() => {
+    const built: Record<string, unknown> = {}
+    for (const key of CHAT_COMPOSER_KEYS) {
+      built[key] = (value: unknown) => {
+        const next = typeof value === 'function'
+          ? (value as (previous: unknown) => unknown)(latest.current[key])
+          : value
+        dispatch({ type: 'set', key, value: next } as ChatComposerAction)
+      }
+    }
+    return built as unknown as ChatComposerSetters
+  }, [])
+  return [state, setters] as const
+}
