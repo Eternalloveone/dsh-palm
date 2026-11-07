@@ -8,6 +8,7 @@ import type { MuxFrame, SessionSummary, WorkspaceView as WorkspaceRow } from '..
 import type { MuxClient } from '../../mux.ts'
 import { toSessionView, type SessionView } from '../../shared/session-view.ts'
 import { resolveSessionRunning } from '../../shared/session-state.ts'
+import { mergeRunning, presenceRunning } from '../../kernels/presence.ts'
 
 /** Rows shown for the opened workspace: its sessions, paged. The roster
  * filters by the workspace's OWNED id set (workspace.sessionIds) — the same
@@ -123,7 +124,13 @@ export function applyListFrame(live: LiveListState, frame: MuxFrame, workspace: 
 }
 
 /** One row with its live status/activity/error patches applied. */
-export function patchRow(row: SessionView, live: LiveListState, now = Date.now()): SessionView {
+export function patchRow(
+  row: SessionView,
+  live: LiveListState,
+  now = Date.now(),
+  /** Presence 内核的三态读法（W3-4）：有证据时优先于本模型自己的判据。 */
+  sharedRunning?: (sessionId: string) => boolean | undefined,
+): SessionView {
   const reported = live.status.get(row.sessionId)
   // 宿主有结论时它是唯一的答案（桌面端同源），不再让静默规则参与。
   const hostSaid = live.host.get(row.sessionId)
@@ -141,7 +148,12 @@ export function patchRow(row: SessionView, live: LiveListState, now = Date.now()
   const confirmedAt = live.confirmedAt.get(row.sessionId) ?? 0
   const heartbeatAt = Math.max(lastActivity ?? 0, live.statusAt.get(row.sessionId) ?? 0, confirmedAt) || undefined
   const quiet = heartbeatAt !== undefined && now - heartbeatAt > RUNNING_STALE_MS
-  const running = resolveSessionRunning({ hostSaid, reported, quiet })
+  // 共享状态（聊天页发布）优先——与首页徽标、运行总览同一条规则（W3-4）。
+  // 没显式注入时直接问内核：默认行为也是"三屏一致"，测试不受影响（没证据即退回本模型判据）。
+  const running = mergeRunning(
+    (sharedRunning ?? presenceRunning)(row.sessionId),
+    resolveSessionRunning({ hostSaid, reported, quiet }),
+  )
   const updatedAt = live.activity.get(row.sessionId)
   const error = live.error.get(row.sessionId)
   // A session that runs again has moved past its failure. The mark may have
@@ -184,7 +196,12 @@ export function muxRunningIds(mux: MuxClient | undefined): Set<string> {
 
 /** Apply the live deltas to a baseline page, keeping the host's order (the
  *  list is sorted by updatedAt desc — session-controller list.ts:142). */
-export function applyLive(rows: SessionView[], live: LiveListState): SessionView[] {
+export function applyLive(
+  rows: SessionView[],
+  live: LiveListState,
+  /** Presence 内核的三态读法（W3-4）：没传就退回本模型自己的判据。 */
+  sharedRunning?: (sessionId: string) => boolean | undefined,
+): SessionView[] {
   if (live.added.size === 0 && live.removed.size === 0 && live.status.size === 0
     && live.activity.size === 0 && live.error.size === 0 && live.host.size === 0) {
     return rows
@@ -192,11 +209,11 @@ export function applyLive(rows: SessionView[], live: LiveListState): SessionView
   const out: SessionView[] = []
   for (const row of rows) {
     if (live.removed.has(row.sessionId)) continue
-    out.push(patchRow(row, live))
+    out.push(patchRow(row, live, Date.now(), sharedRunning))
   }
   for (const [id, row] of live.added) {
     if (out.some(existing => existing.sessionId === id)) continue
-    out.push(patchRow(row, live))
+    out.push(patchRow(row, live, Date.now(), sharedRunning))
   }
   return out.sort((left, right) => right.updatedAt - left.updatedAt)
 }

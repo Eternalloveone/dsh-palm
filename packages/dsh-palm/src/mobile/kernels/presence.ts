@@ -39,14 +39,34 @@ export interface SessionPresence {
  * @param sessionId - 会话 id
  * @param now - 注入时间（测试用；默认取当前时间）
  */
-export function presenceOf(sessionId: string, now: number = Date.now()): SessionPresence {
-  const running = runningOf(sessionId, now)
+export function presenceOf(sessionId: string, now: number = Date.now()): SessionPresence {  const running = runningOf(sessionId, now)
   const finished = finishedRuns(now).find(entry => entry.sessionId === sessionId)
   return {
     running,
     ...(finished === undefined ? {} : { finishedAt: finished.finishedAt, finishedStatus: finished.status }),
     source: running === undefined ? 'none' : 'frames',
   }
+}
+
+/**
+ * 三态读法（`boolean | undefined`）：给需要保留"没有证据"语义的调用方用。
+ * 与 {@link effectiveRunning} 的区别只在于**不兜底**。
+ */
+export function presenceRunning(sessionId: string, now: number = Date.now()): boolean | undefined {
+  return runningOf(sessionId, now)
+}
+
+/**
+ * 三态合并：**共享状态优先，没有证据才用兜底**。
+ *
+ * 三屏各自的兜底判据不同（会话列表看花名册+心跳，运行总览看实时帧，App 看花名册），
+ * 但"谁说了算"必须是同一条规则 —— 这条函数就是那条规则，别在各处重写 `??`。
+ */
+export function mergeRunning(
+  shared: boolean | undefined,
+  fallback: boolean | undefined,
+): boolean | undefined {
+  return shared === undefined ? fallback : shared
 }
 
 /**
@@ -58,8 +78,7 @@ export function presenceOf(sessionId: string, now: number = Date.now()): Session
  * @param fallback - 没有共享状态时的判断（通常是调用方自己的花名册/帧结论）
  */
 export function effectiveRunning(sessionId: string, fallback: boolean, now: number = Date.now()): boolean {
-  const shared = runningOf(sessionId, now)
-  return shared === undefined ? fallback : shared
+  return mergeRunning(runningOf(sessionId, now), fallback) ?? false
 }
 
 /**
