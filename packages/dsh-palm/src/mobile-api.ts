@@ -169,17 +169,6 @@ export const MOBILE_ALLOWLIST: ReadonlySet<string> = new Set([
  * the phone. A `'*'` entry allows any single field of that namespace
  * (UI-only namespaces like dsh-better-sidebar).
  */
-const SETTINGS_WRITE_WHITELIST: Record<string, readonly (readonly string[])[]> = {
-  'ui-theme': [['preference']],
-  'ui-conversation': [['busyEnter']],
-  'subagent-model-selection-settings': [['enabled'], ['allowedModels']],
-  'agent-default-model': [['model'], ['provider'], ['reasoningEffort']],
-  'agent-loop': [['maxParallelToolCalls']],
-  'better-sidebar': [['*']],
-  // 手机自己的配置。`enabled` 故意不在列表里：关掉远程访问入口会让这台手机
-  // 立刻失去连接，这个开关只能从桌面端关。
-  'dsh-palm': [['mobileEnterToSend'], ['offlineAfterMs'], ['maxDevices'], ['tokenTtlMs']],
-}
 
 /**
  * Locally answered display-preference method (the phone's read-only
@@ -1042,6 +1031,7 @@ import { LOCATE_TTL_MS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMI
 import { wrap } from './mobile/api/wrap.ts'
 import { workspaceList } from './mobile/api/workspace-list.ts'
 import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
+import { settingsRead, settingsMutate } from './mobile/api/settings-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -3714,42 +3704,8 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const { apiProxy, request } = ctx
     return wrap(rpcId, await subagentCatalogWithActivity(request, apiProxy))
   }],
-  ['settings.read', async (ctx) => {
-    const { apiProxy, request } = ctx
-    // The full redacted settings surface (namespace schemas + values, secrets
-    // stripped by the host seam) — the phone renders the same configuration
-    // cards as the desktop. Writes stay whitelisted below.
-    const response = await apiProxy.settings.describe(request as never)
-    return wrap(rpcId, response)
-  }],
-  ['settings.mutate', async (ctx) => {
-    const { apiProxy, payload, rpcId } = ctx
-    const body = asJsonObject(payload)
-    const ns = typeof body?.ns === 'string' ? body.ns : undefined
-    const ops = Array.isArray(body?.ops) ? body.ops : undefined
-    const allowed = ns !== undefined ? SETTINGS_WRITE_WHITELIST[ns] : undefined
-    const whitelisted = allowed !== undefined && ops !== undefined && ops.length > 0
-      && ops.every(op => isAllowedSettingsOp(op, allowed))
-    if (!whitelisted) {
-      // Same stable refusal as the pairing 404s: the phone renders a generic
-      // "不可用" without learning what is actually served.
-      return {
-        type: 'server-response',
-        rpcId,
-        result: { ok: false, error: { code: 'not-found', message: '设置项不可用' } },
-      }
-    }
-    const expectedRevision = typeof body?.expectedRevision === 'number' ? body.expectedRevision : undefined
-    const response = await apiProxy.settings.mutate({
-      rpcId: RpcId(rpcId),
-      payload: {
-        ns,
-        ops: ops as never,
-        ...(expectedRevision !== undefined ? { expectedRevision } : {}),
-      },
-    } as never)
-    return wrap(rpcId, response)
-  }],
+    ['settings.read', async (ctx) => settingsRead(ctx)],
+    ['settings.mutate', async (ctx) => settingsMutate(ctx)],
   ])
   
   const handler = methods.get(method)
