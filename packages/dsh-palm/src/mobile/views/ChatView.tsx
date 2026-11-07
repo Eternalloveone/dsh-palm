@@ -16,6 +16,7 @@
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
 import { useChatExport } from './chat/use-chat-export.ts'
 import { useQueueActions } from './chat/use-queue-actions.ts'
+import { useChatInbox } from './chat/use-chat-inbox.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -719,24 +720,10 @@ export function ChatView({
   })
   /** 有排队项在屏幕上：轮询要加密（长度而不是数组本身进依赖，免得每次刷新都重建定时器）。 */
   const hasPendingQueue = queueItems.length > 0
-  /**
-   * 宿主的待发投影（`inbox.next-turn`）就是"排队等下一轮"的那些消息 —— 桌面端
-   * QueueDock 读的也是它。手机端此前只等一条 `session/queue` 帧，而宿主从不发这个
-   * 帧（它只发投影帧），所以无论排几条，手机上那张卡片都不会出现。
-   */
-  const applyInbox = useCallback((value: unknown): void => {
-    const rows = (value as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
-    if (!Array.isArray(rows)) return
-    const items = rows.map((row, index) => queueItemViewOf({
-      id: typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id : String(index),
-      placement: 'queued',
-      message: row as { content?: unknown },
-    }))
-    // 老宿主只回 inbox 投影：把它当成一次"队列快照"进仓，界面仍然只有一个来源
-    // （否则本地一隐藏某条，订阅者按空快照重算，排队条会闪一下再被填回来）。
-    applyQueueItems(session.sessionId, items)
-    startTransition(() => { setQueueItems(queueView(session.sessionId)) })
-  }, [session.sessionId])
+
+  const applyGoalRef = useRef<(value: unknown, activation?: 'armed' | 'disarmed') => void>(() => {})
+  const adoptTodoRef = useRef<(next: { seq: number; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> }) => void>(() => {})
+
   /** 计划条（todo/write 快照）：流 hook 的待办归一化要在构造时就拿到 setter。 */
   const [todo, setTodo] = useState<TodoSnapshot | undefined>(undefined)
   /** On turn/end, mirror the host projection's normalization: a task still
@@ -795,6 +782,17 @@ export function ChatView({
     isRunning,
     getRunningTurn,
   } = chatStream
+  const { applyInbox, refreshInbox } = useChatInbox({
+    sessionId: session.sessionId,
+    mountedRef,
+    setQueueItems: setQueueItems as never,
+    applyTurnVerdict,
+    markSnapshotAlive,
+    applyGoalRef,
+    adoptTodoRef,
+    refreshInboxRef,
+    startTransition,
+  })
   /** 同值的 ref 镜像：send() 的成功回调要知道"这条消息是排队发出去的"，但它不该
    *  因为每轮 running 翻转就重建（回调里的闭包会过期，而重建会让输入区的 onKeyDown
    *  在回合切换的瞬间拿到旧 send）。 */
@@ -806,59 +804,11 @@ export function ChatView({
       ? { ...message, maxTokens: true }
       : message
   )
-  /**
-   * 立刻向宿主问一次排队快照（投影帧在手机上到不了，这是唯一可靠来源）。
-   *
-   * 只有刚改过队列时才要求 fresh：那一次宿主会现开一帧 follow 取当下投影；
-   * 平时的 5 秒轮询走快照，否则每条排队消息都会拖着一次整日志读。
-   */
-  const refreshInbox = useCallback((options: { fresh?: boolean } = {}): void => {
-    // 失败重试一次。宿主快照是手机上唯一可靠的队列来源（宿主的投影帧到不了），
-    // 一次隧道抖动就把它丢掉，界面上就会留一张既不会走、也删不掉的旧卡片。
-    const fallback = (retry: boolean): void => {
-      // 老宿主没有 `mobile.sessionState`（或者这条通道这次读失败）：退回 inbox
-      // 投影。队列显示得旧一点，总比整条队列消失好 —— 版本无关的底线。
-      void inboxOf(session.sessionId, options).then(
-        (value) => { if (mountedRef.current) applyInbox(value.inbox) },
-        () => { if (retry && mountedRef.current) window.setTimeout(() => { ask(false) }, 400) },
-      )
-    }
-    const ask = (retry: boolean): void => {
-      if (typeof sessionState !== 'function') { fallback(retry); return }
-      void sessionState(session.sessionId, options).then(
-        (snapshot) => {
-          if (!mountedRef.current) return
-          // 快照进状态仓（行/队列/回合一起对齐），队列视图再从仓里取 —— 界面只有一个
-          // 权威来源，乐观项与权威值不会互相覆盖（见 session-store.ts）。
-          applySnapshot(snapshot)
-          // 原子快照里的回合结论就是权威：走唯一裁决入口，不再让尾页/花名册另判一份。
-          const snapshotTurn = (snapshot as { turn?: { running?: boolean; turnStartAt?: number } }).turn
-          if (snapshotTurn !== undefined && typeof snapshotTurn.running === 'boolean') {
-            markSnapshotAlive()
-            applyTurnVerdict({
-              running: snapshotTurn.running,
-              ...(snapshotTurn.turnStartAt === undefined ? {} : { startAt: snapshotTurn.turnStartAt }),
-            })
-          }
-          setQueueItems(queueView(session.sessionId))
-          // 目标与待办跟着同一份快照落地：以前目标条要靠自己的 15/20 秒轮询，
-          // 电脑上改了目标手机上要等十几秒；现在跟着聊天本身的对账节奏（1.5~8 秒）走，
-          // 而且和回合状态同一切面，不会出现「目标说进行中、回合已结束」。
-          if ('goal' in snapshot) applyGoalRef.current(snapshot.goal, snapshot.goalActivation)
-          if (snapshot.todo !== undefined) adoptTodoRef.current(snapshot.todo)
-        },
-        () => { fallback(retry) },
-      )
-    }
-    ask(true)
-  }, [session.sessionId, applyInbox])
   refreshInboxRef.current = refreshInbox
   /**
    * 目标 / 待办的落地函数在下面才定义（refreshInbox 要先声明）：用 ref 转一手，
    * 免得为了它们把整个回调挪位置、再牵动依赖数组。
    */
-  const applyGoalRef = useRef<(value: unknown, activation?: 'armed' | 'disarmed') => void>(() => {})
-  const adoptTodoRef = useRef<(next: { seq: number; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> }) => void>(() => {})
 
   /**
    * 状态仓的订阅：别的入口（发送/插队/删除的乐观项、快照落地）改了队列，这里同步一次。
