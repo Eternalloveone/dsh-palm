@@ -69,6 +69,21 @@ describe('architecture guardrails', () => {
     expect(count, `ChatView 里又出现了 ${count} 个 useState（预算 0）`).toBeLessThanOrEqual(0)
   })
 
+  it('views/chat 必须分区（顶层不许再放文件）', () => {
+    // 62 个模块平铺过一次，代价是「找东西要翻 62 个文件名」。分好之后必须有东西守着，
+    // 否则下一个搬文件的人顺手往顶层一丢，两个月后又是一坨。
+    const chatDir = join(PACKAGE_ROOT, 'src', 'mobile', 'views', 'chat')
+    const topLevel = readdirSync(chatDir)
+    const looseFiles = topLevel.filter(name => statSync(join(chatDir, name)).isFile())
+    expect(looseFiles, `views/chat/ 顶层出现了散文件：${looseFiles.join(', ')}；请放进 components/hooks/state/lib 之一`).toEqual([])
+
+    // 四个分区都要有东西，否则"分区"名存实亡。
+    for (const dir of ['components', 'hooks', 'state', 'lib']) {
+      const entries = readdirSync(join(chatDir, dir)).filter(name => /\.(ts|tsx)$/.test(name))
+      expect(entries.length, `views/chat/${dir} 是空的`).toBeGreaterThan(0)
+    }
+  })
+
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
       'views/ChatView.tsx': 4_163,

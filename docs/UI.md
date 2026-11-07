@@ -79,7 +79,7 @@ wire/           与宿主的协议：帧形状、版本握手、mux 连接
 
 | 欠账 | 现状 | 影响 |
 |---|---|---|
-| `ChatView` ≤800 行 | **4,340 行**（从 5,121 减 781）。已拆出 12 个模块：`chat-layout` / `chat-scroll` / `chat-turn-report` / `use-chat-export` / `use-queue-actions` / `use-chat-inbox` / `use-chat-goal` / `use-chat-connectivity` / `use-chat-subagents` / `use-chat-actions` / `use-chat-scroll-follow` | 距 800 行**仍很远**。组件体内还有 40 个 `useEffect` + 30 个 `useCallback`，剩余部分是**互相咬合的状态机**，不是"搬走就完"的代码 |
+| `ChatView` ≤800 行 | **4,163 行**（从 5,121 减 958）。已拆出 62 个模块、按 4 个子目录分区（`components` / `hooks` / `state` / `lib`）：`chat-layout` / `chat-scroll` / `chat-turn-report` / `use-chat-export` / `use-queue-actions` / `use-chat-inbox` / `use-chat-goal` / `use-chat-connectivity` / `use-chat-subagents` / `use-chat-actions` / `use-chat-scroll-follow` | 距 800 行**仍很远**。组件体内还有 40 个 `useEffect` + 30 个 `useCallback`，剩余部分是**互相咬合的状态机**，不是"搬走就完"的代码 |
 | 桌面令牌同源（W5-4） | **漂移已锁死**（`design/desktop-parity.ts` + 5 条断言）：11 对映射里只有 `--bg-page` 一致，其余 10 对写入账本、每条带原因 | 有人只改一端会立刻红。**色值统一本身未做**——要逐屏过视觉门禁 |
 | host 层拆域（W5-1） | **已完成**：10 个域（perf-capture / error-report / directory / commands-goals / queue-inbox / finished-runs / search-text / running-evidence / session-list / session-roster），`mobile-api.ts` 5,564 → 3,744 | 每域 87~517 行，全部 ≤600；剩下的是 RPC 分发（装配，按 ADR 0003 不该搬） |
 | `mobile-types.ts` 500 行 | 47 个类型挤一处 | 再加类型该按域再分 |

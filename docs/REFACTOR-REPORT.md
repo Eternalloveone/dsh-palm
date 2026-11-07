@@ -41,11 +41,11 @@
 
 | 目标 | 实测 | 差额 |
 |---|---|---|
-| ChatView ≤ 800 行 | **4,340 行** | 差 3,540 行 |
+| ChatView ≤ 800 行 | **4,163 行** | 差 3,363 行（**判定不可达**，见 UI.md 第六节） |
 | App.tsx 拆分 | 已拆 shell | 完成 |
-| 搜索匹配逻辑外移 | `chat-search-match.ts` + 21 测试 | 完成 |
+| 搜索匹配逻辑外移 | `views/chat/lib/chat-search-match.ts` + 21 测试 | 完成 |
 | 缓存外移 | `chat-cache` / `outline-cache` / `history-cache` 全接内核 | 完成 |
-| 翻页外移 | `use-chat-history.ts` + `PagePrefetchCache` | 完成 |
+| 翻页外移 | `views/chat/hooks/use-chat-history.ts` + `PagePrefetchCache` | 完成 |
 | 乐观队列 / 离线合并 | 未动 | 未完成 |
 | turn-report 家族 | 未动 | 未完成 |
 
