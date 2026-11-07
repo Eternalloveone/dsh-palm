@@ -22,7 +22,8 @@
     "verify:scenarios": "node ../../tools/mobile-scenarios/run.mjs",
     "verify:render": "node ../../tools/mobile-render-audit/run.mjs",
     "verify:secrets": "node scripts/secrets-scan.mjs",
-    "verify:all": "pnpm typecheck && pnpm test && pnpm verify:mobile"
+    "verify:all": "pnpm typecheck && pnpm test && pnpm verify:mobile",
+    "guard": "node ../../tools/check-budget.mjs && vitest run src/mobile/platform/architecture-graph.test.ts src/mobile/platform/budget.test.ts src/mobile/platform/module-graph.test.ts"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
