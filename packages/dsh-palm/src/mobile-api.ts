@@ -1036,6 +1036,7 @@ import { agentPresetList, subagentList } from './mobile/api/roster-handlers.ts'
 import { sessionCreate, sessionHistory, sessionSearch, sessionPrompt, sessionModels, sessionSelectModel, sessionRename, sessionCancel, sessionUpdateQueue } from './mobile/api/session-handlers.ts'
 import { sessionList as sessionListHandler } from './mobile/api/session-list-handler.ts'
 import { pushConfig } from './mobile/api/push-config.ts'
+import { mobilePending, mobilePreferences, mobileTranscribe } from './mobile/api/mobile-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1332,23 +1333,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       }],
-      [MOBILE_PREFERENCES_METHOD, async (ctx) => {
-        const { res, rpcId, mobileEnterToSend } = ctx
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { mobileEnterToSend: mobileEnterToSend() } },
-        })
-      }],
-      [MOBILE_PENDING_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        const payload = parsed.payload as any
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: deps.pendingTracker.pending(payload?.sessionId) },
-        })
-      }],
+      [MOBILE_PREFERENCES_METHOD, async (ctx) => mobilePreferences(ctx)],
+      [MOBILE_PENDING_METHOD, async (ctx) => mobilePending(ctx)],
       [MOBILE_RESPOND_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps, apiProxy } = ctx
         const payload = parsed.payload as any
@@ -2718,24 +2704,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       }],
-      [MOBILE_TRANSCRIBE_METHOD, async (ctx) => {
-        const { res, parsed, rpcId } = ctx
-        // Voice → text through the phone-configured speech-to-text services
-        // (OpenAI-compatible /audio/transcriptions endpoints, tried in
-        // order). The service list rides the request from the phone; the
-        // plugin config file backs it up when the phone sends none. Only
-        // the transcript travels back to the phone.
-        const payload = parsed.payload as { audio?: unknown; services?: unknown }
-        const audio = typeof payload?.audio === 'string' ? payload.audio : ''
-        const result = await transcribeWav(audio, payload?.services)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: 'text' in result
-            ? { ok: true, value: { text: result.text } }
-            : { ok: false, error: { code: 'transcribe-failed', message: result.error } },
-        })
-      }],
+      [MOBILE_TRANSCRIBE_METHOD, async (ctx) => mobileTranscribe(ctx)],
   ])
 
   async function handleProxy(ctx: MethodContext): Promise<void> {
