@@ -88,7 +88,8 @@ export interface UseChatComposerOptions {
   claimedCommand: string | undefined
   setClaimedCommand: Dispatch<SetStateAction<string | undefined>>
   sending: boolean
-  setSending: Dispatch<SetStateAction<boolean>>
+  /** 发送在途开关（W3-2 起由 Chat Store 持有，故只收普通函数形态）。 */
+  setSending: (sending: boolean) => void
   commands: CommandDescriptor[] | undefined
   shadowEvent: (event: StatusEvent) => void
   refreshInbox: (options?: { fresh?: boolean }) => void

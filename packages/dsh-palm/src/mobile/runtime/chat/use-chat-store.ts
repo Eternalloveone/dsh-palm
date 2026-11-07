@@ -8,7 +8,7 @@
  * @module dsh-palm/mobile/runtime/chat/use-chat-store
  */
 import { useCallback, useRef, useSyncExternalStore } from 'react'
-import { createChatStore, INITIAL_CHAT_STATE, type ChatState, type ChatStore } from './store.ts'
+import { createChatStore, INITIAL_CHAT_STATE, type ChatState, type ChatStore, type RegeneratePhase } from './store.ts'
 
 /** 订阅整个状态：任何字段变化都重渲染（当前 store 很小，先求正确）。 */
 export function useChatState(store: ChatStore): ChatState {
@@ -24,6 +24,12 @@ export interface ChatSessionStore {
   setError: (message: string | undefined) => void
   /** 标题（重命名立刻生效）。 */
   setTitle: (title: string) => void
+  /** 发送在途（原 `setSending`）。 */
+  setSending: (sending: boolean) => void
+  /** 停止请求在途（原 `setStopping`）。 */
+  setStopping: (stopping: boolean) => void
+  /** 重新生成的在途状态。 */
+  setRegenerate: (phase: RegeneratePhase) => void
 }
 
 /**
@@ -54,6 +60,15 @@ export function useChatSessionStore(initialTitle?: string): ChatSessionStore {
   const setTitle = useCallback((title: string): void => {
     store.dispatch({ type: 'session/titled', title })
   }, [store])
+  const setSending = useCallback((sending: boolean): void => {
+    store.dispatch(sending ? { type: 'intent/send-start', at: Date.now() } : { type: 'intent/send-settled' })
+  }, [store])
+  const setStopping = useCallback((stopping: boolean): void => {
+    store.dispatch(stopping ? { type: 'intent/stop-start' } : { type: 'intent/stop-settled' })
+  }, [store])
+  const setRegenerate = useCallback((phase: RegeneratePhase): void => {
+    store.dispatch({ type: 'intent/regenerate', phase })
+  }, [store])
 
-  return { store, state, setLoading, setError, setTitle }
+  return { store, state, setLoading, setError, setTitle, setSending, setStopping, setRegenerate }
 }

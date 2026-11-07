@@ -718,7 +718,11 @@ export function ChatView({
   useToastLift()
   /** 输入框草稿（状态 + 按会话持久化）归 use-chat-draft（S4c 从本文件搬出）。 */
   const { input, setInput } = useChatDraft(session.sessionId)
-  const [sending, setSending] = useState(false)
+  /** 发送/停止/重新生成的在途状态也在 store 里（W3-2）。 */
+  const { sending, stopping, regenerate: regenerateState } = chat.state
+  const setSending = chat.setSending
+  const setStopping = chat.setStopping
+  const setRegenerateState = chat.setRegenerate
   // Live mirror of `sending` for the back handler (a stale closure must not
   // treat an in-flight send as "nothing sent yet" and revoke the session).
   const sendingRef = useRef(sending)
@@ -1189,8 +1193,6 @@ export function ChatView({
   const [subagents, setSubagents] = useState<SubagentFlatNode[]>([])
   /** Whether the run-status bottom sheet (subagents + todo plan + background jobs) is up. */
   const [runStatusOpen, setRunStatusOpen] = useState(false)
-  /** Whether a stop request is in flight (guards the composer's stop button). */
-  const [stopping, setStopping] = useState(false)
   /** Pending tool approvals awaiting user decision (#1025). */
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
   /** Pending questions awaiting user answer (#1025). */
@@ -3587,8 +3589,6 @@ export function ChatView({
     setQuoted(text.slice(0, 200))
   }, [])
 
-  /** ↻ 的三态：待点 / 已发出（转圈）/ 发出失败（变红可再点）。 */
-  const [regenerateState, setRegenerateState] = useState<'idle' | 'busy' | 'failed'>('idle')
   /** 发出到轮次开跑之间这段窗口的防连点闸门。 */
   const regenerateInFlightRef = useRef(false)
   /** 「会新增一条回答」这句只提示一次，不常驻界面。 */
