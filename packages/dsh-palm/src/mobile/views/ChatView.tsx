@@ -25,6 +25,7 @@ import { useStaleTurnHeal } from './chat/use-stale-turn-heal.ts'
 import { useMobilePreferences } from './chat/use-mobile-preferences.ts'
 import { useChatTimerCleanup } from './chat/use-chat-timer-cleanup.ts'
 import { useCardRecoveryReset } from './chat/use-card-recovery-reset.ts'
+import { useCardDomProbe } from './chat/use-card-dom-probe.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -1623,31 +1624,14 @@ export function ChatView({
   /** 一次性探针用：最近一次渲染决定的绘制窗口与当前活跃轮次。 */
   const paintProbeRef = useRef<Record<string, unknown> | undefined>(undefined)
   const paintProbeUsedRef = useRef(false)
-  useEffect(() => {
-    if (paintProbeUsedRef.current) return
-    paintProbeUsedRef.current = true
-    const timer = window.setTimeout(() => {
-      const probe = paintProbeRef.current
-      if (probe === undefined) return
-      try {
-        void reportPerf({
-          stamps: [{ at: Date.now(), label: 'carddom' }],
-          diagnostic: 'card-dom',
-          at: Date.now(),
-          ...probe,
-          painted: document.querySelectorAll('.chat-turn-tail').length,
-          paintedRows: document.querySelectorAll('.chat-msg').length,
-          fromBottom: (() => {
-            const node = scrollRef.current
-            return node === undefined ? null : Math.round(node.scrollHeight - node.scrollTop - node.clientHeight)
-          })(),
-        }, 'carddom').catch(() => { /* 探针失败不影响聊天 */ })
-      } catch {
-        // 老宿主没有这个入口：少一条探针而已。
-      }
-    }, 2_500)
-    return () => { window.clearTimeout(timer) }
-  }, [session.sessionId])
+  // 首屏绘制探针：每个会话只报一次，看屏幕上到底画出了什么。
+  useCardDomProbe({
+    sessionId: session.sessionId,
+    usedRef: paintProbeUsedRef,
+    probeRef: paintProbeRef,
+    scrollRef,
+    reportPerf,
+  })
   /**
    * 「本轮产出」卡片的**唯一来源**：日志里那一轮 `tool/result` 的 meta。
    *
