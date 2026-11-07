@@ -61,8 +61,8 @@ export interface ChatRowsView {
   sessionId: string
   showToolCalls: boolean
   showSystemMessages: boolean
-  /** 宿主时钟偏移（毫秒）：行内用时按它换算。 */
-  clockOffsetMs: number
+  /** 宿主时间（毫秒）：行内秒表只做「宿主时间 − 锚点」，没校准就没有秒表（W3-5）。 */
+  hostNowMs?: number
   /** 秒表的真锚点（日志里的 turn/start）。 */
   clockAnchor: number | undefined
   liveTurn: number | undefined
@@ -131,7 +131,7 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
             sessionId={view.sessionId}
             showToolCalls={view.showToolCalls}
             showSystemMessages={view.showSystemMessages}
-            clockOffsetMs={view.clockOffsetMs}
+            hostNowMs={view.hostNowMs}
             liveTurnStartAt={view.clockAnchor}
             liveTurn={view.liveTurn}
             settled={view.settledOf(message)}
@@ -155,7 +155,7 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           sessionId={view.sessionId}
           showToolCalls={view.showToolCalls}
           showSystemMessages={view.showSystemMessages}
-          clockOffsetMs={view.clockOffsetMs}
+          hostNowMs={view.hostNowMs}
           liveTurnStartAt={view.clockAnchor}
           liveTurn={view.liveTurn}
           settled={false}

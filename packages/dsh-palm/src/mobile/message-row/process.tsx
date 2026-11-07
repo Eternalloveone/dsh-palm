@@ -61,7 +61,7 @@ const WHALE_REST_PATH = 'M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.9
  * 行不编号（用户拍板乙）：层级只靠缩进和行首字形区分。
  * 没有可展开的行时头是静态的（纯文本回复也照样显示用时），与桌面端一致。
  */
-export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, clockOffsetMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
+export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
@@ -69,7 +69,7 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
   focusExpand?: boolean
   sessionId?: string
-  clockOffsetMs?: number
+  hostNowMs?: number
   liveTurnStartAt?: number
   liveTurn?: number
   /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
@@ -96,9 +96,9 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
     const id = setInterval(() => { setSelfTick(previous => previous + 1) }, 1_000)
     return () => { clearInterval(id) }
   }, [running, liveClockTick])
-  // 秒表走宿主时间：偏移量来自 frameEvent.time 与本地时间的差，
-  // 否则手机 NTP 与宿主差几秒，秒表就和桌面端对不上。
-  const now = Date.now()
+  // 秒表走宿主时间（W3-5）：注入了 hostNowMs 就只做「宿主时间 − 锚点」，本机墙钟不参与；
+  // 没注入（单独渲染这一行、别的宿主、还没校准）时退回墙钟 —— 与拆分前一致。
+  const now = hostNowMs ?? Date.now()
   // 锚点只认**宿主时间**：行上的 turnStartAt（turn/end 盖的）与页级 liveTurnStartAt
   // （ChatView 从宿主帧推出来的）。原先兜底用的 firstSeenAt 是"手机第一次看到这一行"的
   // 本地时间 —— 中途打开页面、或回合在手机连上之前就开始时，它比宿主真正的回合开始晚
@@ -116,8 +116,9 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   // 出现就永久留在屏幕上**：偏移被一帧慢包顶高 1.5 秒之后，秒表就永久比桌面快 1.5 秒，
   // 而下一帧真值追上来时要一口气跨两秒 —— 真机"突然跳 2 秒"就是这个。抖动应该在
   // 源头（ChatView 的偏移估计取窗口内最大值）解决，不该把误差冻结在显示值里。
+  // 秒表走宿主时间：渲染层只做 `宿主时间 − 锚点`，本机墙钟完全不参与（W3-5）。
   const liveElapsedMs = running && clockAnchor !== undefined
-    ? Math.max(0, now + (clockOffsetMs ?? 0) - clockAnchor)
+    ? Math.max(0, now - clockAnchor)
     : undefined
   // 结束时间以 turn/end 盖上的 durationMs 为准；窗口没收到 turn/end 时退回
   // turn/start 与最后一次触碰的时间差（中断的回合也能给出可信的耗时）。

@@ -26,7 +26,7 @@ import { ProcessGroup } from './process.tsx'
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, clockOffsetMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
+export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
   message: RenderMessage
   showToolCalls: boolean
   forceOpen: boolean
@@ -34,7 +34,7 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
   /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
   focusExpand?: boolean
   sessionId?: string
-  clockOffsetMs?: number
+  hostNowMs?: number
   liveTurnStartAt?: number
   liveTurn?: number
   /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
@@ -55,7 +55,7 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
   const answer = model.answer
   return (
     <>
-      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} clockOffsetMs={clockOffsetMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />}
+      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />}
       {answer !== undefined && answer !== '' && (model.answerSeq === undefined ? (
         <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />
       ) : (

@@ -96,4 +96,50 @@ describe('host-clock', () => {
     clock.sync(Number.POSITIVE_INFINITY)
     expect(clock.now()).toBe(1_000_000)
   })
+
+  /**
+   * 性质测试：真实帧序里宿主时间只会往前走（可能走得快、走得慢、偶尔抖一下）。
+   *
+   * 契约是**不出现跳变式回退**，而不是逐毫秒单调：慢包（落后在容差内）走的是
+   * "按 20% 收敛"，读数每拍最多向下修 20% × 1.5s = 300ms，人眼在秒表上看不出来；
+   * 老口径（墙钟 + 最大偏移）在这里会一路往后拽、或者猛地跨好几秒。
+   */
+  it('随机但只向前走的帧序列下，读数不出现跳变式回退', () => {
+    const mono = fakeMono()
+    const clock = createHostClock(mono.now)
+    let host = 1_700_000_000_000
+    let seed = 42
+    // 固定种子（xorshift32）：测试要可复现，不能每跑一次换一组合成序列。
+    const random = (): number => {
+      seed ^= seed << 13
+      seed ^= seed >>> 17
+      seed ^= seed << 5
+      return ((seed >>> 0) % 10_000) / 10_000
+    }
+    clock.sync(host)
+    let previous = clock.now()!
+    let worstDip = 0
+    for (let frame = 0; frame < 2_000; frame += 1) {
+      mono.advance(16 + random() * 84)          // 帧间隔 16~100ms
+      host += 16 + random() * 84                 // 宿主自己也走同样的量级
+      clock.sync(host)
+      const now = clock.now()!
+      worstDip = Math.max(worstDip, previous - now)
+      previous = now
+    }
+    // 单次回落被收敛比例压住（20% × 1500ms 容差 = 300ms），不会"跳回去"。
+    expect(worstDip).toBeLessThan(300)
+    // 读数没有漂到离谱的地方：和宿主时间同一个量级（毫秒级误差）。
+    expect(Math.abs(previous - host)).toBeLessThan(2_000)
+  })
+
+  it('落后超过容差的老帧不会把读数往回拽', () => {
+    const mono = fakeMono()
+    const clock = createHostClock(mono.now)
+    clock.sync(1_700_000_000_000)
+    mono.advance(10_000)                         // 已经推进了 10 秒
+    const before = clock.now()!
+    clock.sync(1_700_000_000_000 - 5_000)        // 一帧落后 15 秒（乱序/重放）
+    expect(clock.now()).toBeGreaterThanOrEqual(before)
+  })
 })

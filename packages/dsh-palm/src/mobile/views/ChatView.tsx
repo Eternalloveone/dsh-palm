@@ -2298,7 +2298,8 @@ export function ChatView({
     if (goal === null || goal === undefined) return undefined
     const parts: string[] = []
     if (running && turnStartAt !== null) {
-      const elapsed = Date.now() + hostClock.offsetNow() - turnStartAt
+      const hostNow = hostClock.hostNow()
+      const elapsed = hostNow === undefined ? 0 : hostNow - turnStartAt
       if (elapsed > 1_000) parts.push(`已跑 ${formatDuration(elapsed)}`)
     }
     const newest = messages.length > 0 ? messages[messages.length - 1] : undefined
@@ -4953,7 +4954,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           sessionId={session.sessionId}
           showToolCalls={showToolCalls}
           showSystemMessages={showSystemMessages}
-          clockOffsetMs={hostClock.offsetNow()}
+          hostNowMs={hostClock.hostNow()}
           clockAnchor={clockAnchor ?? undefined}
           liveTurn={liveTurn}
           liveClockTick={liveClockTick}

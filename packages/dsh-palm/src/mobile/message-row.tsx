@@ -31,7 +31,7 @@ import { ProcessGroup } from './message-row/process.tsx'
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from './message-row/anchors.ts'
 
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, clockOffsetMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -85,7 +85,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
    * A plain number: it changes only when a frame re-calibrates the skew, so
    * memoized rows are not re-rendered once per second.
    */
-  clockOffsetMs?: number
+  hostNowMs?: number
   /** Regenerate affordance: shown on the last settled assistant reply. */
   onRegenerate?: () => void
   /** 它自己的状态：待点、已发出（转圈）、发出失败（可再点）。 */
@@ -296,7 +296,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} clockOffsetMs={clockOffsetMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />
       ) : (
         <>
           <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />

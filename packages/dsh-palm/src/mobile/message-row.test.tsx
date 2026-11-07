@@ -9,7 +9,7 @@
  *
  * 折叠头本身是两行：第一行状态词＋秒表（运行中不含步数），第二行"此刻进行到
  * 哪一步"（没有可说的一步时整行不渲染）；静态头（纯文本/只有时钟）是同一套
- * 两行，但没有 caret、没有 aria-expanded。秒表走宿主时间（clockOffsetMs）。
+ * 两行，但没有 caret、没有 aria-expanded。秒表走宿主时间（hostNowMs）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
@@ -343,25 +343,25 @@ describe('MessageRow flow body (layout stability)', () => {
         turnStartAt: t0 - 310_000,
       }
       const view = render(
-        <MessageRow message={early} showToolCalls showSystemMessages={false} clockOffsetMs={0} />,
+        <MessageRow message={early} showToolCalls showSystemMessages={false} hostNowMs={t0} />,
       )
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分10秒')
 
       // 锚点被换成"晚 230 秒"的那个值：读数必须**顶住**，不能变成 1分20秒
       const late: RenderMessage = { ...early, turnStartAt: t0 - 80_000 }
-      view.rerender(<MessageRow message={late} showToolCalls showSystemMessages={false} clockOffsetMs={0} />)
+      view.rerender(<MessageRow message={late} showToolCalls showSystemMessages={false} hostNowMs={t0} />)
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分10秒')
 
       // 更早的锚点是"更准的纠正"，允许采纳
       const corrected: RenderMessage = { ...early, turnStartAt: t0 - 330_000 }
-      view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} clockOffsetMs={0} />)
+      view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} hostNowMs={t0} />)
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分30秒')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('行内秒表走宿主时间：锚点优先 turnStartAt，clockOffsetMs 把用时整体平移', () => {
+  it('行内秒表走宿主时间：锚点优先 turnStartAt，hostNowMs 把用时整体平移', () => {
     vi.useFakeTimers()
     try {
       const t0 = 1_700_000_000_000
@@ -373,19 +373,24 @@ describe('MessageRow flow body (layout stability)', () => {
         firstSeenAt: t0 - 9_000,
       }
       const view = render(
-        <MessageRow message={message} showToolCalls showSystemMessages={false} clockOffsetMs={2_000} />,
+        <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 2_000} />,
       )
       // 宿主时间比手机快 2 秒 ⇒ 10 秒的回合显示 12 秒。
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时12秒')
 
       act(() => { vi.advanceTimersByTime(3_000) })
+      // 宿主时间由父级每拍重新给（W3-5：渲染层不再自己读墙钟），这里模拟下一拍。
+      view.rerender(
+        <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 5_000} />,
+      )
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时15秒')
 
-      // 偏移被重新校准（这里变小）：读数跟着真值回落。以前这里有一层"只增不减"
+      // 校准被重新算小（这里变小）：读数跟着真值回落。以前这里有一层"只增不减"
       // 的棘轮把它冻在 15 秒，代价是偏大的样本永久留在屏幕上 —— 秒表从此比桌面快，
-      // 下一帧真值追上来时一口气跨两秒（真机"突然跳 2 秒"）。抖动的源头
-      // （每帧覆盖的原始偏移）已经在 ChatView 改成取窗口内最大值，显示值不必再兜。
-      view.rerender(<MessageRow message={message} showToolCalls showSystemMessages={false} clockOffsetMs={0} />)
+      // 下一帧真值追上来时一口气跨两秒（真机"突然跳 2 秒"）。
+      view.rerender(
+        <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 3_000} />,
+      )
       expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时13秒')
     } finally {
       vi.useRealTimers()
