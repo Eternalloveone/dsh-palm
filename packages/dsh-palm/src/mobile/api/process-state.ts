@@ -14,6 +14,22 @@ import type { ApiProxy } from '../../api-proxy-types.ts'
 import type { SearchIndexer } from '../../search-indexer.ts'
 import type { UsageView } from '../../usage/usage-check.ts'
 
+/** 一条搜索命中的会话（普通搜索路径的中间形状）。 */
+export interface OrdinarySearchSession {
+  sessionId: string
+  updatedAt: number
+  title?: string
+}
+
+/** 普通搜索的进程内快照。 */
+export interface OrdinarySearchSnapshot {
+  sessions: OrdinarySearchSession[]
+  byId: Map<string, OrdinarySearchSession>
+  workspace: Map<string, string>
+  workspaceTitle: Map<string, string>
+  rosterPartial: boolean
+}
+
 /** TTL 缓存的通用形状：记录写入时间与当时的应答。 */
 interface TtlResponse {
   at: number
@@ -40,6 +56,10 @@ export const processState: {
       workspaceTitle: Map<string, string>
     }
     | undefined
+  /** 普通搜索结果快照缓存。 */
+  ordinarySearchSnapshotCache:
+    | { at: number; proxy: ApiProxy; value: OrdinarySearchSnapshot }
+    | undefined
   /** 会话列表排序结果缓存（key 变化即失效）。 */
   sessionListSortedCache:
     | { key: string; items: Array<{ updatedAt: number; sessionId: string }> }
@@ -61,6 +81,7 @@ export const processState: {
   usageCache: undefined,
   sessionProjectionSnapshots: new Map(),
   locateSessionCache: undefined,
+  ordinarySearchSnapshotCache: undefined,
   sessionListSortedCache: undefined,
   workspaceListTtlCache: undefined,
   agentPresetTtlCache: undefined,

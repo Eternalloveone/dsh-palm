@@ -7,9 +7,9 @@
     "src/mobile/views/ChatView.tsx": 4138
   },
   "dirs": {
-    "src/mobile": 57100,
+    "src/mobile": 57050,
     "src/mobile/styles": 340,
-    "src/mobile/api": 175,
+    "src/mobile/api": 195,
     "src/mobile/components": 2570,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
@@ -45,7 +45,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/api": {
-      "reason": "P2：process-state.ts 收纳 11 个进程级状态，mobile-api.ts 相应缩减",
+      "reason": "P2 完成：process-state.ts 收纳全部 12 个进程级状态 + 两个搜索快照接口",
       "expires": "2027-03-31"
     }
   }

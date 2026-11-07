@@ -24,7 +24,7 @@
 
 export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/directory.ts'
 /** Short-lived cache: the phone's settings page must not hammer provider APIs. */
-import { processState } from './mobile/api/process-state.ts'
+import { processState, type OrdinarySearchSession, type OrdinarySearchSnapshot } from './mobile/api/process-state.ts'
 const USAGE_CACHE_TTL_MS = 60_000
 
 import {
@@ -648,7 +648,7 @@ const ROSTER_TTL_MS = 30_000
 function invalidateRosterCaches(): void {
   setRosterTtlCache(undefined)
   processState.workspaceListTtlCache = undefined
-  ordinarySearchSnapshotCache = undefined
+  processState.ordinarySearchSnapshotCache = undefined
   // 会话新增/归档/改名：索引要尽快跟上（否则新会话搜不到、已归档的还在）。
   scheduleSearchSync()
 }
@@ -660,7 +660,7 @@ function invalidateRosterCaches(): void {
  * inside the window collapse into a single pass).
  */
 function invalidateSessionSearch(): void {
-  ordinarySearchSnapshotCache = undefined
+  processState.ordinarySearchSnapshotCache = undefined
   scheduleSearchSync()
 }
 
@@ -744,21 +744,6 @@ async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
 /** Message-level hits kept per expanded session hit (bounded view). */
 const SEARCH_MESSAGES_LIMIT = 8
 
-interface OrdinarySearchSession {
-  sessionId: string
-  updatedAt: number
-  title?: string
-}
-
-interface OrdinarySearchSnapshot {
-  sessions: OrdinarySearchSession[]
-  byId: Map<string, OrdinarySearchSession>
-  workspace: Map<string, string>
-  workspaceTitle: Map<string, string>
-  rosterPartial: boolean
-}
-
-let ordinarySearchSnapshotCache: { at: number; proxy: ApiProxy; value: OrdinarySearchSnapshot } | undefined
 
 /**
  * One authoritative roster for all search paths. Classification failures are
@@ -772,7 +757,7 @@ let ordinarySearchSnapshotCache: { at: number; proxy: ApiProxy; value: OrdinaryS
 const SESSION_SNAPSHOT_STALE_MS = 5 * 60_000
 
 async function ordinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
-  const cached = ordinarySearchSnapshotCache
+  const cached = processState.ordinarySearchSnapshotCache
   const fresh = cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_LIST_TTL_MS
   if (fresh) return cached.value
   const stale = cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_SNAPSHOT_STALE_MS
@@ -834,7 +819,7 @@ async function loadOrdinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinaryS
     workspaceTitle,
     rosterPartial: sessionResult.value?.hasMore === true,
   }
-  ordinarySearchSnapshotCache = { at: Date.now(), proxy: apiProxy, value }
+  processState.ordinarySearchSnapshotCache = { at: Date.now(), proxy: apiProxy, value }
   return value
 }
 

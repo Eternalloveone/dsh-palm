@@ -12,7 +12,6 @@ const SRC = join(PKG, 'src', 'mobile-api.ts')
  * 规则：只能从这份名单里**删**，不能加。要加必须同时说明为什么它不是共享状态。
  */
 const BASELINE = [
-  'ordinarySearchSnapshotCache',
 ] as const
 
 function moduleLevelMutable(): string[] {
