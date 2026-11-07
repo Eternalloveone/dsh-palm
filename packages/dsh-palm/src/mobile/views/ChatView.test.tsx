@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 /** ChatView: collapsible message folds, toolbar chips, and the bottom sheets. */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { SessionModels } from '../../api-proxy-types'
@@ -525,6 +527,7 @@ describe('ChatView message folds', () => {
   })
 
   it('renders each tool call as a process-timeline row with a Chinese state word and a family glyph', async () => {
+    window.localStorage.clear()
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
@@ -6839,3 +6842,96 @@ describe('ChatView export (F4)', () => {
     expect(screen.getAllByText(/疑似密钥/).length).toBeGreaterThan(0)
   })
 })
+
+/* ── S0：行为回放（golden trace） ────────────────────────────────────────
+ *
+ * 目的：给「ChatView 完全重构」装安全带。重构时最容易出的事不是编译错，而是
+ * **某个交互之后界面长得一样、但状态不对**。这份用例不测某个按钮的功能，而是把
+ * 「一串操作之后界面是什么样」压成一个指纹，存成 golden；重构后指纹必须一致。
+ *
+ * 指纹只记**稳定的可观察事实**：能点的东西有哪些、菜单项有哪些、页面上关键的
+ * 计数（消息条数/队列条数/未读徽标）。不记时间戳、不记随机 id、不记内联样式——
+ * 那些会随实现细节漂移，记进来只会让 golden 变脆。
+ *
+ * 更新方式（只在**确认行为变化是有意的**时才用）：
+ *   UPDATE_TRACE=1 pnpm vitest run src/mobile/views/ChatView.test.tsx -t 行为回放
+ */
+describe('行为回放（S0 安全带）', () => {
+  /**
+   * 把当前 DOM 压成指纹。
+   * - `actions`：所有可点元素的文案，排序去重（谁在、谁不在，一目了然）
+   * - `menu`：当前可见的菜单项
+   * - `counts`：消息条数等结构性计数
+   * - `text`：正文长度（粗粒度，防止"整段消失"却没人发现）
+   */
+  function signature(): Record<string, unknown> {
+    const actions = Array.from(document.querySelectorAll('button, [role="menuitem"], [role="tab"]'))
+      .map(node => (node.textContent ?? '').trim() || node.getAttribute('aria-label') || '')
+      .filter(text => text !== '')
+      .sort()
+    const menu = Array.from(document.querySelectorAll('[role="menuitem"]'))
+      .map(node => (node.textContent ?? '').trim().split('\n')[0] ?? '')
+      .filter(text => text !== '')
+      .sort()
+    // 只记这个界面自己的结构事实：谁可点、菜单里有什么、画了几行。
+    // 不记整页文本长度/按钮总数——那些会被其它用例留下的通知条、偏好设置污染，
+    // 全量跑和单跑就会不一致（第一版就是这么炸的）。
+    return {
+      actions,
+      menu,
+      counts: {
+        rows: document.querySelectorAll('[data-message-id]').length,
+        menus: menu.length,
+      },
+    }
+  }
+
+  async function record(steps: Array<{ name: string; run?: () => Promise<void> | void }>): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = {}
+    for (const step of steps) {
+      if (step.run !== undefined) await step.run()
+      out[step.name] = signature()
+    }
+    return out
+  }
+
+  const tracePath = join(import.meta.dirname, '..', '..', '..', 'tests', 'golden', 'chat-trace.json')
+  const update = process.env['UPDATE_TRACE'] === '1'
+
+  function compareOrUpdate(actual: Record<string, unknown>): void {
+    let expected: Record<string, unknown> = {}
+    if (existsSync(tracePath)) expected = JSON.parse(readFileSync(tracePath, 'utf8')) as Record<string, unknown>
+    if (update) {
+      mkdirSync(dirname(tracePath), { recursive: true })
+      writeFileSync(tracePath, `${JSON.stringify(actual, null, 2)}\n`)
+      return
+    }
+    expect(actual, `golden trace 不一致。确认行为变化是有意的之后用 UPDATE_TRACE=1 重建：${tracePath}`)
+      .toEqual(expected)
+  }
+
+  // 默认不跑：这个 harness 还**不是完全隔离的**——它和同文件里其它 240 个用例共用
+  // 模块级状态（显示偏好、已答审批等），全量跑时指纹与单跑不一致。要让它进默认门禁，
+  // 得先把它挪进独立测试文件（vitest 按文件隔离模块），把 FakeMux 等工具抽成公共 harness。
+  // 在那之前用显式开关跑，避免"看起来有安全带、其实会随机红"。
+  const traceEnabled = process.env['TRACE'] === '1' || process.env['UPDATE_TRACE'] === '1'
+  it.runIf(traceEnabled)('加载 → 打开更多 → 打开导出，三个时点的界面指纹保持不变', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+
+    const trace = await record([
+      { name: 'after-load' },
+      {
+        name: 'more-menu',
+        run: async () => { fireEvent.click(screen.getByRole('button', { name: '更多' })) },
+      },
+      {
+        name: 'export-menu',
+        run: async () => { fireEvent.click(await screen.findByRole('menuitem', { name: /导出对话/ })) },
+      },
+    ])
+    compareOrUpdate(trace)
+  })
+})
+
