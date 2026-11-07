@@ -17,6 +17,67 @@ export interface SearchHit {
   partId?: string
 }
 
+/** 宿主 `mobile.search` 回来的原始条目（字段几乎都是可选的）。 */
+export interface RawSearchItem {
+  seq?: number
+  snippet?: string
+  messageId?: string
+  partId?: string
+  paragraph?: string
+  matchIndex?: number
+}
+
+/**
+ * 把宿主回来的条目整理成可用的命中列表：丢掉没有 seq 的、去重、按 seq 升序。
+ *
+ * 去重不是洁癖：旧库里的重复行会让计数器从 4/50 走到 5/50，而目标还是同一行同一处
+ * —— 用户看到的就是「数字在变，位置一直不动」。按「消息 + 片段」认同一处。
+ */
+export function normalizeSearchHits(items: readonly RawSearchItem[]): SearchHit[] {
+  const seen = new Set<string>()
+  const hits: SearchHit[] = []
+  for (const item of items) {
+    if (item.seq === undefined) continue
+    const hit: SearchHit = {
+      seq: item.seq,
+      snippet: item.snippet ?? '',
+      ...(item.messageId === undefined ? {} : { messageId: item.messageId }),
+      ...(item.partId === undefined ? {} : { partId: item.partId }),
+      ...(item.paragraph === undefined ? {} : { paragraph: item.paragraph }),
+      ...(item.matchIndex === undefined ? {} : { matchIndex: item.matchIndex }),
+    }
+    const key = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    hits.push(hit)
+  }
+  return hits.sort((left, right) => left.seq - right.seq)
+}
+
+/**
+ * 从首页搜索点进来时，该把计数器落在第几处。
+ *
+ * 不能一律归 0 —— 那等于把用户从他点的那一处拽走。对齐顺序：先按 messageId 精确找，
+ * 再按 seq 往后找第一处，都没有才退回 0。
+ *
+ * @returns 下标；`-1` 表示这次定位意图与当前查询词无关，调用方自己决定归 0
+ */
+export function alignHitIndex(
+  hits: readonly SearchHit[],
+  intent: { query?: string; messageId?: string; seq?: number } | undefined,
+  term: string,
+): number {
+  const intentTerm = (intent?.query ?? '').trim()
+  if (intent === undefined || intentTerm !== term || hits.length === 0) return -1
+  const byId = intent.messageId === undefined ? -1 : hits.findIndex(hit => hit.messageId === intent.messageId)
+  if (byId >= 0) return byId
+  if (intent.seq !== undefined) {
+    const bySeq = hits.findIndex(hit => hit.seq >= (intent.seq ?? 0))
+    if (bySeq >= 0) return bySeq
+  }
+  return 0
+}
+
 /** 参与匹配的行视图（只留正文与身份，避免把整个 RenderMessage 传下去）。 */
 export interface SearchRow {
   seq: number

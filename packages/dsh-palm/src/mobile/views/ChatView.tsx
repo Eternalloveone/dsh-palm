@@ -56,7 +56,7 @@ import { ChatTools } from './chat/chat-tools.tsx'
 import { SessionSheets } from './chat/session-sheets.tsx'
 import { OfflineBanner } from './chat/offline-banner.tsx'
 import { ChatHeader, ChatSearchBar } from './chat/chat-header.tsx'
-import { rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText } from './chat/chat-search-match.ts'
+import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText, type SearchHit } from './chat/chat-search-match.ts'
 import { ChatAttentionPanels } from './chat/chat-attention-panels.tsx'
 import { JumpControls, TurnStatusLine } from './chat/scroll-controls.tsx'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
@@ -2812,7 +2812,7 @@ export function ChatView({
   // 不再把这个会话的历史翻到底。命中按 seq 升序，上一处/下一处就是数组下标。
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [chatSearchTerm, setChatSearchTerm] = useState('')
-  const [chatSearchHits, setChatSearchHits] = useState<Array<{ seq: number; snippet: string; messageId?: string; partId?: string }>>([])
+  const [chatSearchHits, setChatSearchHits] = useState<SearchHit[]>([])
   const [chatSearchAt, setChatSearchAt] = useState(0)
   /**
    * 停止要不要二次确认。
@@ -3051,40 +3051,17 @@ export function ChatView({
           if (controller.signal.aborted) return
           setChatSearchBusy(false)
           setChatSearchWarming(result.fallback === true)
-          const seenHitKeys = new Set<string>()
-          const hits = (result.items ?? [])
-            .filter(item => item.seq !== undefined)
-            .map(item => ({
-              seq: item.seq as number,
-              snippet: item.snippet ?? '',
-              ...(item.messageId === undefined ? {} : { messageId: item.messageId }),
-              ...(item.partId === undefined ? {} : { partId: item.partId }),
-              ...(item.paragraph === undefined ? {} : { paragraph: item.paragraph }),
-              ...(item.matchIndex === undefined ? {} : { matchIndex: item.matchIndex }),
-            }))
-            // 同一条消息/同一段在索引里可能出现多次（旧库里的重复行）。不去重的话
-            // 计数器从 4/50 走到 5/50、目标还是同一行同一处 —— 用户看到的就是
-            // 「数字在变，位置一直不动」。按 消息 + 片段 去重，让每一格都真的换个位置。
-            .filter((hit) => {
-              const key = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}`
-              if (seenHitKeys.has(key)) return false
-              seenHitKeys.add(key)
-              return true
-            })
-            .sort((a, b) => a.seq - b.seq)
+          // 归一化（丢无 seq / 去重 / 升序）见 chat-search-match.ts：重复行会让计数器
+          // 从 4/50 走到 5/50，而目标还是同一行同一处。
+          const hits = normalizeSearchHits(result.items ?? [])
           setChatSearchHits(hits)
           setChatSearchHasMore(result.hasMore === true)
-          // 从首页搜索点进来时，定位意图里带着「用户点的是哪一处」。这时不能把下标
-          // 归 0 再跳到第一处（等于把用户从点的那处拽走），要按意图对齐到同一个位置，
-          // 顺便让计数器显示成「3/28」——否则进来只有高亮、没有计数，也没法接着按
-          // 「下一个」。
+          // 从首页搜索点进来时，定位意图里带着「用户点的是哪一处」：按意图对齐计数，
+          // 而不是把用户从他点的那处拽到第一处。
           const intent = locateIntentFor(session.sessionId)
-          const intentTerm = (intent?.query ?? '').trim()
-          if (intent !== undefined && intentTerm === term && hits.length > 0) {
-            const byId = intent.messageId === undefined ? -1 : hits.findIndex(hit => hit.messageId === intent.messageId)
-            const bySeq = byId >= 0 || intent.seq === undefined ? -1 : hits.findIndex(hit => hit.seq >= (intent.seq ?? 0))
-            const aligned = byId >= 0 ? byId : bySeq >= 0 ? bySeq : 0
-            setChatSearchAt(aligned)
+          const alignedAt = alignHitIndex(hits, intent, term)
+          if (alignedAt >= 0) {
+            setChatSearchAt(alignedAt)
             return
           }
           setChatSearchAt(0)

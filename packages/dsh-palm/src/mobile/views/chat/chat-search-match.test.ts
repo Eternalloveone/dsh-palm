@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import type { RenderMessage } from '../../messages.ts'
 import {
+  alignHitIndex,
+  normalizeSearchHits,
   richestRowOfSeq,
   rowCoversSeq,
   rowHasTerm,
@@ -131,5 +133,54 @@ describe('searchRowsOf', () => {
   it('宿主给了 searchText 就用它（与索引同一份口径）', () => {
     const [view] = searchRowsOf([row({ id: 'a', seq: 1, text: '渲染后的', searchText: '索引里的原文' } as Partial<RenderMessage> & { id: string })])
     expect(view?.text).toBe('索引里的原文')
+  })
+})
+describe('normalizeSearchHits', () => {
+  it('丢掉没有 seq 的条目，并按 seq 升序', () => {
+    expect(normalizeSearchHits([{ seq: 5, snippet: 'b' }, { snippet: '无 seq' }, { seq: 2, snippet: 'a' }]))
+      .toEqual([{ seq: 2, snippet: 'a' }, { seq: 5, snippet: 'b' }])
+  })
+
+  it('同一条消息同一段只留一处（否则计数器在走、位置不动）', () => {
+    const hits = normalizeSearchHits([
+      { seq: 3, messageId: 'm1', partId: 'p1', snippet: '第一处' },
+      { seq: 3, messageId: 'm1', partId: 'p1', snippet: '重复行' },
+      { seq: 4, messageId: 'm1', partId: 'p2', snippet: '另一段' },
+    ])
+    expect(hits.map(hit => hit.snippet)).toEqual(['第一处', '另一段'])
+  })
+
+  it('没有 messageId 时按 seq 认同一处', () => {
+    const hits = normalizeSearchHits([{ seq: 7, snippet: 'a' }, { seq: 7, snippet: 'b' }])
+    expect(hits).toHaveLength(1)
+  })
+
+  it('空输入给空数组', () => {
+    expect(normalizeSearchHits([])).toEqual([])
+  })
+})
+
+describe('alignHitIndex', () => {
+  const hits = [
+    { seq: 10, snippet: 'a', messageId: 'm1' },
+    { seq: 20, snippet: 'b', messageId: 'm2' },
+    { seq: 30, snippet: 'c', messageId: 'm3' },
+  ]
+
+  it('按 messageId 精确对齐（不能把用户从他点的那处拽走）', () => {
+    expect(alignHitIndex(hits, { query: '词', messageId: 'm2' }, '词')).toBe(1)
+  })
+
+  it('没有 messageId 时按 seq 往后找第一处', () => {
+    expect(alignHitIndex(hits, { query: '词', seq: 21 }, '词')).toBe(2)
+  })
+
+  it('意图与当前查询词无关时返回 -1（调用方自己归 0）', () => {
+    expect(alignHitIndex(hits, { query: '别的词', messageId: 'm2' }, '词')).toBe(-1)
+    expect(alignHitIndex(hits, undefined, '词')).toBe(-1)
+  })
+
+  it('有意图但没有命中时返回 -1', () => {
+    expect(alignHitIndex([], { query: '词', seq: 1 }, '词')).toBe(-1)
   })
 })
