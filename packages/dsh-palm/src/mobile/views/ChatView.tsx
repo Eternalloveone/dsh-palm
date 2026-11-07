@@ -22,6 +22,7 @@ import { useChatEscape } from './chat/use-chat-escape.ts'
 import { useScrollGestures } from './chat/use-chat-scroll-gestures.ts'
 import { ChatInputSheets } from './chat/chat-input-sheets.tsx'
 import { useStaleTurnHeal } from './chat/use-stale-turn-heal.ts'
+import { useMobilePreferences } from './chat/use-mobile-preferences.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -943,18 +944,8 @@ export function ChatView({
       关掉之后，当前这个会话当场就该停滚，不用退出去重进。 */
   const autoScroll = useSyncExternalStore(subscribeDisplayPrefs, getAutoScroll)
 
-  // Read-only mobile display preferences ride the plugin's local
-  // `/m/api` method; a failure keeps the default (Enter sends).
-  useEffect(() => {
-    let cancelled = false
-    void fetchMobilePreferences().then(
-      (preferences) => {
-        if (!cancelled) setMobileEnterToSend(preferences.mobileEnterToSend !== false)
-      },
-      () => { /* keep the default */ },
-    )
-    return () => { cancelled = true }
-  }, [])
+  // 回车是发送还是换行：读宿主的移动端显示偏好，读失败保持默认（回车发送）。
+  useMobilePreferences({ setMobileEnterToSend, fetchPreferences: fetchMobilePreferences })
 
   /* ── offline mode ──────────────────────────────────────────────────── */
 
