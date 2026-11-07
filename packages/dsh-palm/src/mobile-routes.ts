@@ -19,10 +19,17 @@ const MOBILE_BUNDLE_URL = '/m/mobile.js'
 const MOBILE_MANIFEST_URL = '/m/manifest.webmanifest'
 const MOBILE_WORKER_URL = '/m/service-worker.js'
 const MOBILE_OFFLINE_URL = '/m/offline.html'
+/** 构建期产出的独立样式表（scripts/build-css.mjs）。 */
+const MOBILE_CSS_URL = '/m/assets/app.css'
 
 /** The standalone mobile bundle (built artifact, next to this file's own lib output). */
 function mobileBundlePath(): string {
   return fileURLToPath(new URL('../lib/mobile.js', import.meta.url))
+}
+
+/** 编译后的样式表（构建产物，与 bundle 同目录）。 */
+function mobileCssPath(): string {
+  return fileURLToPath(new URL('../lib/mobile/app.css', import.meta.url))
 }
 
 /** 拆包后的 chunk 目录 URL 前缀（与 tsdown 的 chunkFileNames 对应）。 */
@@ -45,7 +52,7 @@ function mobileAssetPath(name: string): string {
 }
 
 /** The mobile page shell: self-contained, with no document-level user data. */
-function pageHtml(bundleUrl: string): string {
+function pageHtml(bundleUrl: string, cssUrl?: string): string {
   return [
     '<!doctype html>',
     '<html lang="zh-CN">',
@@ -59,6 +66,7 @@ function pageHtml(bundleUrl: string): string {
     '<meta name="apple-mobile-web-app-title" content="Dsh Palm">',
     '<link rel="manifest" href="/m/manifest.webmanifest">',
     '<link rel="apple-touch-icon" href="/m/apple-touch-icon.png">',
+    ...(cssUrl === undefined ? [] : ['<link rel="stylesheet" href="' + cssUrl + '">']),
     '<title>远程访问</title>',
     '</head>',
     '<body>',
@@ -176,6 +184,18 @@ function writeEncoded(res: ServerResponse, body: Buffer, encoding: 'br' | 'gzip'
 function writeChunkEncoded(res: ServerResponse, body: Buffer, encoding: 'br' | 'gzip' | undefined): void {
   res.writeHead(200, {
     'content-type': 'text/javascript; charset=utf-8',
+    'cache-control': 'public, max-age=31536000, immutable',
+    'referrer-policy': 'no-referrer',
+    'vary': 'Accept-Encoding',
+    ...(encoding === undefined ? {} : { 'content-encoding': encoding }),
+  })
+  res.end(body)
+}
+
+/** 发送独立样式表：URL 带内容 hash，可长期缓存。 */
+function writeCssEncoded(res: ServerResponse, body: Buffer, encoding: 'br' | 'gzip' | undefined): void {
+  res.writeHead(200, {
+    'content-type': 'text/css; charset=utf-8',
     'cache-control': 'public, max-age=31536000, immutable',
     'referrer-policy': 'no-referrer',
     'vary': 'Accept-Encoding',
@@ -315,13 +335,71 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     })
   }
   void warmEncodings().catch(() => undefined)
+
+  // 独立样式表：与 bundle 同样按 (mtime,size) 重读，构建换过文件不必重启宿主。
+  // 页面链接里带内容 hash，所以响应可以给 immutable。
+  let cssBody: Buffer | undefined
+  let cssHash: string | undefined
+  let cssGzip: Buffer | undefined
+  let cssBrotli: Buffer | undefined
+  let cssStamp: string | undefined
+  const ensureCss = async (): Promise<{ body: Buffer; hash: string } | undefined> => {
+    const path = mobileCssPath()
+    if (!existsSync(path)) return undefined
+    let stamp: string
+    try {
+      const stat = await statFile(path)
+      stamp = String(stat.mtimeMs) + ':' + String(stat.size)
+    } catch {
+      return undefined
+    }
+    if (cssBody !== undefined && cssHash !== undefined && stamp === cssStamp) {
+      return { body: cssBody, hash: cssHash }
+    }
+    try {
+      cssBody = await readFile(path)
+    } catch {
+      return undefined
+    }
+    cssStamp = stamp
+    cssHash = createHash('sha1').update(cssBody).digest('hex').slice(0, 8)
+    cssGzip = undefined
+    cssBrotli = undefined
+    return { body: cssBody, hash: cssHash }
+  }
+  const handleCss = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const css = await ensureCss()
+    if (css === undefined) {
+      writeStatic(res, 404, 'text/plain', 'mobile stylesheet not built: run pnpm --filter @eternalloveone/dsh-palm build')
+      return
+    }
+    const accept = (req.headers['accept-encoding'] || '').toString()
+    if (acceptsEncoding(accept, 'br')) {
+      if (cssBrotli === undefined) {
+        cssBrotli = brotliCompressSync(css.body, {
+          params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
+        })
+      }
+      writeCssEncoded(res, cssBrotli, 'br')
+      return
+    }
+    if (acceptsEncoding(accept, 'gzip')) {
+      if (cssGzip === undefined) cssGzip = gzipSync(css.body)
+      writeCssEncoded(res, cssGzip, 'gzip')
+      return
+    }
+    writeCssEncoded(res, css.body, undefined)
+  }
+
   const handlePage = async (_req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const bundle = await ensureBundle()
     if (bundle === undefined) {
       writeStatic(res, 503, 'text/plain', 'mobile bundle not built: run pnpm --filter @eternalloveone/dsh-palm build')
       return
     }
-    writeStatic(res, 200, 'text/html', pageHtml(MOBILE_BUNDLE_URL + '?v=' + bundle.hash))
+    const css = await ensureCss()
+    const cssUrl = css === undefined ? undefined : MOBILE_CSS_URL + '?v=' + css.hash
+    writeStatic(res, 200, 'text/html', pageHtml(MOBILE_BUNDLE_URL + '?v=' + bundle.hash, cssUrl))
   }
   const handleManifest = (_req: IncomingMessage, res: ServerResponse): void => {
     writeStatic(res, 200, 'application/manifest+json', manifestJson())
@@ -483,6 +561,7 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     { kind: 'exact', path: '/m', handler: redirectToMobileRoot },
     { kind: 'exact', path: MOBILE_ROOT, handler: handlePage },
     { kind: 'exact', path: MOBILE_BUNDLE_URL, handler: handleBundle },
+    { kind: 'exact', path: MOBILE_CSS_URL, handler: handleCss },
     { kind: 'exact', path: MOBILE_MANIFEST_URL, handler: handleManifest },
     { kind: 'exact', path: MOBILE_WORKER_URL, handler: handleWorker },
     { kind: 'exact', path: MOBILE_OFFLINE_URL, handler: handleOffline },

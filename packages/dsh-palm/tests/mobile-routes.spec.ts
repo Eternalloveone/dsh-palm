@@ -189,6 +189,27 @@ describe('mobile routes', () => {
   })
 
   /**
+   * W1-1：样式表从 JS bundle 里搬出去（scripts/build-css.mjs）。
+   * 页面必须用带内容 hash 的 <link> 引入；hash 就是版本，响应可以 immutable；
+   * 内容必须真的是 CSS（而不是被当成 JS 字符串发出去）。
+   */
+  it('serves the mobile stylesheet as a versioned immutable file', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      const page = await get(server.port, '/m/')
+      const match = /<link rel="stylesheet" href="(\/m\/assets\/app\.css\?v=[0-9a-f]{8})"/.exec(page.body)
+      expect(match).not.toBeNull()
+      const css = await get(server.port, match?.[1] ?? '')
+      expect(css.status).toBe(200)
+      expect(css.type).toContain('text/css')
+      expect(css.headers['cache-control']).toContain('immutable')
+      expect(css.body).toContain('--z-header')
+    } finally {
+      await server.close()
+    }
+  })
+
+  /**
    * CSP 的 `img-src` 2026-11-07 去掉了明文 `http:`（只留 `'self' data: blob: https:`）。
    * 理由：公网入口是 https，混合内容本来就由浏览器拦着，留 `http:` 只是给"中间人注入
    * 一张明文图"留口子。这条断言钉的是**真正下发到浏览器的响应头**，不是源码里的常量。

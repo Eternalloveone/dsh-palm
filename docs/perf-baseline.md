@@ -81,7 +81,23 @@ pnpm build          # 先 build
 pnpm test           # 再 test（禁止并发）
 ```
 
-## 7. W0 出口判定
+## 7. W1-1 实测：CSS 独立化（2026-11-07）
+
+样式表从 JS bundle 搬出（`scripts/build-css.mjs` → `lib/mobile/app.css`，页面用 `<link>` 引入）。
+
+| 项 | W0 基线 | W1-1 后 | 变化 |
+|---|---:|---:|---:|
+| `shared` chunk 原始 | 488.79 kB | **260.10 kB** | **−228.69 kB** |
+| `shared` gzip | 139.77 kB | **82.26 kB** | −57.51 kB |
+| `lib/mobile/app.css` 原始 | （在 JS 内） | 138.27 kB | 独立文件 |
+| `app.css` gzip | — | 23.22 kB | — |
+| 首访 gzip 合计（入口+shared+vendor+CSS） | 209.08 kB | **174.76 kB** | **−34.32 kB** |
+| 首屏 JS 原始（不含视图 chunk） | 714.08 kB | 485.28 kB | −228.80 kB |
+| 测试 | 2,402 passed | 2,404 passed | +2（新增样式表路由用例） |
+
+附带收益：CSS 可被浏览器独立缓存与并行下载、不再作为 JS 解析；CSP 的 `style-src 'unsafe-inline'` 只剩内联 style 属性这一个理由（W1-8 再收）。
+
+## 8. W0 出口判定
 
 | 项 | 结论 |
 |---|---|

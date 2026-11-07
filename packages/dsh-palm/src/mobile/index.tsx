@@ -10,7 +10,6 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './views/App.tsx'
 import { ErrorBoundary } from './error-boundary.tsx'
-import { mobileCss } from './mobile-styles.ts'
 import { initMobileTheme } from './mobile-theme.ts'
 import { applyDisplayPrefs } from './display-prefs.ts'
 import { registerMobilePwa } from '../mobile-pwa.ts'
@@ -28,11 +27,9 @@ applyDisplayPrefs()
 // This compares the loaded bundle hash with the served one and reloads once.
 watchBuildRefresh()
 
-// Inject the standalone stylesheet (the page has no shell to load it for us).
-const style = document.createElement('style')
-style.dataset.plugin = 'dsh-palm/mobile'
-style.textContent = mobileCss
-document.head.appendChild(style)
+// 样式表由页面 <link> 引入（构建产物 /m/assets/app.css?v=<hash>），不再在
+// 这里手建 <style> 注入：那样会把 ~210 KB CSS 塞进 JS bundle，还逼着 CSP 保留
+// `style-src 'unsafe-inline'`。见 scripts/build-css.mjs。
 
 const root = document.getElementById('root')
 if (root === null) throw new Error('mobile: #root missing')

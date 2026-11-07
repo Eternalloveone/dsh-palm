@@ -8,7 +8,7 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "tsc -b && node scripts/clean-mobile-chunks.mjs && tsdown",
+    "build": "tsc -b && node scripts/clean-mobile-chunks.mjs && tsdown && node scripts/build-css.mjs",
     "prebuild": "node scripts/windows-write-preflight.mjs build",
     "test": "vitest run",
     "pretest": "node scripts/windows-write-preflight.mjs test",

@@ -68,6 +68,9 @@ self.addEventListener('install', event => {
       const html = await page.text()
       const match = /src="(\/m\/mobile\.js\?v=[0-9a-f]{8})"/.exec(html)
       if (match !== null) await cache.add(match[1])
+      // 样式表也带内容 hash：一起预缓存，离线首开才不会裸奔成一页无样式文本。
+      const cssMatch = /<link rel="stylesheet" href="(\/m\/assets\/app\.css\?v=[0-9a-f]{8})"/.exec(html)
+      if (cssMatch !== null) await cache.add(cssMatch[1])
     } catch {
       // Offline install or an unreachable host: the cache-first path fills the
       // entry on the next successful load instead.
@@ -240,6 +243,12 @@ self.addEventListener('fetch', event => {
   // so the new URL misses the cache and fetches fresh bytes automatically.
   // The unversioned URL carries no such guarantee and stays network-first.
   if (url.pathname === '/m/mobile.js') {
+    event.respondWith(url.search === '' ? networkFirst(request, request) : cacheFirst(request))
+    return
+  }
+
+  // 独立样式表：URL 带内容 hash 时等同于不可变资源，cache-first 永远正确。
+  if (url.pathname === '/m/assets/app.css') {
     event.respondWith(url.search === '' ? networkFirst(request, request) : cacheFirst(request))
     return
   }
