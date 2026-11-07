@@ -4,7 +4,9 @@
  * 口径（与 `quality-budget.ts` 的注释一一对应，改口径必须两边一起改）：
  * - 只扫 `src/mobile/` 下的生产文件（排除 `*.test.*` 与 `src/mobile/styles/*.css` 之外的单测）；
  * - `rawButtons` / `inlineStyles` 排除 `ui/`（内核自身必须有真 `<button>`）与测试；
- * - CSS 指标只看 `src/mobile/styles/*.css`（token 已在 design/tokens.ts，不计入）；
+ * - CSS 指标只看 `src/mobile/styles/*.css`，但**排除 `000-tokens.css`**：
+ *   它是令牌的唯一来源（P1 设计系统），色值与尺寸本来就该写在这里；
+ *   其余样式文件必须引用变量，所以它们才受 hex/px 预算约束。
  * - `viewDataImports` = `views/` 下 import 了 `api.ts` 或 `mux.ts` 的文件数。
  *
  * @module dsh-palm/mobile/quality-budget.test
@@ -33,8 +35,9 @@ const TSX = PRODUCTION.filter(file => file.endsWith('.tsx'))
 const isKernelFile = (file: string): boolean => relative(MOBILE_ROOT, file).split(/[\\/]/)[0] === 'ui'
 const TSX_WITHOUT_KERNEL = TSX.filter(file => !isKernelFile(file))
 
+const TOKENS_FILE = '000-tokens.css'
 const CSS = readdirSync(STYLES_DIR)
-  .filter(name => name.endsWith('.css'))
+  .filter(name => name.endsWith('.css') && name !== TOKENS_FILE)
   .sort()
   .map(name => readFileSync(join(STYLES_DIR, name), 'utf8'))
   .join('\n')

@@ -11,6 +11,129 @@
 
 import { designTokensCss } from './design/tokens.ts'
 export const mobileCss = `${designTokensCss()}
+/* ── 设计令牌 · 唯一来源（P1 设计系统） ─────────────────────────── */
+/*
+ * 定版依据：docs/mobile-design-spec.md
+ * 规则：只允许在这里出现色值/字号/间距/圆角，组件样式一律引用变量。
+ * 排序：000 位于所有区块之前，只定义变量，不产生选择器冲突。
+ */
+
+:root {
+  /* ── 字号：只有 5 档 ── */
+  --palm-t-s: 12px;
+  --palm-t-m: 14px;
+  --palm-t-l: 17px;
+  --palm-t-xl: 22px;
+  --palm-t-2xl: 28px;
+
+  /* ── 行高：只有 2 档 ── */
+  --palm-lh-body: 1.5;
+  --palm-lh-head: 1.3;
+
+  /* ── 字重：只有 2 档（中文不用 500，会被合成加粗） ── */
+  --palm-w-normal: 400;
+  --palm-w-bold: 600;
+
+  /* ── 间距：4 的倍数 ── */
+  --palm-s1: 4px;
+  --palm-s2: 8px;
+  --palm-s3: 12px;
+  --palm-s4: 16px;
+  --palm-s5: 20px;
+  --palm-s6: 24px;
+
+  /* ── 圆角：3 档 ── */
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+
+  /* ── 物性 ── */
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --palm-sh1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --palm-sh2: 0 6px 20px rgba(0, 0, 0, 0.55);
+
+  /* ── 触摸目标 ── */
+  --palm-hit: 44px;
+}
+
+/* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
+:root,
+html[data-skin='graphite'] {
+  --palm-bg: #101015;
+  --palm-sur-1: #15151c;
+  --palm-sur-2: #1c1c25;
+  --palm-line: rgba(255, 255, 255, 0.07);
+  --palm-fg: #f4f4f8;
+  --palm-fg-2: #a6a6b6;
+  --palm-fg-3: #70707f;
+  --palm-accent: #7c8cff;
+  --palm-accent-2: #a78bfa;
+  --palm-ok: #3ddc84;
+  --palm-warn: #e0a52c;
+  --palm-danger: #ff6b81;
+  --palm-tint-warn: rgba(224, 165, 44, 0.12);
+  --palm-tint-ok: rgba(61, 220, 132, 0.1);
+  --palm-tint-danger: rgba(255, 107, 129, 0.12);
+  --palm-tint-accent: rgba(124, 140, 255, 0.14);
+  --palm-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 10px 30px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+/* ═══════════ 皮肤：纸（暖白 / 印刷感 / 更小圆角） ═══════════ */
+html[data-skin='paper'] {
+  --palm-r-s: 6px;
+  --palm-r-m: 10px;
+  --palm-r-l: 14px;
+  --palm-bg: #faf8f4;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #f2eee7;
+  --palm-line: rgba(28, 26, 23, 0.12);
+  --palm-fg: #1c1a17;
+  --palm-fg-2: #5d5852;
+  --palm-fg-3: #8b857e;
+  --palm-accent: #8a5a2b;
+  --palm-accent-2: #b8804a;
+  --palm-ok: #2f8f5b;
+  --palm-warn: #a97617;
+  --palm-danger: #b8455a;
+  --palm-tint-warn: rgba(169, 118, 23, 0.1);
+  --palm-tint-ok: rgba(47, 143, 91, 0.1);
+  --palm-tint-danger: rgba(184, 69, 90, 0.1);
+  --palm-tint-accent: rgba(138, 90, 43, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(28, 26, 23, 0.08);
+  --palm-sh2: 0 6px 20px rgba(28, 26, 23, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(28, 26, 23, 0.1), 0 10px 30px rgba(28, 26, 23, 0.14);
+  color-scheme: light;
+}
+
+/* ═══════════ 皮肤：夜航（深蓝 / 霓虹 / 更圆） ═══════════ */
+html[data-skin='nocturne'] {
+  --palm-r-s: 10px;
+  --palm-r-m: 14px;
+  --palm-r-l: 20px;
+  --palm-bg: #080c14;
+  --palm-sur-1: #0f1520;
+  --palm-sur-2: #16203010;
+  --palm-line: rgba(120, 180, 255, 0.14);
+  --palm-fg: #e8f1ff;
+  --palm-fg-2: #9db3d1;
+  --palm-fg-3: #64789a;
+  --palm-accent: #22d3ee;
+  --palm-accent-2: #818cf8;
+  --palm-ok: #34d399;
+  --palm-warn: #fbbf24;
+  --palm-danger: #fb7185;
+  --palm-tint-warn: rgba(251, 191, 36, 0.12);
+  --palm-tint-ok: rgba(52, 211, 153, 0.1);
+  --palm-tint-danger: rgba(251, 113, 133, 0.12);
+  --palm-tint-accent: rgba(34, 211, 238, 0.12);
+  --palm-hi: inset 0 1px 0 rgba(120, 180, 255, 0.14);
+  --palm-sh1: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --palm-sh2: 0 6px 22px rgba(0, 0, 0, 0.7);
+  --palm-shadow: 0 0 0 1px rgba(120, 180, 255, 0.16), 0 10px 30px rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
+}
 /* ── base + mobile-browser hardening ─────────────────────────────────── */
 
 * {
