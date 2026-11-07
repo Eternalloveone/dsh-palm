@@ -1044,6 +1044,7 @@ import { mobilePerf, mobileTurnOutline } from './mobile/api/mobile-runtime-handl
 import { mobileError, mobileSearchMessages } from './mobile/api/mobile-search-handlers.ts'
 import { mobileCommandExec, mobilePreviews } from './mobile/api/mobile-action-handlers.ts'
 import { mobileFinishedRuns } from './mobile/api/mobile-finished-runs.ts'
+import { mobileRunningSessions } from './mobile/api/mobile-running.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1677,65 +1678,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         })
       }],
       [MOBILE_TURN_STATE_METHOD, async (ctx) => mobileTurnState(ctx)],
-      [MOBILE_RUNNING_SESSIONS_METHOD, async (ctx) => {
-        const { res, rpcId, apiProxy } = ctx
-        setRunningProxy(apiProxy)
-        // Which main-agent sessions have an attached agent running right now.
-        // The run-overview badge seeds from this so a session that started
-        // generating BEFORE the phone opened (or before this page mounted)
-        // still counts — its turn/start frame is gone and session.list's own
-        // TTL can still say running:false. One host read per TTL window; the
-        // badge is not latency-critical, so 30 s matches session.list's cache.
-        const runningCache = mobileRunningCacheOf()
-        if (runningCache !== undefined && runningCache.proxy === apiProxy && Date.now() - runningCache.at < RUNNING_SESSIONS_TTL_MS) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { sessionIds: runningCache.sessionIds } },
-          })
-          return
-        }
-        // 有基线就立刻答复，过期与否都在后台刷新：手机上等一次枚举的代价是
-        // 整屏"运行中"迟到（冷启动实测 24.7 秒），比偶尔一份稍旧的答案糟糕。
-        if (liveRunningSeededAtOf() !== 0) {
-          // 答复前先清一次"很久没有任何证据"的记录。
-          //
-          // 2026-10-31 真机：没有任何会话在跑，工作区徽标还写着「运行中 9」——
-          // 因为清理只发生在 reseed（最多 5 分钟一次）里，而徽标每几十秒就问一次，
-          // 问到的一直是没清过的旧集合。这里把清理挪到答复路径上，最多晚一轮。
-          pruneRunningEvidence()
-          const sessionIds = await verifiedRunningSessionIds()
-          setMobileRunningCache({ at: Date.now(), proxy: apiProxy, sessionIds })
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { sessionIds } },
-          })
-          if (Date.now() - liveRunningSeededAtOf() >= LIVE_RUNNING_RESEED_MS) void reseedRunning()
-          return
-        }
-        try {
-          // 进程启动后第一次问：现在取一次基线。之后每一次都是内存读，帧会
-          // 一直把桌面端的开始/结束送进镜像。
-          await reseedRunning()
-          if (liveRunningSeededAtOf() === 0) throw new Error('running baseline unavailable')
-          pruneRunningEvidence()
-          const sessionIds = await verifiedRunningSessionIds()
-          setMobileRunningCache({ at: Date.now(), proxy: apiProxy, sessionIds })
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { sessionIds } },
-          })
-        } catch (error) {
-          console.error('mobile.runningSessions failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '运行状态查询失败，请稍后重试' } },
-          })
-        }
-      }],
+      [MOBILE_RUNNING_SESSIONS_METHOD, async (ctx) => mobileRunningSessions(ctx)],
       [MOBILE_SEARCH_METHOD, async (ctx) => {
         const { res, parsed, rpcId, apiProxy, ensureSearchIndex } = ctx
         // 期 2：自建索引版搜索。索引还没建好（或 Node 不带 node:sqlite）时回
