@@ -21,6 +21,7 @@ import { useChatOutboxFlush } from './chat/use-chat-outbox-flush.ts'
 import { useChatEscape } from './chat/use-chat-escape.ts'
 import { useScrollGestures } from './chat/use-chat-scroll-gestures.ts'
 import { ChatInputSheets } from './chat/chat-input-sheets.tsx'
+import { useStaleTurnHeal } from './chat/use-stale-turn-heal.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -1393,37 +1394,8 @@ export function ChatView({
     refreshSubagentsRef,
   })
 
-  // The turn clock (desktop parity) anchors HERE: this file owns the anchor (the
-  // logged turn/start, fallback: mount time) and the host-time offset. The 1 Hz
-  // ticker is `useLiveClock` (live-clock.ts) and its counter is handed ONLY to
-  // the rows that are actually running - as a prop, so it wakes them through the
-  // memo even when their own frozen interval never comes back. The reading itself
-  // is taken from the wall clock at render time, so a re-render is a refresh. The
-  // clock span only renders past TURN_CLOCK_THRESHOLD_MS (short turns keep the
-  // plain label).
-  // The clock rides the turn ANCHOR, not the running flag: that flag is a
-  // liveness heuristic (roster seed, reconcile verdict) which flaps on a
-  // flaky phone link, and every flap used to zero the elapsed time the user
-  // was watching. The anchor is written by the turn/start boundary (live
-  // frame or history tail) and cleared only by the matching turn/end.
-  //
-  // 锚点缺了就退回"这一轮自己的行"：折叠时已经把 turnStartAt 盖在行上，行也带
-  // 时间。此前这里直接退到挂载时刻，于是打开一个已经跑了十分钟的会话，秒表从 0
-  // 开始数——一个明显不对的数比没有数更糟。挂载时刻只留给"连行都没有"的情形
-  // （宿主的运行集合说在跑，但一条本轮的记录都还没折出来）。
-  // 失帧自愈：turn/end 与 turn/start 是两帧，手机在弱网/切后台时经常漏掉其中一帧。
-  // 漏了 turn/end，runningTurn 和计时锚点就永远停在上一轮 —— 上一轮的卡片一直「正在回答」
-  // 并继续数秒，而新一轮的秒表从上一轮的起点开始算（截图里 46 秒就是这么来的）。
-  //
-  // 判据只用一条不会误伤的证据：**出现了轮号更大的 assistant 行**。那说明更晚的一轮已经在
-  // 写回复了，手上这个轮号必然是过期的。不能拿「更新的用户消息」当判据 —— 插话（steer）和
-  // 排队消息被认领都是在同一轮里追加用户消息，那样会把正在跑的这一轮误清零。
-  useEffect(() => {
-    if (runningTurn === undefined) return
-    const newer = turnNumberIsStale(runningTurn, messages)
-    if (!newer) return
-    clearActiveTurn()
-  }, [messages, runningTurn])
+  // 过期轮号的失帧自愈：判据与为什么不能用「更新的用户消息」当判据，见该模块注释。
+  useStaleTurnHeal({ runningTurn, messages, clearActiveTurn })
 
 
 
