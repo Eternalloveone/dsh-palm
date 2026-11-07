@@ -42,6 +42,13 @@
  *   keep arriving, `pending: true`) is finalized by the matching
  *   `assistant/message` (same id or `(turn, step)`) or closed by `turn/end`.
  */
+
+// 身份规则搬进 Identity 内核（W2-1）。这是本模块**唯一**的 import，且只依赖
+// src/mobile 内部：不引入任何外部包，页面依旧是自洽的一坨。
+import { normalizeTurnNumbers as normalizeTranscriptRows, rowKey as rowIdentity } from './kernels/identity.ts'
+export { rowIdentity }
+export { normalizeTranscriptRows }
+
 /**
  * One file a `present` call declared this turn — the desktop's deliverable
  * card entry: a mandatory workspace path plus the optional human description.
@@ -1969,27 +1976,6 @@ export function dedupeSameStep(rows: readonly RenderMessage[]): readonly RenderM
   return rows.filter((_, index) => drop?.has(index) !== true)
 }
 
-export function normalizeTranscriptRows(rows: readonly RenderMessage[]): readonly RenderMessage[] {
-  let carried: number | undefined
-  let out: RenderMessage[] | undefined
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i]!
-    if (row.kind === 'user') {
-      carried = undefined
-      continue
-    }
-    if (row.kind !== 'assistant') continue
-    if (row.turn !== undefined) {
-      carried = row.turn
-      continue
-    }
-    if (carried === undefined) continue
-    if (out === undefined) out = rows.slice()
-    out[i] = { ...row, turn: carried }
-  }
-  return out ?? rows
-}
-
 /**
  * 两行"画出来会一模一样"吗（用来复用旧对象，避免无意义重渲染）。
  *
@@ -2027,26 +2013,6 @@ function sameRenderedRow(left: RenderMessage, right: RenderMessage): boolean {
   return true
 }
 
-/**
- * 一行在对话里的**逻辑身份**（不是 id、不是 seq）。
- *
- * 导出是给缓存合并用的：缓存按 seq 判重，而同一逻辑行在"流式快照"与"宿主页"里可能带不同
- * seq —— 只按 seq 合并就会把同一行留两份（历史上那次 13 处重复 id 就是这么来的）。
- */
-export function rowIdentity(row: RenderMessage): string {
-  // 身份只描述「这一行在对话里的位置」，且必须**在流式过程中保持不变**：
-  //   · 交付卡按轮唯一（它和本轮最后一条助手行可能共享 seq，先认轮号才不会并进正文）；
-  //   · 有 (turn, step) 就按它 —— 宿主折叠、实时帧、缓存快照给的都是这个位置；
-  //   · 有 turn 但还没分步（流式早期）：按「本轮的未分步行」算一个身份，**不能按 seq**，
-  //     否则每个 chunk 都换身份，同一条消息会被当成一串新行（重复的过程条正是这么来的）；
-  //   · 连 turn 都没有（极早期）：才退 seq / startSeq，最后退 id。
-  if (row.kind === 'turn' && row.turn !== undefined) return `turn${row.turn}`
-  if (row.turn !== undefined && row.step !== undefined) return `t${row.turn}.${row.step}`
-  if (row.turn !== undefined && row.pending === true) return `t${row.turn}~`
-  if (typeof row.seq === 'number' && Number.isFinite(row.seq)) return `s${row.seq}`
-  if (typeof row.startSeq === 'number' && Number.isFinite(row.startSeq)) return `ss${row.startSeq}`
-  return `id${row.id}`
-}
 
 
 /**

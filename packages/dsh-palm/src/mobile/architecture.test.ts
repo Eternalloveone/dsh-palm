@@ -206,4 +206,16 @@ describe('architecture guardrails', () => {
     expect(fields.length, `ComposerSectionProps 现有 ${fields.length} 组：${fields.map(f => f.trim()).join(' / ')}`)
       .toBeLessThanOrEqual(8)
   })
+
+  /*
+   * W2-1：Identity 内核是六个内核里最底层的一个，必须保持"纯"——
+   * 只能有 `import type`（类型在编译期擦除），不能有运行时依赖。
+   * 一旦它开始 import 运行时代码，messages.ts → kernels → messages.ts 就会成环。
+   */
+  it('Identity 内核只有类型依赖（无运行时 import）', () => {
+    const text = readFileSync(join(HERE, 'kernels', 'identity.ts'), 'utf8')
+    const valueImports = [...text.matchAll(/^import\s+(?!type\b)[^\n]*from\s+['"]([^'"]+)['"]/gm)]
+      .map(match => match[1] ?? '')
+    expect(valueImports, `Identity 内核出现了运行时依赖：${valueImports.join(', ')}`).toEqual([])
+  })
 })
