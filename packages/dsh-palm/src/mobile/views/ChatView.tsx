@@ -20,6 +20,7 @@ import { useChatInbox } from './chat/use-chat-inbox.ts'
 import { useChatGoal } from './chat/use-chat-goal.ts'
 import { useChatConnectivity } from './chat/use-chat-connectivity.ts'
 import { useChatSubagents } from './chat/use-chat-subagents.ts'
+import { useChatActions } from './chat/use-chat-actions.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -203,7 +204,6 @@ import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../
  *  inside the viewport (card margin + padding). The inset mirrors .turn-scrub in
  *  the stylesheet, because the finger position is mapped onto that track. */
 /** 重新生成发出去后，等这么久还没开跑就复位（正常路径由 running 收走）。 */
-const REGENERATE_WATCHDOG_MS = 15_000
 
 /**
  * Upper bound on the raw tool-call arguments handed to the approval panel's
@@ -2928,95 +2928,28 @@ export function ChatView({
    *  question that immediately preceded it. The session is append-only, so
    *  this goes out as a fresh prompt (the old reply stays in history); the
    *  wording tells the model to set it aside and answer anew. */
-  const handleRegenerate = useCallback((message: RenderMessage): void => {
-    // 一次只发一条。按钮发出后要等轮次真的开跑才消失，中间这段双击会追加
-    // 好几条"请忽略上一条回答"，而这些行删不掉。
-    if (regenerateInFlightRef.current) return
-    regenerateInFlightRef.current = true
-    setRegenerateState('busy')
-    if (!regenerateHintShownRef.current) {
-      regenerateHintShownRef.current = true
-      toast('将新增一条回答，原来的保留')
-    }
-    const rows = messagesRef.current
-    const index = rows.findIndex(row => row.id === message.id)
-    let question = ''
-    for (let i = index - 1; i >= 0; i--) {
-      const row = rows[i]
-      if (row !== undefined && row.kind === 'user') {
-        question = row.text
-        break
-      }
-    }
-    const body = question !== ''
-      ? `请忽略上一条回答，针对原始问题重新作答：\n\n${question}`
-      : '请忽略上一条回答，重新作答刚才的问题。'
-    void prompt(session.sessionId, textParts(body)).then(
-      () => {
-        mux?.poke()
-        // 正常路径由 `running` 翻真把按钮收走并复位；万一一轮没起来，别让它
-        // 永远转圈——兜一个底，仍然允许再点。
-        if (regenerateWatchdogRef.current !== undefined) clearTimeout(regenerateWatchdogRef.current)
-        regenerateWatchdogRef.current = setTimeout(() => {
-          regenerateWatchdogRef.current = undefined
-          regenerateInFlightRef.current = false
-          setRegenerateState('idle')
-        }, REGENERATE_WATCHDOG_MS)
-      },
-      () => {
-        regenerateInFlightRef.current = false
-        setRegenerateState('failed')
-        toast('重新生成失败，请重试')
-      },
-    )
-  }, [session.sessionId, mux])
 
 
-  /**
-   * Run one slash-command line through the host registry. A matched line is
-   * executed host-side (never reaching the model): its result text becomes a
-   * toast and the history tail reloads. An unmatched line falls through to an
-   * ordinary prompt, matching the desktop composer's catalog-miss behavior;
-   * that fallthrough rejects on send failure so a caller can keep the draft.
-   */
-  const runCommand = useCallback((line: string): Promise<void> => {
-    // 只在真的慢的时候提示「正在执行」：命令大多几十毫秒就回来，立刻弹一个提示再马上
-    // 消失，纯粹是闪屏噪音（真机：`/goal` 建完目标，屏幕上先闪一条、再冒一大段回执）。
-    // 慢网（隧道）下 1.2 秒还没有回话才提示，那才是需要安慰的时候。
-    const pending = window.setTimeout(() => {
-      toast(`正在执行 ${line.trim().split(/\s+/)[0]}…`)
-    }, 1200)
-    return sendCommand(session.sessionId, line).then(
-      (outcome) => {
-        window.clearTimeout(pending)
-        mux?.poke()
-        if (outcome.matched) {
-          // 成功的回执不再弹窗：会话里那张命令卡就是回执，目标类命令还有目标条。
-          // 之前把宿主返的整段文本（Goal created Status… Rounds… Commands…）糊在
-          // 屏幕中央，正好盖住它要说清楚的那个目标条。
-          //
-          // 但失败必须说话：`/goal` 参数错、`/permission` 用法错时宿主返回的就是那段
-          // 说明，静默掉等于让人对着没反应的输入框发呆。
-          if (outcome.kind === 'error' && outcome.text !== undefined && outcome.text !== '') {
-            toast(outcome.text)
-          }
-          reloadTail()
-          return
-        }
-        return prompt(session.sessionId, textParts(line)).then(() => { mux?.poke() })
-      },
-      (reason: unknown) => {
-        window.clearTimeout(pending)
-        setError(errorText(reason))
-      },
-    )
-  }, [session.sessionId, mux, reloadTail])
 
   /**
    * 发送 / 队列 / 插话状态机（S8a 从本文件搬出，见 views/chat/use-chat-composer.ts）：
    * 只把作曲区当前的输入/附件/命令状态与视图回调交进去，拿回 send 与派生判据 ——
    * `primaryStops`（在跑时主键是停止）与 `draftEmpty` 只算一份，不在视图里另算。
    */
+  const { handleRegenerate, runCommand } = useChatActions({
+    sessionId: session.sessionId,
+    mux,
+    toast,
+    setError,
+    errorText,
+    reloadTail,
+    messagesRef,
+    setRegenerateState,
+    regenerateInFlightRef,
+    regenerateHintShownRef,
+    regenerateWatchdogRef,
+  })
+
   const {
     send, sendEditedMessage, claimCommand, releaseCommand,
     flushQueue, removeQueuedEntry, draftEmpty, primaryStops,
