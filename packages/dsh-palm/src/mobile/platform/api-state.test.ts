@@ -14,7 +14,6 @@ const SRC = join(PKG, 'src', 'mobile-api.ts')
 const BASELINE = [
   'usageCache',
   'sessionListSortedCache',
-  'finishedRunsFile',
   'sessionProjectionSnapshots',
   'workspaceListTtlCache',
   'agentPresetTtlCache',

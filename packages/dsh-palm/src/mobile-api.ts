@@ -515,7 +515,7 @@ const MAX_SSE_SUBSCRIBERS = 8
 let sessionListSortedCache: { key: string; items: Array<{ updatedAt: number; sessionId: string }> } | undefined
 
 /** 「刚结束」账本的落盘文件（位置同样由 perfDir 决定，源码里不出现本机路径）。 */
-let finishedRunsFile: string | undefined
+import { processState } from './mobile/api/process-state.ts'
 /** 两次后台刷新之间的最小间隔：枚举要 6~30 秒，刷太勤会把宿主变成其他界面的瓶颈。 */
 const SESSION_LIST_REFRESH_MIN_MS = 60_000
 /** 落盘快照的体积上限；超出即视为异常文件，不读。实测花名册快照约 2.3 MB（全局所有
@@ -549,18 +549,18 @@ export function noteHostFinishedRun(sessionId: string, finishedAt: number, statu
   // 只记**主会话**：子代理的子会话 id 不带 `session-` 前缀（实测形如
   // `27620806-5737-4663-…`），它们不该出现在用户的「刚结束」清单里。
   if (!sessionId.startsWith('session-')) return
-  if (finishedRunsFile === undefined || sessionId === '') return
+  if (processState.finishedRunsFile === undefined || sessionId === '') return
   try {
     const now = Date.now()
     // 标题尽力从花名册缓存里捞（有就填，没有就留空由客户端补）。
     const title = titleForSession(sessionId)
-    const merged = mergeFinishedRuns(readFinishedRuns(finishedRunsFile, now), [{
+    const merged = mergeFinishedRuns(readFinishedRuns(processState.finishedRunsFile, now), [{
       sessionId,
       title,
       finishedAt,
       status,
     }], now)
-    writeFinishedRuns(finishedRunsFile, merged)
+    writeFinishedRuns(processState.finishedRunsFile, merged)
   } catch {
     // 账本写失败不能影响实时流
   }
@@ -1091,7 +1091,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
   // 花名册快照的落盘位置：跟着 perfDir 走（由插件配置决定），源码里不写任何本机路径。
   // perfDir 未配置时（测试环境）自动退化为纯内存缓存。
   setRosterFile(deps.perfDir === undefined ? undefined : join(deps.perfDir, 'roster-snapshot.json'))
-  finishedRunsFile = deps.perfDir === undefined ? undefined : join(deps.perfDir, 'finished-runs.json')
+  processState.finishedRunsFile = deps.perfDir === undefined ? undefined : join(deps.perfDir, 'finished-runs.json')
   const { service, apiProxy, mobileEnterToSend } = deps
 
   // ---- B2：闭包状态收拢到 ctx ----
@@ -1244,12 +1244,12 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             writeJson(res, 200, {
               type: 'server-response',
               rpcId,
-              result: { ok: true, value: { entries: readFinishedRuns(finishedRunsFile, Date.now()) } },
+              result: { ok: true, value: { entries: readFinishedRuns(processState.finishedRunsFile, Date.now()) } },
             })
             return
           }
           if (op === 'clear') {
-            writeFinishedRuns(finishedRunsFile, [])
+            writeFinishedRuns(processState.finishedRunsFile, [])
             writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value: { accepted: true } } })
             return
           }
@@ -1259,8 +1259,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
               ? body.sessionIds.filter((id): id is string => typeof id === 'string')
               : []
             const now = Date.now()
-            const kept = readFinishedRuns(finishedRunsFile, now).filter(entry => !ids.includes(entry.sessionId))
-            writeFinishedRuns(finishedRunsFile, kept)
+            const kept = readFinishedRuns(processState.finishedRunsFile, now).filter(entry => !ids.includes(entry.sessionId))
+            writeFinishedRuns(processState.finishedRunsFile, kept)
             writeJson(res, 200, {
               type: 'server-response',
               rpcId,
@@ -1271,8 +1271,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           if (op === 'append') {
             const incoming = Array.isArray(body?.entries) ? body.entries : []
             const now = Date.now()
-            const merged = mergeFinishedRuns(readFinishedRuns(finishedRunsFile, now), incoming as FinishedRunEntry[], now)
-            writeFinishedRuns(finishedRunsFile, merged)
+            const merged = mergeFinishedRuns(readFinishedRuns(processState.finishedRunsFile, now), incoming as FinishedRunEntry[], now)
+            writeFinishedRuns(processState.finishedRunsFile, merged)
             writeJson(res, 200, {
               type: 'server-response',
               rpcId,
