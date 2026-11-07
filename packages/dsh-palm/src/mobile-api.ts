@@ -1082,17 +1082,9 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  * @param deps - pairing service + apiProxy.
  * @returns the routes to register on webServer.
  */
-/**
- * 进程内已打开的索引库。宿主停服和端到端测试收尾时统一关掉 —— sqlite 文件句柄
- * 不释放，Windows 上连临时目录都删不掉。
- */
-const openSearchIndexes = new Set<SearchIndex>()
-
-/** 关闭本进程打开过的全部搜索索引（停服 / 测试收尾用）。 */
-export function closeSearchIndexes(): void {
-  for (const index of openSearchIndexes) index.close()
-  openSearchIndexes.clear()
-}
+import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
+// 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
+export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
   // 花名册快照的落盘位置：跟着 perfDir 走（由插件配置决定），源码里不写任何本机路径。
   // perfDir 未配置时（测试环境）自动退化为纯内存缓存。
@@ -1116,7 +1108,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       if (path === undefined) return undefined
       const index = await SearchIndex.open(path)
       if (index === undefined) return undefined
-      openSearchIndexes.add(index)
+      registerSearchIndex(index)
       searchIndexer = new SearchIndexer({
         index,
         // 花名册复用搜索那套快照：subagent / 空会话 / 已归档会话都在这里被排除。
