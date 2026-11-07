@@ -36,6 +36,21 @@ if (root === null) throw new Error('mobile: #root missing')
 void bootMobile(root)
 
 async function bootMobile(mount: HTMLElement): Promise<void> {
+  /*
+   * 原语画廊（W1-7）：只有显式打开 `/m/#dev/ui` 才加载。
+   * 用哈希而不是 `/m/dev/ui` 路由：不新增服务端路径、不走配对、不进主包，
+   * 生产环境的 `/m/` 首页行为一个字节都不变。模块是动态 import，单独一个 chunk。
+   */
+  if (window.location.hash === '#dev/ui') {
+    const { UiGallery } = await import('./dev/ui-gallery.tsx')
+    createRoot(mount).render(
+      <ErrorBoundary>
+        <UiGallery />
+      </ErrorBoundary>,
+    )
+    return
+  }
+
   const pair = await consumeMobilePairUrl(window.location.href)
   if (pair.kind === 'accepted') {
     window.location.replace(pair.path)

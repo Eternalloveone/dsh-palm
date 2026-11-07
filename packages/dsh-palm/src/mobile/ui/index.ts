@@ -27,3 +27,4 @@ export {
   type StatusTone,
 } from './primitives.tsx'
 export { Overlay, useEscapeToClose, type OverlayProps, type OverlayRole } from './overlay.tsx'
+export { Menu, Popover, type MenuEntry, type MenuProps, type PopoverProps } from './menu.tsx'

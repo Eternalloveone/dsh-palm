@@ -155,7 +155,14 @@ export default defineConfig([
             // 留在各自的 chunk 里，独占的代码不会被拖回首屏。
             test: (id: string) => /[\\/]src[\\/]/.test(id)
               && !/[\\/]src[\\/]mobile[\\/]views[\\/]/.test(id)
-              && !/mobile[\\/]index\.tsx$/.test(id),
+              && !/mobile[\\/]index\.tsx$/.test(id)
+              // 开发用画（`/m/#dev/ui`）不能进 shared：它是动态 import 的，一旦被
+              // 拽进首屏共享 chunk，每个用户都要多下约 6 KB 只为看一个开发页。
+              // 留在自己的 chunk 里，只有打开哈希时才请求。
+              && !/[\\/]src[\\/]mobile[\\/]dev[\\/]/.test(id)
+              // Menu/Popover 目前只有画廊在用；等 message-menu 接过来（W2）再放回
+              // shared，否则首屏白背一份没人用的键盘逻辑。
+              && !/[\\/]src[\\/]mobile[\\/]ui[\\/]menu\.tsx$/.test(id),
             priority: 10,
           },
         ],
