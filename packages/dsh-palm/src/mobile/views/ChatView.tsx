@@ -14,6 +14,7 @@
  */
 
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
+import { useChatExport } from './chat/use-chat-export.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -1295,76 +1296,7 @@ export function ChatView({
   /* ── F4 export (Markdown / single-file HTML, redacted) ─────────────── */
 
   /** Transcript rows worth exporting: real talk + commands, no turn cards. */
-  const exportRows = useCallback((): ExportRow[] => messages
-    .filter(message => message.kind === 'user' || message.kind === 'assistant' || message.kind === 'command')
-    .filter(message => message.text.trim() !== '')
-    .map((message): ExportRow => ({
-      // The filter above already dropped 'turn' cards; the cast only tells TS.
-      role: message.kind as ExportRow['role'],
-      text: message.kind === 'command' && message.commandLine !== undefined
-        ? `${message.commandLine}\n${message.text}`.trim()
-        : message.text,
-    })), [messages])
-
-  const buildExport = useCallback((format: 'md' | 'html'): string => (
-    format === 'html'
-      ? exportSingleFileHtml(title, exportRows())
-      : exportMarkdown(title, exportRows())
-  ), [title, exportRows])
-
-  const copyExport = useCallback((format: 'md' | 'html'): void => {
-    void copyText(buildExport(format), '已复制，疑似密钥已隐藏')
-  }, [buildExport])
-
-  /** Save via a blob anchor: no host round-trip, works offline. */
-  const downloadExport = useCallback((format: 'md' | 'html'): void => {
-    const body = buildExport(format)
-    const blob = new Blob([body], { type: format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${sanitizeFileName(title, 60)}.${format}`
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    window.setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
-    toast(format === 'html' ? '已导出单文件 HTML' : '已导出 Markdown')
-  }, [buildExport, title])
-
-  /**
-   * F4 长图：draw the transcript into a canvas and save the PNG.
-   *
-   * Long sessions are capped by `LONG_IMAGE_DEFAULTS.maxHeight` (the layout adds
-   * a "分段导出" note); a browser without a 2D context falls back to a toast
-   * telling the user to use Markdown — never a silent no-op.
-   */
-  const downloadLongImage = useCallback((): void => {
-    try {
-      const canvas = document.createElement('canvas')
-      drawLongImage(canvas, title, exportRows(), LONG_IMAGE_DEFAULTS)
-      const save = (url: string): void => {
-        const anchor = document.createElement('a')
-        anchor.href = url
-        anchor.download = `${sanitizeFileName(title, 60)}.png`
-        document.body.appendChild(anchor)
-        anchor.click()
-        anchor.remove()
-        window.setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
-        toast('长图已保存')
-      }
-      if (typeof canvas.toBlob === 'function') {
-        canvas.toBlob((blob) => {
-          if (blob === null) { toast('长图生成失败，请改用 Markdown'); return }
-          save(URL.createObjectURL(blob))
-        }, 'image/png')
-        return
-      }
-      save(canvas.toDataURL('image/png'))
-    } catch {
-      toast('当前浏览器不支持长图，请改用 Markdown')
-    }
-  }, [exportRows, title])
-
+  const { copyExport, downloadExport, downloadLongImage } = useChatExport(title, messages, toast)
   /** Steer a queued message into the running turn (only while running). */
   const handleQueueSteer = useCallback(async (itemId: string): Promise<void> => {
     const previous = queueItems.find(item => item.id === itemId)?.text
