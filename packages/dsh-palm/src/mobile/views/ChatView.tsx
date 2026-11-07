@@ -5095,35 +5095,36 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         />
       )}
       <ComposerSection
-        input={input}
-        setInput={setInput}
-        composerRef={composerRef}
-        mobileEnterToSend={mobileEnterToSend}
-        commands={commands}
-        claimedCommand={claimedCommand}
-        claimCommand={claimCommand}
-        releaseCommand={releaseCommand}
-        quoted={quoted}
-        setQuoted={setQuoted}
-        attachImages={attachImages}
-        setAttachImages={setAttachImages}
-        attachFiles={attachFiles}
-        setAttachFiles={setAttachFiles}
-        retryStaged={retryStaged}
-        addImage={addImage}
-        setPlusOpen={setPlusOpen}
-        setCommandOpen={setCommandOpen}
-        voiceSupported={voiceSupported()}
-        openVoice={openVoice}
-        running={running}
-        primaryStops={primaryStops}
-        stopArmed={stopArmed}
-        setStopArmed={setStopArmed}
-        stopping={stopping}
-        stopTurn={stopTurn}
-        sending={sending}
-        draftEmpty={draftEmpty}
-        send={send}
+        draft={{ input, setInput, quoted, setQuoted }}
+        attachments={{
+          attachImages,
+          setAttachImages,
+          attachFiles,
+          setAttachFiles,
+          retryStaged,
+          addImage,
+        }}
+        commands={{
+          commands,
+          claimedCommand,
+          claimCommand,
+          releaseCommand,
+          setPlusOpen,
+          setCommandOpen,
+        }}
+        turn={{
+          running,
+          primaryStops,
+          stopArmed,
+          setStopArmed,
+          stopping,
+          stopTurn,
+          sending,
+          draftEmpty,
+          send,
+        }}
+        inputBox={{ composerRef, mobileEnterToSend }}
+        voice={{ supported: voiceSupported(), open: openVoice }}
       />
       {plusOpen && (
         <PlusSheet

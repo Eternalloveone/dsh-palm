@@ -19,27 +19,36 @@ import { Button } from '../../ui/primitives.tsx'
 /** 发送意图：排队（默认）／插进当前回合／先中断再排队。 */
 export type SendIntent = 'queue' | 'steer' | 'interrupt'
 
-export interface ComposerSectionProps {
+/** 输入框里的那行字与引用。 */
+export interface ComposerDraft {
   input: string
   setInput: Dispatch<SetStateAction<string>>
-  composerRef: MutableRefObject<HTMLTextAreaElement | null>
-  mobileEnterToSend: boolean
-  commands: CommandDescriptor[] | undefined
-  claimedCommand: string | undefined
-  claimCommand: (name: string, argument?: string) => void
-  releaseCommand: () => void
   quoted: string | undefined
   setQuoted: Dispatch<SetStateAction<string | undefined>>
+}
+
+/** 已暂存、尚未发送的图片与文件。 */
+export interface ComposerAttachments {
   attachImages: AttachedImage[]
   setAttachImages: Dispatch<SetStateAction<AttachedImage[]>>
   attachFiles: StagedFile[]
   setAttachFiles: Dispatch<SetStateAction<StagedFile[]>>
   retryStaged: (localId: string) => void
   addImage: (file: File) => void
+}
+
+/** 斜杠命令面板与「+」面板的开合。 */
+export interface ComposerCommands {
+  commands: CommandDescriptor[] | undefined
+  claimedCommand: string | undefined
+  claimCommand: (name: string, argument?: string) => void
+  releaseCommand: () => void
   setPlusOpen: Dispatch<SetStateAction<boolean>>
   setCommandOpen: Dispatch<SetStateAction<boolean>>
-  voiceSupported: boolean
-  openVoice: () => void
+}
+
+/** 当前回合的发送/停止状态与动作。 */
+export interface ComposerTurn {
   running: boolean
   primaryStops: boolean
   stopArmed: boolean
@@ -51,13 +60,45 @@ export interface ComposerSectionProps {
   send: (intent?: SendIntent) => void
 }
 
+/** 输入框元素本身与回车行为。 */
+export interface ComposerInputBox {
+  composerRef: MutableRefObject<HTMLTextAreaElement | null>
+  mobileEnterToSend: boolean
+}
+
+/** 语音入口。 */
+export interface ComposerVoice {
+  supported: boolean
+  open: () => void
+}
+
+/**
+ * 输入区只接 6 个「一组一组」的 props（W2-4）。
+ *
+ * 原来 29 个扁平 props 全从 ChatView 一路传进来：加一个附件动作就要动 3 处，
+ * 也让「输入区到底依赖哪些东西」看不出来。按语义分组后，每组都是一个可以单独
+ * 造出来喂给测试的小对象；后续把组换成 context 时，调用点不用再改一遍。
+ */
+export interface ComposerSectionProps {
+  draft: ComposerDraft
+  attachments: ComposerAttachments
+  commands: ComposerCommands
+  turn: ComposerTurn
+  inputBox: ComposerInputBox
+  voice: ComposerVoice
+}
+
 export function ComposerSection(props: ComposerSectionProps) {
+  const { draft, attachments, turn, inputBox, voice } = props
+  const commandApi = props.commands
+  const { input, setInput, quoted, setQuoted } = draft
+  const { attachImages, setAttachImages, attachFiles, setAttachFiles, retryStaged, addImage } = attachments
+  const { commands, claimedCommand, claimCommand, releaseCommand, setPlusOpen, setCommandOpen } = commandApi
+  const { composerRef, mobileEnterToSend } = inputBox
+  const { supported: voiceSupported, open: openVoice } = voice
   const {
-    input, setInput, composerRef, mobileEnterToSend, commands, claimedCommand, claimCommand, releaseCommand,
-    quoted, setQuoted, attachImages, setAttachImages, attachFiles, setAttachFiles, retryStaged, addImage,
-    setPlusOpen, setCommandOpen, voiceSupported, openVoice, running, primaryStops, stopArmed, setStopArmed,
-    stopping, stopTurn, sending, draftEmpty, send,
-  } = props
+    running, primaryStops, stopArmed, setStopArmed, stopping, stopTurn, sending, draftEmpty, send,
+  } = turn
   /** 「怎么发送」面板是否打开（长按发送键）。 */
   const [sendIntentOpen, setSendIntentOpen] = useState(false)
   const sendHoldTimerRef = useRef<number | undefined>(undefined)

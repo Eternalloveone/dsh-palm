@@ -193,4 +193,17 @@ describe('architecture guardrails', () => {
     }
     expect(violations, `内联样式会让 CSP 的 style-src 'self' 形同虚设：\n${violations.join('\n')}`).toEqual([])
   })
+
+  /*
+   * W2-4：输入区原本吃 29 个扁平 props —— 加一个附件动作要同时改 ChatView、
+   * 接口、解构三处，而且看不出它到底依赖哪几类东西。现在按语义收成 6 组；
+   * 这里钉住上限，防止又慢慢长回一长串。
+   */
+  it('ComposerSection 的 props 不超过 8 组', () => {
+    const text = readFileSync(join(HERE, 'views', 'chat', 'composer-section.tsx'), 'utf8')
+    const block = /export interface ComposerSectionProps \{([\s\S]*?)\n\}/.exec(text)?.[1] ?? ''
+    const fields = block.split('\n').filter(line => /^ {2}\w+\??:/.test(line))
+    expect(fields.length, `ComposerSectionProps 现有 ${fields.length} 组：${fields.map(f => f.trim()).join(' / ')}`)
+      .toBeLessThanOrEqual(8)
+  })
 })
