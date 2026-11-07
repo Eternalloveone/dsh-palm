@@ -1041,6 +1041,7 @@ import type { MobileApiCtx } from './mobile/api/context.ts'
 import { LOCATE_TTL_MS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_TTL_MS } from './mobile/api/constants.ts'
 import { wrap } from './mobile/api/wrap.ts'
 import { workspaceList } from './mobile/api/workspace-list.ts'
+import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -3639,31 +3640,15 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   const methods = makeMobileDispatchTable<ProxyContext, unknown>([
     ...sessionList,
     ['workspace.list', async (ctx) => workspaceList({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request })],
-  ['workspace.create', async (ctx) => {
-    const { apiProxy, request } = ctx
-    invalidateRosterCaches()
-    return wrap(rpcId, await apiProxy.workspace.create(request as never))
-  }],
-  ['workspace.rename', async (ctx) => {
-    const { apiProxy, request } = ctx
-    invalidateRosterCaches()
-    return wrap(rpcId, await apiProxy.workspace.rename(request as never))
-  }],
-  ['workspace.delete', async (ctx) => {
-    const { apiProxy, request } = ctx
-    invalidateRosterCaches()
-    return wrap(rpcId, await apiProxy.workspace.delete(request as never))
-  }],
+    ['workspace.create', async (ctx) => workspaceCreate({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
+    ['workspace.rename', async (ctx) => workspaceRename({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
+    ['workspace.delete', async (ctx) => workspaceDelete({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
   // Session delete (= the desktop's archive semantics): the row leaves every
   // roster and never reappears after a refresh, while the session log stays
   // on disk (restorable from the desktop). Without this the phone's delete
   // was a local-only removal and the session resurrected on the next roster
   // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
-  ['workspace.archiveSession', async (ctx) => {
-    const { apiProxy, request } = ctx
-    invalidateRosterCaches()
-    return wrap(rpcId, await apiProxy.workspace.archiveSession(request as never))
-  }],
+    ['workspace.archiveSession', async (ctx) => workspaceArchiveSession({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
   ['agentPreset.list', async (ctx) => {
     const { apiProxy, request } = ctx
     // v3.2: the preset roster only changes on the desktop; short-TTL it.
