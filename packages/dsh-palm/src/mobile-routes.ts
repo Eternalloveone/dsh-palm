@@ -95,7 +95,14 @@ function manifestJson(): string {
   }, null, 2)
 }
 
-/** A static fallback that contains no paired-device, session, or workspace data. */
+/**
+ * A static fallback that contains no paired-device, session, or workspace data.
+ *
+ * 2026-11-07（W1-8）：去掉内联 `<style>`，改由 `color-scheme` 让浏览器自己选配色。
+ * 这页只在「宿主在、资源缺失」时出现，样式可有可无；而 CSP 的 `style-src 'self'`
+ * 一旦保留 `'unsafe-inline'` 就等于没设——攻击者注入的样式可以覆盖界面、做点击劫持。
+ * 代价：这页变成浏览器默认外观，可接受。
+ */
 function offlineHtml(): string {
   return [
     '<!doctype html>',
@@ -103,9 +110,9 @@ function offlineHtml(): string {
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">',
+    '<meta name="color-scheme" content="light dark">',
     '<meta name="theme-color" content="#151424">',
     '<title>Dsh Palm</title>',
-    '<style>body{margin:0;background:#151424;color:#f3f5f9;font:16px system-ui,sans-serif}main{box-sizing:border-box;display:grid;min-height:100vh;place-content:center;padding:32px;text-align:center}h1{margin:0 0 12px;font-size:24px}p{margin:0;color:#c4c7d8;line-height:1.5}</style>',
     '</head>',
     '<body><main><h1>Dsh Palm</h1><p>Cannot reach the running DSH host. Restore the connection and reopen the app.</p></main></body>',
     '</html>',
@@ -116,10 +123,10 @@ function offlineHtml(): string {
  * Content-Security-Policy for the /m/ surface. The page holds a full host
  * control cookie (paired device), so the CSP is the last line of defense
  * behind the renderer: even if a future rendering bug turns agent markdown
- * into script, the browser refuses it. Inline styles stay allowed (the
- * bundle injects one static <style>); images may come from `https:` (model-
- * referenced URLs) plus data:/blob: for pasted/compressed images; everything
- * else is same-origin.
+ * into script, the browser refuses it. Inline styles are refused too since
+ * W1-8 (the stylesheet is a separate same-origin artifact); images may come
+ * from `https:` (model-referenced URLs) plus data:/blob: for
+ * pasted/compressed images; everything else is same-origin.
  *
  * 2026-11-07：`img-src` 去掉明文 `http:`。理由：公网入口是 https，混合内容本来就由浏览器
  * 拦着，留着 `http:` 只是给"中间人注入一张明文图"留口子；正文里的外链图基本都在 https 上。
@@ -129,7 +136,17 @@ function offlineHtml(): string {
 const MOBILE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  /*
+   * W1-8：`style-src` 从 `'self' 'unsafe-inline'` 收紧为 `'self'`。
+   *
+   * 前提已经齐了：样式表是独立产物（`/m/assets/app.css`，W1-1），页面不再注入
+   * `<style>`，代码高亮输出的是 class 而不是行内色值，唯一的服务端内联样式
+   * （离线兜底页）已删掉。React 的行内 `style={{}}` 走 CSSOM，不受 CSP 限制。
+   *
+   * 这条挡的是「注入一段样式」这一类攻击：覆盖界面骗点击、用伪元素盖住真实按钮
+   * 做点击劫持、把内容移出视口。留 `'unsafe-inline'` 等于这些防护都不存在。
+   */
+  "style-src 'self'",
   "img-src 'self' data: blob: https:",
   "connect-src 'self'",
   "font-src 'self' data:",

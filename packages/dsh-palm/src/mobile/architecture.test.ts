@@ -169,4 +169,28 @@ describe('architecture guardrails', () => {
     const text = readFileSync(join(HERE, 'design', 'tokens.ts'), 'utf8')
     expect(text.match(/^\s*import\s/m)).toBeNull()
   })
+
+  /*
+   * CSP 收紧（W1-8）的另一半：`style-src 'self'` 只有在页面真的不再产出内联样式时
+   * 才成立。以后谁再手写 `style="..."` 或往 DOM 里塞 `<style>`，CSP 不会在测试里
+   * 报错（浏览器只在真机上拒绝），所以这里先拦一道。
+   *
+   * 例外：`export.ts` 生成的是**下载到本地打开的独立 HTML**，不经 /m/ 的 CSP，
+   * 里面的 `<style>` 是有意的（导出件要能离线自洽）。
+   */
+  it('shipped mobile code emits no inline style attributes or <style> blocks', () => {
+    const violations: string[] = []
+    for (const file of SOURCES) {
+      const path = rel(file)
+      if (path === 'export.ts') continue
+      const text = readFileSync(file, 'utf8')
+      // 去掉注释再扫：文档里提到 `<style>` 不算违规。
+      const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      for (const pattern of [/<style\b/, /\bstyle="/]) {
+        const hit = pattern.exec(code)
+        if (hit !== null) violations.push(`${path}: ${hit[0]}`)
+      }
+    }
+    expect(violations, `内联样式会让 CSP 的 style-src 'self' 形同虚设：\n${violations.join('\n')}`).toEqual([])
+  })
 })

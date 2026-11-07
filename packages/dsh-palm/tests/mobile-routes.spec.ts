@@ -230,6 +230,31 @@ describe('mobile routes', () => {
     }
   })
 
+  /**
+   * W1-8：`style-src` 收紧到 `'self'`，并确认下发的 HTML 里真的没有内联 `<style>`。
+   * 两条必须一起看——只改 header 而页面还带 `<style>`，等于把页面样式搞坏；
+   * 只删 `<style>` 而 header 还留 `'unsafe-inline'`，等于防护没生效。
+   */
+  it('locks style-src to self (no unsafe-inline) and ships no inline <style>', async () => {
+    const server = await serve(makeMobileRoutes())
+    try {
+      const page = await get(server.port, '/m/')
+      const header = typeof page.headers['content-security-policy'] === 'string'
+        ? page.headers['content-security-policy']
+        : ''
+      expect(header).toContain("style-src 'self'")
+      expect(header).not.toContain('unsafe-inline')
+      expect(page.body).not.toContain('<style')
+
+      // 离线兜底页同样要干净：它以前带一坨内联样式，是这条收紧的最后一个阻碍。
+      const offline = await get(server.port, '/m/offline.html')
+      expect(offline.body).not.toContain('<style')
+      expect(offline.body).toContain('Cannot reach the running DSH host')
+    } finally {
+      await server.close()
+    }
+  })
+
   it('re-reads the bundle after a rebuild instead of pinning the first read', async () => {    // 原来这份缓存认"进程内不变"：pnpm build 之后不重启，页面还下发旧 body 和旧
     // ?v=hash，手机端按旧 hash 拿到的入口引用的分块已被新构建清掉（404 兜底换壳）。
     const server = await serve(makeMobileRoutes())
