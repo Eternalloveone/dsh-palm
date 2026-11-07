@@ -1035,6 +1035,7 @@ import { pairDevices, pairRevoke, pairRename, pairSetPrimary } from './mobile/ap
 import { agentPresetList, subagentList } from './mobile/api/roster-handlers.ts'
 import { sessionCreate, sessionHistory, sessionSearch, sessionPrompt, sessionModels, sessionSelectModel, sessionRename, sessionCancel, sessionUpdateQueue } from './mobile/api/session-handlers.ts'
 import { sessionList as sessionListHandler } from './mobile/api/session-list-handler.ts'
+import { pushConfig } from './mobile/api/push-config.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1695,143 +1696,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       }],
       [MOBILE_PUSH_SUBSCRIBE_METHOD, async (ctx) => pushSubscribe(ctx)],
       [MOBILE_PUSH_UNSUBSCRIBE_METHOD, async (ctx) => pushUnsubscribe(ctx)],
-      [MOBILE_PUSH_CONFIG_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        // Read (redacted) or write the notify config. Reads never return
-        // credentials — only whether each L3 channel is configured — while
-        // writes accept the plaintext values (the paired device is full
-        // trust, the same stance as the rest of /m/api).
-        const notify = deps.notify
-        if (notify === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } },
-          })
-          return
-        }
-        const body = parsed.payload as { get?: unknown; set?: unknown; test?: unknown } | undefined
-        if (body?.test === true) {
-          // Settings-page test button: publish one synthetic event through the
-          // engine, exactly like a real notification. Sending it straight to
-          // the delivery functions (the old behaviour) skipped the inbox and
-          // the telemetry, so a test could "succeed" while both stayed empty.
-          notify.engine.publishTest()
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { sent: true } },
-          })
-          return
-        }
-        if (body?.get === true) {
-          const config = notify.store.getConfig()
-          const channels = config.channels
-          // The VAPID key pair is generated on first read so the phone can
-          // subscribe to Web Push without a separate setup step.
-          const vapid = notify.store.ensureVapid()
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: {
-              ok: true,
-              value: {
-                turnThresholdMs: config.turnThresholdMs,
-                turnCooldownMs: config.turnCooldownMs,
-                hideDetails: config.hideDetails === true,
-                // Effective kind gates (absent config falls back to the
-                // quiet defaults: jobs off, todo on, turns off).
-                kinds: {
-                  jobs: config.kinds?.jobs === true,
-                  todo: config.kinds?.todo !== false,
-                  turns: config.kinds?.turns === true,
-                  approvals: config.kinds?.approvals !== false,
-                },
-                vapidPublicKey: vapid.publicKey,
-                channels: {
-                  serverchan: { configured: channels?.serverchan?.sendKey !== undefined && channels.serverchan.sendKey !== '' },
-                  bark: { configured: channels?.bark?.key !== undefined && channels.bark.key !== '' },
-                  telegram: {
-                    configured: channels?.telegram?.botToken !== undefined && channels.telegram.botToken !== '' && channels.telegram.chatId !== undefined && channels.telegram.chatId !== '',
-                  },
-                  wxpusher: { configured: channels?.wxpusher?.spt !== undefined && channels.wxpusher.spt !== '' },
-                  pushplus: { configured: channels?.pushplus?.token !== undefined && channels.pushplus.token !== '' },
-                },
-              },
-            },
-          })
-          return
-        }
-        const patch = body?.set as { turnThresholdMs?: unknown; turnCooldownMs?: unknown; hideDetails?: unknown; kinds?: unknown; channels?: unknown } | undefined
-        if (patch === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少配置内容' } },
-          })
-          return
-        }
-        const next: Record<string, unknown> = {}
-        if (typeof patch.turnThresholdMs === 'number' && Number.isFinite(patch.turnThresholdMs)) {
-          next.turnThresholdMs = Math.max(0, Math.round(patch.turnThresholdMs))
-        }
-        if (typeof patch.turnCooldownMs === 'number' && Number.isFinite(patch.turnCooldownMs)) {
-          next.turnCooldownMs = Math.max(0, Math.round(patch.turnCooldownMs))
-        }
-        if (typeof patch.hideDetails === 'boolean') {
-          next.hideDetails = patch.hideDetails
-        }
-        const kinds = patch.kinds as { jobs?: unknown; todo?: unknown; turns?: unknown; approvals?: unknown } | undefined
-        if (kinds !== undefined) {
-          const currentKinds = notify.store.getConfig().kinds ?? {}
-          next.kinds = {
-            ...(kinds.jobs !== undefined
-              ? { jobs: kinds.jobs === true }
-              : currentKinds.jobs !== undefined ? { jobs: currentKinds.jobs } : {}),
-            ...(kinds.todo !== undefined
-              ? { todo: kinds.todo === true }
-              : currentKinds.todo !== undefined ? { todo: currentKinds.todo } : {}),
-            ...(kinds.turns !== undefined
-              ? { turns: kinds.turns === true }
-              : currentKinds.turns !== undefined ? { turns: currentKinds.turns } : {}),
-            ...(kinds.approvals !== undefined
-              ? { approvals: kinds.approvals === true }
-              : currentKinds.approvals !== undefined ? { approvals: currentKinds.approvals } : {}),
-          }
-        }
-        const channels = patch.channels as { serverchan?: unknown; bark?: unknown; telegram?: unknown; wxpusher?: unknown; pushplus?: unknown } | undefined
-        if (channels !== undefined) {
-          const current = notify.store.getConfig().channels ?? {}
-          const serverchan = channels.serverchan as { sendKey?: unknown } | undefined
-          const bark = channels.bark as { key?: unknown } | undefined
-          const telegram = channels.telegram as { botToken?: unknown; chatId?: unknown } | undefined
-          const wxpusher = channels.wxpusher as { spt?: unknown } | undefined
-          const pushplus = channels.pushplus as { token?: unknown } | undefined
-          next.channels = {
-            ...(serverchan !== undefined
-              ? { serverchan: { sendKey: typeof serverchan.sendKey === 'string' ? serverchan.sendKey : '' } }
-              : current.serverchan !== undefined ? { serverchan: current.serverchan } : {}),
-            ...(bark !== undefined
-              ? { bark: { key: typeof bark.key === 'string' ? bark.key : '' } }
-              : current.bark !== undefined ? { bark: current.bark } : {}),
-            ...(telegram !== undefined
-              ? { telegram: { botToken: typeof telegram.botToken === 'string' ? telegram.botToken : '', chatId: typeof telegram.chatId === 'string' ? telegram.chatId : '' } }
-              : current.telegram !== undefined ? { telegram: current.telegram } : {}),
-            ...(wxpusher !== undefined
-              ? { wxpusher: { spt: typeof wxpusher.spt === 'string' ? wxpusher.spt : '' } }
-              : current.wxpusher !== undefined ? { wxpusher: current.wxpusher } : {}),
-            ...(pushplus !== undefined
-              ? { pushplus: { token: typeof pushplus.token === 'string' ? pushplus.token : '' } }
-              : current.pushplus !== undefined ? { pushplus: current.pushplus } : {}),
-          }
-        }
-        notify.store.setConfig(next as never)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { saved: true } },
-        })
-      }],
+      [MOBILE_PUSH_CONFIG_METHOD, async (ctx) => pushConfig(ctx)],
       [MOBILE_PAIR_DEVICES_METHOD, async (ctx) => pairDevices(ctx)],
       [MOBILE_PAIR_REVOKE_METHOD, async (ctx) => pairRevoke(ctx)],
       [MOBILE_PAIR_RENAME_METHOD, async (ctx) => pairRename(ctx)],

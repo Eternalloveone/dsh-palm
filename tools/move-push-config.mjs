@@ -1,0 +1,25 @@
+// push.config（137 行）原位替换为调用新实现。
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const API = join(import.meta.dirname, '..', 'packages', 'dsh-palm', 'src', 'mobile-api.ts')
+const raw = readFileSync(API, 'utf8')
+const lines = raw.split('\n')
+const eol = raw.includes('\r\n') ? '\r' : ''
+
+const start = lines.findIndex(line => line.includes('[MOBILE_PUSH_CONFIG_METHOD, async (ctx) => {'))
+if (start < 0) { console.log('未找到 push.config（可能已换）'); process.exit(0) }
+let end = start
+for (let i = start; i < lines.length; i += 1) {
+  if (lines[i].replace(/\r$/, '').trim() === '}],') { end = i; break }
+}
+const indent = lines[start].match(/^\s*/)[0]
+lines.splice(start, end - start + 1, `${indent}[MOBILE_PUSH_CONFIG_METHOD, async (ctx) => pushConfig(ctx)],${eol}`)
+
+if (!lines.some(line => line.includes('push-config.ts'))) {
+  const lastImport = lines.reduce((acc, line, i) => (line.startsWith('import ') ? i : acc), -1)
+  lines.splice(lastImport + 1, 0, `import { pushConfig } from './mobile/api/push-config.ts'${eol}`)
+}
+
+writeFileSync(API, lines.join('\n'))
+console.log(`push.config 已换：删 ${end - start + 1} 行；${raw.split('\n').length} → ${lines.length} 行`)
