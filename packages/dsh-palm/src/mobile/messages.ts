@@ -46,6 +46,8 @@
 // 身份规则搬进 Identity 内核（W2-1）。这是本模块**唯一**的 import，且只依赖
 // src/mobile 内部：不引入任何外部包，页面依旧是自洽的一坨。
 import { normalizeTurnNumbers as normalizeTranscriptRows, rowKey as rowIdentity } from './kernels/identity.ts'
+// 投影层（W3-3）：正文/附件解析搬去 projections/content.ts，这里只转手。
+import { isRecord, pickNumber, pickString } from './projections/json.ts'
 export { rowIdentity }
 export { normalizeTranscriptRows }
 
@@ -306,18 +308,8 @@ export interface WireEvent {
   readonly view?: unknown
 }
 
-/** Runtime shape guard for the lossless-JSON `data` of a `WireEvent`. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function pickString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
-
-function pickNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
+/** Runtime shape guard for the lossless-JSON `data` of a `WireEvent`.
+ *  （实现与 {@link isRecord} 等守卫一起在 `projections/json.ts`。） */
 
 /** One plan item carried by a `todo/write` snapshot (host TodoItem shape). */
 export interface TodoItem {
@@ -420,122 +412,12 @@ function syntheticId(prefix: string, seq: number): string {
   return `${prefix}#${String(seq)}`
 }
 
-/** Concatenate the plain text of every `text` content block.
- *  Exported for host-side consumers (the preview cache) that must parse
- *  message content identically to the fold. */
-export function textFromContent(content: unknown): string {
-  return blocksOfType(content, 'text')
-}
-
-/** 一条消息里的图片引用（字节不在事件里，见 {@link RenderMessage.images}）。 */
-export interface MessageImage {
-  /** 内容寻址的持久附件 id（同一张图永远同一个 id，取一次即可长期缓存）。 */
-  attachmentId: string
-  /** 图片 MIME 类型。 */
-  mediaType: string
-  /** 原图宽（宿主入库时记录的像素宽）。 */
-  width: number
-  /** 原图高。 */
-  height: number
-  /** 字节数（宿主入库时记录）。 */
-  bytes?: number
-  /** 原始文件名。 */
-  name?: string
-}
-
-/** 一条消息里的文件附件引用（内容寻址，字节另行读取）。 */
-export interface MessageFile {
-  /** 内容寻址的持久附件 id（sha256）。 */
-  attachmentId: string
-  /** 宿主清洗过的展示文件名。 */
-  name: string
-  /** 字节数。 */
-  bytes: number
-}
-
-/**
- * 从 content 里取文件附件引用。
- *
- * 正式形态是 `{ type: 'file', attachment: { attachmentId, name, bytes } }`（宿主把
- * receipt 换成这份引用之后落库）；也兼容字段平铺在同一层的形态，缺 id 的块跳过。
- *
- * 以前只折 images，文件块被整块丢掉：文档上传成功、prompt 里也带着 receipt，发出去
- * 的那一行却只剩文字 —— 用户在"发送条"里看不到自己附了什么（真机反馈）。
- */
-export function filesFromContent(content: unknown): MessageFile[] {
-  if (!Array.isArray(content)) return []
-  const files: MessageFile[] = []
-  for (const block of content) {
-    if (block === null || typeof block !== 'object') continue
-    const record = block as Record<string, unknown>
-    if (record['type'] !== 'file') continue
-    const attachment = isRecord(record['attachment']) ? record['attachment'] : record
-    // 没有名字的块画不出东西（名字是唯一认得出的信息），直接跳。
-    const name = pickString(attachment['name']) ?? pickString(record['name'])
-    if (name === undefined) continue
-    // id 用于 key/去重：正式形态有 attachmentId；兼容只有 receiptId 的中间形态，
-    // 两者都没有时用位置占位（宁可显示一张没 id 的卡片，也不要整块消失）。
-    const attachmentId = pickString(attachment['attachmentId'])
-      ?? pickString(record['attachmentId'])
-      ?? pickString(record['receiptId'])
-      ?? `file-${files.length}`
-    files.push({
-      attachmentId,
-      name,
-      bytes: pickNumber(attachment['bytes']) ?? pickNumber(record['bytes']) ?? 0,
-    })
-  }
-  return files
-}
-
-/**
- * 从 content 里取图片引用。宿主把引用嵌在 `attachment` 下
- * （`{ type: 'image', attachment: { attachmentId, mediaType, … } }`）；也兼容
- * 字段直接平铺在同一层的旧形态，缺 id 或 mediaType 的块跳过。
- */
-export function imagesFromContent(content: unknown): MessageImage[] {
-  if (!Array.isArray(content)) return []
-  const images: MessageImage[] = []
-  for (const block of content) {
-    if (block === null || typeof block !== 'object') continue
-    const record = block as Record<string, unknown>
-    if (record['type'] !== 'image') continue
-    const attachment = isRecord(record['attachment']) ? record['attachment'] : record
-    const attachmentId = pickString(attachment['attachmentId'])
-    const mediaType = pickString(attachment['mediaType'])
-    if (attachmentId === undefined || mediaType === undefined) continue
-    const bytes = pickNumber(attachment['bytes'])
-    const name = pickString(attachment['name'])
-    images.push({
-      attachmentId,
-      mediaType,
-      width: pickNumber(attachment['width']) ?? 0,
-      height: pickNumber(attachment['height']) ?? 0,
-      ...(bytes === undefined ? {} : { bytes }),
-      ...(name === undefined ? {} : { name }),
-    })
-  }
-  return images
-}
-
-/** Concatenate the plain text of every `reasoning` content block (host-side
- *  consumers share this parse with the fold). */
-export function reasoningFromContent(content: unknown): string {
-  return blocksOfType(content, 'reasoning')
-}
-
-/** Concatenate the plain text of every content block of one type. */
-function blocksOfType(content: unknown, type: string): string {
-  if (!Array.isArray(content)) return ''
-  let out = ''
-  for (const block of content) {
-    if (!isRecord(block)) continue
-    if (block['type'] !== type) continue
-    const text = pickString(block['text'])
-    if (text !== undefined) out += text
-  }
-  return out
-}
+// 正文/附件解析搬进投影层（W3-3）：实现见 `projections/content.ts`，这里转手导出，
+// 调用点（preview-cache、测试）保持原样；本模块内部也还要用，因此先 import 再 export。
+import { filesFromContent, imagesFromContent, reasoningFromContent, textFromContent } from './projections/content.ts'
+import type { MessageFile, MessageImage } from './projections/content.ts'
+export { filesFromContent, imagesFromContent, reasoningFromContent, textFromContent }
+export type { MessageFile, MessageImage }
 
 /**
  * Ordered flow of an assistant message's content blocks: text runs and reasoning
