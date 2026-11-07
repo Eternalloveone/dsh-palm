@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/message-row/process
  */
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { RenderMessage, ToolCallInfo } from '../messages.ts'
 import { MarkdownText } from '../markdown-text.tsx'
 import {
@@ -29,6 +29,9 @@ import { stepModel, type StepVariant } from '../step-view.ts'
 import { Button } from '../ui/primitives.tsx'
 import { forgetTurnAnchor, stableTurnAnchor } from './anchors.ts'
 import { ArtifactCards } from './artifact-cards.tsx'
+import { BlockList, type BlockRegistry } from './block-registry.tsx'
+import { toVM } from './to-vm.ts'
+import type { MessageBlock } from './types.ts'
 
 /**
  * The running indicator's whale: one stroked path in a 16×16 box.
@@ -217,6 +220,39 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
 }
 
 /** 展开体：思考块、工具行、步骤之间的叙述文本、diff 卡，全按事件顺序排。 */
+/** 展开体的渲染上下文：正文高亮、定位展开、会话 id 都从这里取。 */
+interface ProcessBlocksContext {
+  message: RenderMessage
+  focusedQuery?: string
+  focusExpand?: boolean
+  sessionId?: string
+}
+
+/**
+ * 块的渲染器表：**新增一种块 = 这里加一行 + 写样式**，不再动遍历逻辑。
+ * 表是纯数据（kind → 组件），插件也能用 mergeRegistry 追加自己的块。
+ */
+const PROCESS_BLOCK_REGISTRY: BlockRegistry<ProcessBlocksContext> = {
+  reasoning: ({ block }) => (block.kind === 'reasoning' ? <ThinkBlock row={block.row} /> : null),
+  tool: ({ block }) => (block.kind === 'tool' ? <ToolStep tool={block.tool} /> : null),
+  'tool-group': ({ block }) => (block.kind === 'tool-group' ? <ArtifactCards tools={[...block.tools]} /> : null),
+  text: ({ block, ctx }) => (block.kind === 'text' ? renderTextBlock(block, ctx) : null),
+}
+
+/** 正文块：有步骤号的包一层 data-step-seq，会话内搜索才能滚到这一步。 */
+function renderTextBlock(block: Extract<MessageBlock, { kind: 'text' }>, ctx: ProcessBlocksContext): ReactNode {
+  const body = (
+    <MarkdownText
+      text={block.text}
+      pending={ctx.message.pending === true}
+      forceOpen={ctx.focusedQuery !== undefined}
+      highlightQuery={ctx.focusedQuery}
+      sessionId={ctx.sessionId}
+    />
+  )
+  if (block.seq === undefined) return body
+  return <div className="chat-flow-text" data-step-seq={block.seq} data-part-id={`text-${block.index}`}>{body}</div>
+}
 function ProcessRows({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId }: {
   message: RenderMessage
   model: ProcessModel
@@ -225,48 +261,12 @@ function ProcessRows({ message, model, showToolCalls, focusedQuery, focusExpand,
   focusExpand?: boolean
   sessionId?: string
 }) {
-  const nodes: ReactNode[] = []
-  let pendingTools: ToolCallInfo[] = []
-  let key = 0
-  let textIndex = 0
-  const flush = (): void => {
-    if (pendingTools.length > 0) {
-      nodes.push(<ArtifactCards key={`card-${key}`} tools={pendingTools} />)
-      key += 1
-      pendingTools = []
-    }
-  }
-  for (const row of model.rows) {
-    if (row.kind === 'reasoning') {
-      flush()
-      nodes.push(<ThinkBlock key={row.key} row={row} />)
-      continue
-    }
-    if (row.kind === 'tool') {
-      // 工具行跟着开关走；diff 卡不跟 —— 卡是这一轮的产出（改了哪些文件），
-      // 关掉"显示工具调用"是想少看过程噪音，不是想看不到改动。
-      if (showToolCalls) nodes.push(<ToolStep key={row.key} tool={row.tool} />)
-      if (row.tool.view !== undefined) pendingTools.push(row.tool)
-      else flush()
-      continue
-    }
-    flush()
-    // Legacy flows carry no part seq: fall back to the coalesced step seq so a
-    // search-hit locate can still scroll to this step.
-    const stepSeq = row.seq ?? message.stepSeqs?.[textIndex]
-    // 过程/步骤正文里**也有答案**：一轮多步被打包成一张卡时，卡的正文字面只渲染
-    // 最后一步（process-rows.ts 的 answer = stepTexts[last]），前面各步的正文被折进
-    // 这里。索引收的正是这些答案段（每步一条文档），所以这里必须跟着高亮 —— 否则
-    // 命中「下一个」落到这一步时，屏幕上连一个标记都没有（真机：计数在走、画面不动）。
-    // 推理链（ThinkBlock）与工具卡仍然不参与：它们从来不是索引的命中来源。
-    const body = <MarkdownText text={row.text} pending={message.pending === true} forceOpen={focusedQuery !== undefined} highlightQuery={focusedQuery} sessionId={sessionId} />
-    nodes.push(stepSeq === undefined
-      ? <Fragment key={row.key}>{body}</Fragment>
-      : <div key={row.key} className="chat-flow-text" data-step-seq={stepSeq} data-part-id={`text-${textIndex}`}>{body}</div>)
-    textIndex += 1
-  }
-  flush()
-  return <>{nodes}</>
+  const blocks = useMemo(
+    () => toVM(model, { showToolCalls, pending: message.pending === true, stepSeqs: message.stepSeqs }),
+    [model, showToolCalls, message.pending, message.stepSeqs],
+  )
+  const ctx: ProcessBlocksContext = { message, focusedQuery, focusExpand, sessionId }
+  return <BlockList blocks={blocks} registry={PROCESS_BLOCK_REGISTRY} ctx={ctx} />
 }
 
 /**
