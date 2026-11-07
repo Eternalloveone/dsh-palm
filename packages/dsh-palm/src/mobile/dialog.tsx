@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Overlay } from './ui/overlay.tsx'
+import { Button } from './ui/primitives.tsx'
 
 /** Confirm/cancel dialog with a danger or primary confirm button. */
 export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', busy = false, onConfirm, onCancel }: {
@@ -31,10 +32,10 @@ export function ConfirmDialog({ title, body, confirmLabel, tone = 'primary', bus
       <h2 className="dialog-title">{title}</h2>
       <div className="dialog-body">{body}</div>
       <div className="dialog-actions">
-        <button type="button" className="dialog-btn" disabled={busy} onClick={onCancel}>取消</button>
-        <button type="button" className={`dialog-btn ${toneClass}`} disabled={busy} onClick={onConfirm}>
+        <Button className="dialog-btn" disabled={busy} onClick={onCancel}>取消</Button>
+        <Button className={`dialog-btn ${toneClass}`} disabled={busy} onClick={onConfirm}>
           {busy ? '处理中…' : confirmLabel}
-        </button>
+        </Button>
       </div>
     </Overlay>
   )
@@ -83,15 +84,14 @@ export function PromptDialog({ title, initial, confirmLabel, busy = false, onCon
         }}
       />
       <div className="dialog-actions">
-        <button type="button" className="dialog-btn" disabled={busy} onClick={onCancel}>取消</button>
-        <button
-          type="button"
+        <Button className="dialog-btn" disabled={busy} onClick={onCancel}>取消</Button>
+        <Button
           className="dialog-btn dialog-btn-primary"
           disabled={busy || value.trim() === ''}
           onClick={submit}
         >
           {busy ? '保存中…' : confirmLabel}
-        </button>
+        </Button>
       </div>
     </Overlay>
   )

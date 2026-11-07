@@ -8,6 +8,7 @@
 import type { MutableRefObject } from 'react'
 import { voiceStatusClassName, type VoiceStatus } from '../../voice-status.ts'
 import { Overlay } from '../../ui/overlay.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface VoiceSheetProps {
   open: boolean
@@ -48,20 +49,18 @@ export function VoiceSheet({ open, phase, status, waveRef, doneRef, onClose, onF
           {status.text}
         </div>
         <div className="voice-actions">
-          <button
-            type="button"
+          <Button
             className="voice-cancel"
             onClick={onClose}
-          >取消</button>
-          <button
+          >取消</Button>
+          <Button
             ref={doneRef}
-            type="button"
             className="voice-done"
             disabled={phase === 'transcribing'}
             onClick={onFinish}
           >
             {phase === 'transcribing' ? '请稍候' : '完成'}
-          </button>
+          </Button>
         </div>
     </Overlay>
   )
