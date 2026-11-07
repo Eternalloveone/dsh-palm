@@ -81,6 +81,7 @@ export { PERF_CAPTURE_KEEP, PERF_CAPTURE_MAX_BYTES, PERF_RAW_MAX_BYTES, perfCapt
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ApiProxy, MuxFrame, RpcRequest, SubagentCatalog } from './api-proxy-types'
+import { makeMobileDispatchTable, type MobileDispatchContext } from './mobile/api/dispatch.ts'
 import { RpcId } from './api-proxy-types'
 import { MUX_FRAME_TYPES } from './shared/mux-frames.ts'
 import type { SessionFolders } from './folders.ts'
@@ -1209,147 +1210,11 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
     return touchDeviceFor(req)
   }
 
-  const handleMethod = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    if (req.method !== 'POST') {
-      res.writeHead(405)
-      res.end()
-      return
-    }
-    // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
-    void ensureSearchIndex().catch(() => undefined)
-    if (!gateOk(req)) {
-      // Rejected early: drain whatever body the client sent so the request
-      // stream (and the keep-alive connection) is released, not stalled.
-      req.resume()
-      writeJson(res, 403, { ok: false, error: { code: 'unpaired', message: 'mobile session is not paired' } })
-      return
-    }
-    const pathname = new URL(req.url ?? '/', 'http://x').pathname
-    if (!pathname.startsWith(MOBILE_API_METHOD_PREFIX)) {
-      req.resume()
-      writeJson(res, 404, { ok: false, error: { code: 'not-found', message: 'unknown mobile api path' } })
-      return
-    }
-    const method = pathname.slice(MOBILE_API_METHOD_PREFIX.length)
-    const isTranscribe = method === MOBILE_TRANSCRIBE_METHOD
-    const isPrompt = method === 'session.prompt'
-    const local = method === MOBILE_PREFERENCES_METHOD
-      || method === MOBILE_PENDING_METHOD
-      || method === MOBILE_RESPOND_METHOD
-      || method === MOBILE_LIST_DIRECTORY_METHOD
-      || method === MOBILE_READ_FILE_METHOD
-      || method === MOBILE_COMMANDS_METHOD
-      || method === MOBILE_UPLOAD_ATTACHMENT_METHOD
-      || method === MOBILE_COMMAND_EXEC_METHOD
-      || method === MOBILE_VOICE_SERVICES_METHOD
-      || method === MOBILE_PUSH_SUBSCRIBE_METHOD
-      || method === MOBILE_PUSH_UNSUBSCRIBE_METHOD
-      || method === MOBILE_PUSH_CONFIG_METHOD
-      || method === MOBILE_NOTIFY_EVENTS_METHOD
-      || method === MOBILE_GIT_SUMMARY_METHOD
-      || method === MOBILE_LATEST_VERSION_METHOD
-      || method === MOBILE_SEARCH_METHOD
-      || method === MOBILE_SEARCH_ALL_METHOD
-      || method === MOBILE_SEARCH_MESSAGES_METHOD
-      || method === MOBILE_RUNNING_SESSIONS_METHOD
-      || method === MOBILE_TURN_STATE_METHOD
-      || method === MOBILE_TURN_OUTLINE_METHOD
-      || method === MOBILE_INBOX_METHOD
-      || (method as string) === MOBILE_SESSION_STATE_METHOD
-      || method === MOBILE_GOAL_METHOD
-      || method === MOBILE_GOAL_ACTION_METHOD
-      || method === MOBILE_USAGE_METHOD
-      || method === MOBILE_READ_CHAT_METHOD
-      || method === MOBILE_LOG_TAIL_METHOD
-      || method === MOBILE_OBSERVE_METHOD
-      || method === MOBILE_DIAGNOSTICS_METHOD
-      || method === MOBILE_PERF_METHOD
-      || method === MOBILE_FINISHED_RUNS_METHOD
-      || method === MOBILE_ERROR_METHOD
-      || method === MOBILE_READ_ATTACHMENT_METHOD
-      || method === MOBILE_PREVIEWS_METHOD
-      || method === MOBILE_PAIR_DEVICES_METHOD
-      || method === MOBILE_PAIR_REVOKE_METHOD
-      || method === MOBILE_PAIR_RENAME_METHOD
-      || method === MOBILE_PAIR_SET_PRIMARY_METHOD
-      || method === MOBILE_FOLDERS_METHOD
-      || isTranscribe
-    if (!MOBILE_ALLOWLIST.has(method) && !local) {
-      req.resume()
-      writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: `method ${method} is not exposed to the mobile surface` } })
-      return
-    }
-    let envelope: unknown
-    try {
-      // Voice transcription carries a base64 WAV (~2.5 MB per 10 s of 16 kHz
-      // mono); session.prompt carries attached images (up to 4 × 256 KiB of
-      // base64 per the mobile image compressor, image.ts DEFAULT_MAX_BYTES);
-      // a perf capture carries either a few KB of aggregates or the raw mark
-      // ring (~200 KB, see PERF_RAW_MAX_BYTES); everything else stays at the
-      // small JSON budget.
-      const bodyBudget = isTranscribe
-        ? 12 * 1024 * 1024
-        // 附件上传是这条通道里唯一"本来就很大"的请求：默认那 64 KB 只够放一段
-        // JSON，20 MB 的文件会被 413 挡在门外（实测就是这里把附件功能掐死）。
-        // 给这条方法一份自己的预算，再留 1 MB 给 JSON 包装（名字、会话 id、转义）。
-        : isPrompt ? 2 * 1024 * 1024
-          : method === MOBILE_PERF_METHOD ? PERF_RAW_MAX_BYTES + 4096
-            : method === MOBILE_UPLOAD_ATTACHMENT_METHOD ? MAX_ATTACHMENT_BASE64_CHARS + 1024 * 1024
-              : 64 * 1024
-      envelope = await readBoundedJson(req, bodyBudget)
-    } catch (error) {
-      if (error instanceof Error && error.message === 'body too large') {
-        // Consume the remainder to EOF BEFORE answering. The strict reader
-        // stops mid-stream on overflow; replying while the request body is
-        // still in flight leaves the connection in a half-consumed state —
-        // with `connection: close` the server tears the socket down right
-        // after the response flush, and a client still uploading then hits
-        // ECONNRESET on its write side (flaky, scheduling-dependent; seen
-        // repeatedly in the image-budget spec). Draining first keeps the
-        // close orderly on both sides. The drain is bounded by the client's
-        // own upload; a client that aborts mid-drain is answered anyway
-        // (writeJson swallows a dead socket).
-        try {
-          for await (const _chunk of req) { /* discard */ }
-        } catch {
-          // The client aborted mid-upload; fall through to the response.
-        }
-        // The message rides back through callUnary and shows verbatim on the
-        // phone, so it must match the failing channel: a long recording vs an
-        // oversized image payload are different problems.
-        const message = isTranscribe
-          ? '录音过长，请缩短后重试'
-          : isPrompt
-            ? '内容过大，请压缩图片后重试'
-            : '内容过大，无法发送'
-        writeJson(res, 400, { ok: false, error: { code: 'payload-too-large', message } })
-      } else {
-        writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'invalid json body' } })
-      }
-      return
-    }
-    const parsed = envelope as { rpcId?: unknown; payload?: unknown }
-    const rpcId = typeof parsed?.rpcId === 'string' ? parsed.rpcId : ''
-    if (rpcId === '') {
-      writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'missing rpcId' } })
-      return
-    }
-    if (isPrompt) {
-      const files = countPromptFileParts(parsed.payload)
-      if (files > MAX_PROMPT_FILE_PARTS) {
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: {
-            ok: false,
-            error: { code: 'too-many-files', message: `一次最多 ${MAX_PROMPT_FILE_PARTS} 个文件（收到 ${files} 个）` },
-          },
-        })
-        return
-      }
-    }
-    if (local) {
-      if (method === MOBILE_FINISHED_RUNS_METHOD) {
+  const ctx = { deps, service, apiProxy, mobileEnterToSend, ensureSearchIndex }
+  type MethodContext = MobileDispatchContext & typeof ctx
+  const localHandlers = makeMobileDispatchTable<MethodContext>([
+      [MOBILE_FINISHED_RUNS_METHOD, async (ctx) => {
+        const { res, parsed, rpcId } = ctx
         // 「刚结束」账本：读 / 追加 / 清空。文件跟着 perfDir 走，客户端不传任何路径。
         const body = parsed.payload as { op?: unknown; entries?: unknown; sessionIds?: unknown } | undefined
         const op = body?.op
@@ -1407,8 +1272,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
         return
-      }
-      if (method === MOBILE_PERF_METHOD) {
+      }],
+      [MOBILE_PERF_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         const payload = parsed.payload as { capture?: unknown; label?: unknown }
         // Write-only, inert and path-free: the name is generated host-side from
         // the clock and a sanitized label, the body must look like a perf
@@ -1451,7 +1317,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入性能抓取失败' } },
           })
         }
-      } else if (method === MOBILE_ERROR_METHOD) {
+      }],
+      [MOBILE_ERROR_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         const payload = parsed.payload as { report?: unknown; label?: unknown }
         // Write-only, inert and path-free, exactly like mobile.perf: the file
         // name is generated host-side from the clock and the fingerprint, the
@@ -1491,20 +1359,26 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: error instanceof Error ? error.message : '写入错误上报失败' } },
           })
         }
-      } else if (method === MOBILE_PREFERENCES_METHOD) {
+      }],
+      [MOBILE_PREFERENCES_METHOD, async (ctx) => {
+        const { res, rpcId, mobileEnterToSend } = ctx
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: { mobileEnterToSend: mobileEnterToSend() } },
         })
-      } else if (method === MOBILE_PENDING_METHOD) {
+      }],
+      [MOBILE_PENDING_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         const payload = parsed.payload as any
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
           result: { ok: true, value: deps.pendingTracker.pending(payload?.sessionId) },
         })
-      } else if (method === MOBILE_RESPOND_METHOD) {
+      }],
+      [MOBILE_RESPOND_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps, apiProxy } = ctx
         const payload = parsed.payload as any
         // Ownership binding: the rpcId must be a pending item, and it must
         // belong to the session the phone claims. Without this, a phone could
@@ -1565,7 +1439,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '应答失败，请重试' } },
           })
         }
-      } else if (method === MOBILE_LIST_DIRECTORY_METHOD) {
+      }],
+      [MOBILE_LIST_DIRECTORY_METHOD, async (ctx) => {
+        const { res, parsed, rpcId } = ctx
         const payload = parsed.payload as { path?: unknown; files?: unknown } | undefined
         try {
           // files=true：连文件一起列（手机端「电脑文件」挑选用）。缺省仍只列目录，
@@ -1588,7 +1464,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'directory-unreadable', message: '目录不可读' } },
           })
         }
-      } else if (method === MOBILE_READ_FILE_METHOD) {
+      }],
+      [MOBILE_READ_FILE_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps, apiProxy } = ctx
         // Text-file preview for the chat's file-path links. The phone is a
         // paired device (full host trust, same boundary as listDirectory);
         // the remaining guards are defensive depth, not the trust line: only
@@ -1678,7 +1556,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
           })
         }
-      } else if (method === MOBILE_UPLOAD_ATTACHMENT_METHOD) {
+      }],
+      [MOBILE_UPLOAD_ATTACHMENT_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // 手机端「添加附件」：把选中的文件交给宿主附件服务落盘并暂存，回一个
         // receiptId；随后那条 prompt 用 `{ type: 'file', receiptId }` 引用它。
         //
@@ -1750,7 +1630,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'upload-failed', message: '附件上传失败，请重试' } },
           })
         }
-      } else if (method === MOBILE_COMMANDS_METHOD) {
+      }],
+      [MOBILE_COMMANDS_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // The host command registry is a plugin service, not an ApiProxy
         // domain: answer locally. The phone's + menu is session-scoped, so the
         // directory resolves the SESSION's agent view — the same effective
@@ -1767,7 +1649,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { items } },
         })
-      } else if (method === MOBILE_COMMAND_EXEC_METHOD) {
+      }],
+      [MOBILE_COMMAND_EXEC_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // Execute one slash-command line through the host CommandRuntime —
         // the same interception the desktop composer's adjudicated path uses.
         // `session.prompt` never dispatches commands, so this local method is
@@ -1813,7 +1697,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
               : { matched: true, kind: execution.result.kind, ...(execution.result.text !== undefined ? { text: execution.result.text } : {}) },
           },
         })
-      } else if (method === MOBILE_VOICE_SERVICES_METHOD) {
+      }],
+      [MOBILE_VOICE_SERVICES_METHOD, async (ctx) => {
+        const { res, rpcId, service } = ctx
         // The host-side fallback services (dsh-palm.yaml `transcribe:`), so
         // the phone can show what the desktop config provides. The host API
         // key NEVER leaves the host: the phone cannot use these services
@@ -1835,7 +1721,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { services } },
         })
-      } else if (method === MOBILE_PUSH_SUBSCRIBE_METHOD) {
+      }],
+      [MOBILE_PUSH_SUBSCRIBE_METHOD, async (ctx) => {
+        const { req, res, parsed, rpcId, deps, service } = ctx
         // L2: store this device's Web Push subscription. The paired-device
         // cookie IS the device identity — the same full-trust credential the
         // rest of /m/api rides — so the subscription is bound to it without a
@@ -1871,7 +1759,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { stored: true } },
         })
-      } else if (method === MOBILE_PUSH_UNSUBSCRIBE_METHOD) {
+      }],
+      [MOBILE_PUSH_UNSUBSCRIBE_METHOD, async (ctx) => {
+        const { req, res, rpcId, deps, service } = ctx
         const notify = deps.notify
         if (notify !== undefined) {
           const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
@@ -1882,7 +1772,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { stored: false } },
         })
-      } else if (method === MOBILE_PUSH_CONFIG_METHOD) {
+      }],
+      [MOBILE_PUSH_CONFIG_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // Read (redacted) or write the notify config. Reads never return
         // credentials — only whether each L3 channel is configured — while
         // writes accept the plaintext values (the paired device is full
@@ -2017,7 +1909,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { saved: true } },
         })
-      } else if (method === MOBILE_PAIR_DEVICES_METHOD) {
+      }],
+      [MOBILE_PAIR_DEVICES_METHOD, async (ctx) => {
+        const { req, res, rpcId, service } = ctx
         // Paired-device roster for the phone's device-management screen. The
         // current device's id rides the cookie so the UI can mark "this phone".
         //
@@ -2042,7 +1936,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { devices, maxDevices: service.config.maxDevices } },
         })
-      } else if (method === MOBILE_PAIR_REVOKE_METHOD) {
+      }],
+      [MOBILE_PAIR_REVOKE_METHOD, async (ctx) => {
+        const { req, res, parsed, rpcId, service } = ctx
         const body = parsed.payload as { handle?: unknown } | undefined
         const handle = typeof body?.handle === 'string' ? body.handle : ''
         const target = resolveDeviceHandle(service.snapshot().devices, handle)
@@ -2072,7 +1968,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { removed } },
         })
-      } else if (method === MOBILE_PAIR_RENAME_METHOD) {
+      }],
+      [MOBILE_PAIR_RENAME_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, service } = ctx
         const body = parsed.payload as { handle?: unknown; name?: unknown } | undefined
         const handle = typeof body?.handle === 'string' ? body.handle : ''
         const name = typeof body?.name === 'string' ? body.name : ''
@@ -2091,7 +1989,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { renamed } },
         })
-      } else if (method === MOBILE_PAIR_SET_PRIMARY_METHOD) {
+      }],
+      [MOBILE_PAIR_SET_PRIMARY_METHOD, async (ctx) => {
+        const { req, res, parsed, rpcId, service } = ctx
         // "Primary" is exempt from idle expiry, so promoting a device is a
         // privilege grant. Handing it to a phone lets a stolen handset promote
         // itself and kick the owner out — desktop only, same as revoke-other.
@@ -2120,7 +2020,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { promoted } },
         })
-      } else if (method === MOBILE_FOLDERS_METHOD) {
+      }],
+      [MOBILE_FOLDERS_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // Session folders (F1). One method, discriminated action: the surface is
         // tiny (list/create/rename/remove/assign) and every action answers the
         // full snapshot so the phone never has to merge partial state.
@@ -2199,7 +2101,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: false, error: { code: 'bad-request', message: '未知的分组操作' } },
         })
-      } else if (method === MOBILE_NOTIFY_EVENTS_METHOD) {
+      }],
+      [MOBILE_NOTIFY_EVENTS_METHOD, async (ctx) => {
+        const { res, rpcId, deps } = ctx
         // The phone's notification inbox: the engine's bounded decision log
         // (newest first). A missing notify feature answers the same refusal
         // as push.config.
@@ -2226,7 +2130,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             },
           },
         })
-      } else if (method === MOBILE_GIT_SUMMARY_METHOD) {
+      }],
+      [MOBILE_GIT_SUMMARY_METHOD, async (ctx) => {
+        const { res, parsed, rpcId } = ctx
         // Read-only repository summary for one directory. The phone asks for
         // the workspace it is already looking at; anything that is not a
         // git work tree is a normal "not a repo" answer, not an error.
@@ -2246,7 +2152,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: summary },
         })
-      } else if (method === MOBILE_LATEST_VERSION_METHOD) {
+      }],
+      [MOBILE_LATEST_VERSION_METHOD, async (ctx) => {
+        const { res, rpcId } = ctx
         // About-sheet update check. The registry may be unreachable from the
         // host network; the phone then sees a stable refusal, never a hang.
         const latest = await fetchLatestVersion(PACKAGE_NAME)
@@ -2266,7 +2174,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             value: { latest, isNewer: isNewerVersion(latest, pkg.version) },
           },
         })
-      } else if (method === MOBILE_TURN_OUTLINE_METHOD) {
+      }],
+      [MOBILE_TURN_OUTLINE_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, apiProxy } = ctx
         // 轮次大纲有两个来源，按可靠度排：枚举快照 → 现读一次宿主投影。
         //
         // 只信枚举快照是不够的：那一页是"最近更新的 N 个会话"，打开一个很久
@@ -2304,7 +2214,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { turns: outline === undefined ? null : outline } },
         })
-      } else if (method === MOBILE_INBOX_METHOD) {
+      }],
+      [MOBILE_INBOX_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, apiProxy } = ctx
         // 排队消息：同一份花名册快照里就有（inbox 投影），不读日志、不解压。
         const body = parsed.payload as { sessionId?: unknown } | undefined
         const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
@@ -2323,7 +2235,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { inbox: inbox === undefined ? null : inbox } },
         })
-      } else if ((method as string) === MOBILE_SESSION_STATE_METHOD) {
+      }],
+      [MOBILE_SESSION_STATE_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps, apiProxy } = ctx
         // 一份原子快照：行 + 队列 + 回合 + 队列版本都在同一个切面上。
         //
         // 手机端以前要三次调用（logTail / inbox / turnState）才能拼出一屏，三次落在
@@ -2390,7 +2304,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             },
           },
         })
-      } else if (method === MOBILE_GOAL_METHOD) {
+      }],
+      [MOBILE_GOAL_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps, apiProxy } = ctx
         // 目标条：宿主 goal 投影的线上形状是 { current }，原样交出去由客户端解析。
         const body = parsed.payload as { sessionId?: unknown } | undefined
         const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
@@ -2411,7 +2327,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value },
         })
-      } else if (method === MOBILE_GOAL_ACTION_METHOD) {
+      }],
+      [MOBILE_GOAL_ACTION_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // 目标动作直连宿主服务：暂停=撤授权（durable 相位不变），恢复=重新授权，
         // 编辑/清除走同一套 CAS。命令通道的老路留给没有本方法的旧宿主。
         const body = parsed.payload as { sessionId?: unknown; action?: unknown; objective?: unknown } | undefined
@@ -2449,7 +2367,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             },
           },
         })
-      } else if (method === MOBILE_TURN_STATE_METHOD) {
+      }],
+      [MOBILE_TURN_STATE_METHOD, async (ctx) => {
+        const { res, parsed, rpcId } = ctx
         // 手机唯一该问的「还在跑吗」。宿主比完帧镜像与日志边界再回答，客户端不再推断。
         const body = parsed.payload as { sessionId?: unknown } | undefined
         const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
@@ -2476,7 +2396,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'unavailable', message: '轮次状态不可读' } },
           })
         }
-      } else if (method === MOBILE_RUNNING_SESSIONS_METHOD) {
+      }],
+      [MOBILE_RUNNING_SESSIONS_METHOD, async (ctx) => {
+        const { res, rpcId, apiProxy } = ctx
         setRunningProxy(apiProxy)
         // Which main-agent sessions have an attached agent running right now.
         // The run-overview badge seeds from this so a session that started
@@ -2533,7 +2455,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '运行状态查询失败，请稍后重试' } },
           })
         }
-      } else if (method === MOBILE_SEARCH_METHOD) {
+      }],
+      [MOBILE_SEARCH_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, apiProxy, ensureSearchIndex } = ctx
         // 期 2：自建索引版搜索。索引还没建好（或 Node 不带 node:sqlite）时回
         // `fallback: true`，手机端据此退回旧的 mobile.searchAll —— 不会出现
         // 「索引没建完就搜不到」的空结果。
@@ -2677,7 +2601,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             rpcId,
             result: { ok: false, error: { code: 'internal', message: '搜索失败，请稍后重试' } },
           })
-        }      } else if (method === MOBILE_SEARCH_ALL_METHOD) {
+        }      }],
+      [MOBILE_SEARCH_ALL_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, apiProxy, ensureSearchIndex } = ctx
         // 旧入口留着（老客户端还在调），但内部换成索引：返回形状不变
         // （每个会话一条 + 标题命中），一次查询就算完，不读任何会话历史。
         const body = parsed.payload as { query?: unknown } | undefined
@@ -2746,7 +2672,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '会话搜索失败，请稍后重试' } },
           })
         }
-      } else if (method === MOBILE_SEARCH_MESSAGES_METHOD) {
+      }],
+      [MOBILE_SEARCH_MESSAGES_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, ensureSearchIndex } = ctx
         // 会话内定位：一次索引查询。旧实现要把这个会话的历史翻到底（最多
         // 4096 页）才能确定 seq，现在命中行本身就带 seq。
         const body = parsed.payload as { sessionId?: unknown; query?: unknown } | undefined
@@ -2784,7 +2712,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '消息定位失败，请稍后重试' } },
           })
         }
-      } else if (method === MOBILE_USAGE_METHOD) {
+      }],
+      [MOBILE_USAGE_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps, apiProxy } = ctx
         // Per-provider usage/balance, synced from the desktop's configured
         // providers. `refresh: true` bypasses the short cache. Keys resolve
         // host-side only; the phone receives display facts alone.
@@ -2829,7 +2759,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: served },
         })
-      } else if (method === MOBILE_READ_CHAT_METHOD) {
+      }],
+      [MOBILE_READ_CHAT_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps, apiProxy } = ctx
         // Folded-view chat read (v3): serve message rows from the host's
         // mux-fed window cache. A window hit never touches the log; a cold
         // read (or an older-page read) folds one `session.history` page. The
@@ -2913,7 +2845,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '会话内容读取失败，请稍后重试' } },
           })
         }
-      } else if ((method as string) === MOBILE_LOG_TAIL_METHOD) {
+      }],
+      [MOBILE_LOG_TAIL_METHOD, async (ctx) => {
+        const { res, parsed, rpcId } = ctx
         // 上面那串比较把 method 窄成了剩余字面量的联合，这里显式放宽类型。
         // 会话日志直读（C）：只解尾部若干 zstd 帧，就地折叠成与宿主同形的
         // rows 再回给手机。宿主的 session.page 每次都整文件解压（52 MB 实测
@@ -2987,7 +2921,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '日志尾部读取失败' } },
           })
         }
-      } else if (method === MOBILE_OBSERVE_METHOD) {
+      }],
+      [MOBILE_OBSERVE_METHOD, async (ctx) => {
+        const { req, res, parsed, rpcId, deps, service, apiProxy } = ctx
         // 手机一打开页面就来这里，顺手把「谁在跑」的基线预热掉：等用户点进
         // 会话列表时它多半已经好了，不必让"运行中"晚二十几秒才出现。
         setRunningProxy(apiProxy)
@@ -3015,7 +2951,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: { observing: sessionId ?? null } },
         })
-      } else if (method === MOBILE_DIAGNOSTICS_METHOD) {
+      }],
+      [MOBILE_DIAGNOSTICS_METHOD, async (ctx) => {
+        const { res, rpcId, deps } = ctx
         // 依赖自检 + 健康报告：palm 与宿主的耦合点都是内部契约，升级时可能静默
         // 失效（订阅都在 try/catch 里降级）。这里把 setup 期登记、运行期帧计数、
         // 协议/帧/方法面、推送订阅与投递结果一起交出去，让"哪条断了""为什么手机
@@ -3025,7 +2963,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           rpcId,
           result: { ok: true, value: buildHealthReport(deps) },
         })
-      } else if (method === MOBILE_READ_ATTACHMENT_METHOD) {
+      }],
+      [MOBILE_READ_ATTACHMENT_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, apiProxy } = ctx
         // 图片字节（0.1.5 起事件只带 attachmentId 引用）。宿主按"该会话确实引用过
         // 这张图"授权，所以 sessionId 必须一起带上；适配层按内容寻址的 id 长期缓存，
         // 同一张图只过一次隧道。
@@ -3052,7 +2992,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '图片读取失败' } },
           })
         }
-      } else if (method === MOBILE_PREVIEWS_METHOD) {
+      }],
+      [MOBILE_PREVIEWS_METHOD, async (ctx) => {
+        const { res, parsed, rpcId, deps } = ctx
         // Batch last-message previews (v3.1): one call for the list page's
         // preview burst, served from the host's mux-fed cache — cached rows
         // cost zero log reads, cold rows one lazy tail read each. A session
@@ -3095,7 +3037,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             result: { ok: false, error: { code: 'internal', message: '预览读取失败，请稍后重试' } },
           })
         }
-      } else if (isTranscribe) {
+      }],
+      [MOBILE_TRANSCRIBE_METHOD, async (ctx) => {
+        const { res, parsed, rpcId } = ctx
         // Voice → text through the phone-configured speech-to-text services
         // (OpenAI-compatible /audio/transcriptions endpoints, tried in
         // order). The service list rides the request from the phone; the
@@ -3111,9 +3055,11 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             ? { ok: true, value: { text: result.text } }
             : { ok: false, error: { code: 'transcribe-failed', message: result.error } },
         })
-      }
-      return
-    }
+      }],
+  ])
+
+  async function handleProxy(ctx: MethodContext): Promise<void> {
+    const { req, res, method, parsed, rpcId, apiProxy } = ctx
     try {
       // Cancel the host-side work when the phone goes away mid-call (the
       // response stream closing before we answer means nobody is listening).
@@ -3135,6 +3081,114 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         result: { ok: false, error: { code: 'internal', message: '内部错误，请重试' } },
       })
     }
+  }
+
+  const methods = makeMobileDispatchTable<MethodContext>([
+    ...Array.from(MOBILE_ALLOWLIST, method => [method, handleProxy] as const),
+    ...localHandlers,
+  ])
+
+  const handleMethod = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (req.method !== 'POST') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    // 第一次通过门禁的手机请求就顺手把索引拉起来（幂等；之后再进来只是等同一个 promise）。
+    void ensureSearchIndex().catch(() => undefined)
+    if (!gateOk(req)) {
+      // Rejected early: drain whatever body the client sent so the request
+      // stream (and the keep-alive connection) is released, not stalled.
+      req.resume()
+      writeJson(res, 403, { ok: false, error: { code: 'unpaired', message: 'mobile session is not paired' } })
+      return
+    }
+    const pathname = new URL(req.url ?? '/', 'http://x').pathname
+    if (!pathname.startsWith(MOBILE_API_METHOD_PREFIX)) {
+      req.resume()
+      writeJson(res, 404, { ok: false, error: { code: 'not-found', message: 'unknown mobile api path' } })
+      return
+    }
+    const method = pathname.slice(MOBILE_API_METHOD_PREFIX.length)
+    const isTranscribe = method === MOBILE_TRANSCRIBE_METHOD
+    const isPrompt = method === 'session.prompt'
+    const local = localHandlers.has(method)
+    if (!MOBILE_ALLOWLIST.has(method) && !local) {
+      req.resume()
+      writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: `method ${method} is not exposed to the mobile surface` } })
+      return
+    }
+    let envelope: unknown
+    try {
+      // Voice transcription carries a base64 WAV (~2.5 MB per 10 s of 16 kHz
+      // mono); session.prompt carries attached images (up to 4 × 256 KiB of
+      // base64 per the mobile image compressor, image.ts DEFAULT_MAX_BYTES);
+      // a perf capture carries either a few KB of aggregates or the raw mark
+      // ring (~200 KB, see PERF_RAW_MAX_BYTES); everything else stays at the
+      // small JSON budget.
+      const bodyBudget = isTranscribe
+        ? 12 * 1024 * 1024
+        // 附件上传是这条通道里唯一"本来就很大"的请求：默认那 64 KB 只够放一段
+        // JSON，20 MB 的文件会被 413 挡在门外（实测就是这里把附件功能掐死）。
+        // 给这条方法一份自己的预算，再留 1 MB 给 JSON 包装（名字、会话 id、转义）。
+        : isPrompt ? 2 * 1024 * 1024
+          : method === MOBILE_PERF_METHOD ? PERF_RAW_MAX_BYTES + 4096
+            : method === MOBILE_UPLOAD_ATTACHMENT_METHOD ? MAX_ATTACHMENT_BASE64_CHARS + 1024 * 1024
+              : 64 * 1024
+      envelope = await readBoundedJson(req, bodyBudget)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'body too large') {
+        // Consume the remainder to EOF BEFORE answering. The strict reader
+        // stops mid-stream on overflow; replying while the request body is
+        // still in flight leaves the connection in a half-consumed state —
+        // with `connection: close` the server tears the socket down right
+        // after the response flush, and a client still uploading then hits
+        // ECONNRESET on its write side (flaky, scheduling-dependent; seen
+        // repeatedly in the image-budget spec). Draining first keeps the
+        // close orderly on both sides. The drain is bounded by the client's
+        // own upload; a client that aborts mid-drain is answered anyway
+        // (writeJson swallows a dead socket).
+        try {
+          for await (const _chunk of req) { /* discard */ }
+        } catch {
+          // The client aborted mid-upload; fall through to the response.
+        }
+        // The message rides back through callUnary and shows verbatim on the
+        // phone, so it must match the failing channel: a long recording vs an
+        // oversized image payload are different problems.
+        const message = isTranscribe
+          ? '录音过长，请缩短后重试'
+          : isPrompt
+            ? '内容过大，请压缩图片后重试'
+            : '内容过大，无法发送'
+        writeJson(res, 400, { ok: false, error: { code: 'payload-too-large', message } })
+      } else {
+        writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'invalid json body' } })
+      }
+      return
+    }
+    const parsed = envelope as { rpcId?: unknown; payload?: unknown }
+    const rpcId = typeof parsed?.rpcId === 'string' ? parsed.rpcId : ''
+    if (rpcId === '') {
+      writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'missing rpcId' } })
+      return
+    }
+    if (isPrompt) {
+      const files = countPromptFileParts(parsed.payload)
+      if (files > MAX_PROMPT_FILE_PARTS) {
+        writeJson(res, 200, {
+          type: 'server-response',
+          rpcId,
+          result: {
+            ok: false,
+            error: { code: 'too-many-files', message: `一次最多 ${MAX_PROMPT_FILE_PARTS} 个文件（收到 ${files} 个）` },
+          },
+        })
+        return
+      }
+    }
+    const handler = methods.get(method) ?? handleProxy
+    await handler({ ...ctx, req, res, method, parsed, rpcId })
   }
 
   /** Concurrent SSE mux subscriptions (each holds a host mux stream + timer). */
@@ -3487,7 +3541,11 @@ function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ f
 
 async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rpcId: string, signal?: AbortSignal): Promise<unknown> {
   const request: RpcRequest<unknown> = { rpcId: RpcId(rpcId), payload }
-  if (method === 'session.list') {
+  const ctx = { apiProxy, payload, rpcId, signal, request }
+  type ProxyContext = typeof ctx
+  const sessionList = makeMobileDispatchTable<ProxyContext, unknown>([
+  ['session.list', async (ctx) => {
+    const { apiProxy, payload, rpcId, request } = ctx
     // v3.1: short-TTL the host enumeration (sessions.list + workspace.list
     // fold every session's metadata on the HOST — hundreds of rows of stat/
     // projection reads per call). Returning from the list page re-pages the
@@ -3599,7 +3657,8 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
         },
       },
     }
-  }
+  }],
+  ])
   // The ApiProxy unary methods resolve to the internal response shape
   // ({ rpcId, result }) without the transport envelope the phone's callUnary
   // requires — wrap every pass-through in the same 'server-response'
@@ -3609,7 +3668,10 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     rpcId,
     result: response.result,
   })
-  if (method === 'workspace.list') {
+  const methods = makeMobileDispatchTable<ProxyContext, unknown>([
+    ...sessionList,
+    ['workspace.list', async (ctx) => {
+    const { apiProxy, request } = ctx
     // v3.2: short-TTL the workspace roster — the session list re-fetches it
     // on every visit, and it only changes on create/rename/delete.
     const cached = workspaceListTtlCache
@@ -3619,29 +3681,34 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const response = await apiProxy.workspace.list(request as never)
     workspaceListTtlCache = { at: Date.now(), proxy: apiProxy, response }
     return wrap(response)
-  }
-  if (method === 'workspace.create') {
+  }],
+  ['workspace.create', async (ctx) => {
+    const { apiProxy, request } = ctx
     invalidateRosterCaches()
     return wrap(await apiProxy.workspace.create(request as never))
-  }
-  if (method === 'workspace.rename') {
+  }],
+  ['workspace.rename', async (ctx) => {
+    const { apiProxy, request } = ctx
     invalidateRosterCaches()
     return wrap(await apiProxy.workspace.rename(request as never))
-  }
-  if (method === 'workspace.delete') {
+  }],
+  ['workspace.delete', async (ctx) => {
+    const { apiProxy, request } = ctx
     invalidateRosterCaches()
     return wrap(await apiProxy.workspace.delete(request as never))
-  }
+  }],
   // Session delete (= the desktop's archive semantics): the row leaves every
   // roster and never reappears after a refresh, while the session log stays
   // on disk (restorable from the desktop). Without this the phone's delete
   // was a local-only removal and the session resurrected on the next roster
   // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
-  if (method === 'workspace.archiveSession') {
+  ['workspace.archiveSession', async (ctx) => {
+    const { apiProxy, request } = ctx
     invalidateRosterCaches()
     return wrap(await apiProxy.workspace.archiveSession(request as never))
-  }
-  if (method === 'agentPreset.list') {
+  }],
+  ['agentPreset.list', async (ctx) => {
+    const { apiProxy, request } = ctx
     // v3.2: the preset roster only changes on the desktop; short-TTL it.
     const cached = agentPresetTtlCache
     if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
@@ -3650,47 +3717,71 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const response = await apiProxy.agentPresets.list(request as never)
     agentPresetTtlCache = { at: Date.now(), proxy: apiProxy, response }
     return wrap(response)
-  }
-  if (method === 'session.create') {
+  }],
+  ['session.create', async (ctx) => {
+    const { apiProxy, request } = ctx
     // The new session attaches to a workspace: the roster + list change.
     invalidateRosterCaches()
     return wrap(await apiProxy.sessions.create(request as never))
-  }
-  if (method === 'session.history') return wrap(await apiProxy.sessions.history(request as never))
-  if (method === 'session.search') return wrap(await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
-  if (method === 'session.prompt') {
+  }],
+  ['session.history', async (ctx) => {
+    const { apiProxy, request } = ctx
+    return wrap(await apiProxy.sessions.history(request as never))
+  }],
+  ['session.search', async (ctx) => {
+    const { apiProxy, signal, request } = ctx
+    return wrap(await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
+  }],
+  ['session.prompt', async (ctx) => {
+    const { apiProxy, payload, request } = ctx
     const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
     invalidateSessionSearch()
     const reply = await apiProxy.sessions.prompt(request as never)
     // 队列版本 +1：手机端的乐观排队项据此退场（见 mobile/session-store.ts）。
     if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
     return wrap(reply)
-  }
-  if (method === 'session.models') return wrap(await apiProxy.sessions.models(request as never))
-  if (method === 'session.selectModel') return wrap(await apiProxy.sessions.selectModel(request as never))
-  if (method === 'session.rename') {
+  }],
+  ['session.models', async (ctx) => {
+    const { apiProxy, request } = ctx
+    return wrap(await apiProxy.sessions.models(request as never))
+  }],
+  ['session.selectModel', async (ctx) => {
+    const { apiProxy, request } = ctx
+    return wrap(await apiProxy.sessions.selectModel(request as never))
+  }],
+  ['session.rename', async (ctx) => {
+    const { apiProxy, request } = ctx
     // The list row's title comes from projections; drop the cached envelope
     // so the renamed title shows on the next visit.
     invalidateRosterCaches()
     return wrap(await apiProxy.sessions.rename(request as never))
-  }
-  if (method === 'session.cancel') return wrap(await apiProxy.sessions.cancel(request as never))
-  if (method === 'session.updateQueue') {
+  }],
+  ['session.cancel', async (ctx) => {
+    const { apiProxy, request } = ctx
+    return wrap(await apiProxy.sessions.cancel(request as never))
+  }],
+  ['session.updateQueue', async (ctx) => {
+    const { apiProxy, payload, request } = ctx
     const sessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId
     const reply = await apiProxy.sessions.updateQueue(request as never)
     // 编辑/删除/插队都会让队列换代：手机端的乐观项与快照都靠这个版本号对齐。
     if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
     return wrap(reply)
-  }
-  if (method === 'subagent.list') return wrap(await subagentCatalogWithActivity(request, apiProxy))
-  if (method === 'settings.read') {
+  }],
+  ['subagent.list', async (ctx) => {
+    const { apiProxy, request } = ctx
+    return wrap(await subagentCatalogWithActivity(request, apiProxy))
+  }],
+  ['settings.read', async (ctx) => {
+    const { apiProxy, request } = ctx
     // The full redacted settings surface (namespace schemas + values, secrets
     // stripped by the host seam) — the phone renders the same configuration
     // cards as the desktop. Writes stay whitelisted below.
     const response = await apiProxy.settings.describe(request as never)
     return wrap(response)
-  }
-  if (method === 'settings.mutate') {
+  }],
+  ['settings.mutate', async (ctx) => {
+    const { apiProxy, payload, rpcId } = ctx
     const body = asJsonObject(payload)
     const ns = typeof body?.ns === 'string' ? body.ns : undefined
     const ops = Array.isArray(body?.ops) ? body.ops : undefined
@@ -3716,7 +3807,11 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
       },
     } as never)
     return wrap(response)
-  }
+  }],
+  ])
+  
+  const handler = methods.get(method)
+  if (handler !== undefined) return await handler(ctx)
   throw new Error(`unhandled allowlisted method ${method}`)
 }
 
