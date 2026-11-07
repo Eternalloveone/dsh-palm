@@ -6910,15 +6910,15 @@ describe('行为回放（S0 安全带）', () => {
       .toEqual(expected)
   }
 
-  // 默认不跑：这个 harness 还**不是完全隔离的**——它和同文件里其它 240 个用例共用
-  // 模块级状态（显示偏好、已答审批等），全量跑时指纹与单跑不一致。要让它进默认门禁，
-  // 得先把它挪进独立测试文件（vitest 按文件隔离模块），把 FakeMux 等工具抽成公共 harness。
-  // 在那之前用显式开关跑，避免"看起来有安全带、其实会随机红"。
-  const traceEnabled = process.env['TRACE'] === '1' || process.env['UPDATE_TRACE'] === '1'
-  it.runIf(traceEnabled)('加载 → 打开更多 → 打开导出，三个时点的界面指纹保持不变', async () => {
+  // 进默认门禁：指纹只记稳定事实（可点元素、菜单项、行数），并**先等到异步内容就位**
+  // 再采集，所以单跑与全量跑一致（实测连跑多次）。
+  it('加载 → 打开更多 → 打开导出，三个时点的界面指纹保持不变', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
+    // 模型选择器是异步加载的（宿主返回后才渲染）。不等它，指纹就会在
+    // 「单跑已拿到 fx-1 / 全量跑还没拿到」之间漂移——第一版就是栽在这。
+    await waitFor(() => expect(screen.getByRole('button', { name: /fx-1/ })).toBeTruthy())
 
     const trace = await record([
       { name: 'after-load' },
