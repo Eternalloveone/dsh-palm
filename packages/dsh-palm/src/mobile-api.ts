@@ -1045,6 +1045,7 @@ import { mobileError, mobileSearchMessages } from './mobile/api/mobile-search-ha
 import { mobileCommandExec, mobilePreviews } from './mobile/api/mobile-action-handlers.ts'
 import { mobileFinishedRuns } from './mobile/api/mobile-finished-runs.ts'
 import { mobileRunningSessions } from './mobile/api/mobile-running.ts'
+import { mobileRespond } from './mobile/api/mobile-respond.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1199,69 +1200,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       [MOBILE_ERROR_METHOD, async (ctx) => mobileError(ctx)],
       [MOBILE_PREFERENCES_METHOD, async (ctx) => mobilePreferences(ctx)],
       [MOBILE_PENDING_METHOD, async (ctx) => mobilePending(ctx)],
-      [MOBILE_RESPOND_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps, apiProxy } = ctx
-        const payload = parsed.payload as any
-        // Ownership binding: the rpcId must be a pending item, and it must
-        // belong to the session the phone claims. Without this, a phone could
-        // answer any rpcId it guesses — and with desktop + phone both online,
-        // either could pre-empt the other's approval/question. The pending
-        // tracker records each pending rpcId under the session that requested
-        // it, so the answer is bound to that session before it reaches the
-        // host. An rpcId that is not pending (already resolved elsewhere, or
-        // never tracked) is refused rather than silently forwarded.
-        const targetRpcId = typeof payload?.rpcId === 'string' ? payload.rpcId : ''
-        const claimedSessionId = typeof payload?.response?.sessionId === 'string' ? payload.response.sessionId : undefined
-        const ownerSession = deps.pendingTracker.ownerOfRpcId(targetRpcId)
-        if (ownerSession === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'not-found', message: '待处理项不存在或已处理' } },
-          })
-          return
-        }
-        if (claimedSessionId !== ownerSession) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'conflict', message: '待处理项不属于当前会话' } },
-          })
-          return
-        }
-        try {
-          const receipt = await apiProxy.respond({
-            type: 'client-response',
-            rpcId: RpcId(targetRpcId),
-            result: { ok: true, value: payload.response },
-          })
-          // The answer consumed the pending item, so retire it here rather than
-          // waiting for the resolved frame to travel the mux stream: the phone
-          // routinely answers and leaves in the same breath, and a panel left in
-          // the tracker is what re-installed itself on the next visit
-          // (mobile.pending serves this tracker). Each call is a no-op for the
-          // other panel kind.
-          if (receipt.accepted) {
-            deps.pendingTracker.resolveApprovalByRpcId(targetRpcId)
-            deps.pendingTracker.resolveQuestionByRpcId(targetRpcId)
-          }
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: receipt },
-          })
-        } catch (error) {
-          // The host's respond error is internal (e.g. the item was already
-          // resolved); the phone only needs a stable refusal, never the
-          // host's message.
-          console.error('mobile.respond failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '应答失败，请重试' } },
-          })
-        }
-      }],
+      [MOBILE_RESPOND_METHOD, async (ctx) => mobileRespond(ctx)],
       [MOBILE_LIST_DIRECTORY_METHOD, async (ctx) => mobileListDirectoryHandler(ctx)],
       [MOBILE_READ_FILE_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps, apiProxy } = ctx
