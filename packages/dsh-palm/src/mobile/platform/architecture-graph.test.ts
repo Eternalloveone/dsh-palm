@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { edgesOf } from './module-graph.ts'
+import { edgesOf, findCycles } from './module-graph.ts'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const MOBILE = join(ROOT, 'mobile')
@@ -46,5 +46,9 @@ describe('architecture（模块图）', () => {
   it('图规模在预期区间（防止扫描器静默失效）', () => {
     expect(FILES.length).toBeGreaterThan(200)
     expect(ALL_EDGES.length).toBeGreaterThan(800)
+  })
+
+  it('运行时不存在 import 环（类型边不算环）', () => {
+    expect(findCycles(ALL_EDGES).map(cycle => cycle.map(rel).join(' <-> '))).toEqual([])
   })
 })

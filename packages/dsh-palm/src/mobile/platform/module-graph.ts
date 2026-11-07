@@ -117,3 +117,64 @@ export function buildGraph(
 export function dependsOn(edges: ModuleEdge[], fromPattern: RegExp, toPattern: RegExp): ModuleEdge[] {
   return edges.filter(e => fromPattern.test(e.from) && toPattern.test(e.to))
 }
+
+/**
+ * 找强连通分量（Tarjan），返回长度 ≥ 2 的环，以及指向自身的自环。
+ * 只统计 resolved 的边，按 `to`/`from` 的仓库相对路径建图。
+ */
+export function findCycles(edges: ModuleEdge[], options: { includeTypeOnly?: boolean } = {}): string[][] {
+  const adj = new Map<string, string[]>()
+  for (const edge of edges) {
+    if (!edge.resolved) continue
+    // 类型边不构成运行时环：TS 允许双向 type 引用，打包后无副作用。
+    if (edge.kind === 'type-only' && options.includeTypeOnly !== true) continue
+    const list = adj.get(edge.from) ?? []
+    list.push(edge.to)
+    adj.set(edge.from, list)
+    if (!adj.has(edge.to)) adj.set(edge.to, [])
+  }
+
+  let index = 0
+  const indices = new Map<string, number>()
+  const low = new Map<string, number>()
+  const onStack = new Set<string>()
+  const stack: string[] = []
+  const cycles: string[][] = []
+
+  const strongConnect = (node: string) => {
+    indices.set(node, index)
+    low.set(node, index)
+    index += 1
+    stack.push(node)
+    onStack.add(node)
+
+    for (const next of adj.get(node) ?? []) {
+      if (next === node) {
+        cycles.push([node])
+        continue
+      }
+      if (!indices.has(next)) {
+        strongConnect(next)
+        low.set(node, Math.min(low.get(node)!, low.get(next)!))
+      } else if (onStack.has(next)) {
+        low.set(node, Math.min(low.get(node)!, indices.get(next)!))
+      }
+    }
+
+    if (low.get(node) === indices.get(node)) {
+      const component: string[] = []
+      let member: string
+      do {
+        member = stack.pop()!
+        onStack.delete(member)
+        component.push(member)
+      } while (member !== node)
+      if (component.length > 1) cycles.push(component.sort())
+    }
+  }
+
+  for (const node of adj.keys()) {
+    if (!indices.has(node)) strongConnect(node)
+  }
+  return cycles
+}
