@@ -27,11 +27,9 @@ import { recallChatSnapshot } from '../../chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../scroll-machine.ts'
 import type { ChatScrollHandle } from '../../ui/hooks/use-stick-to-bottom.ts'
 import { createCache } from '../../kernels/cache.ts'
+import { CACHE_POLICIES } from '../../kernels/cache-policies.ts'
 
-/** 预取页缓存最多留几页：够"下一个/上一个"来回切，又不至于把长会话的正文攒在内存里。 */
-const PREFETCH_MAX_PAGES = 4
-
-/** 预取页缓存（数字游标 → 页）。有界，见 {@link PREFETCH_MAX_PAGES}。 */
+/** 预取页缓存（数字游标 → 页）。有界，容量见策略表。 */
 export interface PagePrefetchCache {
   get(beforeSeq: number): ChatPageResult | undefined
   has(beforeSeq: number): boolean
@@ -41,7 +39,7 @@ export interface PagePrefetchCache {
 
 /** 用 Cache 内核做一份带容量上限的预取缓存（内核键是字符串，这里转一层）。 */
 function createPagePrefetchCache(): PagePrefetchCache {
-  const store = createCache<ChatPageResult>({ maxEntries: PREFETCH_MAX_PAGES })
+  const store = createCache<ChatPageResult>({ maxEntries: CACHE_POLICIES.pagePrefetch.maxEntries })
   return {
     get: beforeSeq => store.get(String(beforeSeq)),
     has: beforeSeq => store.has(String(beforeSeq)),

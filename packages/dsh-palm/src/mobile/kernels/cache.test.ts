@@ -5,7 +5,7 @@
  * "刚存进去就没了"，而且都不报错。
  */
 import { describe, expect, it } from 'vitest'
-import { createCache, fitByteBudget } from './cache.ts'
+import { createCache, fitByteBudget, unwrapCache, wrapCache } from './cache.ts'
 
 /** 可控时钟。 */
 function clock(start = 1_700_000_000_000) {
@@ -184,5 +184,42 @@ describe('fitByteBudget', () => {
 
   it('空数组永远装得下', () => {
     expect(fitByteBudget([], encode, 0)).toEqual([])
+  })
+})
+
+describe('统一信封 wrapCache / unwrapCache', () => {
+  const NOW = 1_700_000_000_000
+
+  it('打包再拆开能拿回原数据', () => {
+    const raw = JSON.stringify(wrapCache(1, { rows: ['a'] }, NOW))
+    expect(unwrapCache(raw, { version: 1, now: NOW })).toEqual({ rows: ['a'] })
+  })
+
+  it('版本不符整份作废（不做"尽量兼容"）', () => {
+    const raw = JSON.stringify(wrapCache(2, { rows: [] }, NOW))
+    expect(unwrapCache(raw, { version: 1, now: NOW })).toBeUndefined()
+  })
+
+  it('按写入时刻判过期，而不是读出时刻', () => {
+    const raw = JSON.stringify(wrapCache(1, 'data', NOW))
+    expect(unwrapCache(raw, { version: 1, ttlMs: 1_000, now: NOW + 999 })).toBe('data')
+    expect(unwrapCache(raw, { version: 1, ttlMs: 1_000, now: NOW + 1_001 })).toBeUndefined()
+  })
+
+  it('坏 JSON / 空串 / null / 非对象一律 undefined', () => {
+    expect(unwrapCache('{不是 json', { version: 1 })).toBeUndefined()
+    expect(unwrapCache('', { version: 1 })).toBeUndefined()
+    expect(unwrapCache(null, { version: 1 })).toBeUndefined()
+    expect(unwrapCache('"字符串"', { version: 1 })).toBeUndefined()
+  })
+
+  it('缺 at 或 at 不是有限数也算坏数据', () => {
+    expect(unwrapCache(JSON.stringify({ v: 1, data: 1 }), { version: 1 })).toBeUndefined()
+    expect(unwrapCache(JSON.stringify({ v: 1, at: Number.NaN, data: 1 }), { version: 1 })).toBeUndefined()
+  })
+
+  it('不填 ttlMs 就不按时间作废（只认版本）', () => {
+    const raw = JSON.stringify(wrapCache(1, 'old', NOW))
+    expect(unwrapCache(raw, { version: 1, now: NOW + 10 * 365 * 24 * 3600_000 })).toBe('old')
   })
 })

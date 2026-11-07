@@ -12,11 +12,12 @@
  * 过期与淘汰由 Cache 内核负责（W4）——这层只管"存什么"。
  */
 import { createCache } from './kernels/cache.ts'
+import { CACHE_POLICIES } from './kernels/cache-policies.ts'
 
-const OUTLINE_TTL_MS = 5 * 60 * 1000
-const OUTLINE_MAX_ENTRIES = 8
-
-const entries = createCache<unknown>({ ttlMs: OUTLINE_TTL_MS, maxEntries: OUTLINE_MAX_ENTRIES })
+const entries = createCache<unknown>({
+  ttlMs: CACHE_POLICIES.turnOutline.ttlMs,
+  maxEntries: CACHE_POLICIES.turnOutline.maxEntries,
+})
 
 /** 取一份还没过期的大纲；没有（或过期）返回 undefined。 */
 export function getCachedOutline(sessionId: string): unknown | undefined {

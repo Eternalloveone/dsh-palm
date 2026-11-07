@@ -128,6 +128,61 @@ export function createCache<V>(policy: CachePolicy<V> = {}): CacheStore<V> {
 }
 
 /**
+ * **统一信封**：落盘（或跨进程）的每份缓存都包一层，带上版本与时间。
+ *
+ * 病灶：每个持久化缓存自己决定"存什么形状、怎么判断过期、旧数据怎么办"。三种做法
+ * 三种 bug ——最常见的是新版加了字段，老数据缺字段，读出来直接渲染成空白。
+ * 信封把这三点变成协议：`v` 不匹配就整份丢掉（不是"尽量兼容"），`at` 是**写入时刻**
+ * （不是读出时刻，所以 TTL 判得准）。
+ */
+export interface CacheEnvelope<T> {
+  /** 载荷版本：不匹配整份作废。 */
+  readonly v: number
+  /** 写入时刻（epoch ms）。 */
+  readonly at: number
+  readonly data: T
+}
+
+/** 打包一份缓存。 */
+export function wrapCache<T>(version: number, data: T, at: number): CacheEnvelope<T> {
+  return { v: version, at, data }
+}
+
+export interface UnwrapPolicy {
+  /** 期望的载荷版本。 */
+  version: number
+  /** 超过这个年龄就当没有（毫秒）；不填表示不按时间作废。 */
+  ttlMs?: number
+  /** 读的时刻（epoch ms），默认 `Date.now()`。 */
+  now?: number
+}
+
+/**
+ * 拆信封：坏 JSON、版本不符、过期、形状不对一律返回 `undefined`。
+ *
+ * 返回值是 `unknown`——**领域校验仍然归调用方**：内核不知道 `liveIds` 该是什么类型，
+ * 也不该知道。
+ */
+export function unwrapCache(raw: string | null | undefined, policy: UnwrapPolicy): unknown | undefined {
+  if (raw === null || raw === undefined || raw === '') return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const envelope = parsed as { v?: unknown; at?: unknown; data?: unknown }
+  if (envelope.v !== policy.version) return undefined
+  if (typeof envelope.at !== 'number' || !Number.isFinite(envelope.at)) return undefined
+  if (policy.ttlMs !== undefined) {
+    const now = policy.now ?? Date.now()
+    if (now - envelope.at > policy.ttlMs) return undefined
+  }
+  return envelope.data
+}
+
+/**
  * 把一串记录裁进字节预算里（序列化之后才量得准，所以调用方给 `encode`）。
  *
  * 从**最老的（数组头部）**开始丢：缓存存的都是"最近的一屏"，丢头保尾。
