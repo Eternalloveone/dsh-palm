@@ -1037,6 +1037,7 @@ import { sessionCreate, sessionHistory, sessionSearch, sessionPrompt, sessionMod
 import { sessionList as sessionListHandler } from './mobile/api/session-list-handler.ts'
 import { pushConfig } from './mobile/api/push-config.ts'
 import { mobilePending, mobilePreferences, mobileTranscribe } from './mobile/api/mobile-handlers.ts'
+import { mobileCommands, mobileGitSummary, mobileLatestVersion } from './mobile/api/mobile-info-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1589,25 +1590,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       }],
-      [MOBILE_COMMANDS_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        // The host command registry is a plugin service, not an ApiProxy
-        // domain: answer locally. The phone's + menu is session-scoped, so the
-        // directory resolves the SESSION's agent view — the same effective
-        // catalog the desktop composer's `/` popup shows. That matters because
-        // the Web deployment moves per-agent rows (plan-mode, command-compact)
-        // into agent presets: the plain-context view would silently miss
-        // `/plan` and `/compact`. A session that resolves no agent falls back
-        // to the plain-context view.
-        const body = parsed.payload as { sessionId?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined
-        const items = resolveCommandDirectory(deps.commands, deps.agents, sessionId)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { items } },
-        })
-      }],
+      [MOBILE_COMMANDS_METHOD, async (ctx) => mobileCommands(ctx)],
       [MOBILE_COMMAND_EXEC_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps } = ctx
         // Execute one slash-command line through the host CommandRuntime —
@@ -1797,50 +1780,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           },
         })
       }],
-      [MOBILE_GIT_SUMMARY_METHOD, async (ctx) => {
-        const { res, parsed, rpcId } = ctx
-        // Read-only repository summary for one directory. The phone asks for
-        // the workspace it is already looking at; anything that is not a
-        // git work tree is a normal "not a repo" answer, not an error.
-        const payload = parsed.payload as { cwd?: unknown } | undefined
-        const cwd = typeof payload?.cwd === 'string' ? payload.cwd : ''
-        if (cwd === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'invalid-argument', message: '缺少目录' } },
-          })
-          return
-        }
-        const summary = await readGitSummary(cwd)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: summary },
-        })
-      }],
-      [MOBILE_LATEST_VERSION_METHOD, async (ctx) => {
-        const { res, rpcId } = ctx
-        // About-sheet update check. The registry may be unreachable from the
-        // host network; the phone then sees a stable refusal, never a hang.
-        const latest = await fetchLatestVersion(PACKAGE_NAME)
-        if (latest === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'network', message: '无法连接 npm registry，请稍后重试' } },
-          })
-          return
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: {
-            ok: true,
-            value: { latest, isNewer: isNewerVersion(latest, pkg.version) },
-          },
-        })
-      }],
+      [MOBILE_GIT_SUMMARY_METHOD, async (ctx) => mobileGitSummary(ctx)],
+      [MOBILE_LATEST_VERSION_METHOD, async (ctx) => mobileLatestVersion(ctx)],
       [MOBILE_TURN_OUTLINE_METHOD, async (ctx) => {
         const { res, parsed, rpcId, apiProxy } = ctx
         // 轮次大纲有两个来源，按可靠度排：枚举快照 → 现读一次宿主投影。
