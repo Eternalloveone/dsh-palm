@@ -13,7 +13,7 @@
  */
 import { loadChatPage } from './chat-page.ts'
 import { history, listSessions, logTail, runningSessions } from '../api.ts'
-import { TURN_SILENCE_MS, newestFoldTurn, type StreamState } from '../views/chat/stream-state.ts'
+import { TURN_SILENCE_MS, newestFoldTurn, type StreamState } from '../views/chat/state/stream-state.ts'
 import { EventFolder, foldEvents, type RenderMessage } from '../messages.ts'
 
 export interface ReloadTailDeps {

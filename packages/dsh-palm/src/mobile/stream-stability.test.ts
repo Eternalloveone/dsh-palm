@@ -1,6 +1,6 @@
 /** Multi-frame stream regression: verify closed segments are never mutated. */
 import { describe, expect, it } from 'vitest'
-import { parseStreamPrefix, type StreamBlock } from '../mobile/markdown.ts'
+import { parseStreamPrefix, type StreamBlock } from './markdown.ts'
 
 /** Simulate the ChatView accumulator exactly as MarkdownText does. */
 function simulate(texts: string[]): Array<{ id: number; block: StreamBlock }> {

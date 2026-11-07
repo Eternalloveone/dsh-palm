@@ -147,7 +147,7 @@ describe('mobileCss 结构自检', () => {
     // 运行时才注入的变量：由 TSX 侧用 style.setProperty 写进来，CSS 里当然查不到定义。
     // 下面会顺手核对「确实有人在写」，避免这条豁免哪天变成掩盖错误的口子。
     const runtimeInjected = new Map<string, string>([
-      ['--voice-level', 'views/chat/use-chat-voice.ts'],
+      ['--voice-level', 'views/chat/hooks/use-chat-voice.ts'],
     ])
     const defined = new Set<string>()
     for (const match of mobileCss.matchAll(/(--[a-z0-9-]+)\s*:/g)) defined.add(match[1] as string)

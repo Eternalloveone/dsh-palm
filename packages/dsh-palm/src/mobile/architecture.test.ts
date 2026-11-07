@@ -212,7 +212,7 @@ describe('architecture guardrails', () => {
    * 这里钉住上限，防止又慢慢长回一长串。
    */
   it('ComposerSection 的 props 不超过 8 组', () => {
-    const text = readFileSync(join(HERE, 'views', 'chat', 'composer-section.tsx'), 'utf8')
+    const text = readFileSync(join(HERE, 'views', 'chat', 'components', 'composer-section.tsx'), 'utf8')
     const block = /export interface ComposerSectionProps \{([\s\S]*?)\n\}/.exec(text)?.[1] ?? ''
     const fields = block.split('\n').filter(line => /^ {2}\w+\??:/.test(line))
     expect(fields.length, `ComposerSectionProps 现有 ${fields.length} 组：${fields.map(f => f.trim()).join(' / ')}`)
