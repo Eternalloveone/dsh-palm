@@ -134,3 +134,85 @@ export interface UsageModelRow {
   name: string
   requestCount: number
 }
+
+/** One delivery attempt (host telemetry). */
+export interface DeliveryRecordView {
+  at: number
+  eventId: string
+  kind: string
+  channel: string
+  status: 'sent' | 'failed' | 'dropped'
+  detail?: string
+}
+
+/** Aggregated delivery health for the settings page. */
+export interface DeliveryStatsView {
+  total: number
+  sent: number
+  failed: number
+  dropped: number
+  byChannel: Array<{ channel: string; sent: number; failed: number; dropped: number }>
+  byKind: Array<{ kind: string; sent: number; failed: number; dropped: number }>
+  since: number
+}
+
+/** The redacted notify config the phone may read (no credentials). */
+export interface NotifyConfigView {
+  turnThresholdMs: number
+  turnCooldownMs: number
+  hideDetails: boolean
+  /** Effective per-kind gates (as the host applies them). */
+  kinds: { jobs: boolean; todo: boolean; turns: boolean; approvals: boolean }
+  vapidPublicKey?: string
+  channels: {
+    serverchan: { configured: boolean }
+    bark: { configured: boolean }
+    telegram: { configured: boolean }
+    wxpusher: { configured: boolean }
+    pushplus: { configured: boolean }
+  }
+}
+
+/** One completion-notification decision, as the phone's inbox renders it. */
+export interface NotifyEventView {
+  id: string
+  kind: 'task-done' | 'task-failed' | 'turn-done' | 'todo-done' | 'approval' | 'question'
+  title: string
+  body: string
+  sessionId: string
+  workspaceId?: string
+  ts: number
+}
+
+/** The pending state for one session. */
+export interface PendingState {
+  approvals: PendingApproval[]
+  questions: PendingQuestionItem[]
+}
+
+/** One pending tool approval awaiting the user's decision. */
+export interface PendingApproval {
+  /** The approval/requested frame's rpcId — the wire correlation the answer echoes. */
+  rpcId: string
+  approvalId: string
+  toolName: string
+  callId?: string
+  reason?: string
+  /**
+   * Host-side danger judgement. Absent on an older host → the panel treats it
+   * as `write` (confirm + show arguments), never as read.
+   */
+  risk?: 'read' | 'write' | 'exec' | 'install'
+}
+
+/** One pending question group awaiting the user's answer. */
+export interface PendingQuestionItem {
+  /** The question/requested frame's rpcId — the wire correlation the answer echoes. */
+  rpcId: string
+  id: string
+  question: string
+  detail?: string
+  header?: string
+  options?: Array<{ label: string; description?: string }>
+  multiSelect?: boolean
+}

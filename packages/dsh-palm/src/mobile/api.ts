@@ -11,7 +11,8 @@ import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '../
 import type { SubagentCatalog } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
-import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow } from './mobile-types.ts'
+import { OBSERVE_ASSERT_MIN_MS, PREFERENCES_TTL_MS, MODELS_TTL_MS, WORKSPACE_ROSTER_TTL_MS } from './data/limits.ts'
+import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem } from './mobile-types.ts'
 import { coalescedRead, invalidateReadCoalescing } from './data/read-coalescing.ts'
 
 export { invalidateReadCoalescing }
@@ -19,19 +20,7 @@ import type { PromptPart } from './image.ts'
 import type { VoiceService } from './voice-services.ts'
 
 
-/**
- * 观测断言的去重窗口：`mobile.observe` 每发一次就是宿主侧新建一个 follow
- * 注册。App 的 effect 在路由变化时会重跑，实测启动阶段 `{}` 被连发两次，
- * 3 秒内同值只发一次即可（re-assert 的节奏是 30s，远大于这个窗口）。
- */
-const OBSERVE_ASSERT_MIN_MS = 3_000
 let lastObservedAt: { key: string; at: number } | undefined
-
-/** 显示偏好的复用窗口（设置页写成功即清窗，见 mutateSettings）。 */
-const PREFERENCES_TTL_MS = 30_000
-
-/** 模型目录的复用窗口（改选择即清窗，见 selectModel）。 */
-const MODELS_TTL_MS = 30_000
 
 /** One session.list page. */
 export interface SessionPage {
@@ -100,12 +89,6 @@ export async function mutateSettings(
   invalidateReadCoalescing()
 }
 
-/** 工作区快照的复用窗口 + 单飞。真机埋点证明：宿主侧 workspace.list 只要 0~2ms，
- *  但手机链路实测只有 0.1~3.6 KB/s —— **往返次数本身就是全部成本**。原来每次挂载
- *  会话清单要发两次（后台归属 + 首屏预算竞速）、返回工作区页再发一次，一个来回 3 次
- *  往返。这里让并发调用共享同一个请求、并在 5 秒内复用结果，把往返砍到 1/3。
- *  只缓存成功的结果，失败照旧抛出（调用方各自处理）。 */
-const WORKSPACE_ROSTER_TTL_MS = 5_000
 let workspaceRosterInFlight: Promise<WorkspaceView[]> | undefined
 let workspaceRosterCached: { at: number; items: WorkspaceView[] } | undefined
 
@@ -143,50 +126,6 @@ export async function fetchMobilePreferences(): Promise<MobilePreferences> {
   return await coalescedRead<MobilePreferences>('mobile.preferences', {}, PREFERENCES_TTL_MS)
 }
 
-/** The redacted notify config the phone may read (no credentials). */
-export interface NotifyConfigView {
-  turnThresholdMs: number
-  turnCooldownMs: number
-  hideDetails: boolean
-  /** Effective per-kind gates (as the host applies them). */
-  kinds: { jobs: boolean; todo: boolean; turns: boolean; approvals: boolean }
-  vapidPublicKey?: string
-  channels: {
-    serverchan: { configured: boolean }
-    bark: { configured: boolean }
-    telegram: { configured: boolean }
-    wxpusher: { configured: boolean }
-    pushplus: { configured: boolean }
-  }
-}
-
-/** Read the notify config (thresholds + channel presence, credentials redacted). */
-export async function readNotifyConfig(): Promise<NotifyConfigView> {
-  return await callUnary<NotifyConfigView>('push.config', { get: true })
-}
-
-/** Write notify config fields (thresholds; channel credentials in M2). */
-export async function writeNotifyConfig(patch: {
-  turnThresholdMs?: number
-  turnCooldownMs?: number
-  hideDetails?: boolean
-  kinds?: { jobs?: boolean; todo?: boolean; turns?: boolean }
-  channels?: {
-    serverchan?: { sendKey: string }
-    bark?: { key: string }
-    telegram?: { botToken: string; chatId: string }
-    wxpusher?: { spt: string }
-    pushplus?: { token: string }
-  }
-}): Promise<void> {
-  await callUnary<unknown>('push.config', { set: patch })
-}
-
-/** Push one synthetic event through the configured L3 channels (test button). */
-export async function testNotifyChannels(): Promise<void> {
-  await callUnary<unknown>('push.config', { test: true })
-}
-
 /** Store this device's Web Push subscription host-side (L2). */
 export async function pushSubscribe(subscription: {
   endpoint: string
@@ -198,51 +137,6 @@ export async function pushSubscribe(subscription: {
 /** Remove this device's Web Push subscription host-side (L2). */
 export async function pushUnsubscribe(): Promise<void> {
   await callUnary<unknown>('push.unsubscribe', {})
-}
-
-/** One completion-notification decision, as the phone's inbox renders it. */
-export interface NotifyEventView {
-  id: string
-  kind: 'task-done' | 'task-failed' | 'turn-done' | 'todo-done' | 'approval' | 'question'
-  title: string
-  body: string
-  sessionId: string
-  workspaceId?: string
-  ts: number
-}
-
-/** One delivery attempt (host telemetry). */
-export interface DeliveryRecordView {
-  at: number
-  eventId: string
-  kind: string
-  channel: string
-  status: 'sent' | 'failed' | 'dropped'
-  detail?: string
-}
-
-/** Aggregated delivery health for the settings page. */
-export interface DeliveryStatsView {
-  total: number
-  sent: number
-  failed: number
-  dropped: number
-  byChannel: Array<{ channel: string; sent: number; failed: number; dropped: number }>
-  byKind: Array<{ kind: string; sent: number; failed: number; dropped: number }>
-  since: number
-}
-
-/** The recent decisions + delivery telemetry (newest first). */
-export async function notifyEvents(): Promise<{
-  items: NotifyEventView[]
-  stats?: DeliveryStatsView
-  deliveries?: DeliveryRecordView[]
-}> {
-  return await callUnary<{
-    items: NotifyEventView[]
-    stats?: DeliveryStatsView
-    deliveries?: DeliveryRecordView[]
-  }>('mobile.notifyEvents', {})
 }
 
 /**
@@ -856,28 +750,6 @@ export async function uploadAttachment(
   return await callUnary<UploadedAttachment>('mobile.uploadAttachment', { sessionId, ...file }, signal, 120_000)
 }
 
-/**
- * Transcribe one base64 WAV through the phone-configured speech-to-text
- * services (`mobile.transcribe`, answered by the plugin). The services are
- * tried in order by the host; the cap is long (180 s) because a slow link
- * can stretch the call.
- */
-export async function transcribeVoice(audio: string, services: VoiceService[]): Promise<string> {
-  const response = await callUnary<{ text: string }>('mobile.transcribe', { audio, services }, undefined, 180_000)
-  return response.text
-}
-
-/**
- * The host-side fallback transcription services (dsh-palm.yaml `transcribe:`),
- * if any — display facts only. The host API keys never leave the host, so
- * these services cannot be used from the phone and are not merged into the
- * local service list (see syncHostVoiceServices).
- */
-export async function fetchHostVoiceServices(): Promise<Array<{ name: string; baseURL: string; model: string }>> {
-  const response = await callUnary<{ services: Array<{ name: string; baseURL: string; model: string }> }>('mobile.voiceServices', {})
-  return response.services
-}
-
 /* ── per-provider usage / balance display ─────────────────────────────── */
 
 /** Rename one session (the chat page's 更多 menu). */
@@ -931,44 +803,6 @@ export async function selectModel(
 }
 
 /* ── pending approvals / questions (#1025) ───────────────────────────── */
-
-/** One pending tool approval awaiting the user's decision. */
-export interface PendingApproval {
-  /** The approval/requested frame's rpcId — the wire correlation the answer echoes. */
-  rpcId: string
-  approvalId: string
-  toolName: string
-  callId?: string
-  reason?: string
-  /**
-   * Host-side danger judgement. Absent on an older host → the panel treats it
-   * as `write` (confirm + show arguments), never as read.
-   */
-  risk?: 'read' | 'write' | 'exec' | 'install'
-}
-
-/** One pending question group awaiting the user's answer. */
-export interface PendingQuestionItem {
-  /** The question/requested frame's rpcId — the wire correlation the answer echoes. */
-  rpcId: string
-  id: string
-  question: string
-  detail?: string
-  header?: string
-  options?: Array<{ label: string; description?: string }>
-  multiSelect?: boolean
-}
-
-/** The pending state for one session. */
-export interface PendingState {
-  approvals: PendingApproval[]
-  questions: PendingQuestionItem[]
-}
-
-/** Fetch pending approvals and questions for one session (polling fallback data source). */
-export async function fetchPending(sessionId: string): Promise<PendingState> {
-  return await callUnary<PendingState>('mobile.pending', { sessionId })
-}
 
 /* ── read-only git summary ───────────────────────────────────────────── */
 
@@ -1221,4 +1055,12 @@ export { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns, fetchUsage
 
 
 // 共享类型搬到 mobile-types.ts（W4-4）；这里只转出。
-export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow } from './mobile-types.ts'
+export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem } from './mobile-types.ts'
+
+
+// notify 域的实现已搬到 data/impl/notify.ts（W4-4）；这里只转出，对外 API 不变。
+export { fetchPending, notifyEvents, readNotifyConfig, testNotifyChannels, writeNotifyConfig } from './data/impl/notify.ts'
+
+
+// voice 域的实现已搬到 data/impl/voice.ts（W4-4）；这里只转出，对外 API 不变。
+export { fetchHostVoiceServices, transcribeVoice } from './data/impl/voice.ts'
