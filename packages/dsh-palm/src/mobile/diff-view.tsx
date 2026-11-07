@@ -19,6 +19,7 @@ import { applyDiffDecision, parseDiff, type DiffLine, type ParsedDiff } from './
 import { copyText } from './code-actions.ts'
 import { escapeHtml } from './markdown.ts'
 import { toast } from './toast.tsx'
+import { Button } from './ui/primitives.tsx'
 
 /** Rendered-row cap for a diff card: beyond this the middle hunks fold. */
 const DIFF_MAX_LINES = 200
@@ -157,9 +158,9 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
           <span className="diff-fold-text">
             … 已折叠 {hiddenHunks} 个 hunk / {hiddenLines} 行
           </span>
-          <button type="button" className="diff-fold-btn" onClick={() => { setExpanded(true) }}>
+          <Button type="button" className="diff-fold-btn" onClick={() => { setExpanded(true) }}>
             展开全部
-          </button>
+          </Button>
         </div>
       )}
       {mode === 'review' && (
@@ -167,8 +168,8 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
           <span className="diff-review-summary">
             接受 {tallies.acceptedAdds} 行 / 拒绝 {tallies.rejectedDels} 行 / 剩余 {tallies.remaining} 行
           </span>
-          <button type="button" className="diff-confirm diff-cancel" onClick={cancelReview}>取消</button>
-          <button type="button" className="diff-confirm" onClick={confirmReview}>确认</button>
+          <Button type="button" className="diff-confirm diff-cancel" onClick={cancelReview}>取消</Button>
+          <Button type="button" className="diff-confirm" onClick={confirmReview}>确认</Button>
         </div>
       )}
     </div>
@@ -184,9 +185,9 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
         <div className="diff-actions">
           {mode === 'view' && (
             <>
-              <button type="button" className="diff-btn diff-accept" onClick={() => { setMode('applied') }}>接受</button>
-              <button type="button" className="diff-btn diff-reject" onClick={() => { setMode('rejected') }}>拒绝</button>
-              <button type="button" className="diff-btn diff-review" onClick={() => { setMode('review') }}>逐行审阅</button>
+              <Button type="button" className="diff-btn diff-accept" onClick={() => { setMode('applied') }}>接受</Button>
+              <Button type="button" className="diff-btn diff-reject" onClick={() => { setMode('rejected') }}>拒绝</Button>
+              <Button type="button" className="diff-btn diff-review" onClick={() => { setMode('review') }}>逐行审阅</Button>
             </>
           )}
         </div>
@@ -203,12 +204,12 @@ export const DiffView = memo(function DiffView({ text }: { text: string }) {
               </span>
             )}
             {mode === 'applied' && resultText !== '' && (
-              <button type="button" className="diff-undo" onClick={() => { void copyText(resultText, '已复制结果代码') }}>复制结果</button>
+              <Button type="button" className="diff-undo" onClick={() => { void copyText(resultText, '已复制结果代码') }}>复制结果</Button>
             )}
             {mode === 'rejected' && (
-              <button type="button" className="diff-undo" onClick={undo}>重新生成</button>
+              <Button type="button" className="diff-undo" onClick={undo}>重新生成</Button>
             )}
-            <button type="button" className="diff-undo" onClick={undo}>撤销</button>
+            <Button type="button" className="diff-undo" onClick={undo}>撤销</Button>
           </div>
           <div className="diff-dimmed">{body}</div>
         </>
@@ -243,20 +244,20 @@ function DiffRow({ line, reviewing, accepted, rejected, onToggle }: {
       {reviewing && (
         <div className="diff-review-cell">
           {line.type === 'add' && (
-            <button
+            <Button
               type="button"
               className={'diff-line-btn diff-line-add-btn' + (accepted ? ' diff-line-btn-on' : '')}
               aria-label="接受该行"
               onClick={onToggle}
-            >+</button>
+            >+</Button>
           )}
           {line.type === 'del' && (
-            <button
+            <Button
               type="button"
               className={'diff-line-btn diff-line-del-btn' + (rejected ? ' diff-line-btn-on' : '')}
               aria-label="拒绝该行"
               onClick={onToggle}
-            >−</button>
+            >−</Button>
           )}
         </div>
       )}

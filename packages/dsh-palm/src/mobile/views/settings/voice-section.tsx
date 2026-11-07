@@ -6,6 +6,7 @@ import { ChevronUpIcon, MicIcon, PencilIcon, PlusIcon, TrashIcon } from '../../i
 import { Sheet } from '../../sheet.tsx'
 import { moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService, upsertVoiceService, type VoiceService } from '../../voice-services.ts'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface VoiceSectionProps {
   show: boolean
@@ -61,7 +62,7 @@ export function VoicePage({
       <div className="mobile">
         <header className="mobile-header">
           <div className="mobile-headerSlot">
-            <button type="button" className="mobile-back" aria-label="返回" onClick={() => { setVoiceOpen(false) }}>‹</button>
+            <Button type="button" className="mobile-back" aria-label="返回" onClick={() => { setVoiceOpen(false) }}>‹</Button>
           </div>
           <h1 className="mobile-title">语音服务</h1>
           <div className="mobile-headerSlot mobile-headerSlot-right" />
@@ -102,21 +103,21 @@ export function VoicePage({
                   <span className="voice-service-desc">{service.model} · {service.baseURL}</span>
                 </span>
                 <span className="voice-service-actions">
-                  <button
+                  <Button
                     type="button"
                     className="voice-service-btn"
                     aria-label="上移"
                     disabled={index === 0}
                     onClick={() => { moveVoiceServiceUp(service.id) }}
-                  ><ChevronUpIcon /></button>
-                  <button
+                  ><ChevronUpIcon /></Button>
+                  <Button
                     type="button"
                     className="voice-service-btn voice-service-btn-down"
                     aria-label="下移"
                     disabled={index === voiceServices.length - 1}
                     onClick={() => { moveVoiceServiceDown(service.id) }}
-                  ><ChevronUpIcon /></button>
-                  <button
+                  ><ChevronUpIcon /></Button>
+                  <Button
                     type="button"
                     className="voice-service-btn"
                     aria-label="编辑"
@@ -128,19 +129,19 @@ export function VoicePage({
                       setFormModel(service.model)
                       setVoiceSheet('form')
                     }}
-                  ><PencilIcon /></button>
-                  <button
+                  ><PencilIcon /></Button>
+                  <Button
                     type="button"
                     className="voice-service-btn voice-service-btn-danger"
                     aria-label="删除"
                     onClick={() => { removeVoiceService(service.id) }}
-                  ><TrashIcon /></button>
+                  ><TrashIcon /></Button>
                 </span>
               </div>
             ))}
           </div>
           <div className="sheet-confirm-actions" {...locateProps('voice-add')}>
-            <button
+            <Button
               type="button"
               className="mobile-button"
               onClick={() => {
@@ -151,7 +152,7 @@ export function VoicePage({
                 setFormModel('')
                 setVoiceSheet('form')
               }}
-            ><PlusIcon /> 添加服务</button>
+            ><PlusIcon /> 添加服务</Button>
           </div>
         </div>
         {voiceSheet === 'form' && (
@@ -206,8 +207,8 @@ export function VoicePage({
               </label>
               <p className="sheet-note">支持任意 OpenAI 兼容的 /audio/transcriptions 服务。</p>
               <div className="sheet-confirm-actions">
-                <button type="button" className="mobile-button" onClick={() => { setVoiceSheet(null) }}>取消</button>
-                <button
+                <Button type="button" className="mobile-button" onClick={() => { setVoiceSheet(null) }}>取消</Button>
+                <Button
                   type="button"
                   className="mobile-button mobile-button-primary"
                   disabled={formBaseURL.trim() === '' || formApiKey.trim() === '' || formModel.trim() === ''}
@@ -224,7 +225,7 @@ export function VoicePage({
                     })
                     setVoiceSheet(null)
                   }}
-                >保存</button>
+                >保存</Button>
               </div>
             </div>
           </Sheet>

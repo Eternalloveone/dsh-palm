@@ -13,6 +13,7 @@
  */
 import { useRef, useState } from 'react'
 import type { QueueItemView } from './api.ts'
+import { Button } from './ui/primitives.tsx'
 
 export interface QueueDockProps {
   items: QueueItemView[]
@@ -93,7 +94,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
   return (
     <div className="queue-dock" data-queue-dock="">
       {queue.length > 1 && (
-        <button
+        <Button
           type="button"
           className="queue-dockHead"
           aria-expanded={expanded}
@@ -101,7 +102,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
         >
           <span className="queue-dockCount">{queue.length} 条排队</span>
           <span className="queue-dockChevron" aria-hidden>{expanded ? '收起' : '展开'}</span>
-        </button>
+        </Button>
       )}
       {listVisible && (
         <ul className="queue-dockList">
@@ -119,20 +120,20 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
                       if (event.key === 'Escape') setEditingId(null)
                     }}
                   />
-                  <button
+                  <Button
                     type="button"
                     className="queue-dockBtn queue-dockBtn-primary"
                     disabled={busy || draft.trim() === ''}
                     title={draft.trim() === '' ? '排队消息不能为空，要撤销请直接删除' : undefined}
                     onClick={() => { void commitEdit() }}
-                  >保存</button>
-                  <button type="button" className="queue-dockBtn" onClick={() => { setEditingId(null) }}>取消</button>
+                  >保存</Button>
+                  <Button type="button" className="queue-dockBtn" onClick={() => { setEditingId(null) }}>取消</Button>
                 </div>
               ) : (
                 <>
                   <span className="queue-dockText" title={item.text}>{item.text}</span>
                   <span className="queue-dockActions">
-                    <button
+                    <Button
                       type="button"
                       className="queue-dockBtn"
                       aria-label="编辑排队消息"
@@ -141,18 +142,18 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
                       title={item.editable ? undefined : '仅纯文本消息可编辑'}
                       disabled={!item.editable || busy}
                       onClick={() => { startEdit(item) }}
-                    >编辑</button>
-                    <button type="button" className="queue-dockBtn" aria-label="删除排队消息" disabled={busy} onClick={() => { void run(onRemove, item.id, 'remove') }}>{pending?.id === item.id && pending.verb === 'remove' ? '删除中…' : '删除'}</button>
+                    >编辑</Button>
+                    <Button type="button" className="queue-dockBtn" aria-label="删除排队消息" disabled={busy} onClick={() => { void run(onRemove, item.id, 'remove') }}>{pending?.id === item.id && pending.verb === 'remove' ? '删除中…' : '删除'}</Button>
                     {/* 「撤回」与「删除」的区别是**这条消息还回来**：删除是丢弃，
                         撤回是放回输入框再改再发。用户在手机上排错了一句，不该只能
                         重打一遍。 */}
-                    <button type="button" className="queue-dockBtn" aria-label="撤回排队消息到输入框" disabled={busy} onClick={() => { void run(onWithdraw, item.id, 'withdraw') }}>{pending?.id === item.id && pending.verb === 'withdraw' ? '撤回中…' : '撤回'}</button>
+                    <Button type="button" className="queue-dockBtn" aria-label="撤回排队消息到输入框" disabled={busy} onClick={() => { void run(onWithdraw, item.id, 'withdraw') }}>{pending?.id === item.id && pending.verb === 'withdraw' ? '撤回中…' : '撤回'}</Button>
                     {/* 主操作要说人话：这条不排在队尾等下一轮，而是立刻塞进正在跑的这轮。
                         「插话」两个字普通用户看不懂，按钮还长得和编辑/删除一模一样。
 
                         `placement === 'steering'` 的条目**已经插进这一轮**了（宿主 next-step
                         队列），再给「立即发送」是按不动的空操作 —— 换成一句状态词。 */}
-                    <button
+                    <Button
                       type="button"
                       className="queue-dockBtn queue-dockBtn-primary"
                       aria-label="立即插入当前回合"
@@ -165,7 +166,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
                         <path d="M10 7 13 10l-3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       {pending?.id === item.id && pending.verb === 'steer' ? '发送中…' : '立即发送'}
-                    </button>
+                    </Button>
                   </span>
                 </>
               )}
@@ -182,13 +183,13 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
                 {item.text}
               </span>
               <span className="queue-dockActions">
-                <button
+                <Button
                   type="button"
                   className="queue-dockBtn"
                   aria-label="撤回插队消息"
                   disabled={busy}
                   onClick={() => { void run(onRemove, item.id, 'remove') }}
-                >{pending?.id === item.id && pending.verb === 'remove' ? '撤回中…' : '撤回'}</button>
+                >{pending?.id === item.id && pending.verb === 'remove' ? '撤回中…' : '撤回'}</Button>
               </span>
             </li>
           ))}

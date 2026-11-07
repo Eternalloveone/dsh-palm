@@ -15,6 +15,7 @@ import { toast } from './toast.tsx'
 import { latestBatchOf } from './question-batches.ts'
 import { Sheet } from './sheet.tsx'
 import type { TurnEntry } from './turn-outline.ts'
+import { Button } from './ui/primitives.tsx'
 
 /** One switchable permission preset (the `permissions` projection shape). */
 export interface PermissionOption {
@@ -92,7 +93,7 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
   return (
     <Sheet title="添加内容" onClose={onClose}>
       <div role="menu" aria-label="添加内容">
-        <button type="button" role="menuitem" className="sheet-option" onClick={onPickImage}>
+        <Button type="button" role="menuitem" className="sheet-option" onClick={onPickImage}>
           <span className="sheet-option-copy">
             <span className="sheet-option-title">图片</span>
             <span className="sheet-option-desc">从相册选择</span>
@@ -102,8 +103,8 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
             <circle cx="6" cy="6" r="1.6" fill="currentColor" />
             <path d="M2 11.5 L5.5 8 L8 10.5 L10.5 8 L14 11.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
           </svg>
-        </button>
-        <button type="button" role="menuitem" className="sheet-option" onClick={onPickCamera}>
+        </Button>
+        <Button type="button" role="menuitem" className="sheet-option" onClick={onPickCamera}>
           <span className="sheet-option-copy">
             <span className="sheet-option-title">拍照</span>
             <span className="sheet-option-desc">调用相机拍摄</span>
@@ -112,7 +113,7 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
             <path d="M2 5.5 A1.5 1.5 0 0 1 3.5 4 H5 L6 2.5 H10 L11 4 H12.5 A1.5 1.5 0 0 1 14 5.5 V12 A1.5 1.5 0 0 1 12.5 13.5 H3.5 A1.5 1.5 0 0 1 2 12 Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
             <circle cx="8" cy="8.75" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
           </svg>
-        </button>
+        </Button>
         <label className="sheet-option sheet-option-file" role="menuitem">
           <span className="sheet-option-copy">
             <span className="sheet-option-title">文件</span>
@@ -135,7 +136,7 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
             }}
           />
         </label>
-        <button type="button" role="menuitem" className="sheet-option" onClick={onPickHostFile}>
+        <Button type="button" role="menuitem" className="sheet-option" onClick={onPickHostFile}>
           <span className="sheet-option-copy">
             <span className="sheet-option-title">电脑文件</span>
             <span className="sheet-option-desc">从电脑上选，手机上选不了文件时用</span>
@@ -145,7 +146,7 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
             <path d="M5 14 H11" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             <path d="M8 11.5 V14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
-        </button>
+        </Button>
       </div>
     </Sheet>
   )
@@ -206,20 +207,20 @@ export function HostFileSheet({ onPick, onClose, rootPath }: {
   return (
     <Sheet title="电脑文件" onClose={onClose}>
       <div className="host-file-head">
-        <button
+        <Button
           type="button"
           className="host-file-up"
           disabled={parent === undefined || busy}
           onClick={() => { if (parent !== undefined) load(parent.path) }}
         >
           上一级
-        </button>
+        </Button>
         <span className="host-file-path" title={listing?.path}>{listing?.path ?? '读取中…'}</span>
       </div>
       {rootPath !== undefined && listing !== undefined && !isPathInsideRoot(listing.path, rootPath) && (
         <p className="sheet-note host-file-outside">
           这个目录在工作区之外，选中的文件会被按绝对路径引用。
-          <button type="button" className="host-file-back" onClick={() => { load(rootPath) }}>回到工作区</button>
+          <Button type="button" className="host-file-back" onClick={() => { load(rootPath) }}>回到工作区</Button>
         </p>
       )}
       {error !== undefined && <p className="sheet-note">打不开这个目录：{error}</p>}
@@ -229,7 +230,7 @@ export function HostFileSheet({ onPick, onClose, rootPath }: {
       )}
       <div className="host-file-list">
         {dirs.map(entry => (
-          <button
+          <Button
             key={entry.path}
             type="button"
             className="host-file-row"
@@ -237,10 +238,10 @@ export function HostFileSheet({ onPick, onClose, rootPath }: {
           >
             <span className="host-file-name">{entry.name}</span>
             <span className="host-file-meta">目录</span>
-          </button>
+          </Button>
         ))}
         {files.map(entry => (
-          <button
+          <Button
             key={entry.path}
             type="button"
             className="host-file-row host-file-row-file"
@@ -250,7 +251,7 @@ export function HostFileSheet({ onPick, onClose, rootPath }: {
             <span className="host-file-meta">
               {entry.bytes === undefined ? '文件' : formatBytes(entry.bytes)}
             </span>
-          </button>
+          </Button>
         ))}
       </div>
     </Sheet>
@@ -285,7 +286,7 @@ export function CommandSheet({ commands, onPickCommand, onClose }: {
           <p className="sheet-note">这个会话没有可用命令</p>
         ) : (
           commands.map(command => (
-            <button
+            <Button
               key={command.name}
               type="button"
               role="menuitem"
@@ -296,7 +297,7 @@ export function CommandSheet({ commands, onPickCommand, onClose }: {
                 <span className="sheet-option-title">/{command.name}</span>
                 <span className="sheet-option-desc">{command.description}</span>
               </span>
-            </button>
+            </Button>
           ))
         )}
       </div>
@@ -423,10 +424,10 @@ export function PermissionConfirmSheet({ sessionId, target, onChanged, onClose }
       </p>
       {error !== undefined && <p className="sheet-error">{error}</p>}
       <div className="sheet-confirm-actions">
-        <button type="button" className="mobile-button" disabled={busy} onClick={onClose}>取消</button>
-        <button type="button" className="sheet-confirm-danger" disabled={busy} onClick={submit}>
+        <Button type="button" className="mobile-button" disabled={busy} onClick={onClose}>取消</Button>
+        <Button type="button" className="sheet-confirm-danger" disabled={busy} onClick={submit}>
           {busy ? '提交中…' : '确认开启'}
-        </button>
+        </Button>
       </div>
     </Sheet>
   )
@@ -453,7 +454,7 @@ export function TurnListSheet({ entries, currentTurn, onPick, onClose }: {
           {entries.map(entry => {
             const isCurrent = entry.turn === currentTurn
             return (
-              <button
+              <Button
                 type="button"
                 key={entry.turn}
                 role="listitem"
@@ -469,7 +470,7 @@ export function TurnListSheet({ entries, currentTurn, onPick, onClose }: {
                   <span className="turn-row-response">{entry.response}</span>
                 </span>
                 {!entry.loaded && <span className="turn-row-dot" aria-hidden title="未加载" />}
-              </button>
+              </Button>
             )
           })}
         </div>
@@ -574,20 +575,20 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
       {preview !== undefined && <p className="chat-approval-preview">{preview}</p>}
       {argsText !== undefined && (
         <>
-          <button
+          <Button
             type="button"
             className="chat-approval-expand"
             aria-expanded={expanded}
             onClick={() => { setExpanded(value => !value) }}
           >
             {expanded ? '收起参数' : '展开完整参数'}
-          </button>
+          </Button>
           {expanded && <pre className="chat-approval-args">{argsText}</pre>}
         </>
       )}
       {panelError !== undefined && <p className="chat-approval-error">{panelError}</p>}
       <div className="chat-approval-actions">
-        <button
+        <Button
           type="button"
           className={`chat-approval-allow${requiresHold ? ' chat-approval-allow-hold' : ''}${holding ? ' chat-approval-allow-holding' : ''}`}
           disabled={busy}
@@ -606,15 +607,15 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
           }}
         >
           {busy ? '提交中…' : holding ? '继续按住…' : requiresHold ? '按住 1.5 秒允许' : '允许一次'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="chat-approval-reject"
           disabled={busy}
           onClick={() => { act('rejected') }}
         >
           拒绝
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -750,14 +751,14 @@ export function QuestionPanel({ questions, sessionId, onResolved }: {
         )
       })}
       {panelError !== undefined && <p className="chat-approval-error">{panelError}</p>}
-      <button
+      <Button
         type="button"
         className="chat-question-submit"
         disabled={busy}
         onClick={submit}
       >
         {busy ? '提交中…' : '提交回答'}
-      </button>
+      </Button>
     </div>
   )
 }

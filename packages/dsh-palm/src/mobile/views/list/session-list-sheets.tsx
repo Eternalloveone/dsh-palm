@@ -11,6 +11,7 @@ import { Sheet } from '../../sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../../dialog.tsx'
 import { presetHelpIsBuiltin, presetHelpText } from '../../agent-preset-help.ts'
 import { CheckIcon } from '../../icons.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface PresetPickerSheetProps {
   presets: readonly AgentPresetEntry[]
@@ -26,7 +27,7 @@ export function PresetPickerSheet({ presets, selectedPreset, onClose, onSelect }
           {presets.map((preset, index) => (
             <div key={preset.id}>
               {index > 0 && <div className="sheet-option-divider" aria-hidden />}
-              <button
+              <Button
                 type="button"
                 className={`sheet-option${preset.id === selectedPreset ? ' sheet-option-selected' : ''}`}
                 disabled={preset.broken !== undefined}
@@ -51,7 +52,7 @@ export function PresetPickerSheet({ presets, selectedPreset, onClose, onSelect }
                 {preset.id === selectedPreset && (
                   <span className="sheet-option-check" aria-hidden><CheckIcon /></span>
                 )}
-              </button>
+              </Button>
             </div>
           ))}
         </Sheet>
@@ -121,7 +122,7 @@ export function SessionMenuSheet({ session, pinned, onClose, onTogglePin, onRena
         <Sheet title={session.title} onClose={onClose}>
           <div role="menu" aria-label="会话操作">
             <div className="sheet-option-divider" aria-hidden />
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -130,8 +131,8 @@ export function SessionMenuSheet({ session, pinned, onClose, onTogglePin, onRena
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">{pinned ? '取消置顶' : '置顶'}</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -140,8 +141,8 @@ export function SessionMenuSheet({ session, pinned, onClose, onTogglePin, onRena
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">重命名</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -150,8 +151,8 @@ export function SessionMenuSheet({ session, pinned, onClose, onTogglePin, onRena
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">移到分组…</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -160,7 +161,7 @@ export function SessionMenuSheet({ session, pinned, onClose, onTogglePin, onRena
               <span className="sheet-option-copy">
                 <span className="sheet-option-title" style={{ color: 'var(--danger)' }}>删除会话</span>
               </span>
-            </button>
+            </Button>
           </div>
         </Sheet>
   )
@@ -199,7 +200,7 @@ export function SessionFolderSheet({ folders, onClose, onAssign, onCreateFolder 
         <Sheet title="移到分组" onClose={onClose}>
           <div role="menu" aria-label="选择分组">
             <div className="sheet-option-divider" aria-hidden />
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -208,9 +209,9 @@ export function SessionFolderSheet({ folders, onClose, onAssign, onCreateFolder 
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">移出分组</span>
               </span>
-            </button>
+            </Button>
             {(folders?.folders ?? []).map(folder => (
-              <button
+              <Button
                 key={folder.id}
                 type="button"
                 role="menuitem"
@@ -220,9 +221,9 @@ export function SessionFolderSheet({ folders, onClose, onAssign, onCreateFolder 
                 <span className="sheet-option-copy">
                   <span className="sheet-option-title">{folder.name}</span>
                 </span>
-              </button>
+              </Button>
             ))}
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -231,7 +232,7 @@ export function SessionFolderSheet({ folders, onClose, onAssign, onCreateFolder 
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">新建分组…</span>
               </span>
-            </button>
+            </Button>
           </div>
         </Sheet>
   )

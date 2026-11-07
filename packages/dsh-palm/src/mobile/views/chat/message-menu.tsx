@@ -13,6 +13,7 @@
 import type { MutableRefObject } from 'react'
 import type { RenderMessage } from '../../messages.ts'
 import { PromptDialog } from '../../dialog.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 /** 长按落在哪一行、以及那一刻的定位信息。 */
 export interface MessageCtxMenuState {
@@ -82,7 +83,7 @@ export function MessageMenu(props: MessageMenuProps) {
               </div>
             )}
             {menu.row !== undefined && (
-              <button
+              <Button
                 type="button"
                 role="menuitem"
                 className="ctx-item"
@@ -93,10 +94,10 @@ export function MessageMenu(props: MessageMenuProps) {
                 }}
               >
                 复制这一行
-              </button>
+              </Button>
             )}
             {menu.row?.command !== undefined && menu.row.command !== '' && (
-              <button
+              <Button
                 type="button"
                 role="menuitem"
                 className="ctx-item"
@@ -107,10 +108,10 @@ export function MessageMenu(props: MessageMenuProps) {
                 }}
               >
                 复制命令
-              </button>
+              </Button>
             )}
             {menu.kind === 'user' && menu.messageId !== undefined && (
-              <button
+              <Button
                 type="button"
                 role="menuitem"
                 className="ctx-item"
@@ -121,49 +122,49 @@ export function MessageMenu(props: MessageMenuProps) {
                 }}
               >
                 编辑并重新发送
-              </button>
+              </Button>
             )}
             {menu.raw !== undefined && menu.row === undefined && (
-              <button
+              <Button
                 type="button"
                 role="menuitem"
                 className="ctx-item"
                 onClick={() => { const { raw } = menu; onClose(); onCopy(raw ?? '', '已复制原文') }}
               >
                 复制原文
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="ctx-item"
               onClick={() => { const { text } = menu; onClose(); onCopy(text) }}
             >
               {menu.row === undefined ? '复制' : '复制整条回复'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="ctx-item"
               onClick={() => { const { text } = menu; onClose(); onQuote(text) }}
             >
               引用
-            </button>
+            </Button>
             {menu.row === undefined && (
-              <button
+              <Button
                 type="button"
                 role="menuitem"
                 className="ctx-item"
                 onClick={() => { const { raw, text } = menu; onClose(); onShare(raw ?? text) }}
               >
                 分享
-              </button>
+              </Button>
             )}
             {(() => {
               const canSelect = menu.target !== undefined
               if (!canSelect) return null
               return (
-                <button
+                <Button
                   type="button"
                   role="menuitem"
                   className="ctx-item"
@@ -175,17 +176,17 @@ export function MessageMenu(props: MessageMenuProps) {
                   }}
                 >
                   选择文字
-                </button>
+                </Button>
               )
             })()}
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="ctx-item ctx-item-cancel"
               onClick={() => { onClose() }}
             >
               取消
-            </button>
+            </Button>
           </div>
         </>
       )}

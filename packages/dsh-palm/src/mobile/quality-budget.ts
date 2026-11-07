@@ -22,7 +22,7 @@ export interface Budget {
 
 export const QUALITY_BUDGET = {
   /** 裸 `<button>`：应改用 ui/primitives 的 Button / IconButton（口径排除 ui/ 内核自身）。 */
-  rawButtons: { value: 190, why: '改屏时顺手换成 Button/IconButton；W2 出口目标 ≤80' },
+  rawButtons: { value: 88, why: '改屏时顺手换成 Button/IconButton；W2 出口目标 ≤80' },
   /** 内联 `style={{`：应进组件样式文件或 CSS 变量。 */
   inlineStyles: { value: 26, why: '内联样式绕过了主题与对比度校验；W2 收进 styles/' },
   /** 组件样式里的裸 16 进制色值：应引用 design/tokens 的 `--*` 变量。 */

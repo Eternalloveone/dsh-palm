@@ -12,6 +12,7 @@ import { ConfirmDialog, PromptDialog } from '../../dialog.tsx'
 import { PencilIcon } from '../../icons.tsx'
 import { Sheet } from '../../sheet.tsx'
 import { GitSheet } from '../../sheets.tsx'
+import { Button } from '../../ui/primitives.tsx'
 
 export interface SessionSheetsProps {
   moreOpen: boolean
@@ -48,7 +49,7 @@ export function SessionSheets(props: SessionSheetsProps) {
       {moreOpen && (
         <Sheet title={title} onClose={() => { setMoreOpen(false) }}>
           <div role="menu" aria-label="会话操作">
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -58,8 +59,8 @@ export function SessionSheets(props: SessionSheetsProps) {
                 <span className="sheet-option-title">重命名会话</span>
               </span>
               <PencilIcon width={16} height={16} />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -68,8 +69,8 @@ export function SessionSheets(props: SessionSheetsProps) {
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">复制会话 ID</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -79,9 +80,9 @@ export function SessionSheets(props: SessionSheetsProps) {
                 <span className="sheet-option-title">导出对话</span>
                 <span className="sheet-option-desc">Markdown / 单文件 HTML，自动隐藏疑似密钥</span>
               </span>
-            </button>
+            </Button>
             {cwd !== undefined && cwd !== '' && (
-              <button
+              <Button
                 type="button"
                 role="menuitem"
                 className="sheet-option"
@@ -91,10 +92,10 @@ export function SessionSheets(props: SessionSheetsProps) {
                   <span className="sheet-option-title">查看改动</span>
                   <span className="sheet-option-desc">分支、未提交的改动、最近提交</span>
                 </span>
-              </button>
+              </Button>
             )}
             <div className="sheet-option-divider" aria-hidden />
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -103,7 +104,7 @@ export function SessionSheets(props: SessionSheetsProps) {
               <span className="sheet-option-copy">
                 <span className="sheet-option-title" style={{ color: 'var(--danger)' }}>删除会话</span>
               </span>
-            </button>
+            </Button>
           </div>
         </Sheet>
       )}
@@ -112,7 +113,7 @@ export function SessionSheets(props: SessionSheetsProps) {
           {/* 分享出去的文本会进 issue、群聊、邮件 —— 一旦发出去就收不回。
               所以每条路径都先过 redact.ts（不是各调用点自己记得脱敏）。 */}
           <div role="menu" aria-label="导出方式">
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -122,8 +123,8 @@ export function SessionSheets(props: SessionSheetsProps) {
                 <span className="sheet-option-title">复制 Markdown</span>
                 <span className="sheet-option-desc">整段对话，适合贴进 issue / 笔记</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -132,8 +133,8 @@ export function SessionSheets(props: SessionSheetsProps) {
               <span className="sheet-option-copy">
                 <span className="sheet-option-title">下载 .md</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -143,8 +144,8 @@ export function SessionSheets(props: SessionSheetsProps) {
                 <span className="sheet-option-title">下载单文件 HTML</span>
                 <span className="sheet-option-desc">无需联网、无外部资源，双击即可读</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -154,7 +155,7 @@ export function SessionSheets(props: SessionSheetsProps) {
                 <span className="sheet-option-title">保存长图（PNG）</span>
                 <span className="sheet-option-desc">整段对话一张图；超长会自动截断并提示分段</span>
               </span>
-            </button>
+            </Button>
           </div>
           <p className="sheet-note">
             导出内容会自动隐藏疑似密钥（sk-…、Bearer、URL 里的密码、私钥块等）。

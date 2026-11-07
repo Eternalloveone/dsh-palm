@@ -22,6 +22,7 @@ import {
   goalPhaseLabel,
   type MobileGoal,
 } from './goal-projection.ts'
+import { Button } from './ui/primitives.tsx'
 
 export interface GoalBarProps {
   /** undefined = 还没拿到；null = 没有目标。两者都不渲染。 */
@@ -69,7 +70,7 @@ export function GoalBar({ goal, busy = false, onCommand, meta }: GoalBarProps): 
     <div className="chat-goal" data-goal-bar="">
       <div className="chat-goal-row">
         <span className="chat-goal-glyph"><GoalGlyph /></span>
-        <button
+        <Button
           type="button"
           className="chat-goal-main"
           aria-expanded={expanded}
@@ -85,58 +86,58 @@ export function GoalBar({ goal, busy = false, onCommand, meta }: GoalBarProps): 
               塞在这颗按钮里的话，宽度被右边的四个动作按钮切掉一截，长句会被挤成
               窄条，读起来比收起还累。 */}
           {!expanded && <span className="chat-goal-text">{goal.objective}</span>}
-        </button>
+        </Button>
         {/* 展开后必须有一个看得见的「收起」：展开的正文占满整条，只靠点标题收回
             在真机上等于没有出口（手指落在正文上，那里原先什么都不做）。 */}
         {expanded && (
-          <button
+          <Button
             type="button"
             className="chat-goal-btn chat-goal-btn-collapse"
             aria-label="收起目标全文"
             onClick={() => { setExpanded(false) }}
           >收起
-          </button>
+          </Button>
         )}
         {actions.resume && (
-          <button
+          <Button
             type="button"
             className="chat-goal-btn"
             disabled={busy}
             onClick={() => { run(GOAL_RESUME_COMMAND) }}
           >继续
-          </button>
+          </Button>
         )}
         {actions.pause && (
-          <button
+          <Button
             type="button"
             className="chat-goal-btn"
             disabled={busy}
             onClick={() => { run(GOAL_PAUSE_COMMAND) }}
           >暂停
-          </button>
+          </Button>
         )}
-        <button
+        <Button
           type="button"
           className="chat-goal-btn"
           disabled={busy}
           onClick={() => { setEditing(true); setDraft(goal.objective) }}
         >编辑
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="chat-goal-btn chat-goal-btn-clear"
           aria-label="清除目标"
           disabled={busy}
           onClick={() => { run(GOAL_CLEAR_COMMAND) }}
         >×
-        </button>
+        </Button>
       </div>
       {/* 阻塞理由：宿主会把整段排查记录塞进这里（实测能占掉大半个屏幕），默认只露两行，
           点文字或右下角那颗小按钮展开。折叠用 max-height 而不是截断字符串 ——
           展开时原文一字不改，复制出来仍是完整的一段。 */}
       {goal.phase === 'blocked' && goal.blockedReason !== undefined && !editing && (
         <div className="chat-goal-reasonWrap">
-          <button
+          <Button
             type="button"
             className={reasonOpen ? 'chat-goal-reason' : 'chat-goal-reason chat-goal-reason-collapsed'}
             aria-expanded={reasonOpen}
@@ -144,14 +145,14 @@ export function GoalBar({ goal, busy = false, onCommand, meta }: GoalBarProps): 
             onClick={() => { setReasonOpen(value => !value) }}
           >
             <span className="chat-goal-reasonText">{goal.blockedReason}</span>
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="chat-goal-btn chat-goal-btn-reason"
             aria-expanded={reasonOpen}
             onClick={() => { setReasonOpen(value => !value) }}
           >{reasonOpen ? '收起理由' : '展开理由'}
-          </button>
+          </Button>
         </div>
       )}
       {/* 展开的全文：保留原始换行与空行（宿主里的目标常是带小标题的多段文本），
@@ -186,14 +187,14 @@ export function GoalBar({ goal, busy = false, onCommand, meta }: GoalBarProps): 
               if (event.key === 'Escape') setEditing(false)
             }}
           />
-          <button
+          <Button
             type="button"
             className="chat-goal-btn chat-goal-btn-save"
             disabled={busy || draft.trim() === ''}
             onClick={() => { run(goalEditCommand(draft)); setEditing(false) }}
           >保存
-          </button>
-          <button type="button" className="chat-goal-btn" onClick={() => { setEditing(false) }}>取消</button>
+          </Button>
+          <Button type="button" className="chat-goal-btn" onClick={() => { setEditing(false) }}>取消</Button>
         </div>
       )}
     </div>

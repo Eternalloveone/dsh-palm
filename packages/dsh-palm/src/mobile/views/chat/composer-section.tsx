@@ -14,6 +14,7 @@ import { Sheet } from '../../sheet.tsx'
 import type { StagedFile } from './use-chat-attachments.ts'
 import { formatFileSize } from '../../ui-text.ts'
 import { truncate } from '../../shared/text.ts'
+import { Button } from '../../ui/primitives.tsx'
 
 /** 发送意图：排队（默认）／插进当前回合／先中断再排队。 */
 export type SendIntent = 'queue' | 'steer' | 'interrupt'
@@ -70,9 +71,9 @@ export function ComposerSection(props: ComposerSectionProps) {
         {quoted !== undefined && (
           <div className="chat-quote-bar" role="note" aria-label="引用消息">
             <span className="chat-quote-text">{truncate(quoted, 20)}</span>
-            <button type="button" className="chat-quote-close" aria-label="取消引用" onClick={() => { setQuoted(undefined) }}>
+            <Button type="button" className="chat-quote-close" aria-label="取消引用" onClick={() => { setQuoted(undefined) }}>
               <CloseIcon width={14} height={14} />
-            </button>
+            </Button>
           </div>
         )}
         {attachImages.length > 0 && (
@@ -80,12 +81,12 @@ export function ComposerSection(props: ComposerSectionProps) {
             {attachImages.map((image, index) => (
               <div key={index} className="chat-attach-item" role="listitem">
                 <img className="chat-attach-img" src={image.dataUrl} alt="待发送图片" />
-                <button
+                <Button
                   type="button"
                   className="chat-attach-remove"
                   aria-label="移除图片"
                   onClick={() => { setAttachImages(previous => previous.filter((_, i) => i !== index)) }}
-                >×</button>
+                >×</Button>
               </div>
             ))}
           </div>
@@ -105,7 +106,7 @@ export function ComposerSection(props: ComposerSectionProps) {
                 {file.status === 'uploading' && (
                   <>
                     <span className="chat-file-status">上传中…</span>
-                    <button
+                    <Button
                       type="button"
                       className="chat-file-cancel"
                       aria-label={`取消上传 ${file.name}`}
@@ -113,29 +114,29 @@ export function ComposerSection(props: ComposerSectionProps) {
                         file.abort?.abort()
                         setAttachFiles(previous => previous.filter(item => item.localId !== file.localId))
                       }}
-                    >取消</button>
+                    >取消</Button>
                   </>
                 )}
                 {file.status === 'failed' && (
-                  <button
+                  <Button
                     type="button"
                     className="chat-file-retry"
                     aria-label={`重新上传 ${file.name}`}
                     onClick={() => { retryStaged(file.localId) }}
-                  >上传失败，点按重试</button>
+                  >上传失败，点按重试</Button>
                 )}
-                <button
+                <Button
                   type="button"
                   className="chat-file-remove"
                   aria-label={`移除附件 ${file.name}`}
                   onClick={() => { setAttachFiles(previous => previous.filter((_, i) => i !== index)) }}
-                >×</button>
+                >×</Button>
               </div>
             ))}
           </div>
         )}
         <div className="chat-inputbar">
-          <button
+          <Button
             type="button"
             className="chat-attach-btn"
             aria-label="添加内容"
@@ -143,8 +144,8 @@ export function ComposerSection(props: ComposerSectionProps) {
             onClick={() => { setPlusOpen(true) }}
           >
             <PlusIcon width={20} height={20} />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="chat-attach-btn"
             aria-label="斜杠命令"
@@ -152,16 +153,16 @@ export function ComposerSection(props: ComposerSectionProps) {
             onClick={() => { setCommandOpen(true) }}
           >
             <span className="chat-slash-glyph" aria-hidden="true">/</span>
-          </button>
+          </Button>
           {voiceSupported && (
-            <button
+            <Button
               type="button"
               className="chat-attach-btn"
               aria-label="语音输入"
               onClick={openVoice}
             >
               <MicIcon width={20} height={20} />
-            </button>
+            </Button>
           )}
           {/* 命令 chip 摆在输入框**里面**（边框和背景挪到 .chat-field 上）：与输入框
               同一条中心线垂直居中，输入框被挤窄/长高都跟着走，不会像并排摆时那样把
@@ -170,14 +171,14 @@ export function ComposerSection(props: ComposerSectionProps) {
           {claimedCommand !== undefined && (
             <span className="chat-command-chip" role="note" aria-label="待发送命令">
               <span className="chat-command-chipText">/{claimedCommand}</span>
-              <button
+              <Button
                 type="button"
                 className="chat-command-chipClose"
                 aria-label="取消命令"
                 onClick={releaseCommand}
               >
                 <CloseIcon width={12} height={12} />
-              </button>
+              </Button>
             </span>
           )}
           <textarea
@@ -219,7 +220,7 @@ export function ComposerSection(props: ComposerSectionProps) {
           />
           </div>
           {running && !primaryStops && (
-            <button
+            <Button
               type="button"
               className={stopArmed ? 'chat-stop-mini chat-stop-mini-armed' : 'chat-stop-mini'}
               aria-label={stopping ? '停止中' : stopArmed ? '确认停止' : '停止'}
@@ -242,9 +243,9 @@ export function ComposerSection(props: ComposerSectionProps) {
                   <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                 </svg>
               )}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
             className={primaryStops
               ? 'chat-send chat-send-stop'
@@ -303,7 +304,7 @@ export function ComposerSection(props: ComposerSectionProps) {
             ) : (
               <SendIcon />
             )}
-          </button>
+          </Button>
         </div>
       </div>
       {sendIntentOpen && (
@@ -311,7 +312,7 @@ export function ComposerSection(props: ComposerSectionProps) {
           {/* 三档语义按宿主能力如实写：排队/插话是宿主模式，"中断并发送"是两次调用
               的组合（先 cancel 再 queue），所以它单独一行说明代价。 */}
           <div role="menu" aria-label="发送方式">
-            <button
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -321,8 +322,8 @@ export function ComposerSection(props: ComposerSectionProps) {
                 <span className="sheet-option-title">排队</span>
                 <span className="sheet-option-desc">本轮结束后自动发送（默认）</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -332,8 +333,8 @@ export function ComposerSection(props: ComposerSectionProps) {
                 <span className="sheet-option-title">插话</span>
                 <span className="sheet-option-desc">不打断，插进正在跑的这轮</span>
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="menuitem"
               className="sheet-option"
@@ -343,7 +344,7 @@ export function ComposerSection(props: ComposerSectionProps) {
                 <span className="sheet-option-title">中断并发送</span>
                 <span className="sheet-option-desc">先停掉当前这轮，再发这条</span>
               </span>
-            </button>
+            </Button>
           </div>
         </Sheet>
       )}

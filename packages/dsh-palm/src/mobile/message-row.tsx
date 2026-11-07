@@ -17,6 +17,7 @@ import { CollapsibleText, MarkdownText, highlightPlain } from './markdown-text.t
 import { diffTallyOf, formatDuration, isRowRunning, processErrorsText, processFilesText, processHeadText, processModel, processStateText, processStepsText, processTimeText, toolDiffLines, visibleRowCount, type ProcessModel, type ProcessOutcome, type ProcessReasoningRow } from './process-rows.ts'
 import { stepModel, type StepVariant } from './step-view.ts'
 import { formatFileSize } from './ui-text.ts'
+import { Button } from './ui/primitives.tsx'
 
 /**
  * The running indicator's whale: one stroked path in a 16×16 box.
@@ -251,7 +252,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       >
         {/* 头部就是开关：长回合交回七八个文件时，卡片能把半屏占满 —— 先给结论，
             要看清单再点开。**默认折叠**（用户明示）。 */}
-        <button
+        <Button
           type="button"
           className="chat-turn-tail-head"
           aria-expanded={tailOpen}
@@ -263,12 +264,12 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
             {reportCount > 0 ? `${reportCount} 个文件` : `${planItems.filter(item => item.status === 'completed').length}/${planItems.length}`}
           </span>
           <span className="chat-turn-tail-head-chevron" aria-hidden>{tailOpen ? '▾' : '›'}</span>
-        </button>
+        </Button>
         {tailOpen && message.deliverables !== undefined && message.deliverables.length > 0 && (
           <div className="chat-turn-tail-section">
             {sections > 1 && <span className="chat-turn-tail-label">交付物</span>}
             {message.deliverables.map(file => (
-              <button
+              <Button
                 type="button"
                 key={file.path}
                 className="chat-turn-tail-file"
@@ -284,7 +285,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
                   <span className="chat-turn-tail-file-path">{parentPath(file.path)}</span>
                 </span>
                 <span className="chat-turn-tail-chevron" aria-hidden>›</span>
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -292,7 +293,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
           <div className="chat-turn-tail-section">
             {sections > 1 && <span className="chat-turn-tail-label">本轮产出文件</span>}
             {message.produced.map(path => (
-              <button
+              <Button
                 type="button"
                 key={path}
                 className="chat-turn-tail-file"
@@ -305,12 +306,12 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
                   <span className="chat-turn-tail-file-path">{parentPath(path)}</span>
                 </span>
                 <span className="chat-turn-tail-chevron" aria-hidden>›</span>
-              </button>
+              </Button>
             ))}
           </div>
         )}
         {planItems.length > 0 && (
-          <button
+          <Button
             type="button"
             className="chat-turn-plan-chip"
             aria-expanded={planOpen}
@@ -323,7 +324,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
               <span className="chat-turn-plan-time">· 用时 {formatDuration(message.durationMs)}</span>
             )}
             <span className="chat-turn-plan-chevron" aria-hidden>{planOpen ? '▾' : '›'}</span>
-          </button>
+          </Button>
         )}
         {planItems.length > 0 && planOpen && (
           <div className="chat-turn-plan-list">
@@ -385,7 +386,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
             说清楚靠 aria-label / title，视觉上只留一个可点的圆。
             发出后原地转圈（禁用），失败变红可再点 —— 反馈都在这里，不弹条。 */}
         {message.kind === 'assistant' && onRegenerate !== undefined && (
-          <button
+          <Button
             type="button"
             className={`chat-msg-regenerate${regenerateState === 'busy' ? ' chat-msg-regenerate-busy' : ''}${regenerateState === 'failed' ? ' chat-msg-regenerate-failed' : ''}`}
             onClick={onRegenerate}
@@ -394,7 +395,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
             title={regenerateState === 'failed' ? '上次没发出去，再点一次' : '重新生成'}
           >
             <span className="chat-msg-regenerate-icon" aria-hidden>↻</span>
-          </button>
+          </Button>
         )}
       </span>
     </div>
@@ -474,7 +475,7 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
 
   if (url === undefined) {
     return (
-      <button
+      <Button
         type="button"
         role="listitem"
         className={`chat-msg-image chat-msg-image-placeholder${failed ? ' chat-msg-image-failed' : ''}`}
@@ -486,7 +487,7 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
         }}
       >
         {failed ? '图片加载失败，点击重试' : '图片加载中…'}
-      </button>
+      </Button>
     )
   }
   return (
@@ -657,7 +658,7 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand
   }
   return (
     <div className={`chat-proc${open ? ' chat-proc-open' : ''}${running ? ' chat-proc-running' : ''}`} data-proc-rows={visibleRows}>
-      <button
+      <Button
         type="button"
         className="chat-proc-head"
         aria-expanded={open}
@@ -682,7 +683,7 @@ function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand
           </span>
         )}
         <span className="chat-proc-caret" aria-hidden>{open ? '▾' : '▸'}</span>
-      </button>
+      </Button>
       {open && (
         <div className="chat-proc-body">
           {stepsText !== '' && <div className="chat-proc-steps">{stepsText}</div>}
@@ -758,7 +759,7 @@ function ThinkBlock({ row }: { row: ProcessReasoningRow }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="chat-think">
-      <button
+      <Button
         type="button"
         className="chat-think-head"
         aria-expanded={open}
@@ -767,7 +768,7 @@ function ThinkBlock({ row }: { row: ProcessReasoningRow }) {
         <span className="chat-think-icon" aria-hidden>✦</span>
         <span className="chat-think-label">深度思考 · {row.lines} 行</span>
         <span className="chat-think-caret" aria-hidden>{open ? '▾' : '▸'}</span>
-      </button>
+      </Button>
       {open && <div className="chat-think-body">{row.text}</div>}
     </div>
   )
@@ -792,7 +793,7 @@ function ToolStep({ tool }: { tool: ToolCallInfo }) {
       data-step-summary={model.summary}
       data-step-state={STEP_STATE_LABELS[state] ?? state}
     >
-      <button
+      <Button
         type="button"
         className="chat-step-head"
         aria-expanded={open}
@@ -809,7 +810,7 @@ function ToolStep({ tool }: { tool: ToolCallInfo }) {
           </span>
         )}
         <span className="chat-step-caret" aria-hidden>{open ? '▾' : '▸'}</span>
-      </button>
+      </Button>
       {open && tool.arguments !== undefined && (
         <pre className="chat-tool-args">{tool.arguments}</pre>
       )}
@@ -936,7 +937,7 @@ function ArtifactCard({ tool }: { tool: ToolCallInfo }) {
   if (view === undefined) return null
   return (
     <div className="chat-artifact">
-      <button
+      <Button
         type="button"
         className="chat-artifact-head"
         aria-expanded={open}
@@ -948,7 +949,7 @@ function ArtifactCard({ tool }: { tool: ToolCallInfo }) {
           <span className="chat-artifact-stat chat-artifact-stat-del">−{tally.dels}</span>
         </span>
         <span className="chat-artifact-caret" aria-hidden>{open ? '▾' : '▸'}</span>
-      </button>
+      </Button>
       {open && <ToolDiffCard view={view} diffRef={diffRef} />}
     </div>
   )
