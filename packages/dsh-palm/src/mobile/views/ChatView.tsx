@@ -16,6 +16,7 @@
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/chat-machine.ts'
 import { useChatSessionLifecycle } from './chat/use-chat-session-lifecycle.ts'
+import { useNativeSelection, useQueueStoreSubscription } from './chat/use-chat-subscriptions.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -737,17 +738,7 @@ export function ChatView({
    * 免得为了它们把整个回调挪位置、再牵动依赖数组。
    */
 
-  /**
-   * 状态仓的订阅：别的入口（发送/插队/删除的乐观项、快照落地）改了队列，这里同步一次。
-   * 订阅按 sessionId 过滤，同一时刻只有当前会话会重渲染。
-   */
-  useEffect(() => {
-    const unsubscribe = subscribeSessionStore((changed) => {
-      if (changed !== session.sessionId || !mountedRef.current) return
-      setQueueItems(queueView(session.sessionId))
-    })
-    return unsubscribe
-  }, [session.sessionId])
+  useQueueStoreSubscription({ sessionId: session.sessionId, mountedRef, setQueueItems })
   /** 帧回调里要"立刻问一次宿主"（turn/start 清空队列之后）：走 ref，免得为它重订阅事件流。 */
   // 排队消息对账：只有证据毫无歧义时才把原文放回输入框。
   // 「不在队列里」本身不能说明问题 —— 宿主把消息认领成下一轮的那一刻它就离开队列，
@@ -2998,15 +2989,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   })
   // 原生选区优先：一旦浏览器真的开始选字（哪怕我们 500ms 的定时器已经排上队），
   // 立刻撤掉长按与自定义菜单，让用户能拖手柄、用系统菜单复制片段。
-  useEffect(() => {
-    const onSelectionChange = (): void => {
-      if ((window.getSelection()?.toString() ?? '') === '') return
-      cancelLongPress()
-      setCtxMenu(undefined)
-    }
-    document.addEventListener('selectionchange', onSelectionChange)
-    return () => { document.removeEventListener('selectionchange', onSelectionChange) }
-  }, [cancelLongPress])
+  useNativeSelection({ setCtxMenu, cancelLongPress })
 
   /** 在被长按的那一块上建选区，交给系统手柄与复制菜单。 */
   const selectTextBlock = useCallback((target: Element | undefined): boolean => {
