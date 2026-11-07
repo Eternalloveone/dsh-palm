@@ -27,6 +27,7 @@ import { useChatTimerCleanup } from './chat/hooks/use-chat-timer-cleanup.ts'
 import { useLatestRef } from './chat/hooks/use-latest-ref.ts'
 import { useSearchPrefill } from './chat/hooks/use-search-prefill.ts'
 import { useInboxPoll } from './chat/hooks/use-inbox-poll.ts'
+import { useMessageMenuDismiss } from './chat/hooks/use-message-menu-dismiss.ts'
 import { useCardRecoveryReset } from './chat/hooks/use-card-recovery-reset.ts'
 import { useCardDomProbe } from './chat/hooks/use-card-dom-probe.ts'
 import { ChatOverlays } from './chat/components/chat-overlays.tsx'
@@ -2650,20 +2651,8 @@ export function ChatView({
     return undefined
   }, [messages])
 
-  /** Auto-dismiss the context menu after 3s without action, or on Esc. */
-  useEffect(() => {
-    if (ctxMenu === undefined) return
-    const timer = window.setTimeout(() => { setCtxMenu(undefined) }, 3000)
-    // 接了实体键盘（iPad、外接键盘）时 Esc 是最顺手的取消；背景点击在键盘场景下够不到。
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setCtxMenu(undefined)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      clearTimeout(timer)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [ctxMenu])
+  // 菜单打开时 3 秒无操作或按 Esc 收起（键盘场景下背景点击够不到）。
+  useMessageMenuDismiss({ open: ctxMenu !== undefined, close: () => { setCtxMenu(undefined) } })
 
   /** Quote a message: the composer shows a quote bar and the send prepends
    * the reference context (first 200 chars are enough for the agent). */
