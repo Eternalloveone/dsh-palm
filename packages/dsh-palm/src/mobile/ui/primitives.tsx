@@ -169,7 +169,8 @@ export function Card(props: CardProps) {
 
 export function EmptyState({ icon, title, description, action, className = 'mobile-empty' }: {
   icon?: ReactNode
-  title: string
+  /** 省略时不渲染标题行（有些空态只有一句说明）。 */
+  title?: string
   description?: ReactNode
   action?: ReactNode
   /** 外层类名（默认沿用现有 `mobile-empty` 视觉）。 */
@@ -178,7 +179,7 @@ export function EmptyState({ icon, title, description, action, className = 'mobi
   return (
     <div className={className} data-empty-state>
       {icon === undefined ? null : <div className="empty-icon">{icon}</div>}
-      <p className="empty-title">{title}</p>
+      {title === undefined ? null : <p className="empty-title">{title}</p>}
       {description === undefined ? null : <p className="empty-desc">{description}</p>}
       {action}
     </div>

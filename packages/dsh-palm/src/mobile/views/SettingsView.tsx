@@ -28,6 +28,7 @@ import { SlidersIcon } from '../icons.tsx'
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../notify-triggers.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
+import { Button, EmptyState, IconButton } from '../ui/primitives.tsx'
 import { AdvancedSection, type SettingsGroupRow } from './settings/advanced-section.tsx'
 import { AppearanceSection } from './settings/appearance-section.tsx'
 import { DeviceManagementView, DeviceSection } from './settings/device-section.tsx'
@@ -653,7 +654,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     <div className="mobile">
       <header className="mobile-header">
         <div className="mobile-headerSlot">
-          <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+          <IconButton label="返回" className="mobile-back" onClick={onBack}>‹</IconButton>
         </div>
         <h1 className="mobile-title">设置</h1>
         <div className="mobile-headerSlot mobile-headerSlot-right" />
@@ -677,8 +678,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             <li className="settings-groupTitle">配置项 <span className="settings-groupDesc">通知 / 语音页内</span></li>
             {indexHits.map(item => (
               <li key={item.id}>
-                <button
-                  type="button"
+                <Button
                   className="settings-row"
                   onClick={() => { activateSetting(item) }}
                 >
@@ -688,7 +688,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                     <span className="card-desc">{item.group} · 点击定位</span>
                   </span>
                   <span className="card-action"><RowChevron /></span>
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -756,9 +756,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         />
 
         {term !== '' && hitCount === 0 && indexHits.length === 0 && (
-          <div className="mobile-empty">
-            <p className="empty-desc">没有匹配「{query.trim()}」的设置项</p>
-          </div>
+          <EmptyState description={<>没有匹配「{query.trim()}」的设置项</>} />
         )}
       </div>
 

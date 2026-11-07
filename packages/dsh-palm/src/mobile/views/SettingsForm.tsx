@@ -15,6 +15,7 @@ import { applyHostThemePreference } from '../mobile-theme.ts'
 import { fieldMeta } from '../settings-meta.ts'
 import { truncate } from '../shared/text.ts'
 import { errorText } from '../shared/error-text.ts'
+import { Button, Chip, IconButton } from '../ui/primitives.tsx'
 
 /** One node of the schemastery schema envelope (schema.toJSON()). */
 interface SchemaNode {
@@ -145,8 +146,7 @@ function FieldControl({ ns, field, node, value, options, ownerHint, onChange }: 
   const control = (() => {
     if (node.type === 'boolean') {
       return (
-        <button
-          type="button"
+        <Button
           role="switch"
           aria-label={label}
           aria-checked={value === true}
@@ -185,16 +185,15 @@ function FieldControl({ ns, field, node, value, options, ownerHint, onChange }: 
           {hasOptions && (
             <div className="settings-optionStrip" role="listbox" aria-label={`${label} 选项`}>
               {options.map(option => (
-                <button
+                <Button
                   key={option}
-                  type="button"
                   role="option"
                   aria-selected={value === option}
                   className={`settings-optionChip${value === option ? ' settings-optionChip-on' : ''}`}
                   onClick={() => { onChange(option) }}
                 >
                   {option}
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -292,15 +291,14 @@ function ObjectFields({ ns, envelope, node, value, fieldOptions, onChange }: {
               </div>
               <div className="settings-themeOptions">
                 {choices.map(choice => (
-                  <button
+                  <Chip
                     key={String(choice.value)}
-                    type="button"
-                    aria-pressed={childValue === choice.value}
+                    selected={childValue === choice.value}
                     className={`settings-themeOption${childValue === choice.value ? ' settings-themeOption-on' : ''}`}
                     onClick={() => { onChange({ ...record, [field]: choice.value }) }}
                   >
                     {choice.label}
-                  </button>
+                  </Chip>
                 ))}
               </div>
             </div>
@@ -358,15 +356,14 @@ function ReadOnlyFields({ ns, envelope, entries, record }: {
   const [open, setOpen] = useState(false)
   return (
     <div className="settings-roBlock">
-      <button
-        type="button"
+      <Button
         className="settings-roSummary"
         aria-expanded={open}
         onClick={() => { setOpen(previous => !previous) }}
       >
         <span>只读配置（{entries.length} 项）</span>
         <span className="settings-roToggle">{open ? '收起 ▴' : '展开 ▾'}</span>
-      </button>
+      </Button>
       {open && (
         <div className="settings-roList">
           {entries.map(([field, ref]) => {
@@ -488,7 +485,7 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
   return (
     <div className="mobile">
       <header className="mobile-header">
-        <button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</button>
+        <IconButton label="返回" className="mobile-back" onClick={onBack}>‹</IconButton>
         <h1 className="mobile-title mobile-titleInline">
           {namespaces.length === 1 ? namespaceTitle(namespaces[0].ns) : '设置'}
         </h1>
@@ -498,7 +495,7 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
         {saved && <p className="mobile-pad settings-saved" role="status">已保存</p>}
         {hasMarket && onOpenMarket !== undefined && (
           <div className="mobile-pad">
-            <button type="button" className="mobile-button" onClick={onOpenMarket}>打开插件市场</button>
+            <Button className="mobile-button" onClick={onOpenMarket}>打开插件市场</Button>
           </div>
         )}
         {namespaces.map(entry => {
@@ -534,9 +531,9 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
         })}
         {writableCount > 0 && (
           <div className="mobile-pad">
-            <button type="button" className="mobile-button" disabled={saving} onClick={save}>
+            <Button className="mobile-button" disabled={saving} onClick={save}>
               {saving ? '保存中…' : '保存'}
-            </button>
+            </Button>
           </div>
         )}
       </div>
