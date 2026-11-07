@@ -1,0 +1,33 @@
+{
+  "$comment": "拆分安全绳：mobile-api.ts 的导出面必须与这里完全一致。改导出面 = 有意为之，必须同 commit 更新本文件并说明理由。",
+  "source": "src/mobile-api.ts",
+  "count": 25,
+  "hash": "aba03aa666f1d94b",
+  "lines": [
+    "export const MAX_PROMPT_FILE_PARTS = 5",
+    "export const MOBILE_ALLOWLIST: ReadonlySet<string> = new Set([",
+    "export const MOBILE_API_PATHS = {",
+    "export const MOBILE_GOAL_ACTION_METHOD = 'mobile.goalAction'",
+    "export function buildHealthReport(",
+    "export function countPromptFileParts(payload: unknown): number {",
+    "export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {",
+    "export function noteHostFinishedRun(sessionId: string, finishedAt: number, status: 'done' | 'stopped' | 'error' = 'done'): void {",
+    "export function shouldRefreshInbox(",
+    "export interface MobileApiDeps {",
+    "export interface MobileHealthReport {",
+    "export type { CommandRegistry, AgentLookup, FileUploadsLike, GoalViewLike, GoalLookup, CommandDescriptorView, GoalActivationView, GoalActionResultLike } from './host/commands-goals.ts'",
+    "export type { FinishedRunEntry } from './host/finished-runs.ts'",
+    "export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/directory.ts'",
+    "export type { RosterItem } from './host/session-list.ts'",
+    "export { ERROR_REPORT_KEEP, ERROR_REPORT_BYTES_MAX, ERROR_MESSAGE_MAX, ERROR_PUSH_COOLDOWN_MS, errorFingerprint, validateErrorReport, writeErrorReport, pruneErrorReports, errorSeen, errorPushDecision, resetErrorPushCooldown, pushErrorOnce, ingestErrorReport } from './host/error-report.ts'",
+    "export { PERF_CAPTURE_KEEP, PERF_CAPTURE_MAX_BYTES, PERF_RAW_MAX_BYTES, perfCaptureKind, prunePerfCaptures, validatePerfCapture, writePerfCapture } from './host/perf-capture.ts'",
+    "export { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, rememberRequestBody, textOfInboxContent } from './host/queue-inbox.ts'",
+    "export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'",
+    "export { documentRows, searchCorpusOf } from './host/search-text.ts'",
+    "export { isLiveSessionRunning, isLiveSessionNotRunningConfirmed, noteRunningFrame, noteRunningEvidence, adoptRunningBaseline, pruneRunningEvidence, reseedRunning, verifiedRunningSessionIds, computeTurnState, turnVerdict, TURN_ABANDONED_MS } from './host/running-evidence.ts'",
+    "export { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/finished-runs.ts'",
+    "export { mobileAncestryCrumbs, isImagePath, isAbsolutePath, readCandidates, windowsDrives, isWindowsDriveRoot, mobileListDirectory } from './host/directory.ts'",
+    "export { resetCommandDirectoryCache, resolveCommandDirectory, goalActivationOf, goalSnapshotOf, preferLiveGoal, applyGoalAction } from './host/commands-goals.ts'",
+    "export { toRosterItems, trimSessionListRow, visibleSessionRows } from './host/session-list.ts'"
+  ]
+}
