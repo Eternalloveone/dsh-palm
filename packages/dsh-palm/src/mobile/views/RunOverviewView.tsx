@@ -32,7 +32,8 @@ import { Button, IconButton } from '../ui/primitives.tsx'
 import type { JobView } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
-import { listSessions, logTail } from '../api.ts'
+import { listSessions } from '../data/session.ts'
+import { logTail } from '../data/diag.ts'
 import { SUBAGENT_POLL_MS, fetchSubagents, runningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from '../subagent-tree.ts'
 import { TaskRow } from '../task-status.tsx'
 import { InboxIcon } from '../icons.tsx'
@@ -48,7 +49,7 @@ import {
   subscribeFinishedRuns,
   type FinishedRun,
 } from '../recent-finished.ts'
-import { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns } from '../api.ts'
+import { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns } from '../data/usage.ts'
 import { cachedRunOverview, rememberRunOverview } from '../run-overview-cache.ts'
 
 /** Roster pages fetched at most while building the running-session baseline. */
