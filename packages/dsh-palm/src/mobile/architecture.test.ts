@@ -134,4 +134,39 @@ describe('architecture guardrails', () => {
       expect(isKnownPair, `new cycle: ${cycle.join(' -> ')}`).toBe(true)
     }
   })
+
+  /*
+   * 依赖方向（W1-6）：内核（ui/）与设计令牌（design/）是被所有人依赖的底层，
+   * 它们一旦反过来 import 数据层或视图，分层就名存实亡——而且这种依赖会让
+   * 内核没法在灯箱/菜单这种孤立场景里复用。
+   */
+  it('ui 内核与 design 只向下依赖：不 import 数据层、视图与业务 store', () => {
+    const forbidden = [
+      /(?:^|\/)views\//,
+      /(?:^|\/)api\.ts$/,
+      /(?:^|\/)mux\.ts$/,
+      /(?:^|\/)store(?:-[a-z-]+)?\.ts$/,
+      /(?:^|\/)App\.tsx$/,
+    ]
+    const kernel = SOURCES.filter(file => {
+      const path = rel(file)
+      return path.startsWith('ui/') || path.startsWith('design/')
+    })
+    expect(kernel.length, 'ui/ 与 design/ 应该有文件').toBeGreaterThan(0)
+
+    const violations: string[] = []
+    for (const file of kernel) {
+      const text = readFileSync(file, 'utf8')
+      for (const match of text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+        const spec = match[1] ?? ''
+        if (forbidden.some(pattern => pattern.test(spec))) violations.push(`${rel(file)} → ${spec}`)
+      }
+    }
+    expect(violations, `内核不得反向依赖：\n${violations.join('\n')}`).toEqual([])
+  })
+
+  it('design/tokens.ts 是纯数据，不 import 任何模块', () => {
+    const text = readFileSync(join(HERE, 'design', 'tokens.ts'), 'utf8')
+    expect(text.match(/^\s*import\s/m)).toBeNull()
+  })
 })
