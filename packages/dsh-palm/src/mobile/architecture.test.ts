@@ -71,7 +71,7 @@ describe('architecture guardrails', () => {
 
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
-      'views/ChatView.tsx': 4_284,
+      'views/ChatView.tsx': 4_239,
       'views/SettingsView.tsx': 783,
       'views/SessionListView.tsx': 1_124,
       // 2026-11-07：P1 会话位置写回 URL + 首帧直达会话（刷新/重启回原会话）是**功能新增**，

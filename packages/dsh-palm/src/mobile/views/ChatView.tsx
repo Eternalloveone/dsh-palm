@@ -19,6 +19,7 @@ import { useChatSessionLifecycle } from './chat/use-chat-session-lifecycle.ts'
 import { useNativeSelection, useQueueStoreSubscription } from './chat/use-chat-subscriptions.ts'
 import { useChatOutboxFlush } from './chat/use-chat-outbox-flush.ts'
 import { useChatEscape } from './chat/use-chat-escape.ts'
+import { useScrollGestures } from './chat/use-chat-scroll-gestures.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -3921,6 +3922,11 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
       ? () => handleRegenerate(message)
       : undefined
 
+  // 消息区的触摸/右键手势（S3-A 搬出）：四种手势互相抢夺，规则集中在一处。
+  const gestures = useScrollGestures({
+    pinchRef, pinchDistance, applyPinch, startLongPress, cancelLongPress, openCtxFromTarget,
+  })
+
   return (
     <div className="chat">
       <ChatHeader
@@ -3968,58 +3974,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           const pre = block.querySelector('pre')
           if (pre !== null) pre.style.transform = ''
         }}
-        onContextMenu={(event) => {
-          if (openCtxFromTarget(event.target, event.clientX, event.clientY)) {
-            event.preventDefault()
-            cancelLongPress()
-          }
-        }}
-        onTouchStart={(event) => {
-          // Two fingers on a code block = pinch zoom; single finger keeps the
-          // long-press menu gesture.
-          if (event.touches.length >= 2) {
-            cancelLongPress()
-            const target = event.target instanceof Element ? event.target : null
-            const block = target?.closest<HTMLElement>('.code-block') ?? null
-            if (block !== null) {
-              const dist0 = pinchDistance(event.touches)
-              if (dist0 > 0) {
-                const current = block.querySelector('pre')?.style.transform ?? ''
-                const scale0 = current === '' ? 1 : Number(/scale\(([\d.]+)\)/.exec(current)?.[1] ?? 1)
-                pinchRef.current = { block, dist0, scale0 }
-                return
-              }
-            }
-            pinchRef.current = undefined
-            return
-          }
-          pinchRef.current = undefined
-          const touch = event.touches[0]
-          if (touch === undefined) return
-          const target = event.target instanceof Element ? event.target : null
-          if (target === null || target.closest('.chat-msg') === null) return
-          // 代码块/图片可选中或可长按：交给系统（文字选择 / 图片菜单），
-          // 自定义菜单（编辑/复制/引用）接管消息正文长按。
-          if (target.closest('.code-block pre, img') !== null) return
-          const { clientX, clientY } = touch
-          startLongPress(target, clientX, clientY)
-        }}
-        onTouchMove={(event) => {
-          if (pinchRef.current !== undefined && event.touches.length >= 2) {
-            const dist = pinchDistance(event.touches)
-            if (dist > 0) applyPinch(pinchRef.current.scale0 * dist / pinchRef.current.dist0)
-            return
-          }
-          cancelLongPress()
-        }}
-        onTouchEnd={(event) => {
-          if (pinchRef.current !== undefined && event.touches.length < 2) pinchRef.current = undefined
-          cancelLongPress()
-        }}
-        onTouchCancel={(event) => {
-          if (pinchRef.current !== undefined && event.touches.length < 2) pinchRef.current = undefined
-          cancelLongPress()
-        }}
+        {...gestures}
       >
         <ChatRows
           messages={messages}
