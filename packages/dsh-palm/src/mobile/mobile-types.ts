@@ -7,7 +7,7 @@
  *
  * @module dsh-palm/mobile/mobile-types
  */
-import type { AgentPresetEntry, SessionModels, SessionProjectionsBlock, SubagentCatalog, WorkspaceView } from '../api-proxy-types'
+import type { AgentPresetEntry, SessionModels, SessionProjectionsBlock, SessionSummary, SubagentCatalog, WorkspaceView } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 
 /** One folded chat page (v3 `mobile.readChat`): rows, watermark, and seeds. */
@@ -315,3 +315,213 @@ export interface WorkspaceCreateResult {
   workspace: WorkspaceView
   created: boolean
 }
+
+/** 打开会话时可以顺带取回的小目录（服务端白名单，见 mobile-api readChatInclude）。 */
+export type ChatOpenInclude = 'models' | 'subagents'
+
+/** One executed slash-command outcome from the host registry. */
+export interface CommandExecOutcome {
+  /** false: the line did not resolve to a registered command (nothing ran). */
+  matched: boolean
+  kind?: 'success' | 'error'
+  /** The command's own human result text (usage/state feedback), when any. */
+  text?: string
+}
+
+/** The session.create result (the id is the commit the caller navigates to). */
+export interface CreatedSession {
+  sessionId: string
+  /** The composition the new session runs (echoed so the caller can label it). */
+  agentPreset?: string
+}
+
+/** One history page (already bounded to whole messages by the host). */
+export interface HistoryPage {
+  events: import('../api-proxy-types').HistoryEntry[]
+  hasMore: boolean
+  /**
+   * Projection baseline riding the tail page (permissions select etc.);
+   * absent when the deployment mounts no projection registry.
+   */
+  projections?: SessionProjectionsBlock
+}
+
+export interface IndexedSearchResult {
+  items: IndexedSearchItem[]
+  total: number
+  hasMore: boolean
+  /** 下一页的 offset（原样传回来就是「加载更多」）。 */
+  nextOffset?: number
+  /** 宿主侧索引耗时（不含网络）。 */
+  tookMs: number
+  /** true = 索引还没建好（或宿主没有 node:sqlite），调用方应退回 searchAll。 */
+  fallback?: boolean
+  source?: 'index'
+}
+
+/** 手机上能点的四种目标动作（与桌面端 remote.goals.* 同一套语义）。 */
+export type MobileGoalAction = 'pause' | 'resume' | 'edit' | 'clear'
+
+/**
+ * Delivery mode the host understands for `session.prompt`.
+ *
+ * Only two exist (`queue` appends a turn, `steer` injects into the running one);
+ * "interrupt and send" is a client-side composition of cancel + queue, and the
+ * chat view labels it as such rather than pretending the host has a third mode.
+ */
+export type PromptMode = 'queue' | 'steer'
+
+export type QueueAction =
+  // 编辑只改正文：附件/图片按原样拼回去（宿主那边收据还在，不用重传字节）。
+  | { kind: 'edit'; content: QueueEditPart[] }
+  | { kind: 'remove' }
+  | { kind: 'steer' }
+
+/** One pending inbox occurrence in the host's `session/queue` snapshot. */
+export interface QueueItemView {
+  /** Message identity used by queue mutations. */
+  id: string
+  /** FIFO placement: queued (next turn) / steering (next step) / context. */
+  placement: 'queued' | 'steering' | 'context'
+  /** The pending message's preview text (empty for non-text content). */
+  text: string
+  /** True when the pending content is plain text (the only editable kind). */
+  editable: boolean
+  /** 这条排队消息带的文件附件收据（界面显示用）。 */
+  receipts?: string[]
+  /** 编辑时要原样拼回去的非文本块（文件/图片）：宿主那边收据还在，不用重传字节。 */
+  keepParts?: unknown[]
+}
+
+/** Folders + session→folder assignments. */
+export interface SessionFoldersView {
+  folders: SessionFolderView[]
+  assignments: Record<string, string>
+}
+
+/** One host-side session folder. */
+export interface SessionFolderView {
+  id: string
+  name: string
+  createdAt: number
+}
+
+/** One message-level hit inside one session (the lazy expanded view). */
+export interface SessionMessageHit {
+  /** The matched message event's seq — chat rows cover the range
+   *  [startSeq, seq], so this targets the exact row to scroll to. */
+  seq: number
+  messageId?: string
+  partId?: string
+  /** Surrounding plain-text excerpt around the match (host-clipped). */
+  snippet: string
+}
+
+/** One session.list page. */
+export interface SessionPage {
+  items: SessionSummary[]
+  /** Continuation cursor; undefined once the tail is reached. */
+  nextCursor?: string
+  hasMore: boolean
+}
+
+/** One host-side full-roster search hit (message content across sessions). */
+export interface SessionSearchHit {
+  kind: 'title' | 'message'
+  sessionId: string
+  /** The matched content window (bounded by the host). */
+  snippet: string
+  /** Session display title when the host can resolve it. */
+  title?: string
+  /** Owning workspace when the host can attribute it (home-page locate). */
+  workspaceId?: string
+  /** Owning workspace's display title (host-resolved), so the row can label
+   *  the owner even before the local roster finishes loading. */
+  workspaceTitle?: string
+  /** Stable folded message identity for exact locate. */
+  messageId?: string
+  /** Stable text-part identity inside the folded message. */
+  partId?: string
+  /** First matched message's event seq, retained for history paging fallback. */
+  seq?: number
+  /** 该会话一共命中多少条消息（索引路径才有；标题命中为 0）。 */
+  hits?: number
+  /** 命中来自用户消息（索引路径才有）。 */
+  user?: boolean
+  /** 摘要里命中词的 [start, end)：客户端据此加底色，不自己再猜一遍。 */
+  ranges?: Array<[number, number]>
+  /** 命中所在的整段正文（方案 C）：结果页直接摆出来，点进去前就知道是哪句话。 */
+  paragraph?: string
+  /** 这一段里是第几处命中（0 起，方案 A：会话内按这一处精确定位）。 */
+  matchIndex?: number
+  /** 这个会话里排在前面的几条命中：每条都能单独点进去定位。 */
+  messages?: Array<{
+    seq: number
+    messageId?: string
+    partId?: string
+    snippet: string
+    ranges?: Array<[number, number]>
+    user?: boolean
+    paragraph?: string
+    matchIndex?: number
+  }>
+}
+
+/** `mobile.turnState` 的答复。 */
+export interface TurnState {
+  running: boolean
+  /** 这一轮的 turn/start 时刻（秒表锚点）；不在跑时缺席。 */
+  turnStartAt?: number
+  /** 页面上最新事件的时间：只是信息，不再参与"是否收工"的判断。 */
+  lastEventAt?: number
+  /** 宿主作答的时刻（用于判断这份答案有多旧）。 */
+  asOf: number
+  /**
+   * 这个结论**基于哪一条证据**（日志边界 seq 或帧镜像 seq，取较新者）。
+   *
+   * 手机端用它做单调门控：晚到的旧答复不许覆盖已经应用的新结论。
+   * 旧宿主没有这个字段时按 -1 处理（等于"没有证据序号"，退化为按到达顺序）。
+   */
+  seq?: number
+}
+
+/** 自建索引返回的一条命中：分组由宿主做完，这里只带展示所需字段。 */
+export interface IndexedSearchItem {
+  kind: 'title' | 'message'
+  sessionId: string
+  title?: string
+  /** 命中处的摘要（两侧可能带省略号）。 */
+  snippet?: string
+  /** 摘要里每个命中词的 [start, end) —— 客户端据此加底色，不自己再猜一遍。 */
+  ranges?: Array<[number, number]>
+  /** 该会话一共命中多少条消息（标题命中为 0）。 */
+  hits?: number
+  /** 最佳命中所在的 event seq：点一下就能定位到那一条。 */
+  seq?: number
+  messageId?: string
+  partId?: string
+  user?: boolean
+  workspaceId?: string
+  workspaceTitle?: string
+  /** 命中所在的整段正文（方案 C）：结果页直接摆出来。 */
+  paragraph?: string
+  /** 这一段里是第几处命中（0 起，方案 A：会话内按这一处定位）。 */
+  matchIndex?: number
+  /** 这个会话里排在前面的几条命中（最多 perSession 条）：每条都能单独点进去。 */
+  messages?: Array<{
+    seq: number
+    messageId?: string
+    partId?: string
+    snippet: string
+    ranges?: Array<[number, number]>
+    user?: boolean
+    paragraph?: string
+    matchIndex?: number
+  }>
+}
+
+/** 一条待发消息的内容块：正文，以及原样保留的文件/图片块。 */
+export type QueueEditPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; receiptId: string }
+  | { type: 'image'; attachmentId: string }

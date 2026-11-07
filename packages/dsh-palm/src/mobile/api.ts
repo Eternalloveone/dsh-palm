@@ -11,10 +11,13 @@ import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '../
 import type { SubagentCatalog } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
+import { READ_CHAT_TIMEOUT_MS } from './data/chat-helpers.ts'
+export { READ_CHAT_TIMEOUT_MS } from './data/chat-helpers.ts'
 import { SESSION_PREVIEW_BATCH_LIMIT } from './data/limits.ts'
+import { lastObserveAt, setLastObserveAt } from './data/observe-latch.ts'
 import { OBSERVE_ASSERT_MIN_MS, PREFERENCES_TTL_MS, MODELS_TTL_MS, WORKSPACE_ROSTER_TTL_MS } from './data/limits.ts'
 import { rosterCached, rosterInFlight, setRosterCached, setRosterInFlight } from './data/workspace-roster.ts'
-import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView, AgentPresetRoster, UploadedAttachment, WorkspaceCreateResult } from './mobile-types.ts'
+import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView, AgentPresetRoster, UploadedAttachment, WorkspaceCreateResult, ChatOpenInclude, CommandExecOutcome, CreatedSession, HistoryPage, IndexedSearchResult, MobileGoalAction, PromptMode, QueueAction, QueueItemView, SessionFoldersView, SessionFolderView, SessionMessageHit, SessionPage, SessionSearchHit, TurnState, IndexedSearchItem, QueueEditPart } from './mobile-types.ts'
 import { coalescedRead, invalidateReadCoalescing } from './data/read-coalescing.ts'
 
 export { invalidateReadCoalescing }
@@ -22,33 +25,6 @@ import type { PromptPart } from './image.ts'
 import type { VoiceService } from './voice-services.ts'
 
 
-let lastObservedAt: { key: string; at: number } | undefined
-
-/** One session.list page. */
-export interface SessionPage {
-  items: SessionSummary[]
-  /** Continuation cursor; undefined once the tail is reached. */
-  nextCursor?: string
-  hasMore: boolean
-}
-
-/** The session.create result (the id is the commit the caller navigates to). */
-export interface CreatedSession {
-  sessionId: string
-  /** The composition the new session runs (echoed so the caller can label it). */
-  agentPreset?: string
-}
-
-/** One history page (already bounded to whole messages by the host). */
-export interface HistoryPage {
-  events: import('../api-proxy-types').HistoryEntry[]
-  hasMore: boolean
-  /**
-   * Projection baseline riding the tail page (permissions select etc.);
-   * absent when the deployment mounts no projection registry.
-   */
-  projections?: SessionProjectionsBlock
-}
 
 /** The desktop theme preference (host `ui-theme`), synced to the phone. */
 export type ThemePreference = 'light' | 'dark' | 'system'
@@ -89,13 +65,6 @@ export async function pushUnsubscribe(): Promise<void> {
  * 边界"按 seq 比一次再回答；手机端不再拿静默时长、日志窗口里看不看得见边界、会话表
  * 行的 running 去推断——那三条都曾经把正跑着的一轮判成已完成。
  */
-/**
- * 轮次大纲（导航清单用）。尾页为了省 87 KB 不带它，客户端在这里单独取一次；
- * 宿主查的是花名册枚举留下的投影快照，查不到就回 `turns: null`。
- */
-export async function turnOutlineOf(sessionId: string): Promise<{ turns: unknown }> {
-  return await callUnary<{ turns: unknown }>('mobile.turnOutline', { sessionId })
-}
 
 /**
  * 排队消息（宿主 `inbox` 投影里的 next-turn）。
@@ -110,289 +79,6 @@ export async function turnOutlineOf(sessionId: string): Promise<{ turns: unknown
  * 并读一页 history，而手机在回合跑着的时候每 5 秒问一次 —— 那样每条排队消息都要
  * 拖一次整日志读，弱网下反而更慢。平时走宿主的投影快照，改完自己再要一次新的。
  */
-/**
- * 一次原子的会话快照：行 + 队列 + 回合 + 队列版本都在同一个切面上。
- *
- * 手机端以前要 logTail / inbox / turnState 三次调用才能拼出一屏，三次落在不同时刻，
- * 于是"队列说还有一条、回合说已经开始了"这类矛盾随时可见。这条通道把三者收成一份，
- * 由 `session-store.ts` 按 seq / revision 单调合并（低水位的一律丢弃）。
- */
-export async function sessionState(
-  sessionId: string,
-  options: { fresh?: boolean } = {},
-): Promise<{
-  sessionId: string
-  rows: RenderMessage[]
-  maxSeq: number
-  queue: QueueItemView[]
-  queueRevision: number
-  /** 队列内容指纹（任何客户端改动队列它都会变；老宿主缺省）。 */
-  queueToken?: string
-  turn: { running: boolean; turnStartAt?: number; lastEventAt?: number }
-  /** 目标投影（与 mobile.goal 同一个形状），同一切面下发。 */
-  goal?: unknown
-  goalActivation?: 'armed' | 'disarmed'
-  /** 最新一份 todo/write 快照（宿主折叠窗口里最新的那条）。 */
-  todo?: { seq: number; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> }
-  asOf: number
-}> {
-  return await callUnary('mobile.sessionState', {
-    sessionId,
-    ...(options.fresh === true ? { fresh: true } : {}),
-  })
-}
-
-export async function inboxOf(sessionId: string, options: { fresh?: boolean } = {}): Promise<{ inbox: unknown }> {
-  return await callUnary<{ inbox: unknown }>('mobile.inbox', {
-    sessionId,
-    ...(options.fresh === true ? { fresh: true } : {}),
-  })
-}
-
-/**
- * 目标条：读会话的 `goal` 投影。宿主回的是线上形状 `{ goal: { current } | null }`，
- * 解析交给 `parseGoalProjection`（容忍 current / goal / 直接快照三种来路）。
- *
- * 平时不带 fresh（读花名册快照）；刚点过暂停/恢复/编辑/清除的那一次带 fresh，
- * 让宿主现取当下相位，避免条子还显示旧状态。
- */
-export async function goalOf(
-  sessionId: string,
-  options: { fresh?: boolean } = {},
-): Promise<{ goal: unknown; activation?: 'armed' | 'disarmed' }> {
-  return await callUnary<{ goal: unknown; activation?: 'armed' | 'disarmed' }>('mobile.goal', {
-    sessionId,
-    ...(options.fresh === true ? { fresh: true } : {}),
-  })
-}
-
-/** 手机上能点的四种目标动作（与桌面端 remote.goals.* 同一套语义）。 */
-export type MobileGoalAction = 'pause' | 'resume' | 'edit' | 'clear'
-
-/**
- * 目标动作：直连宿主目标服务，语义与桌面端 GoalBar 一致。
- *
- * 暂停只是撤掉"允许自动继续"的授权（durable 相位仍是 active），恢复是重新授权；
- * 编辑与清除走同一条 CAS。宿主没装目标服务时宿主会回 unavailable，调用方回退到
- * `/goal …` 命令通道。
- */
-export async function goalAction(
-  sessionId: string,
-  action: MobileGoalAction,
-  options: { objective?: string } = {},
-): Promise<{ goal: unknown; activation?: 'armed' | 'disarmed' }> {
-  return await callUnary<{ goal: unknown; activation?: 'armed' | 'disarmed' }>('mobile.goalAction', {
-    sessionId,
-    action,
-    ...(options.objective === undefined ? {} : { objective: options.objective }),
-  })
-}
-
-export async function turnState(sessionId: string): Promise<TurnState> {
-  return await callUnary<TurnState>('mobile.turnState', { sessionId })
-}
-
-/** `mobile.turnState` 的答复。 */
-export interface TurnState {
-  running: boolean
-  /** 这一轮的 turn/start 时刻（秒表锚点）；不在跑时缺席。 */
-  turnStartAt?: number
-  /** 页面上最新事件的时间：只是信息，不再参与"是否收工"的判断。 */
-  lastEventAt?: number
-  /** 宿主作答的时刻（用于判断这份答案有多旧）。 */
-  asOf: number
-  /**
-   * 这个结论**基于哪一条证据**（日志边界 seq 或帧镜像 seq，取较新者）。
-   *
-   * 手机端用它做单调门控：晚到的旧答复不许覆盖已经应用的新结论。
-   * 旧宿主没有这个字段时按 -1 处理（等于"没有证据序号"，退化为按到达顺序）。
-   */
-  seq?: number
-}
-export async function runningSessions(): Promise<{ sessionIds: string[] }> {
-  return await callUnary<{ sessionIds: string[] }>('mobile.runningSessions', {})
-}
-
-/** One session.list page; omit the cursor for the first page. */
-export async function listSessions(cursor?: string, workspaceId?: string): Promise<SessionPage> {
-  // workspaceId 让宿主在切片前就按工作区过滤：每页返回的都是本工作区的会话，
-  // 客户端不再需要"连拉多页再丢弃"（那正是"点很多次"与"往深处拉超时"的共同来源）。
-  // 同一 (cursor, workspaceId) 的重复调用合并：真机实测首屏同 payload 发 3 次。
-  return await coalescedRead<SessionPage>('session.list', {
-    ...(cursor === undefined ? {} : { cursor }),
-    ...(workspaceId === undefined ? {} : { workspaceId }),
-  })
-}
-
-/** One host-side full-roster search hit (message content across sessions). */
-export interface SessionSearchHit {
-  kind: 'title' | 'message'
-  sessionId: string
-  /** The matched content window (bounded by the host). */
-  snippet: string
-  /** Session display title when the host can resolve it. */
-  title?: string
-  /** Owning workspace when the host can attribute it (home-page locate). */
-  workspaceId?: string
-  /** Owning workspace's display title (host-resolved), so the row can label
-   *  the owner even before the local roster finishes loading. */
-  workspaceTitle?: string
-  /** Stable folded message identity for exact locate. */
-  messageId?: string
-  /** Stable text-part identity inside the folded message. */
-  partId?: string
-  /** First matched message's event seq, retained for history paging fallback. */
-  seq?: number
-  /** 该会话一共命中多少条消息（索引路径才有；标题命中为 0）。 */
-  hits?: number
-  /** 命中来自用户消息（索引路径才有）。 */
-  user?: boolean
-  /** 摘要里命中词的 [start, end)：客户端据此加底色，不自己再猜一遍。 */
-  ranges?: Array<[number, number]>
-  /** 命中所在的整段正文（方案 C）：结果页直接摆出来，点进去前就知道是哪句话。 */
-  paragraph?: string
-  /** 这一段里是第几处命中（0 起，方案 A：会话内按这一处精确定位）。 */
-  matchIndex?: number
-  /** 这个会话里排在前面的几条命中：每条都能单独点进去定位。 */
-  messages?: Array<{
-    seq: number
-    messageId?: string
-    partId?: string
-    snippet: string
-    ranges?: Array<[number, number]>
-    user?: boolean
-    paragraph?: string
-    matchIndex?: number
-  }>
-}
-
-/** Search every session's messages across the whole host (with attribution). */
-export async function searchAll(query: string): Promise<{ items: SessionSearchHit[]; hasMore: boolean; partial?: boolean }> {
-  return await callUnary<{ items: SessionSearchHit[]; hasMore: boolean; partial?: boolean }>('mobile.searchAll', { query })
-}
-
-/** 自建索引返回的一条命中：分组由宿主做完，这里只带展示所需字段。 */
-export interface IndexedSearchItem {
-  kind: 'title' | 'message'
-  sessionId: string
-  title?: string
-  /** 命中处的摘要（两侧可能带省略号）。 */
-  snippet?: string
-  /** 摘要里每个命中词的 [start, end) —— 客户端据此加底色，不自己再猜一遍。 */
-  ranges?: Array<[number, number]>
-  /** 该会话一共命中多少条消息（标题命中为 0）。 */
-  hits?: number
-  /** 最佳命中所在的 event seq：点一下就能定位到那一条。 */
-  seq?: number
-  messageId?: string
-  partId?: string
-  user?: boolean
-  workspaceId?: string
-  workspaceTitle?: string
-  /** 命中所在的整段正文（方案 C）：结果页直接摆出来。 */
-  paragraph?: string
-  /** 这一段里是第几处命中（0 起，方案 A：会话内按这一处定位）。 */
-  matchIndex?: number
-  /** 这个会话里排在前面的几条命中（最多 perSession 条）：每条都能单独点进去。 */
-  messages?: Array<{
-    seq: number
-    messageId?: string
-    partId?: string
-    snippet: string
-    ranges?: Array<[number, number]>
-    user?: boolean
-    paragraph?: string
-    matchIndex?: number
-  }>
-}
-
-export interface IndexedSearchResult {
-  items: IndexedSearchItem[]
-  total: number
-  hasMore: boolean
-  /** 下一页的 offset（原样传回来就是「加载更多」）。 */
-  nextOffset?: number
-  /** 宿主侧索引耗时（不含网络）。 */
-  tookMs: number
-  /** true = 索引还没建好（或宿主没有 node:sqlite），调用方应退回 searchAll。 */
-  fallback?: boolean
-  source?: 'index'
-}
-
-/**
- * 宿主自建索引搜索（期 2）。中文按相邻二字组入索引，所以 2 字词也搜得到，
- * 不再靠「FTS 猜 + 子串补扫」。`fallback: true` 时必须退回 {@link searchAll}：
- * 索引是后台建的，刚启动那几分钟还没追上。
- */
-export async function searchSessions(
-  options: { query: string; sessionId?: string; sessions?: number; perSession?: number; offset?: number },
-  signal?: AbortSignal,
-): Promise<IndexedSearchResult> {
-  return await callUnary<IndexedSearchResult>('mobile.search', options, signal)
-}
-
-/** One message-level hit inside one session (the lazy expanded view). */
-export interface SessionMessageHit {
-  /** The matched message event's seq — chat rows cover the range
-   *  [startSeq, seq], so this targets the exact row to scroll to. */
-  seq: number
-  messageId?: string
-  partId?: string
-  /** Surrounding plain-text excerpt around the match (host-clipped). */
-  snippet: string
-}
-
-/**
- * Locate message-level hits inside ONE session (`mobile.searchMessages`,
- * answered by the host): the lazy detail behind an expanded search-hit row.
- * Bounded to the first 8 hits and a defensive history-page ceiling; the
- * locate scan continues through the session so deep search results remain
- * addressable. Results are cached for 60s.
- */
-export async function searchMessages(sessionId: string, query: string): Promise<{ items: SessionMessageHit[] }> {
-  return await callUnary<{ items: SessionMessageHit[] }>('mobile.searchMessages', { sessionId, query })
-}
-
-/**
- * Create a blank session (entity birth precedes the first message). Name a
- * workspace to attach it there, or a cwd; omitting both uses the host cwd.
- */
-export async function createSession(
-  options: { workspaceId?: string; cwd?: string; agentPreset?: string } = {},
-): Promise<CreatedSession> {
-  const created = await callUnary<CreatedSession>('session.create', options)
-  // 新会话必须立刻出现在列表里：清掉读取合并窗口与工作区花名册窗口。
-  invalidateReadCoalescing()
-  invalidateWorkspaceRoster()
-  return created
-}
-
-/**
- * One history window; omit beforeSeq for the tail page, pass a signal to abort.
- * The mobile page size is 25 (the desktop uses 30): a page of 30 messages
- * can exceed 1 MB of JSON for tool-heavy sessions, which over a slow phone
- * link outlives the client's history-load timeout and surfaces as a
- * transport error. 25 keeps the tail page small enough to load reliably
- * while still showing a screen and a half of context on open (the loadOlder
- * button pages further on demand).
- */
-export async function history(
-  sessionId: string,
-  beforeSeq?: number,
-  maxMessages = 25,
-  signal?: AbortSignal,
-  // 冷宿主/大会话的首页与锚定页实测 17~109 s，默认 60 s 会先掐断（见 READ_CHAT_TIMEOUT_MS）。
-  timeoutMs: number = READ_CHAT_TIMEOUT_MS,
-): Promise<HistoryPage> {
-  return await callUnary<HistoryPage>('session.history', {
-    sessionId,
-    maxMessages,
-    ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-  }, signal, timeoutMs)
-}
-
-/** 打开会话时可以顺带取回的小目录（服务端白名单，见 mobile-api readChatInclude）。 */
-export type ChatOpenInclude = 'models' | 'subagents'
 
 /**
  * Folded-view chat read (v3): the host serves message rows from its mux-fed
@@ -401,115 +87,6 @@ export type ChatOpenInclude = 'models' | 'subagents'
  * tool event tail. Fall back to {@link history} + a local fold when the host
  * answers unavailable (older plugin); see App.loadChatPage.
  */
-/**
- * `mobile.readChat` 的 RPC 上限。默认 60 s 对热宿主够用，但冷启动/大会话被
- * 换出内存时，实测首页读要 17~109 s（317 会话里最大的那个 6986 条），60 s 一到
- * 就被 RPC 层掐断，页面停在「加载中…」——用户看到的就是「点了结果进不去」。
- */
-export const READ_CHAT_TIMEOUT_MS = 180_000
-
-export async function readChat(
-  sessionId: string,
-  beforeSeq?: number,
-  maxRows = 25,
-  signal?: AbortSignal,
-  include?: readonly ChatOpenInclude[],
-  timeoutMs: number = READ_CHAT_TIMEOUT_MS,
-): Promise<ChatPage> {
-  return await callUnary<ChatPage>('mobile.readChat', {
-    sessionId,
-    ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-    ...(maxRows !== 25 ? { maxRows } : {}),
-    ...(include !== undefined && include.length > 0 ? { include: [...include] } : {}),
-  }, signal, timeoutMs)
-}
-
-/**
- * Tell the host which session this phone has open (v3.4). The host keeps ONE
- * `session.follow({assistantStream:true})` for the observed sessions — that is
- * what makes the phone stream token-by-token like the desktop. The phone
- * re-asserts on a slow cadence so a dropped SSE stream (which releases the
- * registration host-side) heals without leaving the chat; `undefined` means
- * the chat was left.
- */
-export async function observeSession(sessionId: string | undefined, signal?: AbortSignal): Promise<void> {
-  // 同一状态在窗口内只断言一次：实测启动时 `{}` 被连发两次（路由从首页
-  // 切到列表，effect 重跑），每次都是一个新的宿主侧 follow 注册，没有收益。
-  const key = sessionId ?? ''
-  const last = lastObservedAt
-  if (last !== undefined && last.key === key && Date.now() - last.at < OBSERVE_ASSERT_MIN_MS) return
-  lastObservedAt = { key, at: Date.now() }
-  try {
-    await callUnary<unknown>('mobile.observe', sessionId === undefined ? {} : { sessionId }, signal)
-  } catch (error) {
-    // A failed assert must not arm the window: the next cadence tick retries.
-    if (lastObservedAt?.key === key) lastObservedAt = undefined
-    throw error
-  }
-}
-
-/**
- * Delivery mode the host understands for `session.prompt`.
- *
- * Only two exist (`queue` appends a turn, `steer` injects into the running one);
- * "interrupt and send" is a client-side composition of cancel + queue, and the
- * chat view labels it as such rather than pretending the host has a third mode.
- */
-export type PromptMode = 'queue' | 'steer'
-
-/**
- * Send a prompt. `parts` supports text plus attached images
- * (`{ type: 'image', mediaType, data, name? }`); the host promotes image bytes
- * to durable references.
- *
- * @param mode - `queue` (default) appends a turn; `steer` injects into the
- *   running turn so the model sees it at its next step.
- */
-export async function prompt(
-  sessionId: string,
-  parts: PromptPart[],
-  /**
-   * 本次投递的幂等键。
-   *
-   * 宿主按 `requestId` 去重（同一个 id 重复提交只入队一次，实测 2026-10-30：同 id 再发
-   * 队列条数不变），而手机端此前**根本不带**这个字段 —— 于是任何重复投递（双击、弱网
-   * 重发、两条链路同时发）都会在排队条上变成两条一模一样的消息，用户无从分辨。
-   *
-   * 重试要复用同一个 id 才有效；新的发送意图必须换新 id。
-   */
-  requestId: string = newRequestId(),
-  mode: PromptMode = 'queue',
-): Promise<void> {
-  await callUnary<{ accepted: true }>('session.prompt', {
-    sessionId,
-    mode,
-    content: parts,
-    requestId,
-  })
-}
-
-/** 一次投递意图的幂等键（碰撞概率可忽略；无需与宿主格式一致）。 */
-export function newRequestId(): string {
-  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
-  if (typeof cryptoObj?.randomUUID === 'function') return cryptoObj.randomUUID()
-  return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-/** One pending inbox occurrence in the host's `session/queue` snapshot. */
-export interface QueueItemView {
-  /** Message identity used by queue mutations. */
-  id: string
-  /** FIFO placement: queued (next turn) / steering (next step) / context. */
-  placement: 'queued' | 'steering' | 'context'
-  /** The pending message's preview text (empty for non-text content). */
-  text: string
-  /** True when the pending content is plain text (the only editable kind). */
-  editable: boolean
-  /** 这条排队消息带的文件附件收据（界面显示用）。 */
-  receipts?: string[]
-  /** 编辑时要原样拼回去的非文本块（文件/图片）：宿主那边收据还在，不用重传字节。 */
-  keepParts?: unknown[]
-}
 
 /**
  * Map one raw host queue item (the `session/queue` frame shape) into the
@@ -517,78 +94,9 @@ export interface QueueItemView {
  * blocks carry a wide payload), so the mapper reads only the narrow fields it
  * needs and never asserts the full shape.
  */
-/** 非文本块的占位词：排队条上出现 [image] [file] 这种半英文，普通用户读不懂。 */
-function queueBlockLabel(type: string | undefined): string {
-  switch (type) {
-    case 'image': return '图片'
-    case 'file': return '文件'
-    case 'audio': return '音频'
-    case 'video': return '视频'
-    case 'document': return '文档'
-    default: return '内容'
-  }
-}
-
-export function queueItemViewOf(item: {
-  id: string
-  placement: 'queued' | 'steering' | 'context'
-  message?: { content?: unknown }
-}): QueueItemView {
-  const blocks = Array.isArray(item.message?.content)
-    ? (item.message.content as Array<{ type?: string; text?: string }>)
-    : []
-  const editable = blocks.length > 0 && blocks.every(block => block.type === 'text' && typeof block.text === 'string')
-  const text = editable
-    ? (blocks as Array<{ text: string }>).map(block => block.text).join('')
-    : blocks
-      .map(block => block.type === 'text' && typeof block.text === 'string' ? block.text : `[${queueBlockLabel(block.type)}]`)
-      .join(' ')
-      .trim()
-  return { id: item.id, placement: item.placement, text, editable }
-}
 
 /** A queue mutation: edit the pending text, remove it, or steer it into the
  *  running turn (only while the agent is running). */
-/** 一条待发消息的内容块：正文，以及原样保留的文件/图片块。 */
-export type QueueEditPart =
-  | { type: 'text'; text: string }
-  | { type: 'file'; receiptId: string }
-  | { type: 'image'; attachmentId: string }
-
-export type QueueAction =
-  // 编辑只改正文：附件/图片按原样拼回去（宿主那边收据还在，不用重传字节）。
-  | { kind: 'edit'; content: QueueEditPart[] }
-  | { kind: 'remove' }
-  | { kind: 'steer' }
-
-/** Edit / remove / steer one pending queued message on the host. */
-export async function updateQueue(sessionId: string, itemId: string, action: QueueAction): Promise<void> {
-  await callUnary<{ accepted: true }>('session.updateQueue', { sessionId, itemId, action })
-}
-
-/** One executed slash-command outcome from the host registry. */
-export interface CommandExecOutcome {
-  /** false: the line did not resolve to a registered command (nothing ran). */
-  matched: boolean
-  kind?: 'success' | 'error'
-  /** The command's own human result text (usage/state feedback), when any. */
-  text?: string
-}
-
-/**
- * Execute one slash-command line through the host command registry
- * (`mobile.commandExec` — the same interception the desktop composer uses).
- * Never send a `/`-line through `prompt`: the host prompt channel does not
- * dispatch commands, so the line would reach the model verbatim.
- *
- * The cap is long (180 s) instead of the 60 s default: `/compact` summarizes
- * through the model and can outlive it. A finite ceiling still beats the
- * old disabled timeout — a hung link otherwise pins the composer's sending
- * state forever with no way to recover.
- */
-export async function sendCommand(sessionId: string, line: string): Promise<CommandExecOutcome> {
-  return await callUnary<CommandExecOutcome>('mobile.commandExec', { sessionId, line }, undefined, 180_000)
-}
 
 /**
  * 把一个文件的 base64 交给宿主暂存（`mobile.uploadAttachment`）。
@@ -599,29 +107,6 @@ export async function sendCommand(sessionId: string, line: string): Promise<Comm
  */
 
 /* ── per-provider usage / balance display ─────────────────────────────── */
-
-/** Rename one session (the chat page's 更多 menu). */
-export async function renameSession(sessionId: string, title: string): Promise<unknown> {
-  const renamed = await callUnary<unknown>('session.rename', { sessionId, title })
-  // 新标题要能立刻回列表看到：清掉列表的复用窗口（工作区页也用同一份）。
-  invalidateReadCoalescing()
-  invalidateWorkspaceRoster()
-  return renamed
-}
-
-/**
- * Stop the session's active turn (the mobile stop button). Pending queued
- * work is preserved and resumes in FIFO order once cancellation settles.
- */
-export async function cancelSession(sessionId: string): Promise<{ accepted: true }> {
-  return await callUnary<{ accepted: true }>('session.cancel', { sessionId })
-}
-
-/** Direct-child subagent catalog for one parent (labels + activity + hasChildren). */
-export async function subagentsList(parentSessionId: string): Promise<SubagentCatalog> {
-  // 进会话时实测同一 parent 连发多次（5 次）：合并成一次。
-  return await coalescedRead<SubagentCatalog>('subagent.list', { parentSessionId })
-}
 
 /* ── pending approvals / questions (#1025) ───────────────────────────── */
 
@@ -658,97 +143,11 @@ export async function fetchGitSummary(cwd: string): Promise<GitSummary> {
   return await callUnary<GitSummary>('mobile.gitSummary', { cwd })
 }
 
-/** Submit an approval decision (allowed-once or rejected). The answer is a
- * client-response echoing the approval/requested frame's rpcId. */
-export async function respondApproval(
-  rpcId: string,
-  sessionId: string,
-  approvalId: string,
-  outcome: 'allowed-once' | 'rejected',
-): Promise<void> {
-  await callUnary<unknown>('mobile.respond', {
-    rpcId,
-    response: { sessionId, approvalId, outcome },
-  })
-}
-
-/** Submit answers to a question group (one batch per ask, echoing its rpcId). */
-export async function respondQuestion(
-  rpcId: string,
-  sessionId: string,
-  answer: { answers: Array<{ id: string; selected: string[]; custom?: string }> },
-): Promise<void> {
-  await callUnary<unknown>('mobile.respond', {
-    rpcId,
-    response: { sessionId, answer },
-  })
-}
-
 /* ── directory browsing / workspace creation (#977) ──────────────────── */
-
-/**
- * Delete one session the way the desktop does: an archive-set write that
- * removes it from every roster forever (the phone filters the archive set in
- * its session.list already), while the session log stays on disk — the
- * desktop can still surface it (unarchive). Idempotent; unknown id errors.
- */
-export async function archiveSession(sessionId: string): Promise<{ archivedSessionIds: string[] }> {
-  const archived = await callUnary<{ archivedSessionIds: string[] }>('workspace.archiveSession', { sessionId })
-  invalidateReadCoalescing()
-  // 会话从工作区下消失，花名册里的 sessionIds 也变了。
-  invalidateWorkspaceRoster()
-  return archived
-}
 
 /* ── paired-device management (P1/P2/P3) ─────────────────────────────── */
 
 /* ── session folders (F1) ────────────────────────────────────────────── */
-
-/** One host-side session folder. */
-export interface SessionFolderView {
-  id: string
-  name: string
-  createdAt: number
-}
-
-/** Folders + session→folder assignments. */
-export interface SessionFoldersView {
-  folders: SessionFolderView[]
-  assignments: Record<string, string>
-}
-
-/**
- * Read the host-side grouping.
- *
- * Host-side on purpose: the desktop and every paired phone see the same
- * folders, and revoking a phone (which wipes its local storage) cannot destroy
- * the user's organisation. A host that predates the feature answers
- * `unavailable` — callers then simply hide the chips.
- */
-export async function readSessionFolders(): Promise<SessionFoldersView> {
-  return await callUnary<SessionFoldersView>('mobile.folders', { action: 'list' })
-}
-
-/** Create a folder; the host refuses duplicate/empty names. */
-export async function createSessionFolder(name: string): Promise<SessionFoldersView & { created?: SessionFolderView }> {
-  return await callUnary<SessionFoldersView & { created?: SessionFolderView }>('mobile.folders', { action: 'create', name })
-}
-
-/** Rename one folder. */
-export async function renameSessionFolder(folderId: string, name: string): Promise<SessionFoldersView> {
-  return await callUnary<SessionFoldersView>('mobile.folders', { action: 'rename', folderId, name })
-}
-
-/** Delete one folder (its sessions return to "no folder"). */
-export async function removeSessionFolder(folderId: string): Promise<SessionFoldersView & { removed?: boolean }> {
-  return await callUnary<SessionFoldersView & { removed?: boolean }>('mobile.folders', { action: 'remove', folderId })
-}
-
-/** File one session into a folder (null clears the assignment). */
-export async function assignSessionFolder(sessionId: string, folderId: string | null): Promise<SessionFoldersView> {
-  return await callUnary<SessionFoldersView>('mobile.folders', { action: 'assign', sessionId, folderId })
-}
-
 
 // diag 域的实现已搬到 data/impl/diag.ts（W4-4）；这里只转出，对外 API 不变。
 export { latestVersion, logTail, readDiagnostics, reportError, reportPerf } from './data/impl/diag.ts'
@@ -759,7 +158,7 @@ export { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns, fetchUsage
 
 
 // 共享类型搬到 mobile-types.ts（W4-4）；这里只转出。
-export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView, AgentPresetRoster, UploadedAttachment, WorkspaceCreateResult } from './mobile-types.ts'
+export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView, AgentPresetRoster, UploadedAttachment, WorkspaceCreateResult, ChatOpenInclude, CommandExecOutcome, CreatedSession, HistoryPage, IndexedSearchResult, MobileGoalAction, PromptMode, QueueAction, QueueItemView, SessionFoldersView, SessionFolderView, SessionMessageHit, SessionPage, SessionSearchHit, TurnState, IndexedSearchItem, QueueEditPart } from './mobile-types.ts'
 
 
 // notify 域的实现已搬到 data/impl/notify.ts（W4-4）；这里只转出，对外 API 不变。
@@ -780,3 +179,7 @@ export { readSettings, mutateSettings, fetchMobilePreferences, selectModel, mode
 
 // workspace 域的实现已搬到 data/impl/workspace.ts（W4-4）；这里只转出，对外 API 不变。
 export { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, listAgentPresets, uploadAttachment } from './data/impl/workspace.ts'
+
+
+// session 域的实现已搬到 data/impl/session.ts（W4-4）；这里只转出，对外 API 不变。
+export { turnOutlineOf, sessionState, inboxOf, goalOf, goalAction, turnState, runningSessions, listSessions, searchAll, searchSessions, searchMessages, createSession, history, readChat, observeSession, prompt, newRequestId, queueItemViewOf, updateQueue, sendCommand, renameSession, cancelSession, subagentsList, respondApproval, respondQuestion, archiveSession, readSessionFolders, createSessionFolder, renameSessionFolder, removeSessionFolder, assignSessionFolder } from './data/impl/session.ts'
