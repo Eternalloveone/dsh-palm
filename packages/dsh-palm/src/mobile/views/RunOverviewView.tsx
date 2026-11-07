@@ -36,7 +36,7 @@ import { listSessions, logTail } from '../api.ts'
 import { SUBAGENT_POLL_MS, fetchSubagents, runningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from '../subagent-tree.ts'
 import { TaskRow } from '../task-status.tsx'
 import { InboxIcon } from '../icons.tsx'
-import { runningOf, subscribeStatus } from '../session-status-store.ts'
+import { effectiveRunning, presenceOf, subscribePresence } from '../kernels/presence.ts'
 import { RUN_STALE_MS, formatAgo, formatRunDuration, runDetailFromPage, type RunDetail } from '../run-detail.ts'
 import {
   clearFinishedRuns,
@@ -344,8 +344,8 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
    * 「聊天页说停了、运行中页还挂着」这类跨页矛盾就没有来源了。
    */
   const authoritativeRunning = (sessionId: string, fallback: boolean): boolean => {
-    const shared = runningOf(sessionId)
-    return shared === undefined ? fallback : shared
+    // 判据统一在 Presence 内核里（W3-4）：这里只表达"没有共享状态时信什么"。
+    return effectiveRunning(sessionId, fallback)
   }
   const updateLive = (sessionId: string, running: boolean): void => {
     const next = new Set(liveRef.current)
@@ -397,17 +397,16 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     return () => { cancelled = true }
   }, [])
   // 聊天页发布/收窄结论时同步刷新本页的「在跑」集合（同一份判据，两个视图）。
-  useEffect(() => subscribeStatus(() => {
+  // 没有共享证据的会话**不动**（沿用花名册的结论），否则会把"还没收到帧"的会话误删。
+  useEffect(() => subscribePresence((sessionId) => {
+    const shared = presenceOf(sessionId).running
+    if (shared === undefined) return
     const ids = new Set(liveRef.current)
-    for (const sessionId of roster.keys()) {
-      const shared = runningOf(sessionId)
-      if (shared === undefined) continue
-      if (shared) ids.add(sessionId)
-      else ids.delete(sessionId)
-    }
+    if (shared) ids.add(sessionId)
+    else ids.delete(sessionId)
     liveRef.current = ids
     setLiveSessions(ids)
-  }), [roster])
+  }), [])
 
   // 运行集合的定期校准：花名册那一行会撒谎（跑完半天还写 running=true），
   // 页面开了就不动的话，一张卡能一直挂着数秒。mux 的 refreshRunning 会重新问宿主，

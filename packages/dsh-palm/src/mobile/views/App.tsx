@@ -20,7 +20,7 @@ import {
 import { MuxClient } from '../mux.ts'
 import { startNotify, stopNotify } from '../notify.ts'
 import { usePageVisible } from '../foreground.ts'
-import { runningOf, subscribeStatus } from '../session-status-store.ts'
+import { effectiveRunning, subscribePresence } from '../kernels/presence.ts'
 import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcTransportError } from '../rpc.ts'
 import { runPairingTeardown } from '../teardown.ts'
@@ -700,7 +700,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     // 以聊天页发布的结论为准（它同时握着实时帧、原子快照和本地意图）；
     // 没有发布过的会话才退回花名册 —— 首页徽标与运行中页从此同一个判据。
     for (const sessionId of mux.runningSessionsSnapshot()) {
-      if (runningOf(sessionId) !== false) active.add(sessionId)
+      if (effectiveRunning(sessionId, true)) active.add(sessionId)
     }
     for (const row of mux.jobsSnapshot()) {
       const hasLiveJob = row.jobs.some(job => job.status === 'running' || job.status === 'stopping')
@@ -716,7 +716,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const showSystemMessages = false
 
   // 聊天页发布新的「在跑」结论时立刻重算徽标：同一个判据，两个视图同步。
-  useEffect(() => subscribeStatus(() => { recomputeActive() }), [recomputeActive])
+  useEffect(() => subscribePresence(() => { recomputeActive() }), [recomputeActive])
   useEffect(() => () => {
     if (exitTimerRef.current !== undefined) clearTimeout(exitTimerRef.current)
   }, [])

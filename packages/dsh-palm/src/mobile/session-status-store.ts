@@ -98,6 +98,11 @@ export function runningOf(sessionId: string, now: number = Date.now()): boolean 
   return turn.value.running
 }
 
+/** 当前有状态记录的会话 id（给 Presence 内核遍历用；不要拿它当"全部会话"）。 */
+export function statusSessionIds(): readonly string[] {
+  return [...entries.keys()]
+}
+
 export function subscribeStatus(listener: (sessionId: string) => void): () => void {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
