@@ -26,6 +26,7 @@ import { useMobilePreferences } from './chat/hooks/use-mobile-preferences.ts'
 import { useChatTimerCleanup } from './chat/hooks/use-chat-timer-cleanup.ts'
 import { useLatestRef } from './chat/hooks/use-latest-ref.ts'
 import { useSearchPrefill } from './chat/hooks/use-search-prefill.ts'
+import { useInboxPoll } from './chat/hooks/use-inbox-poll.ts'
 import { useCardRecoveryReset } from './chat/hooks/use-card-recovery-reset.ts'
 import { useCardDomProbe } from './chat/hooks/use-card-dom-probe.ts'
 import { ChatOverlays } from './chat/components/chat-overlays.tsx'
@@ -786,24 +787,9 @@ export function ChatView({
     toast('这条排队消息没能送达，已放回输入框')
   }, [queueItems, messages, session.sessionId, running, session.running])
 
-  // 队列非空时加密到 2 秒：这时候屏幕上正挂着用户刚排的那几条，宿主一投递、
-  // 一删除，手机必须马上跟上。空了就退回常规节奏 —— 没有卡片要看，问得再勤
-  // 也只是白烧一次隧道往返。
-  useEffect(() => {
-    refreshInbox()
-    const timer = window.setInterval(() => {
-      if (!document.hidden) refreshInbox()
-      // 有排队项时 1.5 秒对一次（宿主投递走的不是帧，只能问）；跑着时 3 秒；
-    // 空闲 8 秒。写操作本身已经即时生效（乐观项 + 回执），这里只负责收敛。
-  }, hasPendingQueue ? 1500 : running ? 3000 : 8000)
-    // 从后台切回来立刻对一次：息屏那段时间的帧全丢了。
-    const onVisible = (): void => { if (!document.hidden) refreshInbox() }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [running, refreshInbox, hasPendingQueue])
+  // 收件箱轮询（1.5s / 3s / 8s 按状态变速 + 切回前台补一次）：宿主投递走的是帧以外
+  // 的通道，客户端只能问。节奏与理由见 hooks/use-inbox-poll.ts。
+  useInboxPoll({ running, hasPendingQueue, refreshInbox })
   /**
    * 目标投影 → 目标条状态。宿主线上形状是 `{ current }`，解析在 parseGoalProjection 里；
   applyGoalRef.current = applyGoal
