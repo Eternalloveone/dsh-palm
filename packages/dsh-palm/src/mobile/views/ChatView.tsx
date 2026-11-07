@@ -17,6 +17,7 @@ import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVE
 import { useChatExport } from './chat/use-chat-export.ts'
 import { useQueueActions } from './chat/use-queue-actions.ts'
 import { useChatInbox } from './chat/use-chat-inbox.ts'
+import { useChatGoal } from './chat/use-chat-goal.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/chat-turn-report.ts'
 import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/chat-scroll.ts'
@@ -722,10 +723,19 @@ export function ChatView({
   const hasPendingQueue = queueItems.length > 0
 
   const applyGoalRef = useRef<(value: unknown, activation?: 'armed' | 'disarmed') => void>(() => {})
-  const adoptTodoRef = useRef<(next: { seq: number; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> }) => void>(() => {})
+  const adoptTodoRef = useRef<(next: TodoSnapshot) => void>(() => {})
 
   /** 计划条（todo/write 快照）：流 hook 的待办归一化要在构造时就拿到 setter。 */
   const [todo, setTodo] = useState<TodoSnapshot | undefined>(undefined)
+  const { applyGoal, refreshGoal, adoptTodo, adoptTodoLatest } = useChatGoal({
+    sessionId: session.sessionId,
+    mountedRef,
+    setGoal,
+    setTodo,
+    startTransition,
+    applyGoalRef,
+    adoptTodoRef,
+  })
   /** On turn/end, mirror the host projection's normalization: a task still
    * `in_progress` when the turn ends reads as completed (agents routinely skip
    * the final all-done write, which would otherwise leave the strip stuck on an
@@ -877,31 +887,12 @@ export function ChatView({
   }, [running, refreshInbox, hasPendingQueue])
   /**
    * 目标投影 → 目标条状态。宿主线上形状是 `{ current }`，解析在 parseGoalProjection 里；
-   * 已完成/已清除/空目标一律落成 null（条子消失），与桌面端 GoalBar 同一规则。
-   */
-  const applyGoal = useCallback((value: unknown, activation?: 'armed' | 'disarmed'): void => {
-    const parsed = parseGoalProjection(value, activation)
-    startTransition(() => { setGoal(parsed) })
-  }, [])
   applyGoalRef.current = applyGoal
 
-  /**
-   * 打开会话先问一次。目标只在手机上点动作时改变，所以这里不带 fresh：读花名册快照
-   * 就够，省掉一次现开 follow（那条路会和聊天读抢宿主）。
-   */
-  const refreshGoal = useCallback((options: { fresh?: boolean } = {}): void => {
-    void goalOf(session.sessionId, options).then(
-      (value) => { if (mountedRef.current) applyGoal(value.goal, value.activation) },
-      () => undefined,
-    )
-  }, [session.sessionId, applyGoal])
 
   useEffect(() => {
     // 只兜这一次：目标现在随 `mobile.sessionState` 的原子快照一起回来（和回合状态
     // 同一时刻），不再自己开 15/20 秒的轮询 —— 那既慢（电脑上改了要等十几秒）又和
-    // 回合状态不同步。这里留着是为了**老宿主**（快照里没有 goal 字段）仍然能显示。
-    refreshGoal()
-  }, [refreshGoal])
   /** 当前计时锚点的即时值（effect 里要判断「锚点是不是过期了」）。 */
   const turnStartAtRef = useRef<number | null>(null)
   useEffect(() => { turnStartAtRef.current = turnStartAt }, [turnStartAt])
@@ -925,17 +916,6 @@ export function ChatView({
    * newest message). Adoption is last-write-wins by seq: history pages and
    * live frames can race, and an older page must never clobber a newer live
    * snapshot. Cleared on turn/start (the host clears the projection there). */
-  const adoptTodo = useCallback((next: TodoSnapshot | undefined): void => {
-    if (next === undefined) return
-    setTodo(previous => (previous !== undefined && next.seq <= previous.seq ? previous : next))
-  }, [])
-  adoptTodoRef.current = adoptTodo
-  /** Adopt one live `todo/write` event into the plan strip (malformed → keep). */
-  const adoptTodoLatest = useCallback((event: WireEvent): void => {
-    const items = parseTodoList(event.data)
-    if (items === undefined) return
-    adoptTodo({ seq: event.seq, items })
-  }, [adoptTodo])
   /** Foreground subagents for this session (the flat live delegation list).
    * Built from `subagents.list` and overlaid with host/session-status flips. */
   const [subagents, setSubagents] = useState<SubagentFlatNode[]>([])
