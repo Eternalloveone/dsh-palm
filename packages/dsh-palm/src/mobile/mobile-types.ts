@@ -7,7 +7,7 @@
  *
  * @module dsh-palm/mobile/mobile-types
  */
-import type { SessionModels, SessionProjectionsBlock, SubagentCatalog } from '../api-proxy-types'
+import type { AgentPresetEntry, SessionModels, SessionProjectionsBlock, SubagentCatalog, WorkspaceView } from '../api-proxy-types'
 import type { RenderMessage, TodoSnapshot } from './messages.ts'
 
 /** One folded chat page (v3 `mobile.readChat`): rows, watermark, and seeds. */
@@ -291,4 +291,27 @@ export interface PairedDeviceView {
   primary?: boolean
   /** Whether this row is the device the phone is currently running on. */
   current: boolean
+}
+
+/** Agent presets available when composing a new session. */
+export interface AgentPresetRoster {
+  presets: readonly AgentPresetEntry[]
+  authorable: boolean
+  hasDocument: boolean
+}
+
+/** 一个已经交给宿主暂存、等着随下一条 prompt 发出去的附件。 */
+export interface UploadedAttachment {
+  /** 宿主铸的收据：prompt 里 `{ type: 'file', receiptId }` 引用它。 */
+  receiptId: string
+  /** 展示用的文件名（宿主清洗过叶子名）。 */
+  name: string
+  /** 字节数（宿主回填，展示用）。 */
+  bytes?: number
+}
+
+/** The result of creating a workspace from an existing directory. */
+export interface WorkspaceCreateResult {
+  workspace: WorkspaceView
+  created: boolean
 }

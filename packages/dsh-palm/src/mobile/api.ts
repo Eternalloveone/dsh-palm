@@ -13,7 +13,8 @@ import type { RenderMessage, TodoSnapshot } from './messages.ts'
 import { callUnary } from './rpc.ts'
 import { SESSION_PREVIEW_BATCH_LIMIT } from './data/limits.ts'
 import { OBSERVE_ASSERT_MIN_MS, PREFERENCES_TTL_MS, MODELS_TTL_MS, WORKSPACE_ROSTER_TTL_MS } from './data/limits.ts'
-import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView } from './mobile-types.ts'
+import { rosterCached, rosterInFlight, setRosterCached, setRosterInFlight } from './data/workspace-roster.ts'
+import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView, AgentPresetRoster, UploadedAttachment, WorkspaceCreateResult } from './mobile-types.ts'
 import { coalescedRead, invalidateReadCoalescing } from './data/read-coalescing.ts'
 
 export { invalidateReadCoalescing }
@@ -38,13 +39,6 @@ export interface CreatedSession {
   agentPreset?: string
 }
 
-/** Agent presets available when composing a new session. */
-export interface AgentPresetRoster {
-  presets: readonly AgentPresetEntry[]
-  authorable: boolean
-  hasDocument: boolean
-}
-
 /** One history page (already bounded to whole messages by the host). */
 export interface HistoryPage {
   events: import('../api-proxy-types').HistoryEntry[]
@@ -59,34 +53,15 @@ export interface HistoryPage {
 /** The desktop theme preference (host `ui-theme`), synced to the phone. */
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-let workspaceRosterInFlight: Promise<WorkspaceView[]> | undefined
-let workspaceRosterCached: { at: number; items: WorkspaceView[] } | undefined
-
-/** The workspace roster (session ids come back per workspace). */
-export async function listWorkspaces(): Promise<WorkspaceView[]> {
-  const cached = workspaceRosterCached
-  if (cached !== undefined && Date.now() - cached.at < WORKSPACE_ROSTER_TTL_MS) return cached.items
-  const inFlight = workspaceRosterInFlight
-  if (inFlight !== undefined) return inFlight
-  const run = callUnary<{ items: WorkspaceView[] }>('workspace.list', {})
-    .then(({ items }) => {
-      workspaceRosterCached = { at: Date.now(), items }
-      return items
-    })
-    .finally(() => { workspaceRosterInFlight = undefined })
-  workspaceRosterInFlight = run
-  return run
-}
-
 /**
  * 工作区花名册变了的唯一出口：建/改名/删工作区，以及会改变工作区下会话清单的
  * 建会话/改名/删会话。5 秒复用窗口是给"反复进出页面"省往返的，写入之后还留着
  * 它就会把刚删掉的行画回来、把刚建的藏起来（真机表现：删了工作区还能看见，退出
  * 再进才有变化）。所以每个写操作成功后都必须清掉它。
  */
-export function invalidateWorkspaceRoster(): void {
-  workspaceRosterCached = undefined
-}
+export { invalidateWorkspaceRoster } from './data/invalidate-roster.ts'
+// `export … from` 不进本文件作用域（踩过多次）：api.ts 里的写操作还要直接调它。
+import { invalidateWorkspaceRoster } from './data/invalidate-roster.ts'
 
 /** Store this device's Web Push subscription host-side (L2). */
 export async function pushSubscribe(subscription: {
@@ -378,11 +353,6 @@ export async function searchMessages(sessionId: string, query: string): Promise<
   return await callUnary<{ items: SessionMessageHit[] }>('mobile.searchMessages', { sessionId, query })
 }
 
-/** Read the available agent compositions for a new session. */
-export async function listAgentPresets(): Promise<AgentPresetRoster> {
-  return await callUnary<AgentPresetRoster>('agentPreset.list', {})
-}
-
 /**
  * Create a blank session (entity birth precedes the first message). Name a
  * workspace to attach it there, or a cwd; omitting both uses the host cwd.
@@ -620,16 +590,6 @@ export async function sendCommand(sessionId: string, line: string): Promise<Comm
   return await callUnary<CommandExecOutcome>('mobile.commandExec', { sessionId, line }, undefined, 180_000)
 }
 
-/** 一个已经交给宿主暂存、等着随下一条 prompt 发出去的附件。 */
-export interface UploadedAttachment {
-  /** 宿主铸的收据：prompt 里 `{ type: 'file', receiptId }` 引用它。 */
-  receiptId: string
-  /** 展示用的文件名（宿主清洗过叶子名）。 */
-  name: string
-  /** 字节数（宿主回填，展示用）。 */
-  bytes?: number
-}
-
 /**
  * 把一个文件的 base64 交给宿主暂存（`mobile.uploadAttachment`）。
  *
@@ -637,19 +597,6 @@ export interface UploadedAttachment {
  * 服务落盘后回一个 receiptId，prompt 里带 `{ type: 'file', receiptId }` 即可。超时
  * 给到 120 秒：一张照片在隧道里也要几十秒，而误触重发比等久一点更烦人。
  */
-/**
- * 把一份附件交给宿主暂存。
- *
- * `signal` 是**用户取消**用的（弱网传 20 MB 卡住时，chip 上要能点掉重来）。
- * 超时另有 120 秒的兜底，两者互相独立：取消是主动的，超时是兜底。
- */
-export async function uploadAttachment(
-  sessionId: string,
-  file: { name: string; data: string },
-  signal?: AbortSignal,
-): Promise<UploadedAttachment> {
-  return await callUnary<UploadedAttachment>('mobile.uploadAttachment', { sessionId, ...file }, signal, 120_000)
-}
 
 /* ── per-provider usage / balance display ─────────────────────────────── */
 
@@ -739,36 +686,6 @@ export async function respondQuestion(
 
 /* ── directory browsing / workspace creation (#977) ──────────────────── */
 
-/** The result of creating a workspace from an existing directory. */
-export interface WorkspaceCreateResult {
-  workspace: WorkspaceView
-  created: boolean
-}
-
-/** Create a workspace from an existing host directory (does not mkdir). */
-export async function createWorkspace(path: string): Promise<WorkspaceCreateResult> {
-  const created = await callUnary<WorkspaceCreateResult>('workspace.create', { path })
-  // 刚建好的工作区必须立刻出现在花名册里，不能被 5 秒窗口挡住。
-  invalidateWorkspaceRoster()
-  return created
-}
-
-/** Rename a workspace's display title (host validates trim/conflict). */
-export async function renameWorkspace(workspaceId: string, title: string): Promise<{ workspace: WorkspaceView }> {
-  const renamedWs = await callUnary<{ workspace: WorkspaceView }>('workspace.rename', { workspaceId, title })
-  // 改完名字回列表要看到新名字。
-  invalidateWorkspaceRoster()
-  return renamedWs
-}
-
-/** Remove a workspace registration (the directory and session logs stay). */
-export async function deleteWorkspace(workspaceId: string): Promise<{ deleted: true }> {
-  const deleted = await callUnary<{ deleted: true }>('workspace.delete', { workspaceId })
-  // 删掉的行不能再从复用窗口里画回来。
-  invalidateWorkspaceRoster()
-  return deleted
-}
-
 /**
  * Delete one session the way the desktop does: an archive-set write that
  * removes it from every roster forever (the phone filters the archive set in
@@ -842,7 +759,7 @@ export { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns, fetchUsage
 
 
 // 共享类型搬到 mobile-types.ts（W4-4）；这里只转出。
-export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView } from './mobile-types.ts'
+export type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenExtras, DependencyCheckView, UsageProviderView, UsageModelRow, DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState, PendingApproval, PendingQuestionItem, DirectoryListing, DirectoryEntry, FilePreview, SessionPreview, CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView, PairedDeviceView, AgentPresetRoster, UploadedAttachment, WorkspaceCreateResult } from './mobile-types.ts'
 
 
 // notify 域的实现已搬到 data/impl/notify.ts（W4-4）；这里只转出，对外 API 不变。
@@ -859,3 +776,7 @@ export { readFile, readAttachment, listDirectory, previews } from './data/impl/f
 
 // settings 域的实现已搬到 data/impl/settings.ts（W4-4）；这里只转出，对外 API 不变。
 export { readSettings, mutateSettings, fetchMobilePreferences, selectModel, models, listCommands, listDevices, renameDevice, revokeDevice, setPrimaryDevice } from './data/impl/settings.ts'
+
+
+// workspace 域的实现已搬到 data/impl/workspace.ts（W4-4）；这里只转出，对外 API 不变。
+export { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, listAgentPresets, uploadAttachment } from './data/impl/workspace.ts'
