@@ -1,0 +1,367 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden 回放（W3-7） > 01 一问一答（最终消息一次到位） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "查一下天气",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "今天晴，22 度",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 02 流式增量再收口（增量被最终消息覆盖，不重复） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "讲讲思路",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "先看现状",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 03 只有增量没有最终消息（回合被打断） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "开始吧",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "pending": true,
+    "step": 0,
+    "text": "我正在处理",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 04 推理与正文并存（推理不混进正文） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "为什么",
+  },
+  {
+    "flow": [
+      "reasoning",
+      "text",
+    ],
+    "kind": "assistant",
+    "reasoning": "因为缓存没命中",
+    "step": 0,
+    "text": "缓存没命中",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 05 一次工具调用与结果 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "看看目录",
+  },
+  {
+    "flow": [
+      "tool",
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "两个文件",
+    "tools": [
+      "bash",
+    ],
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 06 工具失败（错误位要浮出来） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "跑一下",
+  },
+  {
+    "flow": [
+      "tool",
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "命令不存在",
+    "tools": [
+      "bash",
+    ],
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 07 多轮（第二轮接在第一轮后面） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "第一问",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "第一答",
+    "turn": 0,
+  },
+  {
+    "kind": "user",
+    "text": "第二问",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "第二答",
+    "turn": 1,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 08 一轮多步（step 递增） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "分步做",
+  },
+  {
+    "flow": [
+      "tool",
+    ],
+    "kind": "assistant",
+    "pending": true,
+    "step": 0,
+    "text": "",
+    "tools": [
+      "read",
+    ],
+    "turn": 0,
+  },
+  {
+    "flow": [
+      "tool",
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 1,
+    "text": "都做完了",
+    "tools": [
+      "write",
+    ],
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 09 同一事件重复投递（宿主重发，不该多出行） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "你好",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "你好",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 10 命令卡（运行中） 1`] = `
+[
+  {
+    "commandLine": "/goal 做完重构",
+    "commandPhase": "running",
+    "kind": "command",
+    "text": "",
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 11 命令卡（收工成功） 1`] = `
+[
+  {
+    "commandLine": "/goal 做完重构",
+    "commandPhase": "running",
+    "kind": "command",
+    "text": "",
+  },
+  {
+    "commandPhase": "success",
+    "kind": "command",
+    "text": "命令已执行",
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 12 只有图片附件（正文为空，行不能消失） 1`] = `
+[
+  {
+    "images": 1,
+    "kind": "user",
+    "text": "",
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 13 文字 + 文件附件 1`] = `
+[
+  {
+    "files": [
+      "报告.pdf",
+    ],
+    "kind": "user",
+    "text": "看看这份",
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 14 会话错误事件 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "跑",
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 15 回合开始与结束（用时进 tail） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "做点事",
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 16 事件乱序到达（seq 大在前、小在后） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "前半句",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "后半句",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 17 空流（什么都不来） 1`] = `[]`;
+
+exports[`golden 回放（W3-7） > 18 同一步骤里两次工具调用（要能各自认出来） 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "并行查",
+  },
+  {
+    "flow": [
+      "tool",
+      "tool",
+    ],
+    "kind": "assistant",
+    "pending": true,
+    "step": 0,
+    "text": "",
+    "tools": [
+      "bash",
+      "bash",
+    ],
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 19 计划快照（todo/write）不产生聊天行 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "排个计划",
+  },
+  {
+    "flow": [
+      "text",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "已排",
+    "turn": 0,
+  },
+]
+`;
+
+exports[`golden 回放（W3-7） > 20 长回合：多步工具后再流式收口 1`] = `
+[
+  {
+    "kind": "user",
+    "text": "把这事做完",
+  },
+  {
+    "durationMs": 7000,
+    "flow": [
+      "tool",
+    ],
+    "kind": "assistant",
+    "step": 0,
+    "text": "",
+    "tools": [
+      "bash",
+    ],
+    "turn": 0,
+  },
+  {
+    "durationMs": 7000,
+    "flow": [
+      "reasoning",
+      "text",
+    ],
+    "kind": "assistant",
+    "reasoning": "测试过了",
+    "step": 1,
+    "text": "全部通过",
+    "turn": 0,
+  },
+]
+`;
