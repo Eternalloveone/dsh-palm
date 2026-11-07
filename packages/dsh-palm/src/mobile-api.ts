@@ -1046,6 +1046,7 @@ import { mobileCommandExec, mobilePreviews } from './mobile/api/mobile-action-ha
 import { mobileFinishedRuns } from './mobile/api/mobile-finished-runs.ts'
 import { mobileRunningSessions } from './mobile/api/mobile-running.ts'
 import { mobileRespond } from './mobile/api/mobile-respond.ts'
+import { mobileReadFile } from './mobile/api/mobile-file-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1202,98 +1203,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       [MOBILE_PENDING_METHOD, async (ctx) => mobilePending(ctx)],
       [MOBILE_RESPOND_METHOD, async (ctx) => mobileRespond(ctx)],
       [MOBILE_LIST_DIRECTORY_METHOD, async (ctx) => mobileListDirectoryHandler(ctx)],
-      [MOBILE_READ_FILE_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps, apiProxy } = ctx
-        // Text-file preview for the chat's file-path links. The phone is a
-        // paired device (full host trust, same boundary as listDirectory);
-        // the remaining guards are defensive depth, not the trust line: only
-        // a real, regular file is read, the payload is size-bounded, and the
-        // bytes must decode as UTF-8 text with no NUL — so a binary/dir
-        // answer can never ride this channel. A RELATIVE path (the usual
-        // form agents write, e.g. `packages/…/mux.ts`) resolves against the
-        // session's cwd when `sessionId` is supplied; without one it can
-        // only be read when it resolves from the host process cwd.
-        const body = parsed.payload as { path?: unknown; sessionId?: unknown } | undefined
-        const raw = typeof body?.path === 'string' ? body.path.trim() : ''
-        if (raw === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少文件路径' } },
-          })
-          return
-        }
-        try {
-          const candidates = await readCandidates(apiProxy, raw, typeof body?.sessionId === 'string' ? body.sessionId : undefined, deps.chatWindows)
-          let target: string | undefined
-          let info: Awaited<ReturnType<typeof stat>> | undefined
-          for (const candidate of candidates) {
-            try {
-              const probe = await stat(candidate)
-              if (probe.isFile()) { target = candidate; info = probe; break }
-            } catch {
-              // candidate absent: try the next base
-            }
-          }
-          if (target === undefined || info === undefined) {
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
-            })
-            return
-          }
-          const isImage = isImagePath(target)
-          if (info.size > (isImage ? MOBILE_READ_IMAGE_MAX_BYTES : MOBILE_READ_FILE_MAX_BYTES)) {
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: false, error: { code: 'file-too-large', message: isImage ? '图片过大，无法预览' : '文件过大，无法预览' } },
-            })
-            return
-          }
-          const bytes = await fsReadFile(target)
-          if (isImage) {
-            const ext = (target.split(/[\\/]/).pop() ?? '').split('.').pop()?.toLowerCase() ?? ''
-            const mediaType = IMAGE_MIME[ext] ?? 'application/octet-stream'
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: {
-                ok: true,
-                value: {
-                  kind: 'image' as const,
-                  path: target,
-                  name: basename(target),
-                  dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}`,
-                },
-              },
-            })
-            return
-          }
-          if (bytes.includes(0)) {
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: false, error: { code: 'not-text', message: '二进制文件无法预览' } },
-            })
-            return
-          }
-          const text = bytes.toString('utf8')
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { kind: 'text' as const, path: target, name: basename(target), text } },
-          })
-        } catch {
-          // Never leak host paths/errors; the phone renders a generic refusal.
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
-          })
-        }
-      }],
+      [MOBILE_READ_FILE_METHOD, async (ctx) => mobileReadFile(ctx)],
       [MOBILE_UPLOAD_ATTACHMENT_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps } = ctx
         // 手机端「添加附件」：把选中的文件交给宿主附件服务落盘并暂存，回一个
