@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { acceptMobilePair, consumeMobilePairUrl, mobilePairPath, parseMobilePairInput } from '../src/mobile/pairing.ts'
+import { acceptMobilePair, consumeMobilePairUrl, mobilePairPath, parseMobilePairInput } from '../src/mobile/platform/pairing.ts'
 
 describe('mobile pairing helpers', () => {
   it('parses a copied pairing link and preserves its workspace target', () => {
