@@ -12,6 +12,7 @@
  */
 
 import { ensurePersistentStorage } from './storage.ts'
+import { CACHE_POLICIES } from './kernels/cache-policies.ts'
 
 const DB_NAME = 'dsh-palm'
 const DB_VERSION = 2
@@ -19,13 +20,13 @@ const STORE = 'history'
 
 /** A cached tail page is a boot scaffold; the network refresh replaces it
  *  within seconds, so a generous TTL is safe (stale rows never persist long
- *  in view). */
-const HISTORY_TTL_MS = 24 * 60 * 60 * 1000
-/** Entry cap: evict the oldest (by savedAt) past this so a long-lived page
- *  never grows the store without limit. */
+ *  in view). 数字来自策略表（W4-5），这里不再各写一份。 */
 import { rowIdentity, type RenderMessage } from './messages.ts'
 
-const HISTORY_MAX_ENTRIES = 50
+const HISTORY_TTL_MS = CACHE_POLICIES.historyArchive.ttlMs
+/** Entry cap: evict the oldest (by savedAt) past this so a long-lived page
+ *  never grows the store without limit. */
+const HISTORY_MAX_ENTRIES = CACHE_POLICIES.historyArchive.maxEntries
 
 /**
  * 缓存页形状的版本号。**改行模型/改缓存页字段就必须 +1**：
@@ -35,7 +36,7 @@ const HISTORY_MAX_ENTRIES = 50
  *   v1 → v2（2026-11-07）：行身份改按 `rowIdentity`（轮/步）判定、合并时按身份折叠，
  *   并加了 turn/step/partId 相关字段。v1 的页在新折叠口径下可能出错行，**一律不再使用**。
  */
-export const CACHE_PAGE_VERSION = 2
+export const CACHE_PAGE_VERSION = CACHE_POLICIES.historyArchive.version
 
 /** One cached tail page (the caller's page type rides the generic). */
 interface HistoryCacheEntry<T> {

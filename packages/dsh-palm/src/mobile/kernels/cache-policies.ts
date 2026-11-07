@@ -47,6 +47,15 @@ export const CACHE_POLICIES = {
     maxEntries: 1,
     why: '过期的"正在跑"比空着更误导；它只是一屏快照，留一份就够',
   },
+  /** 历史页落盘（IndexedDB）：24 小时 / 50 个会话 / 页形状 v2。 */
+  historyArchive: {
+    version: 2,
+    ttlMs: 24 * 60 * 60_000,
+    maxEntries: 50,
+    why:
+      '落盘页只当启动脚手架，几秒内就被网络刷新替换，过期行不会久留；' +
+      'v1→v2 是因为行身份改按 rowIdentity（轮/步）判定，旧页在新折叠口径下会出错行',
+  },
   /** 历史页预取：只留最近几页，不按时间过期（翻页本身就有时效性）。 */
   pagePrefetch: {
     version: 1,
