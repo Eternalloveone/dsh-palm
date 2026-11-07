@@ -6,9 +6,12 @@
  * colour — which is exactly what happened to the voice sheet's 取消 button (its
  * only way out looked like plain text). Nothing catches that at build time, so
  * this test does.
+ *
+ * 2026-11-07（W1-2）：token 搬到 design/tokens.ts 后，判据从「源文件文本」改成
+ * 「合成后的 mobileCss」——这才是真正下发到浏览器的字符串，也顺带覆盖生成器。
  */
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { mobileCss } from './mobile-styles.ts'
 
 /**
  * Custom properties the sheet reads without a fallback.
@@ -35,7 +38,7 @@ function definedVars(css: string): Set<string> {
 
 describe('mobile-styles custom properties', () => {
   it('never references a custom property it does not define', () => {
-    const css = readFileSync(new URL('./mobile-styles.ts', import.meta.url), 'utf8')
+    const css = mobileCss
     const missing = [...usedVars(css)].filter(name => !definedVars(css).has(name)).sort()
     expect(missing).toEqual([])
   })
