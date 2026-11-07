@@ -26,6 +26,7 @@ export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/direct
 /** Short-lived cache: the phone's settings page must not hammer provider APIs. */
 import { processState, type OrdinarySearchSession, type OrdinarySearchSnapshot } from './mobile/api/process-state.ts'
 import { isAllowedSettingsOp } from './mobile/api/settings.ts'
+import { readChatInclude } from './mobile/api/chat-include.ts'
 const USAGE_CACHE_TTL_MS = 60_000
 
 import {
@@ -341,20 +342,6 @@ const MOBILE_LOG_TAIL_METHOD = 'mobile.logTail'
  * `mobile.readChat` 可以顺带取回的小读取（白名单）：打开会话时这两份目录本来
  * 各自要一次隧道往返，现在跟页面一起回来。名字之外的请求一律忽略。
  */
-const READ_CHAT_INCLUDE_NAMES = ['models', 'subagents'] as const
-type ReadChatIncludeName = (typeof READ_CHAT_INCLUDE_NAMES)[number]
-
-/** 解析 `readChat` 的 `include`：只认白名单，去重且保持请求顺序。 */
-function readChatInclude(raw: unknown): ReadChatIncludeName[] {
-  if (!Array.isArray(raw)) return []
-  const picked: ReadChatIncludeName[] = []
-  for (const value of raw) {
-    if (typeof value !== 'string') continue
-    const name = READ_CHAT_INCLUDE_NAMES.find(candidate => candidate === value)
-    if (name !== undefined && !picked.includes(name)) picked.push(name)
-  }
-  return picked
-}
 /**
  * Batch last-message previews (v3.1): the session-list page's preview lines
  * served from the host's mux-fed preview cache in ONE call — instead of one
