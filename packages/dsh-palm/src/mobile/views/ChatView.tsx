@@ -60,6 +60,7 @@ import { JumpControls, TurnStatusLine } from './chat/scroll-controls.tsx'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/tool-labels.ts'
 import { useChatDraft } from './chat/use-chat-draft.ts'
 import { ComposerSection } from './chat/composer-section.tsx'
+import { useLongPress } from '../ui/hooks/use-long-press.ts'
 import { adoptOlderPage, prepareOlderPage } from './chat/history-page.ts'
 import { dispatchFrame, parseContextPressure, type ContextPressureData, type FrameContext } from './chat/frame-effects.ts'
 import { textParts, useChatComposer, type SendIntent } from './chat/use-chat-composer.ts'
@@ -3885,14 +3886,10 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     }
     return true
   }
-  const longPressRef = useRef<{ timer: number; x: number; y: number } | undefined>(undefined)
-  const cancelLongPress = useCallback(() => {
-    if (longPressRef.current !== undefined) {
-      clearTimeout(longPressRef.current.timer)
-      longPressRef.current = undefined
-    }
-  }, [])
-  useEffect(() => () => { cancelLongPress() }, [cancelLongPress])
+  // 长按菜单的手势计时器（W2-5 抽成 ui/hooks/use-long-press：可单独测、可复用）。
+  const { start: startLongPress, cancel: cancelLongPress } = useLongPress({
+    onLongPress: (target, x, y) => { openCtxFromTarget(target, x, y) },
+  })
   // 原生选区优先：一旦浏览器真的开始选字（哪怕我们 500ms 的定时器已经排上队），
   // 立刻撤掉长按与自定义菜单，让用户能拖手柄、用系统菜单复制片段。
   useEffect(() => {
@@ -4933,11 +4930,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           // 自定义菜单（编辑/复制/引用）接管消息正文长按。
           if (target.closest('.code-block pre, img') !== null) return
           const { clientX, clientY } = touch
-          const timer = window.setTimeout(() => {
-            longPressRef.current = undefined
-            openCtxFromTarget(target, clientX, clientY)
-          }, 500)
-          longPressRef.current = { timer, x: clientX, y: clientY }
+          startLongPress(target, clientX, clientY)
         }}
         onTouchMove={(event) => {
           if (pinchRef.current !== undefined && event.touches.length >= 2) {
