@@ -1,0 +1,101 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden：每一帧的顶层形状 > 形状与快照一致 1`] = `
+{
+  "approval/requested": [
+    "approvalId",
+    "callId",
+    "reason",
+    "risk",
+    "sessionId",
+    "toolName",
+    "type",
+  ],
+  "approval/resolved": [
+    "approvalId",
+    "outcome",
+    "sessionId",
+    "type",
+  ],
+  "goal/activation": [
+    "activation",
+    "sessionId",
+    "type",
+  ],
+  "mux/ping": [
+    "type",
+  ],
+  "question/requested": [
+    "questions",
+    "sessionId",
+    "type",
+  ],
+  "question/resolved": [
+    "outcome",
+    "questionRpcId",
+    "sessionId",
+    "type",
+  ],
+  "session/activity": [
+    "sessionId",
+    "type",
+    "updatedAt",
+  ],
+  "session/added": [
+    "summary",
+    "type",
+  ],
+  "session/error": [
+    "message",
+    "sessionId",
+    "type",
+  ],
+  "session/event": [
+    "event",
+    "sessionId",
+    "type",
+  ],
+  "session/jobs": [
+    "jobs",
+    "sessionId",
+    "type",
+  ],
+  "session/projection": [
+    "key",
+    "seq",
+    "sessionId",
+    "type",
+    "value",
+  ],
+  "session/queue": [
+    "items",
+    "sessionId",
+    "type",
+  ],
+  "session/removed": [
+    "sessionId",
+    "type",
+  ],
+  "session/status": [
+    "running",
+    "sessionId",
+    "type",
+  ],
+  "session/subscribed": [
+    "lastSeq",
+    "sessionId",
+    "type",
+  ],
+  "session/turn-boundary": [
+    "running",
+    "seq",
+    "sessionId",
+    "source",
+    "type",
+  ],
+  "stream/error": [
+    "error",
+    "type",
+  ],
+}
+`;
