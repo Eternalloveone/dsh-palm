@@ -1039,6 +1039,7 @@ import { pushConfig } from './mobile/api/push-config.ts'
 import { mobilePending, mobilePreferences, mobileTranscribe } from './mobile/api/mobile-handlers.ts'
 import { mobileCommands, mobileGitSummary, mobileLatestVersion } from './mobile/api/mobile-info-handlers.ts'
 import { mobileListDirectoryHandler, mobileVoiceServices } from './mobile/api/mobile-fs-handlers.ts'
+import { mobileNotifyEvents, mobileObserve, mobileReadAttachment, mobileTurnState } from './mobile/api/mobile-stream-handlers.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1705,35 +1706,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: false, error: { code: 'bad-request', message: '未知的分组操作' } },
         })
       }],
-      [MOBILE_NOTIFY_EVENTS_METHOD, async (ctx) => {
-        const { res, rpcId, deps } = ctx
-        // The phone's notification inbox: the engine's bounded decision log
-        // (newest first). A missing notify feature answers the same refusal
-        // as push.config.
-        const notify = deps.notify
-        if (notify === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'notify-unavailable', message: '通知功能不可用' } },
-          })
-          return
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: {
-            ok: true,
-            value: {
-              items: notify.engine.recentEvents(),
-              // Delivery telemetry: what the host actually tried to send, so
-              // "nothing arrived" can be told apart from "nothing to send".
-              stats: notify.store.deliverySummary(),
-              deliveries: notify.store.recentDeliveries(),
-            },
-          },
-        })
-      }],
+      [MOBILE_NOTIFY_EVENTS_METHOD, async (ctx) => mobileNotifyEvents(ctx)],
       [MOBILE_GIT_SUMMARY_METHOD, async (ctx) => mobileGitSummary(ctx)],
       [MOBILE_LATEST_VERSION_METHOD, async (ctx) => mobileLatestVersion(ctx)],
       [MOBILE_TURN_OUTLINE_METHOD, async (ctx) => {
@@ -1929,35 +1902,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           },
         })
       }],
-      [MOBILE_TURN_STATE_METHOD, async (ctx) => {
-        const { res, parsed, rpcId } = ctx
-        // 手机唯一该问的「还在跑吗」。宿主比完帧镜像与日志边界再回答，客户端不再推断。
-        const body = parsed.payload as { sessionId?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
-        if (sessionId === '' ) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
-          })
-          return
-        }
-        try {
-          const state = await computeTurnState(sessionId)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: state },
-          })
-        } catch (error) {
-          console.error('mobile.turnState failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '轮次状态不可读' } },
-          })
-        }
-      }],
+      [MOBILE_TURN_STATE_METHOD, async (ctx) => mobileTurnState(ctx)],
       [MOBILE_RUNNING_SESSIONS_METHOD, async (ctx) => {
         const { res, rpcId, apiProxy } = ctx
         setRunningProxy(apiProxy)
@@ -2483,36 +2428,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           })
         }
       }],
-      [MOBILE_OBSERVE_METHOD, async (ctx) => {
-        const { req, res, parsed, rpcId, deps, service, apiProxy } = ctx
-        // 手机一打开页面就来这里，顺手把「谁在跑」的基线预热掉：等用户点进
-        // 会话列表时它多半已经好了，不必让"运行中"晚二十几秒才出现。
-        setRunningProxy(apiProxy)
-        if (liveRunningSeededAtOf() === 0) void reseedRunning()
-        // Which session the phone has open (v3.4): the host keeps exactly one
-        // assistant-stream follow for the observed sessions, so this is the
-        // signal that turns token-level streaming on for the chat on screen.
-        // An absent/empty sessionId means the phone left the chat.
-        const observers = deps.observers
-        if (observers === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '实时流服务不可用' } },
-          })
-          return
-        }
-        const body = parsed.payload as { sessionId?: unknown } | undefined
-        const raw = body?.sessionId
-        const sessionId = typeof raw === 'string' && raw !== '' ? raw : undefined
-        const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
-        if (deviceId !== undefined) observers.observe(deviceId, sessionId)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: { observing: sessionId ?? null } },
-        })
-      }],
+      [MOBILE_OBSERVE_METHOD, async (ctx) => mobileObserve(ctx)],
       [MOBILE_DIAGNOSTICS_METHOD, async (ctx) => {
         const { res, rpcId, deps } = ctx
         // 依赖自检 + 健康报告：palm 与宿主的耦合点都是内部契约，升级时可能静默
@@ -2525,35 +2441,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: buildHealthReport(deps) },
         })
       }],
-      [MOBILE_READ_ATTACHMENT_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, apiProxy } = ctx
-        // 图片字节（0.1.5 起事件只带 attachmentId 引用）。宿主按"该会话确实引用过
-        // 这张图"授权，所以 sessionId 必须一起带上；适配层按内容寻址的 id 长期缓存，
-        // 同一张图只过一次隧道。
-        const body = parsed.payload as { sessionId?: unknown; attachmentId?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined
-        const attachmentId = typeof body?.attachmentId === 'string' && body.attachmentId !== '' ? body.attachmentId : undefined
-        if (sessionId === undefined || attachmentId === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'invalid-request', message: '缺少会话或附件标识' } },
-          })
-          return
-        }
-        try {
-          const value = await (apiProxy as ApiProxyAdapter).readAttachment(sessionId, attachmentId)
-          writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value } })
-        } catch (error) {
-          // 稳定文案，不外泄宿主细节（图片读不到只影响这一张图的显示）。
-          console.error('mobile.readAttachment failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '图片读取失败' } },
-          })
-        }
-      }],
+      [MOBILE_READ_ATTACHMENT_METHOD, async (ctx) => mobileReadAttachment(ctx)],
       [MOBILE_PREVIEWS_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps } = ctx
         // Batch last-message previews (v3.1): one call for the list page's
