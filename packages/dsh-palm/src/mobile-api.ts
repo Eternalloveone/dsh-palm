@@ -1039,6 +1039,7 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
 import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
 import type { MobileApiCtx } from './mobile/api/context.ts'
 import { LOCATE_TTL_MS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_TTL_MS } from './mobile/api/constants.ts'
+import { wrap } from './mobile/api/wrap.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -3634,11 +3635,6 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   // ({ rpcId, result }) without the transport envelope the phone's callUnary
   // requires — wrap every pass-through in the same 'server-response'
   // envelope session.list builds above.
-  const wrap = (response: { rpcId: string; result: unknown }): unknown => ({
-    type: 'server-response' as const,
-    rpcId,
-    result: response.result,
-  })
   const methods = makeMobileDispatchTable<ProxyContext, unknown>([
     ...sessionList,
     ['workspace.list', async (ctx) => {
@@ -3647,26 +3643,26 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     // on every visit, and it only changes on create/rename/delete.
     const cached = processState.workspaceListTtlCache
     if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
-      return wrap(cached.response)
+      return wrap(rpcId, cached.response)
     }
     const response = await apiProxy.workspace.list(request as never)
     processState.workspaceListTtlCache = { at: Date.now(), proxy: apiProxy, response }
-    return wrap(response)
+    return wrap(rpcId, response)
   }],
   ['workspace.create', async (ctx) => {
     const { apiProxy, request } = ctx
     invalidateRosterCaches()
-    return wrap(await apiProxy.workspace.create(request as never))
+    return wrap(rpcId, await apiProxy.workspace.create(request as never))
   }],
   ['workspace.rename', async (ctx) => {
     const { apiProxy, request } = ctx
     invalidateRosterCaches()
-    return wrap(await apiProxy.workspace.rename(request as never))
+    return wrap(rpcId, await apiProxy.workspace.rename(request as never))
   }],
   ['workspace.delete', async (ctx) => {
     const { apiProxy, request } = ctx
     invalidateRosterCaches()
-    return wrap(await apiProxy.workspace.delete(request as never))
+    return wrap(rpcId, await apiProxy.workspace.delete(request as never))
   }],
   // Session delete (= the desktop's archive semantics): the row leaves every
   // roster and never reappears after a refresh, while the session log stays
@@ -3676,32 +3672,32 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   ['workspace.archiveSession', async (ctx) => {
     const { apiProxy, request } = ctx
     invalidateRosterCaches()
-    return wrap(await apiProxy.workspace.archiveSession(request as never))
+    return wrap(rpcId, await apiProxy.workspace.archiveSession(request as never))
   }],
   ['agentPreset.list', async (ctx) => {
     const { apiProxy, request } = ctx
     // v3.2: the preset roster only changes on the desktop; short-TTL it.
     const cached = processState.agentPresetTtlCache
     if (cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < ROSTER_TTL_MS) {
-      return wrap(cached.response)
+      return wrap(rpcId, cached.response)
     }
     const response = await apiProxy.agentPresets.list(request as never)
     processState.agentPresetTtlCache = { at: Date.now(), proxy: apiProxy, response }
-    return wrap(response)
+    return wrap(rpcId, response)
   }],
   ['session.create', async (ctx) => {
     const { apiProxy, request } = ctx
     // The new session attaches to a workspace: the roster + list change.
     invalidateRosterCaches()
-    return wrap(await apiProxy.sessions.create(request as never))
+    return wrap(rpcId, await apiProxy.sessions.create(request as never))
   }],
   ['session.history', async (ctx) => {
     const { apiProxy, request } = ctx
-    return wrap(await apiProxy.sessions.history(request as never))
+    return wrap(rpcId, await apiProxy.sessions.history(request as never))
   }],
   ['session.search', async (ctx) => {
     const { apiProxy, signal, request } = ctx
-    return wrap(await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
+    return wrap(rpcId, await apiProxy.sessions.search(request as never, signal ?? new AbortController().signal))
   }],
   ['session.prompt', async (ctx) => {
     const { apiProxy, payload, request } = ctx
@@ -3710,26 +3706,26 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const reply = await apiProxy.sessions.prompt(request as never)
     // 队列版本 +1：手机端的乐观排队项据此退场（见 mobile/session-store.ts）。
     if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
-    return wrap(reply)
+    return wrap(rpcId, reply)
   }],
   ['session.models', async (ctx) => {
     const { apiProxy, request } = ctx
-    return wrap(await apiProxy.sessions.models(request as never))
+    return wrap(rpcId, await apiProxy.sessions.models(request as never))
   }],
   ['session.selectModel', async (ctx) => {
     const { apiProxy, request } = ctx
-    return wrap(await apiProxy.sessions.selectModel(request as never))
+    return wrap(rpcId, await apiProxy.sessions.selectModel(request as never))
   }],
   ['session.rename', async (ctx) => {
     const { apiProxy, request } = ctx
     // The list row's title comes from projections; drop the cached envelope
     // so the renamed title shows on the next visit.
     invalidateRosterCaches()
-    return wrap(await apiProxy.sessions.rename(request as never))
+    return wrap(rpcId, await apiProxy.sessions.rename(request as never))
   }],
   ['session.cancel', async (ctx) => {
     const { apiProxy, request } = ctx
-    return wrap(await apiProxy.sessions.cancel(request as never))
+    return wrap(rpcId, await apiProxy.sessions.cancel(request as never))
   }],
   ['session.updateQueue', async (ctx) => {
     const { apiProxy, payload, request } = ctx
@@ -3737,11 +3733,11 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     const reply = await apiProxy.sessions.updateQueue(request as never)
     // 编辑/删除/插队都会让队列换代：手机端的乐观项与快照都靠这个版本号对齐。
     if (typeof sessionId === 'string') bumpQueueRevision(sessionId)
-    return wrap(reply)
+    return wrap(rpcId, reply)
   }],
   ['subagent.list', async (ctx) => {
     const { apiProxy, request } = ctx
-    return wrap(await subagentCatalogWithActivity(request, apiProxy))
+    return wrap(rpcId, await subagentCatalogWithActivity(request, apiProxy))
   }],
   ['settings.read', async (ctx) => {
     const { apiProxy, request } = ctx
@@ -3749,7 +3745,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
     // stripped by the host seam) — the phone renders the same configuration
     // cards as the desktop. Writes stay whitelisted below.
     const response = await apiProxy.settings.describe(request as never)
-    return wrap(response)
+    return wrap(rpcId, response)
   }],
   ['settings.mutate', async (ctx) => {
     const { apiProxy, payload, rpcId } = ctx
@@ -3777,7 +3773,7 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
         ...(expectedRevision !== undefined ? { expectedRevision } : {}),
       },
     } as never)
-    return wrap(response)
+    return wrap(rpcId, response)
   }],
   ])
   
