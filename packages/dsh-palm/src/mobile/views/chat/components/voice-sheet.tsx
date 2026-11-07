@@ -6,7 +6,7 @@
  * DOM 结构、类名、aria 与 Esc 行为逐字保留（真机靠它们定位与退出）。
  */
 import type { MutableRefObject } from 'react'
-import { voiceStatusClassName, type VoiceStatus } from '../../../voice-status.ts'
+import { voiceStatusClassName, type VoiceStatus } from '../../../platform/voice-status.ts'
 import { Overlay } from '../../../ui/overlay.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 

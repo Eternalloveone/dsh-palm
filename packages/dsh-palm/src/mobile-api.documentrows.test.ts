@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { documentRows } from './mobile-api.ts'
-import type { RenderMessage } from './mobile/messages.ts'
+import type { RenderMessage } from './mobile/render/messages.ts'
 
 /** 只造 documentRows 会读到的字段，其余留空。 */
 function assistant (patch: Partial<RenderMessage> & { id: string; seq: number; text: string }): RenderMessage {

@@ -291,7 +291,7 @@ describe('SettingsView card list', () => {
       { name: 'SiliconFlow SenseVoice', baseURL: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
     ])
     // Seed the phone list: a stale legacy host import + a user-added service.
-    const { getVoiceServices, upsertVoiceService } = await import('../voice-services.ts')
+    const { getVoiceServices, upsertVoiceService } = await import('../platform/voice-services.ts')
     upsertVoiceService({ id: 'svc-old', name: 'host 配置', baseURL: 'https://old.example/v1', apiKey: 'k-old', model: 'm-old' })
     upsertVoiceService({ id: 'svc-user', name: '我的服务', baseURL: 'https://x.example/v1', apiKey: 'k', model: 'm' })
     expect(getVoiceServices().length).toBe(2)

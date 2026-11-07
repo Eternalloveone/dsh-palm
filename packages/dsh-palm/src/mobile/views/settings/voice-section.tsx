@@ -2,9 +2,9 @@
  * 「语音」分组行与语音服务子页：桌面端只读行、手机端可编辑列表、添加/编辑表单。
  * 列表存储与表单 state 留在 SettingsView，这里只渲染与调用动作。
  */
-import { ChevronUpIcon, MicIcon, PencilIcon, PlusIcon, TrashIcon } from '../../icons.tsx'
-import { Sheet } from '../../sheet.tsx'
-import { moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService, upsertVoiceService, type VoiceService } from '../../voice-services.ts'
+import { ChevronUpIcon, MicIcon, PencilIcon, PlusIcon, TrashIcon } from '../../components/icons.tsx'
+import { Sheet } from '../../ui/sheet.tsx'
+import { moveVoiceServiceDown, moveVoiceServiceUp, removeVoiceService, upsertVoiceService, type VoiceService } from '../../platform/voice-services.ts'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
 import { Button } from '../../ui/primitives.tsx'
 

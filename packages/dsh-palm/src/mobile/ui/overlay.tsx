@@ -19,7 +19,7 @@
  */
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
-import { useFocusTrap } from '../focus-trap.ts'
+import { useFocusTrap } from './focus-trap.ts'
 
 /* ── Esc 栈：只关最上面那层 ─────────────────────────────────────────── */
 

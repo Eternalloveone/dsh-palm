@@ -18,7 +18,7 @@
  * @module dsh-palm/mobile/views/chat/use-chat-scroll-follow
  */
 import { useCallback, type MutableRefObject } from 'react'
-import type { ScrollEvent } from '../../../scroll-machine.ts'
+import type { ScrollEvent } from '../../../stream/scroll-machine.ts'
 
 /** 离底多少算"贴底"（自动跟随与「回到最新」按钮共用同一个阈值）。 */
 export const BOTTOM_FOLLOW_THRESHOLD_PX = 80

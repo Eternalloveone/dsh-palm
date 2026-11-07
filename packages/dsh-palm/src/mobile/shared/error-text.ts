@@ -4,7 +4,7 @@
  * 放在 `shared/` 而不是留在 App：所有视图都要用它，而「视图 import App」正是那个
  * 十一文件的大环（App → 各视图 → App）。搬出来之后 App 只往下依赖，环才有机会归零。
  */
-import { RpcCallError, RpcTransportError } from '../rpc.ts'
+import { RpcCallError, RpcTransportError } from '../platform/rpc.ts'
 
 /** Shared error text for the surface's small failure affordances. */
 export function errorText(error: unknown): string {

@@ -22,9 +22,9 @@
  * (textFromContent / reasoningFromContent / chunkTarget).
  */
 
-import { EventFolder, foldEvents, textFromContent, reasoningFromContent } from './mobile/messages.ts'
-import type { WireEvent } from './mobile/messages.ts'
-import { previewSummary } from './mobile/ui-text.ts'
+import { EventFolder, foldEvents, textFromContent, reasoningFromContent } from './mobile/render/messages.ts'
+import type { WireEvent } from './mobile/render/messages.ts'
+import { previewSummary } from './mobile/render/ui-text.ts'
 
 /** LRU cap on cached entries (several hundred sessions fit comfortably). */
 export const PREVIEW_CACHE_LIMIT = 500

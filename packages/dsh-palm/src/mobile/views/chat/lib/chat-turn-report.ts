@@ -11,7 +11,7 @@
  */
 import { reportPerf } from '../../../data/diag.ts'
 import { history } from '../../../data/session.ts'
-import { foldEvents, type RenderMessage, type WireEvent } from '../../../messages.ts'
+import { foldEvents, type RenderMessage, type WireEvent } from '../../../render/messages.ts'
 
 /**
  * Rows → rendered list: dedupe the same turn's step rows into one process card,

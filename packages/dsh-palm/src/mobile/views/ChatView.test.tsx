@@ -6,25 +6,25 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { SessionModels } from '../../api-proxy-types'
 import { ChatView, loadTurnReportRows, MAX_TAIL_BUFFER_EVENTS, offersRegenerate, quotePathForReference, renderRows, RUNNING_RECONCILE_MS } from './ChatView.tsx'
-import { resetTurnAnchors } from '../message-row.tsx'
-import { addOptimisticQueueItem, resetSessionStoreForTest } from '../session-store.ts'
-import { resetToastsForTest, ToastHost } from '../toast.tsx'
+import { resetTurnAnchors } from '../render/message-row.tsx'
+import { addOptimisticQueueItem, resetSessionStoreForTest } from '../stream/session-store.ts'
+import { resetToastsForTest, ToastHost } from '../components/toast.tsx'
 
 import { sessionState } from '../api.ts'
-import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
+import { LONG_TEXT_LIMIT } from '../render/markdown-text.tsx'
 import { type SessionView } from '../shared/session-view.ts'
 import { type ChatPageResult } from '../data/chat-page.ts'
 import type { HistoryPage, SessionPage } from '../api.ts'
-import { EventFolder, foldEvents, latestTodoSnapshot } from '../messages.ts'
-import type { RenderMessage, WireEvent } from '../messages.ts'
-import { loadDraft, sessionListCache } from '../list-persist.ts'
-import { answeredApprovals } from '../approval-batches.ts'
-import { answeredQuestions } from '../question-batches.ts'
-import { RpcCallError } from '../rpc.ts'
-import { readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
-import { clearChatSnapshots, clearTurnReportCache } from '../chat-snapshot.ts'
-import { loadCachedHistory } from '../history-cache.ts'
-import { clearLocateIntent, rememberLocateIntent } from '../locate-intent.ts'
+import { EventFolder, foldEvents, latestTodoSnapshot } from '../render/messages.ts'
+import type { RenderMessage, WireEvent } from '../render/messages.ts'
+import { loadDraft, sessionListCache } from '../session/list-persist.ts'
+import { answeredApprovals } from '../session/approval-batches.ts'
+import { answeredQuestions } from '../session/question-batches.ts'
+import { RpcCallError } from '../platform/rpc.ts'
+import { readQueuedEchoes, rememberQueuedEcho } from '../session/queued-echo.ts'
+import { clearChatSnapshots, clearTurnReportCache } from '../session/chat-snapshot.ts'
+import { loadCachedHistory } from '../session/history-cache.ts'
+import { clearLocateIntent, rememberLocateIntent } from '../session/locate-intent.ts'
 
 // The api module is fully mocked; App.tsx's chat-page loader is overridden to
 // feed fixed folded pages, its pure helpers (errorText / formatTime) stay real.
@@ -103,13 +103,13 @@ vi.mock('../data/chat-page.ts', async importOriginal => {
     loadChatPage: vi.fn(),
   }
 })
-vi.mock('../voice-input.ts', () => ({
+vi.mock('../platform/voice-input.ts', () => ({
   startVoiceRecording: vi.fn(),
   voiceSupported: vi.fn(() => false),
 }))
 // 缓存首发默认关闭（真机缓存来自 IndexedDB，jsdom 里没有）：专测"缓存先画、
 // 页后落"的用例自己排一个缓存页。
-vi.mock('../history-cache.ts', () => ({
+vi.mock('../session/history-cache.ts', () => ({
   loadCachedHistory: vi.fn(async () => undefined),
   saveCachedHistory: vi.fn(async () => {}),
   // 与真实现同口径的守卫（真实现看 rows 是数组 + maxSeq 是数字 + 每行是对象）。
@@ -119,7 +119,7 @@ vi.mock('../history-cache.ts', () => ({
     && Array.isArray((page as { rows?: unknown }).rows)
     && typeof (page as { maxSeq?: unknown }).maxSeq === 'number',
 }))
-vi.mock('../offline.ts', () => ({
+vi.mock('../platform/offline.ts', () => ({
   enqueuePrompt: vi.fn(),
   // Real flushOutbox is async and always resolves a FlushResult; the mock
   // must return a promise too, or ChatView's `void flushOutbox(...).then`
@@ -132,9 +132,9 @@ vi.mock('../offline.ts', () => ({
 import { archiveSession as archiveSessionApiMock, fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending, respondApproval, respondQuestion, listSessions, history, logTail, readChat, runningSessions, turnState, subagentsList, searchSessions, updateQueue as updateQueueMock } from '../api.ts'
 import { loadChatPage } from '../data/chat-page.ts'
 import { prompt } from '../api.ts'
-import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../voice-input.ts'
+import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../platform/voice-input.ts'
 import { transcribeVoice } from '../api.ts'
-import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../offline.ts'
+import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../platform/offline.ts'
 
 const session: SessionView = {
   sessionId: 's-1',
@@ -3999,8 +3999,8 @@ describe('ChatView offline banner', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     vi.mocked(listOutbox).mockResolvedValue([])
-    const enqueueMock = vi.mocked(await import('../offline.ts')).enqueuePrompt
-    const flushMock = vi.mocked(await import('../offline.ts')).flushOutbox
+    const enqueueMock = vi.mocked(await import('../platform/offline.ts')).enqueuePrompt
+    const flushMock = vi.mocked(await import('../platform/offline.ts')).flushOutbox
     flushMock.mockClear()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
@@ -6783,7 +6783,7 @@ describe('ChatView 草稿与打不开的会话', () => {
     // 真机（2026-11-01）：发送前想删，删完退出会话再进来，删掉的文字又回来了。
     // 根因：输入框为空时不删草稿（为了不误删"还没恢复"的那一份），
     // 于是一整段被删掉的文字永远躺在 localStorage 里。
-    const { loadDraft, removeDraft } = await import('../list-persist.ts')
+    const { loadDraft, removeDraft } = await import('../session/list-persist.ts')
     removeDraft(session.sessionId)
     loadChatPageMock.mockResolvedValue(rowPage([]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -6801,7 +6801,7 @@ describe('ChatView 草稿与打不开的会话', () => {
   it('进会话时把该会话的草稿恢复回来', async () => {
     // 真机（2026-10-31）：草稿存在 localStorage 里，但切回会话后输入框是空的 ——
     // useState(() => loadDraft(...)) 只在首次挂载跑，那时 sessionId 常常还是空串。
-    const { saveDraft, removeDraft } = await import('../list-persist.ts')
+    const { saveDraft, removeDraft } = await import('../session/list-persist.ts')
     saveDraft(session.sessionId, '写了一半的话')
     try {
       loadChatPageMock.mockResolvedValue(rowPage([]))

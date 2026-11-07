@@ -11,8 +11,8 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MessageRow, resetTurnAnchors } from './message-row.tsx'
-import type { RenderMessage, ToolCallInfo } from './messages.ts'
+import { MessageRow, resetTurnAnchors } from './render/message-row.tsx'
+import type { RenderMessage, ToolCallInfo } from './render/messages.ts'
 
 const diffTool: ToolCallInfo = {
   callId: 'c1',

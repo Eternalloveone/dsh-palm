@@ -8,7 +8,7 @@ import type { MutableRefObject } from 'react'
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { formatFullTime } from '../../shared/time.ts'
 import type { SessionView } from '../../shared/session-view.ts'
-import { ChatBubbleIcon, CheckIcon } from '../../icons.tsx'
+import { ChatBubbleIcon, CheckIcon } from '../../components/icons.tsx'
 import type { DayBucket } from './session-list-model.ts'
 import { Button } from '../../ui/primitives.tsx'
 

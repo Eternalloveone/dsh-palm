@@ -7,7 +7,7 @@ vi.mock('./api.ts', () => ({
   respondApproval: vi.fn(async () => ({ ok: true })),
 }))
 
-import { ApprovalPanel } from './sheets.tsx'
+import { ApprovalPanel } from './components/sheets.tsx'
 
 const approval = {
   rpcId: 'rpc-1',

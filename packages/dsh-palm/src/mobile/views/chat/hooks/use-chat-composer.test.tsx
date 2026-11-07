@@ -20,23 +20,23 @@ vi.mock('../../../api.ts', () => ({
   logTail: vi.fn(() => Promise.resolve({ rows: [] })),
   newRequestId: vi.fn(() => 'req-1'),
 }))
-vi.mock('../../../session-store.ts', () => ({
+vi.mock('../../../stream/session-store.ts', () => ({
   addOptimisticQueueItem: vi.fn(() => 'local-1'),
   dropOptimisticQueueItem: vi.fn(),
 }))
-vi.mock('../../../offline.ts', () => ({
+vi.mock('../../../platform/offline.ts', () => ({
   enqueuePrompt: vi.fn(() => Promise.resolve()),
   flushOutbox: vi.fn(() => Promise.resolve({ sent: 0, failed: 0 })),
   removeFromOutbox: vi.fn(() => Promise.resolve()),
 }))
-vi.mock('../../../queued-echo.ts', () => ({ rememberQueuedEcho: vi.fn() }))
-vi.mock('../../../toast.tsx', () => ({ toast: vi.fn() }))
+vi.mock('../../../session/queued-echo.ts', () => ({ rememberQueuedEcho: vi.fn() }))
+vi.mock('../../../components/toast.tsx', () => ({ toast: vi.fn() }))
 
 import { prompt } from '../../../api.ts'
-import { addOptimisticQueueItem } from '../../../session-store.ts'
-import { enqueuePrompt } from '../../../offline.ts'
-import { rememberQueuedEcho } from '../../../queued-echo.ts'
-import { toast } from '../../../toast.tsx'
+import { addOptimisticQueueItem } from '../../../stream/session-store.ts'
+import { enqueuePrompt } from '../../../platform/offline.ts'
+import { rememberQueuedEcho } from '../../../session/queued-echo.ts'
+import { toast } from '../../../components/toast.tsx'
 
 const promptMock = vi.mocked(prompt)
 const optimisticMock = vi.mocked(addOptimisticQueueItem)

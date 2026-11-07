@@ -3,13 +3,13 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DRAFT_SAVE_DEBOUNCE_MS, useChatDraft } from './use-chat-draft.ts'
 
-vi.mock('../../../list-persist.ts', () => ({
+vi.mock('../../../session/list-persist.ts', () => ({
   loadDraft: vi.fn(() => ''),
   saveDraft: vi.fn(),
   removeDraft: vi.fn(),
 }))
 
-import { loadDraft, removeDraft, saveDraft } from '../../../list-persist.ts'
+import { loadDraft, removeDraft, saveDraft } from '../../../session/list-persist.ts'
 
 const loadMock = vi.mocked(loadDraft)
 const saveMock = vi.mocked(saveDraft)

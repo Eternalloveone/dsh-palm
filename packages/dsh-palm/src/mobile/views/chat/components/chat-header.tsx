@@ -6,8 +6,8 @@
  * 中文输入时每个候选都会被当成一次查询（真机上表现为"打一个字搜一次"）。
  */
 import type { MutableRefObject } from 'react'
-import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MoreIcon, SearchIcon } from '../../../icons.tsx'
-import { ThemeToggle } from '../../../theme-toggle.tsx'
+import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MoreIcon, SearchIcon } from '../../../components/icons.tsx'
+import { ThemeToggle } from '../../../components/theme-toggle.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 export interface ChatHeaderProps {

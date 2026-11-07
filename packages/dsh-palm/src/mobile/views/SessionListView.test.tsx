@@ -51,11 +51,11 @@ vi.mock('../api.ts', () => ({
   assignSessionFolder: vi.fn(async () => ({ folders: [], assignments: {} })),
   renameSession: vi.fn(async () => ({})),
 }))
-vi.mock('../offline.ts', () => ({
+vi.mock('../platform/offline.ts', () => ({
   removeOutboxForSession: vi.fn(),
 }))
 import { archiveSession as archiveSessionApi, assignSessionFolder, createSession, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, runningSessions, history, searchAll, searchMessages, searchSessions } from '../api.ts'
-import { removeOutboxForSession } from '../offline.ts'
+import { removeOutboxForSession } from '../platform/offline.ts'
 
 const listSessionsMock = vi.mocked(listSessions)
 const listWorkspacesMock = vi.mocked(listWorkspaces)

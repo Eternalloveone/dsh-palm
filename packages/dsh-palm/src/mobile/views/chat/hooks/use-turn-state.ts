@@ -11,9 +11,9 @@
  * `data/reload-tail.ts`（与「重载尾页」同属拉一页尾页再决策），判据逐字保留。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 import { sessionState } from '../../../data/session.ts'
-import { cachedSnapshot } from '../../../session-store.ts'
+import { cachedSnapshot } from '../../../stream/session-store.ts'
 import { probeTurnAtTail } from '../../../data/reload-tail.ts'
 import {
   INITIAL_RECONCILE_MS,

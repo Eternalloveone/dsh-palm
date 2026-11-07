@@ -2,7 +2,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { useChatSession } from './use-chat-session.ts'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 
 function row(id: string, seq = 1, overrides: Partial<RenderMessage> = {}): RenderMessage {
   return { id, role: 'assistant', text: id, seq, ...overrides } as RenderMessage

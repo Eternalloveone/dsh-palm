@@ -4,7 +4,7 @@
  * ② 交付卡证据链 —— 在跑的那一轮绝不画交付卡，更早的、有收工证据的轮次才画。
  */
 import { describe, expect, it } from 'vitest'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 import { dedupeRows, shouldRenderCard } from './chat-rows.tsx'
 
 const user = (id: string): RenderMessage => ({ kind: 'user', id, text: id } as unknown as RenderMessage)

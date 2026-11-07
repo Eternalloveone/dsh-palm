@@ -12,11 +12,11 @@
  */
 import { useCallback } from 'react'
 
-import { copyText } from '../../../code-actions.ts'
-import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../../../export.ts'
-import { drawLongImage, LONG_IMAGE_DEFAULTS } from '../../../long-image.ts'
+import { copyText } from '../../../render/code-actions.ts'
+import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../../../platform/export.ts'
+import { drawLongImage, LONG_IMAGE_DEFAULTS } from '../../../platform/long-image.ts'
 import { sanitizeFileName } from '../../../shared/text.ts'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 
 /** 导出用的行：只要用户/助手/命令三类，且正文非空 —— 折叠卡与工具步骤不该进记录。 */
 export function exportRowsOf(messages: readonly RenderMessage[]): ExportRow[] {

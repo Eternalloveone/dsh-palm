@@ -5,9 +5,9 @@
  * 真正的 selectModel / 权限落盘仍在会话层，通过回调打回去。
  */
 import type { ReactNode } from 'react'
-import { CheckIcon, ModelIcon, ShieldIcon } from '../../../icons.tsx'
+import { CheckIcon, ModelIcon, ShieldIcon } from '../../../components/icons.tsx'
 import type { SessionModels } from '../../../../api-proxy-types'
-import { buildEffortChoices, flattenModelChoices } from '../../../model-choice.ts'
+import { buildEffortChoices, flattenModelChoices } from '../../../platform/model-choice.ts'
 import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from '../lib/tool-labels.ts'
 import { Button } from '../../../ui/primitives.tsx'
 

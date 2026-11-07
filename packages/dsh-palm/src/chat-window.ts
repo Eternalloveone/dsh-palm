@@ -49,7 +49,7 @@
 import type { ApiProxy } from './api-proxy-types'
 import type { RpcRequest } from './api-proxy-types'
 import { RpcId } from './api-proxy-types'
-import { EventFolder, coalesceTurnMessages, foldTodoEvent, foldTodoSnapshot, lastOpenTurnStartTime } from './mobile/messages.ts'
+import { EventFolder, coalesceTurnMessages, foldTodoEvent, foldTodoSnapshot, lastOpenTurnStartTime } from './mobile/render/messages.ts'
 
 /** 一页事件里最新的一条的时间；没有带时间的就返回 undefined（不知道，不当成"结束了"）。 */
 function newestEventTime(events: readonly WireEvent[]): number | undefined {
@@ -60,7 +60,7 @@ function newestEventTime(events: readonly WireEvent[]): number | undefined {
   }
   return newest
 }
-import type { RenderMessage, TodoSnapshot, WireEvent } from './mobile/messages.ts'
+import type { RenderMessage, TodoSnapshot, WireEvent } from './mobile/render/messages.ts'
 import type { SessionProjectionsBlock } from './api-proxy-types'
 
 /** Windows kept per process (sessions a phone actually opened, worst case). */

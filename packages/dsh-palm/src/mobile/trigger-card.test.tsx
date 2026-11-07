@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
-import { MessageRow } from './message-row.tsx'
+import { MessageRow } from './render/message-row.tsx'
 
 function row(sourceKind: string) {
   return {

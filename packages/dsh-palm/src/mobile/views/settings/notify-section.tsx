@@ -1,7 +1,7 @@
 /**
  * 主设置页「通知」分组行：只显示状态词，完整说明在通知子页。
  */
-import { BellIcon } from '../../icons.tsx'
+import { BellIcon } from '../../components/icons.tsx'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
 
 export interface NotifySectionProps {

@@ -15,7 +15,7 @@
  */
 import type { ReactElement } from 'react'
 
-import { CommandSheet, HostFileSheet } from '../../../sheets.tsx'
+import { CommandSheet, HostFileSheet } from '../../../components/sheets.tsx'
 
 /** 依赖。 */
 export interface ChatInputSheetsProps {

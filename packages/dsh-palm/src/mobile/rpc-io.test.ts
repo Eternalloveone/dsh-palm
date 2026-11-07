@@ -5,7 +5,7 @@
  * 对象就够了。三条最容易出错的路径（宿主拒绝 / 超时 / 断网）在这里逐条钉住。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RpcCallError, RpcTransportError, callUnary, resetRpcIO, setRpcIO } from './rpc.ts'
+import { RpcCallError, RpcTransportError, callUnary, resetRpcIO, setRpcIO } from './platform/rpc.ts'
 
 afterEach(() => {
   resetRpcIO()

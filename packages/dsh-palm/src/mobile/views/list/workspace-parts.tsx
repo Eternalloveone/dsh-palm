@@ -10,9 +10,9 @@ import type { WorkspaceView as WorkspaceRow } from '../../../api-proxy-types'
 import { createWorkspace, listDirectory } from '../../data/workspace.ts'
 import type { DirectoryEntry, DirectoryListing } from '../../api.ts'
 import { errorText } from '../../shared/error-text.ts'
-import { toast } from '../../toast.tsx'
-import { Sheet } from '../../sheet.tsx'
-import type { MatchRanges, TextMatch } from '../../search-match.ts'
+import { toast } from '../../components/toast.tsx'
+import { Sheet } from '../../ui/sheet.tsx'
+import type { MatchRanges, TextMatch } from '../../render/search-match.ts'
 import { Button } from '../../ui/primitives.tsx'
 
 /**

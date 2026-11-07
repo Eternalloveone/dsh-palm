@@ -43,6 +43,11 @@ export const CACHE_EXCEPTIONS: readonly CacheException[] = [
 ]
 
 /** 某模块是否是已登记的例外。 */
+/** 只取文件名：清单里的条目写在**搬家前**，按路径匹配会被目录整理打破。 */
+function baseName(module: string): string {
+  return module.split('/').pop() ?? module
+}
+
 export function isCacheException(module: string): boolean {
-  return CACHE_EXCEPTIONS.some(entry => entry.module === module)
+  return CACHE_EXCEPTIONS.some(entry => baseName(entry.module) === baseName(module))
 }

@@ -10,13 +10,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
-import { resetSessionStoreForTest } from '../session-store.ts'
-import { LONG_TEXT_LIMIT } from '../markdown-text.tsx'
+import { resetSessionStoreForTest } from '../stream/session-store.ts'
+import { LONG_TEXT_LIMIT } from '../render/markdown-text.tsx'
 import { type SessionView } from '../shared/session-view.ts'
 import { type ChatPageResult } from '../data/chat-page.ts'
-import { escapeHtml, parseSegments, renderMarkdown, safeUrl } from '../markdown.ts'
+import { escapeHtml, parseSegments, renderMarkdown, safeUrl } from '../render/markdown.ts'
 import type { SessionModels } from '../../api-proxy-types'
-import type { WireEvent } from '../messages.ts'
+import type { WireEvent } from '../render/messages.ts'
 
 // The api module is fully mocked; App.tsx's history wrapper is overridden to
 // feed a fixed empty history page, its pure helpers stay real.
@@ -53,8 +53,8 @@ vi.mock('../data/chat-page.ts', async importOriginal => {
 })
 // Wrap the real parser with a call counter: pending streams must perform
 // zero full-text parses, and the closed turn exactly one.
-vi.mock('../markdown.ts', async importOriginal => {
-  const actual = await importOriginal<typeof import('../markdown.ts')>()
+vi.mock('../render/markdown.ts', async importOriginal => {
+  const actual = await importOriginal<typeof import('../render/markdown.ts')>()
   return { ...actual, parseSegments: vi.fn(actual.parseSegments) }
 })
 import { fetchMobilePreferences, models, respondQuestion } from '../api.ts'

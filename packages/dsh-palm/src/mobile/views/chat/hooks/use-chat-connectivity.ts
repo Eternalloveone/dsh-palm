@@ -16,7 +16,7 @@
 import { useCallback, useEffect } from 'react'
 
 import { history } from '../../../data/session.ts'
-import { onConnectivityChange } from '../../../rpc.ts'
+import { onConnectivityChange } from '../../../platform/rpc.ts'
 
 /** 离线横幅的探测间隔与超时（真机取值，改之前先量）。 */
 export const OFFLINE_PROBE_MS = 5_000

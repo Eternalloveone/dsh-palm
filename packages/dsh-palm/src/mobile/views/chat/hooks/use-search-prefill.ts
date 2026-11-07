@@ -15,7 +15,7 @@
  */
 import { useEffect, type MutableRefObject } from 'react'
 
-import { locateIntentFor } from '../../../locate-intent.ts'
+import { locateIntentFor } from '../../../session/locate-intent.ts'
 
 /** 依赖。 */
 export interface SearchPrefillDeps {

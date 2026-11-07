@@ -8,10 +8,10 @@
  * - 导出面板的提示文案写在面板里（分享出去的文本进 issue/群聊，收不回；脱敏在 redact.ts）；
  * - 删除的确认文案说明"电脑上的会话记录保留"，否则用户以为删了就彻底没了。
  */
-import { ConfirmDialog, PromptDialog } from '../../../dialog.tsx'
-import { PencilIcon } from '../../../icons.tsx'
-import { Sheet } from '../../../sheet.tsx'
-import { GitSheet } from '../../../sheets.tsx'
+import { ConfirmDialog, PromptDialog } from '../../../components/dialog.tsx'
+import { PencilIcon } from '../../../components/icons.tsx'
+import { Sheet } from '../../../ui/sheet.tsx'
+import { GitSheet } from '../../../components/sheets.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 export interface SessionSheetsProps {

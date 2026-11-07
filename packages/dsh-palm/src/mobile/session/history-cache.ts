@@ -1,0 +1,341 @@
+/**
+ * IndexedDB history cache: the last-known folded tail page per session, so
+ * reopening a session paints instantly (stale-while-revalidate) and an
+ * offline reopen still shows the last-known history instead of a blank
+ * skeleton. Reuses the `dsh-palm` database that {@link offline.ts} owns (its
+ * `outbox` store lives there); this module owns the `history` store and bumps
+ * the database to version 2.
+ *
+ * Storage is best-effort everywhere: quota/private-mode failures disable the
+ * cache silently (the network path still serves the chat).
+ * @module dsh-palm/mobile/history-cache
+ */
+
+import { ensurePersistentStorage } from '../platform/storage.ts'
+import { CACHE_POLICIES } from '../kernels/cache-policies.ts'
+
+const DB_NAME = 'dsh-palm'
+const DB_VERSION = 2
+const STORE = 'history'
+
+/** A cached tail page is a boot scaffold; the network refresh replaces it
+ *  within seconds, so a generous TTL is safe (stale rows never persist long
+ *  in view). 数字来自策略表（W4-5），这里不再各写一份。 */
+import { rowIdentity, type RenderMessage } from '../render/messages.ts'
+
+const HISTORY_TTL_MS = CACHE_POLICIES.historyArchive.ttlMs
+/** Entry cap: evict the oldest (by savedAt) past this so a long-lived page
+ *  never grows the store without limit. */
+const HISTORY_MAX_ENTRIES = CACHE_POLICIES.historyArchive.maxEntries
+
+/**
+ * 缓存页形状的版本号。**改行模型/改缓存页字段就必须 +1**：
+ * 老缓存留在库里不会自己消失，读端只认这个号，号不一样就当没有并顺手删掉。
+ *
+ * 历史：
+ *   v1 → v2（2026-11-07）：行身份改按 `rowIdentity`（轮/步）判定、合并时按身份折叠，
+ *   并加了 turn/step/partId 相关字段。v1 的页在新折叠口径下可能出错行，**一律不再使用**。
+ */
+export const CACHE_PAGE_VERSION = CACHE_POLICIES.historyArchive.version
+
+/** One cached tail page (the caller's page type rides the generic). */
+interface HistoryCacheEntry<T> {
+  key: string
+  v: number
+  savedAt: number
+  page: T
+}
+
+/**
+ * 这条缓存还能不能用（版本 + 时间戳）。导出来是为了让读端与测试共用同一条口径 ——
+ * 以前 `v` 判断是写死在读路径里的字面量 1，改版本时容易只改一处。
+ */
+export function isCurrentCacheEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false
+  const candidate = entry as { v?: unknown; savedAt?: unknown }
+  if (candidate.v !== CACHE_PAGE_VERSION) return false
+  return typeof candidate.savedAt === 'number' && Number.isFinite(candidate.savedAt)
+}
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('indexedDB unavailable'))
+      return
+    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      // `outbox` is owned by offline.ts (created at v1); create it here too
+      // so a fresh database opened first by this module still has it, and
+      // the v1→v2 upgrade never drops it.
+      if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' })
+    }
+    request.onsuccess = () => { resolve(request.result) }
+    request.onerror = () => { reject(request.error ?? new Error('indexedDB open failed')) }
+  })
+}
+
+/** Load one session's cached tail page (undefined when absent/expired/corrupt). */
+export async function loadCachedHistory<T>(sessionId: string): Promise<T | undefined> {
+  try {
+    const db = await openDb()
+    try {
+      const entry = await new Promise<HistoryCacheEntry<T> | undefined>((resolve, reject) => {
+        const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(sessionId)
+        request.onsuccess = () => { resolve(request.result as HistoryCacheEntry<T> | undefined) }
+        request.onerror = () => { reject(request.error ?? new Error('indexedDB read failed')) }
+      })
+      if (entry === undefined) return undefined
+      if (!isCurrentCacheEntry(entry)) {
+        // 版本对不上（上一版代码写的页）：删掉再当没有，否则每次进会话都要白读一次。
+        await deleteEntry(db, sessionId)
+        return undefined
+      }
+      if (Date.now() - entry.savedAt > HISTORY_TTL_MS) return undefined
+      return entry.page
+    } finally {
+      db.close()
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** Persist one session's tail page (best-effort; LRU-trimmed past the cap). */
+export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<void> {
+  let saved = false
+  try {
+    const db = await openDb()
+    try {
+      // 缓存**只许变多**（不变式 I3：单调）。
+      //
+      // 写这份缓存的地方有三处（尾页 120 行 / 宿主权威页 / 通用兜底），后到的那次
+      // 可能是更小的一页。曾经的现场：尾页按 120 行写入后，被一份 25 事件的小页覆盖，
+      // 于是「再进会话」的 cache-first 只画得出 13 行（实测 200ms 13 行 / 稳定 114 行）。
+      // 这里按行合并：同一 seq 以新到的为准，其余保留，然后按 seq 排序截断。
+      // 读旧值（同一连接）再决定写什么：缓存只增不减，见 mergeCachedPage。
+      const previous = await readEntry<T>(db, sessionId)
+      const merged = ((): T => {
+        try {
+          return mergeCachedPage(previous?.page, page)
+        } catch {
+          return page
+        }
+      })()
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite')
+        const store = tx.objectStore(STORE)
+        store.put({ key: sessionId, v: CACHE_PAGE_VERSION, savedAt: Date.now(), page: merged } satisfies HistoryCacheEntry<T>)
+        tx.oncomplete = () => { resolve() }
+        tx.onerror = () => { reject(tx.error ?? new Error('indexedDB write failed')) }
+        tx.onabort = () => { reject(tx.error ?? new Error('indexedDB write aborted')) }
+      })
+      await trimHistory(db)
+      saved = true
+    } finally {
+      db.close()
+    }
+  } catch {
+    // quota / private mode: cache silently off
+  }
+  // Lazy on purpose: the first successful write is the moment there is something
+  // worth protecting, so the persistent-storage request (which some browsers may
+  // prompt for) happens here rather than on first paint. Deliberately not awaited
+  // — a prompt must never hold up the chat.
+  if (saved) void ensurePersistentStorage()
+}
+
+/** 删一条缓存（同一连接；失败就当没删成，不影响读端降级）。 */
+async function deleteEntry(db: IDBDatabase, sessionId: string): Promise<void> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).delete(sessionId)
+      tx.oncomplete = () => { resolve() }
+      tx.onerror = () => { reject(tx.error ?? new Error('indexedDB delete failed')) }
+      tx.onabort = () => { resolve() }
+    })
+  } catch {
+    // 删不掉也不是错误：读端已经返回 undefined 了
+  }
+}
+
+/** 读一条缓存（同一连接；不存在或读失败就是 undefined）。 */
+async function readEntry<T>(db: IDBDatabase, sessionId: string): Promise<HistoryCacheEntry<T> | undefined> {
+  try {
+    return await new Promise<HistoryCacheEntry<T> | undefined>((resolve) => {
+      const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(sessionId)
+      request.onsuccess = () => { resolve(request.result as HistoryCacheEntry<T> | undefined) }
+      request.onerror = () => { resolve(undefined) }
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 缓存里留多少行。
+ *
+ * 桌面端进会话就是"历史全在"，手机端以前只留一屏多一点，于是进会话先看到尾部、
+ * 再等补页。这里放宽到 400 行：绝大多数会话一次就够，进入即"全都在"，
+ * 网络页到达时只做增量追加（位置身份 + 对象复用），屏幕上不会再变一次。
+ */
+const CACHE_MAX_ROWS = 400
+
+/**
+ * 把「旧缓存」和「这次要写的页」合成一份**只增不减**的页。
+ *
+ * - 形状不认识（没有 rows 数组 / 行没有数字 seq）→ 直接用新页；
+ * - 同一 seq 两行都在 → 新页那行胜出（它更新）；
+ * - 合并后按 seq 升序、保留尾部 `CACHE_MAX_ROWS` 行；
+ * - `maxSeq` 取大者，`hasMore` 跟新页（它代表"更早还有没有"，只有网络页知道）。
+ */
+export function mergeCachedPage<T>(existing: T | undefined, incoming: T): T {
+  const previous = existing as unknown as { rows?: unknown; maxSeq?: unknown; hasMore?: unknown } | undefined
+  const next = incoming as unknown as { rows?: unknown; maxSeq?: unknown; hasMore?: unknown }
+  // 没有旧值（或形状不认识）：仍然把这一页按上限截断，别让单条缓存无限长。
+  const capped = (): T => {
+    if (!Array.isArray(next.rows) || next.rows.length <= CACHE_MAX_ROWS) return incoming
+    return { ...(next as object), rows: (next.rows as unknown[]).slice(-CACHE_MAX_ROWS) } as unknown as T
+  }
+  if (
+    previous === undefined
+    || !Array.isArray(previous.rows)
+    || !Array.isArray(next.rows)
+    || typeof previous.maxSeq !== 'number'
+    || typeof next.maxSeq !== 'number'
+  ) return capped()
+
+  type SeqRow = { seq?: unknown }
+  const bySeq = new Map<number, unknown>()
+  const seqOf = (row: unknown): number | undefined => {
+    if (typeof row !== 'object' || row === null) return undefined
+    const seq = (row as SeqRow).seq
+    return typeof seq === 'number' && Number.isFinite(seq) ? seq : undefined
+  }
+  for (const row of previous.rows as unknown[]) {
+    const seq = seqOf(row)
+    if (seq === undefined) return incoming
+    bySeq.set(seq, row)
+  }
+  for (const row of next.rows as unknown[]) {
+    const seq = seqOf(row)
+    if (seq === undefined) return incoming
+    bySeq.set(seq, row)
+  }
+  const rows = collapseByIdentity(
+    [...bySeq.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, row]) => row),
+  ).slice(-CACHE_MAX_ROWS)
+  const maxSeq = typeof previous.maxSeq === 'number' ? Math.max(previous.maxSeq, next.maxSeq) : next.maxSeq
+  return {
+    ...(next as object),
+    rows,
+    maxSeq,
+  } as unknown as T
+}
+
+/**
+ * 按**逻辑身份**再收一次（seq 去重不够）。
+ *
+ * 同一行在"流式快照"里可能带 seq=120，在宿主那一页里带 seq=118（或 startSeq 不同）——
+ * 只按 seq 合并会把它留成两行，界面上就是同一条消息出现两次、id 还相同（历史上那次
+ * 13 处重复 id 正是这个成因）。这里保留 **seq 较大**的那份：它更接近宿主的最终形态。
+ *
+ * 注意：没有数字 seq 的行原样保留（形状不认识就不猜，交给上层 dedupeById 兜底）。
+ */
+function collapseByIdentity(rows: unknown[]): unknown[] {
+  const byIdentity = new Map<string, unknown>()
+  const passthrough: unknown[] = []
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null) { passthrough.push(row); continue }
+    const seq = (row as { seq?: unknown }).seq
+    if (typeof seq !== 'number' || !Number.isFinite(seq)) { passthrough.push(row); continue }
+    const key = rowIdentity(row as RenderMessage)
+    const previous = byIdentity.get(key)
+    if (previous === undefined) {
+      byIdentity.set(key, row)
+      continue
+    }
+    const previousSeq = (previous as { seq?: unknown }).seq
+    if (typeof previousSeq === 'number' && previousSeq > seq) continue
+    byIdentity.set(key, row)
+  }
+  // 折叠会打乱"第一次出现"的顺序（保留的是后到但 seq 更大的那份），所以按 seq 重排一次：
+  // 调用方（renderRows / 缓存读端）都假定行是 seq 升序。
+  const seqOfRow = (row: unknown): number => {
+    const seq = (row as { seq?: unknown }).seq
+    return typeof seq === 'number' && Number.isFinite(seq) ? seq : Number.POSITIVE_INFINITY
+  }
+  return [...byIdentity.values(), ...passthrough].sort((a, b) => seqOfRow(a) - seqOfRow(b))
+}
+
+/**
+ * 缓存页能不能用（**读端的第一道闸**）。
+ *
+ * IndexedDB 里的东西是**上一版代码**写的：旧 schema、半截写、手工改过的库都可能出现。
+ * 没有这道闸，坏形状会一路流到 `new EventFolder(...)` 里抛 TypeError ——
+ * 界面上只是"没画出来"，但那是**没被抓住的 rejection**，不是设计好的降级。
+ *
+ * 判据只看"够不够画"：有 rows 数组、每行是对象、maxSeq 是数字。
+ * 不认识的形状一律当没有（宁可白屏 200ms 等网络页，也不要画出半页错行）。
+ */
+export function isUsableCachedPage(page: unknown): page is { rows: unknown[]; maxSeq: number; hasMore?: boolean } {
+  if (typeof page !== 'object' || page === null) return false
+  const candidate = page as { rows?: unknown; maxSeq?: unknown }
+  if (!Array.isArray(candidate.rows)) return false
+  if (typeof candidate.maxSeq !== 'number' || !Number.isFinite(candidate.maxSeq)) return false
+  return candidate.rows.every(row => typeof row === 'object' && row !== null)
+}
+
+/** Evict the oldest entries past the cap (by savedAt). */
+async function trimHistory(db: IDBDatabase): Promise<void> {
+  try {
+    const entries = await new Promise<Array<{ key: string; savedAt: number }>>((resolve, reject) => {
+      const request = db.transaction(STORE, 'readonly').objectStore(STORE).getAll()
+      request.onsuccess = () => {
+        const all = (request.result as Array<{ key: string; savedAt: number }> | undefined) ?? []
+        resolve(all.map(entry => ({ key: entry.key, savedAt: entry.savedAt })))
+      }
+      request.onerror = () => { reject(request.error ?? new Error('indexedDB read failed')) }
+    })
+    if (entries.length <= HISTORY_MAX_ENTRIES) return
+    const doomed = entries
+      .sort((a, b) => a.savedAt - b.savedAt)
+      .slice(0, entries.length - HISTORY_MAX_ENTRIES)
+      .map(entry => entry.key)
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite')
+      const store = tx.objectStore(STORE)
+      for (const key of doomed) store.delete(key)
+      tx.oncomplete = () => { resolve() }
+      tx.onerror = () => { reject(tx.error ?? new Error('indexedDB trim failed')) }
+      tx.onabort = () => { reject(tx.error ?? new Error('indexedDB trim aborted')) }
+    })
+  } catch {
+    // non-fatal
+  }
+}
+
+/** Drop every cached tail page (pairing eviction / re-pair on this device). */
+export async function clearHistoryCache(): Promise<void> {
+  try {
+    const db = await openDb()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite')
+        tx.objectStore(STORE).clear()
+        tx.oncomplete = () => { resolve() }
+        tx.onerror = () => { reject(tx.error ?? new Error('indexedDB clear failed')) }
+        tx.onabort = () => { reject(tx.error ?? new Error('indexedDB clear aborted')) }
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    // non-fatal
+  }
+}

@@ -6,7 +6,7 @@
  * 一直挂着、发出去的话一直进离线队列 —— 网络其实早就好了。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { callUnary, onConnectivityChange, reportConnectivity } from './rpc.ts'
+import { callUnary, onConnectivityChange, reportConnectivity } from './platform/rpc.ts'
 
 /** Record the bus's verdicts for one test. */
 function watch(): boolean[] {

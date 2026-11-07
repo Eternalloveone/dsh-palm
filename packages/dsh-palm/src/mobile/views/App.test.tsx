@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
-import { RpcTransportError } from '../rpc.ts'
-import { clearOutlineCache } from '../outline-cache.ts'
+import { RpcTransportError } from '../platform/rpc.ts'
+import { clearOutlineCache } from '../session/outline-cache.ts'
 
 const api = vi.hoisted(() => ({
   fetchMobilePreferences: vi.fn(),
@@ -23,7 +23,7 @@ const api = vi.hoisted(() => ({
 const mux = vi.hoisted(() => ({ resync: vi.fn(), pause: vi.fn(), observe: vi.fn(), start: vi.fn(), stop: vi.fn(), refreshRunning: vi.fn(), onFrame: vi.fn() }))
 
 vi.mock('../api.ts', () => api)
-vi.mock('../mux.ts', () => ({
+vi.mock('../stream/mux.ts', () => ({
   MuxClient: class {
     start(): void { mux.start() }
     stop(): void { mux.stop() }
@@ -79,7 +79,7 @@ vi.mock('./SettingsView.tsx', () => ({ SettingsView: () => <div>settings-ready</
 
 import { App, backTargetOf, createLazyView, mobilePairStateForError } from './App.tsx'
 import { loadChatPage } from '../data/chat-page.ts'
-import { savePersistedList } from '../list-persist.ts'
+import { savePersistedList } from '../session/list-persist.ts'
 
 afterEach(() => {
   cleanup()
@@ -190,7 +190,7 @@ describe('收工浮层（跑完立刻知道是哪一个）', () => {
     expect(document.body.textContent).toContain('已完成')
     expect(document.body.textContent).toContain('8分39秒')
     // 同时记进"刚结束"账本：切到运行中页还在。
-    const { finishedRuns } = await import('../recent-finished.ts')
+    const { finishedRuns } = await import('../session/recent-finished.ts')
     const entries = finishedRuns(1_700_000_519_000)
     expect(entries[0]?.sessionId).toBe('session-done')
     expect(entries[0]?.summary).toBe('已经把三处原因改掉了')
@@ -210,7 +210,7 @@ describe('收工浮层（跑完立刻知道是哪一个）', () => {
     })
 
     await waitFor(() => expect(document.body.textContent).toContain('出错退出'))
-    const { finishedRuns } = await import('../recent-finished.ts')
+    const { finishedRuns } = await import('../session/recent-finished.ts')
     expect(finishedRuns(1_700_000_600_500)).toHaveLength(1)
   })
 })

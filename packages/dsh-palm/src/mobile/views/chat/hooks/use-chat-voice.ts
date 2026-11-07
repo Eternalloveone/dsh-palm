@@ -14,11 +14,11 @@
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { transcribeVoice } from '../../../data/voice.ts'
-import { createLiveCaptions, type LiveCaptions } from '../../../live-captions.ts'
-import { toast } from '../../../toast.tsx'
-import { startVoiceRecording, type VoiceRecording } from '../../../voice-input.ts'
-import { voiceStatusText, type VoiceStatus } from '../../../voice-status.ts'
-import { getVoiceServices } from '../../../voice-services.ts'
+import { createLiveCaptions, type LiveCaptions } from '../../../platform/live-captions.ts'
+import { toast } from '../../../components/toast.tsx'
+import { startVoiceRecording, type VoiceRecording } from '../../../platform/voice-input.ts'
+import { voiceStatusText, type VoiceStatus } from '../../../platform/voice-status.ts'
+import { getVoiceServices } from '../../../platform/voice-services.ts'
 
 export interface ChatVoice {
   /** 录音面板是否打开。 */

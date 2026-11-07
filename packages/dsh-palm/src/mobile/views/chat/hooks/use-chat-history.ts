@@ -22,9 +22,9 @@
 
 import { useCallback, useLayoutEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { loadChatPage, type ChatPageResult } from '../../../data/chat-page.ts'
-import type { RenderMessage } from '../../../messages.ts'
-import { recallChatSnapshot } from '../../../chat-snapshot.ts'
-import { FOLLOW_THRESHOLD_PX } from '../../../scroll-machine.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
+import { recallChatSnapshot } from '../../../session/chat-snapshot.ts'
+import { FOLLOW_THRESHOLD_PX } from '../../../stream/scroll-machine.ts'
 import type { ChatScrollHandle } from '../../../ui/hooks/use-stick-to-bottom.ts'
 import { createCache } from '../../../kernels/cache.ts'
 import { CACHE_POLICIES } from '../../../kernels/cache-policies.ts'

@@ -6,8 +6,8 @@
  *
  * @module dsh-palm/mobile/data/impl/voice
  */
-import { callUnary } from '../../rpc.ts'
-import type { VoiceService } from '../../voice-services.ts'
+import { callUnary } from '../../platform/rpc.ts'
+import type { VoiceService } from '../../platform/voice-services.ts'
 
 /**
  * The host-side fallback transcription services (dsh-palm.yaml `transcribe:`),

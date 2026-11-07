@@ -4,7 +4,7 @@
  * 每条用例都对应一次真机故障：计数在走画面不动、跳过去没有高亮、落在相邻短行上。
  */
 import { describe, expect, it } from 'vitest'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 import {
   alignHitIndex,
   normalizeSearchHits,

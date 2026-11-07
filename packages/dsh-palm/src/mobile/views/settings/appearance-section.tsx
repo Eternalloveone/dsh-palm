@@ -2,8 +2,8 @@
  * 主设置页「外观」「对话」两组的展示层：主题 / 字号 / 密度 / 行号 / 滚动 / 震动。
  * state 与副作用留在 SettingsView，这里只接收值、setter 与搜索命中标记。
  */
-import { ContrastIcon, HashIcon, RowsIcon, ScrollDownIcon, TypeIcon, VibrateIcon } from '../../icons.tsx'
-import { DENSITY_LABEL, FONT_SCALE_LABEL, setAutoScroll, setHaptics, setLineNumbers, type Density, type FontScale } from '../../display-prefs.ts'
+import { ContrastIcon, HashIcon, RowsIcon, ScrollDownIcon, TypeIcon, VibrateIcon } from '../../components/icons.tsx'
+import { DENSITY_LABEL, FONT_SCALE_LABEL, setAutoScroll, setHaptics, setLineNumbers, type Density, type FontScale } from '../../platform/display-prefs.ts'
 import { RowChevron, SettingsRow, ToggleRow } from './settings-shared.tsx'
 
 export interface AppearanceSectionProps {

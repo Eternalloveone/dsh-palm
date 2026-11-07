@@ -7,8 +7,8 @@
  * @module dsh-palm/mobile/message-row/artifact-cards
  */
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
-import type { ToolCallInfo, ToolDiffView } from '../messages.ts'
-import { diffTallyOf, toolDiffLines } from '../process-rows.ts'
+import type { ToolCallInfo, ToolDiffView } from '../render/messages.ts'
+import { diffTallyOf, toolDiffLines } from '../render/process-rows.ts'
 import { Button } from '../ui/primitives.tsx'
 
 export function ArtifactCards({ tools }: { tools: ToolCallInfo[] }) {

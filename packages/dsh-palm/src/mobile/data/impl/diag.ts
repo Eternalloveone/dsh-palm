@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/data/impl/diag
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import type { ChatPage, MobileHealthView } from '../../mobile-types.ts'
 
 /** The published latest version + whether the local one is behind. */

@@ -10,9 +10,9 @@
  * 成功转 ready、失败转 failed（点一下重传），发送框始终反映用户选了什么。
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { compressImageFile, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage } from '../../../image.ts'
+import { compressImageFile, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage } from '../../../platform/image.ts'
 import { uploadAttachment } from '../../../data/workspace.ts'
-import { toast } from '../../../toast.tsx'
+import { toast } from '../../../components/toast.tsx'
 
 /**
  * 待发附件的一条（桌面端 composer 那颗 chip 的复刻）。

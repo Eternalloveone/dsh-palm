@@ -34,11 +34,11 @@ import type { MuxFrame } from '../../api-proxy-types'
 import type { SessionSummary } from '../../api-proxy-types'
 import { listSessions } from '../data/session.ts'
 import { logTail } from '../data/diag.ts'
-import { SUBAGENT_POLL_MS, fetchSubagents, runningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from '../subagent-tree.ts'
-import { TaskRow } from '../task-status.tsx'
-import { InboxIcon } from '../icons.tsx'
+import { SUBAGENT_POLL_MS, fetchSubagents, runningSubagents, sortSubagentsRunningFirst, type SubagentFlatNode } from '../session/subagent-tree.ts'
+import { TaskRow } from '../render/task-status.tsx'
+import { InboxIcon } from '../components/icons.tsx'
 import { effectiveRunning, presenceOf, subscribePresence } from '../kernels/presence.ts'
-import { RUN_STALE_MS, formatAgo, formatRunDuration, runDetailFromPage, type RunDetail } from '../run-detail.ts'
+import { RUN_STALE_MS, formatAgo, formatRunDuration, runDetailFromPage, type RunDetail } from '../session/run-detail.ts'
 import {
   clearFinishedRuns,
   finishedRuns,
@@ -48,9 +48,9 @@ import {
   shortSessionId,
   subscribeFinishedRuns,
   type FinishedRun,
-} from '../recent-finished.ts'
+} from '../session/recent-finished.ts'
 import { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns } from '../data/usage.ts'
-import { cachedRunOverview, rememberRunOverview } from '../run-overview-cache.ts'
+import { cachedRunOverview, rememberRunOverview } from '../session/run-overview-cache.ts'
 
 /** Roster pages fetched at most while building the running-session baseline. */
 const ROSTER_PAGE_LIMIT = 8

@@ -53,30 +53,30 @@ import { useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { createStreamState } from './chat/state/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
-import { dropSessionFromCaches, removeDraft } from '../list-persist.ts'
-import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent, keepLocateIntentAlive } from '../locate-intent.ts'
-import { forgetFinishedRun } from '../recent-finished.ts'
-import { usePageVisible } from '../foreground.ts'
-import { useLiveClock } from '../live-clock.ts'
+import { dropSessionFromCaches, removeDraft } from '../session/list-persist.ts'
+import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent, keepLocateIntentAlive } from '../session/locate-intent.ts'
+import { forgetFinishedRun } from '../session/recent-finished.ts'
+import { usePageVisible } from '../stream/foreground.ts'
+import { useLiveClock } from '../platform/live-clock.ts'
 import { useHostClock } from './chat/hooks/use-host-clock.ts'
-import { formatDuration, isRowRunning } from '../process-rows.ts'
+import { formatDuration, isRowRunning } from '../render/process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
-import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../chat-snapshot.ts'
-import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../history-cache.ts'
+import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../session/chat-snapshot.ts'
+import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../session/history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
 import { archiveSession, cancelSession, history, inboxOf, newRequestId, queueItemViewOf, prompt, readChat, renameSession, sendCommand, sessionState, turnState, updateQueue } from '../data/session.ts'
 import { fetchMobilePreferences, models, selectModel, listCommands } from '../data/settings.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { CommandDescriptor, MobileGoalAction, PendingApproval, PendingQuestionItem, QueueItemView } from '../api.ts'
-import { buildPromptParts, imageFromClipboard, type PromptPart } from '../image.ts'
+import { buildPromptParts, imageFromClipboard, type PromptPart } from '../platform/image.ts'
 import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, renderRows, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent,
   dedupeById,
-} from '../messages.ts'
-import { reportDuplicateCards } from '../duplicate-report.ts'
+} from '../render/messages.ts'
+import { reportDuplicateCards } from '../session/duplicate-report.ts'
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
 import { logTail, reportError, reportPerf } from '../data/diag.ts'
-import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../scroll-machine.ts'
+import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../stream/scroll-machine.ts'
 import { useStickToBottom } from '../ui/hooks/use-stick-to-bottom.ts'
 import { usePendingPoll } from './chat/hooks/use-pending-poll.ts'
 import { initialSnapshotRows, OPEN_HISTORY_MAX_PAGES, OPEN_HISTORY_TARGET_ROWS, useChatHistory } from './chat/hooks/use-chat-history.ts'
@@ -106,9 +106,9 @@ import { ChatRows } from './chat/components/chat-rows.tsx'
 
 /** 兼容导出：这个常量原来定义在本文件（测试与调用点从 ChatView 取）。 */
 export { SEND_IN_FLIGHT_TIMEOUT_MS } from './chat/hooks/use-chat-composer.ts'
-import { SessionHud } from '../session-hud.tsx'
-import { saveChatCache, type CachedRow } from '../chat-cache.ts'
-import { dispatchStatusEvent } from '../session-status-store.ts'
+import { SessionHud } from '../components/session-hud.tsx'
+import { saveChatCache, type CachedRow } from '../session/chat-cache.ts'
+import { dispatchStatusEvent } from '../stream/session-status-store.ts'
 import {
   barsSignature,
   createSessionStatus,
@@ -118,10 +118,10 @@ import {
   type BarsView,
   type SessionStatus,
   type StatusEvent,
-} from '../session-status.ts'
-import { perfMark } from '../perf.ts'
-import { answeredQuestionsFor, noteAnsweredQuestion } from '../question-batches.ts'
-import { answeredApprovalsFor, noteAnsweredApproval } from '../approval-batches.ts'
+} from '../stream/session-status.ts'
+import { perfMark } from '../platform/perf.ts'
+import { answeredQuestionsFor, noteAnsweredQuestion } from '../session/question-batches.ts'
+import { answeredApprovalsFor, noteAnsweredApproval } from '../session/approval-batches.ts'
 
 /**
  * 最新一轮的起点，按可信度从高到低取：
@@ -165,23 +165,23 @@ function newestTurnAnchor(messages: readonly RenderMessage[]): number | undefine
   return own ?? firstSeen ?? lastUser
 }
 
-import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../run-status.tsx'
-import { copyText, openFilePath, shareText } from '../code-actions.ts'
-import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../export.ts'
-import { drawLongImage, LONG_IMAGE_DEFAULTS } from '../long-image.ts'
-import { MuxClient } from '../mux.ts'
-import { ThemeToggle } from '../theme-toggle.tsx'
-import { getAutoScroll, subscribeDisplayPrefs } from '../display-prefs.ts'
-import { formatFileSize, timeVisibility } from '../ui-text.ts'
-import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../offline.ts'
-import { QueueDock } from '../queue-dock.tsx'
-import { GoalBar } from '../goal-bar.tsx'
+import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../render/run-status.tsx'
+import { copyText, openFilePath, shareText } from '../render/code-actions.ts'
+import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../platform/export.ts'
+import { drawLongImage, LONG_IMAGE_DEFAULTS } from '../platform/long-image.ts'
+import { MuxClient } from '../stream/mux.ts'
+import { ThemeToggle } from '../components/theme-toggle.tsx'
+import { getAutoScroll, subscribeDisplayPrefs } from '../platform/display-prefs.ts'
+import { formatFileSize, timeVisibility } from '../render/ui-text.ts'
+import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../platform/offline.ts'
+import { QueueDock } from '../components/queue-dock.tsx'
+import { GoalBar } from '../components/goal-bar.tsx'
 import {
   GOAL_CLEAR_COMMAND, GOAL_EDIT_PREFIX, GOAL_PAUSE_COMMAND, GOAL_RESUME_COMMAND, goalEditCommand,
   parseGoalProjection, type MobileGoal,
-} from '../goal-projection.ts'
-import { FilePreviewSheet } from '../file-preview-sheet.tsx'
-import { ImageLightbox } from '../image-lightbox.tsx'
+} from '../session/goal-projection.ts'
+import { FilePreviewSheet } from '../components/file-preview-sheet.tsx'
+import { ImageLightbox } from '../components/image-lightbox.tsx'
 import {
   addOptimisticQueueItem,
   applyQueueItems,
@@ -192,32 +192,32 @@ import {
   queueView,
   subscribeSessionStore,
   unhideQueueItem,
-} from '../session-store.ts'
+} from '../stream/session-store.ts'
 import { goalAction, goalOf, searchSessions } from '../data/session.ts'
-import { onConnectivityChange, reportConnectivity, RpcCallError } from '../rpc.ts'
-import { voiceSupported } from '../voice-input.ts'
-import { voiceStatusClassName } from '../voice-status.ts'
-import { toast } from '../toast.tsx'
-import { useToastLift } from '../toast-lift.ts'
-import { scheduleSettleBurst } from '../settle-timers.ts'
+import { onConnectivityChange, reportConnectivity, RpcCallError } from '../platform/rpc.ts'
+import { voiceSupported } from '../platform/voice-input.ts'
+import { voiceStatusClassName } from '../platform/voice-status.ts'
+import { toast } from '../components/toast.tsx'
+import { useToastLift } from '../components/toast-lift.ts'
+import { scheduleSettleBurst } from '../stream/settle-timers.ts'
 import { sanitizeFileName, truncate } from '../shared/text.ts'
-import { shouldRepinAfterShrink } from '../scroll-shrink.ts'
-import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes, rememberQueuedEcho } from '../queued-echo.ts'
-import { turnNumberIsStale } from '../turn-liveness.ts'
-import { approvalPreviewText } from '../approval-preview.ts'
-import { Sheet } from '../sheet.tsx'
-import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SearchIcon, SendIcon, ShieldIcon } from '../icons.tsx'
-import { MessageRow } from '../message-row.tsx'
-import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../markdown-text.tsx'
-import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusSheet, QuestionPanel, TurnListSheet, parsePermissionSelect, type PermissionSelectValue, HostFileSheet } from '../sheets.tsx'
-import { buildEffortChoices, flattenModelChoices } from '../model-choice.ts'
+import { shouldRepinAfterShrink } from '../stream/scroll-shrink.ts'
+import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes, rememberQueuedEcho } from '../session/queued-echo.ts'
+import { turnNumberIsStale } from '../stream/turn-liveness.ts'
+import { approvalPreviewText } from '../session/approval-preview.ts'
+import { Sheet } from '../ui/sheet.tsx'
+import { ConfirmDialog, PromptDialog } from '../components/dialog.tsx'
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SearchIcon, SendIcon, ShieldIcon } from '../components/icons.tsx'
+import { MessageRow } from '../render/message-row.tsx'
+import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../render/markdown-text.tsx'
+import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusSheet, QuestionPanel, TurnListSheet, parsePermissionSelect, type PermissionSelectValue, HostFileSheet } from '../components/sheets.tsx'
+import { buildEffortChoices, flattenModelChoices } from '../platform/model-choice.ts'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../turn-outline.ts'
-import { TurnScrubber } from '../turn-scrubber.tsx'
-import { TaskStatusBar } from '../task-status.tsx'
+import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../session/turn-outline.ts'
+import { TurnScrubber } from '../components/turn-scrubber.tsx'
+import { TaskStatusBar } from '../render/task-status.tsx'
 import type { JobView } from '../../api-proxy-types'
-import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../subagent-tree.ts'
+import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../session/subagent-tree.ts'
 
 /** D1 handle-gesture tunables: the travel (px) a press must exceed before it
  *  counts as a scrub drag, and the horizontal inset of the scrub card's track

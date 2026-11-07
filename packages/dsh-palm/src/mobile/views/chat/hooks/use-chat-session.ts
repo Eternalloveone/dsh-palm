@@ -27,8 +27,8 @@ import {
   preferRicherRows,
   type RenderMessage,
   renderRows,
-} from '../../../messages.ts'
-import { reportDuplicateCards } from '../../../duplicate-report.ts'
+} from '../../../render/messages.ts'
+import { reportDuplicateCards } from '../../../session/duplicate-report.ts'
 import { reportError } from '../../../data/diag.ts'
 
 /** Options for the row model. */

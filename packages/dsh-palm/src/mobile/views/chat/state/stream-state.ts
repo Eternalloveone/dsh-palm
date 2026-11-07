@@ -1,5 +1,5 @@
-import type { EventFolder, RenderMessage, WireEvent } from '../../../messages.ts'
-import type { MuxClient } from '../../../mux.ts'
+import type { EventFolder, RenderMessage, WireEvent } from '../../../render/messages.ts'
+import type { MuxClient } from '../../../stream/mux.ts'
 import type { ChatSessionHandle } from '../hooks/use-chat-session.ts'
 
 /**

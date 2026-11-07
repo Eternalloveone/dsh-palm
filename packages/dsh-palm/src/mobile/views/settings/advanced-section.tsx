@@ -3,7 +3,7 @@
  * 里算好再传进来，保证搜索命中计数与拆分前完全一致。
  */
 import type { SettingsNamespaceView } from '../../../api-proxy-types'
-import { SlidersIcon } from '../../icons.tsx'
+import { SlidersIcon } from '../../components/icons.tsx'
 import { hostGroupDesc, hostGroupIcon } from './settings-groups.tsx'
 import { RowChevron, ScopeBadge } from './settings-shared.tsx'
 import { Button } from '../../ui/primitives.tsx'

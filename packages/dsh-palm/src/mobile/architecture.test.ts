@@ -209,7 +209,8 @@ describe('architecture guardrails', () => {
     const violations: string[] = []
     for (const file of SOURCES) {
       const path = rel(file)
-      if (path === 'export.ts') continue
+      // 导出件（platform/export.ts）里的 <style> 是有意的：导出的 HTML 要能离线自洽。
+    if ((path.split('/').pop() ?? '') === 'export.ts') continue
       const text = readFileSync(file, 'utf8')
       // 去掉注释再扫：文档里提到 `<style>` 不算违规。
       const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')

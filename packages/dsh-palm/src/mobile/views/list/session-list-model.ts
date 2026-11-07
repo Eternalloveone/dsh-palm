@@ -5,7 +5,7 @@
  */
 
 import type { MuxFrame, SessionSummary, WorkspaceView as WorkspaceRow } from '../../../api-proxy-types'
-import type { MuxClient } from '../../mux.ts'
+import type { MuxClient } from '../../stream/mux.ts'
 import { toSessionView, type SessionView } from '../../shared/session-view.ts'
 import { resolveSessionRunning } from '../../shared/session-state.ts'
 import { mergeRunning, presenceRunning } from '../../kernels/presence.ts'

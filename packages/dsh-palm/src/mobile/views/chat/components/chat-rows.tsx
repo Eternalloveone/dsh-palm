@@ -6,8 +6,8 @@
  * **纯搬运**：判定顺序与真机结论注释逐字保留。视图只装配一个 props 对象。
  */
 import type { CSSProperties } from 'react'
-import { dedupeById, type RenderMessage } from '../../../messages.ts'
-import { MessageRow } from '../../../message-row.tsx'
+import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
+import { MessageRow } from '../../../render/message-row.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 /** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */

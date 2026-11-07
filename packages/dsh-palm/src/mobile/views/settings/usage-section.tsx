@@ -3,7 +3,7 @@
  * 折叠状态与刷新动作由 SettingsView 持有。
  */
 import type { UsageProviderView, UsageView } from '../../api.ts'
-import { GaugeIcon } from '../../icons.tsx'
+import { GaugeIcon } from '../../components/icons.tsx'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
 import { Button } from '../../ui/primitives.tsx'
 

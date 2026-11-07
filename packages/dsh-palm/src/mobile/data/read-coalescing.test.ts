@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { coalescedRead, invalidateReadCoalescing } from './read-coalescing.ts'
-import { resetRpcIO, setRpcIO } from '../rpc.ts'
+import { resetRpcIO, setRpcIO } from '../platform/rpc.ts'
 
 let calls: string[] = []
 

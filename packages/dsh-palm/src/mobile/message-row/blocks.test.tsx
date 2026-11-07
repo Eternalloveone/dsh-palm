@@ -8,7 +8,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import type { ProcessModel } from '../process-rows.ts'
+import type { ProcessModel } from '../render/process-rows.ts'
 import { BlockList, mergeRegistry, type BlockRegistry } from './block-registry.tsx'
 import { toVM } from './to-vm.ts'
 import type { MessageBlock } from './types.ts'

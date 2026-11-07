@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/data/impl/notify
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import type { DeliveryRecordView, DeliveryStatsView, NotifyConfigView, NotifyEventView, PendingState } from '../../mobile-types.ts'
 
 /** Fetch pending approvals and questions for one session (polling fallback data source). */

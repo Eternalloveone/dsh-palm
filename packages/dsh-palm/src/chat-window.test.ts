@@ -6,9 +6,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ChatWindowService, TURN_ANCHOR_PEEK_MESSAGES, withLogTurnBoundaries, WINDOW_LIMIT, WINDOW_REVALIDATE_MS, WINDOW_ROW_LIMIT } from './chat-window.ts'
 import type { ChatHistoryFetcher, ChatHistoryPage } from './chat-window.ts'
-import { EventFolder } from './mobile/messages.ts'
+import { EventFolder } from './mobile/render/messages.ts'
 import type { SessionProjectionsBlock } from './api-proxy-types'
-import type { WireEvent } from './mobile/messages.ts'
+import type { WireEvent } from './mobile/render/messages.ts'
 
 /** One history entry in the fetcher's post-envelope shape. */
 function entry(type: string, data: unknown, seq: number, view?: unknown): { event: WireEvent; view?: unknown } {

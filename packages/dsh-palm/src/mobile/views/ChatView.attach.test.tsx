@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
-import { resetSessionStoreForTest } from '../session-store.ts'
+import { resetSessionStoreForTest } from '../stream/session-store.ts'
 import { type SessionView } from '../shared/session-view.ts'
 
 vi.mock('../api.ts', () => ({
@@ -41,8 +41,8 @@ vi.mock('../data/chat-page.ts', async importOriginal => {
   }
 })
 // Keep the pure builders real; only the DOM-touching pieces are mocked.
-vi.mock('../image.ts', async importOriginal => {
-  const actual = await importOriginal<typeof import('../image.ts')>()
+vi.mock('../platform/image.ts', async importOriginal => {
+  const actual = await importOriginal<typeof import('../platform/image.ts')>()
   return {
     ...actual,
     compressImageFile: vi.fn(async (file: File) => ({
@@ -51,14 +51,14 @@ vi.mock('../image.ts', async importOriginal => {
     })),
   }
 })
-vi.mock('../toast.tsx', () => ({ toast: vi.fn() }))
+vi.mock('../components/toast.tsx', () => ({ toast: vi.fn() }))
 
 import { fetchMobilePreferences, models, selectModel, sendCommand, cancelSession, fetchPending } from '../api.ts'
 import { loadChatPage } from '../data/chat-page.ts'
 import { prompt } from '../api.ts'
-import { imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage } from '../image.ts'
-import { buildPromptParts, compressImageFile } from '../image.ts'
-import { toast } from '../toast.tsx'
+import { imageFromClipboard, MAX_ATTACHED_IMAGES, type AttachedImage } from '../platform/image.ts'
+import { buildPromptParts, compressImageFile } from '../platform/image.ts'
+import { toast } from '../components/toast.tsx'
 
 const session: SessionView = {
   sessionId: 's-1',

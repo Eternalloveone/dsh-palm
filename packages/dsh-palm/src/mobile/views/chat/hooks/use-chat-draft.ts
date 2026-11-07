@@ -9,7 +9,7 @@
  * - 卸载 / 切会话要立刻 flush（防抖定时器可能根本没机会跑到）。
  */
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { loadDraft, removeDraft, saveDraft } from '../../../list-persist.ts'
+import { loadDraft, removeDraft, saveDraft } from '../../../session/list-persist.ts'
 
 /** 草稿落盘的防抖窗口。 */
 export const DRAFT_SAVE_DEBOUNCE_MS = 1_500

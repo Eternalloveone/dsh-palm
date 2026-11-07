@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import webpush from 'web-push'
 import type { NotifyConfig, NotifyStore } from './notify-store.ts'
 import type { NotifyEvent } from './notify-engine.ts'
-import { redactSecrets } from '../mobile/redact.ts'
+import { redactSecrets } from '../mobile/platform/redact.ts'
 
 /**
  * A failed turn/job notification carries the error text, and that text

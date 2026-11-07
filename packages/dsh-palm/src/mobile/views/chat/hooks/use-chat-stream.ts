@@ -21,8 +21,8 @@
  *   那条初始化链会绕回 TDZ。所有权（读写与重置）在本 hook。
  */
 import { useCallback, useEffect, useRef } from 'react'
-import { foldEvents, type WireEvent } from '../../../messages.ts'
-import { perfMark } from '../../../perf.ts'
+import { foldEvents, type WireEvent } from '../../../render/messages.ts'
+import { perfMark } from '../../../platform/perf.ts'
 import { refillGap as refillGapRows } from '../../../data/refill-gap.ts'
 import { reloadTailPage } from '../../../data/reload-tail.ts'
 import {

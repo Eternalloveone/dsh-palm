@@ -6,7 +6,7 @@
  * 但 key 必须一致 —— 不一致就是手机上"每行出现两遍"的根因。
  */
 import { describe, expect, it } from 'vitest'
-import type { RenderMessage } from '../messages.ts'
+import type { RenderMessage } from '../render/messages.ts'
 import { normalizeTurnNumbers, rowKey } from './identity.ts'
 
 /** 造一条助手行；只填测试关心的字段。 */

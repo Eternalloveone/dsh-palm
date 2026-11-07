@@ -9,8 +9,8 @@ import type { WorkspaceView } from '../api-proxy-types'
 import type { AgentPresetEntry } from '../api-proxy-types'
 import type { SessionSummary, SessionModels, SessionProjectionsBlock } from '../api-proxy-types'
 import type { SubagentCatalog } from '../api-proxy-types'
-import type { RenderMessage, TodoSnapshot } from './messages.ts'
-import { callUnary } from './rpc.ts'
+import type { RenderMessage, TodoSnapshot } from './render/messages.ts'
+import { callUnary } from './platform/rpc.ts'
 import { READ_CHAT_TIMEOUT_MS } from './data/chat-helpers.ts'
 export { READ_CHAT_TIMEOUT_MS } from './data/chat-helpers.ts'
 import { SESSION_PREVIEW_BATCH_LIMIT } from './data/limits.ts'
@@ -21,8 +21,8 @@ import type { ChatPage, MobileHealthView, HostFinishedRun, UsageView, ChatOpenEx
 import { coalescedRead, invalidateReadCoalescing } from './data/read-coalescing.ts'
 
 export { invalidateReadCoalescing }
-import type { PromptPart } from './image.ts'
-import type { VoiceService } from './voice-services.ts'
+import type { PromptPart } from './platform/image.ts'
+import type { VoiceService } from './platform/voice-services.ts'
 
 
 

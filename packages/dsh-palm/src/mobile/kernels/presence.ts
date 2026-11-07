@@ -15,8 +15,8 @@
  *
  * @module dsh-palm/mobile/kernels/presence
  */
-import { finishedRuns } from '../recent-finished.ts'
-import { runningOf, statusSessionIds, subscribeStatus } from '../session-status-store.ts'
+import { finishedRuns } from '../session/recent-finished.ts'
+import { runningOf, statusSessionIds, subscribeStatus } from '../stream/session-status-store.ts'
 
 /** 一条会话的对外状态。 */
 export interface SessionPresence {

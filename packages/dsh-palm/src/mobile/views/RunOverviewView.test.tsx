@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RunOverviewView, SUBAGENT_SESSION_MAX, type RunOverviewMux } from './RunOverviewView.tsx'
 import type { MuxFrame } from '../../api-proxy-types'
-import { clearFinishedRuns, recordFinishedRun } from '../recent-finished.ts'
+import { clearFinishedRuns, recordFinishedRun } from '../session/recent-finished.ts'
 
 const api = vi.hoisted(() => ({
   listSessions: vi.fn(),

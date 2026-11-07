@@ -7,8 +7,8 @@
  * @module dsh-palm/mobile/message-row/process
  */
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { RenderMessage, ToolCallInfo } from '../messages.ts'
-import { MarkdownText } from '../markdown-text.tsx'
+import type { RenderMessage, ToolCallInfo } from '../render/messages.ts'
+import { MarkdownText } from '../render/markdown-text.tsx'
 import {
   diffTallyOf,
   formatDuration,
@@ -24,8 +24,8 @@ import {
   type ProcessModel,
   type ProcessOutcome,
   type ProcessReasoningRow,
-} from '../process-rows.ts'
-import { stepModel, type StepVariant } from '../step-view.ts'
+} from '../render/process-rows.ts'
+import { stepModel, type StepVariant } from '../render/step-view.ts'
 import { Button } from '../ui/primitives.tsx'
 import { forgetTurnAnchor, stableTurnAnchor } from './anchors.ts'
 import { ArtifactCards } from './artifact-cards.tsx'

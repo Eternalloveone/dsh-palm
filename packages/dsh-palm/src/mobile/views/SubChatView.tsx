@@ -15,10 +15,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChatPage } from '../api.ts'
 import { logTail } from '../data/diag.ts'
-import type { RenderMessage, ToolCallInfo } from '../messages.ts'
-import { stepModel } from '../step-view.ts'
-import { formatAgo, formatRunDuration, runDetailFromPage } from '../run-detail.ts'
-import { usePageVisible } from '../foreground.ts'
+import type { RenderMessage, ToolCallInfo } from '../render/messages.ts'
+import { stepModel } from '../render/step-view.ts'
+import { formatAgo, formatRunDuration, runDetailFromPage } from '../session/run-detail.ts'
+import { usePageVisible } from '../stream/foreground.ts'
 import { Button, IconButton } from '../ui/primitives.tsx'
 
 /** 子代理页面的刷新间隔：它可能还在跑，别让内容停在被点开的那一刻。 */

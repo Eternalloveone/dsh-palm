@@ -8,7 +8,7 @@
  * @module dsh-palm/mobile/mobile-types
  */
 import type { AgentPresetEntry, SessionModels, SessionProjectionsBlock, SessionSummary, SubagentCatalog, WorkspaceView } from '../api-proxy-types'
-import type { RenderMessage, TodoSnapshot } from './messages.ts'
+import type { RenderMessage, TodoSnapshot } from './render/messages.ts'
 
 /** One folded chat page (v3 `mobile.readChat`): rows, watermark, and seeds. */
 export interface ChatPage {

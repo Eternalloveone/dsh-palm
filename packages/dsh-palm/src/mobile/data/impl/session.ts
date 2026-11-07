@@ -6,16 +6,16 @@
  *
  * @module dsh-palm/mobile/data/impl/session
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import { coalescedRead, invalidateReadCoalescing } from '../read-coalescing.ts'
 import { READ_CHAT_TIMEOUT_MS, queueBlockLabel } from '../chat-helpers.ts'
 import { OBSERVE_ASSERT_MIN_MS } from '../limits.ts'
 import { lastObserveAt, setLastObserveAt } from '../observe-latch.ts'
 import { invalidateWorkspaceRoster } from '../invalidate-roster.ts'
 import type { ChatOpenInclude, ChatPage, CommandExecOutcome, CreatedSession, HistoryPage, IndexedSearchResult, MobileGoalAction, PromptMode, QueueAction, QueueItemView, SessionFoldersView, SessionFolderView, SessionMessageHit, SessionPage, SessionSearchHit, TurnState } from '../../mobile-types.ts'
-import type { RenderMessage } from '../../messages.ts'
+import type { RenderMessage } from '../../render/messages.ts'
 import type { SubagentCatalog } from '../../../api-proxy-types'
-import type { PromptPart } from '../../image.ts'
+import type { PromptPart } from '../../platform/image.ts'
 
 /**
  * 轮次大纲（导航清单用）。尾页为了省 87 KB 不带它，客户端在这里单独取一次；

@@ -20,7 +20,7 @@ import { useCallback, type MutableRefObject } from 'react'
 
 import { prompt, sendCommand } from '../../../data/session.ts'
 import { textParts } from './use-chat-composer.ts'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 
 /** 重新生成发出后若这一轮没起来，到点复位按钮（别让它永远转圈）。 */
 export const REGENERATE_WATCHDOG_MS = 15_000

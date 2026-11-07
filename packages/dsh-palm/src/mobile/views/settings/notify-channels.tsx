@@ -3,8 +3,8 @@
  * 所有输入状态与保存动作由 SettingsView 持有，这里只渲染与转发事件。
  */
 import type { NotifyConfigView } from '../../api.ts'
-import { webPushSupported } from '../../notify.ts'
-import { ConfirmDialog } from '../../dialog.tsx'
+import { webPushSupported } from '../../platform/notify.ts'
+import { ConfirmDialog } from '../../components/dialog.tsx'
 import { ChannelState, ScopeBadge } from './settings-shared.tsx'
 import { Button } from '../../ui/primitives.tsx'
 

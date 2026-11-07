@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isRowRunning, resolveSessionRunning } from './session-state.ts'
-import type { RenderMessage } from '../messages.ts'
+import type { RenderMessage } from '../render/messages.ts'
 
 /** Minimal rendered row; only the fields the predicate reads. */
 function row(overrides: Partial<RenderMessage> = {}): RenderMessage {

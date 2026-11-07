@@ -17,9 +17,9 @@
  */
 
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
-import { createScrollState, mayAutoPin, maySettlePin, scrollReducer, type ScrollEvent, type ScrollState } from '../../scroll-machine.ts'
-import { scheduleSettleBurst } from '../../settle-timers.ts'
-import { shouldRepinAfterShrink } from '../../scroll-shrink.ts'
+import { createScrollState, mayAutoPin, maySettlePin, scrollReducer, type ScrollEvent, type ScrollState } from '../../stream/scroll-machine.ts'
+import { scheduleSettleBurst } from '../../stream/settle-timers.ts'
+import { shouldRepinAfterShrink } from '../../stream/scroll-shrink.ts'
 
 /** Everything ChatView needs from the scroll layer. */
 export interface ChatScrollHandle {

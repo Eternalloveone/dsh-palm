@@ -19,14 +19,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { AgentPresetEntry } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
-import type { MuxClient } from '../mux.ts'
+import type { MuxClient } from '../stream/mux.ts'
 import { archiveSession, assignSessionFolder, createSession, createSessionFolder, history, listAgentPresets, listSessions, listWorkspaces, logTail, previews, readSessionFolders, renameSession, runningSessions, type SessionFoldersView } from '../data/list.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
 import type { SessionView } from '../shared/session-view.ts'
-import { previewSummary } from '../ui-text.ts'
-import { foldEvents, type WireEvent } from '../messages.ts'
-import { removeOutboxForSession } from '../offline.ts'
-import { toast } from '../toast.tsx'
+import { previewSummary } from '../render/ui-text.ts'
+import { foldEvents, type WireEvent } from '../render/messages.ts'
+import { removeOutboxForSession } from '../platform/offline.ts'
+import { toast } from '../components/toast.tsx'
 import {
   loadPersistedList,
   loadPersistedScroll,
@@ -38,8 +38,8 @@ import {
   savePersistedScroll,
   savePinnedSessions,
   sessionListCache,
-} from '../list-persist.ts'
-export { sessionListCache } from '../list-persist.ts'
+} from '../session/list-persist.ts'
+export { sessionListCache } from '../session/list-persist.ts'
 import {
   DAY_BUCKETS,
   RUNNING_STALE_MS,

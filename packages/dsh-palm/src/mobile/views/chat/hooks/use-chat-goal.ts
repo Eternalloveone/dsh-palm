@@ -13,9 +13,9 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 
 import { goalOf } from '../../../data/session.ts'
-import { parseGoalProjection } from '../../../goal-projection.ts'
-import { parseTodoList, type TodoSnapshot, type WireEvent } from '../../../messages.ts'
-import type { MobileGoal } from '../../../goal-projection.ts'
+import { parseGoalProjection } from '../../../session/goal-projection.ts'
+import { parseTodoList, type TodoSnapshot, type WireEvent } from '../../../render/messages.ts'
+import type { MobileGoal } from '../../../session/goal-projection.ts'
 
 /** 目标条 / 计划条依赖。 */
 export interface ChatGoalDeps {

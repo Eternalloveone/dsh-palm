@@ -13,11 +13,11 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { CloseIcon, InboxIcon } from '../icons.tsx'
+import { CloseIcon, InboxIcon } from '../components/icons.tsx'
 import { getMobileTheme, toggleMobileTheme, type ResolvedTheme } from '../mobile-theme.ts'
-import { Sheet } from '../sheet.tsx'
-import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
-import { ImageLightbox } from '../image-lightbox.tsx'
+import { Sheet } from '../ui/sheet.tsx'
+import { ConfirmDialog, PromptDialog } from '../components/dialog.tsx'
+import { ImageLightbox } from '../components/image-lightbox.tsx'
 import { Menu, Popover } from '../ui/menu.tsx'
 import {
   Badge, Button, Card, Chip, EmptyState, ErrorState, Field, IconButton, ListRow, Skeleton, StatusDot,

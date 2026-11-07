@@ -7,12 +7,12 @@
  */
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import type { CommandDescriptor } from '../../../api.ts'
-import { imageFromClipboard } from '../../../image.ts'
-import type { AttachedImage } from '../../../image.ts'
-import { CloseIcon, MicIcon, PlusIcon, SendIcon } from '../../../icons.tsx'
-import { Sheet } from '../../../sheet.tsx'
+import { imageFromClipboard } from '../../../platform/image.ts'
+import type { AttachedImage } from '../../../platform/image.ts'
+import { CloseIcon, MicIcon, PlusIcon, SendIcon } from '../../../components/icons.tsx'
+import { Sheet } from '../../../ui/sheet.tsx'
 import type { StagedFile } from '../hooks/use-chat-attachments.ts'
-import { formatFileSize } from '../../../ui-text.ts'
+import { formatFileSize } from '../../../render/ui-text.ts'
 import { truncate } from '../../../shared/text.ts'
 import { Button } from '../../../ui/primitives.tsx'
 

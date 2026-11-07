@@ -10,7 +10,7 @@
  *
  * @module dsh-palm/mobile/data/read-coalescing
  */
-import { callUnary } from '../rpc.ts'
+import { callUnary } from '../platform/rpc.ts'
 
 /**
  * 只读调用的合并窗口。真机埋点（4G + CPU×4）实测：一次"打开工作区"里

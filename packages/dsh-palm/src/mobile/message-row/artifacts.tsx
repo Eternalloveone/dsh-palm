@@ -7,15 +7,15 @@
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
-import type { RenderMessage, ToolCallInfo, ToolDiffView } from '../messages.ts'
-import { MarkdownText } from '../markdown-text.tsx'
+import type { RenderMessage, ToolCallInfo, ToolDiffView } from '../render/messages.ts'
+import { MarkdownText } from '../render/markdown-text.tsx'
 import {
   diffTallyOf,
   formatDuration,
   processModel,
   visibleRowCount,
   type ProcessModel,
-} from '../process-rows.ts'
+} from '../render/process-rows.ts'
 import { Button } from '../ui/primitives.tsx'
 import { ProcessGroup } from './process.tsx'
 

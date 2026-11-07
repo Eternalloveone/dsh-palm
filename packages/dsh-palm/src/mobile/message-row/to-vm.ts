@@ -14,8 +14,8 @@
  *
  * @module dsh-palm/mobile/message-row/to-vm
  */
-import type { ToolCallInfo } from '../messages.ts'
-import type { ProcessModel } from '../process-rows.ts'
+import type { ToolCallInfo } from '../render/messages.ts'
+import type { ProcessModel } from '../render/process-rows.ts'
 import type { MessageBlock } from './types.ts'
 
 export interface ToVmOptions {

@@ -15,8 +15,8 @@
 import { startTransition, useEffect, type Dispatch, type SetStateAction } from 'react'
 import { fetchPending } from '../../../data/notify.ts'
 import type { PendingApproval, PendingQuestionItem } from '../../../api.ts'
-import { adoptPolledApprovals, answeredApprovalsFor } from '../../../approval-batches.ts'
-import { adoptPolledQuestions, answeredQuestionsFor } from '../../../question-batches.ts'
+import { adoptPolledApprovals, answeredApprovalsFor } from '../../../session/approval-batches.ts'
+import { adoptPolledQuestions, answeredQuestionsFor } from '../../../session/question-batches.ts'
 
 /** Poll cadence while the live stream is healthy (safety net only). */
 export const PENDING_POLL_IDLE_MS = 15_000

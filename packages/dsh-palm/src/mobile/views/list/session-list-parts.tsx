@@ -5,8 +5,8 @@
 
 import type { AgentPresetEntry, WorkspaceView as WorkspaceRow } from '../../../api-proxy-types'
 import type { SessionFoldersView } from '../../api.ts'
-import { HelpIcon } from '../../icons.tsx'
-import { ThemeToggle } from '../../theme-toggle.tsx'
+import { HelpIcon } from '../../components/icons.tsx'
+import { ThemeToggle } from '../../components/theme-toggle.tsx'
 import { Button } from '../../ui/primitives.tsx'
 
 export interface SessionListHeaderProps {

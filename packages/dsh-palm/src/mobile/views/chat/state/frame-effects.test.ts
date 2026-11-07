@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FrameContext } from './frame-effects.ts'
 import { onTurnEnd, onTurnStart } from './frame-effects.ts'
-import type { WireEvent } from '../../../messages.ts'
+import type { WireEvent } from '../../../render/messages.ts'
 
 /** 一个记录调用顺序的假 ctx：所有写入方都是 spy，值型状态用可变盒子。 */
 function makeCtx() {

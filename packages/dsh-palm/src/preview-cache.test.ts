@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PREVIEW_CACHE_LIMIT, PreviewCacheService } from './preview-cache.ts'
 import type { PreviewHistoryFetcher } from './preview-cache.ts'
-import type { WireEvent } from './mobile/messages.ts'
+import type { WireEvent } from './mobile/render/messages.ts'
 
 function entry(type: string, data: unknown, time: number): WireEvent {
   return { type, seq: time, time, data }

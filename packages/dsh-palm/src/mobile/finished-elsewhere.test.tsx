@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { FinishedElsewhereBar } from './run-status.tsx'
+import { FinishedElsewhereBar } from './render/run-status.tsx'
 
 afterEach(() => { cleanup() })
 

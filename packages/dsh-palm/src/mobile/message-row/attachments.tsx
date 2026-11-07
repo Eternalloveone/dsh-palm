@@ -8,9 +8,9 @@
  */
 
 import { useEffect, useState } from 'react'
-import type { MessageFile, MessageImage } from '../messages.ts'
-import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from '../attachment-images.ts'
-import { formatFileSize } from '../ui-text.ts'
+import type { MessageFile, MessageImage } from '../render/messages.ts'
+import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from '../platform/attachment-images.ts'
+import { formatFileSize } from '../render/ui-text.ts'
 import { Button } from '../ui/primitives.tsx'
 
 /**

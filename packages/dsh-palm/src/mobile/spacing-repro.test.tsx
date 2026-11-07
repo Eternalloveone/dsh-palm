@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
-import { MarkdownText } from './markdown-text.tsx'
+import { MarkdownText } from './render/markdown-text.tsx'
 
 function mdHtmlRuns(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll('.md-html')).map(el => el.innerHTML)

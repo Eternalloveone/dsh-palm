@@ -10,7 +10,7 @@
  * 0px 变成 44px）。所以两段各自留在原来的位置，只是实现搬了出去。
  */
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { ChevronDownIcon } from '../../../icons.tsx'
+import { ChevronDownIcon } from '../../../components/icons.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 export interface TurnStatusLineProps {

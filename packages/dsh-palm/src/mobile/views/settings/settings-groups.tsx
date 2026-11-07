@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react'
 import {
   GaugeIcon, HashIcon, InfoIcon, RowsIcon, ShieldIcon, SlidersIcon, TypeIcon, UpperRightIcon,
-} from '../../icons.tsx'
+} from '../../components/icons.tsx'
 
 /** Merged card groups: semantically related namespaces share one card. */
 export const SETTINGS_GROUPS: Array<{ id: string; title: string; namespaces: string[] }> = [

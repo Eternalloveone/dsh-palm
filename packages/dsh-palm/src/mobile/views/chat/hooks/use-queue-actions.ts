@@ -21,9 +21,9 @@ import {
   hideQueueItem,
   queueView,
   unhideQueueItem,
-} from '../../../session-store.ts'
-import { RpcCallError } from '../../../rpc.ts'
-import { forgetQueuedEcho, rememberQueuedEcho } from '../../../queued-echo.ts'
+} from '../../../stream/session-store.ts'
+import { RpcCallError } from '../../../platform/rpc.ts'
+import { forgetQueuedEcho, rememberQueuedEcho } from '../../../session/queued-echo.ts'
 /**
  * 队列项的最小结构。
  *

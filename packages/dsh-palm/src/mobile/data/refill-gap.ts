@@ -10,7 +10,7 @@
  * - 游标不动就停：`oldestSeq >= beforeSeq` 说明这一页没带来更早的行，再翻就是死循环。
  */
 import { loadChatPage } from './chat-page.ts'
-import { EventFolder, renderRows, type RenderMessage } from '../messages.ts'
+import { EventFolder, renderRows, type RenderMessage } from '../render/messages.ts'
 
 export interface RefillGapOptions {
   sessionId: string

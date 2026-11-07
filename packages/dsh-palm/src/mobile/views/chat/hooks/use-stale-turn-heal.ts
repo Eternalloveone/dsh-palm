@@ -18,8 +18,8 @@
  */
 import { useEffect } from 'react'
 
-import type { RenderMessage } from '../../../messages.ts'
-import { turnNumberIsStale } from '../../../turn-liveness.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
+import { turnNumberIsStale } from '../../../stream/turn-liveness.ts'
 
 /** 依赖。 */
 export interface StaleTurnHealDeps {

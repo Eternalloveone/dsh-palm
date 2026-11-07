@@ -7,7 +7,7 @@
  *
  * @module dsh-palm/mobile/views/chat/chat-search-match
  */
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 
 /** 一个命中：索引给的原始信息。 */
 export interface SearchHit {

@@ -11,8 +11,8 @@
  * - 过程行（`row` 存在）与普通气泡（`row` 不存在）的菜单项不同，不能合并。
  */
 import type { MutableRefObject } from 'react'
-import type { RenderMessage } from '../../../messages.ts'
-import { PromptDialog } from '../../../dialog.tsx'
+import type { RenderMessage } from '../../../render/messages.ts'
+import { PromptDialog } from '../../../components/dialog.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 /** 长按落在哪一行、以及那一刻的定位信息。 */

@@ -23,7 +23,7 @@ import {
   renderRows,
   type EventFolder,
   type RenderMessage,
-} from '../../../messages.ts'
+} from '../../../render/messages.ts'
 import type { ChatSessionHandle } from '../hooks/use-chat-session.ts'
 
 /** Dependencies for {@link prepareOlderPage}. */

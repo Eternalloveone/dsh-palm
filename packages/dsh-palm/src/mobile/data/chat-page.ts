@@ -7,11 +7,11 @@
  */
 
 import { history as fetchHistory, logTail, readChat, turnOutlineOf, type ChatOpenExtras, type ChatOpenInclude, type ChatPage } from '../api.ts'
-import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../messages.ts'
+import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../render/messages.ts'
 import type { SessionProjectionsBlock } from '../../api-proxy-types'
-import { saveCachedHistory } from '../history-cache.ts'
-import { preferredTailWindowBytes } from '../entry-perf.ts'
-import { getCachedOutline, setCachedOutline } from '../outline-cache.ts'
+import { saveCachedHistory } from '../session/history-cache.ts'
+import { preferredTailWindowBytes } from '../platform/entry-perf.ts'
+import { getCachedOutline, setCachedOutline } from '../session/outline-cache.ts'
 
 /** One folded chat page as the surface consumes it (any source). */
 export interface ChatPageResult {

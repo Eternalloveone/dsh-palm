@@ -5,8 +5,8 @@
  * 聊天页问，`presenceOf()` 必须给出同一个结论。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { dispatchStatusEvent, resetStatusStoreForTest } from '../session-status-store.ts'
-import { clearFinishedRuns, recordFinishedRun, resetFinishedRunsForTest } from '../recent-finished.ts'
+import { dispatchStatusEvent, resetStatusStoreForTest } from '../stream/session-status-store.ts'
+import { clearFinishedRuns, recordFinishedRun, resetFinishedRunsForTest } from '../session/recent-finished.ts'
 import { activeSessionIds, presenceOf, subscribePresence } from './presence.ts'
 
 /** 让会话进入"在跑"状态：帧事件走状态存储的租约逻辑。 */

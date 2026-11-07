@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/data/impl/settings
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import { coalescedRead, invalidateReadCoalescing } from '../read-coalescing.ts'
 import { MODELS_TTL_MS, PREFERENCES_TTL_MS } from '../limits.ts'
 import type { CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView } from '../../mobile-types.ts'

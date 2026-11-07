@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createStreamState, resetStreamState } from './stream-state.ts'
-import type { EventFolder, WireEvent } from '../../../messages.ts'
+import type { EventFolder, WireEvent } from '../../../render/messages.ts'
 
 describe('stream-state', () => {
   it('新建时是干净状态（缓冲空、折叠器未建立、没有待回填窗口）', () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { adoptOlderPage, prepareOlderPage } from './history-page.ts'
-import type { EventFolder, RenderMessage } from '../../../messages.ts'
+import type { EventFolder, RenderMessage } from '../../../render/messages.ts'
 import type { ChatPageResult } from '../../../data/chat-page.ts'
 
 function row(id: string, seq: number, extra: Partial<RenderMessage> = {}): RenderMessage {

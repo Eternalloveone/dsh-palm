@@ -12,7 +12,7 @@
  * 写清为什么。金标准的价值全在"改不动"上，随手一刷就退回成普通单测了。
  */
 import { describe, expect, it } from 'vitest'
-import { foldEvents, type RenderMessage, type WireEvent } from '../messages.ts'
+import { foldEvents, type RenderMessage, type WireEvent } from '../render/messages.ts'
 
 // ---------------------------------------------------------------------------
 // 造事件的几个小工具（形状抄自真实 wire，见 messages.test.ts）

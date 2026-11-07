@@ -13,7 +13,7 @@
  * @module dsh-palm/mobile/shared/session-state
  */
 
-import type { RenderMessage } from '../messages.ts'
+import type { RenderMessage } from '../render/messages.ts'
 
 /**
  * Whether one rendered row is still live.

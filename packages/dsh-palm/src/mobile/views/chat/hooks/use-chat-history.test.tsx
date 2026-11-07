@@ -2,7 +2,7 @@
 import { render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatPageResult } from '../../../data/chat-page.ts'
-import type { RenderMessage } from '../../../messages.ts'
+import type { RenderMessage } from '../../../render/messages.ts'
 import { OPEN_HISTORY_TARGET_ROWS, useChatHistory, type ChatHistoryHandle } from './use-chat-history.ts'
 import type { ChatScrollHandle } from '../../../ui/hooks/use-stick-to-bottom.ts'
 

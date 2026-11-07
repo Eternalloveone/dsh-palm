@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 
-import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../../../subagent-tree.ts'
+import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../../../session/subagent-tree.ts'
 
 /** 依赖。 */
 export interface ChatSubagentsDeps {

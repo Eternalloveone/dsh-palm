@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/data/impl/fs
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import { coalescedRead } from '../read-coalescing.ts'
 import { SESSION_PREVIEW_BATCH_LIMIT } from '../limits.ts'
 import type { DirectoryListing, FilePreview, SessionPreview } from '../../mobile-types.ts'

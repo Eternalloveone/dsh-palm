@@ -1,10 +1,10 @@
 /**
  * 「其他」分组：清除缓存、反馈、关于、性能报告，以及页脚的口径说明。
  */
-import { InfoIcon, TrashIcon, UpperRightIcon } from '../../icons.tsx'
+import { InfoIcon, TrashIcon, UpperRightIcon } from '../../components/icons.tsx'
 import pkg from '../../../../package.json'
-import { PerfReportRow } from '../../perf-report.tsx'
-import { BUILD_HASH } from '../../build-info.ts'
+import { PerfReportRow } from '../../platform/perf-report.tsx'
+import { BUILD_HASH } from '../../platform/build-info.ts'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
 
 export interface OtherSectionProps {

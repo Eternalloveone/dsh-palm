@@ -4,9 +4,9 @@
  * 文案、aria-label、className 与拆分前逐字一致（视觉回归判据）。
  */
 import type { ReactNode } from 'react'
-import { Sheet } from '../../sheet.tsx'
-import { toast } from '../../toast.tsx'
-import { dropAllChatCaches } from '../../chat-cache.ts'
+import { Sheet } from '../../ui/sheet.tsx'
+import { toast } from '../../components/toast.tsx'
+import { dropAllChatCaches } from '../../session/chat-cache.ts'
 import { Button } from '../../ui/primitives.tsx'
 
 /** Source badge: where a setting takes effect / can be changed. */

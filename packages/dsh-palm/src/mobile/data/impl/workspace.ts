@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/data/impl/workspace
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import { WORKSPACE_ROSTER_TTL_MS } from '../limits.ts'
 import { rosterCached, rosterInFlight, setRosterCached, setRosterInFlight } from '../workspace-roster.ts'
 // 花名册失效的唯一出口在数据层（api.ts 只是转出），域实现直接用它。

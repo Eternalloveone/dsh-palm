@@ -18,7 +18,7 @@
  */
 import { useEffect, type MutableRefObject } from 'react'
 
-import { queueView, subscribeSessionStore } from '../../../session-store.ts'
+import { queueView, subscribeSessionStore } from '../../../stream/session-store.ts'
 import type { MessageCtxMenuState } from '../components/message-menu.tsx'
 
 /** 队列订阅的依赖。 */

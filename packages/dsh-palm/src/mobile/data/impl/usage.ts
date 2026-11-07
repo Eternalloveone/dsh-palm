@@ -6,7 +6,7 @@
  *
  * @module dsh-palm/mobile/data/impl/usage
  */
-import { callUnary } from '../../rpc.ts'
+import { callUnary } from '../../platform/rpc.ts'
 import type { HostFinishedRun, UsageView } from '../../mobile-types.ts'
 
 /** 记一条到宿主账本（fire-and-forget：本地已经先记了，这里只是同步）。 */

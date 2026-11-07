@@ -15,7 +15,7 @@
 import { useCallback, type MutableRefObject } from 'react'
 
 import { inboxOf, queueItemViewOf, sessionState } from '../../../data/session.ts'
-import { applyQueueItems, applySnapshot, queueView } from '../../../session-store.ts'
+import { applyQueueItems, applySnapshot, queueView } from '../../../stream/session-store.ts'
 
 /** hook 依赖。 */
 export interface ChatInboxDeps {

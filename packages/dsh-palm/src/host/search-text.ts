@@ -10,8 +10,8 @@
  * @module dsh-palm/host/search-text
  */
 import { stripToolBlocks } from '../search-index.ts'
-import { processModel } from '../mobile/process-rows.ts'
-import type { RenderMessage } from '../mobile/messages.ts'
+import { processModel } from '../mobile/render/process-rows.ts'
+import type { RenderMessage } from '../mobile/render/messages.ts'
 
 export interface SearchDocumentRow {
   seq: number

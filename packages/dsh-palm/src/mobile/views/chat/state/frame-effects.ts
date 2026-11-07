@@ -7,13 +7,13 @@
  */
 import { startTransition, type Dispatch, type SetStateAction } from 'react'
 import type { MuxFrame, JobView } from '../../../../api-proxy-types'
-import type { TodoSnapshot, WireEvent } from '../../../messages.ts'
+import type { TodoSnapshot, WireEvent } from '../../../render/messages.ts'
 import { queueItemViewOf } from '../../../data/session.ts'
 import type { PendingApproval, PendingQuestionItem, QueueItemView } from '../../../api.ts'
-import { parsePermissionSelect, type PermissionSelectValue } from '../../../sheets.tsx'
-import type { MobileGoal } from '../../../goal-projection.ts'
-import type { StatusEvent } from '../../../session-status.ts'
-import { toast } from '../../../toast.tsx'
+import { parsePermissionSelect, type PermissionSelectValue } from '../../../components/sheets.tsx'
+import type { MobileGoal } from '../../../session/goal-projection.ts'
+import type { StatusEvent } from '../../../stream/session-status.ts'
+import { toast } from '../../../components/toast.tsx'
 import type { TurnVerdict } from './stream-state.ts'
 
 /**

@@ -11,7 +11,7 @@
  */
 import { useEffect } from 'react'
 
-import { listOutbox } from '../../../offline.ts'
+import { listOutbox } from '../../../platform/offline.ts'
 
 /**
  * @param offline 当前是否离线（真相源：连通性探测）

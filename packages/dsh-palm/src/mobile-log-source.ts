@@ -17,7 +17,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dshHome } from './dsh-home.ts'
 import { readSessionLogTail, type TailReadResult } from './session-log-tail.ts'
-import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type WireEvent } from './mobile/messages.ts'
+import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type WireEvent } from './mobile/render/messages.ts'
 import type { ChatPage } from './chat-window.ts'
 
 /** 日志文件名：v0 是 session.jsonl（无后缀），之后是 session.v<N>.jsonl[.zstd]。 */

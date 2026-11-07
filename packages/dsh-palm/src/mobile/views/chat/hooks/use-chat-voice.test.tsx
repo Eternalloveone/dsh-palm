@@ -5,16 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatVoice, type ChatVoice } from './use-chat-voice.ts'
 
 vi.mock('../../../api.ts', () => ({ transcribeVoice: vi.fn() }))
-vi.mock('../../../voice-input.ts', () => ({ startVoiceRecording: vi.fn(), voiceSupported: () => true }))
-vi.mock('../../../voice-services.ts', () => ({ getVoiceServices: () => ({}) }))
-vi.mock('../../../live-captions.ts', () => ({
+vi.mock('../../../platform/voice-input.ts', () => ({ startVoiceRecording: vi.fn(), voiceSupported: () => true }))
+vi.mock('../../../platform/voice-services.ts', () => ({ getVoiceServices: () => ({}) }))
+vi.mock('../../../platform/live-captions.ts', () => ({
   createLiveCaptions: () => ({ offer: vi.fn(), stop: vi.fn() }),
 }))
-vi.mock('../../../toast.tsx', () => ({ toast: vi.fn() }))
+vi.mock('../../../components/toast.tsx', () => ({ toast: vi.fn() }))
 
 import { transcribeVoice } from '../../../api.ts'
-import { startVoiceRecording } from '../../../voice-input.ts'
-import { toast } from '../../../toast.tsx'
+import { startVoiceRecording } from '../../../platform/voice-input.ts'
+import { toast } from '../../../components/toast.tsx'
 
 const startMock = vi.mocked(startVoiceRecording)
 const transcribeMock = vi.mocked(transcribeVoice)

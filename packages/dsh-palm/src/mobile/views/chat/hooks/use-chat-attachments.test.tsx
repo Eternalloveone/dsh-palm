@@ -3,17 +3,17 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_ATTACHED_FILES, MAX_ATTACHMENT_FILE_BYTES, useChatAttachments, type ChatAttachments } from './use-chat-attachments.ts'
 
-vi.mock('../../../image.ts', () => ({
+vi.mock('../../../platform/image.ts', () => ({
   MAX_ATTACHED_IMAGES: 4,
   compressImageFile: vi.fn(),
   readAsDataURL: vi.fn(),
 }))
 vi.mock('../../../api.ts', () => ({ uploadAttachment: vi.fn() }))
-vi.mock('../../../toast.tsx', () => ({ toast: vi.fn() }))
+vi.mock('../../../components/toast.tsx', () => ({ toast: vi.fn() }))
 
-import { compressImageFile, readAsDataURL } from '../../../image.ts'
+import { compressImageFile, readAsDataURL } from '../../../platform/image.ts'
 import { uploadAttachment } from '../../../api.ts'
-import { toast } from '../../../toast.tsx'
+import { toast } from '../../../components/toast.tsx'
 
 const compressMock = vi.mocked(compressImageFile)
 const readMock = vi.mocked(readAsDataURL)

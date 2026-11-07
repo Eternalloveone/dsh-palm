@@ -10,7 +10,7 @@
  * 从待处理的队列里摘掉，否则宿主重发同一条时会被再问一遍。
  */
 import type { PendingApproval, PendingQuestionItem } from '../../../api.ts'
-import { ApprovalPanel, QuestionPanel } from '../../../sheets.tsx'
+import { ApprovalPanel, QuestionPanel } from '../../../components/sheets.tsx'
 
 export interface ChatAttentionPanelsProps {
   sessionId: string

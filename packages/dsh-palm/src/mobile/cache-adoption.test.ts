@@ -60,8 +60,10 @@ describe('缓存采纳门禁', () => {
 
   it('例外清单没有过期条目（模块还在、且确实没用内核）', () => {
     for (const entry of CACHE_EXCEPTIONS) {
-      expect(modules, `例外 ${entry.module} 指向的模块已经不存在了`).toContain(entry.module)
-      const source = readFileSync(join(ROOT, entry.module), 'utf8')
+      // 按文件名解析真实路径：清单写在搬家前，写死相对路径会被目录整理打破。
+      const actual = modules.find(module => module === entry.module || module.endsWith(`/${entry.module}`))
+      expect(actual, `例外 ${entry.module} 指向的模块已经不存在了`).toBeDefined()
+      const source = readFileSync(join(ROOT, actual as string), 'utf8')
       expect(usesKernel(source), `${entry.module} 已经用上内核了，请从例外清单删掉`).toBe(false)
     }
   })

@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { SessionView } from '../../shared/session-view.ts'
-import { dispatchStatusEvent, resetStatusStoreForTest } from '../../session-status-store.ts'
+import { dispatchStatusEvent, resetStatusStoreForTest } from '../../stream/session-status-store.ts'
 import { emptyLiveState, patchRow } from './session-list-model.ts'
 
 function row(overrides: Partial<SessionView> = {}): SessionView {

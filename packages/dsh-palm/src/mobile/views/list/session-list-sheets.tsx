@@ -7,10 +7,10 @@
 import type { AgentPresetEntry } from '../../../api-proxy-types'
 import type { SessionFoldersView } from '../../api.ts'
 import type { SessionView } from '../../shared/session-view.ts'
-import { Sheet } from '../../sheet.tsx'
-import { ConfirmDialog, PromptDialog } from '../../dialog.tsx'
-import { presetHelpIsBuiltin, presetHelpText } from '../../agent-preset-help.ts'
-import { CheckIcon } from '../../icons.tsx'
+import { Sheet } from '../../ui/sheet.tsx'
+import { ConfirmDialog, PromptDialog } from '../../components/dialog.tsx'
+import { presetHelpIsBuiltin, presetHelpText } from '../../platform/agent-preset-help.ts'
+import { CheckIcon } from '../../components/icons.tsx'
 import { Button } from '../../ui/primitives.tsx'
 
 export interface PresetPickerSheetProps {

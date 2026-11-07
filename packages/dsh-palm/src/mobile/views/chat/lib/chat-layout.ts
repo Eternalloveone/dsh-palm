@@ -9,8 +9,8 @@
  *
  * @module dsh-palm/mobile/views/chat/chat-layout
  */
-import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../../../markdown-text.tsx'
-import type { RenderMessage } from '../../../messages.ts'
+import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../../../render/markdown-text.tsx'
+import type { RenderMessage } from '../../../render/messages.ts'
 
 /** Estimated line height of one rendered message row (px). */
 const ESTIMATE_LINE_HEIGHT = 22

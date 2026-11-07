@@ -19,19 +19,19 @@ import { fetchUsage } from '../data/usage.ts'
 import { fetchHostVoiceServices } from '../data/voice.ts'
 import type { DeliveryRecordView, DeliveryStatsView, MobileHealthView, NotifyEventView, UsageView } from '../api.ts'
 import { errorText } from '../shared/error-text.ts'
-import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush } from '../notify.ts'
+import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush } from '../platform/notify.ts'
 import { getMobileThemeMode, subscribeMobileTheme } from '../mobile-theme.ts'
-import { toast } from '../toast.tsx'
+import { toast } from '../components/toast.tsx'
 import {
   getAutoScroll, getDensity, getFontScale, getHaptics, getLineNumbers,
   type Density, type FontScale,
-} from '../display-prefs.ts'
+} from '../platform/display-prefs.ts'
 import {
   getVoiceServices, subscribeVoiceServices, syncHostVoiceServices, type VoiceService,
-} from '../voice-services.ts'
-import { SlidersIcon } from '../icons.tsx'
+} from '../platform/voice-services.ts'
+import { SlidersIcon } from '../components/icons.tsx'
 import { MarketView } from './MarketView.tsx'
-import { parseNotifyTriggerInputs } from '../notify-triggers.ts'
+import { parseNotifyTriggerInputs } from '../platform/notify-triggers.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
 import { Button, EmptyState, IconButton } from '../ui/primitives.tsx'
 import { AdvancedSection, type SettingsGroupRow } from './settings/advanced-section.tsx'

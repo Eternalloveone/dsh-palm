@@ -14,8 +14,8 @@
  *
  * @module dsh-palm/mobile/message-row/types
  */
-import type { ToolCallInfo } from '../messages.ts'
-import type { ProcessReasoningRow } from '../process-rows.ts'
+import type { ToolCallInfo } from '../render/messages.ts'
+import type { ProcessReasoningRow } from '../render/process-rows.ts'
 
 /** 块的种类；字符串留开，插件/实验块可以自定。 */
 export type BlockKind = 'reasoning' | 'tool' | 'tool-group' | 'text' | (string & {})

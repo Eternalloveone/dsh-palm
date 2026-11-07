@@ -20,8 +20,8 @@
  */
 import { useEffect } from 'react'
 
-import { forgetFinishedRun } from '../../../recent-finished.ts'
-import { holdLocateIntent, releaseLocateIntent, takeLocateIntent } from '../../../locate-intent.ts'
+import { forgetFinishedRun } from '../../../session/recent-finished.ts'
+import { holdLocateIntent, releaseLocateIntent, takeLocateIntent } from '../../../session/locate-intent.ts'
 
 /**
  * 会话转场时的一次性动作。
