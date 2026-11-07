@@ -97,7 +97,97 @@ export function useChatUi(): readonly [ChatUiState, ChatUiSetters] {
         dispatch({ type: 'set', key, value: next })
       }
     }
-    return built
+    return built as unknown as ChatUiSetters
+  }, [])
+
+  return [state, setters] as const
+}
+
+
+/* ── 会话内搜索（S1-B） ─────────────────────────────────────────────────
+ *
+ * 搜索和"浮层开关"不一样：它有**异步阶段**。原来这些字段散成 7 个 useState，
+ * 谁能同时为真完全靠读代码推。收进一个接口后，"搜索现在处于什么阶段"变成一眼可见：
+ *
+ *   idle      → term 空、busy 假、warming 假
+ *   warming   → 索引还在后台建（宿主回 fallback），如实提示，别假装搜过
+ *   busy      → 查询在飞
+ *   jumping   → 命中在已加载窗口之外，正在翻那一页（1~3 秒），计数旁要说一声
+ *   done      → busy 假、hasMore 表示"宿主上限以上还有"
+ */
+
+/** 会话内搜索的界面字段。 */
+export interface ChatSearchState {
+  /** 搜索条是否展开。 */
+  open: boolean
+  /** 当前搜索词（输入框的实时值）。 */
+  term: string
+  /** 命中总数/当前下标的基准时间戳（用于"结果没变就别重算"）。 */
+  at: number
+  /** 查询在飞。 */
+  busy: boolean
+  /** 命中在已加载窗口外、正在翻页。 */
+  jumping: boolean
+  /** 宿主上限以上还有命中（显示成 "3/200+"）。 */
+  hasMore: boolean
+  /** 索引还在后台建（宿主回 fallback）。 */
+  warming: boolean
+  /** "正在输入"计数：输入法组字期间不触发查询。 */
+  composeTick: number
+}
+
+/** 搜索切片的初始值。 */
+export const INITIAL_CHAT_SEARCH: ChatSearchState = {
+  open: false,
+  term: '',
+  at: 0,
+  busy: false,
+  jumping: false,
+  hasMore: false,
+  warming: false,
+  composeTick: 0,
+}
+
+/** 搜索切片的状态键。 */
+export const CHAT_SEARCH_KEYS = [
+  'open', 'term', 'at', 'busy', 'jumping', 'hasMore', 'warming', 'composeTick',
+] as const satisfies ReadonlyArray<keyof ChatSearchState>
+
+/** 动作：给某个字段赋值（值在外面算好，reducer 保持纯）。 */
+export type ChatSearchAction = {
+  [K in keyof ChatSearchState]: { type: 'set'; key: K; value: ChatSearchState[K] }
+}[keyof ChatSearchState]
+
+/** 纯 reducer。 */
+export function chatSearchReducer(state: ChatSearchState, action: ChatSearchAction): ChatSearchState {
+  if (state[action.key] === action.value) return state
+  return { ...state, [action.key]: action.value } as ChatSearchState
+}
+
+/** 每个字段一个 setter，签名与 useReducer 的 dispatch 用法一致。 */
+export type ChatSearchSetters = {
+  [K in keyof ChatSearchState]: (value: ChatSearchState[K] | ((previous: ChatSearchState[K]) => ChatSearchState[K])) => void
+}
+
+/** @returns 搜索界面状态 + 各字段 setter。 */
+export function useChatSearch(): readonly [ChatSearchState, ChatSearchSetters] {
+  const [state, dispatch] = useReducer(chatSearchReducer, INITIAL_CHAT_SEARCH)
+  const latest = useRef(state)
+  latest.current = state
+
+  const setters = useMemo(() => {
+    // 逐键赋值用宽类型累加，最后一次性断言：联合键索引写入会让 TS 生成交叉函数类型。
+    const built: Record<string, unknown> = {}
+    for (const key of CHAT_SEARCH_KEYS) {
+      // 每个键的 setter 都接受"值"或"prev => next"，语义与 useState 一致。
+      built[key] = ((value: unknown) => {
+        const next = typeof value === 'function'
+          ? (value as (previous: unknown) => unknown)(latest.current[key])
+          : value
+        dispatch({ type: 'set', key, value: next } as ChatSearchAction)
+      }) as ChatSearchSetters[typeof key]
+    }
+    return built as unknown as ChatSearchSetters
   }, [])
 
   return [state, setters] as const

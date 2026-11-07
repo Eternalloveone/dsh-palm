@@ -14,7 +14,7 @@
  */
 
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/chat-constants.ts'
-import { useChatUi } from './chat/chat-machine.ts'
+import { useChatSearch, useChatUi } from './chat/chat-machine.ts'
 import { ChatOverlays } from './chat/chat-overlays.tsx'
 export { OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES } from './chat/chat-constants.ts'
 import { REPORT_FALLBACK_MAX_PAGES, REPORT_FALLBACK_PAGE_MESSAGES, REPORT_RECOVERY_WINDOW_TURNS, loadTurnReportRows, reportCardDiagnostic } from './chat/chat-turn-report.ts'
@@ -2119,12 +2119,18 @@ export function ChatView({
   }, [])
 
   // ---- 会话内搜索（期 3）----
+  // ---- 会话内搜索（期 3）----
   // 走宿主的 mobile.search(sessionId)：索引里一个会话的命中是一次查询，
   // 不再把这个会话的历史翻到底。命中按 seq 升序，上一处/下一处就是数组下标。
-  const [chatSearchOpen, setChatSearchOpen] = useState(false)
-  const [chatSearchTerm, setChatSearchTerm] = useState('')
+  //
+  // 界面字段收进 reducer（S1-B）：7 个 useState → 1 个。命中数组仍留在这里（它是数据
+  // 不是界面态），但"搜到哪一步了"现在是一个可枚举的状态（idle / warming / busy / jumping）。
+  const [searchState, searchSetters] = useChatSearch()
+  const { open: chatSearchOpen, term: chatSearchTerm, at: chatSearchAt, busy: chatSearchBusy, jumping: chatSearchJumping, hasMore: chatSearchHasMore, warming: chatSearchWarming, composeTick: chatSearchComposeTick } = searchState
+  const { open: setChatSearchOpen, term: setChatSearchTerm, at: setChatSearchAt, busy: setChatSearchBusy, jumping: setChatSearchJumping, hasMore: setChatSearchHasMore, warming: setChatSearchWarming, composeTick: setChatSearchComposeTick } = searchSetters
+
+  // 不再把这个会话的历史翻到底。命中按 seq 升序，上一处/下一处就是数组下标。
   const [chatSearchHits, setChatSearchHits] = useState<SearchHit[]>([])
-  const [chatSearchAt, setChatSearchAt] = useState(0)
   /**
    * 停止要不要二次确认。
    *
@@ -2132,13 +2138,6 @@ export function ChatView({
    * 打错。破坏性动作改成两拍：第一拍把按钮变成「确认停止」，2.5 秒不动自动收回。
    */
   const [stopArmed, setStopArmed] = useState(false)
-  const [chatSearchBusy, setChatSearchBusy] = useState(false)
-  /** 命中在已加载窗口之外、正在翻那一页（1~3 秒）：计数旁要说一声，别让人以为没反应。 */
-  const [chatSearchJumping, setChatSearchJumping] = useState(false)
-  /** 宿主那边命中超过一次给的上限（200 处）：计数显示成「3/200+」，别假装只有 200 处。 */
-  const [chatSearchHasMore, setChatSearchHasMore] = useState(false)
-  /** 索引还在后台建（宿主回 fallback）：如实提示，别假装搜过。 */
-  const [chatSearchWarming, setChatSearchWarming] = useState(false)
   const chatSearchAbortRef = useRef<AbortController | undefined>(undefined)
   /** 上一次「上一个/下一个」真正落在哪一行、第几处：连着落在同一处时说明画面不会动。 */
   const lastChatLandingRef = useRef<{ rowId: string; occurrence: number } | undefined>(undefined)
@@ -2150,7 +2149,6 @@ export function ChatView({
   const pendingTurnStallsRef = useRef(0)
   const pendingTurnRowCountRef = useRef(-1)
   const chatSearchComposingRef = useRef(false)
-  const [chatSearchComposeTick, setChatSearchComposeTick] = useState(0)
   /** 搜索词的实时镜像：跳转/收尾要在回调里判断"这一行正文里真有这个词"，
    *  读 state 会拿到调用那一刻的闭包值（词换了还在用旧词）。 */
   const chatSearchTermRef = useRef('')
