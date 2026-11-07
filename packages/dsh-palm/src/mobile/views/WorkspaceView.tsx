@@ -25,6 +25,7 @@ import { ConfirmDialog, PromptDialog } from '../dialog.tsx'
 import { toast } from '../toast.tsx'
 import { CheckIcon, ClockIcon, CloseIcon, FolderIcon, FolderPlusIcon, InboxIcon, PinIcon, PlusIcon, SearchIcon } from '../icons.tsx'
 import { DirectoryBrowser, Marked, RosterSkeleton, WorkspaceMenu, markable, type MenuTarget } from './list/workspace-parts.tsx'
+import { Button, Chip, EmptyState, ErrorState, IconButton } from '../ui/primitives.tsx'
 
 /**
  * 上一次成功取到的工作区列表（跨挂载保留）。
@@ -705,18 +706,19 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
   const body = (() => {
     if (error !== undefined) {
       return (
-        <div className="mobile-empty">
-          <div className="empty-icon"><InboxIcon /></div>
-          <p className="empty-title">加载失败</p>
-          <p className="empty-desc">{error}</p>
-          <button
-            type="button"
-            className="mobile-button"
-            onClick={() => { setError(undefined); setItems(undefined); setReload(n => n + 1) }}
-          >
-            重试
-          </button>
-        </div>
+        <ErrorState
+          icon={<InboxIcon />}
+          title="加载失败"
+          reason={error}
+          action={(
+            <Button
+              className="mobile-button"
+              onClick={() => { setError(undefined); setItems(undefined); setReload(n => n + 1) }}
+            >
+              重试
+            </Button>
+          )}
+        />
       )
     }
     if (items === undefined) {
@@ -725,44 +727,41 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
     if (visible.length === 0) {
       if (pinnedOnly && pinnedCount === 0) {
         return (
-          <div className="mobile-empty">
-            <div className="empty-icon"><PinIcon /></div>
-            <p className="empty-title">还没有固定的工作区</p>
-            <p className="empty-desc">长按工作区卡片即可固定，固定后会置顶显示</p>
-          </div>
+          <EmptyState
+            icon={<PinIcon />}
+            title="还没有固定的工作区"
+            description="长按工作区卡片即可固定，固定后会置顶显示"
+          />
         )
       }
       if (term !== '') {
         // The home search spans workspaces: only the empty state once the
         // global session lookup has settled AND found nothing either.
         if (globalBusy) {
-          return (
-            <div className="mobile-empty">
-              <div className="empty-icon"><SearchIcon /></div>
-              <p className="empty-title">正在搜索全部会话…</p>
-            </div>
-          )
+          return <EmptyState icon={<SearchIcon />} title="正在搜索全部会话…" />
         }
         if (globalDone && globalHits.length === 0) {
           return (
-            <div className="mobile-empty">
-              <div className="empty-icon"><SearchIcon /></div>
-              <p className="empty-title">没有匹配的工作区或会话</p>
-              <p className="empty-desc">
-                工作区按名称与目录名匹配，会话按名称与可见正文匹配
-                {globalPartial && <>；更早的会话未在本次扫描范围内</>}
-              </p>
-            </div>
+            <EmptyState
+              icon={<SearchIcon />}
+              title="没有匹配的工作区或会话"
+              description={(
+                <>
+                  工作区按名称与目录名匹配，会话按名称与可见正文匹配
+                  {globalPartial && <>；更早的会话未在本次扫描范围内</>}
+                </>
+              )}
+            />
           )
         }
         // 会话命中存在：落进下方列表渲染（工作区组为空，仅会话组显示）
       } else {
         return (
-          <div className="mobile-empty">
-            <div className="empty-icon"><FolderPlusIcon /></div>
-            <p className="empty-title">暂无工作区</p>
-            <p className="empty-desc">新建一个工作区，把项目目录挂进来就能开始会话</p>
-          </div>
+          <EmptyState
+            icon={<FolderPlusIcon />}
+            title="暂无工作区"
+            description="新建一个工作区，把项目目录挂进来就能开始会话"
+          />
         )
       }
     }
@@ -776,8 +775,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
               const isPinned = pinned.includes(workspace.workspaceId)
               const count = (workspace.sessionIds ?? []).length
               return (
-                <button
-                  type="button"
+                <Button
                   key={workspace.workspaceId}
                   className={`mobile-row${kind === 'active' ? ' mobile-row-active' : ''}`}
                   {...pressHandlers(workspace)}
@@ -796,13 +794,13 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
                     {count > 0 && <span className="card-badge">{count} 个会话</span>}
                     <span className="mobile-chevron" aria-hidden>›</span>
                   </span>
-                </button>
+                </Button>
               )
             })}
           </li>
         ))}
         {hiddenWorkspaces > 0 && (
-          <li style={{ listStyle: 'none' }}>
+          <li>
             <p className="search-hitsNote mobile-pad">另有 {hiddenWorkspaces} 个工作区命中——细化关键词可以更快找到</p>
           </li>
         )}
@@ -811,7 +809,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
             <div className="mobile-groupTitle">{KIND_LABEL[kind]}</div>
             <div className="mobile-empty-group">
               <span>{placeholder}</span>
-              <button type="button" className="mobile-empty-groupBtn" onClick={() => setIsCreating(true)}>创建</button>
+              <Button type="button" className="mobile-empty-groupBtn" onClick={() => setIsCreating(true)}>创建</Button>
             </div>
           </li>
         ))}
@@ -826,7 +824,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           </li>
         )}
         {term !== '' && globalHits.length > 0 && (
-          <li style={{ listStyle: 'none' }}>
+          <li>
             {[
               { label: '会话名匹配', rows: globalTitleRows },
               { label: '消息', rows: globalMessageRows },
@@ -845,8 +843,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
                   const paragraph = row.message?.paragraph ?? row.hit.paragraph
                   const isActive = group.label === '会话名匹配' ? activeHit === index : activeHit === globalTitleRows.length + index
                   return (
-                    <button
-                      type="button"
+                    <Button
                       key={`${row.hit.kind}:${row.hit.sessionId}:${row.message?.seq ?? 'title'}`}
                       className={`mobile-row search-hitRow${isActive ? ' search-hitRow-active' : ''}`}
                       onClick={() => { void locateHit(row.message === undefined ? row.hit : { ...row.hit, ...row.message, kind: 'message' }, term) }}
@@ -880,20 +877,19 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
                       <span className="card-action">
                         <span className="mobile-chevron" aria-hidden>›</span>
                       </span>
-                    </button>
+                    </Button>
                   )
                 })}
               </div>
             ))}
             {globalMore && (
-              <button
-                type="button"
+              <Button
                 className="search-more"
                 disabled={globalLoadingMore}
                 onClick={loadMoreHits}
               >
                 {globalLoadingMore ? '加载中…' : '加载更多结果'}
-              </button>
+              </Button>
             )}
             {!globalMore && !globalBusy && (
               <p className="search-hitsNote mobile-pad">
@@ -903,16 +899,16 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
           </li>
         )}
         {term !== '' && globalBusy && globalHits.length > 0 && (
-          <li style={{ listStyle: 'none' }}>
+          <li>
             <p className="mobile-muted mobile-pad" role="status">正在搜索全部会话…</p>
           </li>
         )}
         {!pinnedOnly && term === '' && (
-          <li style={{ listStyle: 'none' }}>
-            <button type="button" className="mobile-createCard" onClick={() => setIsCreating(true)}>
+          <li>
+            <Button className="mobile-createCard" onClick={() => setIsCreating(true)}>
               <PlusIcon />
               新建工作区
-            </button>
+            </Button>
           </li>
         )}
       </ul>
@@ -925,7 +921,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
         <div className="mobile-headerSlot">
           {searchOpen
             ? (
-              <button type="button" className="mobile-back" aria-label="返回" onClick={() => { setSearchOpen(false); setSearch('') }}>‹</button>
+              <IconButton label="返回" className="mobile-back" onClick={() => { setSearchOpen(false); setSearch('') }}>‹</IconButton>
             )
             : (
               <div className="mobile-headerSlot" />
@@ -976,36 +972,34 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
         )}
         <div className="mobile-headerSlot mobile-headerSlot-right">
           {searchOpen ? (
-            <button type="button" className="mobile-iconbtn" aria-label="取消搜索" onClick={() => { setSearchOpen(false); setSearch('') }}>
+            <IconButton label="取消搜索" className="mobile-iconbtn" onClick={() => { setSearchOpen(false); setSearch('') }}>
               <CloseIcon />
-            </button>
+            </IconButton>
           ) : (
             <>
-              <button type="button" className="mobile-iconbtn" aria-label="搜索工作区和会话" onClick={() => { setSearchOpen(true) }}>
+              <IconButton label="搜索工作区和会话" className="mobile-iconbtn" onClick={() => { setSearchOpen(true) }}>
                 <SearchIcon />
-              </button>
+              </IconButton>
               <ThemeToggle />
             </>
           )}
         </div>
       </header>
       <div className="mobile-quickbar" role="toolbar" aria-label="快捷操作">
-        <button
-          type="button"
+        <Chip
+          selected={pinnedOnly}
           className={`mobile-quickchip${pinnedOnly ? ' mobile-quickchip-on' : ''}`}
-          aria-pressed={pinnedOnly}
           onClick={() => { setPinnedOnly(value => !value) }}
         >
           <PinIcon />
           固定{pinnedCount > 0 ? ` ${pinnedCount}` : ''}
-        </button>
-        <button type="button" className="mobile-quickchip" onClick={jumpRecent}>
+        </Chip>
+        <Button className="mobile-quickchip" onClick={jumpRecent}>
           <ClockIcon />
           最近访问
-        </button>
+        </Button>
         {onOpenRunOverview !== undefined && (
-          <button
-            type="button"
+          <Button
             className={'mobile-quickchip' + (runOverviewLive !== undefined && runOverviewLive > 0 ? ' mobile-quickchip-live' : '')}
             aria-label={runOverviewLive !== undefined && runOverviewLive > 0 ? `运行中 ${runOverviewLive} 个会话` : '运行中'}
             onClick={onOpenRunOverview}
@@ -1015,7 +1009,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
             {runOverviewLive !== undefined && runOverviewLive > 0 && (
               <span className="quick-live-count">{runOverviewLive}</span>
             )}
-          </button>
+          </Button>
         )}
       </div>
       {!welcomeHidden && term === '' && (
@@ -1028,7 +1022,7 @@ export function WorkspaceView({ initialWorkspaceId, onPick, onLocateSession, onO
               ③ 设置 → 用量：随时查看余额与配额
             </p>
           </div>
-          <button type="button" className="mobile-welcomeClose" onClick={dismissWelcome}>知道了</button>
+          <Button className="mobile-welcomeClose" onClick={dismissWelcome}>知道了</Button>
         </div>
       )}
       {body}

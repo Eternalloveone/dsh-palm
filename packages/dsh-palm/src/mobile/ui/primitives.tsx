@@ -167,32 +167,37 @@ export function Card(props: CardProps) {
 
 /* ── 空态 / 错误态 ──────────────────────────────────────────────────── */
 
-export function EmptyState({ icon, title, description, action }: {
+export function EmptyState({ icon, title, description, action, className = 'mobile-empty' }: {
   icon?: ReactNode
   title: string
-  description?: string
+  description?: ReactNode
   action?: ReactNode
+  /** 外层类名（默认沿用现有 `mobile-empty` 视觉）。 */
+  className?: string
 }) {
   return (
-    <div data-empty-state>
-      {icon}
-      <p>{title}</p>
-      {description === undefined ? null : <p>{description}</p>}
+    <div className={className} data-empty-state>
+      {icon === undefined ? null : <div className="empty-icon">{icon}</div>}
+      <p className="empty-title">{title}</p>
+      {description === undefined ? null : <p className="empty-desc">{description}</p>}
       {action}
     </div>
   )
 }
 
 /** 失败态：`role="alert"`，读屏会立刻播报（空态不会）。 */
-export function ErrorState({ title, reason, action }: {
+export function ErrorState({ icon, title, reason, action, className = 'mobile-empty' }: {
+  icon?: ReactNode
   title: string
-  reason?: string
+  reason?: ReactNode
   action?: ReactNode
+  className?: string
 }) {
   return (
-    <div role="alert" data-error-state>
-      <p>{title}</p>
-      {reason === undefined ? null : <p>{reason}</p>}
+    <div className={className} data-error-state role="alert">
+      {icon === undefined ? null : <div className="empty-icon">{icon}</div>}
+      <p className="empty-title">{title}</p>
+      {reason === undefined ? null : <p className="empty-desc">{reason}</p>}
       {action}
     </div>
   )
