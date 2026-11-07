@@ -11,6 +11,7 @@ import type { MuxClient } from '../../mux.ts'
 import type { CommandDescriptor } from '../../api.ts'
 import { cancelSession, inboxOf, logTail, newRequestId, prompt } from '../../api.ts'
 import { addOptimisticQueueItem, dropOptimisticQueueItem } from '../../session-store.ts'
+import { createSubmitLedger, SUBMIT_INFLIGHT_MS, type SubmitLedger } from '../../kernels/intent.ts'
 import { enqueuePrompt, flushOutbox, removeFromOutbox } from '../../offline.ts'
 import { buildPromptParts, type AttachedImage, type PromptPart } from '../../image.ts'
 import type { StagedFile } from './use-chat-attachments.ts'
@@ -29,7 +30,7 @@ export type SendIntent = 'queue' | 'steer' | 'interrupt'
  * 根因是这个互斥旗标是布尔值：只要有一次 `session.prompt` 挂住不返回（隧道抖动、
  * 请求被拦），`finally` 就永远跑不到，旗标永远是 true，之后所有发送都被静默吞掉。
  */
-export const SEND_IN_FLIGHT_TIMEOUT_MS = 30_000
+export const SEND_IN_FLIGHT_TIMEOUT_MS = SUBMIT_INFLIGHT_MS
 
 /** Wrap a plain-text prompt (quote preamble / offline entry / regenerate) into parts. */
 export function textParts(text: string): PromptPart[] {
@@ -155,8 +156,12 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     clearEditMessage,
   } = options
 
-  const sendInFlightRef = useRef(0)
-  const lastSubmitRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
+  // 提交闸门（W3-6）：在途窗口 + 同正文去重由 Intent 内核记账，这里只持有实例。
+  const gate = useRef<SubmitLedger | undefined>(undefined)
+  const ledger = (): SubmitLedger => {
+    if (gate.current === undefined) gate.current = createSubmitLedger()
+    return gate.current
+  }
 
   /**
    * 认领一条命令：把命令词变成蓝色 chip，输入框只留参数。
@@ -202,15 +207,10 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
   const send = useCallback((intent: SendIntent = 'queue') => {
     const text = input.trim()
     if ((text === '' && attachImages.length === 0 && attachFiles.length === 0) || sending) return
-    // 同步互斥：`sending` 是 state，同一帧里连点两下时它还没更新，两次都会走到发请求
-    // —— 宿主照单全收，排队条上就是两条一模一样的消息（真机截图）。ref 在同一 tick 内
-    // 立刻生效。
-    const inFlightAt = sendInFlightRef.current
-    if (inFlightAt !== 0 && Date.now() - inFlightAt < SEND_IN_FLIGHT_TIMEOUT_MS) return
-    // 同一条正文在 1.5 秒内重复提交：用户在等界面反馈，又点了一次。视为同一次意图。
-    const stamp = `${sessionId}\u0000${text}`
-    if (text !== '' && lastSubmitRef.current.text === stamp && Date.now() - lastSubmitRef.current.at < 1_500) return
-    lastSubmitRef.current = { text: stamp, at: Date.now() }
+    // 同步互斥（Intent 内核，W3-6）放在**真正要发**那一刻，而不是函数开头：
+    // 前面几道闸（附件还在上传 / 有附件失败 / 离线只能存文本）都会 return，
+    // 若在那里就记账，一次被拦下的提交会把发送锁死 30 秒。
+    // 记账点之前全是同步代码，所以"同一帧连点两下"照样只放行一条。
     // 附件还在上传：这一刻发出去会少一个文件，用户却以为发全了。
     if (uploadingFiles > 0) {
       toast('附件还在上传，稍等一下')
@@ -293,13 +293,16 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     // 以前这里只有一次 `refreshInbox({fresh:true})`，宿主要现开一帧 follow 再回包，
     // 弱网下就是"点了发送，排队条半天不出来"。
     const queueText = body.find(part => part.type === 'text')?.text ?? ''
+    // 到了要发的那一刻才记账（Intent 内核，W3-6）：在途窗口 + 同会话同正文去重
+    // 两道判据都在内核里；被拒的尝试也**不会**刷新窗口。
+    if (ledger().attempt(sessionId, queueText || text) !== 'accept') return
     // 这次投递的幂等键：宿主按它去重（同 id 只入队一次），插件侧身份桥把它标回
     // 队列行 —— 于是乐观项可以「按身份」退场，不再靠正文猜。
     const sendRequestId = newRequestId()
     const optimisticId = queuedByRunning && queueText !== ''
       ? addOptimisticQueueItem(sessionId, { text: queueText, placement: 'queued', requestId: sendRequestId })
       : undefined
-    sendInFlightRef.current = Date.now()
+    // 闸门在 send() 开头就已经记账（attempt 通过才算到这里），这里不再重复记账。
     // `interrupt` 是客户端组合：先取消当前轮（尽力而为），再按 queue 投递。
     // 取消失败也不拦发送 —— 消息仍会排队到下一轮，那是安全的方向。
     const beforeSend = intent === 'interrupt'
@@ -309,7 +312,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
       .then(() => prompt(sessionId, body, sendRequestId, intent === 'steer' ? 'steer' : 'queue'))
       .then(
       () => {
-        sendInFlightRef.current = 0
+        ledger().settle()
         setSending(false)
         setInput('')
         removeDraft(sessionId)
@@ -362,7 +365,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
         // failed send never looks silent.
         setSending(false)
         // 互斥也要放开，否则一次失败会把发送按钮永久挡住。
-        sendInFlightRef.current = 0
+        ledger().settle()
         // 没送出去：本地那条乐观排队项必须撤掉，否则会留一张永远不会发出去的卡。
         if (optimisticId !== undefined) dropOptimisticQueueItem(sessionId, optimisticId)
         const message = errorText(reason)
