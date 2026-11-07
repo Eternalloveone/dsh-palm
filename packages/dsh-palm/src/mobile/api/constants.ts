@@ -24,3 +24,9 @@ export const SEARCH_SYNC_DEBOUNCE_MS = 3_000
 
 /** 全量搜索最多覆盖的会话数。 */
 export const SEARCH_ALL_SESSIONS = 20
+
+/** 会话列表每页条数（一页 40 行，手机端不需要一次拿全）。 */
+export const SESSION_PAGE_SIZE = 40
+
+/** 会话列表每页条数（一页 40 行，手机端不需要一次拿全）。 */
+export const SESSION_LIST_REFRESH_MIN_MS = 60000
