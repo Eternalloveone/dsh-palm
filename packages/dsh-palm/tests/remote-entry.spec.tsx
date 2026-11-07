@@ -331,8 +331,11 @@ describe('RemoteEntry', () => {
     // The use view hides the QR and pairing links; the status card and the
     // device roster take over.
     await waitFor(() => expect(screen.getByText('1 device(s) connected')).toBeTruthy())
-    expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Copy phone link' })).toBeNull()
+    // 视图切换走 transition：设备文案落地与「旧控件消失」不在同一次提交里。
+    // 只等文案、然后同步断言按钮已消失 → 会偶发失败（历史上出现 5 次，单跑必过）。
+    // 正确做法是等**要断言的那个事实**，而不是等它的邻居。
+    await waitFor(() => expect(document.querySelector('[data-testid="remote-qr"]')).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Copy phone link' })).toBeNull())
     expect(screen.getByRole('button', { name: 'Re-pair' })).toBeTruthy()
     // Re-pair jumps back to the pair view with the QR restored.
     fireEvent.click(screen.getByRole('button', { name: 'Re-pair' }))
