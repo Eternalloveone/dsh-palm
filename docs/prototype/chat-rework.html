@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对话页 · 对照稿</title>
+<style>
+  :root{
+    --bg:#101015; --sur1:#15151c; --sur2:#1c1c25; --line:rgba(255,255,255,.07);
+    --fg:#eceef5; --fg2:#a8adbd; --fg3:#767c8b;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+    --t-s:12px; --t-m:14px; --t-l:17px; --t-xl:22px; --t-2xl:28px;
+    --r-s:8px; --r-m:12px; --r-l:18px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#000;font-family:-apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif;color:var(--fg)}
+  .phone{width:390px;height:844px;margin:0 auto;background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+
+  /* 头部 */
+  .hdr{display:flex;align-items:center;gap:10px;padding:14px 12px 10px;border-bottom:1px solid var(--line);background:var(--bg)}
+  .hdr .back{color:var(--fg2);font-size:18px}
+  .hdr .title{font-size:var(--t-l);font-weight:600;flex:1;text-align:center}
+  .hdr .tools{display:flex;gap:14px;color:var(--fg2);font-size:16px}
+
+  .body{flex:1;overflow:auto;padding:12px 12px 8px;display:flex;flex-direction:column;gap:12px}
+
+  /* 用户气泡 */
+  .bubble-user{align-self:flex-end;max-width:78%;background:var(--sur2);border:1px solid var(--line);border-radius:var(--r-m) var(--r-m) 4px var(--r-m);padding:10px 12px;font-size:var(--t-m);line-height:1.5;color:var(--fg)}
+
+  /* 结论卡 */
+  .verdict{border:1px solid var(--line);border-top:3px solid var(--ok);border-radius:var(--r-m);background:var(--sur1);padding:14px;display:flex;flex-direction:column;gap:10px}
+  .verdict-tag{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-s);font-weight:600;color:var(--ok)}
+  .verdict-head{font-size:var(--t-l);font-weight:600;line-height:1.35}
+  .verdict-detail{margin:0;font-size:var(--t-m);color:var(--fg2);line-height:1.5}
+  .verdict-stats{display:flex;gap:16px;align-items:baseline;margin-top:2px}
+  .stat b{font-size:var(--t-xl);font-weight:600;letter-spacing:-.02em}
+  .stat span{display:block;font-size:var(--t-s);color:var(--fg3);margin-top:2px}
+  .verdict-foot{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:10px}
+  .chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;font-size:var(--t-s)}
+  .chip-ok{background:rgba(61,220,132,.16);color:var(--ok)}
+  .chip-warn{background:rgba(224,165,44,.16);color:var(--warn)}
+  .chip-info{background:rgba(124,140,255,.16);color:var(--accent)}
+
+  /* 工具调用行 */
+  .tools-block{border:1px solid var(--line);border-radius:var(--r-m);background:var(--sur1);overflow:hidden}
+  .tools-head{display:flex;align-items:center;gap:8px;padding:12px 14px;font-size:var(--t-m);font-weight:600}
+  .tools-head .count{margin-left:auto;font-size:var(--t-s);color:var(--fg3);font-weight:400}
+  .tool-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);font-size:var(--t-m)}
+  .tool-dot{width:8px;height:8px;border-radius:999px;flex:none}
+  .dot-ok{background:var(--ok)} .dot-run{background:var(--accent)} .dot-warn{background:var(--warn)}
+  .tool-name{flex:1;color:var(--fg)}
+  .tool-meta{font-size:var(--t-s);color:var(--fg3);font-variant-numeric:tabular-nums}
+
+  /* 助手正文 */
+  .msg{font-size:var(--t-m);line-height:1.6;color:var(--fg)}
+  .msg b{font-weight:600}
+  .msg code{background:var(--sur2);border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:var(--t-s);color:var(--accent)}
+
+  /* 底部输入区 */
+  .composer{border-top:1px solid var(--line);padding:10px 12px 14px;background:var(--bg);display:flex;flex-direction:column;gap:8px}
+  .pills{display:flex;gap:8px}
+  .pill{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);color:var(--fg2);font-size:var(--t-s);background:var(--sur1)}
+  .inputrow{display:flex;align-items:center;gap:8px}
+  .input{flex:1;height:44px;border-radius:22px;border:1px solid var(--line);background:var(--sur1);display:flex;align-items:center;padding:0 14px;color:var(--fg3);font-size:var(--t-m)}
+  .send{width:44px;height:44px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-size:18px}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="hdr">
+    <span class="back">‹</span>
+    <span class="title">修复移动端跳转</span>
+    <span class="tools">☰ ⚙ ⌕ ⋯ ☀</span>
+  </div>
+
+  <div class="body">
+    <div class="bubble-user">帮我查一下为什么点消息里的链接跳不到对应位置</div>
+
+    <div class="verdict">
+      <div class="verdict-tag">✓ 已完成</div>
+      <div class="verdict-head">找到原因了：滑动窗口只能往前翻，跳转把窗口推到开头后新的命中永远够不到</div>
+      <div class="verdict-stats">
+        <div class="stat"><b>12.4s</b><span>耗时</span></div>
+        <div class="stat"><b>2,666</b><span>测试通过</span></div>
+        <div class="stat"><b>9</b><span>条命中</span></div>
+      </div>
+      <div class="verdict-foot">
+        <span class="chip chip-ok">12 个文件</span>
+        <span class="chip chip-info">+214 / −86</span>
+        <span class="chip chip-warn">待真机验证</span>
+      </div>
+    </div>
+
+    <div class="tools-block">
+      <div class="tools-head">🔧 跑了 5 个工具<span class="count">12.4s</span></div>
+      <div class="tool-row"><span class="tool-dot dot-ok"></span><span class="tool-name">读文件 · ChatView.tsx</span><span class="tool-meta">1.2s</span></div>
+      <div class="tool-row"><span class="tool-dot dot-ok"></span><span class="tool-name">检索 · pendingTurnSeqRef</span><span class="tool-meta">0.4s</span></div>
+      <div class="tool-row"><span class="tool-dot dot-run"></span><span class="tool-name">改文件 · jumpWindowTo</span><span class="tool-meta">进行中</span></div>
+      <div class="tool-row"><span class="tool-dot dot-warn"></span><span class="tool-name">运行 · pnpm test</span><span class="tool-meta">跳过</span></div>
+    </div>
+
+    <div class="msg">
+      改动集中在 <b>跳转窗口收尾</b>：<code>jumpWindowTo</code> 完成后重置 <code>pendingTurnSeqRef</code>，并让收尾 effect 用新窗口的行判定落地。
+    </div>
+  </div>
+
+  <div class="composer">
+    <div class="pills">
+      <span class="pill">⚙ v4.1-flash ▾</span>
+      <span class="pill">🛡 完全访问</span>
+    </div>
+    <div class="inputrow">
+      <span class="pill">+</span>
+      <div class="input">说点什么…</div>
+      <div class="send">↑</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
