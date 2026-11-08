@@ -127,37 +127,6 @@ import pkg from '../package.json'
  * stop() revokes every device; the loopback panel can also revoke one
  * device at a time.
  */
-export const MOBILE_ALLOWLIST: ReadonlySet<string> = new Set([
-  'mobile.listDirectory',
-  'mobile.readFile',
-  'mobile.readChat',
-  'mobile.logTail',
-  'mobile.sessionState',
-  'mobile.gitSummary',
-  'workspace.create',
-  'workspace.list',
-  'workspace.rename',
-  'workspace.delete',
-  // Session delete (the desktop's archive semantics): idempotent, reversible,
-  // single-id — makes the phone's delete persist across refreshes.
-  'workspace.archiveSession',
-  'agentPreset.list',
-  'session.create',
-  'session.list',
-  'session.history',
-  'session.search',
-  'session.prompt',
-  'session.updateQueue',
-  'session.models',
-  'session.selectModel',
-  // 会话页的子代理徽标/树要读它（只读、按 parent 限定）。此前不在名单里，
-  // 每打开一个会话都吃一次 403，徽标于是永远是空的。
-  'subagent.list',
-  'session.rename',
-  'session.cancel',
-  'settings.read',
-  'settings.mutate',
-])
 
 /**
  * Settings writes a paired phone may issue. The host settings domain is
@@ -974,36 +943,7 @@ export interface MobileHealthReport {
  * @param now - clock seam for tests.
  * @returns the payload `mobile.diagnostics` answers with.
  */
-export function buildHealthReport(
-  deps: Pick<MobileApiDeps, 'notify' | 'diagnostics'>,
-  now: number = Date.now(),
-): MobileHealthReport {
-  const notify = deps.notify
-  let push: MobileHealthReport['push']
-  if (notify !== undefined) {
-    const subscriptions = Object.keys(notify.store.listSubscriptions()).length
-    const summary = notify.store.deliverySummary()
-    push = {
-      subscriptions,
-      delivery: {
-        total: summary.total,
-        sent: summary.sent,
-        failed: summary.failed,
-        dropped: summary.dropped,
-        since: summary.since,
-      },
-    }
-  }
-  return {
-    palmVersion: pkg.version,
-    wire: 1,
-    frames: [...MUX_FRAME_TYPES],
-    methods: [...MOBILE_ALLOWLIST].sort(),
-    checks: deps.diagnostics?.snapshot() ?? [],
-    ...(push !== undefined ? { push } : {}),
-    now,
-  }
-}
+export { buildHealthReport } from './mobile/api/health-report.ts'
 
 /** Perf captures kept on disk: newest `PERF_CAPTURE_KEEP` win, older pruned. */
 export const MOBILE_API_PATHS = {
@@ -1049,6 +989,9 @@ import { mobileLogTail } from './mobile/api/mobile-log-tail.ts'
 import { mobileReadChat } from './mobile/api/mobile-read-chat.ts'
 import { mobileFolders } from './mobile/api/mobile-folders.ts'
 import { mobileUploadAttachment } from './mobile/api/mobile-upload.ts'
+import { mobileDiagnostics } from './mobile/api/health-report.ts'
+import { MOBILE_ALLOWLIST } from './mobile/api/allowlist.ts'
+export { MOBILE_ALLOWLIST }
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1645,18 +1588,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       [MOBILE_READ_CHAT_METHOD, async (ctx) => mobileReadChat(ctx)],
       [MOBILE_LOG_TAIL_METHOD, async (ctx) => mobileLogTail(ctx)],
       [MOBILE_OBSERVE_METHOD, async (ctx) => mobileObserve(ctx)],
-      [MOBILE_DIAGNOSTICS_METHOD, async (ctx) => {
-        const { res, rpcId, deps } = ctx
-        // 依赖自检 + 健康报告：palm 与宿主的耦合点都是内部契约，升级时可能静默
-        // 失效（订阅都在 try/catch 里降级）。这里把 setup 期登记、运行期帧计数、
-        // 协议/帧/方法面、推送订阅与投递结果一起交出去，让"哪条断了""为什么手机
-        // 没响"在手机上一眼可见 —— 不再靠 COMPATIBILITY.md 的人工五步核对。
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: buildHealthReport(deps) },
-        })
-      }],
+      [MOBILE_DIAGNOSTICS_METHOD, async (ctx) => mobileDiagnostics(ctx)],
       [MOBILE_READ_ATTACHMENT_METHOD, async (ctx) => mobileReadAttachment(ctx)],
       [MOBILE_PREVIEWS_METHOD, async (ctx) => mobilePreviews(ctx)],
       [MOBILE_TRANSCRIBE_METHOD, async (ctx) => mobileTranscribe(ctx)],
