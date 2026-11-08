@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>时间线式会话（无卡片）</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b; --sur2:#1c1c25;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.11);
+    --fg:#eceef5; --fg2:#a3a8b6; --fg3:#6d7280;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{padding:22px;width:max-content}
+  .phone{position:relative;width:390px;height:844px;border-radius:42px;overflow:hidden;background:var(--bg);box-shadow:0 26px 70px rgba(0,0,0,.7),0 0 0 9px #191920}
+  .status{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12.5px;font-weight:600}
+  .status .i{font-size:10px;opacity:.8}
+
+  .nav{display:flex;align-items:center;gap:9px;padding:0 12px 4px}
+  .nb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:14px}
+  .nt{flex:1;text-align:center}
+  .nt b{display:block;font-size:15px;font-weight:600}
+  .nt span{display:block;font-size:10px;color:var(--fg3);margin-top:1px}
+
+  /* ── 时间线流：无卡片，一条竖线 + 节点 ── */
+  .flow{position:absolute;inset:96px 0 190px;overflow:hidden;padding:6px 16px 0}
+  .tl{position:relative;padding-left:22px}
+  .tl::before{content:"";position:absolute;left:5px;top:8px;bottom:8px;width:2px;border-radius:2px;background:var(--line2)}
+  .node{position:absolute;left:0;width:12px;height:12px;border-radius:999px;background:var(--bg);border:2px solid var(--fg3);box-sizing:border-box}
+  .node.run{border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,140,255,.14)}
+  .node.ok{border-color:var(--ok)}
+
+  .turn{position:relative;padding:2px 0 18px}
+  .turn > .node{top:3px}
+  .hd{display:flex;align-items:baseline;gap:8px;font-size:11.5px;color:var(--fg3);margin-bottom:5px}
+  .hd b{font-size:12px;color:var(--fg2);font-weight:600}
+  .hd .clock{margin-left:auto;color:var(--accent);font-variant-numeric:tabular-nums;font-weight:600}
+
+  .goal{font-size:12px;color:#b9c0ff;padding:7px 0 9px;display:flex;gap:6px;align-items:baseline}
+  .goal .k{color:var(--fg3);font-size:10.5px;letter-spacing:.02em}
+
+  .step{display:flex;gap:8px;font-size:12.5px;color:var(--fg2);line-height:1.55;padding:4px 0}
+  .step .ico{width:13px;flex:none;color:var(--fg3);font-size:11px}
+  .step .ico.ok{color:var(--ok)} .step .ico.run{color:var(--accent)} .step .ico.think{color:var(--warn)}
+  .step .txt{flex:1}
+  .step .txt b{color:var(--fg);font-weight:500}
+  .step .t{flex:none;font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums}
+
+  /* 结论区：无卡片，分隔线 + 大字 */
+  .verdict{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}
+  .v-tag{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ok);font-weight:600;margin-bottom:6px}
+  .v-title{font-size:15.5px;font-weight:600;line-height:1.42}
+  .nums{display:flex;gap:22px;margin-top:11px}
+  .nums b{font-size:19px;font-weight:700;letter-spacing:-.02em}
+  .nums span{display:block;font-size:10.5px;color:var(--fg3);margin-top:2px}
+  .tags{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .tag{height:21px;display:inline-flex;align-items:center;padding:0 8px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.05);color:var(--fg2)}
+  .tag.ok{background:rgba(61,220,132,.14);color:var(--ok)}
+  .tag.in{background:rgba(124,140,255,.14);color:var(--accent)}
+  .tag.wa{background:rgba(224,165,44,.14);color:var(--warn)}
+
+  /* 历史轮：一行 */
+  .past{position:relative;padding:2px 0 14px}
+  .past > .node{top:4px;width:10px;height:10px;left:1px;border-color:var(--fg3)}
+  .past-row{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--fg2)}
+  .past-row .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .past-row .m{font-size:10.5px;color:var(--fg3);flex:none}
+
+  /* ── 输入区（A 打磨版）── */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:6px 0 22px;background:linear-gradient(180deg,rgba(11,11,16,0),rgba(11,11,16,.98) 18%)}
+  .queue{margin:0 16px 10px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);background:rgba(224,165,44,.08);border-radius:8px;padding:7px 10px}
+  .row{display:flex;align-items:center;gap:9px;padding:0 16px}
+  .plus{width:38px;height:38px;border-radius:999px;border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:17px;flex:none}
+  .field{flex:1;height:38px;border-radius:19px;background:var(--sur);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--fg3)}
+  .send{width:38px;height:38px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;flex:none}
+
+  /* 元信息行：左设置入口，右状态；与发送键拉开距离 */
+  .meta{display:flex;align-items:center;gap:8px;padding:9px 20px 0;font-size:11px;color:var(--fg3)}
+  .meta .set{display:inline-flex;align-items:center;gap:5px;color:var(--fg2)}
+  .meta .sep{width:3px;height:3px;border-radius:999px;background:var(--fg3);opacity:.5}
+  .meta .right{margin-left:auto;display:inline-flex;align-items:center;gap:10px}
+  .ring{width:11px;height:11px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block}
+  .meta .st{display:inline-flex;align-items:center;gap:4px;color:var(--fg2);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+    <div class="nav">
+      <div class="nb">☰</div>
+      <div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div>
+      <div class="nb">⋯</div>
+    </div>
+
+    <div class="flow">
+      <div class="tl">
+
+        <div class="past">
+          <span class="node"></span>
+          <div class="past-row"><span class="t">工具栏按钮在窄屏下塌成两行</span><span class="m">第 41 轮 · 8s · 3 工具 ›</span></div>
+        </div>
+
+        <div class="turn">
+          <span class="node run"></span>
+          <div class="hd"><b>第 42 轮</b><span>正在做</span><span class="clock">00:12</span></div>
+          <div class="goal"><span class="k">目标</span><span>让消息链接跳转命中率 ≥ 9/11</span></div>
+
+          <div class="step"><span class="ico think">✦</span><span class="txt">先确认是窗口问题还是 id 对不上——两者现象一样</span><span class="t">2.1s</span></div>
+          <div class="step"><span class="ico ok">✓</span><span class="txt"><b>读文件</b> ChatView.tsx</span><span class="t">0.6s</span></div>
+          <div class="step"><span class="ico ok">✓</span><span class="txt"><b>检索</b> pendingTurnSeqRef → 11 处</span><span class="t">0.4s</span></div>
+          <div class="step"><span class="ico run">⟳</span><span class="txt"><b>改文件</b> jumpWindowTo 收尾逻辑</span><span class="t">4.2s</span></div>
+        </div>
+
+        <div class="turn">
+          <span class="node ok"></span>
+          <div class="hd"><b>第 40 轮</b><span>已完成</span><span style="margin-left:auto;color:var(--fg3)">12.4s · 5 步</span></div>
+          <div class="verdict">
+            <div class="v-tag">✓ 已完成</div>
+            <div class="v-title">跳转窗口收尾重做，命中率 9/11</div>
+            <div class="nums">
+              <div><b>9/11</b><span>命中</span></div>
+              <div><b>2,923</b><span>测试通过</span></div>
+              <div><b>12</b><span>文件改动</span></div>
+            </div>
+            <div class="tags"><span class="tag ok">全部通过</span><span class="tag in">+214 / −86</span><span class="tag wa">待真机验</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="queue">⧉ 2 条排队，当前任务结束后按顺序执行</div>
+      <div class="row"><div class="plus">+</div><div class="field">说点什么…（打断当前任务）</div><div class="send">↑</div></div>
+      <div class="meta">
+        <span class="set">⚙ v4.1-flash · 完全访问 ⌄</span>
+        <span class="right">
+          <span class="st">⏱ 00:12</span>
+          <span class="st"><span class="ring"></span>44%</span>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
