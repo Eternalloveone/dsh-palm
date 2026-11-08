@@ -9410,15 +9410,16 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   padding: var(--palm-s4);
   background: var(--palm-sur-1);
   border: 1px solid var(--palm-line);
+  border-top-width: 3px;
   border-radius: var(--palm-r-l);
   box-shadow: var(--palm-hi), var(--palm-sh1);
 }
 
 /* 四态：只有左边框换色，卡片本身不变。 */
-.verdict-card[data-state='conclusion'] { border-left: 3px solid var(--palm-ok); }
-.verdict-card[data-state='decision'] { border-left: 3px solid var(--palm-warn); }
-.verdict-card[data-state='working'] { border-left: 3px solid var(--palm-accent); }
-.verdict-card[data-state='failed'] { border-left: 3px solid var(--palm-danger); }
+.verdict-card[data-state='conclusion'] { border-top: 3px solid var(--palm-ok); }
+.verdict-card[data-state='decision'] { border-top: 3px solid var(--palm-warn); }
+.verdict-card[data-state='working'] { border-top: 3px solid var(--palm-accent); }
+.verdict-card[data-state='failed'] { border-top: 3px solid var(--palm-danger); }
 
 .verdict-tag {
   font-size: var(--palm-t-s);
@@ -9474,6 +9475,7 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
 }
+
 /* ── 审批详情页（P6 ④ 屏） ─────────────────────────────────────────── */
 
 .approval-page {

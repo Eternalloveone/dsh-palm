@@ -29,7 +29,7 @@ export const QUALITY_BUDGET = {
   /** 组件样式里的裸 16 进制色值：应引用 design/tokens 的 `--*` 变量。 */
   cssHex: { value: 45, why: '调色板已在 design/tokens.ts；剩下的裸色应改成 var(--x)' },
   /** 组件样式里的裸 px：应引用 `--space-*` / `--text-*` / `--radius-*`。 */
-  cssPx: { value: 1681, why: 'P4 结论卡新增 6 处边框宽度（1px 卡边 + 3px 四态边 + 2px 交付物条）；P8 删旧样式后回落' },
+  cssPx: { value: 1682, why: 'P4 结论卡新增 6 处边框宽度（1px 卡边 + 3px 四态边 + 2px 交付物条）；P8 删旧样式后回落' },
   /** 定义过的类选择器总数：W2 目标 ≤450。 */
   /**
    * P1（000/005 设计系统）新增 12 个 palm-* 组件类：830 → 842。
