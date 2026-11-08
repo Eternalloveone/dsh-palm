@@ -8,10 +8,10 @@
     "src/mobile/views/App.tsx": 1539
   },
   "dirs": {
-    "src/mobile": 64911,
+    "src/mobile": 65249,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
-    "src/mobile/components": 2661,
+    "src/mobile/components": 2800,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
@@ -25,7 +25,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1446,
-    "src/mobile/views": 22577,
+    "src/mobile/views": 22636,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
@@ -71,7 +71,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/components": {
-      "reason": "P6 ④ 审批详情页：ApprovalPanel 增加 page 展示分支（复用同一套 respondApproval / 按住判定，不复制逻辑）；2026-11-08 P6 ⑨ 产物摘要页新增 ChevronRightIcon 导航箭头（+10 行）；P8 摘旧浮层时回落",
+      "reason": "P6 ⑩ 单文件 diff 页：新增只读行视图 components/diff-rows.tsx（行号/增删/上下文档位）+ 单测；P8 摘旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/session": {

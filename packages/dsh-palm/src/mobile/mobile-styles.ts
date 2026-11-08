@@ -50,6 +50,9 @@ export const mobileCss = `${designTokensCss()}
   --palm-r-l: 18px;
   --palm-r-full: 9999px;
 
+  /* ── 字体：等宽（行号、代码块、路径） ── */
+  --palm-font-mono: var(--font-mono);
+
   /* ── 物性 ── */
   --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --palm-sh1: 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -9812,29 +9815,166 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
 
 /* 标题只放文件名，目录做副标题：手机上长路径会把标题挤成两行。 */
 .diff-page-path {
-  flex: 1 0 100%;
-  margin: 0;
-  padding: 0 var(--palm-s4) var(--palm-s2);
+  margin: var(--palm-s1) 0 0;
+  font-family: var(--palm-font-mono);
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* grow 槽本身不是滚动容器：给正文一个确定高度（与审批页/模型页同一口径）。 */
+.diff-page [data-slot='diff'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .diff-page-body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
+}
+
+/* 代码卡：整页唯一的"实物"，行内不再各画边框。 */
+.diff-page-block {
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+  overflow: hidden;
+}
+
+/* 行容器：等宽字体 + 可选中的正文（长按走系统选择复制）。 */
+.diff-page-lines {
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * 一行三列：行号（等宽右对齐）/ 增删符号 / 内容。
+ * minmax(0, 1fr) 是窄屏不横向溢出的关键：内容列可被压缩，超长行截断而不是撑破卡片。
+ */
+.diff-page-row {
+  display: grid;
+  grid-template-columns: max-content var(--palm-s4) minmax(0, 1fr);
+  align-items: baseline;
+  padding: var(--palm-s1) var(--palm-s3) var(--palm-s1) var(--palm-s2);
+}
+
+.diff-page-no {
+  min-width: var(--palm-s6);
+  padding-right: var(--palm-s2);
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--palm-fg-2);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.diff-page-sign {
+  text-align: center;
+  color: var(--palm-fg-3);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 超长行在这里截断：pre 保住缩进，overflow+ellipsis 截掉右边。 */
+.diff-page-text {
+  padding-right: var(--palm-s2);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 新增行：浅绿底 + 绿色左侧条；行号提亮到正文色，和上下文行区分开。 */
+.diff-page-row-add {
+  background: var(--palm-tint-ok);
+  box-shadow: inset calc(var(--palm-hair) * 3) 0 0 var(--palm-ok);
+}
+
+.diff-page-row-add .diff-page-no {
+  color: var(--palm-fg);
+}
+
+.diff-page-row-add .diff-page-sign {
+  color: var(--palm-ok);
+}
+
+/* 删除行：浅红底 + 红色左侧条。 */
+.diff-page-row-del {
+  background: var(--palm-tint-danger);
+  box-shadow: inset calc(var(--palm-hair) * 3) 0 0 var(--palm-danger);
+}
+
+.diff-page-row-del .diff-page-no {
+  color: var(--palm-fg);
+}
+
+.diff-page-row-del .diff-page-sign {
+  color: var(--palm-danger);
+}
+
+/* 上下文行不设底色：卡片底色就是它的底色。 */
+.diff-page-row-ctx {
+  background: transparent;
+}
+
+/* 多 hunk 才画的分隔行。 */
+.diff-page-hunk {
+  padding: var(--palm-s1) var(--palm-s3);
+  border-top: var(--palm-hair) solid var(--palm-line);
+  border-bottom: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.diff-page-loading,
+.diff-page-error {
+  margin: 0;
+  padding: var(--palm-s6) var(--palm-s4);
+  text-align: center;
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-2);
+}
+
+.diff-page-error {
+  color: var(--palm-danger);
+}
+
+/* 图片文件走同一张卡：限宽、圆角，不撑破页面。 */
+.diff-page-image-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--palm-s2) 0;
+}
+
+.diff-page-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--palm-r-m);
 }
 
 .diff-page-hint {
   margin: 0;
   padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
   font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-  border-top: 1px solid var(--palm-line);
+  color: var(--palm-fg-2);
+  border-top: var(--palm-hair) solid var(--palm-line);
 }
 /* ── 模型与思考页（P6 ⑤ 屏） ───────────────────────────────────────── */
 

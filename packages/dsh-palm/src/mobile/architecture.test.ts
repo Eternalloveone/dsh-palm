@@ -111,7 +111,10 @@ describe('architecture guardrails', () => {
       // 只吃 props、不碰数据层）；新文件补登记，本值只增这一次。
       'views/ArtifactSummaryView.tsx': 142,
       'views/ChatView.tsx': 4211,
-      'views/DiffView.tsx': 80,
+      // 2026-11-08：P6 ⑩ 单文件 diff 页按定版图重做（文件名 + 路径、行号列、
+      // 增删底色、超长行截断）；旧的「复用浮层」外壳换成页面自己的取数三态，
+      // 行视图拆到 components/diff-rows.tsx，本值只增这一次。
+      'views/DiffView.tsx': 139,
       'views/MarketView.tsx': 245,
       // 2026-11-08：P6 ⑤ 模型与思考页按定版图重做（当前模型卡 + 切换抽屉 + 三档分段），
       // 旧的一列式列表拆成三段；行数只增这一次，之后只许降。
