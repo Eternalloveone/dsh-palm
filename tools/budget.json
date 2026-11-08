@@ -7,14 +7,14 @@
     "src/mobile/views/ChatView.tsx": 4139
   },
   "dirs": {
-    "src/mobile": 61300,
+    "src/mobile": 61400,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
-    "src/mobile/kernels": 940,
+    "src/mobile/kernels": 1040,
     "src/mobile/message-row": 958,
     "src/mobile/platform": 4420,
     "src/mobile/projections": 530,
@@ -50,7 +50,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/kernels": {
-      "reason": "P3 模型切片：host-bridge + app-frame-slice + preview-slice + list-cache-slice（各带单测），全部从视图抽出；视图层去取数完成后旧实现删除，本值回落",
+      "reason": "P3/P6 内核：host-bridge、app-frame-slice、preview-slice、list-cache-slice、page-stack（各带单测）；视图改接完成后旧实现删除，本值回落",
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
