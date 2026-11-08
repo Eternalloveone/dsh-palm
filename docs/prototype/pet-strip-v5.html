@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态条 v5 · 更窄 + 刻度分离</title>
+<style>
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#08080c;color:#f2f4fa;font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .wrap{width:430px;padding:22px}
+  h2{font-size:13.5px;margin:0 0 3px 2px;color:#e6e9f2}
+  .hint{font-size:11px;color:#6f7482;margin:0 0 13px 2px;line-height:1.6}
+  .lab{font-size:10.5px;color:#8b90a0;margin:12px 0 5px 2px;display:flex;gap:6px;align-items:center}
+  .lab b{color:#c9cedb;font-weight:600;font-size:11px}
+  .lab .k{color:#5f6472}
+
+  /* ── 主条：32 高 ── */
+  .strip{position:relative;height:32px;border-radius:11px;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06)}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:11px 0 0 11px}
+  .fill::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,0) 60%)}
+  .sheen{position:absolute;top:0;bottom:0;width:52px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.2));animation:sweep 2.2s linear infinite}
+  @keyframes sweep{0%{transform:translateX(-60px)}100%{transform:translateX(330px)}}
+
+  .row{position:absolute;inset:0;display:flex;align-items:center;gap:8px;padding:0 10px;z-index:3}
+  .pet{width:20px;height:20px;flex:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+  .tx{font-size:11.5px;line-height:1;color:#f4f6fb;min-width:0;flex:1;text-shadow:0 1px 2px rgba(0,0,0,.4);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tx b{font-weight:600}
+  .tx .sm{color:rgba(255,255,255,.62);font-weight:400;margin-left:5px}
+  .rt{font-size:10px;color:rgba(255,255,255,.8);font-variant-numeric:tabular-nums;flex:none;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  .badge{font-size:9px;padding:1px 4px;border-radius:3px;background:rgba(0,0,0,.3);flex:none;font-family:ui-monospace,Menlo,monospace}
+
+  /* 配色 */
+  .think .fill{width:28%;background:linear-gradient(100deg,#2b2a72,#4a49b8)}
+  .read  .fill{width:34%;background:linear-gradient(100deg,#123a56,#1c6f9c)}
+  .edit  .fill{width:46%;background:linear-gradient(100deg,#14395a,#1f6f8e 70%,#2b6bd8)}
+  .test  .fill{width:64%;background:linear-gradient(100deg,#0f3a55,#1a6f96)}
+  .appr  .fill{width:52%;background:linear-gradient(100deg,#5a3f08,#8a6318)}
+  .stuck .fill{width:58%;background:linear-gradient(100deg,#4a3306,#6f4f12)}
+  .done  .fill{width:100%;background:linear-gradient(100deg,#0d5033,#177a4a 52%,#2b2a72)}
+  .fail  .fill{width:72%;background:linear-gradient(100deg,#5c1327,#8c1f38)}
+  .unknown .fill{width:22%;background:linear-gradient(100deg,#2b2a72,#4a49b8);animation:travel 3.2s ease-in-out infinite}
+  @keyframes travel{0%{left:0}50%{left:64%}100%{left:0}}
+
+  /* ── 分段刻度：独立细轨，不再进条内 ── */
+  .rail{display:flex;gap:3px;margin-top:6px}
+  .rail i{height:5px;border-radius:3px;background:rgba(255,255,255,.1);flex:1}
+  .rail i.on{background:linear-gradient(90deg,#2fbf74,#3ddc84)}
+  .rail i.now{background:linear-gradient(90deg,#4b4ae0,#7c8cff)}
+  .railcap{display:flex;justify-content:space-between;font-size:9.5px;color:#6f7482;margin-top:4px}
+
+  /* 变体 B：刻度在条上方 */
+  .railtop{margin-bottom:6px}
+
+  .bob{animation:bob 1.9s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+  .run{animation:run .55s ease-in-out infinite}
+  @keyframes run{0%,100%{transform:translate(0,0) rotate(0)}50%{transform:translate(.8px,-2px) rotate(-5deg)}}
+  .breathe{animation:breathe 2.9s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(.92)}}
+  .shake{animation:shake .7s ease-in-out infinite}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.2px)}75%{transform:translateX(1.2px)}}
+
+  .divider{height:1px;background:rgba(255,255,255,.07);margin:18px 0 14px}
+  .old{opacity:.55}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h2>① 更窄的主条（32px，原 50px）</h2>
+  <p class="hint">去掉第二行说明，只留「宠物 + 一句状态 + 时间」；需要说明时，说明放在条下方正文里。</p>
+
+  <div class="strip think"><div class="fill"></div>
+    <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#0c0c1c" stroke="#cfd4ff" stroke-width="2"/><circle cx="11.6" cy="15" r="1.8" fill="#f0f3ff"/><circle cx="18.4" cy="15" r="1.8" fill="#f0f3ff"/></svg>
+      <div class="tx"><b>正在推理</b><span class="sm">窗口还是 id</span></div><div class="rt">2.1s</div></div></div>
+
+  <div class="strip read" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#a9e6ff" stroke-width="2"/><circle cx="11.4" cy="15" r="2.1" fill="#e3f8ff"/><circle cx="18.6" cy="15" r="2.1" fill="#e3f8ff"/></svg>
+      <div class="tx"><b>读文件</b><span class="sm">ChatView.tsx</span></div><div class="rt">0.6s</div></div></div>
+
+  <div class="strip edit" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#9fd8ff" stroke-width="2"/><circle cx="11.8" cy="14.6" r="1.8" fill="#e3f8ff"/><circle cx="18.2" cy="14.6" r="1.8" fill="#e3f8ff"/></svg>
+      <div class="tx"><b>改文件</b><span class="sm">jump-window.ts</span></div><div class="badge">+18 −6</div><div class="rt">1.2s</div></div></div>
+
+  <div class="strip test" style="margin-top:8px"><div class="fill"></div><div class="sheen"></div>
+    <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#a9e6ff" stroke-width="2"/><circle cx="11.8" cy="14.8" r="1.8" fill="#e3f8ff"/><circle cx="18.2" cy="14.8" r="1.8" fill="#e3f8ff"/></svg>
+      <div class="tx"><b>跑测试</b><span class="sm">2,923 条</span></div><div class="rt">38s</div></div></div>
+
+  <div class="strip appr" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#160f04" stroke="#ffd98a" stroke-width="2"/><circle cx="11.6" cy="14.8" r="1.8" fill="#ffe9b8"/><circle cx="18.4" cy="14.8" r="1.8" fill="#ffe9b8"/></svg>
+      <div class="tx"><b>等你就绪</b><span class="sm">rm -rf dist</span></div><div class="rt">等你 42s</div></div></div>
+
+  <div class="strip stuck" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet breathe" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#160f04" stroke="#ffd98a" stroke-width="2"/><path d="M10.8 15 h2.8" stroke="#ffd98a" stroke-width="1.8" stroke-linecap="round"/><path d="M16.4 15 h2.8" stroke="#ffd98a" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <div class="tx"><b>可能卡住了</b><span class="sm">最后：跑测试</span></div><div class="rt">42s</div></div></div>
+
+  <div class="strip done" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#06170e" stroke="#c8f8db" stroke-width="2"/><path d="M11 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M15.8 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M4 11 l-2.4 -3" stroke="#c8f8db" stroke-width="1.9" stroke-linecap="round"/><path d="M26 11 l2.4 -3" stroke="#c8f8db" stroke-width="1.9" stroke-linecap="round"/></svg>
+      <div class="tx"><b>完成 · 7 步</b><span class="sm">12 个文件</span></div><div class="rt">12.4s</div></div></div>
+
+  <div class="strip fail" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet shake" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#170409" stroke="#ffb3c0" stroke-width="2"/><path d="M11.4 13.2 l2.6 2.4 M14 13.2 l-2.6 2.4" stroke="#ffb3c0" stroke-width="1.6" stroke-linecap="round"/><path d="M16 13.2 l2.6 2.4 M18.6 13.2 l-2.6 2.4" stroke="#ffb3c0" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <div class="tx"><b>测试失败了</b><span class="sm">3 条未过</span></div><div class="rt">看详情 ›</div></div></div>
+
+  <div class="strip unknown" style="margin-top:8px"><div class="fill"></div>
+    <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#0c0c1c" stroke="#cfd4ff" stroke-width="2"/><circle cx="11.6" cy="15" r="1.8" fill="#f0f3ff"/><circle cx="18.4" cy="15" r="1.8" fill="#f0f3ff"/></svg>
+      <div class="tx"><b>正在做</b><span class="sm">没拆出计划</span></div><div class="rt">00:42</div></div></div>
+
+  <div class="divider"></div>
+
+  <h2>② 分段刻度：独立细轨（两种位置）</h2>
+  <p class="hint">刻度不再塞进条里，改成条下面或上面一条 5px 的细轨，文字和表情完全不打架。</p>
+
+  <div class="lab"><b>A 轨在条下</b><span class="k">推荐</span></div>
+  <div class="strip test"><div class="fill"></div>
+    <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#0d2436" stroke="#a9e6ff" stroke-width="2"/><circle cx="11.8" cy="14.8" r="1.8" fill="#e3f8ff"/><circle cx="18.2" cy="14.8" r="1.8" fill="#e3f8ff"/></svg>
+      <div class="tx"><b>第 4 步 / 共 7 步</b><span class="sm">改 jumpWindowTo</span></div><div class="rt">00:42</div></div></div>
+  <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i><i></i></div>
+  <div class="railcap"><span>已完成 3 步</span><span>剩 3 步 · 预计 40s</span></div>
+
+  <div class="lab" style="margin-top:16px"><b>B 轨在条上</b><span class="k">更省高度</span></div>
+  <div class="rail railtop"><i class="on"></i><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i><i></i></div>
+  <div class="strip test"><div class="fill"></div>
+    <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#0d2436" stroke="#a9e6ff" stroke-width="2"/><circle cx="11.8" cy="14.8" r="1.8" fill="#e3f8ff"/><circle cx="18.2" cy="14.8" r="1.8" fill="#e3f8ff"/></svg>
+      <div class="tx"><b>第 4 步 / 共 7 步</b><span class="sm">改 jumpWindowTo</span></div><div class="rt">00:42</div></div></div>
+
+  <div class="lab" style="margin-top:16px"><b>C 只有刻度，没有条</b><span class="k">最轻，适合计划明确的会话</span></div>
+  <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i><i></i></div>
+  <div class="railcap"><span>第 4 步 / 共 7 步</span><span>00:42</span></div>
+
+  <div class="divider"></div>
+
+  <h2>③ 参考：原来的 50px</h2>
+  <div class="strip old" style="height:48px">
+    <div class="fill" style="width:64%;background:linear-gradient(100deg,#0f3a55,#1a6f96)"></div>
+    <div class="row"><svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#a9e6ff" stroke-width="1.8"/></svg>
+      <div class="tx" style="white-space:normal;line-height:1.25"><b>跑测试</b><span class="sm" style="display:block;margin:2px 0 0">pnpm test · 2,923 条</span></div><div class="rt">38s</div></div>
+  </div>
+
+</div>
+</body>
+</html>
