@@ -13,6 +13,7 @@ import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
 import { EmptyState } from '../ui/empty-state.tsx'
 import { artifactTally, type ArtifactTurn } from '../session/artifacts.ts'
+import { FolderIcon } from '../components/icons.tsx'
 
 /** 路径取最后一段（列表里只看文件名）。 */
 function baseName(path: string): string {
@@ -59,7 +60,11 @@ export function ArtifactsView({ turns, onBack, onOpenFile }: ArtifactsViewProps)
         list: (
           <div className="artifacts-page-body">
             {turns.length === 0 ? (
-              <EmptyState title="还没有产出文件" hint="改动过的文件、生成的报告会按轮列在这里。" />
+              <EmptyState
+        icon={<FolderIcon />}
+        title="还没有产出文件"
+        hint="改动过的文件、生成的报告会按轮列在这里。"
+      />
             ) : (
               turns.map(group => (
                 <section className="artifacts-group" key={String(group.turn ?? 'old')}>

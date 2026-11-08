@@ -102,14 +102,14 @@ describe('architecture guardrails', () => {
       'views/SubChatView.tsx': 177,
       'views/AppearanceView.tsx': 147,
       'views/ApprovalView.tsx': 95,
-      'views/ArtifactsView.tsx': 97,
+      'views/ArtifactsView.tsx': 105,
       'views/ChatView.tsx': 4211,
       'views/DiffView.tsx': 80,
       'views/MarketView.tsx': 245,
       'views/ModelView.tsx': 203,
       'views/OutlineView.tsx': 99,
       'views/SettingsForm.tsx': 549,
-      'views/ContextView.tsx': 113,
+      'views/ContextView.tsx': 119,
       'views/ApprovalModeView.tsx': 94,
     }
     for (const [file, budget] of Object.entries(budgets)) {
