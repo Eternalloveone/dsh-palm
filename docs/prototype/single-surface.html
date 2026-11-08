@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>单一会话页 + 抽屉</title>
+<style>
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:#f2f4fa;font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:20px;padding:20px;width:max-content}
+  .col{width:390px}
+  .cap{font-size:12px;color:#9aa0ae;margin:0 0 8px 6px}
+  .cap b{color:#e3e6ee;font-weight:600}
+  .phone{position:relative;width:390px;height:844px;border-radius:40px;overflow:hidden;background:#0b0b10;box-shadow:0 24px 64px rgba(0,0,0,.7),0 0 0 8px #191920}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:600}
+  .status .i{font-size:9px;opacity:.8}
+
+  /* 顶栏：只有三个元素 */
+  .nav{display:flex;align-items:center;height:44px;padding:0 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .nb{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#c9cedb;flex:none}
+  .nt{flex:1;min-width:0;padding:0 4px}
+  .nt b{display:block;font-size:15px;font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nt span{display:block;font-size:10.5px;color:#666c7a;margin-top:1px}
+
+  /* 空态首屏 */
+  .empty{position:absolute;inset:88px 0 130px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 34px;text-align:center}
+  .glogo{width:56px;height:56px;border-radius:18px;background:linear-gradient(150deg,#7c8cff,#a78bfa);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#0b0b12;margin-bottom:16px}
+  .et{font-size:17px;font-weight:600;margin-bottom:7px}
+  .ed{font-size:12.5px;color:#9aa0ae;line-height:1.6}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px}
+  .chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);font-size:11.5px;color:#c9cedb}
+
+  /* 会话内容示例 */
+  .flow{position:absolute;inset:88px 0 130px;overflow:hidden;padding:12px 18px 0}
+  .thead{padding-bottom:11px;border-bottom:1px solid rgba(255,255,255,.07)}
+  .trow{display:flex;align-items:center;gap:6px;font-size:11px;color:#666c7a}
+  .trow .s{width:7px;height:7px;border-radius:999px;background:#3ddc84;flex:none}
+  .trow b{color:#9aa0ae;font-weight:500}
+  .trow .t{margin-left:auto;font-variant-numeric:tabular-nums}
+  .goal{font-size:15px;font-weight:600;line-height:1.45;margin-top:8px;letter-spacing:-.01em}
+  .strip{position:relative;height:32px;border-radius:11px;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06);margin-top:10px}
+  .fill{position:absolute;inset:0;background:linear-gradient(100deg,#0d5033,#177a4a 52%,#2b2a72)}
+  .srow{position:absolute;inset:0;display:flex;align-items:center;gap:8px;padding:0 10px}
+  .pet{width:20px;height:20px;flex:none}
+  .stx{font-size:11.5px;flex:1}
+  .srt{font-size:10px;color:rgba(255,255,255,.8)}
+  .rail{display:flex;gap:3px;margin-top:5px}
+  .rail i{height:5px;border-radius:3px;background:rgba(255,255,255,.1);flex:1}
+  .rail i.on{background:linear-gradient(90deg,#2fbf74,#3ddc84)}
+  .res{padding-top:12px;border-top:1px solid rgba(255,255,255,.07);margin-top:10px;font-size:14px;line-height:1.66}
+  .res p{margin:0 0 8px}
+  .res code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(255,255,255,.06);border-radius:4px;padding:1px 4px;color:#b8c0ff}
+  .card{margin-top:12px;border:1px solid rgba(61,220,132,.22);border-radius:13px;background:linear-gradient(180deg,rgba(61,220,132,.06),rgba(20,20,27,.9));overflow:hidden}
+  .ch{display:flex;align-items:center;gap:7px;padding:10px 11px 9px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .ch .ck{width:17px;height:17px;border-radius:999px;background:rgba(61,220,132,.16);color:#3ddc84;display:flex;align-items:center;justify-content:center;font-size:9px}
+  .ch b{font-size:12px;font-weight:600}
+  .ch .m{margin-left:auto;font-size:10px;color:#666c7a}
+  .crow{display:flex;align-items:center;gap:8px;padding:8px 11px;font-size:11.5px}
+  .crow+.crow{border-top:1px solid rgba(255,255,255,.04)}
+  .crow .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .crow .dt{font-family:ui-monospace,Menlo,monospace;font-size:9.5px}
+  .add{color:#3ddc84} .del{color:#ff6b81}
+  .crow .tg{font-size:9px;padding:2px 5px;border-radius:4px;background:rgba(61,220,132,.14);color:#3ddc84}
+
+  /* 输入区 */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:9px 0 16px;background:rgba(11,11,16,.98);border-top:1px solid rgba(255,255,255,.07)}
+  .row{display:flex;align-items:center;gap:9px;padding:0 18px}
+  .plus{width:38px;height:38px;border-radius:999px;border:1px solid rgba(255,255,255,.11);display:flex;align-items:center;justify-content:center;color:#9aa0ae;font-size:16px;flex:none}
+  .field{flex:1;height:38px;border-radius:19px;background:#14141b;border:1px solid rgba(255,255,255,.07);display:flex;align-items:center;padding:0 14px;font-size:12.5px;color:#666c7a}
+  .send{width:38px;height:38px;border-radius:999px;background:#7c8cff;display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;font-size:15px;flex:none}
+  .meta{display:flex;align-items:center;gap:9px;padding:9px 18px 0;height:28px}
+  .mchip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.045);font-size:10.5px;color:#9aa0ae}
+  .mchip .d{width:1px;height:9px;background:rgba(255,255,255,.14);margin:0 8px}
+  .mrt{margin-left:auto;display:inline-flex;align-items:center;gap:9px;font-size:10.5px;color:#666c7a}
+  .ring{width:10px;height:10px;border-radius:999px;border:1.8px solid rgba(124,140,255,.28);border-top-color:#7c8cff;display:inline-block;box-sizing:border-box}
+  .dot{width:2px;height:2px;border-radius:999px;background:#666c7a}
+
+  /* 抽屉 */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.46)}
+  .drawer{position:absolute;top:0;bottom:0;left:0;width:308px;background:#14141b;border-radius:0 24px 24px 0;display:flex;flex-direction:column;padding-top:44px;box-shadow:12px 0 44px rgba(0,0,0,.55)}
+  .dh{display:flex;align-items:center;gap:10px;padding:4px 18px 14px}
+  .ava{width:36px;height:36px;border-radius:11px;background:linear-gradient(140deg,#7c8cff,#a78bfa);display:flex;align-items:center;justify-content:center;font-weight:700;color:#0b0b12;font-size:14px;flex:none}
+  .dh b{display:block;font-size:14px}
+  .dh span{display:block;font-size:10px;color:#666c7a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+  .newb{margin:0 16px 9px;height:40px;border-radius:12px;background:#7c8cff;color:#0b0b12;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600}
+  .srch{margin:0 16px 5px;height:34px;border-radius:10px;background:#181820;display:flex;align-items:center;padding:0 11px;gap:7px;font-size:12px;color:#666c7a}
+  .dsec{padding:11px 18px 4px;font-size:10px;color:#666c7a}
+  .conv{display:flex;align-items:center;gap:8px;margin:0 8px;padding:9px 10px;border-radius:10px;font-size:13px;color:#9aa0ae}
+  .conv.on{background:#20202b;color:#f2f4fa}
+  .conv .ti{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .conv .tm{font-size:10px;color:#666c7a;flex:none}
+  .mini{width:88px;height:18px;border-radius:7px;position:relative;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06);flex:none}
+  .mini .f{position:absolute;left:0;top:0;bottom:0}
+  .mini .t{position:absolute;inset:0;display:flex;align-items:center;padding:0 6px;font-size:8px;color:rgba(255,255,255,.85)}
+  .dfoot{margin-top:auto;border-top:1px solid rgba(255,255,255,.07);padding:6px 12px 18px}
+  .frow{display:flex;align-items:center;gap:10px;height:44px;padding:0 8px;border-radius:9px;font-size:12.5px;color:#9aa0ae}
+  .frow .k{margin-left:auto;font-size:10.5px;color:#666c7a}
+
+  /* ⋯ 菜单 */
+  .sheet{position:absolute;left:0;right:0;bottom:0;border-radius:20px 20px 0 0;background:#17171f;padding:8px 0 22px;box-shadow:0 -12px 40px rgba(0,0,0,.5)}
+  .grab{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.16);margin:4px auto 10px}
+  .shrow{display:flex;align-items:center;gap:11px;height:48px;padding:0 20px;font-size:14px;color:#f2f4fa}
+  .shrow .ico{width:22px;text-align:center;color:#9aa0ae;font-size:14px}
+  .shrow .k{margin-left:auto;font-size:11px;color:#666c7a}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- A 首屏：空会话 -->
+  <div class="col">
+    <p class="cap"><b>A · 打开就是会话页</b>：没有任何列表页/工作区页</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>新会话</b><span>dsh-palm</span></div><div class="nb">⋯</div></div>
+      <div class="empty">
+        <div class="glogo">d</div>
+        <div class="et">说点什么开始</div>
+        <div class="ed">任务、提问、改代码都行。<br>它在跑的时候，你会看到它在做什么。</div>
+        <div class="chips"><span class="chip">修复移动端跳转</span><span class="chip">跑一遍全量测试</span><span class="chip">看看产物</span></div>
+      </div>
+      <div class="dock">
+        <div class="row"><div class="plus">+</div><div class="field">说点什么…</div><div class="send">↑</div></div>
+        <div class="meta"><span class="mchip">v4.1-flash<span class="d"></span>完全访问</span><span class="mrt"><span>空闲</span><span class="dot"></span><span><span class="ring"></span> 44%</span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B 有内容的会话 -->
+  <div class="col">
+    <p class="cap"><b>B · 会话正文</b>：任务头 + 状态条 + 正文 + 交付卡</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm</span></div><div class="nb">⋯</div></div>
+      <div class="flow">
+        <div class="thead">
+          <div class="trow"><span class="s"></span><b>已完成</b><span>· 7 步 / 7 步</span><span class="t">12.4s</span></div>
+          <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+          <div class="strip"><div class="fill"></div>
+            <div class="srow"><svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#06170e" stroke="#c8f8db" stroke-width="2.2"/><path d="M11 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M15.8 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M4 11 l-2.4 -3" stroke="#c8f8db" stroke-width="1.9" stroke-linecap="round"/><path d="M26 11 l2.4 -3" stroke="#c8f8db" stroke-width="1.9" stroke-linecap="round"/></svg>
+              <div class="stx"><b>完成 · 7 步</b></div><div class="srt">12.4s</div></div></div>
+          <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+        </div>
+        <div class="res">
+          <p>命中率从 <b>6/11 提到 9/11</b>。根因是滑动窗口只能往前翻，跳转把窗口推到会话开头后，新的命中永远够不到。</p>
+          <p>改了三处：<code>jumpWindowTo</code> 收尾后重置 <code>pendingTurnSeqRef</code>。</p>
+        </div>
+        <div class="card">
+          <div class="ch"><span class="ck">✓</span><b>交付完成</b><span class="m">12.4s · 7 步</span></div>
+          <div class="crow"><span>▤</span><span class="fn">跳转排查说明.md</span><span class="tg">交付物</span></div>
+          <div class="crow"><span>✎</span><span class="fn">chat/jump-window.ts</span><span class="dt"><span class="add">+18</span> <span class="del">−6</span></span></div>
+        </div>
+      </div>
+      <div class="dock">
+        <div class="row"><div class="plus">+</div><div class="field">说点什么…</div><div class="send">↑</div></div>
+        <div class="meta"><span class="mchip">v4.1-flash<span class="d"></span>完全访问</span><span class="mrt"><span>空闲</span><span class="dot"></span><span><span class="ring"></span> 44%</span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C 抽屉 -->
+  <div class="col">
+    <p class="cap"><b>C · 抽屉</b>：唯一的导航——换会话、开新、搜索、底部入口</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm</span></div><div class="nb">⋯</div></div>
+      <div class="scrim"></div>
+      <div class="drawer">
+        <div class="dh"><div class="ava">d</div><div><b>dsh-palm</b><span>D:\work\dsh-palm</span></div></div>
+        <div class="newb">＋ 新建会话</div>
+        <div class="srch">⌕ 搜索会话和消息</div>
+        <div class="dsec">今天</div>
+        <div class="conv on"><span class="ti">修复移动端跳转</span>
+          <div class="mini"><div class="f" style="width:100%;background:linear-gradient(90deg,#0d5033,#177a4a)"></div><div class="t">✓ 完成</div></div></div>
+        <div class="conv"><span class="ti">UI 完全重构方案</span><span class="tm">15:05</span></div>
+        <div class="dsec">昨天</div>
+        <div class="conv"><span class="ti">排查 UI 崩溃原因</span>
+          <div class="mini"><div class="f" style="width:28%;background:linear-gradient(90deg,#5a3f08,#8a6318)"></div><div class="t">等你就绪</div></div></div>
+        <div class="conv"><span class="ti">双端问题面板同步</span><span class="tm">11-01</span></div>
+        <div class="dfoot">
+          <div class="frow">⚙ 设置<span class="k">外观 · 模型</span></div>
+          <div class="frow">▤ 产物与文档<span class="k">按任务归档</span></div>
+          <div class="frow">◎ 用量<span class="k">$0.49</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D ⋯ 菜单 -->
+  <div class="col">
+    <p class="cap"><b>D · 顶栏 ⋯</b>：把原来 6 个图标收进一个菜单</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm</span></div><div class="nb" style="color:#f2f4fa">⋯</div></div>
+      <div class="flow" style="inset:88px 0 330px">
+        <div class="thead">
+          <div class="trow"><span class="s"></span><b>已完成</b><span>· 7 步 / 7 步</span><span class="t">12.4s</span></div>
+          <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="shrow"><span class="ico">▤</span>这一轮的产物<span class="k">12 个文件</span></div>
+        <div class="shrow"><span class="ico">⌕</span>在本会话内搜索</div>
+        <div class="shrow"><span class="ico">⇅</span>导出会话<span class="k">Markdown</span></div>
+        <div class="shrow"><span class="ico">◐</span>切换主题<span class="k">深色</span></div>
+        <div class="shrow"><span class="ico">⚙</span>设置</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
