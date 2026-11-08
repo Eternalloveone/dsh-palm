@@ -9978,4 +9978,75 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg-3);
   border-top: 1px solid var(--palm-line);
 }
+/* ── 外观页（P6 ⑭ 屏） ─────────────────────────────────────────────── */
+
+.appearance-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+.appearance-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+.appearance-section + .appearance-section {
+  margin-top: var(--palm-s5);
+}
+
+.appearance-title {
+  margin: 0 0 var(--palm-s2);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg-2);
+}
+
+.appearance-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2);
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s4);
+  text-align: left;
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+}
+
+.appearance-row[aria-pressed='true'] {
+  border-color: var(--palm-accent);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+}
+
+.appearance-row-main {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.appearance-row-sub {
+  flex: 1 0 100%;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.appearance-row-mark {
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+.appearance-page-hint {
+  margin: var(--palm-s4) 0 0;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
 `;

@@ -43,6 +43,7 @@ const PUSHED_FROM: Record<Kind, Route> = {
   // diff 也是"会话内的一层"：上一页同样是那个对话
   diff: { kind: 'chat', session, workspace },
   model: { kind: 'chat', session, workspace },
+  appearance: { kind: 'settings', workspace },
   // 审批详情是"会话内的一层"：上一页就是那个对话
   // 审批详情是"会话内的一层"：上一页就是那个对话
 }
@@ -58,6 +59,7 @@ const SAMPLES: Route[] = [
   { kind: 'approval', session, workspace, approval: approvalRow },
   { kind: 'diff', session, workspace, path: 'src/a.ts' },
   { kind: 'model', session, workspace },
+  { kind: 'appearance', workspace },
 ]
 
 describe('页面栈 vs backTargetOf（迁移等价性）', () => {

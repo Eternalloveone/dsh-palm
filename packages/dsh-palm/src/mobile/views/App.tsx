@@ -120,6 +120,7 @@ import { Button } from '../ui/primitives.tsx'
 import { ApprovalView } from './ApprovalView.tsx'
 import { DiffView } from './DiffView.tsx'
 import { ModelView } from './ModelView.tsx'
+import { AppearanceView } from './AppearanceView.tsx'
 
 
 /** One navigation level. */
@@ -139,6 +140,11 @@ type Route =
     focusMessageId?: string
     focusPartId?: string
     focusQuery?: string
+  }
+  /** ⑭ 外观：设置页「外观」进去；返回即弹栈回设置。 */
+  | {
+    kind: 'appearance'
+    workspace: WorkspaceRow
   }
   /** ⑤ 模型与思考：从对话底部 chipline 点进来，返回即弹栈回对话。 */
   | {
@@ -172,6 +178,7 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'approval') return `approval:${route.approval.approvalId}`
   if (route.kind === 'diff') return `diff:${route.session.sessionId}:${route.path}`
   if (route.kind === 'model') return `model:${route.session.sessionId}`
+  if (route.kind === 'appearance') return 'appearance'
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
   if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
   return route.kind
@@ -244,6 +251,9 @@ export function backTargetOf(route: Route): Route {
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
+    case 'appearance':
+      // 兜底（栈里只有它）：外观属于设置，退回设置页。
+      return { kind: 'settings', workspace: route.workspace }
     case 'model':
       // 兜底（栈里只有它）：模型选择属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
@@ -333,7 +343,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1237,6 +1247,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       : route.kind === 'settings'
         ? <SettingsView
           onBack={back}
+          onOpenAppearance={() => { navigate({ kind: 'appearance', workspace: route.workspace }) }}
         />
         : route.kind === 'sub-chat'
           ? <SubChatView
@@ -1245,7 +1256,9 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             {...(route.parentTitle === undefined ? {} : { parentTitle: route.parentTitle })}
             onBack={back}
           />
-          : route.kind === 'model'
+          : route.kind === 'appearance'
+            ? <AppearanceView onBack={back} />
+            : route.kind === 'model'
             ? <ModelView
               sessionId={route.session.sessionId}
               onBack={back}

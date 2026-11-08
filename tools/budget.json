@@ -4,10 +4,11 @@
     "src/mobile-api.ts": 1629,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
-    "src/mobile/views/ChatView.tsx": 4150
+    "src/mobile/views/ChatView.tsx": 4150,
+    "src/mobile/views/App.tsx": 1390
   },
   "dirs": {
-    "src/mobile": 62000,
+    "src/mobile": 62400,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
@@ -16,7 +17,7 @@
     "src/mobile/dev": 191,
     "src/mobile/kernels": 1040,
     "src/mobile/message-row": 958,
-    "src/mobile/platform": 4420,
+    "src/mobile/platform": 4540,
     "src/mobile/projections": 530,
     "src/mobile/render": 7000,
     "src/mobile/runtime": 225,
@@ -24,7 +25,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1350,
-    "src/mobile/views": 21100,
+    "src/mobile/views": 21400,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 260
   },
@@ -38,7 +39,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/platform": {
-      "reason": "P0.1 模块图断言引擎（module-graph.ts 环检测 + 自检用例）落在 platform/",
+      "reason": "P6 ⑭ 外观页：platform/skin.ts（三皮肤存储 + 应用 + 广播 + 单测）；并入 display-prefs 后回落",
       "expires": "2027-03-31"
     },
     "src/mobile/ui": {

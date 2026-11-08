@@ -47,6 +47,8 @@ import { VoicePage, VoiceSection } from './settings/voice-section.tsx'
 import { SETTINGS_GROUPS, matchSettingsIndex, settingsLocateProps, type SettingsIndexEntry } from './settings/settings-groups.tsx'
 
 export interface SettingsViewProps {
+  /** 打开「外观」页（P6 ⑭ 屏）；不给就还开浮层。 */
+  onOpenAppearance?: (() => void) | undefined
   onBack(): void
 }
 
@@ -56,7 +58,7 @@ export interface SettingsViewProps {
  * @param props - the back action.
  * @returns the settings page.
  */
-export function SettingsView({ onBack }: SettingsViewProps) {
+export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   const [namespaces, setNamespaces] = useState<SettingsNamespaceView[] | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [openGroup, setOpenGroup] = useState<string | undefined>(undefined)
