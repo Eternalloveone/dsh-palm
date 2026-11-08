@@ -19,6 +19,7 @@ import { buildEffortChoices, flattenModelChoices } from '../platform/model-choic
 import { diffLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
+import { ErrorNote } from '../ui/error-note.tsx'
 
 /** 选中的模型（provider + model + 可选思考强度）。 */
 export interface ModelSelection {
@@ -58,6 +59,8 @@ export function ModelView({ sessionId, initial, onBack, onSelected }: ModelViewP
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | undefined>(undefined)
 
+  /** 读取模型目录；失败后用户可以点「重试」再跑一次（原来只有一次机会）。 */
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
     let alive = true
     models(sessionId).then(
@@ -69,7 +72,12 @@ export function ModelView({ sessionId, initial, onBack, onSelected }: ModelViewP
       (reason: unknown) => { if (alive) setCatalog({ status: 'error', message: errorText(reason) }) },
     )
     return () => { alive = false }
-  }, [sessionId])
+  }, [sessionId, reloadKey])
+
+  const reloadCatalog = (): void => {
+    setCatalog({ status: 'loading' })
+    setReloadKey(key => key + 1)
+  }
 
   const apply = (next: ModelSelection): void => {
     setSaving(true)
@@ -111,7 +119,7 @@ export function ModelView({ sessionId, initial, onBack, onSelected }: ModelViewP
           <div className="model-page-body">
             {catalog.status === 'loading' ? <p className="model-page-note">正在读取模型列表…</p> : null}
             {catalog.status === 'error' ? (
-              <p className="model-page-note" role="alert">{catalog.message}</p>
+              <ErrorNote message={catalog.message} onRetry={reloadCatalog} retryLabel="重新加载" />
             ) : null}
 
             {choices.length > 0 ? (
@@ -173,7 +181,9 @@ export function ModelView({ sessionId, initial, onBack, onSelected }: ModelViewP
               </section>
             ) : null}
 
-            {saveError === undefined ? null : <p className="model-page-note" role="alert">{saveError}</p>}
+            {saveError === undefined ? null : (
+              <ErrorNote message={saveError} onDismiss={() => { setSaveError(undefined) }} />
+            )}
           </div>
         ),
         pager: (

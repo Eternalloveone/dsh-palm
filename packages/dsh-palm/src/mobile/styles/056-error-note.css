@@ -1,0 +1,45 @@
+/* ── 失败态（P6 ⑰）：留住错误，给得起重试 ─────────────────────────── */
+
+.error-note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin: var(--palm-s3) 0;
+  padding: var(--palm-s3) var(--palm-s4);
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-danger);
+  border-radius: var(--palm-r-m);
+}
+
+.error-note-message {
+  margin: 0;
+  font-size: var(--palm-t-m);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg);
+}
+
+.error-note-actions {
+  display: flex;
+  gap: var(--palm-s2);
+}
+
+.error-note-retry {
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s4);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+  background: var(--palm-sur-2);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+}
+
+.error-note-dismiss {
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s4);
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--palm-r-s);
+}

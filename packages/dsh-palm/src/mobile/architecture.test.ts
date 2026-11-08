@@ -106,7 +106,7 @@ describe('architecture guardrails', () => {
       'views/ChatView.tsx': 4198,
       'views/DiffView.tsx': 80,
       'views/MarketView.tsx': 245,
-      'views/ModelView.tsx': 193,
+      'views/ModelView.tsx': 203,
       'views/OutlineView.tsx': 99,
       'views/SettingsForm.tsx': 549,
       'views/ContextView.tsx': 113,

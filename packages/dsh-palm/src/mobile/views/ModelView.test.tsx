@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionModels } from '../../api-proxy-types'
 
@@ -101,5 +101,14 @@ describe('模型与思考页（P6 ⑤ 屏）', () => {
     modelsFn.mockResolvedValue(catalog())
     render(<ModelView sessionId="s-1" onBack={() => {}} />)
     await waitFor(() => { expect(screen.getByText(/只影响这个会话/)).toBeDefined() })
+  })
+
+  it('加载失败时给重试入口，点了会重新拉一次（不让人重进页面）', async () => {
+    modelsFn.mockRejectedValueOnce(new Error('boom'))
+    render(<ModelView sessionId="s1" onBack={() => {}} />)
+    const retry = await screen.findByText('重新加载')
+    modelsFn.mockResolvedValueOnce(catalog())
+    fireEvent.click(retry)
+    await waitFor(() => { expect(modelsFn).toHaveBeenCalledTimes(2) })
   })
 })
