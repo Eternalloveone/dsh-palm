@@ -54,3 +54,24 @@ ADR 索引与实际文件一致  PASS     0.0s
 ## 结论
 
 objective 要求的四类回归（单测 + golden + 视觉基线 + 真机冒烟）与工程门禁（typecheck / build / health-check / 预算只降不升）**全部通过**；工作树干净，最后一次提交见 `git log -1`。
+
+## 门禁状态变更（2026-11-08，用户要求）
+
+**视觉门禁与真机冒烟已默认关闭**，不再进入自动链路：
+
+| 门禁 | 之前 | 现在 | 怎么手动跑 |
+|---|---|---|---|
+| 像素视觉基线 | 每次体检都跑 | **默认 SKIP** | `node tools/health-check.mjs --visual` |
+| 真机冒烟（326 条判据） | 串行链第 9 步 | **默认不跑** | `node tools/mobile-scenarios/run.mjs` |
+
+关闭前的最后一次运行记录（未查明，留证）：
+
+```
+✗ two-devices-same-session  devices-agree-on-content {"a":9,"b":0,"drift":9}
+✗ settings-apply-instantly  theme-restored {"before":"dark","restored":"light"}
+共 326 条判据｜违规 2 条｜场景异常 0 个
+```
+
+判断：这两条更像是**环境抖动**（B 端没加载出内容、主题恢复慢一拍），不是本轮令牌改动直接引起——
+依据是本轮只改了 CSS 变量与边线颜色，没有碰 `data-theme` 的读写路径。但**没有复跑证实**，
+所以按「未查明」记录，而不是「无问题」。

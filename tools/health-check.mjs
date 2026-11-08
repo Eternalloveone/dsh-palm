@@ -23,6 +23,8 @@ const REPO = join(import.meta.dirname, '..')
 const PKG = join(REPO, 'packages', 'dsh-palm')
 const flags = new Set(process.argv.slice(2))
 const quick = flags.has('--quick') || flags.has('--json')
+/** 视觉门禁默认关闭（2026-11-08 用户要求）：需要时显式 --visual 打开。 */
+const withVisual = flags.has('--visual')
 const asJson = flags.has('--json')
 
 const results = []
@@ -82,8 +84,8 @@ run('test（全量）', 'pnpm', ['test'], { cwd: PKG, lines: 4 })
 
 /* ── 2. 视觉门禁（需要预览服务器；--quick 跳过） ─────────────────────── */
 
-if (quick) {
-  results.push({ name: '视觉门禁', ok: true, skipped: true, ms: 0, tail: ['--quick 跳过'] })
+if (!withVisual || quick) {
+  results.push({ name: '视觉门禁', ok: true, skipped: true, ms: 0, tail: ['已按要求关闭（--visual 可打开）'] })
 } else {
   run('视觉门禁', process.execPath, ['tools/mobile-visual/run.mjs'], {
     env: { PALM_BASE: process.env.PALM_BASE ?? 'http://127.0.0.1:3099' },

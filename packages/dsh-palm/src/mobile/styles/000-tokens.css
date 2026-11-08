@@ -7,15 +7,16 @@
 
 :root {
   /* ── 字号：只有 5 档 ── */
-  --palm-t-s: 12px;
-  --palm-t-m: 14px;
-  --palm-t-l: 17px;
-  --palm-t-xl: 22px;
+  --palm-t-xs: 13px;
+  --palm-t-s: 14px;
+  --palm-t-m: 15px;
+  --palm-t-l: 18px;
+  --palm-t-xl: 23px;
   --palm-t-2xl: 28px;
 
   /* ── 行高：只有 2 档 ── */
-  --palm-lh-body: 1.5;
-  --palm-lh-head: 1.3;
+  --palm-lh-body: 1.6;
+  --palm-lh-head: 1.35;
 
   /* ── 字重：只有 2 档（中文不用 500，会被合成加粗） ── */
   --palm-w-normal: 400;
@@ -26,13 +27,16 @@
   --palm-s2: 8px;
   --palm-s3: 12px;
   --palm-s4: 16px;
-  --palm-s5: 20px;
-  --palm-s6: 24px;
+  --palm-s5: 24px;
+  --palm-s6: 28px;
+  --palm-s7: 32px;
+  --palm-s8: 36px;
 
   /* ── 圆角：3 档 ── */
-  --palm-r-s: 8px;
-  --palm-r-m: 12px;
-  --palm-r-l: 18px;
+  --palm-r-s: 10px;
+  --palm-r-m: 14px;
+  --palm-r-l: 20px;
+  --palm-r-full: 9999px;
 
   /* ── 物性 ── */
   --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -40,7 +44,7 @@
   --palm-sh2: 0 6px 20px rgba(0, 0, 0, 0.55);
 
   /* ── 触摸目标 ── */
-  --palm-hit: 44px;
+  --palm-hit: 46px;
 
   /* 物性：1px 细线与焦点环宽度（组件层不写裸 px） */
   --palm-hair: 1px;
@@ -124,4 +128,33 @@ html[data-skin='nocturne'] {
   --palm-sh2: 0 6px 22px rgba(0, 0, 0, 0.7);
   --palm-shadow: 0 0 0 1px rgba(120, 180, 255, 0.16), 0 10px 30px rgba(0, 0, 0, 0.7);
   color-scheme: dark;
+}
+
+/* ── 旧名桥接（一次性）：历史样式的 767 处引用改由上面的 --palm-* 驱动 ──
+   designTokensCss() 先注入，这一段在它之后，因此这里的映射会覆盖旧字面值。
+   下一步是把旧名逐批替换掉，届时删掉本段即可。 */
+:root {
+  /* 字号：整条上移一档（旧 11/12/13/15/16.5 → 新 13/14/15/18/23） */
+  --text-xs: var(--palm-t-xs);
+  --text-sm: var(--palm-t-s);
+  --text-md: var(--palm-t-m);
+  --text-base: var(--palm-t-l);
+  --text-lg: var(--palm-t-xl);
+
+  /* 间距：小档不变，大档拉长（更宽松） */
+  --space-1: var(--palm-s1);
+  --space-2: var(--palm-s2);
+  --space-3: var(--palm-s3);
+  --space-4: var(--palm-s4);
+  --space-5: var(--palm-s5);
+  --space-6: var(--palm-s6);
+  --space-8: var(--palm-s8);
+
+  /* 圆角 */
+  --radius-chip: var(--palm-r-s);
+  --radius-menu: var(--palm-r-s);
+  --radius-card: var(--palm-r-m);
+  --radius-sheet: var(--palm-r-l);
+  --radius-capsule: var(--palm-r-full);
+  --radius-full: var(--palm-r-full);
 }

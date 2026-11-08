@@ -87,8 +87,8 @@
 | 质量预算 | ✅ | `platform/quality-budget.test.ts` |
 | golden | ✅ | `tests/golden/*.json`（api-exports / dispatch-methods / chat-trace / **tokens**）|
 | 视觉基线（令牌层） | ✅ | `design/tokens-golden.test.ts` |
-| 视觉基线（像素层） | ✅ **已跑通** | `node tools/mobile-visual/run.mjs` → **7 屏全 PASS**：会话列表 0% / 首页 0.01% / 设置 0% / 聊天输入区 0% / **外观页 0% / 产物页 0% / 模型页 0%** |
-| 真机冒烟 | ✅ **已跑通** | `node tools/mobile-scenarios/run.mjs` → 24 场景 / **327 条判据 / 违规 0 / 场景异常 0**，且会话总数未变（40 条）|
+| 视觉基线（像素层） | ⏸ **已按要求关闭**（2026-11-08），工具仍可用：`--visual` / 直接跑 run.mjs；关闭前 7 屏全 PASS。原状态：✅ 已跑通 | `node tools/mobile-visual/run.mjs` → **7 屏全 PASS**：会话列表 0% / 首页 0.01% / 设置 0% / 聊天输入区 0% / **外观页 0% / 产物页 0% / 模型页 0%** |
+| 真机冒烟 | ⏸ **已按要求关闭**（2026-11-08）；关闭前 326 条判据 0 违规，最后两次运行有 2 条未查明。原状态：✅ 已跑通 | `node tools/mobile-scenarios/run.mjs` → 24 场景 / **327 条判据 / 违规 0 / 场景异常 0**，且会话总数未变（40 条）|
 | 跑的是不是新代码 | ✅ 已取证 | `node tools/deploy-probe.mjs`：对话页头部同时出现「产物」「模型与思考」（只在重构后存在）|
 
 ## 十、环境前置条件（重要）

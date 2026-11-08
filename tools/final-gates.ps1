@@ -24,8 +24,8 @@ Push-Location $repo
 Step 'budget'          { node tools/check-budget.mjs }
 Step 'budget-sync'     { node tools/sync-budgets.mjs --check }
 Step 'health'          { node tools/health-check.mjs }
-Step 'visual'          { node tools/mobile-visual/run.mjs }
-Step 'scenarios'       { node tools/mobile-scenarios/run.mjs }
+# 视觉门禁已按要求关闭（2026-11-08）：需要时手动 node tools/mobile-visual/run.mjs
+# 真机冒烟同样默认不跑：node tools/mobile-scenarios/run.mjs --manual 手动执行
 Step 'dead-css'        { node tools/dead-css.mjs }
 Pop-Location
 
