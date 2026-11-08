@@ -1289,6 +1289,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             }}
             onDismissFinished={() => { setChatFinished(undefined) }}
             onOpenModel={() => { navigate({ kind: 'model', session: route.session, workspace: route.workspace }) }}
+            onOpenDiff={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
             onOpenApproval={(approval, preview, argsText) => {
               navigate({
                 kind: 'approval',

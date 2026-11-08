@@ -255,6 +255,8 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
+  /** 打开单文件 diff 独立页（P6 ⑩ 屏）；不给就还走浮层预览。 */
+  onOpenDiff?: ((path: string) => void) | undefined
   /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
   onOpenModel?: (() => void) | undefined
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
@@ -312,6 +314,7 @@ export function ChatView({
   onDismissFinished,
   onOpenApproval,
   onOpenModel,
+  onOpenDiff,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
@@ -3923,7 +3926,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           hasOlder={hasOlder}
           loading={loading}
           loadOlder={loadOlder}
-          onOpenFile={(path) => { setPreviewPath(path) }}
+          onOpenFile={(path) => { if (onOpenDiff === undefined) setPreviewPath(path); else onOpenDiff(path) }}
         />
         <TurnStatusLine running={running} hostLost={hostLost} />
         <ChatAttentionPanels
