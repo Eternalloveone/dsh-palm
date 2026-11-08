@@ -9824,4 +9824,41 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
 }
+/* ── 审批详情页（P6 ④ 屏） ─────────────────────────────────────────── */
+
+.approval-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+/* 标题下面那行"哪个会话 · 什么风险"：次要信息，不抢标题。 */
+.approval-page-sub {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0 var(--palm-s4) var(--palm-s2);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+/* 风险不同，边色不同（只染色，不换结构）。 */
+.approval-page-sub[data-risk='exec'] { color: var(--palm-warn); }
+.approval-page-sub[data-risk='write'] { color: var(--palm-fg-2); }
+
+.approval-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+.approval-page-hint {
+  margin: 0;
+  padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  border-top: 1px solid var(--palm-line);
+}
 `;
