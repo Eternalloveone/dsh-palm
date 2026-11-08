@@ -176,6 +176,27 @@ export const mobileCss = `${designTokensCss()}
   --palm-spec-empty-ico: 38px;     /* 空态图标方块 */
   --palm-spec-empty-r: 12px;       /* 空态图标方块圆角 */
 
+  /* ── 会话过程行（一行一步）与抽屉（唯一导航） ──────────────────────────
+   * 2026-11-08 实机投诉修复，两条都来自同一类根因：**没有上限就没有版式**。
+   * 1. 过程区：一条工具调用曾是一张 90px 上下的卡（44px 命中高度 + 8px 上下留白 +
+   *    卡片描边/底色 + 行间空隙），12 条就要刷两屏。定版：一行一步 34–36px、
+   *    上下留白 6–8px、不画卡片外壳，头行（「12 次工具调用 2 处报错 用时42分3秒」）
+   *    压到 24px/11px。
+   * 2. 抽屉：icons.tsx 的 SVG 只有 viewBox、没有 width/height，在 flex 行里按替换
+   *    元素默认的 300×150 参与布局，被行宽一挤就等比撑满整行（实机截图：放大镜/
+   *    齿轮/文件夹顶满一行，文字被压在图标下折行）。尺寸唯一出口是这里的令牌。 */
+  --palm-proc-row-h: 36px;        /* 一行一步的行高（定版 34–36）*/
+  --palm-proc-row-pad: 6px;       /* 行内上下留白（定版 6–8）*/
+  --palm-proc-head-h: 24px;       /* 过程头行高（定版 24）*/
+  --palm-proc-head-size: 11px;    /* 过程头字号（定版 11）*/
+  --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
+  --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
+  --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/
+  --palm-drawer-new-h: 40px;      /* 「新建会话」主按钮高 */
+  --palm-drawer-search-h: 34px;   /* 「搜索会话和消息」行高 */
+  --palm-drawer-strip-w: 88px;    /* 行右侧迷你状态条宽 */
+  --palm-drawer-strip-h: 18px;    /* 行右侧迷你状态条高 */
+
   /* 皮肤卡色板：每张卡画的是**那一套皮肤**的真实底色与强调色，
      因此不能引用当前皮肤令牌，只能在这里落三对字面值（本文件不计入 cssHex）。 */
   --palm-skin-graphite-bg: #15151c;
@@ -674,15 +695,14 @@ body,
   display: block;
 }
 
-/* Path metadata: small, mono, subordinate — never competing with the title. */
+/* 标题下的一行工作区名（10.5px，定版图的副标题）。 */
 .mobile-titlePath {
   margin: 1px 0 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: 400;
-  line-height: 1.3;
-  color: var(--text-quaternary);
-  text-align: center;
+  font-size: var(--palm-flow-meta-size);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg-3);
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3164,6 +3184,33 @@ button.settings-row:focus-visible {
   min-width: 0;
 }
 
+
+/* ���� �ջỰ������single-surface.html A ͼ����ͬһ�� .chat ������Ŀ�̬ ����������
+ * 56px Ʒ�Ʒ��� = 32 + 24 �����������֮�ͣ�������ʽ��д�� 56px����
+ * ����/˵������ .empty-state-title / .empty-state-hint�����ٸ�дһ���ֺš� */
+.chat > .empty-state {
+  flex: 1;
+  justify-content: center;
+}
+
+.chat .empty-state > .empty-state-icon {
+  inline-size: calc(var(--palm-s7) + var(--palm-s6));
+  block-size: calc(var(--palm-s7) + var(--palm-s6));
+  margin-bottom: var(--palm-s2);
+  border-radius: var(--palm-r-l);
+  background: linear-gradient(150deg, var(--palm-accent), var(--palm-accent-2));
+  color: var(--palm-bg);
+  font-size: var(--palm-t-xl);
+  font-weight: var(--palm-w-bold);
+}
+
+/* ����ʾ�� chip������ .mobile-quickchip��36px �Ӿ� / 44px ���������� */
+.chat .empty-state-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s2);
+  justify-content: center;
+}
 /* ── code blocks: 12px card, 40px head bar, action buttons, Shiki body ── */
 
 .code-block {
@@ -3907,35 +3954,33 @@ button.settings-row:focus-visible {
 }
 
 /*
- * 过程组（对照稿 chat-rework.html 的工具块）：**独立一张卡**。
- * 头一行只说「跑了 N 个工具」+ 右侧总耗时；每个工具在头下面直接列一行
- * （彩色状态点 + 动作 · 对象 + 状态词）。思考与 diff 卡仍在卡内展开，
- * 答案永远在卡外。
+ * 过程组（对照稿 chat-rework.html 的工具块）：**一行一步的过程表**。
+ *
+ * 2026-11-08 实机投诉：一回合 12 次工具调用被画成 12 张卡（44 的命中高度 + 8 的上下
+ * 留白 + 描边/底色 + 行间 gap ≈ 90 一张），一屏只能看 6 条，扫不完。定版不再画
+ * 卡片外壳：整块只是正文里的一段过程表，行与行之间最多一条极淡分隔线。
+ * 头一行只说工具数与总耗时（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
  */
 .chat-proc {
   display: flex;
   flex-direction: column;
   margin-top: var(--palm-s1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-  overflow: hidden;
 }
 
 .chat-proc-head {
   display: flex;
   align-items: center;
-  gap: var(--palm-s2);
+  gap: var(--palm-s1);
   width: 100%;
-  /* 44px 是拇指友好的最小点击高度 */
-  min-height: var(--palm-hit);
-  padding: var(--palm-s2) var(--palm-s3);
+  /* 头行只是一条注脚：24 高 / 11 号字，不再占 44 的拇指区（展开入口在行上）。 */
+  min-height: var(--palm-proc-head-h);
+  padding: 0 var(--palm-s2);
   border: none;
   background: transparent;
-  color: var(--palm-fg);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
+  font-size: var(--palm-proc-head-size);
+  font-weight: var(--palm-w-normal);
   text-align: left;
   cursor: pointer;
 }
@@ -3945,18 +3990,21 @@ button.settings-row:focus-visible {
 }
 
 .chat-proc-line {
+  /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸ 与「用时」，写死 100% 会把它们挤到
+     第二行 —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: var(--palm-s2);
-  width: 100%;
+  width: auto;
   min-width: 0;
 }
 
-/* 标题是主角：14px 加粗正文色。 */
+/* 头行的主角是那几个计数，但整行只是注脚：常规字重 + 第二档灰。 */
 .chat-proc-state {
   flex: none;
-  font-weight: var(--palm-w-bold);
-  color: var(--palm-fg);
+  font-weight: var(--palm-w-normal);
+  color: var(--palm-fg-2);
 }
 
 /*
@@ -3966,7 +4014,7 @@ button.settings-row:focus-visible {
 .chat-proc-errors {
   flex: none;
   color: var(--palm-danger);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-proc-head-size);
   font-weight: var(--palm-w-normal);
 }
 
@@ -3975,7 +4023,7 @@ button.settings-row:focus-visible {
   flex: none;
   margin-left: auto;
   color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-proc-head-size);
   font-weight: var(--palm-w-normal);
   font-variant-numeric: tabular-nums;
 }
@@ -4121,27 +4169,14 @@ button.settings-row:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.chat-step-head {
-  min-height: 40px;
-}
-
-.chat-step-state {
-  flex: none;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.chat-step-state-ok { color: var(--diff-add); }
-.chat-step-state-error { color: var(--diff-del); }
-.chat-step-state-running { color: var(--accent); }
-
 .chat-flow-answer {
   margin-top: var(--space-1);
 }
 
 /*
- * 工具块的行（对照稿）：一行一个工具 = 状态点 + 动作 · 对象 + 右侧状态词。
- * 行与行之间只用一条细线分隔，整块是卡里的一张表，不是一叠小卡。
+ * 工具块的行（对照稿）：一行一步 = 8 的状态点 + 「工具名 · 目标」+ 右侧状态词。
+ * 定版：单行 --palm-proc-row-h，上下留白 --palm-proc-row-pad，行与行之间只有一条极淡
+ * 分隔线 —— 整块是正文里的一张过程表，不是一叠小卡。
  */
 .chat-proc-tools {
   display: flex;
@@ -4151,8 +4186,8 @@ button.settings-row:focus-visible {
 .chat-step {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-s1);
-  padding: var(--palm-s2) var(--palm-s3);
+  gap: 0;
+  padding: 0 var(--palm-s2);
   border-top: var(--palm-hair) solid var(--palm-line);
   background: transparent;
 }
@@ -4166,8 +4201,9 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: var(--palm-s2);
   width: 100%;
-  min-height: var(--palm-hit);
-  padding: 0;
+  /* 单行 --palm-proc-row-h：留白落在按钮内，整行都能点（不再叠 44 命中高度 + 8 行距）。 */
+  min-height: var(--palm-proc-row-h);
+  padding: var(--palm-proc-row-pad) 0;
   border: 0;
   background: none;
   color: inherit;
@@ -4190,21 +4226,31 @@ button.settings-row:focus-visible {
 .chat-step-dot[data-state='error'] { background: var(--palm-danger); }
 .chat-step-dot[data-state='stopped'] { background: var(--palm-warn); }
 
+/* 工具名：短、不可省，但不许把目标挤没（长了自己也省略）。 */
 .chat-step-title {
-  flex: none;
-  font-size: var(--palm-t-m);
-  color: var(--palm-fg);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--palm-flow-row-size);
+  color: var(--palm-fg);
 }
 
 .chat-step-summary {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-2);
+}
+
+/* 「工具名 · 目标」之间的分隔点由样式给：没有目标时不留一个孤零零的点。 */
+.chat-step-head .chat-step-summary:not(:empty)::before {
+  content: '· ';
+  color: var(--palm-fg-3);
 }
 
 /* 右侧状态词：12px 第三档灰（成功/运行中/失败/已中断都照实写）。 */
@@ -4226,6 +4272,19 @@ button.settings-row:focus-visible {
   display: flex;
   align-items: center;
   color: var(--palm-fg-3);
+}
+
+/*
+ * 「还有 N 步 ›」：默认只露最近 3 步，其余收成这一行（同一条 --palm-proc-row-h 行，
+ * 颜色退到第三档灰）。点它一次全展开，不是二次折叠。
+ */
+.chat-step[data-state='fold'] .chat-step-title {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.chat-step[data-state='fold'] .chat-step-caret {
+  margin-left: auto;
 }
 
 /* Tool diff card: file path header + red removed / green added lines,
@@ -5956,7 +6015,7 @@ button.settings-row:focus-visible {
 }
 
 /* ── 会话抽屉（P6 第 3 步 · overview.html「1 · 会话抽屉」） ────────────
- * 左侧面板 308px（窄屏 86vw），只有右侧两角是圆的；行 ≥44px，
+ * 左侧面板 --palm-drawer-w（窄屏 86vw），只有右侧两角是圆的；行 ≥ --palm-hit，
  * 底部三入口带右侧小字。 */
 .palm-drawer-scrim {
   position: fixed;
@@ -5972,14 +6031,16 @@ button.settings-row:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--palm-s3);
-  inline-size: min(308px, 86vw);
+  inline-size: min(var(--palm-drawer-w), 86vw);
   block-size: 100%;
   padding: var(--palm-s4) var(--palm-s3);
   background: var(--palm-sur-1);
   border-inline-end: var(--palm-hair) solid var(--palm-line);
   border-radius: 0 var(--palm-r-l) var(--palm-r-l) 0;
   box-shadow: var(--palm-sh2);
-  overflow-y: auto;
+  /* 面板本身不滚：滚的是中间的会话列表。否则整块（含身份区/底部三入口）
+     会跟着手指上下跑，遮罩下看着就是「错位」。 */
+  overflow: hidden;
   overscroll-behavior: contain;
   animation: palm-drawer-in 0.2s ease;
 }
@@ -6001,8 +6062,8 @@ button.settings-row:focus-visible {
   align-items: center;
   justify-content: center;
   flex: none;
-  inline-size: var(--palm-s6);
-  block-size: var(--palm-s6);
+  inline-size: var(--palm-drawer-avatar);
+  block-size: var(--palm-drawer-avatar);
   border-radius: var(--palm-r-m);
   background: var(--palm-tint-accent);
   color: var(--palm-accent);
@@ -6016,9 +6077,12 @@ button.settings-row:focus-visible {
 }
 
 .palm-drawer-ws > b {
+  overflow: hidden;
   font-size: var(--palm-t-m);
   font-weight: var(--palm-w-bold);
   color: var(--palm-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .palm-drawer-ws > small {
@@ -6036,7 +6100,7 @@ button.settings-row:focus-visible {
   justify-content: center;
   gap: var(--palm-s2);
   inline-size: 100%;
-  block-size: 40px;
+  block-size: var(--palm-drawer-new-h);
   border: 0;
   border-radius: var(--palm-r-m);
   background: var(--palm-accent);
@@ -6044,6 +6108,7 @@ button.settings-row:focus-visible {
   font: inherit;
   font-size: var(--palm-t-m);
   font-weight: var(--palm-w-bold);
+  white-space: nowrap;
 }
 
 .palm-drawer-search {
@@ -6051,7 +6116,7 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: var(--palm-s2);
   inline-size: 100%;
-  block-size: 34px;
+  block-size: var(--palm-drawer-search-h);
   padding: 0 var(--palm-s2);
   border: 0;
   border-radius: var(--palm-r-m);
@@ -6059,6 +6124,7 @@ button.settings-row:focus-visible {
   color: var(--palm-fg-2);
   font: inherit;
   font-size: var(--palm-t-m);
+  white-space: nowrap;
 }
 
 .palm-drawer-list {
@@ -6067,6 +6133,8 @@ button.settings-row:focus-visible {
   flex-direction: column;
   gap: var(--palm-s3);
   min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .palm-drawer-group {
@@ -6094,8 +6162,9 @@ button.settings-row:focus-visible {
 /* 一行会话：标题吃剩余，右侧只有有状态时才出现 mini 条。 */
 .palm-drawer-row {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--palm-s2);
   min-block-size: var(--palm-hit);
   padding: var(--palm-s1) var(--palm-s2);
@@ -6112,6 +6181,8 @@ button.settings-row:focus-visible {
 .palm-drawer-row-current { background: var(--palm-sur-2); }
 
 .palm-drawer-title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
   overflow: hidden;
   font-size: var(--palm-t-m);
   color: var(--palm-fg);
@@ -6142,16 +6213,69 @@ button.settings-row:focus-visible {
   font: inherit;
   font-size: var(--palm-t-m);
   text-align: left;
+  white-space: nowrap;
 }
 
 .palm-drawer-entry:active { background: var(--palm-sur-2); }
 
 .palm-drawer-entry > small {
+  flex: none;
   margin-inline-start: auto;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
 }
 
+
+/* 身份区的工作区切换箭头：多工作区才画（单工作区不占位置）。
+ * 复用 .mobile-iconbtn 的 48px 命中区，这里只把它压到 44px 并推到最右。 */
+.palm-drawer-head > .mobile-iconbtn {
+  inline-size: var(--palm-hit);
+  block-size: var(--palm-hit);
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+}
+
+/* ── 抽屉的尺寸硬约束（2026-11-08 实机投诉修复）─────────────────────────
+ *
+ * 根因：icons.tsx 的 SVG 只给 viewBox，没有 width/height。没有内在尺寸的 SVG 是
+ * 「替换元素」，在 flex 行里按默认的 300×150 参与布局 —— 行宽不够就等比缩成
+ * 一个占满整行宽的方块（实机截图：放大镜/齿轮/文件夹顶满一行，文字被压在它下面
+ * 折行，「新建会话」「搜索会话和消息」都断成两行）。尺寸的唯一出口是令牌
+ * --palm-drawer-glyph，组件里不写行内样式。
+ */
+.palm-drawer svg {
+  flex: none;
+  inline-size: var(--palm-drawer-glyph);
+  block-size: var(--palm-drawer-glyph);
+}
+
+/* 行内文案：单行 + 省略号。图标固定之后，折行的唯一来源就是文案本身。 */
+.palm-drawer-ws > b,
+.palm-drawer-new > span,
+.palm-drawer-search > span,
+.palm-drawer-entry > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 底部三入口：左侧 --palm-drawer-glyph 图标 + 主文案单行 + 右侧小字（小字永不被挤掉）。 */
+.palm-drawer-entry > span {
+  flex: 1 1 auto;
+}
+
+.palm-drawer-entry > small {
+  white-space: nowrap;
+}
+
+/* 会话行右侧的迷你状态条：定版 88×18，不参与 flex 拉伸。 */
+.palm-drawer-row .palm-strip-wrap[data-size='mini'],
+.palm-drawer-row .palm-strip[data-size='mini'] {
+  flex: none;
+  inline-size: var(--palm-drawer-strip-w);
+  block-size: var(--palm-drawer-strip-h);
+}
 /* ── file preview sheet (in-chat .file-link taps) ─────────────────────── */
 
 /* The preview content needs most of the sheet: keep the body roomy and let
@@ -6839,6 +6963,14 @@ button.settings-row:focus-visible {
   color: var(--danger);
 }
 
+
+/* ? �˵������ͼ�꣺�� .sheet-option-title ͬ�ߣ�ͳһ�� --palm-t-l ȡ�ߴ硣 */
+.sheet-option > svg {
+  flex: none;
+  inline-size: var(--palm-t-l);
+  block-size: var(--palm-t-l);
+  color: var(--palm-fg-2);
+}
 /* ── centered confirm dialog ─────────────────────────────────────────── */
 
 .dialog-backdrop {
@@ -8274,19 +8406,21 @@ button.settings-row:active {
 /* ── 过程折叠行：「▸ 7 步过程 · 31 次工具调用」 ────────────────────────
    整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
    这里只画，不新建状态。运行中在下方追加「最近 3 步」。 */
+/* 过程折叠行（「12 次工具调用 2 处报错 用时42分3秒」）：定版 24 高 / 11 号字。
+ * 它只是一条注脚，不再吃 44 的拇指区 —— 展开入口在头行上，行本身照旧可点。 */
 .palm-proc {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--palm-s2);
+  gap: var(--palm-s1);
   inline-size: 100%;
-  min-block-size: var(--palm-hit);
+  min-block-size: var(--palm-proc-head-h);
   padding: 0;
   border: 0;
   background: none;
   color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-proc-head-size);
   text-align: start;
 }
 

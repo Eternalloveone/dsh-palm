@@ -113,7 +113,7 @@
 }
 
 /* ── 会话抽屉（P6 第 3 步 · overview.html「1 · 会话抽屉」） ────────────
- * 左侧面板 308px（窄屏 86vw），只有右侧两角是圆的；行 ≥44px，
+ * 左侧面板 --palm-drawer-w（窄屏 86vw），只有右侧两角是圆的；行 ≥ --palm-hit，
  * 底部三入口带右侧小字。 */
 .palm-drawer-scrim {
   position: fixed;
@@ -129,14 +129,16 @@
   display: flex;
   flex-direction: column;
   gap: var(--palm-s3);
-  inline-size: min(308px, 86vw);
+  inline-size: min(var(--palm-drawer-w), 86vw);
   block-size: 100%;
   padding: var(--palm-s4) var(--palm-s3);
   background: var(--palm-sur-1);
   border-inline-end: var(--palm-hair) solid var(--palm-line);
   border-radius: 0 var(--palm-r-l) var(--palm-r-l) 0;
   box-shadow: var(--palm-sh2);
-  overflow-y: auto;
+  /* 面板本身不滚：滚的是中间的会话列表。否则整块（含身份区/底部三入口）
+     会跟着手指上下跑，遮罩下看着就是「错位」。 */
+  overflow: hidden;
   overscroll-behavior: contain;
   animation: palm-drawer-in 0.2s ease;
 }
@@ -158,8 +160,8 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  inline-size: var(--palm-s6);
-  block-size: var(--palm-s6);
+  inline-size: var(--palm-drawer-avatar);
+  block-size: var(--palm-drawer-avatar);
   border-radius: var(--palm-r-m);
   background: var(--palm-tint-accent);
   color: var(--palm-accent);
@@ -173,9 +175,12 @@
 }
 
 .palm-drawer-ws > b {
+  overflow: hidden;
   font-size: var(--palm-t-m);
   font-weight: var(--palm-w-bold);
   color: var(--palm-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .palm-drawer-ws > small {
@@ -193,7 +198,7 @@
   justify-content: center;
   gap: var(--palm-s2);
   inline-size: 100%;
-  block-size: 40px;
+  block-size: var(--palm-drawer-new-h);
   border: 0;
   border-radius: var(--palm-r-m);
   background: var(--palm-accent);
@@ -201,6 +206,7 @@
   font: inherit;
   font-size: var(--palm-t-m);
   font-weight: var(--palm-w-bold);
+  white-space: nowrap;
 }
 
 .palm-drawer-search {
@@ -208,7 +214,7 @@
   align-items: center;
   gap: var(--palm-s2);
   inline-size: 100%;
-  block-size: 34px;
+  block-size: var(--palm-drawer-search-h);
   padding: 0 var(--palm-s2);
   border: 0;
   border-radius: var(--palm-r-m);
@@ -216,6 +222,7 @@
   color: var(--palm-fg-2);
   font: inherit;
   font-size: var(--palm-t-m);
+  white-space: nowrap;
 }
 
 .palm-drawer-list {
@@ -224,6 +231,8 @@
   flex-direction: column;
   gap: var(--palm-s3);
   min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .palm-drawer-group {
@@ -251,8 +260,9 @@
 /* 一行会话：标题吃剩余，右侧只有有状态时才出现 mini 条。 */
 .palm-drawer-row {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--palm-s2);
   min-block-size: var(--palm-hit);
   padding: var(--palm-s1) var(--palm-s2);
@@ -269,6 +279,8 @@
 .palm-drawer-row-current { background: var(--palm-sur-2); }
 
 .palm-drawer-title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
   overflow: hidden;
   font-size: var(--palm-t-m);
   color: var(--palm-fg);
@@ -299,13 +311,66 @@
   font: inherit;
   font-size: var(--palm-t-m);
   text-align: left;
+  white-space: nowrap;
 }
 
 .palm-drawer-entry:active { background: var(--palm-sur-2); }
 
 .palm-drawer-entry > small {
+  flex: none;
   margin-inline-start: auto;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
 }
 
+
+/* 身份区的工作区切换箭头：多工作区才画（单工作区不占位置）。
+ * 复用 .mobile-iconbtn 的 48px 命中区，这里只把它压到 44px 并推到最右。 */
+.palm-drawer-head > .mobile-iconbtn {
+  inline-size: var(--palm-hit);
+  block-size: var(--palm-hit);
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+}
+
+/* ── 抽屉的尺寸硬约束（2026-11-08 实机投诉修复）─────────────────────────
+ *
+ * 根因：icons.tsx 的 SVG 只给 viewBox，没有 width/height。没有内在尺寸的 SVG 是
+ * 「替换元素」，在 flex 行里按默认的 300×150 参与布局 —— 行宽不够就等比缩成
+ * 一个占满整行宽的方块（实机截图：放大镜/齿轮/文件夹顶满一行，文字被压在它下面
+ * 折行，「新建会话」「搜索会话和消息」都断成两行）。尺寸的唯一出口是令牌
+ * --palm-drawer-glyph，组件里不写行内样式。
+ */
+.palm-drawer svg {
+  flex: none;
+  inline-size: var(--palm-drawer-glyph);
+  block-size: var(--palm-drawer-glyph);
+}
+
+/* 行内文案：单行 + 省略号。图标固定之后，折行的唯一来源就是文案本身。 */
+.palm-drawer-ws > b,
+.palm-drawer-new > span,
+.palm-drawer-search > span,
+.palm-drawer-entry > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 底部三入口：左侧 --palm-drawer-glyph 图标 + 主文案单行 + 右侧小字（小字永不被挤掉）。 */
+.palm-drawer-entry > span {
+  flex: 1 1 auto;
+}
+
+.palm-drawer-entry > small {
+  white-space: nowrap;
+}
+
+/* 会话行右侧的迷你状态条：定版 88×18，不参与 flex 拉伸。 */
+.palm-drawer-row .palm-strip-wrap[data-size='mini'],
+.palm-drawer-row .palm-strip[data-size='mini'] {
+  flex: none;
+  inline-size: var(--palm-drawer-strip-w);
+  block-size: var(--palm-drawer-strip-h);
+}

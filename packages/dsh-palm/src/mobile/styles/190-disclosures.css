@@ -149,35 +149,33 @@
 }
 
 /*
- * 过程组（对照稿 chat-rework.html 的工具块）：**独立一张卡**。
- * 头一行只说「跑了 N 个工具」+ 右侧总耗时；每个工具在头下面直接列一行
- * （彩色状态点 + 动作 · 对象 + 状态词）。思考与 diff 卡仍在卡内展开，
- * 答案永远在卡外。
+ * 过程组（对照稿 chat-rework.html 的工具块）：**一行一步的过程表**。
+ *
+ * 2026-11-08 实机投诉：一回合 12 次工具调用被画成 12 张卡（44 的命中高度 + 8 的上下
+ * 留白 + 描边/底色 + 行间 gap ≈ 90 一张），一屏只能看 6 条，扫不完。定版不再画
+ * 卡片外壳：整块只是正文里的一段过程表，行与行之间最多一条极淡分隔线。
+ * 头一行只说工具数与总耗时（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
  */
 .chat-proc {
   display: flex;
   flex-direction: column;
   margin-top: var(--palm-s1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-  overflow: hidden;
 }
 
 .chat-proc-head {
   display: flex;
   align-items: center;
-  gap: var(--palm-s2);
+  gap: var(--palm-s1);
   width: 100%;
-  /* 44px 是拇指友好的最小点击高度 */
-  min-height: var(--palm-hit);
-  padding: var(--palm-s2) var(--palm-s3);
+  /* 头行只是一条注脚：24 高 / 11 号字，不再占 44 的拇指区（展开入口在行上）。 */
+  min-height: var(--palm-proc-head-h);
+  padding: 0 var(--palm-s2);
   border: none;
   background: transparent;
-  color: var(--palm-fg);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
+  font-size: var(--palm-proc-head-size);
+  font-weight: var(--palm-w-normal);
   text-align: left;
   cursor: pointer;
 }
@@ -187,18 +185,21 @@
 }
 
 .chat-proc-line {
+  /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸ 与「用时」，写死 100% 会把它们挤到
+     第二行 —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: var(--palm-s2);
-  width: 100%;
+  width: auto;
   min-width: 0;
 }
 
-/* 标题是主角：14px 加粗正文色。 */
+/* 头行的主角是那几个计数，但整行只是注脚：常规字重 + 第二档灰。 */
 .chat-proc-state {
   flex: none;
-  font-weight: var(--palm-w-bold);
-  color: var(--palm-fg);
+  font-weight: var(--palm-w-normal);
+  color: var(--palm-fg-2);
 }
 
 /*
@@ -208,7 +209,7 @@
 .chat-proc-errors {
   flex: none;
   color: var(--palm-danger);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-proc-head-size);
   font-weight: var(--palm-w-normal);
 }
 
@@ -217,7 +218,7 @@
   flex: none;
   margin-left: auto;
   color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-proc-head-size);
   font-weight: var(--palm-w-normal);
   font-variant-numeric: tabular-nums;
 }
@@ -363,27 +364,14 @@
   overflow-wrap: anywhere;
 }
 
-.chat-step-head {
-  min-height: 40px;
-}
-
-.chat-step-state {
-  flex: none;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.chat-step-state-ok { color: var(--diff-add); }
-.chat-step-state-error { color: var(--diff-del); }
-.chat-step-state-running { color: var(--accent); }
-
 .chat-flow-answer {
   margin-top: var(--space-1);
 }
 
 /*
- * 工具块的行（对照稿）：一行一个工具 = 状态点 + 动作 · 对象 + 右侧状态词。
- * 行与行之间只用一条细线分隔，整块是卡里的一张表，不是一叠小卡。
+ * 工具块的行（对照稿）：一行一步 = 8 的状态点 + 「工具名 · 目标」+ 右侧状态词。
+ * 定版：单行 --palm-proc-row-h，上下留白 --palm-proc-row-pad，行与行之间只有一条极淡
+ * 分隔线 —— 整块是正文里的一张过程表，不是一叠小卡。
  */
 .chat-proc-tools {
   display: flex;
@@ -393,8 +381,8 @@
 .chat-step {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-s1);
-  padding: var(--palm-s2) var(--palm-s3);
+  gap: 0;
+  padding: 0 var(--palm-s2);
   border-top: var(--palm-hair) solid var(--palm-line);
   background: transparent;
 }
@@ -408,8 +396,9 @@
   align-items: center;
   gap: var(--palm-s2);
   width: 100%;
-  min-height: var(--palm-hit);
-  padding: 0;
+  /* 单行 --palm-proc-row-h：留白落在按钮内，整行都能点（不再叠 44 命中高度 + 8 行距）。 */
+  min-height: var(--palm-proc-row-h);
+  padding: var(--palm-proc-row-pad) 0;
   border: 0;
   background: none;
   color: inherit;
@@ -432,21 +421,31 @@
 .chat-step-dot[data-state='error'] { background: var(--palm-danger); }
 .chat-step-dot[data-state='stopped'] { background: var(--palm-warn); }
 
+/* 工具名：短、不可省，但不许把目标挤没（长了自己也省略）。 */
 .chat-step-title {
-  flex: none;
-  font-size: var(--palm-t-m);
-  color: var(--palm-fg);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--palm-flow-row-size);
+  color: var(--palm-fg);
 }
 
 .chat-step-summary {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-2);
+}
+
+/* 「工具名 · 目标」之间的分隔点由样式给：没有目标时不留一个孤零零的点。 */
+.chat-step-head .chat-step-summary:not(:empty)::before {
+  content: '· ';
+  color: var(--palm-fg-3);
 }
 
 /* 右侧状态词：12px 第三档灰（成功/运行中/失败/已中断都照实写）。 */
@@ -468,6 +467,19 @@
   display: flex;
   align-items: center;
   color: var(--palm-fg-3);
+}
+
+/*
+ * 「还有 N 步 ›」：默认只露最近 3 步，其余收成这一行（同一条 --palm-proc-row-h 行，
+ * 颜色退到第三档灰）。点它一次全展开，不是二次折叠。
+ */
+.chat-step[data-state='fold'] .chat-step-title {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.chat-step[data-state='fold'] .chat-step-caret {
+  margin-left: auto;
 }
 
 /* Tool diff card: file path header + red removed / green added lines,

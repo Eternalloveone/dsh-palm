@@ -1,17 +1,17 @@
 /**
  * 一轮的「过程组」：思考、工具调用与 diff 卡。
  *
- * 2026-11-08 按对照稿（`docs/prototype/chat-rework.html`）重排为**一张独立卡**：
+ * 2026-11-08 实机投诉后重排为**正文里的一张过程表**（不再是一叠卡）：
  *
  * ```
- * ┌ 跑了 5 个工具                    用时12秒
- * │ ● 读文件 · ChatView.tsx            完成   ← 状态点（绿=完成/蓝=运行中/红=失败）
- * │ ● 检索 · pendingTurnSeqRef         完成
+ * ┌ 12 次工具调用  2 处报错          用时42分3秒   ← 24px / 11px
+ * │ 还有 9 步 ›                                  ← 默认只露最近 3 条
+ * │ ● 读文件 · ChatView.tsx            完成      ← 36px 单行，无卡片外壳
  * └ [展开：思考块 / 叙述文本 / diff 卡]
  * ```
  *
- * 工具行**默认可见**（以前藏在折叠体里，用户得先点一下才知道跑过什么）；
- * 思考与 diff 卡仍在卡内展开，答案永远留在卡外。状态点只给宿主真报过的状态
+ * 工具行默认可见、默认只列最近 3 条（其余收成「还有 N 步 ›」，点一次全展开）；
+ * 思考与 diff 卡仍在展开体里，答案永远留在卡外。状态点只报宿主真给过的状态
  * （`running`/`ok`/`error`/`stopped`），拿不到就是灰点，不编"成功/失败"。
  *
  * @module dsh-palm/mobile/message-row/process
@@ -41,6 +41,9 @@ import { BlockList, type BlockRegistry } from './block-registry.tsx'
 import { toVM } from './to-vm.ts'
 import type { MessageBlock } from './types.ts'
 
+/** 默认露出的最近工具行数；更多的收成一行「还有 N 步 ›」。 */
+const RECENT_TOOLS = 3
+
 /**
  * 一轮的"过程组"（桌面端 turn-process 的对应物）。头一行只说两件事：
  * 这一轮跑了多少个工具、一共花了多久；每行工具在头下面直接列出来。
@@ -64,6 +67,9 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   liveClockTick?: number
 }) {
   const [open, setOpen] = useState(false)
+  // 「还有 N 步 ›」只展开一次：点过就全量，不再二次折叠（回看一轮跑过的 12 步时，
+  // 用户要的是"全都在"，不是"再点一次"）。
+  const [showAllTools, setShowAllTools] = useState(false)
   // 从「搜索本会话」跳过来：命中的正文很可能在折叠着的展开体里，不展开就只看到
   // 一张"X 步已完成"的卡，用户以为"搜到了却没定位"。
   useEffect(() => {
@@ -105,13 +111,14 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   const errorsText = processErrorsText(model)
   const toolRows = model.rows.filter((row): row is ProcessToolRow => row.kind === 'tool')
   const visibleTools = showToolCalls ? toolRows : []
+  // 一行一步：默认只露最近 3 条，其余收成一行「还有 N 步 ›」（12 条工具不再刷两屏）。
+  const hiddenTools = showAllTools ? 0 : Math.max(0, visibleTools.length - RECENT_TOOLS)
+  const shownTools = hiddenTools === 0 ? visibleTools : visibleTools.slice(hiddenTools)
   // 过程折叠行（新设计「▸ 7 步过程 · 31 次工具调用」）：计划步数与工具调用数分开报，
   // 缺项就少说一项；展开/收起**复用本组件已有的 `open` 状态**，不另起一份状态。
+  // 头行不再另报一份「最近：…」—— 最近 3 步本来就常显在下面，同一条信息说两遍
+  // 只会多出一条折行（实机量到的第二行）。
   const planSteps = message.plan?.items.length
-  const recentTools = toolRows.slice(-3).map((row) => {
-    const step = stepModel(row.tool)
-    return step.summary === '' ? step.title : `${step.title} · ${step.summary}`
-  })
   // 展开体：思考块、步骤之间的叙述文本、diff 卡。工具行已经常显，不再进这里。
   const bodyRows = visibleRowCount(model, false)
   const stepsText = processStepsText(model, showToolCalls)
@@ -125,15 +132,30 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
       {...(showToolCalls && model.toolCount > 0 ? { toolCalls: model.toolCount } : {})}
       {...(errorsText === '' ? {} : { note: errorsText })}
       {...(timeText === '' ? {} : { time: timeText })}
-      {...(running && recentTools.length > 0 ? { recent: recentTools, running } : {})}
       {...(bodyRows === 0 ? {} : { expanded: open, onToggle: () => { setOpen(value => !value) } })}
     />
   )
   const tools = visibleTools.length === 0 ? null : (
     <div className="chat-proc-tools">
-      {visibleTools.map(row => <ToolRow tool={row.tool} key={row.key} />)}
+      {/* 折叠行与工具行同一条 36px 行，只在最前面多这一条：其余步骤都收在它后面。 */}
+      {hiddenTools === 0 ? null : (
+        <div className="chat-step" data-state="fold">
+          <Button
+            type="button"
+            className="chat-step-head"
+            aria-expanded={false}
+            aria-label={`还有 ${hiddenTools} 步，展开全部`}
+            onClick={() => { setShowAllTools(true) }}
+          >
+            <span className="chat-step-title">还有 {hiddenTools} 步</span>
+            <span className="chat-step-caret" aria-hidden="true">›</span>
+          </Button>
+        </div>
+      )}
+      {shownTools.map(row => <ToolRow tool={row.tool} key={row.key} />)}
     </div>
   )
+  // 没有可展开的东西时头是静态的（bodyRows === 0 那条分支），展开体也就不存在。
   if (bodyRows === 0) {
     return (
       <div className={`chat-proc${running ? ' chat-proc-running' : ''}`} data-proc-rows={visibleRows}>
@@ -149,19 +171,18 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
       {open && (
         <div className="chat-proc-body">
           {stepsText !== '' && <div className="chat-proc-steps">{stepsText}</div>}
-          <ProcessRows message={message} model={model} showToolCalls={false} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} />
+          <ProcessRows message={message} model={model} showToolCalls={false} focusedQuery={focusedQuery} sessionId={sessionId} />
         </div>
       )}
     </div>
   )
 }
 
-/** 展开体：思考块、步骤之间的叙述文本、diff 卡，全按事件顺序排。 */
-/** 展开体的渲染上下文：正文高亮、定位展开、会话 id 都从这里取。 */
+/** 展开体：思考块、步骤之间的叙述文本、diff 卡，全按事件顺序排。
+ *  上下文：正文高亮、会话 id 都从这里取（定位展开只管"要不要自动打开"，与块无关）。 */
 interface ProcessBlocksContext {
   message: RenderMessage
   focusedQuery?: string
-  focusExpand?: boolean
   sessionId?: string
 }
 
@@ -179,31 +200,24 @@ const PROCESS_BLOCK_REGISTRY: BlockRegistry<ProcessBlocksContext> = {
 /** 正文块：有步骤号的包一层 data-step-seq，会话内搜索才能滚到这一步。 */
 function renderTextBlock(block: Extract<MessageBlock, { kind: 'text' }>, ctx: ProcessBlocksContext): ReactNode {
   const body = (
-    <MarkdownText
-      text={block.text}
-      pending={ctx.message.pending === true}
-      forceOpen={ctx.focusedQuery !== undefined}
-      highlightQuery={ctx.focusedQuery}
-      sessionId={ctx.sessionId}
-    />
+    <MarkdownText text={block.text} pending={ctx.message.pending === true} forceOpen={ctx.focusedQuery !== undefined}
+      highlightQuery={ctx.focusedQuery} sessionId={ctx.sessionId} />
   )
   if (block.seq === undefined) return body
   return <div className="chat-flow-text" data-step-seq={block.seq} data-part-id={`text-${block.index}`}>{body}</div>
 }
-function ProcessRows({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId }: {
+function ProcessRows({ message, model, showToolCalls, focusedQuery, sessionId }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
   focusedQuery?: string
-  focusExpand?: boolean
   sessionId?: string
 }) {
   const blocks = useMemo(
     () => toVM(model, { showToolCalls, pending: message.pending === true, stepSeqs: message.stepSeqs }),
     [model, showToolCalls, message.pending, message.stepSeqs],
   )
-  const ctx: ProcessBlocksContext = { message, focusedQuery, focusExpand, sessionId }
-  return <BlockList blocks={blocks} registry={PROCESS_BLOCK_REGISTRY} ctx={ctx} />
+  return <BlockList blocks={blocks} registry={PROCESS_BLOCK_REGISTRY} ctx={{ message, focusedQuery, sessionId }} />
 }
 
 /**
@@ -264,7 +278,6 @@ function ToolRow({ tool }: { tool: ToolCallInfo }) {
         <span className="chat-step-title">{model.title}</span>
         <span className="chat-step-summary">{model.summary}</span>
         {label === '' ? null : <span className={`chat-step-state chat-step-state-${state}`}>{label}</span>}
-        <span className="chat-step-caret" aria-hidden>{open ? '▾' : '▸'}</span>
       </Button>
       {open && tool.arguments !== undefined && (
         <pre className="chat-tool-args">{tool.arguments}</pre>

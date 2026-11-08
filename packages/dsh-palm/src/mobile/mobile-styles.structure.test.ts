@@ -174,3 +174,94 @@ describe('mobileCss 结构自检', () => {
     expect(incomplete).toEqual([])
   })
 })
+
+/**
+ * 尺寸契约：2026-11-08 实机投诉的两处渲染事故都出在「没有上限就没有版式」。
+ *
+ * 1. 过程区把 12 次工具调用画成 12 张 90px 上下的卡，一屏只看得到 6 条；
+ * 2. 抽屉里的 SVG 只有 viewBox、没有 width/height，在 flex 行里按替换元素默认的
+ *    300×150 参与布局，被行宽一挤就等比撑满整行，文字被压在图标下折行。
+ *
+ * 这两条都发生在**合成后的 mobileCss**（真正下发到浏览器的字符串）里，所以按既有
+ * 结构自检的口径直接读它：令牌值与规则体都断言出来，肉眼看不出、截图只看到症状。
+ */
+describe('版式尺寸契约（过程行 / 抽屉）', () => {
+  /** 取一条规则的声明体；选择器要写全（`.chat-proc` 不会匹配到 `.chat-proc-tools`）。 */
+  function ruleBody(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = new RegExp(escaped + '\\s*\\{([^}]*)\\}').exec(mobileCss)
+    if (match === null) throw new Error(`样式表里找不到规则 ${selector}`)
+    return match[1] ?? ''
+  }
+
+  /** 选择器所在规则组的声明体（合并选择器也算命中：`.a,\n.b { … }`）。 */
+  function declarationOf(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const blocks = [...mobileCss.matchAll(new RegExp('[^{}]*' + escaped + '[^{}]*\\{([^}]*)\\}', 'g'))]
+      .map(match => match[1] ?? '')
+    if (blocks.length === 0) throw new Error(`样式表里找不到选择器 ${selector}`)
+    return blocks.join('\n')
+  }
+
+  /** 读一个 px 令牌的数值（没定义或不是 px 一律报错，不做"读不到就放过"）。 */
+  function pxToken(name: string): number {
+    const match = new RegExp(name + ':\\s*(-?\\d+(?:\\.\\d+)?)px').exec(mobileCss)
+    if (match === null) throw new Error(`找不到 px 令牌 ${name}`)
+    return Number(match[1])
+  }
+
+  it('过程行一行一步：行高 ≤36px、上下留白 6–8px', () => {
+    expect(pxToken('--palm-proc-row-h')).toBeLessThanOrEqual(36)
+    expect(pxToken('--palm-proc-row-h')).toBeGreaterThanOrEqual(34)
+    expect(pxToken('--palm-proc-row-pad')).toBeGreaterThanOrEqual(6)
+    expect(pxToken('--palm-proc-row-pad')).toBeLessThanOrEqual(8)
+    // 行高从令牌走：改回写死的 44px 命中高度会让 12 条工具重新刷两屏。
+    expect(ruleBody('.chat-step-head')).toContain('min-height: var(--palm-proc-row-h)')
+    expect(ruleBody('.chat-step-head')).toContain('padding: var(--palm-proc-row-pad) 0')
+  })
+
+  it('过程头行压到 24px / 11px（「12 次工具调用 2 处报错 用时42分3秒」）', () => {
+    expect(pxToken('--palm-proc-head-h')).toBeLessThanOrEqual(24)
+    expect(pxToken('--palm-proc-head-size')).toBeLessThanOrEqual(11)
+    expect(ruleBody('.chat-proc-head')).toContain('min-height: var(--palm-proc-head-h)')
+    expect(ruleBody('.chat-proc-head')).toContain('font-size: var(--palm-proc-head-size)')
+  })
+
+  it('过程区不再画卡片外壳：无描边无底色，行间最多一条极淡分隔线', () => {
+    const group = ruleBody('.chat-proc')
+    expect(group).not.toContain('border:')
+    expect(group).not.toContain('background:')
+    expect(group).not.toContain('border-radius:')
+    // 分隔线只认极淡的 --palm-line（不是把行重新画成一张张卡）。
+    expect(ruleBody('.chat-step')).toContain('border-top: var(--palm-hair) solid var(--palm-line)')
+  })
+
+  it('抽屉图标固定 16×16 且 flex:none（撑满整行的根因）', () => {
+    expect(pxToken('--palm-drawer-glyph')).toBe(16)
+    const svg = ruleBody('.palm-drawer svg')
+    expect(svg).toContain('flex: none')
+    expect(svg).toContain('inline-size: var(--palm-drawer-glyph)')
+    expect(svg).toContain('block-size: var(--palm-drawer-glyph)')
+  })
+
+  it('抽屉行内文案单行 + 省略号（图标固定后折行的唯一来源）', () => {
+    for (const selector of ['.palm-drawer-new > span', '.palm-drawer-search > span', '.palm-drawer-entry > span']) {
+      const declarations = declarationOf(selector)
+      expect(declarations, selector).toContain('white-space: nowrap')
+      expect(declarations, selector).toContain('text-overflow: ellipsis')
+      expect(declarations, selector).toContain('overflow: hidden')
+    }
+    expect(ruleBody('.palm-drawer-title')).toContain('text-overflow: ellipsis')
+  })
+
+  it('抽屉头像 36×36、迷你状态条 88×18，都不参与 flex 拉伸', () => {
+    expect(pxToken('--palm-drawer-avatar')).toBe(36)
+    expect(ruleBody('.palm-drawer-avatar')).toContain('inline-size: var(--palm-drawer-avatar)')
+    expect(pxToken('--palm-drawer-strip-w')).toBe(88)
+    expect(pxToken('--palm-drawer-strip-h')).toBe(18)
+    const strip = ruleBody(".palm-drawer-row .palm-strip[data-size='mini']")
+    expect(strip).toContain('flex: none')
+    expect(strip).toContain('inline-size: var(--palm-drawer-strip-w)')
+    expect(strip).toContain('block-size: var(--palm-drawer-strip-h)')
+  })
+})

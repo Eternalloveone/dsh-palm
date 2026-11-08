@@ -980,19 +980,21 @@ button.settings-row:active {
 /* ── 过程折叠行：「▸ 7 步过程 · 31 次工具调用」 ────────────────────────
    整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
    这里只画，不新建状态。运行中在下方追加「最近 3 步」。 */
+/* 过程折叠行（「12 次工具调用 2 处报错 用时42分3秒」）：定版 24 高 / 11 号字。
+ * 它只是一条注脚，不再吃 44 的拇指区 —— 展开入口在头行上，行本身照旧可点。 */
 .palm-proc {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--palm-s2);
+  gap: var(--palm-s1);
   inline-size: 100%;
-  min-block-size: var(--palm-hit);
+  min-block-size: var(--palm-proc-head-h);
   padding: 0;
   border: 0;
   background: none;
   color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-proc-head-size);
   text-align: start;
 }
 

@@ -119,6 +119,60 @@ describe('过程卡：独立一张卡，标题行 + 常显工具行', () => {
   })
 })
 
+describe('过程行：默认只露最近 3 条（2026-11-08 实机投诉：12 条工具刷两屏）', () => {
+  const toolsOf = (count: number): ToolCallInfo[] => Array.from({ length: count }, (_, index) => ({
+    callId: `c${index}`,
+    name: 'bash',
+    state: 'ok',
+    arguments: JSON.stringify({ cmd: `echo ${index}` }),
+  }))
+  const flowOf = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: 'tool' as const, callId: `c${index}` }))
+  const twelve = assistant({
+    text: '答案',
+    durationMs: 2_523_000,
+    flow: flowOf(12),
+    tools: toolsOf(12),
+  })
+
+  it('12 次工具调用：头行照报总数与总耗时，正文只列最近 3 步 + 「还有 9 步 ›」', () => {
+    const { container } = renderRow(twelve)
+    const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('12 次工具调用')
+    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时42分3秒')
+
+    // 折叠行 + 最近 3 行，一行一步。
+    expect(container.querySelectorAll('.chat-proc-tools > .chat-step')).toHaveLength(4)
+    expect(container.querySelectorAll(".chat-step[data-state='ok']")).toHaveLength(3)
+    const fold = container.querySelector(".chat-step[data-state='fold']") as HTMLElement
+    expect(fold.querySelector('.chat-step-title')!.textContent).toBe('还有 9 步')
+    // 露出来的是最后三条（第 10/11/12 步）。
+    expect([...container.querySelectorAll('.chat-step-summary')].map(node => node.textContent))
+      .toEqual(['echo 9', 'echo 10', 'echo 11'])
+  })
+
+  it('点「还有 9 步」全展开：折叠行消失，12 步都在，不二次折叠', () => {
+    const { container } = renderRow(twelve)
+    fireEvent.click(container.querySelector(".chat-step[data-state='fold'] .chat-step-head") as HTMLButtonElement)
+    expect(container.querySelector(".chat-step[data-state='fold']")).toBeNull()
+    expect(container.querySelectorAll(".chat-step[data-state='ok']")).toHaveLength(12)
+  })
+
+  it('3 条以内不出现折叠行（不凭空多一行）', () => {
+    const { container } = renderRow(assistant({ text: '答案', flow: flowOf(3), tools: toolsOf(3) }))
+    expect(container.querySelector(".chat-step[data-state='fold']")).toBeNull()
+    expect(container.querySelectorAll('.chat-step')).toHaveLength(3)
+  })
+
+  it('工具行只有三个区：状态点 + 「工具名 · 目标」+ 右侧状态词（不再有展开箭头）', () => {
+    const { container } = renderRow(twelve)
+    const row = container.querySelector(".chat-step[data-state='ok']") as HTMLElement
+    expect(row.querySelector('.chat-step-caret')).toBeNull()
+    expect([...row.querySelector('.chat-step-head')!.children]
+      .map(node => (node as HTMLElement).className.split(' ')[0]))
+      .toEqual(['chat-step-dot', 'chat-step-title', 'chat-step-summary', 'chat-step-state'])
+  })
+})
+
 describe('过程卡：答案按步骤切在卡外', () => {
   it('多步：最后一步的文本是卡外答案，之前各步文本留卡内', () => {
     const { container } = renderRow(assistant({
