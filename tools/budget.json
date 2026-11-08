@@ -18,7 +18,7 @@
     "src/mobile/message-row": 958,
     "src/mobile/platform": 4420,
     "src/mobile/projections": 530,
-    "src/mobile/render": 6912,
+    "src/mobile/render": 7000,
     "src/mobile/runtime": 225,
     "src/mobile/session": 2775,
     "src/mobile/shared": 267,
@@ -54,6 +54,10 @@
     },
     "src/mobile/views": {
       "reason": "P4 结论卡适配层：views/chat/lib/turn-verdict.ts（四态判定 + 真实数字，14 条单测）与 ChatView 接入；接入完成后旧状态条合并，本值回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/render": {
+      "reason": "P4 结论卡接入 render/message-row.tsx：纯文字回合由空白改为渲染结论卡（+18 行）与 4 条行级测试；旧状态条合并后回落",
       "expires": "2027-03-31"
     }
   }

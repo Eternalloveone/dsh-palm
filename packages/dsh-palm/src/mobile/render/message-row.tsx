@@ -16,6 +16,8 @@ import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from '../
 import { CollapsibleText, MarkdownText, highlightPlain } from './markdown-text.tsx'
 import { diffTallyOf, formatDuration, isRowRunning, processErrorsText, processFilesText, processHeadText, processModel, processStateText, processStepsText, processTimeText, toolDiffLines, visibleRowCount, type ProcessModel, type ProcessOutcome, type ProcessReasoningRow } from './process-rows.ts'
 import { stepModel, type StepVariant } from './step-view.ts'
+import { VerdictCard } from '../ui/verdict-card.tsx'
+import { turnVerdictProps } from '../views/chat/lib/turn-verdict.ts'
 import { formatFileSize } from './ui-text.ts'
 import { Button } from '../ui/primitives.tsx'
 
@@ -170,7 +172,23 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
     const sections = ((message.deliverables?.length ?? 0) > 0 ? 1 : 0) + ((message.produced?.length ?? 0) > 0 ? 1 : 0)
     // 只有计划、没有文件时也要出卡：状态条在全完成时会收起，这张卡是计划的入口。
     const planItems = message.plan?.items ?? []
-    if (reportCount === 0 && planItems.length === 0) return null
+    if (reportCount === 0 && planItems.length === 0) {
+      // 纯文字回合：以前这里直接返回 null，于是"这一轮说了什么"在列表里没有落点。
+      // 现在给一张结论卡（四态由 turnVerdictProps 判定），正文第一句就是结论。
+      const verdict = turnVerdictProps({ message, running: false })
+      if (verdict === undefined) return null
+      return (
+        <div
+          data-mid={message.id}
+          data-message-id={message.id}
+          data-row-seq={focusSeqAttr}
+          className="chat-turn-verdict"
+          style={style}
+        >
+          <VerdictCard {...verdict} />
+        </div>
+      )
+    }
     return (
       <div
         data-mid={message.id}
