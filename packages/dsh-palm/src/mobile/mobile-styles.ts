@@ -2076,6 +2076,128 @@ button.settings-row:focus-visible {
   font-size: 11.5px;
 }
 
+/* ── 定版图对齐（设置页 · 第 13 屏） ───────────────────────────────────
+   全宽搜索框 + 分组卡：分组标题 12 灰字在左、说明靠右；卡内行是
+   「32 图标方块 · 17 标题 / 12 说明 · 14 右值/箭头/开关」，行高 ≥44，
+   卡与卡之间 12。只作用于设置页：.settings-search 是本页独有的前导
+   节点，插件市场复用 .settings-group/.settings-row 但没有它，正好被
+   ~ 选择器挡在外面。尺寸/颜色全部引用 --palm-* 令牌，未新增类名。 */
+
+/* 搜索框：44 高、12 圆角、表面色。 */
+.settings-search .mobile-searchInput {
+  height: var(--palm-hit);
+  padding: 0 var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+/* 分组卡：12 圆角、1px hairline、组间 12。 */
+.settings-search ~ .settings-group {
+  margin: 0 var(--palm-s4) var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: none;
+}
+
+/* 分组标题：12px 灰字 + 右侧浅灰说明（同一行，长说明省略）。 */
+.settings-search ~ .settings-group > .settings-groupTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+  height: var(--palm-s7);
+  padding: 0 var(--palm-s4);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.settings-search ~ .settings-group > .settings-groupTitle > .settings-groupDesc {
+  margin-left: auto;
+  max-width: 70%;
+  overflow: hidden;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  letter-spacing: 0;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行：32 图标列 + 文本 + 右侧值；44 触控下限，两行文字撑到约 60。 */
+.settings-search ~ .settings-group .settings-row,
+.settings-search ~ .settings-group .mobile-row {
+  grid-template-columns: var(--palm-s7) minmax(0, 1fr) auto;
+  gap: var(--palm-s3);
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s4);
+  border-bottom: var(--palm-hair) solid var(--palm-line);
+}
+
+/* 进阶/主机配置行是 <button class="mobile-row">：底色交还给分组卡，避免比卡面亮一档。 */
+.settings-search ~ .settings-group .mobile-row {
+  background: transparent;
+}
+
+/* 图标方块 32×32、圆角 8、浅底 + 16px 线性图标。 */
+.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-icon {
+  width: var(--palm-s7);
+  height: var(--palm-s7);
+}
+
+.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-icon > * {
+  width: var(--palm-s7);
+  height: var(--palm-s7);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+}
+
+.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-icon svg {
+  width: var(--palm-s4);
+  height: var(--palm-s4);
+}
+
+/* 两行文字的内边距收到 8：行密度对齐定版图，同时保住 44 的触控高度。 */
+.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-main {
+  gap: var(--palm-s1);
+  padding: var(--palm-s2) 0;
+}
+
+.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-desc {
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+}
+
+.settings-search ~ .settings-group .settings-rowValue {
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+}
+
+/* 卡片最后一行不再画分割线（按钮行外面还裹着一层 <li>，要按父级取末行）。 */
+.settings-search ~ .settings-group > .settings-row:last-child,
+.settings-search ~ .settings-group > li:last-child > .settings-row,
+.settings-search ~ .settings-group > li:last-child > .mobile-row {
+  border-bottom: 0;
+}
+
+/* 开关轨道保持 24 高的视觉，但热区补到 44×44（拇指按得准）。 */
+.settings-search ~ .settings-group .settings-switch::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
+  transform: translate(-50%, -50%);
+}
+
 /* ── empty / error / boot states ─────────────────────────────────────── */
 
 .mobile-empty {
