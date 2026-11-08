@@ -118,6 +118,7 @@ import { loadChatCache } from '../session/chat-cache.ts'
 import { loadPersistedList } from '../session/list-persist.ts'
 import { Button } from '../ui/primitives.tsx'
 import { ApprovalView } from './ApprovalView.tsx'
+import { DiffView } from './DiffView.tsx'
 
 
 /** One navigation level. */
@@ -138,6 +139,13 @@ type Route =
     focusPartId?: string
     focusQuery?: string
   }
+  /** ⑩ 单文件 diff：从对话里的文件行点进来，返回即弹栈回对话。 */
+  | {
+    kind: 'diff'
+    session: SessionView
+    workspace: WorkspaceRow
+    path: string
+  }
   /** ④ 审批详情：从对话正文的审批面板点"详情"进来，返回即弹栈回对话。 */
   | {
     kind: 'approval'
@@ -155,6 +163,7 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'chat') return `chat:${route.session.sessionId}`
   if (route.kind === 'sub-chat') return `sub-chat:${route.sessionId}`
   if (route.kind === 'approval') return `approval:${route.approval.approvalId}`
+  if (route.kind === 'diff') return `diff:${route.session.sessionId}:${route.path}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
   if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
   return route.kind
@@ -227,6 +236,9 @@ export function backTargetOf(route: Route): Route {
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
+    case 'diff':
+      // 兜底（栈里只有它）：diff 属于某个会话，退回对话。
+      return { kind: 'chat', session: route.session, workspace: route.workspace }
     case 'approval':
       // 兜底（栈里只有它）：审批一定属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
@@ -310,7 +322,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1222,7 +1234,13 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             {...(route.parentTitle === undefined ? {} : { parentTitle: route.parentTitle })}
             onBack={back}
           />
-          : route.kind === 'approval'
+          : route.kind === 'diff'
+            ? <DiffView
+              path={route.path}
+              sessionId={route.session.sessionId}
+              onBack={back}
+            />
+            : route.kind === 'approval'
             ? <ApprovalView
               sessionId={route.session.sessionId}
               sessionTitle={route.session.title}

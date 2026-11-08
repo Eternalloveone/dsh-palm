@@ -1,0 +1,36 @@
+/* ── 单文件 diff 页（P6 ⑩ 屏） ─────────────────────────────────────── */
+
+.diff-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+/* 标题只放文件名，目录做副标题：手机上长路径会把标题挤成两行。 */
+.diff-page-path {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0 var(--palm-s4) var(--palm-s2);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.diff-page-hint {
+  margin: 0;
+  padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  border-top: 1px solid var(--palm-line);
+}

@@ -7,7 +7,7 @@
     "src/mobile/views/ChatView.tsx": 4150
   },
   "dirs": {
-    "src/mobile": 61500,
+    "src/mobile": 61650,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
@@ -24,7 +24,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1350,
-    "src/mobile/views": 20760,
+    "src/mobile/views": 20900,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 260
   },
@@ -54,7 +54,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
-      "reason": "P6 18 屏迁移：ApprovalView（审批详情独立页，复用 ApprovalPanel）+ 后续屏逐屏增加；全部迁完后删旧浮层回落",
+      "reason": "P6 18 屏迁移：ApprovalView + DiffView（各带测试）；18 屏迁完删旧浮层后回落",
       "expires": "2027-03-31"
     },
     "src/mobile/render": {

@@ -88,7 +88,7 @@ describe('architecture guardrails', () => {
     const budgets: Record<string, number> = {
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
       // 2026-11-08：P6 页面栈接入（压栈/弹栈 + routeKeyOf）；旧标记删除后回落。
-      'views/App.tsx': 1_305,
+      'views/App.tsx': 1_325,
       'views/SettingsView.tsx': 783,
       // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
       // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。
