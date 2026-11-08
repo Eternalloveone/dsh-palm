@@ -9897,4 +9897,85 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg-3);
   border-top: 1px solid var(--palm-line);
 }
+/* ── 模型与思考页（P6 ⑤ 屏） ───────────────────────────────────────── */
+
+.model-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+.model-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+.model-page-section + .model-page-section {
+  margin-top: var(--palm-s5);
+}
+
+.model-page-title {
+  margin: 0 0 var(--palm-s2);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg-2);
+}
+
+/* 一行一个选项：左主名、右状态，副标题压在下面。 */
+.model-page-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2);
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s4);
+  text-align: left;
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+}
+
+/* 选中项：只换边色，不改结构（与结论卡同一套语义）。 */
+.model-page-row[aria-pressed='true'] {
+  border-color: var(--palm-accent);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+}
+
+.model-page-row-main {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.model-page-row-sub {
+  flex: 1 0 100%;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.model-page-row-mark {
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+.model-page-note {
+  margin: 0 0 var(--palm-s3);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+.model-page-hint {
+  margin: 0;
+  padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  border-top: 1px solid var(--palm-line);
+}
 `;
