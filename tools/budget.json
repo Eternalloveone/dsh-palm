@@ -4,30 +4,30 @@
     "src/mobile-api.ts": 1629,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
-    "src/mobile/views/ChatView.tsx": 4191,
-    "src/mobile/views/App.tsx": 1462
+    "src/mobile/views/ChatView.tsx": 4198,
+    "src/mobile/views/App.tsx": 1457
   },
   "dirs": {
-    "src/mobile": 63188,
-    "src/mobile/styles": 340,
-    "src/mobile/api": 6500,
-    "src/mobile/components": 2570,
+    "src/mobile": 63168,
+    "src/mobile/styles": 0,
+    "src/mobile/api": 3564,
+    "src/mobile/components": 2525,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
-    "src/mobile/kernels": 1100,
+    "src/mobile/kernels": 1095,
     "src/mobile/message-row": 958,
-    "src/mobile/platform": 4540,
+    "src/mobile/platform": 4481,
     "src/mobile/projections": 530,
-    "src/mobile/render": 7000,
+    "src/mobile/render": 6930,
     "src/mobile/runtime": 225,
-    "src/mobile/session": 2960,
+    "src/mobile/session": 2876,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1350,
-    "src/mobile/views": 21800,
+    "src/mobile/ui": 1342,
+    "src/mobile/views": 21752,
     "src/mobile/wire": 246,
-    "src/mobile/layouts": 260
+    "src/mobile/layouts": 134
   },
   "dirsRaised": {
     "src/mobile": {

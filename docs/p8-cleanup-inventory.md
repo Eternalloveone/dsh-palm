@@ -12,7 +12,7 @@
 | 目标 | 证据 | 删除范围 | 风险 |
 |---|---|---|---|
 | `TurnListSheet` | 全仓 5 处，全部在 `ChatView`（导入 / 渲染 / 两个 setter 调用）；`onOpenOutline` 一旦给了，`setTurnListOpen(true)` 不再执行 | `sheets.tsx` 里的组件 + `ChatView` 的 `turnListOpen` 状态与渲染 + 其单测 | 低（⑫ 已覆盖同一功能） |
-| `previewPath` 浮层预览 | 全仓 5 处；`onOpenDiff` 给出后 `setPreviewPath` 不再被调用 | `ChatView` 的 `previewPath` 状态 + `FilePreviewSheet` 的这处调用 | 中（`FilePreviewSheet` 本身别删，⑩ 页在复用它） |
+| ~~`previewPath` 浮层预览~~ **（更正：不是死路）** | 有**两个**入口：① 文件行点击（`onOpenDiff` 给出后走页面）；② **代码块里的 `.file-link` 路径点击**，在没有 `window.dshOpenFile` 的浏览器里回落到它 | 不删。已改为"有 ⑩ 页就先走页面，没有才回落浮层"，两个入口行为一致 | — |
 
 ## 二、**不要删**的（先查过，仍在用）
 

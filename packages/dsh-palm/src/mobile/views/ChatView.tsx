@@ -565,6 +565,9 @@ export function ChatView({
   const [pendingPermission, setPendingPermission] = useState<string | undefined>(undefined)
   /** File path awaiting in-chat preview (a .file-link tap without a host opener). */
   const [previewPath, setPreviewPath] = useState<string | null>(null)
+  /** 最新的一级「看 diff」回调：代码块里的文件链也要走同一个入口。 */
+  const onOpenDiffRef = useRef(onOpenDiff)
+  onOpenDiffRef.current = onOpenDiff
   /** In-chat <img> source opened in the full-screen lightbox (tap-to-view). */
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   /** Which in-place quick picker strip is open below the toolbar. */
@@ -3019,6 +3022,10 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
     event.preventDefault()
     if (typeof window.dshOpenFile === 'function') {
       openFilePath(path)
+      return
+    }
+    if (onOpenDiffRef.current !== undefined) {
+      onOpenDiffRef.current(path)
       return
     }
     setPreviewPath(path)
