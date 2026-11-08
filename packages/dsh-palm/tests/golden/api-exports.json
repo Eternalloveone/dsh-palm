@@ -2,7 +2,7 @@
   "$comment": "拆分安全绳：mobile-api.ts 的导出面必须与这里完全一致。改导出面 = 有意为之，必须同 commit 更新本文件并说明理由。",
   "source": "src/mobile-api.ts",
   "count": 25,
-  "hash": "d3feb58697332d6d",
+  "hash": "db621a7a53e082c8",
   "lines": [
     "export const MAX_PROMPT_FILE_PARTS = 5",
     "export const MOBILE_API_PATHS = {",
@@ -10,7 +10,6 @@
     "export function countPromptFileParts(payload: unknown): number {",
     "export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {",
     "export function noteHostFinishedRun(sessionId: string, finishedAt: number, status: 'done' | 'stopped' | 'error' = 'done'): void {",
-    "export function shouldRefreshInbox(",
     "export interface MobileApiDeps {",
     "export interface MobileHealthReport {",
     "export type { CommandRegistry, AgentLookup, FileUploadsLike, GoalViewLike, GoalLookup, CommandDescriptorView, GoalActivationView, GoalActionResultLike } from './host/commands-goals.ts'",
@@ -28,6 +27,7 @@
     "export { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/finished-runs.ts'",
     "export { mobileAncestryCrumbs, isImagePath, isAbsolutePath, readCandidates, windowsDrives, isWindowsDriveRoot, mobileListDirectory } from './host/directory.ts'",
     "export { resetCommandDirectoryCache, resolveCommandDirectory, goalActivationOf, goalSnapshotOf, preferLiveGoal, applyGoalAction } from './host/commands-goals.ts'",
+    "export { shouldRefreshInbox }",
     "export { toRosterItems, trimSessionListRow, visibleSessionRows } from './host/session-list.ts'"
   ]
 }

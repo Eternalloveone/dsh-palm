@@ -49,25 +49,6 @@ export { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/f
 export type { FinishedRunEntry } from './host/finished-runs.ts'
 import { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf, rememberRequestBody } from './host/queue-inbox.ts'
 
-async function readInboxProjection(proxy: ApiProxy, sessionId: string, wantsFresh: boolean): Promise<unknown> {
-  let inbox: unknown = processState.sessionProjectionSnapshots.get(sessionId)?.block.values?.['inbox']
-  // 快照里还挂着待发项时不能信它：那一项可能早就被宿主投递出去了（投递不改这份
-  // 快照），手机端就会一直显示一条已经发出去的排队消息。此时现读一次，带节流。
-  const autoFresh = shouldRefreshInbox(inbox, Date.now(), inboxFreshAt.get(sessionId) ?? null)
-  if (autoFresh) inboxFreshAt.set(sessionId, Date.now())
-  if (wantsFresh || autoFresh) {
-    try {
-      const page = await proxy.sessions.history({ rpcId: RpcId('dsh-palm-mobile-inbox'), payload: { sessionId, maxMessages: 1, fresh: true } } as never)
-      if (page.result.ok) {
-        const values = (page.result.value as { projections?: { values?: Record<string, unknown> } }).projections?.values
-        if (values?.['inbox'] !== undefined) inbox = values['inbox']
-      }
-    } catch {
-      // 读不到就用快照，卡片显示旧一点总比不显示好。
-    }
-  }
-  return inbox
-}
 export { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, rememberRequestBody, textOfInboxContent } from './host/queue-inbox.ts'
 import { CommandRegistry, AgentLookup, FileUploadsLike, GoalViewLike, GoalLookup, CommandDescriptorView, resetCommandDirectoryCache, resolveCommandDirectory, GoalActivationView, goalActivationOf, goalSnapshotOf, preferLiveGoal, GoalActionResultLike, applyGoalAction } from './host/commands-goals.ts'
 export { resetCommandDirectoryCache, resolveCommandDirectory, goalActivationOf, goalSnapshotOf, preferLiveGoal, applyGoalAction } from './host/commands-goals.ts'
@@ -219,34 +200,6 @@ const MOBILE_TURN_OUTLINE_METHOD = 'mobile.turnOutline'
  *  session/queue；而投影帧实测也到不了手机（排队后 6 秒 0 帧），所以这里按需直读
  *  同一份花名册快照，不读日志、不解压。 */
 const MOBILE_INBOX_METHOD = 'mobile.inbox'
-/**
- * 目标投影（`mobile.goal` 与 `mobile.sessionState` 共用）。
- *
- * 优先问进程内的目标服务：会话里刚建的目标在花名册快照里还没有，只读快照就是
- * 「目标条永远不出现」。服务不可用（没装/会话冷）时退回快照，必要时现读一页日志。
- */
-async function readGoalProjection(
-  proxy: ApiProxy,
-  deps: { agents?: AgentLookup | undefined; goals?: GoalLookup | undefined },
-  sessionId: string,
-  wantsFresh: boolean,
-): Promise<{ goal: unknown; activation?: 'armed' | 'disarmed' }> {
-  const live = goalSnapshotOf(deps, sessionId)
-  let goal: unknown = preferLiveGoal(live, processState.sessionProjectionSnapshots.get(sessionId)?.block.values?.['goal'])
-  if (wantsFresh && live === undefined) {
-    try {
-      const page = await proxy.sessions.history({ rpcId: RpcId('dsh-palm-mobile-goal'), payload: { sessionId, maxMessages: 1, fresh: true } } as never)
-      if (page.result.ok) {
-        const values = (page.result.value as { projections?: { values?: Record<string, unknown> } }).projections?.values
-        if (values?.['goal'] !== undefined) goal = values['goal']
-      }
-    } catch {
-      // 读不到就用快照：目标条显示旧相位，比整条消失好。
-    }
-  }
-  const activation = goalActivationOf(deps, sessionId)
-  return { goal: goal === undefined ? null : goal, ...(activation === undefined ? {} : { activation }) }
-}
 
 /** 原子快照：行 + 队列 + 回合一次给全（手机端状态仓的唯一权威来源）。 */
 const MOBILE_SESSION_STATE_METHOD = 'mobile.sessionState'
@@ -480,9 +433,7 @@ export function noteHostFinishedRun(sessionId: string, finishedAt: number, statu
  * 变**——手机端照这份快照轮询，卡片就永远挂着「排队中」。所以只要快照里还显示有待发
  * 项，就得开一帧 follow 拿当下的真值；这里记一次时刻，避免每 5 秒的轮询都去读宿主。
  */
-const inboxFreshAt = new Map<string, number>()
 /** 待发投影的现读节流：手机上每 5 秒轮询一次，宿主这边最多 4 秒真读一次。 */
-const INBOX_FRESH_INTERVAL_MS = 4000
 
 /**
  * 快照里**没有**待发项时的现读节流（比上面松）。
@@ -493,30 +444,7 @@ const INBOX_FRESH_INTERVAL_MS = 4000
  * 只是可以慢一点：手机轮询最快 1.5 秒一次，宿主这边 10 秒真读一次足够，也避免
  * 每次都去抢同会话的聊天读。
  */
-const INBOX_EMPTY_FRESH_INTERVAL_MS = 3_000
 
-/**
- * 快照里的 inbox 还挂着待发项时，是否需要现读一次真值。
- *
- * 花名册快照只在枚举会话时刷新，宿主把排队消息认领成下一轮并不会更新它——照快照
- * 轮询，手机上那张卡片就永远显示「排队中」，而消息其实早发出去了。这里给出判据，
- * 由调用方决定真的去开 follow（带节流，别把每次轮询都变成一次整页读）。
- */
-export function shouldRefreshInbox(
-  inbox: unknown,
-  now: number,
-  lastFreshAt: number | null,
-  intervalMs: number = INBOX_FRESH_INTERVAL_MS,
-  emptyIntervalMs: number = INBOX_EMPTY_FRESH_INTERVAL_MS,
-): boolean {
-  const rows = (inbox as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
-  // 快照里还有待发项：要盯着它被宿主认领（否则卡片永远挂「排队中」）。
-  // 快照里是空的：也要（更慢地）现读 —— 桌面可能在手机看不到的地方新排了消息，
-  // 而快照不会因为队列变化而刷新。两个方向都必须对账。
-  const pending = Array.isArray(rows) && rows.length > 0
-  if (lastFreshAt === null) return true
-  return now - lastFreshAt >= (pending ? intervalMs : emptyIntervalMs)
-}
 /** 尾页随消息一起下发的投影键（首屏渲染要用的那几个，都很小）。
  *  turnOutline 刻意不在里面：它能有 87 KB，而首屏并不需要它。 */
 /** TTL for the workspace roster / agent-preset roster caches (v3.2). */
@@ -945,6 +873,9 @@ import { mobileUploadAttachment } from './mobile/api/mobile-upload.ts'
 import { mobileDiagnostics } from './mobile/api/health-report.ts'
 import { MOBILE_ALLOWLIST } from './mobile/api/allowlist.ts'
 import { mobileUsage } from './mobile/api/mobile-usage.ts'
+import { mobileSessionState, readGoalProjection } from './mobile/api/mobile-session-state.ts'
+import { readInboxProjection, shouldRefreshInbox } from './mobile/api/inbox-fresh.ts'
+export { shouldRefreshInbox }
 export { MOBILE_ALLOWLIST }
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
@@ -1140,75 +1071,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: { inbox: inbox === undefined ? null : inbox } },
         })
       }],
-      [MOBILE_SESSION_STATE_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps, apiProxy } = ctx
-        // 一份原子快照：行 + 队列 + 回合 + 队列版本都在同一个切面上。
-        //
-        // 手机端以前要三次调用（logTail / inbox / turnState）才能拼出一屏，三次落在
-        // 不同时刻，于是"队列说还有一条、回合说已经开始了"这类矛盾随时可见。这里一次
-        // 给全，客户端按 seq / revision 单调合并（见 mobile/session-store.ts）。
-        const body = parsed.payload as { sessionId?: unknown; fresh?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
-        if (sessionId === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
-          })
-          return
-        }
-        const wantsFreshQueue = body?.fresh === true
-        const turnState = async (): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number }> => {
-          try {
-            return await computeTurnState(sessionId)
-          } catch {
-            return { running: false, asOf: Date.now() }
-          }
-        }
-        const [page, inbox, turn, goalView] = await Promise.all([
-          readChatTailPage(sessionId),
-          (async () => liveInboxOf(deps.agents, sessionId)
-            ?? await readInboxProjection(apiProxy, sessionId, wantsFreshQueue).catch(() => undefined))(),
-          turnState(),
-          // 目标与待办也在这张切面上：客户端不用再单独轮询 mobile.goal，
-          // 目标条与回合状态也就不会出现「一个说进行中、一个说已结束」。
-          readGoalProjection(apiProxy, deps, sessionId, wantsFreshQueue)
-            .catch((): { goal: unknown; activation?: 'armed' | 'disarmed' } => ({ goal: null })),
-        ])
-        if (page === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '会话状态不可读' } },
-          })
-          return
-        }
-        const queueItems = queueItemsOf(inbox)
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: {
-            ok: true,
-            value: {
-              sessionId,
-              rows: page.rows,
-              maxSeq: page.maxSeq,
-              queue: queueItems,
-              queueRevision: queueRevisionOf(sessionId),
-              queueToken: queueTokenOf(queueItems),
-              ...(page.todo === undefined ? {} : { todo: page.todo }),
-              goal: goalView.goal,
-              ...(goalView.activation === undefined ? {} : { goalActivation: goalView.activation }),
-              turn: {
-                running: turn.running === true,
-                ...(turn.turnStartAt === undefined ? {} : { turnStartAt: turn.turnStartAt }),
-                ...(turn.lastEventAt === undefined ? {} : { lastEventAt: turn.lastEventAt }),
-              },
-              asOf: turn.asOf ?? Date.now(),
-            },
-          },
-        })
-      }],
+      [MOBILE_SESSION_STATE_METHOD, async (ctx) => mobileSessionState(ctx)],
       [MOBILE_GOAL_METHOD, async (ctx) => {
         const { res, parsed, rpcId, deps, apiProxy } = ctx
         // 目标条：宿主 goal 投影的线上形状是 { current }，原样交出去由客户端解析。
