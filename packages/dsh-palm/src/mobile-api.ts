@@ -211,7 +211,6 @@ export function countPromptFileParts(payload: unknown): number {
 
 const MOBILE_UPLOAD_ATTACHMENT_METHOD = 'mobile.uploadAttachment'
 /** 单个附件 base64 的字节上限（20 MB 原始字节约 27 MB base64，留一点余量）。 */
-const MAX_ATTACHMENT_BASE64_CHARS = 28 * 1024 * 1024
 const MOBILE_TRANSCRIBE_METHOD = 'mobile.transcribe'
 /** Recent completion-notify decisions (the phone's notification inbox). */
 const MOBILE_NOTIFY_EVENTS_METHOD = 'mobile.notifyEvents'
@@ -1024,7 +1023,7 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  */
 import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
 import type { MobileApiCtx } from './mobile/api/context.ts'
-import { LOCATE_TTL_MS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_REFRESH_MIN_MS, SESSION_LIST_TTL_MS, SESSION_PAGE_SIZE } from './mobile/api/constants.ts'
+import { LOCATE_TTL_MS, MAX_ATTACHMENT_BASE64_CHARS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_REFRESH_MIN_MS, SESSION_LIST_TTL_MS, SESSION_PAGE_SIZE } from './mobile/api/constants.ts'
 import { wrap } from './mobile/api/wrap.ts'
 import { workspaceList } from './mobile/api/workspace-list.ts'
 import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
@@ -1049,6 +1048,7 @@ import { mobileReadFile } from './mobile/api/mobile-file-handlers.ts'
 import { mobileLogTail } from './mobile/api/mobile-log-tail.ts'
 import { mobileReadChat } from './mobile/api/mobile-read-chat.ts'
 import { mobileFolders } from './mobile/api/mobile-folders.ts'
+import { mobileUploadAttachment } from './mobile/api/mobile-upload.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1206,80 +1206,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       [MOBILE_RESPOND_METHOD, async (ctx) => mobileRespond(ctx)],
       [MOBILE_LIST_DIRECTORY_METHOD, async (ctx) => mobileListDirectoryHandler(ctx)],
       [MOBILE_READ_FILE_METHOD, async (ctx) => mobileReadFile(ctx)],
-      [MOBILE_UPLOAD_ATTACHMENT_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        // 手机端「添加附件」：把选中的文件交给宿主附件服务落盘并暂存，回一个
-        // receiptId；随后那条 prompt 用 `{ type: 'file', receiptId }` 引用它。
-        //
-        // 三条判据都是防御深度而不是信任线（手机=已配对设备）：要有附件服务、
-        // 要有活的会话 agent（receipt 绑定在 agent 的会话上）、字节要有上限，
-        // 免得一次误选把整份日志/一段视频当附件塞进 rpc 通道。
-        const body = parsed.payload as { sessionId?: unknown; name?: unknown; data?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined
-        const data = typeof body?.data === 'string' ? body.data : ''
-        const rawName = typeof body?.name === 'string' ? body.name.trim() : ''
-        const name = rawName === '' ? undefined : rawName
-        const uploads = deps.fileUploads
-        const agent = sessionId === undefined || deps.agents === undefined
-          ? undefined
-          : deps.agents.get(sessionId)
-        if (uploads === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'upload-unavailable', message: '当前宿主不支持添加附件' } },
-          })
-          return
-        }
-        if (agent === undefined || agent === null) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'session-cold', message: '这个会话还没准备好，稍后再试' } },
-          })
-          return
-        }
-        if (data === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '附件内容是空的' } },
-          })
-          return
-        }
-        if (data.length > MAX_ATTACHMENT_BASE64_CHARS) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'payload-too-large', message: '附件太大（上限 20 MB）' } },
-          })
-          return
-        }
-        // 设备中途离开就取消这次落盘，不留半份文件。
-        const abort = new AbortController()
-        res.on('close', () => { if (!res.writableEnded) abort.abort() })
-        try {
-          const value = await uploads.upload(agent, { data, ...(name === undefined ? {} : { name }) }, abort.signal)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: {
-              ok: true,
-              value: {
-                receiptId: value.receiptId,
-                name: value.file?.name ?? name ?? '附件',
-                ...(value.file?.bytes === undefined ? {} : { bytes: value.file.bytes }),
-              },
-            },
-          })
-        } catch {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'upload-failed', message: '附件上传失败，请重试' } },
-          })
-        }
-      }],
+      [MOBILE_UPLOAD_ATTACHMENT_METHOD, async (ctx) => mobileUploadAttachment(ctx)],
       [MOBILE_COMMANDS_METHOD, async (ctx) => mobileCommands(ctx)],
       [MOBILE_COMMAND_EXEC_METHOD, async (ctx) => mobileCommandExec(ctx)],
       [MOBILE_VOICE_SERVICES_METHOD, async (ctx) => mobileVoiceServices(ctx)],

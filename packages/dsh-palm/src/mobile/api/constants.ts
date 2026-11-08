@@ -30,3 +30,6 @@ export const SESSION_PAGE_SIZE = 40
 
 /** 会话列表每页条数（一页 40 行，手机端不需要一次拿全）。 */
 export const SESSION_LIST_REFRESH_MIN_MS = 60000
+
+/** 附件 base64 字符数上限（对应 20 MB 原始字节）。 */
+export const MAX_ATTACHMENT_BASE64_CHARS = 28 * 1024 * 1024
