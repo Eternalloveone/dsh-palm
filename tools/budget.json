@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1457
   },
   "dirs": {
-    "src/mobile": 63168,
+    "src/mobile": 62892,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2525,
@@ -24,8 +24,8 @@
     "src/mobile/session": 2876,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1436,
-    "src/mobile/views": 21782,
+    "src/mobile/ui": 1431,
+    "src/mobile/views": 21820,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
@@ -55,7 +55,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
-      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落；2026-11-08 追加 chat/state/entry-routing.ts（⑥⑦ 入口归属纯函数 + 5 条单测）：页面接通后仍走旧浮层的缺陷靠它钉住",
       "expires": "2027-03-31"
     },
     "src/mobile/render": {

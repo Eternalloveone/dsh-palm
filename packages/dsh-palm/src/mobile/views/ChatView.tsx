@@ -13,6 +13,7 @@
  *   permission pickers, both as bottom sheets.
  */
 
+import { contextEntryTarget, permissionEntryTarget } from './chat/state/entry-routing.ts'
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/lib/chat-constants.ts'
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/state/chat-machine.ts'
 import { useChatSessionLifecycle } from './chat/hooks/use-chat-session-lifecycle.ts'
@@ -2112,7 +2113,6 @@ export function ChatView({
         // seq，且这行正文里真的有这个词 —— 只按 seq 认会落到相邻那张不含词的卡上。
         const term = chatSearchTermRef.current
         const byCover = list.some(row => rowCoversSeq(row, candidate.seq) && rowHasTerm(row, term))
-        console.debug(`[land] seq=${candidate.seq} id=${(candidate.messageId ?? '').slice(0, 8)} byCover=${byCover}`)
         if (!byCover) return undefined
       }
       const index = rowIndexOfHit(list, candidate.seq, candidate.messageId, candidate.snippet)
@@ -2134,7 +2134,6 @@ export function ChatView({
     const hit = hits[at]
     if (hit === undefined) return
     const landed = landingOf(hit, at)
-    console.debug(`[goto] at=${at} seq=${hit.seq} landed=${landed === undefined ? 'no' : landed.rowId.slice(0, 8) + '#' + landed.occurrence}`)
     const hitKey = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}`
     const repeated = landed !== undefined && previous !== undefined &&
       landed.rowId === previous.rowId && landed.occurrence === previous.occurrence &&
@@ -2471,7 +2470,6 @@ export function ChatView({
       : !idPresent
         ? -1
         : isSearchJump ? rowIndexOfHit(messagesRef.current, seq, wantedMessageId, pendingTurnSnippetRef.current) : turnRowIndex(messagesRef.current, turn, seq)
-    console.debug(`[pend] seq=${seq} idPresent=${idPresent} covered=${coveredIndex} index=${index} rows=${messagesRef.current.length}`)
     if (index >= 0) {
       // seq = -1 是"只知道轮次号"的跳转：这一轮自己的锚点就是它的行。
       const found = messagesRef.current[index]
@@ -3217,7 +3215,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             })
             return best
           })())
-    console.debug(`[locate] initial: msgId=${targetMessageId ?? '-'} seq=${target ?? '-'} partId=${focusPartIdRef.current ?? '-'} query=${initialFocusQuery ?? '-'}; rows=${messagesNow.length}; resolved index=${rowIndex} markable=${markableIndex} (stable=${stableRowIndex} seqRow=${seqRowIndex})`)
     if (markableIndex < 0) {
       if (hasOlder && focusAttemptsRef.current < FOCUS_MAX_PAGES) {
         // Don't burn an attempt on a load that is already in flight (the
@@ -3320,7 +3317,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         // jsdom（单测）里所有几何都是 0：别拿它当"没排版/离屏"，否则定位永远不执行。
         const laidOut = boxRect.height > 0
         if (laidOut && (boxRect.bottom <= 0 || boxRect.top >= window.innerHeight)) {
-          console.debug('[locate] skip: this chat instance is off-screen')
           locatingRef.current = false
           return
         }
@@ -3332,7 +3328,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           const py = Math.min(window.innerHeight - 1, Math.max(0, boxRect.top + boxRect.height / 2))
           const onTop = document.elementFromPoint(px, py)
           if (onTop !== null && !el2.contains(onTop)) {
-            console.debug('[locate] skip: this chat instance is covered by another one')
             locatingRef.current = false
             return
           }
@@ -3473,7 +3468,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
             // 落点真的在视口里。**不要在这里清意图**：转场里聊天页可能挂两个
             // 实例，先成功的那个把意图清掉，真正显示的那个就再也拿不到关键词，
             // 于是「定位成功、一个字都不高亮」。靠 TTL 自然过期。
-            console.debug(`[locate] OK focusMsgId=${focusMsgId} seq=${target ?? '-'} scrollTop ${before}->${landed} (read ${el2b.scrollTop}) after ${tries} fix(es)`)
             focusScrolledRef.current = true
             locatingRef.current = false
             // 收尾校准：content-visibility 的行会在这之后陆续拿到真实高度，
@@ -3529,7 +3523,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           // 补偿只写差额：落点偏多少就补多少，不重算绝对位置（重算正是以前越补
           // 越偏的原因）。
           const delta = aTop - cTop - LOCATE_TOP_GAP
-          console.debug(`[locate] fix #${tries + 1}: off=${Math.round(delta)} anchorTop=${Math.round(aTop)} scrollTop=${Math.round(el2b.scrollTop)} scrollH=${Math.round(el2b.scrollHeight)}`)
           if (tries < LOCATE_MAX_FIXES) {
             tries += 1
             setScrollTopProgrammatically(el2b, Math.max(0, el2b.scrollTop + delta))
@@ -3670,6 +3663,11 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
 
   const openPermissionPicker = (): void => {
     setContextOpen(false)
+    if (permissionEntryTarget(onOpenApprovalMode !== undefined) === 'page') {
+      setPicker(null)
+      if (permissions !== undefined) onOpenApprovalMode?.(permissions)
+      return
+    }
     setPicker('permission')
   }
 
@@ -3703,8 +3701,15 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
 
   /** Toggle the context-usage popover on the ring. */
   const toggleContextPop = (): void => {
+    // 规则见 chat/state/entry-routing.ts：接了 ⑦ 页面就走页面，否则退回气泡
     if (contextUsage === undefined) return
+    const target = contextEntryTarget(true, onOpenContext !== undefined)
     setPicker(null)
+    if (target === 'page') {
+      setContextOpen(false)
+      onOpenContext?.({ contextWindow: contextUsage.window, pressureTokens: contextUsage.pressure })
+      return
+    }
     setContextOpen(previous => !previous)
   }
 
