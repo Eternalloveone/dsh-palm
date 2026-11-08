@@ -15,7 +15,7 @@
 | 7 | 移动端体检 | `node tools/health-check.mjs` | ✅ **全绿**（typecheck / build / test / 视觉 / ADR / 预算 7 项 PASS）|
 | 8 | 像素视觉基线 | `node tools/mobile-visual/run.mjs` | ✅ **7 屏 PASS** |
 | 9 | 真机冒烟 | `node tools/mobile-scenarios/run.mjs` | ✅ **326 条判据 / 违规 0 / 异常 0** |
-| 10 | 死样式扫描 | `node tools/dead-css.mjs` | ✅ 可删 3 个（测试仍引用 2 个，故意保留）|
+| 10 | 死样式扫描 | `node tools/dead-css.mjs` | ✅ **可删 0 个**（测试仍引用 2 个，故意保留）|
 
 ## 像素基线明细
 
