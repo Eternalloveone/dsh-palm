@@ -121,6 +121,8 @@ import { ApprovalView } from './ApprovalView.tsx'
 import { DiffView } from './DiffView.tsx'
 import { ModelView } from './ModelView.tsx'
 import { AppearanceView } from './AppearanceView.tsx'
+import { OutlineView } from './OutlineView.tsx'
+import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
 
 
 /** One navigation level. */
@@ -140,6 +142,14 @@ type Route =
     focusMessageId?: string
     focusPartId?: string
     focusQuery?: string
+  }
+  /** ⑫ 回合大纲：对话页「轮次」进来，返回即弹栈回对话。 */
+  | {
+    kind: 'outline'
+    session: SessionView
+    workspace: WorkspaceRow
+    turns: readonly TurnOutlineEntry[]
+    currentTurn: number
   }
   /** ⑭ 外观：设置页「外观」进去；返回即弹栈回设置。 */
   | {
@@ -179,6 +189,7 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'diff') return `diff:${route.session.sessionId}:${route.path}`
   if (route.kind === 'model') return `model:${route.session.sessionId}`
   if (route.kind === 'appearance') return 'appearance'
+  if (route.kind === 'outline') return `outline:${route.session.sessionId}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
   if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
   return route.kind
@@ -251,6 +262,9 @@ export function backTargetOf(route: Route): Route {
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
+    case 'outline':
+      // 兜底（栈里只有它）：大纲属于某个会话，退回对话。
+      return { kind: 'chat', session: route.session, workspace: route.workspace }
     case 'appearance':
       // 兜底（栈里只有它）：外观属于设置，退回设置页。
       return { kind: 'settings', workspace: route.workspace }
@@ -343,7 +357,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1256,7 +1270,14 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             {...(route.parentTitle === undefined ? {} : { parentTitle: route.parentTitle })}
             onBack={back}
           />
-          : route.kind === 'appearance'
+          : route.kind === 'outline'
+            ? <OutlineView
+              entries={route.turns}
+              currentTurn={route.currentTurn}
+              onBack={back}
+              onPick={() => { back() }}
+            />
+            : route.kind === 'appearance'
             ? <AppearanceView onBack={back} />
             : route.kind === 'model'
             ? <ModelView
@@ -1303,6 +1324,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             onDismissFinished={() => { setChatFinished(undefined) }}
             onOpenModel={() => { navigate({ kind: 'model', session: route.session, workspace: route.workspace }) }}
             onOpenDiff={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
+            onOpenOutline={(turns, currentTurn) => { navigate({ kind: 'outline', session: route.session, workspace: route.workspace, turns, currentTurn }) }}
             onOpenApproval={(approval, preview, argsText) => {
               navigate({
                 kind: 'approval',

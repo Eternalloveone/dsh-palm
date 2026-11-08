@@ -255,6 +255,8 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
+  /** 打开回合大纲独立页（P6 ⑫ 屏）；不给就还开浮层。 */
+  onOpenOutline?: ((entries: readonly TurnEntry[], currentTurn: number) => void) | undefined
   /** 打开单文件 diff 独立页（P6 ⑩ 屏）；不给就还走浮层预览。 */
   onOpenDiff?: ((path: string) => void) | undefined
   /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
@@ -315,6 +317,7 @@ export function ChatView({
   onOpenApproval,
   onOpenModel,
   onOpenDiff,
+  onOpenOutline,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
@@ -3956,7 +3959,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           onScrubMove={moveScrub}
           onScrubUp={endScrub}
           onScrubCancel={cancelScrub}
-          onOpenTurnList={() => { setTurnListOpen(true) }}
+          onOpenTurnList={() => { if (onOpenOutline === undefined) setTurnListOpen(true); else onOpenOutline(turnEntries, shownTurn) }}
           onJumpLatest={jumpToLatest}
         />
       </div>

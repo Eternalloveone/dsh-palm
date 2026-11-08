@@ -10049,4 +10049,75 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
 }
+/* ── 回合大纲页（P6 ⑫ 屏） ─────────────────────────────────────────── */
+
+.outline-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+.outline-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+.outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+}
+
+.outline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--palm-s3) var(--palm-s4);
+  text-align: left;
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+}
+
+.outline-row[aria-current='true'] {
+  border-color: var(--palm-accent);
+}
+
+.outline-row-turn {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.outline-row-main {
+  flex: 1 0 100%;
+  font-size: var(--palm-t-m);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-row-badge {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.outline-row-mark {
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+.outline-page-note {
+  margin: var(--palm-s3) 0 0;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
 `;
