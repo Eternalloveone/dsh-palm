@@ -1048,6 +1048,7 @@ import { mobileRespond } from './mobile/api/mobile-respond.ts'
 import { mobileReadFile } from './mobile/api/mobile-file-handlers.ts'
 import { mobileLogTail } from './mobile/api/mobile-log-tail.ts'
 import { mobileReadChat } from './mobile/api/mobile-read-chat.ts'
+import { mobileFolders } from './mobile/api/mobile-folders.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1289,87 +1290,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       [MOBILE_PAIR_REVOKE_METHOD, async (ctx) => pairRevoke(ctx)],
       [MOBILE_PAIR_RENAME_METHOD, async (ctx) => pairRename(ctx)],
       [MOBILE_PAIR_SET_PRIMARY_METHOD, async (ctx) => pairSetPrimary(ctx)],
-      [MOBILE_FOLDERS_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps } = ctx
-        // Session folders (F1). One method, discriminated action: the surface is
-        // tiny (list/create/rename/remove/assign) and every action answers the
-        // full snapshot so the phone never has to merge partial state.
-        const folders = deps.folders
-        if (folders === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '会话分组不可用' } },
-          })
-          return
-        }
-        const body = parsed.payload as {
-          action?: unknown
-          name?: unknown
-          folderId?: unknown
-          sessionId?: unknown
-        } | undefined
-        const action = typeof body?.action === 'string' ? body.action : 'list'
-        if (action === 'list') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: folders.list() },
-          })
-          return
-        }
-        if (action === 'create') {
-          const created = folders.create(body?.name)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: created === undefined
-              ? { ok: false, error: { code: 'bad-request', message: '分组名不可用或已存在' } }
-              : { ok: true, value: { ...folders.list(), created } },
-          })
-          return
-        }
-        if (action === 'rename') {
-          const folderId = typeof body?.folderId === 'string' ? body.folderId : ''
-          const renamed = folders.rename(folderId, body?.name)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: renamed
-              ? { ok: true, value: folders.list() }
-              : { ok: false, error: { code: 'bad-request', message: '分组不存在或改名失败' } },
-          })
-          return
-        }
-        if (action === 'remove') {
-          const folderId = typeof body?.folderId === 'string' ? body.folderId : ''
-          const removed = folders.remove(folderId)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { ...folders.list(), removed } },
-          })
-          return
-        }
-        if (action === 'assign') {
-          const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : ''
-          const folderId = typeof body?.folderId === 'string' ? body.folderId : null
-          const assigned = folders.assign(sessionId, folderId)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: assigned
-              ? { ok: true, value: folders.list() }
-              : { ok: false, error: { code: 'bad-request', message: '分组不存在' } },
-          })
-          return
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: false, error: { code: 'bad-request', message: '未知的分组操作' } },
-        })
-      }],
+      [MOBILE_FOLDERS_METHOD, async (ctx) => mobileFolders(ctx)],
       [MOBILE_NOTIFY_EVENTS_METHOD, async (ctx) => mobileNotifyEvents(ctx)],
       [MOBILE_GIT_SUMMARY_METHOD, async (ctx) => mobileGitSummary(ctx)],
       [MOBILE_LATEST_VERSION_METHOD, async (ctx) => mobileLatestVersion(ctx)],
