@@ -274,16 +274,6 @@ export function CopyIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
-/** Quote mark (quote into composer). */
-export function QuoteIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base(props)}>
-      <path d="M5 11h4v4a3 3 0 0 1-3 3M13 11h4v4a3 3 0 0 1-3 3" />
-      <path d="M9 11V8a3 3 0 0 0-3-3M17 11V8a3 3 0 0 0-3-3" />
-    </svg>
-  )
-}
-
 /** Pencil (rename). */
 export function PencilIcon(props: SVGProps<SVGSVGElement>) {
   return (

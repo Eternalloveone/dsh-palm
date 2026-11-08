@@ -125,12 +125,14 @@ import { AppearanceView } from './AppearanceView.tsx'
 import { OutlineView } from './OutlineView.tsx'
 import { ArtifactsView } from './ArtifactsView.tsx'
 import { ArtifactSummaryView } from './ArtifactSummaryView.tsx'
+import { DeliveryDetailView } from './DeliveryDetailView.tsx'
 import { ContextView } from './ContextView.tsx'
 import { ApprovalModeView } from './ApprovalModeView.tsx'
 import { SearchView, type SearchHit } from './SearchView.tsx'
 import { searchPageFor } from './search-request.ts'
 import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.ts'
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
+import type { TurnDeliveryFacts } from '../render/message-row.tsx'
 
 
 /** One navigation level. */
@@ -208,6 +210,13 @@ type Route =
     workspace: WorkspaceRow
     path: string
   }
+  /** ⑮ 交付详情（`/m/s/<sessionId>/delivery/<turn>`）：交付卡「看全部改动」进来，返回即弹栈回对话。 */
+  | {
+    kind: 'delivery'
+    session: SessionView
+    workspace: WorkspaceRow
+    facts: TurnDeliveryFacts
+  }
   /** ④ 审批详情：从对话正文的审批面板点"详情"进来，返回即弹栈回对话。 */
   | {
     kind: 'approval'
@@ -226,6 +235,7 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'sub-chat') return `sub-chat:${route.sessionId}`
   if (route.kind === 'approval') return `approval:${route.approval.approvalId}`
   if (route.kind === 'diff') return `diff:${route.session.sessionId}:${route.path}`
+  if (route.kind === 'delivery') return `delivery:${route.session.sessionId}:${route.facts.turn}`
   if (route.kind === 'model') return `model:${route.session.sessionId}`
   if (route.kind === 'appearance') return 'appearance'
   if (route.kind === 'outline') return `outline:${route.session.sessionId}`
@@ -335,6 +345,9 @@ export function backTargetOf(route: Route): Route {
     case 'diff':
       // 兜底（栈里只有它）：diff 属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
+    case 'delivery':
+      // 兜底（栈里只有它）：交付详情属于某一轮，退回对话。
+      return { kind: 'chat', session: route.session, workspace: route.workspace }
     case 'approval':
       // 兜底（栈里只有它）：审批一定属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
@@ -362,19 +375,6 @@ export function mobileFocusSeqTarget(search: string): number | undefined {
   if (value === null || value === '') return undefined
   const seq = Number(value)
   return Number.isFinite(seq) && seq >= 0 ? seq : undefined
-}
-
-/**
- * Read the decision target carried by a notification tap. iOS has no
- * lock-screen action buttons, so tapping a "needs your approval" notification
- * lands here: the chat opens with that approval already in front of the user
- * instead of making them scroll for it.
- */
-export function mobileDecisionTarget(search: string): { id: string; kind: 'approval' | 'question' } | undefined {
-  const params = new URLSearchParams(search)
-  const id = params.get('decision')
-  if (id === null || id === '') return undefined
-  return { id, kind: params.get('decisionKind') === 'question' ? 'question' : 'approval' }
 }
 
 /**
@@ -409,16 +409,13 @@ export function routeUrlSearch(search: string, route: Route): string {
   return query === '' ? '' : `?${query}`
 }
 
-/** 时钟措辞已移入 `shared/time.ts`（单一实现）；此处保留 re-export 直到 S5 改完调用方。 */
-export { formatFullTime, formatTime } from '../shared/time.ts'
-
 /** Props accepted by the mobile root before it begins paired-device RPC calls. */
 export interface AppProps {
   initialPairError?: string
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, search: 2, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, 'artifact-summary': 4, context: 3, 'approval-mode': 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, search: 2, settings: 2, chat: 2, approval: 3, diff: 3, delivery: 4, model: 3, appearance: 3, outline: 3, artifacts: 3, 'artifact-summary': 4, context: 3, 'approval-mode': 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1433,6 +1430,12 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
               sessionId={route.session.sessionId}
               onBack={back}
             />
+            : route.kind === 'delivery'
+            ? <DeliveryDetailView
+              facts={route.facts}
+              onBack={back}
+              onOpenFile={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
+            />
             : route.kind === 'approval'
             ? <ApprovalView
               sessionId={route.session.sessionId}
@@ -1467,6 +1470,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             onDismissFinished={() => { setChatFinished(undefined) }}
             onOpenModel={() => { navigate({ kind: 'model', session: route.session, workspace: route.workspace }) }}
             onOpenDiff={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
+            onOpenDelivery={(facts) => { navigate({ kind: 'delivery', session: route.session, workspace: route.workspace, facts }) }}
             pendingTurn={pendingTurn}
             onPendingTurnConsumed={() => { setPendingTurn(undefined) }}
             onOpenOutline={(turns, currentTurn) => { navigate({ kind: 'outline', session: route.session, workspace: route.workspace, turns, currentTurn }) }}

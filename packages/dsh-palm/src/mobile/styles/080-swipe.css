@@ -260,11 +260,6 @@
   border-radius: 0;
 }
 
-.sess-dot-running {
-  background: var(--positive);
-  animation: pulse 2s infinite ease-in-out;
-}
-
 /* Title line: the title owns the line and wraps instead of truncating.
    日期与状态移到下一行的小字里（.sess-meta）：原来是"标题 · 日期"挤在一行，
    标题被日期挤成一截加省略号，看不全会话名。 */

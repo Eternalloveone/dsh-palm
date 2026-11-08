@@ -61,12 +61,12 @@ export interface DeliveryCardProps {
 const DETAIL_MAX = 2
 
 /** 计数按千分位分组（`2,923`）。 */
-function countText(value: number): string {
+export function countText(value: number): string {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)).toLocaleString('zh-CN') : ''
 }
 
 /** 路径最后一段（交付物行显示「文件名」而不是整条路径）。 */
-function baseName(path: string): string {
+export function baseName(path: string): string {
   const parts = path.split(/[\\/]/)
   return parts[parts.length - 1] ?? path
 }

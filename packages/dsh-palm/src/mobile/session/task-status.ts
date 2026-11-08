@@ -111,9 +111,6 @@ export interface TaskStatus {
 /** 90 秒没有新事件 → 可能卡住了（与 `run-detail` 的 `RUN_STALE_MS` 同一口径）。 */
 export const TASK_STUCK_AFTER_MS = 90_000
 
-/** 终态种类。 */
-const TERMINAL_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>(['done', 'failed', 'stopped'])
-
 /** 收尾证据 → 终态种类。 */
 const OUTCOME_KINDS: Readonly<Record<TaskOutcome, TaskKind>> = {
   completed: 'done',
@@ -129,11 +126,6 @@ const ALL_KINDS: readonly TaskKind[] = [
 
 /** 测试/命令行里值得算「跑测试」的关键词（其余 bash 归到「改/跑」那一档）。 */
 const TEST_COMMAND = /\b(?:test|tests|vitest|jest|spec|lint|tsc|typecheck|build|check|verify)\b/i
-
-/** 这个种类是不是终态。 */
-export function isTerminalTaskKind(kind: TaskKind): boolean {
-  return TERMINAL_KINDS.has(kind)
-}
 
 /** 计划 → 步数（没有计划 / 空计划 → undefined，不编 0/0）。 */
 export function planStepsOf(plan: { readonly items: readonly TodoItem[] } | undefined): TaskSteps | undefined {

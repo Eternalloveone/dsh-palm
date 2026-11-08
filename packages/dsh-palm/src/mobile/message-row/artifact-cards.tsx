@@ -125,11 +125,3 @@ export function parentPath(path: string): string {
   const dir = parts.slice(0, -1).join('/')
   return dir.length > 34 ? '…' + dir.slice(-33) : dir
 }
-
-/** Extension label for the file chip, uppercased and capped (`TS`, `MD`, `PNG`). */
-export function fileBadgeLabel(path: string): string {
-  const name = baseName(path)
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0 || dot === name.length - 1) return '·'
-  return name.slice(dot + 1, dot + 4).toUpperCase()
-}

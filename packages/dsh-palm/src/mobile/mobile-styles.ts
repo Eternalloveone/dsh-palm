@@ -1281,11 +1281,6 @@ body,
   border-radius: 0;
 }
 
-.sess-dot-running {
-  background: var(--positive);
-  animation: pulse 2s infinite ease-in-out;
-}
-
 /* Title line: the title owns the line and wraps instead of truncating.
    日期与状态移到下一行的小字里（.sess-meta）：原来是"标题 · 日期"挤在一行，
    标题被日期挤成一截加省略号，看不全会话名。 */
@@ -4159,11 +4154,6 @@ button.settings-row:focus-visible {
   cursor: pointer;
 }
 
-.chat-think-icon {
-  flex: none;
-  color: var(--accent);
-}
-
 .chat-think-label {
   flex: 1 1 auto;
 }
@@ -4576,64 +4566,9 @@ button.settings-row:focus-visible {
   gap: 10px;
 }
 
-/* ── background-task status bar (session/jobs) ───────────────────────── */
-
-.chat-taskbar {
-  margin: 0 12px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--bg-elevated);
-  overflow: hidden;
-}
-
-.chat-taskbar-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-md);
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-taskbar-head:active {
-  background: var(--fill);
-}
-
-.chat-taskbar-label {
-  flex: none;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.chat-taskbar-summary {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-}
-
-.chat-taskbar-open .chat-disclosure-caret {
-  transform: rotate(180deg);
-}
-
-.chat-taskbar-body {
-  padding: 4px 12px 10px;
-  border-top: 1px dashed var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+/* ── background-task rows (session/jobs) ───────────────────────────────
+ * 旧的「后台任务」折叠条已随会话正文流下线（会话顶部只留状态条）；
+ * 这里只保留运行总览页复用的任务行与子代理行。 */
 
 .chat-task-row {
   display: flex;
@@ -7262,7 +7197,6 @@ body:has(.lightbox-backdrop) .toast-host {
   .chat-disclosure-head,
   .chat-disclosure-caret,
   .chat-disclosure-body,
-  .sess-dot-running,
   .boot-dot,
   .skel,
   .toast,
@@ -9767,40 +9701,6 @@ details.think-block[open] .chat-disclosure-caret {
   to { opacity: 0; transform: translateY(6px); max-height: 0; }
 }
 
-/* 交付卡上的计划胶囊：全完成时状态条会淡出，计划的入口挪到这里 */
-.chat-turn-plan-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 9px;
-  /* 36px：胶囊是高频点击，太扁会点空（44 会让交付卡显得臃肿）。 */
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.chat-turn-plan-check { opacity: .85; }
-.chat-turn-plan-time { opacity: .8; }
-.chat-turn-plan-chevron { opacity: .65; margin-left: 1px; }
-.chat-turn-plan-list {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-}
-.chat-turn-plan-item { display: flex; gap: 7px; align-items: flex-start; font-size: var(--text-sm); }
-.chat-turn-plan-mark { flex: none; width: 13px; color: var(--text-tertiary); }
-.chat-turn-plan-mark.is-done { color: var(--positive); }
-.chat-turn-plan-text { flex: 1; color: var(--text-secondary); }
-.chat-turn-plan-text.is-done { color: var(--text-tertiary); }
-
 /* 「电脑文件」越界提示：一句话 + 一个回工作区的出口 */
 .host-file-outside {
   display: flex;
@@ -9892,139 +9792,6 @@ details.think-block[open] .chat-disclosure-caret {
   font-size: var(--text-xs);
 }
 .chat-file-cancel:active { opacity: 0.7; }
-/* ── 结论卡 · 每轮一张（对照稿 chat-rework.html） ───────────────────────
- *
- * 骨架：3px 状态色带 / ✓ 已完成 / 17px 结论 / 一行三个 22px 数字 /
- *       底部彩色标签（chip-ok / chip-info / chip-warn）/ 动作。
- * 语义色只作用于顶边与标签，不给整卡染色。
- * 所有尺寸走 --palm-* 令牌，不写字面量色值。
- */
-
-.verdict-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--palm-s2);
-  margin: 0 0 var(--palm-s3);
-  padding: var(--palm-s3);
-  background: var(--palm-sur-1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-top-width: 3px;
-  border-radius: var(--palm-r-m);
-  box-shadow: var(--palm-hi), var(--palm-sh1);
-}
-
-/* 四态：只有顶边色带换色，卡片本身不变。 */
-.verdict-card[data-state='conclusion'] { border-top: 3px solid var(--palm-ok); }
-.verdict-card[data-state='decision'] { border-top: 3px solid var(--palm-warn); }
-.verdict-card[data-state='working'] { border-top: 3px solid var(--palm-accent); }
-.verdict-card[data-state='failed'] { border-top: 3px solid var(--palm-danger); }
-
-/* 标签行：16px 线性图标 + 文字，颜色跟着四态走。 */
-.verdict-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--palm-s1);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-bold);
-  letter-spacing: 0.04em;
-  color: var(--palm-fg-2);
-}
-
-.verdict-tag > svg {
-  flex: none;
-}
-
-.verdict-card[data-state='conclusion'] .verdict-tag { color: var(--palm-ok); }
-.verdict-card[data-state='decision'] .verdict-tag { color: var(--palm-warn); }
-.verdict-card[data-state='working'] .verdict-tag { color: var(--palm-accent); }
-.verdict-card[data-state='failed'] .verdict-tag { color: var(--palm-danger); }
-
-/* 结论句：17px 加粗，整张卡的第一可读内容。 */
-.verdict-headline {
-  margin: 0;
-  font-size: var(--palm-t-l);
-  line-height: var(--palm-lh-head);
-  font-weight: var(--palm-w-bold);
-  color: var(--palm-fg);
-}
-
-/* 补充一句：14px，次灰。 */
-.verdict-detail {
-  margin: 0;
-  font-size: var(--palm-t-m);
-  line-height: var(--palm-lh-body);
-  color: var(--palm-fg-2);
-}
-
-/* 一行三个大号数字：22px 数字 + 12px 灰字说明（数字真实才渲染）。 */
-.verdict-stats {
-  display: flex;
-  align-items: baseline;
-  gap: var(--palm-s4);
-}
-
-.verdict-stats > div {
-  min-width: 0;
-}
-
-.verdict-stats b {
-  display: block;
-  font-size: var(--palm-t-xl);
-  font-weight: var(--palm-w-bold);
-  line-height: var(--palm-lh-head);
-  color: var(--palm-fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.verdict-stats span {
-  display: block;
-  margin-top: var(--palm-hair);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-/* 底部彩色标签：一条真实事实一枚，没有就整行不渲染。 */
-.verdict-foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--palm-s2);
-  padding-top: var(--palm-s2);
-  border-top: var(--palm-hair) solid var(--palm-line);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--palm-s1);
-  height: var(--palm-s6);
-  padding: 0 var(--palm-s2);
-  border-radius: var(--palm-r-full);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-}
-
-.chip[data-tone='ok'] {
-  background: var(--palm-tint-ok);
-  color: var(--palm-ok);
-}
-
-.chip[data-tone='info'] {
-  background: var(--palm-tint-accent);
-  color: var(--palm-accent);
-}
-
-.chip[data-tone='warn'] {
-  background: var(--palm-tint-warn);
-  color: var(--palm-warn);
-}
-
-/* 动作：最多三个，主按钮一档亮。 */
-.verdict-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--palm-s2);
-  margin-top: var(--palm-s1);
-}
 /* ── 审批详情页（P6 ④ 屏） ─────────────────────────────────────────── */
 
 .approval-page {
@@ -11413,6 +11180,140 @@ details.think-block[open] .chat-disclosure-caret {
 .artifact-summary-empty-action:focus-visible {
   outline: var(--palm-focus) solid var(--palm-accent);
   outline-offset: var(--palm-hair);
+}
+
+/* ── 交付详情页（会话正文流 · 交付卡的下级页） ───────────────────────
+ * 版式真源：overview.html「3 · 交付详情」。三组清单 = 交付物 / 新增 / 修改；
+ * 行内只有「图标 + 文件名 + +A −D + 标签」，超 5 条折叠。 */
+.palm-dd-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s4);
+}
+
+/* 顶部汇总：N 个文件 / +A −D / N 测试通过（拿不到的项整项不画）。 */
+.palm-dd-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-dd-sum b {
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+}
+
+.palm-dd-sum .palm-dd-add { color: var(--palm-ok); }
+.palm-dd-sum .palm-dd-del { color: var(--palm-danger); }
+
+.palm-dd-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+}
+
+/* 分组头：标题 + 右侧「展开全部 / 收起」（44px 触控区）。 */
+.palm-dd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+}
+
+.palm-dd-toggle {
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: transparent;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+}
+
+.palm-dd-toggle:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+  border-radius: var(--palm-r-s);
+}
+
+.palm-dd-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一行文件：16px 图标 / 文件名吃剩余 / +A −D / 标签；整行 ≥44px 可点。 */
+.palm-dd-row {
+  display: grid;
+  grid-template-columns: var(--palm-s4) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--palm-s2);
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s2) var(--palm-s3);
+  background: var(--palm-sur-1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+  font: inherit;
+}
+
+.palm-dd-row:active { background: var(--palm-sur-2); }
+
+.palm-dd-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.palm-dd-icon {
+  display: inline-flex;
+  color: var(--palm-fg-2);
+}
+
+.palm-dd-icon > svg {
+  inline-size: var(--palm-s4);
+  block-size: var(--palm-s4);
+}
+
+.palm-dd-name {
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-dd-tally {
+  display: inline-flex;
+  gap: var(--palm-s1);
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-dd-add { color: var(--palm-ok); }
+.palm-dd-del { color: var(--palm-danger); }
+
+/* 「交付物」绿标：与产物页的交付物标签同一套配色。 */
+.palm-dd-badge {
+  padding: 0 var(--palm-s1);
+  border-radius: var(--palm-r-s);
+  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  color: var(--palm-ok);
+  font-size: var(--palm-t-s);
+}
+
+.palm-dd-empty {
+  margin: 0;
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-3);
 }
 /* ── 上下文占用页（P6 ⑦ 屏） ───────────────────────────────────────── */
 

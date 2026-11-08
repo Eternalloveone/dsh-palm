@@ -43,6 +43,8 @@ const PUSHED_FROM: Record<Kind, Route> = {
   approval: { kind: 'chat', session, workspace },
   // diff 也是"会话内的一层"：上一页同样是那个对话
   diff: { kind: 'chat', session, workspace },
+  // ⑮ 交付详情同样挂在对话下面
+  delivery: { kind: 'chat', session, workspace },
   model: { kind: 'chat', session, workspace },
   appearance: { kind: 'settings', workspace },
   outline: { kind: 'chat', session, workspace },
@@ -66,6 +68,7 @@ const SAMPLES: Route[] = [
   { kind: 'sub-chat', sessionId: 'c-1' },
   { kind: 'approval', session, workspace, approval: approvalRow },
   { kind: 'diff', session, workspace, path: 'src/a.ts' },
+  { kind: 'delivery', session, workspace, facts: { turn: 2, deliverables: [], changes: [] } },
   { kind: 'model', session, workspace },
   { kind: 'appearance', workspace },
   { kind: 'outline', session, workspace, turns: [], currentTurn: 1 },

@@ -206,3 +206,137 @@
   outline: var(--palm-focus) solid var(--palm-accent);
   outline-offset: var(--palm-hair);
 }
+
+/* ── 交付详情页（会话正文流 · 交付卡的下级页） ───────────────────────
+ * 版式真源：overview.html「3 · 交付详情」。三组清单 = 交付物 / 新增 / 修改；
+ * 行内只有「图标 + 文件名 + +A −D + 标签」，超 5 条折叠。 */
+.palm-dd-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s4);
+}
+
+/* 顶部汇总：N 个文件 / +A −D / N 测试通过（拿不到的项整项不画）。 */
+.palm-dd-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-dd-sum b {
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+}
+
+.palm-dd-sum .palm-dd-add { color: var(--palm-ok); }
+.palm-dd-sum .palm-dd-del { color: var(--palm-danger); }
+
+.palm-dd-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+}
+
+/* 分组头：标题 + 右侧「展开全部 / 收起」（44px 触控区）。 */
+.palm-dd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+}
+
+.palm-dd-toggle {
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: transparent;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+}
+
+.palm-dd-toggle:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+  border-radius: var(--palm-r-s);
+}
+
+.palm-dd-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一行文件：16px 图标 / 文件名吃剩余 / +A −D / 标签；整行 ≥44px 可点。 */
+.palm-dd-row {
+  display: grid;
+  grid-template-columns: var(--palm-s4) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--palm-s2);
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s2) var(--palm-s3);
+  background: var(--palm-sur-1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+  font: inherit;
+}
+
+.palm-dd-row:active { background: var(--palm-sur-2); }
+
+.palm-dd-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.palm-dd-icon {
+  display: inline-flex;
+  color: var(--palm-fg-2);
+}
+
+.palm-dd-icon > svg {
+  inline-size: var(--palm-s4);
+  block-size: var(--palm-s4);
+}
+
+.palm-dd-name {
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-dd-tally {
+  display: inline-flex;
+  gap: var(--palm-s1);
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-dd-add { color: var(--palm-ok); }
+.palm-dd-del { color: var(--palm-danger); }
+
+/* 「交付物」绿标：与产物页的交付物标签同一套配色。 */
+.palm-dd-badge {
+  padding: 0 var(--palm-s1);
+  border-radius: var(--palm-r-s);
+  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  color: var(--palm-ok);
+  font-size: var(--palm-t-s);
+}
+
+.palm-dd-empty {
+  margin: 0;
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-3);
+}

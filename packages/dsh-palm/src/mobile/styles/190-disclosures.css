@@ -337,11 +337,6 @@
   cursor: pointer;
 }
 
-.chat-think-icon {
-  flex: none;
-  color: var(--accent);
-}
-
 .chat-think-label {
   flex: 1 1 auto;
 }

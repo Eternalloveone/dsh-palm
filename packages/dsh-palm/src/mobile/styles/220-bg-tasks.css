@@ -1,61 +1,6 @@
-/* ── background-task status bar (session/jobs) ───────────────────────── */
-
-.chat-taskbar {
-  margin: 0 12px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--bg-elevated);
-  overflow: hidden;
-}
-
-.chat-taskbar-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-md);
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-taskbar-head:active {
-  background: var(--fill);
-}
-
-.chat-taskbar-label {
-  flex: none;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.chat-taskbar-summary {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-}
-
-.chat-taskbar-open .chat-disclosure-caret {
-  transform: rotate(180deg);
-}
-
-.chat-taskbar-body {
-  padding: 4px 12px 10px;
-  border-top: 1px dashed var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+/* ── background-task rows (session/jobs) ───────────────────────────────
+ * 旧的「后台任务」折叠条已随会话正文流下线（会话顶部只留状态条）；
+ * 这里只保留运行总览页复用的任务行与子代理行。 */
 
 .chat-task-row {
   display: flex;

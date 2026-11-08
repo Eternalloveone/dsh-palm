@@ -1,20 +1,9 @@
 /**
- * Task status bar: a collapsible strip above the composer that surfaces the
- * parent session's background jobs (subagent delegations, bash/pwsh runs, …)
- * as the host reports them via `session/jobs` frames. The host pushes a full
- * snapshot after every registry commit (registration, stopping, settlement,
- * owner-disposal), so this component is a pure projection of the latest
- * snapshot — no local lifecycle bookkeeping.
- *
- * The bar renders nothing while the set is empty; absence is how the host
- * expresses "no tasks". Collapsed it shows a one-line summary (running count);
- * expanded it lists each job with its kind, label, status and detail.
+ * 后台任务行：运行总览页（RunOverviewView）与旧的 `session/jobs` 折叠条共用。
+ * 折叠条（TaskStatusBar）随「会话正文流」下线，行视图保留。
  */
 
-import { useState } from 'react'
 import type { JobView } from '../../api-proxy-types'
-import { ChevronDownIcon } from '../components/icons.tsx'
-import { Button } from '../ui/primitives.tsx'
 
 /** Human wording for each job lifecycle state. */
 const STATUS_LABEL: Record<JobView['status'], string> = {
@@ -44,13 +33,6 @@ const KIND_LABEL: Record<string, string> = {
 
 function kindLabel(kind: string): string {
   return KIND_LABEL[kind] ?? kind
-}
-
-/** Lifecycle states that are still in flight (listed first). */
-const ACTIVE_STATUSES: ReadonlySet<JobView['status']> = new Set(['running', 'stopping'])
-
-function isActive(job: JobView): boolean {
-  return ACTIVE_STATUSES.has(job.status)
 }
 
 /** HH:MM wall clock for a job's start or end instant. */
@@ -84,46 +66,6 @@ export function TaskRow({ job }: { job: JobView }) {
         </span>
         <span className="chat-task-time">{time}</span>
       </span>
-    </div>
-  )
-}
-
-/**
- * Collapsible background-task strip. `jobs` is the latest `session/jobs`
- * snapshot for the current session; an empty array renders nothing.
- */
-export function TaskStatusBar({ jobs }: { jobs: JobView[] }) {
-  const [open, setOpen] = useState(false)
-  if (jobs.length === 0) return null
-
-  const running = jobs.filter(job => job.status === 'running' || job.status === 'stopping').length
-  const summary = running > 0
-    ? `${running} 个运行中 · 共 ${jobs.length} 个后台任务`
-    : `${jobs.length} 个后台任务`
-
-  return (
-    <div className={'chat-taskbar' + (open ? ' chat-taskbar-open' : '')}>
-      <Button
-        type="button"
-        className="chat-taskbar-head"
-        aria-expanded={open}
-        onClick={() => { setOpen(previous => !previous) }}
-      >
-        <span className="chat-taskbar-label">后台任务</span>
-        <span className="chat-taskbar-summary">{summary}</span>
-        <span className="chat-disclosure-caret" aria-hidden>
-          <ChevronDownIcon width={14} height={14} />
-        </span>
-      </Button>
-      {open && (
-        <div className="chat-taskbar-body" role="list" aria-label="后台任务列表">
-          {/* In-flight jobs first, settled ones after; stable sort keeps the
-              host's order within each group. */}
-          {[...jobs].sort((a, b) => Number(isActive(b)) - Number(isActive(a))).map(job => (
-            <TaskRow key={job.id} job={job} />
-          ))}
-        </div>
-      )}
     </div>
   )
 }

@@ -13,9 +13,18 @@ import { formatTime } from '../shared/time.ts'
 import type { RenderMessage } from './messages.ts'
 import { triggerEmojiOf, triggerTitleOf } from './messages.ts'
 import { CollapsibleText } from './markdown-text.tsx'
-import { DeliveryCard, type DeliveryFileChange } from '../ui/delivery-card.tsx'
+import { DeliveryCard, type DeliveryDeliverable, type DeliveryFileChange } from '../ui/delivery-card.tsx'
 import type { TaskSteps } from '../session/task-status.ts'
 import { Button } from '../ui/primitives.tsx'
+
+/** 打开交付详情所需的一轮事实：交付卡上「看全部改动」把它交给路由。 */
+export interface TurnDeliveryFacts {
+  readonly turn: number
+  readonly deliverables: readonly DeliveryDeliverable[]
+  readonly changes: readonly DeliveryFileChange[]
+  readonly durationMs?: number
+  readonly steps?: number
+}
 
 
 /** / 重生成按钮的三态：待点、已发出、发出失败。 */
@@ -28,7 +37,7 @@ import { ProcessGroup } from '../message-row/process.tsx'
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from '../message-row/anchors.ts'
 
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -37,6 +46,8 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   sessionId?: string
   /** 点开交付物/产出文件时的回调（ChatView 传入，打开文件预览面板）。 */
   onOpenFile?: (path: string) => void
+  /** 交付卡「看全部改动 ›」：把这一轮的事实交给交付详情页（不传就不画入口）。 */
+  onOpenChanges?: (facts: TurnDeliveryFacts) => void
   showToolCalls: boolean
   showSystemMessages: boolean
   /** Timestamp de-dup: hidden when a later row shares this row's minute. */
@@ -167,6 +178,19 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       if (!changes.some(change => change.path === path)) changes.push({ path })
     }
     if (deliverables.length === 0 && changes.length === 0) return null
+    // 「看全部改动」的入口只在有路由回调时出现：没有回执的路由会变成死按钮。
+    const turn = message.turn
+    const openChanges = onOpenChanges === undefined || turn === undefined
+      ? undefined
+      : () => {
+        onOpenChanges({
+          turn,
+          deliverables,
+          changes,
+          ...(message.durationMs === undefined ? {} : { durationMs: message.durationMs }),
+          ...(message.plan === undefined ? {} : { steps: message.plan.items.length }),
+        })
+      }
     return (
       <div
         data-mid={message.id}
@@ -182,6 +206,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
           deliverables={deliverables}
           changes={changes}
           {...(onOpenFile === undefined ? {} : { onOpenFile })}
+          {...(openChanges === undefined ? {} : { onOpenChanges: openChanges })}
         />
       </div>
     )

@@ -209,7 +209,7 @@ import { approvalPreviewText } from '../session/approval-preview.ts'
 import { Sheet } from '../ui/sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../components/dialog.tsx'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SearchIcon, SendIcon, ShieldIcon } from '../components/icons.tsx'
-import { MessageRow } from '../render/message-row.tsx'
+import { MessageRow, type TurnDeliveryFacts } from '../render/message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../render/markdown-text.tsx'
 import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue, HostFileSheet } from '../components/sheets.tsx'
 import { buildEffortChoices, flattenModelChoices } from '../platform/model-choice.ts'
@@ -270,6 +270,8 @@ export interface ChatViewProps {
   /** 消费完成回调（不清空的话返回再进会重复跳）。 */
   onPendingTurnConsumed?: (() => void) | undefined
   onOpenDiff?: ((path: string) => void) | undefined
+  /** 交付卡「看全部改动」：打开交付详情页（不给就只画卡、不画入口）。 */
+  onOpenDelivery?: ((facts: TurnDeliveryFacts) => void) | undefined
   /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
   onOpenModel?: (() => void) | undefined
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
@@ -328,6 +330,7 @@ export function ChatView({
   onOpenApproval,
   onOpenModel,
   onOpenDiff,
+  onOpenDelivery,
   onOpenOutline,
   pendingTurn,
   onPendingTurnConsumed,
@@ -3912,6 +3915,7 @@ export function ChatView({
           loading={loading}
           loadOlder={loadOlder}
           onOpenFile={(path) => { if (onOpenDiff === undefined) setPreviewPath(path); else onOpenDiff(path) }}
+          {...(onOpenDelivery === undefined ? {} : { onOpenDelivery })}
         />
         <TurnStatusLine running={running} hostLost={hostLost} />
         <ChatAttentionPanels

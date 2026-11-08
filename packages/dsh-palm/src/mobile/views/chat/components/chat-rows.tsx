@@ -8,7 +8,7 @@
 import type { CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
 import { toolDiffLines } from '../../../render/process-rows.ts'
-import { MessageRow } from '../../../render/message-row.tsx'
+import { MessageRow, type TurnDeliveryFacts } from '../../../render/message-row.tsx'
 import { planStepsOf, type TaskSteps } from '../../../session/task-status.ts'
 import { Button } from '../../../ui/primitives.tsx'
 
@@ -96,6 +96,8 @@ export interface ChatRowsView {
   loading: boolean
   loadOlder: () => void | Promise<void>
   onOpenFile: (path: string) => void
+  /** 交付卡「看全部改动 ›」：交给 App 打开交付详情页（不给就不画入口）。 */
+  onOpenDelivery?: (facts: TurnDeliveryFacts) => void
 }
 
 export function ChatRows(view: ChatRowsView): React.ReactElement {
@@ -183,6 +185,7 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
             focusExpand={message.id === view.focusMsgId && view.chatHitQuery !== ''}
             style={cv}
             onOpenFile={(path) => { view.onOpenFile(path) }}
+            {...(view.onOpenDelivery === undefined ? {} : { onOpenChanges: view.onOpenDelivery })}
             onRegenerate={view.regenerateFor(message)}
             regenerateState={view.regenerateState}
             {...(view.goal === undefined || view.goal === '' ? {} : { turnGoal: view.goal })}
