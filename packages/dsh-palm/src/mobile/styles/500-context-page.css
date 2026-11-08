@@ -62,3 +62,24 @@
   line-height: var(--palm-lh-body);
   color: var(--palm-fg-3);
 }
+
+/* ── 上下文页大号数字（定版图：数字是这页的主角）────────────────── */
+.context-page-figure {
+  margin: 0 0 var(--palm-s2);
+  display: flex;
+  align-items: baseline;
+  gap: var(--palm-s2);
+}
+
+.context-page-figure-value {
+  font-size: var(--palm-t-2xl);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-page-figure-unit {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}

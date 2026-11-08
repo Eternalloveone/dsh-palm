@@ -62,6 +62,12 @@ export function ContextView({ contextWindow, pressureTokens, projectedTokens, on
               <EmptyState title="宿主还没报上下文用量" hint="跑完一轮对话后再看，这里会有真实数字。" />
             ) : (
               <>
+                {used === undefined ? null : (
+                  <p className="context-page-figure">
+                    <span className="context-page-figure-value">{formatTokens(used)}</span>
+                    <span className="context-page-figure-unit">已占用</span>
+                  </p>
+                )}
                 {ratio === undefined ? null : (
                   <div
                     className="context-bar"
@@ -80,12 +86,6 @@ export function ContextView({ contextWindow, pressureTokens, projectedTokens, on
                     <>
                       <dt>窗口总量</dt>
                       <dd>{formatTokens(contextWindow)}</dd>
-                    </>
-                  )}
-                  {pressureTokens === undefined ? null : (
-                    <>
-                      <dt>已占用</dt>
-                      <dd>{formatTokens(pressureTokens)}</dd>
                     </>
                   )}
                   {projectedTokens === undefined ? null : (
