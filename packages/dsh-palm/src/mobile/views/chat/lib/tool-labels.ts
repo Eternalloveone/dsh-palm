@@ -28,26 +28,29 @@ export function compactModelName(id: string): string {
   return parts.length <= 2 ? id : parts.slice(-2).join('-')
 }
 
-/** Permission tone for the shield pill: read = neutral, write = accent,
- *  full access = danger (the human-vision status channel). */
-export function permissionTone(value: string): 'read' | 'write' | 'full' | undefined {
-  if (value === 'danger-full-access') return 'full'
-  if (value.includes('write')) return 'write'
-  if (value.includes('read')) return 'read'
-  return undefined
-}
-
 /**
- * 权限 pill 的可见短名。这个 pill 只有 32px 高、且和模型 pill 并排，完整值
+ * 权限胶囊的可见短名。它只有 24px 高、且与模型名同排，完整值
  * （danger-full-access）会被省略号吃掉，剩 "danger-full-..."——用户看不到自己
  * 现在是哪一档。可见文本用中文短名，aria-label / title 仍保留完整值。
  */
 export function permissionShortLabel(value: string): string {
-  const tone = permissionTone(value)
-  if (tone === 'full') return '完全访问'
-  if (tone === 'write') return '可写'
-  if (tone === 'read') return '只读'
+  if (value === 'danger-full-access') return '完全访问'
+  if (value.includes('write')) return '可写'
+  if (value.includes('read')) return '只读'
   return displayName(value)
+}
+
+/** 回合计时（状态位）：mm:ss，秒向下取整（与桌面计时同口径）。 */
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+/** 上下文占用百分比（纯展示）：没有投影时用 `--` 占位。 */
+export function formatContextPercent(pct: number | undefined): string {
+  return pct === undefined ? '--' : `${Math.round(pct)}%`
 }
 
 /** One display-name transform for kebab-case machine names (web-UI parity). */

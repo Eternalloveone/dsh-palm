@@ -14,22 +14,22 @@
   background: rgba(15, 15, 25, 0.2);
 }
 
-.chat-tools,
 .chat-composer {
   position: relative;
   z-index: var(--z-composer);
 }
 
-/* Vertical panel: search field on top, then grouped rows (model) or the
-   full preset list (permission). Scrolling is the fallback, not the
-   primary discovery path — the search field narrows the list first. */
+/* 模型与权限面板浮在整块底栏之上（底栏 = 队列条 + 输入行 + 元信息行），
+   不再插在输入行与元信息行之间。 */
 .chat-picker-panel {
-  position: relative;
+  position: absolute;
+  left: var(--palm-s4);
+  right: var(--palm-s4);
+  bottom: calc(100% + var(--palm-s2));
   z-index: var(--z-composer);
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 8px 16px 0;
   padding: 8px;
   border: 1px solid var(--border-default);
   border-radius: 14px;

@@ -1,5 +1,5 @@
 /**
- * 输入区与各类面板（composer 组）：「+」面板、模型面板、权限 pill、上下文环、发送按钮状态。
+ * 输入区与各类面板（composer 组）：「+」面板、模型与权限面板、上下文状态、发送按钮状态。
  *
  * 全部只读：只打开面板再关掉，不发任何消息。
  */
@@ -8,7 +8,7 @@ export default [
     id: 'composer.plus-sheet-items',
     group: 'composer',
     surface: 'chat',
-    title: '「+」面板有图片/拍照/文件/电脑文件四项',
+    title: '「+」面板含图片/拍照/文件/电脑文件/斜杠命令（支持语音时再加一项）',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
       const trigger = page.locator('[aria-label="添加内容"]').first()
@@ -20,7 +20,7 @@ export default [
         return menu === null ? [] : [...menu.querySelectorAll('.sheet-option-title')].map(el => (el.textContent ?? '').trim())
       })
       await page.keyboard.press('Escape')
-      ctx.equals(items.length, 4, `面板项：${items.join('/') || '空'}`)
+      ctx.atLeast(items.length, 5, `面板项：${items.join('/') || '空'}`)
       return items.join('/')
     },
   },
@@ -31,8 +31,8 @@ export default [
     title: '模型面板能打开且有可选行',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
-      const pill = page.locator('.chat-pill').first()
-      ctx.assert((await pill.count()) > 0, '没有模型 pill')
+      const pill = page.locator('.chat-meta-chip').first()
+      ctx.assert((await pill.count()) > 0, '没有模型与权限胶囊')
       await pill.click()
       await page.waitForTimeout(1_200)
       const rows = await page.evaluate(() => {
@@ -48,11 +48,11 @@ export default [
     id: 'composer.permission-pill',
     group: 'composer',
     surface: 'chat',
-    title: '权限 pill 存在且能打开面板',
+    title: '模型与权限胶囊里有权限短名，且能打开同一块面板',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
-      const pill = page.locator('.chat-pill-perm').first()
-      ctx.assert((await pill.count()) > 0, '没有权限 pill')
+      const pill = page.locator('.chat-meta-chip').first()
+      ctx.assert((await pill.count()) > 0, '没有模型与权限胶囊')
       const label = (await pill.textContent()) ?? ''
       // 点两次兜底：面板挂载有时序（实测偶发"点了没面板"，重跑就过）。
       let opened = false
@@ -73,13 +73,12 @@ export default [
     id: 'composer.composer-visible',
     group: 'composer',
     surface: 'chat',
-    title: '输入框、发送/停止、麦克风都在',
+    title: '输入框、发送/停止都在（麦克风收进「+」面板）',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
       const found = await page.evaluate(() => ({
         input: document.querySelectorAll('textarea, input[placeholder*="说什么"], [contenteditable="true"]').length,
         sendOrStop: document.querySelectorAll('[aria-label*="发送"], [aria-label*="停止"], .chat-send, .chat-stop').length,
-        mic: document.querySelectorAll('[aria-label*="语音"], [aria-label*="麦克风"]').length,
       }))
       ctx.atLeast(found.input, 1, '输入框数量')
       ctx.atLeast(found.sendOrStop, 1, '发送/停止按钮数量')
@@ -152,27 +151,26 @@ export default [
     id: 'composer.context-ring',
     group: 'composer',
     surface: 'chat',
-    title: '上下文占用环有数值（不是 --）',
+    title: '上下文百分比是纯展示（不是 --）',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
-      // 真实结构：`.chat-context` 里是一个百分比文本 + 一圈 SVG 弧。
+      // C 案真实结构：`.chat-meta-ctx` 里只有百分比文本 + 10px 圆环，不再有 SVG 弧。
       const state = await page.evaluate(() => {
-        const box = document.querySelector('.chat-context')
+        const box = document.querySelector('.chat-meta-ctx')
         return {
           text: box === null ? null : (box.textContent ?? '').replace(/\s+/g, ' ').trim(),
-          arcs: box === null ? 0 : box.querySelectorAll('svg circle, svg path').length,
-          fallback: (document.body.innerText ?? '').match(/上下文\s*([\d.]+%)/)?.[1] ?? null,
+          rings: box === null ? 0 : box.querySelectorAll('.chat-meta-ring').length,
         }
       })
-      const percent = state.text === null ? state.fallback : state.text
-      // 会话还没有上下文统计时环上就是 `--`（新会话 / 刚清过上下文），属于 fixture
+      const percent = state.text
+      // 会话还没有上下文统计时显示 `--`（新会话 / 刚清过上下文），属于 fixture
       // 性质：跳过而不是判失败。带内容的会话一定会有百分比。
       if (percent === null || percent.includes('--') || !/\d+%/.test(percent)) {
         ctx.skip(`当前会话没有上下文统计：${percent ?? 'null'}`)
       }
       ctx.assert(percent !== null, '看不到上下文占用')
       ctx.assert(/\d+%/.test(percent), `上下文数值异常：${percent}`)
-      return `${percent}（弧 ${state.arcs}）`
+      return `${percent}（环 ${state.rings}）`
     },
   },
 ]

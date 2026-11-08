@@ -12,7 +12,7 @@
   border-top: none;
 }
 
-/* 「+」/「/」/语音：32px 视觉，44px 命中区（对照稿里输入行最左边是一枚药丸）。 */
+/* 「+」：36px 视觉，44px 命中区。C 案输入行只留「+ / 输入框 / 发送」三件。 */
 .chat-attach-btn {
   position: relative;
   flex: none;
@@ -20,8 +20,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--palm-s7);
-  height: var(--palm-s7);
+  width: var(--palm-dock-circle);
+  height: var(--palm-dock-circle);
   border: var(--palm-hair) solid var(--palm-line);
   border-radius: var(--palm-r-full);
   color: var(--palm-fg-2);
@@ -38,15 +38,6 @@
 
 .chat-attach-btn:active {
   background: var(--palm-sur-2);
-}
-
-/* The slash glyph: a text mark, not an icon, so it reads as "type a command"
-   rather than as another app action. */
-.chat-slash-glyph {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1;
-  transform: translateY(-1px);
 }
 
 .chat-attach-bar {
@@ -307,10 +298,10 @@
 
 .chat-inputbar {
   display: flex;
-  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。 */
+  /* 中线对齐：+ / 停止 / 发送都跟输入框的中心线走；左右留白 18px。 */
   align-items: center;
-  gap: var(--palm-s2);
-  padding: var(--palm-s2) var(--palm-s3) calc(env(safe-area-inset-bottom, 0) + var(--palm-s2));
+  gap: var(--palm-dock-gap);
+  padding: var(--palm-s2) var(--palm-dock-pad) calc(env(safe-area-inset-bottom, 0) + var(--palm-s2));
   background: var(--palm-bg);
 }
 
@@ -344,11 +335,11 @@
   display: flex;
   align-items: center;
   gap: var(--palm-s1);
-  min-height: var(--palm-hit);
+  min-height: var(--palm-dock-field-h);
   max-height: 104px;
   padding: var(--palm-s1);
   border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-hit);
+  border-radius: var(--palm-dock-field-r);
   background: var(--palm-sur-1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -362,7 +353,7 @@
 .chat-field > .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: var(--palm-s7);
+  min-height: var(--palm-dock-input-h);
   max-height: 100px;
   padding: var(--palm-s1) var(--palm-s2);
   border: none;
@@ -390,7 +381,7 @@
    44px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
 .chat-send.chat-send-queued {
   width: auto;
-  min-width: calc(var(--palm-s7) * 1.75);
+  min-width: calc(var(--palm-dock-circle) * 1.75);
   padding: 0 var(--palm-s3);
   border-radius: var(--palm-r-full);
   font-size: var(--palm-t-s);
@@ -401,12 +392,13 @@
   white-space: nowrap;
 }
 
-/* 发送键（对照稿）：44px 圆形、主题色底、深色箭头。 */
+/* 发送键（C 案）：36px 圆形、主题色底、深色箭头；命中区补到 44px。 */
 .chat-send {
+  position: relative;
   flex: none;
   align-self: center;
-  width: var(--palm-hit);
-  height: var(--palm-hit);
+  width: var(--palm-dock-circle);
+  height: var(--palm-dock-circle);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -418,6 +410,13 @@
   cursor: pointer;
   box-shadow: var(--palm-sh1);
   transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.chat-send::after {
+  content: '';
+  position: absolute;
+  inset: calc((var(--palm-hit) - var(--palm-dock-circle)) / -2);
+  border-radius: inherit;
 }
 
 @media (hover: hover) {

@@ -131,6 +131,32 @@ export const mobileCss = `${designTokensCss()}
   --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 220, 132, 0.06), rgba(20, 20, 27, 0.9));
   --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
   --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
+
+  /* ── 输入区底栏（C 案：队列条 + 输入行 + 元信息行） ─────────────────────
+   * 版式真源：docs/prototype/dock-c.html + overview.html「2 · 会话正文」。
+   * 半透明底色只落在这里：240/250/260 组件样式一律引用 palm-dock-* 令牌。 */
+  --palm-dock-pad: 18px;
+  --palm-dock-gap: 10px;
+  --palm-dock-field-h: 40px;
+  --palm-dock-field-r: 20px;
+  --palm-dock-input-h: 32px;
+  --palm-dock-circle: 36px;
+  --palm-dock-meta-h: 30px;
+  --palm-dock-chip-h: 24px;
+  --palm-dock-chip-r: 999px;
+  --palm-dock-chip-bg: rgba(255, 255, 255, 0.045);
+  --palm-dock-chip-size: 10.5px;
+  --palm-dock-chip-div-h: 9px;
+  --palm-dock-chip-div-bg: rgba(255, 255, 255, 0.14);
+  --palm-dock-status-size: 10.5px;
+  --palm-dock-dot: 2px;
+  --palm-dock-ring: 10px;
+  --palm-dock-ring-line: 2px;
+  --palm-dock-ring-track: rgba(124, 140, 255, 0.28);
+  --palm-dock-queue-h: 30px;
+  --palm-dock-queue-r: 9px;
+  --palm-dock-queue-size: 11px;
+  --palm-dock-queue-bg: rgba(224, 165, 44, 0.07);
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -704,6 +730,7 @@ body,
 }
 
 .mobile-quickchip {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -719,6 +746,14 @@ body,
   font-weight: 400;
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+
+/* 36px 视觉、44px 命中区（和工作区快捷条一致）。 */
+.mobile-quickchip::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--palm-s1) * -1);
+  border-radius: inherit;
 }
 
 .mobile-quickchip svg {
@@ -5018,188 +5053,118 @@ button.settings-row:focus-visible {
   transform: none;
 }
 
-/* ── composer toolbar pills（对照稿：药丸一行 = 模型 + 权限） ─────────── */
+/* ── 输入区底栏（C 案）：队列条 + 元信息行 ───────────────────────────── */
 
-/* 药丸行是输入区的一部分（同一块底、同一条顶边）：这一行与下面的输入行之间
-   不再有一条分隔线，只有 .chat-composer 自己的背景。 */
-.chat-tools {
+/* 底栏一起定位：模型与权限面板要浮在整块底栏之上，而不是插在输入行与
+   元信息行之间。 */
+.chat-dock {
+  position: relative;
+  z-index: var(--z-composer);
+  flex: none;
+}
+
+/* 队列条：只在有排队时出现，输入行上方。琥珀 7% 底 + 9 圆角 + 11px。 */
+.chat-queue {
   display: flex;
   align-items: center;
-  gap: var(--palm-s2);
-  padding: var(--palm-s2) var(--palm-s3) 0;
-  border-top: var(--palm-hair) solid var(--palm-line);
+  height: var(--palm-dock-queue-h);
+  margin: 0 var(--palm-dock-pad) var(--palm-s2);
+  padding: 0 var(--palm-s3);
+  border-radius: var(--palm-dock-queue-r);
+  background: var(--palm-dock-queue-bg);
+  color: var(--palm-warn);
+  font-size: var(--palm-dock-queue-size);
+  line-height: var(--palm-lh-head);
+}
+
+/* 元信息行：左边唯一可点的「模型 │ 权限」胶囊，右边纯展示状态与上下文。 */
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-dock-gap);
+  height: var(--palm-dock-meta-h);
+  padding: 0 var(--palm-dock-pad);
   background: var(--palm-bg);
 }
 
-.chat-tools-actions {
-  display: flex;
-  gap: var(--palm-s2);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-/* 药丸：32px 高的胶囊，背景一档浅灰；视觉 32px、命中区 44px（见 ::after）。 */
-.chat-pill {
+.chat-meta-chip {
   position: relative;
-  flex: 0 1 auto;
-  min-width: 0;
-  display: flex;
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  gap: var(--palm-s1);
-  height: var(--palm-s7);
+  height: var(--palm-dock-chip-h);
   padding: 0 var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-full);
-  background: var(--palm-sur-1);
+  border: none;
+  border-radius: var(--palm-dock-chip-r);
+  background: var(--palm-dock-chip-bg);
   color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
+  font-size: var(--palm-dock-chip-size);
+  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
 }
 
-.chat-pill > svg {
-  flex: none;
-  color: var(--palm-accent);
-}
-
-.chat-pill:active {
-  transform: scale(0.96);
-  border-color: var(--palm-accent);
-  background: var(--palm-tint-accent);
-}
-
-/* 命中区向外扩：纵向 6px（上下没有邻居），横向只 2px —— 相邻药丸间距 8px，
-   横向也扩 6px 会让两块命中区重叠 4px，点空隙反而命中隔壁那个。 */
-.chat-pill::after {
+/* 视觉 24 高，纵向命中区撑到 44（上下各 10）；横向不扩，避免压到右侧状态。 */
+.chat-meta-chip::after {
   content: '';
   position: absolute;
-  inset: calc(var(--palm-s2) * -0.75) 0;
+  inset: calc((var(--palm-hit) - var(--palm-dock-chip-h)) / -2) 0;
   border-radius: inherit;
 }
 
-.mobile-quickchip {
-  position: relative;
+.chat-meta-chip:active {
+  background: var(--palm-sur-2);
 }
 
-.mobile-quickchip::after {
-  content: '';
-  position: absolute;
-  inset: calc(var(--palm-s1) * -1);
-  border-radius: inherit;
-}
-
-.chat-pill-name {
-  max-width: calc(var(--palm-s8) * 2.5);
-  overflow: hidden;
-  text-overflow: ellipsis;
+.chat-meta-seg {
   white-space: nowrap;
 }
 
-.chat-pill-chevron {
-  flex: none;
+.chat-meta-div {
+  width: var(--palm-hair);
+  height: var(--palm-dock-chip-div-h);
+  margin: 0 var(--palm-s2);
+  background: var(--palm-dock-chip-div-bg);
+}
+
+.chat-meta-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s2);
   color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-dock-status-size);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
-/* Permission pills never shrink: their text is short and stays visible. */
-.chat-pill-perm {
-  flex: none;
+.chat-meta-status {
+  font-variant-numeric: tabular-nums;
 }
 
-/* Context meter (status zone): an SVG occupancy ring + the percentage;
-   the exact counts live in the title. ≥80% flips ring and figures to the
-   danger color. */
-.chat-context {
-  flex: none;
-  display: flex;
+.chat-meta-dot {
+  width: var(--palm-dock-dot);
+  height: var(--palm-dock-dot);
+  border-radius: var(--palm-dock-chip-r);
+  background: var(--palm-fg-3);
+  opacity: 0.6;
+}
+
+.chat-meta-ctx {
+  display: inline-flex;
   align-items: center;
   gap: var(--palm-s1);
-  min-width: 0;
-  padding-left: var(--palm-s3);
-  border-left: var(--palm-hair) solid var(--palm-line);
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-  line-height: var(--palm-lh-head);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.chat-context-ring {
-  flex: none;
-  display: block;
-}
-
-.chat-context-ring-track {
-  stroke: var(--palm-line);
-}
-
-.chat-context-ring-fill {
-  stroke: var(--palm-accent);
-  transition: stroke-dasharray 0.3s ease;
-}
-
-.chat-context-warn {
-  color: var(--palm-danger);
-}
-
-.chat-context-warn .chat-context-ring-fill {
-  stroke: var(--palm-danger);
-}
-
-/* Context-usage popover: tap the ring to see the exact figures. Anchored
-   to the toolbar (its stacking context), floating above the message
-   list; an invisible fixed scrim closes it on outside taps. */
-.chat-context-pop {
-  position: absolute;
-  right: var(--palm-s4);
-  bottom: calc(100% + var(--palm-s2));
-  z-index: var(--z-popover);
-  min-width: 150px;
-  padding: var(--palm-s2) var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-  box-shadow: var(--palm-sh2);
-}
-
-.chat-context-pop-title {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.chat-context-pop-figures {
-  margin-top: var(--palm-hair);
-  font-size: var(--palm-t-l);
-  font-weight: var(--palm-w-bold);
-  color: var(--palm-fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.chat-context-pop-figures span {
-  margin: 0 var(--palm-hair);
-  color: var(--palm-fg-3);
-  font-weight: var(--palm-w-normal);
-}
-
-.chat-context-pop-sub {
-  margin-top: var(--palm-hair);
-  font-size: var(--palm-t-s);
   color: var(--palm-fg-2);
+  font-variant-numeric: tabular-nums;
 }
 
-.chat-context-pop-scrim {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: var(--z-scrim);
-  background: transparent;
+.chat-meta-ring {
+  box-sizing: border-box;
+  width: var(--palm-dock-ring);
+  height: var(--palm-dock-ring);
+  border: var(--palm-dock-ring-line) solid var(--palm-dock-ring-track);
+  border-top-color: var(--palm-accent);
+  border-radius: var(--palm-dock-chip-r);
 }
 /* ── in-place quick picker (model search panel / permission list) ────── */
 
@@ -5217,22 +5182,22 @@ button.settings-row:focus-visible {
   background: rgba(15, 15, 25, 0.2);
 }
 
-.chat-tools,
 .chat-composer {
   position: relative;
   z-index: var(--z-composer);
 }
 
-/* Vertical panel: search field on top, then grouped rows (model) or the
-   full preset list (permission). Scrolling is the fallback, not the
-   primary discovery path — the search field narrows the list first. */
+/* 模型与权限面板浮在整块底栏之上（底栏 = 队列条 + 输入行 + 元信息行），
+   不再插在输入行与元信息行之间。 */
 .chat-picker-panel {
-  position: relative;
+  position: absolute;
+  left: var(--palm-s4);
+  right: var(--palm-s4);
+  bottom: calc(100% + var(--palm-s2));
   z-index: var(--z-composer);
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 8px 16px 0;
   padding: 8px;
   border: 1px solid var(--border-default);
   border-radius: 14px;
@@ -5365,7 +5330,7 @@ button.settings-row:focus-visible {
   border-top: none;
 }
 
-/* 「+」/「/」/语音：32px 视觉，44px 命中区（对照稿里输入行最左边是一枚药丸）。 */
+/* 「+」：36px 视觉，44px 命中区。C 案输入行只留「+ / 输入框 / 发送」三件。 */
 .chat-attach-btn {
   position: relative;
   flex: none;
@@ -5373,8 +5338,8 @@ button.settings-row:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--palm-s7);
-  height: var(--palm-s7);
+  width: var(--palm-dock-circle);
+  height: var(--palm-dock-circle);
   border: var(--palm-hair) solid var(--palm-line);
   border-radius: var(--palm-r-full);
   color: var(--palm-fg-2);
@@ -5391,15 +5356,6 @@ button.settings-row:focus-visible {
 
 .chat-attach-btn:active {
   background: var(--palm-sur-2);
-}
-
-/* The slash glyph: a text mark, not an icon, so it reads as "type a command"
-   rather than as another app action. */
-.chat-slash-glyph {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1;
-  transform: translateY(-1px);
 }
 
 .chat-attach-bar {
@@ -5660,10 +5616,10 @@ button.settings-row:focus-visible {
 
 .chat-inputbar {
   display: flex;
-  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。 */
+  /* 中线对齐：+ / 停止 / 发送都跟输入框的中心线走；左右留白 18px。 */
   align-items: center;
-  gap: var(--palm-s2);
-  padding: var(--palm-s2) var(--palm-s3) calc(env(safe-area-inset-bottom, 0) + var(--palm-s2));
+  gap: var(--palm-dock-gap);
+  padding: var(--palm-s2) var(--palm-dock-pad) calc(env(safe-area-inset-bottom, 0) + var(--palm-s2));
   background: var(--palm-bg);
 }
 
@@ -5697,11 +5653,11 @@ button.settings-row:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--palm-s1);
-  min-height: var(--palm-hit);
+  min-height: var(--palm-dock-field-h);
   max-height: 104px;
   padding: var(--palm-s1);
   border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-hit);
+  border-radius: var(--palm-dock-field-r);
   background: var(--palm-sur-1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -5715,7 +5671,7 @@ button.settings-row:focus-visible {
 .chat-field > .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: var(--palm-s7);
+  min-height: var(--palm-dock-input-h);
   max-height: 100px;
   padding: var(--palm-s1) var(--palm-s2);
   border: none;
@@ -5743,7 +5699,7 @@ button.settings-row:focus-visible {
    44px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
 .chat-send.chat-send-queued {
   width: auto;
-  min-width: calc(var(--palm-s7) * 1.75);
+  min-width: calc(var(--palm-dock-circle) * 1.75);
   padding: 0 var(--palm-s3);
   border-radius: var(--palm-r-full);
   font-size: var(--palm-t-s);
@@ -5754,12 +5710,13 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
-/* 发送键（对照稿）：44px 圆形、主题色底、深色箭头。 */
+/* 发送键（C 案）：36px 圆形、主题色底、深色箭头；命中区补到 44px。 */
 .chat-send {
+  position: relative;
   flex: none;
   align-self: center;
-  width: var(--palm-hit);
-  height: var(--palm-hit);
+  width: var(--palm-dock-circle);
+  height: var(--palm-dock-circle);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5771,6 +5728,13 @@ button.settings-row:focus-visible {
   cursor: pointer;
   box-shadow: var(--palm-sh1);
   transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.chat-send::after {
+  content: '';
+  position: absolute;
+  inset: calc((var(--palm-hit) - var(--palm-dock-circle)) / -2);
+  border-radius: inherit;
 }
 
 @media (hover: hover) {

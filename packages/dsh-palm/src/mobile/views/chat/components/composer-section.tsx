@@ -2,14 +2,14 @@
  * 输入区（composer）：引用条、待发图片/附件 chip、输入框、三档发送与「怎么发送」面板。
  *
  * S6a 从 `ChatView` 搬出（纯展示 + 回调，内部只留长按计时与 sheet 开关这类局部状态）。
- * 为什么不把这些状态也一起搬走：草稿、附件、语音、发送本身都是会话层的东西，
+ * 为什么不把这些状态也一起搬走：草稿、附件、发送本身都是会话层的东西，
  * 组件只做「把用户的选择画出来、把动作打回去」，这样以后改样式不会牵动会话逻辑。
  */
-import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { useRef, useState, type Dispatch, type MutableRefObject, type ReactNode, type SetStateAction } from 'react'
 import type { CommandDescriptor } from '../../../api.ts'
 import { imageFromClipboard } from '../../../platform/image.ts'
 import type { AttachedImage } from '../../../platform/image.ts'
-import { CloseIcon, MicIcon, PlusIcon, SendIcon } from '../../../components/icons.tsx'
+import { CloseIcon, PlusIcon, SendIcon } from '../../../components/icons.tsx'
 import { Sheet } from '../../../ui/sheet.tsx'
 import type { StagedFile } from '../hooks/use-chat-attachments.ts'
 import { formatFileSize } from '../../../render/ui-text.ts'
@@ -37,14 +37,13 @@ export interface ComposerAttachments {
   addImage: (file: File) => void
 }
 
-/** 斜杠命令面板与「+」面板的开合。 */
+/** 命令 chip 的认领与「+」面板的开合（斜杠/语音入口都收进了 + 面板）。 */
 export interface ComposerCommands {
   commands: CommandDescriptor[] | undefined
   claimedCommand: string | undefined
   claimCommand: (name: string, argument?: string) => void
   releaseCommand: () => void
   setPlusOpen: Dispatch<SetStateAction<boolean>>
-  setCommandOpen: Dispatch<SetStateAction<boolean>>
 }
 
 /** 当前回合的发送/停止状态与动作。 */
@@ -66,10 +65,10 @@ export interface ComposerInputBox {
   mobileEnterToSend: boolean
 }
 
-/** 语音入口。 */
-export interface ComposerVoice {
-  supported: boolean
-  open: () => void
+/** 排队条：只在有排队时出现，输入行上方；明细（可编辑/插队）交给 QueueDock。 */
+export interface ComposerQueue {
+  count: number
+  detail: ReactNode
 }
 
 /**
@@ -85,17 +84,16 @@ export interface ComposerSectionProps {
   commands: ComposerCommands
   turn: ComposerTurn
   inputBox: ComposerInputBox
-  voice: ComposerVoice
+  queue: ComposerQueue
 }
 
 export function ComposerSection(props: ComposerSectionProps) {
-  const { draft, attachments, turn, inputBox, voice } = props
+  const { draft, attachments, turn, inputBox, queue } = props
   const commandApi = props.commands
   const { input, setInput, quoted, setQuoted } = draft
   const { attachImages, setAttachImages, attachFiles, setAttachFiles, retryStaged, addImage } = attachments
-  const { commands, claimedCommand, claimCommand, releaseCommand, setPlusOpen, setCommandOpen } = commandApi
+  const { commands, claimedCommand, claimCommand, releaseCommand, setPlusOpen } = commandApi
   const { composerRef, mobileEnterToSend } = inputBox
-  const { supported: voiceSupported, open: openVoice } = voice
   const {
     running, primaryStops, stopArmed, setStopArmed, stopping, stopTurn, sending, draftEmpty, send,
   } = turn
@@ -109,6 +107,10 @@ export function ComposerSection(props: ComposerSectionProps) {
   return (
     <>
       <div className="chat-composer">
+        {queue.detail}
+        {queue.count > 0 && (
+          <div className="chat-queue" role="status">{queue.count} 条排队 · 当前任务结束后执行</div>
+        )}
         {quoted !== undefined && (
           <div className="chat-quote-bar" role="note" aria-label="引用消息">
             <span className="chat-quote-text">{truncate(quoted, 20)}</span>
@@ -186,25 +188,6 @@ export function ComposerSection(props: ComposerSectionProps) {
           >
             <PlusIcon width={16} height={16} />
           </Button>
-          <Button
-            type="button"
-            className="chat-attach-btn"
-            aria-label="斜杠命令"
-            aria-haspopup="dialog"
-            onClick={() => { setCommandOpen(true) }}
-          >
-            <span className="chat-slash-glyph" aria-hidden="true">/</span>
-          </Button>
-          {voiceSupported && (
-            <Button
-              type="button"
-              className="chat-attach-btn"
-              aria-label="语音输入"
-              onClick={openVoice}
-            >
-              <MicIcon width={16} height={16} />
-            </Button>
-          )}
           {/* 命令 chip 摆在输入框**里面**（边框和背景挪到 .chat-field 上）：与输入框
               同一条中心线垂直居中，输入框被挤窄/长高都跟着走，不会像并排摆时那样把
               框压扁，也不会像单独一行那样把输入区顶起来。 */}
@@ -227,7 +210,9 @@ export function ComposerSection(props: ComposerSectionProps) {
             className="chat-input"
             rows={1}
             value={input}
-            placeholder={claimedCommand === undefined ? '说点什么...' : '输入命令参数，回车执行'}
+            placeholder={claimedCommand !== undefined
+              ? '输入命令参数，回车执行'
+              : running ? '说点什么...（会打断当前任务）' : '说点什么...'}
             enterKeyHint={mobileEnterToSend ? 'send' : 'enter'}
             onChange={(event) => {
               const value = event.target.value

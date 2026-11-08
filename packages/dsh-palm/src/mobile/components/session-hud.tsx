@@ -35,5 +35,5 @@ export function SessionHud({
   if (queue !== undefined && queue !== null && queue !== false) parts.push(queue)
   if (status !== undefined && status !== null && status !== false) parts.push(status)
   if (parts.length === 0) return null
-  return <div className="chat-hud" data-hud-count={parts.length}>{parts}</div>
+  return <div className="chat-hud" data-hud-count={parts.length}>{goal}{queue}{status}</div>
 }

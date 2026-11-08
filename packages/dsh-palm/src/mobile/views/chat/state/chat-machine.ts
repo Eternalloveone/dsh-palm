@@ -89,8 +89,8 @@ function useSlice<S extends object>(
 
 /** 纯界面开关。加字段前先想：它会不会被异步改变？会的话它不属于这一组。 */
 export interface ChatUiState {
-  /** 长按/右键消息弹出的上下文菜单。 */
-  contextOpen: boolean
+  /** 输入区「模型与权限」面板。 */
+  composerPanelOpen: boolean
   /** 输入区「+」面板。 */
   plusOpen: boolean
   /** 宿主文件选择面板。 */
@@ -114,13 +114,13 @@ export interface ChatUiState {
 
 /** 状态键。 */
 export const CHAT_UI_KEYS = [
-  'contextOpen', 'plusOpen', 'hostFileOpen', 'commandOpen', 'moreOpen',
+  'composerPanelOpen', 'plusOpen', 'hostFileOpen', 'commandOpen', 'moreOpen',
   'exportOpen', 'gitOpen', 'renaming', 'deleting', 'runStatusOpen',
 ] as const satisfies ReadonlyArray<keyof ChatUiState>
 
 /** 初值：全部关闭。 */
 export const INITIAL_CHAT_UI: ChatUiState = {
-  contextOpen: false,
+  composerPanelOpen: false,
   plusOpen: false,
   hostFileOpen: false,
   commandOpen: false,

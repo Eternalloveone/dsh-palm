@@ -178,6 +178,12 @@ function emitChunk(mux: FakeMux, seq: number, time: number, turn = 0): void {
   })
 }
 
+/** C 案把「/」与麦克风收进了「+」面板：先开面板，再点对应项。 */
+async function pickComposerAction(name: string): Promise<void> {
+  fireEvent.click(await screen.findByRole('button', { name: '添加内容' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: new RegExp(name) }))
+}
+
 /** Flush the rAF-batched live fold so a just-emitted frame is in the DOM.
  *  The flush is scheduled on requestAnimationFrame, and sinon's fake rAF grid is
  *  16.667 ms (60 fps) — advancing exactly 16 ms never fires it, so the emitted
@@ -1435,7 +1441,7 @@ describe('ChatView model sheet', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const chip = await screen.findByRole('button', { name: /切换模型/ })
+    const chip = await screen.findByRole('button', { name: /模型与权限/ })
     // A（聚合读取）：目录先等 readChat 的 extras，宽限过后才自己补取，所以
     // chip 的文案是异步落位的。
     await waitFor(() => { expect(chip.textContent).toContain('fx-1') })
@@ -1455,7 +1461,7 @@ describe('ChatView model sheet', () => {
     })
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const chip = await screen.findByRole('button', { name: /切换模型/ })
+    const chip = await screen.findByRole('button', { name: /模型与权限/ })
     await waitFor(() => { expect(chip.textContent).toContain('ex-9') })
     // 宽限窗口（120ms）过后也不该再发一次 session.models。
     await new Promise(resolve => setTimeout(resolve, 220))
@@ -1482,7 +1488,7 @@ describe('ChatView model sheet', () => {
     } satisfies SessionModels)
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     // Effort now lives in the same popover as the models (the duplicate full
     // sheet is gone), so no "全部…" hop is needed to reach it.
     const effort = await screen.findByRole('button', { name: /^高/ })
@@ -1496,7 +1502,7 @@ describe('ChatView model sheet', () => {
     modelsMock.mockRejectedValue(new Error('HTTP 403'))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText(/HTTP 403/)).toBeTruthy()
     expect(await screen.findByText(/重启 dsh web/)).toBeTruthy()
   })
@@ -2342,7 +2348,7 @@ describe('ChatView display toggles and context usage', () => {
     expect(container.querySelector('.chat-proc')!.contains(answer)).toBe(false)
   })
 
-  it('renders the context meter from the contextPressure projection', async () => {
+  it('renders the context percent in the pure-display status group', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         values: { contextPressure: { contextWindow: 100_000, pressureTokens: 30_000, projectedTokens: 30_000 } },
@@ -2350,50 +2356,32 @@ describe('ChatView display toggles and context usage', () => {
     }))
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     expect(await screen.findByText('30%')).toBeTruthy()
-    // The ring arc matches the figure exactly (C = 2π·10.5 ≈ 65.97).
-    const fill = container.querySelector('.chat-context-ring-fill')
-    expect(fill?.getAttribute('stroke-dasharray')).toBe('19.791 65.97')
+    expect(container.querySelector('.chat-meta-ctx .chat-meta-ring')).not.toBeNull()
+    // 旧的 SVG 弧/上下文弹层已下线，状态位只剩文字 + 10px 圆环。
+    expect(container.querySelector('.chat-context-ring-fill')).toBeNull()
   })
 
-  it('shows the exact usage figures when the ring is tapped and closes again', async () => {
+  it('does not open a popover when the context figure is tapped', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
       projections: {
         values: { contextPressure: { contextWindow: 100_000, pressureTokens: 30_000, projectedTokens: 30_000 } },
       },
     }))
-    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const ring = await screen.findByText('30%')
-    fireEvent.click(ring)
-    expect(await screen.findByText('上下文用量')).toBeTruthy()
-    expect(screen.getByText(/30k/)).toBeTruthy()
-    expect(screen.getByText(/100k/)).toBeTruthy()
-    expect(screen.getByText(/已使用 30%/)).toBeTruthy()
-    // Tapping outside (the pop scrim) closes it again.
-    fireEvent.click(container.querySelector('.chat-context-pop-scrim') as Element)
-    await waitFor(() => expect(screen.queryByText('上下文用量')).toBeNull())
-  })
-
-  it('adds the warn class when context pressure is at or above 80%', async () => {
-    loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), {
-      projections: {
-        values: { contextPressure: { contextWindow: 100_000, pressureTokens: 80_000, projectedTokens: 80_000 } },
-      },
-    }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const meter = await screen.findByText('80%')
-    expect(meter.closest('.chat-context')?.className).toContain('chat-context-warn')
+    fireEvent.click(await screen.findByText('30%'))
+    expect(screen.queryByText('上下文用量')).toBeNull()
+    expect(document.querySelector('.chat-context-pop')).toBeNull()
   })
 
-  it('renders a persistent context chip with a dash placeholder when there is no usage/context data', async () => {
+  it('renders a dash placeholder when there is no context projection', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
-    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    const chip = await screen.findByText('上下文 --')
-    expect(chip.className).not.toContain('chat-context-warn')
+    await waitFor(() => expect(container.querySelector('.chat-meta-ctx')?.textContent).toContain('--'))
   })
 })
 
-describe('ChatView in-place quick picker strips', () => {
+describe('ChatView 模型与权限面板', () => {
   /** History with the permissions projection (readonly / workspace-write / full). */
   function permissionHistory(): ChatPageResult {
     return rowPage(turnEvents(), {
@@ -2417,7 +2405,7 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText('FX 标准')).toBeTruthy()
     expect(screen.getByText('FX 深度')).toBeTruthy()
     const selected = screen.getByText('FX 标准').closest('.chat-picker-row')
@@ -2448,7 +2436,7 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText('思考强度')).toBeTruthy()
     const effort = screen.getByText('高').closest('.chat-picker-row')
     expect(effort?.className).toContain('chat-picker-row-selected')
@@ -2470,7 +2458,7 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText('DeepSeek-V4.1-Flash · DeepSeek')).toBeTruthy()
     expect(screen.getByText('DeepSeek-V4.1-Flash · DeepSeek Account')).toBeTruthy()
     // 独名的那项不加后缀，保持干净。
@@ -2488,10 +2476,10 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText('当前')).toBeTruthy()
     // chip 上也写着同一个 id，查询限定在面板内。
-    const panel = screen.getByRole('menu', { name: '选择模型' })
+    const panel = screen.getByRole('menu', { name: '模型与权限' })
     const row = within(panel).getByText('v4.1-flash:1017').closest('.chat-picker-row')
     expect(row?.className).toContain('chat-picker-row-selected')
   })
@@ -2500,11 +2488,11 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     const card = await screen.findByText('FX 深度')
     fireEvent.click(card)
     expect(selectModelMock).toHaveBeenCalledWith('s-1', { provider: 'fx', model: 'fx-2', reasoningEffort: 'high' })
-    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择模型' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '模型与权限' })).toBeNull())
     // The chip label follows the model id returned by the host.
     expect(await screen.findByText('fx-2')).toBeTruthy()
   })
@@ -2514,7 +2502,7 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText('重试')).toBeTruthy()
     fireEvent.click(screen.getByText('重试'))
     expect(await screen.findByText('FX 标准')).toBeTruthy()
@@ -2524,32 +2512,32 @@ describe('ChatView in-place quick picker strips', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换模型/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     await screen.findByText('FX 标准')
     const scrim = container.querySelector('.chat-picker-scrim')
     expect(scrim).not.toBeNull()
     fireEvent.click(scrim as Element)
-    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择模型' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '模型与权限' })).toBeNull())
   })
 
   it('opens the permission strip and switches through /permission', async () => {
     loadChatPageMock.mockResolvedValue(permissionHistory())
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换权限/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     expect(await screen.findByText('工作区写入')).toBeTruthy()
     fireEvent.click(screen.getByText('工作区写入'))
     expect(sendCommandMock).toHaveBeenCalledWith('s-1', '/permission workspace-write')
-    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择权限' })).toBeNull())
-    // pill 只有 32px 高：可见文本用中文短名，完整值留在 aria-label 里（否则会被省略号吃掉）。
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '模型与权限' })).toBeNull())
+    // 胶囊只有 24px 高：可见文本用中文短名，完整值留在 aria-label 里（否则会被省略号吃掉）。
     expect(await screen.findByText('可写')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '切换权限：工作区写入' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /模型与权限.*工作区写入/ })).toBeTruthy()
   })
   it('routes the full-access preset through the confirming sheet, never directly', async () => {
     loadChatPageMock.mockResolvedValue(permissionHistory())
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    fireEvent.click(screen.getByRole('button', { name: /切换权限/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     const dangerCard = await screen.findByText('完全权限')
     expect(dangerCard.closest('.chat-picker-row')?.className).toContain('chat-picker-row-danger')
     fireEvent.click(dangerCard)
@@ -2557,7 +2545,7 @@ describe('ChatView in-place quick picker strips', () => {
     // The popover is the only preset list now, so picking full access there
     // must raise the confirm itself — the old sheet hop is gone, and with it
     // the silent-switch path that skipped the warning.
-    await waitFor(() => expect(screen.queryByRole('menu', { name: '选择权限' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('menu', { name: '模型与权限' })).toBeNull())
     expect(await screen.findByText('确认完全权限')).toBeTruthy()
     expect(screen.getByText(/开启完全权限后/)).toBeTruthy()
   })
@@ -2646,10 +2634,10 @@ describe('ChatView stop button (#1041)', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
 
-    fireEvent.click(screen.getByRole('button', { name: '切换权限：读取中' }))
+    fireEvent.click(await screen.findByRole('button', { name: /模型与权限/ }))
     await waitFor(() => { expect(readChatMock).toHaveBeenCalled() })
-    // The projection that lands seeds the picker and opens it.
-    expect(await screen.findByRole('button', { name: /切换权限：workspace-write/ })).toBeTruthy()
+    // 投影落地后胶囊换成宿主档位（兜底档位的 name 就是机器值），面板仍开着。
+    expect(await screen.findByRole('button', { name: /模型与权限.*workspace-write/ })).toBeTruthy()
   })
   it('reconciles a lost turn/end frame against the host running state', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
@@ -3743,7 +3731,7 @@ describe('ChatView voice cleanup', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const { unmount } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     // Open the mic; getUserMedia is still authorizing (the promise is pending).
-    fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+    await pickComposerAction('语音输入')
     // The user leaves the chat before authorization resolves.
     unmount()
     // Authorization resolves after unmount: the recorder must be cancelled so
@@ -3763,7 +3751,7 @@ describe('ChatView queued echo', () => {
     ]))
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const input = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
     await waitFor(() => {
       expect(input.value).toBe('重启前排队的那句话')
     })
@@ -3783,7 +3771,7 @@ describe('ChatView queued echo while a turn runs', () => {
     ]))
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const input = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(input.value).toBe('')
     // 底稿也不能丢：真正丢消息时还要靠它回填。
@@ -3802,7 +3790,7 @@ it('shows live captions while the user is still talking', async () => {
   voiceSupportedMock.mockReturnValue(true)
   loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
   render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-  fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+  await pickComposerAction('语音输入')
   await waitFor(() => {
     expect(document.querySelector('.voice-text-live')?.textContent).toBe('转写出来的文本')
   }, { timeout: 6000 })
@@ -3819,7 +3807,7 @@ describe('ChatView voice sheet', () => {
     voiceSupportedMock.mockReturnValue(true)
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+    await pickComposerAction('语音输入')
     const cancelButton = await screen.findByRole('button', { name: '取消' })
     fireEvent.click(cancelButton)
     await waitFor(() => {
@@ -3828,7 +3816,7 @@ describe('ChatView voice sheet', () => {
     expect(cancel).toHaveBeenCalled()
     // 取消是丢弃，不是完成：不能去转写，也不能把录音停下来当成提交。
     expect(stop).not.toHaveBeenCalled()
-    expect((screen.getByPlaceholderText('说点什么...') as HTMLTextAreaElement).value).toBe('')
+    expect((screen.getByPlaceholderText(/说点什么/) as HTMLTextAreaElement).value).toBe('')
   })
 
   it('closes the voice sheet on Escape and hands the focus back', async () => {
@@ -3839,9 +3827,10 @@ describe('ChatView voice sheet', () => {
     voiceSupportedMock.mockReturnValue(true)
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const trigger = await screen.findByRole('button', { name: '语音输入' })
+    // C 案里麦克风在「+」面板里：焦点最终要回到常驻的「添加内容」按钮上。
+    const trigger = await screen.findByRole('button', { name: '添加内容' })
     trigger.focus()
-    fireEvent.click(trigger)
+    await pickComposerAction('语音输入')
     const sheet = await screen.findByRole('dialog', { name: '语音输入' })
     // 焦点必须先落到面板里的「完成」上。
     await waitFor(() => {
@@ -3852,7 +3841,7 @@ describe('ChatView voice sheet', () => {
       expect(screen.queryByRole('dialog', { name: '语音输入' })).toBeNull()
     })
     expect(cancel).toHaveBeenCalled()
-    // 焦点回到打开它的那颗按钮上，继续按空格还是「语音输入」。
+    // 焦点回到常驻的「添加内容」按钮上，继续按空格还能再开。
     await waitFor(() => {
       expect(document.activeElement).toBe(trigger)
     })
@@ -3870,7 +3859,7 @@ describe('ChatView voice sheet', () => {
     voiceSupportedMock.mockReturnValue(true)
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    fireEvent.click(await screen.findByRole('button', { name: '语音输入' }))
+    await pickComposerAction('语音输入')
     fireEvent.click(await screen.findByRole('button', { name: '完成' }))
     await waitFor(() => { expect(screen.queryByRole('dialog', { name: '语音输入' })).not.toBeNull() })
     // 面板仍开着（转写中），用户等不及按了取消。
@@ -3879,7 +3868,7 @@ describe('ChatView voice sheet', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '语音输入' })).toBeNull()
     })
-    expect((screen.getByPlaceholderText('说点什么...') as HTMLTextAreaElement).value).toBe('')
+    expect((screen.getByPlaceholderText(/说点什么/) as HTMLTextAreaElement).value).toBe('')
   })
 })
 
@@ -3908,7 +3897,7 @@ describe('ChatView composer IME guard', () => {
   it('does not send on Enter while a Chinese IME is composing', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...')
+    const input = await screen.findByPlaceholderText(/说点什么/)
     fireEvent.change(input, { target: { value: '你好' } })
     // IME composition Enter (isComposing true) must not fire a send.
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: true })
@@ -3923,7 +3912,7 @@ describe('ChatView send failure', () => {
   it('keeps the draft on a failed send and surfaces the error line', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...') as HTMLInputElement
+    const input = await screen.findByPlaceholderText(/说点什么/) as HTMLInputElement
     fireEvent.change(input, { target: { value: '这条没发出去' } })
     // The host rejects the prompt.
     vi.mocked(promptMock).mockRejectedValueOnce(new Error('HTTP 403'))
@@ -3931,7 +3920,7 @@ describe('ChatView send failure', () => {
     // The draft survives so the user can retry (the draft is only wiped on
     // success), and the chat error line explains why the send failed.
     await waitFor(() => {
-      expect((screen.getByPlaceholderText('说点什么...') as HTMLInputElement).value).toBe('这条没发出去')
+      expect((screen.getByPlaceholderText(/说点什么/) as HTMLInputElement).value).toBe('这条没发出去')
       expect(screen.getByText(/HTTP 403/)).toBeTruthy()
     })
   })
@@ -4136,9 +4125,8 @@ describe('ChatView pending-message queue dock', () => {
     await screen.findByText('插队的那条')
     expect(container.querySelector('[data-queue-dock]')).not.toBeNull()
   })
-  it('floats the queue dock above the model and permission row', async () => {
-    // 桌面端把队列挂在输入框外、模型/权限那一行上面；手机端曾经塞在 .chat-composer
-    // 里，视觉上成了输入框的一部分。DOM 顺序就是视觉顺序，这里直接钉住。
+  it('keeps the queue strip above the input and the meta row below it', async () => {
+    // C 案底栏顺序（DOM = 视觉）：队列明细 → 琥珀排队条 → 输入行 → 元信息行。
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -4152,15 +4140,22 @@ describe('ChatView pending-message queue dock', () => {
     })
     await screen.findByText('排队消息')
     const dock = container.querySelector('[data-queue-dock]')
-    const tools = container.querySelector('.chat-tools')
+    const strip = container.querySelector('.chat-queue')
+    const inputbar = container.querySelector('.chat-inputbar')
+    const meta = container.querySelector('.chat-meta')
     expect(dock).not.toBeNull()
-    expect(tools).not.toBeNull()
-    expect(dock !== null && tools !== null && (dock.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(strip).not.toBeNull()
+    expect(inputbar).not.toBeNull()
+    expect(meta).not.toBeNull()
+    expect(strip?.textContent).toContain('1 条排队 · 当前任务结束后执行')
+    expect(dock !== null && strip !== null && (dock.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(strip !== null && inputbar !== null && (strip.compareDocumentPosition(inputbar) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(inputbar !== null && meta !== null && (inputbar.compareDocumentPosition(meta) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
   })
 
-  it('HUD 顺序：目标在最上，排队居中，模型行在下（阶段 3 起固定）', async () => {
-    // 顺序改由 `SessionHud` 统一决定：为什么在跑（目标）→ 接下来发什么（排队）→
-    // 跑到哪了（任务）。三条都在模型/权限行之上，DOM 顺序就是视觉顺序。
+  it('HUD 顺序：目标在最上，队列在底栏，元信息行最下', async () => {
+    // 「为什么在跑（目标）→ 跑到哪了（任务）」留在顶部 HUD；队列属于底栏，
+    // 与输入行、元信息行一起构成 C 案的三行。
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -4182,15 +4177,16 @@ describe('ChatView pending-message queue dock', () => {
       })
     })
     await screen.findByText('排队消息')
-    const dock = container.querySelector('[data-queue-dock]')
     const bar = container.querySelector('[data-goal-bar]')
-    const tools = container.querySelector('.chat-tools')
-    expect(dock).not.toBeNull()
+    const dock = container.querySelector('[data-queue-dock]')
+    const inputbar = container.querySelector('.chat-inputbar')
+    const meta = container.querySelector('.chat-meta')
     expect(bar).not.toBeNull()
-    expect(tools).not.toBeNull()
-    // 目标在上、排队居中（阶段 3 起由 SessionHud 固定这个顺序）。
-    expect(dock !== null && bar !== null && (bar.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
-    expect(bar !== null && tools !== null && (bar.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(dock).not.toBeNull()
+    expect(inputbar).not.toBeNull()
+    expect(meta).not.toBeNull()
+    expect(bar !== null && dock !== null && (bar.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(inputbar !== null && meta !== null && (inputbar.compareDocumentPosition(meta) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
   })
 
   it('hides the goal bar the moment the goal completes', async () => {
@@ -4258,7 +4254,7 @@ describe('ChatView pending-message queue dock', () => {
     const api = await import('../api.ts')
     vi.mocked(api.goalOf).mockResolvedValue({ goal: null })
     render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const input = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
     const before = vi.mocked(api.goalOf).mock.calls.length
     fireEvent.change(input, { target: { value: '/goal 做个测试' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -4271,7 +4267,7 @@ describe('ChatView pending-message queue dock', () => {
     // 程序化 click()。图片和拍照仍走现造的节点，带图片类型（拍照另外带 capture）。
     loadChatPageMock.mockResolvedValue(rowPage([]))
     render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByPlaceholderText('说点什么...')
+    await screen.findByPlaceholderText(/说点什么/)
     fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
     const fileItem = await screen.findByRole('menuitem', { name: /^文件/ })
     const fileInput = fileItem.querySelector('input[type="file"]') as HTMLInputElement
@@ -4331,7 +4327,7 @@ describe('ChatView pending-message queue dock', () => {
       }
     })
     render(<ChatView session={session} mux={new FakeMux() as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByPlaceholderText('说点什么...')
+    await screen.findByPlaceholderText(/说点什么/)
     fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: /电脑文件/ }))
     // 目录与文件都列出来，文件带字节数。
@@ -4361,7 +4357,7 @@ describe('ChatView pending-message queue dock', () => {
         <ToastHost />
       </>,
     )
-    await screen.findByPlaceholderText('说点什么...')
+    await screen.findByPlaceholderText(/说点什么/)
     fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: /^文件/ }))
     const menuItem = await screen.findByRole('menuitem', { name: /^文件/ })
@@ -4409,7 +4405,7 @@ describe('ChatView pending-message queue dock', () => {
         <ToastHost />
       </>,
     )
-    await screen.findByPlaceholderText('说点什么...')
+    await screen.findByPlaceholderText(/说点什么/)
     fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: /^文件/ }))
     const picker = (await screen.findByRole('menuitem', { name: /^文件/ })).querySelector('input[type="file"]') as HTMLInputElement
@@ -4441,7 +4437,7 @@ describe('ChatView pending-message queue dock', () => {
         <ToastHost />
       </>,
     )
-    await screen.findByPlaceholderText('说点什么...')
+    await screen.findByPlaceholderText(/说点什么/)
     fireEvent.click(screen.getByRole('button', { name: '添加内容' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: /^文件/ }))
     const picker = (await screen.findByRole('menuitem', { name: /^文件/ })).querySelector('input[type="file"]') as HTMLInputElement
@@ -4536,7 +4532,7 @@ describe('ChatView pending-message queue dock', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
-    fireEvent.click(screen.getByRole('button', { name: '斜杠命令' }))
+    await pickComposerAction('斜杠命令')
     fireEvent.click(await screen.findByRole('menuitem'))
     // chip 出现、命令行**没有**被立刻发出去
     expect(await screen.findByText('/goal')).toBeTruthy()
@@ -4555,7 +4551,7 @@ describe('ChatView pending-message queue dock', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
-    fireEvent.change(screen.getByPlaceholderText('说点什么...'), { target: { value: '/goal 手敲的目标' } })
+    fireEvent.change(screen.getByPlaceholderText(/说点什么/), { target: { value: '/goal 手敲的目标' } })
     // 目录是异步拉回来的：回来后命令词收成 chip，参数留在输入框。
     expect(await screen.findByText('/goal')).toBeTruthy()
     expect((screen.getByPlaceholderText('输入命令参数，回车执行') as HTMLTextAreaElement).value).toBe('手敲的目标')
@@ -4565,7 +4561,7 @@ describe('ChatView pending-message queue dock', () => {
     await waitFor(() => {
       expect(screen.queryByText('/goal')).toBeNull()
     })
-    const cleared = screen.getByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const cleared = screen.getByPlaceholderText(/说点什么/) as HTMLTextAreaElement
     expect(cleared.value).toBe('')
   })
 
@@ -4785,7 +4781,7 @@ describe('ChatView pending-message queue dock', () => {
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByRole('button', { name: '发送' })
-    fireEvent.click(screen.getByRole('button', { name: '斜杠命令' }))
+    await pickComposerAction('斜杠命令')
     fireEvent.click(await screen.findByRole('menuitem'))
     await screen.findByText('/goal')
     // chip 在输入框外壳里面（和 textarea 同一个 .chat-field），不是并排的第二个控件，
@@ -5267,7 +5263,9 @@ describe('ChatView queued-send affordance', () => {
     const first = render(
       <ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />,
     )
-    const runningInput = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const runningInput = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
+    // 运行中的提示语明说会打断，不再和空闲时同一句。
+    expect(runningInput.getAttribute('placeholder')).toBe('说点什么...（会打断当前任务）')
     fireEvent.change(runningInput, { target: { value: '先排一条' } })
     const queued = await screen.findByRole('button', { name: '排队发送' })
     // 写字的胶囊，而不是「纸飞机 + 角上一只钟」。
@@ -5278,7 +5276,8 @@ describe('ChatView queued-send affordance', () => {
 
     loadChatPageMock.mockResolvedValue(rowPage([]))
     render(<ChatView session={{ ...session, running: false }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const idleInput = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const idleInput = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
+    expect(idleInput.getAttribute('placeholder')).toBe('说点什么...')
     fireEvent.change(idleInput, { target: { value: '直接发' } })
     const sending = await screen.findByRole('button', { name: '发送' })
     // 空闲时还是那枚纸飞机，不会误显示成「排队」。
@@ -6736,12 +6735,12 @@ describe('ChatView send：超时但宿主其实收到了', () => {
       inbox: { nextTurn: [{ id: 'host-1', placement: 'queued', text: '其实已经排上了', editable: true, requestId: 'test-request-id' }], nextStep: [] },
     } as never)
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...') as HTMLInputElement
+    const input = await screen.findByPlaceholderText(/说点什么/) as HTMLInputElement
     fireEvent.change(input, { target: { value: '其实已经排上了' } })
     vi.mocked(promptMock).mockRejectedValueOnce(new Error('timeout after 30000ms'))
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false })
     await waitFor(() => {
-      expect((screen.getByPlaceholderText('说点什么...') as HTMLInputElement).value).toBe('')
+      expect((screen.getByPlaceholderText(/说点什么/) as HTMLInputElement).value).toBe('')
     })
     expect(screen.queryByText(/发送失败/)).toBeNull()
   })
@@ -6756,7 +6755,7 @@ describe('ChatView 草稿与打不开的会话', () => {
     removeDraft(session.sessionId)
     loadChatPageMock.mockResolvedValue(rowPage([]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+    const input = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
 
     fireEvent.change(input, { target: { value: '要删掉的草稿内容' } })
     // 草稿落盘有 1.5 秒防抖：给足真实时间，别用默认 1 秒的 waitFor
@@ -6775,7 +6774,7 @@ describe('ChatView 草稿与打不开的会话', () => {
     try {
       loadChatPageMock.mockResolvedValue(rowPage([]))
       render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-      const input = await screen.findByPlaceholderText('说点什么...') as HTMLTextAreaElement
+      const input = await screen.findByPlaceholderText(/说点什么/) as HTMLTextAreaElement
       await waitFor(() => { expect(input.value).toBe('写了一半的话') })
     } finally {
       removeDraft(session.sessionId)

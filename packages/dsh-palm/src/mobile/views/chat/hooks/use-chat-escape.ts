@@ -15,36 +15,31 @@ import { useEffect } from 'react'
 
 import type { ChatUiState, SliceSetters } from '../state/chat-machine.ts'
 
-/** 依赖：浮层开关状态 + 一个非 reducer 管理的浮层（picker）。 */
+/** 依赖：浮层开关状态。 */
 export interface ChatEscapeDeps {
   ui: ChatUiState
   setters: SliceSetters<ChatUiState>
-  /** 文件选择器是否打开（它由别处的状态驱动，不在 reducer 里）。 */
-  pickerOpen: boolean
-  /** 关掉文件选择器。 */
-  closePicker: () => void
 }
 
 /** 有浮层打开时，Esc 关掉全部。 */
 export function useChatEscape(deps: ChatEscapeDeps): void {
-  const { ui, setters, pickerOpen, closePicker } = deps
-  const anyOpen = pickerOpen || ui.moreOpen || ui.runStatusOpen
-    || ui.gitOpen || ui.contextOpen || ui.plusOpen || ui.commandOpen
+  const { ui, setters } = deps
+  const anyOpen = ui.moreOpen || ui.runStatusOpen
+    || ui.gitOpen || ui.composerPanelOpen || ui.plusOpen || ui.commandOpen
 
   useEffect(() => {
     if (!anyOpen) return undefined
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       event.stopPropagation()
-      closePicker()
       setters.moreOpen(false)
       setters.runStatusOpen(false)
       setters.gitOpen(false)
-      setters.contextOpen(false)
+      setters.composerPanelOpen(false)
       setters.plusOpen(false)
       setters.commandOpen(false)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [anyOpen, closePicker, setters])
+  }, [anyOpen, setters])
 }

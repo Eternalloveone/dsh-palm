@@ -118,6 +118,32 @@
   --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 220, 132, 0.06), rgba(20, 20, 27, 0.9));
   --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
   --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
+
+  /* ── 输入区底栏（C 案：队列条 + 输入行 + 元信息行） ─────────────────────
+   * 版式真源：docs/prototype/dock-c.html + overview.html「2 · 会话正文」。
+   * 半透明底色只落在这里：240/250/260 组件样式一律引用 palm-dock-* 令牌。 */
+  --palm-dock-pad: 18px;
+  --palm-dock-gap: 10px;
+  --palm-dock-field-h: 40px;
+  --palm-dock-field-r: 20px;
+  --palm-dock-input-h: 32px;
+  --palm-dock-circle: 36px;
+  --palm-dock-meta-h: 30px;
+  --palm-dock-chip-h: 24px;
+  --palm-dock-chip-r: 999px;
+  --palm-dock-chip-bg: rgba(255, 255, 255, 0.045);
+  --palm-dock-chip-size: 10.5px;
+  --palm-dock-chip-div-h: 9px;
+  --palm-dock-chip-div-bg: rgba(255, 255, 255, 0.14);
+  --palm-dock-status-size: 10.5px;
+  --palm-dock-dot: 2px;
+  --palm-dock-ring: 10px;
+  --palm-dock-ring-line: 2px;
+  --palm-dock-ring-track: rgba(124, 140, 255, 0.28);
+  --palm-dock-queue-h: 30px;
+  --palm-dock-queue-r: 9px;
+  --palm-dock-queue-size: 11px;
+  --palm-dock-queue-bg: rgba(224, 165, 44, 0.07);
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */

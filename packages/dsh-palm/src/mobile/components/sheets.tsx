@@ -16,7 +16,7 @@ import { latestBatchOf } from '../session/question-batches.ts'
 import { Sheet } from '../ui/sheet.tsx'
 import type { TurnEntry } from '../session/turn-outline.ts'
 import { Button } from '../ui/primitives.tsx'
-import { ShieldIcon } from './icons.tsx'
+import { MicIcon, ShieldIcon } from './icons.tsx'
 
 /** One switchable permission preset (the `permissions` projection shape). */
 export interface PermissionOption {
@@ -62,19 +62,15 @@ export function parsePermissionSelect(value: unknown): PermissionSelectValue | u
 }
 
 /** Defensive runtime guard for projection payloads. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * The composer's + menu: attach an image, from the gallery or the camera.
- *
- * Slash commands deliberately do NOT live here. They used to, duplicated with
- * the dedicated "/" panel next door — two buttons, one list, and every command
- * styling change had to be made twice. The + button now owns attachments only
- * and "/" owns commands only.
+ * The composer's + menu: attachments, slash commands, and voice input. C 案
+ * collapses the old "/" and mic buttons into this one entry so the input row
+ * stays `[+] [field] [↑]`.
  */
-export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFile, onClose }: {
+export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFile, onOpenCommands, onOpenVoice, onClose }: {
   onPickImage(): void
   onPickCamera(): void
   /**
@@ -89,6 +85,8 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
    * 有些机型只给相机和相册，那时这条路是唯一能挑到文档的办法。
    */
   onPickHostFile(): void
+  onOpenCommands(): void
+  onOpenVoice?(): void
   onClose(): void
 }) {
   return (
@@ -148,6 +146,16 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
             <path d="M8 11.5 V14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
         </Button>
+        <Button type="button" role="menuitem" className="sheet-option" onClick={onOpenCommands}>
+          <span className="sheet-option-copy"><span className="sheet-option-title">斜杠命令</span><span className="sheet-option-desc">选一条命令，补完参数再发</span></span>
+          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9.5 2 6.5 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+        </Button>
+        {onOpenVoice === undefined ? null : (
+          <Button type="button" role="menuitem" className="sheet-option" onClick={onOpenVoice}>
+            <span className="sheet-option-copy"><span className="sheet-option-title">语音输入</span><span className="sheet-option-desc">说一句，转成文字再发</span></span>
+            <MicIcon width={18} height={18} />
+          </Button>
+        )}
       </div>
     </Sheet>
   )

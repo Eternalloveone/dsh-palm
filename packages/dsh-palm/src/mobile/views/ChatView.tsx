@@ -9,11 +9,10 @@
  * - reasoning text hides behind a collapsed "深度思考" disclosure,
  * - tool calls behind a collapsed tool disclosure (name + arguments),
  * - very long assistant text collapses with an explicit expand toggle,
- * - a toolbar above the composer carries the model (+ thinking effort) and
- *   permission pickers, both as bottom sheets.
+ * - the C-case dock: queue strip, input row, and one `模型 │ 权限` capsule
+ *   that opens a single model-and-permission panel.
  */
 
-import { contextEntryTarget, permissionEntryTarget } from './chat/state/entry-routing.ts'
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/lib/chat-constants.ts'
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/state/chat-machine.ts'
 import { useChatSessionLifecycle } from './chat/hooks/use-chat-session-lifecycle.ts'
@@ -88,14 +87,14 @@ import { useChatAttachments } from './chat/hooks/use-chat-attachments.ts'
 import { useChatVoice } from './chat/hooks/use-chat-voice.ts'
 import { VoiceSheet } from './chat/components/voice-sheet.tsx'
 import { MessageMenu, type MessageCtxMenuState } from './chat/components/message-menu.tsx'
-import { ChatTools } from './chat/components/chat-tools.tsx'
+import { ComposerMeta } from './chat/components/composer-meta.tsx'
 import { SessionSheets } from './chat/components/session-sheets.tsx'
 import { OfflineBanner } from './chat/components/offline-banner.tsx'
 import { ChatHeader, ChatSearchBar } from './chat/components/chat-header.tsx'
 import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText, type SearchHit } from './chat/lib/chat-search-match.ts'
 import { ChatAttentionPanels } from './chat/components/chat-attention-panels.tsx'
 import { JumpControls, TurnStatusLine } from './chat/components/scroll-controls.tsx'
-import { compactModelName, displayName, fmtTokens, permissionShortLabel, permissionTone, type ModelPickerCatalog } from './chat/lib/tool-labels.ts'
+import { formatClock, type ModelPickerCatalog } from './chat/lib/tool-labels.ts'
 import { useChatDraft } from './chat/hooks/use-chat-draft.ts'
 import { ComposerSection } from './chat/components/composer-section.tsx'
 import { useLongPress } from '../ui/hooks/use-long-press.ts'
@@ -256,10 +255,13 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
-  /** 打开批准方式页（P6 ⑥ 屏）；不给就还是原来的选择器。 */
-  onOpenApprovalMode?: ((permissions: { currentValue: string; options: readonly { value: string; name: string; description?: string }[] }) => void) | undefined
-  /** 打开上下文占用页（P6 ⑦ 屏）；不给就还是原来的浮层。 */
+  /** 打开上下文占用页（P6 ⑦ 屏）：面板底部入口，右状态仍保持纯展示。 */
   onOpenContext?: ((usage: { contextWindow?: number; pressureTokens?: number; projectedTokens?: number }) => void) | undefined
+  /** 打开批准方式页（P6 ⑥ 屏）：面板底部入口。 */
+  onOpenApprovalMode?: ((permissions: {
+    currentValue: string
+    options: readonly { value: string; name: string; description?: string }[]
+  }) => void) | undefined
   /** 打开产物列表页（P6 ⑧ 屏）；不给就不显示入口。 */
   onOpenArtifacts?: ((turns: readonly ArtifactTurn[]) => void) | undefined
   /** 打开回合大纲独立页（P6 ⑫ 屏）；不给就还开浮层。 */
@@ -307,8 +309,6 @@ export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/hooks/use-chat-draft.ts'
 // Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
 // paging bounded, but large enough to reach any result that search can return.
 
-/** displayName 已与工具栏共用一份，见 views/chat/tool-labels.ts。 */
-
 
 /**
  * Render one session's chat.
@@ -328,6 +328,8 @@ export function ChatView({
   finishedElsewhere,
   onOpenFinished,
   onDismissFinished,
+  onOpenContext,
+  onOpenApprovalMode,
   onOpenApproval,
   onOpenModel,
   onOpenDiff,
@@ -337,8 +339,6 @@ export function ChatView({
   pendingTurn,
   onPendingTurnConsumed,
   onOpenArtifacts,
-  onOpenContext,
-  onOpenApprovalMode,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
@@ -560,9 +560,6 @@ export function ChatView({
   onOpenDiffRef.current = onOpenDiff
   /** In-chat <img> source opened in the full-screen lightbox (tap-to-view). */
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
-  /** Which in-place quick picker strip is open below the toolbar. */
-  const [picker, setPicker] = useState<'model' | 'permission' | null>(null)
-  /** Whether the context-usage popover (ring tap) is open. */
   /** In-flight guard for one-shot picker actions. */
   /** Lazily cached model directory backing the quick picker (fresh per open
    *  until it loads once; the full sheet re-fetches on its own). */
@@ -823,8 +820,8 @@ export function ChatView({
   // 实测此前按 Esc 什么都不发生——遮罩拦着，只能去点空白处。
   // 纯界面开关收在一个 reducer 里：11 个 useState → 1 个（S1-A）。
   const [uiState, uiSetters] = useChatUi()
-  const { contextOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, renaming, deleting, runStatusOpen } = uiState
-  const { contextOpen: setContextOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
+  const { composerPanelOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, renaming, deleting, runStatusOpen } = uiState
+  const { composerPanelOpen: setComposerPanelOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
 
   // 滚动与阅读位置收进 reducer（S1-C）：4 个 useState → 1 个。
   // 它们必须同属一个状态机，否则会出现「按钮出现了但未读数没清」这类只在真机复现的错位。
@@ -837,12 +834,7 @@ export function ChatView({
   const [composerState, composerSetters] = useChatComposerState()
   const { pickerBusy, composerFocused, mobileEnterToSend, goalBusy, stopArmed, offline } = composerState
   const { pickerBusy: setPickerBusy, composerFocused: setComposerFocused, mobileEnterToSend: setMobileEnterToSend, goalBusy: setGoalBusy, stopArmed: setStopArmed, offline: setOffline } = composerSetters
-  useChatEscape({
-    ui: uiState,
-    setters: uiSetters,
-    pickerOpen: picker !== null,
-    closePicker: () => { setPicker(null) },
-  })
+  useChatEscape({ ui: uiState, setters: uiSetters })
   /** The host `turnOutline` projection raw value (parsed into the merged
    *  list below). Absent until the tail projection baseline lands. */
   const [turnOutlineRaw, setTurnOutlineRaw] = useState<unknown>(undefined)
@@ -1574,6 +1566,12 @@ export function ChatView({
    * 不跑的行收不到这个 prop，memo 照旧挡住它们。
    */
   const liveClockTick = useLiveClock(turnLive && foreground)
+  /** 状态位：空闲写「空闲」，运行中写 mm:ss（与目标条的「已跑」同一根锚）。 */
+  const dockStatus = ((): string => {
+    if (!running || turnStartAt === null) return '空闲'
+    const hostNow = hostClock.hostNow()
+    return formatClock(hostNow === undefined ? 0 : Math.max(0, hostNow - turnStartAt))
+  })()
   /**
    * 目标条上的进度摘要：已跑多久、走到第几步。
    *
@@ -3566,12 +3564,6 @@ export function ChatView({
     )
   }, [stopping, session.sessionId])
 
-  const modelLabel = currentModel?.model ?? '模型'
-  const permissionLabel = permissions === undefined
-    ? undefined
-    : permissions.options.find(option => option.value === permissions.currentValue)?.name
-      ?? displayName(permissions.currentValue)
-
   // Context usage chip: the host's context-pressure projection (token-meter)
   // is the authoritative per-session occupancy source — it is computed for
   // every session and pushed live, so the chip stays resident. `undefined`
@@ -3585,9 +3577,19 @@ export function ChatView({
     return { pct, window, pressure }
   }, [contextPressure])
 
-  /* ── in-place quick picker (model / permission) ──────────────────────
-     Opens the horizontal option strip below the toolbar; the full bottom
-     sheet stays reachable through the trailing "全部…" card. */
+  /** 面板底部的两个详情入口：先关面板，再把宿主页面的数据交出去。 */
+  const openContextPage = (): void => {
+    if (onOpenContext === undefined || contextUsage === undefined) return
+    setComposerPanelOpen(false)
+    onOpenContext({ contextWindow: contextUsage.window, pressureTokens: contextUsage.pressure })
+  }
+  const openApprovalPage = (): void => {
+    if (onOpenApprovalMode === undefined || permissions === undefined) return
+    setComposerPanelOpen(false)
+    onOpenApprovalMode(permissions)
+  }
+
+  /* ── 元信息胶囊里的「模型与权限」面板 ──────────────────────────────── */
   const loadModelCatalog = useCallback(() => {
     setModelCatalog(previous => previous.status === 'ready' ? previous : { status: 'loading' })
     void models(session.sessionId).then(
@@ -3596,20 +3598,15 @@ export function ChatView({
     )
   }, [session.sessionId])
 
-  const openModelPicker = (): void => {
-    setContextOpen(false)
-    setPicker('model')
-    if (modelCatalog.status === 'idle') loadModelCatalog()
-  }
-
-  const openPermissionPicker = (): void => {
-    setContextOpen(false)
-    if (permissionEntryTarget(onOpenApprovalMode !== undefined) === 'page') {
-      setPicker(null)
-      if (permissions !== undefined) onOpenApprovalMode?.(permissions)
+  /** 元信息胶囊：整块可点，打开同一块「模型与权限」面板。 */
+  const toggleComposerPanel = (): void => {
+    if (composerPanelOpen) {
+      setComposerPanelOpen(false)
       return
     }
-    setPicker('permission')
+    setComposerPanelOpen(true)
+    if (permissions === undefined) requestPermissionsOnce()
+    if (modelCatalog.status === 'idle') loadModelCatalog()
   }
 
   /** 拉一次会话投影（权限档位在这里面）。
@@ -3629,9 +3626,6 @@ export function ChatView({
           setContextPressure(parseContextPressure(values['contextPressure']))
           setTurnOutlineRaw(values['turnOutline'])
         }
-        // 数据一到就打开选择器：用户点的是"看看能不能改"，不是"刷新一下"。
-        setContextOpen(false)
-        setPicker('permission')
       },
       (reason: unknown) => {
         permissionPullRef.current = false
@@ -3640,21 +3634,7 @@ export function ChatView({
     )
   }, [session.sessionId])
 
-  /** Toggle the context-usage popover on the ring. */
-  const toggleContextPop = (): void => {
-    // 规则见 chat/state/entry-routing.ts：接了 ⑦ 页面就走页面，否则退回气泡
-    if (contextUsage === undefined) return
-    const target = contextEntryTarget(true, onOpenContext !== undefined)
-    setPicker(null)
-    if (target === 'page') {
-      setContextOpen(false)
-      onOpenContext?.({ contextWindow: contextUsage.window, pressureTokens: contextUsage.pressure })
-      return
-    }
-    setContextOpen(previous => !previous)
-  }
-
-  /** One-shot model switch from the strip; the chip label follows the result. */
+  /** One-shot model switch from the panel; the capsule label follows the result. */
   const applyModel = useCallback((selection: { provider: string; model: string; reasoningEffort?: string }): void => {
     if (pickerBusy) return
     setPickerBusy(true)
@@ -3662,7 +3642,7 @@ export function ChatView({
       (result) => {
         setPickerBusy(false)
         setCurrentModel(result.selected)
-        setPicker(null)
+        setComposerPanelOpen(false)
       },
       (reason: unknown) => {
         setPickerBusy(false)
@@ -3671,10 +3651,8 @@ export function ChatView({
     )
   }, [pickerBusy, session.sessionId])
 
-  /** One-shot permission switch. Full access never applies directly: the
-   *  popover and the old permission sheet used to disagree here — one asked
-   *  first, the other switched silently. Both now funnel through the same
-   *  confirmation sheet. */
+  /** One-shot permission switch. Full access never applies directly — it
+   *  funnels through the confirmation sheet, never a silent switch. */
   /** 权限档位以宿主为准。
    *
    *  手机上点完档位会先写一个乐观值（立刻反馈），但宿主可能对档位做归一化、也可能
@@ -3694,11 +3672,11 @@ export function ChatView({
 
   const applyPermission = useCallback((next: string): void => {
     if (next === permissions?.currentValue) {
-      setPicker(null)
+      setComposerPanelOpen(false)
       return
     }
     if (next === 'danger-full-access') {
-      setPicker(null)
+      setComposerPanelOpen(false)
       setPendingPermission(next)
       return
     }
@@ -3712,7 +3690,7 @@ export function ChatView({
           return
         }
         setPermissions(previous => previous === undefined ? previous : { ...previous, currentValue: next })
-        setPicker(null)
+        setComposerPanelOpen(false)
         // 乐观值只是过渡，宿主说了算。
         syncPermissionsFromHost()
       },
@@ -3952,26 +3930,15 @@ export function ChatView({
           onJumpLatest={jumpToLatest}
         />
       </div>
-      {/* 排队/目标/状态已经统一收进下面的 SessionHud。 */}
+      {/* 排队已移到底栏（输入行上方）；目标是「为什么在跑」，状态是「跑到哪了」。 */}
       {/*
        * 会话 HUD：顶部这一组状态条的唯一渲染点。
        *
-       * 顺序固定为「为什么在跑（目标）→ 接下来要发什么（排队）→ 跑到哪了（任务）」——
-       * 以前这三条按各自插入位置排，谁先渲染谁在上；现在只有这里决定顺序和是否出现。
-       * 容器是 `display: contents`，纯结构、不产生新的布局盒（外观与之前一致）。
+       * 顺序固定为「为什么在跑（目标）→ 跑到哪了（任务）」——队列条属于底栏，
+       * 不再混进这里。容器是 `display: contents`，纯结构、不产生新的布局盒。
        */}
       <SessionHud
         goal={<GoalBar goal={bars.goalBar !== undefined ? goal : undefined} busy={goalBusy} onCommand={handleGoalCommand} {...(goalMeta === undefined ? {} : { meta: goalMeta })} />}
-        queue={bars.queueBar > 0 ? (
-          <QueueDock
-            items={queueItems}
-            running={running}
-            onEdit={handleQueueEdit}
-            onRemove={handleQueueRemove}
-            onSteer={handleQueueSteer}
-            onWithdraw={handleQueueWithdraw}
-          />
-        ) : undefined}
         status={(finishedElsewhere === undefined && bars.statusBar === undefined) ? undefined : (
           <>
             {finishedElsewhere !== undefined && (
@@ -4000,27 +3967,6 @@ export function ChatView({
         <TurnScrubber entries={turnEntries} index={scrubIndex} total={maxTurn} />
       )}
 
-      <ChatTools
-        currentModel={currentModel}
-        permissions={permissions}
-        permissionLabel={permissionLabel}
-        modelCatalog={modelCatalog}
-        contextUsage={contextUsage}
-        picker={picker}
-        setPicker={setPicker}
-        pickerBusy={pickerBusy}
-        contextOpen={contextOpen}
-        setContextOpen={setContextOpen}
-        toggleContextPop={toggleContextPop}
-        openModelPicker={openModelPicker}
-        openPermissionPicker={openPermissionPicker}
-        requestPermissionsOnce={requestPermissionsOnce}
-        loadModelCatalog={loadModelCatalog}
-        applyModel={applyModel}
-        applyPermission={applyPermission}
-        staleHint={staleHostHint}
-        displayName={displayName}
-      />
       {runStatusOpen && (
         <RunStatusSheet
           todo={todo}
@@ -4029,44 +3975,77 @@ export function ChatView({
           onClose={() => { setRunStatusOpen(false) }}
         />
       )}
-      <ComposerSection
-        draft={{ input, setInput, quoted, setQuoted }}
-        attachments={{
-          attachImages,
-          setAttachImages,
-          attachFiles,
-          setAttachFiles,
-          retryStaged,
-          addImage,
-        }}
-        commands={{
-          commands,
-          claimedCommand,
-          claimCommand,
-          releaseCommand,
-          setPlusOpen,
-          setCommandOpen,
-        }}
-        turn={{
-          running,
-          primaryStops,
-          stopArmed,
-          setStopArmed,
-          stopping,
-          stopTurn,
-          sending,
-          draftEmpty,
-          send,
-        }}
-        inputBox={{ composerRef, mobileEnterToSend }}
-        voice={{ supported: voiceSupported(), open: openVoice }}
-      />
+      {/* C 案底栏：队列条 → 输入行 → 元信息行。模型与权限面板浮在整块底栏之上。 */}
+      <div className="chat-dock">
+        <ComposerSection
+          draft={{ input, setInput, quoted, setQuoted }}
+          attachments={{
+            attachImages,
+            setAttachImages,
+            attachFiles,
+            setAttachFiles,
+            retryStaged,
+            addImage,
+          }}
+          commands={{
+            commands,
+            claimedCommand,
+            claimCommand,
+            releaseCommand,
+            setPlusOpen,
+          }}
+          turn={{
+            running,
+            primaryStops,
+            stopArmed,
+            setStopArmed,
+            stopping,
+            stopTurn,
+            sending,
+            draftEmpty,
+            send,
+          }}
+          inputBox={{ composerRef, mobileEnterToSend }}
+          queue={{
+            count: queueItems.filter(item => item.placement === 'queued').length,
+            detail: (
+              <QueueDock
+                items={queueItems}
+                running={running}
+                onEdit={handleQueueEdit}
+                onRemove={handleQueueRemove}
+                onSteer={handleQueueSteer}
+                onWithdraw={handleQueueWithdraw}
+              />
+            ),
+          }}
+        />
+        <ComposerMeta
+          currentModel={currentModel}
+          permissions={permissions}
+          modelCatalog={modelCatalog}
+          contextUsage={contextUsage}
+          panelOpen={composerPanelOpen}
+          statusText={dockStatus}
+          pickerBusy={pickerBusy}
+          togglePanel={toggleComposerPanel}
+          closePanel={() => { setComposerPanelOpen(false) }}
+          loadModelCatalog={loadModelCatalog}
+          applyModel={applyModel}
+          applyPermission={applyPermission}
+          staleHint={staleHostHint}
+          onOpenContext={onOpenContext === undefined || contextUsage === undefined ? undefined : openContextPage}
+          onOpenApprovalMode={onOpenApprovalMode === undefined || permissions === undefined ? undefined : openApprovalPage}
+        />
+      </div>
       {plusOpen && (
         <PlusSheet
           onPickImage={() => { setPlusOpen(false); openPicker('image') }}
           onPickCamera={() => { setPlusOpen(false); openPicker('camera') }}
           onPickFiles={(picked) => { setPlusOpen(false); addFiles(picked) }}
           onPickHostFile={() => { setPlusOpen(false); setHostFileOpen(true) }}
+          onOpenCommands={() => { setPlusOpen(false); setCommandOpen(true) }}
+          onOpenVoice={voiceSupported() ? () => { setPlusOpen(false); openVoice() } : undefined}
           onClose={() => { setPlusOpen(false) }}
         />
       )}
