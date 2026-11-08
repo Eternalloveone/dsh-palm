@@ -12,6 +12,7 @@
 import { settingsLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
+import { EmptyState } from '../ui/empty-state.tsx'
 import type { TurnEntry } from '../session/turn-outline.ts'
 
 /** 一次最多渲染多少轮（超长会话先给最近的，避免一屏几千行）。 */
@@ -60,7 +61,7 @@ export function OutlineView({ entries, currentTurn, onBack, onPick }: OutlineVie
         groups: (
           <div className="outline-page-body">
             {shown.length === 0 ? (
-              <p className="outline-page-note">当前会话还没有可跳转的轮次</p>
+              <EmptyState title="还没有可跳转的轮次" hint="发出第一条消息后，这里会按轮列出。" />
             ) : (
               <div className="outline-list" role="list" aria-label="轮次清单">
                 {shown.map(entry => {

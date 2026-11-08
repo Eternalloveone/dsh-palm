@@ -11,6 +11,7 @@
 import { artifactsLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
+import { EmptyState } from '../ui/empty-state.tsx'
 import { artifactTally, type ArtifactTurn } from '../session/artifacts.ts'
 
 /** 路径取最后一段（列表里只看文件名）。 */
@@ -50,7 +51,7 @@ export function ArtifactsView({ turns, onBack, onOpenFile }: ArtifactsViewProps)
             <div className="mobile-headerSlot mobile-headerSlot-right" />
             <p className="artifacts-page-sub">
               {tally.files === 0
-                ? '这次会话还没有产出文件'
+                ? '这次会话还没有产物'
                 : `${tally.files} 个文件，其中 ${tally.delivered} 个是交付物`}
             </p>
           </header>
@@ -58,7 +59,7 @@ export function ArtifactsView({ turns, onBack, onOpenFile }: ArtifactsViewProps)
         list: (
           <div className="artifacts-page-body">
             {turns.length === 0 ? (
-              <p className="artifacts-page-note">改动过的文件和报告会出现在这里。</p>
+              <EmptyState title="还没有产出文件" hint="改动过的文件、生成的报告会按轮列在这里。" />
             ) : (
               turns.map(group => (
                 <section className="artifacts-group" key={String(group.turn ?? 'old')}>

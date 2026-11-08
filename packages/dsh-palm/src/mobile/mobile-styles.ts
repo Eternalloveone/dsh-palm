@@ -687,6 +687,34 @@ body,
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* ── 空态（P6 ⑯）：先说清，再给一步 ───────────────────────────────── */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s5) var(--palm-s4);
+  text-align: center;
+}
+
+.empty-state-title {
+  margin: 0;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg);
+}
+
+.empty-state-hint {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
+}
+
+.empty-state-action {
+  margin-top: var(--palm-s2);
+}
 /* ── grouped lists + group titles ────────────────────────────────────── */
 
 .mobile-list {

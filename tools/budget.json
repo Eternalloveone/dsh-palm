@@ -24,8 +24,8 @@
     "src/mobile/session": 2876,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1342,
-    "src/mobile/views": 21752,
+    "src/mobile/ui": 1384,
+    "src/mobile/views": 21760,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
@@ -43,7 +43,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/ui": {
-      "reason": "P4 结论卡四态渲染层：ui/verdict-card.tsx（四态一骨架、动作超 3 个收进 ⋯、脚注只渲染真数字）+ 7 条组件测试",
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/api": {
@@ -55,7 +55,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
-      "reason": "P6 18 屏迁移：ApprovalView + DiffView（各带测试）；18 屏迁完删旧浮层后回落",
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/render": {

@@ -11,6 +11,7 @@
 import { settingsLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
 import { IconButton } from '../ui/primitives.tsx'
+import { EmptyState } from '../ui/empty-state.tsx'
 
 export interface ContextViewProps {
   /** 上下文窗口总量（token）；宿主没给就不显示这一行。 */
@@ -58,7 +59,7 @@ export function ContextView({ contextWindow, pressureTokens, projectedTokens, on
         groups: (
           <div className="context-page-body">
             {used === undefined && contextWindow === undefined ? (
-              <p className="context-page-note">宿主还没报这个会话的上下文用量。</p>
+              <EmptyState title="宿主还没报上下文用量" hint="跑完一轮对话后再看，这里会有真实数字。" />
             ) : (
               <>
                 {ratio === undefined ? null : (

@@ -44,7 +44,7 @@ describe('产物列表页（P6 ⑧ 屏）', () => {
   it('没有产物时给解释，不是空白页', () => {
     render(<ArtifactsView turns={[]} onBack={() => {}} />)
     expect(screen.getByText(/还没有产出文件/)).toBeDefined()
-    expect(screen.getByText(/会出现在这里/)).toBeDefined()
+    expect(screen.getByText(/会按轮列在这里/)).toBeDefined()
   })
 
   it('缺轮号的老产物归到「更早」', () => {

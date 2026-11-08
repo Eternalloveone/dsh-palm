@@ -36,7 +36,7 @@ describe('上下文占用页（P6 ⑦ 屏）', () => {
 
   it('宿主什么都没报时给一句解释，不画空条', () => {
     render(<ContextView onBack={() => {}} />)
-    expect(screen.getByText(/还没报这个会话的上下文用量/)).toBeDefined()
+    expect(screen.getByText(/宿主还没报上下文用量/)).toBeDefined()
   })
 
   it('不编造三段构成（只说压缩会发生）', () => {
