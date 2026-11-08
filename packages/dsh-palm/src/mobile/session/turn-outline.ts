@@ -25,6 +25,14 @@ export interface TurnEntry {
   prompt: string
   response: string
   loaded: boolean
+  /**
+   * 这一轮开始时的墙钟（epoch ms），给大纲页的节点显示时间用。
+   *
+   * 只有本机**已经渲染过**的轮次知道：宿主的 `turnOutline` 投影只有
+   * turn/seq/prompt/response 四个字段，不带时间戳（见文件头的 wire 形状）。
+   * 宿主独有的"还没加载"轮次没有这个值，界面如实显示「未加载」而不是编一个时间。
+   */
+  at?: number
 }
 
 /** Narrow runtime guard for projection payloads. */
@@ -115,26 +123,38 @@ export function readingTurnAt(rows: readonly RenderMessage[], index: number): nu
  *  assistant turn present in the window, the prompt is the nearest preceding
  *  user/command message, the response is the merged assistant text, and seq is
  *  the row's `startSeq ?? seq` (the anchor for an in-place jump). Assistant
- *  rows without a turn cannot be matched to the outline and are skipped. */
+ *  rows without a turn cannot be matched to the outline and are skipped.
+ *
+ *  `at` (the turn's wall clock, used by the outline page) prefers the host's
+ *  `turnStartAt`, then the row's first-seen time, then the question's own time
+ *  — the three sources only differ on a tail page loaded mid-turn, where
+ *  picking one of them is still better than showing no time at all. */
 export function localTurnEntries(messages: readonly RenderMessage[]): TurnEntry[] {
-  const byTurn = new Map<number, { seq: number; prompt: string; response: string }>()
-  let pendingPrompt: { text: string; seq: number } | undefined
+  const byTurn = new Map<number, { seq: number; prompt: string; response: string; at: number }>()
+  let pendingPrompt: { text: string; seq: number; at: number } | undefined
   for (const message of messages) {
     if (message.kind === 'user' || message.kind === 'command') {
-      pendingPrompt = { text: message.text, seq: message.startSeq ?? message.seq }
+      pendingPrompt = {
+        text: message.text,
+        seq: message.startSeq ?? message.seq,
+        at: message.time,
+      }
       continue
     }
     if (message.kind !== 'assistant' || message.turn === undefined) continue
     const seq = message.startSeq ?? message.seq
+    const at = message.turnStartAt ?? message.firstSeenAt ?? pendingPrompt?.at ?? message.time
     const entry = byTurn.get(message.turn)
     if (entry === undefined) {
       byTurn.set(message.turn, {
         seq,
         prompt: pendingPrompt?.text ?? '',
         response: message.text,
+        at,
       })
     } else {
       if (seq < entry.seq) entry.seq = seq
+      if (at < entry.at) entry.at = at
       if (entry.prompt === '' && pendingPrompt !== undefined) entry.prompt = pendingPrompt.text
       if (entry.response === '') entry.response = message.text
     }
@@ -143,7 +163,14 @@ export function localTurnEntries(messages: readonly RenderMessage[]): TurnEntry[
     pendingPrompt = undefined
   }
   return [...byTurn.entries()]
-    .map(([turn, entry]) => ({ turn, seq: entry.seq, prompt: entry.prompt, response: entry.response, loaded: true }))
+    .map(([turn, entry]) => ({
+      turn,
+      seq: entry.seq,
+      prompt: entry.prompt,
+      response: entry.response,
+      at: entry.at,
+      loaded: true,
+    }))
     .sort((a, b) => a.turn - b.turn)
 }
 

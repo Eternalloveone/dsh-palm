@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1516
   },
   "dirs": {
-    "src/mobile": 64359,
+    "src/mobile": 64575,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2651,
@@ -21,11 +21,11 @@
     "src/mobile/projections": 530,
     "src/mobile/render": 6930,
     "src/mobile/runtime": 225,
-    "src/mobile/session": 2876,
+    "src/mobile/session": 2908,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1446,
-    "src/mobile/views": 22351,
+    "src/mobile/views": 22407,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
@@ -72,6 +72,10 @@
     },
     "src/mobile/components": {
       "reason": "P6 ④ 审批详情页：ApprovalPanel 增加 page 展示分支（复用同一套 respondApproval / 按住判定，不复制逻辑）；P8 摘旧浮层时回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/session": {
+      "reason": "P6 ⑫ 回合大纲页：TurnEntry 新增可选 at（节点显示轮次开始时间），localTurnEntries 落时间并补测试；P8 摘旧浮层后统一回落",
       "expires": "2027-03-31"
     }
   },

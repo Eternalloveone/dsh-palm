@@ -8,60 +8,193 @@
   color: var(--palm-fg);
 }
 
+/* grow 槽本身不是滚动容器：给正文一个确定高度（与审批页/模型页同一口径）。 */
+.outline-page [data-slot='groups'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .outline-page-body {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-block-size: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: var(--palm-s4);
 }
 
-.outline-list {
+/* 头部右侧的总轮数：只交代规模，不跟标题抢视线。 */
+.outline-page-count {
+  padding-inline-end: var(--palm-s3);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+  color: var(--palm-fg-3);
+  white-space: nowrap;
+}
+
+/* 顶部一句说明：这一屏的动作只有一个 —— 点一轮跳过去。 */
+.outline-page-hint {
+  margin: 0 0 var(--palm-s3);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+}
+
+/* 竖时间轴：节点之间不留缝，左侧那条线才连得起来。 */
+.outline-timeline {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.outline-row {
+.outline-node {
+  /* 轴线颜色：比 --palm-line 亮一点，否则细线在深底上根本看不见。 */
+  --outline-axis: color-mix(in srgb, var(--palm-fg-3) 48%, transparent);
+  position: relative;
+  min-inline-size: 0;
+}
+
+/* 连接线画在节点上而不是行内：行的上下内边距会在每两个节点之间咬出缺口，
+   线就断了。画在 li 上，相邻节点首尾相接，才是一条整轴。用一条细渐变铺在
+   轴列中间 —— 不用 calc 除法，也不写裸像素。 */
+.outline-node::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: var(--palm-hair);
+  inline-size: var(--palm-s6);
+  background-image: linear-gradient(var(--outline-axis), var(--outline-axis));
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--palm-hair) 100%;
+}
+
+/* 首尾把线裁到圆点附近：轴只连接节点，不往空白处伸（多出的一小截藏在圆点下面）。 */
+.outline-node:first-child::before {
+  top: var(--palm-s5);
+}
+
+.outline-node:last-child::before {
+  bottom: calc(100% - var(--palm-s5));
+}
+
+/* 一行 = 一个节点：左边竖线与圆点，右边标题与元信息。 */
+.outline-node-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--palm-s2);
-  width: 100%;
-  min-height: 44px;
-  padding: var(--palm-s3) var(--palm-s4);
-  text-align: left;
-  background: var(--palm-sur-1);
-  border: 1px solid var(--palm-line);
+  align-items: flex-start;
+  gap: var(--palm-s3);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s2) var(--palm-s3) var(--palm-s2) 0;
+  border: var(--palm-hair) solid transparent;
   border-radius: var(--palm-r-m);
+  background: transparent;
   color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
 }
 
-.outline-row[aria-current='true'] {
+/* 当前正在读的那一轮：整行淡染 + 强调描边（定版图里"你看的是这条"）。 */
+.outline-node-row[aria-current='true'] {
+  border-color: color-mix(in srgb, var(--palm-accent) 48%, var(--palm-line));
+  background: var(--palm-tint-accent);
+}
+
+.outline-node-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+/* 轴列：给圆点一个固定的中线位置（连接线画在 li 上，见上）。 */
+.outline-node-rail {
+  position: relative;
+  display: flex;
+  flex: none;
+  justify-content: center;
+  align-self: stretch;
+  inline-size: var(--palm-s6);
+}
+
+/* 节点圆点：普通轮次是空心小圆；当前轮填实并带一圈淡光。 */
+.outline-node-dot {
+  position: relative;
+  flex: none;
+  inline-size: var(--palm-s3);
+  block-size: var(--palm-s3);
+  margin-block-start: var(--palm-s2);
+  border: var(--palm-hair) solid var(--palm-fg-3);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-bg);
+}
+
+.outline-node-row[aria-current='true'] .outline-node-dot {
   border-color: var(--palm-accent);
+  background: var(--palm-accent);
+  box-shadow: 0 0 0 var(--palm-s1) var(--palm-tint-accent);
 }
 
-.outline-row-turn {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
+.outline-node-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  min-inline-size: 0;
+  padding-block: var(--palm-s1);
 }
 
-.outline-row-main {
-  flex: 1 0 100%;
-  font-size: var(--palm-t-m);
+/* 「一句结论标题」：只占一行，超了省略号。 */
+.outline-node-title {
+  min-inline-size: 0;
   overflow: hidden;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.outline-row-badge {
+/* 元信息：第几轮 · 时间 · 未加载；当前轮把「正在看」推到最右。 */
+.outline-node-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--palm-s1) var(--palm-s2);
   font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
   color: var(--palm-fg-3);
 }
 
-.outline-row-mark {
-  margin-left: auto;
-  font-size: var(--palm-t-s);
+.outline-node-meta > svg {
+  flex: none;
+  inline-size: var(--palm-s4);
+  block-size: var(--palm-s4);
+}
+
+.outline-node-turn,
+.outline-node-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.outline-node-badge {
+  padding-inline: var(--palm-s1);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+}
+
+.outline-node-mark {
+  margin-inline-start: auto;
   color: var(--palm-accent);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 当前轮的元信息提亮一档：与整行高亮同一套语义，不额外上色。 */
+.outline-node-row[aria-current='true'] .outline-node-meta {
+  color: var(--palm-fg-2);
 }
 
 .outline-page-note {

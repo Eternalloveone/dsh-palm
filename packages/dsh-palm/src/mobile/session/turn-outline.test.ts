@@ -121,8 +121,8 @@ describe('localTurnEntries', () => {
       assistant('a2', 2, '好的。', 18, 13),
     ]
     expect(localTurnEntries(list)).toEqual([
-      { turn: 1, seq: 2, prompt: '你好', response: '你好！', loaded: true },
-      { turn: 2, seq: 13, prompt: '继续', response: '好的。', loaded: true },
+      { turn: 1, seq: 2, prompt: '你好', response: '你好！', at: 1_000, loaded: true },
+      { turn: 2, seq: 13, prompt: '继续', response: '好的。', at: 12_000, loaded: true },
     ])
   })
 
@@ -134,7 +134,21 @@ describe('localTurnEntries', () => {
       noTurn,
     ]
     expect(localTurnEntries(list)).toEqual([
-      { turn: 3, seq: 2, prompt: '孤立', response: '回复', loaded: true },
+      { turn: 3, seq: 2, prompt: '孤立', response: '回复', at: 1_000, loaded: true },
+    ])
+  })
+
+  it('stamps the turn start time: turnStartAt → firstSeenAt → the question time', () => {
+    // 大纲页的节点要显示时间；宿主投影不带时间戳，只有本机渲染过的轮次知道。
+    const started: RenderMessage = {
+      id: 'a1', kind: 'assistant', text: '好', seq: 8, time: 9_000, turn: 1, turnStartAt: 4_000,
+    }
+    const noPrompt: RenderMessage = {
+      id: 'a2', kind: 'assistant', text: '嗯', seq: 18, time: 19_000, turn: 2, firstSeenAt: 15_000,
+    }
+    expect(localTurnEntries([started, noPrompt])).toEqual([
+      { turn: 1, seq: 8, prompt: '', response: '好', at: 4_000, loaded: true },
+      { turn: 2, seq: 18, prompt: '', response: '嗯', at: 15_000, loaded: true },
     ])
   })
 })

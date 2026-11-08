@@ -110,7 +110,9 @@ describe('architecture guardrails', () => {
       // 2026-11-08：P6 ⑤ 模型与思考页按定版图重做（当前模型卡 + 切换抽屉 + 三档分段），
       // 旧的一列式列表拆成三段；行数只增这一次，之后只许降。
       'views/ModelView.tsx': 267,
-      'views/OutlineView.tsx': 99,
+      // 2026-11-08：P6 ⑫ 回合大纲页按定版图重做（竖时间轴节点 = 序号 + 结论标题 +
+      // 时间，当前轮整行高亮）；旧的"一行一轮"列表换成时间轴，本值只增这一次。
+      'views/OutlineView.tsx': 156,
       'views/SettingsForm.tsx': 549,
       'views/ContextView.tsx': 119,
       'views/ApprovalModeView.tsx': 94,
