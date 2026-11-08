@@ -77,11 +77,6 @@
   font-weight: 400;
 }
 
-.chat-disclosure-count {
-  flex: none;
-  color: var(--text-quaternary);
-  font-size: var(--text-xs);
-}
 
 /* Accordion body: mounts on open with a max-height ease (300ms). */
 .chat-disclosure-body {
@@ -110,22 +105,7 @@
   }
 }
 
-.chat-tool-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--card-bg);
-}
 
-.chat-tool-pills {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  align-items: center;
-}
 
 .chat-tool-pill {
   display: inline-block;
@@ -152,12 +132,6 @@
   text-overflow: ellipsis;
 }
 
-.chat-tool-card .chat-tool-pill {
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 
 .chat-tool-args {
   margin: 0;
@@ -721,13 +695,6 @@
   font-size: var(--text-xs);
 }
 
-.chat-step-peek {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-}
 
 @keyframes chat-step-pulse {
   0%, 100% { opacity: 1; }

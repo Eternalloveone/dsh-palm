@@ -981,11 +981,6 @@ body,
   padding: 14px 0;
 }
 
-.mobile-rowBottom {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 
 .mobile-rowTitle {
   flex: 1;
@@ -997,13 +992,6 @@ body,
   line-height: 1.4;
 }
 
-.mobile-rowMeta {
-  flex: 1;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
 
 /* Active workspace: 3px accent rail + tinted icon. */
 .mobile-row-active {
@@ -1317,19 +1305,6 @@ body,
 /* Legend under the search box explaining the badges. Two-column grid:
    badge column fixed, text column left-aligned — every explanation starts
    at the same x, and the rows never reflow into ragged starts. */
-.settings-legend {
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  column-gap: 8px;
-  row-gap: 6px;
-  align-items: center;
-  margin: 0 16px 12px;
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-}
-.settings-legend .settings-badge {
-  justify-self: start;
-}
 
 /* Group title trailing hint (e.g. 显示效果). */
 .settings-groupDesc {
@@ -3570,11 +3545,6 @@ button.settings-row:focus-visible {
   font-weight: 400;
 }
 
-.chat-disclosure-count {
-  flex: none;
-  color: var(--text-quaternary);
-  font-size: var(--text-xs);
-}
 
 /* Accordion body: mounts on open with a max-height ease (300ms). */
 .chat-disclosure-body {
@@ -3603,22 +3573,7 @@ button.settings-row:focus-visible {
   }
 }
 
-.chat-tool-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--card-bg);
-}
 
-.chat-tool-pills {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  align-items: center;
-}
 
 .chat-tool-pill {
   display: inline-block;
@@ -3645,12 +3600,6 @@ button.settings-row:focus-visible {
   text-overflow: ellipsis;
 }
 
-.chat-tool-card .chat-tool-pill {
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 
 .chat-tool-args {
   margin: 0;
@@ -4214,13 +4163,6 @@ button.settings-row:focus-visible {
   font-size: var(--text-xs);
 }
 
-.chat-step-peek {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-}
 
 @keyframes chat-step-pulse {
   0%, 100% { opacity: 1; }
@@ -6341,27 +6283,8 @@ button.settings-row:focus-visible {
   pointer-events: none;
 }
 
-.sheet-status {
-  padding: 18px 8px;
-  color: var(--text-tertiary);
-  font-size: var(--text-md);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);}
 
-.sheet-status-error {
-  color: var(--danger);
-}
 
-.sheet-hint {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  max-width: 32em;
-}
 
 .sheet-error {
   margin: 0 0 8px;
@@ -6369,16 +6292,7 @@ button.settings-row:focus-visible {
   font-size: 12.5px;
 }
 
-.sheet-section {
-  margin-bottom: 14px;
-}
 
-.sheet-section-title {
-  padding: 4px 8px 6px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
 
 /* Sheet option rows: 56px, icon + text + right check. */
 .sheet-option {
@@ -8145,37 +8059,11 @@ details.think-block[open] .chat-disclosure-caret {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
 }
 
-.runov-hero {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 16px 4px;
-  padding: 12px 14px;
-  border-radius: var(--radius-card);
-  background: var(--bg-elevated);
-}
 
-.runov-hero-copy {
-  flex: 1;
-  min-width: 0;
-}
 
 /* 两行各占一行：这两个是 inline span，早先并排渲染，于是"0 个后台任务"和
    "跨全部工作区"连成一句、断行也错位。 */
-.runov-hero-t {
-  display: block;
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-}
 
-.runov-hero-s {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
 
 .runov-group-title {
   padding: 16px 18px 6px;
@@ -8216,58 +8104,13 @@ details.think-block[open] .chat-disclosure-caret {
 /* 标题必须完整显示：早先是单行 nowrap + 省略号，"dsh-palm手机端与桌面端消息
    不同步"在手机上只剩 "dsh-palm手机端与桌面…"，一条会话和另一条就分不出来了。
    现在按自然换行排（长标题最多铺两行），不再截断。 */
-.runov-sess-title {
-  display: block;
-  font-size: var(--text-base);
-  font-weight: 600;
-  line-height: 1.35;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 
-.runov-sess-sub {
-  display: block;
-  margin-top: 2px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.runov-sess-live {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--positive) 13%, transparent);
-  color: var(--positive);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  white-space: nowrap;
-}
 
-.runov-sess-chev {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-quaternary);
-  font-size: 18px;
-  line-height: 1;
-}
 
 /* In-card group label ("子代理" / "后台任务"): smaller than the page-level
    .runov-group-title and flush with the rows it introduces (the card's job
    rows carry no horizontal inset of their own). */
-.runov-subgroup-title {
-  padding: 8px 0 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.4px;
-}
 
 .runov-jobs {
   border-top: 1px solid var(--border-subtle);
@@ -8276,38 +8119,10 @@ details.think-block[open] .chat-disclosure-caret {
 
 /* Fold header for a session's settled (completed/failed/killed) jobs: a quiet
    one-line summary so many finished tasks do not bury what is running now. */
-.runov-jobs-fold {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 6px 16px;
-  border: none;
-  border-top: 1px solid var(--border-subtle);
-  background: transparent;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
 
-.runov-jobs-fold:active {
-  background: var(--fill);
-}
 
-.runov-jobs-fold-label {
-  font-weight: 500;
-}
 
-.runov-jobs-fold-chev {
-  color: var(--text-quaternary);
-  font-size: var(--text-xs);
-}
 
-/* Settled job rows are de-emphasized so the eye lands on live work first. */
-.runov-jobs-settled .chat-task-row {
-  opacity: 0.72;
-}
 
 /* Turn list floating handle (轮次清单): a compact pill pinned beside the
    jump-to-latest button; shows the current turn / total count. Rides the
@@ -9081,19 +8896,8 @@ details.think-block[open] .chat-disclosure-caret {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.finish-toast-ic {
-  flex: none;
-  display: flex;
-  color: var(--positive);
-}
 
-.finish-toast-ic.is-bad {
-  color: var(--danger);
-}
 
-.finish-toast-ic.is-stop {
-  color: var(--warning);
-}
 
 .finish-toast-title {
   flex: 1;
@@ -9246,47 +9050,10 @@ details.think-block[open] .chat-disclosure-caret {
   cursor: pointer;
 }
 
-/* ===== 设置页：常用捷径 + 进阶折叠（v1.7.0 增补） ===== */
-.settings-quick {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 2px 16px 6px;
-}
 
-.settings-quickChip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
-.settings-quickChip:active {
-  background: var(--fill);
-}
 
-.settings-quickLabel {
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
 
-.settings-quickHint {
-  max-width: 100%;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* 进阶折叠的箭头：收起时朝右，展开时朝下 */
 .settings-advChev {

@@ -166,19 +166,6 @@
 /* Legend under the search box explaining the badges. Two-column grid:
    badge column fixed, text column left-aligned — every explanation starts
    at the same x, and the rows never reflow into ragged starts. */
-.settings-legend {
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  column-gap: 8px;
-  row-gap: 6px;
-  align-items: center;
-  margin: 0 16px 12px;
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-}
-.settings-legend .settings-badge {
-  justify-self: start;
-}
 
 /* Group title trailing hint (e.g. 显示效果). */
 .settings-groupDesc {

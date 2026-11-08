@@ -14,43 +14,40 @@ const walk = (dir, out = []) => {
   return out
 }
 
-const SOURCES = walk(MOBILE).filter(
-  file => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file) && !file.endsWith('mobile-styles.ts'),
-)
-const SOURCE_TEXT = SOURCES.map(file => readFileSync(file, 'utf8')).join('\n')
+const ALL = walk(MOBILE)
+const PROD = ALL.filter(f => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.endsWith('mobile-styles.ts'))
+const TESTS = ALL.filter(f => /\.test\.tsx?$/.test(f))
+const PROD_TEXT = PROD.map(f => readFileSync(f, 'utf8')).join('\n')
+const TEST_TEXT = TESTS.map(f => readFileSync(f, 'utf8')).join('\n')
 
-/** 动态拼接判定：类名去掉最后一段后，前缀在源码里以 `${` 或 `-` 形式出现。 */
-function dynamicallyComposed(cls) {
+const dynamic = cls => {
   const parts = cls.split('-')
   for (let cut = parts.length - 1; cut >= 1; cut -= 1) {
     const prefix = parts.slice(0, cut).join('-')
-    if (SOURCE_TEXT.includes(prefix + '-${') || SOURCE_TEXT.includes(prefix + ' ${')) return true
+    if (PROD_TEXT.includes(prefix + '-${') || PROD_TEXT.includes(prefix + ' ${')) return true
   }
   return false
 }
 
 const classes = new Map()
-for (const name of readdirSync(STYLES).filter(n => n.endsWith('.css')).sort()) {
+for (const name of readdirSync(STYLES).filter(n => n.endsWith('.css'))) {
   const text = readFileSync(join(STYLES, name), 'utf8')
   for (const match of text.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)) {
-    const where = classes.get(match[1]) ?? new Set()
-    where.add(name)
-    classes.set(match[1], where)
+    const set = classes.get(match[1]) ?? new Set()
+    set.add(name)
+    classes.set(match[1], set)
   }
 }
 
-const dead = []
-const dynamic = []
-for (const [cls, where] of classes) {
+const safe = []
+const risky = []
+for (const [cls, files] of classes) {
   if (cls.length < 3) continue
-  if (SOURCE_TEXT.includes(cls)) continue
-  if (dynamicallyComposed(cls)) {
-    dynamic.push(cls)
-    continue
-  }
-  dead.push({ cls, files: [...where].sort() })
+  if (PROD_TEXT.includes(cls) || dynamic(cls)) continue
+  if (TEST_TEXT.includes(cls)) { risky.push(cls); continue }
+  safe.push({ cls, files: [...files].sort() })
 }
 
-console.log(`类名 ${classes.size} 个；确认无人引用 ${dead.length} 个；动态拼接（不误删）${dynamic.length} 个\n`)
-for (const entry of dead) console.log(`  .${entry.cls}  (${entry.files.join(', ')})`)
-console.log('\n动态拼接样本：', dynamic.slice(0, 8).join(', '))
+console.log(`可安全删除 ${safe.length} 个；测试里仍引用（先别删）${risky.length} 个\n`)
+for (const entry of safe) console.log(`  .${entry.cls}  (${entry.files.join(', ')})`)
+console.log('\n测试仍引用：', risky.join(', '))

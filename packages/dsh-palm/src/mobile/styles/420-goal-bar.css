@@ -604,19 +604,8 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.finish-toast-ic {
-  flex: none;
-  display: flex;
-  color: var(--positive);
-}
 
-.finish-toast-ic.is-bad {
-  color: var(--danger);
-}
 
-.finish-toast-ic.is-stop {
-  color: var(--warning);
-}
 
 .finish-toast-title {
   flex: 1;
@@ -769,47 +758,10 @@
   cursor: pointer;
 }
 
-/* ===== 设置页：常用捷径 + 进阶折叠（v1.7.0 增补） ===== */
-.settings-quick {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 2px 16px 6px;
-}
 
-.settings-quickChip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
-.settings-quickChip:active {
-  background: var(--fill);
-}
 
-.settings-quickLabel {
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
 
-.settings-quickHint {
-  max-width: 100%;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* 进阶折叠的箭头：收起时朝右，展开时朝下 */
 .settings-advChev {

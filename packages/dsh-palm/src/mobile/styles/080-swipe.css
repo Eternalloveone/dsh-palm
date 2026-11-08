@@ -197,11 +197,6 @@
   padding: 14px 0;
 }
 
-.mobile-rowBottom {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 
 .mobile-rowTitle {
   flex: 1;
@@ -213,13 +208,6 @@
   line-height: 1.4;
 }
 
-.mobile-rowMeta {
-  flex: 1;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
 
 /* Active workspace: 3px accent rail + tinted icon. */
 .mobile-row-active {
