@@ -1,0 +1,85 @@
+/* ── 产物列表页（P6 ⑧ 屏） ─────────────────────────────────────────── */
+
+.artifacts-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+.artifacts-page-sub {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0 var(--palm-s4) var(--palm-s2);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+.artifacts-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+.artifacts-group + .artifacts-group {
+  margin-top: var(--palm-s4);
+}
+
+.artifacts-group-title {
+  margin: 0 0 var(--palm-s2);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg-3);
+}
+
+.artifacts-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2);
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s4);
+  text-align: left;
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+}
+
+.artifacts-row-name {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.artifacts-row-path {
+  flex: 1 0 100%;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-row-badge {
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+.artifacts-page-note {
+  margin: 0;
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-2);
+}
+
+.artifacts-page-hint {
+  margin: 0;
+  padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  border-top: 1px solid var(--palm-line);
+}

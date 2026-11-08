@@ -45,6 +45,7 @@ const PUSHED_FROM: Record<Kind, Route> = {
   model: { kind: 'chat', session, workspace },
   appearance: { kind: 'settings', workspace },
   outline: { kind: 'chat', session, workspace },
+  artifacts: { kind: 'chat', session, workspace },
   // 审批详情是"会话内的一层"：上一页就是那个对话
   // 审批详情是"会话内的一层"：上一页就是那个对话
 }
@@ -62,6 +63,7 @@ const SAMPLES: Route[] = [
   { kind: 'model', session, workspace },
   { kind: 'appearance', workspace },
   { kind: 'outline', session, workspace, turns: [], currentTurn: 1 },
+  { kind: 'artifacts', session, workspace, turns: [] },
 ]
 
 describe('页面栈 vs backTargetOf（迁移等价性）', () => {

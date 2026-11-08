@@ -16,11 +16,13 @@ export interface ChatHeaderProps {
   /** 开关搜索条（打开时同时清空上一次的词）。 */
   onToggleSearch: () => void
   onMore: () => void
+  /** 打开产物列表页（P6 ⑧ 屏）；不给就不渲染入口。 */
+  onOpenArtifacts?: (() => void) | undefined
   /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不渲染入口。 */
   onOpenModel?: (() => void) | undefined
 }
 
-export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel }: ChatHeaderProps) {
+export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel, onOpenArtifacts }: ChatHeaderProps) {
   return (
     <header className="mobile-header">
       <div className="mobile-headerSlot">
@@ -30,6 +32,16 @@ export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel 
         <h1 className="mobile-title mobile-titleInline">{title}</h1>
       </div>
       <div className="mobile-headerSlot mobile-headerSlot-right">
+        {onOpenArtifacts === undefined ? null : (
+          <Button
+            type="button"
+            className="mobile-iconbtn"
+            aria-label="产物"
+            onClick={onOpenArtifacts}
+          >
+            ▤
+          </Button>
+        )}
         {onOpenModel === undefined ? null : (
           <Button
             type="button"

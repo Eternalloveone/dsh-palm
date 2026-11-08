@@ -214,6 +214,7 @@ import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusShee
 import { buildEffortChoices, flattenModelChoices } from '../platform/model-choice.ts'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../session/turn-outline.ts'
+import { collectArtifacts, type ArtifactTurn } from '../session/artifacts.ts'
 import { TurnScrubber } from '../components/turn-scrubber.tsx'
 import { TaskStatusBar } from '../render/task-status.tsx'
 import type { JobView } from '../../api-proxy-types'
@@ -255,6 +256,8 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
+  /** 打开产物列表页（P6 ⑧ 屏）；不给就不显示入口。 */
+  onOpenArtifacts?: ((turns: readonly ArtifactTurn[]) => void) | undefined
   /** 打开回合大纲独立页（P6 ⑫ 屏）；不给就还开浮层。 */
   onOpenOutline?: ((entries: readonly TurnEntry[], currentTurn: number) => void) | undefined
   /** 打开单文件 diff 独立页（P6 ⑩ 屏）；不给就还走浮层预览。 */
@@ -318,6 +321,7 @@ export function ChatView({
   onOpenModel,
   onOpenDiff,
   onOpenOutline,
+  onOpenArtifacts,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
@@ -3854,6 +3858,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   return (
     <div className="chat">
       <ChatHeader
+        onOpenArtifacts={onOpenArtifacts === undefined ? undefined : () => { onOpenArtifacts(collectArtifacts(messages)) }}
         onOpenModel={onOpenModel}
         title={title}
         onBack={handleBack}
