@@ -7,7 +7,7 @@
     "src/mobile/views/ChatView.tsx": 4139
   },
   "dirs": {
-    "src/mobile": 61000,
+    "src/mobile": 61100,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
@@ -24,7 +24,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1350,
-    "src/mobile/views": 20560,
+    "src/mobile/views": 20640,
     "src/mobile/wire": 246
   },
   "dirsRaised": {
@@ -53,7 +53,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
-      "reason": "P3 接入单一订阅点：App.tsx 改用 createHostBridge（+14 行，含 mux.bridge 说明）；视图改接完成后旧订阅点删除，本值回落",
+      "reason": "P4 结论卡适配层：views/chat/lib/turn-verdict.ts（四态判定 + 真实数字，14 条单测）与 ChatView 接入；接入完成后旧状态条合并，本值回落",
       "expires": "2027-03-31"
     }
   }
