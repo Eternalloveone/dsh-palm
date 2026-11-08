@@ -14,7 +14,7 @@
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
-    "src/mobile/kernels": 617,
+    "src/mobile/kernels": 760,
     "src/mobile/message-row": 958,
     "src/mobile/platform": 4420,
     "src/mobile/projections": 530,
@@ -46,6 +46,10 @@
     },
     "src/mobile/api": {
       "reason": "P2 前置：api/constants.ts 收纳 6 个 TTL/容量常量，供各域单向引用（避免反向 import 成环）",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/kernels": {
+      "reason": "P3 单一订阅点：kernels/host-bridge.ts（一帧只派发一次 + 重连代数）与其 8 条单测；视图后续改接此内核，旧订阅点删除后本值回落",
       "expires": "2027-03-31"
     }
   }
