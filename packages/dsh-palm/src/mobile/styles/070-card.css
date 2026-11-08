@@ -67,3 +67,29 @@
   border-color: var(--border-default);
 }
 
+/* ── 会话行卡（定版图）：三行信息卡 ────────────────────────────────────
+   一行标题 17/600、二行「状态胶囊 + 时间 + 箭头」、三行一行预览。整卡是
+   表面色 + 1px hairline，12 圆角，内边距 12/14 —— 所以这里的 .sess-card 要
+   盖掉通用卡的图标列网格（48/36px 图标列在这三行里没有位置）。
+   横向 14px 是定版图给的档位，令牌里只有 12 / 16，中间这一档单独写死。 */
+.sess-card {
+  display: block;
+  min-height: 0;
+  padding: var(--palm-s3) 14px;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: none;
+}
+
+/* 三行之间的呼吸：2 拍 4px，比卡内的 12px 内边距小，读起来是一整块而不是三段。 */
+.sess-card .sess-meta {
+  margin-top: var(--palm-s1);
+}
+
+.sess-card .card-desc {
+  display: block;
+  margin-top: var(--palm-s1);
+  color: var(--palm-fg-3);
+}
+

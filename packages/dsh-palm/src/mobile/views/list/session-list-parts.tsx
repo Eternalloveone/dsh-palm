@@ -70,7 +70,13 @@ export interface SessionListCreateProps {
   onOpenHelp(): void
 }
 
-/** Agent-mode card + the filled "new session" button. */
+/**
+ * Selector card + the filled "new session" button.
+ *
+ * 定版图排布：卡片左侧是**当前选中项的名字**（17px 一行），右侧是一枚圆形「?」
+ * 按钮。名字那一行整块可点（打开选择面板），「?」单独打开说明面板——两种动作
+ * 仍然是两个按钮，只是把卡片压成一行，与定版图一致。
+ */
 export function SessionListCreate({
   presets, selectedPreset, selectedPresetEntry, creating, presetsLoading, createError, createHint,
   onCreate, onOpenPicker, onOpenHelp,
@@ -88,17 +94,11 @@ export function SessionListCreate({
               // 那样用户点它毫无反应、也不知道为什么。打开面板就能看到每个模式的状态。
               onClick={() => { onOpenPicker() }}
             >
-              <span className="mobile-presetTriggerCopy">
-                <span className="mobile-presetTriggerTitle">
-                  {selectedPresetEntry?.name ?? selectedPreset ?? '无可用 Agent 模式'}
-                  {selectedPresetEntry?.isDefault === true ? '（默认）' : ''}
-                </span>
-                {selectedPresetEntry?.description !== undefined && (
-                  <span className="mobile-presetTriggerDesc">{selectedPresetEntry.description}</span>
-                )}
+              <span className="mobile-presetTriggerTitle">
+                {selectedPresetEntry?.name ?? selectedPreset ?? '无可用 Agent 模式'}
+                {selectedPresetEntry?.isDefault === true ? '（默认）' : ''}
               </span>
             </Button>
-            <span className="mobile-presetCaret" aria-hidden>▾</span>
             <Button
               type="button"
               className="mobile-presetHelp"
@@ -138,7 +138,8 @@ export function SessionListCreate({
  */
 const FIXED_FILTERS = [
   { id: 'all', label: '全部' },
-  { id: 'running', label: '运行中' },
+  // 定版图：行上的状态胶囊叫「进行中」，筛选药丸必须同名，否则像是筛两件事。
+  { id: 'running', label: '进行中' },
   { id: 'pending', label: '待确认' },
 ] as const
 
@@ -156,18 +157,26 @@ export function SessionListFilters({ folderFilter, folders, onSelect, counts }: 
   // the three fixed chips render and the list is unchanged.
   return (
       <div className="sess-filters" role="tablist" aria-label="会话筛选">
-        {FIXED_FILTERS.map(entry => (
-          <Button
-            key={entry.id}
-            type="button"
-            role="tab"
-            aria-selected={folderFilter === entry.id}
-            className={`sess-chip${folderFilter === entry.id ? ' sess-chip-on' : ''}`}
-            onClick={() => { onSelect(entry.id) }}
-          >
-            {entry.label}
-          </Button>
-        ))}
+        {FIXED_FILTERS.map(entry => {
+          const count = counts?.[entry.id]
+          return (
+            <Button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={folderFilter === entry.id}
+              className={`sess-chip${folderFilter === entry.id ? ' sess-chip-on' : ''}`}
+              onClick={() => { onSelect(entry.id) }}
+            >
+              {entry.label}
+              {/* 计数是装饰件：读屏念「全部」就够了，念成「全部 40」反而像另一个
+                  选项名。所以数字 aria-hidden——tab 的无障碍名必须仍然只有文字。 */}
+              {count === undefined ? null : (
+                <span className="sess-chipCount" aria-hidden="true">{count}</span>
+              )}
+            </Button>
+          )
+        })}
         {(folders?.folders ?? []).map(folder => (
           <Button
             key={folder.id}

@@ -617,18 +617,28 @@ describe('SessionListView live session frames', () => {
     return Array.from(document.querySelectorAll('.sess-title')).map(node => node.textContent ?? '')
   }
 
+  /**
+   * 行上的「进行中」胶囊（按节点取，不按文字取）。
+   *
+   * 定版图把筛选药丸也改叫「进行中」，`getByText('进行中')` 于是会同时命中
+   * 药丸和行上的胶囊；这几条用例问的是**行**的绿点，必须按胶囊类名取。
+   */
+  function runningChips(): Element[] {
+    return Array.from(document.querySelectorAll('.sess-status-ok'))
+  }
+
   it('flips the running badge from a session/status frame', async () => {
     twoRows()
     const mux = new FakeMux()
     renderList({ mux: mux as never })
     await screen.findByText('会话一')
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
 
     mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
-    expect(screen.getAllByText('进行中')).toHaveLength(1)
+    expect(runningChips()).toHaveLength(1)
 
     mux.emit({ type: 'session/status', sessionId: 's-1', running: false })
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
   })
 
   it('flips the running badge from the inferred turn-boundary frame too', async () => {
@@ -639,10 +649,10 @@ describe('SessionListView live session frames', () => {
     const mux = new FakeMux()
     renderList({ mux: mux as never })
     await screen.findByText('会话一')
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
 
     mux.emit({ type: 'session/turn-boundary', source: 'inferred', sessionId: 's-1', running: true })
-    expect(screen.getAllByText('进行中')).toHaveLength(1)
+    expect(runningChips()).toHaveLength(1)
   })
 
   it('shows host-side folder chips and filters the roster by folder', async () => {
@@ -667,7 +677,9 @@ describe('SessionListView live session frames', () => {
     await screen.findByText('会话一')
 
     expect(screen.getByRole('tab', { name: '全部' })).toBeTruthy()
-    expect(screen.getByRole('tab', { name: '运行中' })).toBeTruthy()
+    // 定版图口径：筛选药丸与行胶囊用同一个词「进行中」（原来是「运行中」，
+    // 同一个状态在两个地方两种叫法，用户会以为筛的是两件事）。
+    expect(screen.getByRole('tab', { name: '进行中' })).toBeTruthy()
     expect(screen.getByRole('tab', { name: '待确认' })).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '客户' })).toBeNull()
   })
@@ -696,12 +708,12 @@ describe('SessionListView live session frames', () => {
     logTailMock.mockImplementation(() => new Promise((resolve) => { releaseTail = resolve }))
     renderList()
     await screen.findByText('会话一')
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
     // 尾页说轮次还开着，但**宿主说没在跑** —— 以宿主为准（桌面端就是 agent 状态）。
     // 这条防的是真机那个反向 bug：几十年前中断的会话边界一直开着，绿点长亮。
     releaseTail({ rows: [], maxSeq: 3, hasMore: false, turnStartAt: Date.now() - 1_000 })
     await new Promise(resolve => setTimeout(resolve, 50))
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
   })
 
   it('drops a green dot that was baked into the cached page', async () => {
@@ -719,9 +731,9 @@ describe('SessionListView live session frames', () => {
     runningSessionsMock.mockResolvedValue({ sessionIds: [] })
     renderList()
     // 挂载这一帧就不许有绿点。
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
     await screen.findByText('缓存里还在跑')
-    expect(screen.queryByText('进行中')).toBeNull()
+    expect(runningChips()).toHaveLength(0)
   })
   it('宿主说在跑就立刻点亮，不用等尾页核实', async () => {
     // 真机现象：从会话列表切到设置（列表重挂载 / mux 重连都会触发核对），卡片先亮一下
@@ -736,10 +748,10 @@ describe('SessionListView live session frames', () => {
     // 核对还没回来：一个「进行中」都不许出现。
     await waitFor(() => { expect(runningSessionsMock).toHaveBeenCalled() })
     // 宿主已确认：这一帧就该亮，而且之后不会因为"尾页还在飞"而闪一下又灭。
-    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+    await waitFor(() => { expect(runningChips()).toHaveLength(1) })
     releaseTail({ rows: [], maxSeq: 4, hasMore: false })
     await new Promise(resolve => setTimeout(resolve, 50))
-    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+    await waitFor(() => { expect(runningChips()).toHaveLength(1) })
   })
   it('shows a session the host says is running when no status frame ever arrived', async () => {
     // 手机可能是在会话已经开跑之后才打开列表的：它手里没有那条 turn/start，
@@ -757,7 +769,7 @@ describe('SessionListView live session frames', () => {
     const mux = new FakeMux()
     renderList({ mux: mux as never })
     await screen.findByText('会话一')
-    expect(await screen.findAllByText('进行中')).toHaveLength(1)
+    await waitFor(() => { expect(runningChips()).toHaveLength(1) })
   })
 
   // 单独跑能过，整文件跑会受前一条用例的挂载/核对时序影响（约 1 秒内拿不到绿点）。
@@ -778,12 +790,12 @@ describe('SessionListView live session frames', () => {
       // 主动触发一次核对（不依赖挂载时那一次和首屏谁先到），去掉用例之间的时序耦合。
       await new Promise(resolve => setTimeout(resolve, 60))
       mux.emit({ type: 'session/subscribed', sessionId: 's-1' })
-      await waitFor(() => { expect(screen.queryAllByText('进行中')).toHaveLength(1) }, { timeout: 3000 })
+      await waitFor(() => { expect(runningChips()).toHaveLength(1) }, { timeout: 3000 })
 
       // 宿主改口（agent 已经空了）：下一次核对就熄灯。
       runningSessionsMock.mockResolvedValue({ sessionIds: [] })
       mux.emit({ type: 'session/subscribed', sessionId: 's-1' })
-      await waitFor(() => { expect(screen.queryByText('进行中')).toBeNull() })
+      await waitFor(() => { expect(runningChips()).toHaveLength(0) })
     })()
   })
 
@@ -795,7 +807,7 @@ describe('SessionListView live session frames', () => {
     renderList({ mux: mux as never })
     await screen.findByText('会话一')
     mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
-    expect(screen.getAllByText('进行中')).toHaveLength(1)
+    expect(runningChips()).toHaveLength(1)
 
     // 30 秒后宿主说它没在跑（缓存也过期了），一次新的连接基线触发核对。
     const realNow = Date.now()
@@ -803,7 +815,7 @@ describe('SessionListView live session frames', () => {
     try {
       runningSessionsMock.mockResolvedValue({ sessionIds: [] })
       mux.emit({ type: 'session/subscribed', sessionId: 's-1' })
-      await waitFor(() => { expect(screen.queryByText('进行中')).toBeNull() })
+      await waitFor(() => { expect(runningChips()).toHaveLength(0) })
     } finally {
       spy.mockRestore()
     }
@@ -816,14 +828,14 @@ describe('SessionListView live session frames', () => {
     renderList({ mux: mux as never })
     await screen.findByText('会话一')
     mux.emit({ type: 'session/status', sessionId: 's-1', running: true })
-    expect(screen.getAllByText('进行中')).toHaveLength(1)
+    expect(runningChips()).toHaveLength(1)
 
     const realNow = Date.now()
     const spy = vi.spyOn(Date, 'now').mockReturnValue(realNow + RUNNING_STALE_MS + 1_000)
     try {
       // 任何一次重渲染都会重新算一遍行状态；静默超时后它就不该再亮。
       mux.emit({ type: 'session/activity', sessionId: 's-2', updatedAt: realNow + 5_000 })
-      await waitFor(() => { expect(screen.queryByText('进行中')).toBeNull() })
+      await waitFor(() => { expect(runningChips()).toHaveLength(0) })
     } finally {
       spy.mockRestore()
     }
@@ -900,7 +912,7 @@ describe('SessionListView live session frames', () => {
     })
 
     expect(await screen.findByText('会话一')).toBeTruthy()
-    expect(screen.getAllByText('进行中')).toHaveLength(1)
+    expect(runningChips()).toHaveLength(1)
   })
 
   it('ignores frames that are not list state', async () => {
@@ -933,3 +945,98 @@ describe('SessionListView live session frames', () => {
       vi.useRealTimers()
     }
   })
+
+/**
+ * 版式契约（定版图第一屏「会话列表」）：
+ * 行卡三行信息（标题 / 状态胶囊+时间+箭头 / 单行预览）、分组计数、筛选计数。
+ * 这几条盯的是**结构**——谁在第几行、计数挂在哪——不是配色。
+ */
+describe('SessionListView 版式（定版图：会话列表）', () => {
+  /** 只回答「谁在等用户」的 mux 替身：让行上稳定地出现一枚状态胶囊。 */
+  class PendingMux {
+    pendingSnapshot = (): Array<{ sessionId: string; kind: 'approval' | 'question' }> => [
+      { sessionId: 's-1', kind: 'approval' as const },
+    ]
+    onFrame(): () => void { return () => {} }
+    runningSessionsSnapshot(): string[] { return [] }
+  }
+
+  it('行卡是三行结构：标题、胶囊与时间与箭头、单行预览', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [
+        summary('s-1', 1_700_000_000_000, {
+          cwd: '/tmp/demo',
+          projections: { values: { title: '改造移动端' } },
+        }),
+      ],
+      hasMore: false,
+    })
+    previewsMock.mockResolvedValue([{ sessionId: 's-1', summary: '已完成修改', updatedAt: 1_700_000_000_001 }])
+    renderList({ mux: new PendingMux() as never })
+    await screen.findByText('改造移动端')
+
+    const row = document.querySelector('.mobile-row-sess')
+    expect(row).not.toBeNull()
+    // 定版图的行是一张卡（表面色 + hairline + 12 圆角），不再是三列网格。
+    expect(row!.classList.contains('sess-card')).toBe(true)
+
+    // 第一行：标题独占一行。
+    expect(row!.querySelector('.sess-title')!.textContent).toBe('改造移动端')
+
+    // 第二行：状态胶囊在最左、时间在它后面、箭头贴右缘（svg 而不是文字箭头）。
+    const meta = row!.querySelector('.sess-meta')!
+    const parts = Array.from(meta.children)
+    expect(parts[0]!.className).toContain('sess-status')
+    expect(parts[0]!.textContent).toBe('待确认')
+    expect(parts.some(node => node.className.includes('sess-time'))).toBe(true)
+    expect(parts[parts.length - 1]!.className).toContain('mobile-chevron')
+    expect(parts[parts.length - 1]!.querySelector('svg')).not.toBeNull()
+
+    // 第三行：预览，单行省略（.card-desc）。
+    expect(await screen.findByText('已完成修改')).toBeTruthy()
+    expect(row!.querySelector('.card-desc')!.textContent).toBe('已完成修改')
+
+    // 定版图里没有左侧图标列/右箭头列：状态信息全部收进第二行。
+    expect(row!.querySelector('.card-icon')).toBeNull()
+    expect(row!.querySelector('.card-action')).toBeNull()
+  })
+
+  it('分组标题与筛选药丸都带计数，计数不进无障碍名', async () => {
+    listSessionsMock.mockResolvedValue({
+      items: [
+        summary('s-1', Date.now(), { cwd: '/tmp/demo', projections: { values: { title: '会话一' } } }),
+        summary('s-sub', Date.now() - 1_000, { cwd: '/tmp/demo/sub', projections: { values: { title: '会话二' } } }),
+      ],
+      hasMore: false,
+    })
+    renderList()
+    await screen.findByText('会话一')
+
+    // 分组标题「今天 · 2」。
+    expect(document.querySelector('.mobile-groupTitle')!.textContent).toBe('今天 · 2')
+
+    // 药丸「全部 2 / 进行中 0 / 待确认 0」——按名字仍然只念文字（数字是装饰）。
+    for (const [label, count] of [['全部', '2'], ['进行中', '0'], ['待确认', '0']] as const) {
+      const tab = screen.getByRole('tab', { name: label })
+      expect(tab.querySelector('.sess-chipCount')!.textContent).toBe(count)
+    }
+  })
+
+  it('选择器卡片压成一行：名字在左、圆形问号在右', async () => {
+    listAgentPresetsMock.mockResolvedValue({
+      presets: [{ id: 'standard', name: 'standard', trust: 'system', isDefault: true }],
+      authorable: false,
+      hasDocument: false,
+    })
+    renderList()
+    const trigger = await screen.findByRole('button', { name: 'Agent 模式' })
+    const help = screen.getByRole('button', { name: '模式说明' })
+    const card = trigger.parentElement!
+    // 两个动作仍是两个按钮，但同一张卡、同一行：名字 → 问号。
+    expect(help.parentElement).toBe(card)
+    expect(card.className).toBe('mobile-presetCard')
+    expect(trigger.textContent).toBe('standard（默认）')
+    // 下拉小三角退场：右侧只剩那枚圆形「?」。
+    expect(document.querySelector('.mobile-presetCaret')).toBeNull()
+  })
+})

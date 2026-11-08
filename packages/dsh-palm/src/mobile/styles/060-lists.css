@@ -10,17 +10,17 @@
   padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
 }
 
+/* 分组标题（定版图）：12px 灰字「今天 · 3」，上 8 / 下 4 的留白。
+   原来是一条 32px 高、全大写的标签——它比行标题还抢眼，而分组只是路标。 */
 .mobile-groupTitle {
-  height: 32px;
-  padding: 0 16px;
-  display: flex;
-  align-items: flex-end;
-  padding-bottom: 4px;
-  margin-bottom: 8px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  padding: var(--palm-s2) var(--palm-s4) var(--palm-s1);
+  display: block;
+  margin: 0;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: var(--palm-lh-head);
 }
 

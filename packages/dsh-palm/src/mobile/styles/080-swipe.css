@@ -6,9 +6,10 @@
    :active press-scale never fights the swipe offset. */
 .mobile-row-swipe {
   position: relative;
-  /* 与会话卡片的 12px 内缩对齐（见 .mobile-row），否则滑动露出层会错边。 */
-  margin: 0 12px 8px;
-  border-radius: var(--radius-card);
+  /* 与会话卡片的 12px 内缩对齐（见 .mobile-row），否则滑动露出层会错边。
+     行间距 10px 是定版图的值：令牌里最接近的是 8 / 12，中间这一档单独写死。 */
+  margin: 0 var(--palm-s3) 10px;
+  border-radius: var(--palm-r-m);
   overflow: hidden;
 }
 .mobile-row-swipe .mobile-row {
@@ -277,18 +278,19 @@
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
-  font-size: var(--text-base);
-  font-weight: 500;
-  color: var(--text-primary);
-  line-height: 1.35;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+  line-height: var(--palm-lh-head);
 }
 
-/* 元信息行：状态徽标 + 时间，自动换行，不与标题抢宽度。 */
+/* 元信息行（定版图第二行）：状态胶囊 → 时间 → 右箭头。自动换行，不与标题抢宽度；
+   箭头用 margin-left:auto 钉在右缘，胶囊有多少个都不影响它。 */
 .sess-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--palm-s2);
   margin-top: 1px;
 }
 
@@ -304,9 +306,22 @@
      日期必须完整可读 —— 只读信息不该被省略号吃掉。 */
   flex: none;
   white-space: nowrap;
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
   font-variant-numeric: tabular-nums;
+}
+
+/* 行尾箭头：16px 线性 SVG，钉在第二行右缘（不再单开一列）。 */
+.sess-meta .mobile-chevron {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  color: var(--palm-fg-3);
+}
+
+.sess-meta .mobile-chevron svg {
+  width: 16px;
+  height: 16px;
 }
 
 @keyframes pulse {

@@ -610,10 +610,13 @@ button.settings-row:active {
 
 
 
-/* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错）── */
+/* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错 / 蓝=新）──
+   18px 高、12px 字、全圆角：三行卡里它只是第二行的一个小标签，不许抢标题。
+   底色取 --palm-tint-*（与四态色同源），深色/纸/夜航三套皮肤都自动跟着走。 */
 .sess-status {
   display: inline-flex;
   align-items: center;
+  flex: none;
   padding: 0 var(--palm-s2);
   height: 18px;
   border-radius: var(--palm-r-full);
@@ -624,22 +627,22 @@ button.settings-row:active {
 }
 
 .sess-status-ok {
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  background: var(--palm-tint-ok);
   color: var(--palm-ok);
 }
 
 .sess-status-warn {
-  background: color-mix(in srgb, var(--palm-warn) 18%, transparent);
+  background: var(--palm-tint-warn);
   color: var(--palm-warn);
 }
 
 .sess-status-danger {
-  background: color-mix(in srgb, var(--palm-danger) 18%, transparent);
+  background: var(--palm-tint-danger);
   color: var(--palm-danger);
 }
 
 .sess-status-info {
-  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  background: var(--palm-tint-accent);
   color: var(--palm-accent);
 }
 

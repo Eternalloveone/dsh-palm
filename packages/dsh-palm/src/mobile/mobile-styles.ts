@@ -843,18 +843,18 @@ body,
   padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
 }
 
+/* 分组标题（定版图）：12px 灰字「今天 · 3」，上 8 / 下 4 的留白。
+   原来是一条 32px 高、全大写的标签——它比行标题还抢眼，而分组只是路标。 */
 .mobile-groupTitle {
-  height: 32px;
-  padding: 0 16px;
-  display: flex;
-  align-items: flex-end;
-  padding-bottom: 4px;
-  margin-bottom: 8px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  padding: var(--palm-s2) var(--palm-s4) var(--palm-s1);
+  display: block;
+  margin: 0;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: var(--palm-lh-head);
 }
 
 /* ── THE unified card ──────────────────────────────────────────────────
@@ -926,6 +926,32 @@ body,
   border-color: var(--border-default);
 }
 
+/* ── 会话行卡（定版图）：三行信息卡 ────────────────────────────────────
+   一行标题 17/600、二行「状态胶囊 + 时间 + 箭头」、三行一行预览。整卡是
+   表面色 + 1px hairline，12 圆角，内边距 12/14 —— 所以这里的 .sess-card 要
+   盖掉通用卡的图标列网格（48/36px 图标列在这三行里没有位置）。
+   横向 14px 是定版图给的档位，令牌里只有 12 / 16，中间这一档单独写死。 */
+.sess-card {
+  display: block;
+  min-height: 0;
+  padding: var(--palm-s3) 14px;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: none;
+}
+
+/* 三行之间的呼吸：2 拍 4px，比卡内的 12px 内边距小，读起来是一整块而不是三段。 */
+.sess-card .sess-meta {
+  margin-top: var(--palm-s1);
+}
+
+.sess-card .card-desc {
+  display: block;
+  margin-top: var(--palm-s1);
+  color: var(--palm-fg-3);
+}
+
 /* ── swipe-to-delete wrapper ────────────────────────────────────────────
    The row lives inside a swipe wrapper: a left swipe translates the inner
    (row) left to reveal the delete action behind it. The wrapper owns the
@@ -934,9 +960,10 @@ body,
    :active press-scale never fights the swipe offset. */
 .mobile-row-swipe {
   position: relative;
-  /* 与会话卡片的 12px 内缩对齐（见 .mobile-row），否则滑动露出层会错边。 */
-  margin: 0 12px 8px;
-  border-radius: var(--radius-card);
+  /* 与会话卡片的 12px 内缩对齐（见 .mobile-row），否则滑动露出层会错边。
+     行间距 10px 是定版图的值：令牌里最接近的是 8 / 12，中间这一档单独写死。 */
+  margin: 0 var(--palm-s3) 10px;
+  border-radius: var(--palm-r-m);
   overflow: hidden;
 }
 .mobile-row-swipe .mobile-row {
@@ -1205,18 +1232,19 @@ body,
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
-  font-size: var(--text-base);
-  font-weight: 500;
-  color: var(--text-primary);
-  line-height: 1.35;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+  line-height: var(--palm-lh-head);
 }
 
-/* 元信息行：状态徽标 + 时间，自动换行，不与标题抢宽度。 */
+/* 元信息行（定版图第二行）：状态胶囊 → 时间 → 右箭头。自动换行，不与标题抢宽度；
+   箭头用 margin-left:auto 钉在右缘，胶囊有多少个都不影响它。 */
 .sess-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--palm-s2);
   margin-top: 1px;
 }
 
@@ -1232,9 +1260,22 @@ body,
      日期必须完整可读 —— 只读信息不该被省略号吃掉。 */
   flex: none;
   white-space: nowrap;
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
   font-variant-numeric: tabular-nums;
+}
+
+/* 行尾箭头：16px 线性 SVG，钉在第二行右缘（不再单开一列）。 */
+.sess-meta .mobile-chevron {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  color: var(--palm-fg-3);
+}
+
+.sess-meta .mobile-chevron svg {
+  width: 16px;
+  height: 16px;
 }
 
 @keyframes pulse {
@@ -2183,18 +2224,18 @@ button.settings-row:focus-visible {
   }
 }
 
-/* Skeleton rows mirror the real card tiers (72px medium / 56px small). */
+/* Skeleton rows mirror the real card tiers. 会话行改成三行信息卡之后骨架也跟着
+   收成「一块卡 + 三行占位」，否则加载那一瞬页面会先跳一下再变成新排布。 */
 .skel-row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-3);
-  height: 72px;
-  margin: 0 16px 8px;
-  padding: 0 16px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
+  gap: var(--palm-s2);
+  margin: 0 var(--palm-s3) 10px;
+  padding: var(--palm-s3) 14px;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
 }
 
 .skel-icon {
@@ -2254,18 +2295,19 @@ button.settings-row:focus-visible {
   margin: 4px 16px;
 }
 
+/* 主按钮（定版图）：全宽、44px 高、强调色实心、12 圆角。 */
 .mobile-new {
   display: block;
   width: calc(100% - 32px);
-  height: 48px;
-  margin: 0 16px;
+  height: var(--palm-hit);
+  margin: 0 var(--palm-s4);
   border: none;
-  border-radius: var(--radius-card);
-  background: var(--accent);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-accent);
   color: var(--accent-contrast);
   font: inherit;
-  font-size: var(--text-base);
-  font-weight: 500;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
   cursor: pointer;
   box-shadow: 0 2px 8px var(--accent-glow);
   transition: transform 0.1s ease, filter 0.1s ease;
@@ -2282,13 +2324,13 @@ button.settings-row:focus-visible {
   box-shadow: none;
 }
 
-/* F1 session filters: horizontally scrollable chip row under the header.
-   Chips are 32px tall visuals inside a 44px hit area (padding), because the
-   mobile rule is "visual may be small, tappable must not be". */
+/* F1 会话筛选（定版图）：一行药丸，选中「强调色描边 + 淡底」，未选「灰底无描边」。
+   药丸本身撑满 44px 触控高度，视觉高度就是触控高度——手机上一行矮药丸比多出来的
+   空白更容易点错。 */
 .sess-filters {
   display: flex;
-  gap: 8px;
-  padding: 6px 16px 8px;
+  gap: var(--palm-s2);
+  padding: var(--palm-s1) var(--palm-s4) var(--palm-s2);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -2300,23 +2342,23 @@ button.settings-row:focus-visible {
 
 .sess-chip {
   flex: 0 0 auto;
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
-  border-radius: 999px;
-  background: var(--bg-surface, transparent);
-  color: var(--text-secondary);
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s4);
+  /* 透明边而不是 border: none：选中态描边出现时药丸不会跳 1px。 */
+  border: var(--palm-hair) solid transparent;
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--text-sm, 13px);
+  font-size: var(--palm-t-m);
   white-space: nowrap;
   cursor: pointer;
 }
 
 .sess-chip-on {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-glow);
-  font-weight: 500;
+  border-color: var(--palm-accent);
+  color: var(--palm-accent);
+  background: var(--palm-tint-accent);
 }
 
 .mobile-hint {
@@ -2339,31 +2381,31 @@ button.settings-row:focus-visible {
   display: grid;
 }
 
-/* Agent-mode selector card (small-card tier): custom trigger + "?" hint.
- * The trigger opens a bottom-sheet option list (no native select popup). */
+/* 选择器卡片（定版图）：左侧当前项名字一行，右侧圆形「?」。卡片整体是
+   表面色 + 1px hairline，12 圆角；名字那一行可点开选择面板。 */
 .mobile-presetCard {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: var(--space-1);
-  margin: 0 16px 8px;
+  column-gap: var(--palm-s2);
+  margin: 0 var(--palm-s4) var(--palm-s2);
+  padding-right: var(--palm-s2);
   min-height: 56px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
-  box-shadow: var(--card-shadow);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
   overflow: hidden;
 }
 
 .mobile-presetTrigger {
   width: 100%;
   min-height: 54px;
-  padding: 8px 0 8px 16px;
+  padding: 8px 0 8px var(--palm-s4);
   display: flex;
   align-items: center;
   border: none;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--palm-fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -2371,66 +2413,43 @@ button.settings-row:focus-visible {
 }
 
 .mobile-presetTrigger:active {
-  background: var(--fill);
+  background: var(--palm-sur-2);
 }
 
 .mobile-presetTrigger:disabled {
   opacity: 0.6;
 }
 
-.mobile-presetTriggerCopy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .mobile-presetTriggerTitle {
-  font-size: var(--text-base);
-  font-weight: 500;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.mobile-presetTriggerDesc {
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mobile-presetCaret {
-  pointer-events: none;
-  color: var(--text-quaternary);
-  font-size: 14px;
-  text-align: center;
-}
-
+/* 圆形「?」：44px 触控，16px 线性图标，一圈 hairline——和卡片同一套线。 */
 .mobile-presetHelp {
-  width: 48px;
-  height: 54px;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  border-left: 1px solid var(--border-subtle);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-2);
   cursor: pointer;
   transition: background-color 0.12s ease;
 }
 
 .mobile-presetHelp svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .mobile-presetHelp:active {
-  background: var(--fill);
+  background: var(--palm-sur-2);
 }
 
 .mobile-presetHelp:disabled {
@@ -7832,10 +7851,13 @@ button.settings-row:active {
 
 
 
-/* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错）── */
+/* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错 / 蓝=新）──
+   18px 高、12px 字、全圆角：三行卡里它只是第二行的一个小标签，不许抢标题。
+   底色取 --palm-tint-*（与四态色同源），深色/纸/夜航三套皮肤都自动跟着走。 */
 .sess-status {
   display: inline-flex;
   align-items: center;
+  flex: none;
   padding: 0 var(--palm-s2);
   height: 18px;
   border-radius: var(--palm-r-full);
@@ -7846,22 +7868,22 @@ button.settings-row:active {
 }
 
 .sess-status-ok {
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  background: var(--palm-tint-ok);
   color: var(--palm-ok);
 }
 
 .sess-status-warn {
-  background: color-mix(in srgb, var(--palm-warn) 18%, transparent);
+  background: var(--palm-tint-warn);
   color: var(--palm-warn);
 }
 
 .sess-status-danger {
-  background: color-mix(in srgb, var(--palm-danger) 18%, transparent);
+  background: var(--palm-tint-danger);
   color: var(--palm-danger);
 }
 
 .sess-status-info {
-  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  background: var(--palm-tint-accent);
   color: var(--palm-accent);
 }
 

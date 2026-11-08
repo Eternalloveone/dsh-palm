@@ -8,7 +8,7 @@ import type { MutableRefObject } from 'react'
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { formatFullTime } from '../../shared/time.ts'
 import type { SessionView } from '../../shared/session-view.ts'
-import { ChatBubbleIcon, CheckIcon } from '../../components/icons.tsx'
+import { ChatBubbleIcon, ChevronRightIcon } from '../../components/icons.tsx'
 import type { DayBucket } from './session-list-model.ts'
 import { Button } from '../../ui/primitives.tsx'
 
@@ -59,12 +59,11 @@ export function SessionListRoster({
           <div aria-hidden="true" role="presentation">
             {[0, 1, 2].map(index => (
               <div className="skel-row" key={index}>
-                <span className="skel skel-icon" />
                 <div className="skel-lines">
                   <div className="skel skel-line-title" />
                   <div className="skel skel-line-sub" />
+                  <div className="skel skel-line-sub" />
                 </div>
-                <span />
               </div>
             ))}
           </div>
@@ -87,7 +86,7 @@ export function SessionListRoster({
                 const cvTail = flatIndex >= totalRows - keepBottom
                 const cvStyle = cvTail || totalRows < 20
                   ? undefined
-                  : { contentVisibility: 'auto' as const, containIntrinsicSize: 'auto 72px' }
+                  : { contentVisibility: 'auto' as const, containIntrinsicSize: 'auto 92px' }
                 flatIndex += 1
                 const swiped = openSwipeId === row.sessionId
                 return (
@@ -101,32 +100,25 @@ export function SessionListRoster({
                       删除
                     </Button>
                     <div className={'mobile-row-swipe-inner' + (swiped ? ' swiped' : '')}>
-                      <Button type="button" className="mobile-row mobile-row-sess" {...rowHandlers(row)}>
-                        <span className="card-icon">
-                          {row.running ? (
-                            <span className="sess-dot sess-dot-running" role="img" aria-label="进行中" />
-                          ) : (
-                            <span className="sess-check" aria-hidden><CheckIcon /></span>
+                      <Button type="button" className="mobile-row mobile-row-sess sess-card" {...rowHandlers(row)}>
+                        <span className="sess-titleline">
+                          <span className="sess-title">{row.title}</span>
+                        </span>
+                        {/* 第二行：状态胶囊 → 时间 → 右箭头。胶囊在前、时间随后、
+                            箭头贴右缘（margin-left:auto），三者的位置固定，扫视时
+                            不需要重新找。 */}
+                        <span className="sess-meta">
+                          {row.blank && <span className="sess-status sess-status-info">新</span>}
+                          {row.running && <span className="sess-status sess-status-ok">进行中</span>}
+                          {pendingIds?.has(row.sessionId) === true && (
+                            <span className="sess-status sess-status-warn">待确认</span>
                           )}
+                          {row.error !== undefined && <span className="sess-status sess-status-danger" title={row.error}>出错</span>}
+                          <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
+                          <span className="mobile-chevron" aria-hidden><ChevronRightIcon /></span>
                         </span>
-                        <span className="card-main">
-                          <span className="sess-titleline">
-                            <span className="sess-title">{row.title}</span>
-                          </span>
-                          <span className="sess-meta">
-                            {row.blank && <span className="sess-status sess-status-info">新</span>}
-                            {row.running && <span className="sess-status sess-status-ok">进行中</span>}
-                            {pendingIds?.has(row.sessionId) === true && (
-                              <span className="sess-status sess-status-warn">待确认</span>
-                            )}
-                            {row.error !== undefined && <span className="sess-status sess-status-danger" title={row.error}>出错</span>}
-                            <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
-                          </span>
-                          {preview !== undefined && <span className="card-desc">{preview}</span>}
-                        </span>
-                        <span className="card-action">
-                          <span className="mobile-chevron" aria-hidden>›</span>
-                        </span>
+                        {/* 第三行：预览，一行省略号截断。 */}
+                        {preview !== undefined && <span className="card-desc">{preview}</span>}
                       </Button>
                     </div>
                   </div>
