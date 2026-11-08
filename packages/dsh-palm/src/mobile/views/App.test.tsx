@@ -16,6 +16,8 @@ const api = vi.hoisted(() => ({
   readChat: vi.fn(),
   readSettings: vi.fn().mockResolvedValue({}),
   runningSessions: vi.fn().mockResolvedValue({ sessionIds: [] }),
+  searchAll: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
+  searchSessions: vi.fn().mockResolvedValue({ items: [], total: 0, hasMore: false, tookMs: 0 }),
   turnOutlineOf: vi.fn().mockResolvedValue({ turns: null }),
   setThemePreference: vi.fn(),
 }))
@@ -139,9 +141,10 @@ describe('「返回」的落点（漏一个页面就是死按钮）', () => {
       .toEqual({ kind: 'sessions', workspace: workspaceRow })
   })
 
-  it('会话列表 / 设置 / 首页都有落点，首页原地不动', () => {
+  it('会话列表 / 设置 / 搜索 / 首页都有落点，首页原地不动', () => {
     expect(backTargetOf(route({ kind: 'sessions', workspace: workspaceRow }))).toEqual({ kind: 'workspaces' })
     expect(backTargetOf(route({ kind: 'settings', workspace: workspaceRow }))).toEqual({ kind: 'sessions', workspace: workspaceRow })
+    expect(backTargetOf(route({ kind: 'search', workspace: workspaceRow }))).toEqual({ kind: 'sessions', workspace: workspaceRow })
     expect(backTargetOf(route({ kind: 'workspaces' }))).toEqual({ kind: 'workspaces' })
   })
 })

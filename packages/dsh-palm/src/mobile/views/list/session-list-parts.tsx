@@ -5,7 +5,7 @@
 
 import type { AgentPresetEntry, WorkspaceView as WorkspaceRow } from '../../../api-proxy-types'
 import type { SessionFoldersView } from '../../api.ts'
-import { HelpIcon } from '../../components/icons.tsx'
+import { HelpIcon, SearchIcon } from '../../components/icons.tsx'
 import { ThemeToggle } from '../../components/theme-toggle.tsx'
 import { Button } from '../../ui/primitives.tsx'
 
@@ -37,6 +37,23 @@ export function SessionListHeader({ workspace, onBack, onOpenSettings }: Session
           <ThemeToggle />
         </div>
       </header>
+  )
+}
+
+export interface SessionListSearchEntryProps {
+  onOpen(): void
+}
+
+/**
+ * 搜索入口：长得像原来的页内搜索框，点一下进独立的搜索页（P6 ② 屏）。
+ * 这里只是按钮，不持有输入状态——真正的搜索框在 SearchView 里。
+ */
+export function SessionListSearchEntry({ onOpen }: SessionListSearchEntryProps) {
+  return (
+    <Button type="button" className="sess-searchEntry" aria-label="搜索会话和消息" onClick={onOpen}>
+      <SearchIcon />
+      <span className="sess-searchEntry-label">搜索会话和消息</span>
+    </Button>
   )
 }
 

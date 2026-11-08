@@ -54,7 +54,7 @@ import {
   type LiveListState,
 } from './list/session-list-model.ts'
 export { dayBucketFor, RUNNING_STALE_MS } from './list/session-list-model.ts'
-import { SessionListCreate, SessionListFilters, SessionListHeader } from './list/session-list-parts.tsx'
+import { SessionListCreate, SessionListFilters, SessionListHeader, SessionListSearchEntry } from './list/session-list-parts.tsx'
 import { SessionListRoster, type SessionRowHandlers } from './list/session-list-roster.tsx'
 import type { HostBridge } from '../kernels/host-bridge.ts'
 import {
@@ -146,6 +146,8 @@ export interface SessionListViewProps {
   onPick(session: SessionView): void
   /** Open the mobile settings page (gear in the header). */
   onOpenSettings(): void
+  /** Open the standalone search page (P6 ② 屏); absent = no entry (old callers). */
+  onOpenSearch?(): void
   /** Locate a session living in another workspace (in-app navigation). */
   onLocateSession?(sessionId: string, workspaceId: string, seq?: number, query?: string): void
   /** Open a session scrolled to one of its matched messages. */
@@ -157,7 +159,7 @@ export interface SessionListViewProps {
  * @param props - the workspace, back action, and pick action.
  * @returns the session list.
  */
-export function SessionListView({ workspace, mux, bridge, initialSessionId, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq }: SessionListViewProps) {
+export function SessionListView({ workspace, mux, bridge, initialSessionId, onBack, onPick, onOpenSettings, onOpenSearch, onLocateSession, onPickSeq }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
   /** rows 的镜像：resync 需要"当前有哪些行"，但读 state 会把它绑进依赖、频繁重建。 */
   const rowsRef = useRef<readonly SessionView[]>([])
@@ -996,6 +998,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
   return (
     <div className="mobile">
       <SessionListHeader workspace={workspace} onBack={onBack} onOpenSettings={onOpenSettings} />
+      {onOpenSearch === undefined ? null : <SessionListSearchEntry onOpen={onOpenSearch} />}
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
       <SessionListCreate
         presets={presets}

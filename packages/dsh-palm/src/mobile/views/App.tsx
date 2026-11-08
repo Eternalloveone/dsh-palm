@@ -126,6 +126,8 @@ import { OutlineView } from './OutlineView.tsx'
 import { ArtifactsView } from './ArtifactsView.tsx'
 import { ContextView } from './ContextView.tsx'
 import { ApprovalModeView } from './ApprovalModeView.tsx'
+import { SearchView, type SearchHit } from './SearchView.tsx'
+import { searchPageFor } from './search-request.ts'
 import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.ts'
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
 
@@ -138,6 +140,8 @@ type Route =
   | { kind: 'workspaces' }
   | { kind: 'run-overview' }
   | { kind: 'sessions'; workspace: WorkspaceRow }
+  /** ② 搜索：会话列表顶部入口进来，返回即弹栈回列表。 */
+  | { kind: 'search'; workspace: WorkspaceRow }
   | { kind: 'settings'; workspace: WorkspaceRow }
   | {
     kind: 'chat'
@@ -220,6 +224,7 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'context') return `context:${route.session.sessionId}`
   if (route.kind === 'approval-mode') return `approval-mode:${route.session.sessionId}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
+  if (route.kind === 'search') return `search:${String(route.workspace.workspaceId)}`
   if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
   return route.kind
 }
@@ -288,6 +293,9 @@ export function backTargetOf(route: Route): Route {
       return { kind: 'sessions', workspace: route.workspace }
     case 'sessions':
       return { kind: 'workspaces' }
+    case 'search':
+      // 兜底（栈里只有它）：搜索属于某个工作区的会话列表，退回那一页。
+      return { kind: 'sessions', workspace: route.workspace }
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
@@ -371,7 +379,7 @@ export function mobileDecisionTarget(search: string): { id: string; kind: 'appro
 export function routeUrlSearch(search: string, route: Route): string {
   const params = new URLSearchParams(search)
   // 离线深链造出来的占位工作区没有 workspaceId：这时不要覆盖 URL 里原有的值。
-  const workspaceId = route.kind === 'chat' || route.kind === 'sessions' || route.kind === 'settings'
+  const workspaceId = route.kind === 'chat' || route.kind === 'sessions' || route.kind === 'search' || route.kind === 'settings'
     ? String(route.workspace.workspaceId ?? '')
     : ''
   if (workspaceId !== '') params.set('workspace', workspaceId)
@@ -395,7 +403,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, context: 3, 'approval-mode': 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, search: 2, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, context: 3, 'approval-mode': 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1219,6 +1227,45 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     })
   }, [navigate])
 
+  /**
+   * 点搜索命中：直接开对话并带上定位信息。
+   *
+   * 命中可能属于别的工作区。页面栈里搜索页是上一页，所以这里**不**走
+   * 「跳回工作区首页再由列表自动打开」那条深链链路（那会把返回落点改成首页）；
+   * 直接压一层对话，返回自然回到搜索结果。
+   */
+  const openSearchHit = useCallback((hit: SearchHit, term: string, currentWorkspace: WorkspaceRow) => {
+    const sameWorkspace = hit.workspaceId === undefined
+      || String(hit.workspaceId) === String(currentWorkspace.workspaceId)
+    const workspace: WorkspaceRow = sameWorkspace
+      ? currentWorkspace
+      : {
+        workspaceId: hit.workspaceId as never,
+        path: '',
+        title: hit.workspaceTitle ?? '',
+        sessionIds: [] as never,
+        createdAt: '',
+        updatedAt: '',
+      }
+    const session: SessionView = {
+      sessionId: hit.sessionId,
+      title: hit.title !== undefined && hit.title !== '' ? hit.title : '匹配会话',
+      ...(hit.snippet !== undefined && hit.snippet !== '' ? { preview: hit.snippet } : {}),
+      updatedAt: typeof hit.updatedAt === 'number' ? hit.updatedAt : 0,
+      running: false,
+      blank: false,
+    }
+    navigate({
+      kind: 'chat',
+      session,
+      workspace,
+      ...(hit.seq === undefined ? {} : { focusSeq: hit.seq }),
+      ...(hit.messageId === undefined ? {} : { focusMessageId: hit.messageId }),
+      ...(hit.partId === undefined ? {} : { focusPartId: hit.partId }),
+      ...(term === '' ? {} : { focusQuery: term }),
+    })
+  }, [navigate])
+
   /** Open a session from the global run-overview: back returns to the
    *  overview (the session may live in any workspace, so it rides the
    *  standalone chat shape — the overview page is its own list level). */
@@ -1294,11 +1341,18 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           onBack={back}
           onPick={(session) => { openChat(session, route.workspace, focusSeqRef.current, focusQueryRef.current, focusMessageIdRef.current, focusPartIdRef.current) }}
           onOpenSettings={() => { navigate({ kind: 'settings', workspace: route.workspace }) }}
+          onOpenSearch={() => { navigate({ kind: 'search', workspace: route.workspace }) }}
           onLocateSession={locateSession}
           onPickSeq={(session, seq, query, messageId, partId) => { openChat(session, route.workspace, seq, query, messageId, partId) }}
         />
       )
-      : route.kind === 'settings'
+      : route.kind === 'search'
+        ? <SearchView
+          search={searchPageFor}
+          onBack={back}
+          onPick={(hit, term) => { openSearchHit(hit, term, route.workspace) }}
+        />
+        : route.kind === 'settings'
         ? <SettingsView
           onBack={back}
           onOpenAppearance={() => { navigate({ kind: 'appearance', workspace: route.workspace }) }}

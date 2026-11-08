@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Architecture guardrails for the mobile client.
  *
  * These are the "safety net" gates from the refactor plan: they do not test
@@ -88,7 +88,8 @@ describe('architecture guardrails', () => {
     const budgets: Record<string, number> = {
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
       // 2026-11-08：P6 页面栈接入（压栈/弹栈 + routeKeyOf）；旧标记删除后回落。
-      'views/App.tsx': 1462,
+      // 2026-11-08：P6 ② 搜索独立页（search 路由四件套 + 列表入口 + 命中跳会话）；检索适配已外移到 search-request.ts。
+      'views/App.tsx': 1516,
       'views/SettingsView.tsx': 786,
       // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
       // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。

@@ -5,10 +5,10 @@
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
     "src/mobile/views/ChatView.tsx": 4198,
-    "src/mobile/views/App.tsx": 1457
+    "src/mobile/views/App.tsx": 1516
   },
   "dirs": {
-    "src/mobile": 63181,
+    "src/mobile": 63806,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2525,
@@ -25,7 +25,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1446,
-    "src/mobile/views": 21871,
+    "src/mobile/views": 22296,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },

@@ -97,6 +97,7 @@ function renderList(props: Partial<SessionListViewProps> = {}): void {
       onBack={() => {}}
       onPick={(session) => { picked = session }}
       onOpenSettings={() => {}}
+      onOpenSearch={() => {}}
       {...props}
     />,
   )
@@ -129,6 +130,13 @@ afterEach(() => {
 })
 
 describe('SessionListView roster', () => {
+  it('顶部搜索入口点一下进独立搜索页（P6 ② 屏）', () => {
+    const onOpenSearch = vi.fn()
+    renderList({ onOpenSearch })
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话和消息' }))
+    expect(onOpenSearch).toHaveBeenCalledTimes(1)
+  })
+
   it('shows only the sessions attached to the workspace (desktop parity)', async () => {
     listSessionsMock.mockResolvedValue({
       items: [
