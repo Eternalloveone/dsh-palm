@@ -100,6 +100,15 @@ describe('architecture guardrails', () => {
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
       'views/RunOverviewView.tsx': 987,
       'views/SubChatView.tsx': 177,
+      'views/AppearanceView.tsx': 141,
+      'views/ApprovalView.tsx': 95,
+      'views/ArtifactsView.tsx': 97,
+      'views/ChatView.tsx': 4163,
+      'views/DiffView.tsx': 80,
+      'views/MarketView.tsx': 245,
+      'views/ModelView.tsx': 193,
+      'views/OutlineView.tsx': 99,
+      'views/SettingsForm.tsx': 549,
     }
     for (const [file, budget] of Object.entries(budgets)) {
       const lines = readFileSync(join(HERE, file), 'utf8').split('\n').length
