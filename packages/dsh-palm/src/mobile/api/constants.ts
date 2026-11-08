@@ -33,3 +33,6 @@ export const SESSION_LIST_REFRESH_MIN_MS = 60000
 
 /** 附件 base64 字符数上限（对应 20 MB 原始字节）。 */
 export const MAX_ATTACHMENT_BASE64_CHARS = 28 * 1024 * 1024
+
+/** 用量/余额的短缓存 TTL。 */
+export const USAGE_CACHE_TTL_MS = 60_000

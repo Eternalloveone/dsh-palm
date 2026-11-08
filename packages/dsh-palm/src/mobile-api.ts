@@ -27,7 +27,6 @@ export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/direct
 import { processState, type OrdinarySearchSession, type OrdinarySearchSnapshot } from './mobile/api/process-state.ts'
 import { isAllowedSettingsOp } from './mobile/api/settings.ts'
 import { readChatInclude } from './mobile/api/chat-include.ts'
-const USAGE_CACHE_TTL_MS = 60_000
 
 import {
   hydrateSessionRoster, isRosterHydrated, markRosterHydrated, markRosterRefreshed, persistSessionRoster,
@@ -404,52 +403,6 @@ const MOBILE_FOLDERS_METHOD = 'mobile.folders'
  * `credential-ref`, not `secret`, so the redactor keeps it) and the key itself
  * is resolved host-side through `deps.resolveKey` in the handler.
  */
-async function discoverUsageProviders(apiProxy: ApiProxy): Promise<UsageProviderConfig[]> {
-  const described = await apiProxy.settings.describe({ rpcId: RpcId('usage-discover'), payload: {} })
-  const result = described?.result as
-    | { ok?: boolean; value?: { namespaces?: Array<{ ns?: string; value?: unknown }> } }
-    | undefined
-  if (result?.ok !== true) return []
-  const namespaces = result.value?.namespaces ?? []
-  // llm-pi-ai: the OpenAI-compatible route table keyed by provider.
-  const fromRouteTable = (): UsageProviderConfig[] => {
-    const found = namespaces.find(entry => entry.ns === 'llm-pi-ai')
-    const providers = (found?.value as { providers?: Record<string, unknown> } | undefined)?.providers
-    if (providers === undefined) return []
-    return Object.entries(providers).flatMap(([route, raw]) => {
-      if (typeof raw !== 'object' || raw === null) return []
-      const rec = raw as { apiKeyEnv?: unknown; baseURL?: unknown; displayName?: unknown }
-      return [{
-        route,
-        ...typeof rec.baseURL === 'string' ? { baseURL: rec.baseURL } : {},
-        ...typeof rec.displayName === 'string' ? { displayName: rec.displayName } : {},
-        ...typeof rec.apiKeyEnv === 'string' ? { apiKeyEnv: rec.apiKeyEnv } : {},
-      }]
-    })
-  }
-  // llm-deepseek: the dedicated gateway namespace. The key itself is a
-  // stripped secret and never rides the describe view, but its credential-ref
-  // *name* is plain config (llm-deepseek's apiKeyEnv field, documented default
-  // DEEPSEEK_API_KEY) — the desktop's stored key resolves host-side through
-  // the credentials service, exactly as the provider library does at request
-  // time.
-  const deepseekValue = namespaces.find(entry => entry.ns === 'llm-deepseek')?.value as
-    | { models?: unknown; baseURL?: unknown; apiKeyEnv?: unknown }
-    | undefined
-  const deepseekPresent = deepseekValue !== undefined
-    && (Array.isArray(deepseekValue.models) || typeof deepseekValue.baseURL === 'string')
-  const fromDeepseek: UsageProviderConfig[] = deepseekPresent
-    ? [{
-        route: 'deepseek',
-        displayName: 'DeepSeek 官方',
-        ...(typeof deepseekValue.baseURL === 'string' ? { baseURL: deepseekValue.baseURL } : {}),
-        apiKeyEnv: typeof deepseekValue.apiKeyEnv === 'string' && deepseekValue.apiKeyEnv.length > 0
-          ? deepseekValue.apiKeyEnv
-          : 'DEEPSEEK_API_KEY',
-      }]
-    : []
-  return [...fromRouteTable(), ...fromDeepseek]
-}
 
 /** One session.list page (thin phones load incrementally). */
 /** Concurrent SSE mux subscriptions allowed per server (reconnect-tolerant). */
@@ -963,7 +916,7 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  */
 import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
 import type { MobileApiCtx } from './mobile/api/context.ts'
-import { LOCATE_TTL_MS, MAX_ATTACHMENT_BASE64_CHARS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_REFRESH_MIN_MS, SESSION_LIST_TTL_MS, SESSION_PAGE_SIZE } from './mobile/api/constants.ts'
+import { LOCATE_TTL_MS, MAX_ATTACHMENT_BASE64_CHARS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_REFRESH_MIN_MS, SESSION_LIST_TTL_MS, SESSION_PAGE_SIZE, USAGE_CACHE_TTL_MS } from './mobile/api/constants.ts'
 import { wrap } from './mobile/api/wrap.ts'
 import { workspaceList } from './mobile/api/workspace-list.ts'
 import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
@@ -991,6 +944,7 @@ import { mobileFolders } from './mobile/api/mobile-folders.ts'
 import { mobileUploadAttachment } from './mobile/api/mobile-upload.ts'
 import { mobileDiagnostics } from './mobile/api/health-report.ts'
 import { MOBILE_ALLOWLIST } from './mobile/api/allowlist.ts'
+import { mobileUsage } from './mobile/api/mobile-usage.ts'
 export { MOBILE_ALLOWLIST }
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
@@ -1538,53 +1492,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         }
       }],
       [MOBILE_SEARCH_MESSAGES_METHOD, async (ctx) => mobileSearchMessages(ctx)],
-      [MOBILE_USAGE_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps, apiProxy } = ctx
-        // Per-provider usage/balance, synced from the desktop's configured
-        // providers. `refresh: true` bypasses the short cache. Keys resolve
-        // host-side only; the phone receives display facts alone.
-        const body = parsed.payload as { refresh?: unknown } | undefined
-        const force = body?.refresh === true
-        const cached = processState.usageCache !== undefined
-          && !force
-          && Date.now() - processState.usageCache.at < USAGE_CACHE_TTL_MS
-        let fresh: UsageView | undefined
-        if (!cached) {
-          try {
-            const providers = await discoverUsageProviders(apiProxy)
-            const view = await buildUsageView(providers, refName =>
-              deps.resolveKey === undefined ? Promise.resolve(undefined) : deps.resolveKey(refName))
-            processState.usageCache = { at: Date.now(), view }
-            fresh = view
-          } catch (error) {
-            // Internal failures (a settings read glitch, a provider adapter
-            // throwing) surface as a stable refusal, never the host detail.
-            console.error('mobile.usage failed', error)
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: false, error: { code: 'internal', message: '用量查询失败，请稍后重试' } },
-            })
-            return
-          }
-        }
-        // Serve the fresh view, else the still-valid cached one (never reached
-        // without either: cached implies usageCache is populated).
-        const served: UsageView | undefined = fresh ?? processState.usageCache?.view
-        if (served === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '用量查询失败，请稍后重试' } },
-          })
-          return
-        }
-        writeJson(res, 200, {
-          type: 'server-response',
-          rpcId,
-          result: { ok: true, value: served },
-        })
-      }],
+      [MOBILE_USAGE_METHOD, async (ctx) => mobileUsage(ctx)],
       [MOBILE_READ_CHAT_METHOD, async (ctx) => mobileReadChat(ctx)],
       [MOBILE_LOG_TAIL_METHOD, async (ctx) => mobileLogTail(ctx)],
       [MOBILE_OBSERVE_METHOD, async (ctx) => mobileObserve(ctx)],
