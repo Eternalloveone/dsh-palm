@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>时间线 + 文件改动 + 交付物</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b; --sur2:#1c1c25;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.11);
+    --fg:#eceef5; --fg2:#a3a8b6; --fg3:#6d7280;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{padding:22px;width:max-content}
+  .phone{position:relative;width:390px;height:844px;border-radius:42px;overflow:hidden;background:var(--bg);box-shadow:0 26px 70px rgba(0,0,0,.7),0 0 0 9px #191920}
+  .status{height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12.5px;font-weight:600}
+  .status .i{font-size:10px;opacity:.8}
+  .nav{display:flex;align-items:center;gap:9px;padding:0 12px 2px}
+  .nb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:14px}
+  .nt{flex:1;text-align:center}
+  .nt b{display:block;font-size:15px}
+  .nt span{display:block;font-size:10px;color:var(--fg3);margin-top:1px}
+
+  .flow{position:absolute;inset:92px 0 178px;overflow:hidden;padding:6px 16px 0}
+  .tl{position:relative;padding-left:24px}
+  .tl::before{content:"";position:absolute;left:6px;top:10px;bottom:10px;width:2px;border-radius:2px;background:var(--line2)}
+  .node{position:absolute;left:0;width:13px;height:13px;border-radius:999px;background:var(--bg);border:2px solid var(--fg3);box-sizing:border-box}
+  .node.run{border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,140,255,.14)}
+  .node.ok{border-color:var(--ok)}
+
+  .turn{position:relative;padding:2px 0 20px}
+  .turn > .node{top:2px}
+  .hd{display:flex;align-items:baseline;gap:8px;font-size:11.5px;color:var(--fg3);margin-bottom:6px}
+  .hd b{font-size:12px;color:var(--fg2);font-weight:600}
+  .hd .clock{margin-left:auto;color:var(--accent);font-variant-numeric:tabular-nums;font-weight:600}
+
+  .goal{font-size:12px;color:#b9c0ff;padding:2px 0 8px;display:flex;gap:6px}
+  .goal .k{color:var(--fg3);font-size:10.5px;flex:none}
+
+  .step{display:flex;gap:8px;font-size:12.5px;color:var(--fg2);line-height:1.55;padding:4px 0;align-items:baseline}
+  .step .ico{width:13px;flex:none;color:var(--fg3);font-size:11px}
+  .step .ico.ok{color:var(--ok)} .step .ico.run{color:var(--accent)} .step .ico.think{color:var(--warn)} .step .ico.edit{color:var(--accent)}
+  .step .txt{flex:1}
+  .step .txt b{color:var(--fg);font-weight:500}
+  .step .t{flex:none;font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums}
+  .delta{font-family:var(--mono);font-size:10.5px;flex:none;display:inline-flex;gap:5px}
+  .add{color:var(--ok)} .del{color:var(--danger)}
+
+  /* 内联 diff：贴在改文件那一步下面 */
+  .diff{margin:4px 0 6px 21px;border-left:2px solid var(--line2);font-family:var(--mono);font-size:11px;line-height:1.6}
+  .dl{display:flex;gap:8px;padding:1px 0 1px 8px;white-space:pre;overflow:hidden}
+  .dl.add{background:rgba(61,220,132,.07)} .dl.del{background:rgba(255,107,129,.07)}
+  .ln{color:#565b68;width:20px;flex:none;text-align:right}
+  .dl.add .code{color:#a7e9c3} .dl.del .code{color:#f3b3bd} .dl .code{color:var(--fg2)}
+  .more{color:var(--accent);font-size:11px;padding:4px 0 0 28px;display:inline-block}
+
+  /* 结论区 */
+  .verdict{margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
+  .v-tag{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ok);font-weight:600;margin-bottom:6px}
+  .v-title{font-size:15.5px;font-weight:600;line-height:1.42}
+  .nums{display:flex;gap:22px;margin-top:10px}
+  .nums b{font-size:18px;font-weight:700;letter-spacing:-.02em}
+  .nums span{display:block;font-size:10.5px;color:var(--fg3);margin-top:2px}
+
+  /* 交付物：结论区下的文件行 */
+  .deliverables{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+  .dl-head{font-size:10.5px;color:var(--fg3);letter-spacing:.03em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .dl-head .n{color:var(--fg2)}
+  .frow{display:flex;align-items:center;gap:9px;padding:7px 0;font-size:12.5px}
+  .fico{width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--fg2);flex:none}
+  .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+  .ftag{height:19px;display:inline-flex;align-items:center;padding:0 7px;border-radius:5px;font-size:10.5px;flex:none}
+  .ftag.ok{background:rgba(61,220,132,.14);color:var(--ok)}
+  .ftag.in{background:rgba(124,140,255,.14);color:var(--accent)}
+  .fdel{font-family:var(--mono);font-size:10.5px;flex:none}
+  .fchev{color:var(--fg3);font-size:10px;flex:none}
+
+  /* 输入区 */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:6px 0 20px;background:linear-gradient(180deg,rgba(11,11,16,0),rgba(11,11,16,.98) 18%)}
+  .queue{margin:0 16px 9px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);background:rgba(224,165,44,.08);border-radius:8px;padding:7px 10px}
+  .row{display:flex;align-items:center;gap:9px;padding:0 16px}
+  .plus{width:38px;height:38px;border-radius:999px;border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:17px;flex:none}
+  .field{flex:1;height:38px;border-radius:19px;background:var(--sur);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--fg3)}
+  .send{width:38px;height:38px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;flex:none}
+  .meta{display:flex;align-items:center;gap:8px;padding:9px 20px 0;font-size:11px;color:var(--fg3)}
+  .meta .set{display:inline-flex;align-items:center;gap:5px;color:var(--fg2)}
+  .meta .right{margin-left:auto;display:inline-flex;align-items:center;gap:10px}
+  .ring{width:11px;height:11px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block}
+  .meta .st{display:inline-flex;align-items:center;gap:4px;color:var(--fg2);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+    <div class="nav">
+      <div class="nb">☰</div>
+      <div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div>
+      <div class="nb">⋯</div>
+    </div>
+
+    <div class="flow">
+      <div class="tl">
+
+        <div class="turn">
+          <span class="node run"></span>
+          <div class="hd"><b>第 42 轮</b><span>正在做</span><span class="clock">00:12</span></div>
+          <div class="goal"><span class="k">目标</span><span>让消息链接跳转命中率 ≥ 9/11</span></div>
+
+          <div class="step"><span class="ico ok">✓</span><span class="txt"><b>读文件</b> ChatView.tsx</span><span class="t">0.6s</span></div>
+          <div class="step"><span class="ico edit">✎</span><span class="txt"><b>改文件</b> chat/jump-window.ts</span><span class="delta"><span class="add">+18</span><span class="del">−6</span></span></div>
+
+          <div class="diff">
+            <div class="dl del"><span class="ln">41</span><span class="code">-  windowRef.current = rows.slice(-PAGE)</span></div>
+            <div class="dl add"><span class="ln">41</span><span class="code">+  const win = jumpWindowTo(seq)</span></div>
+            <div class="dl add"><span class="ln">42</span><span class="code">+  pendingTurnSeqRef.current = win.landedSeq</span></div>
+          </div>
+          <span class="more">展开全部 24 行 ›</span>
+
+          <div class="step"><span class="ico run">⟳</span><span class="txt"><b>运行</b> pnpm test</span><span class="t">进行中</span></div>
+        </div>
+
+        <div class="turn">
+          <span class="node ok"></span>
+          <div class="hd"><b>第 40 轮</b><span>已完成</span><span style="margin-left:auto;color:var(--fg3)">12.4s · 5 步</span></div>
+
+          <div class="verdict">
+            <div class="v-tag">✓ 已完成</div>
+            <div class="v-title">跳转窗口收尾重做，命中率 9/11</div>
+            <div class="nums">
+              <div><b>9/11</b><span>命中</span></div>
+              <div><b>2,923</b><span>测试通过</span></div>
+              <div><b>12</b><span>文件改动</span></div>
+            </div>
+
+            <div class="deliverables">
+              <div class="dl-head">本轮交付 <span class="n">2 个文件</span> · <span class="n">改 12 个</span></div>
+              <div class="frow">
+                <span class="fico">📄</span>
+                <span class="fname">跳转排查报告.md</span>
+                <span class="ftag ok">交付物</span>
+                <span class="fchev">›</span>
+              </div>
+              <div class="frow">
+                <span class="fico">▤</span>
+                <span class="fname">chat/jump-window.ts</span>
+                <span class="fdel"><span class="add">+18</span> <span class="del">−6</span></span>
+                <span class="ftag in">改动</span>
+                <span class="fchev">›</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="queue">⧉ 2 条排队，当前任务结束后按顺序执行</div>
+      <div class="row"><div class="plus">+</div><div class="field">说点什么…（打断当前任务）</div><div class="send">↑</div></div>
+      <div class="meta">
+        <span class="set">⚙ v4.1-flash · 完全访问 ⌄</span>
+        <span class="right"><span class="st">⏱ 00:12</span><span class="st"><span class="ring"></span>44%</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
