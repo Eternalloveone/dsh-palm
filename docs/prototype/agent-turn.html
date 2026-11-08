@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>推理型会话排版方案 v3</title>
+<style>
+  :root{
+    --bg:#0d0d12; --sur1:#15151c; --sur2:#1c1c25; --sur3:#23232e;
+    --line:rgba(255,255,255,.07);
+    --fg:#eceef5; --fg2:#a6abb9; --fg3:#6f7482;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:24px;padding:24px;width:max-content}
+  .phone{position:relative;width:390px;height:844px;border-radius:44px;overflow:hidden;background:var(--bg);box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 0 10px #1a1a1f}
+  .status{height:50px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:13px;font-weight:600}
+  .status .i{font-size:11px;opacity:.8}
+
+  .nav{display:flex;align-items:center;gap:10px;padding:0 12px 8px}
+  .nb{width:36px;height:36px;border-radius:11px;background:var(--sur1);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:15px}
+  .nt{flex:1;text-align:center}
+  .nt b{display:block;font-size:15px}
+  .nt span{display:block;font-size:10.5px;color:var(--fg3);margin-top:1px}
+
+  .feed{position:absolute;inset:104px 0 190px;padding:2px 14px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+
+  /* ── 回合卡 ── */
+  .turn{border:1px solid var(--line);border-radius:16px;background:var(--sur1);overflow:hidden}
+  .turn.run{border-color:rgba(124,140,255,.28)}
+  .turn.done{border-top:3px solid var(--ok)}
+  .turn-hd{display:flex;align-items:center;gap:8px;padding:12px 14px 10px;font-size:12px;color:var(--fg3)}
+  .turn-hd .dot{width:8px;height:8px;border-radius:999px}
+  .d-run{background:var(--accent);box-shadow:0 0 0 3px rgba(124,140,255,.18)}
+  .d-ok{background:var(--ok)}
+  .turn-hd b{color:var(--fg2);font-weight:600}
+  .turn-hd .clock{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600}
+
+  .goal{margin:0 14px 10px;padding:9px 11px;border-radius:11px;background:rgba(124,140,255,.1);border:1px solid rgba(124,140,255,.22);font-size:12.5px;color:#b9c0ff;display:flex;gap:7px;align-items:flex-start}
+  .goal b{color:#d7dbff;font-weight:600}
+
+  .steps{border-top:1px solid var(--line)}
+  .step{display:flex;gap:9px;padding:9px 14px;font-size:12.5px;align-items:flex-start}
+  .step + .step{border-top:1px solid rgba(255,255,255,.04)}
+  .s-ico{width:16px;flex:none;text-align:center;color:var(--fg3);font-size:12px;line-height:1.5}
+  .step.think .s-ico{color:var(--warn)}
+  .step.done .s-ico{color:var(--ok)}
+  .step.run .s-ico{color:var(--accent)}
+  .s-body{flex:1;color:var(--fg2);line-height:1.5}
+  .s-body b{color:var(--fg);font-weight:500}
+  .s-meta{flex:none;font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums}
+
+  .verdict{padding:12px 14px;border-top:1px solid var(--line);background:rgba(61,220,132,.05)}
+  .v-row{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ok);margin-bottom:6px}
+  .v-title{font-size:15px;font-weight:600;line-height:1.4}
+  .v-nums{display:flex;gap:16px;margin-top:9px}
+  .v-nums div b{font-size:19px;font-weight:700;letter-spacing:-.02em}
+  .v-nums div span{display:block;font-size:10.5px;color:var(--fg3);margin-top:2px}
+  .v-chips{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .chip{height:21px;display:inline-flex;align-items:center;padding:0 8px;border-radius:999px;font-size:11px}
+  .c-ok{background:rgba(61,220,132,.16);color:var(--ok)}
+  .c-in{background:rgba(124,140,255,.16);color:var(--accent)}
+  .c-wa{background:rgba(224,165,44,.16);color:var(--warn)}
+
+  /* 折叠态（历史回合） */
+  .collapsed{display:flex;align-items:center;gap:10px;padding:13px 14px;font-size:13.5px}
+  .collapsed .t{flex:1;color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .collapsed .m{font-size:11px;color:var(--fg3);flex:none}
+
+  /* ── 底部状态坞 ── */
+  .dock{position:absolute;left:0;right:0;bottom:0;background:rgba(13,13,18,.97);border-top:1px solid var(--line);padding:8px 14px 24px}
+  .dock-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .unified{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:999px;background:var(--sur2);border:1px solid var(--line);font-size:12px;color:var(--fg2);flex:none}
+  .unified .sep{width:1px;height:12px;background:var(--line2, rgba(255,255,255,.14))}
+  .unified b{color:var(--fg);font-weight:500}
+  .statusline{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--fg3);padding:0 3px}
+  .statusline .q{display:inline-flex;align-items:center;gap:5px;color:var(--warn)}
+  .statusline .ring{margin-left:auto;display:inline-flex;align-items:center;gap:5px;color:var(--accent)}
+  .ring i{width:13px;height:13px;border-radius:999px;border:2px solid rgba(124,140,255,.28);border-top-color:var(--accent);display:inline-block}
+
+  .inputbar{display:flex;align-items:center;gap:9px;margin-top:8px}
+  .plus{width:38px;height:38px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:17px}
+  .field{flex:1;height:38px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);display:flex;align-items:center;padding:0 15px;font-size:13.5px;color:var(--fg3)}
+  .send{width:38px;height:38px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700}
+  .cap{position:absolute;top:24px;left:24px;font-size:12px;color:#666;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- A：运行中 —— 目标条 + 计时 + 过程时间轴 + 排队条 -->
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+    <div class="nav">
+      <div class="nb">☰</div>
+      <div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div>
+      <div class="nb">⋯</div>
+    </div>
+
+    <div class="feed">
+      <div class="turn run">
+        <div class="turn-hd"><span class="dot d-run"></span><b>正在做</b><span>第 42 轮</span><span class="clock">00:12</span></div>
+        <div class="goal">🎯 <span><b>目标</b>：让消息链接跳转命中率 ≥ 9/11</span></div>
+        <div class="steps">
+          <div class="step think"><span class="s-ico">✦</span><span class="s-body">先确认是窗口问题还是 id 对不上——两者现象一样</span><span class="s-meta">2.1s</span></div>
+          <div class="step done"><span class="s-ico">✓</span><span class="s-body"><b>读文件</b> · ChatView.tsx</span><span class="s-meta">0.6s</span></div>
+          <div class="step done"><span class="s-ico">✓</span><span class="s-body"><b>检索</b> · pendingTurnSeqRef → 11 处</span><span class="s-meta">0.4s</span></div>
+          <div class="step run"><span class="s-ico">⟳</span><span class="s-body"><b>改文件</b> · jumpWindowTo 收尾逻辑</span><span class="s-meta">进行中</span></div>
+        </div>
+      </div>
+
+      <div class="turn done">
+        <div class="collapsed">
+          <span class="dot d-ok" style="width:8px;height:8px;border-radius:999px;background:var(--ok)"></span>
+          <span class="t">上一轮：修好了工具栏按钮塌陷</span>
+          <span class="m">8s · 3 工具</span>
+          <span style="color:var(--fg3);font-size:11px">›</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="dock-row">
+        <span class="unified">⚙ <b>v4.1-flash</b><span class="sep"></span>🛡 完全访问</span>
+        <span class="unified" style="color:var(--warn)">🎯 目标进行中</span>
+      </div>
+      <div class="statusline">
+        <span>⏱ 00:12</span>
+        <span class="q">⧉ 2 条排队</span>
+        <span class="ring"><i></i> 44%</span>
+      </div>
+      <div class="inputbar">
+        <div class="plus">+</div>
+        <div class="field">说点什么…（打断当前任务）</div>
+        <div class="send">↑</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B：已完成 —— 结论 + 折叠过程 -->
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+    <div class="nav">
+      <div class="nb">☰</div>
+      <div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div>
+      <div class="nb">⋯</div>
+    </div>
+
+    <div class="feed">
+      <div class="turn done">
+        <div class="turn-hd"><span class="dot d-ok"></span><b>耗时 12.4s</b><span>共 5 步</span></div>
+        <div class="verdict">
+          <div class="v-row">✓ 已完成</div>
+          <div class="v-title">跳转窗口收尾重做，命中率 9/11</div>
+          <div class="v-nums">
+            <div><b>9/11</b><span>命中</span></div>
+            <div><b>2,923</b><span>测试通过</span></div>
+            <div><b>12</b><span>文件改动</span></div>
+          </div>
+          <div class="v-chips"><span class="chip c-ok">全部通过</span><span class="chip c-in">+214 / −86</span><span class="chip c-wa">待真机验</span></div>
+        </div>
+        <div class="steps">
+          <div class="step think"><span class="s-ico">✦</span><span class="s-body">先确认是窗口问题还是 id 对不上</span><span class="s-meta">2.1s</span></div>
+          <div class="step done"><span class="s-ico">✓</span><span class="s-body"><b>读文件</b> · ChatView.tsx</span><span class="s-meta">0.6s</span></div>
+          <div class="step done"><span class="s-ico">✓</span><span class="s-body"><b>改文件</b> · jumpWindowTo 收尾逻辑</span><span class="s-meta">1.2s</span></div>
+          <div class="step done"><span class="s-ico">✓</span><span class="s-body"><b>运行</b> · pnpm test（2923 通过）</span><span class="s-meta">38s</span></div>
+        </div>
+      </div>
+
+      <div class="turn">
+        <div class="collapsed">
+          <span style="width:8px;height:8px;border-radius:999px;background:var(--warn)"></span>
+          <span class="t">第 41 轮：工具栏按钮塌陷</span>
+          <span class="m">8s · 3 工具</span>
+          <span style="color:var(--fg3);font-size:11px">›</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="dock-row">
+        <span class="unified">⚙ <b>v4.1-flash</b><span class="sep"></span>🛡 完全访问</span>
+      </div>
+      <div class="statusline">
+        <span>空闲</span>
+        <span class="ring"><i></i> 44%</span>
+      </div>
+      <div class="inputbar">
+        <div class="plus">+</div>
+        <div class="field">说点什么…</div>
+        <div class="send">↑</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
