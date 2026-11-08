@@ -56,7 +56,9 @@ import {
 export { dayBucketFor, RUNNING_STALE_MS } from './list/session-list-model.ts'
 import { SessionListCreate, SessionListFilters, SessionListHeader } from './list/session-list-parts.tsx'
 import { SessionListRoster, type SessionRowHandlers } from './list/session-list-roster.tsx'
+import type { HostBridge } from '../kernels/host-bridge.ts'
 import {
+
   CreateFolderDialog,
   DeleteSessionDialog,
   PresetHelpSheet,
@@ -184,6 +186,10 @@ async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) 
 export interface SessionListViewProps {
   workspace: WorkspaceRow
   /** The live-event client, for the host's session-list frames. */
+  /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */
+
+  bridge?: HostBridge | undefined
+
   mux?: MuxClient | undefined
   /** Session carried by a notification deep link; opened after the list loads. */
   initialSessionId?: string
@@ -202,7 +208,7 @@ export interface SessionListViewProps {
  * @param props - the workspace, back action, and pick action.
  * @returns the session list.
  */
-export function SessionListView({ workspace, mux, initialSessionId, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq }: SessionListViewProps) {
+export function SessionListView({ workspace, mux, bridge, initialSessionId, onBack, onPick, onOpenSettings, onLocateSession, onPickSeq }: SessionListViewProps) {
   const [rows, setRows] = useState<SessionView[]>([])
   /** rows 的镜像：resync 需要"当前有哪些行"，但读 state 会把它绑进依赖、频繁重建。 */
   const rowsRef = useRef<readonly SessionView[]>([])
@@ -541,7 +547,7 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
   // on top of that page (the fetch itself stays authoritative).
   useEffect(() => {
     if (mux === undefined) return
-    return mux.onFrame((frame: MuxFrame) => {
+    const onFrame = (frame: MuxFrame): void => {
       // 新一条连接的基线帧：断线期间丢掉的 session/status 帧不会重放，列表就会
       // 一直挂着「进行中」，而桌面端早就跑完了（真机就是这样卡住的）。基线一到
       // 就用宿主的运行集合把已知行校正一遍。
@@ -551,8 +557,12 @@ export function SessionListView({ workspace, mux, initialSessionId, onBack, onPi
       }
       if (!applyListFrame(liveRef.current, frame, workspace)) return
       setRows(previous => applyLive(previous, liveRef.current))
-    })
-  }, [mux, workspace, resyncRunning])
+    }
+    // P3：有 bridge 就走全站唯一订阅点；没有（旧宿主/单测）仍可直接订阅 mux。
+    return bridge === undefined
+      ? mux.onFrame(onFrame)
+      : bridge.onFrame(onFrame as Parameters<typeof bridge.onFrame>[0])
+  }, [mux, bridge, workspace, resyncRunning])
 
   // 首屏也校正一次：手机可能是在会话结束之后才打开列表的，它手里根本没有那条
   // 结束帧，只能问宿主。

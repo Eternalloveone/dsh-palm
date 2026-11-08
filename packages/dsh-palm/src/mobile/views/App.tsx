@@ -1167,6 +1167,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
         <SessionListView
           workspace={route.workspace}
           mux={muxRef.current}
+          bridge={bridgeRef.current}
           initialSessionId={initialSessionId}
           onBack={back}
           onPick={(session) => { openChat(session, route.workspace, focusSeqRef.current, focusQueryRef.current, focusMessageIdRef.current, focusPartIdRef.current) }}
