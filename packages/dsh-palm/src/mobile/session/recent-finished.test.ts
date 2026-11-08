@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-/** recent-finished：刚结束账本（去重/上限/TTL/持久化/订阅）。 */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+/**
+ * recent-finished：刚结束账本（去重/上限/TTL/持久化）。
+ */
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   FINISHED_MAX,
   FINISHED_TTL_MS,
@@ -9,7 +11,6 @@ import {
   recordFinishedRun,
   resetFinishedRunsForTest,
   shortSessionId,
-  subscribeFinishedRuns,
 } from './recent-finished.ts'
 
 const T0 = 1_700_000_000_000
@@ -74,16 +75,6 @@ describe('recent-finished', () => {
     window.localStorage.setItem('dsh-palm.finished-runs.v1', '{not json')
     resetFinishedRunsForTest()
     expect(finishedRuns(T0)).toEqual([])
-  })
-
-  it('notifies subscribers on record and clear', () => {
-    const listener = vi.fn()
-    const unsubscribe = subscribeFinishedRuns(listener)
-    recordFinishedRun({ sessionId: 's-1', title: '一条', finishedAt: T0, status: 'done' }, T0)
-    expect(listener).toHaveBeenCalled()
-    clearFinishedRuns()
-    expect(finishedRuns(T0)).toEqual([])
-    unsubscribe()
   })
 
   it('shortens a session id for display', () => {

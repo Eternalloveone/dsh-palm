@@ -1,15 +1,13 @@
 /**
- * 任务状态机的五条兜底 + 单调性 + 乱序/重复事件。
+ * 任务状态机的四条兜底 + 单调性 + 乱序/重复事件。
  *
- * 这里不挂 DOM：状态机是纯函数，`now` 是注入的，所以「90 秒后卡住」「重连后
- * 重建」都能在一个毫秒不动的单测里复现。
+ * 这里不挂 DOM：状态机是纯函数，`now` 是注入的，所以「90 秒后卡住」能在
+ * 一个毫秒不动的单测里复现。
  */
 import { describe, expect, it } from 'vitest'
 import type { RenderMessage, TodoItem } from '../projections/types.ts'
 import {
-  decodeTaskStatus,
   deriveTaskStatus,
-  encodeTaskStatus,
   foldTaskStatus,
   planProgressOf,
   planStepsOf,
@@ -95,30 +93,7 @@ describe('兜底 2：90 秒没有新事件 → stuck', () => {
   })
 })
 
-describe('兜底 3：重连后能从存储重建（不依赖内存动画状态）', () => {
-  const liveInput = (): TaskStatusInput => inputOf({
-    plan: planOf('completed', 'completed', 'in_progress', 'pending'),
-    activity: { tool: { name: 'read', arguments: '{"path":"a.ts"}' } },
-  })
-
-  it('JSON 往返后原样恢复，接着推得出的结论与没断过时一致', () => {
-    const live = deriveTaskStatus(liveInput())
-    expect(live.kind).toBe('read')
-    const restored = decodeTaskStatus(encodeTaskStatus(live))
-    expect(restored).toEqual(live)
-    expect(foldTaskStatus(restored, liveInput())).toEqual(live)
-  })
-
-  it('坏数据一律丢弃，绝不抛（存储写坏了当没存过）', () => {
-    expect(decodeTaskStatus(null)).toBeUndefined()
-    expect(decodeTaskStatus('')).toBeUndefined()
-    expect(decodeTaskStatus('{oops')).toBeUndefined()
-    expect(decodeTaskStatus(JSON.stringify({ kind: '不知道', terminal: true }))).toBeUndefined()
-    expect(decodeTaskStatus(JSON.stringify({ kind: 'done' }))).toBeUndefined()
-  })
-})
-
-describe('兜底 4：新一轮开始而上一轮仍 running → 上一轮按终态收尾', () => {
+describe('兜底 3：新一轮开始而上一轮仍 running → 上一轮按终态收尾', () => {
   it('轮号变大时记下上一轮的收尾（默认 done），新轮从零开始', () => {
     const turn1 = foldTaskStatus(undefined, inputOf({ turn: turnOf(true, 1), activity: { streaming: true } }))
     expect(turn1.kind).toBe('think')
@@ -136,7 +111,7 @@ describe('兜底 4：新一轮开始而上一轮仍 running → 上一轮按终�
   })
 })
 
-describe('兜底 5：进度单调（同一轮取 max，换轮才重置）', () => {
+describe('兜底 4：进度单调（同一轮取 max，换轮才重置）', () => {
   it('计划回退也不许让进度条倒着走', () => {
     const ahead = foldTaskStatus(undefined, inputOf({
       plan: planOf('completed', 'completed', 'completed', 'in_progress', 'pending', 'pending', 'pending'),

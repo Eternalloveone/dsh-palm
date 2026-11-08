@@ -754,40 +754,7 @@ body,
   width: 20px;
   height: 20px;
 }
-
-.mobile-headerAction {
-  flex: none;
-  height: 44px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-
-.mobile-headerAction:active {
-  background: var(--accent-soft);
-}
-
 /* ── quick actions bar ───────────────────────────────────────────────── */
-
-.mobile-quickbar {
-  flex: none;
-  display: flex;
-  gap: var(--space-2);
-  padding: 10px 16px 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.mobile-quickbar::-webkit-scrollbar {
-  display: none;
-}
 
 .mobile-quickchip {
   position: relative;
@@ -826,64 +793,13 @@ body,
   background: var(--fill-strong);
 }
 
-.mobile-quickchip-on {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}
-
 /* Run-overview quick chip: live dot pulses while anything is running and
    the live count rides beside the label (same chip grammar as pin/recent). */
-.mobile-quickchip-live {
-  border-color: color-mix(in srgb, var(--positive) 40%, transparent);
-  color: var(--text-primary);
-}
-
-.quick-live-dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--positive);
-  animation: breathe 1.6s ease-in-out infinite;
-}
-
-.quick-live-dot-off {
-  background: var(--text-quaternary);
-  animation: none;
-}
-
-.quick-live-count {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--positive);
-}
 
 .mobile-search {
   flex: none;
   padding: 6px 16px 8px;
 }
-
-.mobile-searchInput {
-  width: 100%;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 16px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.mobile-searchInput:focus {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 /* ── 空态（P6 ⑯）：先说清，再给一步 ───────────────────────────────── */
 
 .empty-state {
@@ -995,30 +911,8 @@ body,
 }
 /* ── grouped lists + group titles ────────────────────────────────────── */
 
-.mobile-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  list-style: none;
-  margin: 0;
-  padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
-}
-
 /* 分组标题（定版图）：12px 灰字「今天 · 3」，上 8 / 下 4 的留白。
    原来是一条 32px 高、全大写的标签——它比行标题还抢眼，而分组只是路标。 */
-.mobile-groupTitle {
-  padding: var(--palm-s2) var(--palm-s4) var(--palm-s1);
-  display: block;
-  margin: 0;
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-  letter-spacing: 0;
-  text-transform: none;
-  line-height: var(--palm-lh-head);
-}
-
 /* ── THE unified card ──────────────────────────────────────────────────
    One spec for every list card: full-width of the 16px-inset column,
    14px radius, --card-bg/--card-border/--card-shadow, press scale 0.98
@@ -1093,15 +987,6 @@ body,
    表面色 + 1px hairline，12 圆角，内边距 12/14 —— 所以这里的 .sess-card 要
    盖掉通用卡的图标列网格（48/36px 图标列在这三行里没有位置）。
    横向 14px 是定版图给的档位，令牌里只有 12 / 16，中间这一档单独写死。 */
-.sess-card {
-  display: block;
-  min-height: 0;
-  padding: var(--palm-s3) 14px;
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-  box-shadow: none;
-}
 
 /* 三行之间的呼吸：2 拍 4px，比卡内的 12px 内边距小，读起来是一整块而不是三段。 */
 .sess-card .sess-meta {
@@ -1113,7 +998,6 @@ body,
   margin-top: var(--palm-s1);
   color: var(--palm-fg-3);
 }
-
 /* ── swipe-to-delete wrapper ────────────────────────────────────────────
    The row lives inside a swipe wrapper: a left swipe translates the inner
    (row) left to reveal the delete action behind it. The wrapper owns the
@@ -1132,29 +1016,6 @@ body,
   margin: 0;
   width: 100%;
   border-radius: 0;
-}
-.mobile-row-swipe-action {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: var(--danger);
-  color: #fff;
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
-  cursor: pointer;
-}
-.mobile-row-swipe-inner {
-  transition: transform 0.2s ease;
-}
-.mobile-row-swipe-inner.swiped {
-  transform: translateX(-80px);
 }
 
 /* 按压态：滑动行的正后方就是那条常驻的红色删除按钮（.mobile-row-swipe-action），
@@ -1221,25 +1082,8 @@ body,
 }
 
 /* Icon tints per project kind. */
-.ws-icon-active > * {
-  background: color-mix(in srgb, var(--positive) 15%, transparent);
-  color: var(--positive);
-}
-
-.ws-icon-code > * {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 
 /* Content zone. */
-.card-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  padding: 12px 0;
-}
 
 .card-title {
   display: flex;
@@ -1250,24 +1094,6 @@ body,
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.35;
-}
-
-.card-titleText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-subtitle {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  line-height: 1.4;
-  color: var(--text-quaternary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .card-desc {
@@ -1289,17 +1115,6 @@ body,
   gap: 6px;
 }
 
-.card-badge {
-  padding: 4px 10px;
-  border-radius: var(--radius-chip);
-  background: var(--bg-elevated);
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
 .mobile-chevron {
   flex: none;
   color: var(--text-quaternary);
@@ -1308,50 +1123,8 @@ body,
 }
 
 /* Legacy column layout still used by a few stacked rows (settings forms). */
-.mobile-rowMain {
-  grid-column: 1 / -1;
-  min-width: 0;
-  padding: 14px 0;
-}
-
-
-.mobile-rowTitle {
-  flex: 1;
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-size: var(--text-base);
-  font-weight: 500;
-  line-height: 1.4;
-}
-
 
 /* Active workspace: 3px accent rail + tinted icon. */
-.mobile-row-active {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border));
-}
-
-.mobile-row-active::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 14px;
-  bottom: 14px;
-  width: 3px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-}
-
-.ws-pin {
-  flex: none;
-  display: flex;
-  color: var(--warning);
-}
-
-.ws-pin svg {
-  width: 12px;
-  height: 12px;
-}
 
 .sess-dot {
   flex: none;
@@ -1379,10 +1152,6 @@ body,
 /* Title line: the title owns the line and wraps instead of truncating.
    日期与状态移到下一行的小字里（.sess-meta）：原来是"标题 · 日期"挤在一行，
    标题被日期挤成一截加省略号，看不全会话名。 */
-.sess-titleline {
-  display: block;
-  min-width: 0;
-}
 
 .sess-title {
   display: block;
@@ -1403,23 +1172,6 @@ body,
   flex-wrap: wrap;
   gap: var(--palm-s2);
   margin-top: 1px;
-}
-
-.sess-sep {
-  flex: none;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-.sess-time {
-  /* 不可压缩：原来是 flex: 0 1 auto + min-width:0 + ellipsis，标题一长就把日期
-     挤成 "09-1…"（真机截图）。标题本来就该承担压缩（它已经显示成 "子代理状态展…"），
-     日期必须完整可读 —— 只读信息不该被省略号吃掉。 */
-  flex: none;
-  white-space: nowrap;
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-  font-variant-numeric: tabular-nums;
 }
 
 /* 行尾箭头：16px 线性 SVG，钉在第二行右缘（不再单开一列）。 */
@@ -1445,40 +1197,7 @@ body,
     opacity: 0.6;
   }
 }
-
 /* ── dashed create card ──────────────────────────────────────────────── */
-
-.mobile-createCard {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  width: calc(100% - 32px);
-  margin: 4px 16px 16px;
-  min-height: 56px;
-  border: 1.5px dashed var(--border-default);
-  border-radius: var(--radius-card);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
-}
-
-.mobile-createCard svg {
-  width: 16px;
-  height: 16px;
-}
-
-.mobile-createCard:active {
-  transform: scale(0.98);
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
 /* ── settings ────────────────────────────────────────────────────────── */
 
 /* Source badges: where a setting takes effect / can be changed. */
@@ -1605,58 +1324,14 @@ body,
 }
 
 /* First-run welcome card: one-shot onboarding hint above the roster. */
-.mobile-welcome {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 10px 14px 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--accent-soft, #eef1ff);
-  border: 1px solid var(--accent-soft);
-}
-.mobile-welcomeCopy { flex: 1; min-width: 0; }
-.mobile-welcomeTitle {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 3px;
-}
-.mobile-welcomeDesc {
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  margin: 0;
-  overflow-wrap: anywhere;
-}
+
 /* 首次引导里的「知道了」：40x24 太难点（审计实测），给到 32px 高 */
-.mobile-welcomeClose {
-  /* 32 → 40：首页新手卡上的「知道了」是拇指常按的位置（真机清单第 5 项，
-     实测 56×32 是全站除聊天页外唯一一个不足 40px 的可点控件）。 */
-  min-height: 40px;
-  flex-shrink: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent, #4d6bfe);
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
-  cursor: pointer;
-}
 
 /* Legend under the search box explaining the badges. Two-column grid:
    badge column fixed, text column left-aligned — every explanation starts
    at the same x, and the rows never reflow into ragged starts. */
 
 /* Group title trailing hint (e.g. 显示效果). */
-.settings-groupDesc {
-  font-weight: 400;
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-  text-transform: none;
-  letter-spacing: 0;
-  margin-left: 4px;
-}
 
 /* Host-side voice services hint on the voice page. */
 .settings-hostNote {
@@ -2384,42 +2059,6 @@ button.settings-row:focus-visible {
 
 /* Skeleton rows mirror the real card tiers. 会话行改成三行信息卡之后骨架也跟着
    收成「一块卡 + 三行占位」，否则加载那一瞬页面会先跳一下再变成新排布。 */
-.skel-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: var(--palm-s2);
-  margin: 0 var(--palm-s3) 10px;
-  padding: var(--palm-s3) 14px;
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-}
-
-.skel-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-}
-
-.skel-lines {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.skel-line-title {
-  height: 14px;
-  width: 52%;
-}
-
-.skel-line-sub {
-  height: 11px;
-  width: 78%;
-  border-radius: var(--radius-chip);
-}
-
 /* ── buttons ─────────────────────────────────────────────────────────── */
 
 .mobile-button {
@@ -2485,135 +2124,15 @@ button.settings-row:focus-visible {
 /* F1 会话筛选（定版图）：一行药丸，选中「强调色描边 + 淡底」，未选「灰底无描边」。
    药丸本身撑满 44px 触控高度，视觉高度就是触控高度——手机上一行矮药丸比多出来的
    空白更容易点错。 */
-.sess-filters {
-  display: flex;
-  gap: var(--palm-s2);
-  padding: var(--palm-s1) var(--palm-s4) var(--palm-s2);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.sess-filters::-webkit-scrollbar {
-  display: none;
-}
-
-.sess-chip {
-  flex: 0 0 auto;
-  min-height: var(--palm-hit);
-  padding: 0 var(--palm-s4);
-  /* 透明边而不是 border: none：选中态描边出现时药丸不会跳 1px。 */
-  border: var(--palm-hair) solid transparent;
-  border-radius: var(--palm-r-full);
-  background: var(--palm-sur-2);
-  color: var(--palm-fg-2);
-  font: inherit;
-  font-size: var(--palm-t-m);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.sess-chip-on {
-  border-color: var(--palm-accent);
-  color: var(--palm-accent);
-  background: var(--palm-tint-accent);
-}
-
-.mobile-hint {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-}
 
 .mobile-pad {
   padding: 8px 16px;
 }
 
-.mobile-create {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.mobile-preset {
-  display: grid;
-}
-
 /* 选择器卡片（定版图）：左侧当前项名字一行，右侧圆形「?」。卡片整体是
    表面色 + 1px hairline，12 圆角；名字那一行可点开选择面板。 */
-.mobile-presetCard {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--palm-s2);
-  margin: 0 var(--palm-s4) var(--palm-s2);
-  padding-right: var(--palm-s2);
-  min-height: 56px;
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-  overflow: hidden;
-}
-
-.mobile-presetTrigger {
-  width: 100%;
-  min-height: 54px;
-  padding: 8px 0 8px var(--palm-s4);
-  display: flex;
-  align-items: center;
-  border: none;
-  background: transparent;
-  color: var(--palm-fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-
-.mobile-presetTrigger:active {
-  background: var(--palm-sur-2);
-}
-
-.mobile-presetTrigger:disabled {
-  opacity: 0.6;
-}
-
-.mobile-presetTriggerTitle {
-  font-size: var(--palm-t-l);
-  font-weight: var(--palm-w-bold);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* 圆形「?」：44px 触控，16px 线性图标，一圈 hairline——和卡片同一套线。 */
-.mobile-presetHelp {
-  width: var(--palm-hit);
-  height: var(--palm-hit);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-full);
-  background: transparent;
-  color: var(--palm-fg-2);
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-
-.mobile-presetHelp svg {
-  width: 16px;
-  height: 16px;
-}
-
-.mobile-presetHelp:active {
-  background: var(--palm-sur-2);
-}
-
-.mobile-presetHelp:disabled {
-  opacity: 0.4;
-}
-
 /* ── chat ────────────────────────────────────────────────────────────── */
 
 .chat {
@@ -6616,16 +6135,11 @@ button.settings-row:focus-visible {
   pointer-events: none;
 }
 
-
-
-
 .sheet-error {
   margin: 0 0 8px;
   color: var(--danger);
   font-size: 12.5px;
 }
-
-
 
 /* Sheet option rows: 56px, icon + text + right check. */
 .sheet-option {
@@ -6708,52 +6222,10 @@ button.settings-row:focus-visible {
 
 /* 「Agent 模式说明」面板：把每个模式逐条列出来。
    以前只显示当前模式的一句话，宿主没写 description 时整块看着像空的。 */
-.preset-help-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin: 0 4px 16px;
-}
-
-.preset-help-item {
-  padding: 12px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
-  background: var(--bg-elevated);
-}
-
-.preset-help-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.preset-help-name {
-  color: var(--text-primary);
-  font-size: var(--text-md);
-  font-weight: 600;
-}
-
-.preset-help-tag {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--bg-page);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  line-height: 1.6;
-}
-
-.preset-help-tag-current {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 
 .preset-help-item .sheet-confirm-desc {
   margin: 0;
 }
-
 
 /* 「关于」里检查更新旁边那颗仓库图标：与主按钮同高（44px）、同圆角，只占一颗方键的
    宽度，点一下直接开 GitHub 仓库。 */
@@ -7333,75 +6805,10 @@ body:has(.lightbox-backdrop) .toast-host {
 
 /* ── directory browser ───────────────────────────────────────────────── */
 
-.dir-browser {
-  display: flex;
-  flex-direction: column;
-}
-
-.dir-crumbs {
-  display: flex;
-  align-items: center;
-  overflow-x: auto;
-  padding: 10px 12px;
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--border-subtle);
-  white-space: nowrap;
-  scrollbar-width: none;
-}
-
-.dir-crumbs::-webkit-scrollbar {
-  display: none;
-}
-
-.dir-crumb {
-  border: none;
-  background: transparent;
-  padding: 8px 8px;
-  border-radius: var(--radius-chip);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-
-.dir-crumb:active {
-  background: var(--fill);
-  color: var(--accent);
-}
-
-.dir-crumb-separator {
-  color: var(--text-muted);
-  margin: 0 2px;
-  font-size: 14px;
-}
-
-.dir-entry {
-  padding-left: 16px;
-}
-
-.dir-entry-hidden {
-  opacity: 0.5;
-}
-
-.dir-select {
-  flex: none;
-  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
-  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
-  border-top: 1px solid var(--border-subtle);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-}
-
 .dir-select .mobile-button {
   width: 100%;
   margin: 0;
 }
-
-.dir-empty {
-  padding: 40px 0;
-}
-
 /* ── Mobile plugin market (MarketView) ───────────────────────────────── */
 
 .market-row {
@@ -7538,49 +6945,10 @@ body:has(.lightbox-backdrop) .toast-host {
    system so the established spec stays untouched. */
 
 /* Plain folder (workspace without sessions): gray tile. */
-.ws-icon-plain > * {
-  background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
-  color: var(--text-tertiary);
-}
 
 /* Empty-group placeholder card (72px tier, centered copy + 创建). */
-.mobile-empty-group {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: calc(100% - 32px);
-  margin: 0 16px 8px;
-  min-height: 72px;
-  border: 1px dashed var(--card-border);
-  border-radius: var(--radius-card);
-  color: var(--text-quaternary);
-  font-size: var(--text-md);
-}
-
-.mobile-empty-groupBtn {
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
-  padding: 8px 10px;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-}
-
-.mobile-empty-groupBtn:active {
-  background: var(--accent-soft);
-}
 
 /* Session-list header search morph (200ms) + its input. */
-.mobile-headerSearch {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  animation: search-morph 0.2s ease both;
-}
 
 @keyframes search-morph {
   from {
@@ -7593,41 +6961,7 @@ body:has(.lightbox-backdrop) .toast-host {
   }
 }
 
-.mobile-headerSearchInput {
-  width: 100%;
-  height: 38px;
-  padding: 0 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-capsule);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.mobile-headerSearchInput:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 /* Session status semantics: running pulse + label, settled check. */
-.sess-status {
-  flex: none;
-  color: var(--positive);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
-.sess-check {
-  display: flex;
-  color: var(--text-quaternary);
-}
-
-.sess-check svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* Reasoning clamp expander. */
 .chat-reasoning-more {
@@ -8112,9 +7446,7 @@ body:has(.lightbox-backdrop) .toast-host {
 }
 
 /* Settings search field. */
-.settings-search {
-  padding: 0 16px 12px;
-}/* Toggle knob spring (overshoot then settle, 200ms). */
+/* Toggle knob spring (overshoot then settle, 200ms). */
 .settings-switch::after{
   transition: transform 0.2s cubic-bezier(0.34, 1.8, 0.64, 1);
 }
@@ -8128,54 +7460,9 @@ button.settings-row:active {
   background: var(--bg-elevated) !important;
 }
 
-
-
 /* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错 / 蓝=新）──
    18px 高、12px 字、全圆角：三行卡里它只是第二行的一个小标签，不许抢标题。
    底色取 --palm-tint-*（与四态色同源），深色/纸/夜航三套皮肤都自动跟着走。 */
-.sess-status {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  padding: 0 var(--palm-s2);
-  height: 18px;
-  border-radius: var(--palm-r-full);
-  font-size: var(--palm-t-s);
-  line-height: 1;
-  background: var(--palm-sur-2);
-  color: var(--palm-fg-2);
-}
-
-.sess-status-ok {
-  background: var(--palm-tint-ok);
-  color: var(--palm-ok);
-}
-
-.sess-status-warn {
-  background: var(--palm-tint-warn);
-  color: var(--palm-warn);
-}
-
-.sess-status-danger {
-  background: var(--palm-tint-danger);
-  color: var(--palm-danger);
-}
-
-.sess-status-info {
-  background: var(--palm-tint-accent);
-  color: var(--palm-accent);
-}
-
-.mobile-groupCount {
-  color: var(--palm-fg-3);
-  font-weight: var(--palm-w-normal);
-}
-
-.sess-chipCount {
-  margin-left: var(--palm-s1);
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-}
 
 /* ── 状态条（主条 + 迷你条 + 方案 A 刻度轨）────────────────────
  *
@@ -8698,7 +7985,6 @@ button.palm-delivery-row:focus-visible {
 }
 
 .palm-delivery-more:active { opacity: 0.72; }
-
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -8802,56 +8088,10 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
-.search-more {
-  display: block;
-  width: calc(100% - 32px);
-  margin: 8px 16px 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  background: var(--card-bg);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 13px;
-}
-
-.search-more:active {
-  background: var(--accent-soft);
-}
-.search-hitsNote {
-  margin: 0;
-  padding: 4px 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  line-height: 1.45;
-}
 
 /* 首页搜索结果的一行：会话名命中和「消息」命中都是这一种行，正文命中多一行摘要；
    键盘上下键选中的那一行给一圈内描边（不换背景，避免和按压态打架）。 */
-.search-hitRow {
-  align-items: flex-start;
-}
-.search-hitRow-active {
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-  border-radius: 12px;
-}
-.search-hitBadge {
-  flex: none;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: var(--radius-chip);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  line-height: 16px;
-}
-.search-hitNote {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
+
 /* 方案 C：命中段落。摘要只有一个窗口宽，看不出是哪句话命中；段落直接给三行。
    换行保留（段落本来就是多行正文），超出三行截断并给省略号。 */
 .card-desc.search-hitPara {
@@ -8863,21 +8103,6 @@ details.think-block[open] .chat-disclosure-caret {
   line-height: 18px;
 }
 /* 搜索中的骨架：三行灰条，比一句「正在搜索…」更能说明"结果正在填进来"。 */
-.search-skeletonRow {
-  display: block;
-  padding: 12px 16px;
-}
-.search-skeletonLine {
-  display: block;
-  height: 11px;
-  margin: 5px 0;
-  border-radius: var(--radius-chip);
-  background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-default) 50%, var(--bg-input) 75%);
-  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
-}
-.search-skeletonLine-thin {
-  height: 9px;
-}
 
 /* Focus-locate highlight: a one-shot ring pulse on the located row.
    只用 box-shadow，**绝不碰 background-color**：.chat-msg-focus 带
@@ -8937,88 +8162,21 @@ details.think-block[open] .chat-disclosure-caret {
 [data-locate-id][data-focus] {
   animation: dshPalmFocusPulse 2.2s ease-out forwards;
 }
-
 /* ── global run overview (cross-session background tasks) ────────────── */
-
-.runov-page {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.runov-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
-}
-
-
 
 /* 两行各占一行：这两个是 inline span，早先并排渲染，于是"0 个后台任务"和
    "跨全部工作区"连成一句、断行也错位。 */
-
-
-.runov-group-title {
-  padding: 16px 18px 6px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.runov-sess {
-  margin: 4px 16px 12px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
-  box-shadow: var(--card-shadow);
-  overflow: hidden;
-}
-
-.runov-sess-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 14px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.runov-sess-head:active {
-  background: var(--fill);
-}
 
 /* 标题必须完整显示：早先是单行 nowrap + 省略号，"dsh-palm手机端与桌面端消息
    不同步"在手机上只剩 "dsh-palm手机端与桌面…"，一条会话和另一条就分不出来了。
    现在按自然换行排（长标题最多铺两行），不再截断。 */
 
-
-
-
 /* In-card group label ("子代理" / "后台任务"): smaller than the page-level
    .runov-group-title and flush with the rows it introduces (the card's job
    rows carry no horizontal inset of their own). */
 
-.runov-jobs {
-  border-top: 1px solid var(--border-subtle);
-  padding: 4px 0;
-}
-
 /* Fold header for a session's settled (completed/failed/killed) jobs: a quiet
    one-line summary so many finished tasks do not bury what is running now. */
-
-
-
-
 
 /* Turn list floating handle (轮次清单): a compact pill pinned beside the
    jump-to-latest button; shows the current turn / total count. Rides the
@@ -9069,7 +8227,6 @@ details.think-block[open] .chat-disclosure-caret {
    indented line under it. Each text line shrinks (flex-shrink: 1 with
    min-width: 0 on the parent column) so anywhere-wrapping long tokens
    cannot widen the sheet. */
-
 /* ── D1 turn scrubber ──────────────────────────────────────────────────
    Docks above the composer while the turn handle is held: target turn +
    prompt on one line, the response preview beneath it, then a full-width
@@ -9360,323 +8517,24 @@ details.think-block[open] .chat-disclosure-caret {
 /* ===== 运行中页 v3：一行标题 + 一行"在干什么"，子代理单独成行、点得开 ===== */
 /* 旧版把状态徽标塞在标题行里，正文只能从徽标右边起，形成两栏错位；现在状态是一枚
    小圆点，占固定 14px 图标列，标题与下面每一行都从同一条竖线开始。 */
-.runov-sess-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 10px 12px 8px;
-}
-
-.rs-glyph {
-  flex: none;
-  width: 14px;
-  display: flex;
-  justify-content: center;
-  padding-top: 4px;
-}
-
-.rs-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: breathe 1.6s infinite ease-in-out;
-}
 
 /* 最新事件超过 90 秒：可能是宿主重启/断流，也可能是真卡住，转黄提示别干等。 */
-.rs-dot-stale {
-  background: var(--warning);
-  animation: none;
-}
-
-.rs-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.rs-title {
-  display: block;
-  font-size: var(--text-base);
-  font-weight: 600;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.rs-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.35;
-}
 
 .rs-meta > .sep,
 .rs-sub > .sep {
   color: var(--text-quaternary);
 }
 
-.rs-action {
-  color: var(--text-secondary);
-}
-
-.rs-cmd {
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 42vw;
-}
-
-.rs-elapsed {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.rs-sub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 3px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.rs-stale {
-  color: var(--warning);
-}
-
-.rs-agents-count {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.rs-chev {
-  flex: none;
-  align-self: center;
-  color: var(--text-quaternary);
-  font-size: 16px;
-}
-
 /* 子代理：缩进 + 一条细轨表示从属关系 */
-.rs-agents {
-  padding: 0 12px 4px 34px;
-}
-
-.rs-agents-inner {
-  border-left: 1px solid var(--border-default);
-}
-
-.rs-agent {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 6px 7px 9px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rs-agent:active {
-  background: var(--fill);
-}
-
-.rs-agent:disabled {
-  cursor: default;
-}
-
-.rs-agent-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: breathe 1.6s infinite ease-in-out;
-}
-
-.rs-agent-dot-idle {
-  background: var(--text-quaternary);
-  animation: none;
-}
-
-.rs-agent-label {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rs-agent-dur {
-  flex: none;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.rs-agent-chev {
-  flex: none;
-  color: var(--text-quaternary);
-  font-size: 14px;
-}
 
 /* 折叠行：更多子代理 / 另有几个后台任务 */
-.rs-more {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 4px 12px 10px 34px;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: var(--text-xs);
-  text-align: left;
-  cursor: pointer;
-}
-
-.rs-more-chev {
-  margin-left: auto;
-  color: var(--text-quaternary);
-}
-
-.rs-sub-quiet {
-  padding: 0 12px 10px 34px;
-  color: var(--text-quaternary);
-}
 
 /* 组标题：计数与动作跟在标题后面，别让 hero 卡再报一遍同一个数字 */
-.runov-group-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.runov-group-cnt {
-  color: var(--text-quaternary);
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.runov-group-action {
-  margin-left: auto;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  cursor: pointer;
-}
-
-.runov-empty-note {
-  padding: 4px 18px 6px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  line-height: 1.6;
-}
 
 /* 刚结束：两行（标题 + 状态·用时·多久以前），一屏能放六条 */
-.runov-finish {
-  margin: 2px 16px 10px;
-}
-
-.rf-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 9px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rf-row:active {
-  background: var(--fill);
-}
-
-.rf-row + .rf-row {
-  border-top: 1px solid var(--border-subtle);
-}
-
-.rf-ic {
-  flex: none;
-  width: 14px;
-  display: flex;
-  justify-content: center;
-}
-
-.rf-ic-ok {
-  color: var(--positive);
-}
-
-.rf-ic-bad {
-  color: var(--danger);
-}
-
-.rf-ic-stop {
-  color: var(--warning);
-}
-
-.rf-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.rf-title {
-  display: block;
-  font-size: var(--text-md);
-  font-weight: 600;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rf-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
 
 .rf-meta > .sep {
   color: var(--text-quaternary);
-}
-
-.rf-dur {
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.rf-chev {
-  flex: none;
-  color: var(--text-quaternary);
-  font-size: 15px;
 }
 
 /* ===== 聊天页顶部「别的会话跑完了」条 =====
@@ -9792,176 +8650,18 @@ details.think-block[open] .chat-disclosure-caret {
   to { opacity: 1; transform: translateY(0); }
 }
 
-
-
-
-.finish-toast-title {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--text-md);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.finish-toast-dur {
-  flex: none;
-  color: #a8a8bc;
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.finish-toast-chev {
-  flex: none;
-  color: #8a8a9e;
-  font-size: 15px;
-}
-
 /* ===== 子代理只读会话页 ===== */
-.subchat-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
-.subchat-note {
-  margin: 10px 16px 4px;
-  padding: 9px 11px;
-  border-radius: 10px;
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  line-height: 1.55;
-}
-
-.subchat-note b {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.subchat-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  padding: 8px 16px 12px;
-}
-
-.subchat-task {
-  margin: 6px 0 14px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: var(--text-md);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.subchat-task-who {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.subchat-step {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0 0 9px;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
-.subchat-step-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--text-quaternary);
-}
 
 .subchat-step-dot.is-running {
   background: var(--accent);
   animation: breathe 1.6s infinite ease-in-out;
 }
 
-.subchat-step-cmd {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.subchat-step-state {
-  flex: none;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
 .subchat-step-state.is-running {
   color: var(--accent);
 }
 
-.subchat-answer {
-  margin: 0 0 12px;
-  color: var(--text-primary);
-  font-size: var(--text-md);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.subchat-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.subchat-foot-link {
-  margin-left: auto;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-
-
-
-
-
 /* 进阶折叠的箭头：收起时朝右，展开时朝下 */
-.settings-advChev {
-  display: inline-block;
-  color: var(--text-quaternary);
-  font-size: 16px;
-  transition: transform 140ms ease-out;
-}
-
-.settings-advChev-open {
-  transform: rotate(90deg);
-}
 
 /* 目标条上的进度摘要（已跑多久 · 第几步） */
 .chat-goal-meta {
@@ -10050,21 +8750,7 @@ details.think-block[open] .chat-disclosure-caret {
 }
 
 /* 运行中页的校准细条：只表示"在问宿主"，不遮挡内容 */
-.runov-sync-bar {
-  position: relative;
-  height: 2px;
-  flex: none;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-}
-.runov-sync-bar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  width: 38%;
-  background: var(--accent);
-  animation: runovSync 1.05s ease-in-out infinite;
-}
+
 @keyframes runovSync {
   0% { transform: translateX(-40%); }
   100% { transform: translateX(300%); }
@@ -10539,30 +9225,11 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg);
 }
 
-.model-page-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: var(--palm-s4);
-}
-
 /* grow 槽本身不是滚动容器：给正文一个确定高度（与审批页同一口径）。 */
 .model-page [data-slot='diff'] {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.model-page-section + .model-page-section {
-  margin-top: var(--palm-s5);
-}
-
-.model-page-title {
-  margin: 0 0 var(--palm-s2);
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
-  color: var(--palm-fg-2);
 }
 
 /* 一行一个选项：左主名、右状态，副标题压在下面。 */
@@ -10588,166 +9255,20 @@ details.think-block[open] .chat-disclosure-caret {
   box-shadow: var(--palm-hi), var(--palm-sh1);
 }
 
-.model-page-row-main {
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
-}
-
-.model-page-row-sub {
-  flex: 1 0 100%;
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.model-page-row-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--palm-s1);
-  margin-left: auto;
-  font-size: var(--palm-t-s);
-  color: var(--palm-accent);
-}
-
-.model-page-row-mark > svg {
-  flex: none;
-  width: var(--palm-s4);
-  height: var(--palm-s4);
-}
-
-.model-page-note {
-  margin: 0 0 var(--palm-s3);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-2);
-}
-
-.model-page-hint {
-  margin: 0;
-  padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-  border-top: var(--palm-hair) solid var(--palm-line);
-}
-
-
 /* ── ⑤ 视觉重做：当前模型卡 / 三档分段 / 说明行（定版图口径）───── */
 
 /* 当前模型卡：名字与说明在左，「切换」在右；底色用 accent 淡染，
    一眼就能和背景、和下面未选中的档位分开（定版图里当前项也是染色卡）。 */
-.model-page-current {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s3);
-  padding: var(--palm-s4);
-  border: var(--palm-hair) solid color-mix(in srgb, var(--palm-accent) 52%, var(--palm-line));
-  border-radius: var(--palm-r-l);
-  background: var(--palm-tint-accent);
-  box-shadow: var(--palm-hi), var(--palm-sh1);
-}
 
 /* 模型图标（icons.tsx 的 16px 线性 SVG，定版尺寸只走令牌）。 */
-.model-page-current > svg {
-  flex: none;
-  width: var(--palm-s4);
-  height: var(--palm-s4);
-  color: var(--palm-accent);
-}
-
-.model-page-current-text {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: var(--palm-s1);
-  min-inline-size: 0;
-}
 
 /* 卡里的模型名比列表行大一号：它是这一屏的主角。 */
-.model-page-current .model-page-row-main {
-  font-size: var(--palm-t-l);
-  line-height: var(--palm-lh-head);
-}
-
-.model-page-current .model-page-row-sub {
-  flex: none;
-  line-height: var(--palm-lh-body);
-  color: var(--palm-fg-2);
-  overflow-wrap: anywhere;
-}
 
 /* 切换：一枚 44px 的次级按钮，不跟模型名抢视线。 */
-.model-page-switch {
-  flex: none;
-  min-inline-size: calc(var(--palm-hit) + var(--palm-s4));
-  min-block-size: var(--palm-hit);
-  padding: 0 var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-2);
-  color: var(--palm-accent);
-  font: inherit;
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-bold);
-}
-
-.model-page-switch[aria-expanded='true'] {
-  border-color: var(--palm-accent);
-  background: var(--palm-tint-accent);
-}
 
 /* 思考强度：三档分段；选中的那一档才有底色与强调描边。 */
-.model-page-efforts {
-  display: flex;
-  gap: var(--palm-s1);
-  padding: var(--palm-s1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-}
-
-.model-page-effort {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--palm-s1);
-  min-inline-size: 0;
-  min-block-size: calc(var(--palm-hit) + var(--palm-s2));
-  padding: var(--palm-s1) var(--palm-s2);
-  border: var(--palm-hair) solid transparent;
-  border-radius: var(--palm-r-s);
-  background: transparent;
-  color: var(--palm-fg-2);
-  font: inherit;
-}
-
-.model-page-effort .model-page-row-main {
-  font-size: var(--palm-t-m);
-  color: var(--palm-fg-2);
-}
-
-.model-page-effort .model-page-row-sub {
-  flex: none;
-  color: var(--palm-fg-3);
-  text-align: center;
-}
-
-.model-page-effort[aria-pressed='true'] {
-  border-color: var(--palm-accent);
-  background: var(--palm-tint-accent);
-}
-
-.model-page-effort[aria-pressed='true'] .model-page-row-main {
-  color: var(--palm-fg);
-}
-
-.model-page-effort[aria-pressed='true'] .model-page-row-sub {
-  color: var(--palm-fg-2);
-}
 
 /* 分段下面的那行说明：贴着控件，不要飘到下一块去。 */
-.model-page-efforts + .model-page-note {
-  margin-top: var(--palm-s3);
-}
 
 .model-page-row:focus-visible,
 .model-page-switch:focus-visible,
@@ -11387,31 +9908,6 @@ details.think-block[open] .chat-disclosure-caret {
 }
 
 /* 列表页顶部的搜索入口：与搜索框同形，只是整块可点。 */
-.palm-spec-search-entry {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s2);
-  width: 100%;
-  height: var(--palm-spec-search-h);
-  padding: 0 var(--palm-s3);
-  border: 0;
-  border-radius: var(--palm-spec-search-r);
-  background: var(--palm-sur-1);
-  color: var(--palm-fg-3);
-  font: inherit;
-  font-size: var(--palm-t-m);
-  text-align: start;
-}
-
-.palm-spec-search-entry > svg {
-  flex: none;
-  width: var(--palm-spec-glyph);
-  height: var(--palm-spec-glyph);
-}
-
-.palm-spec-search-entry:active {
-  background: var(--palm-sur-2);
-}
 
 /* ── ② 分组标题 + 分组卡 ─────────────────────────────────────────────── */
 

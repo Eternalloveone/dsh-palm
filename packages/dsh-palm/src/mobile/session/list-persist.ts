@@ -54,8 +54,6 @@ export interface PersistedList {
 }
 
 const LIST_PREFIX = 'dsh-palm.list.v1.'
-const PREVIEW_STORE = 'dsh-palm.prev.v1'
-const SCROLL_PREFIX = 'dsh-palm.scroll.v1.'
 const DRAFT_PREFIX = 'dsh-palm.draft.v1.'
 /** Retired reading-bookmark prefixes. The 「回到上次」 chip is gone (it kept
  *  offering a jump the reader never asked for), so nothing reads these any
@@ -74,17 +72,6 @@ const INDEX_KEY = 'dsh-palm.cache-index.v1' //gitleaks:allow  值是 localStorag
  *  within seconds, so a generous TTL is safe (stale rows never persist long
  *  in view). */
 const LIST_PERSIST_TTL_MS = 24 * 60 * 60 * 1000
-/** Preview summary capacity: entry cap + estimated-byte cap (a conservative
- *  share of localStorage's ~5MB; summaries are ~30 chars each). */
-const PREVIEW_PERSIST_MAX_ENTRIES = 500
-const PREVIEW_PERSIST_MAX_BYTES = 512 * 1024
-
-/** Local preview store shape: { sessionId: summary } (insertion-ordered map
- *  semantics come from the runtime Map; the JSON record loses it, so eviction
- *  re-writes the whole record with the current Map's order). */
-function previewStoreName(): string {
-  return PREVIEW_STORE
-}
 
 function readJson<T>(raw: string | null): T | undefined {
   if (raw === null) return undefined
@@ -228,13 +215,6 @@ export function queuePersistedList(
   scheduleWrite(`${LIST_PREFIX}${workspaceId}`, () => { savePersistedList(workspaceId, value) })
 }
 
-/** Defer the preview map (snapshotted: the caller's map keeps mutating). */
-export function queuePersistedPreviews(map: ReadonlyMap<string, string>): void {
-  if (map.size === 0) return
-  const snapshot = new Map(map)
-  scheduleWrite(previewStoreName(), () => { savePersistedPreviews(snapshot) })
-}
-
 /** Load one workspace's persisted list (undefined when absent/expired/corrupt). */
 export function loadPersistedList(workspaceId: string): PersistedList | undefined {
   if (!hasStorage()) return undefined
@@ -248,65 +228,6 @@ export function loadPersistedList(workspaceId: string): PersistedList | undefine
 /** Persist one workspace's list page (rows + paging position). */
 export function savePersistedList(workspaceId: string, list: Omit<PersistedList, 'v' | 'savedAt'>): void {
   write(LIST_PREFIX + workspaceId, JSON.stringify({ v: 1, ...list, savedAt: Date.now() }))
-}
-
-/** Load one workspace's saved scroll offset (0 when absent). */
-export function loadPersistedScroll(workspaceId: string): number {
-  if (!hasStorage()) return 0
-  const raw = Number(readRaw(SCROLL_PREFIX + workspaceId) ?? '')
-  return Number.isFinite(raw) && raw > 0 ? raw : 0
-}
-
-/** Persist one workspace's scroll offset (PWA cold start restores it). */
-export function savePersistedScroll(workspaceId: string, y: number): void {
-  write(SCROLL_PREFIX + workspaceId, String(Math.max(0, y)))
-}
-
-/** Load persisted preview summaries into the caller's map (empty for none). */
-export function loadPersistedPreviews(): Map<string, string> {
-  const out = new Map<string, string>()
-  if (!hasStorage()) return out
-  const record = readJson<Record<string, string>>(readRaw(previewStoreName()))
-  if (record === undefined) return out
-  for (const [sessionId, summary] of Object.entries(record)) {
-    if (typeof sessionId !== 'string' || typeof summary !== 'string' || summary === '') continue
-    out.set(sessionId, summary)
-  }
-  return out
-}
-
-/** Persist the preview map (capacity-trimmed to the newest-inserted entries;
- *  the runtime Map is insertion-ordered with LRU re-inserts). */
-export function savePersistedPreviews(map: ReadonlyMap<string, string>): void {
-  if (!hasStorage() || map.size === 0) return
-  let record: Record<string, string> = {}
-  for (const [sessionId, summary] of map) record[sessionId] = summary
-  // Byte-cap: drop oldest-inserted entries until the estimate fits.
-  let encoded = JSON.stringify(record)
-  while (Object.keys(record).length > PREVIEW_PERSIST_MAX_ENTRIES || encoded.length > PREVIEW_PERSIST_MAX_BYTES) {
-    const first = Object.keys(record)[0]
-    if (first === undefined) break
-    delete record[first]
-    encoded = JSON.stringify(record)
-  }
-  write(previewStoreName(), encoded)
-}
-
-/* ── pinned sessions (local preference) ─────────────────────────────────── */
-
-const PIN_STORAGE = 'dsh-palm.pin.v1'
-
-/** Load the pinned session ids (insertion order = pin order). */
-export function loadPinnedSessions(): Set<string> {
-  if (!hasStorage()) return new Set()
-  const raw = readJson<string[]>(readRaw(PIN_STORAGE))
-  if (!Array.isArray(raw)) return new Set()
-  return new Set(raw.filter(id => typeof id === 'string'))
-}
-
-/** Persist the pinned session ids (insertion order = pin order). */
-export function savePinnedSessions(ids: ReadonlySet<string>): void {
-  write(PIN_STORAGE, JSON.stringify([...ids]))
 }
 
 /* ── composer drafts (per session) ─────────────────────────────────────── */
@@ -369,13 +290,12 @@ export function clearPairingCaches(): void {
   // Anything queued was armed before the eviction, so it must not run after it.
   cancelPersistedWrites()
   const doomed = indexedKeys().filter(key =>
-    key.startsWith(LIST_PREFIX) || key.startsWith(SCROLL_PREFIX) || key.startsWith(DRAFT_PREFIX) || LEGACY_READING_PREFIXES.some(prefix => key.startsWith(prefix)) || key === PREVIEW_STORE || key === PIN_STORAGE)
+    key.startsWith(LIST_PREFIX) || key.startsWith(DRAFT_PREFIX) || LEGACY_READING_PREFIXES.some(prefix => key.startsWith(prefix)))
   removeKeys(doomed)
 }
 
 /** Opportunistic maintenance: drop expired list entries and drafts, and sweep
- *  the retired reading bookmarks (previews are capacity-bounded at write time;
- *  scroll offsets expire with their list). */
+ *  the retired reading bookmarks. */
 export function maintainPersistedCaches(): void {
   if (!hasStorage()) return
   const now = Date.now()

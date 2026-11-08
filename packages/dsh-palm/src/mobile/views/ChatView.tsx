@@ -13,7 +13,7 @@
  *   that opens a single model-and-permission panel.
  */
 
-import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, HEIGHT_DRIFT_PX, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/lib/chat-constants.ts'
+import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/lib/chat-constants.ts'
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/state/chat-machine.ts'
 import { useChatSessionLifecycle } from './chat/hooks/use-chat-session-lifecycle.ts'
 import { useNativeSelection, useQueueStoreSubscription } from './chat/hooks/use-chat-subscriptions.ts'
@@ -24,7 +24,6 @@ import { ChatInputSheets } from './chat/components/chat-input-sheets.tsx'
 import { useStaleTurnHeal } from './chat/hooks/use-stale-turn-heal.ts'
 import { useMobilePreferences } from './chat/hooks/use-mobile-preferences.ts'
 import { useChatTimerCleanup } from './chat/hooks/use-chat-timer-cleanup.ts'
-import { useLatestRef } from './chat/hooks/use-latest-ref.ts'
 import { useSearchPrefill } from './chat/hooks/use-search-prefill.ts'
 import { useInboxPoll } from './chat/hooks/use-inbox-poll.ts'
 import { useMessageMenuDismiss } from './chat/hooks/use-message-menu-dismiss.ts'
@@ -40,7 +39,7 @@ import { useChatGoal } from './chat/hooks/use-chat-goal.ts'
 import { useChatConnectivity } from './chat/hooks/use-chat-connectivity.ts'
 import { useChatSubagents } from './chat/hooks/use-chat-subagents.ts'
 import { useChatActions } from './chat/hooks/use-chat-actions.ts'
-import { BOTTOM_FOLLOW_THRESHOLD_PX, useScrollFollow } from './chat/hooks/use-chat-scroll-follow.ts'
+import { useScrollFollow } from './chat/hooks/use-chat-scroll-follow.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/lib/chat-turn-report.ts'
 import { LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/state/chat-scroll.ts'
@@ -53,9 +52,8 @@ import { useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { createStreamState } from './chat/state/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
-import { dropSessionFromCaches, removeDraft } from '../session/list-persist.ts'
-import { holdLocateIntent, locateIntentFor, releaseLocateIntent, takeLocateIntent, touchLocateIntent, keepLocateIntentAlive } from '../session/locate-intent.ts'
-import { forgetFinishedRun } from '../session/recent-finished.ts'
+import { removeDraft } from '../session/list-persist.ts'
+import { locateIntentFor, keepLocateIntentAlive } from '../session/locate-intent.ts'
 import { usePageVisible } from '../stream/foreground.ts'
 import { useLiveClock } from '../platform/live-clock.ts'
 import { useHostClock } from './chat/hooks/use-host-clock.ts'
@@ -64,18 +62,14 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../session/chat-snapshot.ts'
 import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../session/history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
-import { archiveSession, cancelSession, history, inboxOf, newRequestId, queueItemViewOf, prompt, readChat, renameSession, sendCommand, sessionState, turnState, updateQueue } from '../data/session.ts'
+import { cancelSession, history, prompt, readChat, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, models, selectModel, listCommands } from '../data/settings.ts'
 import type { SessionModels } from '../../api-proxy-types'
 import type { CommandDescriptor, MobileGoalAction, PendingApproval, PendingQuestionItem, QueueItemView } from '../api.ts'
-import { buildPromptParts, imageFromClipboard, type PromptPart } from '../platform/image.ts'
-import { coalesceTurnMessages, completedTurns, dedupeSameStep, ensureTurnTails, renderRows, keepTurnReports, preferRicherRows, expectsTurnReport, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, parseTodoList, type RenderMessage, type TodoSnapshot, type WireEvent,
-  dedupeById,
-} from '../render/messages.ts'
-import { reportDuplicateCards } from '../session/duplicate-report.ts'
+import { completedTurns, renderRows, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, type RenderMessage, type TodoSnapshot, type WireEvent } from '../render/messages.ts'
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
-import { logTail, reportError, reportPerf } from '../data/diag.ts'
+import { reportError, reportPerf } from '../data/diag.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../stream/scroll-machine.ts'
 import { useStickToBottom } from '../ui/hooks/use-stick-to-bottom.ts'
 import { usePendingPoll } from './chat/hooks/use-pending-poll.ts'
@@ -85,10 +79,8 @@ import { newestFoldTurn } from './chat/state/stream-state.ts'
 import { useChatStream } from './chat/hooks/use-chat-stream.ts'
 import { useChatAttachments } from './chat/hooks/use-chat-attachments.ts'
 import { useChatVoice } from './chat/hooks/use-chat-voice.ts'
-import { VoiceSheet } from './chat/components/voice-sheet.tsx'
-import { MessageMenu, type MessageCtxMenuState } from './chat/components/message-menu.tsx'
+import { type MessageCtxMenuState } from './chat/components/message-menu.tsx'
 import { ComposerMeta } from './chat/components/composer-meta.tsx'
-import { SessionSheets } from './chat/components/session-sheets.tsx'
 import { OfflineBanner } from './chat/components/offline-banner.tsx'
 import { ChatHeader, ChatSearchBar } from './chat/components/chat-header.tsx'
 import { ChatEmptyView } from './chat/components/chat-empty.tsx'
@@ -102,14 +94,11 @@ import { useLongPress } from '../ui/hooks/use-long-press.ts'
 import { useKeyboardInset } from '../ui/hooks/use-keyboard-inset.ts'
 import { adoptOlderPage, prepareOlderPage } from './chat/lib/history-page.ts'
 import { dispatchFrame, parseContextPressure, type ContextPressureData, type FrameContext } from './chat/state/frame-effects.ts'
-import { textParts, useChatComposer, type SendIntent } from './chat/hooks/use-chat-composer.ts'
+import { useChatComposer } from './chat/hooks/use-chat-composer.ts'
 import { ChatRows } from './chat/components/chat-rows.tsx'
 
-/** 兼容导出：这个常量原来定义在本文件（测试与调用点从 ChatView 取）。 */
-export { SEND_IN_FLIGHT_TIMEOUT_MS } from './chat/hooks/use-chat-composer.ts'
 import { SessionHud } from '../components/session-hud.tsx'
 import { saveChatCache, type CachedRow } from '../session/chat-cache.ts'
-import { dispatchStatusEvent } from '../stream/session-status-store.ts'
 import {
   barsSignature,
   createSessionStatus,
@@ -168,13 +157,10 @@ function newestTurnAnchor(messages: readonly RenderMessage[]): number | undefine
 
 import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../render/run-status.tsx'
 import { copyText, openFilePath, shareText } from '../render/code-actions.ts'
-import { exportMarkdown, exportSingleFileHtml, type ExportRow } from '../platform/export.ts'
-import { drawLongImage, LONG_IMAGE_DEFAULTS } from '../platform/long-image.ts'
 import { MuxClient } from '../stream/mux.ts'
-import { ThemeToggle } from '../components/theme-toggle.tsx'
 import { getAutoScroll, subscribeDisplayPrefs } from '../platform/display-prefs.ts'
-import { formatFileSize, timeVisibility } from '../render/ui-text.ts'
-import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../platform/offline.ts'
+import { timeVisibility } from '../render/ui-text.ts'
+import { listOutbox, type OutboxEntry } from '../platform/offline.ts'
 import { QueueDock } from '../components/queue-dock.tsx'
 import { InsertBar } from './chat/components/insert-bar.tsx'
 import { GoalBar } from '../components/goal-bar.tsx'
@@ -182,44 +168,22 @@ import {
   GOAL_CLEAR_COMMAND, GOAL_EDIT_PREFIX, GOAL_PAUSE_COMMAND, GOAL_RESUME_COMMAND, goalEditCommand,
   parseGoalProjection, type MobileGoal,
 } from '../session/goal-projection.ts'
-import { FilePreviewSheet } from '../components/file-preview-sheet.tsx'
-import { ImageLightbox } from '../components/image-lightbox.tsx'
-import {
-  addOptimisticQueueItem,
-  applyQueueItems,
-  applySnapshot,
-  claimQueueHead,
-  dropOptimisticQueueItem,
-  hideQueueItem,
-  queueView,
-  subscribeSessionStore,
-  unhideQueueItem,
-} from '../stream/session-store.ts'
+import { applyQueueItems, claimQueueHead, queueView } from '../stream/session-store.ts'
 import { goalAction, goalOf, searchSessions } from '../data/session.ts'
-import { onConnectivityChange, reportConnectivity, RpcCallError } from '../platform/rpc.ts'
+import { reportConnectivity } from '../platform/rpc.ts'
 import { voiceSupported } from '../platform/voice-input.ts'
-import { voiceStatusClassName } from '../platform/voice-status.ts'
 import { toast } from '../components/toast.tsx'
 import { useToastLift } from '../components/toast-lift.ts'
-import { scheduleSettleBurst } from '../stream/settle-timers.ts'
-import { sanitizeFileName, truncate } from '../shared/text.ts'
-import { shouldRepinAfterShrink } from '../stream/scroll-shrink.ts'
-import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes, rememberQueuedEcho } from '../session/queued-echo.ts'
-import { turnNumberIsStale } from '../stream/turn-liveness.ts'
+import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes } from '../session/queued-echo.ts'
 import { approvalPreviewText } from '../session/approval-preview.ts'
-import { Sheet } from '../ui/sheet.tsx'
-import { ConfirmDialog, PromptDialog } from '../components/dialog.tsx'
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SearchIcon, SendIcon, ShieldIcon } from '../components/icons.tsx'
-import { MessageRow, type TurnDeliveryFacts } from '../render/message-row.tsx'
-import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../render/markdown-text.tsx'
-import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue, HostFileSheet } from '../components/sheets.tsx'
-import { buildEffortChoices, flattenModelChoices } from '../platform/model-choice.ts'
+import { type TurnDeliveryFacts } from '../render/message-row.tsx'
+import { PermissionConfirmSheet, PlusSheet, parsePermissionSelect, type PermissionSelectValue } from '../components/sheets.tsx'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../session/turn-outline.ts'
 import { collectArtifacts, type ArtifactTurn } from '../session/artifacts.ts'
 import { TurnScrubber } from '../components/turn-scrubber.tsx'
 import type { JobView } from '../../api-proxy-types'
-import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../session/subagent-tree.ts'
+import { type SubagentFlatNode } from '../session/subagent-tree.ts'
 import type { HostBridge } from '../kernels/host-bridge.ts'
 
 /** D1 handle-gesture tunables: the travel (px) a press must exceed before it
@@ -289,21 +253,6 @@ export interface ChatViewProps {
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
   onOpenApproval?: ((approval: PendingApproval, preview?: string, argsText?: string) => void) | undefined
 }
-
-/**
- * 流式缓冲上限与对账周期已经搬到 `chat/use-chat-stream.ts`（S7a-4，随逻辑一起走）。
- * 这两个仍从这里转出：既有测试按 `./ChatView.tsx` 取。
- */
-export { MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './chat/state/stream-state.ts'
-
-
-/** Compact token count for the context meter: 800 → "800", 30k, 1.2M. */
-
-
-/** Composer draft debounce: localStorage writes wait this long after the
- *  last keystroke (unmount flushes immediately regardless). */
-export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/hooks/use-chat-draft.ts'
-/** 翻页超时与铺开上限见 chat/use-chat-history.ts（LOAD_OLDER_TIMEOUT_MS / OPEN_HISTORY_*）。 */
 
 /* ── long sessions：已载入的行全渲染 ────────────────────────────────────
    这里原来是"行窗格 + 估高 spacer"的虚拟化：超过阈值只渲染滚动位置附近的行，
@@ -392,7 +341,6 @@ function ChatSessionView({
    */
   const streamRef = useRef(createStreamState())
   const stream = streamRef.current
-  const setMessages = chatSession.setRows
   // Foreground gate for every poll on this view: a frozen background PWA must
   // not keep issuing RPCs (the stream and the host-side follow are released by
   // App's observe effect; returning resyncs them).
@@ -545,9 +493,7 @@ function ChatSessionView({
   const barsSignatureRef = useRef('')
   const shadowEvent = useCallback((event: StatusEvent): void => {
     shadowStatusRef.current = sessionStatusReducer(shadowStatusRef.current, event)
-    // 单向发布：运行中页 / 首页徽标读同一份结论，不再各自拿花名册猜。
-    dispatchStatusEvent(session.sessionId, event)
-  }, [session.sessionId])
+  }, [])
   // The bottom gap at the USER's last gesture (recorded on every scroll
   // event). Passive content growth — a pending message finalizing into
   // taller markdown, an appended reply — changes scrollHeight without firing
@@ -557,17 +503,6 @@ function ChatSessionView({
   // are equally harmless.
 
   messagesRef.current = messages
-  /**
-   * True while the initial tail page is in flight. Live events arriving in
-   * that window go to {@link liveBufferRef} instead of the message list: the
-   * tail load replaces the list wholesale, so a directly folded event would
-   * flash once, be discarded by the snapshot, and then be skipped forever by
-   * the seq watermark.
-   */
-  /** Live session events buffered while the initial tail page loads. */
-  /** Incremental folder for this session's stream (indexes stay hot across events). */
-  /** 这个会话是否**成功加载过**一页：用来区分"打不开"和"还在加载"。 */
-
   /** The session's permission select (absent = capability not composed). */
   const [permissions, setPermissions] = useState<PermissionSelectValue | undefined>(undefined)
   /** Host context-pressure projection (token-meter): the authoritative
@@ -585,13 +520,9 @@ function ChatSessionView({
   onOpenDiffRef.current = onOpenDiff
   /** In-chat <img> source opened in the full-screen lightbox (tap-to-view). */
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
-  /** In-flight guard for one-shot picker actions. */
   /** Lazily cached model directory backing the quick picker (fresh per open
    *  until it loads once; the full sheet re-fetches on its own). */
   const [modelCatalog, setModelCatalog] = useState<ModelPickerCatalog>({ status: 'idle' })
-  /** Whether the composer's + menu is open (图片 / 命令). */
-  /** 「电脑文件」选择面板：手机上系统选择器只给相机相册时，从这里挑宿主机上的文件。 */
-  /** The slash-command sheet, opened straight from the composer. */
   /**
    * 已认领的命令名（桌面端那颗蓝色 chip）。
    *
@@ -614,12 +545,6 @@ function ChatSessionView({
   const commandFetchAtRef = useRef(0)
   /** Quoted message (context bar above the composer; sent as a blockquote preamble). */
   const [quoted, setQuoted] = useState<string | undefined>(undefined)
-  /** Whether the composer holds focus (quick-command bar shows with the keyboard). */
-  /**
-   * 是否连不上宿主。判据不是 `navigator.onLine`（安卓上它会一直停在 false），
-   * 而是"最近一次真实请求有没有答话"——见 rpc.ts 的连通性总线；断着的时候每 5 秒
-   * 自己探一次，答话就恢复。
-   */
   /** The queued outbox entries (banner lets the user remove one at a time). */
   const [queuedEntries, setQueuedEntries] = useState<OutboxEntry[]>([])
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
@@ -628,12 +553,6 @@ function ChatSessionView({
   const { voiceOpen, voicePartial, voicePhase, voiceElapsed, voiceStatus, voiceWaveRef, voiceDoneRef, openVoice, finishVoice, closeVoice } = useChatVoice({ mountedRef, setInput })
   /** Pinch-zoom state for code blocks (one active gesture at a time). */
   const pinchRef = useRef<{ block: HTMLElement; dist0: number; scale0: number } | undefined>(undefined)
-  /**
-   * Composer preference from the plugin's host settings (default true keeps
-   * the legacy Enter-to-send behavior until the preference loads).
-   */
-  /** 宿主没有 `mobile.turnState`（旧版本）：之后的对账直接走旧路径。 */
-  const turnStateUnsupportedRef = useRef(false)
 
   /**
    * 缓存 = **屏幕稳定之后的完整画面**（含交付卡）。
@@ -795,18 +714,9 @@ function ChatSessionView({
   // 收件箱轮询（1.5s / 3s / 8s 按状态变速 + 切回前台补一次）：宿主投递走的是帧以外
   // 的通道，客户端只能问。节奏与理由见 hooks/use-inbox-poll.ts。
   useInboxPoll({ running, hasPendingQueue, refreshInbox })
-  /**
-   * 目标投影 → 目标条状态。宿主线上形状是 `{ current }`，解析在 parseGoalProjection 里；
+  /** 目标投影 → 目标条状态：解析在 `parseGoalProjection`（`use-chat-goal` 持有）里。 */
   applyGoalRef.current = applyGoal
 
-
-  useEffect(() => {
-    // 只兜这一次：目标现在随 `mobile.sessionState` 的原子快照一起回来（和回合状态
-    // 同一时刻），不再自己开 15/20 秒的轮询 —— 那既慢（电脑上改了要等十几秒）又和
-  /** 当前计时锚点的即时值（effect 里要判断「锚点是不是过期了」）。 */
-  // 当前计时锚点的即时值：effect 里要判断「锚点是不是过期了」。用 useLatestRef 而不是
-  // 「useRef + 一个只同步 ref 的 effect」——那个 effect 没有任何副作用。
-  const turnStartAtRef = useLatestRef<number | null>(turnStartAt ?? null)
   /** Turn-clock mount fallback (see turnStartAt). */
   const mountTimeRef = useRef(Date.now())
   /** 宿主时钟（见 chat/host-clock.ts）：读数在宿主时间域里减法，手机墙钟不参与。 */
@@ -881,9 +791,6 @@ function ChatSessionView({
     () => parseTurnOutline(turnOutlineRaw).reduce((newest, entry) => Math.max(newest, entry.turn), 0),
     [turnOutlineRaw],
   )
-  /** The newest turn the turn handle judges against: the host outline when it
-   *  has landed, the merged outline (local rows only) before that. */
-  const newestTurn = hostNewestTurn > 0 ? hostNewestTurn : maxTurn
   /** What the handle and the sheet highlight show: the tracked reading turn,
    *  falling back to the newest turn until the first scroll reports a position. */
   const shownTurn = currentTurn > 0 ? currentTurn : maxTurn
@@ -895,7 +802,6 @@ function ChatSessionView({
   sessionIdRef.current = session.sessionId
   /** Debounce handle for the scroll-settle reading save. */
   const readingTimerRef = useRef<number | undefined>(undefined)
-  /** Pending turn-jump target seq while paging it in (see jumpToTurn). */
   /** Target of a turn jump that must page history in first: the outline's
    *  boundary seq, the turn NUMBER to match once a page lands (the seq alone
    *  cannot match — see locateSeq), and how many follow-up pages this jump has
@@ -1923,7 +1829,6 @@ function ChatSessionView({
     shadowEvent({ type: 'plan', at: now, source: 'snapshot', todo })
     shadowEvent({ type: 'jobs', at: now, source: 'snapshot', jobs, subagents })
     shadowStatusRef.current = sweepExpired(shadowStatusRef.current, now)
-    const shadowText = barsSignature(describeBars(shadowStatusRef.current, now))
     const view = describeBars(shadowStatusRef.current, now)
     // 真值推进（判据唯一来源）：只在签名变化时 setState，避免每拍重渲染。
     const viewSignature = barsSignature(view)
@@ -3341,7 +3246,6 @@ function ChatSessionView({
         void el2.scrollHeight
         const cRect = el2.getBoundingClientRect()
         const off = anchor.getBoundingClientRect().top - cRect.top - LOCATE_TOP_GAP
-        const before = el2.scrollTop
         // Mark this as a programmatic scroll so handleScroll does not treat it
         // as a user gesture and release the locate lock (nor record a reading
         // bookmark for the located turn).

@@ -24,7 +24,6 @@ import type { ChatPage } from '../api.ts'
 import {
   QUEUE_EMPTY_HOLD_MS as QUEUE_EMPTY_HOLD_MS_FROM_STATUS,
   QUEUE_HIDDEN_MS,
-  QUEUE_OPTIMISTIC_MS,
   visibleQueue,
 } from './session-status.ts'
 import type { QueueItemView } from '../api.ts'
@@ -186,12 +185,6 @@ export function cachedSnapshot(sessionId: string): SessionSnapshot | undefined {
 export function cachedRows(sessionId: string): ChatPage['rows'] {
   return entries.get(sessionId)?.snapshot?.rows ?? []
 }
-
-/**
- * 乐观项存活上限：超过这个时间还没被权威队列认下来，就当它已经投递出去了
- * （宿主认领成下一轮时它就不再是「排队」），免得留一张永远不走的卡。
- */
-export const OPTIMISTIC_TTL_MS = QUEUE_OPTIMISTIC_MS
 
 /**
  * 队列的当前视图：权威队列 + 还没退场的乐观项。
@@ -560,11 +553,6 @@ export function dropOptimisticQueueItem(sessionId: string, pendingId: string): v
   if (next.length === entry.optimistic.length) return
   entry.optimistic = next
   publish(sessionId)
-}
-
-/** 写操作成功后立刻让乐观项退场（宿主已认账，不必等快照）。 */
-export function settleOptimisticQueueItem(sessionId: string, pendingId: string): void {
-  dropOptimisticQueueItem(sessionId, pendingId)
 }
 
 /**

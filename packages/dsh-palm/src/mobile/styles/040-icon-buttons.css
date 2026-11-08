@@ -31,23 +31,3 @@
   width: 20px;
   height: 20px;
 }
-
-.mobile-headerAction {
-  flex: none;
-  height: 44px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-
-.mobile-headerAction:active {
-  background: var(--accent-soft);
-}
-

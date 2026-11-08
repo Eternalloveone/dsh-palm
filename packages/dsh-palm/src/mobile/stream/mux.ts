@@ -8,26 +8,22 @@
  * server-request envelopes whose payload is the mux frame; unknown frame
  * types are dropped so a newer host never breaks this client.
  *
- * EventSource reconnects automatically — but only over a tunnel that
- * actually forwards frames. Public quick tunnels (Cloudflare quick tunnel /
- * Tailscale Serve) do not transparently pass Server-Sent Events: ordinary
- * HTTP works, yet the SSE connection stays open or reconnects with zero
- * bytes, so no live frame ever arrives. That is a transport-layer limit of
- * the tunnel, not something the host can fix. This client therefore
- * degrades gracefully: once the SSE channel has silently stalled (no frame
- * for {@link MuxClientOptions.stallThresholdMs}, or the EventSource reports
- * an error), it starts polling the open session's history over plain HTTP
- * (the `/m/api/session.history` RPC — unaffected by the SSE limitation),
- * and re-emits freshly appended events as `session/event` frames through
- * the same subscriber contract, so listeners (and the message fold) behave
- * exactly as if the frames had arrived over SSE. When the SSE channel
- * delivers again, fallback polling stops and the live stream takes over.
+ * EventSource reconnects automatically — but only over a tunnel that actually
+ * forwards frames. Public quick tunnels (Cloudflare quick tunnel / Tailscale
+ * Serve) do not transparently pass SSE: the connection stays open with zero
+ * bytes, so no live frame ever arrives. This client degrades gracefully: once
+ * the SSE channel has silently stalled (no frame for
+ * {@link MuxClientOptions.stallThresholdMs}, or the EventSource reports an
+ * error), it polls the open session's history over plain HTTP
+ * (`/m/api/session.history`, unaffected by the SSE limitation) and re-emits
+ * freshly appended events as `session/event` frames through the same
+ * subscriber contract. When SSE delivers again, fallback polling stops.
  */
 
 import type { MuxFrame } from '../../api-proxy-types'
 import type { JobView } from '../../api-proxy-types'
 import type { HistoryEntry } from '../../api-proxy-types'
-import { history as fetchHistory, listSessions as listSessionRows, queueItemViewOf, type HistoryPage, type QueueItemView } from '../api.ts'
+import { history as fetchHistory, queueItemViewOf, type HistoryPage, type QueueItemView } from '../api.ts'
 import { runningSessions as runningSessionIds, turnState as turnStateOf } from '../api.ts'
 import { RunningMirror } from './running-mirror.ts'
 import { RpcTransportError } from '../platform/rpc.ts'
@@ -38,13 +34,10 @@ export interface MuxClientOptions {
   /** EventSource factory (defaults to the browser EventSource). */
   sourceFactory?: (url: string) => EventSourceLike
   /**
-   * Fetch one history page (tail) for a session — the polling fallback's
-   * data source. Defaults to the mobile `session.history` RPC, which rides
-   * the ordinary HTTP channel (unaffected by SSE-impairing tunnels).
-   */
-  /**
    * History page fetcher for fallback polling. Omit `beforeSeq` for the
-   * newest page; pass a seq to page backwards (gap refill).
+   * newest page; pass a seq to page backwards (gap refill). Defaults to the
+   * mobile `session.history` RPC, which rides the ordinary HTTP channel
+   * (unaffected by SSE-impairing tunnels).
    */
   pollLatest?: (sessionId: string, beforeSeq?: number) => Promise<HistoryPage>
   /** Initial poll cadence while SSE is stalled (default 3000 ms). Empty polls back off to 60000 ms. */
@@ -57,9 +50,8 @@ export interface MuxClientOptions {
   runningProbe?: () => Promise<string[]>
   /**
    * 逐条复核「这个会话真的还在跑吗」（默认走 mobile.turnState —— 聊天页判定
-   * 运行中用的就是同一个接口）。宿主的运行集合本身是一份帧镜像：漏掉一条
-   * turn/end 之后要等五分钟静默上限才会掉，期间花名册页会一直说「有会话在跑」，
-   * 而点进去聊天页当场一问宿主却是空闲的。复核就是为了让两边同一口径。
+   * 运行中用的就是同一个接口）。宿主的运行集合本身是帧镜像：漏掉一条 turn/end
+   * 要等五分钟静默上限才会掉，复核是为了让两边同一口径。
    */
   verifyRunning?: (sessionId: string) => Promise<boolean>
   /** 运行集合校准间隔（默认 60 秒；测试可缩短）。 */
@@ -67,8 +59,7 @@ export interface MuxClientOptions {
   /**
    * Called when the polling fallback hits a terminal (unpaired) error — the
    * device was revoked or remote control was stopped. The client has already
-   * stopped itself (no more polling, no more SSE); the UI uses this to enter
-   * the unpaired state instead of silently polling forever into a 60 s backoff.
+   * stopped itself; the UI uses this to enter the unpaired state.
    */
   onUnpaired?: () => void
 }
@@ -781,16 +772,6 @@ export class MuxClient {
   }
 
   /**
-   * Every session whose turn is currently open, in frame-arrival order. The
-   * run-overview page seeds its running set from this so a session that
-   * started generating before the page opened still appears (the mux opens
-   * at app boot and tracks turns for the whole page lifetime).
-   */
-  runningSessionsSnapshot(): string[] {
-    return this.running.snapshot()
-  }
-
-  /**
    * Retain the snapshot for one session. The jobs baseline (and every later
    * change push) rides the mux stream, which opens at app boot — before any
    * chat is mounted — so a freshly opened chat must be able to replay the last
@@ -812,20 +793,6 @@ export class MuxClient {
    */
   cachedJobsFor(sessionId: string): JobView[] | undefined {
     return this.cachedJobsBySession.get(sessionId)
-  }
-
-  /**
-   * Every retained per-session background-task snapshot (sessions with no
-   * snapshot are absent — the host expresses "no tasks" by omitting the
-   * session/jobs frame). Stable insertion order, newest retention evicts
-   * oldest past {@link MAX_CACHED_JOBS_SESSION}. The global run-overview
-   * surface renders this as its source of truth; the arrays are the live
-   * retained JobView instances, so callers must treat them read-only.
-   */
-  jobsSnapshot(): Array<{ sessionId: string; jobs: readonly JobView[] }> {
-    const rows: Array<{ sessionId: string; jobs: readonly JobView[] }> = []
-    for (const [sessionId, jobs] of this.cachedJobsBySession) rows.push({ sessionId, jobs })
-    return rows
   }
 
   /**
@@ -938,14 +905,6 @@ export class MuxClient {
       else this.running.forget(answer.sessionId)
     }
     return confirmed
-  }
-
-  /**
-   * 立刻按宿主校正一次运行集合。花名册页（那个绿点 + 数字）用它代替自己再开
-   * 一条探针：两路各自维护一份「谁在跑」只会互相续命，错的那个永远退不掉。
-   */
-  refreshRunning(): Promise<void> {
-    return this.resyncRunning()
   }
 
   /** 起/重启周期校准定时器（间隔取当前退避值）。 */

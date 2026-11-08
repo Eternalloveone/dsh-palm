@@ -10,7 +10,7 @@
  *
  * @module dsh-palm/mobile/views/chat/use-chat-goal
  */
-import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
+import { useCallback, useEffect, type MutableRefObject } from 'react'
 
 import { goalOf } from '../../../data/session.ts'
 import { parseGoalProjection } from '../../../session/goal-projection.ts'

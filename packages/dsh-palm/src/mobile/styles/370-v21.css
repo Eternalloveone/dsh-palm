@@ -4,49 +4,10 @@
    system so the established spec stays untouched. */
 
 /* Plain folder (workspace without sessions): gray tile. */
-.ws-icon-plain > * {
-  background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
-  color: var(--text-tertiary);
-}
 
 /* Empty-group placeholder card (72px tier, centered copy + 创建). */
-.mobile-empty-group {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: calc(100% - 32px);
-  margin: 0 16px 8px;
-  min-height: 72px;
-  border: 1px dashed var(--card-border);
-  border-radius: var(--radius-card);
-  color: var(--text-quaternary);
-  font-size: var(--text-md);
-}
-
-.mobile-empty-groupBtn {
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
-  padding: 8px 10px;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-}
-
-.mobile-empty-groupBtn:active {
-  background: var(--accent-soft);
-}
 
 /* Session-list header search morph (200ms) + its input. */
-.mobile-headerSearch {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  animation: search-morph 0.2s ease both;
-}
 
 @keyframes search-morph {
   from {
@@ -59,41 +20,7 @@
   }
 }
 
-.mobile-headerSearchInput {
-  width: 100%;
-  height: 38px;
-  padding: 0 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-capsule);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.mobile-headerSearchInput:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 /* Session status semantics: running pulse + label, settled check. */
-.sess-status {
-  flex: none;
-  color: var(--positive);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
-.sess-check {
-  display: flex;
-  color: var(--text-quaternary);
-}
-
-.sess-check svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* Reasoning clamp expander. */
 .chat-reasoning-more {
@@ -578,9 +505,7 @@
 }
 
 /* Settings search field. */
-.settings-search {
-  padding: 0 16px 12px;
-}/* Toggle knob spring (overshoot then settle, 200ms). */
+/* Toggle knob spring (overshoot then settle, 200ms). */
 .settings-switch::after{
   transition: transform 0.2s cubic-bezier(0.34, 1.8, 0.64, 1);
 }
@@ -594,54 +519,9 @@ button.settings-row:active {
   background: var(--bg-elevated) !important;
 }
 
-
-
 /* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错 / 蓝=新）──
    18px 高、12px 字、全圆角：三行卡里它只是第二行的一个小标签，不许抢标题。
    底色取 --palm-tint-*（与四态色同源），深色/纸/夜航三套皮肤都自动跟着走。 */
-.sess-status {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  padding: 0 var(--palm-s2);
-  height: 18px;
-  border-radius: var(--palm-r-full);
-  font-size: var(--palm-t-s);
-  line-height: 1;
-  background: var(--palm-sur-2);
-  color: var(--palm-fg-2);
-}
-
-.sess-status-ok {
-  background: var(--palm-tint-ok);
-  color: var(--palm-ok);
-}
-
-.sess-status-warn {
-  background: var(--palm-tint-warn);
-  color: var(--palm-warn);
-}
-
-.sess-status-danger {
-  background: var(--palm-tint-danger);
-  color: var(--palm-danger);
-}
-
-.sess-status-info {
-  background: var(--palm-tint-accent);
-  color: var(--palm-accent);
-}
-
-.mobile-groupCount {
-  color: var(--palm-fg-3);
-  font-weight: var(--palm-w-normal);
-}
-
-.sess-chipCount {
-  margin-left: var(--palm-s1);
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-}
 
 /* ── 状态条（主条 + 迷你条 + 方案 A 刻度轨）────────────────────
  *
@@ -1164,4 +1044,3 @@ button.palm-delivery-row:focus-visible {
 }
 
 .palm-delivery-more:active { opacity: 0.72; }
-

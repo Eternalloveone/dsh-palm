@@ -11,10 +11,10 @@
  *
  * 所以这里的三条口径是：
  * ① 宿主说「在跑」→ 立刻加，并记账；
- * ② 宿主这次**没提到**某个会话 → 不立刻删，先记「从这一刻起没人提到它」，
- *   连续缺席满 {@link ROSTER_ABSENT_GRACE_MS}（两轮探针）才删；
+ * ② 宿主这次**没提到**某个会话 → 先记「从这一刻起没人提到它」，连续缺席满
+ *    {@link ROSTER_ABSENT_GRACE_MS}（两轮探针）才删；
  * ③ 谁都提不到的会话（断线漏帧 + 探针也读不到）最多挂 {@link MIRROR_MAX_SILENCE_MS}
- *   就被清掉，避免「永远在运行」。
+ *    就被清掉，避免「永远在运行」。
  *
  * turn/end 帧例外：它是明确的终态，一到就删，不给宽限。
  *
@@ -85,9 +85,7 @@ export class RunningMirror {
 
   /**
    * 某个会话「最后一次有证据」距今多久（毫秒）；没跟踪过返回 undefined。
-   *
-   * 花名册页拿它决定要不要向宿主逐条复核：刚看到 turn/start 的会话不必再问，
-   * 只剩「很久没人提」的那些才值得花一次往返。
+   * 复核时用它决定要不要向宿主逐条问：刚看到 turn/start 的不必再问。
    */
   evidenceAge(sessionId: string, at: number): number | undefined {
     const entry = this.tracked.get(sessionId)

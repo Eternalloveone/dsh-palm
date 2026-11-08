@@ -1,7 +1,7 @@
 /**
- * list-persist (v3.3 PWA cold-start store): round-trips, TTL expiry, corrupt
- * data tolerance, preview capacity trimming, pairing eviction, and the
- * opportunistic maintenance pass.
+ * list-persist (v3.3 PWA cold-start store): list-page round-trips, TTL expiry,
+ * corrupt data tolerance, composer drafts, pairing eviction, and the deferred
+ * write path (a burst collapses into one trailing write of the newest value).
  */
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,19 +11,12 @@ import {
   flushPersistedWrites,
   loadDraft,
   loadPersistedList,
-  loadPersistedScroll,
-  loadPersistedPreviews,
-  loadPinnedSessions,
   maintainPersistedCaches,
   PERSIST_COALESCE_MS,
   queuePersistedList,
-  queuePersistedPreviews,
   removeDraft,
   saveDraft,
   savePersistedList,
-  savePersistedPreviews,
-  savePersistedScroll,
-  savePinnedSessions,
 } from './list-persist.ts'
 import type { SessionView } from '../shared/session-view.ts'
 
@@ -44,17 +37,14 @@ beforeEach(() => {
 })
 
 describe('list-persist', () => {
-  it('round-trips a list page and scroll offset per workspace', () => {
+  it('round-trips a list page per workspace', () => {
     savePersistedList('w-1', { rows: [row('s-1')], cursor: 'c1', hasMore: true })
-    savePersistedScroll('w-1', 432)
     const loaded = loadPersistedList('w-1')
     expect(loaded?.rows).toEqual([row('s-1')])
     expect(loaded?.cursor).toBe('c1')
     expect(loaded?.hasMore).toBe(true)
-    expect(loadPersistedScroll('w-1')).toBe(432)
     // Other workspaces stay independent.
     expect(loadPersistedList('w-2')).toBeUndefined()
-    expect(loadPersistedScroll('w-2')).toBe(0)
   })
 
   it('rejects expired lists (TTL) and corrupt payloads', () => {
@@ -77,39 +67,12 @@ describe('list-persist', () => {
     }
   })
 
-  it('round-trips preview summaries and trims past capacity', () => {
-    const map = new Map<string, string>()
-    for (let index = 0; index < 600; index++) map.set(`s-${index}`, `摘要 ${index}`)
-    savePersistedPreviews(map)
-    const loaded = loadPersistedPreviews()
-    expect(loaded.size).toBeLessThanOrEqual(500)
-    // Newest-inserted entries survive (insertion order preserved).
-    expect(loaded.has('s-599')).toBe(true)
-    expect(loaded.has('s-0')).toBe(false)
-    // Re-save the loaded map: stable round-trip.
-    savePersistedPreviews(loaded)
-    expect(loadPersistedPreviews().size).toBe(loaded.size)
-  })
-
-  it('drops non-string preview payloads', () => {
-    localStorage.setItem('dsh-palm.prev.v1', JSON.stringify({ 's-1': 'ok', 's-2': 42, 's-3': '' }))
-    const loaded = loadPersistedPreviews()
-    expect(loaded.get('s-1')).toBe('ok')
-    expect(loaded.has('s-2')).toBe(false)
-    expect(loaded.has('s-3')).toBe(false)
-  })
-
   it('clearPairingCaches drops every persisted key', () => {
     savePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
-    savePersistedScroll('w-1', 100)
-    const map = new Map<string, string>([['s-1', '摘要']])
-    savePersistedPreviews(map)
     // Unrelated keys survive.
     localStorage.setItem('dsh-palm.list-persist.test.unrelated', 'keep')
     clearPairingCaches()
     expect(loadPersistedList('w-1')).toBeUndefined()
-    expect(loadPersistedScroll('w-1')).toBe(0)
-    expect(loadPersistedPreviews().size).toBe(0)
     expect(localStorage.getItem('dsh-palm.list-persist.test.unrelated')).toBe('keep')
   })
 
@@ -118,15 +81,12 @@ describe('list-persist', () => {
     try {
       vi.setSystemTime(1_700_000_000_000)
       savePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
-      savePersistedScroll('w-1', 100)
       vi.setSystemTime(1_700_000_000_000 + 25 * 60 * 60 * 1000)
       // A fresh entry written "now" survives the pass.
       savePersistedList('w-2', { rows: [row('s-2')], hasMore: false })
       maintainPersistedCaches()
       expect(loadPersistedList('w-1')).toBeUndefined()
       expect(loadPersistedList('w-2')).not.toBeUndefined()
-      // Scroll offsets are not part of the maintenance pass.
-      expect(loadPersistedScroll('w-1')).toBe(100)
     } finally {
       vi.useRealTimers()
     }
@@ -135,41 +95,14 @@ describe('list-persist', () => {
   it('registry-backed eviction survives a re-save of remaining keys', () => {
     savePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
     savePersistedList('w-2', { rows: [row('s-2')], hasMore: false })
-    savePersistedScroll('w-1', 80)
     clearPairingCaches()
     expect(loadPersistedList('w-1')).toBeUndefined()
     expect(loadPersistedList('w-2')).toBeUndefined()
-    expect(loadPersistedScroll('w-1')).toBe(0)
     // The registry itself stays usable for later saves.
     savePersistedList('w-3', { rows: [row('s-3')], hasMore: false })
     clearPairingCaches()
     expect(loadPersistedList('w-3')).toBeUndefined()
     expect(localStorage.getItem('dsh-palm.cache-index.v1')).not.toBeNull()
-  })
-})
-
-describe('pinned sessions', () => {
-  it('round-trips the pinned id set (insertion order preserved)', () => {
-    savePinnedSessions(new Set(['s-2', 's-1']))
-    const loaded = loadPinnedSessions()
-    expect([...loaded]).toEqual(['s-2', 's-1'])
-    expect(loaded.has('s-1')).toBe(true)
-    expect(loaded.has('s-3')).toBe(false)
-  })
-
-  it('tolerates corrupt / non-array payloads', () => {
-    localStorage.setItem('dsh-palm.pin.v1', '{not json')
-    expect(loadPinnedSessions().size).toBe(0)
-    localStorage.setItem('dsh-palm.pin.v1', JSON.stringify({ bad: true }))
-    expect(loadPinnedSessions().size).toBe(0)
-    localStorage.setItem('dsh-palm.pin.v1', JSON.stringify(['s-1', 42, 's-2']))
-    expect([...loadPinnedSessions()]).toEqual(['s-1', 's-2'])
-  })
-
-  it('clearPairingCaches drops pins too', () => {
-    savePinnedSessions(new Set(['s-1']))
-    clearPairingCaches()
-    expect(loadPinnedSessions().size).toBe(0)
   })
 })
 
@@ -225,24 +158,19 @@ describe('composer drafts', () => {
 })
 
 /**
- * Both persisted stores are whole-blob rewrites (a roster page, or up to 500
- * preview summaries), so writing them on the interaction that produced them
- * puts a JSON.stringify plus a synchronous localStorage write on the main
- * thread exactly while the list is being scrolled. These pin the deferred
- * path: a trailing window collapses a burst into one write of the newest
- * value, the page-hide paths flush it, and a pairing eviction drops it
- * outright.
+ * The persisted roster page is a whole-blob rewrite, so writing it on the
+ * interaction that produced it puts a JSON.stringify plus a synchronous
+ * localStorage write on the main thread exactly while the list is being
+ * scrolled. These pin the deferred path: a trailing window collapses a burst
+ * into one write of the newest value, the page-hide paths flush it, and a
+ * pairing eviction drops it outright.
  */
 describe('deferred store writes', () => {
-  /** The preview store's localStorage name (module-private in list-persist.ts). */
-  const PREVIEW_STORE = 'dsh-palm.prev.v1'
-
   /**
    * Swap in a plain-object storage for one test. Counting writes cannot go
    * through `vi.spyOn(localStorage, 'setItem')`: on a CI runner the global is a
    * storage proxy, the spy silently fails to intercept, and every assertion
-   * about writes turns vacuously true — which is how the 1.3.5 publish gate
-   * went red while the local gate was green. A plain object behaves identically
+   * about writes turns vacuously true. A plain object behaves identically
    * everywhere and makes "how many writes" observable.
    */
   function installFakeStorage(): { writes: string[]; restore: () => void } {
@@ -258,29 +186,6 @@ describe('deferred store writes', () => {
     })
     return { writes, restore: () => { vi.unstubAllGlobals() } }
   }
-
-  it('collapses a burst of preview schedules into one write of the newest map', () => {
-    const storage = installFakeStorage()
-    vi.useFakeTimers()
-    try {
-      queuePersistedPreviews(new Map([['s-1', '旧摘要']]))
-      // Nothing on the interaction path: not even the stringify has happened.
-      expect(loadPersistedPreviews().size).toBe(0)
-      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 0.6)
-      // A later update inside the same window must NOT postpone the write past
-      // it: a coalescing writer that re-arms starves and drops the newest state.
-      queuePersistedPreviews(new Map([['s-1', '新摘要'], ['s-2', '另一条']]))
-      expect(storage.writes).toHaveLength(0)
-      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 0.6)
-      expect(storage.writes.filter(name => name === PREVIEW_STORE)).toHaveLength(1)
-      const loaded = loadPersistedPreviews()
-      expect(loaded.get('s-1')).toBe('新摘要')
-      expect(loaded.get('s-2')).toBe('另一条')
-    } finally {
-      vi.useRealTimers()
-      storage.restore()
-    }
-  })
 
   it('keeps one deferred page per workspace, newest wins', () => {
     vi.useFakeTimers()
@@ -298,31 +203,17 @@ describe('deferred store writes', () => {
     }
   })
 
-  it('does not arm a write for an empty preview map', () => {
-    const storage = installFakeStorage()
-    vi.useFakeTimers()
-    try {
-      queuePersistedPreviews(new Map())
-      vi.advanceTimersByTime(PERSIST_COALESCE_MS * 2)
-      expect(storage.writes).toHaveLength(0)
-      expect(loadPersistedPreviews().size).toBe(0)
-    } finally {
-      vi.useRealTimers()
-      storage.restore()
-    }
-  })
-
   it('flushes a deferred write when the page is hidden, and cancels the timer', () => {
     const storage = installFakeStorage()
     vi.useFakeTimers()
     try {
-      queuePersistedPreviews(new Map([['s-1', '口袋里的摘要']]))
+      queuePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
       document.dispatchEvent(new Event('pagehide'))
-      expect(loadPersistedPreviews().get('s-1')).toBe('口袋里的摘要')
-      expect(storage.writes.filter(name => name === PREVIEW_STORE)).toHaveLength(1)
+      expect(loadPersistedList('w-1')?.rows).toHaveLength(1)
+      expect(storage.writes.filter(name => name === 'dsh-palm.list.v1.w-1')).toHaveLength(1)
       // The window's timer went with the flush: advancing writes nothing more.
       vi.advanceTimersByTime(PERSIST_COALESCE_MS)
-      expect(storage.writes.filter(name => name === PREVIEW_STORE)).toHaveLength(1)
+      expect(storage.writes.filter(name => name === 'dsh-palm.list.v1.w-1')).toHaveLength(1)
     } finally {
       vi.useRealTimers()
       storage.restore()
@@ -348,12 +239,12 @@ describe('deferred store writes', () => {
   it('an explicit flush writes now and re-arms cleanly afterwards', () => {
     vi.useFakeTimers()
     try {
-      queuePersistedPreviews(new Map([['s-1', 'a']]))
+      queuePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
       flushPersistedWrites()
-      expect(loadPersistedPreviews().get('s-1')).toBe('a')
-      queuePersistedPreviews(new Map([['s-2', 'b']]))
+      expect(loadPersistedList('w-1')?.rows).toHaveLength(1)
+      queuePersistedList('w-2', { rows: [row('s-2')], hasMore: false })
       vi.advanceTimersByTime(PERSIST_COALESCE_MS)
-      expect(loadPersistedPreviews().get('s-2')).toBe('b')
+      expect(loadPersistedList('w-2')?.rows).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }
@@ -364,11 +255,9 @@ describe('deferred store writes', () => {
     try {
       savePersistedList('w-1', { rows: [row('s-1')], hasMore: false })
       queuePersistedList('w-1', { rows: [row('s-1'), row('s-2')], hasMore: false })
-      queuePersistedPreviews(new Map([['s-1', '别的设备的摘要']]))
       clearPairingCaches()
       vi.advanceTimersByTime(PERSIST_COALESCE_MS * 2)
       expect(loadPersistedList('w-1')).toBeUndefined()
-      expect(loadPersistedPreviews().size).toBe(0)
     } finally {
       vi.useRealTimers()
     }
@@ -396,5 +285,4 @@ describe('deferred store writes', () => {
     clearPairingCaches()
     for (const key of keys) expect(localStorage.getItem(key)).toBeNull()
   })
-
 })

@@ -85,22 +85,6 @@ describe('单例与去重', () => {
     expect(state.turn?.value).toEqual({ running: false, turnNo: 3 })
   })
 
-  it('宿主复核压过花名册（花名册会撒谎）', () => {
-    const state = reduce([
-      { type: 'turn', at, source: 'roster', running: true, turnNo: 4 },
-      { type: 'verify', at: at + 100, running: false, turnNo: 4 },
-    ])
-    expect(state.turn?.value.running).toBe(false)
-    expect(state.turn?.source).toBe('local')
-  })
-
-  it('复核之后，迟到的花名册不许再改回来', () => {
-    const state = reduce([
-      { type: 'verify', at: at + 100, running: false, turnNo: 4 },
-      { type: 'turn', at: at + 200, source: 'roster', running: true, turnNo: 4 },
-    ])
-    expect(state.turn?.value.running).toBe(false)
-  })
 })
 
 describe('describeBars：三根条的唯一判据', () => {
@@ -202,16 +186,6 @@ describe('describeBars：三根条的唯一判据', () => {
     expect(describeBars(state, at + SOURCE_LEASE_MS.snapshot + 1).queueBar).toBe(0)
   })
 
-  it('open 事件清空一切（换会话不留上一场的条）', () => {
-    const state = reduce([
-      { type: 'turn', at, source: 'frame', running: true },
-      { type: 'queue', at, source: 'snapshot', items: [item('a')] },
-      { type: 'open', at: at + 10 },
-    ])
-    expect(state.turn).toBeUndefined()
-    expect(state.queue).toBeUndefined()
-    expect(barsSignature(describeBars(state, at + 11))).toBe('status:-|queue:0|goal:-')
-  })
 })
 
 describe('排队条可见判定（三个 TTL 收成一个语义）', () => {

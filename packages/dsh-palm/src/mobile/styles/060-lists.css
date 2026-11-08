@@ -1,26 +1,4 @@
 /* ── grouped lists + group titles ────────────────────────────────────── */
 
-.mobile-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  list-style: none;
-  margin: 0;
-  padding: 4px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
-}
-
 /* 分组标题（定版图）：12px 灰字「今天 · 3」，上 8 / 下 4 的留白。
    原来是一条 32px 高、全大写的标签——它比行标题还抢眼，而分组只是路标。 */
-.mobile-groupTitle {
-  padding: var(--palm-s2) var(--palm-s4) var(--palm-s1);
-  display: block;
-  margin: 0;
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-  letter-spacing: 0;
-  text-transform: none;
-  line-height: var(--palm-lh-head);
-}
-

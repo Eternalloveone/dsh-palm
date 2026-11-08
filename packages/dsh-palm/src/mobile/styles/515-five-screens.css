@@ -93,31 +93,6 @@
 }
 
 /* 列表页顶部的搜索入口：与搜索框同形，只是整块可点。 */
-.palm-spec-search-entry {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s2);
-  width: 100%;
-  height: var(--palm-spec-search-h);
-  padding: 0 var(--palm-s3);
-  border: 0;
-  border-radius: var(--palm-spec-search-r);
-  background: var(--palm-sur-1);
-  color: var(--palm-fg-3);
-  font: inherit;
-  font-size: var(--palm-t-m);
-  text-align: start;
-}
-
-.palm-spec-search-entry > svg {
-  flex: none;
-  width: var(--palm-spec-glyph);
-  height: var(--palm-spec-glyph);
-}
-
-.palm-spec-search-entry:active {
-  background: var(--palm-sur-2);
-}
 
 /* ── ② 分组标题 + 分组卡 ─────────────────────────────────────────────── */
 

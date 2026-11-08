@@ -6,7 +6,7 @@
  * 进出会话刷新（缓存秒开 + 低水位快照不许覆盖高水位）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { addOptimisticQueueItem, applyQueueItems, applySnapshot, cachedRows, cachedSnapshot, dropOptimisticQueueItem, hideQueueItem, normalizeQueueText, queueView, resetSessionStoreForTest, settleOptimisticQueueItem, subscribeSessionStore, unhideQueueItem, type SessionSnapshot, QUEUE_EMPTY_HOLD_MS,
+import { addOptimisticQueueItem, applyQueueItems, applySnapshot, cachedRows, cachedSnapshot, dropOptimisticQueueItem, hideQueueItem, normalizeQueueText, queueView, resetSessionStoreForTest, subscribeSessionStore, unhideQueueItem, type SessionSnapshot, QUEUE_EMPTY_HOLD_MS,
   claimQueueHead,
 } from './session-store.ts'
 import type { QueueItemView } from '../api.ts'
@@ -99,12 +99,6 @@ describe('乐观项（点发送立刻看得见）', () => {
     expect(queueView(SESSION)).toEqual([])
   })
 
-  it('成功后立刻退场，不必等下一次快照', () => {
-    const pendingId = addOptimisticQueueItem(SESSION, { text: '插队', placement: 'steering' })
-    expect(queueView(SESSION)).toHaveLength(1)
-    settleOptimisticQueueItem(SESSION, pendingId)
-    expect(queueView(SESSION)).toEqual([])
-  })
 })
 
 describe('本地隐藏（删除/插队立刻生效）', () => {

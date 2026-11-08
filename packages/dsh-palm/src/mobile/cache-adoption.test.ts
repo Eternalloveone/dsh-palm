@@ -11,7 +11,42 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CACHE_EXCEPTIONS, isCacheException } from './kernels/cache-exceptions.ts'
+
+/**
+ * 明确不走内核的缓存清单（原先在 `kernels/cache-exceptions.ts`；那份登记表只有本测试
+ * 读，模块本身从未进生产路径，因此收进测试：门禁保留，生产代码少一份死重量）。
+ *
+ * 判定标准：**freshness 来自记录自己的时间戳**（要跨刷新/跨进程存活），而不是"写进来
+ * 那一刻"。内核按插入时间计 TTL，表达不了这种语义；硬塞进去等于偷偷改行为。
+ */
+interface CacheException {
+  /** 模块路径（相对 `src/mobile/`）。 */
+  readonly module: string
+  /** 它为什么不能直接用内核。 */
+  readonly why: string
+  /** freshness 从哪儿来（内核按插入时间，这里不行）。 */
+  readonly freshnessFrom: string
+}
+
+const CACHE_EXCEPTIONS: readonly CacheException[] = [
+  {
+    module: 'history-cache.ts',
+    why:
+      '落盘在 **IndexedDB**（大页、异步、几十 KB/会话），内核是内存 Map；' +
+      '它的 TTL/容量/页版本已经统一读策略表（`CACHE_POLICIES.historyArchive`），' +
+      '差的只是存储后端，不是策略',
+    freshnessFrom: '页记录自带的 savedAt + 页形状版本号 CACHE_PAGE_VERSION',
+  },
+]
+
+/** 只取文件名：清单里的条目写在**搬家前**，按路径匹配会被目录整理打破。 */
+function baseName(module: string): string {
+  return module.split('/').pop() ?? module
+}
+
+function isCacheException(module: string): boolean {
+  return CACHE_EXCEPTIONS.some(entry => baseName(entry.module) === baseName(module))
+}
 
 const ROOT = join(import.meta.dirname)
 

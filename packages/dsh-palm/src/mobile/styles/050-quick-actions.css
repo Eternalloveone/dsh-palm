@@ -1,18 +1,5 @@
 /* ── quick actions bar ───────────────────────────────────────────────── */
 
-.mobile-quickbar {
-  flex: none;
-  display: flex;
-  gap: var(--space-2);
-  padding: 10px 16px 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.mobile-quickbar::-webkit-scrollbar {
-  display: none;
-}
-
 .mobile-quickchip {
   position: relative;
   flex: none;
@@ -50,61 +37,10 @@
   background: var(--fill-strong);
 }
 
-.mobile-quickchip-on {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}
-
 /* Run-overview quick chip: live dot pulses while anything is running and
    the live count rides beside the label (same chip grammar as pin/recent). */
-.mobile-quickchip-live {
-  border-color: color-mix(in srgb, var(--positive) 40%, transparent);
-  color: var(--text-primary);
-}
-
-.quick-live-dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--positive);
-  animation: breathe 1.6s ease-in-out infinite;
-}
-
-.quick-live-dot-off {
-  background: var(--text-quaternary);
-  animation: none;
-}
-
-.quick-live-count {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--positive);
-}
 
 .mobile-search {
   flex: none;
   padding: 6px 16px 8px;
 }
-
-.mobile-searchInput {
-  width: 100%;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 16px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.mobile-searchInput:focus {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-

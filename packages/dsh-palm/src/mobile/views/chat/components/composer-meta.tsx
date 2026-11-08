@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react'
 import type { SessionModels } from '../../../../api-proxy-types'
 import { CheckIcon } from '../../../components/icons.tsx'
-import { buildEffortChoices, flattenModelChoices } from '../../../platform/model-choice.ts'
+import { buildEffortChoices } from '../../../platform/model-choice.ts'
 import {
   compactModelName, displayName, fmtTokens, formatContextPercent, permissionShortLabel, type ModelPickerCatalog,
 } from '../lib/tool-labels.ts'

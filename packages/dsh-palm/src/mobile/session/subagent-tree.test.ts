@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** Foreground-subagent flat list helpers: one-shot fetch, running count, sort. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { countRunningSubagents, fetchSubagentsFlat, setSubagentActivity, sortSubagentsRunningFirst, type SubagentFlatNode } from './subagent-tree.ts'
+import { countRunningSubagents, fetchSubagentsFlat, sortSubagentsRunningFirst, type SubagentFlatNode } from './subagent-tree.ts'
 
 vi.mock('../api.ts', () => ({
   subagentsList: vi.fn(),
@@ -60,17 +60,3 @@ describe('sortSubagentsRunningFirst', () => {
   })
 })
 
-describe('setSubagentActivity', () => {
-  it('updates a node immutably by id', () => {
-    const list = [node('a', 'running'), node('b', 'inactive')]
-    const next = setSubagentActivity(list, 'b', true)
-    expect(next[1]?.activity).toBe('running')
-    // Original is untouched.
-    expect(list[1]?.activity).toBe('inactive')
-  })
-
-  it('returns the same list when the id is absent', () => {
-    const list = [node('a', 'running')]
-    expect(setSubagentActivity(list, 'nope', true)).toBe(list)
-  })
-})

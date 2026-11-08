@@ -18,39 +18,3 @@
 
 /* Skeleton rows mirror the real card tiers. 会话行改成三行信息卡之后骨架也跟着
    收成「一块卡 + 三行占位」，否则加载那一瞬页面会先跳一下再变成新排布。 */
-.skel-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: var(--palm-s2);
-  margin: 0 var(--palm-s3) 10px;
-  padding: var(--palm-s3) 14px;
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-}
-
-.skel-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-}
-
-.skel-lines {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.skel-line-title {
-  height: 14px;
-  width: 52%;
-}
-
-.skel-line-sub {
-  height: 11px;
-  width: 78%;
-  border-radius: var(--radius-chip);
-}
-

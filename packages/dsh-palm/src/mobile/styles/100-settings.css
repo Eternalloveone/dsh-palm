@@ -124,58 +124,14 @@
 }
 
 /* First-run welcome card: one-shot onboarding hint above the roster. */
-.mobile-welcome {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 10px 14px 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--accent-soft, #eef1ff);
-  border: 1px solid var(--accent-soft);
-}
-.mobile-welcomeCopy { flex: 1; min-width: 0; }
-.mobile-welcomeTitle {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 3px;
-}
-.mobile-welcomeDesc {
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  margin: 0;
-  overflow-wrap: anywhere;
-}
+
 /* 首次引导里的「知道了」：40x24 太难点（审计实测），给到 32px 高 */
-.mobile-welcomeClose {
-  /* 32 → 40：首页新手卡上的「知道了」是拇指常按的位置（真机清单第 5 项，
-     实测 56×32 是全站除聊天页外唯一一个不足 40px 的可点控件）。 */
-  min-height: 40px;
-  flex-shrink: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent, #4d6bfe);
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
-  cursor: pointer;
-}
 
 /* Legend under the search box explaining the badges. Two-column grid:
    badge column fixed, text column left-aligned — every explanation starts
    at the same x, and the rows never reflow into ragged starts. */
 
 /* Group title trailing hint (e.g. 显示效果). */
-.settings-groupDesc {
-  font-weight: 400;
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-  text-transform: none;
-  letter-spacing: 0;
-  margin-left: 4px;
-}
 
 /* Host-side voice services hint on the voice page. */
 .settings-hostNote {

@@ -89,19 +89,3 @@ export function sortSubagentsRunningFirst(
   return [...nodes].sort((a, b) => Number(b.activity === 'running') - Number(a.activity === 'running'))
 }
 
-/** Immutably set one node's activity by id (the live host/session-status overlay). */
-export function setSubagentActivity(
-  nodes: readonly SubagentFlatNode[],
-  id: string,
-  running: boolean,
-): SubagentFlatNode[] {
-  let changed = false
-  const next = nodes.map((node): SubagentFlatNode => {
-    if (node.id === id) {
-      changed = true
-      return { ...node, activity: running ? 'running' : 'inactive' }
-    }
-    return node
-  })
-  return changed ? next : nodes as SubagentFlatNode[]
-}

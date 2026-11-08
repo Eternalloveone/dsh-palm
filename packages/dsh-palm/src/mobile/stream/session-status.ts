@@ -1,32 +1,15 @@
 /**
- * 会话状态机（阶段 0：旁路只读）。
+ * 会话状态机：三根条（状态 / 排队 / 目标）的**唯一判据**。
  *
- * ## 为什么要有它
+ * 以前「现在什么状态」有 5 个来源各自说话（mux 实时帧、宿主原子快照、排队投影、
+ * 本地状态仓、运行花名册），三根条又各算一遍「要不要显示」，于是多重显示、跑完
+ * 残留、旧快照盖新帧反复出现。这里收成三条不变量：
  *
- * 一个会话的「现在什么状态」以前有 5 个来源各自说话：mux 实时帧、宿主原子快照
- * `mobile.sessionState`、排队投影 `inbox.next-turn`、本地状态仓（乐观队列/隐藏项）、
- * 运行花名册 `mobile.runningSessions`（会撒谎，要靠 `mobile.turnState` 复核）。
- * 而三根条各读各的、各算一遍「要不要显示」：
- *
- *   RunStatusBar(todo, jobs, subagents) / GoalBar(goal, busy) / QueueDock(queueItems)
- *
- * 于是同一类毛病反复出现：多重显示（两个源各画一条）、残留（跑完还挂着）、
- * 顺序错乱（旧快照盖掉新帧）、跨页说法不一。补丁从 4 秒观察窗打到 90 秒隐藏表，
- * 本质上都是在给「没有租约、没有优先级、没有单一判断点」打补丁。
- *
- * ## 三条不变量（本模块的全部意义）
- *
- * 1. **单例**：同一时刻「当前回合 / 当前排队项 / 当前目标 / 当前计划 / 任务集合」在状态里
- *    各只有一份。同 id 的排队项去重，回合只有一条。
- * 2. **租约**：任何可见值都必须持有租约 `{until, by}`；事件只能延长租约，过期即失效。
+ * 1. **单例**：回合 / 排队项 / 目标 / 计划 / 任务集合在状态里各只有一份（同 id 去重）。
+ * 2. **租约**：任何可见值都带 `{until, source}`，事件只能延长租约，过期即失效；
  *    「要不要显示」只看租约，不看布尔标志。
- * 3. **固定优先级 + 过期降级**：`local(4) > snapshot(3) > frame(2) > roster(1) > cache(0)`。
- *    低优先级不得覆盖未过期的高优先级值；高优先级过期后低优先级才能接管。
- *
- * ## 阶段 0 的用法
- *
- * 本文件目前**不进生产路径**：ChatView 只把状态喂给它、拿它的结论和现有实现在
- * 控制台对照（`describeBars`），不一致就打印。判据对齐之后再逐条切换 UI。
+ * 3. **固定优先级 + 过期降级**：local > snapshot > frame > roster；低优先级不得覆盖
+ *    未过期的高优先级值，高优先级过期后低优先级才能接管。
  */
 
 import type { JobView } from '../../api-proxy-types.ts'
@@ -34,22 +17,18 @@ import type { QueueItemView } from '../api.ts'
 import type { TodoSnapshot } from '../render/messages.ts'
 
 /** 数据来源。数字越大越可信。 */
-export type StatusSource = 'cache' | 'roster' | 'frame' | 'snapshot' | 'local'
+export type StatusSource = 'roster' | 'frame' | 'snapshot' | 'local'
 
-/** 各来源的优先级：本地意图 > 宿主原子快照 > 实时帧 > 花名册 > 缓存。 */
+/** 各来源的优先级：本地意图 > 宿主原子快照 > 实时帧 > 花名册。 */
 export const SOURCE_PRIORITY: Readonly<Record<StatusSource, number>> = {
-  local: 4,
-  snapshot: 3,
-  frame: 2,
-  roster: 1,
-  cache: 0,
+  local: 3,
+  snapshot: 2,
+  frame: 1,
+  roster: 0,
 }
 
 /**
- * 各来源的租约时长。
- *
- * 这些数字不是新发明的：它们对应原先散落在各处的常量 ——
- * 快照 12s(`SNAPSHOT_STALE_MS`)、本地乐观 45s(`OPTIMISTIC_TTL_MS`)、
+ * 各来源的租约时长：快照 12s（`SNAPSHOT_STALE_MS`）、本地乐观 45s（`OPTIMISTIC_TTL_MS`）、
  * 花名册 15s（一轮校准时延）、实时帧 30s（一帧之后长时间没动静就当它过期）。
  * 收进来是为了让「过期」只有一处定义。
  */
@@ -58,7 +37,6 @@ export const SOURCE_LEASE_MS: Readonly<Record<StatusSource, number>> = {
   snapshot: 12_000,
   frame: 30_000,
   roster: 15_000,
-  cache: 60_000,
 }
 
 /** 某个可见值：值本身 + 它由谁给出、租到什么时候。 */
@@ -100,13 +78,11 @@ export interface SessionStatus extends SessionStatusShape {
 }
 
 export type StatusEvent =
-  | { type: 'open'; at: number }
   | { type: 'turn'; at: number; source: StatusSource; running: boolean; turnNo?: number; startedAt?: number; step?: number; lastActivityAt?: number }
   | { type: 'queue'; at: number; source: StatusSource; items: readonly QueueItemView[] }
   | { type: 'goal'; at: number; source: StatusSource; goal: unknown; busy?: boolean }
   | { type: 'plan'; at: number; source: StatusSource; todo: TodoSnapshot | undefined }
   | { type: 'jobs'; at: number; source: StatusSource; jobs: readonly JobView[]; subagents: readonly unknown[] }
-  | { type: 'verify'; at: number; running: boolean; turnNo?: number }
 
 export function createSessionStatus(): SessionStatus {
   return { goalBusy: false, revision: 0 }
@@ -158,8 +134,6 @@ export function dedupeQueue(items: readonly QueueItemView[]): readonly QueueItem
 
 export function sessionStatusReducer(state: SessionStatus, event: StatusEvent): SessionStatus {
   switch (event.type) {
-    case 'open':
-      return createSessionStatus()
     case 'turn': {
       const wasRunning = state.turn !== undefined && state.turn.value.running
       const previousSince = state.turn?.value.runningSince
@@ -205,20 +179,6 @@ export function sessionStatusReducer(state: SessionStatus, event: StatusEvent): 
         revision: state.revision + 1,
       }
     }
-    case 'verify': {
-      // 宿主复核（`mobile.turnState`）压过一切推断：它问的是「现在到底跑不跑」。
-      // 复核结果用 `local` 优先级入账，避免被慢吞吞的花名册再盖回去。
-      const next: TurnStatus = {
-        ...(state.turn?.value ?? {}),
-        running: event.running,
-        ...(event.turnNo === undefined ? {} : { turnNo: event.turnNo }),
-      }
-      return {
-        ...state,
-        turn: lease(next, { at: event.at, source: 'local' }),
-        revision: state.revision + 1,
-      }
-    }
     default:
       return state
   }
@@ -246,12 +206,6 @@ export interface BarsView {
   readonly queueBar: number
   /** 目标条要显示的目标；undefined = 不显示。 */
   readonly goalBar?: unknown
-  /**
-   * 状态条上除了「回合运行中」没有别的内容。
-   *
-   * UI 据此把它换成更有用的一句（已跑多久），而不是和过程条的用时说同一件事。
-   */
-  readonly runningOnly?: boolean
 }
 
 /** 短时长：`35 秒` / `4 分12秒`。 */
@@ -329,16 +283,14 @@ export function describeBars(state: SessionStatus, now: number): BarsView {
     }
   }
 
-  const runningOnly = parts.length === 1 && parts[0] === '回合运行中'
   return {
     ...(parts.length > 0 ? { statusBar: parts.join(' · ') } : {}),
-    ...(runningOnly ? { runningOnly: true } : {}),
     queueBar: queue.length,
     ...(goalAlive && state.goal !== undefined && state.goal.value != null ? { goalBar: state.goal.value } : {}),
   }
 }
 
-/** 供影子对照用的紧凑签名（一眼能比出差异）。 */
+/** 紧凑签名：渲染层据此只在「条的内容真的变了」时 setState。 */
 export function barsSignature(view: BarsView): string {
   const bits: string[] = []
   bits.push(view.statusBar === undefined ? 'status:-' : `status:${view.statusBar}`)

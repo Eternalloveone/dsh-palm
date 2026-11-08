@@ -12,7 +12,7 @@
  *
  * @module dsh-palm/mobile/views/chat/use-chat-subagents
  */
-import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
+import { useCallback, useEffect, type MutableRefObject } from 'react'
 
 import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../../../session/subagent-tree.ts'
 

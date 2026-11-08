@@ -10,17 +10,15 @@
  * 自己拼，就会重演「三根条各判一遍」的老问题；所以规则全部关在这里，**纯函数**
  * 只吃数据、不读时钟、不碰 React，能脱离 DOM 单测。
  *
- * ## 五条兜底（就是本模块的全部意义）
+ * ## 四条兜底（就是本模块的全部意义）
  *
  * 1. **终态锁定**：`completed` / `failed` / `cancelled` 任一到就是终态
  *    （`done` / `failed` / `stopped`）；同一轮后续再收到「在跑」也不许复活。
  * 2. **卡住**：在跑但 90 秒没有新事件 → `stuck`（`TASK_STUCK_AFTER_MS`）。
  *    刚开跑的那 90 秒不算 —— 上一轮的旧事件时间不能冒充这一轮的静默。
- * 3. **可重建**：状态是纯数据（`encodeTaskStatus` / `decodeTaskStatus`），
- *    重连后从存储读回来接着推，不依赖任何内存里的动画/定时器状态。
- * 4. **新一轮收尾上一轮**：收到更大的轮号而上一轮还开着 → 上一轮按终态收尾
+ * 3. **新一轮收尾上一轮**：收到更大的轮号而上一轮还开着 → 上一轮按终态收尾
  *    （记进 `previous`），新轮从零开始。
- * 5. **进度单调**：同一轮里 `progress = max(旧, 新)`；换轮才重置。
+ * 4. **进度单调**：同一轮里 `progress = max(旧, 新)`；换轮才重置。
  *
  * ## 不编数据
  *
@@ -118,11 +116,6 @@ const OUTCOME_KINDS: Readonly<Record<TaskOutcome, TaskKind>> = {
   cancelled: 'stopped',
 }
 
-/** 全部合法种类（解码时校验用）。 */
-const ALL_KINDS: readonly TaskKind[] = [
-  'think', 'read', 'edit', 'test', 'approve', 'stuck',
-  'unknown', 'done', 'failed', 'stopped', 'queued',
-]
 
 /** 测试/命令行里值得算「跑测试」的关键词（其余 bash 归到「改/跑」那一档）。 */
 const TEST_COMMAND = /\b(?:test|tests|vitest|jest|spec|lint|tsc|typecheck|build|check|verify)\b/i
@@ -367,84 +360,3 @@ export function deriveTaskStatus(input: TaskStatusInput): TaskStatus {
   return foldTaskStatus(undefined, input)
 }
 
-/* ── 存储往返（兜底 3：重连后从存储重建） ─────────────────────────────── */
-
-/**
- * 状态 → 存储字符串。
- *
- * @param status - 当前状态
- * @returns JSON 字符串（调用方负责写进 localStorage / IndexedDB）
- */
-export function encodeTaskStatus(status: TaskStatus): string {
-  return JSON.stringify(status)
-}
-
-function decodeSteps(raw: unknown): TaskSteps | undefined {
-  if (typeof raw !== 'object' || raw === null) return undefined
-  const record = raw as Record<string, unknown>
-  const done = record['done']
-  const total = record['total']
-  if (typeof done !== 'number' || !Number.isFinite(done)) return undefined
-  if (typeof total !== 'number' || !Number.isFinite(total)) return undefined
-  return { done, total }
-}
-
-function decodePrevious(raw: unknown): TaskStatus['previous'] {
-  if (typeof raw !== 'object' || raw === null) return undefined
-  const record = raw as Record<string, unknown>
-  const kind = record['kind']
-  const at = record['at']
-  if (typeof kind !== 'string' || !ALL_KINDS.includes(kind as TaskKind)) return undefined
-  if (typeof at !== 'number' || !Number.isFinite(at)) return undefined
-  const turn = record['turn']
-  return {
-    ...(typeof turn === 'number' && Number.isFinite(turn) ? { turn } : {}),
-    kind: kind as TaskKind,
-    at,
-  }
-}
-
-/**
- * 存储字符串 → 状态（坏数据一律丢弃，绝不抛）。
- *
- * @param raw - 存储里的字符串（null/空串/损坏的 JSON 都返回 undefined）
- * @returns 可继续折叠的状态；读不出来时 undefined（调用方从零开始）
- */
-export function decodeTaskStatus(raw: string | null | undefined): TaskStatus | undefined {
-  if (raw === null || raw === undefined || raw === '') return undefined
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return undefined
-  }
-  if (typeof parsed !== 'object' || parsed === null) return undefined
-  const record = parsed as Record<string, unknown>
-  const kind = record['kind']
-  const terminal = record['terminal']
-  if (typeof kind !== 'string' || !ALL_KINDS.includes(kind as TaskKind)) return undefined
-  if (typeof terminal !== 'boolean') return undefined
-
-  const numberAt = (key: string): number | undefined => {
-    const value = record[key]
-    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-  }
-  const turn = numberAt('turn')
-  const progress = numberAt('progress')
-  const startedAt = numberAt('startedAt')
-  const lastEventAt = numberAt('lastEventAt')
-  const closedAt = numberAt('closedAt')
-  const steps = decodeSteps(record['steps'])
-  const previous = decodePrevious(record['previous'])
-  return {
-    kind: kind as TaskKind,
-    terminal,
-    ...(turn === undefined ? {} : { turn }),
-    ...(steps === undefined ? {} : { steps }),
-    ...(progress === undefined ? {} : { progress }),
-    ...(startedAt === undefined ? {} : { startedAt }),
-    ...(lastEventAt === undefined ? {} : { lastEventAt }),
-    ...(closedAt === undefined ? {} : { closedAt }),
-    ...(previous === undefined ? {} : { previous }),
-  }
-}

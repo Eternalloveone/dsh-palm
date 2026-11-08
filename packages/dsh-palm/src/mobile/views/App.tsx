@@ -25,7 +25,6 @@ import { installErrorCapture } from '../platform/errors.ts'
 import { watchBuildRefresh } from '../platform/build-refresh.ts'
 import { installErrorReporter } from '../platform/errors-report.ts'
 import { installPerfWindowHook, startPerfSampler } from '../platform/perf.ts'
-import { getCachedOutline, setCachedOutline } from '../session/outline-cache.ts'
 import { toSessionView, type SessionView } from '../shared/session-view.ts'
 import { errorText } from '../shared/error-text.ts'
 import { ToastHost, toast } from '../components/toast.tsx'
@@ -507,21 +506,6 @@ const PAGE_TRANSITION_MS = TRANSITION_MS.forward
 
 /** How often the open chat re-asserts its host-side observation (v3.4). */
 const OBSERVE_REFRESH_MS = 30_000
-
-/**
- * 现在是不是在输入框里打字（浮层要避让）。
- *
- * 只看「可编辑元素是否聚焦」：手机键盘弹出必然意味着某个输入框焦点在手，
- * 比监听视口高度变化稳（不同浏览器对 `visualViewport` 的支持差别很大）。
- */
-function isEditableFocused(): boolean {
-  if (typeof document === 'undefined') return false
-  const active = document.activeElement
-  if (active === null) return false
-  const tag = active.tagName
-  if (tag === 'TEXTAREA' || tag === 'INPUT') return true
-  return (active as HTMLElement).isContentEditable === true
-}
 
 /** The existing remote mobile surface, mounted only after device pairing succeeds. */
 function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; offline?: boolean}) {

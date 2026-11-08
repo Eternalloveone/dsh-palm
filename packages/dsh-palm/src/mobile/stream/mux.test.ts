@@ -5,6 +5,11 @@ import { EventFolder, type WireEvent } from '../render/messages.ts'
 import { RpcTransportError } from '../platform/rpc.ts'
 import type { HistoryPage } from '../api.ts'
 
+/** The running mirror is internal to MuxClient; tests observe it directly. */
+function runningOf(client: MuxClient): string[] {
+  return (client as unknown as { running: { snapshot(): string[] } }).running.snapshot()
+}
+
 /** A recorded fake EventSource (delivery driven by the test). */
 interface FakeSource extends EventSourceLike {
   url: string
@@ -681,7 +686,7 @@ describe('MuxClient background-task cache', () => {
     client.stop()
   })
 
-  it('exposes every retained session snapshot via jobsSnapshot (run overview)', () => {
+  it('retains every session snapshot for later replay (run overview)', () => {
     const { factory, sources } = makeSources()
     const client = new MuxClient('/m/api/events.mux', baseOptions(async () => pageOf([]), factory))
     client.start()
@@ -691,9 +696,8 @@ describe('MuxClient background-task cache', () => {
     sources[0]?.onmessage?.({
       data: envelopeWith({ type: 'session/jobs', sessionId: 's2', jobs: [{ id: 'b', kind: 'bash', label: 'build', status: 'completed', startedAt: 1, finishedAt: 3 }] }),
     })
-    const snapshot = client.jobsSnapshot()
-    expect(snapshot.map(row => row.sessionId).sort()).toEqual(['s1', 's2'])
-    expect(snapshot.find(row => row.sessionId === 's1')?.jobs).toHaveLength(1)
+    expect(client.cachedJobsFor('s1')).toHaveLength(1)
+    expect(client.cachedJobsFor('s2')).toHaveLength(1)
     expect(client.liveJobCount()).toBe(1)
     client.stop()
   })
@@ -730,12 +734,12 @@ describe('MuxClient background-task cache', () => {
     sources[0]?.onmessage?.({
       data: envelopeWith({ type: 'session/event', sessionId: 's1', event: { type: 'turn/start', seq: 10, time: 10, data: { turn: 1 } } }),
     })
-    expect(client.runningSessionsSnapshot()).toEqual(['s1'])
+    expect(runningOf(client)).toEqual(['s1'])
     // turn/end closes it again.
     sources[0]?.onmessage?.({
       data: envelopeWith({ type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 20, time: 20, data: { turn: 1, reason: { kind: 'completed' } } } }),
     })
-    expect(client.runningSessionsSnapshot()).toEqual([])
+    expect(runningOf(client)).toEqual([])
     client.stop()
   })
 
@@ -752,7 +756,7 @@ describe('MuxClient background-task cache', () => {
     sources[0]?.onmessage?.({
       data: envelopeWith({ type: 'session/subscribed', sessionId: 's1', lastSeq: 15 }),
     })
-    expect(client.runningSessionsSnapshot()).toEqual(['s1'])
+    expect(runningOf(client)).toEqual(['s1'])
     client.stop()
   })
 })
@@ -898,10 +902,10 @@ describe('MuxClient running mirror', () => {
     })
     mux.start()
     sources[0]!.onmessage?.({ data: envelopeWith({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/start' } }) })
-    expect(mux.runningSessionsSnapshot()).toEqual(['s-1'])
+    expect(runningOf(mux)).toEqual(['s-1'])
     // 探针连说两次「没人在跑」之前不给删（30 秒 TTL 的空快照会闪掉绿点）。
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(mux.runningSessionsSnapshot()).toEqual(['s-1'])
+    expect(runningOf(mux)).toEqual(['s-1'])
     expect(probe).toHaveBeenCalled()
     mux.stop()
   })
@@ -923,7 +927,7 @@ describe('MuxClient running mirror', () => {
     mux.start()
     await vi.advanceTimersByTimeAsync(1_000)
     expect(verify).toHaveBeenCalledWith('s-1')
-    expect(mux.runningSessionsSnapshot()).toEqual([])
+    expect(runningOf(mux)).toEqual([])
     mux.stop()
   })
 
@@ -945,7 +949,7 @@ describe('MuxClient running mirror', () => {
     clock = 2_000
     await vi.advanceTimersByTimeAsync(1_000)
     expect(verify).not.toHaveBeenCalled()
-    expect(mux.runningSessionsSnapshot()).toEqual(['s-1'])
+    expect(runningOf(mux)).toEqual(['s-1'])
     mux.stop()
   })
 

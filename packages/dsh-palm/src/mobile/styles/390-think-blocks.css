@@ -82,56 +82,10 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
-.search-more {
-  display: block;
-  width: calc(100% - 32px);
-  margin: 8px 16px 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  background: var(--card-bg);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 13px;
-}
-
-.search-more:active {
-  background: var(--accent-soft);
-}
-.search-hitsNote {
-  margin: 0;
-  padding: 4px 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  line-height: 1.45;
-}
 
 /* 首页搜索结果的一行：会话名命中和「消息」命中都是这一种行，正文命中多一行摘要；
    键盘上下键选中的那一行给一圈内描边（不换背景，避免和按压态打架）。 */
-.search-hitRow {
-  align-items: flex-start;
-}
-.search-hitRow-active {
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-  border-radius: 12px;
-}
-.search-hitBadge {
-  flex: none;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: var(--radius-chip);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  line-height: 16px;
-}
-.search-hitNote {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
+
 /* 方案 C：命中段落。摘要只有一个窗口宽，看不出是哪句话命中；段落直接给三行。
    换行保留（段落本来就是多行正文），超出三行截断并给省略号。 */
 .card-desc.search-hitPara {
@@ -143,21 +97,6 @@ details.think-block[open] .chat-disclosure-caret {
   line-height: 18px;
 }
 /* 搜索中的骨架：三行灰条，比一句「正在搜索…」更能说明"结果正在填进来"。 */
-.search-skeletonRow {
-  display: block;
-  padding: 12px 16px;
-}
-.search-skeletonLine {
-  display: block;
-  height: 11px;
-  margin: 5px 0;
-  border-radius: var(--radius-chip);
-  background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-default) 50%, var(--bg-input) 75%);
-  animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
-}
-.search-skeletonLine-thin {
-  height: 9px;
-}
 
 /* Focus-locate highlight: a one-shot ring pulse on the located row.
    只用 box-shadow，**绝不碰 background-color**：.chat-msg-focus 带
@@ -217,4 +156,3 @@ details.think-block[open] .chat-disclosure-caret {
 [data-locate-id][data-focus] {
   animation: dshPalmFocusPulse 2.2s ease-out forwards;
 }
-
