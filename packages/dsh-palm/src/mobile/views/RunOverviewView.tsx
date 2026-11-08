@@ -51,6 +51,7 @@ import {
 } from '../session/recent-finished.ts'
 import { appendFinishedRun, clearHostFinishedRuns, fetchFinishedRuns } from '../data/usage.ts'
 import { cachedRunOverview, rememberRunOverview } from '../session/run-overview-cache.ts'
+import type { HostBridge } from '../kernels/host-bridge.ts'
 
 /** Roster pages fetched at most while building the running-session baseline. */
 const ROSTER_PAGE_LIMIT = 8
@@ -258,6 +259,8 @@ function buildRows(
 export interface RunOverviewViewProps {
   /** The page-lifetime mux client (its jobs snapshots are the data source). */
   mux?: RunOverviewMux | undefined
+  /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */
+  bridge?: HostBridge | undefined
   onBack(): void
   /** Open one session in the chat surface (title best-effort). */
   onOpenSession(hit: { sessionId: string; title?: string }): void
@@ -289,7 +292,7 @@ function useNowGauge(active: boolean): number {
 }
 
 /** Render the cross-session run overview (full-screen page). */
-export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: RunOverviewViewProps) {
+export function RunOverviewView({ mux, bridge, onBack, onOpenSession, onOpenSubagent }: RunOverviewViewProps) {
   const [snapshot, setSnapshot] = useState<Array<{ sessionId: string; jobs: readonly JobView[] }>>(
     () => mux?.jobsSnapshot() ?? [],
   )
@@ -432,7 +435,7 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
     sync()
     const timer = setInterval(sync, RUNNING_RESYNC_MS)
     return () => { cancelled = true; clearInterval(timer) }
-  }, [mux])
+  }, [mux, bridge])
 
   // Roster baseline: running sessions + display titles, once per page open.
   // 列表是分页拉的，而且宿主冷枚举一次要十几秒；只等最后一页会让"正在运行"
@@ -489,7 +492,10 @@ export function RunOverviewView({ mux, onBack, onOpenSession, onOpenSubagent }: 
         }
       }
     }
-    const unsubscribe = mux.onFrame(onFrame)
+    // P3：优先走全站唯一订阅点；没有 bridge 时（单测/旧宿主）仍直连 mux。
+    const unsubscribe = bridge === undefined
+      ? mux.onFrame(onFrame)
+      : bridge.onFrame(onFrame as unknown as Parameters<typeof bridge.onFrame>[0])
     setSnapshot(mux.jobsSnapshot())
     setPendingRows(mux.pendingSnapshot?.() ?? [])
     return unsubscribe

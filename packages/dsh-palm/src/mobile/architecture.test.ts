@@ -96,7 +96,8 @@ describe('architecture guardrails', () => {
       'views/App.tsx': 1_264,
       'views/WorkspaceView.tsx': 1_063,
       // W2-6 补登记：这两屏此前没有预算，等于可以无声长大。
-      'views/RunOverviewView.tsx': 981,
+      // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
+      'views/RunOverviewView.tsx': 987,
       'views/SubChatView.tsx': 177,
     }
     for (const [file, budget] of Object.entries(budgets)) {
