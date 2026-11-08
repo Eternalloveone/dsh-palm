@@ -7229,7 +7229,6 @@ body:has(.lightbox-backdrop) .toast-host {
   .mobile-button-muted,
   .mobile-new,
   .chat-send,
-  .chat-chip,
   .chat-msg,
   .chat-msg-toggle,
   .chat-load-older,
@@ -7247,7 +7246,6 @@ body:has(.lightbox-backdrop) .toast-host {
   .sheet-option,
   .sheet-confirm-danger,
   .settings-switch::after,
-  .sheet-toggle-switch-knob,
   .chat-input,
   .chat-turn-dots span,
   .settings-themeOption,
@@ -9765,12 +9763,6 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   margin-left: auto;
   font-size: var(--palm-t-s);
   color: var(--palm-accent);
-}
-
-.artifacts-page-note {
-  margin: 0;
-  font-size: var(--palm-t-m);
-  color: var(--palm-fg-2);
 }
 
 .artifacts-page-hint {

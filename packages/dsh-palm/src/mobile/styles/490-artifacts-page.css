@@ -70,12 +70,6 @@
   color: var(--palm-accent);
 }
 
-.artifacts-page-note {
-  margin: 0;
-  font-size: var(--palm-t-m);
-  color: var(--palm-fg-2);
-}
-
 .artifacts-page-hint {
   margin: 0;
   padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
