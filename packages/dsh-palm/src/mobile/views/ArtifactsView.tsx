@@ -76,8 +76,10 @@ export function ArtifactsView({ turns, onBack, onOpenFile }: ArtifactsViewProps)
                       <span className="artifacts-row-name">{baseName(file.path)}</span>
                       <span className="artifacts-row-path">{file.path}</span>
                       {file.kind === 'deliverable' ? (
-                        <span className="artifacts-row-badge">交付物</span>
-                      ) : null}
+                        <span className="artifacts-row-badge artifacts-row-badge-deliverable">交付物</span>
+                      ) : (
+                        <span className="artifacts-row-badge artifacts-row-badge-produced">产物</span>
+                      )}
                     </Button>
                   ))}
                 </section>

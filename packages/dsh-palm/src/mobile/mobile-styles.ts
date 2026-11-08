@@ -9899,6 +9899,27 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg-3);
   border-top: 1px solid var(--palm-line);
 }
+
+/* ── 产物标签配色（定版图：交付物绿 / 产物蓝）────────────────────── */
+.artifacts-row-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  font-size: var(--palm-t-s);
+  line-height: 1;
+}
+
+.artifacts-row-badge-deliverable {
+  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  color: var(--palm-ok);
+}
+
+.artifacts-row-badge-produced {
+  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  color: var(--palm-accent);
+}
 /* ── 上下文占用页（P6 ⑦ 屏） ───────────────────────────────────────── */
 
 .context-page {
