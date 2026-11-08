@@ -170,211 +170,35 @@ html[data-skin='nocturne'] {
   border-radius: 0;
 }
 
-/* ── 按钮：主 / 次 / 成功 / 危险（统一触摸目标高度） ── */
-.palm-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--palm-s2);
-  block-size: var(--palm-hit);
-  padding-inline: var(--palm-s4);
-  border: var(--palm-hair) solid transparent;
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-2);
-  color: var(--palm-fg);
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
-  box-shadow: var(--palm-hi), var(--palm-sh1);
-  transition: transform 0.06s ease, filter 0.12s ease;
-}
 
-.palm-btn[data-variant='primary'] {
-  background: linear-gradient(180deg, var(--palm-accent), var(--palm-accent-2));
-  color: var(--palm-bg);
-}
 
-.palm-btn[data-variant='ghost'] {
-  background: var(--palm-sur-2);
-  border-color: var(--palm-line);
-}
 
-.palm-btn[data-variant='ok'] {
-  background: var(--palm-tint-ok);
-  border-color: var(--palm-ok);
-  color: var(--palm-ok);
-}
 
-.palm-btn[data-variant='danger'] {
-  background: var(--palm-tint-danger);
-  border-color: var(--palm-danger);
-  color: var(--palm-danger);
-}
 
-.palm-btn:active {
-  transform: translateY(var(--palm-hair));
-  filter: brightness(0.94);
-}
 
-.palm-btn:disabled {
-  opacity: 0.36;
-  pointer-events: none;
-}
 
-.palm-btn:focus-visible {
-  outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
-}
 
-/* ── 输入框 / 输入条 ── */
-.palm-input {
-  inline-size: 100%;
-  min-block-size: 3.4em;
-  padding: 0 var(--palm-s4);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-l);
-  background: var(--palm-sur-1);
-  box-shadow: var(--palm-hi);
-  color: var(--palm-fg);
-  font-size: var(--palm-t-m);
-}
 
-.palm-input::placeholder {
-  color: var(--palm-fg-3);
-}
 
-.palm-input:focus-visible {
-  outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
-}
 
-/* ── chip（模型 / 批准方式 / 上下文） ── */
-.palm-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--palm-s1);
-  block-size: 2.14em;
-  padding-inline: var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-s);
-  background: var(--palm-sur-1);
-  box-shadow: var(--palm-hi);
-  color: var(--palm-fg-2);
-  font-size: var(--palm-t-s);
-}
 
-.palm-chip[data-tone='warn'] {
-  background: var(--palm-tint-warn);
-  border-color: var(--palm-warn);
-  color: var(--palm-warn);
-}
 
-/* ── 列表行 ── */
-.palm-row {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s3);
-  padding: var(--palm-s3) var(--palm-s4);
-  border-block-end: var(--palm-hair) solid var(--palm-line);
-}
 
-.palm-row:last-child {
-  border-block-end: none;
-}
 
-/* ── 标签 ── */
-.palm-tag {
-  flex: none;
-  padding: 0 var(--palm-s2);
-  border-radius: var(--palm-r-s);
-  background: var(--palm-tint-accent);
-  color: var(--palm-accent);
-  font-size: var(--palm-t-s);
-}
 
-.palm-tag[data-tone='ok'] {
-  background: var(--palm-tint-ok);
-  color: var(--palm-ok);
-}
 
-.palm-tag[data-tone='warn'] {
-  background: var(--palm-tint-warn);
-  color: var(--palm-warn);
-}
 
-/* ── 图标容器（线性 SVG 落在里面） ── */
-.palm-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  inline-size: 2em;
-  block-size: 2em;
-  border-radius: var(--palm-r-s);
-  background: var(--palm-sur-2);
-  color: var(--palm-accent);
-}
 
-/* ── 脚注（思考时长 / 工具次数 / tokens） ── */
-.palm-foot {
-  margin-block-start: var(--palm-s3);
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-}
 
-/* ── 结论卡：四态只换边框与标签色，骨架不动 ── */
-.palm-verdict {
-  padding: var(--palm-s4);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-l);
-  background: var(--palm-sur-1);
-  box-shadow: var(--palm-hi), var(--palm-sh1);
-}
 
-.palm-verdict[data-state='done'] {
-  border-color: var(--palm-ok);
-}
 
-.palm-verdict[data-state='approve'] {
-  background: var(--palm-sur-2);
-  border-color: var(--palm-warn);
-  box-shadow: var(--palm-hi), var(--palm-sh2);
-}
 
-.palm-verdict[data-state='failed'] {
-  border-color: var(--palm-danger);
-}
 
-.palm-verdict-label {
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-bold);
-  letter-spacing: 0.06em;
-}
 
-.palm-verdict[data-state='done'] .palm-verdict-label {
-  color: var(--palm-ok);
-}
 
-.palm-verdict[data-state='approve'] .palm-verdict-label {
-  color: var(--palm-warn);
-}
 
-.palm-verdict[data-state='failed'] .palm-verdict-label {
-  color: var(--palm-danger);
-}
 
-.palm-verdict-title {
-  margin-block: var(--palm-s2) 0;
-  font-size: var(--palm-t-l);
-  font-weight: var(--palm-w-bold);
-  line-height: var(--palm-lh-head);
-}
 
-.palm-verdict-body {
-  margin-block-start: var(--palm-s1);
-  color: var(--palm-fg-2);
-  font-size: var(--palm-t-m);
-  line-height: var(--palm-lh-body);
-}
 
 /* ── 布局契约：grow 槽吃剩余空间（由 SlotLayout 打标记，不写行内样式） ── */
 [data-grow] {
@@ -8530,99 +8354,10 @@ details.think-block[open] .chat-disclosure-caret {
    current turn; an unloaded turn shows a faint dot on the right. Preview
    lines ellipsize on their own line (block + overflow hidden), so long
    prompts / responses never blow out the sheet width. */
-.turn-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 2px 0;
-}
-.turn-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
-}
-.turn-row:active {
-  transform: scale(0.98);
-  background: var(--fill);
-}
-/* Current turn: accent vertical bar on the left edge. */
-.turn-row-current {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.turn-row-accent {
-  flex-shrink: 0;
-  width: 3px;
-  align-self: stretch;
-  border-radius: 2px;
-  background: transparent;
-  margin: 2px 0;
-}
-.turn-row-current .turn-row-accent {
-  background: var(--accent);
-}
-.turn-row-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
 /* The number + prompt share one ellipsizing row; the response is an
    indented line under it. Each text line shrinks (flex-shrink: 1 with
    min-width: 0 on the parent column) so anywhere-wrapping long tokens
    cannot widen the sheet. */
-.turn-row-head {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-shrink: 1;
-}
-.turn-row-num {
-  flex-shrink: 0;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--accent);
-}
-.turn-row-prompt {
-  min-width: 0;
-  flex-shrink: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 500;
-}
-.turn-row-response {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-left: 18px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-}
-.turn-row-dot {
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-quaternary);
-  opacity: 0.6;
-}
 
 /* ── D1 turn scrubber ──────────────────────────────────────────────────
    Docks above the composer while the turn handle is held: target turn +
