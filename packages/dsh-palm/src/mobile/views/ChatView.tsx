@@ -255,6 +255,8 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
+  /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
+  onOpenModel?: (() => void) | undefined
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
   onOpenApproval?: ((approval: PendingApproval, preview?: string, argsText?: string) => void) | undefined
 }
@@ -309,6 +311,7 @@ export function ChatView({
   onOpenFinished,
   onDismissFinished,
   onOpenApproval,
+  onOpenModel,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
@@ -3845,6 +3848,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
   return (
     <div className="chat">
       <ChatHeader
+        onOpenModel={onOpenModel}
         title={title}
         onBack={handleBack}
         onToggleSearch={() => {

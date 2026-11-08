@@ -240,7 +240,7 @@ export function backTargetOf(route: Route): Route {
     case 'settings':
       return { kind: 'sessions', workspace: route.workspace }
     case 'sessions':
-      return { kind: 'workspaces' }
+      return { kind: 'workspaces' }
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
@@ -1288,6 +1288,17 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
               if (hit !== undefined) openOverviewChat({ sessionId: hit.sessionId, title: hit.title })
             }}
             onDismissFinished={() => { setChatFinished(undefined) }}
+            onOpenModel={() => { navigate({ kind: 'model', session: route.session, workspace: route.workspace }) }}
+            onOpenApproval={(approval, preview, argsText) => {
+              navigate({
+                kind: 'approval',
+                session: route.session,
+                workspace: route.workspace,
+                approval,
+                ...(preview === undefined ? {} : { preview }),
+                ...(argsText === undefined ? {} : { argsText }),
+              })
+            }}
           />
 
   return (
