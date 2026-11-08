@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态长条 · 多状态全集</title>
+<style>
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#08080c;color:#f2f4fa;font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .wrap{width:470px;padding:22px}
+  h2{font-size:14px;margin:0 0 3px 2px;color:#e6e9f2}
+  .hint{font-size:11px;color:#6f7482;margin:0 0 14px 2px;line-height:1.6}
+
+  .item{margin-bottom:13px}
+  .lab{font-size:10.5px;color:#8b90a0;margin:0 0 5px 2px;display:flex;align-items:center;gap:6px}
+  .lab b{color:#c9cedb;font-weight:600;font-size:11px}
+  .lab .k{color:#5f6472}
+
+  .strip{position:relative;height:48px;border-radius:16px;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06)}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:16px 0 0 16px}
+  .fill::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,0) 55%)}
+  .sheen{position:absolute;top:0;bottom:0;width:64px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.2));animation:sweep 2.2s linear infinite}
+  @keyframes sweep{0%{transform:translateX(-70px)}100%{transform:translateX(360px)}}
+
+  .row{position:absolute;inset:0;display:flex;align-items:center;gap:9px;padding:0 12px;z-index:3}
+  .pet{width:28px;height:28px;flex:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+  .txt{font-size:11px;line-height:1.24;color:#f4f6fb;min-width:0;flex:1;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  .txt b{font-weight:600}
+  .txt span{display:block;font-size:9.5px;color:rgba(255,255,255,.72);margin-top:2px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rt{font-size:10px;color:rgba(255,255,255,.82);font-variant-numeric:tabular-nums;flex:none;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  .badge{font-size:9.5px;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.28);flex:none;font-family:ui-monospace,Menlo,monospace;letter-spacing:.02em}
+
+  /* ── 状态配色 ── */
+  .think .fill{width:28%;background:linear-gradient(100deg,#2b2a72,#4a49b8)}
+  .read  .fill{width:34%;background:linear-gradient(100deg,#123a56,#1c6f9c)}
+  .edit  .fill{width:46%;background:linear-gradient(100deg,#14395a,#1f6f8e 70%,#2b6bd8)}
+  .test  .fill{width:64%;background:linear-gradient(100deg,#0f3a55,#1a6f96)}
+  .appr  .fill{width:52%;background:linear-gradient(100deg,#5a3f08,#8a6318)}
+  .stuck .fill{width:58%;background:linear-gradient(100deg,#4a3306,#6f4f12)}
+  .unknown .fill{width:22%;background:linear-gradient(100deg,#2b2a72,#4a49b8);animation:travel 3.2s ease-in-out infinite}
+  @keyframes travel{0%{left:0}50%{left:64%}100%{left:0}}
+  .done .fill{width:100%;background:linear-gradient(100deg,#0d5033,#177a4a 52%,#2b2a72)}
+  .fail .fill{width:72%;background:linear-gradient(100deg,#5c1327,#8c1f38)}
+  .abort .fill{width:40%;background:linear-gradient(100deg,#2a2a33,#3f3f4d)}
+  .queue .fill{width:8%;background:linear-gradient(100deg,#20202b,#2c2c3a)}
+
+  /* ── 分段刻度版 ── */
+  .segs{position:absolute;inset:0;display:flex;align-items:center;gap:3px;padding:0 12px;z-index:2}
+  .seg{height:6px;border-radius:3px;background:rgba(255,255,255,.1);flex:1}
+  .seg.on{background:linear-gradient(90deg,#2fbf74,#3ddc84)}
+  .seg.now{background:linear-gradient(90deg,#4b4ae0,#7c8cff)}
+
+  /* ── 紧凑条（抽屉列表里） ── */
+  .mini{height:22px;border-radius:8px;position:relative;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06);width:132px;flex:none}
+  .mini .f{position:absolute;left:0;top:0;bottom:0;border-radius:8px 0 0 8px}
+  .mini .t{position:absolute;inset:0;display:flex;align-items:center;padding:0 7px;font-size:9.5px;color:rgba(255,255,255,.85);gap:4px}
+  .minilist{display:flex;flex-direction:column;gap:7px}
+  .mline{display:flex;align-items:center;gap:10px;font-size:11px;color:#98a0ae}
+  .mline .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .divider{height:1px;background:rgba(255,255,255,.07);margin:18px 0 16px}
+
+  .bob{animation:bob 1.9s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+  .run{animation:run .55s ease-in-out infinite}
+  @keyframes run{0%,100%{transform:translate(0,0) rotate(0)}50%{transform:translate(1px,-2.4px) rotate(-5deg)}}
+  .breathe{animation:breathe 2.9s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(.92)}}
+  .shake{animation:shake .7s ease-in-out infinite}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.4px)}75%{transform:translateX(1.4px)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>状态长条 · 十种状态</h2>
+  <p class="hint">同一条胶囊，靠渐变颜色、宠物表情、右侧数字表达状态；没有内嵌黑底。</p>
+
+  <div class="item">
+    <div class="lab"><b>思考</b><span class="k">紫 · 呼吸 · 当前判断</span></div>
+    <div class="strip think"><div class="fill"></div>
+      <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#0c0c1c" stroke="#cfd4ff" stroke-width="1.7"/><circle cx="11.6" cy="15" r="1.7" fill="#f0f3ff"/><circle cx="18.4" cy="15" r="1.7" fill="#f0f3ff"/><path d="M12.2 20 q2.8 1.8 5.6 0" stroke="#cfd4ff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>正在推理</b><span>先确认是窗口问题还是 id 对不上</span></div><div class="rt">2.1s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>读文件</b><span class="k">青 · 睁大眼</span></div>
+    <div class="strip read"><div class="fill"></div>
+      <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#a9e6ff" stroke-width="1.7"/><circle cx="11.4" cy="15" r="2" fill="#e3f8ff"/><circle cx="18.6" cy="15" r="2" fill="#e3f8ff"/><path d="M12.4 20.4 q2.6 1.1 5.2 0" stroke="#a9e6ff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>读文件</b><span>views/ChatView.tsx</span></div><div class="rt">0.6s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>改文件</b><span class="k">青蓝 · 徽标显示增减行</span></div>
+    <div class="strip edit"><div class="fill"></div>
+      <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#9fd8ff" stroke-width="1.7"/><circle cx="11.8" cy="14.6" r="1.7" fill="#e3f8ff"/><circle cx="18.2" cy="14.6" r="1.7" fill="#e3f8ff"/><path d="M11.8 20.2 q3.2 1.3 6.4 0" stroke="#9fd8ff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>改文件</b><span>chat/jump-window.ts</span></div><div class="badge">+18 −6</div><div class="rt">1.2s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>跑测试</b><span class="k">青 · 条内流光</span></div>
+    <div class="strip test"><div class="fill"></div><div class="sheen"></div>
+      <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#061019" stroke="#a9e6ff" stroke-width="1.7"/><circle cx="11.8" cy="14.8" r="1.7" fill="#e3f8ff"/><circle cx="18.2" cy="14.8" r="1.7" fill="#e3f8ff"/><path d="M11.6 20.2 q3.4 1.2 6.8 0" stroke="#a9e6ff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>跑测试</b><span>pnpm test · 2,923 条</span></div><div class="rt">38s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>等审批</b><span class="k">琥珀 · 举牌等待</span></div>
+    <div class="strip appr"><div class="fill"></div>
+      <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#160f04" stroke="#ffd98a" stroke-width="1.7"/><circle cx="11.6" cy="14.6" r="1.7" fill="#ffe9b8"/><circle cx="18.4" cy="14.6" r="1.7" fill="#ffe9b8"/><path d="M12.6 19.8 h4.8" stroke="#ffd98a" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <div class="txt"><b>等你就绪</b><span>要执行 rm -rf dist</span></div><div class="rt">等你 42s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>卡住</b><span class="k">暗琥珀 · 睡着</span></div>
+    <div class="strip stuck"><div class="fill"></div>
+      <div class="row"><svg class="pet breathe" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#160f04" stroke="#ffd98a" stroke-width="1.7"/><path d="M10.8 15 h2.8" stroke="#ffd98a" stroke-width="1.6" stroke-linecap="round"/><path d="M16.4 15 h2.8" stroke="#ffd98a" stroke-width="1.6" stroke-linecap="round"/><circle cx="15" cy="20" r="1.4" fill="#ffd98a" opacity=".85"/></svg>
+        <div class="txt"><b>可能卡住了</b><span>最后动作：运行 pnpm test</span></div><div class="rt">42s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>不知道总量</b><span class="k">渐变块游走</span></div>
+    <div class="strip unknown"><div class="fill"></div>
+      <div class="row"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#0c0c1c" stroke="#cfd4ff" stroke-width="1.7"/><circle cx="11.6" cy="15" r="1.7" fill="#f0f3ff"/><circle cx="18.4" cy="15" r="1.7" fill="#f0f3ff"/><path d="M12.2 20 q2.8 1.2 5.6 0" stroke="#cfd4ff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>正在做</b><span>还没拆出计划，先跑着</span></div><div class="rt">00:42</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>完成</b><span class="k">绿→蓝填满 · 举双手</span></div>
+    <div class="strip done"><div class="fill"></div>
+      <div class="row"><svg class="pet bob" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#06170e" stroke="#c8f8db" stroke-width="1.7"/><path d="M11 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M15.8 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M12 19.6 q3 2.2 6 0" stroke="#c8f8db" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M4.4 11 l-2.6 -3.4" stroke="#c8f8db" stroke-width="1.7" stroke-linecap="round"/><path d="M25.6 11 l2.6 -3.4" stroke="#c8f8db" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <div class="txt"><b>完成 · 7 步</b><span>12 个文件 · 2,923 测试通过</span></div><div class="rt">12.4s</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>失败</b><span class="k">红 · 抖动 · 断在 72%</span></div>
+    <div class="strip fail"><div class="fill"></div>
+      <div class="row"><svg class="pet shake" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#170409" stroke="#ffb3c0" stroke-width="1.7"/><path d="M11.4 13.2 l2.6 2.4 M14 13.2 l-2.6 2.4" stroke="#ffb3c0" stroke-width="1.4" stroke-linecap="round"/><path d="M16 13.2 l2.6 2.4 M18.6 13.2 l-2.6 2.4" stroke="#ffb3c0" stroke-width="1.4" stroke-linecap="round"/><path d="M12.4 21 q2.6 -1.8 5.2 0" stroke="#ffb3c0" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>测试失败了</b><span>jump-window.test.ts: 3 条未过</span></div><div class="rt">看详情 ›</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>被你停掉</b><span class="k">灰 · 瘫着</span></div>
+    <div class="strip abort"><div class="fill"></div>
+      <div class="row"><svg class="pet breathe" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#101018" stroke="#9aa0ae" stroke-width="1.7"/><path d="M11.4 15 h2.2" stroke="#9aa0ae" stroke-width="1.5" stroke-linecap="round"/><path d="M16.4 15 h2.2" stroke="#9aa0ae" stroke-width="1.5" stroke-linecap="round"/><path d="M12.6 20 h4.8" stroke="#9aa0ae" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <div class="txt"><b>已停止</b><span>你在第 4 步按了停止</span></div><div class="rt">00:26</div></div></div>
+  </div>
+
+  <div class="item">
+    <div class="lab"><b>排队中</b><span class="k">近空条 · 待命</span></div>
+    <div class="strip queue"><div class="fill"></div>
+      <div class="row"><svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#101018" stroke="#7d8496" stroke-width="1.7"/><circle cx="11.8" cy="15" r="1.5" fill="#b9bfcc"/><circle cx="18.2" cy="15" r="1.5" fill="#b9bfcc"/><path d="M13 20 h4" stroke="#7d8496" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <div class="txt"><b>排队第 2 位</b><span>前一个任务完成后自动开始</span></div><div class="rt">—</div></div></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2>有明确计划时 · 分段刻度</h2>
+  <p class="hint">知道总共 7 步时，把条切成 7 格：完成的格变绿，当前格是蓝。</p>
+  <div class="item">
+    <div class="lab"><b>第 4 / 7 步</b><span class="k">分段刻度 + 渐变底</span></div>
+    <div class="strip test" style="background:#101016">
+      <div class="fill" style="width:100%;background:linear-gradient(100deg,#0b2a1c,#123a2a)"></div>
+      <div class="segs"><i class="seg on"></i><i class="seg on"></i><i class="seg on"></i><i class="seg now"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i></div>
+      <div class="row" style="z-index:4"><svg class="pet run" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#06130d" stroke="#a9f0c8" stroke-width="1.7"/><circle cx="11.8" cy="14.8" r="1.7" fill="#d9ffe9"/><circle cx="18.2" cy="14.8" r="1.7" fill="#d9ffe9"/><path d="M11.6 20.2 q3.4 1.2 6.8 0" stroke="#a9f0c8" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        <div class="txt"><b>第 4 步 / 共 7 步</b><span>改 jumpWindowTo 的收尾逻辑</span></div><div class="rt">00:42</div></div></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2>紧凑版 · 用在抽屉里</h2>
+  <p class="hint">抽屉的会话行右侧放一条 132×22 的迷你条，一眼看出哪个会话在跑、跑到哪。</p>
+  <div class="minilist">
+    <div class="mline"><span class="nm">修复移动端跳转</span>
+      <div class="mini"><div class="f" style="width:64%;background:linear-gradient(90deg,#0f3a55,#1a6f96)"></div><div class="t">跑测试 38s</div></div>
+    </div>
+    <div class="mline"><span class="nm">UI 完全重构方案</span>
+      <div class="mini"><div class="f" style="width:100%;background:linear-gradient(90deg,#0d5033,#177a4a)"></div><div class="t">✓ 完成</div></div>
+    </div>
+    <div class="mline"><span class="nm">排查 UI 崩溃原因</span>
+      <div class="mini"><div class="f" style="width:28%;background:linear-gradient(90deg,#5a3f08,#8a6318)"></div><div class="t">等你就绪</div></div>
+    </div>
+    <div class="mline"><span class="nm">双端问题面板同步</span>
+      <div class="mini"><div class="f" style="width:4%;background:#25252f"></div><div class="t">排队中</div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
