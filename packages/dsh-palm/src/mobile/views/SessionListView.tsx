@@ -67,6 +67,7 @@ import {
   SessionFolderSheet,
   SessionMenuSheet,
 } from './list/session-list-sheets.tsx'
+import { fetchSessionPreview, mapLimited } from '../kernels/preview-slice.ts'
 
 /** How many sessions get a lazily-fetched last-message preview. */
 export const PREVIEW_FETCH_LIMIT = 12
@@ -113,7 +114,7 @@ const SWIPE_TRIGGER_PX = 40
 
 /** Cross-mount preview cache: summaries survive a chat round-trip too
  *  (exported for test isolation). Persisted for PWA cold starts. */
-export const sessionPreviewCache = new Map<string, string>()
+export const sessionPreviewCache = new Map<string, string>()/** 预览切片的依赖注入：读取、折叠、压缩各一件，便于单测替换。 */const previewDeps = { history, foldEvents, previewSummary }
 
 /** Seed caches once per page life: the persisted store covers PWA cold
  *  starts (memory caches are gone, localStorage survives). */
@@ -144,43 +145,7 @@ function syncPersistedPreviews(): void {
   queuePersistedPreviews(sessionPreviewCache)
 }
 
-/**
- * Pull the last-message preview for one session (best effort): fold the
- * history tail's FINAL message only (maxMessages=1 — one message's whole
- * event group, a few KB on the wire instead of the full 25-message tail
- * page, which over weak links is the list page's dominant transfer cost)
- * and summarize its text (or reasoning). Returns undefined on any failure —
- * the row falls back to its stats line.
- */
-async function fetchPreview(sessionId: string, signal?: AbortSignal): Promise<string | undefined> {
-  try {
-    const page = await history(sessionId, undefined, 1, signal)
-    const rendered = foldEvents(page.events.map((entry: { event: WireEvent }) => entry.event))
-    for (let i = rendered.length - 1; i >= 0; i--) {
-      const message = rendered[i]
-      if (message === undefined) continue
-      const source = message.text !== '' ? message.text : message.reasoning ?? ''
-      const summary = previewSummary(source)
-      if (summary !== '') return summary
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
 
-/** Run async jobs with a small concurrency cap (fetch order is irrelevant). */
-async function mapLimited<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
-  let cursor = 0
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const item = items[cursor]
-      cursor += 1
-      await run(item)
-    }
-  })
-  await Promise.all(workers)
-}
 
 /** Props for the session list. */
 export interface SessionListViewProps {
@@ -528,7 +493,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
         // 预览只是装饰，宁可少显示几条，也不能把整页拖死。
         void mapLimited(pending.slice(0, PREVIEW_FALLBACK_LIMIT), PREVIEW_CONCURRENCY, async (row) => {
           if (!aliveRef.current) return
-          const summary = await fetchPreview(row.sessionId, controller.signal)
+          const summary = await fetchSessionPreview(previewDeps, row.sessionId, controller.signal)
           if (summary === undefined || !aliveRef.current) return
           cacheSummaries([{ sessionId: row.sessionId, summary }])
         }).then(() => {
