@@ -631,6 +631,9 @@ button.settings-row:active {
   animation: palm-strip-travel 3.2s ease-in-out infinite;
 }
 
+/* 无权威数据：灰块静止（"还不知道"不是"正在做"，游走块会读成后者）。 */
+.palm-strip[data-kind='unknown'] .palm-strip-fill { animation: none; }
+
 @keyframes palm-strip-travel {
   0%, 100% { inset-inline-start: 0; }
   50% { inset-inline-start: 64%; }
@@ -803,8 +806,8 @@ button.settings-row:active {
   background: var(--palm-fg-3);
 }
 
-.palm-turn-head[data-kind='think'] .palm-turn-dot,
-.palm-turn-head[data-kind='unknown'] .palm-turn-dot { background: var(--palm-accent); }
+.palm-turn-head[data-kind='think'] .palm-turn-dot { background: var(--palm-accent); }
+/* 无权威数据：灰点（默认 --palm-fg-3），不借「思考」的强调色。 */
 .palm-turn-head[data-kind='read'] .palm-turn-dot,
 .palm-turn-head[data-kind='edit'] .palm-turn-dot,
 .palm-turn-head[data-kind='test'] .palm-turn-dot { background: var(--palm-accent-2); }

@@ -23,7 +23,6 @@ export interface TurnDeliveryFacts {
   readonly changes: readonly DeliveryFileChange[]; readonly durationMs?: number; readonly steps?: number
 }
 
-
 /** / 重生成按钮的三态：待点、已发出、发出失败。 */
 import { forgetTurnAnchor, stableTurnAnchor, type RegenerateState } from '../message-row/anchors.ts'
 import { MessageFiles, MessageImages } from '../message-row/attachments.tsx'
@@ -33,8 +32,7 @@ import { ProcessGroup } from '../message-row/process.tsx'
 // 兼容旧调用点：锚点逻辑在 message-row/anchors.ts，公开 API 不变。
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from '../message-row/anchors.ts'
 
-
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, liveClockTick, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -70,6 +68,8 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   liveTurn?: number
   /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
   settled?: boolean
+  /** 会话页水合完成（宿主快照 + 该会话的行都到位，见 `chat-rows.tsx`）：没水合只画 unknown。 */
+  hydrated?: boolean
   /**
    * 这条行是不是第一次出现在列表里。
    *
@@ -234,7 +234,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} liveClockTick={liveClockTick} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
       ) : (
         <>
           <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />

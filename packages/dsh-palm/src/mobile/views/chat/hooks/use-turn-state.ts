@@ -57,6 +57,13 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
    */
   const closedTurnsRef = useRef<Set<number>>(new Set())
 
+  /**
+   * 最近一次**亲眼看到收工**的回合（轮号 + 收工时刻）：迟到的「在跑」不许把已经
+   * 收工的回合重新点着（宿主乱序快照 / 迟到的花名册帧都走 `applyTurnVerdict`）。
+   * 只有轮号更大、或带一个比收工时刻更新的 `startAt`（真的新起了一轮）才允许点亮。
+   */
+  const closedTurnRef = useRef<{ turn?: number; at?: number } | undefined>(undefined)
+
   // Live mirror of `messages`：回调可能在很久之后才跑（首帧 rAF 甚至晚于尾页
   // 落地），所以它们必须读当前列表，不是闭包创建时的那一份。
   const messagesRef = useRef<readonly RenderMessage[]>(messages)
@@ -85,18 +92,32 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
       if (seq < verdictSeqRef.current) return
       if (seq > verdictSeqRef.current) verdictSeqRef.current = seq
     }
-    setRunning(previous => (previous === verdict.running ? previous : verdict.running))
     if (verdict.running) {
+      // 终态锁定：**能证明是同一轮**才丢（轮号相同/更旧、或压根没有新一轮的证据）。
+      // 时间一律在宿主时钟里比：`closed.at` 是 turn/end 的宿主时间，`startAt` 也是
+      // 宿主的 —— 拿本机 Date.now() 去比会把真在跑的新一轮挡在外面（真机实测）。
+      const closed = closedTurnRef.current
+      if (verdict.force !== true && closed !== undefined) {
+        const sameTurn = verdict.turn !== undefined && closed.turn !== undefined && verdict.turn <= closed.turn
+        const bare = verdict.turn === undefined && verdict.startAt === undefined
+        const newerStart = verdict.startAt !== undefined && (closed.at === undefined || verdict.startAt > closed.at)
+        const newerTurn = verdict.turn !== undefined && (closed.turn === undefined || verdict.turn > closed.turn)
+        if (sameTurn || bare || (!newerStart && !newerTurn)) return
+      }
+      setRunning(true)
       if (verdict.turn !== undefined) setRunningTurn(verdict.turn)
       if (verdict.startAt !== undefined) {
         setTurnStartAt(previous => previous ?? verdict.startAt as number)
       }
       return
     }
+    setRunning(false)
     // 收工：指针与秒表锚点一起清掉，否则上一轮会一直匹配 liveTurn；
     // 同时把这一轮的轮号记进"已收工"集合 —— 交付卡凭它才允许出现。
     if (runningTurnRef.current !== undefined) closedTurnsRef.current.add(runningTurnRef.current)
     if (verdict.turn !== undefined) closedTurnsRef.current.add(verdict.turn)
+    const closed = verdict.turn ?? runningTurnRef.current
+    if (closed !== undefined) closedTurnRef.current = { turn: closed, ...(verdict.at === undefined ? {} : { at: verdict.at }) }
     setRunningTurn(undefined)
     setTurnStartAt(null)
   }, [])
@@ -367,6 +388,8 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
     // 会话切换：证据水位归零（上一场的序号不能挡住这一场的结论），
     // 再用宿主在这条会话上给的初始值播种。
     verdictSeqRef.current = Number.NEGATIVE_INFINITY
+    // 上一场的"已收工"不能挡住这一场：换会话 = 重新开始收工台账。
+    closedTurnRef.current = undefined
     applyTurnVerdict({ running: seedRunning })
     // 会话切换：上一轮的轮号绝不能留给下一场（名单恢复的 running 会把它当成
     // 活跃轮次，把上一场那一轮的卡片误判成运行中）。

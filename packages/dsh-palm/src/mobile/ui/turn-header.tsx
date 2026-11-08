@@ -20,6 +20,7 @@
  *
  * @module dsh-palm/mobile/ui/turn-header
  */
+import { Skeleton } from './primitives.tsx'
 import { StatusStrip, type StatusStripKind, type StatusStripSteps } from './status-strip.tsx'
 
 /** 任务头的 props：全部取自现有回合数据，缺哪项就不画哪项。 */
@@ -54,7 +55,8 @@ const STATE_WORD: Record<StatusStripKind, string> = {
   test: '跑测试',
   approve: '等你决定',
   stuck: '可能卡住了',
-  unknown: '进行中',
+  // 没有权威数据：不写状态词（灰点 + 破折号），不猜「进行中」也不猜「已完成」。
+  unknown: '—',
   done: '已完成',
   failed: '失败',
   stopped: '已中断',
@@ -110,13 +112,14 @@ export function TurnHeader({
   model,
   onOpen,
 }: TurnHeaderProps) {
+  const known = kind !== 'unknown'
   const word = state ?? STATE_WORD[kind]
-  const time = durationMs === undefined || !Number.isFinite(durationMs)
+  // 无权威数据时耗时不画（还没开始的回合报「12.4s」就是编数字），步数也不报。
+  const time = !known || durationMs === undefined || !Number.isFinite(durationMs)
     ? ''
     : formatSeconds(durationMs)
-  // 状态行与状态条共用同一份步数口径；没有计划就两边都不报步数。
-  const stepsText = steps === undefined ? '' : `· ${Math.max(0, Math.round(steps.done))} 步 / ${Math.max(0, Math.round(steps.total))} 步`
-  const stripLabel = steps === undefined ? STRIP_WORD[kind] : `${STRIP_WORD[kind]} · ${Math.max(0, Math.round(steps.done))} 步`
+  const stepsText = !known || steps === undefined ? '' : `· ${Math.max(0, Math.round(steps.done))} 步 / ${Math.max(0, Math.round(steps.total))} 步`
+  const stripLabel = !known || steps === undefined ? STRIP_WORD[kind] : `${STRIP_WORD[kind]} · ${Math.max(0, Math.round(steps.done))} 步`
 
   const meta: string[] = []
   if (changedFiles !== undefined && changedFiles > 0) meta.push(`改 ${countText(changedFiles)} 个文件`)
@@ -135,12 +138,29 @@ export function TurnHeader({
       <StatusStrip
         kind={kind}
         label={stripLabel}
-        {...(progress === undefined ? {} : { progress })}
-        {...(steps === undefined ? {} : { steps })}
+        {...(progress === undefined || !known ? {} : { progress })}
+        {...(!known || steps === undefined ? {} : { steps })}
         {...(time === '' ? {} : { right: time })}
         {...(onOpen === undefined ? {} : { onOpen })}
       />
       {meta.length === 0 ? null : <div className="palm-turn-meta">{meta.join(' · ')}</div>}
+    </div>
+  )
+}
+
+/**
+ * 未水合时的首块占位（替代旧的「加载中…」文案）：复用任务头同一套类名与子元素
+ * 顺序，高度由构造保证相同，真实内容落地时不会跳一下。
+ */
+export function TurnHeadSkeleton() {
+  return (
+    <div className="palm-turn-head" data-kind="unknown" data-skeleton aria-busy="true" aria-label="正在读取会话">
+      <div className="palm-turn-top">
+        <span className="palm-turn-dot" aria-hidden="true" />
+        <span className="palm-turn-state">—</span>
+      </div>
+      <Skeleton lines={2} />
+      <StatusStrip kind="unknown" label="—" />
     </div>
   )
 }

@@ -85,7 +85,8 @@
   --palm-strip-grad-failed: linear-gradient(100deg, #5c1327, #8c1f38);
   --palm-strip-grad-stopped: linear-gradient(100deg, #2a2a33, #3f3f4d);
   --palm-strip-grad-queued: linear-gradient(100deg, rgba(124, 140, 255, 0.1), rgba(124, 140, 255, 0.02));
-  --palm-strip-grad-unknown: linear-gradient(100deg, #2b2a72, #4a49b8);
+  /* 无权威数据：灰（不再借用「思考」那套紫渐变，免得把"不知道"画成"在做"）。 */
+  --palm-strip-grad-unknown: linear-gradient(100deg, #17171d, #24242c);
   --palm-strip-ink-think: #cfd4ff;
   --palm-strip-ink-read: #a9e6ff;
   --palm-strip-ink-edit: #9fd8ff;
@@ -96,7 +97,7 @@
   --palm-strip-ink-failed: #ffb3c0;
   --palm-strip-ink-stopped: #d5d7e2;
   --palm-strip-ink-queued: #9aa0ae;
-  --palm-strip-ink-unknown: #cfd4ff;
+  --palm-strip-ink-unknown: #9aa0ae;
   --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
   --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
   --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);

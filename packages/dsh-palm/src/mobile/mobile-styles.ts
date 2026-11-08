@@ -98,7 +98,8 @@ export const mobileCss = `${designTokensCss()}
   --palm-strip-grad-failed: linear-gradient(100deg, #5c1327, #8c1f38);
   --palm-strip-grad-stopped: linear-gradient(100deg, #2a2a33, #3f3f4d);
   --palm-strip-grad-queued: linear-gradient(100deg, rgba(124, 140, 255, 0.1), rgba(124, 140, 255, 0.02));
-  --palm-strip-grad-unknown: linear-gradient(100deg, #2b2a72, #4a49b8);
+  /* 无权威数据：灰（不再借用「思考」那套紫渐变，免得把"不知道"画成"在做"）。 */
+  --palm-strip-grad-unknown: linear-gradient(100deg, #17171d, #24242c);
   --palm-strip-ink-think: #cfd4ff;
   --palm-strip-ink-read: #a9e6ff;
   --palm-strip-ink-edit: #9fd8ff;
@@ -109,7 +110,7 @@ export const mobileCss = `${designTokensCss()}
   --palm-strip-ink-failed: #ffb3c0;
   --palm-strip-ink-stopped: #d5d7e2;
   --palm-strip-ink-queued: #9aa0ae;
-  --palm-strip-ink-unknown: #cfd4ff;
+  --palm-strip-ink-unknown: #9aa0ae;
   --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
   --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
   --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);
@@ -2039,26 +2040,13 @@ button.settings-row:focus-visible {
   }
 }
 
-/* ── skeleton loading (gradient shimmer, no spinners) ────────────────── */
+/* ── skeleton placeholder (no spinners) ───────────────────────────────── */
 
-.skel {
-  border-radius: var(--radius-chip);
-  background: linear-gradient(90deg, var(--fill) 25%, var(--fill-strong) 50%, var(--fill) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite linear;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Skeleton rows mirror the real card tiers. 会话行改成三行信息卡之后骨架也跟着
-   收成「一块卡 + 三行占位」，否则加载那一瞬页面会先跳一下再变成新排布。 */
+/* 骨架条：ui/primitives.tsx 的 Skeleton 唯一样式（任务头占位靠它撑住高度）。
+   旧的 .skel / @keyframes shimmer 一起删掉 —— 全仓没有一处引用它。 */
+[data-skeleton] { display: flex; flex-direction: column; gap: var(--palm-s1); inline-size: 100%; }
+[data-skeleton-line] { display: block; block-size: var(--palm-s3); border-radius: var(--palm-r-full); background: var(--fill); }
+[data-skeleton-line]:last-child { inline-size: 60%; }
 /* ── buttons ─────────────────────────────────────────────────────────── */
 
 .mobile-button {
@@ -6889,7 +6877,6 @@ body:has(.lightbox-backdrop) .toast-host {
   .chat-disclosure-caret,
   .chat-disclosure-body,
   .boot-dot,
-  .skel,
   .toast,
   .ctx-menu,
   .dialog,
@@ -7551,6 +7538,9 @@ button.settings-row:active {
   animation: palm-strip-travel 3.2s ease-in-out infinite;
 }
 
+/* 无权威数据：灰块静止（"还不知道"不是"正在做"，游走块会读成后者）。 */
+.palm-strip[data-kind='unknown'] .palm-strip-fill { animation: none; }
+
 @keyframes palm-strip-travel {
   0%, 100% { inset-inline-start: 0; }
   50% { inset-inline-start: 64%; }
@@ -7723,8 +7713,8 @@ button.settings-row:active {
   background: var(--palm-fg-3);
 }
 
-.palm-turn-head[data-kind='think'] .palm-turn-dot,
-.palm-turn-head[data-kind='unknown'] .palm-turn-dot { background: var(--palm-accent); }
+.palm-turn-head[data-kind='think'] .palm-turn-dot { background: var(--palm-accent); }
+/* 无权威数据：灰点（默认 --palm-fg-3），不借「思考」的强调色。 */
 .palm-turn-head[data-kind='read'] .palm-turn-dot,
 .palm-turn-head[data-kind='edit'] .palm-turn-dot,
 .palm-turn-head[data-kind='test'] .palm-turn-dot { background: var(--palm-accent-2); }

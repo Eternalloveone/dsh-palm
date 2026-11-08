@@ -126,8 +126,9 @@ describe('onTurnEnd（turn/end 边界）', () => {
 
     // 防的回归：交付卡不出现（只有「亲眼看到收工」的轮号才允许出卡）。
     expect(ctx.liveClosedTurns.has(7)).toBe(true)
-    // 防的回归：指示器不熄灭 / 过程条停在「运行中」（秒表继续数）。
-    expect(spies.applyTurnVerdict).toHaveBeenCalledWith({ running: false, seq: 43 })
+    // 防的回归：指示器不熄灭 / 过程条停在「运行中」（秒表继续数）；轮号一起交给
+    // 裁决入口 —— 它就是「终态锁定」的凭据（迟到的「在跑」据此丢弃）。
+    expect(spies.applyTurnVerdict).toHaveBeenCalledWith({ running: false, seq: 43, turn: 7, at: 1_700_000_000_000 })
     expect(spies.clearActiveTurn).toHaveBeenCalledTimes(1)
     // 防的回归：计划条停在上一轮（宿主同款归一化没跑）。
     expect(spies.normalizeTurnEndTodo).toHaveBeenCalledTimes(1)
@@ -147,7 +148,7 @@ describe('onTurnEnd（turn/end 边界）', () => {
     onTurnEnd(ctx, { type: 'turn/end', seq: 44, time: 1, data: {} } as unknown as WireEvent)
     expect(ctx.liveClosedTurns.size).toBe(0)
     // 仍然要落 running：边界帧本身就是收工证据。
-    expect(spies.applyTurnVerdict).toHaveBeenCalledWith({ running: false, seq: 44 })
+    expect(spies.applyTurnVerdict).toHaveBeenCalledWith({ running: false, seq: 44, at: 1 })
     expect(spies.shadowEvent).toHaveBeenCalledWith(expect.not.objectContaining({ turnNo: expect.anything() }))
   })
 })

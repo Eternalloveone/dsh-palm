@@ -9,7 +9,9 @@ import type { CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
 import { toolDiffLines } from '../../../render/process-rows.ts'
 import { MessageRow, type TurnDeliveryFacts } from '../../../render/message-row.tsx'
-import { planStepsOf, type TaskSteps } from '../../../session/task-status.ts'
+import { planStepsOf, taskAuthority, type TaskSteps } from '../../../session/task-status.ts'
+import { cachedSnapshot } from '../../../stream/session-store.ts'
+import { TurnHeadSkeleton } from '../../../ui/turn-header.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 /** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */
@@ -102,6 +104,13 @@ export interface ChatRowsView {
 
 export function ChatRows(view: ChatRowsView): React.ReactElement {
   const rows = dedupeRows(view.messages)
+  /**
+   * 结论资格（水合门）：**该会话的行**落定（`loading` 落下）+ **本会话的宿主快照**
+   * 到齐且新鲜（缓存里那份也算，秒开靠它）才算。没水合时**不下任何结论**：行照画
+   * （④ 缓存种子先上屏），状态条判 `unknown` —— 先画「已完成」再被「运行中」改写，
+   * 就是真机那条首帧跳变。
+   */
+  const hydrated = !view.loading && taskAuthority(cachedSnapshot(view.sessionId), view.hostNowMs ?? Date.now())
   // ── 按轮折叠的「任务头 / 交付卡」数据 ──────────────────────────────────
   // 一个回合的数据散在多行上（每步一条 assistant + 一条 turn 收尾行），视图层只在
   // 这里折一次；MessageRow 只负责画，不自己猜数字（拿不到的字段留 undefined）。
@@ -178,6 +187,7 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
             liveTurnStartAt={view.clockAnchor}
             liveTurn={view.liveTurn}
             settled={view.settledOf(message)}
+            hydrated={hydrated}
             liveClockTick={view.isRowRunning(interrupted) ? view.liveClockTick : undefined}
             showTime={view.timeFlags[index] === true}
             focused={message.id === view.focusMsgId}
@@ -207,6 +217,7 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           liveTurnStartAt={view.clockAnchor}
           liveTurn={view.liveTurn}
           settled={false}
+          hydrated={hydrated}
           liveClockTick={view.liveClockTick}
           showTime={false}
           focused={false}
@@ -217,8 +228,9 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           regenerateState={view.regenerateState}
         />
       )}
-      {view.loading && view.messages.length === 0 && <p className="chat-typing">加载中…</p>}
-      {!view.loading && view.messages.length === 0 && <p className="chat-typing">还没有消息，发一句话开始吧</p>}
+      {rows.length === 0 && (view.loading
+        ? <TurnHeadSkeleton />
+        : <p className="chat-typing">还没有消息，发一句话开始吧</p>)}
     </>
   )
 }

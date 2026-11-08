@@ -310,7 +310,14 @@ export function onTurnEnd(ctx: FrameContext, event: WireEvent): void {
   // 带 tool/result 的 meta），不必再为它回读日志。
   const closed = turnNumberOf(event)
   if (closed !== undefined) ctx.liveClosedTurns.add(closed)
-  ctx.applyTurnVerdict({ running: false, seq: (event as { seq?: number }).seq })
+  // 轮号 + 收工时刻一起交给裁决入口：它们就是这台机器里的"终态锁定"凭据
+  // （迟到的「在跑」据此丢弃）。时刻用**宿主时间**，别让本机时钟参与比较。
+  ctx.applyTurnVerdict({
+    running: false,
+    seq: (event as { seq?: number }).seq,
+    ...(closed === undefined ? {} : { turn: closed }),
+    ...(typeof event.time === 'number' && Number.isFinite(event.time) ? { at: event.time } : {}),
+  })
   // 亲眼看到的收尾：frame 优先级，只有 local（宿主复核）能再改它。
   ctx.shadowEvent({
     type: 'turn',

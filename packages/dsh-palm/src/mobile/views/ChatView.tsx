@@ -267,7 +267,6 @@ export interface ChatViewProps {
 // Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
 // paging bounded, but large enough to reach any result that search can return.
 
-
 /**
  * Render one session's chat.
  * @param props - the session, the mux client, and the back action.
@@ -376,11 +375,6 @@ function ChatSessionView({
     commitRows(rows, options)
   }
 
-
-
-
-
-
   /**
    * 列表的**唯一**提交入口。
    *
@@ -406,7 +400,6 @@ function ChatSessionView({
     if (!new URLSearchParams(window.location.search).has('debug')) return
     ;(window as unknown as { __palmRows?: unknown }).__palmRows = messages
   }, [messages])
-
 
   const commitRows = chatSession.commitRows
   // 分页历史：取页/缓存/在飞合并/链式补页在 use-chat-history 里；折叠与锚点在这里。
@@ -1281,8 +1274,6 @@ function ChatSessionView({
   // 过期轮号的失帧自愈：判据与为什么不能用「更新的用户消息」当判据，见该模块注释。
   useStaleTurnHeal({ runningTurn, messages, clearActiveTurn })
 
-
-
   /**
    * 一轮的秒表锚点**只许变早**（真机 2026-11-02 / 11-03 反复出现：过程条从「5分10秒」
    * 跳回「1分20秒」再从小往大长）。
@@ -1649,7 +1640,6 @@ function ChatSessionView({
     return message.turn !== newest
   }
 
-
   /** Mark everything seen: advance the seen-turn baseline to the newest
    * turn and clear the unread badge. */
   const markSeen = useCallback(() => {
@@ -1701,9 +1691,6 @@ function ChatSessionView({
     }
     return readingTurnAt(list, index)
   }
-
-
-
 
   // Drop any pending reading timer when the view goes away: the timer only
   // drove the retired 「回到上次」 bookmark, so nothing else needs flushing.
@@ -2595,8 +2582,6 @@ function ChatSessionView({
    *  question that immediately preceded it. The session is append-only, so
    *  this goes out as a fresh prompt (the old reply stays in history); the
    *  wording tells the model to set it aside and answer anew. */
-
-
 
   /**
    * 发送 / 队列 / 插话状态机（S8a 从本文件搬出，见 views/chat/use-chat-composer.ts）：
@@ -3647,8 +3632,6 @@ function ChatSessionView({
     pinToRealBottom()
   }, [messages, pinToRealBottom, autoScroll, showJumpToLatest])
 
-
-
   // 轮次真的开跑 ⇒ 按钮已经被收走，状态一并复位，下一次点击是干净的一次。
   useEffect(() => {
     if (!running) return
@@ -3979,8 +3962,7 @@ function ChatSessionView({
   )
 }
 
-
 /* ── bottom sheets ───────────────────────────────────────────────────── */
 
 /* Shared sheet chrome lives in ../sheet.tsx; the pickers below compose it. */
-
+

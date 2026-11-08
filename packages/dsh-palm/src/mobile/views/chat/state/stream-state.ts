@@ -106,6 +106,8 @@ export interface TurnVerdict {
   seq?: number | undefined
   turn?: number | undefined
   startAt?: number | undefined
+  /** 收工事件的**宿主时间**（`turn/end.time`）：判断"起点更晚才算新一轮"时用它，别拿本机时钟比。 */
+  at?: number | undefined
   /**
    * 绕过 seq 门控。
    *

@@ -179,11 +179,15 @@ describe('其余判据：审批 / 排队 / 工具 / 无数据', () => {
     expect(taskKindOfTool({ name: 'mystery' })).toBeUndefined()
   })
 
-  it('拿不到计划就不给 steps/progress，状态落到 unknown', () => {
+  it('拿不到计划就不给 steps/progress：在跑是「思考」，没有裁决才是 unknown', () => {
     const status = deriveTaskStatus(inputOf({}))
-    expect(status.kind).toBe('unknown')
+    expect(status.kind).toBe('think')
     expect(status.steps).toBeUndefined()
     expect(status.progress).toBeUndefined()
+    // 没有权威裁决（running 缺席）→ unknown：不猜「已完成」也不猜活动。
+    const blind = deriveTaskStatus(inputOf({ turn: { turnNo: 1 } }))
+    expect(blind.kind).toBe('unknown')
+    expect(blind.terminal).toBe(false)
   })
 
   it('计划只有空表时同样不给 steps/progress', () => {

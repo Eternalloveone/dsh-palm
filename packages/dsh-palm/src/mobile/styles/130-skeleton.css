@@ -1,20 +1,7 @@
-/* ── skeleton loading (gradient shimmer, no spinners) ────────────────── */
+/* ── skeleton placeholder (no spinners) ───────────────────────────────── */
 
-.skel {
-  border-radius: var(--radius-chip);
-  background: linear-gradient(90deg, var(--fill) 25%, var(--fill-strong) 50%, var(--fill) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite linear;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Skeleton rows mirror the real card tiers. 会话行改成三行信息卡之后骨架也跟着
-   收成「一块卡 + 三行占位」，否则加载那一瞬页面会先跳一下再变成新排布。 */
+/* 骨架条：ui/primitives.tsx 的 Skeleton 唯一样式（任务头占位靠它撑住高度）。
+   旧的 .skel / @keyframes shimmer 一起删掉 —— 全仓没有一处引用它。 */
+[data-skeleton] { display: flex; flex-direction: column; gap: var(--palm-s1); inline-size: 100%; }
+[data-skeleton-line] { display: block; block-size: var(--palm-s3); border-radius: var(--palm-r-full); background: var(--fill); }
+[data-skeleton-line]:last-child { inline-size: 60%; }

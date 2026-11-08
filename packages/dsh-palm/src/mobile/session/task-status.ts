@@ -24,6 +24,9 @@
  *
  * 拿不到的就不给：没有计划 → 没有 `steps` / `progress`（界面走 `unknown` 的
  * 游走块）；没有正在跑的工具 → 不猜「在读/在改」；没有终态证据 → 不进终态。
+ * **`unknown` 的唯一语义 = 手里没有能下结论的权威数据**：`turn.running` 缺席
+ * （宿主快照没到/已过期）时只许给它 —— 以前这条路顺着「没在跑」落到 done，
+ * 真机上就是「先已完成、随后跳成运行中」。
  *
  * @module dsh-palm/mobile/session/task-status
  */
@@ -42,8 +45,11 @@ export type TaskOutcome = 'completed' | 'failed' | 'cancelled'
 
 /** 一轮的实时状态（来自 `sessionState.turn` / mux 的回合投影）。 */
 export interface TaskTurnSignal {
-  /** 宿主对「这一轮还开着吗」的回答。 */
-  readonly running: boolean
+  /**
+   * 宿主对「这一轮还开着吗」的回答。**可选、缺席 = 没有权威数据**：快照没到（水合
+   * 未完成）或已过期时不许传 false —— false 会让状态机顺着「没在跑」下结论。
+   */
+  readonly running?: boolean
   /** 轮号：用于识别「新一轮开始」。 */
   readonly turnNo?: number
   /** 这一轮的起点（宿主从日志补的锚点）。 */
@@ -109,13 +115,27 @@ export interface TaskStatus {
 /** 90 秒没有新事件 → 可能卡住了（与 `run-detail` 的 `RUN_STALE_MS` 同一口径）。 */
 export const TASK_STUCK_AFTER_MS = 90_000
 
+/** 宿主快照的新鲜窗口（与 `SNAPSHOT_STALE_MS` / `SOURCE_LEASE_MS.snapshot` 同一口径）。 */
+export const TASK_SNAPSHOT_FRESH_MS = 12_000
+
+/**
+ * 水合门的唯一判据：权威只有一份 —— 宿主原子快照（行 / 队列 / 回合同一个切面，
+ * 缓存里那份也算，秒开靠它）；没到或已过期就只许画 `unknown`。
+ *
+ * @param snapshot - 本会话的宿主快照
+ * @param now - 当前时刻（注入，保持纯函数）
+ * @returns 快照到齐且新鲜时为 true
+ */
+export function taskAuthority(snapshot: { readonly asOf: number } | undefined, now: number): boolean {
+  return snapshot !== undefined && Number.isFinite(snapshot.asOf) && now - snapshot.asOf <= TASK_SNAPSHOT_FRESH_MS
+}
+
 /** 收尾证据 → 终态种类。 */
 const OUTCOME_KINDS: Readonly<Record<TaskOutcome, TaskKind>> = {
   completed: 'done',
   failed: 'failed',
   cancelled: 'stopped',
 }
-
 
 /** 测试/命令行里值得算「跑测试」的关键词（其余 bash 归到「改/跑」那一档）。 */
 const TEST_COMMAND = /\b(?:test|tests|vitest|jest|spec|lint|tsc|typecheck|build|check|verify)\b/i
@@ -281,7 +301,7 @@ function buildStatus(parts: {
 export function foldTaskStatus(previous: TaskStatus | undefined, input: TaskStatusInput): TaskStatus {
   const now = input.now
   const turnNo = input.turn.turnNo ?? previous?.turn
-  const running = input.turn.running === true
+  const running = input.turn.running
 
   // 乱序：更旧的轮号一律丢弃（重连补帧、对账回包晚到都很常见）。
   if (previous?.turn !== undefined && turnNo !== undefined && turnNo < previous.turn) return previous
@@ -329,6 +349,12 @@ export function foldTaskStatus(previous: TaskStatus | undefined, input: TaskStat
   // 兜底 1（续）：同一轮已经收尾 → 后面的活动不许把它重新点着。
   if (carry?.terminal === true) return carry
 
+  // 没有权威裁决（快照没到 / 过期）：**不下任何结论**，只把上次已知的非终态留着。
+  // 以前这里会顺着下面的「没在跑」一路走到 done，再被迟到的「在跑」改写。
+  if (running === undefined) {
+    return carry ?? make('unknown', false, { carry: undefined, steps: undefined, derivedProgress: undefined })
+  }
+
   // 等你就绪：那一轮正在等你决定，比「在跑」更靠前。
   if (input.approval === true) return make('approve', false)
 
@@ -351,8 +377,8 @@ export function foldTaskStatus(previous: TaskStatus | undefined, input: TaskStat
   }
   if (input.activity?.streaming === true || input.activity?.reasoning === true) return make('think', false)
   if (steps !== undefined) return make('think', false)
-  // 什么证据都没有：不猜，走「正在做、没拆出计划」的游走块。
-  return make('unknown', false)
+  // 在跑但拿不到更细的证据：这是「在思考」，不是「不知道」（后者=没有裁决）。
+  return make('think', false)
 }
 
 /** 一次性推导（等于没有上一版的 {@link foldTaskStatus}）。 */

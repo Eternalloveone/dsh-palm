@@ -6258,11 +6258,14 @@ describe('ChatView 再进会话第一帧就有内容', () => {
     expect(scrollWrites.at(-1)).toBe(900)
   })
 
-  it('still shows the loading line for a session that was never opened', async () => {
+  it('still shows the same-height skeleton for a session that was never opened', async () => {
     loadChatPageMock.mockReturnValue(new Promise<ChatPageResult>(() => {}))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     expect(document.querySelectorAll('.chat-msg')).toHaveLength(0)
-    expect(screen.getByText('加载中…')).toBeTruthy()
+    // 首帧不写「加载中…」、也不先下任何结论：只有与真实任务头同构的骨架。
+    expect(document.querySelector('[data-skeleton]')).not.toBeNull()
+    expect(screen.queryByText('加载中…')).toBeNull()
+    expect(document.querySelector('.palm-turn-state')!.textContent).toBe('—')
   })
 })
 
