@@ -1,5 +1,6 @@
 node_modules/
-lib/
+# 构建产物只在包根（src 下的 lib 是源码目录，不能被忽略）
+/lib/
 *.tsbuildinfo
 
 # debug probe scripts (may contain pairing cookies)

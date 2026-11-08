@@ -1,3 +1,4 @@
-lib/
+# 构建产物在包根（不是 src 下任何叫 lib 的源码目录）
+/lib/
 node_modules/
 *.tsbuildinfo
