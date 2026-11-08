@@ -124,6 +124,7 @@ import { ModelView } from './ModelView.tsx'
 import { AppearanceView } from './AppearanceView.tsx'
 import { OutlineView } from './OutlineView.tsx'
 import { ArtifactsView } from './ArtifactsView.tsx'
+import { ArtifactSummaryView } from './ArtifactSummaryView.tsx'
 import { ContextView } from './ContextView.tsx'
 import { ApprovalModeView } from './ApprovalModeView.tsx'
 import { SearchView, type SearchHit } from './SearchView.tsx'
@@ -171,6 +172,14 @@ type Route =
     kind: 'artifacts'
     session: SessionView
     workspace: WorkspaceRow
+    turns: readonly ArtifactTurnPayload[]
+  }
+  /** ⑨ 产物摘要：产物页每轮分组标题进来，`turn` 为 undefined 表示缺轮号的「更早」组；返回即弹栈回产物列表。 */
+  | {
+    kind: 'artifact-summary'
+    session: SessionView
+    workspace: WorkspaceRow
+    turn: number | undefined
     turns: readonly ArtifactTurnPayload[]
   }
   /** ⑫ 回合大纲：对话页「轮次」进来，返回即弹栈回对话。 */
@@ -221,6 +230,9 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'appearance') return 'appearance'
   if (route.kind === 'outline') return `outline:${route.session.sessionId}`
   if (route.kind === 'artifacts') return `artifacts:${route.session.sessionId}`
+  if (route.kind === 'artifact-summary') {
+    return `artifact-summary:${route.session.sessionId}:${route.turn === undefined ? 'earlier' : String(route.turn)}`
+  }
   if (route.kind === 'context') return `context:${route.session.sessionId}`
   if (route.kind === 'approval-mode') return `approval-mode:${route.session.sessionId}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
@@ -308,6 +320,9 @@ export function backTargetOf(route: Route): Route {
     case 'artifacts':
       // 兜底（栈里只有它）：产物属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
+    case 'artifact-summary':
+      // 兜底（栈里只有它）：摘要属于产物列表，退回那一页（轮次清单随路由带回去）。
+      return { kind: 'artifacts', session: route.session, workspace: route.workspace, turns: route.turns }
     case 'outline':
       // 兜底（栈里只有它）：大纲属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
@@ -403,7 +418,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, search: 2, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, context: 3, 'approval-mode': 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, search: 2, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, 'artifact-summary': 4, context: 3, 'approval-mode': 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1384,6 +1399,14 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             : route.kind === 'artifacts'
             ? <ArtifactsView
               turns={route.turns}
+              onBack={back}
+              onOpenFile={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
+              onOpenTurn={(turn) => { navigate({ kind: 'artifact-summary', session: route.session, workspace: route.workspace, turn, turns: route.turns }) }}
+            />
+            : route.kind === 'artifact-summary'
+            ? <ArtifactSummaryView
+              turns={route.turns}
+              turn={route.turn}
               onBack={back}
               onOpenFile={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
             />

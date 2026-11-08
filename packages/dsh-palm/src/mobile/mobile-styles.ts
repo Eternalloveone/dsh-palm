@@ -10683,6 +10683,163 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
   color: var(--palm-accent);
 }
+
+/* 头部副标题横跨整个 header 网格：.mobile-header 是 grid（48px / 1fr / auto），
+   旧的 flex-basis 在 grid 里不生效，副标题会被挤进第一列的 48px 里换行。 */
+.artifacts-page-sub {
+  grid-column: 1 / -1;
+}
+
+/* ── 产物摘要页（P6 ⑨ 屏，产物列表 ⑧ 的下级页） ───────────────────── */
+
+/* 产物域两页共用同一个滚动壳：list 槽撑满剩余高度，正文自己滚，
+   长清单才不会把页脚顶出屏幕（此前只靠 body 的 flex 在块级父节点里并不生效）。 */
+.artifacts-page [data-slot='list'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ⑧ 的分组标题现在可点：整行都是 --palm-hit 触控区，右侧一个右向箭头表示"还有一页"。 */
+.artifacts-group-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--palm-s1);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.artifacts-group-link > svg {
+  flex: none;
+  inline-size: var(--palm-s4);
+  block-size: var(--palm-s4);
+  color: var(--palm-fg-3);
+}
+
+.artifacts-group-link:active {
+  color: var(--palm-fg-2);
+}
+
+.artifacts-group-link:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+  border-radius: var(--palm-r-s);
+}
+
+/* 单轮汇总的抬头：轮次是本屏主角（--palm-t-xl），下面只放真实计数。 */
+.artifact-summary-head {
+  margin: 0 0 var(--palm-s4);
+  padding: var(--palm-s4);
+  background: var(--palm-sur-1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-l);
+}
+
+.artifact-summary-turn {
+  margin: 0;
+  font-size: var(--palm-t-xl);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg);
+}
+
+.artifact-summary-meta {
+  margin: var(--palm-s1) 0 0;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+}
+
+.artifact-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.artifact-summary-item {
+  min-inline-size: 0;
+}
+
+/* 一行文件：左文件名、右彩色类型标签；说明与完整路径各占一整行。
+   产物流没有大小/时间字段 —— 这里就不留空列，也不编数字。 */
+.artifact-summary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--palm-s1) var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s3) var(--palm-s4);
+  text-align: start;
+  background: var(--palm-sur-1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+  font: inherit;
+}
+
+.artifact-summary-row:active {
+  background: var(--palm-sur-2);
+}
+
+.artifact-summary-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.artifact-summary-name {
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-summary-desc {
+  grid-column: 1 / -1;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+}
+
+.artifact-summary-path {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 空态里唯一的动作：回产物列表换一轮（与全站按钮同一套令牌、--palm-hit 触控）。 */
+.artifact-summary-empty-action {
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s4);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-m);
+}
+
+.artifact-summary-empty-action:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
 /* ── 上下文占用页（P6 ⑦ 屏） ───────────────────────────────────────── */
 
 .context-page {

@@ -89,7 +89,8 @@ describe('architecture guardrails', () => {
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
       // 2026-11-08：P6 页面栈接入（压栈/弹栈 + routeKeyOf）；旧标记删除后回落。
       // 2026-11-08：P6 ② 搜索独立页（search 路由四件套 + 列表入口 + 命中跳会话）；检索适配已外移到 search-request.ts。
-      'views/App.tsx': 1516,
+      // 2026-11-08：P6 ⑨ 产物摘要路由（四件套 + 产物页每轮标题可点进来）；只增这一次。
+      'views/App.tsx': 1539,
       'views/SettingsView.tsx': 786,
       // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
       // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。
@@ -103,7 +104,12 @@ describe('architecture guardrails', () => {
       'views/SubChatView.tsx': 177,
       'views/AppearanceView.tsx': 147,
       'views/ApprovalView.tsx': 95,
-      'views/ArtifactsView.tsx': 105,
+      // 2026-11-08：P6 ⑨ 产物摘要页把每轮分组标题改成可点行（onOpenTurn + --palm-hit 触控区）；
+      // 只增这一次，之后只许降。
+      'views/ArtifactsView.tsx': 115,
+      // 2026-11-08：P6 ⑨ 产物摘要页（产物列表的下级页：单轮筛选 + 汇总 + 文件行，
+      // 只吃 props、不碰数据层）；新文件补登记，本值只增这一次。
+      'views/ArtifactSummaryView.tsx': 142,
       'views/ChatView.tsx': 4211,
       'views/DiffView.tsx': 80,
       'views/MarketView.tsx': 245,

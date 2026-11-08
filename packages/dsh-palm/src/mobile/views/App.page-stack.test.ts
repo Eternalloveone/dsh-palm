@@ -47,6 +47,8 @@ const PUSHED_FROM: Record<Kind, Route> = {
   appearance: { kind: 'settings', workspace },
   outline: { kind: 'chat', session, workspace },
   artifacts: { kind: 'chat', session, workspace },
+  // ⑨ 产物摘要挂在产物列表下面：从某一轮的分组标题进来，返回就是那一页。
+  'artifact-summary': { kind: 'artifacts', session, workspace, turns: [] },
   context: { kind: 'chat', session, workspace },
   'approval-mode': { kind: 'chat', session, workspace },
   // 审批详情是"会话内的一层"：上一页就是那个对话
@@ -68,6 +70,7 @@ const SAMPLES: Route[] = [
   { kind: 'appearance', workspace },
   { kind: 'outline', session, workspace, turns: [], currentTurn: 1 },
   { kind: 'artifacts', session, workspace, turns: [] },
+  { kind: 'artifact-summary', session, workspace, turn: 2, turns: [] },
   { kind: 'context', session, workspace, usage: {} },
   { kind: 'approval-mode', session, workspace, permissions: { currentValue: 'ask', options: [] } },
 ]

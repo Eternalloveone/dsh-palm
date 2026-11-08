@@ -82,6 +82,14 @@ describe('页面栈场景（P6）', () => {
     expect(routeKeyOf({ kind: 'sessions', workspace: ws2 })).toBe('sessions:ws-2')
   })
 
+  it('产物摘要的 key 带上目标轮次：同一会话的不同轮不会被当成同一页', () => {
+    expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspace: ws, turn: 2, turns: [] }))
+      .toBe('artifact-summary:a:2')
+    // 缺轮号的早期产物归到「更早」组，也有自己的 key。
+    expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspace: ws, turn: undefined, turns: [] }))
+      .toBe('artifact-summary:a:earlier')
+  })
+
   it('设置页返回回到它所在的列表，而不是上一次的列表', () => {
     let stack = createPageStack<Route>(routeKeyOf(list()), list())
     stack = go(stack, { kind: 'settings', workspace: ws })

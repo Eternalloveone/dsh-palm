@@ -116,6 +116,15 @@ export function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** Right chevron (「这一轮还有下一页」的导航提示；发送键用下面的 SendIcon，别混用). */
+export function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <path d="m10 6 6 6-6 6" />
+    </svg>
+  )
+}
+
 /** Right arrow (send). */
 export function SendIcon(props: SVGProps<SVGSVGElement>) {
   return (

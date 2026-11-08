@@ -13,7 +13,7 @@ import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
 import { EmptyState } from '../ui/empty-state.tsx'
 import { artifactTally, type ArtifactTurn } from '../session/artifacts.ts'
-import { FolderIcon } from '../components/icons.tsx'
+import { ChevronRightIcon, FolderIcon } from '../components/icons.tsx'
 
 /** 路径取最后一段（列表里只看文件名）。 */
 function baseName(path: string): string {
@@ -27,6 +27,8 @@ export interface ArtifactsViewProps {
   onBack(): void
   /** 点某个文件：看它的 diff。 */
   onOpenFile?: (path: string) => void
+  /** 点某一轮的分组标题：进这一轮的产物摘要（⑨ 屏，下级页）。 */
+  onOpenTurn?: (turn: number | undefined) => void
 }
 
 /**
@@ -35,7 +37,7 @@ export interface ArtifactsViewProps {
  * @param props - 产物组与回调
  * @returns 产物列表页
  */
-export function ArtifactsView({ turns, onBack, onOpenFile }: ArtifactsViewProps) {
+export function ArtifactsView({ turns, onBack, onOpenFile, onOpenTurn }: ArtifactsViewProps) {
   const tally = artifactTally(turns)
 
   return (
@@ -69,7 +71,15 @@ export function ArtifactsView({ turns, onBack, onOpenFile }: ArtifactsViewProps)
               turns.map(group => (
                 <section className="artifacts-group" key={String(group.turn ?? 'old')}>
                   <h2 className="artifacts-group-title">
-                    {group.turn === undefined ? '更早' : `第 ${group.turn} 轮`}
+                    <Button
+                      className="artifacts-group-link"
+                      onClick={() => { onOpenTurn?.(group.turn) }}
+                    >
+                      <span className="artifacts-group-label">
+                        {group.turn === undefined ? '更早' : `第 ${group.turn} 轮`}
+                      </span>
+                      <ChevronRightIcon />
+                    </Button>
                   </h2>
                   {group.files.map(file => (
                     <Button

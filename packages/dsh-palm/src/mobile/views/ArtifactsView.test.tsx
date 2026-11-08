@@ -56,4 +56,25 @@ describe('产物列表页（P6 ⑧ 屏）', () => {
     render(<ArtifactsView turns={turns} onBack={() => {}} />)
     expect(screen.getByText('src/mobile/views/App.tsx')).toBeDefined()
   })
+
+  it('点每轮分组标题进入这一轮的产物摘要', () => {
+    const onOpenTurn = vi.fn()
+    render(<ArtifactsView turns={turns} onBack={() => {}} onOpenTurn={onOpenTurn} />)
+    screen.getByText('第 2 轮').closest('button')!.click()
+    expect(onOpenTurn).toHaveBeenCalledTimes(1)
+    expect(onOpenTurn).toHaveBeenCalledWith(2)
+  })
+
+  it('「更早」分组标题也能点进去（轮号传 undefined，摘要页据此归组）', () => {
+    const onOpenTurn = vi.fn()
+    render(
+      <ArtifactsView
+        turns={[{ turn: undefined, files: [{ path: 'old.ts', kind: 'produced' }] }]}
+        onBack={() => {}}
+        onOpenTurn={onOpenTurn}
+      />,
+    )
+    screen.getByText('更早').closest('button')!.click()
+    expect(onOpenTurn).toHaveBeenCalledWith(undefined)
+  })
 })
