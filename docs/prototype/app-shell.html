@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>抽屉式侧栏 + 会话主界面 · 原型 v2</title>
+<style>
+  :root{
+    --bg:#0d0d12; --sur1:#15151c; --sur2:#1c1c25; --sur3:#23232e;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
+    --fg:#eceef5; --fg2:#a6abb9; --fg3:#6f7482;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:24px;padding:24px;width:max-content}
+
+  .phone{
+    position:relative;width:390px;height:844px;border-radius:44px;overflow:hidden;
+    background:var(--bg);box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 0 10px #1a1a1f;
+  }
+  .status{height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:14px;font-weight:600;color:var(--fg)}
+  .status .icons{display:flex;gap:6px;opacity:.85;font-size:12px}
+
+  /* ── 主界面顶栏 ── */
+  .navbar{display:flex;align-items:center;gap:10px;padding:2px 12px 10px}
+  .navbtn{width:38px;height:38px;border-radius:12px;background:var(--sur1);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:16px}
+  .navtitle{flex:1;text-align:center}
+  .navtitle b{display:block;font-size:16px;font-weight:600}
+  .navtitle span{display:block;font-size:11px;color:var(--fg3);margin-top:1px}
+
+  /* ── 消息流 ── */
+  .feed{position:absolute;inset:112px 0 168px;overflow:hidden;padding:4px 16px 0;display:flex;flex-direction:column;gap:14px}
+  .bubble-user{align-self:flex-end;max-width:76%;background:var(--accent);color:#0b0b12;border-radius:18px 18px 5px 18px;padding:10px 14px;font-size:14px;line-height:1.45;font-weight:500}
+  .assistant{display:flex;gap:10px}
+  .avatar{width:26px;height:26px;border-radius:9px;background:linear-gradient(140deg,#7c8cff,#a78bfa);flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#0b0b12}
+  .msg{font-size:14px;line-height:1.6}
+  .msg b{font-weight:600}
+  .msg code{background:var(--sur2);border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:12px;color:#a9b4ff}
+
+  /* 卡片（结论卡 / 工具卡）原生 inset 风格 */
+  .card{background:var(--sur1);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .card.done{border-top:3px solid var(--ok)}
+  .card-head{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ok)}
+  .card-title{font-size:16px;font-weight:600;line-height:1.4}
+  .stats{display:flex;gap:18px;margin:2px 0}
+  .stat b{font-size:22px;font-weight:700;letter-spacing:-.02em}
+  .stat span{display:block;font-size:11px;color:var(--fg3);margin-top:3px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
+  .chip{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;font-size:11px}
+  .c-ok{background:rgba(61,220,132,.16);color:var(--ok)}
+  .c-in{background:rgba(124,140,255,.16);color:var(--accent)}
+  .c-wa{background:rgba(224,165,44,.16);color:var(--warn)}
+
+  .tools{background:var(--sur1);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .tools-head{display:flex;align-items:center;gap:8px;padding:13px 14px;font-size:14px;font-weight:600}
+  .tools-head span{margin-left:auto;font-size:11px;color:var(--fg3);font-weight:400}
+  .tool{display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid var(--line);font-size:13px}
+  .dot{width:8px;height:8px;border-radius:999px;flex:none}
+  .d-ok{background:var(--ok)} .d-run{background:var(--accent)} .d-bad{background:var(--danger)}
+  .tool em{font-style:normal;color:var(--fg3);font-size:12px;margin-left:auto}
+
+  /* ── 底部输入区 ── */
+  .composer{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 26px;background:linear-gradient(180deg,rgba(13,13,18,0),rgba(13,13,18,.96) 26%)}
+  .pills{display:flex;gap:8px;margin-bottom:8px}
+  .pill{height:30px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);font-size:12px;color:var(--fg2)}
+  .inputbar{display:flex;align-items:center;gap:9px}
+  .plus{width:38px;height:38px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:18px}
+  .field{flex:1;height:40px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);display:flex;align-items:center;padding:0 15px;font-size:14px;color:var(--fg3)}
+  .send{width:40px;height:40px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-size:17px;font-weight:700}
+
+  /* ── 抽屉 ── */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.46)}
+  .drawer{
+    position:absolute;top:0;bottom:0;left:0;width:306px;background:var(--sur1);
+    border-radius:0 26px 26px 0;box-shadow:8px 0 40px rgba(0,0,0,.55);
+    display:flex;flex-direction:column;padding-top:54px;
+  }
+  .drawer-head{padding:6px 18px 14px;display:flex;align-items:center;gap:11px}
+  .drawer-head .ava{width:38px;height:38px;border-radius:12px;background:linear-gradient(140deg,#7c8cff,#a78bfa);display:flex;align-items:center;justify-content:center;font-weight:700;color:#0b0b12}
+  .drawer-head b{display:block;font-size:15px}
+  .drawer-head span{display:block;font-size:11px;color:var(--fg3)}
+  .newbtn{margin:0 16px 12px;height:42px;border-radius:13px;background:var(--accent);color:#0b0b12;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600}
+  .searchmini{margin:0 16px 12px;height:36px;border-radius:11px;background:var(--sur2);display:flex;align-items:center;padding:0 12px;gap:8px;font-size:13px;color:var(--fg3)}
+  .section{padding:4px 18px 6px;font-size:11px;color:var(--fg3);letter-spacing:.04em}
+  .conv{display:flex;gap:9px;align-items:center;padding:9px 16px;margin:0 8px;border-radius:12px}
+  .conv.on{background:var(--sur3)}
+  .conv .t{font-size:13.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .conv .tm{font-size:10.5px;color:var(--fg3);flex:none}
+  .conv .un{width:7px;height:7px;border-radius:999px;background:var(--accent);flex:none}
+  .drawer-foot{margin-top:auto;border-top:1px solid var(--line);padding:12px 16px 26px;display:flex;flex-direction:column;gap:2px}
+  .frow{display:flex;align-items:center;gap:11px;height:44px;border-radius:11px;padding:0 8px;font-size:14px;color:var(--fg2)}
+  .frow b{margin-left:auto;font-size:12px;color:var(--fg3);font-weight:400}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- A：主界面（会话式） -->
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="icons">●●● ▮</span></div>
+    <div class="navbar">
+      <div class="navbtn">☰</div>
+      <div class="navtitle"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div>
+      <div class="navbtn">⋯</div>
+    </div>
+
+    <div class="feed">
+      <div class="bubble-user">帮我查一下为什么点消息里的链接跳不到对应位置</div>
+
+      <div class="assistant">
+        <div class="avatar">D</div>
+        <div class="msg">找到原因了：<b>滑动窗口只能往前翻</b>，跳转把窗口推到开头后，新的命中永远够不到。</div>
+      </div>
+
+      <div class="card done">
+        <div class="card-head">✓ 已完成</div>
+        <div class="card-title">跳转窗口收尾重做，命中率 9/11</div>
+        <div class="stats">
+          <div class="stat"><b>12.4s</b><span>耗时</span></div>
+          <div class="stat"><b>2,923</b><span>测试通过</span></div>
+          <div class="stat"><b>12</b><span>文件改动</span></div>
+        </div>
+        <div class="chips">
+          <span class="chip c-ok">全部通过</span>
+          <span class="chip c-in">+214 / −86</span>
+          <span class="chip c-wa">待真机验</span>
+        </div>
+      </div>
+
+      <div class="tools">
+        <div class="tools-head">跑了 4 个工具<span>12.4s</span></div>
+        <div class="tool"><span class="dot d-ok"></span>读文件 · ChatView.tsx<em>完成</em></div>
+        <div class="tool"><span class="dot d-ok"></span>检索 · pendingTurnSeqRef<em>完成</em></div>
+        <div class="tool"><span class="dot d-run"></span>改文件 · jumpWindowTo<em>进行中</em></div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="pills">
+        <span class="pill">⚙ v4.1-flash</span>
+        <span class="pill">🛡 完全访问</span>
+        <span class="pill">44%</span>
+      </div>
+      <div class="inputbar">
+        <div class="plus">+</div>
+        <div class="field">说点什么…</div>
+        <div class="send">↑</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B：抽屉展开 -->
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="icons">●●● ▮</span></div>
+    <div class="scrim"></div>
+
+    <div class="drawer">
+      <div class="drawer-head">
+        <div class="ava">d</div>
+        <div><b>dsh-palm</b><span>D:\work\dsh-palm</span></div>
+      </div>
+
+      <div class="newbtn">＋ 新建会话</div>
+      <div class="searchmini">⌕ 搜索会话和消息</div>
+
+      <div class="section">今天</div>
+      <div class="conv on"><span class="t">修复移动端跳转</span><span class="tm">16:20</span></div>
+      <div class="conv"><span class="t">dsh palm 项目 UI 完全重构方案</span><span class="tm">15:05</span></div>
+
+      <div class="section">昨天</div>
+      <div class="conv"><span class="t">排查 dsh palm UI 崩溃原因</span><span class="tm">13:33</span></div>
+      <div class="conv"><span class="t">重构方案评价与优化</span><span class="tm">08:32</span></div>
+
+      <div class="section">更早</div>
+      <div class="conv"><span class="t">调试 dsh-palm 搜索零结果</span><span class="tm">11-04</span></div>
+      <div class="conv"><span class="t">双端问题面板同步方案</span><span class="tm">11-01</span><span class="un"></span></div>
+
+      <div class="drawer-foot">
+        <div class="frow">⚙ 设置<b>外观 · 模型 · 设备</b></div>
+        <div class="frow">▤ 产物与文档<b>按轮归档</b></div>
+        <div class="frow">◎ 用量<b>$0.49</b></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
