@@ -1047,6 +1047,7 @@ import { mobileRunningSessions } from './mobile/api/mobile-running.ts'
 import { mobileRespond } from './mobile/api/mobile-respond.ts'
 import { mobileReadFile } from './mobile/api/mobile-file-handlers.ts'
 import { mobileLogTail } from './mobile/api/mobile-log-tail.ts'
+import { mobileReadChat } from './mobile/api/mobile-read-chat.ts'
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
 export { closeSearchIndexes, registerSearchIndex } from './mobile/api/search-index-registry.ts'
 export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
@@ -1793,92 +1794,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
           result: { ok: true, value: served },
         })
       }],
-      [MOBILE_READ_CHAT_METHOD, async (ctx) => {
-        const { res, parsed, rpcId, deps, apiProxy } = ctx
-        // Folded-view chat read (v3): serve message rows from the host's
-        // mux-fed window cache. A window hit never touches the log; a cold
-        // read (or an older-page read) folds one `session.history` page. The
-        // phone falls back to `session.history` + local fold when this
-        // method is unavailable (older host) or fails.
-        const windows = deps.chatWindows
-        if (windows === undefined) {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'unavailable', message: '折叠会话读取不可用' } },
-          })
-          return
-        }
-        const body = parsed.payload as { sessionId?: unknown; beforeSeq?: unknown; maxRows?: unknown; include?: unknown } | undefined
-        const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
-        if (sessionId === '') {
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'bad-request', message: '缺少会话 id' } },
-          })
-          return
-        }
-        const rawBeforeSeq = body?.beforeSeq
-        const beforeSeq = typeof rawBeforeSeq === 'number' && Number.isFinite(rawBeforeSeq) ? rawBeforeSeq : undefined
-        const rawMaxRows = body?.maxRows
-        const maxRows = typeof rawMaxRows === 'number' && Number.isFinite(rawMaxRows)
-          ? Math.min(Math.max(1, Math.round(rawMaxRows)), READ_CHAT_MAX_ROWS)
-          : READ_CHAT_DEFAULT_ROWS
-        try {
-          const page: ChatPage = beforeSeq === undefined
-            ? await windows.tail(sessionId, maxRows)
-            : await windows.before(sessionId, beforeSeq, maxRows)
-          // 每行带上**索引里那份正文**（与 documentRows 用同一个 searchableText 算）。
-          // 手机端的搜索定位只靠它能把命中落准：索引的 seq/id 来自 history 折叠，
-          // 渲染行的 seq/id 来自窗口投影，两条通道逐条并不对齐（实测命中 seq 会落到
-          // 内容完全不同的相邻消息上），而这段文本两边一字不差。
-          const pageWithSearchText: ChatPage = {
-            ...page,
-            rows: page.rows.map(row => ({ ...row, searchText: rowSearchableText(row) })),
-          }
-          // 打开会话时顺带把小读取带回去（A）：模型目录、子代理目录本来要各走
-          // 一次隧道往返，弱网下每个 150~400ms。这里在服务端并行取齐，挂在同
-          // 一个响应里；任何一项失败都不影响页面本身（缺失即让客户端按老路径
-          // 单独再取），所以 extras 是纯增益的附加字段。
-          const include = readChatInclude(body?.include)
-          if (include.length === 0) {
-            writeJson(res, 200, {
-              type: 'server-response',
-              rpcId,
-              result: { ok: true, value: pageWithSearchText },
-            })
-            return
-          }
-          const extras: Record<string, unknown> = {}
-          await Promise.all(include.map(async (name) => {
-            try {
-              // apiProxy 的每个方法都返回 RPC 信封 { rpcId, result: { ok, value } }（见
-              // api-proxy-adapter 的 call()），而 extras 要的是 value 本身。直接挂信封会让手机上
-              // 的模型目录读成 undefined，chip 和选择器全空。
-              if (name === 'models') extras['models'] = unwrapProxyValue(await apiProxy.sessions.models({ sessionId } as never))
-              else if (name === 'subagents') extras['subagents'] = unwrapProxyValue(await apiProxy.subagents.list({ parentSessionId: sessionId } as never))
-            } catch (error) {
-              console.error('mobile.readChat extra failed: ' + name, error)
-            }
-          }))
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: true, value: { ...pageWithSearchText, extras } },
-          })
-        } catch (error) {
-          // Internal failures never leak host paths or log details: a stable
-          // generic message is all the client sees (it falls back to the
-          // raw history path on this channel anyway).
-          console.error('mobile.readChat failed', error)
-          writeJson(res, 200, {
-            type: 'server-response',
-            rpcId,
-            result: { ok: false, error: { code: 'internal', message: '会话内容读取失败，请稍后重试' } },
-          })
-        }
-      }],
+      [MOBILE_READ_CHAT_METHOD, async (ctx) => mobileReadChat(ctx)],
       [MOBILE_LOG_TAIL_METHOD, async (ctx) => mobileLogTail(ctx)],
       [MOBILE_OBSERVE_METHOD, async (ctx) => mobileObserve(ctx)],
       [MOBILE_DIAGNOSTICS_METHOD, async (ctx) => {
