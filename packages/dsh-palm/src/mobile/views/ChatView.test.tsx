@@ -6439,7 +6439,7 @@ describe('ChatView 跳轮次落在提问那一行', () => {
       }, 110),
     ], { hasMore: false }))
     historyMock.mockResolvedValue(historyPage([]))
-    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('第 57 轮的回答')
     const scroller = document.querySelector('.chat-scroll')!
     userScroll(scroller, 5_000)
@@ -6447,14 +6447,8 @@ describe('ChatView 跳轮次落在提问那一行', () => {
     Object.defineProperty(handle, 'setPointerCapture', { value: () => {}, configurable: true })
     Object.defineProperty(handle, 'hasPointerCapture', { value: () => true, configurable: true })
     Object.defineProperty(handle, 'releasePointerCapture', { value: () => {}, configurable: true })
-    // 轻点打开轮次清单（不移动 = 点击）。
-    await act(async () => { fireEvent.pointerDown(handle, { pointerId: 1, clientX: 900 }) })
-    await act(async () => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900 }) })
-    // 轮次清单里点最上面那条 = 第 56 轮。jsdom 里 `role=listitem` 的可及名不稳，
-    // 直接按行元素点。
-    await waitFor(() => { expect(document.querySelectorAll('.turn-row').length).toBe(2) })
-    const item = document.querySelectorAll('.turn-row')[0] as HTMLElement
-    await act(async () => { fireEvent.click(item) })
+    // 轮次清单已迁成独立页：这里用 App 真实链路（pendingTurn）驱动同一条跳转。
+    await act(async () => { view.rerender(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} pendingTurn={{ turn: 56, seq: 99 }} onPendingTurnConsumed={() => {}} />) })
     await waitFor(() => {
       expect(document.querySelector('[data-message-id="u-56"]')?.classList.contains('chat-msg-focus')).toBe(true)
     })
@@ -6503,7 +6497,7 @@ describe('ChatView 跳轮次落在提问那一行', () => {
       },
     })
     try {
-      render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+      const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await screen.findByText('第 57 轮的回答')
       // 轮次把手只在"读者离开了底部"之后出现（滑条不是给贴着底的人用的）。
       fireEvent.scroll(document.querySelector('.chat-scroll')!, { target: { scrollTop: 5_000 } })
@@ -6511,15 +6505,15 @@ describe('ChatView 跳轮次落在提问那一行', () => {
       Object.defineProperty(handle, 'setPointerCapture', { value: () => {}, configurable: true })
       Object.defineProperty(handle, 'hasPointerCapture', { value: () => true, configurable: true })
       Object.defineProperty(handle, 'releasePointerCapture', { value: () => {}, configurable: true })
-      const jumpTo = async (row: number): Promise<void> => {
-        await act(async () => { fireEvent.pointerDown(handle, { pointerId: 1, clientX: 900 }) })
-        await act(async () => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900 }) })
-        await waitFor(() => { expect(document.querySelectorAll('.turn-row').length).toBeGreaterThan(row) })
-        await act(async () => { fireEvent.click(document.querySelectorAll('.turn-row')[row] as HTMLElement) })
+      // 轮次清单已迁成独立页：用 App 链路（pendingTurn）驱动同一条跳转。
+      const jumpTo = async (target: { turn: number; seq: number }): Promise<void> => {
+        await act(async () => {
+          view.rerender(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} pendingTurn={target} onPendingTurnConsumed={() => {}} />)
+        })
       }
-      await jumpTo(0)
+      await jumpTo({ turn: 56, seq: 99 })
       await waitFor(() => { expect(scrollWrites).toContain(1_226) })
-      await jumpTo(1)
+      await jumpTo({ turn: 57, seq: 109 })
       await waitFor(() => { expect(scrollWrites).toContain(2_092) })
       // 连跳之后落点仍在留白上：偏差不累积。
       const top = (document.querySelector('[data-message-id="u-57"]') as HTMLElement).getBoundingClientRect().top

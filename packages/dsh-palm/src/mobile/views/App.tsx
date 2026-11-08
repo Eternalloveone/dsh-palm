@@ -690,6 +690,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
 
   /** 收工浮层：当前显示的那一条（undefined＝没在显示）。 */
   const [finishToast, setFinishToast] = useState<FinishedRun | undefined>(undefined)
+  /** 大纲页点了哪一轮：回到对话后由 ChatView 消费并落位。 */
+  const [pendingTurn, setPendingTurn] = useState<{ turn: number; seq: number } | undefined>(undefined)
   /** 聊天页顶部的「别的会话跑完了」条：聊天页不弹底部浮层（会盖住输入框）。 */
   const [chatFinished, setChatFinished] = useState<FinishedRun | undefined>(undefined)
   const chatFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1336,7 +1338,10 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
               entries={route.turns}
               currentTurn={route.currentTurn}
               onBack={back}
-              onPick={() => { back() }}
+              onPick={(entry) => {
+                setPendingTurn({ turn: entry.turn, seq: entry.seq })
+                back()
+              }}
             />
             : route.kind === 'appearance'
             ? <AppearanceView onBack={back} />
@@ -1385,6 +1390,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             onDismissFinished={() => { setChatFinished(undefined) }}
             onOpenModel={() => { navigate({ kind: 'model', session: route.session, workspace: route.workspace }) }}
             onOpenDiff={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
+            pendingTurn={pendingTurn}
+            onPendingTurnConsumed={() => { setPendingTurn(undefined) }}
             onOpenOutline={(turns, currentTurn) => { navigate({ kind: 'outline', session: route.session, workspace: route.workspace, turns, currentTurn }) }}
             onOpenArtifacts={(turns) => { navigate({ kind: 'artifacts', session: route.session, workspace: route.workspace, turns }) }}
             onOpenContext={(usage) => { navigate({ kind: 'context', session: route.session, workspace: route.workspace, usage }) }}

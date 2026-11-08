@@ -104,7 +104,6 @@ export interface ChatUiState {
   /** 「更多」里的 git 面板。 */
   gitOpen: boolean
   /** 轮次列表面板。 */
-  turnListOpen: boolean
   /** 会话重命名对话框。 */
   renaming: boolean
   /** 会话删除确认。 */
@@ -116,7 +115,7 @@ export interface ChatUiState {
 /** 状态键。 */
 export const CHAT_UI_KEYS = [
   'contextOpen', 'plusOpen', 'hostFileOpen', 'commandOpen', 'moreOpen',
-  'exportOpen', 'gitOpen', 'turnListOpen', 'renaming', 'deleting', 'runStatusOpen',
+  'exportOpen', 'gitOpen', 'renaming', 'deleting', 'runStatusOpen',
 ] as const satisfies ReadonlyArray<keyof ChatUiState>
 
 /** 初值：全部关闭。 */
@@ -128,7 +127,6 @@ export const INITIAL_CHAT_UI: ChatUiState = {
   moreOpen: false,
   exportOpen: false,
   gitOpen: false,
-  turnListOpen: false,
   renaming: false,
   deleting: false,
   runStatusOpen: false,

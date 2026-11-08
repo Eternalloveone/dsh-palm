@@ -4,8 +4,8 @@
     "src/mobile-api.ts": 1629,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
-    "src/mobile/views/ChatView.tsx": 4166,
-    "src/mobile/views/App.tsx": 1454
+    "src/mobile/views/ChatView.tsx": 4191,
+    "src/mobile/views/App.tsx": 1462
   },
   "dirs": {
     "src/mobile": 63188,

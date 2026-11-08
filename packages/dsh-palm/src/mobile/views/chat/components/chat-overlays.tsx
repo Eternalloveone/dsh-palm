@@ -23,13 +23,11 @@
 import { MessageMenu } from './message-menu.tsx'
 import { SessionSheets } from './session-sheets.tsx'
 import { VoiceSheet } from './voice-sheet.tsx'
-import { TurnListSheet } from '../../../components/sheets.tsx'
 import { FilePreviewSheet } from '../../../components/file-preview-sheet.tsx'
 import { ImageLightbox } from '../../../components/image-lightbox.tsx'
 
 /** 依赖：每项对应一个浮层的完整 props（\`undefined\` = 不显示）。 */
 export interface ChatOverlaysProps {
-  turnList: Parameters<typeof TurnListSheet>[0] | undefined
   filePreview: Parameters<typeof FilePreviewSheet>[0] | undefined
   lightbox: Parameters<typeof ImageLightbox>[0] | undefined
   sessionSheets: Parameters<typeof SessionSheets>[0]
@@ -39,10 +37,9 @@ export interface ChatOverlaysProps {
 
 /** 渲染当前该出现的浮层。 */
 export function ChatOverlays(props: ChatOverlaysProps): React.ReactElement {
-  const { turnList, filePreview, lightbox, sessionSheets, voice, messageMenu } = props
+  const { filePreview, lightbox, sessionSheets, voice, messageMenu } = props
   return (
     <>
-      {turnList !== undefined && <TurnListSheet {...turnList} />}
       {filePreview !== undefined && <FilePreviewSheet {...filePreview} />}
       {lightbox !== undefined && <ImageLightbox {...lightbox} />}
       <SessionSheets {...sessionSheets} />

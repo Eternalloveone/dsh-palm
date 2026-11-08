@@ -28,7 +28,7 @@ export interface ChatEscapeDeps {
 /** 有浮层打开时，Esc 关掉全部。 */
 export function useChatEscape(deps: ChatEscapeDeps): void {
   const { ui, setters, pickerOpen, closePicker } = deps
-  const anyOpen = pickerOpen || ui.moreOpen || ui.runStatusOpen || ui.turnListOpen
+  const anyOpen = pickerOpen || ui.moreOpen || ui.runStatusOpen
     || ui.gitOpen || ui.contextOpen || ui.plusOpen || ui.commandOpen
 
   useEffect(() => {
@@ -39,7 +39,6 @@ export function useChatEscape(deps: ChatEscapeDeps): void {
       closePicker()
       setters.moreOpen(false)
       setters.runStatusOpen(false)
-      setters.turnListOpen(false)
       setters.gitOpen(false)
       setters.contextOpen(false)
       setters.plusOpen(false)

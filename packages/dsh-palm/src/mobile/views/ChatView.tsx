@@ -210,7 +210,7 @@ import { ConfirmDialog, PromptDialog } from '../components/dialog.tsx'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, MicIcon, ModelIcon, MoreIcon, PencilIcon, PlusIcon, SearchIcon, SendIcon, ShieldIcon } from '../components/icons.tsx'
 import { MessageRow } from '../render/message-row.tsx'
 import { LONG_TEXT_LIMIT, LONG_TEXT_PREVIEW } from '../render/markdown-text.tsx'
-import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusSheet, QuestionPanel, TurnListSheet, parsePermissionSelect, type PermissionSelectValue, HostFileSheet } from '../components/sheets.tsx'
+import { ApprovalPanel, CommandSheet, GitSheet, PermissionConfirmSheet, PlusSheet, QuestionPanel, parsePermissionSelect, type PermissionSelectValue, HostFileSheet } from '../components/sheets.tsx'
 import { buildEffortChoices, flattenModelChoices } from '../platform/model-choice.ts'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../session/turn-outline.ts'
@@ -265,6 +265,10 @@ export interface ChatViewProps {
   /** 打开回合大纲独立页（P6 ⑫ 屏）；不给就还开浮层。 */
   onOpenOutline?: ((entries: readonly TurnEntry[], currentTurn: number) => void) | undefined
   /** 打开单文件 diff 独立页（P6 ⑩ 屏）；不给就还走浮层预览。 */
+  /** 大纲页点了某一轮：回到对话后落位到它（由 App 置，ChatView 消费后清空）。 */
+  pendingTurn?: { turn: number; seq: number } | undefined
+  /** 消费完成回调（不清空的话返回再进会重复跳）。 */
+  onPendingTurnConsumed?: (() => void) | undefined
   onOpenDiff?: ((path: string) => void) | undefined
   /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
   onOpenModel?: (() => void) | undefined
@@ -325,6 +329,8 @@ export function ChatView({
   onOpenModel,
   onOpenDiff,
   onOpenOutline,
+  pendingTurn,
+  onPendingTurnConsumed,
   onOpenArtifacts,
   onOpenContext,
   onOpenApprovalMode,
@@ -865,8 +871,8 @@ export function ChatView({
   // 实测此前按 Esc 什么都不发生——遮罩拦着，只能去点空白处。
   // 纯界面开关收在一个 reducer 里：11 个 useState → 1 个（S1-A）。
   const [uiState, uiSetters] = useChatUi()
-  const { contextOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, turnListOpen, renaming, deleting, runStatusOpen } = uiState
-  const { contextOpen: setContextOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, turnListOpen: setTurnListOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
+  const { contextOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, renaming, deleting, runStatusOpen } = uiState
+  const { contextOpen: setContextOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
 
   // 滚动与阅读位置收进 reducer（S1-C）：4 个 useState → 1 个。
   // 它们必须同属一个状态机，否则会出现「按钮出现了但未读数没清」这类只在真机复现的错位。
@@ -2310,8 +2316,9 @@ export function ChatView({
    *  host pages END at the requested beforeSeq, and a turn's seq is its
    *  turn/start boundary — asking for it fetches everything BEFORE the turn and
    *  never the turn itself. The next boundary lands this turn's rows instead. */
+  /** 大纲页选中轮次后调用（在本函数定义之后注册，避免 TDZ 与依赖顺序问题）。 */
+  const jumpToTurnRef = useRef<((entry: TurnEntry) => void) | undefined>(undefined)
   const jumpToTurn = useCallback((entry: TurnEntry): void => {
-    setTurnListOpen(false)
     const inWindow = turnRowIndex(messagesRef.current, entry.turn, entry.seq) >= 0
     if (inWindow) {
       locateSeq(entry.seq, entry.turn)
@@ -2342,8 +2349,24 @@ export function ChatView({
    * 一句「还没载入，往上滑加载历史」，等于滑不过去（真机：「没法滑动历史轮次条到
    * 前面的轮次」）。既然用户明确指了第几轮，就翻给它，页数预算由 pending 收尾。
    */
+  jumpToTurnRef.current = jumpToTurn
+
+  /** 大纲页选中的轮次：行到位后跳过去，然后通知外部清空请求。 */
+  const consumedTurnKeyRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (pendingTurn === undefined) {
+      consumedTurnKeyRef.current = undefined
+      return
+    }
+    if (messages.length === 0) return
+    const key = `${pendingTurn.turn}:${pendingTurn.seq}`
+    if (consumedTurnKeyRef.current === key) return
+    consumedTurnKeyRef.current = key
+    jumpToTurnRef.current?.({ turn: pendingTurn.turn, seq: pendingTurn.seq, prompt: '', response: '', loaded: true })
+    onPendingTurnConsumed?.()
+  }, [pendingTurn, messages.length, onPendingTurnConsumed])
+
   const jumpToTurnNumber = useCallback((turn: number): void => {
-    setTurnListOpen(false)
     setCurrentTurn(0)
     toast('正在载入…')
     // seq = -1：这一轮的真实边界 seq 不知道，交给按轮次号匹配；-1 不会命中任何
@@ -2395,7 +2418,7 @@ export function ChatView({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     const tap = !gesture.moved
     if (tap) {
-      setTurnListOpen(true)
+      onOpenOutline?.(turnEntries, shownTurn)
       return
     }
     // 轴上的位置是绝对轮次（index + 1），不是数组下标。大纲里没有这一轮（手机上
@@ -3970,7 +3993,7 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
           onScrubMove={moveScrub}
           onScrubUp={endScrub}
           onScrubCancel={cancelScrub}
-          onOpenTurnList={() => { if (onOpenOutline === undefined) setTurnListOpen(true); else onOpenOutline(turnEntries, shownTurn) }}
+          onOpenTurnList={() => { onOpenOutline?.(turnEntries, shownTurn) }}
           onJumpLatest={jumpToLatest}
         />
       </div>
@@ -4125,7 +4148,6 @@ emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
         />
       )}
       <ChatOverlays
-        turnList={turnListOpen ? { entries: turnEntries, currentTurn: shownTurn, onPick: jumpToTurn, onClose: () => { setTurnListOpen(false) } } : undefined}
         filePreview={previewPath !== null ? { path: previewPath, sessionId: session.sessionId, onClose: () => { setPreviewPath(null) } } : undefined}
         lightbox={lightboxSrc !== null ? { src: lightboxSrc, alt: '聊天图片', onClose: () => { setLightboxSrc(null) } } : undefined}
         sessionSheets={{
