@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dsh-palm 手机端 · 入口总览</title>
+<style>
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#06060a;color:#e9ebf2;font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .doc{padding:24px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{font-size:12px;color:#6f7482;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(4,300px);gap:22px}
+  .cell{}
+  .cap{font-size:11.5px;color:#8b90a0;margin:0 0 7px 2px;display:flex;gap:6px;align-items:center}
+  .cap b{color:#dfe3ee;font-weight:600;font-size:12px}
+
+  /* 手机框：300 宽（0.77 缩放视觉） */
+  .p{position:relative;width:300px;height:620px;border-radius:30px;overflow:hidden;background:#0b0b10;box-shadow:0 18px 44px rgba(0,0,0,.7),0 0 0 7px #16161d}
+  .st{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:10px;font-weight:600;color:#cfd4e0}
+  .st .i{font-size:8px;opacity:.7}
+
+  .nav{display:flex;align-items:center;gap:7px;padding:0 11px 2px;height:30px}
+  .nb{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#9aa0ae;font-size:11px;flex:none}
+  .nt{flex:1;text-align:center;min-width:0}
+  .nt b{display:block;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nt span{display:block;font-size:8.5px;color:#666c7a;margin-top:1px}
+
+  /* 正文流 */
+  .flow{position:absolute;inset:64px 0 92px;overflow:hidden;padding:4px 14px 0}
+  .trow{display:flex;align-items:center;gap:5px;font-size:9.5px;color:#666c7a}
+  .trow .s{width:6px;height:6px;border-radius:999px;background:#3ddc84;flex:none}
+  .trow b{color:#9aa0ae;font-weight:500}
+  .trow .t{margin-left:auto;font-variant-numeric:tabular-nums}
+  .goal{font-size:12px;font-weight:600;line-height:1.4;margin-top:7px}
+  .bmeta{display:flex;gap:5px;margin-top:7px;font-size:9px;color:#666c7a}
+
+  /* 状态条 32px + 刻度轨 */
+  .strip{position:relative;height:32px;border-radius:11px;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06);margin-top:9px}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:11px 0 0 11px;width:100%;background:linear-gradient(100deg,#0d5033,#177a4a 52%,#2b2a72)}
+  .fill::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,0) 60%)}
+  .srow{position:absolute;inset:0;display:flex;align-items:center;gap:7px;padding:0 9px;z-index:3}
+  .pet{width:18px;height:18px;flex:none}
+  .stx{font-size:9.5px;color:#f4f6fb;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stx b{font-weight:600}
+  .srt{font-size:8.5px;color:rgba(255,255,255,.8);flex:none}
+  .rail{display:flex;gap:2px;margin-top:4px}
+  .rail i{height:4px;border-radius:2px;background:rgba(255,255,255,.1);flex:1}
+  .rail i.on{background:linear-gradient(90deg,#2fbf74,#3ddc84)}
+  .rail i.now{background:linear-gradient(90deg,#4b4ae0,#7c8cff)}
+
+  .steps{padding-top:8px}
+  .sp{display:flex;gap:7px;font-size:10px;color:#9aa0ae;align-items:baseline;padding:3px 0}
+  .sp .ii{width:10px;flex:none;font-size:8.5px;color:#666c7a}
+
+  .res{padding-top:9px;border-top:1px solid rgba(255,255,255,.07);margin-top:8px;font-size:10.5px;line-height:1.6}
+  .res p{margin:0 0 6px}
+  .res code{font-family:ui-monospace,Menlo,monospace;font-size:9px;background:rgba(255,255,255,.06);border-radius:3px;padding:0 3px;color:#b8c0ff}
+
+  .card{margin-top:9px;border:1px solid rgba(61,220,132,.22);border-radius:11px;background:linear-gradient(180deg,rgba(61,220,132,.06),rgba(20,20,27,.9));overflow:hidden}
+  .ch{display:flex;align-items:center;gap:6px;padding:8px 9px 7px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .ch .ck{width:14px;height:14px;border-radius:999px;background:rgba(61,220,132,.16);color:#3ddc84;display:flex;align-items:center;justify-content:center;font-size:8px;flex:none}
+  .ch b{font-size:10px;font-weight:600}
+  .ch .m{margin-left:auto;font-size:8.5px;color:#666c7a}
+  .crow{display:flex;align-items:center;gap:6px;padding:6px 9px;font-size:9.5px}
+  .crow + .crow{border-top:1px solid rgba(255,255,255,.04)}
+  .crow .fi{width:12px;flex:none;text-align:center;font-size:8.5px;color:#9aa0ae}
+  .crow .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .crow .dt{font-family:ui-monospace,Menlo,monospace;font-size:8px;flex:none}
+  .add{color:#3ddc84} .del{color:#ff6b81}
+  .crow .tg{font-size:7.5px;padding:1px 4px;border-radius:3px;flex:none;background:rgba(61,220,132,.14);color:#3ddc84}
+  .crow .tg.m{background:rgba(124,140,255,.14);color:#7c8cff}
+  .cbar{display:flex;gap:9px;padding:7px 9px;border-top:1px solid rgba(255,255,255,.05);font-size:8.5px;color:#666c7a}
+  .cbar b{color:#9aa0ae;font-size:9.5px}
+
+  /* 输入区 */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:7px 0 13px;background:rgba(11,11,16,.98);border-top:1px solid rgba(255,255,255,.07)}
+  .row{display:flex;align-items:center;gap:7px;padding:0 13px}
+  .plus{width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.11);display:flex;align-items:center;justify-content:center;color:#9aa0ae;font-size:13px;flex:none}
+  .field{flex:1;height:28px;border-radius:14px;background:#14141b;border:1px solid rgba(255,255,255,.07);display:flex;align-items:center;padding:0 10px;font-size:10px;color:#666c7a}
+  .send{width:28px;height:28px;border-radius:999px;background:#7c8cff;display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;font-size:12px;flex:none}
+  .meta{display:flex;align-items:center;gap:8px;padding:7px 13px 0;height:24px}
+  .chip{display:inline-flex;align-items:center;height:19px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.045);font-size:8.5px;color:#9aa0ae}
+  .chip .d{width:1px;height:7px;background:rgba(255,255,255,.14);margin:0 6px}
+  .mrt{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:8.5px;color:#666c7a}
+  .ring{width:8px;height:8px;border-radius:999px;border:1.5px solid rgba(124,140,255,.3);border-top-color:#7c8cff;display:inline-block;box-sizing:border-box}
+
+  /* 抽屉 */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+  .drawer{position:absolute;top:0;bottom:0;left:0;width:238px;background:#14141b;border-radius:0 20px 20px 0;display:flex;flex-direction:column;padding-top:34px}
+  .dh{display:flex;align-items:center;gap:8px;padding:2px 14px 10px}
+  .ava{width:28px;height:28px;border-radius:9px;background:linear-gradient(140deg,#7c8cff,#a78bfa);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;font-size:11px;flex:none}
+  .dh b{display:block;font-size:11px}
+  .dh span{display:block;font-size:8.5px;color:#666c7a;margin-top:1px}
+  .newb{margin:0 12px 8px;height:30px;border-radius:9px;background:#7c8cff;color:#0b0b12;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600}
+  .srch{margin:0 12px 4px;height:26px;border-radius:8px;background:#181820;display:flex;align-items:center;padding:0 9px;font-size:9.5px;color:#666c7a}
+  .dsec{padding:9px 14px 4px;font-size:8.5px;color:#666c7a}
+  .conv{display:flex;align-items:center;gap:7px;margin:0 6px;padding:7px 8px;border-radius:8px;font-size:10px;color:#9aa0ae}
+  .conv.on{background:#20202b;color:#e9ebf2}
+  .conv .ti{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .conv .tm{font-size:8px;color:#666c7a;flex:none}
+  .mini{width:74px;height:16px;border-radius:6px;position:relative;overflow:hidden;background:#101016;border:1px solid rgba(255,255,255,.06);flex:none}
+  .mini .f{position:absolute;left:0;top:0;bottom:0}
+  .mini .t{position:absolute;inset:0;display:flex;align-items:center;padding:0 5px;font-size:7.5px;color:rgba(255,255,255,.85)}
+  .dfoot{margin-top:auto;border-top:1px solid rgba(255,255,255,.07);padding:6px 10px 12px}
+  .frow{display:flex;align-items:center;gap:8px;height:32px;padding:0 6px;font-size:10px;color:#9aa0ae}
+  .frow .k{margin-left:auto;font-size:8.5px;color:#666c7a}
+
+  /* 设置 */
+  .setwrap{position:absolute;inset:64px 0 0;overflow:hidden;padding:6px 13px 0}
+  .search2{height:30px;border-radius:10px;background:#14141b;border:1px solid rgba(255,255,255,.07);display:flex;align-items:center;padding:0 10px;font-size:10px;color:#666c7a}
+  .grp{margin-top:12px}
+  .grph{display:flex;align-items:center;font-size:8.5px;color:#666c7a;margin:0 2px 5px}
+  .grph .r{margin-left:auto}
+  .grpc{background:#14141b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden}
+  .srow2{display:flex;align-items:center;gap:8px;padding:8px 9px;font-size:10px;color:#e9ebf2}
+  .srow2 + .srow2{border-top:1px solid rgba(255,255,255,.05)}
+  .sico{width:18px;height:18px;border-radius:6px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:9px;color:#9aa0ae;flex:none}
+  .srow2 .sub2{font-size:8px;color:#666c7a;margin-top:1px}
+  .srow2 .v{margin-left:auto;font-size:9px;color:#666c7a;flex:none}
+
+  /* 外观 */
+  .skins{display:flex;gap:8px;margin-top:8px}
+  .skin{flex:1;border-radius:9px;border:1px solid rgba(255,255,255,.07);background:#14141b;padding:7px;text-align:center}
+  .skin.on{border-color:rgba(124,140,255,.55);box-shadow:0 0 0 2px rgba(124,140,255,.14)}
+  .sw{height:44px;border-radius:7px;margin-bottom:5px}
+  .skin .nm{font-size:9px;color:#e9ebf2}
+  .skin .dm{font-size:7.5px;color:#666c7a;margin-top:1px}
+
+  /* 产物 */
+  .artsec{font-size:8.5px;color:#666c7a;margin:10px 0 5px}
+  .artrow{display:flex;align-items:center;gap:7px;padding:8px 9px;background:#14141b;border:1px solid rgba(255,255,255,.07);border-radius:9px;font-size:10px;margin-bottom:5px}
+  .artrow .fi{width:14px;flex:none;text-align:center;font-size:9px;color:#9aa0ae}
+  .artrow .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .artrow .tg{font-size:7.5px;padding:1px 4px;border-radius:3px;flex:none}
+
+  /* 审批 */
+  .appr{padding:6px 13px 0}
+  .acode{margin-top:8px;background:#0f0f15;border:1px solid rgba(255,255,255,.07);border-radius:9px;padding:9px;font-family:ui-monospace,Menlo,monospace;font-size:9px;line-height:1.6;color:#e0e4ee}
+  .awarn{margin-top:8px;display:flex;gap:6px;align-items:center;background:rgba(224,165,44,.1);border:1px solid rgba(224,165,44,.22);border-radius:8px;padding:7px 9px;font-size:9px;color:#e0a52c}
+  .abtns{display:flex;gap:8px;margin-top:10px}
+  .abtn{flex:1;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600}
+  .abtn.ok{background:rgba(61,220,132,.16);color:#3ddc84;border:1px solid rgba(61,220,132,.3)}
+  .abtn.no{background:rgba(255,107,129,.14);color:#ff6b81;border:1px solid rgba(255,107,129,.3)}
+  .ameta{font-size:9px;color:#9aa0ae;line-height:1.7;margin-top:8px}
+  .ameta .k{color:#666c7a}
+
+  /* 搜索 */
+  .sbox{height:32px;border-radius:10px;background:#14141b;border:1px solid rgba(124,140,255,.4);display:flex;align-items:center;padding:0 10px;font-size:10px;color:#e9ebf2;gap:6px}
+  .sres{margin-top:9px}
+  .srow3{padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:10px}
+  .srow3 .tt{color:#e9ebf2}
+  .srow3 .frag{font-size:9px;color:#666c7a;margin-top:3px}
+  .srow3 .frag em{font-style:normal;color:#7c8cff}
+
+  /* 空态 */
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:0 30px;text-align:center}
+  .eico{width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;font-size:16px;color:#9aa0ae}
+  .et{font-size:11.5px;font-weight:600}
+  .ed{font-size:9px;color:#666c7a;line-height:1.6}
+  .ebtn{margin-top:4px;height:28px;padding:0 14px;border-radius:9px;background:#7c8cff;color:#0b0b12;display:flex;align-items:center;font-size:10px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>dsh-palm 手机端 · 入口总览</h1>
+  <p class="sub">同一套设计语言：无卡片化正文流 + 唯一交付卡 + 32px 状态条 + 底部 C 案输入区。比例按 300×620 等比缩小展示。</p>
+
+  <div class="grid">
+
+    <!-- 1 抽屉 -->
+    <div class="cell">
+      <div class="cap"><b>1 · 会话抽屉</b>左滑出</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="scrim"></div>
+        <div class="drawer">
+          <div class="dh"><div class="ava">d</div><div><b>dsh-palm</b><span>D:\work\dsh-palm</span></div></div>
+          <div class="newb">＋ 新建会话</div>
+          <div class="srch">⌕ 搜索会话和消息</div>
+          <div class="dsec">今天</div>
+          <div class="conv on"><span class="ti">修复移动端跳转</span>
+            <div class="mini"><div class="f" style="width:64%;background:linear-gradient(90deg,#0f3a55,#1a6f96)"></div><div class="t">跑测试 38s</div></div>
+          </div>
+          <div class="conv"><span class="ti">UI 完全重构方案</span>
+            <div class="mini"><div class="f" style="width:100%;background:linear-gradient(90deg,#0d5033,#177a4a)"></div><div class="t">✓ 完成</div></div>
+          </div>
+          <div class="dsec">昨天</div>
+          <div class="conv"><span class="ti">排查 UI 崩溃原因</span>
+            <div class="mini"><div class="f" style="width:28%;background:linear-gradient(90deg,#5a3f08,#8a6318)"></div><div class="t">等你就绪</div></div>
+          </div>
+          <div class="conv"><span class="ti">双端问题面板同步</span>
+            <div class="mini"><div class="f" style="width:4%;background:#25252f"></div><div class="t">排队中</div></div>
+          </div>
+          <div class="dfoot">
+            <div class="frow">⚙ 设置<span class="k">外观 · 模型</span></div>
+            <div class="frow">▤ 产物与文档<span class="k">按任务归档</span></div>
+            <div class="frow">◎ 用量<span class="k">$0.49</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 正文 -->
+    <div class="cell">
+      <div class="cap"><b>2 · 会话正文</b>任务头 + 正文 + 交付卡</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm</span></div><div class="nb">⋯</div></div>
+        <div class="flow">
+          <div class="trow"><span class="s"></span><b>已完成</b><span>· 7 步 / 7 步</span><span class="t">12.4s</span></div>
+          <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+          <div class="strip"><div class="fill"></div>
+            <div class="srow"><svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="10" ry="9.2" fill="#06170e" stroke="#c8f8db" stroke-width="2.2"/><path d="M11 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M15.8 14.6 q1.6 -2 3.2 0" stroke="#c8f8db" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+              <div class="stx"><b>完成 · 7 步</b></div><div class="srt">12.4s</div></div></div>
+          <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          <div class="steps">
+            <div class="sp"><span class="ii">▸</span><span>7 步过程 · 31 次工具调用</span></div>
+          </div>
+          <div class="res">
+            <p>命中率从 <b>6/11 提到 9/11</b>。根因是滑动窗口只能往前翻，跳转把窗口推到会话开头后，新的命中永远够不到。</p>
+            <p>改了三处：<code>jumpWindowTo</code> 收尾后重置 <code>pendingTurnSeqRef</code>。</p>
+          </div>
+          <div class="card">
+            <div class="ch"><span class="ck">✓</span><b>交付完成</b><span class="m">12.4s · 7 步</span></div>
+            <div class="crow"><span class="fi">▤</span><span class="fn">跳转排查说明.md</span><span class="tg">交付物</span></div>
+            <div class="crow"><span class="fi">✎</span><span class="fn">chat/jump-window.ts</span><span class="dt"><span class="add">+18</span> <span class="del">−6</span></span><span class="tg m">修改</span></div>
+            <div class="cbar"><span><b>12</b> 个文件</span><span><b>+214</b> <span class="del">−86</span></span><span><b>2,923</b> 测试</span></div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="plus">+</div><div class="field">说点什么…</div><div class="send">↑</div></div>
+          <div class="meta"><span class="chip">v4.1-flash<span class="d"></span>完全访问</span><span class="mrt"><span>空闲</span><span><span class="ring"></span> 44%</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 交付详情 -->
+    <div class="cell">
+      <div class="cap"><b>3 · 交付详情</b>点开交付卡</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">‹</div><div class="nt"><b>交付详情</b><span>第 3 个任务 · 12.4s</span></div><div class="nb">⋯</div></div>
+        <div class="setwrap">
+          <div class="cbar" style="padding:0 0 10px"><span><b>12</b> 个文件</span><span><b>+214</b> <span class="del">−86</span></span><span><b>2,923</b> 测试</span></div>
+          <div class="artsec" style="margin-top:0">交付物 · 1</div>
+          <div class="artrow" style="border-color:rgba(61,220,132,.22);background:rgba(61,220,132,.05)"><span class="fi">▤</span><span class="fn">跳转排查说明.md</span><span class="tg" style="background:rgba(61,220,132,.14);color:#3ddc84">交付物</span></div>
+          <div class="artsec">新增 · 2</div>
+          <div class="artrow"><span class="fi">＋</span><span class="fn">chat/jump-window.ts</span><span class="dt add" style="font-size:8px">+96</span></div>
+          <div class="artrow"><span class="fi">＋</span><span class="fn">chat/jump-window.test.ts</span><span class="dt add" style="font-size:8px">+54</span></div>
+          <div class="artsec">修改 · 10</div>
+          <div class="artrow"><span class="fi">✎</span><span class="fn">views/ChatView.tsx</span><span class="dt" style="font-size:8px"><span class="add">+6</span> <span class="del">−12</span></span></div>
+          <div class="artrow"><span class="fi">✎</span><span class="fn">styles/240-toolbar.css</span><span class="dt" style="font-size:8px"><span class="add">+22</span> <span class="del">−31</span></span></div>
+          <div class="artrow"><span class="fi">✎</span><span class="fn">platform/budget.json</span><span class="dt" style="font-size:8px"><span class="add">+1</span> <span class="del">−1</span></span></div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="plus">+</div><div class="field">追问这一轮…</div><div class="send">↑</div></div>
+          <div class="meta"><span class="chip">提交 8a8e13b<span class="d"></span>已推送</span><span class="mrt"><span><span class="ring"></span> 44%</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 设置 -->
+    <div class="cell">
+      <div class="cap"><b>4 · 设置</b>分组卡片 + 图标方块</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">‹</div><div class="nt"><b>设置</b><span>dsh-palm</span></div><div class="nb"></div></div>
+        <div class="setwrap">
+          <div class="search2">⌕ 搜索设置…</div>
+          <div class="grp"><div class="grph">外观<span class="r">显示效果</span></div>
+            <div class="grpc">
+              <div class="srow2"><span class="sico">◑</span><span>主题<span class="sub2">当前 深色</span></span><span class="v">深色 ›</span></div>
+              <div class="srow2"><span class="sico">A</span><span>字号<span class="sub2">标准</span></span><span class="v">中 ›</span></div>
+              <div class="srow2"><span class="sico">▤</span><span>外观与皮肤<span class="sub2">石墨 · 选中</span></span><span class="v">›</span></div>
+            </div>
+          </div>
+          <div class="grp"><div class="grph">对话<span class="r">行为</span></div>
+            <div class="grpc">
+              <div class="srow2"><span class="sico">⚙</span><span>模型与思考</span><span class="v">v4.1-flash ›</span></div>
+              <div class="srow2"><span class="sico">🛡</span><span>批准方式</span><span class="v">完全访问 ›</span></div>
+            </div>
+          </div>
+          <div class="grp"><div class="grph">其他</div>
+            <div class="grpc">
+              <div class="srow2"><span class="sico">◎</span><span>用量</span><span class="v">$0.49 ›</span></div>
+              <div class="srow2"><span class="sico">?</span><span>关于</span><span class="v">1.7.1 ›</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 外观 -->
+    <div class="cell">
+      <div class="cap"><b>5 · 外观</b>三张皮肤卡</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">‹</div><div class="nt"><b>外观</b><span>皮肤与配色</span></div><div class="nb"></div></div>
+        <div class="setwrap">
+          <div class="grph" style="margin:2px 2px 6px">皮肤</div>
+          <div class="skins">
+            <div class="skin on"><div class="sw" style="background:linear-gradient(140deg,#15151c,#7c8cff)"></div><div class="nm">石墨</div><div class="dm">选中</div></div>
+            <div class="skin"><div class="sw" style="background:linear-gradient(140deg,#faf8f4,#8a5a2b)"></div><div class="nm">纸</div><div class="dm">浅色</div></div>
+            <div class="skin"><div class="sw" style="background:linear-gradient(140deg,#0f1520,#22d3ee)"></div><div class="nm">夜航</div><div class="dm">冷色</div></div>
+          </div>
+          <div class="grp"><div class="grph">字号</div>
+            <div class="grpc"><div class="srow2"><span>标准 14px</span><span class="v">›</span></div>
+            <div class="srow2"><span>大 17px</span><span class="v">›</span></div></div>
+          </div>
+          <div class="grp"><div class="grph">密度</div>
+            <div class="grpc"><div class="srow2"><span>紧凑</span><span class="v">›</span></div>
+            <div class="srow2"><span>宽松（当前）</span><span class="v">›</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 产物 -->
+    <div class="cell">
+      <div class="cap"><b>6 · 产物</b>按任务分组 + 类型标签</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">‹</div><div class="nt"><b>产物</b><span>按任务归档</span></div><div class="nb">⋯</div></div>
+        <div class="setwrap">
+          <div style="font-size:9px;color:#666c7a">这一轮产生的东西都在这里，点开看内容。</div>
+          <div class="artsec">第 3 个任务 · 2 个文件 ›</div>
+          <div class="artrow"><span class="fi">▤</span><span class="fn">跳转排查说明.md</span><span class="tg" style="background:rgba(61,220,132,.14);color:#3ddc84">交付物</span></div>
+          <div class="artrow"><span class="fi">✎</span><span class="fn">chat/jump-window.ts</span><span class="tg" style="background:rgba(124,140,255,.14);color:#7c8cff">改动</span></div>
+          <div class="artsec">第 2 个任务 · 4 个文件 ›</div>
+          <div class="artrow"><span class="fi">▤</span><span class="fn">工具栏修复说明.md</span><span class="tg" style="background:rgba(61,220,132,.14);color:#3ddc84">交付物</span></div>
+          <div class="artrow"><span class="fi">✎</span><span class="fn">chat/toolbar-scroll.ts</span><span class="tg" style="background:rgba(124,140,255,.14);color:#7c8cff">改动</span></div>
+          <div class="artrow"><span class="fi">✎</span><span class="fn">styles/240-toolbar.css</span><span class="tg" style="background:rgba(124,140,255,.14);color:#7c8cff">改动</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 审批 -->
+    <div class="cell">
+      <div class="cap"><b>7 · 审批</b>命令块 + 风险条 + 双按钮</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">‹</div><div class="nt"><b>需要你批准</b><span>修复移动端跳转</span></div><div class="nb">⋯</div></div>
+        <div class="appr">
+          <div class="ameta"><span class="k">工具</span> 运行命令<br><span class="k">风险</span> 会删除目录内容</div>
+          <div class="acode">rm -rf dist<br>pnpm build</div>
+          <div class="awarn">⚠ 这条命令会删掉 dist 目录，不可撤销</div>
+          <div class="abtns"><div class="abtn no">拒绝</div><div class="abtn ok">批准 · 按住 1.5s</div></div>
+          <div class="ameta" style="color:#666c7a">不处理也不会自己往下走，等你决定。</div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="plus">+</div><div class="field">先说点什么…</div><div class="send">↑</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 搜索 -->
+    <div class="cell">
+      <div class="cap"><b>8 · 搜索</b>独立页 · 自动聚焦</div>
+      <div class="p">
+        <div class="st"><span>9:41</span><span class="i">●●● ▮</span></div>
+        <div class="nav"><div class="nb">‹</div><div class="nt"><b>搜索</b><span>会话与消息</span></div><div class="nb"></div></div>
+        <div class="setwrap">
+          <div class="sbox">⌕ 跳转<span style="margin-left:auto;color:#666c7a">取消</span></div>
+          <div class="sres">
+            <div class="srow3"><div class="tt">修复移动端跳转</div><div class="frag">…确认是<em>跳转</em>窗口回翻的问题…</div></div>
+            <div class="srow3"><div class="tt">排查 dsh palm UI 崩溃原因</div><div class="frag">…<em>跳转</em>后页面白屏…</div></div>
+            <div class="srow3"><div class="tt">重构方案评价与优化</div><div class="frag">…消息<em>跳转</em>命中率 6/11…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
