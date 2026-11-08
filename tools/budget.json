@@ -8,14 +8,14 @@
     "src/mobile/views/App.tsx": 1454
   },
   "dirs": {
-    "src/mobile": 63114,
+    "src/mobile": 63188,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
-    "src/mobile/kernels": 1040,
+    "src/mobile/kernels": 1100,
     "src/mobile/message-row": 958,
     "src/mobile/platform": 4540,
     "src/mobile/projections": 530,
@@ -51,7 +51,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/kernels": {
-      "reason": "P3/P6 内核：host-bridge、app-frame-slice、preview-slice、list-cache-slice、page-stack（各带单测）；视图改接完成后旧实现删除，本值回落",
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/views": {

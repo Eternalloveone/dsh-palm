@@ -14,6 +14,7 @@ import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
 import { handleAppFrame } from '../kernels/app-frame-slice.ts'
 import { createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
+import { transitionOf, TRANSITION_MS } from '../kernels/transition.ts'
 import { createHostBridge } from '../kernels/host-bridge.ts'
 import { MuxClient } from '../stream/mux.ts'
 import { startNotify, stopNotify } from '../platform/notify.ts'
@@ -574,8 +575,8 @@ interface TransitionState {
   leaving: RoutedState | undefined
 }
 
-/** How long the parallax transition runs (matches the CSS animation). */
-const PAGE_TRANSITION_MS = 260
+/** How long the parallax transition runs (matches the CSS animation; 时长只有内核一份)。 */
+const PAGE_TRANSITION_MS = TRANSITION_MS.forward
 
 /** How often the open chat re-asserts its host-side observation (v3.4). */
 const OBSERVE_REFRESH_MS = 30_000
@@ -845,7 +846,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       stackRef.current = pushPage(stackRef.current, routeKeyOf(next), next)
     }
     setTransition(previous => {
-      const nextForward = ROUTE_DEPTH[next.kind] >= ROUTE_DEPTH[previous.current.route.kind]
+      const nextForward = transitionOf(ROUTE_DEPTH[previous.current.route.kind], ROUTE_DEPTH[next.kind]) !== 'back'
       return {
         current: { route: next, forward: nextForward },
         leaving: previous.current,
