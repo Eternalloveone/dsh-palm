@@ -39,3 +39,6 @@ export const USAGE_CACHE_TTL_MS = 60_000
 
 /** 会话快照的陈旧期：超过 TTL 但还在这个窗口内，先给旧值再后台刷新。 */
 export const SESSION_SNAPSHOT_STALE_MS = 5 * 60_000
+
+/** 会话内搜索最多回多少处命中（多取一条判 hasMore）。 */
+export const CHAT_SEARCH_HITS = 200
