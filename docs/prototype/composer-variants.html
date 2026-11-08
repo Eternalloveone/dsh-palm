@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>输入区三方案</title>
+<style>
+  :root{
+    --bg:#0d0d12; --sur1:#15151c; --sur2:#1c1c25;
+    --line:rgba(255,255,255,.07);
+    --fg:#eceef5; --fg2:#a6abb9; --fg3:#6f7482;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:22px;padding:22px;width:max-content}
+  .col{width:390px}
+  .label{font-size:12px;color:#8a8f9c;margin:0 0 8px 6px}
+  .phone{position:relative;width:390px;height:844px;border-radius:42px;overflow:hidden;background:var(--bg);box-shadow:0 26px 70px rgba(0,0,0,.7),0 0 0 9px #1a1a1f}
+  .status{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12.5px;font-weight:600}
+  .status .i{font-size:10px;opacity:.8}
+  .nav{display:flex;align-items:center;gap:9px;padding:0 12px 6px}
+  .nb{width:34px;height:34px;border-radius:10px;background:var(--sur1);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:14px}
+  .nt{flex:1;text-align:center}
+  .nt b{display:block;font-size:14.5px}
+  .nt span{display:block;font-size:10px;color:var(--fg3);margin-top:1px}
+
+  .feed{position:absolute;inset:100px 14px auto;display:flex;flex-direction:column;gap:10px}
+  .turn{border:1px solid var(--line);border-radius:15px;background:var(--sur1);overflow:hidden}
+  .turn-hd{display:flex;align-items:center;gap:7px;padding:11px 13px 9px;font-size:11.5px;color:var(--fg3)}
+  .dot{width:7px;height:7px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 3px rgba(124,140,255,.18)}
+  .turn-hd b{color:var(--fg2)}
+  .turn-hd .clock{margin-left:auto;color:var(--accent);font-variant-numeric:tabular-nums;font-weight:600}
+  .goal{margin:0 13px 9px;padding:8px 10px;border-radius:10px;background:rgba(124,140,255,.09);border:1px solid rgba(124,140,255,.2);font-size:12px;color:#bcc3ff}
+  .step{display:flex;gap:8px;padding:8px 13px;font-size:12px;border-top:1px solid rgba(255,255,255,.045);color:var(--fg2)}
+  .step .s-ico{width:14px;flex:none;color:var(--ok)}
+  .step.run .s-ico{color:var(--accent)}
+  .step .m{margin-left:auto;font-size:10px;color:var(--fg3)}
+  .fold{border:1px solid var(--line);border-radius:15px;background:var(--sur1);display:flex;align-items:center;gap:9px;padding:12px 13px;font-size:12.5px}
+  .fold .t{flex:1;color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fold .m{font-size:10.5px;color:var(--fg3)}
+
+  /* ── 输入区：三套 ── */
+
+  /* A 极简：无容器，输入行 + 一行灰字 */
+  .dockA{position:absolute;left:0;right:0;bottom:0;padding:8px 14px 24px;background:linear-gradient(180deg,rgba(13,13,18,0),rgba(13,13,18,.97) 22%)}
+  .rowA{display:flex;align-items:center;gap:8px}
+  .plus{width:38px;height:38px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:17px;flex:none}
+  .field{flex:1;height:38px;border-radius:999px;background:var(--sur1);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--fg3)}
+  .send{width:38px;height:38px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;flex:none}
+  .metaA{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg3);margin-top:8px;padding:0 4px}
+  .metaA .dotSep{width:3px;height:3px;border-radius:999px;background:var(--fg3);opacity:.6}
+  .metaA .hi{color:var(--fg2)}
+  .metaA .right{margin-left:auto;display:inline-flex;align-items:center;gap:5px;color:var(--fg2)}
+  .metaA .ring{width:11px;height:11px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block}
+  .queueA{margin-bottom:7px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);background:rgba(224,165,44,.09);border:1px solid rgba(224,165,44,.2);border-radius:9px;padding:6px 9px}
+
+  /* B 浮起面板：整块圆角面板，含输入 + 元信息 */
+  .dockB{position:absolute;left:10px;right:10px;bottom:16px}
+  .panel{background:var(--sur2);border:1px solid rgba(255,255,255,.09);border-radius:22px;padding:8px 8px 8px 12px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+  .panel .row{display:flex;align-items:center;gap:8px}
+  .panel .field{background:transparent;border:0;height:36px;padding:0}
+  .panel .plus{width:32px;height:32px;border:0;background:rgba(255,255,255,.06)}
+  .panel .send{width:32px;height:32px;font-size:15px}
+  .panelFoot{display:flex;align-items:center;gap:6px;padding:4px 6px 0;font-size:10.5px;color:var(--fg3)}
+  .panelFoot .right{margin-left:auto;display:inline-flex;align-items:center;gap:5px}
+  .panelFoot .ring{width:10px;height:10px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent)}
+  .queueB{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--warn);padding:6px 10px 2px}
+
+  /* C 单行内嵌：所有信息塞进输入框内下沿 */
+  .dockC{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 26px;background:rgba(13,13,18,.98);border-top:1px solid var(--line)}
+  .wrapC{background:var(--sur1);border:1px solid var(--line);border-radius:20px;padding:9px 10px 7px}
+  .wrapC .top{display:flex;align-items:center;gap:8px}
+  .wrapC .field{background:transparent;border:0;padding:0;height:34px}
+  .wrapC .bottom{display:flex;align-items:center;gap:7px;padding:6px 2px 0;font-size:10.5px;color:var(--fg3)}
+  .wrapC .bottom .right{margin-left:auto;display:inline-flex;gap:8px;align-items:center}
+  .miniPill{height:20px;display:inline-flex;align-items:center;gap:5px;padding:0 7px;border-radius:999px;background:rgba(255,255,255,.05);color:var(--fg3);font-size:10.5px}
+  .miniPill b{color:var(--fg2);font-weight:500}
+  .queueC{display:inline-flex;align-items:center;gap:4px;color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- A 极简 -->
+  <div class="col">
+    <p class="label">A · 极简（推荐）：只剩输入行 + 一行灰字</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div><div class="nb">⋯</div></div>
+      <div class="feed">
+        <div class="turn">
+          <div class="turn-hd"><span class="dot"></span><b>正在做</b><span>第 42 轮</span><span class="clock">00:12</span></div>
+          <div class="goal">🎯 目标：让消息链接跳转命中率 ≥ 9/11</div>
+          <div class="step"><span class="s-ico">✓</span>读文件 · ChatView.tsx<span class="m">0.6s</span></div>
+          <div class="step run"><span class="s-ico">⟳</span>改文件 · jumpWindowTo<span class="m">进行中</span></div>
+        </div>
+        <div class="fold"><span style="width:7px;height:7px;border-radius:999px;background:var(--ok)"></span><span class="t">上一轮：工具栏按钮塌陷</span><span class="m">8s · 3 工具</span><span style="color:var(--fg3);font-size:10px">›</span></div>
+      </div>
+      <div class="dockA">
+        <div class="queueA">⧉ 2 条排队中，当前任务结束后按顺序执行</div>
+        <div class="rowA"><div class="plus">+</div><div class="field">说点什么…</div><div class="send">↑</div></div>
+        <div class="metaA">
+          <span class="hi">v4.1-flash</span><span class="dotSep"></span><span>完全访问</span><span class="dotSep"></span><span>⏱ 00:12</span>
+          <span class="right"><span class="ring"></span>44%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B 浮起面板 -->
+  <div class="col">
+    <p class="label">B · 浮起面板：整块圆角卡片托住输入</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div><div class="nb">⋯</div></div>
+      <div class="feed">
+        <div class="turn">
+          <div class="turn-hd"><span class="dot"></span><b>正在做</b><span>第 42 轮</span><span class="clock">00:12</span></div>
+          <div class="goal">🎯 目标：让消息链接跳转命中率 ≥ 9/11</div>
+          <div class="step"><span class="s-ico">✓</span>读文件 · ChatView.tsx<span class="m">0.6s</span></div>
+          <div class="step run"><span class="s-ico">⟳</span>改文件 · jumpWindowTo<span class="m">进行中</span></div>
+        </div>
+        <div class="fold"><span style="width:7px;height:7px;border-radius:999px;background:var(--ok)"></span><span class="t">上一轮：工具栏按钮塌陷</span><span class="m">8s · 3 工具</span><span style="color:var(--fg3);font-size:10px">›</span></div>
+      </div>
+      <div class="dockB">
+        <div class="panel">
+          <div class="queueB">⧉ 2 条排队</div>
+          <div class="row"><div class="plus">+</div><div class="field">说点什么…</div><div class="send">↑</div></div>
+          <div class="panelFoot"><span>v4.1-flash · 完全访问 · ⏱ 00:12</span><span class="right"><span class="ring"></span>44%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C 内嵌底栏 -->
+  <div class="col">
+    <p class="label">C · 内嵌底栏：信息塞进输入框下沿</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 第 42 轮</span></div><div class="nb">⋯</div></div>
+      <div class="feed">
+        <div class="turn">
+          <div class="turn-hd"><span class="dot"></span><b>正在做</b><span>第 42 轮</span><span class="clock">00:12</span></div>
+          <div class="goal">🎯 目标：让消息链接跳转命中率 ≥ 9/11</div>
+          <div class="step"><span class="s-ico">✓</span>读文件 · ChatView.tsx<span class="m">0.6s</span></div>
+          <div class="step run"><span class="s-ico">⟳</span>改文件 · jumpWindowTo<span class="m">进行中</span></div>
+        </div>
+        <div class="fold"><span style="width:7px;height:7px;border-radius:999px;background:var(--ok)"></span><span class="t">上一轮：工具栏按钮塌陷</span><span class="m">8s · 3 工具</span><span style="color:var(--fg3);font-size:10px">›</span></div>
+      </div>
+      <div class="dockC">
+        <div class="wrapC">
+          <div class="top"><div class="plus" style="width:32px;height:32px;border:0;background:rgba(255,255,255,.05)">+</div><div class="field">说点什么…</div><div class="send" style="width:32px;height:32px;font-size:15px">↑</div></div>
+          <div class="bottom">
+            <span class="miniPill">⚙ <b>v4.1-flash</b></span>
+            <span class="miniPill">🛡 完全访问</span>
+            <span class="right"><span class="queueC">⧉ 2 排队</span><span>⏱ 00:12</span><span style="display:inline-flex;align-items:center;gap:4px"><span class="ring" style="width:9px;height:9px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block"></span>44%</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
