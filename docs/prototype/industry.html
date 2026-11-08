@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>业界主流：折叠活动条 + 可读正文</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b;
+    --line:rgba(255,255,255,.06);
+    --fg:#e9ebf2; --fg2:#989eac; --fg3:#666b78;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{padding:22px;width:max-content}
+  .phone{position:relative;width:390px;height:844px;border-radius:42px;overflow:hidden;background:var(--bg);box-shadow:0 26px 70px rgba(0,0,0,.7),0 0 0 9px #191920}
+  .status{height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12.5px;font-weight:600}
+  .status .i{font-size:10px;opacity:.8}
+  .nav{display:flex;align-items:center;gap:9px;padding:0 12px 2px}
+  .nb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:14px}
+  .nt{flex:1;text-align:center}
+  .nt b{display:block;font-size:15px}
+  .nt span{display:block;font-size:10px;color:var(--fg3);margin-top:1px}
+
+  .flow{position:absolute;inset:92px 0 170px;overflow:hidden;padding:10px 18px 0}
+
+  .seg{padding:4px 0 20px}
+  .q{font-size:13px;color:var(--fg2);line-height:1.5;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+
+  /* 活动条：一行，可折叠过程（业界主流） */
+  .act{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px 0 8px;border-radius:999px;background:rgba(124,140,255,.1);border:1px solid rgba(124,140,255,.2);font-size:11.5px;color:#a9b1ff;margin-bottom:10px}
+  .act .sp{width:9px;height:9px;border-radius:999px;border:1.6px solid rgba(169,177,255,.35);border-top-color:#a9b1ff;display:inline-block}
+  .act.done{background:rgba(255,255,255,.045);border-color:var(--line);color:var(--fg3)}
+  .act.done .sp{display:none}
+  .act b{font-weight:500;color:var(--fg2)}
+
+  /* 正文：这是主体 */
+  .ans{font-size:14.5px;line-height:1.68;color:var(--fg)}
+  .ans p{margin:0 0 9px}
+  .ans p:last-child{margin-bottom:0}
+  .ans b{font-weight:600}
+  .ans code{font-family:var(--mono);font-size:12.5px;background:rgba(255,255,255,.06);border-radius:5px;padding:1px 5px;color:#b8c0ff}
+  .ans ul{margin:2px 0 9px;padding-left:17px}
+  .ans li{margin:3px 0}
+  .ans .hl{color:var(--ok);font-weight:600}
+
+  /* 尾部：交付 + 过程入口 */
+  .foot{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11.5px;color:var(--fg3)}
+  .foot .file{display:inline-flex;align-items:center;gap:5px;color:var(--fg2);background:rgba(255,255,255,.05);border-radius:6px;padding:4px 8px}
+  .foot .more{margin-left:auto;color:var(--fg3)}
+
+  /* 输入区 */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:6px 0 20px;background:linear-gradient(180deg,rgba(11,11,16,0),rgba(11,11,16,.98) 18%)}
+  .queue{margin:0 16px 9px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);background:rgba(224,165,44,.07);border-radius:8px;padding:7px 10px}
+  .row{display:flex;align-items:center;gap:9px;padding:0 16px}
+  .plus{width:38px;height:38px;border-radius:999px;border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:17px;flex:none}
+  .field{flex:1;height:38px;border-radius:19px;background:var(--sur);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--fg3)}
+  .send{width:38px;height:38px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;flex:none}
+  .meta{display:flex;align-items:center;gap:8px;padding:9px 20px 0;font-size:11px;color:var(--fg3)}
+  .meta .set{display:inline-flex;align-items:center;gap:5px;color:var(--fg2)}
+  .meta .right{margin-left:auto;display:inline-flex;align-items:center;gap:10px}
+  .ring{width:11px;height:11px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block}
+  .meta .stt{display:inline-flex;align-items:center;gap:4px;color:var(--fg2);font-variant-numeric:tabular-nums}
+  .caret{display:inline-block;width:2px;height:15px;background:var(--accent);vertical-align:-2px;margin-left:2px}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+    <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm</span></div><div class="nb">⋯</div></div>
+
+    <div class="flow">
+
+      <div class="seg">
+        <div class="q">帮我查一下为什么点消息里的链接跳不到对应位置</div>
+        <div class="act"><span class="sp"></span><span><b>正在</b> 00:12 · 4 步 · 改 1 文件</span></div>
+        <div class="ans">
+          <p>已经确认是窗口回翻的问题，正在改收尾逻辑<span class="caret"></span></p>
+        </div>
+      </div>
+
+      <div class="seg">
+        <div class="q">上一轮修好的按钮，窄屏又塌了</div>
+        <div class="act done"><span>✓ 12.4s · 5 步 · 改 12 个文件</span></div>
+        <div class="ans">
+          <p>按钮塌陷是因为工具栏用了 <code>flex-wrap</code>，窄屏下换行。现在改成<b>单行横向滚动</b>，宽度不够时出现滚动条，不再换行。</p>
+          <p>顺手修掉同一处布局下的一条老问题：</p>
+          <ul>
+            <li>工具栏右侧留白被 <code>padding</code> 挤掉，滚动到最后一项时贴边</li>
+            <li>滑动删除手势和横向滚动会抢事件，加了方向判定</li>
+          </ul>
+          <p>回归测试 <b>2,923 条通过</b>，窄屏 375px 下截图确认。</p>
+        </div>
+        <div class="foot">
+          <span class="file">▤ 工具栏修复说明.md</span>
+          <span class="more">查看过程 ›</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="dock">
+      <div class="queue">⧉ 2 条排队，当前任务结束后按顺序执行</div>
+      <div class="row"><div class="plus">+</div><div class="field">说点什么…（打断当前任务）</div><div class="send">↑</div></div>
+      <div class="meta"><span class="set">⚙ v4.1-flash · 完全访问 ⌄</span><span class="right"><span class="stt">⏱ 00:12</span><span class="stt"><span class="ring"></span>44%</span></span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
