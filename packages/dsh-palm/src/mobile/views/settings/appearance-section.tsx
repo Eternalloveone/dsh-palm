@@ -7,6 +7,8 @@ import { DENSITY_LABEL, FONT_SCALE_LABEL, setAutoScroll, setHaptics, setLineNumb
 import { RowChevron, SettingsRow, ToggleRow } from './settings-shared.tsx'
 
 export interface AppearanceSectionProps {
+  /** 打开「外观」独立页；不给就不显示这一行（老版设置页行为不变）。 */
+  onOpenAppearance?: (() => void) | undefined
   showTheme: boolean
   showFont: boolean
   showDensity: boolean
@@ -26,7 +28,7 @@ export interface AppearanceSectionProps {
 }
 
 export function AppearanceSection({
-  showTheme, showFont, showDensity, showLineNumbers, showAutoScroll, showHaptics,
+  showTheme, showFont, showDensity, showLineNumbers, showAutoScroll, showHaptics, onOpenAppearance,
   themeLabel, fontScale, density, lineNumbers, autoScroll, haptics,
   setSheet, setLineNumbersState, setAutoScrollState, setHapticsState,
 }: AppearanceSectionProps) {
@@ -34,6 +36,15 @@ export function AppearanceSection({
     <>
         <ul className="settings-group">
           <li className="settings-groupTitle">外观 <span className="settings-groupDesc">显示效果</span></li>
+          {onOpenAppearance === undefined ? null : (
+            <SettingsRow
+              icon={<ContrastIcon />}
+              title="外观与皮肤"
+              desc="皮肤、字号、明暗在一页里调"
+              action={<RowChevron />}
+              onClick={onOpenAppearance}
+            />
+          )}
           {showTheme && (
             <SettingsRow
               icon={<ContrastIcon />}

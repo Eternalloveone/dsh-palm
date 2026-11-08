@@ -72,6 +72,41 @@ const surfaces = [
       return { x: 0, y: 544, width: 390, height: 300 }
     },
   },
+  /* ── P6 迁出来的独立页（原来都是浮层，没有像素基线） ───────────────
+     每一条都用**真实导航路径**进入：直接 goto 深链会绕过点击链路，
+     那样即使入口坏了基线也照样绿。 */
+  {
+    id: 'appearance',
+    title: '外观页',
+    async prepare(page) {
+      await page.goto(listUrl(), { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(1800)
+      await page.locator('[aria-label="设置"]').first().click({ timeout: 6000 })
+      await page.waitForTimeout(2000)
+      await page.getByText('外观与皮肤').first().click({ timeout: 6000 })
+      await page.waitForTimeout(1800)
+    },
+  },
+  {
+    id: 'artifacts',
+    title: '产物页',
+    async prepare(page) {
+      await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(3000)
+      await page.locator('[aria-label="产物"]').first().click({ timeout: 6000 })
+      await page.waitForTimeout(1800)
+    },
+  },
+  {
+    id: 'model',
+    title: '模型页',
+    async prepare(page) {
+      await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(3000)
+      await page.locator('[aria-label="模型与思考"]').first().click({ timeout: 6000 })
+      await page.waitForTimeout(1800)
+    },
+  },
 ]
 
 async function pickSession() {

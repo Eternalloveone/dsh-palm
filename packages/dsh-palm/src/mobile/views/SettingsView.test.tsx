@@ -739,4 +739,18 @@ describe('SettingsView sub-config search', () => {
     const row = title.closest('.settings-row') as HTMLElement
     expect(row.querySelector('.settings-rowValue')!.textContent).toBe('不支持')
   })
+
+  it('设置页给出「外观与皮肤」入口，点了真能进外观页', () => {
+    const onOpenAppearance = vi.fn()
+    render(<SettingsView onBack={() => {}} onOpenAppearance={onOpenAppearance} />)
+    const row = screen.getByText('外观与皮肤').closest('button')
+    expect(row).not.toBeNull()
+    row!.click()
+    expect(onOpenAppearance).toHaveBeenCalledTimes(1)
+  })
+
+  it('不给回调时不渲染这一行（老页面行为不变）', () => {
+    render(<SettingsView onBack={() => {}} />)
+    expect(screen.queryByText('外观与皮肤')).toBeNull()
+  })
 })

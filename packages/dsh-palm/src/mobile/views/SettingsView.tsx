@@ -699,7 +699,8 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
         {/* 图例不再占首屏：默认项不带角标，「只在桌面端改」的说明统一放页脚。 */}
 
         <AppearanceSection
-          showTheme={show.theme}
+          onOpenAppearance={onOpenAppearance}
+        showTheme={show.theme}
           showFont={show.font}
           showDensity={show.density}
           showLineNumbers={show.lineNumbers}
