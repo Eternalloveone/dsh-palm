@@ -5,7 +5,7 @@
  *
  * 判据：
  *   ① 停止键真的在（在跑时才有，且不是「发送」）；
- *   ② 按下去之后「输出中」消失；
+ *   ② 按下去之后运行态消失（输入区主键从「停止」回到「发送」）；
  *   ③ 这一轮落在终态（已中断 / 已完成 / 失败），不会永远转圈；
  *   ④ 停止之后还**能继续发消息**（不该把输入区锁死）。
  */
@@ -35,7 +35,7 @@ export const scenario = {
       let running = false
       for (let i = 0; i < 40 && !running; i += 1) {
         await page.waitForTimeout(500)
-        running = await page.evaluate(() => /输出中/.test(document.body.innerText ?? ''))
+        running = await page.evaluate(() => document.querySelector('[aria-label="停止"]') !== null)
       }
       check('turn-is-running', running, {})
 
@@ -47,11 +47,11 @@ export const scenario = {
 
       await stop.click({ force: true })
 
-      // ②「输出中」消失
+      // ② 运行态消失（主键回到「发送」）
       let settled = false
       for (let i = 0; i < 60; i += 1) {
         await page.waitForTimeout(500)
-        settled = await page.evaluate(() => !/输出中/.test(document.body.innerText ?? ''))
+        settled = await page.evaluate(() => document.querySelector('[aria-label="停止"]') === null)
         if (settled) break
       }
       check('running-indicator-clears', settled, {})

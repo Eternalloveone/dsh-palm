@@ -327,7 +327,7 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
       // flag on its own, on the theory that an open boundary outweighs the
       // roster's agent-liveness flag while a subagent runs. In practice a
       // turn that died without writing its turn/end left exactly that
-      // boundary behind, so every reopen of that chat painted 输出中 over a
+      // boundary behind, so every reopen of that chat painted a running turn over a
       // session the desktop knew was idle. Opening a chat now takes the
       // roster's `running` as the verdict (seeded above, and corrected by
       // the host's `session/status` frame as soon as one lands); the anchor

@@ -47,7 +47,7 @@ export async function sampleChat(page) {
             produced: row.produced ?? [],
           }),
         ])),
-      running: /输出中|生成中|深度求索中|正在/.test(document.body.innerText ?? ''),
+      running: /生成中|深度求索中|正在/.test(document.body.innerText ?? ''),
       gap: Math.max(0, Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)),
     }
   })

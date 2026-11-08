@@ -467,8 +467,9 @@ export function visibleRowCount(model: ProcessModel, showToolCalls: boolean): nu
 export const RUNNING_CLOCK_THRESHOLD_MS = 3_000
 
 export function processHeadText(model: ProcessModel, input: { running: boolean; durationMs: number | undefined; liveElapsedMs?: number }): string {
-  // 运行中不报时间：实时计时归底部状态行（"输出中 · 6分24秒"，P0 起就在那儿，
-  // 而且消息滚出屏幕也看得见）。同一时刻只允许一个地方在数秒。
+  // 运行中不报时间：实时计时归过程卡自己的第一行（liveElapsedMs）——P4 起就只在
+  // 那一行数秒（旧的底部「输出中 · 6分24秒」状态行 2026-11-08 已删）。
+  // 同一时刻只允许一个地方在数秒。
   const outcome: ProcessOutcome = input.running ? 'running' : (model.outcome === 'running' ? 'ok' : model.outcome)
   const time = processTimeText(outcome, input)
   // 屏幕上状态词与用时是两个元素（用时靠右对齐，不该出现孤零零的逗号），

@@ -10,20 +10,17 @@ import { chatUrl, sleep } from '../lib/env.mjs'
 import { checkNoDuplicateIds, makeMonotonicGuard, sampleChat } from '../lib/invariants.mjs'
 
 /**
- * 是否正挂着"连接中断"。
+ * 是否还挂着断线横幅。
  *
- * ⚠️ 只读底部那颗状态 chip（`.chat-turn-status` 的 aria-label / 文本），
+ * 2026-11-08 起底部那条「输出中／连接中断」状态 chip 已经删掉，断线只在
+ * `OfflineBanner`（`.chat-offline-banner`）里说。所以这里只读那个节点，
  * **绝不全文匹配** —— 实测就栽过：会话正文里正好有一句
  * "不掉行、不重复、不留「连接中断」"，全文匹配会把用户自己的话当成断线横幅，
  * 于是场景永远红（假失败）。
  */
-const disconnectBanner = page => page.evaluate(() => {
-  const chip = document.querySelector('.chat-turn-status')
-  if (chip === null) return false
-  const text = (chip.textContent ?? '').trim()
-  const aria = chip.getAttribute('aria-label') ?? ''
-  return text.includes('连接中断') || aria.includes('连接中断')
-})
+const disconnectBanner = page => page.evaluate(() => (
+  document.querySelector('.chat-offline-banner') !== null
+))
 
 export const scenario = {
   id: 'reconnect-backfill',
@@ -83,7 +80,7 @@ check('reconnect-data-intact', after.rows >= Math.max(0, before.rows - 2) && aft
         duplicates: after.domDuplicateIds,
       })
       // 横幅是否消失**不当作门禁判据**（只记录）：
-      // 实测断开 8 秒后，"输出中/连接中断"那颗状态 chip 可能在 60 秒内一直停在
+      // 实测断开 8 秒后，断线横幅可能在 60 秒内一直挂着
       // "连接中断"，而数据本身已经完全恢复（不丢行、不重复）。
       // 这是**已知观感问题**，需要在 ChatView 的 hostLost 清除条件上继续查
       // （数据正确性已经在上一行断言过）。这里只把它打印出来，不制造假红。

@@ -50,7 +50,7 @@ const liveRunningSessionIds = new Set<string>()
  *
  * 只有这种正面证据才允许按「日志静默」把一轮判成中断。以前用的是「运行集合里没有它」
  * —— 集合为空时同样「没有」，于是长回合（编译、跑测试静默几分钟）会被判成收工：
- * 手机上「输出中」时有时无、过程条秒表也跟着闪（真机反馈）。
+ * 手机上的运行态时有时无、过程条秒表也跟着闪（真机反馈）。
  */
 const liveNotRunningConfirmed = new Set<string>()
 /** 基线是什么时候取到的；0 表示还没有取过。 */
@@ -70,7 +70,7 @@ export function isLiveSessionRunning(sessionId: string): boolean {
  * 宿主是否**明确**说过这条会话当前没在跑（收到过 status 帧的 running:false）。
  *
  * false 只代表「没收到过否定证据」，不代表「在跑」：判「这一轮死在半路」时必须要求
- * 这个正面证据，否则一次静默就被误判成收工（真机：输出中时有时无）。
+ * 这个正面证据，否则一次静默就被误判成收工（真机：运行态时有时无）。
  */
 export function isLiveSessionNotRunningConfirmed(sessionId: string): boolean {
   return liveNotRunningConfirmed.has(sessionId)
@@ -360,7 +360,7 @@ export function noteRunningFrame(
  *
  *  为什么需要：宿主重启、进程被杀、断流都会让一轮不写 turn/end，那条 turn/start 边界
  *  会永远开着，于是 `computeTurnState` 一直答"还在跑"，手机上就是"会话早就跑完了，
- *  却突然又冒出一行输出中"。本机实测两条：一条最新事件停在 8.3 小时前，一条停在 65 天前。
+ *  却突然又变成「在跑」。本机实测两条：一条最新事件停在 8.3 小时前，一条停在 65 天前。
  *
  *  为什么是 3 分钟：判据里的第二个条件是「宿主运行集合里没有它」——真正在跑的回合会被豁免，
  *  所以这里只需要覆盖「重启/被杀之后日志再也不动」的情形。30 分钟意味着手机上要盯着一个
@@ -421,13 +421,13 @@ export function turnVerdict(input: {
   // （liveConfirmedIdle，来自 status 帧的 running:false）；③日志静默超过阈值。
   //
   // 以前 ② 用的是「运行集合里没有它」—— 集合为空时同样成立，于是长回合里一次几分钟
-  // 的静默（编译、跑测试、长命令）就把这一轮判成收工：手机上的「输出中」消失、秒表
+  // 的静默（编译、跑测试、长命令）就把这一轮判成收工：手机上的运行态消失、秒表
   // 停住，下一条事件到了又出现（真机反馈：时有时无）。
   // 静默超过阈值只是「可疑」，还要一条**硬证据**才敢判死：
   //  ①这一轮开始得比宿主进程还早（宿主重启过，回合必然没了）；或
   //  ②宿主明确说过它没在跑（status 帧 running:false）。
   // 只凭「运行集合里没有它」就判死是错的：集合为空时也会命中，长回合里几分钟静默
-  // （编译、跑测试）就被当成收工 —— 手机上的「输出中」时有时无、秒表跟着闪。
+  // （编译、跑测试）就被当成收工 —— 手机上的运行态时有时无、秒表跟着闪。
   const silent = input.lastEventAt !== undefined
     && input.now - input.lastEventAt > TURN_ABANDONED_MS
   const hardEvidence = input.turnStartedBeforeHost === true || input.liveConfirmedIdle === true

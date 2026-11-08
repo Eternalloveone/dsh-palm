@@ -72,7 +72,7 @@ describe('onTurnStart（turn/start 边界）', () => {
     const { ctx, order, spies } = makeCtx()
     onTurnStart(ctx, boundaryEvent('turn/start', 7, 1_700_000_000_000, 42))
 
-    // 防的回归：各处直接 setRunning → 「输出中」忽亮忽灭（#1017）。
+    // 防的回归：各处直接 setRunning → 运行态忽亮忽灭（#1017）。
     expect(spies.applyTurnVerdict).toHaveBeenCalledWith({
       running: true,
       turn: 7,

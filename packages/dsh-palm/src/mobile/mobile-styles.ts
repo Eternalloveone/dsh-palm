@@ -4403,51 +4403,6 @@ button.settings-row:focus-visible {
   min-width: 0;
 }
 
-/* ── turn status: three breathing dots ───────────────────────────────── */
-
-.chat-turn-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  /* Left edge flush with the flat assistant rows: the scroll area pads
-     12px and the rows are full-width, so the status must not add its own
-     left inset (the old 14px pushed it 14px right of the text). */
-  padding: 8px 0;
-  color: var(--accent);
-  font-size: var(--text-md);
-  font-weight: 500;
-}
-
-/* Turn clock (desktop parity): muted, tabular-ish elapsed label. */
-.chat-turn-time {
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-
-.chat-turn-dots {
-  display: inline-flex;
-  gap: var(--space-1);
-}
-
-.chat-turn-dots span {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-  animation: breathe 1.4s infinite ease-in-out;
-}
-
-.chat-turn-dots span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.chat-turn-dots span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
 /* ── run-status strip + sheet (todo plan / background jobs) ───────────── */
 
 .chat-status-strip {
@@ -5591,7 +5546,7 @@ button.settings-row:focus-visible {
   flex: 1;
   min-width: 0;
   min-height: var(--palm-hit);
-  /* 4 行封顶：实测 132px（约 6 行）时草稿把最后一条消息和「输出中」整块遮住，
+  /* 4 行封顶：实测 132px（约 6 行）时草稿把最后一条消息与过程条整块遮住，
      写长文本反而看不见上下文。超出的内容在框内滚动。 */
   max-height: 104px;
   overflow-y: auto;
@@ -7405,7 +7360,6 @@ body:has(.lightbox-backdrop) .toast-host {
   .sheet-confirm-danger,
   .settings-switch::after,
   .chat-input,
-  .chat-turn-dots span,
   .settings-themeOption,
   .settings-optionChip {
     animation: none;

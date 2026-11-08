@@ -57,7 +57,7 @@ export const scenario = {
     const page = await context.newPage()
     try {
       // 顺序很关键：**先把聊天页打开**（此时空闲），再从外面起回合，然后以
-      // 页面上的"输出中"作为"确实在跑"的判据 —— 实测 session.list 的 running
+      // 页面上的运行态（输入区主键是「停止」）作为"确实在跑"的判据 —— 实测 session.list 的 running
       // 在这条会话上一直给不出 true，用它判会把消息发成新一轮（排队条不出现）。
       await page.goto(chatUrl(testSessionId), { waitUntil: 'domcontentloaded' })
       const input = page.locator('textarea, [contenteditable=true]').first()
@@ -68,7 +68,7 @@ export const scenario = {
       let running = false
       for (let i = 0; i < 60; i += 1) {
         await page.waitForTimeout(1000)
-        running = await page.evaluate(() => /输出中|生成中|正在/.test(document.body.innerText ?? ''))
+        running = await page.evaluate(() => document.querySelector('[aria-label="停止"]') !== null)
         if (running) break
       }
       check('session-running-before-send', running, {})

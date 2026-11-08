@@ -55,8 +55,8 @@ export const scenario = {
     try {
       await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
       const busy = await page.evaluate(() => {
-        const chip = document.querySelector('.chat-turn-status')
-        return chip === null ? false : (chip.textContent ?? '').includes('输出中')
+        // 运行态只认输入区主键：在跑时它是「停止」（旧底部「输出中」状态行 2026-11-08 已删）。
+        return document.querySelector('[aria-label="停止"]') !== null
       })
       if (busy) { check('anchor-skip-running', true, { note: '会话在跑，跳过锚点判据' }); return }
       check('anchor-target-session', true, { sessionId: String(sessionId).slice(0, 20) })

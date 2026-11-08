@@ -210,9 +210,12 @@ async function flushPageLoad(): Promise<void> {
   }
 }
 
-/** The bottom status line — 措辞＋三个点，按契约里面**没有**秒表。 */
-function turnStatusEl(): HTMLElement {
-  return document.querySelector('.chat-turn-status') as HTMLElement
+/**
+ * 旧底部状态行「输出中 ＋ 三个点」的探针 —— 2026-11-08 起它**必须永远为空**
+ * （运行态改由任务头状态条与过程条表达）。留着它是为了让负断言一眼能写出来。
+ */
+function turnStatusEl(): HTMLElement | null {
+  return document.querySelector('.chat-turn-status')
 }
 
 /** The (single) expandable process head, once its row has rendered. */
@@ -2650,26 +2653,26 @@ describe('ChatView stop button (#1041)', () => {
       // Turn starts over the live stream, but the turn/end frame is lost to
       // the reconnect (no correction ever arrives over SSE).
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // The host's own view is authoritative: while it still runs, the
-      // reconciliation must not clobber the indicator.
+      // reconciliation must not end the turn.
       listSessionsMock.mockResolvedValue({
         items: [{ sessionId: 's-1', running: true } as never],
         hasMore: false,
       } as SessionPage)
       await vi.advanceTimersByTimeAsync(10_000)
-      // Ten silent seconds in, the wording is 输出中; reconciliation
-      // with a still-running host must NOT clear the row.
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      // Ten silent seconds in the turn is still open; reconciliation
+      // with a still-running host must NOT end it.
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
-      // The host reports the turn finished: the indicator self-heals.
+      // The host reports the turn finished: the turn self-heals.
       listSessionsMock.mockResolvedValue({
         items: [{ sessionId: 's-1', running: false } as never],
         hasMore: false,
       } as SessionPage)
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
@@ -2688,7 +2691,7 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // Tail without a turn/start anchor = the turn already ended.
       logTailMock.mockResolvedValue({ rows: [], maxSeq: 3, hasMore: false })
@@ -2701,7 +2704,7 @@ describe('ChatView stop button (#1041)', () => {
     }
   })
 
-  it('keeps the indicator when the tail and the host both say the turn is open', async () => {
+  it('keeps the turn running when the tail and the host both say the turn is open', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -2710,7 +2713,7 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      // The turn is still open: keep the indicator and its clock.
+      // The turn is still open: keep it running and keep its clock.
       logTailMock.mockResolvedValue({ rows: [], maxSeq: 3, hasMore: false, turnStartAt: 1_700_000_000_000 })
       runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
       await vi.advanceTimersByTimeAsync(10_000)
@@ -2743,7 +2746,7 @@ describe('ChatView stop button (#1041)', () => {
       })
       runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(screen.queryByRole('status', { name: '已完成' })).toBeNull()
     } finally {
       vi.useRealTimers()
@@ -2764,7 +2767,7 @@ describe('ChatView stop button (#1041)', () => {
       // 宿主集合还说在跑也不算——边界是日志写下来的事实。
       runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -2792,7 +2795,7 @@ describe('ChatView stop button (#1041)', () => {
       // 时钟推到十分钟之后：日志彻底静了，宿主集合仍认它。
       vi.setSystemTime(1_700_000_601_000)
       await vi.advanceTimersByTimeAsync(20_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(screen.queryByRole('status', { name: '已完成' })).toBeNull()
     } finally {
       vi.useRealTimers()
@@ -2844,7 +2847,7 @@ describe('ChatView stop button (#1041)', () => {
       vi.setSystemTime(Date.now())
       await vi.advanceTimersByTimeAsync(20_000)
       await act(async () => { await Promise.resolve() })
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       // 回合判定不再单独走 mobile.turnState（那条通道已经并进快照）。
       expect(turnStateMock).not.toHaveBeenCalled()
     } finally {
@@ -2866,7 +2869,7 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       logTailMock.mockResolvedValue({
         rows: [],
         maxSeq: 3,
@@ -2879,13 +2882,13 @@ describe('ChatView stop button (#1041)', () => {
       runningSessionsMock.mockResolvedValue({ sessionIds: [session.sessionId] })
       vi.setSystemTime(1_700_000_600_500)
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('still clears the indicator on a silent tail once the host says the turn is not running', async () => {
+  it('still ends the turn on a silent tail once the host says the turn is not running', async () => {
     // 反方向留一手：日志静了、边界还开着，但宿主自己说这轮不跑了——那就是真的没在跑
     // （turn/end 丢在断流窗口里的情形）。宿主的运行集合是它自己的知识，帧会丢，它不会。
     loadChatPageMock.mockResolvedValue(rowPage([]))
@@ -2896,7 +2899,7 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       logTailMock.mockResolvedValue({
         rows: [],
         maxSeq: 3,
@@ -2906,7 +2909,7 @@ describe('ChatView stop button (#1041)', () => {
       })
       runningSessionsMock.mockResolvedValue({ sessionIds: [] })
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -2924,7 +2927,7 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       logTailMock.mockResolvedValue({
         rows: [],
         maxSeq: 3,
@@ -2935,15 +2938,15 @@ describe('ChatView stop button (#1041)', () => {
       })
       runningSessionsMock.mockResolvedValue({ sessionIds: [] })
       await vi.advanceTimersByTimeAsync(20_000)
-      // 帧静默一会儿之后措辞会从"输出中"变成"输出中"，但这一轮**仍然
-      // 在跑**——判据是它没有翻成"已完成"。那才是这条测试要守的东西。
+      // 帧静默一会儿之后这一轮**仍然在跑**——判据是它没有翻成"已完成"、
+      // 输入区主键仍是停止。那才是这条测试要守的东西（底部那句「输出中」已删）。
       expect(screen.queryByRole('status', { name: '已完成' })).toBeNull()
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
   })
-  it('clears the indicator even when the session is off the first list page (missing row)', async () => {
+  it('ends the turn even when the session is off the first list page (missing row)', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -2952,12 +2955,12 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // The phone's session.list pages by updatedAt (NOT activity): a session
       // that has been quiet for a while falls off the first page even while
       // its turn is open. The list therefore has no row for it - the old
-      // "row missing => skip" gate stuck the indicator forever. The history
+      // "row missing => skip" gate stuck the turn open forever. The history
       // tail is authoritative: a finished turn still self-heals.
       listSessionsMock.mockResolvedValue({
         items: [{ sessionId: 'other-session', running: false } as never],
@@ -2966,14 +2969,14 @@ describe('ChatView stop button (#1041)', () => {
       historyMock.mockResolvedValue(historyPage([makeEntry('turn/end', {}, 60)]))
       await vi.advanceTimersByTimeAsync(10_000)
       expect(historyMock).toHaveBeenCalled()
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('keeps the indicator when the session is off the first list page but the turn is open (missing row)', async () => {
+  it('keeps the turn running when the session is off the first list page but the turn is open (missing row)', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -2982,24 +2985,24 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // Same missing-row situation, but the turn is still open (history tail
       // ends in turn/start, e.g. the agent parked on a subagent): the scan
-      // must NOT clear the indicator.
+      // must NOT end the turn.
       listSessionsMock.mockResolvedValue({
         items: [{ sessionId: 'other-session', running: false } as never],
         hasMore: false,
       } as SessionPage)
       historyMock.mockResolvedValue(historyPage([makeEntry('turn/start', {}, 60)]))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('flags the link but keeps the turn clock (process-card first line) when the host goes unreachable', async () => {
+  it('sustained host silence keeps the turn (and the process-card clock) alive', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -3011,7 +3014,7 @@ describe('ChatView stop button (#1041)', () => {
       // 锚点），再发一枚 live chunk 把"运行中"的行落进 DOM。
       const startedAt = Date.now()
       emitTurnStart(mux, 1, startedAt)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       emitChunk(mux, 2, startedAt)
       flushLiveFold()
       // 假时钟下不用 waitFor（它在假时钟里会自己推进计时器，拖垮这个用例）。
@@ -3024,21 +3027,17 @@ describe('ChatView stop button (#1041)', () => {
 
       // The host goes unreachable: every reconciliation probe fails. A single
       // blip must not touch the row; sustained failure (the host can never
-      // answer) flags the LINK - it must NOT drop the turn, because that is
-      // what used to zero the running clock mid-work on a flaky phone link.
+      // answer) must NOT drop the turn, because that is what used to zero the
+      // running clock mid-work on a flaky phone link.
       listSessionsMock.mockRejectedValue(new Error('host unreachable'))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
-      // Third consecutive failure (30 s of unreachability): the wording
-      // becomes 连接中断 while the turn and its clock stay alive.
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+      // Third consecutive failure (30 s of unreachability): the turn and its
+      // clock stay alive — 聊天页不再自己印一条状态行（断线由 OfflineBanner 说）。
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '连接中断' })).toBeTruthy()
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
-      // 底部状态行只有措辞：秒表（和任何数字）都不在那里。
-      expect(turnStatusEl().textContent).toBe('连接中断')
-      expect(turnStatusEl().querySelector('.chat-turn-time')).toBeNull()
+      expect(turnStatusEl()).toBeNull()
       expect(document.querySelector('.chat-turn-time')).toBeNull()
       // 秒表还在走，而且在过程卡第一行：网络抖动没把它清零。
       expect(procStateOf(head)).toBe('深度求索中')
@@ -3047,8 +3046,8 @@ describe('ChatView stop button (#1041)', () => {
       // composer keeps offering 停止 instead of falling back to 发送.
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
-      // The link recovers: the wording returns and the clock never restarted
-      // (the recalibrated host offset must not rewind it).
+      // The link recovers: the clock never restarted (the recalibrated host
+      // offset must not rewind it).
       listSessionsMock.mockResolvedValue({
         items: [{ sessionId: 's-1', running: true } as never],
         hasMore: false,
@@ -3056,15 +3055,15 @@ describe('ChatView stop button (#1041)', () => {
       await vi.advanceTimersByTimeAsync(10_000)
       expect(procTimeOf(head)).toBe('用时40秒')
       emitChunk(mux, 41, Date.now())
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
-      expect(turnStatusEl().textContent).toBe('输出中')
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+      expect(turnStatusEl()).toBeNull()
       expect(procTimeOf(head)).toBe('用时40秒')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('keeps the indicator when the agent is parked on a subagent (list running=false, turn open)', async () => {
+  it('keeps the turn running when the agent is parked on a subagent (list running=false, turn open)', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -3073,7 +3072,7 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // The list says the agent is not running (it parks while a subagent
       // runs), but the turn is still open - the history tail ends in
@@ -3084,17 +3083,17 @@ describe('ChatView stop button (#1041)', () => {
       } as SessionPage)
       historyMock.mockResolvedValue(historyPage([makeEntry('turn/start', {}, 50)]))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('keeps the indicator at 输出中 while frames go silent', async () => {
+  it('keeps the turn running (composer stays on 停止) while frames go silent', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     // The agent is genuinely running throughout this test: reconciliation
-    // must not consult history (its default turn/end mock would clear the
-    // indicator) while the frame stream just goes quiet.
+    // must not consult history (its default turn/end mock would end the turn)
+    // while the frame stream just goes quiet.
     listSessionsMock.mockResolvedValue({
       items: [{ sessionId: 's-1', running: true } as never],
       hasMore: false,
@@ -3106,25 +3105,25 @@ describe('ChatView stop button (#1041)', () => {
     vi.useFakeTimers()
     try {
       emitSessionEvent(mux, 'turn/start', 1)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
-      // Frames keep flowing for a while: the wording stays 输出中.
+      // Frames keep flowing for a while: still running.
       await vi.advanceTimersByTimeAsync(5_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
-      // The stream stops but the turn is still open: back-office wording.
+      // The stream stops but the turn is still open: still running.
       await vi.advanceTimersByTimeAsync(7_000)
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // Any frame at all - even another session's (the memory-upkeep
-      // subagent streams on the same mux) - restores the typing wording.
+      // subagent streams on the same mux) - must not end the turn.
       act(() => { mux.emit({ type: 'session/event', sessionId: 's-sub', event: makeEntry('assistant/message', {}, 5).event }) })
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       emitSessionEvent(mux, 'turn/end', 9)
-      // The status row is gone (the context ring keeps its own role=status,
-      // so assert on the wording, not the bare role).
+      // 收工后正文里也不许冒出「输出中」：那句话在 2026-11-08 就删干净了。
       expect(screen.queryByText('输出中')).toBeNull()
+      expect(turnStatusEl()).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -4941,7 +4940,7 @@ describe('ChatView run-status strip (todo/write)', () => {
       // 同上：留一个在跑的后台任务，条子才不会被「全完成自动收起」收掉。
       act(() => { mux.emit({ type: 'session/jobs', sessionId: 's-1', jobs: [{ id: 'subagent-1', kind: 'subagent', label: '整理记忆', status: 'running', startedAt: 1_700_000_000_000 }] }) })
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       expect(screen.getByRole('button', { name: /任务 2\/2/ })).toBeTruthy()
     } finally {
       vi.useRealTimers()
@@ -4949,7 +4948,7 @@ describe('ChatView run-status strip (todo/write)', () => {
   })
 })
 
-describe('ChatView turn clock (#outputting timer)', () => {
+describe('ChatView turn clock（过程卡第一行的秒表）', () => {
   const T0 = 1_700_000_000_000
 
   /** 最后一条助手行里的过程卡头 —— 秒表唯一出现在它的第一行。 */
@@ -4986,9 +4985,9 @@ describe('ChatView turn clock (#outputting timer)', () => {
       expect(procTime()).toBe('')
       expect(lastProcHead().getAttribute('aria-label')).toBe('深度求索中')
 
-      // 底部状态行只剩措辞（输出中 ＋ 三个点）：秒表已经不在那里了。
-      expect(turnStatusEl().textContent).toBe('输出中')
-      expect(turnStatusEl().querySelector('.chat-turn-time')).toBeNull()
+      // 正文里没有「输出中」也没有任何秒表：这一轮在跑，但页面只有过程卡那
+      // 一行在说（P4 起秒表就只在过程卡第一行）。
+      expect(turnStatusEl()).toBeNull()
       expect(document.querySelector('.chat-turn-time')).toBeNull()
 
       // A turn started 20s ago (anchor from the logged turn/start, desktop
@@ -4999,11 +4998,11 @@ describe('ChatView turn clock (#outputting timer)', () => {
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
       expect(procTime()).toBe('用时20秒')
 
-      // turn/end stamps the frozen duration and clears the bottom indicator;
+      // turn/end stamps the frozen duration and ends the turn;
       // the settled card keeps reporting what the turn cost.
       emitSessionFrame(mux, 'turn/end', 64, T0, { turn: 1 })
       await settleLiveFold()
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       expect(turnStatusEl()).toBeNull()
       expect(procStateOf(lastProcHead())).toBe('已完成')
       expect(procTime()).toBe('用时20秒')
@@ -5054,15 +5053,14 @@ describe('ChatView turn clock (#outputting timer)', () => {
       // Flush the page promise (microtask): the anchor lands, the effect
       // ticks once on the frozen clock — 90s of real elapsed, not mount time.
       await flushPageLoad()
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
       expect(procTime()).toBe('用时1分30秒')
 
-      // A live turn/end closes the turn: the indicator goes out and the card
-      // freezes the duration it counted.
+      // A live turn/end closes the turn: the card freezes the duration it counted.
       emitSessionFrame(mux, 'turn/end', 60, T0, { turn: 0 })
       await settleLiveFold()
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       expect(procStateOf(lastProcHead())).toBe('已完成')
       expect(procTime()).toBe('用时1分30秒')
 
@@ -5071,7 +5069,7 @@ describe('ChatView turn clock (#outputting timer)', () => {
       emitTurnStart(mux, 61, T0 - 5_000, 1)
       emitChunk(mux, 62, T0, 1)
       await settleLiveFold()
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(procTime()).toBe('用时5秒')
     } finally {
       vi.useRealTimers()
@@ -5343,12 +5341,12 @@ describe('ChatView stale turn boundary', () => {
   })
 })
 
-it('does not light the indicator from a stale open turn when the host says nothing runs', async () => {
+it('does not start a turn from a stale open turn when the host says nothing runs', async () => {
     // A turn that died without writing its turn/end leaves an open boundary in
     // the log. Treating that boundary as proof the turn is still open painted
-    // 输出中 over sessions the desktop knew were idle, and the last process
-    // block kept reading 深度求索中 forever. The roster's running flag is the
-    // verdict; the boundary only anchors the clock.
+    // a running turn over sessions the desktop knew were idle, and the last
+    // process block kept reading 深度求索中 forever. The roster's running flag is
+    // the verdict; the boundary only anchors the clock.
     vi.useFakeTimers()
     try {
       vi.setSystemTime(T0)
@@ -5357,13 +5355,13 @@ it('does not light the indicator from a stale open turn when the host says nothi
       const mux = new FakeMux()
       render(<ChatView session={{ ...session, running: false }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('settles the running indicator when the host reports the session stopped', async () => {
+  it('settles the running turn when the host reports the session stopped', async () => {
     // The correction path for a lost turn/end: the roster event carries what
     // the host believes, independently of whether this page saw the boundary.
     vi.useFakeTimers()
@@ -5377,13 +5375,13 @@ it('does not light the indicator from a stale open turn when the host says nothi
       emitTurnStart(mux, 200, T0 - 5_000)
       emitChunk(mux, 201, T0)
       await settleLiveFold()
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
 
       // The host says the session is no longer running.
       mux.emit({ type: 'session/status', sessionId: session.sessionId, running: false })
       await settleLiveFold()
 
-      expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       // The process card must settle too — the stale active-turn pointer was
       // what kept it running with a stopwatch that never stopped.
       expect(document.querySelector('.chat-proc')?.className ?? '').not.toContain('chat-proc-running')
@@ -5411,23 +5409,22 @@ it('does not light the indicator from a stale open turn when the host says nothi
       emitTurnStart(mux, 59, T0 - 2_000)
       emitChunk(mux, 60, T0)
       await settleLiveFold()
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
       expect(procTime()).toBe('')
       // The running-reconcile probe (RUNNING_RECONCILE_MS) reads the tail: the
       // turn is still open, so the clock keeps counting and never restarts.
       act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
       await act(async () => { await Promise.resolve() })
-      // 10.05s of silence: the wording still stays 输出中 — the turn is still
-      // OPEN (the probe found its turn/start) and the link is up, so the
-      // indicator must neither vanish nor claim 连接中断.
-      expect(screen.getByRole('status', { name: '输出中' })).toBeTruthy()
+      // 10.05s of silence: the turn is still OPEN (the probe found its turn/start)
+      // and the link is up, so the turn must not end and the page must not print
+      // a status line of its own.
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(screen.queryByRole('status', { name: '连接中断' })).toBeNull()
       // 秒表在过程卡第一行（P4 起不再挂底部状态行），锚点还是 live 帧的
       // turn/start（T0-2s）：2s + 10.05s = 12s，绝不被探针清零重来。
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
-      expect(turnStatusEl().textContent).toBe('输出中')
-      expect(turnStatusEl().textContent).not.toMatch(/\d/)
+      expect(turnStatusEl()).toBeNull()
       expect(procTime()).toBe('用时12秒')
       // 探针之后秒表继续往前走（没有被清零回 0）。
       act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
@@ -5806,8 +5803,8 @@ it('does not light the indicator from a stale open turn when the host says nothi
       })
       await settleLiveFold()
 
-      // 底部状态行说这一轮还在跑（它就是 running 渲染出来的）……
-      expect(turnStatusEl().textContent).toBe('输出中')
+      // 这一轮还在跑（输入区主键是停止）……
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       // ……卡头就不许写"已完成"式的静态态：卡带 chat-proc-running，秒表照报
       // （行自己没有 turnStartAt，靠页级锚点兜住）。
       const head = lastProcHead()
@@ -5825,6 +5822,68 @@ it('does not light the indicator from a stale open turn when the host says nothi
       expect(settled.closest('.chat-proc')!.className).not.toContain('chat-proc-running')
       expect(procStateOf(settled)).toBe('1 次工具调用')
       expect(procTime(settled)).toBe('用时30秒')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('运行态表达：不再有「输出中」状态行（2026-11-08 删除）', () => {
+  /**
+   * 负断言：旧的底部状态行（措辞「输出中」＋三个呼吸点）整套不再进渲染树。
+   * 运行态只由任务头的状态条、过程折叠行与过程步骤行表达。
+   */
+  const expectNoOutputStream = (): void => {
+    expect(screen.queryByText('输出中')).toBeNull()
+    expect(document.querySelector('.chat-turn-status')).toBeNull()
+    expect(document.querySelector('.chat-turn-dots')).toBeNull()
+    expect(document.querySelectorAll('[aria-label="输出中"]').length).toBe(0)
+  }
+
+  it('运行中：没有「输出中」文案与呼吸点，过程条照常渲染', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('还没有消息，发一句话开始吧')
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(Date.now())
+      emitTurnStart(mux, 70, Date.now() - 5_000)
+      emitChunk(mux, 71, Date.now())
+      await settleLiveFold()
+
+      // 这一轮确实在跑（输入区主键是停止），过程条也真的画出来了。
+      expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
+      expect(procHeadEl()).not.toBeNull()
+      expect(procStateOf(procHeadEl())).toBe('深度求索中')
+      // 但正文里没有任何「输出中」的呈现：文案、状态行节点、三个脉动点都没有。
+      expectNoOutputStream()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('收工后：同样没有「输出中」，过程条落定为「已完成」', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    const mux = new FakeMux()
+    render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('还没有消息，发一句话开始吧')
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(Date.now())
+      emitTurnStart(mux, 70, Date.now() - 5_000)
+      emitChunk(mux, 71, Date.now())
+      await settleLiveFold()
+      emitSessionFrame(mux, 'turn/end', 72, Date.now(), { turn: 0 })
+      await settleLiveFold()
+
+      // 收工：主键回到「发送」，过程条那行说「已完成」，旧状态行依旧不存在。
+      expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
+      expect(procHeadEl()).not.toBeNull()
+      expect(procStateOf(procHeadEl())).toBe('已完成')
+      expectNoOutputStream()
     } finally {
       vi.useRealTimers()
     }

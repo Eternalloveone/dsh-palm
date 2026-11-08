@@ -1,33 +1,19 @@
 /**
- * 正文区里的两个浮动控件：「输出中／连接中断」状态行、轮次刮擦按钮 + 回到底部。
+ * 正文区里的浮动控件：轮次刮擦按钮 + 回到底部。
  *
  * S6f 从 `ChatView` 搬出。手势（按住拖动刮擦）由会话层提供回调，这里只绑 DOM 事件，
  * 所以滚动/锚点逻辑一行没动。
  *
- * **为什么拆成两个组件而不是一个**：`.chat-jump-turns` 是 `position: sticky` +
- * `margin-top: auto`（在流里），而审批/提问面板插在状态行与这两个按钮之间。合成一个
- * 组件就得把按钮挪到面板前面，DOM 顺序一变，sticky 的落点跟着变（实测锚点位移从
- * 0px 变成 44px）。所以两段各自留在原来的位置，只是实现搬了出去。
+ * 这里原来还有一条「输出中／连接中断」状态行（`TurnStatusLine` + 三个呼吸点）。
+ * 2026-11-08 删掉：运行态改由任务头里的状态条（`ui/status-strip.tsx`）、
+ * 过程折叠行（`ui/process-line.tsx`）与过程步骤行承担，底部不再重复说一遍。
+ * 两个浮动按钮仍留在原来的位置：`.chat-jump-turns` 是 `position: sticky` +
+ * `margin-top: auto`（在流里），审批/提问面板插在它前面；DOM 顺序一动，sticky 的
+ * 落点跟着位移（实测锚点位移从 0px 变成 44px）。
  */
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { ChevronDownIcon } from '../../../components/icons.tsx'
 import { Button } from '../../../ui/primitives.tsx'
-
-export interface TurnStatusLineProps {
-  /** 当前回合在跑（或刚发出去还没收到 turn/start）。 */
-  running: boolean
-  /** 连不上宿主：状态行改说"连接中断"，而不是一直"输出中"。 */
-  hostLost: boolean
-}
-
-export function TurnStatusLine({ running, hostLost }: TurnStatusLineProps) {
-  if (!running) return null
-  return (
-    <div className="chat-turn-status" role="status" aria-label={hostLost ? '连接中断' : '输出中'}>
-      {hostLost ? '连接中断' : '输出中'}<span className="chat-turn-dots" aria-hidden><span /><span /><span /></span>
-    </div>
-  )
-}
 
 export interface JumpControlsProps {
   /** 是否显示右侧两个浮动按钮（离底时才有）。 */

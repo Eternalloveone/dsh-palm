@@ -94,7 +94,7 @@ import { ChatHeader, ChatSearchBar } from './chat/components/chat-header.tsx'
 import { ChatEmptyView } from './chat/components/chat-empty.tsx'
 import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText, type SearchHit } from './chat/lib/chat-search-match.ts'
 import { ChatAttentionPanels } from './chat/components/chat-attention-panels.tsx'
-import { JumpControls, TurnStatusLine } from './chat/components/scroll-controls.tsx'
+import { JumpControls } from './chat/components/scroll-controls.tsx'
 import { formatClock, type ModelPickerCatalog } from './chat/lib/tool-labels.ts'
 import { useChatDraft } from './chat/hooks/use-chat-draft.ts'
 import { ComposerSection } from './chat/components/composer-section.tsx'
@@ -724,7 +724,8 @@ function ChatSessionView({
     normalizeTurnEndTodo,
     foreground,
   })
-  const { running, runningTurn, turnStartAt, abandonedTurn, hostLost, applyTurnVerdict, reconcileRunning, refillGap, reloadTail, resetForSession, clearHostLost, clearActiveTurn, beginTurn, enqueueLiveEvent, noteTailPageAnchor, hasClosedTurn, markSnapshotAlive, isRunning, getRunningTurn } = chatStream
+  // hostLost 仍由 stream 层维护（对账循环用它续命），但页面不再渲染"连接中断"这几个字。
+  const { running, runningTurn, turnStartAt, abandonedTurn, applyTurnVerdict, reconcileRunning, refillGap, reloadTail, resetForSession, clearHostLost, clearActiveTurn, beginTurn, enqueueLiveEvent, noteTailPageAnchor, hasClosedTurn, markSnapshotAlive, isRunning, getRunningTurn } = chatStream
   const { applyInbox, refreshInbox } = useChatInbox({
     sessionId: session.sessionId,
     mountedRef,
@@ -1404,9 +1405,9 @@ function ChatSessionView({
    * 当前活跃轮次（没有活跃回合时 undefined）—— 逐层传给 MessageRow → AssistantBody
    * → ProcessGroup 的 liveTurn，行级"还在跑"判据的第三个分量。
    *
-   * 门控就是底部状态行的门控：那条 `输出中 / 连接中断` 行是
-   * `{running && ...}` 渲染出来的，所以这里也只能看 running —— 否则会出现
-   * "状态行说结束了、某张卡还在数秒"的自相矛盾。running 为假时任何行都不是
+   * 门控就是整个「还在跑」的门控：输入区主键（停止 / 发送）、任务头状态条与
+   * 过程条的相位都看 running，所以这里也只能看 running —— 否则会出现
+   * "状态条说结束了、某张卡还在数秒"的自相矛盾。running 为假时任何行都不是
    * 运行中：turn/end（或 reconcile 探针）一到，活跃轮次立刻消失，按步定格的行
    * 马上回到 已完成/已中断/失败。
    *
@@ -3521,7 +3522,7 @@ function ChatSessionView({
     void cancelSession(session.sessionId).then(
       () => {
         setStopping(false)
-        // 按了停止要给一句回应：以前只有「输出中」消失，用户不知道是停了还是崩了
+        // 按了停止要给一句回应：以前只有底部状态行消失，用户不知道是停了还是崩了
         // （2026-11-01 真机：按停止后界面上什么都没发生，只能再看一遍列表）。
         toast('已停止这一轮')
       },
@@ -3864,7 +3865,6 @@ function ChatSessionView({
           onOpenFile={(path) => { if (onOpenDiff === undefined) setPreviewPath(path); else onOpenDiff(path) }}
           {...(onOpenDelivery === undefined ? {} : { onOpenDelivery })}
         />
-        <TurnStatusLine running={running} hostLost={hostLost} />
         <ChatAttentionPanels
           sessionId={session.sessionId}
           approvals={pendingApprovals}

@@ -71,9 +71,9 @@ export const scenario = {
       }
 
       // **跑着的时候不许出现新的交付卡**（真机 2026-11-01：会话还没结束就冒出交付卡）。
-      // 判据：第二轮还在跑（页面显示"输出中"）时，卡片数不许比发送前多。
+      // 判据：第二轮还在跑（输入区主键是「停止」）时，卡片数不许比发送前多。
       const runningSample = await page.evaluate(() => ({
-        running: /输出中/.test(document.body.innerText ?? ''),
+        running: document.querySelector('[aria-label="停止"]') !== null,
         cards: document.querySelectorAll('.chat-turn-tail').length,
       }))
       if (runningSample.running) {

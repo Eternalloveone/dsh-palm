@@ -17,8 +17,8 @@ export default [
       // 会话**正在跑**时正文还在长，「跟手跟随」是预期行为（不是 yank）。
       // 这条判据只对静置会话有意义 —— 否则测的是跟随，不是被拽回。
       const busy = await page.evaluate(() => {
-        const chip = document.querySelector('.chat-turn-status')
-        return chip === null ? false : (chip.textContent ?? '').includes('输出中')
+        // 运行态只认输入区主键：在跑时它是「停止」（旧底部「输出中」状态行 2026-11-08 已删）。
+        return document.querySelector('[aria-label="停止"]') !== null
       })
       if (busy) { ctx.skip('会话在跑，内容持续增长，跳过 yank 判据'); return }
       // 页面还在"缓存页 → 网络页"的替换过程中时，行数/高度会变一次 —— 那不是 yank，

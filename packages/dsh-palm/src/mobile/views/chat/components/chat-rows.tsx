@@ -25,7 +25,7 @@ export const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
  * 不画** —— 证据只能放行"更早的轮次"。
  *
  * 判据不再依赖"知道哪一轮在跑"（liveTurn 有时是 undefined：手机没收到注册/帧），而是看
- * **位置**：最后一条用户消息之后出现的轮次 = 本轮。这一轮只要还在跑（底部"输出中"），
+ * **位置**：最后一条用户消息之后出现的轮次 = 本轮。这一轮只要还在跑（过程条还在长），
  * 它的"本轮产出"就不该出现 —— 收工之后自然就有了。
  */
 export function shouldRenderCard(

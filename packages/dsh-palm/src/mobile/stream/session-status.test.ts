@@ -122,7 +122,7 @@ describe('describeBars：三根条的唯一判据', () => {
     expect(describeBars(state, at + 1).statusBar).toBe('任务 1/2 · 正在做第 2 项')
   })
 
-  it('正常输出中：状态条什么都不说（过程条与「输出中」已经够了）', () => {
+  it('正常运行中：状态条什么都不说（过程条的相位与用时已经够了）', () => {
     const state = reduce([{ type: 'turn', at, source: 'frame', running: true, step: 12, lastActivityAt: at }])
     expect(describeBars(state, at + 5_000).statusBar).toBeUndefined()
   })

@@ -1305,7 +1305,7 @@ export function missingTurnReports(rows: readonly RenderMessage[], openTurn?: nu
     hasRows.add(row.turn)
   }
   // 正在跑的那一轮不算「缺卡」：它本来就不该有卡；回读日志只会把还没结束的回合
-  // 当成已完成（真机：底部还在"输出中…"，卡片却已是 ✅完成）。
+  // 当成已完成（真机：这一轮还在跑，卡片却已是 ✅完成）。
   return [...hasRows]
     .filter(turn => !reported.has(turn))
     .filter(turn => turn !== openTurn)
@@ -1843,7 +1843,7 @@ export function ensureTurnTails(rows: readonly RenderMessage[], openTurn?: numbe
   }
   // 正在跑的那一轮**绝不猜卡**（`openTurn` 由实时流给出，不靠任何推断）。
   //
-  // 真机现场（2026-10-30）：会话明明还在跑（底部"输出中…"），上面那张卡却写着
+  // 真机现场（2026-10-30）：会话明明还在跑，上面那张卡却写着
   // ✅完成、用时 1分45秒。原因就在这里：那一轮的工具都跑完了（没进 running 集合），
   // 但模型还在输出正文、turn/end 尚未出现；猜卡只认工具状态，于是把「工具跑完」
   // 当成了「这一轮完成」。判据必须来自**实时流的活跃轮次**，不能靠工具状态猜。

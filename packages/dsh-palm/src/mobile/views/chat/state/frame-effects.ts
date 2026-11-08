@@ -198,7 +198,7 @@ function calibrateHostClock(ctx: FrameContext, frame: MuxFrame): void {
  * indicator clears, but that frame can be lost (a reconnect window, a
  * killed turn, a stream that degraded to polling) and then nothing else
  * ever lowers it: the page kept painting the last turn as 深度求索中 and
- * claimed 输出中 while the desktop showed nothing running. The roster
+ * claimed a running turn while the desktop showed nothing running. The roster
  * event is the authoritative correction — it carries what the host
  * believes, independently of whether this page saw the boundary.
  */
@@ -246,7 +246,7 @@ function onSessionEvent(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'ses
 
 /**
  * turn/start 边界。防的回归（#1017 / 真机 2026-11-01）：
- * - 「输出中」立刻亮：走唯一裁决入口（带 seq 单调），不许各写各的；
+ * - 运行态立刻亮：走唯一裁决入口（带 seq 单调），不许各写各的；
  * - 秒表锚在**日志里的真起点**（中途重载不回零）；
  * - subagent 树刷新（turn/start 是它们被拉起的时刻）；
  * - 计划条清空但**保留 seq 水位**，否则更旧的一页历史能把上一轮计划塞回来（串轮）；
@@ -350,7 +350,7 @@ function onJobs(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'session/job
 function onSubscribed(ctx: FrameContext): void {
   startTransition(() => { ctx.setQueueItems([]); ctx.setJobs([]) })
   // 新一条连接的基线帧：断线期间丢掉的 turn/end（或 turn/start）不会重放，
-  // 手机就会一直停在"输出中"，或者该亮的时候不亮。基线一到就核一次。
+  // 手机就会一直显示在跑，或者该亮的时候不亮。基线一到就核一次。
   ctx.reconcileRunning()
 }
 

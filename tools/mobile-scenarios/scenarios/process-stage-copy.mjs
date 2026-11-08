@@ -8,7 +8,8 @@
  * "已完成"；收工之后必须能读到用时。
  *
  * 判据（对最近若干条过程条逐条查）：
- *   ① 页面整体：`输出中` 只可能出现在真在跑的时候（用宿主结论交叉验证）；
+ *   ① 页面整体：在跑与否只认输入区主键（宿主结论交叉验证），页面上不许再出现
+ *      「输出中」这类自造状态词（2026-11-08 已删）；
  *   ② 收工的过程条必须带用时（`19秒` 这类），不能只写"已完成"；
  *   ③ 空闲时任何过程条都不许是"运行中/执行中"。
  */
@@ -29,11 +30,11 @@ export const scenario = {
       }
       await page.waitForTimeout(1000)
 
-      // ① 宿主说没在跑，页面就不许出现"输出中"
+      // ① 宿主说没在跑，页面就不许还停在运行态（输入区主键是「停止」）
       const host = await rpc('mobile.turnState', { sessionId })
       const hostRunning = host?.value?.running ?? host?.running
       const pageState = await page.evaluate(() => ({
-        saysRunning: /输出中/.test(document.body.innerText ?? ''),
+        saysRunning: document.querySelector('[aria-label="停止"]') !== null,
         heads: [...document.querySelectorAll('.chat-proc-state')].map(el => (el.textContent ?? '').trim()).slice(-6),
         hasDuration: /(\d+)\s*(秒|分钟)/.test(document.body.innerText ?? ''),
       }))

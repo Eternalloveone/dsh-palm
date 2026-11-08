@@ -185,7 +185,7 @@ describe('resolveCommandDirectory', () => {
 
 
 describe('turnVerdict (abandoned open boundary)', () => {
-  // 真机上"会话早就跑完了，却突然又冒出输出中"的来源：一轮死在半路没写 turn/end，
+  // 真机上"会话早就跑完了，却突然又变成在跑"的来源：一轮死在半路没写 turn/end，
   // 那条 turn/start 边界会永远开着。
   const now = 1_800_000_000_000
 
@@ -213,9 +213,9 @@ describe('turnVerdict (abandoned open boundary)', () => {
       .toEqual({ running: false, abandoned: true })
   })
 
-  it('长回合静默几分钟、宿主也没说过它停了：仍然算在跑（输出中不许闪）', () => {
+  it('长回合静默几分钟、宿主也没说过它停了：仍然算在跑（运行态不许闪）', () => {
     // 真机：编译 / 跑测试时日志能静默好几分钟。以前只凭「运行集合里没有它」就判收工，
-    // 于是「输出中」消失、过程条秒表停住，下一条事件到了又冒出来 —— 时有时无。
+    // 于是运行态消失、过程条秒表停住，下一条事件到了又冒出来 —— 时有时无。
     expect(turnVerdict({ boundaryOpen: true, lastEventAt: now - 8 * 60_000, live: false, now }))
       .toEqual({ running: true, abandoned: false })
   })

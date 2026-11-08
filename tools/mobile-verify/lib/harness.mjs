@@ -131,7 +131,7 @@ export const chatMetrics = page =>
       rows: ids.length,
       duplicateIds: ids.length - new Set(ids).size,
       cards: heads.length,
-      liveCards: heads.filter(head => /深度求索中|输出中/.test(head.textContent ?? '')).length,
+      liveCards: heads.filter(head => /深度求索中/.test(head.textContent ?? '')).length,
       strip: strip === null ? null : (strip.textContent ?? '').replace(/\s+/g, ' ').trim(),
       overflowX: document.documentElement.scrollWidth - window.innerWidth,
       tiny: tiny.slice(0, 6),

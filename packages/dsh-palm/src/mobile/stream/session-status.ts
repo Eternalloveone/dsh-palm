@@ -249,7 +249,7 @@ export interface BarsView {
   /**
    * 状态条上除了「回合运行中」没有别的内容。
    *
-   * UI 据此把它换成更有用的一句（已跑多久），而不是和底部的「输出中」说同一件事。
+   * UI 据此把它换成更有用的一句（已跑多久），而不是和过程条的用时说同一件事。
    */
   readonly runningOnly?: boolean
 }
@@ -314,7 +314,7 @@ export function describeBars(state: SessionStatus, now: number): BarsView {
   const idle = !turnRunning && allDone
   if (idle) parts.length = 0
   else if (parts.length === 0 && turnRunning) {
-    // 正常输出中**什么都不说**：过程条有相位与用时、底部有「输出中」，再加一条就是噪音。
+    // 正常运行中**什么都不说**：过程条有相位与用时，再加一条就是噪音。
     // 只有「看起来卡住了」才值得占一行 —— 那才是用户在等、而且别处看不到的信息。
     const lastActivity = turnAlive ? state.turn?.value.lastActivityAt : undefined
     const startedAt = turnAlive ? state.turn?.value.startedAt : undefined

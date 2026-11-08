@@ -97,7 +97,7 @@ export const INITIAL_RECONCILE_MS = 2_500
  * prove the host is unreachable - the process stopped or the link is down.
  * The reconciliation can only self-heal a lost turn/end while the host answers;
  * once it has been silent this long, the indicator can never clear on its own,
- * so drop it instead of showing 输出中 for a host that is no longer running. */
+ * so drop it instead of showing a running turn for a host that is no longer running. */
 export const RECONCILE_FAILURE_LIMIT = 3
 
 /** 回合裁决：帧与对账共用的证据。 */

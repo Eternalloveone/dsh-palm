@@ -47,7 +47,7 @@ const sampleOnce = page => page.evaluate(() => {
     hasProcessData,
     proc: document.querySelectorAll('.chat-proc').length,
     doneCards: cards.filter(card => /已完成/.test(card.textContent ?? '')).length,
-    running: /输出中|生成中|深度求索中|正在/.test(body),
+    running: /生成中|深度求索中|正在/.test(body),
     firstCardText: (cards[0]?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24),
     // 按行 id 记录每张卡的文案：**同一张卡**被改写才算改写。
     // 以前比"第一张卡"的文案 —— 旧卡被新卡挤到后面时当然会变，那是假失败（实测两条）。
@@ -151,8 +151,8 @@ for (const id of idleIds) {
     // 会话**正在跑**时不判：这一轮还在产出，卡片本来就该跟着变。
     // 判据要的是"收工后同一张卡不再被改写"。
     const busy = await page.evaluate(() => {
-      const chip = document.querySelector('.chat-turn-status')
-      return chip === null ? false : (chip.textContent ?? '').includes('输出中')
+      // 运行态只认输入区主键：在跑时它是「停止」（旧底部「输出中」状态行 2026-11-08 已删）。
+      return document.querySelector('[aria-label="停止"]') !== null
     })
     if (!busy) {
       for (const [cardId, current] of Object.entries(snap.cardTextById ?? {})) {
