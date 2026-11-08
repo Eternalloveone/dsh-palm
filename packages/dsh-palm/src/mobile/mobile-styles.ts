@@ -20,16 +20,15 @@ export const mobileCss = `${designTokensCss()}
 
 :root {
   /* ── 字号：只有 5 档 ── */
-  --palm-t-xs: 13px;
-  --palm-t-s: 14px;
-  --palm-t-m: 15px;
-  --palm-t-l: 18px;
-  --palm-t-xl: 23px;
+  --palm-t-s: 12px;
+  --palm-t-m: 14px;
+  --palm-t-l: 17px;
+  --palm-t-xl: 22px;
   --palm-t-2xl: 28px;
 
   /* ── 行高：只有 2 档 ── */
-  --palm-lh-body: 1.6;
-  --palm-lh-head: 1.35;
+  --palm-lh-body: 1.5;
+  --palm-lh-head: 1.3;
 
   /* ── 字重：只有 2 档（中文不用 500，会被合成加粗） ── */
   --palm-w-normal: 400;
@@ -40,15 +39,15 @@ export const mobileCss = `${designTokensCss()}
   --palm-s2: 8px;
   --palm-s3: 12px;
   --palm-s4: 16px;
-  --palm-s5: 24px;
-  --palm-s6: 28px;
+  --palm-s5: 20px;
+  --palm-s6: 24px;
   --palm-s7: 32px;
-  --palm-s8: 36px;
+  --palm-s8: 32px;
 
   /* ── 圆角：3 档 ── */
-  --palm-r-s: 10px;
-  --palm-r-m: 14px;
-  --palm-r-l: 20px;
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
   --palm-r-full: 9999px;
 
   /* ── 物性 ── */
@@ -57,7 +56,7 @@ export const mobileCss = `${designTokensCss()}
   --palm-sh2: 0 6px 20px rgba(0, 0, 0, 0.55);
 
   /* ── 触摸目标 ── */
-  --palm-hit: 46px;
+  --palm-hit: 44px;
 
   /* 物性：1px 细线与焦点环宽度（组件层不写裸 px） */
   --palm-hair: 1px;
@@ -148,11 +147,11 @@ html[data-skin='nocturne'] {
    下一步是把旧名逐批替换掉，届时删掉本段即可。 */
 :root {
   /* 字号：整条上移一档（旧 11/12/13/15/16.5 → 新 13/14/15/18/23） */
-  --text-xs: var(--palm-t-xs);
+  --text-xs: var(--palm-t-s);
   --text-sm: var(--palm-t-s);
   --text-md: var(--palm-t-m);
   --text-base: var(--palm-t-l);
-  --text-lg: var(--palm-t-xl);
+  --text-lg: var(--palm-t-l);
 
   /* 间距：小档不变，大档拉长（更宽松） */
   --space-1: var(--palm-s1);

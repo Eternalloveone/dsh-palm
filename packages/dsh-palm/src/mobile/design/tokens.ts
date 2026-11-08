@@ -31,8 +31,8 @@ export const LIGHT_PALETTE: Palette = {
   // 视觉层级改由字号与字重承担，新代码不要再引用这两个名字。
   '--text-quaternary': '#6a6a7a',
   '--text-muted': '#6a6a7a',
-  '--border-default': '#eceef2',
-  '--border-subtle': '#f6f7f9',
+  '--border-default': '#e2e4e8',
+  '--border-subtle': '#f0f0f2',
   '--border-focus': '#6366f1',
   // W2-1：#6366f1 上放白字只有 4.47，差一点点不达标；压到 #5b5cf0 后是 4.96，
   // 同时它当文字用在白底上也是 4.96（原来 4.47）。
@@ -54,7 +54,7 @@ export const LIGHT_PALETTE: Palette = {
   '--tone-info-ink': '#2c67dc',
   '--tone-danger-ink': '#e5484d',
   '--card-bg': '#ffffff',
-  '--card-border': '#f0f1f5',
+  '--card-border': '#e8e8ed',
   '--card-shadow': '0 1px 3px rgba(0, 0, 0, 0.08)',
   '--shadow-lg': '0 8px 28px rgba(16, 24, 40, 0.16)',
   '--fill': 'rgba(26, 26, 46, 0.05)',
@@ -95,8 +95,8 @@ export const DARK_PALETTE: Palette = {
   '--text-tertiary': '#7f7f8c',
   '--text-quaternary': '#7f7f8c',
   '--text-muted': '#7f7f8c',
-  '--border-default': '#232330',
-  '--border-subtle': '#1a1a23',
+  '--border-default': '#2a2a3a',
+  '--border-subtle': '#1e1e2a',
   '--border-focus': '#3a3a50',
   '--accent': '#5b5cf0',
   '--accent-contrast': '#ffffff',
