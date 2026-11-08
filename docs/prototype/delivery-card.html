@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>线性流 + 交付结果卡</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b; --sur2:#1b1b24;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
+    --fg:#e9ebf2; --fg2:#98a0ae; --fg3:#666c7a;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:20px;padding:20px;width:max-content}
+  .col{width:390px}
+  .cap{font-size:11.5px;color:#8a8f9c;margin:0 0 7px 6px}
+  .cap b{color:#c9cdd8;font-weight:600}
+  .phone{position:relative;width:390px;height:844px;border-radius:40px;overflow:hidden;background:var(--bg);box-shadow:0 24px 64px rgba(0,0,0,.7),0 0 0 8px #191920}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12px;font-weight:600}
+  .status .i{font-size:9px;opacity:.8}
+  .nav{display:flex;align-items:center;gap:8px;padding:0 14px 2px;height:36px}
+  .nb{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:13px;flex:none}
+  .nt{flex:1;min-width:0}
+  .nt b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nt span{display:block;font-size:10px;color:var(--fg3);margin-top:1px}
+
+  .flow{position:absolute;inset:82px 0 120px;overflow:hidden;padding:6px 18px 0}
+
+  .thead{padding-bottom:12px;border-bottom:1px solid var(--line)}
+  .trow{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg3)}
+  .trow .st{width:7px;height:7px;border-radius:999px;background:var(--ok);flex:none}
+  .trow b{color:var(--fg2);font-weight:500}
+  .trow .tm{margin-left:auto;font-variant-numeric:tabular-nums}
+  .goal{font-size:15px;font-weight:600;line-height:1.45;margin-top:8px;letter-spacing:-.01em}
+  .bar{height:3px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:11px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#3ddc84,#7c8cff)}
+  .bmeta{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:10.5px;color:var(--fg3)}
+  .bmeta .r{margin-left:auto}
+
+  .steps{padding:11px 0 0}
+  .sp{display:flex;gap:9px;font-size:12.5px;color:var(--fg2);align-items:baseline;padding:4px 0}
+  .sp .i{width:13px;flex:none;font-size:10.5px;text-align:center;color:var(--fg3)}
+
+  .res{padding-top:12px;border-top:1px solid var(--line);font-size:14px;line-height:1.66;margin-top:10px}
+  .res p{margin:0 0 9px}
+  .res b{font-weight:600}
+  .res code{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.06);border-radius:4px;padding:1px 4px;color:#b8c0ff}
+  .res ul{margin:2px 0 9px;padding-left:16px} .res li{margin:3px 0}
+
+  /* 交付结果卡：全页唯一的卡 */
+  .card{margin-top:14px;border:1px solid rgba(61,220,132,.22);border-radius:14px;background:linear-gradient(180deg,rgba(61,220,132,.06),rgba(20,20,27,.9));overflow:hidden}
+  .ch{display:flex;align-items:center;gap:8px;padding:12px 13px 10px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .ch .ck{width:19px;height:19px;border-radius:999px;background:rgba(61,220,132,.16);color:var(--ok);display:flex;align-items:center;justify-content:center;font-size:10px;flex:none}
+  .ch b{font-size:13px;font-weight:600}
+  .ch .m{margin-left:auto;font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums}
+  .crow{display:flex;align-items:center;gap:9px;padding:9px 13px;font-size:12.5px}
+  .crow + .crow{border-top:1px solid rgba(255,255,255,.04)}
+  .crow .fi{width:18px;flex:none;text-align:center;font-size:11px;color:var(--fg2)}
+  .crow .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+  .crow .dt{font-family:var(--mono);font-size:10px;flex:none}
+  .add{color:var(--ok)} .del{color:var(--danger)}
+  .crow .tg{font-size:9.5px;padding:2px 5px;border-radius:4px;flex:none;background:rgba(61,220,132,.14);color:var(--ok)}
+  .crow .tg.m{background:rgba(124,140,255,.14);color:var(--accent)}
+  .crow .go{color:var(--fg3);font-size:10px}
+  .cfoot{display:flex;align-items:center;gap:8px;padding:10px 13px;border-top:1px solid rgba(255,255,255,.06);font-size:10.5px;color:var(--fg3)}
+  .cfoot .r{margin-left:auto;color:var(--accent)}
+  .cbar{display:flex;gap:14px;padding:0 13px 11px;font-size:10.5px;color:var(--fg3)}
+  .cbar span b{color:var(--fg2);font-weight:600;font-size:11.5px}
+
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:6px 0 16px;background:rgba(11,11,16,.98);border-top:1px solid var(--line)}
+  .row{display:flex;align-items:center;gap:9px;padding:0 16px}
+  .plus{width:36px;height:36px;border-radius:999px;border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:15px;flex:none}
+  .field{flex:1;height:36px;border-radius:18px;background:var(--sur);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:12.5px;color:var(--fg3)}
+  .send{width:36px;height:36px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;font-size:14px;flex:none}
+  .meta{display:flex;align-items:center;gap:8px;padding:8px 20px 0;font-size:10.5px;color:var(--fg3)}
+  .meta .set{display:inline-flex;align-items:center;gap:5px;color:var(--fg2)}
+  .meta .right{margin-left:auto;display:inline-flex;align-items:center;gap:10px}
+  .ring{width:10px;height:10px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- A 正文 + 交付卡 -->
+  <div class="col">
+    <p class="cap"><b>A · 任务收尾</b>：正文后面接一张交付结果卡（全页唯一的卡）</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm · 4 个任务</span></div><div class="nb">⋯</div></div>
+
+      <div class="flow">
+        <div class="thead">
+          <div class="trow"><span class="st"></span><b>已完成</b><span>· 7 步 / 7 步</span><span class="tm">12.4s</span></div>
+          <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+          <div class="bar"><i style="width:100%"></i></div>
+          <div class="bmeta"><span>改 12 个文件</span><span>·</span><span>2,923 测试通过</span></div>
+        </div>
+
+        <div class="steps">
+          <div class="sp"><span class="i">▸</span><span>7 步过程 · 31 次工具调用</span></div>
+        </div>
+
+        <div class="res">
+          <p>命中率从 <b>6/11 提到 9/11</b>。根因是滑动窗口只能往前翻，跳转把窗口推到会话开头后，新的命中永远够不到。</p>
+          <p>改了三处：<code>jumpWindowTo</code> 收尾后重置 <code>pendingTurnSeqRef</code>；收尾 effect 改用新窗口的行判定；命中预算耗尽前先回滚窗口。</p>
+        </div>
+
+        <div class="card">
+          <div class="ch"><span class="ck">✓</span><b>交付完成</b><span class="m">12.4s · 7 步</span></div>
+          <div class="crow"><span class="fi">▤</span><span class="fn">跳转排查说明.md</span><span class="tg">交付物</span><span class="go">›</span></div>
+          <div class="crow"><span class="fi">✎</span><span class="fn">chat/jump-window.ts</span><span class="dt"><span class="add">+18</span> <span class="del">−6</span></span><span class="tg m">修改</span><span class="go">›</span></div>
+          <div class="crow"><span class="fi">✎</span><span class="fn">views/ChatView.tsx</span><span class="dt"><span class="add">+6</span> <span class="del">−12</span></span><span class="tg m">修改</span><span class="go">›</span></div>
+          <div class="cbar"><span><b>12</b> 个文件</span><span><b>+214</b> <span class="del">−86</span></span><span><b>2,923</b> 测试通过</span></div>
+          <div class="cfoot"><span>提交 8a8e13b · 已推送</span><span class="r">看全部改动 ›</span></div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="row"><div class="plus">+</div><div class="field">追问或开新任务…</div><div class="send">↑</div></div>
+        <div class="meta"><span class="set">⚙ v4.1-flash · 完全访问 ⌄</span><span class="right"><span>空闲</span><span><span class="ring"></span> 44%</span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B 交付卡展开 -->
+  <div class="col">
+    <p class="cap"><b>B · 点开交付卡</b>：交付物 + 全部改动，逐项可进</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+      <div class="nav"><div class="nb">‹</div><div class="nt"><b>交付详情</b><span>第 3 个任务 · 12.4s</span></div><div class="nb">⋯</div></div>
+
+      <div class="flow" style="inset:82px 0 120px">
+        <div class="cbar" style="padding:0 0 12px;gap:18px"><span><b>12</b> 个文件</span><span><b>+214</b> <span class="del">−86</span></span><span><b>2,923</b> 测试通过</span></div>
+
+        <div style="font-size:10.5px;color:var(--fg3);margin:2px 0 7px">交付物 · 1</div>
+        <div class="crow" style="border:1px solid rgba(61,220,132,.2);border-radius:10px;background:rgba(61,220,132,.05)"><span class="fi">▤</span><span class="fn">跳转排查说明.md</span><span class="tg">交付物</span><span class="go">打开 ›</span></div>
+
+        <div style="font-size:10.5px;color:var(--fg3);margin:14px 0 7px">新增 · 2</div>
+        <div class="crow" style="border-radius:10px;border:1px solid var(--line)"><span class="fi">＋</span><span class="fn">chat/jump-window.ts</span><span class="dt"><span class="add">+96</span></span><span class="go">›</span></div>
+        <div class="crow" style="border-radius:10px;border:1px solid var(--line);margin-top:6px"><span class="fi">＋</span><span class="fn">chat/jump-window.test.ts</span><span class="dt"><span class="add">+54</span></span><span class="go">›</span></div>
+
+        <div style="font-size:10.5px;color:var(--fg3);margin:14px 0 7px">修改 · 10</div>
+        <div class="crow" style="border-radius:10px;border:1px solid var(--line)"><span class="fi">✎</span><span class="fn">views/ChatView.tsx</span><span class="dt"><span class="add">+6</span> <span class="del">−12</span></span><span class="go">›</span></div>
+        <div class="crow" style="border-radius:10px;border:1px solid var(--line);margin-top:6px"><span class="fi">✎</span><span class="fn">styles/240-toolbar.css</span><span class="dt"><span class="add">+22</span> <span class="del">−31</span></span><span class="go">›</span></div>
+        <div class="crow" style="border-radius:10px;border:1px solid var(--line);margin-top:6px"><span class="fi">✎</span><span class="fn">platform/budget.json</span><span class="dt"><span class="add">+1</span> <span class="del">−1</span></span><span class="go">›</span></div>
+      </div>
+
+      <div class="dock">
+        <div class="row"><div class="plus">+</div><div class="field">追问这一轮…</div><div class="send">↑</div></div>
+        <div class="meta"><span class="set">提交 8a8e13b · 已推送 ⌄</span><span class="right"><span>空闲</span><span><span class="ring"></span> 44%</span></span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
