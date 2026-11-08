@@ -49,7 +49,13 @@ export function HostConfigGroups({ showAdvanced, term, namespaces, error, groupR
   if (!showAdvanced && term === '') return null
   return (
     <SettingsGroup title="主机配置" note="按类别分组">
-      {namespaces === undefined && error === undefined && <p className="settings-note">加载中…</p>}
+      {namespaces === undefined && error === undefined && (
+        <div className="settings-skeleton-group" aria-busy="true" aria-label="正在读取主机配置">
+          <span className="settings-skeleton" aria-hidden />
+          <span className="settings-skeleton" aria-hidden />
+          <span className="settings-skeleton" aria-hidden />
+        </div>
+      )}
       {groupRows.map(row => (
         <SettingsRow
           key={row.group.id}

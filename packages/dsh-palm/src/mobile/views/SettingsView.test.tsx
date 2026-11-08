@@ -39,6 +39,7 @@ vi.mock('../api.ts', () => ({
   })),
 }))
 import { fetchHostVoiceServices, fetchUsage, latestVersion, listAgentPresets, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
+import { resetPageCache } from '../page-cache.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
@@ -89,6 +90,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup()
+  resetPageCache()
   vi.clearAllMocks()
   store.clear()
 })

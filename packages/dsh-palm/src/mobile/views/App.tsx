@@ -28,24 +28,20 @@ import { installPerfWindowHook, startPerfSampler } from '../platform/perf.ts'
 import { toSessionView, type SessionView } from '../shared/session-view.ts'
 import { errorText } from '../shared/error-text.ts'
 import { ToastHost, toast } from '../components/toast.tsx'
-// B（拆包）：聊天页与设置页只在真正进入时才需要，改成独立 chunk，首包因此
-// 不再带上它们的 150KB 未压缩代码。
+// 聊天页仍是独立 chunk（首包少 ~124KB），首屏后 idle 预取；设置等次级页同步 import：
+// 单一会话页之后它们总量很小，点进去必须同步可渲染（正常路径不经过骨架）。
 const loadChatView = async (): Promise<{ default: typeof import('./ChatView.tsx')['ChatView'] }> => ({
   default: (await import('./ChatView.tsx')).ChatView,
 })
-const loadSettingsView = async (): Promise<{ default: typeof import('./SettingsView.tsx')['SettingsView'] }> => ({
-  default: (await import('./SettingsView.tsx')).SettingsView,
-})
-
 const { View: ChatView, warm: warmChatView } = createLazyView(loadChatView)
-const { View: SettingsView, warm: warmSettingsView } = createLazyView(loadSettingsView)
 import { durationFromPage, summaryFromPage } from '../session/run-detail.ts'
 import { recordFinishedRun, finishedRuns, shortSessionId, type FinishedRun } from '../session/recent-finished.ts'
 import { PairRequiredView } from '../components/PairRequiredView.tsx'
 import { hasAnyChatCache } from '../session/chat-cache.ts'
 import { loadChatCache } from '../session/chat-cache.ts'
 import { loadPersistedList } from '../session/list-persist.ts'
-import { createLazyView } from '../lazy-view.tsx'
+import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
+import { invalidateSession, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
 import { Button } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/sheet.tsx'
@@ -59,6 +55,7 @@ import { DeliveryDetailView } from './DeliveryDetailView.tsx'
 import { ContextView } from './ContextView.tsx'
 import { ApprovalModeView } from './ApprovalModeView.tsx'
 import { SearchView, type SearchHit } from './SearchView.tsx'
+import { SettingsView } from './SettingsView.tsx'
 import { searchPageFor } from './search-request.ts'
 import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.ts'
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
@@ -639,12 +636,9 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   useEffect(() => () => {
     if (exitTimerRef.current !== undefined) clearTimeout(exitTimerRef.current)
   }, [])
-  // 首屏一出来就把聊天页、设置页的 chunk 抓到本地：用户点进去时才不需要等下载，
-  // 舞台也就不会先闪一下空白再滑进来。放到定时器里，不影响首屏渲染。
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void warmChatView(); void warmSettingsView() }, 350)
-    return () => { window.clearTimeout(timer) }
-  }, [])
+  // 首屏一出来就把聊天 chunk 与设置数据预取到本地：用户点入口时目标页已经同步可渲染，
+  // 舞台不会再先闪骨架、也不会卡在「点了没反应」。idle 执行，失败不影响功能。
+  useEffect(() => prefetchOnIdle([warmChatView, () => refreshPage('settings', readSettings)]), [])
 
   /** Drop the leaving page once its exit animation has played. */
   const scheduleExitCleanup = useCallback(() => {
@@ -662,6 +656,9 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
 
   /** Set the route: current page plays the exit animation, next one slides in. */
   const applyRoute = useCallback((next: Route) => {
+    // 会话切换：上一会话的页面快照立即失效（换回来必须重新拉，不拿旧数据充数）。
+    const previousRoute = currentOf(stackRef.current)?.value
+    if (previousRoute !== undefined && previousRoute.session.sessionId !== next.session.sessionId) invalidateSession(previousRoute.session.sessionId)
     // 会话页是**根**：换会话 = 换根，不压栈（否则栈里会堆一串再也退不回去的会话）。
     // 子页照旧压栈：返回 = 弹栈，"从哪进来的"不需要任何标记去猜。
     if (next.kind === 'chat') {
@@ -683,11 +680,11 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   }, [scheduleExitCleanup])
 
   /** Set the route, but never onto a page whose chunk is still downloading:
-   *  the stage would go blank for a frame (the "闪一下" users report). */
+   *  the stage would go blank for a frame (the "闪一下" users report).
+   *  其余页面都是同步 import，直接切；只有聊天 chunk 需要先 await。 */
   const navigate = useCallback((next: Route) => {
-    const warm = next.kind === 'chat' ? warmChatView : next.kind === 'settings' ? warmSettingsView : undefined
-    if (warm === undefined) { applyRoute(next); return }
-    void warm().then(() => { applyRoute(next) }, () => { applyRoute(next) })
+    if (next.kind !== 'chat') { applyRoute(next); return }
+    void warmChatView().then(() => { applyRoute(next) }, () => { applyRoute(next) })
   }, [applyRoute])
 
   /**

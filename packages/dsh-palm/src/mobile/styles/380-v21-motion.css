@@ -1,8 +1,6 @@
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .mobile-headerSearch,
-  .mobile-empty-groupBtn,
   .chat-reasoning-more,
   .chat-offline-banner,
   .chat-offline-retry,

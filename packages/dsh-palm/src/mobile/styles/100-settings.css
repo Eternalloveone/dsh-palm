@@ -227,6 +227,14 @@
   animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
 }
 
+/* 主机配置首次读取：没有快照才出现（有页面快照时直接画分组行）。 */
+.settings-skeleton-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px 14px;
+}
+
 @keyframes settings-skeleton-sweep {
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }

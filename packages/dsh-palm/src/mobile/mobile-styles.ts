@@ -485,7 +485,6 @@ body,
 
 /* Thin, quiet scrollbars. */
 .mobile-scroll::-webkit-scrollbar,
-.mobile-list::-webkit-scrollbar,
 .chat-scroll::-webkit-scrollbar,
 .sheet-body::-webkit-scrollbar,
 .code-block pre::-webkit-scrollbar {
@@ -494,7 +493,6 @@ body,
 }
 
 .mobile-scroll::-webkit-scrollbar-thumb,
-.mobile-list::-webkit-scrollbar-thumb,
 .chat-scroll::-webkit-scrollbar-thumb,
 .sheet-body::-webkit-scrollbar-thumb,
 .code-block pre::-webkit-scrollbar-thumb {
@@ -1136,17 +1134,11 @@ body,
 
 /* 状态点是 8px 的小圆，不是图标：.card-icon > * 会把直接子元素撑成 40px 的
    圆角方块，运行中的绿点于是变成一个绿色大方块（真机反馈 2026-10-20）。这里用
-   两个类名的选择器压回去，勾选标记也一并放回自然尺寸（它本来没有底板）。 */
+   两个类名的选择器压回去。 */
 .card-icon > .sess-dot {
   width: 8px;
   height: 8px;
   border-radius: var(--radius-full);
-}
-
-.card-icon > .sess-check {
-  width: auto;
-  height: auto;
-  border-radius: 0;
 }
 
 /* Title line: the title owns the line and wraps instead of truncating.
@@ -1425,6 +1417,14 @@ body,
   background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-default) 50%, var(--bg-input) 75%);
   background-size: 200% 100%;
   animation: settings-skeleton-sweep 1.2s ease-in-out infinite;
+}
+
+/* 主机配置首次读取：没有快照才出现（有页面快照时直接画分组行）。 */
+.settings-skeleton-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px 14px;
 }
 
 @keyframes settings-skeleton-sweep {
@@ -2301,7 +2301,6 @@ button.settings-row:focus-visible {
    另外把 * 上禁掉的 touch-callout 在这些块里放开：iOS 长按选字后要能看到系统那个
    "拷贝/查询"气泡，否则只能拖手柄、拿不到复制入口。 */
 .chat-msg-text,
-.chat-msg-plain,
 .chat-md-body,
 .chat-flow-text,
 .chat-think-body,
@@ -2526,8 +2525,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-msg > .chat-msg-text,
-.chat-msg > .chat-md,
-.chat-msg > .chat-msg-plain {
+.chat-msg > .chat-md {
   display: block;
   width: 100%;
   min-width: 0;
@@ -2538,12 +2536,6 @@ button.settings-row:focus-visible {
 
 .chat-md {
   white-space: normal;
-}
-
-/* 流式中纯文本（不做 markdown 渲染，减少 CPU） */
-.chat-msg-plain {
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
 }
 
 /* 只裁正文容器（.chat-md-body），「展开全文」按钮是它的兄弟节点，永远可点。 */
@@ -6220,13 +6212,6 @@ button.settings-row:focus-visible {
   line-height: 1.6;
 }
 
-/* 「Agent 模式说明」面板：把每个模式逐条列出来。
-   以前只显示当前模式的一句话，宿主没写 description 时整块看着像空的。 */
-
-.preset-help-item .sheet-confirm-desc {
-  margin: 0;
-}
-
 /* 「关于」里检查更新旁边那颗仓库图标：与主按钮同高（44px）、同圆角，只占一颗方键的
    宽度，点一下直接开 GitHub 仓库。 */
 .sheet-icon-link {
@@ -6803,12 +6788,6 @@ body:has(.lightbox-backdrop) .toast-host {
   margin: 0;
 }
 
-/* ── directory browser ───────────────────────────────────────────────── */
-
-.dir-select .mobile-button {
-  width: 100%;
-  margin: 0;
-}
 /* ── Mobile plugin market (MarketView) ───────────────────────────────── */
 
 .market-row {
@@ -7988,8 +7967,6 @@ button.palm-delivery-row:focus-visible {
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .mobile-headerSearch,
-  .mobile-empty-groupBtn,
   .chat-reasoning-more,
   .chat-offline-banner,
   .chat-offline-retry,
@@ -8089,21 +8066,6 @@ details.think-block[open] .chat-disclosure-caret {
   font-variant-numeric: tabular-nums;
 }
 
-/* 首页搜索结果的一行：会话名命中和「消息」命中都是这一种行，正文命中多一行摘要；
-   键盘上下键选中的那一行给一圈内描边（不换背景，避免和按压态打架）。 */
-
-/* 方案 C：命中段落。摘要只有一个窗口宽，看不出是哪句话命中；段落直接给三行。
-   换行保留（段落本来就是多行正文），超出三行截断并给省略号。 */
-.card-desc.search-hitPara {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  white-space: pre-wrap;
-  line-height: 18px;
-}
-/* 搜索中的骨架：三行灰条，比一句「正在搜索…」更能说明"结果正在填进来"。 */
-
 /* Focus-locate highlight: a one-shot ring pulse on the located row.
    只用 box-shadow，**绝不碰 background-color**：.chat-msg-focus 带
    animation-fill-mode: forwards，动画写到 100% 的 background-color: transparent 会
@@ -8162,26 +8124,11 @@ details.think-block[open] .chat-disclosure-caret {
 [data-locate-id][data-focus] {
   animation: dshPalmFocusPulse 2.2s ease-out forwards;
 }
-/* ── global run overview (cross-session background tasks) ────────────── */
+/* ── turn list floating handle (轮次清单) ─────────────────────────────── */
 
-/* 两行各占一行：这两个是 inline span，早先并排渲染，于是"0 个后台任务"和
-   "跨全部工作区"连成一句、断行也错位。 */
-
-/* 标题必须完整显示：早先是单行 nowrap + 省略号，"dsh-palm手机端与桌面端消息
-   不同步"在手机上只剩 "dsh-palm手机端与桌面…"，一条会话和另一条就分不出来了。
-   现在按自然换行排（长标题最多铺两行），不再截断。 */
-
-/* In-card group label ("子代理" / "后台任务"): smaller than the page-level
-   .runov-group-title and flush with the rows it introduces (the card's job
-   rows carry no horizontal inset of their own). */
-
-/* Fold header for a session's settled (completed/failed/killed) jobs: a quiet
-   one-line summary so many finished tasks do not bury what is running now. */
-
-/* Turn list floating handle (轮次清单): a compact pill pinned beside the
-   jump-to-latest button; shows the current turn / total count. Rides the
-   same sticky flex column as chat-jump-latest (aligned flex-end), offset
-   above the round button so the two never overlap. */
+/* A compact pill pinned beside the jump-to-latest button; shows the current
+   turn / total count. Rides the same sticky flex column as chat-jump-latest
+   (aligned flex-end), offset above the round button so the two never overlap. */
 .chat-jump-turns {
   position: sticky;
   bottom: 58px;
@@ -8218,15 +8165,6 @@ details.think-block[open] .chat-disclosure-caret {
   font-weight: 600;
   white-space: nowrap;
 }
-
-/* Turn list sheet rows: one button per turn. A left accent bar marks the
-   current turn; an unloaded turn shows a faint dot on the right. Preview
-   lines ellipsize on their own line (block + overflow hidden), so long
-   prompts / responses never blow out the sheet width. */
-/* The number + prompt share one ellipsizing row; the response is an
-   indented line under it. Each text line shrinks (flex-shrink: 1 with
-   min-width: 0 on the parent column) so anywhere-wrapping long tokens
-   cannot widen the sheet. */
 /* ── D1 turn scrubber ──────────────────────────────────────────────────
    Docks above the composer while the turn handle is held: target turn +
    prompt on one line, the response preview beneath it, then a full-width
@@ -8520,23 +8458,6 @@ details.think-block[open] .chat-disclosure-caret {
 
 /* 最新事件超过 90 秒：可能是宿主重启/断流，也可能是真卡住，转黄提示别干等。 */
 
-.rs-meta > .sep,
-.rs-sub > .sep {
-  color: var(--text-quaternary);
-}
-
-/* 子代理：缩进 + 一条细轨表示从属关系 */
-
-/* 折叠行：更多子代理 / 另有几个后台任务 */
-
-/* 组标题：计数与动作跟在标题后面，别让 hero 卡再报一遍同一个数字 */
-
-/* 刚结束：两行（标题 + 状态·用时·多久以前），一屏能放六条 */
-
-.rf-meta > .sep {
-  color: var(--text-quaternary);
-}
-
 /* ===== 聊天页顶部「别的会话跑完了」条 =====
  *
  * 这条原来只在底部浮层里出现，而浮层与输入框同样钉底、z-index 更高 —— 真机上直接盖住
@@ -8649,19 +8570,6 @@ details.think-block[open] .chat-disclosure-caret {
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-/* ===== 子代理只读会话页 ===== */
-
-.subchat-step-dot.is-running {
-  background: var(--accent);
-  animation: breathe 1.6s infinite ease-in-out;
-}
-
-.subchat-step-state.is-running {
-  color: var(--accent);
-}
-
-/* 进阶折叠的箭头：收起时朝右，展开时朝下 */
 
 /* 目标条上的进度摘要（已跑多久 · 第几步） */
 .chat-goal-meta {
@@ -9214,74 +9122,6 @@ details.think-block[open] .chat-disclosure-caret {
   font-size: var(--palm-t-s);
   color: var(--palm-fg-2);
   border-top: var(--palm-hair) solid var(--palm-line);
-}
-/* ── 模型与思考页（P6 ⑤ 屏） ───────────────────────────────────────── */
-
-.model-page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--palm-bg);
-  color: var(--palm-fg);
-}
-
-/* grow 槽本身不是滚动容器：给正文一个确定高度（与审批页同一口径）。 */
-.model-page [data-slot='diff'] {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* 一行一个选项：左主名、右状态，副标题压在下面。 */
-.model-page-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--palm-s2);
-  width: 100%;
-  min-height: 44px;
-  margin-bottom: var(--palm-s2);
-  padding: var(--palm-s3) var(--palm-s4);
-  text-align: left;
-  background: var(--palm-sur-1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  color: var(--palm-fg);
-}
-
-/* 选中项：只换边色，不改结构（与结论卡同一套语义）。 */
-.model-page-row[aria-pressed='true'] {
-  border-color: var(--palm-accent);
-  box-shadow: var(--palm-hi), var(--palm-sh1);
-}
-
-/* ── ⑤ 视觉重做：当前模型卡 / 三档分段 / 说明行（定版图口径）───── */
-
-/* 当前模型卡：名字与说明在左，「切换」在右；底色用 accent 淡染，
-   一眼就能和背景、和下面未选中的档位分开（定版图里当前项也是染色卡）。 */
-
-/* 模型图标（icons.tsx 的 16px 线性 SVG，定版尺寸只走令牌）。 */
-
-/* 卡里的模型名比列表行大一号：它是这一屏的主角。 */
-
-/* 切换：一枚 44px 的次级按钮，不跟模型名抢视线。 */
-
-/* 思考强度：三档分段；选中的那一档才有底色与强调描边。 */
-
-/* 分段下面的那行说明：贴着控件，不要飘到下一块去。 */
-
-.model-page-row:focus-visible,
-.model-page-switch:focus-visible,
-.model-page-effort:focus-visible {
-  outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
-}
-
-/* 空态里的「重新加载」沿用既有 .mobile-button，只把颜色接到 palm 令牌上。 */
-.model-page .empty-state-action .mobile-button {
-  border-color: var(--palm-line);
-  background: var(--palm-sur-1);
-  color: var(--palm-fg);
 }
 /* ── 回合大纲页（P6 ⑫ 屏） ─────────────────────────────────────────── */
 

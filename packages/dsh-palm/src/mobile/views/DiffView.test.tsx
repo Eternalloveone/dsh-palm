@@ -10,6 +10,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DiffView } from './DiffView.tsx'
 import { readFile } from '../data/fs.ts'
+import { resetPageCache } from '../page-cache.ts'
 
 // 取数走 data 门面（视图不直连 api.ts）；这里只替换最外层的读文件。
 vi.mock('../data/fs.ts', () => ({ readFile: vi.fn() }))
@@ -29,6 +30,7 @@ const SAMPLE = [
 
 beforeEach(() => {
   cleanup()
+  resetPageCache()
   readFileMock.mockReset()
 })
 

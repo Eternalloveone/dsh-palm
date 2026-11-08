@@ -166,7 +166,6 @@
    另外把 * 上禁掉的 touch-callout 在这些块里放开：iOS 长按选字后要能看到系统那个
    "拷贝/查询"气泡，否则只能拖手柄、拿不到复制入口。 */
 .chat-msg-text,
-.chat-msg-plain,
 .chat-md-body,
 .chat-flow-text,
 .chat-think-body,
@@ -391,8 +390,7 @@
 }
 
 .chat-msg > .chat-msg-text,
-.chat-msg > .chat-md,
-.chat-msg > .chat-msg-plain {
+.chat-msg > .chat-md {
   display: block;
   width: 100%;
   min-width: 0;
@@ -403,12 +401,6 @@
 
 .chat-md {
   white-space: normal;
-}
-
-/* 流式中纯文本（不做 markdown 渲染，减少 CPU） */
-.chat-msg-plain {
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
 }
 
 /* 只裁正文容器（.chat-md-body），「展开全文」按钮是它的兄弟节点，永远可点。 */

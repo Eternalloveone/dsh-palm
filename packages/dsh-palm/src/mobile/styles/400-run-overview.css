@@ -1,23 +1,8 @@
-/* ── global run overview (cross-session background tasks) ────────────── */
+/* ── turn list floating handle (轮次清单) ─────────────────────────────── */
 
-/* 两行各占一行：这两个是 inline span，早先并排渲染，于是"0 个后台任务"和
-   "跨全部工作区"连成一句、断行也错位。 */
-
-/* 标题必须完整显示：早先是单行 nowrap + 省略号，"dsh-palm手机端与桌面端消息
-   不同步"在手机上只剩 "dsh-palm手机端与桌面…"，一条会话和另一条就分不出来了。
-   现在按自然换行排（长标题最多铺两行），不再截断。 */
-
-/* In-card group label ("子代理" / "后台任务"): smaller than the page-level
-   .runov-group-title and flush with the rows it introduces (the card's job
-   rows carry no horizontal inset of their own). */
-
-/* Fold header for a session's settled (completed/failed/killed) jobs: a quiet
-   one-line summary so many finished tasks do not bury what is running now. */
-
-/* Turn list floating handle (轮次清单): a compact pill pinned beside the
-   jump-to-latest button; shows the current turn / total count. Rides the
-   same sticky flex column as chat-jump-latest (aligned flex-end), offset
-   above the round button so the two never overlap. */
+/* A compact pill pinned beside the jump-to-latest button; shows the current
+   turn / total count. Rides the same sticky flex column as chat-jump-latest
+   (aligned flex-end), offset above the round button so the two never overlap. */
 .chat-jump-turns {
   position: sticky;
   bottom: 58px;
@@ -54,12 +39,3 @@
   font-weight: 600;
   white-space: nowrap;
 }
-
-/* Turn list sheet rows: one button per turn. A left accent bar marks the
-   current turn; an unloaded turn shows a faint dot on the right. Preview
-   lines ellipsize on their own line (block + overflow hidden), so long
-   prompts / responses never blow out the sheet width. */
-/* The number + prompt share one ellipsizing row; the response is an
-   indented line under it. Each text line shrinks (flex-shrink: 1 with
-   min-width: 0 on the parent column) so anywhere-wrapping long tokens
-   cannot widen the sheet. */

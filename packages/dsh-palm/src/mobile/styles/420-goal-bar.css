@@ -175,23 +175,6 @@
 
 /* 最新事件超过 90 秒：可能是宿主重启/断流，也可能是真卡住，转黄提示别干等。 */
 
-.rs-meta > .sep,
-.rs-sub > .sep {
-  color: var(--text-quaternary);
-}
-
-/* 子代理：缩进 + 一条细轨表示从属关系 */
-
-/* 折叠行：更多子代理 / 另有几个后台任务 */
-
-/* 组标题：计数与动作跟在标题后面，别让 hero 卡再报一遍同一个数字 */
-
-/* 刚结束：两行（标题 + 状态·用时·多久以前），一屏能放六条 */
-
-.rf-meta > .sep {
-  color: var(--text-quaternary);
-}
-
 /* ===== 聊天页顶部「别的会话跑完了」条 =====
  *
  * 这条原来只在底部浮层里出现，而浮层与输入框同样钉底、z-index 更高 —— 真机上直接盖住
@@ -304,19 +287,6 @@
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-/* ===== 子代理只读会话页 ===== */
-
-.subchat-step-dot.is-running {
-  background: var(--accent);
-  animation: breathe 1.6s infinite ease-in-out;
-}
-
-.subchat-step-state.is-running {
-  color: var(--accent);
-}
-
-/* 进阶折叠的箭头：收起时朝右，展开时朝下 */
 
 /* 目标条上的进度摘要（已跑多久 · 第几步） */
 .chat-goal-meta {

@@ -66,3 +66,24 @@ export function PageSkeleton({ failed, onRetry }: { failed?: boolean; onRetry?: 
     </div>
   )
 }
+
+/**
+ * 首屏之后预取：idle 时把还没到的 chunk 拉到本地，用户点入口时组件已经能同步渲染。
+ * 失败只是留着下次再拉（`warm` 内会把 inflight 清掉），绝不影响功能。
+ *
+ * @param loaders - `warm` 函数数组
+ * @returns 取消预取（组件卸载时清定时器）
+ */
+export function prefetchOnIdle(loaders: ReadonlyArray<() => Promise<void>>): () => void {
+  const run = (): void => {
+    for (const load of loaders) void load().catch(() => { /* 预取失败不影响功能 */ })
+  }
+  if (typeof window === 'undefined') return () => {}
+  // requestIdleCallback 不是所有 WebView 都有（老 Safari / 部分安卓壳），回退定时器。
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(run, { timeout: 1_500 })
+    return () => { window.cancelIdleCallback(handle) }
+  }
+  const timer = window.setTimeout(run, 120)
+  return () => { window.clearTimeout(timer) }
+}

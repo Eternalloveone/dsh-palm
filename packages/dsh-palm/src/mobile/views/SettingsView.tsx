@@ -32,6 +32,7 @@ import {
 import { SlidersIcon } from '../components/icons.tsx'
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../platform/notify-triggers.ts'
+import { refreshPage, usePage } from '../page-cache.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
 import { EmptyState, IconButton } from '../ui/primitives.tsx'
 import { AdvancedSection, HostConfigGroups, type SettingsGroupRow } from './settings/advanced-section.tsx'
@@ -60,8 +61,10 @@ export interface SettingsViewProps {
  * @returns the settings page.
  */
 export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
-  const [namespaces, setNamespaces] = useState<SettingsNamespaceView[] | undefined>(undefined)
-  const [error, setError] = useState<string | undefined>(undefined)
+  // 页面级 cache-first：再进设置页先回上次快照并行后台刷新；有快照就不画骨架。
+  const settingsPage = usePage('settings', readSettings)
+  const namespaces = settingsPage.value?.namespaces
+  const error = settingsPage.error
   const [openGroup, setOpenGroup] = useState<string | undefined>(undefined)
   /** 「进阶」折叠：主机配置默认收起（低频，展开才占版面）。 */
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -156,21 +159,6 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   const [versionStatus, setVersionStatus] = useState<string | undefined>(undefined)
 
   useEffect(() => subscribeVoiceServices(() => setVoiceServicesState(getVoiceServices())), [])
-
-  useEffect(() => {
-    let cancelled = false
-    void readSettings().then(
-      (read) => {
-        if (cancelled) return
-        setNamespaces(read.namespaces)
-      },
-      (reason: unknown) => {
-        if (cancelled) return
-        setError(errorText(reason))
-      },
-    )
-    return () => { cancelled = true }
-  }, [])
 
   // The notify config (thresholds) — absent when the host runs without the
   // notify feature; the notification rows then hide themselves.
@@ -580,7 +568,7 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
       <SettingsForm
         namespaces={openedMembers}
         allNamespaces={namespaces ?? []}
-        onBack={() => { setOpenGroup(undefined) }}
+        onBack={() => { setOpenGroup(undefined); void refreshPage('settings', readSettings) }}
         onOpenMarket={openedMembers.some(entry => entry.ns === 'dsh-market')
           ? () => { setMarketOpen(true) }
           : undefined}

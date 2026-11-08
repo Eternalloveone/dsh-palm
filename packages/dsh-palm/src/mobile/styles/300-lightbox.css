@@ -156,13 +156,6 @@
   line-height: 1.6;
 }
 
-/* 「Agent 模式说明」面板：把每个模式逐条列出来。
-   以前只显示当前模式的一句话，宿主没写 description 时整块看着像空的。 */
-
-.preset-help-item .sheet-confirm-desc {
-  margin: 0;
-}
-
 /* 「关于」里检查更新旁边那颗仓库图标：与主按钮同高（44px）、同圆角，只占一颗方键的
    宽度，点一下直接开 GitHub 仓库。 */
 .sheet-icon-link {

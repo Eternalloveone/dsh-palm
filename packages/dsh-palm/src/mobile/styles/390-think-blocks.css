@@ -83,21 +83,6 @@ details.think-block[open] .chat-disclosure-caret {
   font-variant-numeric: tabular-nums;
 }
 
-/* 首页搜索结果的一行：会话名命中和「消息」命中都是这一种行，正文命中多一行摘要；
-   键盘上下键选中的那一行给一圈内描边（不换背景，避免和按压态打架）。 */
-
-/* 方案 C：命中段落。摘要只有一个窗口宽，看不出是哪句话命中；段落直接给三行。
-   换行保留（段落本来就是多行正文），超出三行截断并给省略号。 */
-.card-desc.search-hitPara {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  white-space: pre-wrap;
-  line-height: 18px;
-}
-/* 搜索中的骨架：三行灰条，比一句「正在搜索…」更能说明"结果正在填进来"。 */
-
 /* Focus-locate highlight: a one-shot ring pulse on the located row.
    只用 box-shadow，**绝不碰 background-color**：.chat-msg-focus 带
    animation-fill-mode: forwards，动画写到 100% 的 background-color: transparent 会

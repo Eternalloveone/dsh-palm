@@ -136,17 +136,11 @@
 
 /* 状态点是 8px 的小圆，不是图标：.card-icon > * 会把直接子元素撑成 40px 的
    圆角方块，运行中的绿点于是变成一个绿色大方块（真机反馈 2026-10-20）。这里用
-   两个类名的选择器压回去，勾选标记也一并放回自然尺寸（它本来没有底板）。 */
+   两个类名的选择器压回去。 */
 .card-icon > .sess-dot {
   width: 8px;
   height: 8px;
   border-radius: var(--radius-full);
-}
-
-.card-icon > .sess-check {
-  width: auto;
-  height: auto;
-  border-radius: 0;
 }
 
 /* Title line: the title owns the line and wraps instead of truncating.

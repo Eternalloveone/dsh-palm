@@ -14,9 +14,9 @@
  *
  * @module dsh-palm/mobile/views/DiffView
  */
-import { useEffect, useState } from 'react'
 import type { FilePreview } from '../mobile-types.ts'
 import { readFile } from '../data/fs.ts'
+import { pageKey, usePage } from '../page-cache.ts'
 import { DiffRows } from '../components/diff-rows.tsx'
 import { CopyIcon } from '../components/icons.tsx'
 import { copyText } from '../render/code-actions.ts'
@@ -36,12 +36,6 @@ function parentPath(path: string): string {
   return index <= 0 ? '' : path.slice(0, index)
 }
 
-/** 页面三种状态：读取中 / 宿主拒绝 / 读到了（文本或图片）。 */
-type PreviewState =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; preview: FilePreview }
-
 export interface DiffViewProps {
   /** 文件路径（可能相对会话 cwd）。 */
   path: string
@@ -57,23 +51,11 @@ export interface DiffViewProps {
  * @returns diff 页
  */
 export function DiffView({ path, sessionId, onBack }: DiffViewProps) {
-  const [state, setState] = useState<PreviewState>({ status: 'loading' })
-
-  useEffect(() => {
-    let alive = true
-    setState({ status: 'loading' })
-    readFile(path, sessionId).then(
-      (preview) => { if (alive) setState({ status: 'ready', preview }) },
-      (error: unknown) => {
-        if (!alive) return
-        const message = error instanceof Error ? error.message : '文件不可读'
-        setState({ status: 'error', message })
-      },
-    )
-    return () => { alive = false }
-  }, [path, sessionId])
-
-  const ready = state.status === 'ready' ? state.preview : undefined
+  // 页面级 cache-first：同一会话下再开同一个文件先画上次内容，后台再读一遍；
+  // 键里带 sessionId —— 换会话就是另一份缓存。
+  const page = usePage(pageKey('diff', sessionId, path), () => readFile(path, sessionId))
+  const preview: FilePreview | undefined = page.value
+  const message = preview === undefined ? page.error : undefined
   const parent = parentPath(path)
 
   return (
@@ -91,11 +73,11 @@ export function DiffView({ path, sessionId, onBack }: DiffViewProps) {
               {parent === '' ? null : <p className="diff-page-path" title={path}>{parent}</p>}
             </div>
             <div className="mobile-headerSlot mobile-headerSlot-right">
-              {ready !== undefined && ready.kind === 'text' ? (
+              {preview !== undefined && preview.kind === 'text' ? (
                 <IconButton
                   label="复制文件原文"
                   className="mobile-iconbtn"
-                  onClick={() => { void copyText(ready.text, '已复制文件原文') }}
+                  onClick={() => { void copyText(preview.text, '已复制文件原文') }}
                 >
                   <CopyIcon />
                 </IconButton>
@@ -105,19 +87,19 @@ export function DiffView({ path, sessionId, onBack }: DiffViewProps) {
         ),
         diff: (
           <div className="diff-page-body">
-            {state.status === 'loading' ? (
+            {preview === undefined && message === undefined ? (
               <p className="diff-page-loading">正在读取文件…</p>
             ) : null}
-            {state.status === 'error' ? (
-              <p className="diff-page-error" role="alert">{state.message}</p>
+            {message !== undefined ? (
+              <p className="diff-page-error" role="alert">{message}</p>
             ) : null}
-            {ready !== undefined ? (
-              ready.kind === 'image' ? (
+            {preview !== undefined ? (
+              preview.kind === 'image' ? (
                 <div className="diff-page-image-wrap">
-                  <img className="diff-page-image" src={ready.dataUrl} alt={ready.name} draggable={false} />
+                  <img className="diff-page-image" src={preview.dataUrl} alt={preview.name} draggable={false} />
                 </div>
               ) : (
-                <DiffRows text={ready.text} />
+                <DiffRows text={preview.text} />
               )
             ) : null}
           </div>
