@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态长条 + 桌宠 v2</title>
+<style>
+  :root{
+    --bg:#0b0b10;
+    --fg:#e9ebf2; --fg2:#9aa0ae; --fg3:#666c7a;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#0b0b10;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .wrap{width:430px;padding:22px}
+  h3{font-size:13px;color:#c9cdd8;margin:0 0 5px 2px;font-weight:600}
+  .sub{font-size:11px;color:#6f7482;margin:0 0 9px 2px;line-height:1.6}
+  .gap{height:20px}
+
+  /* 长条 */
+  .strip{position:relative;height:46px;border-radius:15px;overflow:hidden;
+    background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:15px 0 0 15px;transition:width .4s ease}
+  .edge{position:absolute;top:0;bottom:0;width:52px;transform:translateX(-52px);opacity:.9;pointer-events:none}
+
+  /* 浮动在填充边缘的桌宠 */
+  .pet{position:absolute;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;z-index:3;
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))}
+  .pet svg{display:block}
+  .thinkmark{position:absolute;right:-5px;top:-8px;font-size:11px;color:#c9d0ff;z-index:4}
+  .zzz{position:absolute;right:-4px;top:-8px;font-size:10px;color:#ffd98a;z-index:4}
+
+  /* 文字牌：保证任何底色上都读得清 */
+  .plate{position:absolute;left:44px;right:9px;top:50%;transform:translateY(-50%);
+    display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:9px;
+    background:rgba(8,8,13,.66);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.05)}
+  .plate .tx{font-size:11.5px;line-height:1.25;color:#f2f4fa;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .plate .tx b{font-weight:600}
+  .plate .tx span{display:block;font-size:10px;color:rgba(255,255,255,.6);margin-top:2px;font-weight:400;overflow:hidden;text-overflow:ellipsis}
+  .plate .rt{font-size:10.5px;color:rgba(255,255,255,.72);font-variant-numeric:tabular-nums;flex:none}
+
+  /* 配色 */
+  .s-think .fill{width:30%;background:linear-gradient(90deg,#4b4ae0,#7c8cff)}
+  .s-think .edge{left:30%;background:radial-gradient(circle at right,rgba(169,180,255,.55),transparent 72%)}
+  .s-tool .fill{width:52%;background:linear-gradient(90deg,#3563f0,#6bd5ff)}
+  .s-tool .edge{left:52%;background:radial-gradient(circle at right,rgba(159,230,255,.55),transparent 72%)}
+  .s-done .fill{width:100%;background:linear-gradient(90deg,#2fbf74,#3ddc84 55%,#7c8cff)}
+  .s-stuck .fill{width:42%;background:linear-gradient(90deg,#7d5f1b,#e0a52c)}
+  .s-stuck .edge{left:42%;background:radial-gradient(circle at right,rgba(255,217,138,.5),transparent 72%)}
+  .s-unknown .fill{width:22%;background:linear-gradient(90deg,#4b4ae0,#7c8cff);animation:travel 3s ease-in-out infinite}
+  @keyframes travel{0%{left:0}50%{left:58%}100%{left:0}}
+
+  /* 小动画 */
+  .bob{animation:bob 1.9s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+  .run{animation:run .55s ease-in-out infinite}
+  @keyframes run{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2.5px) rotate(-5deg)}}
+  .breathe{animation:breathe 2.8s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(.93)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h3>① 思考中</h3>
+  <p class="sub">紫色渐填充 = 已完成量；桌宠骑在填充边缘，头顶 ✦ 表示在推理。</p>
+  <div class="strip s-think">
+    <div class="fill"></div><div class="edge"></div>
+    <div class="pet" style="left:30%"><svg viewBox="0 0 28 28" width="28" height="28" class="bob">
+      <ellipse cx="14" cy="16" rx="9.6" ry="8.8" fill="#101122" stroke="#b9c2ff" stroke-width="1.7"/>
+      <circle cx="10.8" cy="14.2" r="1.6" fill="#eef1ff"/><circle cx="17.2" cy="14.2" r="1.6" fill="#eef1ff"/>
+      <path d="M11.4 19 q2.6 1.7 5.2 0" stroke="#b9c2ff" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    </svg><span class="thinkmark">✦</span></div>
+    <div class="plate"><div class="tx"><b>正在推理</b><span>先确认是窗口问题还是 id 对不上</span></div><div class="rt">00:12</div></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>② 跑工具</h3>
+  <p class="sub">换青蓝渐变，填充往右推；桌宠进入小跑姿态，右侧是这一步已用时。</p>
+  <div class="strip s-tool">
+    <div class="fill"></div><div class="edge"></div>
+    <div class="pet" style="left:52%"><svg viewBox="0 0 28 28" width="28" height="28" class="run">
+      <ellipse cx="14" cy="16" rx="9.6" ry="8.8" fill="#08131c" stroke="#9fe6ff" stroke-width="1.7"/>
+      <circle cx="11" cy="14" r="1.6" fill="#e3f8ff"/><circle cx="17" cy="14" r="1.6" fill="#e3f8ff"/>
+      <path d="M11 19.2 q3 1.1 6 0" stroke="#9fe6ff" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    </svg></div>
+    <div class="plate"><div class="tx"><b>跑测试</b><span>pnpm test · 2,923 条</span></div><div class="rt">38s</div></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>③ 完成</h3>
+  <p class="sub">整条填满，绿→蓝渐变；桌宠举双手，右侧换总耗时。</p>
+  <div class="strip s-done">
+    <div class="fill"></div>
+    <div class="pet" style="left:92%"><svg viewBox="0 0 28 28" width="28" height="28" class="bob">
+      <ellipse cx="14" cy="16" rx="9.6" ry="8.8" fill="#08170f" stroke="#c4f7d8" stroke-width="1.7"/>
+      <path d="M10.4 14 q1.5 -1.9 3 0" stroke="#c4f7d8" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <path d="M14.6 14 q1.5 -1.9 3 0" stroke="#c4f7d8" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <path d="M11.4 18.6 q2.6 2.1 5.2 0" stroke="#c4f7d8" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      <path d="M4 10.6 l-2.4 -3.2" stroke="#c4f7d8" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M24 10.6 l2.4 -3.2" stroke="#c4f7d8" stroke-width="1.7" stroke-linecap="round"/>
+    </svg></div>
+    <div class="plate" style="left:12px;right:auto;width:calc(100% - 76px)"><div class="tx"><b>完成 · 7 步</b><span>12 个文件 · 2,923 测试通过</span></div><div class="rt">12.4s</div></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>④ 卡住</h3>
+  <p class="sub">填充转琥珀并停止推进；桌宠睡着冒 z，右端「无动作 42s」，整条可点。</p>
+  <div class="strip s-stuck">
+    <div class="fill"></div><div class="edge"></div>
+    <div class="pet" style="left:42%"><svg viewBox="0 0 28 28" width="28" height="28" class="breathe">
+      <ellipse cx="14" cy="16" rx="9.6" ry="8.8" fill="#1b1406" stroke="#ffd98a" stroke-width="1.7"/>
+      <path d="M10 14.4 h2.6" stroke="#ffd98a" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M15.4 14.4 h2.6" stroke="#ffd98a" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="14" cy="19" r="1.3" fill="#ffd98a" opacity=".85"/>
+    </svg><span class="zzz">z</span></div>
+    <div class="plate"><div class="tx"><b>可能卡住了</b><span>最后动作：运行 pnpm test</span></div><div class="rt">42s</div></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>⑤ 不知道总量</h3>
+  <p class="sub">填充块来回游走（不定进度）；不显示百分比，只有时间和动作。</p>
+  <div class="strip s-unknown">
+    <div class="fill"></div>
+    <div class="pet" style="left:22%"><svg viewBox="0 0 28 28" width="28" height="28" class="run">
+      <ellipse cx="14" cy="16" rx="9.6" ry="8.8" fill="#101122" stroke="#b9c2ff" stroke-width="1.7"/>
+      <circle cx="10.8" cy="14.2" r="1.6" fill="#eef1ff"/><circle cx="17.2" cy="14.2" r="1.6" fill="#eef1ff"/>
+      <path d="M11.4 19 q2.6 1.2 5.2 0" stroke="#b9c2ff" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    </svg></div>
+    <div class="plate"><div class="tx"><b>正在做</b><span>还没拆出计划，先跑着</span></div><div class="rt">00:42</div></div>
+  </div>
+
+</div>
+</body>
+</html>

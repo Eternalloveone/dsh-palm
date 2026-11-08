@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态长条 + 桌宠</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b;
+    --line:rgba(255,255,255,.07);
+    --fg:#e9ebf2; --fg2:#9aa0ae; --fg3:#666c7a;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c; --danger:#ff6b81;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#0b0b10;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .wrap{width:430px;padding:22px}
+  h3{font-size:13px;color:#c9cdd8;margin:0 0 6px 2px;font-weight:600}
+  .sub{font-size:11px;color:#6f7482;margin:0 0 10px 2px;line-height:1.6}
+  .gap{height:22px}
+
+  /* 长条本体 */
+  .strip{position:relative;height:44px;border-radius:14px;overflow:hidden;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.06);display:flex;align-items:center}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:14px 0 0 14px}
+  .glow{position:absolute;top:0;bottom:0;width:46px;filter:blur(10px);opacity:.85}
+  .strip .inner{position:relative;display:flex;align-items:center;gap:9px;padding:0 12px;width:100%}
+  .pet{width:26px;height:26px;flex:none}
+  .txt{font-size:11.5px;color:var(--fg);letter-spacing:.01em;line-height:1.2}
+  .txt b{font-weight:600}
+  .txt .sm{display:block;font-size:10px;color:rgba(255,255,255,.62);margin-top:2px;font-weight:400}
+  .right{margin-left:auto;font-size:10.5px;color:rgba(255,255,255,.72);font-variant-numeric:tabular-nums;flex:none}
+
+  /* 各状态配色 */
+  .s-think .fill{width:34%;background:linear-gradient(90deg,#4b4ae0,#7c8cff)}
+  .s-think .glow{left:29%;background:radial-gradient(circle,#a9b4ff,transparent 70%)}
+  .s-tool .fill{width:58%;background:linear-gradient(90deg,#3d6bff,#6bd5ff)}
+  .s-tool .glow{left:53%;background:radial-gradient(circle,#9fe6ff,transparent 70%)}
+  .s-done .fill{width:100%;background:linear-gradient(90deg,#2fbf74,#3ddc84 60%,#7c8cff)}
+  .s-done .glow{display:none}
+  .s-stuck .fill{width:46%;background:linear-gradient(90deg,#8a6a1e,#e0a52c)}
+  .s-stuck .glow{left:41%;background:radial-gradient(circle,#ffd98a,transparent 70%);animation:none}
+  .s-unknown .fill{width:26%;background:linear-gradient(90deg,#4b4ae0,#7c8cff);animation:travel 2.4s ease-in-out infinite}
+  @keyframes travel{0%{left:0}50%{left:60%}100%{left:0}}
+
+  /* 桌宠动画 */
+  .bob{animation:bob 1.8s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+  .run{animation:run .5s ease-in-out infinite}
+  @keyframes run{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2px) rotate(-4deg)}}
+  .sleep{animation:sleep 2.6s ease-in-out infinite}
+  @keyframes sleep{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.9)}}
+
+  .zzz{position:absolute;right:-2px;top:-6px;font-size:9px;color:#ffd98a;opacity:.9}
+  .thinkmark{position:absolute;right:-3px;top:-7px;font-size:10px;color:#a9b4ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h3>① 思考中</h3>
+  <p class="sub">渐变填充 = 已完成的量；宠物走在填充的边缘，头顶冒一个 ✦ 表示在推理。</p>
+  <div class="strip s-think">
+    <div class="fill"></div><div class="glow"></div>
+    <div class="inner">
+      <div class="pet" style="position:relative">
+        <svg viewBox="0 0 26 26" width="26" height="26" class="bob">
+          <ellipse cx="13" cy="15" rx="9" ry="8.2" fill="#0f1020" stroke="#a9b4ff" stroke-width="1.6"/>
+          <circle cx="10" cy="13.5" r="1.5" fill="#dfe4ff"/><circle cx="16" cy="13.5" r="1.5" fill="#dfe4ff"/>
+          <path d="M10.5 18 q2.5 1.6 5 0" stroke="#a9b4ff" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span class="thinkmark">✦</span>
+      </div>
+      <div class="txt"><b>正在推理</b><span class="sm">先确认是窗口问题还是 id 对不上</span></div>
+      <div class="right">00:12</div>
+    </div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>② 跑工具</h3>
+  <p class="sub">填充换成青蓝渐变并往右推；宠物进入小跑姿态，右侧显示这一步已用时。</p>
+  <div class="strip s-tool">
+    <div class="fill"></div><div class="glow"></div>
+    <div class="inner">
+      <div class="pet">
+        <svg viewBox="0 0 26 26" width="26" height="26" class="run">
+          <ellipse cx="13" cy="15" rx="9" ry="8.2" fill="#0f1020" stroke="#9fe6ff" stroke-width="1.6"/>
+          <circle cx="10.5" cy="13" r="1.5" fill="#dff6ff"/><circle cx="16" cy="13" r="1.5" fill="#dff6ff"/>
+          <path d="M10 18.4 q3 1 6 0" stroke="#9fe6ff" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="txt"><b>跑测试</b><span class="sm">pnpm test · 2,923 条</span></div>
+      <div class="right">38s</div>
+    </div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>③ 完成</h3>
+  <p class="sub">整条填满，绿→蓝渐变；宠物举起双手（✓），右侧换成总耗时。</p>
+  <div class="strip s-done">
+    <div class="fill"></div>
+    <div class="inner">
+      <div class="pet">
+        <svg viewBox="0 0 26 26" width="26" height="26" class="bob">
+          <ellipse cx="13" cy="15" rx="9" ry="8.2" fill="#0a1a12" stroke="#bdf5d4" stroke-width="1.6"/>
+          <path d="M9.6 13 q1.4 -1.8 2.8 0" stroke="#bdf5d4" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          <path d="M13.6 13 q1.4 -1.8 2.8 0" stroke="#bdf5d4" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          <path d="M10.6 17.4 q2.4 2 4.8 0" stroke="#bdf5d4" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+          <path d="M3.4 10 l-2.2 -3" stroke="#bdf5d4" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M22.6 10 l2.2 -3" stroke="#bdf5d4" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="txt"><b>完成 · 7 步</b><span class="sm">12 个文件 · 2,923 测试通过</span></div>
+      <div class="right">12.4s</div>
+    </div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>④ 卡住</h3>
+  <p class="sub">填充变琥珀并停止推进；宠物睡着冒 Z，右端显示「无动作 42s」，整条可点开看详情。</p>
+  <div class="strip s-stuck">
+    <div class="fill"></div><div class="glow"></div>
+    <div class="inner">
+      <div class="pet" style="position:relative">
+        <svg viewBox="0 0 26 26" width="26" height="26" class="sleep">
+          <ellipse cx="13" cy="15" rx="9" ry="8.2" fill="#1a1408" stroke="#ffd98a" stroke-width="1.6"/>
+          <path d="M9.4 13.4 h2.4" stroke="#ffd98a" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M14.2 13.4 h2.4" stroke="#ffd98a" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="13" cy="18" r="1.2" fill="#ffd98a" opacity=".8"/>
+        </svg>
+        <span class="zzz">z</span>
+      </div>
+      <div class="txt"><b>可能卡住了</b><span class="sm">最后动作：运行 pnpm test</span></div>
+      <div class="right">42s</div>
+    </div>
+  </div>
+
+  <div class="gap"></div>
+
+  <h3>⑤ 不知道总量</h3>
+  <p class="sub">填充块来回游走（不定进度），宠物原地踏步；不显示百分比，只显示时间。</p>
+  <div class="strip s-unknown">
+    <div class="fill"></div>
+    <div class="inner">
+      <div class="pet">
+        <svg viewBox="0 0 26 26" width="26" height="26" class="run">
+          <ellipse cx="13" cy="15" rx="9" ry="8.2" fill="#0f1020" stroke="#a9b4ff" stroke-width="1.6"/>
+          <circle cx="10.5" cy="13" r="1.5" fill="#dfe4ff"/><circle cx="16" cy="13" r="1.5" fill="#dfe4ff"/>
+          <path d="M10.5 18 q2.5 1.2 5 0" stroke="#a9b4ff" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="txt"><b>正在做</b><span class="sm">还没拆出计划，先跑着</span></div>
+      <div class="right">00:42</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
