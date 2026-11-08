@@ -5,11 +5,11 @@
  * that expands on tap. Each row offers edit / remove / steer (steer only
  * while the agent is running). An empty queue renders nothing.
  *
- * Placement follows the desktop dock: only `queued` rows render here.
- * `steering` rows have already been handed into the running turn (they enter
- * the durable message log as they surface) and `context` rows are host
- * injections (approval notices, task completions) — neither is a pending
- * user message the phone may edit or delete.
+ * 这里**只画 queued**。「已经插进这一轮」的补充消息（宿主的 next-step，
+ * 包括用户插话/智能体消息/后台任务通知）归 `InsertBar`：它有稳定身份、
+ * 按 id 并集、默认折叠成一条摘要，不再和排队项挤在同一列里（旧实现两条
+ * 来源各画一行，真机上就是「同一件事出现两行」）。`context` 是宿主的
+ * 上下文注入，不是用户能编辑/删除的待发消息，仍然不画。
  */
 import { useRef, useState } from 'react'
 import type { QueueItemView } from '../api.ts'
@@ -48,10 +48,7 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
   const [pending, setPending] = useState<{ id: string; verb: 'remove' | 'steer' | 'withdraw' } | null>(null)
 
   const queue = items.filter(item => item.placement === 'queued')
-  // 「已经插进本轮」的条目（宿主 next-step 队列）：对话里还没有它，排队条又不显示的话，
-  // 消息在手机上就是**两边都没有**（实测：steer 回执 ok，10 秒内无气泡、无排队条）。
-  const steering = items.filter(item => item.placement === 'steering')
-  if (queue.length === 0 && steering.length === 0) return null
+  if (queue.length === 0) return null
   const listVisible = queue.length === 1 || expanded
 
   const startEdit = (item: QueueItemView): void => {
@@ -170,27 +167,6 @@ export function QueueDock({ items, running, onEdit, onRemove, onSteer, onWithdra
                   </span>
                 </>
               )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {steering.length > 0 && (
-        <ul className="queue-dockList queue-dockSteering">
-          {steering.map(item => (
-            <li key={item.id} className="queue-dockRow" data-placement="steering">
-              <span className="queue-dockText" title={item.text}>
-                <span className="queue-dockTag">已插入本轮</span>
-                {item.text}
-              </span>
-              <span className="queue-dockActions">
-                <Button
-                  type="button"
-                  className="queue-dockBtn"
-                  aria-label="撤回插队消息"
-                  disabled={busy}
-                  onClick={() => { void run(onRemove, item.id, 'remove') }}
-                >{pending?.id === item.id && pending.verb === 'remove' ? '撤回中…' : '撤回'}</Button>
-              </span>
             </li>
           ))}
         </ul>

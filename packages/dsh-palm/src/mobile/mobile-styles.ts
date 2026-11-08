@@ -158,6 +158,19 @@ export const mobileCss = `${designTokensCss()}
   --palm-dock-queue-size: 11px;
   --palm-dock-queue-bg: rgba(224, 165, 44, 0.07);
 
+  /* ── 插入条（dock 固定槽位：已插入本轮的补充消息） ─────────────────────
+   * 组件永远挂载，0fr → 1fr 过渡高度；消失走 data-state 而不是卸载。
+   * 明细行 ≤36px（--palm-insert-row-h），“撤回”的命中区靠 --palm-hit 撑到 44px。 */
+  --palm-insert-h: 30px;           /* 折叠摘要的最小高度 */
+  --palm-insert-row-h: 36px;       /* 明细行高上限（触控命中另行补到 44） */
+  --palm-insert-dur: 220ms;        /* 出现/消失/展开的过渡时长 */
+  --palm-insert-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --palm-insert-gap: var(--palm-s2);
+  --palm-insert-bg: var(--palm-tint-accent);
+  --palm-insert-line: var(--palm-line);
+  --palm-insert-ink: var(--palm-fg-2);
+  --palm-insert-accent: var(--palm-accent);
+
   /* ── 五屏统一规格（设置 / 外观 / 产物 / 审批 / 搜索） ───────────────────
    * 版式真源：docs/prototype/overview.html「4 · 设置」～「8 · 搜索」五个格子
    *          + docs/visual-acceptance.md「2026-11-08 最终状态」。
@@ -4996,6 +5009,146 @@ button.settings-row:focus-visible {
   line-height: var(--palm-lh-head);
 }
 
+/* ── 插入条（dock 固定槽位） ───────────────────────────────────────────
+ * 永远挂在 DOM 里：外层 grid 0fr ↔ 1fr 过渡高度 + opacity，「data-state」
+ * 只切状态、不卸载。旧实现是条件渲染，运行态一抖就重挂（视觉上就是“条子
+ * 莫名消失又出现”）。明细默认收起，展开同样走 0fr → 1fr。 */
+.insert-bar {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin: 0 var(--palm-dock-pad);
+  opacity: 0;
+  transition:
+    grid-template-rows var(--palm-insert-dur) var(--palm-insert-ease),
+    opacity var(--palm-insert-dur) var(--palm-insert-ease);
+}
+
+.insert-bar[data-state='shown'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.insert-bar > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.insert-bar > div > div {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--palm-insert-gap);
+}
+
+[data-insert-summary] {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  width: 100%;
+  min-height: var(--palm-insert-h);
+  padding: 0 var(--palm-s3);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-insert-bg);
+  color: var(--palm-insert-ink);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-head);
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-insert-summary] > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-insert-summary] > span:last-child {
+  flex: none;
+  color: var(--palm-insert-accent);
+  transition: transform var(--palm-insert-dur) var(--palm-insert-ease);
+}
+
+.insert-bar[data-expanded='true'] [data-insert-summary] > span:last-child {
+  transform: rotate(90deg);
+}
+
+[data-insert-details] {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--palm-insert-dur) var(--palm-insert-ease),
+    opacity var(--palm-insert-dur) var(--palm-insert-ease);
+}
+
+.insert-bar[data-expanded='true'] [data-insert-details] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+[data-insert-details] > ul {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+[data-insert-details] li {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  height: var(--palm-insert-row-h);
+  max-height: var(--palm-insert-row-h);
+  border-top: var(--palm-hair) solid var(--palm-insert-line);
+}
+
+[data-insert-details] li > span:first-child {
+  flex: none;
+  color: var(--palm-insert-accent);
+  font-size: var(--palm-t-s);
+  white-space: nowrap;
+}
+
+[data-insert-details] li > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--palm-fg);
+  font-size: var(--palm-t-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 视觉 36px（不撑高明细行），命中区补到 44px（--palm-hit）。 */
+[data-insert-withdraw] {
+  position: relative;
+  flex: none;
+  height: var(--palm-insert-row-h);
+  padding: 0 var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: none;
+  color: var(--palm-insert-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  cursor: pointer;
+}
+
+[data-insert-withdraw]::after {
+  content: '';
+  position: absolute;
+  inset: calc((var(--palm-hit) - var(--palm-insert-row-h)) / -2) 0;
+  border-radius: inherit;
+}
+
+[data-insert-withdraw]:active {
+  background: var(--palm-tint-accent);
+}
+
 /* 元信息行：左边唯一可点的「模型 │ 权限」胶囊，右边纯展示状态与上下文。 */
 .chat-meta {
   display: flex;
@@ -7360,6 +7513,9 @@ body:has(.lightbox-backdrop) .toast-host {
   .sheet-confirm-danger,
   .settings-switch::after,
   .chat-input,
+  .insert-bar,
+  [data-insert-details],
+  [data-insert-summary] > span:last-child,
   .settings-themeOption,
   .settings-optionChip {
     animation: none;
@@ -7617,13 +7773,10 @@ body:has(.lightbox-backdrop) .toast-host {
   align-items: center;
   gap: 8px;
   /* 行内再铺一层不同的底色就等于"卡片套卡片"，真机上看是两层框。整条只留外层
-     底板，行本身透明；插话那条的左侧竖线仍然保留。 */
+     底板，行本身透明。插话（已插入本轮）条目已经搬到插入条，不在这里画。 */
   padding: 0;
   border-radius: 8px;
   background: transparent;
-}
-.queue-dockRow[data-placement='steering'] {
-  border-left: 2px solid var(--accent, #4f7cff);
 }
 .queue-dockText {
   flex: 1 1 auto;
@@ -7639,17 +7792,6 @@ body:has(.lightbox-backdrop) .toast-host {
   display: flex;
   /* 删除与插话相邻且只有 4px 间隔，误删不可撤销：把间距和命中区一起放大。 */
   gap: 10px;
-}
-/* 插队条目（已经插进本轮）的小标签：和「排队中」区分开，别让用户以为它还在等。 */
-.queue-dockTag {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 10px;
-  line-height: 1.4;
-  background: var(--accent-soft);
-  color: var(--accent);
-  white-space: nowrap;
 }
 
 .queue-dockBtn {

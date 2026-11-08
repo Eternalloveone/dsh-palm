@@ -387,6 +387,14 @@ export interface QueueItemView {
   text: string
   /** True when the pending content is plain text (the only editable kind). */
   editable: boolean
+  /**
+   * 宿主的 `source.kind`（用户 / agent-message / subagent-settled / …）。
+   *
+   * 插入条要按来源合并「用户插话」与「智能体/后台任务通知」，但队列行本身只有
+   * id/placement/text —— 不带这个字段，渲染层就只能靠正文猜，同一件事会被画成
+   * `Agent …` 与 `Background subagent …` 两行。
+   */
+  sourceKind?: string
   /** 这条排队消息带的文件附件收据（界面显示用）。 */
   receipts?: string[]
   /** 编辑时要原样拼回去的非文本块（文件/图片）：宿主那边收据还在，不用重传字节。 */

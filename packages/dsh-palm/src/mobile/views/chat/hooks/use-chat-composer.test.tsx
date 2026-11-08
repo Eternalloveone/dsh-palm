@@ -23,6 +23,8 @@ vi.mock('../../../api.ts', () => ({
 vi.mock('../../../stream/session-store.ts', () => ({
   addOptimisticQueueItem: vi.fn(() => 'local-1'),
   dropOptimisticQueueItem: vi.fn(),
+  addOptimisticInsert: vi.fn(() => 'local-insert-1'),
+  dropOptimisticInsert: vi.fn(),
 }))
 vi.mock('../../../platform/offline.ts', () => ({
   enqueuePrompt: vi.fn(() => Promise.resolve()),
@@ -33,13 +35,14 @@ vi.mock('../../../session/queued-echo.ts', () => ({ rememberQueuedEcho: vi.fn() 
 vi.mock('../../../components/toast.tsx', () => ({ toast: vi.fn() }))
 
 import { prompt } from '../../../api.ts'
-import { addOptimisticQueueItem } from '../../../stream/session-store.ts'
+import { addOptimisticInsert, addOptimisticQueueItem } from '../../../stream/session-store.ts'
 import { enqueuePrompt } from '../../../platform/offline.ts'
 import { rememberQueuedEcho } from '../../../session/queued-echo.ts'
 import { toast } from '../../../components/toast.tsx'
 
 const promptMock = vi.mocked(prompt)
 const optimisticMock = vi.mocked(addOptimisticQueueItem)
+const optimisticInsertMock = vi.mocked(addOptimisticInsert)
 const enqueueMock = vi.mocked(enqueuePrompt)
 const echoMock = vi.mocked(rememberQueuedEcho)
 const toastMock = vi.mocked(toast)
@@ -127,13 +130,15 @@ describe('useChatComposer.send', () => {
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith('已排队，本轮结束后自动发送'))
   })
 
-  it('插话：prompt(mode=steer)，不排队、不留底稿', async () => {
+  it('插话：prompt(mode=steer)，不排队、不留底稿，但写插入乐观项', async () => {
     render(<Harness initialInput="插一句" running={true} />)
     act(() => { composer?.send('steer' satisfies SendIntent) })
     await waitFor(() => expect(promptMock).toHaveBeenCalledTimes(1))
     expect(promptMock.mock.calls[0]?.[3]).toBe('steer')
     expect(optimisticMock).not.toHaveBeenCalled()
     expect(echoMock).not.toHaveBeenCalled()
+    // 以前这里只弹 toast：宿主投影慢时输入框上方会空好几秒（条子时而有时而没有）。
+    expect(optimisticInsertMock).toHaveBeenCalledWith('s-1', '插一句')
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith('已插入当前回合'))
   })
 

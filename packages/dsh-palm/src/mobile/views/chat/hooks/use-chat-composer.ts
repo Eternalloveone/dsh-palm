@@ -11,7 +11,7 @@ import type { MuxClient } from '../../../stream/mux.ts'
 import type { CommandDescriptor } from '../../../api.ts'
 import { logTail } from '../../../data/diag.ts'
 import { cancelSession, inboxOf, newRequestId, prompt } from '../../../data/session.ts'
-import { addOptimisticQueueItem, dropOptimisticQueueItem } from '../../../stream/session-store.ts'
+import { addOptimisticInsert, addOptimisticQueueItem, dropOptimisticInsert, dropOptimisticQueueItem } from '../../../stream/session-store.ts'
 import { createSubmitLedger, SUBMIT_INFLIGHT_MS, type SubmitLedger } from '../../../kernels/intent.ts'
 import { enqueuePrompt, flushOutbox, removeFromOutbox } from '../../../platform/offline.ts'
 import { buildPromptParts, type AttachedImage, type PromptPart } from '../../../platform/image.ts'
@@ -303,6 +303,12 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     const optimisticId = queuedByRunning && queueText !== ''
       ? addOptimisticQueueItem(sessionId, { text: queueText, placement: 'queued', requestId: sendRequestId })
       : undefined
+    // 插话（steer）不排队，但它同样要「点下去就可见」：写进插入队列的乐观项，
+    // 等宿主 user/message 回执或 steering 快照按 id/正文认领。以前这里只弹 toast，
+    // 宿主投影慢时输入框上方会空好几秒（真机「已插入本轮」条时而有时而没有）。
+    const optimisticInsertId = intent === 'steer' && queueText !== ''
+      ? addOptimisticInsert(sessionId, queueText)
+      : undefined
     // 闸门在 send() 开头就已经记账（attempt 通过才算到这里），这里不再重复记账。
     // `interrupt` 是客户端组合：先取消当前轮（尽力而为），再按 queue 投递。
     // 取消失败也不拦发送 —— 消息仍会排队到下一轮，那是安全的方向。
@@ -379,6 +385,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
         // 早就收下了。这里在报错前查一次证据：队列里有我们这个 requestId，或正文尾部
         // 已经出现这条用户消息 —— 任一成立就按成功收尾，绝不谎报失败。
         void verifyDelivered(sessionId, queueText, sendRequestId).then((delivered) => {
+          if (!delivered && optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
           if (!mountedRef.current) return
           if (!delivered) {
             setError(failText)
@@ -397,6 +404,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
           refreshInbox({ fresh: true })
           mux?.poke()
         }).catch(() => {
+          if (optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
           if (!mountedRef.current) return
           setError(failText)
           toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)

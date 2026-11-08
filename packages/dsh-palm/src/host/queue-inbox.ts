@@ -125,7 +125,7 @@ export function liveInboxOf(agents: AgentLookup | undefined, sessionId: string):
  * 只认 ① 的时候，投影过来的每一条正文都是空的 —— 手机上就是「2 条排队」加两行空白
  * （真机截图）。所以这里先看行上的 `content`，再退回 `message.content`。
  */
-export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; requestId?: string; receipts?: string[]; keepParts?: unknown[] }> {
+export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; requestId?: string; sourceKind?: string; receipts?: string[]; keepParts?: unknown[] }> {
   const box = inbox as { 'next-turn'?: unknown; 'next-step'?: unknown } | null | undefined
   // 两条列都要：只读 next-turn 会让「插队」的消息在手机上**完全看不到**——它不在排队条上，
   // 也还没进对话（要等下一步边界消费）。实测 2026-10-30：steer 回执 ok，手机 12 秒既无气泡
@@ -134,7 +134,7 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
   if (Array.isArray(box?.['next-turn'])) lists.push({ rows: box['next-turn'], placement: 'queued' })
   if (Array.isArray(box?.['next-step'])) lists.push({ rows: box['next-step'], placement: 'steering' })
   if (lists.length === 0) return []
-  const items: Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean }> = []
+  const items: Array<{ id: string; placement: 'queued' | 'steering' | 'context'; text: string; editable: boolean; sourceKind?: string }> = []
   for (const list of lists) list.rows.forEach((row, index) => {
     const listPlacement = list.placement
     const record = (row ?? {}) as {
@@ -144,8 +144,8 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       text?: unknown
       requestId?: unknown
       rpcId?: unknown
-      source?: { rpcId?: unknown; requestId?: unknown }
-      message?: { content?: unknown; text?: unknown; requestId?: unknown; source?: { rpcId?: unknown; requestId?: unknown } }
+      source?: { rpcId?: unknown; requestId?: unknown; kind?: unknown }
+      message?: { content?: unknown; text?: unknown; requestId?: unknown; source?: { rpcId?: unknown; requestId?: unknown; kind?: unknown } }
     }
     // 投递身份：客户端发 prompt 时带的 `requestId`，宿主会在 durable `user/message`
     // 的 source 上以 `rpcId` 回显（见 @deepseek-ai/dsh-session-controller 的契约）。
@@ -156,6 +156,9 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       .find(value => typeof value === 'string' && value !== '') as string
       | undefined
       ?? (messageId === undefined ? undefined : requestIdOfMessage(messageId))
+    // 来源：插入条靠它把智能体消息 / 后台任务分开；user 是缺省，不必每行都带。
+    const sourceKind = [record.source?.kind, record.message?.source?.kind]
+      .find(value => typeof value === 'string' && value !== '' && value !== 'user') as string | undefined
     const blocks = record.content ?? record.message?.content
     const rawText = record.text ?? record.message?.text
     const receipts: string[] = []
@@ -187,6 +190,7 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       text,
       editable,
       ...(requestId === undefined ? {} : { requestId }),
+      ...(sourceKind === undefined ? {} : { sourceKind }),
       // 文件附件只带收据（给界面显示用）；`keepParts` 是编辑时要拼回去的原样块。
       ...(receipts.length === 0 ? {} : { receipts }),
       ...(keepParts.length === 0 ? {} : { keepParts }),

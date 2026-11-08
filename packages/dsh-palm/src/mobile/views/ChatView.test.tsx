@@ -4070,10 +4070,10 @@ describe('ChatView pending-message queue dock', () => {
       expect(fresh).toBeGreaterThan(before)
     })
   })
-  it('keeps a steered row visible while the host still lists it as queued', async () => {
+  it('keeps a steered row visible in the insert bar while the host still lists it as steering', async () => {
     // 真机：点了「立即发送」之后手机端整条消失，桌面端还挂着。宿主把这条在队列帧里
-    // 标成 steering，而排队条只渲染 queued —— 可它的 next-turn 投影里还有它（桌面端
-    // 读的就是那份）。手机端不该比桌面端更早地把它藏起来。
+    // 标成 steering（next-step），它不该被当成待发消息画进排队条，也不该整个消失 ——
+    // 现在归插入条：默认折叠成「已插入 1 条补充消息」。
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
@@ -4086,7 +4086,10 @@ describe('ChatView pending-message queue dock', () => {
       })
     })
     await screen.findByText('插队的那条')
-    expect(container.querySelector('[data-queue-dock]')).not.toBeNull()
+    expect(container.querySelector('[data-insert-bar]')).not.toBeNull()
+    expect(screen.getByText('已插入 1 条补充消息')).toBeTruthy()
+    // 插入项不再占排队条（否则同一件事会出现两行）。
+    expect(container.querySelector('[data-queue-dock]')).toBeNull()
   })
   it('keeps the queue strip above the input and the meta row below it', async () => {
     // C 案底栏顺序（DOM = 视觉）：队列明细 → 琥珀排队条 → 输入行 → 元信息行。

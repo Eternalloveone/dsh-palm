@@ -51,7 +51,7 @@ export function useChatInbox(deps: ChatInboxDeps): {
     const items = rows.map((row, index) => queueItemViewOf({
       id: typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id : String(index),
       placement: 'queued',
-      message: row as { content?: unknown },
+      message: row as { content?: unknown; source?: { kind?: unknown } },
     }))
     applyQueueItems(sessionId, items)
     // 本地隐藏某条时，若按空快照重算，排队条会闪一下再被填回来 —— 所以走 transition。

@@ -145,6 +145,19 @@
   --palm-dock-queue-size: 11px;
   --palm-dock-queue-bg: rgba(224, 165, 44, 0.07);
 
+  /* ── 插入条（dock 固定槽位：已插入本轮的补充消息） ─────────────────────
+   * 组件永远挂载，0fr → 1fr 过渡高度；消失走 data-state 而不是卸载。
+   * 明细行 ≤36px（--palm-insert-row-h），“撤回”的命中区靠 --palm-hit 撑到 44px。 */
+  --palm-insert-h: 30px;           /* 折叠摘要的最小高度 */
+  --palm-insert-row-h: 36px;       /* 明细行高上限（触控命中另行补到 44） */
+  --palm-insert-dur: 220ms;        /* 出现/消失/展开的过渡时长 */
+  --palm-insert-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --palm-insert-gap: var(--palm-s2);
+  --palm-insert-bg: var(--palm-tint-accent);
+  --palm-insert-line: var(--palm-line);
+  --palm-insert-ink: var(--palm-fg-2);
+  --palm-insert-accent: var(--palm-accent);
+
   /* ── 五屏统一规格（设置 / 外观 / 产物 / 审批 / 搜索） ───────────────────
    * 版式真源：docs/prototype/overview.html「4 · 设置」～「8 · 搜索」五个格子
    *          + docs/visual-acceptance.md「2026-11-08 最终状态」。

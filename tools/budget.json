@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1324
   },
   "dirs": {
-    "src/mobile": 61734,
+    "src/mobile": 62474,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2810,
@@ -21,17 +21,17 @@
     "src/mobile/projections": 530,
     "src/mobile/render": 6930,
     "src/mobile/runtime": 225,
-    "src/mobile/session": 3272,
+    "src/mobile/session": 3529,
     "src/mobile/shared": 267,
-    "src/mobile/stream": 2577,
+    "src/mobile/stream": 2802,
     "src/mobile/ui": 2248,
-    "src/mobile/views": 17775,
+    "src/mobile/views": 17916,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
   "dirsRaised": {
     "src/mobile": {
-      "reason": "会话正文流接入：ui/ 下新增任务头 turn-header、交付卡 delivery-card、过程折叠行 process-line 三个组件（约 520 行），ChatRows 增加按轮折叠数据；P8 删旧浮层后统一回落",
+      "reason": "2026-11-08 插入条架构修复：新增 session/insert-queue.ts 纯状态层、views/chat/components/insert-bar.tsx 固定槽位、stream/session-store.ts 插入 slice（合计约 +740 行）；同批删掉 QueueDock 的 steering 旧实现（-24 行）。插入条改为按 id 并集 + 回执删除 + 两次确认去抖，渲染层不再条件挂载。",
       "expires": "2027-03-31"
     },
     "src/mobile/styles": {
@@ -55,7 +55,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
-      "reason": "ChatRows 按轮折叠正文流数据（计划步数 / 改过的文件增删 / 失败轮集合 / 会话目标）供任务头与交付卡；P8 统一回落",
+      "reason": "2026-11-08 插入条：views/chat/components/insert-bar.tsx 固定槽位（始终挂载，0fr→1fr 过渡，默认折叠成一条摘要，含时间兜底重算）+ ChatView/frame-effects/use-chat-composer 接线；同批删掉 QueueDock steering 行。历史：ChatRows 按轮折叠正文流数据（计划步数 / 改过的文件增删 / 失败轮集合 / 会话目标）供任务头与交付卡。",
       "expires": "2027-03-31"
     },
     "src/mobile/render": {
@@ -75,7 +75,11 @@
       "expires": "2027-03-31"
     },
     "src/mobile/session": {
-      "reason": "任务状态机 session/task-status.ts（kind / progress / steps + 五条兜底 + 存储往返）+ 21 条单测；P8 统一回落",
+      "reason": "2026-11-08 插入条：session/insert-queue.ts 纯状态层（InsertEntry / mergeInserts 按 id 并集 / 回执才删 / 两次确认去抖 / summarizeInserts，252 行）。历史：任务状态机 session/task-status.ts（kind / progress / steps + 五条兜底 + 存储往返）。",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/stream": {
+      "reason": "2026-11-08 插入条：stream/session-store.ts 新增插入 slice（观察快照/帧、乐观插入与认领、墓碑、轮次作用域，约 220 行）；同批删掉 steering 强制改 queued 的旧路径与 toQueueItem 死代码。",
       "expires": "2027-03-31"
     }
   },

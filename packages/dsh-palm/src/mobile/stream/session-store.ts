@@ -28,6 +28,16 @@ import {
   visibleQueue,
 } from './session-status.ts'
 import type { QueueItemView } from '../api.ts'
+import {
+  insertSourceOfKind,
+  mergeInserts,
+  normalizeInsertText,
+  observeInsertPresence,
+  visibleInserts,
+  type InsertEntry,
+  type InsertState,
+  type InsertVisibility,
+} from '../session/insert-queue.ts'
 
 /** 一份权威快照（宿主 `mobile.sessionState` 的返回）。 */
 export interface SessionSnapshot {
@@ -92,6 +102,25 @@ interface Entry {
    * 所以读到空时先留一会儿：窗口内还按上一次的非空队列显示，窗口过了才真的清空。
    */
   emptyHold?: { items: QueueItemView[]; until: number }
+  /**
+   * 「已插入本轮」的补充消息（**唯一写入点**）。
+   *
+   * 与排队队列分开存：排队项等下一轮，插入项已经进了这一轮（next-step）。
+   * 合并规则在 `session/insert-queue.ts`：按 id 并集、missing 不删、只有回执才删。
+   */
+  inserts: InsertEntry[]
+  /** 可见性元数据（最短可见起点 / 连续缺失次数 / 缺失起点）。 */
+  insertShownAt: Map<string, number>
+  insertMissingCount: Map<string, number>
+  insertMissingSince: Map<string, number>
+  /**
+   * 已消费/已撤回的墓碑：宿主投影慢半拍时，陈旧快照不许把它们画回来
+   * （否则就是「撤回后又自己出现」）。
+   */
+  insertRetired: Map<string, number>
+  /** 当前轮号：由 turnStartAt 变化推进；同一轮内 agent/job 合并成一条摘要。 */
+  insertTurnNo: number
+  insertTurnStartAt?: number
   /** 最近一次读写时间，用于 LRU。 */
   touchedAt: number
 }
@@ -113,7 +142,18 @@ const listeners = new Set<(sessionId: string) => void>()
 function entryOf(sessionId: string): Entry {
   let entry = entries.get(sessionId)
   if (entry === undefined) {
-    entry = { optimistic: [], hidden: new Map(), hiddenAt: new Map(), touchedAt: Date.now() }
+    entry = {
+      optimistic: [],
+      hidden: new Map(),
+      hiddenAt: new Map(),
+      inserts: [],
+      insertShownAt: new Map(),
+      insertMissingCount: new Map(),
+      insertMissingSince: new Map(),
+      insertRetired: new Map(),
+      insertTurnNo: 0,
+      touchedAt: Date.now(),
+    }
     entries.set(sessionId, entry)
   }
   entry.touchedAt = Date.now()
@@ -188,6 +228,187 @@ export function queueView(sessionId: string): QueueItemView[] {
   }, Date.now())]
 }
 
+/* ────────────────────── 插入队列（本轮补充消息） ────────────────────── */
+
+const LOCAL_INSERT_PREFIX = 'local-insert-'
+/** 墓碑寿命：宿主投影可能慢半拍到分钟级，够挡住陈旧快照就行。 */
+const INSERT_RETIRED_TTL_MS = 10 * 60_000
+
+function insertVisibilityOf(entry: Entry): InsertVisibility {
+  return {
+    shownAt: Object.fromEntries(entry.insertShownAt),
+    missingCount: Object.fromEntries(entry.insertMissingCount),
+    missingSince: Object.fromEntries(entry.insertMissingSince),
+  }
+}
+
+function pruneInsertMeta(entry: Entry, keep: ReadonlySet<string>): void {
+  for (const map of [entry.insertShownAt, entry.insertMissingCount, entry.insertMissingSince]) {
+    for (const id of [...map.keys()]) if (!keep.has(id)) map.delete(id)
+  }
+}
+
+/**
+ * turnStartAt 变了就是**新一轮**：旧轮条目整体退场。
+ *
+ * 这不是「快照里没看到」——那是 missing，必须保留；轮次边界是明确的作用域切换，
+ * 旧轮插的话不属于「已插入本轮」。
+ */
+function advanceInsertTurn(entry: Entry, startAt: number | undefined): void {
+  if (startAt === undefined) return
+  // 只认更晚的起点：陈旧快照/乱序 turn/start 的 turnStartAt 可能更早，
+  // 若当成「新一轮」就会把当前轮的插入项整体清掉（条子又闪一次）。
+  if (entry.insertTurnStartAt !== undefined && startAt <= entry.insertTurnStartAt) return
+  entry.insertTurnStartAt = startAt
+  entry.insertTurnNo += 1
+  entry.inserts = entry.inserts.filter(item => item.turnNo >= entry.insertTurnNo)
+}
+
+/** steering 行 → 插入条目；看不见的注入（runtime-context 等）不占摘要。 */
+function insertCandidatesOf(items: readonly QueueItemView[], turnNo: number, now: number): InsertEntry[] {
+  const candidates: InsertEntry[] = []
+  for (const item of items) {
+    if (item.placement !== 'steering') continue
+    const source = insertSourceOfKind(item.sourceKind)
+    if (source === undefined) continue
+    candidates.push({ id: item.id, turnNo, source, text: item.text, at: now })
+  }
+  return candidates
+}
+
+/**
+ * 一次宿主快照的落地：并集 + 回执删除 + 可见性观察。
+ *
+ * 本地乐观项（没有宿主 id）在宿主出现同文同来源的 steering 行时视为已落地：
+ * 把本地 id 当作 consumed 回执传进去，避免同一句话占两行。
+ */
+function applyInsertObservation(entry: Entry, candidates: readonly InsertEntry[], now: number): void {
+  const localMatched = entry.inserts
+    .filter(item => item.id.startsWith(LOCAL_INSERT_PREFIX)
+      && candidates.some(candidate => candidate.turnNo === entry.insertTurnNo
+        && candidate.source === 'user'
+        && normalizeInsertText(candidate.text) === normalizeInsertText(item.text)))
+    .map(item => item.id)
+  entry.inserts = mergeInserts(entry.inserts, candidates, {
+    consumedIds: localMatched,
+    withdrawnIds: entry.insertRetired.keys(),
+  })
+  const present = new Set<string>(candidates.map(item => item.id))
+  for (const item of entry.inserts) if (item.id.startsWith(LOCAL_INSERT_PREFIX)) present.add(item.id)
+  const visibility = observeInsertPresence(insertVisibilityOf(entry), entry.inserts, present, now)
+  entry.insertShownAt = new Map(Object.entries(visibility.shownAt))
+  entry.insertMissingCount = new Map(Object.entries(visibility.missingCount))
+  entry.insertMissingSince = new Map(Object.entries(visibility.missingSince))
+  pruneInsertMeta(entry, new Set(entry.inserts.map(item => item.id)))
+  for (const [id, at] of entry.insertRetired) {
+    if (now - at > INSERT_RETIRED_TTL_MS) entry.insertRetired.delete(id)
+  }
+}
+
+/** 渲染层唯一读口：这一拍该显示哪些插入条目（去抖/最短可见已应用）。 */
+export function insertView(sessionId: string, now: number = Date.now()): InsertEntry[] {
+  const entry = entries.get(sessionId)
+  if (entry === undefined || entry.inserts.length === 0) return []
+  const state: InsertState = {
+    entries: entry.inserts,
+    turnNo: entry.insertTurnNo,
+    ...insertVisibilityOf(entry),
+  }
+  return [...visibleInserts(state, now)]
+}
+
+/** 本地乐观插入（steer 点下去马上可见，不等宿主快照）。 */
+export function addOptimisticInsert(sessionId: string, text: string): string {
+  const entry = entryOf(sessionId)
+  const now = Date.now()
+  const id = `${LOCAL_INSERT_PREFIX}${now}-${Math.random().toString(36).slice(2, 8)}`
+  entry.inserts = mergeInserts(entry.inserts, [{ id, turnNo: entry.insertTurnNo, source: 'user', text, at: now }])
+  entry.insertShownAt.set(id, now)
+  entry.insertMissingCount.set(id, 0)
+  publish(sessionId)
+  return id
+}
+
+/** 本地乐观插入失败：从事实源里摘掉（用户撤回走 `withdrawInsert`）。 */
+export function dropOptimisticInsert(sessionId: string, id: string): void {
+  const entry = entries.get(sessionId)
+  if (entry === undefined || !entry.inserts.some(item => item.id === id)) return
+  entry.inserts = entry.inserts.filter(item => item.id !== id)
+  pruneInsertMeta(entry, new Set(entry.inserts.map(item => item.id)))
+  publish(sessionId)
+}
+
+function retireInsert(entry: Entry, id: string, now: number): boolean {
+  // 墓碑先记，哪怕这一拍还没看到条目：回执可能先于快照到达，晚到的陈旧快照
+  // 不许再把已经消费/撤回的 id 画回来。
+  entry.insertRetired.set(id, now)
+  if (!entry.inserts.some(item => item.id === id)) return false
+  entry.inserts = entry.inserts.filter(item => item.id !== id)
+  pruneInsertMeta(entry, new Set(entry.inserts.map(item => item.id)))
+  return true
+}
+
+/** 撤回回执：宿主 remove 成功（或本地决定不发）→ 墓碑 + 立即退场。 */
+export function withdrawInsert(sessionId: string, id: string): void {
+  const entry = entries.get(sessionId)
+  if (entry === undefined) return
+  if (retireInsert(entry, id, Date.now())) publish(sessionId)
+}
+
+/** 撤回失败（请求没送到宿主）：撤掉墓碑，下一次快照会把它画回来。 */
+export function restoreInsert(sessionId: string, id: string): void {
+  const entry = entries.get(sessionId)
+  if (entry === undefined) return
+  if (entry.insertRetired.delete(id)) publish(sessionId)
+}
+
+/** WS `user/message` 帧：按 id 认领；本地乐观项没有宿主 id，再按正文补一刀。 */
+export function consumeInsertMessage(sessionId: string, event: { data?: unknown }): void {
+  const entry = entries.get(sessionId)
+  if (entry === undefined) return
+  const data = typeof event.data === 'object' && event.data !== null ? event.data as Record<string, unknown> : {}
+  const now = Date.now()
+  let changed = false
+  const id = typeof data['id'] === 'string' ? data['id'] : undefined
+  if (id !== undefined) changed = retireInsert(entry, id, now) || changed
+  const source = typeof data['source'] === 'object' && data['source'] !== null
+    ? data['source'] as Record<string, unknown>
+    : {}
+  const sourceKind = typeof source['kind'] === 'string' ? source['kind'] : undefined
+  if (sourceKind === undefined || sourceKind === 'user') {
+    const text = insertTextOfContent(data['content'])
+    if (text !== '') {
+      // 宿主可能给落地的消息换一个新 id：正文是用户插话的稳定指纹，按它补一刀。
+      const matched = entry.inserts.find(item => item.source === 'user'
+        && normalizeInsertText(item.text) === text)
+      if (matched !== undefined) changed = retireInsert(entry, matched.id, now) || changed
+    }
+  }
+  if (changed) publish(sessionId)
+}
+
+/** turn/start 帧：推进轮号（旧轮插入项随作用域退场）。 */
+export function noteInsertTurnStart(sessionId: string, startAt: number | undefined): void {
+  const entry = entryOf(sessionId)
+  const before = entry.insertTurnNo
+  advanceInsertTurn(entry, startAt)
+  if (entry.insertTurnNo === before) return
+  pruneInsertMeta(entry, new Set(entry.inserts.map(item => item.id)))
+  publish(sessionId)
+}
+
+function insertTextOfContent(content: unknown): string {
+  if (typeof content === 'string') return normalizeInsertText(content)
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const part = block as { type?: unknown; text?: unknown }
+    if (part.type === 'text' && typeof part.text === 'string') parts.push(part.text)
+  }
+  return normalizeInsertText(parts.join(' '))
+}
+
 /**
  * 本地先隐藏一条真实队列项（删除/插队立刻生效，不等宿主快照）。
  *
@@ -230,6 +451,8 @@ export function applyQueueItems(sessionId: string, items: QueueItemView[]): void
       entry.hidden.delete(id)
     }
   }
+  // 这条回退路径也可能带着 steering 行（老宿主的 inbox 投影）：插入队列照样要观察。
+  applyInsertObservation(entry, insertCandidatesOf(items, entry.insertTurnNo, now), now)
   publish(sessionId)
 }
 
@@ -409,18 +632,13 @@ export function applySnapshot(snapshot: SessionSnapshot): boolean {
       entry.hiddenAt.delete(id)
     }
   }
+  // 插入队列跟着同一份原子快照落地：turnStartAt 推进轮号，steering 行按并集合并。
+  const insertIds = entry.inserts.map(item => item.id).join('\u0000')
+  advanceInsertTurn(entry, snapshot.turn.turnStartAt)
+  applyInsertObservation(entry, insertCandidatesOf(entry.snapshot?.queue ?? [], entry.insertTurnNo, nowMs), nowMs)
+  if (entry.inserts.map(item => item.id).join('\u0000') !== insertIds) changed = true
   if (changed) publish(snapshot.sessionId)
   return changed
-}
-
-/** 队列项 → 视图（乐观项 id 带 `local-` 前缀，界面据它判断"还没被宿主认账"）。 */
-function toQueueItem(item: OptimisticQueueItem): QueueItemView {
-  return {
-    id: item.pendingId,
-    placement: item.placement,
-    text: item.text,
-    editable: false,
-  }
 }
 
 /** 文本归一：空白折叠，避免"多一个空格"就认不出是同一条。 */

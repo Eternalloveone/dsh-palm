@@ -65,7 +65,13 @@ export interface ComposerInputBox {
   mobileEnterToSend: boolean
 }
 
-/** 排队条：只在有排队时出现，输入行上方；明细（可编辑/插队）交给 QueueDock。 */
+/**
+ * 排队/插入槽位：输入行上方的 dock 固定区域。
+ *
+ * - `count` 是仍在排队的条数（只统计 queued）；
+ * - `detail` 是常驻槽位的内容：插入条（已插入本轮，默认折叠摘要）+ 排队明细。
+ *   两者都**不参与输入区的显隐判断**，插入条即使为空也保持挂载。
+ */
 export interface ComposerQueue {
   count: number
   detail: ReactNode

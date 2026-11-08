@@ -239,13 +239,10 @@
   align-items: center;
   gap: 8px;
   /* 行内再铺一层不同的底色就等于"卡片套卡片"，真机上看是两层框。整条只留外层
-     底板，行本身透明；插话那条的左侧竖线仍然保留。 */
+     底板，行本身透明。插话（已插入本轮）条目已经搬到插入条，不在这里画。 */
   padding: 0;
   border-radius: 8px;
   background: transparent;
-}
-.queue-dockRow[data-placement='steering'] {
-  border-left: 2px solid var(--accent, #4f7cff);
 }
 .queue-dockText {
   flex: 1 1 auto;
@@ -261,17 +258,6 @@
   display: flex;
   /* 删除与插话相邻且只有 4px 间隔，误删不可撤销：把间距和命中区一起放大。 */
   gap: 10px;
-}
-/* 插队条目（已经插进本轮）的小标签：和「排队中」区分开，别让用户以为它还在等。 */
-.queue-dockTag {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 10px;
-  line-height: 1.4;
-  background: var(--accent-soft);
-  color: var(--accent);
-  white-space: nowrap;
 }
 
 .queue-dockBtn {

@@ -176,6 +176,7 @@ import { getAutoScroll, subscribeDisplayPrefs } from '../platform/display-prefs.
 import { formatFileSize, timeVisibility } from '../render/ui-text.ts'
 import { enqueuePrompt, flushOutbox, listOutbox, removeFromOutbox, removeOutboxForSession, type OutboxEntry } from '../platform/offline.ts'
 import { QueueDock } from '../components/queue-dock.tsx'
+import { InsertBar } from './chat/components/insert-bar.tsx'
 import { GoalBar } from '../components/goal-bar.tsx'
 import {
   GOAL_CLEAR_COMMAND, GOAL_EDIT_PREFIX, GOAL_PAUSE_COMMAND, GOAL_RESUME_COMMAND, goalEditCommand,
@@ -3974,16 +3975,10 @@ function ChatSessionView({
           inputBox={{ composerRef, mobileEnterToSend }}
           queue={{
             count: queueItems.filter(item => item.placement === 'queued').length,
-            detail: (
-              <QueueDock
-                items={queueItems}
-                running={running}
-                onEdit={handleQueueEdit}
-                onRemove={handleQueueRemove}
-                onSteer={handleQueueSteer}
-                onWithdraw={handleQueueWithdraw}
-              />
-            ),
+            detail: [
+              <InsertBar key="insert" sessionId={session.sessionId} running={running} onWithdraw={handleQueueRemove} />,
+              <QueueDock key="queue" items={queueItems} running={running} onEdit={handleQueueEdit} onRemove={handleQueueRemove} onSteer={handleQueueSteer} onWithdraw={handleQueueWithdraw} />,
+            ],
           }}
         />
         <ComposerMeta

@@ -14,6 +14,7 @@ import { parsePermissionSelect, type PermissionSelectValue } from '../../../comp
 import type { MobileGoal } from '../../../session/goal-projection.ts'
 import type { StatusEvent } from '../../../stream/session-status.ts'
 import { toast } from '../../../components/toast.tsx'
+import { consumeInsertMessage, noteInsertTurnStart } from '../../../stream/session-store.ts'
 import type { TurnVerdict } from './stream-state.ts'
 
 /**
@@ -236,6 +237,9 @@ function onSessionEvent(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'ses
   if (typeof event.type === 'string') {
     if (event.type === 'turn/start') onTurnStart(ctx, event)
     if (event.type === 'turn/end') onTurnEnd(ctx, event)
+    // 插入条的唯一事实源也吃 WS 事件：user/message 是「已消费」回执（宿主把
+    // next-step 那条落成对话里的用户消息），到了就该从「已插入本轮」退场。
+    if (event.type === 'user/message') consumeInsertMessage(ctx.sessionId, event)
     // todo/write is a full-list snapshot (last-write-wins): adopt it
     // into the plan strip. It keeps flowing into the fold below, which
     // ignores unknown types, so the message stream is unaffected.
@@ -263,6 +267,9 @@ export function onTurnStart(ctx: FrameContext, event: WireEvent): void {
   // Anchor the turn clock at the logged start (desktop parity):
   // a mid-turn reload keeps the real elapsed time.
   ctx.beginTurn(typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : Date.now())
+  // 插入队列的轮次作用域：turn/start 的锚点一变，旧轮的插入项整体退场。
+  // 用起始时刻而不是轮号：中途重载时日志里的 turnStartAt 是同一轮的唯一稳定身份。
+  noteInsertTurnStart(ctx.sessionId, typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : undefined)
   // A turn start is when subagents spawn; refresh the tree.
   ctx.refreshSubagents()
   // The host clears the todo projection at turn/start; mirror it so
@@ -356,14 +363,12 @@ function onSubscribed(ctx: FrameContext): void {
 
 function onQueue(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'session/queue' }>): void {
   startTransition(() => {
-    // 帧里带 placement，但手机端不采信 steering 这个值：点过「立即发送」之后宿主
-    // 会把它标成 steering，而排队条只渲染 queued —— 于是这条在手机上整个消失，
-    // 桌面端（读 next-turn 投影，那里没有 placement）却一直挂着。宿主的 next-turn
-    // 才是"还在排队"的真值：只要它没把这条移走，两端就该都显示。
     const items = (frame.items ?? []).map(item => queueItemViewOf({
       id: String(item.id),
-      placement: 'queued',
-      message: item.message as never,
+      // 保留宿主的 placement：steering 是「已插进这一轮」，由插入条展示；
+      // 以前一律改写成 queued，结果插入项在排队条里被当成待发消息（还会重复画一行）。
+      placement: item.placement,
+      message: item.message as { content?: unknown; source?: { kind?: unknown } },
     }))
     // 帧也进状态仓：队列只有一个来源，本地隐藏/乐观项才不会跟帧互相盖掉。
     ctx.applyQueueItems(ctx.sessionId, items)

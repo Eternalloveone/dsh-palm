@@ -20,6 +20,7 @@ import {
   dropOptimisticQueueItem,
   hideQueueItem,
   queueView,
+  restoreInsert,
   unhideQueueItem,
 } from '../../../stream/session-store.ts'
 import { RpcCallError } from '../../../platform/rpc.ts'
@@ -120,6 +121,8 @@ export function useQueueActions<Item extends QueueItemBase = QueueItemBase>(deps
       }
       // 真失败：撤掉本地隐藏，让权威队列重新显示这一条。
       unhideQueueItem(sessionId, itemId)
+      // 插入条的乐观撤回落在这里回滚：宿主还留着它，下一次快照应该重新出现。
+      restoreInsert(sessionId, itemId)
       toast(`删除没成功（${code ?? 'network'}），请再试一次`)
     }
   }, [sessionId, refreshInbox, queueItems, setQueueItems, toast])

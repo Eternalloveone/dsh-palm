@@ -237,12 +237,8 @@ export async function prompt(
   sessionId: string,
   parts: PromptPart[],
   /**
-   * 本次投递的幂等键。
-   *
-   * 宿主按 `requestId` 去重（同一个 id 重复提交只入队一次，实测 2026-10-30：同 id 再发
-   * 队列条数不变），而手机端此前**根本不带**这个字段 —— 于是任何重复投递（双击、弱网
-   * 重发、两条链路同时发）都会在排队条上变成两条一模一样的消息，用户无从分辨。
-   *
+   * 本次投递的幂等键。宿主按 `requestId` 去重（同 id 重复提交只入队一次），
+   * 手机端此前**根本不带**这个字段，任何重复投递都会在排队条上变成两条一模一样的消息。
    * 重试要复用同一个 id 才有效；新的发送意图必须换新 id。
    */
   requestId: string = newRequestId(),
@@ -266,7 +262,8 @@ export function newRequestId(): string {
 export function queueItemViewOf(item: {
   id: string
   placement: 'queued' | 'steering' | 'context'
-  message?: { content?: unknown }
+  message?: { content?: unknown; source?: { kind?: unknown } }
+  source?: { kind?: unknown }
 }): QueueItemView {
   const blocks = Array.isArray(item.message?.content)
     ? (item.message.content as Array<{ type?: string; text?: string }>)
@@ -278,7 +275,9 @@ export function queueItemViewOf(item: {
       .map(block => block.type === 'text' && typeof block.text === 'string' ? block.text : `[${queueBlockLabel(block.type)}]`)
       .join(' ')
       .trim()
-  return { id: item.id, placement: item.placement, text, editable }
+  // 只带非 user 来源：user 是缺省（插入队列按 undefined 处理），省得每行都多一个字段。
+  const sourceKind = [item.message?.source?.kind, item.source?.kind].find(kind => typeof kind === 'string' && kind !== '' && kind !== 'user') as string | undefined
+  return { id: item.id, placement: item.placement, text, editable, ...(sourceKind === undefined ? {} : { sourceKind }) }
 }
 
 /** Edit / remove / steer one pending queued message on the host. */

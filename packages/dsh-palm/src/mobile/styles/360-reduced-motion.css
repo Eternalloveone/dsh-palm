@@ -33,6 +33,9 @@
   .sheet-confirm-danger,
   .settings-switch::after,
   .chat-input,
+  .insert-bar,
+  [data-insert-details],
+  [data-insert-summary] > span:last-child,
   .settings-themeOption,
   .settings-optionChip {
     animation: none;
