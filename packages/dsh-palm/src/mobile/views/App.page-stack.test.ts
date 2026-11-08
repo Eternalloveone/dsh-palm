@@ -29,6 +29,7 @@ const workspace = {
 } as never
 const standaloneWorkspace = { workspaceId: 'standalone', path: '', title: '未分组', sessionIds: [], createdAt: 0, updatedAt: 0 } as never
 const session = { sessionId: 's-1' } as never
+const approvalRow = { approvalId: 'ap-1', callId: 'c-1', tool: 'write_file', risk: 'write' } as never
 
 /** 每种路由的"进入它之前在哪一页"（栈模型的答案）。 */
 const PUSHED_FROM: Record<Kind, Route> = {
@@ -38,6 +39,9 @@ const PUSHED_FROM: Record<Kind, Route> = {
   sessions: { kind: 'workspaces' },
   chat: { kind: 'sessions', workspace },
   'sub-chat': { kind: 'run-overview' },
+  approval: { kind: 'chat', session, workspace },
+  // 审批详情是"会话内的一层"：上一页就是那个对话
+  // 审批详情是"会话内的一层"：上一页就是那个对话
 }
 
 /** 各路由的样本。 */
@@ -48,6 +52,7 @@ const SAMPLES: Route[] = [
   { kind: 'settings', workspace },
   { kind: 'chat', session, workspace },
   { kind: 'sub-chat', sessionId: 'c-1' },
+  { kind: 'approval', session, workspace, approval: approvalRow },
 ]
 
 describe('页面栈 vs backTargetOf（迁移等价性）', () => {

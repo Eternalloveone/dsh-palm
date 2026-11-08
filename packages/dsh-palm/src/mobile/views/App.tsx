@@ -117,8 +117,13 @@ import { hasAnyChatCache } from '../session/chat-cache.ts'
 import { loadChatCache } from '../session/chat-cache.ts'
 import { loadPersistedList } from '../session/list-persist.ts'
 import { Button } from '../ui/primitives.tsx'
+import { ApprovalView } from './ApprovalView.tsx'
+
 
 /** One navigation level. */
+/** 审批载荷类型：从视图组件的 props 推导（视图/路由层都不直接依赖数据层）。 */
+type ApprovalPayload = Parameters<typeof ApprovalView>[0]['approval']
+
 type Route =
   | { kind: 'workspaces' }
   | { kind: 'run-overview' }
@@ -133,6 +138,15 @@ type Route =
     focusPartId?: string
     focusQuery?: string
   }
+  /** ④ 审批详情：从对话正文的审批面板点"详情"进来，返回即弹栈回对话。 */
+  | {
+    kind: 'approval'
+    session: SessionView
+    workspace: WorkspaceRow
+    approval: ApprovalPayload
+    preview?: string
+    argsText?: string
+  }
   /** 子代理自己的会话（只读）：从"运行中"页的子代理行点进来。 */
   | { kind: 'sub-chat'; sessionId: string; label?: string; parentTitle?: string }
 
@@ -140,6 +154,7 @@ type Route =
 export function routeKeyOf(route: Route): string {
   if (route.kind === 'chat') return `chat:${route.session.sessionId}`
   if (route.kind === 'sub-chat') return `sub-chat:${route.sessionId}`
+  if (route.kind === 'approval') return `approval:${route.approval.approvalId}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
   if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
   return route.kind
@@ -208,10 +223,13 @@ export function backTargetOf(route: Route): Route {
     case 'settings':
       return { kind: 'sessions', workspace: route.workspace }
     case 'sessions':
-      return { kind: 'workspaces' }
+      return { kind: 'workspaces' }
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
+    case 'approval':
+      // 兜底（栈里只有它）：审批一定属于某个会话，退回对话。
+      return { kind: 'chat', session: route.session, workspace: route.workspace }
     case 'workspaces':
       // 首页就是根：没有"上一页"，原地不动（原来的兜底行为）。
       return route
@@ -292,7 +310,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1204,7 +1222,17 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             {...(route.parentTitle === undefined ? {} : { parentTitle: route.parentTitle })}
             onBack={back}
           />
-          : <ChatView
+          : route.kind === 'approval'
+            ? <ApprovalView
+              sessionId={route.session.sessionId}
+              sessionTitle={route.session.title}
+              approval={route.approval}
+              {...(route.preview === undefined ? {} : { preview: route.preview })}
+              {...(route.argsText === undefined ? {} : { argsText: route.argsText })}
+              onBack={back}
+              onResolved={() => { back() }}
+            />
+            : <ChatView
             session={route.session}
             initialFocusSeq={route.focusSeq}
             initialFocusMessageId={route.focusMessageId}

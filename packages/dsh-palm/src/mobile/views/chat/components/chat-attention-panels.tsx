@@ -11,6 +11,7 @@
  */
 import type { PendingApproval, PendingQuestionItem } from '../../../api.ts'
 import { ApprovalPanel, QuestionPanel } from '../../../components/sheets.tsx'
+import { Button } from '../../../ui/primitives.tsx'
 
 export interface ChatAttentionPanelsProps {
   sessionId: string
@@ -20,22 +21,35 @@ export interface ChatAttentionPanelsProps {
   previewOf: (approval: PendingApproval) => string | undefined
   argsOf: (approval: PendingApproval) => string | undefined
   onApprovalResolved: (approvalId: string) => void
+  /** 打开「审批详情」独立页；不给就不渲染入口（老调用方式零影响）。 */
+  onOpenApproval?: (approval: PendingApproval, preview?: string, argsText?: string) => void
   onQuestionResolved: (rpcId: string) => void
 }
 
 export function ChatAttentionPanels(props: ChatAttentionPanelsProps) {
-  const { sessionId, approvals, questions, previewOf, argsOf, onApprovalResolved, onQuestionResolved } = props
+  const { sessionId, approvals, questions, previewOf, argsOf, onApprovalResolved, onQuestionResolved, onOpenApproval } = props
   return (
     <>
       {approvals.map(approval => (
-        <ApprovalPanel
+        <div className="chat-approval-block" key={approval.approvalId}>
+          {onOpenApproval !== undefined && (
+            <Button
+              type="button"
+              className="chat-approval-detail"
+              onClick={() => { onOpenApproval(approval, previewOf(approval), argsOf(approval)) }}
+            >
+              看完整详情 ›
+            </Button>
+          )}
+          <ApprovalPanel
           key={approval.approvalId}
           approval={approval}
           preview={previewOf(approval)}
           argsText={argsOf(approval)}
           sessionId={sessionId}
-          onResolved={(id) => { onApprovalResolved(id) }}
-        />
+            onResolved={(id) => { onApprovalResolved(id) }}
+          />
+        </div>
       ))}
       {questions.length > 0 && (
         <QuestionPanel

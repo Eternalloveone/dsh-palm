@@ -87,14 +87,14 @@ describe('architecture guardrails', () => {
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
-      'views/ChatView.tsx': 4_139,
+      // 2026-11-08：P6 页面栈接入（压栈/弹栈 + routeKeyOf）；旧标记删除后回落。
+      'views/App.tsx': 1_305,
       'views/SettingsView.tsx': 783,
       // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
       // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。
       'views/SessionListView.tsx': 1_134,
       // 2026-11-07：P1 会话位置写回 URL + 首帧直达会话（刷新/重启回原会话）是**功能新增**，
       // 不是重构漏量；1121 → 1265 已按实测收紧，之后只许降。
-      'views/App.tsx': 1_286,
       'views/WorkspaceView.tsx': 1_063,
       // W2-6 补登记：这两屏此前没有预算，等于可以无声长大。
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
