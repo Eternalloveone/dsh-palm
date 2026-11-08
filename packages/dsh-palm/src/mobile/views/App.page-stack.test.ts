@@ -1,19 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { backTargetOf } from './App.tsx'
+import { backTargetOf, chatRouteOf } from './App.tsx'
 import { createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
 
 /**
- * 迁移前的**等价性证明**（P6）。
+ * 返回落点的穷尽性证明（2026-11-08「单一会话页 + 抽屉」）。
  *
- * 现在返回上一页靠 `backTargetOf(route)`：只看当前路由，用一堆 `if` 猜"上一页是谁"。
- * 这正是历史里那些 bug 的来源——猜错就会退到不存在的页面（例如从通知直接进会话，
- * 猜出来的"上一页"是个空列表）。
- *
- * 迁移方向是**记真实的栈**：进哪页就压哪页，返回就是弹栈。
- *
- * 这个文件把两者的等价关系写死：对每一种路由，先用栈模型走一遍，
- * 断言弹出来的页与 `backTargetOf` 猜的一致。等 App 换成栈之后，本文件应删掉
- * `backTargetOf` 一侧，只留栈的断言。
+ * 会话页是**根**：它没有上一页，返回键也不在它的页头里；子页全部叠在它上面，
+ * 返回 = 弹回所属会话（外观弹回设置）。这里对每一种路由断言：
+ * 弹栈得到的那一页 == `backTargetOf` 的兜底结论。
  */
 
 type Route = Parameters<typeof backTargetOf>[0]
@@ -27,58 +21,44 @@ const workspace = {
   createdAt: 0,
   updatedAt: 0,
 } as never
-const standaloneWorkspace = { workspaceId: 'standalone', path: '', title: '未分组', sessionIds: [], createdAt: 0, updatedAt: 0 } as never
-const session = { sessionId: 's-1' } as never
+const session = { sessionId: 's-1', title: '会话', updatedAt: 0, running: false, blank: false } as never
 const approvalRow = { approvalId: 'ap-1', callId: 'c-1', tool: 'write_file', risk: 'write' } as never
+
+const chat: Route = chatRouteOf(session, workspace)
 
 /** 每种路由的"进入它之前在哪一页"（栈模型的答案）。 */
 const PUSHED_FROM: Record<Kind, Route> = {
-  workspaces: { kind: 'workspaces' },
-  'run-overview': { kind: 'workspaces' },
-  settings: { kind: 'sessions', workspace },
-  sessions: { kind: 'workspaces' },
-  search: { kind: 'sessions', workspace },
-  chat: { kind: 'sessions', workspace },
-  'sub-chat': { kind: 'run-overview' },
-  approval: { kind: 'chat', session, workspace },
-  // diff 也是"会话内的一层"：上一页同样是那个对话
-  diff: { kind: 'chat', session, workspace },
-  // ⑮ 交付详情同样挂在对话下面
-  delivery: { kind: 'chat', session, workspace },
-  model: { kind: 'chat', session, workspace },
-  appearance: { kind: 'settings', workspace },
-  outline: { kind: 'chat', session, workspace },
-  artifacts: { kind: 'chat', session, workspace },
-  // ⑨ 产物摘要挂在产物列表下面：从某一轮的分组标题进来，返回就是那一页。
+  chat,
+  search: chat,
+  settings: chat,
+  appearance: { kind: 'settings', session, workspace },
+  artifacts: chat,
   'artifact-summary': { kind: 'artifacts', session, workspace, turns: [] },
-  context: { kind: 'chat', session, workspace },
-  'approval-mode': { kind: 'chat', session, workspace },
-  // 审批详情是"会话内的一层"：上一页就是那个对话
-  // 审批详情是"会话内的一层"：上一页就是那个对话
+  diff: chat,
+  delivery: chat,
+  approval: chat,
+  context: chat,
+  outline: chat,
+  'approval-mode': chat,
 }
 
 /** 各路由的样本。 */
 const SAMPLES: Route[] = [
-  { kind: 'workspaces' },
-  { kind: 'run-overview' },
-  { kind: 'sessions', workspace },
-  { kind: 'search', workspace },
-  { kind: 'settings', workspace },
-  { kind: 'chat', session, workspace },
-  { kind: 'sub-chat', sessionId: 'c-1' },
-  { kind: 'approval', session, workspace, approval: approvalRow },
-  { kind: 'diff', session, workspace, path: 'src/a.ts' },
-  { kind: 'delivery', session, workspace, facts: { turn: 2, deliverables: [], changes: [] } },
-  { kind: 'model', session, workspace },
-  { kind: 'appearance', workspace },
-  { kind: 'outline', session, workspace, turns: [], currentTurn: 1 },
+  chat,
+  { kind: 'search', session, workspace },
+  { kind: 'settings', session, workspace },
+  { kind: 'appearance', session, workspace },
   { kind: 'artifacts', session, workspace, turns: [] },
   { kind: 'artifact-summary', session, workspace, turn: 2, turns: [] },
+  { kind: 'diff', session, workspace, path: 'src/a.ts' },
+  { kind: 'delivery', session, workspace, facts: { turn: 2, deliverables: [], changes: [] } },
+  { kind: 'approval', session, workspace, approval: approvalRow },
   { kind: 'context', session, workspace, usage: {} },
+  { kind: 'outline', session, workspace, turns: [], currentTurn: 1 },
   { kind: 'approval-mode', session, workspace, permissions: { currentValue: 'ask', options: [] } },
 ]
 
-describe('页面栈 vs backTargetOf（迁移等价性）', () => {
+describe('页面栈 vs backTargetOf（会话页是根）', () => {
   it('普通进入：弹栈结果与 backTargetOf 猜的一致', () => {
     for (const route of SAMPLES) {
       const from = PUSHED_FROM[route.kind]
@@ -92,33 +72,22 @@ describe('页面栈 vs backTargetOf（迁移等价性）', () => {
     }
   })
 
-  it('从通知直达会话：栈里根页就是"来源"，不需要猜', () => {
-    // backTargetOf 靠 fromLocate/fromRunOverview 等标记猜；栈天生知道。
-    const direct = pushPage(
-      createPageStack<Route>('workspaces', { kind: 'workspaces' }),
-      'chat',
-      { kind: 'chat', session, workspace },
-    )
-    expect(currentOf(popPage(direct))?.value).toEqual({ kind: 'workspaces' })
+  it('会话页是根：返回自己（没有上一页，交给系统退出）', () => {
+    expect(backTargetOf(chat)).toEqual(chat)
   })
 
-  it('独立工作区的会话：栈里没有"空列表"这一页，退不进去', () => {
-    const stack = pushPage(
-      createPageStack<Route>('workspaces', { kind: 'workspaces' }),
-      'chat',
-      { kind: 'chat', session, workspace: standaloneWorkspace },
-    )
-    expect(currentOf(popPage(stack))?.value).toEqual({ kind: 'workspaces' })
-    // 与 backTargetOf 的特判结论一致
-    expect(backTargetOf({ kind: 'chat', session, workspace: standaloneWorkspace })).toEqual({ kind: 'workspaces' })
+  it('设置/搜索的兜底落点是它们所属的会话', () => {
+    expect(backTargetOf({ kind: 'settings', session, workspace })).toEqual(chat)
+    expect(backTargetOf({ kind: 'search', session, workspace })).toEqual(chat)
   })
 
-  it('从运行总览进会话：弹栈天然回到运行总览', () => {
-    const stack = pushPage(
-      pushPage(createPageStack<Route>('workspaces', { kind: 'workspaces' }), 'run-overview', { kind: 'run-overview' }),
-      'chat',
-      { kind: 'chat', session, workspace },
-    )
-    expect(currentOf(popPage(stack))?.value).toEqual({ kind: 'run-overview' })
+  it('外观的兜底落点是设置，不是会话', () => {
+    expect(backTargetOf({ kind: 'appearance', session, workspace }))
+      .toEqual({ kind: 'settings', session, workspace })
+  })
+
+  it('深链冷启动：栈里只有会话一页，弹栈是空操作', () => {
+    const onlyChat = createPageStack<Route>('chat', chat)
+    expect(popPage(onlyChat)).toBe(onlyChat)
   })
 })

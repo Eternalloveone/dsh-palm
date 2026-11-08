@@ -6,9 +6,17 @@
  */
 
 import { useSyncExternalStore } from 'react'
-import { getMobileTheme, subscribeMobileTheme, toggleMobileTheme } from '../mobile-theme.ts'
+import { getMobileTheme, getMobileThemeMode, subscribeMobileTheme, toggleMobileTheme, type MobileThemeMode } from '../mobile-theme.ts'
 import { mutateSettings } from '../api.ts'
 import { Button } from '../ui/primitives.tsx'
+import { ContrastIcon } from './icons.tsx'
+
+/** 主题模式的中文名（菜单右侧显示"当前是什么"）。 */
+const MODE_LABEL: Record<MobileThemeMode, string> = {
+  light: '浅色',
+  dark: '深色',
+  system: '跟随系统',
+}
 
 /** Sun glyph: circle + eight rays (inline SVG, no emoji). */
 function SunIcon() {
@@ -50,6 +58,34 @@ export function ThemeToggle() {
       }}
     >
       {dark ? <SunIcon /> : <MoonIcon />}
+    </Button>
+  )
+}
+
+/**
+ * ⋯ 菜单里的「切换主题」行：右侧显示**当前模式**（不是"点了会变成什么"），
+ * 点一下就在明暗之间翻转并写回桌面同一份 `ui-theme.preference`。
+ *
+ * 放在 components/ 而不是 views/：它要调 api.ts 的 mutateSettings，而视图层
+ * 有一条"不直接 import api.ts"的架构门禁。
+ */
+export function ThemeMenuItem() {
+  const mode = useSyncExternalStore(subscribeMobileTheme, getMobileThemeMode)
+  return (
+    <Button
+      type="button"
+      role="menuitem"
+      className="sheet-option"
+      onClick={() => {
+        const next = toggleMobileTheme()
+        void mutateSettings('ui-theme', [{ op: 'set', path: ['preference'], value: next === 'dark' ? 'dark' : 'light' }]).catch(() => {})
+      }}
+    >
+      <ContrastIcon />
+      <span className="sheet-option-copy">
+        <span className="sheet-option-title">切换主题</span>
+      </span>
+      <span className="sheet-option-check">{MODE_LABEL[mode]}</span>
     </Button>
   )
 }

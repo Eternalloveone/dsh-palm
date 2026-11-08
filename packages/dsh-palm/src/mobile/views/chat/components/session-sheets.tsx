@@ -1,37 +1,117 @@
 /**
- * 会话操作菜单与它的结果面板：重命名 / 复制 ID / 导出对话 / 查看改动 / 删除。
+ * 会话 ⋯ 菜单与导出面板。
  *
- * S6e 从 `ChatView` 搬出。这些面板只做"用户选了哪一项"，真正的动作（重命名、删除、
- * 导出、跑 git 读取）都在会话层，通过回调打回去。
+ * 2026-11-08 架构收敛：顶栏只剩 `☰ 标题 ⋯`，原来散在顶栏的四个图标收进这里。
+ * 菜单只有**有数据源**的项才画：
+ * - 这一轮的产物：要当前会话真的产出了文件（`artifactCount > 0`）；
+ * - 在本会话内搜索：要有会话（空会话首屏没有可搜的正文）；
+ * - 导出会话：同上；
+ * - 切换主题：永远可用（主题是本地状态）；
+ * - 设置：调用方给了入口才画。
  *
- * 两个真机/安全细节原样保留：
- * - 导出面板的提示文案写在面板里（分享出去的文本进 issue/群聊，收不回；脱敏在 redact.ts）；
- * - 删除的确认文案说明"电脑上的会话记录保留"，否则用户以为删了就彻底没了。
+ * 导出仍复用原来的导出面板（Markdown / 单文件 HTML / 长图），文案里说明脱敏。
  */
-import { ConfirmDialog, PromptDialog } from '../../../components/dialog.tsx'
-import { PencilIcon } from '../../../components/icons.tsx'
+import { FolderIcon, SearchIcon, SlidersIcon, UpperRightIcon } from '../../../components/icons.tsx'
+import { ThemeMenuItem } from '../../../components/theme-toggle.tsx'
 import { Sheet } from '../../../ui/sheet.tsx'
-import { GitSheet } from '../../../components/sheets.tsx'
 import { Button } from '../../../ui/primitives.tsx'
+
+export interface ChatMoreMenuProps {
+  open: boolean
+  onClose(): void
+  /** 这一轮产出的文件数；0 / undefined = 不画「产物」这一项。 */
+  artifactCount?: number | undefined
+  onOpenArtifacts?: (() => void) | undefined
+  /** 会话内搜索；空会话没有这个入口。 */
+  onToggleSearch?: (() => void) | undefined
+  /** 打开导出面板；空会话没有这个入口。 */
+  onOpenExport?: (() => void) | undefined
+  onOpenSettings?: (() => void) | undefined
+}
+
+/**
+ * 渲染 ⋯ 菜单（底部 sheet）。
+ *
+ * @param props - 各入口是否可用与动作
+ * @returns 菜单浮层；`open=false` 时什么都不渲染
+ */
+export function ChatMoreMenu(props: ChatMoreMenuProps) {
+  if (!props.open) return null
+  const artifactCount = props.artifactCount ?? 0
+  const showArtifacts = props.onOpenArtifacts !== undefined && artifactCount > 0
+  return (
+    <Sheet title="更多" onClose={props.onClose}>
+      <div role="menu" aria-label="会话操作">
+        {showArtifacts ? (
+          <Button
+            type="button"
+            role="menuitem"
+            className="sheet-option"
+            onClick={() => { props.onClose(); props.onOpenArtifacts?.() }}
+          >
+            <FolderIcon />
+            <span className="sheet-option-copy">
+              <span className="sheet-option-title">这一轮的产物</span>
+            </span>
+            <span className="sheet-option-check">{artifactCount} 个文件</span>
+          </Button>
+        ) : null}
+        {props.onToggleSearch === undefined ? null : (
+          <Button
+            type="button"
+            role="menuitem"
+            className="sheet-option"
+            onClick={() => { props.onClose(); props.onToggleSearch?.() }}
+          >
+            <SearchIcon />
+            <span className="sheet-option-copy">
+              <span className="sheet-option-title">在本会话内搜索</span>
+            </span>
+          </Button>
+        )}
+        {props.onOpenExport === undefined ? null : (
+          <Button
+            type="button"
+            role="menuitem"
+            className="sheet-option"
+            onClick={() => { props.onClose(); props.onOpenExport?.() }}
+          >
+            <UpperRightIcon />
+            <span className="sheet-option-copy">
+              <span className="sheet-option-title">导出会话</span>
+            </span>
+            <span className="sheet-option-check">Markdown</span>
+          </Button>
+        )}
+        <ThemeMenuItem />
+        {props.onOpenSettings === undefined ? null : (
+          <Button
+            type="button"
+            role="menuitem"
+            className="sheet-option"
+            onClick={() => { props.onClose(); props.onOpenSettings?.() }}
+          >
+            <SlidersIcon />
+            <span className="sheet-option-copy">
+              <span className="sheet-option-title">设置</span>
+            </span>
+          </Button>
+        )}
+      </div>
+    </Sheet>
+  )
+}
 
 export interface SessionSheetsProps {
   moreOpen: boolean
   setMoreOpen: (next: boolean) => void
   exportOpen: boolean
   setExportOpen: (next: boolean) => void
-  gitOpen: boolean
-  setGitOpen: (next: boolean) => void
-  renaming: boolean
-  setRenaming: (next: boolean) => void
-  deleting: boolean
-  setDeleting: (next: boolean) => void
-  /** 会话标题（重命名回填 / 删除确认文案）。 */
-  title: string
-  /** 会话工作目录（「查看改动」只在有 cwd 时出现）。 */
-  cwd: string | undefined
-  onCopySessionId: () => void
-  onRename: (value: string) => void
-  onDelete: () => void
+  /** ⋯ 菜单的各项数据（不传就没有那一项）。 */
+  artifactCount?: number | undefined
+  onOpenArtifacts?: (() => void) | undefined
+  onToggleSearch?: (() => void) | undefined
+  onOpenSettings?: (() => void) | undefined
   onCopyExport: (format: 'md' | 'html') => void
   onDownloadExport: (format: 'md' | 'html') => void
   onDownloadLongImage: () => void
@@ -39,75 +119,21 @@ export interface SessionSheetsProps {
 
 export function SessionSheets(props: SessionSheetsProps) {
   const {
-    moreOpen, setMoreOpen, exportOpen, setExportOpen, gitOpen, setGitOpen, renaming, setRenaming,
-    deleting, setDeleting, title, cwd, onCopySessionId, onRename, onDelete, onCopyExport,
-    onDownloadExport, onDownloadLongImage,
+    moreOpen, setMoreOpen, exportOpen, setExportOpen, artifactCount, onOpenArtifacts,
+    onToggleSearch, onOpenSettings, onCopyExport, onDownloadExport, onDownloadLongImage,
   } = props
 
   return (
     <>
-      {moreOpen && (
-        <Sheet title={title} onClose={() => { setMoreOpen(false) }}>
-          <div role="menu" aria-label="会话操作">
-            <Button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); setRenaming(true) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">重命名会话</span>
-              </span>
-              <PencilIcon width={16} height={16} />
-            </Button>
-            <Button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); onCopySessionId() }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">复制会话 ID</span>
-              </span>
-            </Button>
-            <Button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); setExportOpen(true) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title">导出对话</span>
-                <span className="sheet-option-desc">Markdown / 单文件 HTML，自动隐藏疑似密钥</span>
-              </span>
-            </Button>
-            {cwd !== undefined && cwd !== '' && (
-              <Button
-                type="button"
-                role="menuitem"
-                className="sheet-option"
-                onClick={() => { setMoreOpen(false); setGitOpen(true) }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">查看改动</span>
-                  <span className="sheet-option-desc">分支、未提交的改动、最近提交</span>
-                </span>
-              </Button>
-            )}
-            <div className="sheet-option-divider" aria-hidden />
-            <Button
-              type="button"
-              role="menuitem"
-              className="sheet-option"
-              onClick={() => { setMoreOpen(false); setDeleting(true) }}
-            >
-              <span className="sheet-option-copy">
-                <span className="sheet-option-title" style={{ color: 'var(--danger)' }}>删除会话</span>
-              </span>
-            </Button>
-          </div>
-        </Sheet>
-      )}
+      <ChatMoreMenu
+        open={moreOpen}
+        onClose={() => { setMoreOpen(false) }}
+        {...(artifactCount === undefined ? {} : { artifactCount })}
+        {...(onOpenArtifacts === undefined ? {} : { onOpenArtifacts })}
+        {...(onToggleSearch === undefined ? {} : { onToggleSearch })}
+        {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
+        onOpenExport={() => { setExportOpen(true) }}
+      />
       {exportOpen && (
         <Sheet title="导出对话" onClose={() => { setExportOpen(false) }}>
           {/* 分享出去的文本会进 issue、群聊、邮件 —— 一旦发出去就收不回。
@@ -161,28 +187,6 @@ export function SessionSheets(props: SessionSheetsProps) {
             导出内容会自动隐藏疑似密钥（sk-…、Bearer、URL 里的密码、私钥块等）。
           </p>
         </Sheet>
-      )}
-      {gitOpen && cwd !== undefined && cwd !== '' && (
-        <GitSheet cwd={cwd} onClose={() => { setGitOpen(false) }} />
-      )}
-      {renaming && (
-        <PromptDialog
-          title="重命名会话"
-          initial={title}
-          confirmLabel="保存"
-          onCancel={() => { setRenaming(false) }}
-          onConfirm={(value) => { void onRename(value) }}
-        />
-      )}
-      {deleting && (
-        <ConfirmDialog
-          title="删除会话"
-          body={<>确定删除「{title}」吗？该会话将从所有设备消失（电脑上的会话记录保留，可从桌面找回）。</>}
-          confirmLabel="删除"
-          tone="danger"
-          onCancel={() => { setDeleting(false) }}
-          onConfirm={onDelete}
-        />
       )}
     </>
   )

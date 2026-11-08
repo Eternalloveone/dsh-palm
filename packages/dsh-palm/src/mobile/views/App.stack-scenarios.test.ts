@@ -10,104 +10,77 @@ import {
 } from '../kernels/page-stack.ts'
 
 /**
- * 页面栈的**场景级**行为（P6）。
+ * 页面栈的**场景级**行为（2026-11-08 架构收敛后）。
  *
- * 上一个大文件证明的是"单步等价"；这里证明真实用户路径：连续进、连续退、
- * 以及那些旧启发式必须靠标记才猜对的场景（通知直达、运行总览进入）。
+ * 会话页是根：换会话 = 换根（不压栈）；设置/搜索/产物等子页叠在根上，
+ * 返回就是弹回那个会话。工作区页、会话列表页、运行总览、子代理页都已下线。
  */
 
 type Route = Parameters<typeof routeKeyOf>[0]
 
 const ws = { workspaceId: 'ws-1', path: '/repo', title: 'repo', sessionIds: [], createdAt: 0, updatedAt: 0 } as never
-const ws2 = { workspaceId: 'ws-2', path: '/repo2', title: 'repo2', sessionIds: [], createdAt: 0, updatedAt: 0 } as never
-const sessionA = { sessionId: 'a' } as never
-const sessionB = { sessionId: 'b' } as never
+const sessionA = { sessionId: 'a', title: 'A', updatedAt: 0, running: false, blank: false } as never
+const sessionB = { sessionId: 'b', title: 'B', updatedAt: 0, running: false, blank: false } as never
 
-const list = (): Route => ({ kind: 'sessions', workspace: ws })
-const chat = (sessionId: 'a' | 'b'): Route => ({
-  kind: 'chat',
-  session: sessionId === 'a' ? sessionA : sessionB,
-  workspace: ws,
-})
+const chat = (session: never): Route => ({ kind: 'chat', session, workspace: ws })
+const settings = (session: never): Route => ({ kind: 'settings', session, workspace: ws })
 
 /** 走一步：压栈 + 前进。 */
 function go(stack: ReturnType<typeof createPageStack<Route>>, next: Route) {
   return pushPage(stack, routeKeyOf(next), next)
 }
 
-describe('页面栈场景（P6）', () => {
-  it('列表 → 会话A → 会话B：连退两次回到列表，中间经过 A', () => {
-    let stack = createPageStack<Route>(routeKeyOf(list()), list())
-    stack = go(stack, chat('a'))
-    stack = go(stack, chat('b'))
-    expect(depthOf(stack)).toBe(3)
+describe('页面栈场景（会话页是根）', () => {
+  it('会话 A → 会话 B 是换根：深度始终是 1，不会堆出一串会话', () => {
+    const stackA = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
+    const rootB = createPageStack<Route>(routeKeyOf(chat(sessionB)), chat(sessionB))
+    expect(depthOf(stackA)).toBe(1)
+    expect(depthOf(rootB)).toBe(1)
+    expect(routeKeyOf(chat(sessionA))).not.toBe(routeKeyOf(chat(sessionB)))
+  })
 
+  it('会话 → 设置 → 返回：弹回同一个会话', () => {
+    let stack = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
+    stack = go(stack, settings(sessionA))
+    expect(depthOf(stack)).toBe(2)
     stack = popPage(stack)
     expect(currentOf(stack)?.key).toBe('chat:a')
+  })
+
+  it('会话 → 设置 → 外观：两层子页按顺序弹回设置、再弹回会话', () => {
+    let stack = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
+    stack = go(stack, settings(sessionA))
+    stack = go(stack, { kind: 'appearance', session: sessionA, workspace: ws })
     stack = popPage(stack)
-    expect(currentOf(stack)?.key).toBe('sessions:ws-1')
-
-    // 到根页后弹栈是空操作：交给系统返回退出
-    const atRoot = popPage(stack)
-    expect(atRoot).toBe(stack)
-  })
-
-  it('通知直达会话：返回直接回列表，不需要 fromLocate/fromRunOverview 标记', () => {
-    // 旧实现必须靠标记猜；栈里根页就是"来源"，因为进入时就压了正确的根。
-    let stack = createPageStack<Route>(routeKeyOf(list()), list())
-    stack = go(stack, chat('a'))
-    expect(currentOf(popPage(stack))?.value.kind).toBe('sessions')
-  })
-
-  it('运行总览 → 会话 → 返回：回到运行总览而不是列表', () => {
-    let stack = createPageStack<Route>('workspaces', { kind: 'workspaces' })
-    stack = go(stack, { kind: 'run-overview' })
-    stack = go(stack, chat('a'))
+    expect(currentOf(stack)?.value.kind).toBe('settings')
     stack = popPage(stack)
-    expect(currentOf(stack)?.value.kind).toBe('run-overview')
+    expect(currentOf(stack)?.value.kind).toBe('chat')
   })
 
-  it('同一会话重复进入只压一层（刷新/重进不算新页）', () => {
-    const top = chat('a')
-    let stack = createPageStack<Route>(routeKeyOf(top), top)
-    // 同 key：调用方（applyRoute）不会再压
-    expect(currentOf(stack)?.key).toBe(routeKeyOf(chat('a')))
-    stack = go(stack, chat('a'))
-    // 这是"确实又进了一次"的情形：key 相同但栈允许重复，由 applyRoute 的判重挡住
-    expect(depthOf(stack)).toBe(2)
+  it('深链冷启动：栈里只有会话一页，弹栈是空操作', () => {
+    const only = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
+    expect(popPage(only)).toBe(only)
   })
 
-  it('换工作区会换成新的一层（key 带 workspaceId）', () => {
-    expect(routeKeyOf({ kind: 'sessions', workspace: ws })).toBe('sessions:ws-1')
-    expect(routeKeyOf({ kind: 'sessions', workspace: ws2 })).toBe('sessions:ws-2')
+  it('resetToRoot 用于"回到会话"动作：深度归 1，根页数据保留', () => {
+    let stack = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
+    stack = go(stack, settings(sessionA))
+    stack = go(stack, { kind: 'appearance', session: sessionA, workspace: ws })
+    const root = resetToRoot(stack)
+    expect(depthOf(root)).toBe(1)
+    expect(currentOf(root)?.value.kind).toBe('chat')
   })
 
   it('产物摘要的 key 带上目标轮次：同一会话的不同轮不会被当成同一页', () => {
     expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspace: ws, turn: 2, turns: [] }))
       .toBe('artifact-summary:a:2')
-    // 缺轮号的早期产物归到「更早」组，也有自己的 key。
     expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspace: ws, turn: undefined, turns: [] }))
       .toBe('artifact-summary:a:earlier')
   })
 
-  it('设置页返回回到它所在的列表，而不是上一次的列表', () => {
-    let stack = createPageStack<Route>(routeKeyOf(list()), list())
-    stack = go(stack, { kind: 'settings', workspace: ws })
-    stack = popPage(stack)
-    expect(currentOf(stack)?.key).toBe('sessions:ws-1')
-  })
-
-  it('深链冷启动：栈里只有一页，一次返回后仍在根（交给系统退出）', () => {
-    const onlyChat = createPageStack<Route>(routeKeyOf(chat('a')), chat('a'))
-    expect(popPage(onlyChat)).toBe(onlyChat)
-  })
-
-  it('resetToRoot 用于"回到列表"动作：深度归 1，根页数据保留', () => {
-    let stack = createPageStack<Route>(routeKeyOf(list()), list())
-    stack = go(stack, chat('a'))
-    stack = go(stack, { kind: 'settings', workspace: ws })
-    const root = resetToRoot(stack)
-    expect(depthOf(root)).toBe(1)
-    expect(currentOf(root)?.value.kind).toBe('sessions')
+  it('搜索 / 设置的 key 带工作区；会话的 key 带会话 id', () => {
+    expect(routeKeyOf({ kind: 'search', session: sessionA, workspace: ws })).toBe('search:ws-1')
+    expect(routeKeyOf(settings(sessionA))).toBe('settings:ws-1')
+    expect(routeKeyOf(chat(sessionA))).toBe('chat:a')
   })
 })

@@ -91,6 +91,7 @@ import { ComposerMeta } from './chat/components/composer-meta.tsx'
 import { SessionSheets } from './chat/components/session-sheets.tsx'
 import { OfflineBanner } from './chat/components/offline-banner.tsx'
 import { ChatHeader, ChatSearchBar } from './chat/components/chat-header.tsx'
+import { ChatEmptyView } from './chat/components/chat-empty.tsx'
 import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText, type SearchHit } from './chat/lib/chat-search-match.ts'
 import { ChatAttentionPanels } from './chat/components/chat-attention-panels.tsx'
 import { JumpControls, TurnStatusLine } from './chat/components/scroll-controls.tsx'
@@ -229,6 +230,10 @@ import type { HostBridge } from '../kernels/host-bridge.ts'
 /** Props for the chat view. */
 export interface ChatViewProps {
   session: SessionView
+  /** 空会话首屏：没有会话可开，同一个 ChatView 渲染空态（不跑会话逻辑）。 */
+  empty?: boolean
+  /** 顶栏标题下方的工作区名（10.5px）。 */
+  workspaceName?: string
   /** The page-lifetime mux client (undefined before the first effect tick). */
   mux?: MuxClient | undefined; /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */ bridge?: HostBridge | undefined
   onBack(): void
@@ -275,8 +280,11 @@ export interface ChatViewProps {
   /** 交付卡「看全部改动」：打开交付详情页（不给就只画卡、不画入口）。 */
   onOpenDelivery?: ((facts: TurnDeliveryFacts) => void) | undefined
   /** 顶栏「☰」：打开会话抽屉（带上当前会话的产物轮次，给抽屉底部的产物入口用）。 */
-  onOpenDrawer?: ((turns: readonly ArtifactTurn[]) => void) | undefined  /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
-  onOpenModel?: (() => void) | undefined
+  onOpenDrawer?: ((turns: readonly ArtifactTurn[]) => void) | undefined
+  /** ⋯ 菜单里的「设置」；不给就不画那一项。 */
+  onOpenSettings?: (() => void) | undefined
+  /** 空会话首屏发送第一句：App 建会话、投递并切到真正的话页。 */
+  onStartSession?: ((text: string) => Promise<void> | void) | undefined
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
   onOpenApproval?: ((approval: PendingApproval, preview?: string, argsText?: string) => void) | undefined
 }
@@ -315,9 +323,25 @@ export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/hooks/use-chat-draft.ts'
  * @param props - the session, the mux client, and the back action.
  * @returns the chat surface.
  */
-export function ChatView({
+export function ChatView(props: ChatViewProps) {
+  if (props.empty === true) {
+    return (
+      <ChatEmptyView
+        title={props.session.title}
+        {...(props.workspaceName === undefined ? {} : { workspaceName: props.workspaceName })}
+        onOpenDrawer={props.onOpenDrawer === undefined ? undefined : () => { props.onOpenDrawer?.([]) }}
+        {...(props.onOpenSettings === undefined ? {} : { onOpenSettings: props.onOpenSettings })}
+        onStartSession={props.onStartSession ?? (() => { /* 空会话发送由 App 提供 */ })}
+      />
+    )
+  }
+  return <ChatSessionView {...props} />
+}
+
+function ChatSessionView({
   session,
-  mux,  bridge,
+  workspaceName,
+  mux,  bridge,
   onBack,
   showToolCalls,
   showSystemMessages,
@@ -331,10 +355,10 @@ export function ChatView({
   onOpenContext,
   onOpenApprovalMode,
   onOpenApproval,
-  onOpenModel,
   onOpenDiff,
   onOpenDelivery,
   onOpenDrawer,
+  onOpenSettings,
   onOpenOutline,
   pendingTurn,
   onPendingTurnConsumed,
@@ -820,8 +844,8 @@ export function ChatView({
   // 实测此前按 Esc 什么都不发生——遮罩拦着，只能去点空白处。
   // 纯界面开关收在一个 reducer 里：11 个 useState → 1 个（S1-A）。
   const [uiState, uiSetters] = useChatUi()
-  const { composerPanelOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, gitOpen, renaming, deleting, runStatusOpen } = uiState
-  const { composerPanelOpen: setComposerPanelOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, gitOpen: setGitOpen, renaming: setRenaming, deleting: setDeleting, runStatusOpen: setRunStatusOpen } = uiSetters
+  const { composerPanelOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, runStatusOpen } = uiState
+  const { composerPanelOpen: setComposerPanelOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, runStatusOpen: setRunStatusOpen } = uiSetters
 
   // 滚动与阅读位置收进 reducer（S1-C）：4 个 useState → 1 个。
   // 它们必须同属一个状态机，否则会出现「按钮出现了但未读数没清」这类只在真机复现的错位。
@@ -2763,62 +2787,6 @@ export function ChatView({
     )
   }, [runCommand, runGoalAction, session.sessionId])
 
-
-  /** Rename through session.rename; the header title updates immediately. */
-  const handleRename = useCallback(async (value: string): Promise<void> => {
-    setRenaming(false)
-    try {
-      await renameSession(session.sessionId, value)
-      setTitle(value)
-      toast('已重命名')
-    } catch (reason) {
-      toast(errorText(reason))
-    }
-  }, [session.sessionId])
-
-  /**
-   * Delete the session through the host archive RPC (the same semantics the
-   * desktop's delete uses): the workspace-side row leaves every roster and
-   * never reappears after a refresh, while the session log stays on disk and
-   * remains restorable from the desktop. The local cleanup runs either way;
-   * an RPC failure keeps the previously-local-only removal (the chat would
-   * reappear on reload) and surfaces why.
-   */
-  const handleDeleteSession = useCallback((): void => {
-    setDeleting(false)
-    setMessages([])
-    void removeOutboxForSession(session.sessionId).then(() => { refreshOutbox() })
-    void archiveSession(session.sessionId).catch((reason: unknown) => {
-      toast(`删除未生效：${errorText(reason)}`)
-    })
-    onBack()
-  }, [session.sessionId, onBack, refreshOutbox])
-
-  /**
-   * Back with blank-session revocation: a session that was created but never
-   * received a message (blank, zero rendered rows) is revoked on exit — the
-   * desktop keeps no blank sessions either, and a "new chat" the user leaves
-   * without writing must not linger in the roster. The host is re-checked
-   * (tail 1 message) before archiving so an in-flight send whose echo has
-   * not landed yet is never destroyed; a send in progress is skipped
-   * outright. The local caches drop the row synchronously so the returning
-   * list never flashes it.
-   */
-  const handleBack = useCallback((): void => {
-    if (session.blank && messagesRef.current.length === 0 && !sendingRef.current) {
-      dropSessionFromCaches(session.sessionId)
-      void history(session.sessionId, undefined, 1).then(
-        (page) => {
-          const hasContent = page.events.some(entry =>
-            entry.event.type === 'user/message' || entry.event.type === 'assistant/message')
-          if (!hasContent) void archiveSession(session.sessionId).catch(() => { /* 撤销失败：保留会话 */ })
-        },
-        () => { /* 确认查询失败：保守不删 */ },
-      )
-    }
-    onBack()
-  }, [session, onBack])
-
   /** Long-press / right-click on a bubble opens the context menu. The copied
    * text comes from the render state (full text, or the full reasoning for
    * thinking-only turns) — not from the DOM, where folded bodies are absent.
@@ -3815,18 +3783,16 @@ export function ChatView({
     pinchRef, pinchDistance, applyPinch, startLongPress, cancelLongPress, openCtxFromTarget,
   })
 
+  // ⋯ 菜单里「这一轮的产物」：只在菜单打开时算（流式时每帧都扫一遍消息不值得）。
+  const moreTurns = moreOpen ? collectArtifacts(messages) : []
+  const moreArtifactCount = moreTurns[0]?.files.length ?? 0
+
   return (
     <div className="chat">
       <ChatHeader
-        onOpenArtifacts={onOpenArtifacts === undefined ? undefined : () => { onOpenArtifacts(collectArtifacts(messages)) }}
         onOpenDrawer={onOpenDrawer === undefined ? undefined : () => { onOpenDrawer(collectArtifacts(messages)) }}
-        onOpenModel={onOpenModel}
+        {...(workspaceName === undefined ? {} : { workspaceName })}
         title={title}
-        onBack={handleBack}
-        onToggleSearch={() => {
-          setChatSearchOpen(open => !open)
-          setChatSearchTerm('')
-        }}
         onMore={() => { setMoreOpen(true) }}
       />
       <ChatSearchBar
@@ -4085,12 +4051,14 @@ export function ChatView({
         filePreview={previewPath !== null ? { path: previewPath, sessionId: session.sessionId, onClose: () => { setPreviewPath(null) } } : undefined}
         lightbox={lightboxSrc !== null ? { src: lightboxSrc, alt: '聊天图片', onClose: () => { setLightboxSrc(null) } } : undefined}
         sessionSheets={{
-          moreOpen, setMoreOpen, exportOpen, setExportOpen, gitOpen, setGitOpen,
-          renaming, setRenaming, deleting, setDeleting,
-          title, cwd: session.cwd,
-          onCopySessionId: () => { void copyText(session.sessionId) },
-          onRename: (value) => { void handleRename(value) },
-          onDelete: handleDeleteSession,
+          moreOpen, setMoreOpen, exportOpen, setExportOpen,
+          artifactCount: moreArtifactCount,
+          onOpenArtifacts: onOpenArtifacts === undefined ? undefined : () => { onOpenArtifacts(moreTurns) },
+          onToggleSearch: () => {
+            setChatSearchOpen(open => !open)
+            setChatSearchTerm('')
+          },
+          onOpenSettings,
           onCopyExport: copyExport, onDownloadExport: downloadExport, onDownloadLongImage: downloadLongImage,
         }}
         voice={{ open: voiceOpen, phase: voicePhase, status: voiceStatus, waveRef: voiceWaveRef, doneRef: voiceDoneRef, onClose: closeVoice, onFinish: finishVoice }}

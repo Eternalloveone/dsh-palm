@@ -21,10 +21,10 @@ const APP = readFileSync(join(import.meta.dirname, 'views', 'App.tsx'), 'utf8')
 
 /**
  * 不带参数的 kind：key 就是 kind 本身，走 `routeKeyOf` 末尾的兜底。
- * 新增无参数页时加到这里即可；一旦它开始带参数（比如带上 sessionId），
- * 必须从这份名单移走并在 `routeKeyOf` 里单独写分支。
+ * 2026-11-08「单一会话页 + 抽屉」后所有路由都带会话/工作区，名单为空；
+ * 新增无参数页时加到这里即可。
  */
-const PARAMLESS = ['workspaces', 'run-overview']
+const PARAMLESS: string[] = []
 
 /** 只取 `type Route =` 那一段（到下一个空行 + 注释块为止）。 */
 function routeUnionText(): string {
@@ -50,6 +50,14 @@ describe('路由完整性（每个 kind 都要能到达、能返回、能压栈�
 
   it('无参数名单里的 kind 仍然存在（删了页面要同步改名单）', () => {
     for (const kind of PARAMLESS) expect(kinds).toContain(kind)
+  })
+
+  it('工作区页与会话列表页的路由 kind 已不存在（负断言）', () => {
+    expect(kinds).not.toContain('workspaces')
+    expect(kinds).not.toContain('sessions')
+    expect(kinds).not.toContain('run-overview')
+    expect(kinds).not.toContain('sub-chat')
+    expect(kinds).not.toContain('model')
   })
 
   it('每个 kind 都在 backTargetOf 里有分支', () => {

@@ -25,7 +25,7 @@ export const QUALITY_BUDGET = {
   /** 裸 `<button>`：全站已清零，只剩 ui/primitives 内核自己那一层（口径排除 ui/）。 */
   rawButtons: { value: 0, why: '任何新裸 button 直接失败：一律用 Button / IconButton / Chip' },
   /** 内联 `style={{`：应进组件样式文件或 CSS 变量。 */
-  inlineStyles: { value: 26, why: '内联样式绕过了主题与对比度校验；W2 收进 styles/' },
+  inlineStyles: { value: 13, why: '内联样式绕过了主题与对比度校验；W2 收进 styles/。2026-11-08 单一会话页：删掉工作区页 / 会话列表页 / 运行总览页后实测 13（原 26 是这些屏的内联样式撑起来的），预算同步收回' },
   /** 组件样式里的裸 16 进制色值：应引用 design/tokens 的 `--*` 变量。 */
   cssHex: { value: 45, why: '调色板已在 design/tokens.ts；剩下的裸色应改成 var(--x)。2026-11-08 五屏统一：外观页三张皮肤卡的色板色值移进 000-tokens.css（--palm-skin-*），本值 54 → 45' },  /** 组件样式里的裸 px：应引用 `--space-*` / `--text-*` / `--radius-*`。 */
   cssPx: { value: 1491, why: 'P4 结论卡新增 6 处边框宽度（1px 卡边 + 3px 四态边 + 2px 交付物条）；2026-11-08 P6 ② 搜索页新增 6 处 16px 图标尺寸（定版规格：图标 16px 线性 SVG）；P8 删旧样式后回落；2026-11-08 对话页重排把工具块/输入区改吃 --palm-* 令牌，实测 1590，预算同步收回；2026-11-08 五屏统一把设置/外观/产物/搜索四屏的尺寸收进 --palm-spec-* 令牌，实测 1488，预算同步收回；同批误删了 ⑨ 摘要页仍在用的 .artifacts-row 尺寸（现已恢复），实测 1491' },
@@ -39,7 +39,7 @@ export const QUALITY_BUDGET = {
   /** `!important` 次数：层叠失控的信号。 */
   cssImportant: { value: 2, why: '应为 0；出现即说明选择器权重已经打起来' },
   /** `views/` 里直接 import 数据层（api.ts / mux.ts）的文件数：W4 归零。 */
-  viewDataImports: { value: 20, why: '屏幕只该读 selector；直连让缓存与降级无从下手' },
+  viewDataImports: { value: 14, why: '屏幕只该读 selector；直连让缓存与降级无从下手。2026-11-08 单一会话页：删掉工作区页 / 会话列表页 / 运行总览页 / 子代理页后实测 14，预算同步收回' },
 } as const satisfies Record<string, Budget>
 
 export type BudgetKey = keyof typeof QUALITY_BUDGET

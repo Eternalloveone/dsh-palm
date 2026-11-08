@@ -3184,10 +3184,9 @@ button.settings-row:focus-visible {
   min-width: 0;
 }
 
-
-/* ���� �ջỰ������single-surface.html A ͼ����ͬһ�� .chat ������Ŀ�̬ ����������
- * 56px Ʒ�Ʒ��� = 32 + 24 �����������֮�ͣ�������ʽ��д�� 56px����
- * ����/˵������ .empty-state-title / .empty-state-hint�����ٸ�дһ���ֺš� */
+/* ── 空会话首屏（single-surface.html A 图）：同一个 .chat 容器里的空态 ─────
+ * 56px 品牌方块 = 32 + 24 两个间距令牌之和（不在样式里写裸 56px）；
+ * 标题/说明复用 .empty-state-title / .empty-state-hint，不再各写一套字号。 */
 .chat > .empty-state {
   flex: 1;
   justify-content: center;
@@ -3204,7 +3203,7 @@ button.settings-row:focus-visible {
   font-weight: var(--palm-w-bold);
 }
 
-/* ����ʾ�� chip������ .mobile-quickchip��36px �Ӿ� / 44px ���������� */
+/* 三个示例 chip：复用 .mobile-quickchip（36px 视觉 / 44px 命中区）。 */
 .chat .empty-state-action {
   display: flex;
   flex-wrap: wrap;
@@ -6963,8 +6962,7 @@ button.settings-row:focus-visible {
   color: var(--danger);
 }
 
-
-/* ? �˵������ͼ�꣺�� .sheet-option-title ͬ�ߣ�ͳһ�� --palm-t-l ȡ�ߴ硣 */
+/* ⋯ 菜单行左侧图标：与 .sheet-option-title 同高，统一从 --palm-t-l 取尺寸。 */
 .sheet-option > svg {
   flex: none;
   inline-size: var(--palm-t-l);

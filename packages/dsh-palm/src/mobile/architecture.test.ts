@@ -86,22 +86,10 @@ describe('architecture guardrails', () => {
 
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
-      // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
-      // 2026-11-08：P6 页面栈接入（压栈/弹栈 + routeKeyOf）；旧标记删除后回落。
-      // 2026-11-08：P6 ② 搜索独立页（search 路由四件套 + 列表入口 + 命中跳会话）；检索适配已外移到 search-request.ts。
-      // 2026-11-08：P6 ⑨ 产物摘要路由（四件套 + 产物页每轮标题可点进来）；只增这一次。
-      'views/App.tsx': 1539,
+      // 2026-11-08 架构收敛：工作区页 / 会话列表页 / 运行总览 / 子代理页整页删除，
+      // 路由与抽屉接过后 App 只剩壳 + 启动落点；1539 → 1325，之后只许降。
+      'views/App.tsx': 1_325,
       'views/SettingsView.tsx': 786,
-      // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
-      // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。
-      'views/SessionListView.tsx': 1_134,
-      // 2026-11-07：P1 会话位置写回 URL + 首帧直达会话（刷新/重启回原会话）是**功能新增**，
-      // 不是重构漏量；1121 → 1265 已按实测收紧，之后只许降。
-      'views/WorkspaceView.tsx': 1_063,
-      // W2-6 补登记：这两屏此前没有预算，等于可以无声长大。
-      // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
-      'views/RunOverviewView.tsx': 987,
-      'views/SubChatView.tsx': 177,
       'views/AppearanceView.tsx': 147,
       'views/ApprovalView.tsx': 95,
       // 2026-11-08：P6 ⑨ 产物摘要页把每轮分组标题改成可点行（onOpenTurn + --palm-hit 触控区）；
@@ -110,15 +98,14 @@ describe('architecture guardrails', () => {
       // 2026-11-08：P6 ⑨ 产物摘要页（产物列表的下级页：单轮筛选 + 汇总 + 文件行，
       // 只吃 props、不碰数据层）；新文件补登记，本值只增这一次。
       'views/ArtifactSummaryView.tsx': 142,
-      'views/ChatView.tsx': 4211,
+      // 2026-11-08 架构收敛：顶栏四图标收进 ⋯ 菜单、会话管理菜单删除、空态搬到
+      // chat-empty.tsx；4211 → 4088，之后只许降。
+      'views/ChatView.tsx': 4_088,
       // 2026-11-08：P6 ⑩ 单文件 diff 页按定版图重做（文件名 + 路径、行号列、
       // 增删底色、超长行截断）；旧的「复用浮层」外壳换成页面自己的取数三态，
       // 行视图拆到 components/diff-rows.tsx，本值只增这一次。
       'views/DiffView.tsx': 139,
       'views/MarketView.tsx': 245,
-      // 2026-11-08：P6 ⑤ 模型与思考页按定版图重做（当前模型卡 + 切换抽屉 + 三档分段），
-      // 旧的一列式列表拆成三段；行数只增这一次，之后只许降。
-      'views/ModelView.tsx': 267,
       // 2026-11-08：P6 ⑫ 回合大纲页按定版图重做（竖时间轴节点 = 序号 + 结论标题 +
       // 时间，当前轮整行高亮）；旧的"一行一轮"列表换成时间轴，本值只增这一次。
       'views/OutlineView.tsx': 156,
@@ -141,7 +128,7 @@ describe('architecture guardrails', () => {
    *
    * - `views/ChatView.tsx` ≤ 2500 行（壳 + 协调器）；
    * - 任何 `src/mobile` 下的生产文件 ≤ 1200 行（当前违规：ChatView / SettingsView /
-   *   SessionListView，靠后续拆分区解决）；
+   *   MarketView，靠后续拆分区解决）；
    * - 单个 hook / 组件 ≤ 400 行。
    *
    * 用 `it.fails` 表达"目标尚未达成"：现在这条断言必然失败，所以它以"预期失败"计通过；

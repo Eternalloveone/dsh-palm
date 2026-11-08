@@ -1,72 +1,48 @@
 /**
  * 会话页顶栏 + 会话内搜索条。
  *
- * S6h 从 `ChatView` 搬出。搜索的取词、翻页、命中定位全在会话层（`chatSearch*` 那一组），
- * 这里只负责画和把动作打回去；输入法组字（IME）的两段处理必须留在输入框上，否则
- * 中文输入时每个候选都会被当成一次查询（真机上表现为"打一个字搜一次"）。
+ * S6h 从 `ChatView` 搬出。2026-11-08 架构收敛：会话页是**根**，顶栏只剩三个元素
+ * ——`☰`（唯一导航：抽屉）+ 标题（下面一行 10.5px 工作区名）+ `⋯`（操作菜单）。
+ * 返回键、列表/设置/搜索/主题四个图标全部删掉：它们要么由抽屉承担，要么进了菜单。
+ *
+ * 搜索的取词、翻页、命中定位全在会话层（`chatSearch*` 那一组），这里只负责画和把
+ * 动作打回去；输入法组字（IME）的两段处理必须留在输入框上，否则中文输入时每个候选
+ * 都会被当成一次查询（真机上表现为"打一个字搜一次"）。
  */
 import type { MutableRefObject } from 'react'
-import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MenuIcon, MoreIcon, SearchIcon } from '../../../components/icons.tsx'
-import { ThemeToggle } from '../../../components/theme-toggle.tsx'
+import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MenuIcon, MoreIcon } from '../../../components/icons.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 export interface ChatHeaderProps {
   title: string
-  onBack: () => void
+  /** 标题下方的工作区名（10.5px，拿不到就不画这一行）。 */
+  workspaceName?: string | undefined
   /** 打开会话抽屉；不给就不画入口。 */
   onOpenDrawer?: (() => void) | undefined
-  /** 开关搜索条（打开时同时清空上一次的词）。 */
-  onToggleSearch: () => void
+  /** 打开 ⋯ 菜单（底部 sheet）。 */
   onMore: () => void
-  /** 打开产物列表页（P6 ⑧ 屏）；不给就不渲染入口。 */
-  onOpenArtifacts?: (() => void) | undefined
-  /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不渲染入口。 */
-  onOpenModel?: (() => void) | undefined
 }
 
-export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel, onOpenArtifacts, onOpenDrawer }: ChatHeaderProps) {
+export function ChatHeader({ title, workspaceName, onOpenDrawer, onMore }: ChatHeaderProps) {
   return (
     <header className="mobile-header">
       <div className="mobile-headerSlot">
-        <Button type="button" className="mobile-back" aria-label="返回" onClick={onBack}>‹</Button>
+        {onOpenDrawer === undefined ? null : (
+          <Button type="button" className="mobile-iconbtn" aria-label="会话抽屉" onClick={onOpenDrawer}>
+            <MenuIcon />
+          </Button>
+        )}
       </div>
       <div className="mobile-titleWrap">
         <h1 className="mobile-title mobile-titleInline">{title}</h1>
+        {workspaceName === undefined || workspaceName === ''
+          ? null
+          : <p className="mobile-titlePath">{workspaceName}</p>}
       </div>
       <div className="mobile-headerSlot mobile-headerSlot-right">
-        {onOpenDrawer === undefined ? null : <Button type="button" className="mobile-iconbtn" aria-label="会话抽屉" onClick={onOpenDrawer}><MenuIcon /></Button>}
-        {onOpenArtifacts === undefined ? null : (
-          <Button
-            type="button"
-            className="mobile-iconbtn"
-            aria-label="产物"
-            onClick={onOpenArtifacts}
-          >
-            ▤
-          </Button>
-        )}
-        {onOpenModel === undefined ? null : (
-          <Button
-            type="button"
-            className="mobile-iconbtn"
-            aria-label="模型与思考"
-            onClick={onOpenModel}
-          >
-            ⚙
-          </Button>
-        )}
-        <Button
-          type="button"
-          className="mobile-iconbtn"
-          aria-label="搜索本会话"
-          onClick={onToggleSearch}
-        >
-          <SearchIcon />
-        </Button>
         <Button type="button" className="mobile-iconbtn" aria-label="更多" onClick={onMore}>
           <MoreIcon />
         </Button>
-        <ThemeToggle />
       </div>
     </header>
   )

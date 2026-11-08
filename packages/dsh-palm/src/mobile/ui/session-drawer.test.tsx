@@ -114,4 +114,27 @@ describe('会话抽屉', () => {
     expect(screen.getByText('示例工作区')).toBeTruthy()
     expect(screen.getByText('/repo/example')).toBeTruthy()
   })
+
+  it('等审批优先于运行中：同一行只画一个状态条，且说「等审批」', () => {
+    renderDrawer({
+      rows: [session({ sessionId: 'waiting', title: '等你点批准', running: true })],
+      pendingIds: new Set(['waiting']),
+    })
+    expect(screen.getByText('等审批')).toBeTruthy()
+    expect(screen.queryByText('运行中')).toBeNull()
+  })
+
+  it('单工作区不画切换箭头；多工作区才画，点它回传动作', () => {
+    renderDrawer({ workspaceCount: 1, onSwitchWorkspace: () => {} })
+    expect(screen.queryByRole('button', { name: '切换工作区' })).toBeNull()
+    cleanup()
+    const second = renderDrawer({ workspaceCount: 2, onSwitchWorkspace: () => { second.actions.push('switch') } })
+    fireEvent.click(screen.getByRole('button', { name: '切换工作区' }))
+    expect(second.actions).toEqual(['switch'])
+  })
+
+  it('搜索入口的文案是「搜索会话和消息」：抽屉是唯一导航', () => {
+    renderDrawer()
+    expect(screen.getByRole('button', { name: /搜索会话和消息/ })).toBeTruthy()
+  })
 })

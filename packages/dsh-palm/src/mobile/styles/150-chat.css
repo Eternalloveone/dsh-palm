@@ -581,3 +581,29 @@
   min-width: 0;
 }
 
+/* ── 空会话首屏（single-surface.html A 图）：同一个 .chat 容器里的空态 ─────
+ * 56px 品牌方块 = 32 + 24 两个间距令牌之和（不在样式里写裸 56px）；
+ * 标题/说明复用 .empty-state-title / .empty-state-hint，不再各写一套字号。 */
+.chat > .empty-state {
+  flex: 1;
+  justify-content: center;
+}
+
+.chat .empty-state > .empty-state-icon {
+  inline-size: calc(var(--palm-s7) + var(--palm-s6));
+  block-size: calc(var(--palm-s7) + var(--palm-s6));
+  margin-bottom: var(--palm-s2);
+  border-radius: var(--palm-r-l);
+  background: linear-gradient(150deg, var(--palm-accent), var(--palm-accent-2));
+  color: var(--palm-bg);
+  font-size: var(--palm-t-xl);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 三个示例 chip：复用 .mobile-quickchip（36px 视觉 / 44px 命中区）。 */
+.chat .empty-state-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s2);
+  justify-content: center;
+}

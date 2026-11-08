@@ -3872,42 +3872,6 @@ describe('ChatView voice sheet', () => {
   })
 })
 
-describe('ChatView delete session', () => {
-  it('archives the session on the host, clears the outbox, and returns to the list', async () => {
-    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
-    removeOutboxForSessionMock.mockResolvedValue(undefined)
-    const onBack = vi.fn()
-    render(<ChatView session={session} onBack={onBack} showToolCalls={true} showSystemMessages={false} />)
-    // Open the 更多 menu and pick 删除会话.
-    fireEvent.click(await screen.findByRole('button', { name: '更多' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: /删除会话/ }))
-    // Confirm the destructive action.
-    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
-    await waitFor(() => {
-      expect(removeOutboxForSessionMock).toHaveBeenCalledWith('s-1')
-      // The delete is REAL (host archive write): the session cannot
-      // resurrect on the next roster fetch.
-      expect(archiveSessionApiMock).toHaveBeenCalledWith('s-1')
-      expect(onBack).toHaveBeenCalled()
-    })
-  })
-})
-
-describe('ChatView composer IME guard', () => {
-  it('does not send on Enter while a Chinese IME is composing', async () => {
-    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
-    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    const input = await screen.findByPlaceholderText(/说点什么/)
-    fireEvent.change(input, { target: { value: '你好' } })
-    // IME composition Enter (isComposing true) must not fire a send.
-    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: true })
-    expect(promptMock).not.toHaveBeenCalled()
-    // A normal Enter sends.
-    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false, isComposing: false })
-    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
-  })
-})
-
 describe('ChatView send failure', () => {
   it('keeps the draft on a failed send and surfaces the error line', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
@@ -5867,62 +5831,6 @@ it('does not light the indicator from a stale open turn when the host says nothi
   })
 })
 
-describe('ChatView blank-session revocation', () => {
-  const blankSession: SessionView = { ...session, blank: true }
-
-  it('revokes a blank session on back: confirms empty, archives, drops caches', async () => {
-    loadChatPageMock.mockResolvedValue(rowPage([]))
-    historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
-    // A previous visit cached the roster row (the just-created session).
-    sessionListCache.set('w-1', {
-      rows: [{ sessionId: 's-1', title: '新会话', updatedAt: 1, running: false, blank: true }],
-      hasMore: false,
-      at: Date.now(),
-    })
-    const onBack = vi.fn()
-    render(<ChatView session={blankSession} onBack={onBack} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByRole('button', { name: '发送' })
-
-    fireEvent.click(screen.getByRole('button', { name: '返回' }))
-    // Probe: the back handler itself must have run.
-    expect(onBack).toHaveBeenCalled()
-    await waitFor(() => {
-      // The host tail is probed (1 message, no signal — the back path has
-      // no abort source) before archiving…
-      expect(historyMock).toHaveBeenCalledWith('s-1', undefined, 1)
-      // …and the empty session is archived (revoked).
-      expect(archiveSessionApiMock).toHaveBeenCalledWith('s-1')
-    })
-    // The cached roster row is gone synchronously — the returning list
-    // never flashes the revoked session.
-    expect(sessionListCache.get('w-1')?.rows).toEqual([])
-  })
-
-  it('keeps a session that already rendered messages', async () => {
-    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
-    render(<ChatView session={blankSession} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByText('已完成修改')
-
-    fireEvent.click(screen.getByRole('button', { name: '返回' }))
-    expect(historyMock).not.toHaveBeenCalled()
-    expect(archiveSessionApiMock).not.toHaveBeenCalled()
-  })
-
-  it('keeps a session whose host tail has content (in-flight echo not yet rendered)', async () => {
-    loadChatPageMock.mockResolvedValue(rowPage([]))
-    historyMock.mockResolvedValue(historyPage([
-      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '刚发的' }] }, 1),
-    ]))
-    render(<ChatView session={blankSession} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByRole('button', { name: '发送' })
-
-    fireEvent.click(screen.getByRole('button', { name: '返回' }))
-    await waitFor(() => expect(historyMock).toHaveBeenCalled())
-    // The probe found a message: the session survives.
-    expect(archiveSessionApiMock).not.toHaveBeenCalled()
-  })
-})
-
 describe('ChatView composer draft persistence', () => {
   const textarea = (): HTMLTextAreaElement => screen.getByRole('textbox') as HTMLTextAreaElement
 
@@ -6499,6 +6407,12 @@ describe('ChatView 跳轮次落在提问那一行', () => {
   })
 })
 describe('ChatView 会话内搜索（期 3）', () => {
+  /** 顶栏收敛后搜索入口在 ⋯ 菜单里：先开菜单，再点「在本会话内搜索」。 */
+  const openSessionSearch = (): void => {
+    fireEvent.click(screen.getByRole('button', { name: '更多' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /在本会话内搜索/ }))
+  }
+
   it('按词查询后计数按 seq 升序走，下一个/上一个循环', async () => {
     loadChatPageMock.mockResolvedValueOnce(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好，这里是支付专项' }] }, 1),
@@ -6512,7 +6426,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     ], { hasMore: false }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/你好/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     const input = screen.getByPlaceholderText('搜索本会话…')
     searchSessionsMock.mockResolvedValue({
       items: [
@@ -6544,7 +6458,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/这里有一条支付专项记录/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     searchSessionsMock.mockResolvedValue({
       items: [{ kind: 'message', sessionId: 's-1', seq: 10, snippet: '…支付专项…' }],
       total: 1,
@@ -6574,7 +6488,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     historyMock.mockResolvedValue(historyPage([]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/已完成修改/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     searchSessionsMock.mockResolvedValue({
       items: [{ kind: 'message', sessionId: 's-1', seq: 20, snippet: '…支付…' }],
       total: 1,
@@ -6597,7 +6511,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/你好/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     searchSessionsMock.mockResolvedValue({
       items: [
         { kind: 'message', sessionId: 's-1', seq: 90, snippet: '…远处的另一处…' },
@@ -6625,7 +6539,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/你好/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     searchSessionsMock.mockResolvedValue({ items: [], total: 0, hasMore: false, tookMs: 0, fallback: true } as never)
     fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
     await waitFor(() => { expect(screen.getByText('索引建立中')).toBeTruthy() })
@@ -6638,7 +6552,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/你好/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     searchSessionsMock.mockResolvedValue({
       items: [{ kind: 'message', sessionId: 's-1', seq: 40, snippet: '…远处的支付…' }],
       total: 1,
@@ -6697,7 +6611,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
     })
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText(/你好/)
-    fireEvent.click(screen.getByRole('button', { name: '搜索本会话' }))
+    openSessionSearch()
     fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
     await waitFor(() => { expect(screen.getByText('1/2+')).toBeTruthy() })
   })
@@ -6799,7 +6713,7 @@ describe('ChatView export (F4)', () => {
     await screen.findByText('已完成修改')
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: /导出对话/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /导出会话/ }))
 
     expect(await screen.findByRole('menuitem', { name: /复制 Markdown/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /下载 \.md/ })).toBeTruthy()
@@ -6896,7 +6810,7 @@ describe('行为回放（S0 安全带）', () => {
       },
       {
         name: 'export-menu',
-        run: async () => { fireEvent.click(await screen.findByRole('menuitem', { name: /导出对话/ })) },
+        run: async () => { fireEvent.click(await screen.findByRole('menuitem', { name: /导出会话/ })) },
       },
     ])
     compareOrUpdate(trace)

@@ -41,16 +41,6 @@ export function BellIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
-/** Pin (pinned-workspace badge / quick chip). */
-export function PinIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base(props)}>
-      <path d="M12 17v5" />
-      <path d="M9 3h6l-1 7 3.5 3H5.5L9 10Z" />
-    </svg>
-  )
-}
-
 /** Clock (recent-access chip). */
 export function ClockIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -66,16 +56,6 @@ export function FolderIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base(props)}>
       <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2.5h7A2.5 2.5 0 0 1 21 10v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17Z" />
-    </svg>
-  )
-}
-
-/** Folder with a plus (empty-state for "no workspaces"). */
-export function FolderPlusIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base(props)}>
-      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2.5h7A2.5 2.5 0 0 1 21 10v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17Z" />
-      <path d="M12 10.5v5M9.5 13h5" />
     </svg>
   )
 }
@@ -161,17 +141,6 @@ export function ContrastIcon(props: SVGProps<SVGSVGElement>) {
     <svg {...base(props)}>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}
-
-/** Question mark in a circle (mode description hint). */
-export function HelpIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base(props)}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M9.6 9.2a2.5 2.5 0 1 1 3.4 2.9c-.7.3-1 .8-1 1.6" />
-      <path d="M12 17h.01" />
     </svg>
   )
 }

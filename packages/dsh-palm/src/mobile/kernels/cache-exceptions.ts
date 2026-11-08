@@ -26,13 +26,6 @@ export interface CacheException {
  */
 export const CACHE_EXCEPTIONS: readonly CacheException[] = [
   {
-    module: 'run-overview-cache.ts',
-    why:
-      '它存的是一屏**渲染快照**（在跑的会话 id、标题、每张卡片的细节），要跨刷新秒开；' +
-      '写入是写穿式的，没有"取数"这回事，内核的 has()/wrap() 语义套不上',
-    freshnessFrom: '记录自带的 savedAt（写进 payload，随 localStorage 一起过夜）',
-  },
-  {
     module: 'history-cache.ts',
     why:
       '落盘在 **IndexedDB**（大页、异步、几十 KB/会话），内核是内存 Map；' +

@@ -525,3 +525,10 @@
   color: var(--danger);
 }
 
+/* ⋯ 菜单行左侧图标：与 .sheet-option-title 同高，统一从 --palm-t-l 取尺寸。 */
+.sheet-option > svg {
+  flex: none;
+  inline-size: var(--palm-t-l);
+  block-size: var(--palm-t-l);
+  color: var(--palm-fg-2);
+}
