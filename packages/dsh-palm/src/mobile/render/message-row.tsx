@@ -19,11 +19,8 @@ import { Button } from '../ui/primitives.tsx'
 
 /** 打开交付详情所需的一轮事实：交付卡上「看全部改动」把它交给路由。 */
 export interface TurnDeliveryFacts {
-  readonly turn: number
-  readonly deliverables: readonly DeliveryDeliverable[]
-  readonly changes: readonly DeliveryFileChange[]
-  readonly durationMs?: number
-  readonly steps?: number
+  readonly turn: number; readonly deliverables: readonly DeliveryDeliverable[]
+  readonly changes: readonly DeliveryFileChange[]; readonly durationMs?: number; readonly steps?: number
 }
 
 

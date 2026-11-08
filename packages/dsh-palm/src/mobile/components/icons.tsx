@@ -255,6 +255,13 @@ export function InfoIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** Hamburger / drawer（会话页左上角）。 */
+export function MenuIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+  )
+}
+
 /** Three dots (more menu). */
 export function MoreIcon(props: SVGProps<SVGSVGElement>) {
   return (

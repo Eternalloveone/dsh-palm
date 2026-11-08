@@ -79,7 +79,8 @@ vi.mock('./ChatView.tsx', () => ({
 }))
 vi.mock('./SettingsView.tsx', () => ({ SettingsView: () => <div>settings-ready</div> }))
 
-import { App, backTargetOf, createLazyView, mobilePairStateForError } from './App.tsx'
+import { App, backTargetOf, mobilePairStateForError } from './App.tsx'
+import { createLazyView } from '../lazy-view.tsx'
 import { loadChatPage } from '../data/chat-page.ts'
 import { savePersistedList } from '../session/list-persist.ts'
 

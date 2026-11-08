@@ -272,7 +272,8 @@ export interface ChatViewProps {
   onOpenDiff?: ((path: string) => void) | undefined
   /** 交付卡「看全部改动」：打开交付详情页（不给就只画卡、不画入口）。 */
   onOpenDelivery?: ((facts: TurnDeliveryFacts) => void) | undefined
-  /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
+  /** 顶栏「☰」：打开会话抽屉（带上当前会话的产物轮次，给抽屉底部的产物入口用）。 */
+  onOpenDrawer?: ((turns: readonly ArtifactTurn[]) => void) | undefined  /** 打开「模型与思考」页（P6 ⑤ 屏）；不给就不显示入口。 */
   onOpenModel?: (() => void) | undefined
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
   onOpenApproval?: ((approval: PendingApproval, preview?: string, argsText?: string) => void) | undefined
@@ -331,6 +332,7 @@ export function ChatView({
   onOpenModel,
   onOpenDiff,
   onOpenDelivery,
+  onOpenDrawer,
   onOpenOutline,
   pendingTurn,
   onPendingTurnConsumed,
@@ -3839,6 +3841,7 @@ export function ChatView({
     <div className="chat">
       <ChatHeader
         onOpenArtifacts={onOpenArtifacts === undefined ? undefined : () => { onOpenArtifacts(collectArtifacts(messages)) }}
+        onOpenDrawer={onOpenDrawer === undefined ? undefined : () => { onOpenDrawer(collectArtifacts(messages)) }}
         onOpenModel={onOpenModel}
         title={title}
         onBack={handleBack}

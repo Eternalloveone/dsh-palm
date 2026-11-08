@@ -112,3 +112,200 @@
   max-height: calc(100vh - 96px);
 }
 
+/* ── 会话抽屉（P6 第 3 步 · overview.html「1 · 会话抽屉」） ────────────
+ * 左侧面板 308px（窄屏 86vw），只有右侧两角是圆的；行 ≥44px，
+ * 底部三入口带右侧小字。 */
+.palm-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: flex;
+  justify-content: flex-start;
+  background: var(--backdrop);
+  animation: sheet-fade 0.18s ease;
+}
+
+.palm-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s3);
+  inline-size: min(308px, 86vw);
+  block-size: 100%;
+  padding: var(--palm-s4) var(--palm-s3);
+  background: var(--palm-sur-1);
+  border-inline-end: var(--palm-hair) solid var(--palm-line);
+  border-radius: 0 var(--palm-r-l) var(--palm-r-l) 0;
+  box-shadow: var(--palm-sh2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: palm-drawer-in 0.2s ease;
+}
+
+@keyframes palm-drawer-in {
+  from { transform: translateX(-12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* 工作区身份：方形头像 + 名称 + 路径。 */
+.palm-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+}
+
+.palm-drawer-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: var(--palm-s6);
+  block-size: var(--palm-s6);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-drawer-ws {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+
+.palm-drawer-ws > b {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+}
+
+.palm-drawer-ws > small {
+  overflow: hidden;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 新建（满宽主按钮 40 高 / 圆角 12）与搜索（34 高 / 无边框）。 */
+.palm-drawer-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  block-size: 40px;
+  border: 0;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-drawer-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  block-size: 34px;
+  padding: 0 var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-m);
+}
+
+.palm-drawer-list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s3);
+  min-block-size: 0;
+}
+
+.palm-drawer-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+}
+
+.palm-drawer-bucket {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  color: var(--palm-fg-3);
+}
+
+.palm-drawer-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一行会话：标题吃剩余，右侧只有有状态时才出现 mini 条。 */
+.palm-drawer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s1) var(--palm-s2);
+  border-radius: var(--palm-r-m);
+}
+
+.palm-drawer-row:active { background: var(--palm-sur-2); }
+
+.palm-drawer-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.palm-drawer-row-current { background: var(--palm-sur-2); }
+
+.palm-drawer-title {
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 底部三入口：图标 + 文字 + 右侧小字。 */
+.palm-drawer-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  padding-top: var(--palm-s2);
+  border-top: var(--palm-hair) solid var(--palm-line);
+}
+
+.palm-drawer-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-m);
+  background: transparent;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  text-align: left;
+}
+
+.palm-drawer-entry:active { background: var(--palm-sur-2); }
+
+.palm-drawer-entry > small {
+  margin-inline-start: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+

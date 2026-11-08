@@ -1,9 +1,6 @@
 /**
- * 交付详情页的分组与汇总（纯投影）。
- *
- * 页面只负责画：把「这一轮交付了什么」折成三组清单和顶部汇总的事放在这里，
- * 与 `ui/delivery-card` 的归属口径一致（交付物优先，已在第一组列过的路径
- * 不再进改动组）。不碰 React、不碰数据层。
+ * 交付详情页的分组与汇总（纯投影）：与 `ui/delivery-card` 的归属口径一致
+ * （交付物优先，已在第一组列过的路径不再进改动组）。不碰 React、不碰数据层。
  *
  * @module dsh-palm/mobile/render/delivery-groups
  */
@@ -14,20 +11,17 @@ export type DeliveryRow = {
   key: string; path: string; name: string; icon: 'folder' | 'plus' | 'pencil'
   adds?: number; dels?: number; badge?: string
 }
-
 /** 三个分组的稳定 key（默认展开第一组）。 */
 export type GroupKind = 'deliverables' | 'added' | 'modified'
-
 /** 一个分组：标题里带条数，空组已被过滤掉。 */
 export interface DeliveryGroup { key: GroupKind; title: string; rows: readonly DeliveryRow[] }
-
 /** 顶部汇总：文件数 / 增删合计 / 是否有 tally（拿不到就不画增删）。 */
 export interface DeliveryTotals { files: number; adds: number; dels: number; hasTally: boolean }
+/** 页面手里的这一轮事实（分组与汇总都从这里折）。 */
+interface Facts { deliverables: readonly DeliveryDeliverable[]; changes: readonly DeliveryFileChange[] }
 
 /** 新增 = 有增删统计且删除为 0；其余（含拿不到统计的）都归「修改」。 */
-function isAdded(change: DeliveryFileChange): boolean {
-  return change.adds !== undefined && change.dels === 0
-}
+const isAdded = (change: DeliveryFileChange): boolean => change.adds !== undefined && change.dels === 0
 
 /**
  * 折出三组清单（空组不返回）。
@@ -35,14 +29,9 @@ function isAdded(change: DeliveryFileChange): boolean {
  * @param facts - 交付物与带 tally 的改动
  * @returns 交付物 / 新增 / 修改三组，按此顺序
  */
-export function deliveryGroups(facts: {
-  deliverables: readonly DeliveryDeliverable[]
-  changes: readonly DeliveryFileChange[]
-}): DeliveryGroup[] {
+export function deliveryGroups(facts: Facts): DeliveryGroup[] {
   const declared = new Set(facts.deliverables.map(file => file.path))
   const changed = facts.changes.filter(change => !declared.has(change.path))
-  const added = changed.filter(isAdded)
-  const modified = changed.filter(change => !isAdded(change))
   const groups: DeliveryGroup[] = [
     {
       key: 'deliverables',
@@ -54,16 +43,16 @@ export function deliveryGroups(facts: {
     },
     {
       key: 'added',
-      title: `新增 · ${added.length}`,
-      rows: added.map(change => ({
+      title: `新增 · ${changed.filter(isAdded).length}`,
+      rows: changed.filter(isAdded).map(change => ({
         key: `a:${change.path}`, path: change.path, name: change.path, icon: 'plus',
         ...(change.adds === undefined ? {} : { adds: change.adds }),
       })),
     },
     {
       key: 'modified',
-      title: `修改 · ${modified.length}`,
-      rows: modified.map(change => ({
+      title: `修改 · ${changed.filter(change => !isAdded(change)).length}`,
+      rows: changed.filter(change => !isAdded(change)).map(change => ({
         key: `m:${change.path}`, path: change.path, name: change.path, icon: 'pencil',
         ...(change.adds === undefined ? {} : { adds: change.adds }),
         ...(change.dels === undefined ? {} : { dels: change.dels }),
@@ -79,10 +68,7 @@ export function deliveryGroups(facts: {
  * @param facts - 交付物与带 tally 的改动
  * @returns 汇总数字
  */
-export function deliveryTotals(facts: {
-  deliverables: readonly DeliveryDeliverable[]
-  changes: readonly DeliveryFileChange[]
-}): DeliveryTotals {
+export function deliveryTotals(facts: Facts): DeliveryTotals {
   const declared = new Set(facts.deliverables.map(file => file.path))
   const changed = facts.changes.filter(change => !declared.has(change.path))
   return {

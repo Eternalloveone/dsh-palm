@@ -3,7 +3,7 @@
  *
  * 版式真源：`docs/prototype/overview.html`「3 · 交付详情」。三组清单 = 交付物 / 新增 / 修改；
  * 行内只有「图标 + 文件名 + +A −D + 标签」，超 5 条折叠、空组不画；点行打开文件（走既有 diff 路由）。
- * 分组与汇总的折叠在 `render/delivery-groups.ts`，这里只负责画；不 import api.ts / mux.ts。
+ * 分组与汇总在 `render/delivery-groups.ts`；不 import api.ts / mux.ts。
  */
 import { useState } from 'react'
 import { artifactsLayout } from '../layouts/screens.ts'
@@ -17,19 +17,13 @@ import type { TurnDeliveryFacts } from '../render/message-row.tsx'
 
 /** 每组默认展开的条数：超出才给「展开全部」。 */
 const GROUP_LIMIT = 5
-
 /** 分组图标：16px 线性 SVG（交付物 / 新增 / 修改）。 */
 const ICONS = { folder: <FolderIcon />, plus: <PlusIcon />, pencil: <PencilIcon /> }
 
 /** 文件行的 +A −D：拿不到统计就不画。 */
 function Tally({ adds, dels }: { adds?: number; dels?: number }) {
   if (adds === undefined && dels === undefined) return null
-  return (
-    <span className="palm-dd-tally">
-      {adds === undefined ? null : <span className="palm-dd-add">+{countText(adds)}</span>}
-      {dels === undefined ? null : <span className="palm-dd-del">−{countText(dels)}</span>}
-    </span>
-  )
+  return <span className="palm-dd-tally">{adds === undefined ? null : <span className="palm-dd-add">+{countText(adds)}</span>}{dels === undefined ? null : <span className="palm-dd-del">−{countText(dels)}</span>}</span>
 }
 
 export interface DeliveryDetailViewProps {
@@ -51,7 +45,7 @@ export interface DeliveryDetailViewProps {
 export function DeliveryDetailView({ facts, testsPassed, onBack, onOpenFile }: DeliveryDetailViewProps) {
   const groups = deliveryGroups(facts)
   const totals = deliveryTotals(facts)
-  // 默认展开第一组：进来先看见交付物全量，其余超过 5 条的组先收起。
+  // 默认展开第一组；其余超过 5 条的组先收起。
   const [expanded, setExpanded] = useState<ReadonlySet<GroupKind>>(
     () => new Set<GroupKind>(groups.length === 0 ? [] : [groups[0]!.key]),
   )
@@ -64,7 +58,6 @@ export function DeliveryDetailView({ facts, testsPassed, onBack, onOpenFile }: D
     })
   }
   const subtitle = `第 ${facts.turn} 个任务${facts.durationMs === undefined ? '' : ` · ${formatSeconds(facts.durationMs)}`}`
-
   return (
     <SlotLayout
       spec={artifactsLayout}
@@ -72,9 +65,7 @@ export function DeliveryDetailView({ facts, testsPassed, onBack, onOpenFile }: D
       slots={{
         header: (
           <header className="mobile-header">
-            <div className="mobile-headerSlot">
-              <IconButton label="返回" className="mobile-back" onClick={onBack}>‹</IconButton>
-            </div>
+            <div className="mobile-headerSlot"><IconButton label="返回" className="mobile-back" onClick={onBack}>‹</IconButton></div>
             <h1 className="mobile-title">交付详情</h1>
             <div className="mobile-headerSlot mobile-headerSlot-right" />
             <p className="artifacts-page-sub">{subtitle}</p>
@@ -87,7 +78,7 @@ export function DeliveryDetailView({ facts, testsPassed, onBack, onOpenFile }: D
               {totals.hasTally ? <span><b className="palm-dd-add">+{countText(totals.adds)}</b> <b className="palm-dd-del">−{countText(totals.dels)}</b></span> : null}
               {testsPassed === undefined || testsPassed <= 0 ? null : <span><b>{countText(testsPassed)}</b> 测试通过</span>}
             </div>
-            {groups.length === 0 ? <p className="palm-dd-empty">这一轮没有交付内容</p> : groups.map((group) => {
+            {groups.length === 0 ? <p>这一轮没有交付内容</p> : groups.map((group) => {
               const open = expanded.has(group.key)
               const rows: readonly DeliveryRow[] = open ? group.rows : group.rows.slice(0, GROUP_LIMIT)
               return (

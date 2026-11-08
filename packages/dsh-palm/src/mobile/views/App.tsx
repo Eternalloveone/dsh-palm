@@ -5,9 +5,8 @@
  * affordance, and every piece of data is fetched on demand.
  */
 
-import { createElement, useCallback, useEffect, useReducer, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
-import { claimChunkAutoReload, isChunkLoadFailure } from '../platform/chunk-recovery.ts'
 import { logTail, reportError } from '../data/diag.ts'
 import { observeSession, prompt, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
@@ -39,84 +38,20 @@ const loadSettingsView = async (): Promise<{ default: typeof import('./SettingsV
   default: (await import('./SettingsView.tsx')).SettingsView,
 })
 
-/**
- * 一块"懒视图"：把已解析的组件缓存在模块级，`warm()` 能在不渲染的情况下把 chunk
- * 先抓下来。用它替代 React.lazy 是为了消掉切页时的空白帧——实测在手机上点进会话，
- * 舞台先被 Suspense 的 fallback 换成一块空背景（约一帧到 40ms），再滑入新页面，
- * 看上去就是"闪一下才切过去"。现在 `navigate` 先 await `warm()` 再切，切换动画开
- * 始时目标组件已经同步可渲染，舞台永远不会掉进 fallback。
- */
-export function createLazyView<P extends object>(
-  loader: () => Promise<{ default: ComponentType<P> }>,
-): { View: ComponentType<P>; warm: () => Promise<void> } {
-  const cache: { component?: ComponentType<P>; failed?: boolean } = {}
-  let inflight: Promise<void> | undefined
-  const warm = (): Promise<void> => {
-    if (cache.component !== undefined) return Promise.resolve()
-    if (inflight === undefined) {
-      cache.failed = false
-      inflight = loader().then(
-        (loaded) => { cache.component = loaded.default },
-        (error: unknown) => {
-          cache.failed = true
-          inflight = undefined
-          // 分块 404（宿主刚升级、旧页面还在要老哈希）只能靠换壳解决：入口 JS 没变，
-          // 于是「点一下重试」必然再失败一次。这里把失败交给自更新通道自己 reload；
-          // 已经 reload 过一次仍失败（真的坏了）才回到「点一下重试」。
-          const message = error instanceof Error ? error.message : String(error)
-          if (isChunkLoadFailure(message) && claimChunkAutoReload()) {
-            // 只刷一次（claimChunkAutoReload 自带一次性标记）：第二次仍失败说明不是
-            // 换壳能救的，交回骨架上的「点一下重试」。
-            window.location.reload()
-          }
-          throw error
-        },
-      )
-    }
-    return inflight
-  }
-  const View = (props: P): ReactElement => {
-    const [, bump] = useReducer((tick: number) => tick + 1, 0)
-    useEffect(() => {
-      if (cache.component !== undefined) return
-      // 冷启动直接落在这一页（深链）时没有 navigate 预取，自己补一次。
-      void warm().then(() => { bump() }, () => { bump() })
-    }, [])
-    const Loaded = cache.component
-    if (Loaded === undefined) return <PageSkeleton failed={cache.failed === true} onRetry={() => { void warm().then(() => { bump() }, () => { bump() }) }} />
-    return createElement(Loaded, props)
-  }
-  return { View, warm }
-}
-
 const { View: ChatView, warm: warmChatView } = createLazyView(loadChatView)
 const { View: SettingsView, warm: warmSettingsView } = createLazyView(loadSettingsView)
-
-/** 冷启动落进懒视图时的一块"等得起"的骨架：和真实页面同高、带页头，不是空背景。 */
-function PageSkeleton({ failed, onRetry }: { failed?: boolean; onRetry?: () => void }): ReactElement {
-  return (
-    <div className="page-loading" aria-busy={failed === true ? undefined : true}>
-      <div className="page-loading-head" />
-      {failed === true
-        ? <Button type="button" className="page-loading-retry" onClick={onRetry}>加载失败，点一下重试</Button>
-        : (
-          <div className="page-loading-rows" aria-hidden="true">
-            <span /><span /><span /><span />
-          </div>
-        )}
-    </div>
-  )
-}
 import { RunOverviewView, StatusGlyph, fetchRoster as fetchRunRoster } from './RunOverviewView.tsx'
 import { SubChatView } from './SubChatView.tsx'
 import { durationFromPage, formatRunDuration, summaryFromPage } from '../session/run-detail.ts'
-import { recordFinishedRun, shortSessionId, type FinishedRun } from '../session/recent-finished.ts'
+import { recordFinishedRun, finishedRuns, shortSessionId, type FinishedRun } from '../session/recent-finished.ts'
 import { SessionListView } from './SessionListView.tsx'
 import { WorkspaceView as WorkspaceRoster } from './WorkspaceView.tsx'
 import { PairRequiredView } from '../components/PairRequiredView.tsx'
 import { hasAnyChatCache } from '../session/chat-cache.ts'
 import { loadChatCache } from '../session/chat-cache.ts'
 import { loadPersistedList } from '../session/list-persist.ts'
+import { createLazyView } from '../lazy-view.tsx'
+import { SessionDrawer } from '../ui/session-drawer.tsx'
 import { Button } from '../ui/primitives.tsx'
 import { ApprovalView } from './ApprovalView.tsx'
 import { DiffView } from './DiffView.tsx'
@@ -714,6 +649,11 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [pendingTurn, setPendingTurn] = useState<{ turn: number; seq: number } | undefined>(undefined)
   /** 聊天页顶部的「别的会话跑完了」条：聊天页不弹底部浮层（会盖住输入框）。 */
   const [chatFinished, setChatFinished] = useState<FinishedRun | undefined>(undefined)
+  /** 会话抽屉：打开时把会话行、收工集合与产物轮次一起快照下来（关掉即丢弃）。 */
+  const [drawer, setDrawer] = useState<{
+    session: SessionView; workspace: WorkspaceRow; rows: readonly SessionView[]
+    finished: ReadonlySet<string>; turns: readonly ArtifactTurnPayload[]
+  } | undefined>(undefined)
   const chatFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /** 排队等显示的收工记录：短时间内跑完两个会话也不会互相盖掉。 */
   const toastQueueRef = useRef<FinishedRun[]>([])
@@ -1471,6 +1411,15 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             onOpenModel={() => { navigate({ kind: 'model', session: route.session, workspace: route.workspace }) }}
             onOpenDiff={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
             onOpenDelivery={(facts) => { navigate({ kind: 'delivery', session: route.session, workspace: route.workspace, facts }) }}
+            onOpenDrawer={(turns) => {
+              setDrawer({
+                session: route.session,
+                workspace: route.workspace,
+                rows: [route.session, ...(loadPersistedList(String(route.workspace.workspaceId))?.rows ?? []).filter(row => row.sessionId !== route.session.sessionId)],
+                finished: new Set(finishedRuns().map(run => run.sessionId)),
+                turns,
+              })
+            }}
             pendingTurn={pendingTurn}
             onPendingTurnConsumed={() => { setPendingTurn(undefined) }}
             onOpenOutline={(turns, currentTurn) => { navigate({ kind: 'outline', session: route.session, workspace: route.workspace, turns, currentTurn }) }}
@@ -1530,6 +1479,22 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           )}
           <span className="finish-toast-chev" aria-hidden>›</span>
         </Button>
+      )}
+      {drawer === undefined ? null : (
+        <SessionDrawer
+          workspace={drawer.workspace}
+          rows={drawer.rows}
+          finishedIds={drawer.finished}
+          currentSessionId={drawer.session.sessionId}
+          artifactCount={drawer.turns.length}
+          onClose={() => { setDrawer(undefined) }}
+          onNew={() => { setDrawer(undefined); navigate({ kind: 'sessions', workspace: drawer.workspace }) }}
+          onSearch={() => { setDrawer(undefined); navigate({ kind: 'search', workspace: drawer.workspace }) }}
+          onPick={(session) => { setDrawer(undefined); openChat(session, drawer.workspace) }}
+          onOpenSettings={() => { setDrawer(undefined); navigate({ kind: 'settings', workspace: drawer.workspace }) }}
+          onOpenArtifacts={() => { setDrawer(undefined); navigate({ kind: 'artifacts', session: drawer.session, workspace: drawer.workspace, turns: drawer.turns }) }}
+          onOpenUsage={() => { setDrawer(undefined); navigate({ kind: 'settings', workspace: drawer.workspace }) }}
+        />
       )}
       <ToastHost />
     </div>

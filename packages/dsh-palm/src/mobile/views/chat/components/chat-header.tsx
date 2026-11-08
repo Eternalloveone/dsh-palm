@@ -6,13 +6,15 @@
  * 中文输入时每个候选都会被当成一次查询（真机上表现为"打一个字搜一次"）。
  */
 import type { MutableRefObject } from 'react'
-import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MoreIcon, SearchIcon } from '../../../components/icons.tsx'
+import { ChevronDownIcon, ChevronUpIcon, CloseIcon, MenuIcon, MoreIcon, SearchIcon } from '../../../components/icons.tsx'
 import { ThemeToggle } from '../../../components/theme-toggle.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
 export interface ChatHeaderProps {
   title: string
   onBack: () => void
+  /** 打开会话抽屉；不给就不画入口。 */
+  onOpenDrawer?: (() => void) | undefined
   /** 开关搜索条（打开时同时清空上一次的词）。 */
   onToggleSearch: () => void
   onMore: () => void
@@ -22,7 +24,7 @@ export interface ChatHeaderProps {
   onOpenModel?: (() => void) | undefined
 }
 
-export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel, onOpenArtifacts }: ChatHeaderProps) {
+export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel, onOpenArtifacts, onOpenDrawer }: ChatHeaderProps) {
   return (
     <header className="mobile-header">
       <div className="mobile-headerSlot">
@@ -32,6 +34,7 @@ export function ChatHeader({ title, onBack, onToggleSearch, onMore, onOpenModel,
         <h1 className="mobile-title mobile-titleInline">{title}</h1>
       </div>
       <div className="mobile-headerSlot mobile-headerSlot-right">
+        {onOpenDrawer === undefined ? null : <Button type="button" className="mobile-iconbtn" aria-label="会话抽屉" onClick={onOpenDrawer}><MenuIcon /></Button>}
         {onOpenArtifacts === undefined ? null : (
           <Button
             type="button"

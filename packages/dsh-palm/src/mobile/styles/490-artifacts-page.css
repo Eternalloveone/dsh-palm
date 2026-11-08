@@ -335,7 +335,7 @@
   font-size: var(--palm-t-s);
 }
 
-.palm-dd-empty {
+.palm-dd-body > p {
   margin: 0;
   font-size: var(--palm-t-m);
   color: var(--palm-fg-3);
