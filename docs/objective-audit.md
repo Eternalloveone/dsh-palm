@@ -87,7 +87,7 @@
 | 质量预算 | ✅ | `platform/quality-budget.test.ts` |
 | golden | ✅ | `tests/golden/*.json`（api-exports / dispatch-methods / chat-trace / **tokens**）|
 | 视觉基线（令牌层） | ✅ | `design/tokens-golden.test.ts` |
-| 视觉基线（像素层） | ✅ **已跑通** | `node tools/mobile-visual/run.mjs` → 会话列表 0% / 首页 0.01% / 设置 2.1% / 聊天输入区 0%，全部 PASS |
+| 视觉基线（像素层） | ✅ **已跑通** | `node tools/mobile-visual/run.mjs` → **7 屏全 PASS**：会话列表 0% / 首页 0.01% / 设置 0% / 聊天输入区 0% / **外观页 0% / 产物页 0% / 模型页 0%** |
 | 真机冒烟 | ✅ **已跑通** | `node tools/mobile-scenarios/run.mjs` → 24 场景 / **327 条判据 / 违规 0 / 场景异常 0**，且会话总数未变（40 条）|
 | 跑的是不是新代码 | ✅ 已取证 | `node tools/deploy-probe.mjs`：对话页头部同时出现「产物」「模型与思考」（只在重构后存在）|
 
