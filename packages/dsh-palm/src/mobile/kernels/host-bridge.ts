@@ -17,18 +17,17 @@
 /** mux 帧的最小形状（结构类型，避免测试里造完整 MuxFrame）。 */
 export interface HostFrameLike {
   type: string
-  [key: string]: unknown
 }
 
 /** 一个可订阅的帧源（真实实现是 `MuxClient`）。 */
 export interface HostFrameSource<Frame extends HostFrameLike = HostFrameLike> {
   start: () => void
   stop: () => void
-  onFrame: (listener: (frame: Frame) => void) => () => void
+  onFrame: (listener: (frame: Frame, rpcId?: string) => void) => () => void
 }
 
 /** 帧监听器。 */
-export type HostFrameListener<Frame extends HostFrameLike = HostFrameLike> = (frame: Frame) => void
+export type HostFrameListener<Frame extends HostFrameLike = HostFrameLike> = (frame: Frame, rpcId?: string) => void
 
 /** host-bridge 的对外面。 */
 export interface HostBridge<Frame extends HostFrameLike = HostFrameLike> {
@@ -60,11 +59,11 @@ export function createHostBridge<Frame extends HostFrameLike>(
   let detach: (() => void) | undefined
   let generation = 0
 
-  const dispatch = (frame: Frame): void => {
+  const dispatch = (frame: Frame, rpcId?: string): void => {
     // 复制一份再派发：监听者可能在自己的回调里退订，直接遍历会跳过下一个。
     for (const listener of [...listeners]) {
       try {
-        listener(frame)
+        listener(frame, rpcId)
       } catch (error) {
         // 一个切片炸掉不能拖垮其它切片（尤其是聊天流）。
         console.error('host-bridge listener failed', error)

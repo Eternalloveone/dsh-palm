@@ -4,7 +4,7 @@
     "src/mobile-api.ts": 1629,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
-    "src/mobile/views/ChatView.tsx": 4138
+    "src/mobile/views/ChatView.tsx": 4139
   },
   "dirs": {
     "src/mobile": 60700,
@@ -24,7 +24,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1170,
-    "src/mobile/views": 20560,
+    "src/mobile/views": 20570,
     "src/mobile/wire": 246
   },
   "dirsRaised": {

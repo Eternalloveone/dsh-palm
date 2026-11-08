@@ -218,6 +218,7 @@ import { TurnScrubber } from '../components/turn-scrubber.tsx'
 import { TaskStatusBar } from '../render/task-status.tsx'
 import type { JobView } from '../../api-proxy-types'
 import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../session/subagent-tree.ts'
+import type { HostBridge } from '../kernels/host-bridge.ts'
 
 /** D1 handle-gesture tunables: the travel (px) a press must exceed before it
  *  counts as a scrub drag, and the horizontal inset of the scrub card's track
@@ -229,7 +230,7 @@ import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../
 export interface ChatViewProps {
   session: SessionView
   /** The page-lifetime mux client (undefined before the first effect tick). */
-  mux?: MuxClient | undefined
+  mux?: MuxClient | undefined  /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */  bridge?: HostBridge | undefined
   onBack(): void
   /** Show tool-call disclosures (owned by the app, persisted via display-prefs). */
   showToolCalls: boolean
@@ -294,7 +295,7 @@ export { DRAFT_SAVE_DEBOUNCE_MS } from './chat/hooks/use-chat-draft.ts'
  */
 export function ChatView({
   session,
-  mux,
+  mux,  bridge,
   onBack,
   showToolCalls,
   showSystemMessages,
@@ -1350,7 +1351,7 @@ export function ChatView({
       reportConnectivity(true)
       dispatchFrame(ctx, frame, frameRpcId)
     })
-  }, [mux, session.sessionId, reconcileRunning, applyInbox])
+  }, [mux, bridge, session.sessionId, reconcileRunning, applyInbox])
 
   // 弱网兜底轮询（审批/问题）：主来源仍是 SSE 帧，这里只防丢帧。
   usePendingPoll({

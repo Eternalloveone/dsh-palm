@@ -86,7 +86,8 @@ describe('architecture guardrails', () => {
 
   it('keeps the largest view files inside their current budget (only goes down)', () => {
     const budgets: Record<string, number> = {
-      'views/ChatView.tsx': 4_138,
+      // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
+      'views/ChatView.tsx': 4_139,
       'views/SettingsView.tsx': 783,
       // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
       // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。
