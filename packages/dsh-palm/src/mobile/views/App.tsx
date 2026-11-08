@@ -12,7 +12,8 @@ import { logTail, reportError } from '../data/diag.ts'
 import { observeSession, prompt } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
-import { handleAppFrame } from '../kernels/app-frame-slice.ts'
+import { handleAppFrame } from '../kernels/app-frame-slice.ts'
+import { createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
 import { createHostBridge } from '../kernels/host-bridge.ts'
 import { MuxClient } from '../stream/mux.ts'
 import { startNotify, stopNotify } from '../platform/notify.ts'
@@ -137,6 +138,14 @@ type Route =
   /** 子代理自己的会话（只读）：从"运行中"页的子代理行点进来。 */
   | { kind: 'sub-chat'; sessionId: string; label?: string; parentTitle?: string }
 
+/** 路由的稳定 key：同 key 视为"同一页"（用于页面栈去重）。 */
+function routeKeyOf(route: Route): string {
+  if (route.kind === 'chat') return `chat:${route.session.sessionId}`
+  if (route.kind === 'sub-chat') return `sub-chat:${route.sessionId}`
+  if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
+  if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
+  return route.kind
+}
 /** Placeholder workspace for standalone search hits (no attach relation):
  *  the chat only needs the session; backing out returns to the roster. */
 const STANDALONE_WORKSPACE: WorkspaceRow = {
@@ -538,6 +547,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   /** 当前页面（给异步回调读：收工事件要知道该弹底部浮层还是走聊天页顶部条）。 */
   const routeRef = useRef<Route>(route)
   routeRef.current = route
+  /** P6 页面栈：真实记录「我来过哪几页」，返回 = 弹栈（不再是猜）。 */
+  const stackRef = useRef(createPageStack(routeKeyOf(route), route))
   const forward = transition.current.forward
   const exitTimerRef = useRef<number | undefined>(undefined)
   // 首帧已经落在会话页时，URL 里的深链目标就已经被这一跳消费掉了：再留给
@@ -736,6 +747,12 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
 
   /** Set the route: current page plays the exit animation, next one slides in. */
   const applyRoute = useCallback((next: Route) => {
+    // 进新页就压栈：这样返回时不需要任何"从哪进来的"标记来判断上一页。
+    // 同 key 重复进入不重复压（同一页刷新/重进不算新的一层）。
+    const top = currentOf(stackRef.current)
+    if (top === undefined || top.key !== routeKeyOf(next)) {
+      stackRef.current = pushPage(stackRef.current, routeKeyOf(next), next)
+    }
     setTransition(previous => {
       const nextForward = ROUTE_DEPTH[next.kind] >= ROUTE_DEPTH[previous.current.route.kind]
       return {
@@ -958,8 +975,17 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       locateFromSearchRef.current = false
       setRestoreSearch({ ...locateSearchSnapRef.current })
     }
+    // P6：先问页面栈"上一页是谁"——那是**事实**，不是猜的。
+    // 栈里只有当前页（冷启动/深链直达）时才退回 backTargetOf 的启发式，
+    // 保证任何情况下按返回都有落点。
+    const popped = popPage(stackRef.current)
+    stackRef.current = popped
+    const restored = currentOf(popped)?.value
     setTransition(previous => ({
-      current: { route: backTargetOf(previous.current.route, { fromLocate }), forward: false },
+      current: {
+        route: restored ?? backTargetOf(previous.current.route, { fromLocate }),
+        forward: false,
+      },
       leaving: previous.current,
     }))
     scheduleExitCleanup()

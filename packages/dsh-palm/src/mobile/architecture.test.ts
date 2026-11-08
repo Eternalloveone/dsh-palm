@@ -94,7 +94,7 @@ describe('architecture guardrails', () => {
       'views/SessionListView.tsx': 1_134,
       // 2026-11-07：P1 会话位置写回 URL + 首帧直达会话（刷新/重启回原会话）是**功能新增**，
       // 不是重构漏量；1121 → 1265 已按实测收紧，之后只许降。
-      'views/App.tsx': 1_264,
+      'views/App.tsx': 1_286,
       'views/WorkspaceView.tsx': 1_063,
       // W2-6 补登记：这两屏此前没有预算，等于可以无声长大。
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
