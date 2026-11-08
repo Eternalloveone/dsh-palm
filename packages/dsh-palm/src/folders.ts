@@ -17,9 +17,11 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { dshHome } from './dsh-home.ts'
+import { renameWithRetry } from './atomic-write.ts'
+
 
 /** One folder. */
 export interface SessionFolder {
@@ -207,7 +209,7 @@ export class SessionFolders {
       const body = JSON.stringify(this.data, null, 2)
       const temp = `${this.file}.${process.pid}.${Date.now().toString(36)}.tmp`
       writeFileSync(temp, body, { mode: 0o600 })
-      renameSync(temp, this.file)
+      renameWithRetry(temp, this.file)
     } catch (error) {
       console.warn('dsh-palm: failed to persist session folders', error)
     }

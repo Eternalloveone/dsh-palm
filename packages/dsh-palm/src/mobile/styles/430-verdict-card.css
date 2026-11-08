@@ -1,0 +1,79 @@
+/* ── 结论卡 · 每轮一张（P4 四态一骨架） ────────────────────────────────
+ *
+ * 骨架：标签 / 结论句 / 补充一句 / 交付物条 / 动作 / 脚注。
+ * 语义色**只作用于左边框**，不给整卡染色（完成=绿边，审批=琥珀边）。
+ * 所有尺寸走 --palm-* 令牌，不写字面量。
+ */
+
+.verdict-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin: 0 0 var(--palm-s3);
+  padding: var(--palm-s4);
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-l);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+}
+
+/* 四态：只有左边框换色，卡片本身不变。 */
+.verdict-card[data-state='conclusion'] { border-left: 3px solid var(--palm-ok); }
+.verdict-card[data-state='decision'] { border-left: 3px solid var(--palm-warn); }
+.verdict-card[data-state='working'] { border-left: 3px solid var(--palm-accent); }
+.verdict-card[data-state='failed'] { border-left: 3px solid var(--palm-danger); }
+
+.verdict-tag {
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+  letter-spacing: 0.04em;
+  color: var(--palm-fg-2);
+}
+
+.verdict-headline {
+  margin: 0;
+  font-size: var(--palm-t-l);
+  line-height: var(--palm-lh-head);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+}
+
+.verdict-detail {
+  margin: 0;
+  font-size: var(--palm-t-m);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+}
+
+/* 交付物条：一行一项，左边一条竖线，不抢结论句的注意力。 */
+.verdict-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  margin: var(--palm-s1) 0 0;
+  padding: 0 0 0 var(--palm-s3);
+  border-left: 2px solid var(--palm-line);
+}
+
+.verdict-artifact {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+.verdict-artifact b {
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
+}
+
+.verdict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s2);
+  margin-top: var(--palm-s1);
+}
+
+.verdict-footnote {
+  margin-top: var(--palm-s1);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}

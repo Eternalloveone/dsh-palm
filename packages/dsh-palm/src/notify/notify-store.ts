@@ -8,9 +8,11 @@
  * convenience, not a security boundary (the same stance as pairing.ts).
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import webPush from 'web-push'
+import { renameWithRetry } from '../atomic-write.ts'
+
 const { generateVAPIDKeys } = webPush
 
 /** Tunables + credentials for the notify feature (see NotifyStore). */
@@ -224,7 +226,7 @@ export class NotifyStore {
       const body = JSON.stringify(this.data, null, 2)
       const temp = `${this.file}.${process.pid}.${Date.now().toString(36)}.tmp`
       writeFileSync(temp, body, { mode: 0o600 })
-      renameSync(temp, this.file)
+      renameWithRetry(temp, this.file)
       this.dirty = false
     } catch (error) {
       console.error('dsh-palm: failed to persist notify state', error)

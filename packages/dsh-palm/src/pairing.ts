@@ -24,6 +24,8 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
+import { renameWithRetry } from './atomic-write.ts'
+
 
 /** The observable pairing phases the panel renders. */
 export type PairingPhase =
@@ -381,7 +383,7 @@ export class PairingService {
       for (const target of [file, backupOf(file)]) {
         const temp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
         writeFileSync(temp, body, { mode: 0o600 })
-        renameSync(temp, target)
+        renameWithRetry(temp, target)
       }
       this.dirty = false
     } catch (error) {

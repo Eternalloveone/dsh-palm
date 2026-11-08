@@ -7,7 +7,7 @@
     "src/mobile/views/ChatView.tsx": 4139
   },
   "dirs": {
-    "src/mobile": 60700,
+    "src/mobile": 61000,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
@@ -23,7 +23,7 @@
     "src/mobile/session": 2775,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1170,
+    "src/mobile/ui": 1350,
     "src/mobile/views": 20560,
     "src/mobile/wire": 246
   },
@@ -41,7 +41,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/ui": {
-      "reason": "P1.5 布局契约：slot-layout.tsx（排布是数据 + 必填槽恰好一次）",
+      "reason": "P4 结论卡四态渲染层：ui/verdict-card.tsx（四态一骨架、动作超 3 个收进 ⋯、脚注只渲染真数字）+ 7 条组件测试",
       "expires": "2027-03-31"
     },
     "src/mobile/api": {
