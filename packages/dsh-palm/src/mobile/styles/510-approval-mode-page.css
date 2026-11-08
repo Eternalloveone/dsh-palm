@@ -1,0 +1,66 @@
+/* ── 批准方式页（P6 ⑥ 屏） ─────────────────────────────────────────── */
+
+.approval-mode-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+.approval-mode-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+.approval-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s2);
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s4);
+  text-align: left;
+  background: var(--palm-sur-1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg);
+}
+
+.approval-mode-row[aria-pressed='true'] {
+  border-color: var(--palm-accent);
+}
+
+.approval-mode-row-name {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.approval-mode-row-mark {
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+.approval-mode-row-desc {
+  flex: 1 0 100%;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.approval-mode-note {
+  margin: var(--palm-s4) 0 0;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
+}
+
+.approval-mode-error {
+  margin: var(--palm-s3) 0 0;
+  font-size: var(--palm-t-s);
+  color: var(--palm-danger);
+}

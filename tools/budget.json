@@ -5,10 +5,10 @@
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
     "src/mobile/views/ChatView.tsx": 4166,
-    "src/mobile/views/App.tsx": 1429
+    "src/mobile/views/App.tsx": 1454
   },
   "dirs": {
-    "src/mobile": 63000,
+    "src/mobile": 63114,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
@@ -31,7 +31,7 @@
   },
   "dirsRaised": {
     "src/mobile": {
-      "reason": "P2 逐方法外移：api/workspace-list.ts + api/workspace-mutations.ts（分发表条目缩为一行调用）",
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/styles": {

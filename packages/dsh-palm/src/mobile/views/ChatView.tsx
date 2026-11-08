@@ -256,6 +256,8 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
+  /** 打开批准方式页（P6 ⑥ 屏）；不给就还是原来的选择器。 */
+  onOpenApprovalMode?: ((permissions: { currentValue: string; options: readonly { value: string; name: string; description?: string }[] }) => void) | undefined
   /** 打开上下文占用页（P6 ⑦ 屏）；不给就还是原来的浮层。 */
   onOpenContext?: ((usage: { contextWindow?: number; pressureTokens?: number; projectedTokens?: number }) => void) | undefined
   /** 打开产物列表页（P6 ⑧ 屏）；不给就不显示入口。 */
@@ -325,6 +327,7 @@ export function ChatView({
   onOpenOutline,
   onOpenArtifacts,
   onOpenContext,
+  onOpenApprovalMode,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。

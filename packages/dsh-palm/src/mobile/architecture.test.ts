@@ -88,7 +88,7 @@ describe('architecture guardrails', () => {
     const budgets: Record<string, number> = {
       // 2026-11-08：P3 接入 host-bridge（可选 bridge 属性 + 双路订阅回落）；回落分支删除后本值降回。
       // 2026-11-08：P6 页面栈接入（压栈/弹栈 + routeKeyOf）；旧标记删除后回落。
-      'views/App.tsx': 1429,
+      'views/App.tsx': 1454,
       'views/SettingsView.tsx': 786,
       // 2026-11-08：P3 接入 host-bridge 单一订阅点（新增可选 bridge 属性 + 双路订阅回落，
       // 单测仍走 mux 直连）。视图改接完成后回落分支删除，此值回落。
@@ -103,13 +103,14 @@ describe('architecture guardrails', () => {
       'views/AppearanceView.tsx': 141,
       'views/ApprovalView.tsx': 95,
       'views/ArtifactsView.tsx': 97,
-      'views/ChatView.tsx': 4163,
+      'views/ChatView.tsx': 4169,
       'views/DiffView.tsx': 80,
       'views/MarketView.tsx': 245,
       'views/ModelView.tsx': 193,
       'views/OutlineView.tsx': 99,
       'views/SettingsForm.tsx': 549,
       'views/ContextView.tsx': 113,
+      'views/ApprovalModeView.tsx': 94,
     }
     for (const [file, budget] of Object.entries(budgets)) {
       const lines = readFileSync(join(HERE, file), 'utf8').split('\n').length

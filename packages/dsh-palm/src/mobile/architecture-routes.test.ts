@@ -65,7 +65,7 @@ describe('路由完整性（每个 kind 都要能到达、能返回、能压栈�
 
   it('带参数的 kind 在 routeKeyOf 里有专门分支', () => {
     const at = APP.indexOf('export function routeKeyOf')
-    const fn = at === -1 ? '' : APP.slice(at, at + 900)
+    const fn = at === -1 ? '' : APP.slice(at, at + 1600)
     const missing = withParams.filter(kind => !fn.includes(`route.kind === '${kind}'`))
     expect(missing, `routeKeyOf 缺少带参数分支：${missing.join(', ')}`).toEqual([])
   })
