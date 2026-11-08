@@ -37,3 +37,10 @@ export {
   type VerdictState,
 } from './verdict-card.tsx'
 export { Menu, Popover, type MenuEntry, type MenuProps, type PopoverProps } from './menu.tsx'
+export {
+  StatusStrip,
+  type StatusRailCell,
+  type StatusStripKind,
+  type StatusStripProps,
+  type StatusStripSteps,
+} from './status-strip.tsx'

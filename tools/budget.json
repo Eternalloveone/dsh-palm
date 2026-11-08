@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1539
   },
   "dirs": {
-    "src/mobile": 65249,
+    "src/mobile": 66225,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2800,
@@ -21,17 +21,17 @@
     "src/mobile/projections": 530,
     "src/mobile/render": 6930,
     "src/mobile/runtime": 225,
-    "src/mobile/session": 2908,
+    "src/mobile/session": 3388,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1446,
+    "src/mobile/ui": 1731,
     "src/mobile/views": 22636,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
   "dirsRaised": {
     "src/mobile": {
-      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
+      "reason": "状态条组件（ui/status-strip.tsx + session/task-status.ts：11 种状态 / 刻度轨 / 五条兜底 / 存储往返）与 30 条单测；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/styles": {
@@ -43,7 +43,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/ui": {
-      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
+      "reason": "状态条组件 ui/status-strip.tsx（32px 主条 / 132×22 迷你条 / 方案 A 刻度轨 / 11 种内联宠物）+ 9 条渲染单测；P8 统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/api": {
@@ -75,7 +75,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/session": {
-      "reason": "P6 ⑫ 回合大纲页：TurnEntry 新增可选 at（节点显示轮次开始时间），localTurnEntries 落时间并补测试；P8 摘旧浮层后统一回落",
+      "reason": "任务状态机 session/task-status.ts（kind / progress / steps + 五条兜底 + 存储往返）+ 21 条单测；P8 统一回落",
       "expires": "2027-03-31"
     }
   },

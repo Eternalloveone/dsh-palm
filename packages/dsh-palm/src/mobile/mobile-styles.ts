@@ -64,6 +64,55 @@ export const mobileCss = `${designTokensCss()}
   /* 物性：1px 细线与焦点环宽度（组件层不写裸 px） */
   --palm-hair: 1px;
   --palm-focus: 2px;
+
+  /* ── 状态条（32px 主条 + 22px 迷你条 + 方案 A 刻度轨） ───────────────
+   * 版式真源：docs/prototype/pet-strip-v5.html ① / overview.html「2 · 会话正文」。
+   * 渐变与宠物墨色按 11 种任务状态各一份：组件样式里不再出现裸色值。 */
+  --palm-strip-h: 32px;
+  --palm-strip-r: 11px;
+  --palm-strip-mini-w: 132px;
+  --palm-strip-mini-h: 22px;
+  --palm-strip-mini-r: 8px;
+  --palm-strip-pet: 20px;
+  --palm-strip-pet-mini: 12px;
+  --palm-strip-rail-h: 5px;
+  --palm-strip-rail-r: 3px;
+  --palm-strip-rail-gap: 3px;
+  --palm-strip-rail-mt: 6px;
+  --palm-strip-track: #101016;
+  --palm-strip-border: rgba(255, 255, 255, 0.08);
+  --palm-strip-fg: #f4f6fb;
+  --palm-strip-detail-fg: rgba(255, 255, 255, 0.62);
+  --palm-strip-right-fg: rgba(255, 255, 255, 0.8);
+  --palm-strip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --palm-strip-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0) 60%);
+  --palm-strip-pet-body: rgba(4, 8, 14, 0.55);
+  --palm-strip-pet-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  --palm-strip-grad-think: linear-gradient(100deg, #2b2a72, #4a49b8);
+  --palm-strip-grad-read: linear-gradient(100deg, #123a56, #1c6f9c);
+  --palm-strip-grad-edit: linear-gradient(100deg, #14395a, #1f6f8e);
+  --palm-strip-grad-test: linear-gradient(100deg, #0f3a55, #1a6f96);
+  --palm-strip-grad-approve: linear-gradient(100deg, #5a3f08, #8a6318);
+  --palm-strip-grad-stuck: linear-gradient(100deg, #4a3306, #6f4f12);
+  --palm-strip-grad-done: linear-gradient(100deg, #0d5033, #177a4a 52%, #2b2a72);
+  --palm-strip-grad-failed: linear-gradient(100deg, #5c1327, #8c1f38);
+  --palm-strip-grad-stopped: linear-gradient(100deg, #2a2a33, #3f3f4d);
+  --palm-strip-grad-queued: linear-gradient(100deg, rgba(124, 140, 255, 0.1), rgba(124, 140, 255, 0.02));
+  --palm-strip-grad-unknown: linear-gradient(100deg, #2b2a72, #4a49b8);
+  --palm-strip-ink-think: #cfd4ff;
+  --palm-strip-ink-read: #a9e6ff;
+  --palm-strip-ink-edit: #9fd8ff;
+  --palm-strip-ink-test: #a9e6ff;
+  --palm-strip-ink-approve: #ffd98a;
+  --palm-strip-ink-stuck: #ffd98a;
+  --palm-strip-ink-done: #c8f8db;
+  --palm-strip-ink-failed: #ffb3c0;
+  --palm-strip-ink-stopped: #d5d7e2;
+  --palm-strip-ink-queued: #9aa0ae;
+  --palm-strip-ink-unknown: #cfd4ff;
+  --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
+  --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
+  --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -8018,6 +8067,259 @@ button.settings-row:active {
   margin-left: var(--palm-s1);
   color: var(--palm-fg-3);
   font-size: var(--palm-t-s);
+}
+
+/* ── 状态条（主条 + 迷你条 + 方案 A 刻度轨）────────────────────
+ *
+ * 版式真源：docs/prototype/pet-strip-v5.html ①（主条高度 / 圆角 / 渐变填充 /
+ * 内联宠物 / 白色暗阴影文字 / 右侧等宽数字全部走 --palm-strip-* 令牌），
+ * 刻度轨用方案 A：条下方一条细轨，完成绿、当前蓝、未做灰。
+ * overview.html「2 · 会话正文」里那条是同一个东西的成品态。
+ *
+ * 规则：
+ * 1. 11 种状态只换 --palm-strip-current（渐变）与宠物墨色，不新增状态类名；
+ * 2. 进度不写行内样式（CSP 与 inlineStyles 预算都拦）：data-fill 落在 5% 档位；
+ * 3. 进度未知时用「游走块」，prefers-reduced-motion 下退回静止块；
+ * 4. 迷你版同一组件（data-size='mini'），只是去掉副文案/右侧/刻度轨。
+ */
+
+.palm-strip-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-strip-rail-mt);
+  min-inline-size: 0;
+}
+
+/* 可点时的触控区：视觉高度不变，外层撑到 --palm-hit。 */
+.palm-strip-wrap[role='button'] {
+  justify-content: center;
+  min-block-size: var(--palm-hit);
+  cursor: pointer;
+}
+
+.palm-strip-wrap[role='button']:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.palm-strip-wrap[data-size='mini'] {
+  flex: none;
+  inline-size: var(--palm-strip-mini-w);
+}
+
+.palm-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  block-size: var(--palm-strip-h);
+  border: var(--palm-hair) solid var(--palm-strip-border);
+  border-radius: var(--palm-strip-r);
+  background: var(--palm-strip-track);
+}
+
+/* 渐变只在这里分派：组件样式里不出现裸色值。 */
+.palm-strip[data-kind='think'] { --palm-strip-current: var(--palm-strip-grad-think); }
+.palm-strip[data-kind='read'] { --palm-strip-current: var(--palm-strip-grad-read); }
+.palm-strip[data-kind='edit'] { --palm-strip-current: var(--palm-strip-grad-edit); }
+.palm-strip[data-kind='test'] { --palm-strip-current: var(--palm-strip-grad-test); }
+.palm-strip[data-kind='approve'] { --palm-strip-current: var(--palm-strip-grad-approve); }
+.palm-strip[data-kind='stuck'] { --palm-strip-current: var(--palm-strip-grad-stuck); }
+.palm-strip[data-kind='done'] { --palm-strip-current: var(--palm-strip-grad-done); }
+.palm-strip[data-kind='failed'] { --palm-strip-current: var(--palm-strip-grad-failed); }
+.palm-strip[data-kind='stopped'] { --palm-strip-current: var(--palm-strip-grad-stopped); }
+.palm-strip[data-kind='queued'] { --palm-strip-current: var(--palm-strip-grad-queued); }
+.palm-strip[data-kind='unknown'] { --palm-strip-current: var(--palm-strip-grad-unknown); }
+
+.palm-strip-fill {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  border-radius: var(--palm-strip-r) 0 0 var(--palm-strip-r);
+  background: var(--palm-strip-current, var(--palm-strip-grad-unknown));
+}
+
+/* 顶部一道高光，让主条看起来有厚度（原型 .fill::after）。 */
+.palm-strip-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--palm-strip-gloss);
+}
+
+/* 进度档位：0..100%，每 5% 一档（不写行内样式）。 */
+.palm-strip-fill[data-fill='p0'] { inline-size: 0; }
+.palm-strip-fill[data-fill='p5'] { inline-size: 5%; }
+.palm-strip-fill[data-fill='p10'] { inline-size: 10%; }
+.palm-strip-fill[data-fill='p15'] { inline-size: 15%; }
+.palm-strip-fill[data-fill='p20'] { inline-size: 20%; }
+.palm-strip-fill[data-fill='p25'] { inline-size: 25%; }
+.palm-strip-fill[data-fill='p30'] { inline-size: 30%; }
+.palm-strip-fill[data-fill='p35'] { inline-size: 35%; }
+.palm-strip-fill[data-fill='p40'] { inline-size: 40%; }
+.palm-strip-fill[data-fill='p45'] { inline-size: 45%; }
+.palm-strip-fill[data-fill='p50'] { inline-size: 50%; }
+.palm-strip-fill[data-fill='p55'] { inline-size: 55%; }
+.palm-strip-fill[data-fill='p60'] { inline-size: 60%; }
+.palm-strip-fill[data-fill='p65'] { inline-size: 65%; }
+.palm-strip-fill[data-fill='p70'] { inline-size: 70%; }
+.palm-strip-fill[data-fill='p75'] { inline-size: 75%; }
+.palm-strip-fill[data-fill='p80'] { inline-size: 80%; }
+.palm-strip-fill[data-fill='p85'] { inline-size: 85%; }
+.palm-strip-fill[data-fill='p90'] { inline-size: 90%; }
+.palm-strip-fill[data-fill='p95'] { inline-size: 95%; }
+.palm-strip-fill[data-fill='p100'] { inline-size: 100%; }
+
+/* 进度未知：游走块（原型的 travel），只用来表示「正在做、但没拆出计划」。 */
+.palm-strip-fill[data-fill='unknown'] {
+  inline-size: 28%;
+  animation: palm-strip-travel 3.2s ease-in-out infinite;
+}
+
+@keyframes palm-strip-travel {
+  0%, 100% { inset-inline-start: 0; }
+  50% { inset-inline-start: 64%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palm-strip-fill[data-fill='unknown'] {
+    animation: none;
+  }
+}
+
+/* 一行内容：宠物 + 主文案 + 可选小灰字 + 右侧时间。 */
+.palm-strip-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding-inline: var(--palm-s2);
+}
+
+/* 宠物：纯内联 SVG，墨色由 data-kind 选，形状由组件决定（不许 emoji / 图片）。 */
+.palm-strip-pet {
+  flex: none;
+  inline-size: var(--palm-strip-pet);
+  block-size: var(--palm-strip-pet);
+  color: var(--palm-strip-ink-unknown);
+  filter: drop-shadow(var(--palm-strip-pet-shadow));
+}
+
+.palm-strip[data-kind='think'] .palm-strip-pet { color: var(--palm-strip-ink-think); }
+.palm-strip[data-kind='read'] .palm-strip-pet { color: var(--palm-strip-ink-read); }
+.palm-strip[data-kind='edit'] .palm-strip-pet { color: var(--palm-strip-ink-edit); }
+.palm-strip[data-kind='test'] .palm-strip-pet { color: var(--palm-strip-ink-test); }
+.palm-strip[data-kind='approve'] .palm-strip-pet { color: var(--palm-strip-ink-approve); }
+.palm-strip[data-kind='stuck'] .palm-strip-pet { color: var(--palm-strip-ink-stuck); }
+.palm-strip[data-kind='done'] .palm-strip-pet { color: var(--palm-strip-ink-done); }
+.palm-strip[data-kind='failed'] .palm-strip-pet { color: var(--palm-strip-ink-failed); }
+.palm-strip[data-kind='stopped'] .palm-strip-pet { color: var(--palm-strip-ink-stopped); }
+.palm-strip[data-kind='queued'] .palm-strip-pet { color: var(--palm-strip-ink-queued); }
+
+.palm-strip-pet [data-pet='body'] {
+  fill: var(--palm-strip-pet-body);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.palm-strip-pet [data-pet='eye'] {
+  fill: currentColor;
+}
+
+.palm-strip-pet [data-pet='line'] {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.palm-strip [data-part='main'] {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--palm-s1);
+  min-inline-size: 0;
+}
+
+.palm-strip [data-part='label'] {
+  overflow: hidden;
+  color: var(--palm-strip-fg);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  text-overflow: ellipsis;
+  text-shadow: var(--palm-strip-text-shadow);
+  white-space: nowrap;
+}
+
+.palm-strip [data-part='detail'] {
+  overflow: hidden;
+  min-inline-size: 0;
+  color: var(--palm-strip-detail-fg);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  text-overflow: ellipsis;
+  text-shadow: var(--palm-strip-text-shadow);
+  white-space: nowrap;
+}
+
+/* 右侧（耗时 / 等你 42s）：等宽数字，别让数字跳宽。 */
+.palm-strip [data-part='right'] {
+  flex: none;
+  color: var(--palm-strip-right-fg);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+  text-shadow: var(--palm-strip-text-shadow);
+  white-space: nowrap;
+}
+
+/* 迷你版：132×22 / 圆角 8，用于抽屉列表行（同一组件，只换尺寸）。 */
+.palm-strip[data-size='mini'] {
+  flex: none;
+  inline-size: var(--palm-strip-mini-w);
+  block-size: var(--palm-strip-mini-h);
+  border-radius: var(--palm-strip-mini-r);
+}
+
+.palm-strip[data-size='mini'] .palm-strip-body {
+  gap: var(--palm-s1);
+  padding-inline: var(--palm-s1);
+}
+
+.palm-strip[data-size='mini'] .palm-strip-pet {
+  inline-size: var(--palm-strip-pet-mini);
+  block-size: var(--palm-strip-pet-mini);
+}
+
+.palm-strip[data-size='mini'] .palm-strip-fill {
+  border-radius: var(--palm-strip-mini-r) 0 0 var(--palm-strip-mini-r);
+}
+
+/* 刻度轨（方案 A）：条下方一条细轨，一格一步。 */
+.palm-strip-rail {
+  display: flex;
+  gap: var(--palm-strip-rail-gap);
+  inline-size: 100%;
+}
+
+.palm-strip-rail i {
+  display: block;
+  flex: 1 1 0;
+  block-size: var(--palm-strip-rail-h);
+  border-radius: var(--palm-strip-rail-r);
+  background: var(--palm-strip-rail-todo);
+}
+
+.palm-strip-rail i[data-state='done'] {
+  background: var(--palm-strip-rail-done);
+}
+
+.palm-strip-rail i[data-state='now'] {
+  background: var(--palm-strip-rail-now);
 }
 /* ── reduced motion additions ────────────────────────────────────────── */
 
