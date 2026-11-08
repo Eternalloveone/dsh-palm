@@ -3831,7 +3831,7 @@ button.settings-row:focus-visible {
  */
 .chat-proc-errors {
   flex: none;
-  color: var(--text-tertiary);
+  color: var(--palm-danger);
   font-size: 0.95em;
   font-weight: 400;
 }
