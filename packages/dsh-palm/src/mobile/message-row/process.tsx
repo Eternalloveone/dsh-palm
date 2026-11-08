@@ -166,7 +166,12 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   if (visibleRows === 0) {
     return (
       <div className="chat-proc" data-proc-rows="0">
-        <div className="chat-proc-head chat-proc-head-static" role="status" aria-label={headLabel}>
+        <div
+        className="chat-proc-head chat-proc-head-static"
+        role="status"
+        aria-label={headLabel}
+        data-state={outcome}
+      >
           <span className="chat-proc-line chat-proc-label">
             {lead}
             <span className="chat-proc-state">{stateText}</span>

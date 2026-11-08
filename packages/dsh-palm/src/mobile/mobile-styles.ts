@@ -4427,6 +4427,24 @@ button.settings-row:focus-visible {
   min-width: 0;
 }
 
+/* ── 过程行三态色条（定版图：绿=成功 / 红=失败 / 蓝=运行中）──────── */
+.chat-proc-head[data-state='ok'] {
+  border-left: 2px solid var(--palm-ok);
+}
+
+.chat-proc-head[data-state='failed'] {
+  border-left: 2px solid var(--palm-danger);
+}
+
+.chat-proc-head[data-state='running'] {
+  border-left: 2px solid var(--palm-accent);
+}
+
+.chat-proc-head[data-state='ok'],
+.chat-proc-head[data-state='failed'],
+.chat-proc-head[data-state='running'] {
+  padding-left: var(--palm-s2);
+}
 /* ── turn status: three breathing dots ───────────────────────────────── */
 
 .chat-turn-status {

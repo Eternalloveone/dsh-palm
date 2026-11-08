@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1457
   },
   "dirs": {
-    "src/mobile": 63140,
+    "src/mobile": 63163,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2525,
@@ -16,7 +16,7 @@
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
     "src/mobile/kernels": 1095,
-    "src/mobile/message-row": 958,
+    "src/mobile/message-row": 968,
     "src/mobile/platform": 4481,
     "src/mobile/projections": 530,
     "src/mobile/render": 6930,
@@ -64,6 +64,10 @@
     },
     "src/mobile/layouts": {
       "reason": "P5 布局契约：9 个屏的默认排布（纯数据）+ 7 条契约测试（必填槽恰好一次、滚动区唯一、排布可序列化）",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/message-row": {
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     }
   },
