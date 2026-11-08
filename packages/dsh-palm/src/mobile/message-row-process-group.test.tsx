@@ -59,7 +59,7 @@ describe('过程卡：独立一张卡，标题行 + 常显工具行', () => {
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
     expect(head.getAttribute('aria-expanded')).toBe('false')
     expect(head.querySelectorAll('.chat-proc-line')).toHaveLength(1)
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时6分24秒')
     // 卡面没有步数（步数进展开体）。
     expect(head.textContent).not.toContain('步')
@@ -176,7 +176,7 @@ describe('过程卡：四态与报错信号', () => {
 
     const head = container.querySelector('.chat-proc-head') as HTMLElement
     expect(head.getAttribute('data-state')).toBe('failed')
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时5秒')
     // 工具本身是完成的：行上照实写"完成"，不因整轮失败而冒充工具失败。
     expect(container.querySelector('.chat-step-state')!.textContent).toBe('完成')
@@ -220,7 +220,7 @@ describe('过程卡：四态与报错信号', () => {
     expect(marker.textContent).toBe('2 处报错')
     const line = head.querySelector('.chat-proc-label') as HTMLElement
     expect(Array.from(line.children).map(el => (el as HTMLElement).className.split(' ')[0]))
-      .toEqual(['chat-proc-state', 'chat-proc-errors', 'chat-proc-time'])
+      .toEqual(['palm-proc-main', 'palm-proc-note', 'palm-proc-time'])
     expect(head.textContent).not.toContain('⚠')
   })
 
@@ -271,7 +271,7 @@ describe('过程卡：运行中与秒表', () => {
     const group = container.querySelector('.chat-proc') as HTMLElement
     expect(group.className).toContain('chat-proc-running')
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(head.querySelector('.chat-proc-time')).toBeNull()
     const dot = container.querySelector('.chat-step-dot') as HTMLElement
     expect(dot.getAttribute('data-state')).toBe('running')
@@ -287,7 +287,7 @@ describe('过程卡：运行中与秒表', () => {
       tools: [runningTool],
     }))
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时3分33秒')
   })
 
@@ -325,7 +325,7 @@ describe('过程卡：按步定格的行靠"活跃轮次"判还在跑（真机 1
 
     expect(container.querySelector('.chat-proc')!.className).toContain('chat-proc-running')
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时3分33秒')
     expect(container.querySelector('.chat-step-state')!.textContent).toBe('完成')
   })
@@ -379,8 +379,8 @@ describe('过程卡：续跑不编造', () => {
   })
 })
 
-describe('回合尾报告卡：只报交回了什么', () => {
-  it('交付卡默认折叠，点头部才展开清单', () => {
+describe('交付卡：全页唯一的一张卡', () => {
+  it('卡头 + 交付物 + 产出文件常显；数量与耗时口径对齐定版图', () => {
     const { container } = renderRow({
       id: 'turn-tail:0',
       kind: 'turn',
@@ -393,42 +393,42 @@ describe('回合尾报告卡：只报交回了什么', () => {
       produced: ['src/a.ts'],
     })
 
-    const head = container.querySelector('.chat-turn-tail-head')!
-    expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(container.querySelector('.chat-turn-tail-count')!.textContent).toBe('2 个文件')
-    expect(container.textContent).not.toContain('交付物')
-    expect(container.textContent).not.toContain('本轮产出文件')
-
-    fireEvent.click(head)
-    expect(head.getAttribute('aria-expanded')).toBe('true')
-    expect(container.textContent).toContain('交付物')
-    expect(container.textContent).toContain('本轮产出文件')
-  })
-
-  it('有交付物与产出文件时报数量、列清单、打"已交付"徽标', () => {
-    const { container } = renderRow({
-      id: 'turn-tail:1',
-      kind: 'turn',
-      text: '',
-      seq: 20,
-      time: 200_000,
-      turn: 1,
-      durationMs: 384_000,
-      deliverables: [{ path: 'report.md', description: '交付报告' }],
-      produced: ['src/a.ts'],
-    })
-
-    expect(container.querySelector('.chat-turn-tail-title')!.textContent).toBe('本轮产出')
-    expect(container.querySelector('.chat-turn-tail-count')!.textContent).toBe('2 个文件')
-    fireEvent.click(container.querySelector('.chat-turn-tail-head')!)
-    expect(container.textContent).toContain('交付物')
-    expect(container.textContent).toContain('本轮产出文件')
-    expect(container.querySelector('.chat-turn-tail-badge')!.textContent).toBe('已交付')
-    expect(container.querySelector('.chat-turn-tail-time')).toBeNull()
+    expect(container.querySelector('.palm-delivery')).not.toBeNull()
+    // 卡头：✓ 交付完成 + 耗时（不再默认折叠，也不再写「本轮产出」）。
+    expect(container.querySelector('.palm-delivery-title')!.textContent).toBe('交付完成')
+    expect(container.querySelector('.palm-delivery-meta')!.textContent).toBe('6分24秒')
+    // 明细：交付物 + 产出文件各一行，带各自的类型标签。
+    expect(container.textContent).toContain('交付报告')
+    expect(container.textContent).toContain('src/a.ts')
+    expect(container.querySelector('.palm-delivery-tag')!.textContent).toBe('交付物')
+    // 汇总行给真实文件数；「用时」二字只属于过程头，不在卡里重复。
+    expect(container.querySelector('.palm-delivery-sum')!.textContent).toContain('2 个文件')
     expect(container.textContent).not.toContain('用时')
   })
 
-  it('只有用时的尾巴不再渲染（没有空壳卡）', () => {
+  it('失败/中断的回合不画交付卡（终态交给状态条）', () => {
+    const { container } = render(
+      <MessageRow
+        message={{
+          id: 'turn-tail:1',
+          kind: 'turn',
+          text: '',
+          seq: 20,
+          time: 200_000,
+          turn: 1,
+          durationMs: 19_000,
+          produced: ['src/a.ts'],
+        }}
+        showToolCalls
+        showSystemMessages={false}
+        turnCompleted={false}
+      />,
+    )
+    expect(container.querySelector('.palm-delivery')).toBeNull()
+    expect(container.querySelector('.chat-turn-tail')).toBeNull()
+  })
+
+  it('只有用时、什么都没交回的尾巴不再渲染（没有空壳卡）', () => {
     const { container } = renderRow({
       id: 'turn-tail:2',
       kind: 'turn',

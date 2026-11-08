@@ -909,3 +909,271 @@ button.settings-row:active {
 .palm-strip-rail i[data-state='now'] {
   background: var(--palm-strip-rail-now);
 }
+
+/* ── 会话正文流：任务头（状态点 + 状态词 + 步数 + 耗时 / 目标 / 状态条） ──
+   版式真源：overview.html「2 · 会话正文」；delivery-card.html A 图的 .thead。
+   四行固定顺序：①状态行 ②目标（15px/600）③状态条 ④弱化元信息行。 */
+.palm-turn-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding-block: var(--palm-s1) var(--palm-s3);
+}
+
+.palm-turn-top {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  min-block-size: var(--palm-s5);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.palm-turn-dot {
+  flex: none;
+  inline-size: var(--palm-flow-dot);
+  block-size: var(--palm-flow-dot);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-fg-3);
+}
+
+.palm-turn-head[data-kind='think'] .palm-turn-dot,
+.palm-turn-head[data-kind='unknown'] .palm-turn-dot { background: var(--palm-accent); }
+.palm-turn-head[data-kind='read'] .palm-turn-dot,
+.palm-turn-head[data-kind='edit'] .palm-turn-dot,
+.palm-turn-head[data-kind='test'] .palm-turn-dot { background: var(--palm-accent-2); }
+.palm-turn-head[data-kind='approve'] .palm-turn-dot,
+.palm-turn-head[data-kind='stuck'] .palm-turn-dot { background: var(--palm-warn); }
+.palm-turn-head[data-kind='done'] .palm-turn-dot { background: var(--palm-ok); }
+.palm-turn-head[data-kind='failed'] .palm-turn-dot { background: var(--palm-danger); }
+
+.palm-turn-state {
+  color: var(--palm-fg-2);
+  font-weight: var(--palm-w-normal);
+}
+
+.palm-turn-steps { color: var(--palm-fg-3); }
+
+.palm-turn-time {
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-turn-goal {
+  margin: 0;
+  color: var(--palm-fg);
+  font-size: var(--palm-flow-goal-size);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  letter-spacing: -0.01em;
+}
+
+.palm-turn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s1);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+/* ── 过程折叠行：「▸ 7 步过程 · 31 次工具调用」 ────────────────────────
+   整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
+   这里只画，不新建状态。运行中在下方追加「最近 3 步」。 */
+.palm-proc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  text-align: start;
+}
+
+button.palm-proc { cursor: pointer; }
+
+button.palm-proc:active { opacity: 0.72; }
+
+button.palm-proc:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: 2px;
+}
+
+.palm-proc-caret {
+  flex: none;
+  inline-size: var(--palm-s3);
+  color: var(--palm-fg-3);
+}
+
+.palm-proc-main { color: var(--palm-fg-2); }
+
+.palm-proc-note { color: var(--palm-warn); }
+
+.palm-proc-time {
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-proc-recent {
+  flex-basis: 100%;
+  padding-inline-start: var(--palm-s5);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+/* ── 交付卡：全页唯一的一张卡 ────────────────────────────────────────
+   版式真源：delivery-card.html A 图（卡头 → 交付物/改动行 → 汇总 → 卡尾）。
+   根节点带 chat-turn-tail 是给卡片诊断探针与既有行身份用的历史钩子，
+   卡面本身全部由 palm-delivery-* 重画。 */
+.palm-delivery {
+  display: block;
+  margin-block-start: var(--palm-s3);
+  padding: 0;
+  border: var(--palm-hair) solid var(--palm-flow-card-line);
+  border-radius: var(--palm-flow-card-r);
+  background: var(--palm-flow-card-bg);
+  overflow: hidden;
+}
+
+.palm-delivery-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s3) var(--palm-s2);
+  border-block-end: var(--palm-hair) solid var(--palm-flow-rule);
+}
+
+.palm-delivery-check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--palm-s5);
+  block-size: var(--palm-s5);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-tint-ok);
+  color: var(--palm-ok);
+  font-size: var(--palm-t-s);
+}
+
+.palm-delivery-title {
+  color: var(--palm-fg);
+  font-size: var(--palm-flow-title-size);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-delivery-meta {
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-delivery-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s1) var(--palm-s3);
+  border: 0;
+  background: none;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-flow-row-size);
+  text-align: start;
+}
+
+.palm-delivery-row + .palm-delivery-row {
+  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+}
+
+button.palm-delivery-row { cursor: pointer; }
+
+button.palm-delivery-row:active { background: var(--palm-tint-accent); }
+
+button.palm-delivery-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: -2px;
+}
+
+.palm-delivery-icon {
+  flex: none;
+  inline-size: var(--palm-s4);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+.palm-delivery-name {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-delivery-tally {
+  flex: none;
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-flow-tally-size);
+}
+
+.palm-delivery-add { color: var(--palm-ok); }
+
+.palm-delivery-del { color: var(--palm-danger); }
+
+.palm-delivery-tag {
+  flex: none;
+  padding: 2px var(--palm-s1);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-flow-tag-ok);
+  color: var(--palm-ok);
+  font-size: var(--palm-flow-tag-size);
+}
+
+.palm-delivery-tag[data-kind='edit'] {
+  background: var(--palm-flow-tag-edit);
+  color: var(--palm-accent);
+}
+
+.palm-delivery-sum {
+  display: flex;
+  gap: var(--palm-s3);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+.palm-delivery-count b {
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-delivery-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+.palm-delivery-more {
+  margin-inline-start: auto;
+  min-block-size: var(--palm-hit);
+  color: var(--palm-accent);
+}
+
+.palm-delivery-more:active { opacity: 0.72; }
+

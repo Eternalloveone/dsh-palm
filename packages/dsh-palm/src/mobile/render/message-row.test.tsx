@@ -135,11 +135,11 @@ describe('MessageRow flow body (layout stability)', () => {
     // 标题行只有一行：跑了几个工具 + 右侧总耗时。
     const pendingHead = pending.container.querySelector('.chat-proc-head') as HTMLElement
     expect(procLines(pendingHead)).toHaveLength(1)
-    expect(pendingHead.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(pendingHead.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(pendingHead.querySelector('.chat-proc-time')).toBeNull()
     const settledHead = settled.container.querySelector('.chat-proc-head') as HTMLElement
     expect(procLines(settledHead)).toHaveLength(1)
-    expect(settledHead.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(settledHead.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(settledHead.querySelector('.chat-proc-time')!.textContent).toBe('用时1分20秒')
     expect(settledHead.getAttribute('aria-expanded')).toBe('false')
   })
@@ -298,7 +298,7 @@ describe('MessageRow flow body (layout stability)', () => {
 
     const running = render(<MessageRow message={runningRow} showToolCalls showSystemMessages={false} />)
     const runningHead = running.container.querySelector('.chat-proc-head') as HTMLElement
-    expect(runningHead.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(runningHead.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(runningHead.querySelector('.chat-proc-time')).toBeNull()
     const runningStep = running.container.querySelector('.chat-step') as HTMLElement
     expect(runningStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('running')

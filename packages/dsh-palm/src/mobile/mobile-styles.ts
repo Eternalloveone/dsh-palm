@@ -113,6 +113,24 @@ export const mobileCss = `${designTokensCss()}
   --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
   --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
   --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);
+
+  /* ── 会话正文流（任务头 / 过程折叠行 / 交付卡） ───────────────────────
+   * 版式真源：docs/prototype/overview.html「2 · 会话正文」
+   *          + docs/prototype/delivery-card.html A 图。
+   * 渐变与半透明底色只落在这里：组件样式表一律引用 palm-flow-* 令牌（不写裸色）。 */
+  --palm-flow-goal-size: 15px;
+  --palm-flow-title-size: 13px;
+  --palm-flow-row-size: 12.5px;
+  --palm-flow-meta-size: 10.5px;
+  --palm-flow-tally-size: 10px;
+  --palm-flow-tag-size: 9.5px;
+  --palm-flow-dot: 7px;
+  --palm-flow-card-r: 14px;
+  --palm-flow-rule: rgba(255, 255, 255, 0.05);
+  --palm-flow-card-line: rgba(61, 220, 132, 0.22);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 220, 132, 0.06), rgba(20, 20, 27, 0.9));
+  --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
+  --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -4191,143 +4209,6 @@ button.settings-row:focus-visible {
 }
 
 /*
- * Turn tail (desktop turn-tail): what the turn handed back as a report card —
- * declared deliverables and the files the turn produced. No duration here: the
- * process group head already carries it (one place, one number).
- */
-.chat-turn-tail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding: 10px 12px;
-  /* 卡片框要能一眼从普通回复里分出来：主题色描边 + 左侧实色条 + 淡染底，
-     比原来的 --border-subtle 细灰边醒目得多，又不至于抢正文的注意力。 */
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-subtle));
-  border-left: 3px solid var(--accent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 7%, var(--card-bg));
-}
-
-.chat-turn-tail-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-
-.chat-turn-tail-title {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.02em;
-}
-
-.chat-turn-tail-time {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--accent);
-}
-
-.chat-turn-tail-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.chat-turn-tail-label {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-/* 一行一个文件：左边扩展名小块，中间「文件名 + 目录」，右边箭头。原来的
-   单行绝对路径在手机上被截成开头相同的两行，认不出是哪个文件。 */
-.chat-turn-tail-file {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: var(--fill);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
-}
-
-.chat-turn-tail-file:active {
-  background: var(--fill-strong);
-  border-color: var(--border-default);
-}
-
-.chat-turn-tail-chip {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: var(--card-bg);
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.chat-turn-tail-file-main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.chat-turn-tail-file-name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  font-weight: 550;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-turn-tail-chevron {
-  flex-shrink: 0;
-  color: var(--text-quaternary);
-  font-size: var(--text-md);
-  line-height: 1;
-}
-
-.chat-turn-tail-count {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--accent);
-}
-
-.chat-turn-tail-badge {
-  padding: 1px 6px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-chip);
-  color: var(--accent);
-  font-size: var(--text-xs);
-}
-
-.chat-turn-tail-file-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-quaternary);
-}
-
-/*
  * 工具块的行（对照稿）：一行一个工具 = 状态点 + 动作 · 对象 + 右侧状态词。
  * 行与行之间只用一条细线分隔，整块是卡里的一张表，不是一叠小卡。
  */
@@ -8321,6 +8202,274 @@ button.settings-row:active {
 .palm-strip-rail i[data-state='now'] {
   background: var(--palm-strip-rail-now);
 }
+
+/* ── 会话正文流：任务头（状态点 + 状态词 + 步数 + 耗时 / 目标 / 状态条） ──
+   版式真源：overview.html「2 · 会话正文」；delivery-card.html A 图的 .thead。
+   四行固定顺序：①状态行 ②目标（15px/600）③状态条 ④弱化元信息行。 */
+.palm-turn-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding-block: var(--palm-s1) var(--palm-s3);
+}
+
+.palm-turn-top {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  min-block-size: var(--palm-s5);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.palm-turn-dot {
+  flex: none;
+  inline-size: var(--palm-flow-dot);
+  block-size: var(--palm-flow-dot);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-fg-3);
+}
+
+.palm-turn-head[data-kind='think'] .palm-turn-dot,
+.palm-turn-head[data-kind='unknown'] .palm-turn-dot { background: var(--palm-accent); }
+.palm-turn-head[data-kind='read'] .palm-turn-dot,
+.palm-turn-head[data-kind='edit'] .palm-turn-dot,
+.palm-turn-head[data-kind='test'] .palm-turn-dot { background: var(--palm-accent-2); }
+.palm-turn-head[data-kind='approve'] .palm-turn-dot,
+.palm-turn-head[data-kind='stuck'] .palm-turn-dot { background: var(--palm-warn); }
+.palm-turn-head[data-kind='done'] .palm-turn-dot { background: var(--palm-ok); }
+.palm-turn-head[data-kind='failed'] .palm-turn-dot { background: var(--palm-danger); }
+
+.palm-turn-state {
+  color: var(--palm-fg-2);
+  font-weight: var(--palm-w-normal);
+}
+
+.palm-turn-steps { color: var(--palm-fg-3); }
+
+.palm-turn-time {
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-turn-goal {
+  margin: 0;
+  color: var(--palm-fg);
+  font-size: var(--palm-flow-goal-size);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  letter-spacing: -0.01em;
+}
+
+.palm-turn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s1);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+/* ── 过程折叠行：「▸ 7 步过程 · 31 次工具调用」 ────────────────────────
+   整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
+   这里只画，不新建状态。运行中在下方追加「最近 3 步」。 */
+.palm-proc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  text-align: start;
+}
+
+button.palm-proc { cursor: pointer; }
+
+button.palm-proc:active { opacity: 0.72; }
+
+button.palm-proc:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: 2px;
+}
+
+.palm-proc-caret {
+  flex: none;
+  inline-size: var(--palm-s3);
+  color: var(--palm-fg-3);
+}
+
+.palm-proc-main { color: var(--palm-fg-2); }
+
+.palm-proc-note { color: var(--palm-warn); }
+
+.palm-proc-time {
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-proc-recent {
+  flex-basis: 100%;
+  padding-inline-start: var(--palm-s5);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+/* ── 交付卡：全页唯一的一张卡 ────────────────────────────────────────
+   版式真源：delivery-card.html A 图（卡头 → 交付物/改动行 → 汇总 → 卡尾）。
+   根节点带 chat-turn-tail 是给卡片诊断探针与既有行身份用的历史钩子，
+   卡面本身全部由 palm-delivery-* 重画。 */
+.palm-delivery {
+  display: block;
+  margin-block-start: var(--palm-s3);
+  padding: 0;
+  border: var(--palm-hair) solid var(--palm-flow-card-line);
+  border-radius: var(--palm-flow-card-r);
+  background: var(--palm-flow-card-bg);
+  overflow: hidden;
+}
+
+.palm-delivery-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s3) var(--palm-s2);
+  border-block-end: var(--palm-hair) solid var(--palm-flow-rule);
+}
+
+.palm-delivery-check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--palm-s5);
+  block-size: var(--palm-s5);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-tint-ok);
+  color: var(--palm-ok);
+  font-size: var(--palm-t-s);
+}
+
+.palm-delivery-title {
+  color: var(--palm-fg);
+  font-size: var(--palm-flow-title-size);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-delivery-meta {
+  margin-inline-start: auto;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.palm-delivery-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s1) var(--palm-s3);
+  border: 0;
+  background: none;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-flow-row-size);
+  text-align: start;
+}
+
+.palm-delivery-row + .palm-delivery-row {
+  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+}
+
+button.palm-delivery-row { cursor: pointer; }
+
+button.palm-delivery-row:active { background: var(--palm-tint-accent); }
+
+button.palm-delivery-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: -2px;
+}
+
+.palm-delivery-icon {
+  flex: none;
+  inline-size: var(--palm-s4);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+.palm-delivery-name {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-delivery-tally {
+  flex: none;
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-flow-tally-size);
+}
+
+.palm-delivery-add { color: var(--palm-ok); }
+
+.palm-delivery-del { color: var(--palm-danger); }
+
+.palm-delivery-tag {
+  flex: none;
+  padding: 2px var(--palm-s1);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-flow-tag-ok);
+  color: var(--palm-ok);
+  font-size: var(--palm-flow-tag-size);
+}
+
+.palm-delivery-tag[data-kind='edit'] {
+  background: var(--palm-flow-tag-edit);
+  color: var(--palm-accent);
+}
+
+.palm-delivery-sum {
+  display: flex;
+  gap: var(--palm-s3);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+.palm-delivery-count b {
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-delivery-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-3);
+}
+
+.palm-delivery-more {
+  margin-inline-start: auto;
+  min-block-size: var(--palm-hit);
+  color: var(--palm-accent);
+}
+
+.palm-delivery-more:active { opacity: 0.72; }
+
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -9703,28 +9852,6 @@ details.think-block[open] .chat-disclosure-caret {
   font-size: var(--text-xs);
   font-weight: 600;
   line-height: 1;
-}
-
-/* 交付卡头部当开关用时：保持原样，只补右端箭头与点击态 */
-button.chat-turn-tail-head {
-  width: 100%;
-  /* 它是折叠开关：17px 高的按钮摸不着（实测 334x17），给到 36px 热区。 */
-  min-height: 36px;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-button.chat-turn-tail-head:active { opacity: 0.7; }
-.chat-turn-tail-head-chevron {
-  margin-left: auto;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
 }
 
 /* 运行中页的校准细条：只表示"在问宿主"，不遮挡内容 */

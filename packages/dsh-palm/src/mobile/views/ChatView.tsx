@@ -41,14 +41,14 @@ import { useChatGoal } from './chat/hooks/use-chat-goal.ts'
 import { useChatConnectivity } from './chat/hooks/use-chat-connectivity.ts'
 import { useChatSubagents } from './chat/hooks/use-chat-subagents.ts'
 import { useChatActions } from './chat/hooks/use-chat-actions.ts'
-import { BOTTOM_FOLLOW_THRESHOLD_PX, NEAR_TOP_LOAD_PX, useScrollFollow } from './chat/hooks/use-chat-scroll-follow.ts'
+import { BOTTOM_FOLLOW_THRESHOLD_PX, useScrollFollow } from './chat/hooks/use-chat-scroll-follow.ts'
 // 测试直接从这个模块导入它；搬走后保持对外形状不变。
 export { loadTurnReportRows } from './chat/lib/chat-turn-report.ts'
-import { CONTENT_VISIBILITY_KEEP_BOTTOM, LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/state/chat-scroll.ts'
+import { LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_PX, TURN_SCRUB_TRACK_INSET_PX, escapeAttr, offersRegenerate, quotePathForReference, scrubTrackRight } from './chat/state/chat-scroll.ts'
 // 这两个原本从这里导出、被测试直接引用；搬走后保持对外形状不变（测试不该被迫改 import）。
 export { offersRegenerate, quotePathForReference } from './chat/state/chat-scroll.ts'
 import { estimateMessageHeight, messageKey } from './chat/lib/chat-layout.ts'
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
 import { useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
@@ -217,7 +217,6 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../session/turn-outline.ts'
 import { collectArtifacts, type ArtifactTurn } from '../session/artifacts.ts'
 import { TurnScrubber } from '../components/turn-scrubber.tsx'
-import { TaskStatusBar } from '../render/task-status.tsx'
 import type { JobView } from '../../api-proxy-types'
 import { SUBAGENT_POLL_MS, fetchSubagentsFlat, type SubagentFlatNode } from '../session/subagent-tree.ts'
 import type { HostBridge } from '../kernels/host-bridge.ts'
@@ -3889,7 +3888,7 @@ export function ChatView({
           sessionId={session.sessionId}
           showToolCalls={showToolCalls}
           showSystemMessages={showSystemMessages}
-          hostNowMs={hostClock.hostNow()}
+          hostNowMs={hostClock.hostNow()} goal={goal?.objective}
           clockAnchor={clockAnchor ?? undefined}
           liveTurn={liveTurn}
           liveClockTick={liveClockTick}

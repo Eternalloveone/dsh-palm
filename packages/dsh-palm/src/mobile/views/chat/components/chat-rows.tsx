@@ -7,7 +7,9 @@
  */
 import type { CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
+import { toolDiffLines } from '../../../render/process-rows.ts'
 import { MessageRow } from '../../../render/message-row.tsx'
+import { planStepsOf, type TaskSteps } from '../../../session/task-status.ts'
 import { Button } from '../../../ui/primitives.tsx'
 
 /** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */
@@ -63,6 +65,8 @@ export interface ChatRowsView {
   showSystemMessages: boolean
   /** 宿主时间（毫秒）：行内秒表只做「宿主时间 − 锚点」，没校准就没有秒表（W3-5）。 */
   hostNowMs?: number
+  /** 会话目标（任务头第二行「目标」）：只认宿主给的目标，不拿用户原话凑。 */
+  goal?: string
   /** 秒表的真锚点（日志里的 turn/start）。 */
   clockAnchor: number | undefined
   liveTurn: number | undefined
@@ -96,14 +100,41 @@ export interface ChatRowsView {
 
 export function ChatRows(view: ChatRowsView): React.ReactElement {
   const rows = dedupeRows(view.messages)
-  // 结论卡的那行大号数字：本轮真实发生的工具调用数。turn 尾行自己不携带工具，
-  // 只能从同一轮的各条 assistant 行里按 callId 去重数——数不到就不传（不补 0）。
-  const toolsByTurn = new Map<number, Set<string>>()
+  // ── 按轮折叠的「任务头 / 交付卡」数据 ──────────────────────────────────
+  // 一个回合的数据散在多行上（每步一条 assistant + 一条 turn 收尾行），视图层只在
+  // 这里折一次；MessageRow 只负责画，不自己猜数字（拿不到的字段留 undefined）。
+  /** 这一轮的计划步数：计划快照只挂在 turn 收尾行上，回填给同一轮的所有行。 */
+  const stepsByTurn = new Map<number, TaskSteps>()
+  /** 这一轮改过哪些文件 + 增删行数（diff 视图里读，按路径合并）。 */
+  const changesByTurn = new Map<number, { path: string; adds: number; dels: number }[]>()
+  /** 失败 / 截断的回合：交付卡不画，终态交给状态条。 */
+  const brokenTurns = new Set<number>()
   for (const row of rows) {
-    if (row.turn === undefined || row.kind !== 'assistant') continue
-    const seen = toolsByTurn.get(row.turn) ?? new Set<string>()
-    for (const tool of row.tools ?? []) seen.add(tool.callId)
-    toolsByTurn.set(row.turn, seen)
+    const turn = row.turn
+    if (turn === undefined) continue
+    if (row.kind === 'turn') {
+      if (row.plan !== undefined) stepsByTurn.set(turn, planStepsOf(row.plan) ?? { done: 0, total: row.plan.items.length })
+      continue
+    }
+    if (row.kind !== 'assistant') continue
+    // 只认宿主明说过的失败/截断（turn/end 的 error / max-tokens）：
+    // `stopped` 工具有两种来路（真中断 / 结果帧没折进来），不能拿来判「这一轮没成」。
+    if (row.failed === true || row.maxTokens === true) brokenTurns.add(turn)
+    const changes = changesByTurn.get(turn) ?? []
+    for (const tool of row.tools ?? []) {
+      for (const diff of tool.view?.diffs ?? []) {
+        const adds = toolDiffLines(diff.newText).length
+        const dels = diff.oldText === null || diff.oldText === undefined ? 0 : toolDiffLines(diff.oldText).length
+        const hit = changes.find(change => change.path === diff.path)
+        // 同一文件可能被写好几次：取最大的一次（最终文件形态），不累加中间态。
+        if (hit === undefined) changes.push({ path: diff.path, adds, dels })
+        else {
+          hit.adds = Math.max(hit.adds, adds)
+          hit.dels = Math.max(hit.dels, dels)
+        }
+      }
+    }
+    changesByTurn.set(turn, changes)
   }
   return (
     <>
@@ -132,15 +163,12 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${view.estimateHeight(message)}px` }
           : undefined
         const interrupted = view.rowOfInterrupted(message)
-        const turnTools = message.kind === 'turn' && message.turn !== undefined
-          ? toolsByTurn.get(message.turn)?.size
-          : undefined
+        const turn = message.turn
         return (
           <MessageRow
             key={view.rowKeyOf(message)}
             enter={animateIn}
             message={interrupted}
-            turnTools={turnTools}
             sessionId={view.sessionId}
             showToolCalls={view.showToolCalls}
             showSystemMessages={view.showSystemMessages}
@@ -157,6 +185,10 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
             onOpenFile={(path) => { view.onOpenFile(path) }}
             onRegenerate={view.regenerateFor(message)}
             regenerateState={view.regenerateState}
+            {...(view.goal === undefined || view.goal === '' ? {} : { turnGoal: view.goal })}
+            {...(turn === undefined || stepsByTurn.get(turn) === undefined ? {} : { turnSteps: stepsByTurn.get(turn) })}
+            {...(turn === undefined || message.kind !== 'turn' || changesByTurn.get(turn) === undefined ? {} : { turnChanges: changesByTurn.get(turn) })}
+            {...(message.kind !== 'turn' ? {} : { turnCompleted: turn === undefined || !brokenTurns.has(turn) })}
           />
         )
       })}

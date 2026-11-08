@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1539
   },
   "dirs": {
-    "src/mobile": 66225,
+    "src/mobile": 66816,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2800,
@@ -24,14 +24,14 @@
     "src/mobile/session": 3388,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1731,
-    "src/mobile/views": 22636,
+    "src/mobile/ui": 2248,
+    "src/mobile/views": 22648,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134
   },
   "dirsRaised": {
     "src/mobile": {
-      "reason": "状态条组件（ui/status-strip.tsx + session/task-status.ts：11 种状态 / 刻度轨 / 五条兜底 / 存储往返）与 30 条单测；P8 删旧浮层后统一回落",
+      "reason": "会话正文流接入：ui/ 下新增任务头 turn-header、交付卡 delivery-card、过程折叠行 process-line 三个组件（约 520 行），ChatRows 增加按轮折叠数据；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/styles": {
@@ -43,7 +43,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/ui": {
-      "reason": "状态条组件 ui/status-strip.tsx（32px 主条 / 132×22 迷你条 / 方案 A 刻度轨 / 11 种内联宠物）+ 9 条渲染单测；P8 统一回落",
+      "reason": "会话正文流三件套：turn-header（状态行/目标/状态条/元信息）、delivery-card（卡头/交付物/改动/汇总/卡尾）、process-line（步数+工具调用数+最近 3 步）；P8 统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/api": {
@@ -55,7 +55,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/views": {
-      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
+      "reason": "ChatRows 按轮折叠正文流数据（计划步数 / 改过的文件增删 / 失败轮集合 / 会话目标）供任务头与交付卡；P8 统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/render": {

@@ -17,6 +17,9 @@ import {
   type ProcessModel,
 } from '../render/process-rows.ts'
 import { Button } from '../ui/primitives.tsx'
+import { TurnHeader } from '../ui/turn-header.tsx'
+import { deriveTaskStatus, planStepsOf, taskActivityOf, type TaskSteps } from '../session/task-status.ts'
+import { isRowRunning } from '../render/process-rows.ts'
 import { ProcessGroup } from './process.tsx'
 
 /**
@@ -26,7 +29,7 @@ import { ProcessGroup } from './process.tsx'
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
+export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, liveClockTick, turnGoal, modelName, turnSteps }: {
   message: RenderMessage
   showToolCalls: boolean
   forceOpen: boolean
@@ -41,6 +44,12 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
   settled?: boolean
   /** 父级的 1 Hz 心跳（见 live-clock.ts）：只有正在跑的那一行才收得到。 */
   liveClockTick?: number
+  /** 这一轮的目标（用户请求原文，由 ChatRows 按轮折出来）：任务头第二行。 */
+  turnGoal?: string
+  /** 模型名：任务头元信息行（拿不到就不显示）。 */
+  modelName?: string
+  /** 这一轮的计划步数（计划快照可能只挂在收尾行上，由 ChatRows 回填）。 */
+  turnSteps?: TaskSteps
 }) {
   // 判据的第二行（第二行状态词）与头的状态词必须同源：[liveTurn] 也要进依赖，
   // 否则活跃轮次一变（turn/end 到了、下一轮开了）这一行的第二行不会重算。
@@ -52,9 +61,46 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
   // （见 messages.ts 的 mergeProcessCardsByTurn）。这一段只负责它的正文。
   const showGroup = message.processCardOwner !== false
     && (visibleRows > 0 || message.durationMs !== undefined || message.turnStartAt !== undefined)
+  // 任务头（新「会话正文流」的第一块）：状态/步数/进度/耗时全部从现有回合数据折出来，
+  // 不再另造一份「现在到哪一步」。运行中报实时秒表，收工后以 turn/end 的 durationMs 定格。
+  const running = isRowRunning(message, liveTurn, settled)
+  const anchor = message.turnStartAt ?? liveTurnStartAt
+  const now = hostNowMs ?? Date.now()
+  const liveElapsed = running && anchor !== undefined ? Math.max(0, now - anchor) : undefined
+  const status = deriveTaskStatus({
+    now,
+    turn: {
+      running,
+      ...(message.turn === undefined ? {} : { turnNo: message.turn }),
+      ...(anchor === undefined ? {} : { startedAt: anchor }),
+      ...(message.time === undefined ? {} : { lastActivityAt: message.time }),
+    },
+    ...(message.plan === undefined ? {} : { plan: message.plan }),
+    activity: taskActivityOf([message]),
+    ...(model.outcome === 'ok'
+      ? { outcome: 'completed' as const }
+      : model.outcome === 'failed'
+        ? { outcome: 'failed' as const }
+        : model.outcome === 'stopped'
+          ? { outcome: 'cancelled' as const }
+          : {}),
+  })
+  const headerSteps = status.steps ?? turnSteps ?? planStepsOf(message.plan)
+  const headerDuration = running ? liveElapsed : message.durationMs
   const answer = model.answer
   return (
     <>
+      {message.processCardOwner !== false && (
+        <TurnHeader
+          kind={status.kind}
+          {...(headerSteps === undefined ? {} : { steps: headerSteps })}
+          {...(status.progress === undefined ? {} : { progress: status.progress })}
+          {...(headerDuration === undefined ? {} : { durationMs: headerDuration })}
+          {...(turnGoal === undefined ? {} : { goal: turnGoal })}
+          {...(model.changedFiles > 0 ? { changedFiles: model.changedFiles } : {})}
+          {...(modelName === undefined || modelName === '' ? {} : { model: modelName })}
+        />
+      )}
       {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />}
       {answer !== undefined && answer !== '' && (model.answerSeq === undefined ? (
         <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />

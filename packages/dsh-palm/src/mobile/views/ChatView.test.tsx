@@ -465,7 +465,7 @@ describe('ChatView message folds', () => {
     const head = await findProcHead()
     expect(head.getAttribute('aria-expanded')).toBe('false')
     expect(head.querySelectorAll('.chat-proc-line')).toHaveLength(1)
-    expect(procStateOf(head)).toBe('跑了 1 个工具')
+    expect(procStateOf(head)).toBe('1 次工具调用')
     expect(procTimeOf(head)).toBe('')
     expect(head.textContent).not.toContain('步')
     // 工具行默认可见（绿点 + 动作 · 参数 + 完成），不再藏在展开体里。
@@ -496,7 +496,7 @@ describe('ChatView message folds', () => {
 
     const head = await findProcHead()
     expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(procStateOf(head)).toBe('跑了 1 个工具')
+    expect(procStateOf(head)).toBe('1 次工具调用')
     expect(procTimeOf(head)).toBe('')
     expect(head.textContent).not.toContain('步')
     expect(screen.queryByText('{"cmd":"ls"}')).toBeNull()
@@ -507,7 +507,8 @@ describe('ChatView message folds', () => {
     const step = await within(document.querySelector('.chat-proc') as HTMLElement)
       .findByRole('button', { name: /运行命令/ })
     // 这一轮的调用已被 tool/result 收尾（settledTurnEvents）⇒ 行读"完成"。
-    expect(screen.getByText('完成')).toBeTruthy()
+    // （任务头状态条上也有「完成」字样，按行作用域取，避免两处同名。）
+    expect(within(step).getByText('完成')).toBeTruthy()
     expect(screen.getByText('ls')).toBeTruthy()
     expect(screen.queryByText('{"cmd":"ls"}')).toBeNull()
 
@@ -611,17 +612,16 @@ describe('ChatView message folds', () => {
     // 只有时钟、没有过程行 ⇒ 第二行不渲染（静态头只有一行）。
     expect(staticHead.querySelectorAll('.chat-proc-line')).toHaveLength(1)
 
-    // The tail reports only what the turn handed back.
-    const tail = await screen.findByText('本轮产出')
+    // The tail reports only what the turn handed back（交付卡：卡头 + 明细 + 汇总）。
+    const tail = await screen.findByText('交付完成')
     expect(tail.closest('.chat-turn-tail')).not.toBeNull()
-    expect(container.querySelector('.chat-turn-tail .chat-turn-tail-head .chat-turn-tail-count')!.textContent).toBe('1 个文件')
+    expect(container.querySelector('.palm-delivery-sum')!.textContent).toContain('1 个文件')
     // 用时不再在尾巴里重复报（它只在过程卡第一行，见上）。
     expect(tail.closest('.chat-turn-tail')!.textContent).not.toContain('用时')
-    // 只有一组清单时不再重复内层标题（头部已经写了「本轮产出」）。
-    expect(screen.queryByText('交付物')).toBeNull()
+    // 明细行自带类型标签；旧的「本轮产出文件」分组标题已经随折叠卡一起删掉。
     expect(screen.queryByText('本轮产出文件')).toBeNull()
-    // A declared deliverable carries the 已交付 badge on its file row.
-    expect(screen.getByText('已交付')).toBeTruthy()
+    // A declared deliverable carries the 交付物 tag on its file row.
+    expect(screen.getByText('交付物')).toBeTruthy()
     const file = screen.getByRole('button', { name: /交付报告/ })
     expect(file.getAttribute('title')).toContain('report.md')
     // The tail is the last row of the turn.
@@ -629,7 +629,7 @@ describe('ChatView message folds', () => {
     expect(rows[rows.length - 1]!.className).toContain('chat-turn-tail')
   })
 
-it('交付卡同时有交付物与产出文件时，两组各自带内层标题', async () => {
+it('交付卡同时有交付物与产出文件时，两行各带类型标签', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '写报告' }] }, 0),
       makeEntry('turn/start', { turn: 1 }, 1),
@@ -644,9 +644,9 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
       makeEntry('turn/end', { turn: 1, reason: { kind: 'done' } }, 6),
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByText('本轮产出')
+    await screen.findByText('交付完成')
     expect(screen.getByText('交付物')).toBeTruthy()
-    expect(screen.getByText('本轮产出文件')).toBeTruthy()
+    expect(screen.getByText('out.txt')).toBeTruthy()
   })
 
   it('does not paint a guessed deliverable card on entry (avoids rewrite a second later)', async () => {
@@ -704,7 +704,7 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('本轮产出')
+    const title = await screen.findByText('交付完成')
     expect(title.closest('.chat-turn-tail')).not.toBeNull()
     expect(historyMock).toHaveBeenCalledTimes(1)
   })
@@ -731,7 +731,7 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('本轮产出')
+    const title = await screen.findByText('交付完成')
     expect(title.closest('.chat-turn-tail')?.textContent).toContain('a.ts')
     expect(historyMock).toHaveBeenCalledTimes(1)
   })
@@ -867,7 +867,7 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
     ], { hasMore: true }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('本轮产出')
+    const title = await screen.findByText('交付完成')
     const tail = title.closest('.chat-turn-tail') as HTMLElement
     expect(tail.textContent).toContain('2 个文件')
     expect(tail.textContent).toContain('a.md')
@@ -910,7 +910,7 @@ it('交付卡同时有交付物与产出文件时，两组各自带内层标题'
     ], { hasMore: true }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('本轮产出')
+    const title = await screen.findByText('交付完成')
     const tail = title.closest('.chat-turn-tail') as HTMLElement
     expect(tail.textContent).toContain('2 个文件')
     expect(tail.textContent).toContain('a.md')
@@ -1195,7 +1195,7 @@ describe('ChatView initial-load race', () => {
     // 标题行：跑了几个工具 + 总耗时；工具行常显（点行展开参数）。
     const liveHead = liveRow.querySelector('.chat-proc-head') as HTMLElement
     expect(liveRow.querySelectorAll('.chat-proc-line')).toHaveLength(1)
-    expect(procStateOf(liveHead)).toBe('跑了 1 个工具')
+    expect(procStateOf(liveHead)).toBe('1 次工具调用')
     expect(procTimeOf(liveHead)).toBe('')
     const liveStep = liveRow.querySelector('.chat-step') as HTMLElement
     expect(liveStep.getAttribute('data-step-title')).toBe('写入')
@@ -2206,7 +2206,7 @@ describe('ChatView display toggles and context usage', () => {
       const head = await findProcHead()
       // 一轮一卡：三张卡合成一张。
       expect(container.querySelectorAll('.chat-proc')).toHaveLength(1)
-      expect(procStateOf(head)).toBe('跑了 3 个工具')
+      expect(procStateOf(head)).toBe('3 次工具调用')
       // 3 个工具全在（D2，展开体首行报步数），用时定格在真机那段 1分45秒。
       // 旧期望值 '用时1分45秒 · 3 步' → P11 新口径：卡面第一行只有用时。
       expect(procTimeOf(head)).toBe('用时1分45秒')
@@ -2251,7 +2251,7 @@ describe('ChatView display toggles and context usage', () => {
     const groupHead = await findProcHead()
     expect(groupHead.getAttribute('aria-expanded')).toBe('false')
     expect(groupHead.querySelectorAll('.chat-proc-line')).toHaveLength(1)
-    expect(procStateOf(groupHead)).toBe('跑了 1 个工具')
+    expect(procStateOf(groupHead)).toBe('1 次工具调用')
     expect(procTimeOf(groupHead)).toBe('')
     const step = container.querySelector('.chat-step') as HTMLElement
     expect(step.getAttribute('data-step-title')).toBe('写入')
@@ -2824,7 +2824,7 @@ describe('ChatView stop button (#1041)', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('跑一下')
-    expect(procStateOf(procHeadEl())).toBe('跑了 1 个工具')
+    expect(procStateOf(procHeadEl())).toBe('1 次工具调用')
     expect(document.querySelector('.chat-proc')!.className).toContain('chat-proc-running')
     expect(screen.queryByText('已完成')).toBeNull()
   })
@@ -5134,7 +5134,7 @@ describe('ChatView turn clock (#outputting timer)', () => {
       const mux = new FakeMux()
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
-      expect(procStateOf(lastProcHead())).toBe('跑了 1 个工具')
+      expect(procStateOf(lastProcHead())).toBe('1 次工具调用')
       expect(procTime()).toBe('用时1分29秒')
     } finally {
       vi.useRealTimers()
@@ -5336,7 +5336,7 @@ describe('ChatView stale turn boundary', () => {
     await flushPageLoad()
     const head = lastProcHead()
     expect(head.getAttribute('data-state')).toBe('stopped')
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
   })
 
 
@@ -5849,7 +5849,7 @@ it('does not light the indicator from a stale open turn when the host says nothi
       // （行自己没有 turnStartAt，靠页级锚点兜住）。
       const head = lastProcHead()
       expect(head.closest('.chat-proc')!.className).toContain('chat-proc-running')
-      expect(procStateOf(head)).toBe('跑了 1 个工具')
+      expect(procStateOf(head)).toBe('1 次工具调用')
       expect(procTime(head)).toBe('用时30秒')
       // 工具已经结算 ⇒ 行上的蓝点转绿、状态词照实写"完成"。
       expect(head.closest('.chat-proc')!.querySelector('.chat-step-state')!.textContent).toBe('完成')
@@ -5860,7 +5860,7 @@ it('does not light the indicator from a stale open turn when the host says nothi
       expect(turnStatusEl()).toBeNull()
       const settled = lastProcHead()
       expect(settled.closest('.chat-proc')!.className).not.toContain('chat-proc-running')
-      expect(procStateOf(settled)).toBe('跑了 1 个工具')
+      expect(procStateOf(settled)).toBe('1 次工具调用')
       expect(procTime(settled)).toBe('用时30秒')
     } finally {
       vi.useRealTimers()

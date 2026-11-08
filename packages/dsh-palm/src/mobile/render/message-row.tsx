@@ -8,14 +8,13 @@
  * @module dsh-palm/mobile/message-row
  */
 
-import { memo, useState, type CSSProperties } from 'react'
+import { memo, type CSSProperties } from 'react'
 import { formatTime } from '../shared/time.ts'
 import type { RenderMessage } from './messages.ts'
 import { triggerEmojiOf, triggerTitleOf } from './messages.ts'
 import { CollapsibleText } from './markdown-text.tsx'
-import { formatDuration } from './process-rows.ts'
-import { VerdictCard } from '../ui/verdict-card.tsx'
-import { turnVerdictProps } from '../views/chat/lib/turn-verdict.ts'
+import { DeliveryCard, type DeliveryFileChange } from '../ui/delivery-card.tsx'
+import type { TaskSteps } from '../session/task-status.ts'
 import { Button } from '../ui/primitives.tsx'
 
 
@@ -23,14 +22,13 @@ import { Button } from '../ui/primitives.tsx'
 import { forgetTurnAnchor, stableTurnAnchor, type RegenerateState } from '../message-row/anchors.ts'
 import { MessageFiles, MessageImages } from '../message-row/attachments.tsx'
 import { AssistantBody } from '../message-row/artifacts.tsx'
-import { baseName, fileBadgeLabel, parentPath } from '../message-row/artifact-cards.tsx'
 import { ProcessGroup } from '../message-row/process.tsx'
 
 // 兼容旧调用点：锚点逻辑在 message-row/anchors.ts，公开 API 不变。
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from '../message-row/anchors.ts'
 
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick, turnTools }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -89,8 +87,16 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   onRegenerate?: () => void
   /** 它自己的状态：待点、已发出（转圈）、发出失败（可再点）。 */
   regenerateState?: RegenerateState
-  /** 本轮真实工具调用数（ChatRows 按 (turn, callId) 去重数出来）：结论卡的大号数字用。 */
-  turnTools?: number
+  /** 这一轮的目标（用户请求原文，ChatRows 按轮折出来）：任务头第二行。 */
+  turnGoal?: string
+  /** 模型名：任务头元信息行（拿不到就不显示）。 */
+  modelName?: string
+  /** 这一轮的计划步数（计划快照可能只挂在收尾行上，由 ChatRows 回填）。 */
+  turnSteps?: TaskSteps
+  /** 这一轮的文件改动（含增删行数，ChatRows 按轮折出来）：交付卡的明细与汇总。 */
+  turnChanges?: readonly DeliveryFileChange[]
+  /** 这一轮是否正常收工；失败/中断传 false —— 交付卡不画（终态交给状态条）。 */
+  turnCompleted?: boolean
 }) {
   const focusSeqAttr = message.startSeq ?? message.seq
   // 宿主唤醒消息（子代理/任务/定时/团队/外部事件…）在手机端也出卡，与桌面端
@@ -149,141 +155,34 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       </div>
     )
   }
-  // Turn tail (the desktop's `turn-tail` node): what the turn cost and what it
-  // handed back — on the phone, a report card under the turn it closes. Every
-  // entry is tappable and opens the file preview (text/image inline).
-  // 计划胶囊的展开状态：整数行被 memo 包着，状态放在本行里最省事（不会牵动别的行）。
-  const [planOpen, setPlanOpen] = useState(false)
-  /**
-   * 交付卡整体是否展开。
-   *
-   * **默认折叠**（2026-11-01 用户要求）：一回合交回七八个文件时，展开的卡片能把半屏
-   * 占满，一条会话翻下来全是文件清单。折叠后头部仍然给出结论（「本轮产出 · N 个文件」），
-   * 想看清单点一下头部即可 —— 结论先给，明细按需。
-   */
-  const [tailOpen, setTailOpen] = useState(false)
-  const planDone = (message.plan?.items ?? []).filter(item => item.status === 'completed').length
+  // Turn tail（收尾行）：新「会话正文流」里这里只画**交付卡**——全页唯一的一张卡。
+  // 失败/中断（turnCompleted=false）不画：终态由任务头的状态条表达，不再叠一张
+  // 「交付完成」自相矛盾。计划不再单独出胶囊：步数已经进任务头（ChatRows 按轮回填）。
   if (message.kind === 'turn') {
-    // 计时已经在过程组折叠头里（本轮用了 X），这里只报"交回了什么"：
-    // 没有交付物也没有产出文件时不弹卡片，免得每次回复尾巴都挂个空壳。
-    const reportCount = (message.deliverables?.length ?? 0) + (message.produced?.length ?? 0)
-    // 卡片里有几组清单：只有一组时不必再来一行内层标题（头部已经写了「本轮产出」）。
-    const sections = ((message.deliverables?.length ?? 0) > 0 ? 1 : 0) + ((message.produced?.length ?? 0) > 0 ? 1 : 0)
-    // 只有计划、没有文件时也要出卡：状态条在全完成时会收起，这张卡是计划的入口。
-    const planItems = message.plan?.items ?? []
-    if (reportCount === 0 && planItems.length === 0) {
-      // 纯文字回合：以前这里直接返回 null，于是"这一轮说了什么"在列表里没有落点。
-      // 现在给一张结论卡（四态由 turnVerdictProps 判定），正文第一句就是结论。
-      const verdict = turnVerdictProps({ message, running: false, ...(turnTools === undefined ? {} : { tools: turnTools }) })
-      if (verdict === undefined) return null
-      return (
-        <div
-          data-mid={message.id}
-          data-message-id={message.id}
-          data-row-seq={focusSeqAttr}
-          className="chat-turn-verdict"
-          style={style}
-        >
-          <VerdictCard {...verdict} />
-        </div>
-      )
+    if (turnCompleted === false) return null
+    const deliverables = message.deliverables ?? []
+    // 收尾行自带的「产出文件」没有增删行数；ChatRows 的 diff 统计优先，缺的按路径补上。
+    const changes: DeliveryFileChange[] = turnChanges === undefined ? [] : [...turnChanges]
+    for (const path of message.produced ?? []) {
+      if (!changes.some(change => change.path === path)) changes.push({ path })
     }
+    if (deliverables.length === 0 && changes.length === 0) return null
     return (
       <div
         data-mid={message.id}
         data-message-id={message.id}
         data-row-seq={focusSeqAttr}
-        className="chat-turn-tail"
+        className="chat-turn-tail-row"
         style={style}
       >
-        {/* 头部就是开关：长回合交回七八个文件时，卡片能把半屏占满 —— 先给结论，
-            要看清单再点开。**默认折叠**（用户明示）。 */}
-        <Button
-          type="button"
-          className="chat-turn-tail-head"
-          aria-expanded={tailOpen}
-          aria-label={`${reportCount > 0 ? '本轮产出' : '本轮计划'} ${reportCount > 0 ? `${reportCount} 个文件` : `${planItems.filter(item => item.status === 'completed').length}/${planItems.length}`}`}
-          onClick={() => { setTailOpen(value => !value) }}
-        >
-          <span className="chat-turn-tail-title">{reportCount > 0 ? '本轮产出' : '本轮计划'}</span>
-          <span className="chat-turn-tail-count">
-            {reportCount > 0 ? `${reportCount} 个文件` : `${planItems.filter(item => item.status === 'completed').length}/${planItems.length}`}
-          </span>
-          <span className="chat-turn-tail-head-chevron" aria-hidden>{tailOpen ? '▾' : '›'}</span>
-        </Button>
-        {tailOpen && message.deliverables !== undefined && message.deliverables.length > 0 && (
-          <div className="chat-turn-tail-section">
-            {sections > 1 && <span className="chat-turn-tail-label">交付物</span>}
-            {message.deliverables.map(file => (
-              <Button
-                type="button"
-                key={file.path}
-                className="chat-turn-tail-file"
-                title={file.path}
-                onClick={() => { onOpenFile?.(file.path) }}
-              >
-                <span className="chat-turn-tail-chip">{fileBadgeLabel(file.path)}</span>
-                <span className="chat-turn-tail-file-main">
-                  <span className="chat-turn-tail-file-name">
-                    {file.description ?? baseName(file.path)}
-                    <span className="chat-turn-tail-badge">已交付</span>
-                  </span>
-                  <span className="chat-turn-tail-file-path">{parentPath(file.path)}</span>
-                </span>
-                <span className="chat-turn-tail-chevron" aria-hidden>›</span>
-              </Button>
-            ))}
-          </div>
-        )}
-        {tailOpen && message.produced !== undefined && message.produced.length > 0 && (
-          <div className="chat-turn-tail-section">
-            {sections > 1 && <span className="chat-turn-tail-label">本轮产出文件</span>}
-            {message.produced.map(path => (
-              <Button
-                type="button"
-                key={path}
-                className="chat-turn-tail-file"
-                title={path}
-                onClick={() => { onOpenFile?.(path) }}
-              >
-                <span className="chat-turn-tail-chip">{fileBadgeLabel(path)}</span>
-                <span className="chat-turn-tail-file-main">
-                  <span className="chat-turn-tail-file-name">{baseName(path)}</span>
-                  <span className="chat-turn-tail-file-path">{parentPath(path)}</span>
-                </span>
-                <span className="chat-turn-tail-chevron" aria-hidden>›</span>
-              </Button>
-            ))}
-          </div>
-        )}
-        {planItems.length > 0 && (
-          <Button
-            type="button"
-            className="chat-turn-plan-chip"
-            aria-expanded={planOpen}
-            aria-label={`本轮计划 ${planDone}/${planItems.length}`}
-            onClick={() => { setPlanOpen(value => !value) }}
-          >
-            <span className="chat-turn-plan-check" aria-hidden>☑</span>
-            <span>计划 {planDone}/{planItems.length}</span>
-            {message.durationMs !== undefined && message.durationMs > 0 && (
-              <span className="chat-turn-plan-time">· 用时 {formatDuration(message.durationMs)}</span>
-            )}
-            <span className="chat-turn-plan-chevron" aria-hidden>{planOpen ? '▾' : '›'}</span>
-          </Button>
-        )}
-        {planItems.length > 0 && planOpen && (
-          <div className="chat-turn-plan-list">
-            {planItems.map((item, index) => (
-              <div className="chat-turn-plan-item" key={`${index}-${item.content}`}>
-                <span className={'chat-turn-plan-mark' + (item.status === 'completed' ? ' is-done' : '')} aria-hidden>
-                  {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '›' : '·'}
-                </span>
-                <span className={'chat-turn-plan-text' + (item.status === 'completed' ? ' is-done' : '')}>{item.content}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <DeliveryCard
+          completed
+          {...(message.durationMs === undefined ? {} : { durationMs: message.durationMs })}
+          {...(message.plan === undefined ? {} : { steps: message.plan.items.length })}
+          deliverables={deliverables}
+          changes={changes}
+          {...(onOpenFile === undefined ? {} : { onOpenFile })}
+        />
       </div>
     )
   }
@@ -313,7 +212,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
       ) : (
         <>
           <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />

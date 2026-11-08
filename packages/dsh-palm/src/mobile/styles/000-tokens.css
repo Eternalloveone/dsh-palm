@@ -100,6 +100,24 @@
   --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
   --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
   --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);
+
+  /* ── 会话正文流（任务头 / 过程折叠行 / 交付卡） ───────────────────────
+   * 版式真源：docs/prototype/overview.html「2 · 会话正文」
+   *          + docs/prototype/delivery-card.html A 图。
+   * 渐变与半透明底色只落在这里：组件样式表一律引用 palm-flow-* 令牌（不写裸色）。 */
+  --palm-flow-goal-size: 15px;
+  --palm-flow-title-size: 13px;
+  --palm-flow-row-size: 12.5px;
+  --palm-flow-meta-size: 10.5px;
+  --palm-flow-tally-size: 10px;
+  --palm-flow-tag-size: 9.5px;
+  --palm-flow-dot: 7px;
+  --palm-flow-card-r: 14px;
+  --palm-flow-rule: rgba(255, 255, 255, 0.05);
+  --palm-flow-card-line: rgba(61, 220, 132, 0.22);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 220, 132, 0.06), rgba(20, 20, 27, 0.9));
+  --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
+  --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */

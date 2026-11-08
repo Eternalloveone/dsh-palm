@@ -33,6 +33,7 @@ import {
 } from '../render/process-rows.ts'
 import { stepModel } from '../render/step-view.ts'
 import { ChevronDownIcon, ChevronRightIcon } from '../components/icons.tsx'
+import { ProcessLine } from '../ui/process-line.tsx'
 import { Button } from '../ui/primitives.tsx'
 import { forgetTurnAnchor, stableTurnAnchor } from './anchors.ts'
 import { ArtifactCards } from './artifact-cards.tsx'
@@ -102,21 +103,31 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   })
   // 报错信号：只在这轮真有条目报错的工具步骤时才出现，没有就什么也不留。
   const errorsText = processErrorsText(model)
-  // 标题行：有工具就说跑了几个（对照稿），否则退回状态词（纯文本/纯思考的回合）。
   const toolRows = model.rows.filter((row): row is ProcessToolRow => row.kind === 'tool')
   const visibleTools = showToolCalls ? toolRows : []
-  const title = showToolCalls && model.toolCount > 0 ? `跑了 ${model.toolCount} 个工具` : stateText
-  const headLabel = timeText === '' ? title : `${title}，${timeText}`
+  // 过程折叠行（新设计「▸ 7 步过程 · 31 次工具调用」）：计划步数与工具调用数分开报，
+  // 缺项就少说一项；展开/收起**复用本组件已有的 `open` 状态**，不另起一份状态。
+  const planSteps = message.plan?.items.length
+  const recentTools = toolRows.slice(-3).map((row) => {
+    const step = stepModel(row.tool)
+    return step.summary === '' ? step.title : `${step.title} · ${step.summary}`
+  })
   // 展开体：思考块、步骤之间的叙述文本、diff 卡。工具行已经常显，不再进这里。
   const bodyRows = visibleRowCount(model, false)
   const stepsText = processStepsText(model, showToolCalls)
   const visibleRows = visibleRowCount(model, showToolCalls)
   const head = (
-    <span className="chat-proc-line chat-proc-label">
-      <span className="chat-proc-state">{title}</span>
-      {errorsText !== '' && <span className="chat-proc-errors">{errorsText}</span>}
-      {timeText !== '' && <span className="chat-proc-time">{timeText}</span>}
-    </span>
+    <ProcessLine
+      className={bodyRows === 0 ? 'chat-proc-head chat-proc-head-static' : 'chat-proc-head'}
+      state={outcome}
+      label={stateText}
+      {...(planSteps === undefined || planSteps <= 0 ? {} : { steps: planSteps })}
+      {...(showToolCalls && model.toolCount > 0 ? { toolCalls: model.toolCount } : {})}
+      {...(errorsText === '' ? {} : { note: errorsText })}
+      {...(timeText === '' ? {} : { time: timeText })}
+      {...(running && recentTools.length > 0 ? { recent: recentTools, running } : {})}
+      {...(bodyRows === 0 ? {} : { expanded: open, onToggle: () => { setOpen(value => !value) } })}
+    />
   )
   const tools = visibleTools.length === 0 ? null : (
     <div className="chat-proc-tools">
@@ -126,33 +137,14 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   if (bodyRows === 0) {
     return (
       <div className={`chat-proc${running ? ' chat-proc-running' : ''}`} data-proc-rows={visibleRows}>
-        <div
-          className="chat-proc-head chat-proc-head-static"
-          role="status"
-          aria-label={headLabel}
-          data-state={outcome}
-        >
-          {head}
-        </div>
+        {head}
         {tools}
       </div>
     )
   }
   return (
     <div className={`chat-proc${open ? ' chat-proc-open' : ''}${running ? ' chat-proc-running' : ''}`} data-proc-rows={visibleRows}>
-      <Button
-        type="button"
-        className="chat-proc-head"
-        aria-expanded={open}
-        aria-label={`${headLabel}${open ? '，收起过程' : '，展开过程'}`}
-        data-state={outcome}
-        onClick={() => { setOpen(value => !value) }}
-      >
-        {head}
-        <span className="chat-proc-caret" aria-hidden>
-          {open ? <ChevronDownIcon width={16} height={16} /> : <ChevronRightIcon width={16} height={16} />}
-        </span>
-      </Button>
+      {head}
       {tools}
       {open && (
         <div className="chat-proc-body">
