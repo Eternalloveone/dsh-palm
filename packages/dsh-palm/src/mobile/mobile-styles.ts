@@ -2454,13 +2454,13 @@ button.settings-row:focus-visible {
      scroll anchoring keeps the visible region stable when frames above it
      change height (Chromium WebView supports this natively). */
   overflow-anchor: auto;
-  padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  padding: var(--palm-s3) var(--palm-s3) calc(env(safe-area-inset-bottom, 0) + var(--palm-s3));
   display: flex;
   flex-direction: column;
   /* 用户定的节奏（2026-10-13）：12px。卡片与紧随其后的正文另有 12px
      （见 .chat-* + .chat-flow-text 规则），所以卡片上下读起来正好是 12px ＋ 12px。
      注意：这是**全列表**的行间距，普通文字消息也按 12px 排。 */
-  gap: 12px;
+  gap: var(--palm-s3);
 }
 
 /* Scroll children never shrink. The bubbles pin an explicit min-height
@@ -2577,13 +2577,13 @@ button.settings-row:focus-visible {
 
 /* Message bubbles — the large-card tier. */
 .chat-msg {
-  max-width: 85%;
-  min-height: 48px;
-  padding: 12px 16px;
-  border-radius: var(--radius-card);
-  font-size: var(--text-base);
-  font-weight: 400;
-  line-height: 1.7;
+  max-width: 78%;
+  min-height: var(--palm-hit);
+  padding: var(--palm-s3);
+  border-radius: var(--palm-r-m);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-body);
   overflow-wrap: break-word;
   white-space: pre-wrap;
 }
@@ -2634,14 +2634,17 @@ button.settings-row:focus-visible {
   }
 }
 
+/* 用户气泡（对照稿）：右上停靠、深底、12/12/4/12 圆角、最大宽 78%。
+   不再用整块主题色 —— 主题色留给发送键与链接，气泡退回"一块安静的深底"。 */
 .chat-msg-user {
   align-self: flex-end;
   width: auto;
-  max-width: 85%;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  border-radius: var(--radius-card);
-  box-shadow: 0 1px 3px var(--accent-glow);
+  max-width: 78%;
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m) var(--palm-r-m) var(--palm-s1) var(--palm-r-m);
+  box-shadow: none;
 }
 
 /* 消息图片：0.1.5 起事件只带 attachmentId 引用，字节由 mobile.readAttachment
@@ -2722,10 +2725,9 @@ button.settings-row:focus-visible {
   color: var(--danger);
 }
 
-/* Assistant messages are full-width flat rows (Kimi-style, no bubble):
-   the visual hierarchy comes from the content itself — code-block and
-   diff cards, headings, blockquotes — not from a card frame around the
-   whole message. Only user messages keep a light bubble. */
+/* Assistant messages are independent prose blocks (no bubble, no frame):
+   the visual hierarchy comes from the content itself. 左右各留 4px：
+   正文不顶到屏幕边，和右侧的用户气泡在视觉上分开一档。 */
 .chat-msg-assistant {
   align-self: stretch;
   width: auto;
@@ -2734,7 +2736,7 @@ button.settings-row:focus-visible {
   border: none;
   box-shadow: none;
   border-radius: 0;
-  padding: 0;
+  padding: 0 var(--palm-s1);
 }
 
 .chat-msg-failed {
@@ -2810,7 +2812,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-msg-user .chat-msg-time {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--palm-fg-3);
   text-align: right;
 }
 
@@ -2938,13 +2940,13 @@ button.settings-row:focus-visible {
 .chat-md-body h3 { font-size: 1.15em; }
 .chat-md-body h4, .chat-md-body h5, .chat-md-body h6 { font-size: 1.05em; }
 .chat-md-body code {
-  font-family: var(--font-mono);
-  font-size: 0.88em; /* ≈13px at the default 15px message size */
-  background: var(--bg-elevated);
-  color: var(--accent);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: none;
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-t-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-accent);
+  padding: 0 var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
   box-shadow: none;
 }
 .chat-md-body ul, .chat-md-body ol { margin: 6px 0 10px; padding-left: 20px; }
@@ -3761,33 +3763,35 @@ button.settings-row:focus-visible {
 }
 
 /*
- * 过程组（桌面端 turn-process 的对应物）：一轮的思考与工具调用藏在同一个折叠头
- * 后面，头两行只有状态词/用时/报错信号、此刻到哪一步与改动量；步数在展开体首行
- * （「共 N 步」）。行不编号，层级只靠缩进与行首字形。
+ * 过程组（对照稿 chat-rework.html 的工具块）：**独立一张卡**。
+ * 头一行只说「跑了 N 个工具」+ 右侧总耗时；每个工具在头下面直接列一行
+ * （彩色状态点 + 动作 · 对象 + 状态词）。思考与 diff 卡仍在卡内展开，
+ * 答案永远在卡外。
  */
 .chat-proc {
   display: flex;
   flex-direction: column;
-  margin-top: var(--space-1);
+  margin-top: var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  overflow: hidden;
 }
 
 .chat-proc-head {
-  position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
+  align-items: center;
+  gap: var(--palm-s2);
   width: 100%;
-  /* 44px 是拇指友好的最小点击高度（原来 40px，真机上点开折叠要试两次）。 */
-  min-height: 44px;
-  /* 右边留给绝对定位的展开箭头 */
-  padding: 6px 26px 6px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-chip);
-  background: var(--card-bg);
-  color: var(--text-muted);
+  /* 44px 是拇指友好的最小点击高度 */
+  min-height: var(--palm-hit);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: none;
+  background: transparent;
+  color: var(--palm-fg);
   font: inherit;
-  font-size: var(--text-xs);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
   text-align: left;
   cursor: pointer;
 }
@@ -3796,139 +3800,71 @@ button.settings-row:focus-visible {
   cursor: default;
 }
 
-.chat-proc-lead {
-  flex: none;
-  /* emoji 与中文行对齐：定宽方形盒 + 双向居中 + line-height:1。emoji 字形的
-     上伸/下伸和中文不一样，不锁盒高就会把这一行顶高、也让符号看起来飘在文字上方。 */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--text-quaternary);
-}
-
-.chat-proc-lead-running {
-  color: var(--accent);
-  position: relative;
-  overflow: hidden;
-}
-
-/* 静态轮廓（同一条 path 描边）：不支持蒙版动画或用户要减少动态时显示。 */
-.chat-proc-whale-still {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-.chat-proc-whale-loop {
-  display: none;
-  position: absolute;
-  inset: 0;
-}
-
-/* 动画 PNG（/m/running-whale.png，就是桌面端在放的那一张）染色播放。
-   用 currentColor 当底色 + alpha 蒙版，形状随主题色走；这张图只在"思考中"
-   才被请求，静止时一个字节都不发。手写 SVG 动画到不了这个质感 —— 试过整体
-   旋转、拆成两片叶子、乃至用 SMIL 改路径数据，都还是"两片叶在转"。
-   不支持 mask-mode 的浏览器、以及开了"减弱动态效果"的系统，直接退回静态
-   SVG 轮廓（下面这段 @supports/@media 不成立时，默认就是静态形态）。 */
-@supports (mask-mode: alpha) and (mask-image: url('')) {
-  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
-    .chat-proc-whale-loop {
-      display: block;
-      background: currentColor;
-      mask: url('/m/running-whale.png') center / 100% 100% no-repeat;
-      mask-mode: alpha;
-      /* 让逐帧解码留在合成层上，别牵动整行重排。 */
-      will-change: transform;
-    }
-
-    .chat-proc-whale-still { display: none; }
-  }
-}
-
 .chat-proc-line {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--palm-s2);
   width: 100%;
+  min-width: 0;
 }
 
-/* 第一行：状态词是主角（灰阶里最重的一档），用时退到第三档。 */
+/* 标题是主角：14px 加粗正文色。 */
 .chat-proc-state {
   flex: none;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
 }
 
 /*
- * 第一行里的报错信号（「⚠ 2 处报错」）：比状态词弱一档（第三档灰、小一号），
- * 只在真有报错步骤时存在。不引入新层次、不用重色。
+ * 报错信号（「2 处报错」）：比标题弱一档，只在真有报错步骤时存在。
+ * 不用 ⚠ 之类的字形，纯文字也读得出来。
  */
 .chat-proc-errors {
   flex: none;
   color: var(--palm-danger);
-  font-size: 0.95em;
-  font-weight: 400;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
 }
 
+/* 右侧总耗时：第三档灰、等宽数字。 */
 .chat-proc-time {
   flex: none;
   margin-left: auto;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
   font-variant-numeric: tabular-nums;
 }
 
 .chat-proc-label {
   flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 第二行：此刻进行到哪一步 —— 正文色（这张卡的主角）。 */
-.chat-proc-current {
-  color: var(--text-primary);
-}
-
-.chat-proc-current-text {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 右侧补充信息（「改了 3 个文件」），第三档灰。 */
-.chat-proc-meta {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-tertiary);
-}
-
-/* 只有"运行中"给一点强调：比默认亮一档的灰边。 */
+/* 只有"运行中"给一点强调：比默认亮一档的边。 */
 .chat-proc-running > .chat-proc-head {
-  border-color: var(--border-default);
+  border-color: var(--palm-line);
 }
 
 .chat-proc-caret {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--palm-fg-3);
 }
 
 .chat-proc-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border-subtle);
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-top: var(--palm-hair) solid var(--palm-line);
 }
+
 
 /* 宿主唤醒消息的卡片（子代理/任务/定时/团队/外部事件…）。数值逐条对齐桌面端
    ui-chat 的 TurnTriggerNodeView.module.css：16px 圆角、描边、代码块灰底、
@@ -4202,26 +4138,33 @@ button.settings-row:focus-visible {
 }
 
 /*
- * Process timeline (desktop ToolRow parity): one row per tool call with a
- * state dot, the family glyph, the act's title and the args-derived summary.
- * The summary is the shrinkable slot — an unbreakable MCP tool id or a long
- * command ellipsizes instead of pushing the caret off the row.
+ * 工具块的行（对照稿）：一行一个工具 = 状态点 + 动作 · 对象 + 右侧状态词。
+ * 行与行之间只用一条细线分隔，整块是卡里的一张表，不是一叠小卡。
  */
+.chat-proc-tools {
+  display: flex;
+  flex-direction: column;
+}
+
 .chat-step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: 6px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--card-bg);
+  gap: var(--palm-s1);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-top: var(--palm-hair) solid var(--palm-line);
+  background: transparent;
+}
+
+.chat-proc-tools > .chat-step:first-child {
+  border-top: none;
 }
 
 .chat-step-head {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--palm-s2);
   width: 100%;
+  min-height: var(--palm-hit);
   padding: 0;
   border: 0;
   background: none;
@@ -4231,52 +4174,24 @@ button.settings-row:focus-visible {
   cursor: pointer;
 }
 
-.chat-step-icon {
+/* 状态点：8px 圆点。颜色只在宿主真报过状态时出现（见 data-state）。 */
+.chat-step-dot {
   flex: none;
-  /* 与 .chat-proc-lead 同一套对齐规则：定宽方形盒 + 居中 + line-height:1。
-     这里原来还有一条给 14px SVG 用的子规则，换成 emoji 后已无用、已一并删除；
-     emoji 若不定盒会按字形基线摆放，看着像飘在标题上方。 */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--text-muted);
+  width: var(--palm-s2);
+  height: var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-fg-3);
 }
 
-/* 非工具步骤（思考中 / 正在回答）也要有行首符号：💭 加轻微呼吸。
-   动效刻意比卡首的沙漏弱（那边是翻转），一张卡里不要两个东西抢眼睛。
-   注意：本文件的 CSS 在模板字符串里，注释里不得出现反引号或美元加花括号。 */
-.chat-step-icon-thinking {
-  animation: chat-step-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes chat-step-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-step-icon-thinking { animation: none; }
-  .chat-step-icon-spin { animation: none; }
-}
-
-/* 运行命令（bash 族）的齿轮只在"这一步正在跑"时转：结算后必须停，
-   否则"已完成"的卡里齿轮转个不停，读起来像还在干活。 */
-.chat-step-icon-spin {
-  animation: chat-step-spin 2.4s linear infinite;
-}
-
-@keyframes chat-step-spin {
-  to { transform: rotate(360deg); }
-}
+.chat-step-dot[data-state='ok'] { background: var(--palm-ok); }
+.chat-step-dot[data-state='running'] { background: var(--palm-accent); }
+.chat-step-dot[data-state='error'] { background: var(--palm-danger); }
+.chat-step-dot[data-state='stopped'] { background: var(--palm-warn); }
 
 .chat-step-title {
   flex: none;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
   white-space: nowrap;
 }
 
@@ -4286,31 +4201,29 @@ button.settings-row:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
 }
 
-.chat-step-tally {
+/* 右侧状态词：12px 第三档灰（成功/运行中/失败/已中断都照实写）。 */
+.chat-step-state {
   flex: none;
-  display: inline-flex;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
 }
 
-.chat-step-tally-add { color: var(--diff-add); }
-.chat-step-tally-del { color: var(--diff-del); }
+.chat-step-state-ok { color: var(--palm-ok); }
+.chat-step-state-error { color: var(--palm-danger); }
+.chat-step-state-running { color: var(--palm-accent); }
+.chat-step-state-stopped { color: var(--palm-warn); }
 
 .chat-step-caret {
   flex: none;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-
-@keyframes chat-step-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  display: flex;
+  align-items: center;
+  color: var(--palm-fg-3);
 }
 
 /* Tool diff card: file path header + red removed / green added lines,
@@ -4430,24 +4343,6 @@ button.settings-row:focus-visible {
   min-width: 0;
 }
 
-/* ── 过程行三态色条（定版图：绿=成功 / 红=失败 / 蓝=运行中）──────── */
-.chat-proc-head[data-state='ok'] {
-  border-left: 2px solid var(--palm-ok);
-}
-
-.chat-proc-head[data-state='failed'] {
-  border-left: 2px solid var(--palm-danger);
-}
-
-.chat-proc-head[data-state='running'] {
-  border-left: 2px solid var(--palm-accent);
-}
-
-.chat-proc-head[data-state='ok'],
-.chat-proc-head[data-state='failed'],
-.chat-proc-head[data-state='running'] {
-  padding-left: var(--palm-s2);
-}
 /* ── turn status: three breathing dots ───────────────────────────────── */
 
 .chat-turn-status {
@@ -5117,68 +5012,65 @@ button.settings-row:focus-visible {
   transform: none;
 }
 
-/* ── composer toolbar pills ──────────────────────────────────────────── */
+/* ── composer toolbar pills（对照稿：药丸一行 = 模型 + 权限） ─────────── */
 
-/* One row, two zones: the icon pills (model/permission) on the left, the
-   context ring pinned on the right (flex: none) so the session's
-   occupancy never scrolls out of view. The row never scrolls: the model
-   pill (the only elastic one) shrinks with an ellipsis while the
-   permission pill and the ring stay fixed and always visible. */
+/* 药丸行是输入区的一部分（同一块底、同一条顶边）：这一行与下面的输入行之间
+   不再有一条分隔线，只有 .chat-composer 自己的背景。 */
 .chat-tools {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px 0;
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3) 0;
+  border-top: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-bg);
 }
 
 .chat-tools-actions {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--palm-s2);
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
+/* 药丸：32px 高的胶囊，背景一档浅灰；视觉 32px、命中区 44px（见 ::after）。 */
 .chat-pill {
+  position: relative;
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  background: var(--card-bg);
-  color: var(--text-secondary);
+  gap: var(--palm-s1);
+  height: var(--palm-s7);
+  padding: 0 var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
   cursor: pointer;
   transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
 }
 
 .chat-pill > svg {
-  color: var(--accent);
+  flex: none;
+  color: var(--palm-accent);
 }
 
 .chat-pill:active {
   transform: scale(0.96);
-  border-color: var(--border-focus);
-  background: var(--accent-soft);
+  border-color: var(--palm-accent);
+  background: var(--palm-tint-accent);
 }
 
-/* 32px 高的 pill 视觉够用，拇指命中区却只有 32px。伪元素把命中区向外扩：
-   纵向 6px（上下没有邻居），横向只 2px —— 相邻药丸间距 8px，横向也扩 6px 会让两块
-   命中区重叠 4px，点空隙反而命中隔壁那个。 */
-.chat-pill {
-  position: relative;
-}
-
+/* 命中区向外扩：纵向 6px（上下没有邻居），横向只 2px —— 相邻药丸间距 8px，
+   横向也扩 6px 会让两块命中区重叠 4px，点空隙反而命中隔壁那个。 */
 .chat-pill::after {
   content: '';
   position: absolute;
-  inset: -6px -2px;
+  inset: calc(var(--palm-s2) * -0.75) 0;
   border-radius: inherit;
 }
 
@@ -5189,12 +5081,12 @@ button.settings-row:focus-visible {
 .mobile-quickchip::after {
   content: '';
   position: absolute;
-  inset: -4px;
+  inset: calc(var(--palm-s1) * -1);
   border-radius: inherit;
 }
 
 .chat-pill-name {
-  max-width: 80px;
+  max-width: calc(var(--palm-s8) * 2.5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5202,8 +5094,8 @@ button.settings-row:focus-visible {
 
 .chat-pill-chevron {
   flex: none;
-  color: var(--text-quaternary);
-  font-size: 10px;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
 }
 
 /* Permission pills never shrink: their text is short and stays visible. */
@@ -5218,14 +5110,14 @@ button.settings-row:focus-visible {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--palm-s1);
   min-width: 0;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-default);
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  line-height: 1.4;
+  padding-left: var(--palm-s3);
+  border-left: var(--palm-hair) solid var(--palm-line);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-head);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
@@ -5237,20 +5129,20 @@ button.settings-row:focus-visible {
 }
 
 .chat-context-ring-track {
-  stroke: var(--fill);
+  stroke: var(--palm-line);
 }
 
 .chat-context-ring-fill {
-  stroke: var(--accent);
+  stroke: var(--palm-accent);
   transition: stroke-dasharray 0.3s ease;
 }
 
 .chat-context-warn {
-  color: var(--danger);
+  color: var(--palm-danger);
 }
 
 .chat-context-warn .chat-context-ring-fill {
-  stroke: var(--danger);
+  stroke: var(--palm-danger);
 }
 
 /* Context-usage popover: tap the ring to see the exact figures. Anchored
@@ -5258,40 +5150,40 @@ button.settings-row:focus-visible {
    list; an invisible fixed scrim closes it on outside taps. */
 .chat-context-pop {
   position: absolute;
-  right: 16px;
-  bottom: calc(100% + 10px);
+  right: var(--palm-s4);
+  bottom: calc(100% + var(--palm-s2));
   z-index: var(--z-popover);
   min-width: 150px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  background: var(--card-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-sh2);
 }
 
 .chat-context-pop-title {
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
 }
 
 .chat-context-pop-figures {
-  margin-top: 2px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+  margin-top: var(--palm-hair);
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
   font-variant-numeric: tabular-nums;
 }
 
 .chat-context-pop-figures span {
-  margin: 0 3px;
-  color: var(--text-quaternary);
-  font-weight: 400;
+  margin: 0 var(--palm-hair);
+  color: var(--palm-fg-3);
+  font-weight: var(--palm-w-normal);
 }
 
 .chat-context-pop-sub {
-  margin-top: 2px;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  margin-top: var(--palm-hair);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
 }
 
 .chat-context-pop-scrim {
@@ -5303,7 +5195,6 @@ button.settings-row:focus-visible {
   z-index: var(--z-scrim);
   background: transparent;
 }
-
 /* ── in-place quick picker (model search panel / permission list) ────── */
 
 /* Full-screen transparent scrim above the message list; tapping it (or the
@@ -5459,8 +5350,7 @@ button.settings-row:focus-visible {
 .chat-composer {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+  background: var(--palm-bg);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
@@ -5469,23 +5359,32 @@ button.settings-row:focus-visible {
   border-top: none;
 }
 
+/* 「+」/「/」/语音：32px 视觉，44px 命中区（对照稿里输入行最左边是一枚药丸）。 */
 .chat-attach-btn {
+  position: relative;
   flex: none;
   align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 10px;
-  color: var(--text-secondary);
-  background: transparent;
+  width: var(--palm-s7);
+  height: var(--palm-s7);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
+  color: var(--palm-fg-2);
+  background: var(--palm-sur-1);
   cursor: pointer;
 }
 
+.chat-attach-btn::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--palm-s2) * -0.75);
+  border-radius: inherit;
+}
+
 .chat-attach-btn:active {
-  background: var(--fill-strong);
+  background: var(--palm-sur-2);
 }
 
 /* The slash glyph: a text mark, not an icon, so it reads as "type a command"
@@ -5597,7 +5496,7 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  min-height: 44px;
+  min-height: var(--palm-hit);
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-chip);
@@ -5755,36 +5654,31 @@ button.settings-row:focus-visible {
 
 .chat-inputbar {
   display: flex;
-  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。原来底部对齐，
-     输入框一长成两行，这几个图标就贴在底边，看着像没对齐。 */
+  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。 */
   align-items: center;
-  gap: var(--space-2);
-  padding: 8px 12px calc(env(safe-area-inset-bottom, 0px) + 10px);
-  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 10px), 10px);
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3) calc(env(safe-area-inset-bottom, 0) + var(--palm-s2));
+  background: var(--palm-bg);
 }
 
 .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--palm-hit);
   /* 4 行封顶：实测 132px（约 6 行）时草稿把最后一条消息和「输出中」整块遮住，
      写长文本反而看不见上下文。超出的内容在框内滚动。 */
   max-height: 104px;
   overflow-y: auto;
   field-sizing: content;
-  padding: 9px 16px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-capsule);
-  background: var(--bg-input);
-  color: var(--text-primary);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
   font: inherit;
   font-size: 16px; /* ≥16px：防止 iOS 聚焦缩放 */
-  font-weight: 400;
-  line-height: 1.45;
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-body);
   resize: none;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -5796,28 +5690,28 @@ button.settings-row:focus-visible {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 44px;
+  gap: var(--palm-s1);
+  min-height: var(--palm-hit);
   max-height: 104px;
-  padding: 2px 8px 2px 4px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-capsule);
-  background: var(--bg-input);
+  padding: var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-hit);
+  background: var(--palm-sur-1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .chat-field:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--palm-accent);
+  box-shadow: 0 0 0 3px var(--palm-tint-accent);
 }
 
 /* 框内的 textarea：不重复画边框，也不重复画焦点环。 */
 .chat-field > .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
+  min-height: var(--palm-s7);
   max-height: 100px;
-  padding: 7px 8px;
+  padding: var(--palm-s1) var(--palm-s2);
   border: none;
   background: transparent;
   box-shadow: none;
@@ -5829,46 +5723,47 @@ button.settings-row:focus-visible {
 }
 
 .chat-input::placeholder {
-  color: var(--text-muted);
+  color: var(--palm-fg-3);
 }
 
 .chat-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--palm-accent);
+  box-shadow: 0 0 0 3px var(--palm-tint-accent);
 }
 
 
 
-/* 排队发送：不再是「纸飞机 + 角上一只小钟」那种猜谜图标，改成拉长的胶囊上直接写「排队」。
-   40px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
+/* 排队发送：拉长的胶囊上直接写「排队」。
+   44px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
 .chat-send.chat-send-queued {
   width: auto;
-  min-width: 56px;
-  padding: 0 14px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  min-width: calc(var(--palm-s7) * 1.75);
+  padding: 0 var(--palm-s3);
+  border-radius: var(--palm-r-full);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
 }
 
 .chat-send-queuedText {
   white-space: nowrap;
 }
 
+/* 发送键（对照稿）：44px 圆形、主题色底、深色箭头。 */
 .chat-send {
   flex: none;
   align-self: center;
-  width: 40px;
-  height: 40px;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--accent);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-accent);
   color: var(--accent-contrast);
   font: inherit;
   cursor: pointer;
-  box-shadow: 0 2px 10px var(--accent-glow);
+  box-shadow: var(--palm-sh1);
   transition: transform 0.15s ease, filter 0.15s ease;
 }
 
@@ -5884,20 +5779,15 @@ button.settings-row:focus-visible {
 }
 
 .chat-send:disabled {
-  background: var(--fill);
-  color: var(--text-muted);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-3);
   box-shadow: none;
 }
 
-.chat-send svg {
-  width: 18px;
-  height: 18px;
-}
-
 .chat-send-stop {
-  background: var(--bg-elevated);
-  color: var(--danger);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  background: var(--palm-sur-2);
+  color: var(--palm-danger);
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-line);
 }
 
 /* 运行中带草稿时的停止键：主键此时让给"发送"（排队），停止退成它左边的小方块。
@@ -5905,20 +5795,18 @@ button.settings-row:focus-visible {
 .chat-stop-mini {
   flex: none;
   align-self: center;
-  width: 30px;
-  height: 30px;
-  /* 底部那个 5px 外边距在 align-self:center 里会把整个按钮往上顶 2.5px：停止键
-     和输入框、发送键就不在同一条中线上了（真机看就是"按钮错开一格"）。左右留
-     间距、上下留 0，三点共用一条中线。 */
-  margin: 0 6px;
+  width: var(--palm-s7);
+  height: var(--palm-s7);
+  /* 左右留间距、上下留 0，三点共用一条中线。 */
+  margin: 0 var(--palm-s1);
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--bg-elevated);
-  color: var(--danger);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-danger);
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-line);
   font: inherit;
   cursor: pointer;
   transition: transform 0.15s ease;
@@ -5928,8 +5816,7 @@ button.settings-row:focus-visible {
   transform: scale(0.92);
 }
 
-/* 停止键的命中区：视觉上仍是 30px 的小方块（和主键拉开距离，避免误触），但手指按下去
-   的判定区补到 44px —— 30px 在手机上真的会按空，尤其单手握着、拇指贴着屏幕边缘的时候。 */
+/* 停止键的命中区：视觉上仍是 32px，判定区补到 44px。 */
 .chat-stop-mini {
   position: relative;
 }
@@ -5937,40 +5824,20 @@ button.settings-row:focus-visible {
 .chat-stop-mini::after {
   content: '';
   position: absolute;
-  inset: -7px;
+  inset: calc(var(--palm-s2) * -0.75);
 }
 
 .chat-stop-mini:disabled {
-  color: var(--text-muted);
+  color: var(--palm-fg-3);
   opacity: 0.6;
 }
 
-/* 窄屏（≤360px，iPhone SE 一类）：运行中且有草稿时，一行要塞三个附件键、输入框、
-   停止和发送，实测 320px 下正文只剩 60px（约三四个字）。这里把各键收小一圈、留白
-   和间距压紧，正文回到 110px 上下；键都留在原位，不改变任何操作路径。 */
+/* 窄屏（≤360px）：输入行不再收小发送键（44px 是触控下限），只压两侧留白。 */
 @media (max-width: 360px) {
   .chat-inputbar {
-    gap: 4px;
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-
-  .chat-attach-btn {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
-  }
-
-  .chat-stop-mini {
-    width: 26px;
-    height: 26px;
-    margin: 0 4px;
-  }
-
-  
-.chat-send {
-    width: 36px;
-    height: 36px;
+    gap: var(--palm-s1);
+    padding-left: var(--palm-s2);
+    padding-right: var(--palm-s2);
   }
 }
 
@@ -5979,7 +5846,7 @@ button.settings-row:focus-visible {
   margin: 4px 0;
   /* 36 → 44 的可点高度（真机清单第 5 项）：文字按钮本身矮，点"加载更早"经常
      点到下面的正文。只抬可点高度，字号颜色都不动。 */
-  min-height: 44px;
+  min-height: var(--palm-hit);
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -9452,11 +9319,12 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   font-size: var(--text-xs);
 }
 .chat-file-cancel:active { opacity: 0.7; }
-/* ── 结论卡 · 每轮一张（P4 四态一骨架） ────────────────────────────────
+/* ── 结论卡 · 每轮一张（对照稿 chat-rework.html） ───────────────────────
  *
- * 骨架：标签 / 结论句 / 补充一句 / 交付物条 / 动作 / 脚注。
- * 语义色**只作用于左边框**，不给整卡染色（完成=绿边，审批=琥珀边）。
- * 所有尺寸走 --palm-* 令牌，不写字面量。
+ * 骨架：3px 状态色带 / ✓ 已完成 / 17px 结论 / 一行三个 22px 数字 /
+ *       底部彩色标签（chip-ok / chip-info / chip-warn）/ 动作。
+ * 语义色只作用于顶边与标签，不给整卡染色。
+ * 所有尺寸走 --palm-* 令牌，不写字面量色值。
  */
 
 .verdict-card {
@@ -9464,27 +9332,41 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   flex-direction: column;
   gap: var(--palm-s2);
   margin: 0 0 var(--palm-s3);
-  padding: var(--palm-s4);
+  padding: var(--palm-s3);
   background: var(--palm-sur-1);
-  border: 1px solid var(--palm-line);
+  border: var(--palm-hair) solid var(--palm-line);
   border-top-width: 3px;
-  border-radius: var(--palm-r-l);
+  border-radius: var(--palm-r-m);
   box-shadow: var(--palm-hi), var(--palm-sh1);
 }
 
-/* 四态：只有左边框换色，卡片本身不变。 */
+/* 四态：只有顶边色带换色，卡片本身不变。 */
 .verdict-card[data-state='conclusion'] { border-top: 3px solid var(--palm-ok); }
 .verdict-card[data-state='decision'] { border-top: 3px solid var(--palm-warn); }
 .verdict-card[data-state='working'] { border-top: 3px solid var(--palm-accent); }
 .verdict-card[data-state='failed'] { border-top: 3px solid var(--palm-danger); }
 
+/* 标签行：16px 线性图标 + 文字，颜色跟着四态走。 */
 .verdict-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
   font-size: var(--palm-t-s);
   font-weight: var(--palm-w-bold);
   letter-spacing: 0.04em;
   color: var(--palm-fg-2);
 }
 
+.verdict-tag > svg {
+  flex: none;
+}
+
+.verdict-card[data-state='conclusion'] .verdict-tag { color: var(--palm-ok); }
+.verdict-card[data-state='decision'] .verdict-tag { color: var(--palm-warn); }
+.verdict-card[data-state='working'] .verdict-tag { color: var(--palm-accent); }
+.verdict-card[data-state='failed'] .verdict-tag { color: var(--palm-danger); }
+
+/* 结论句：17px 加粗，整张卡的第一可读内容。 */
 .verdict-headline {
   margin: 0;
   font-size: var(--palm-t-l);
@@ -9493,6 +9375,7 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg);
 }
 
+/* 补充一句：14px，次灰。 */
 .verdict-detail {
   margin: 0;
   font-size: var(--palm-t-m);
@@ -9500,47 +9383,74 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg-2);
 }
 
-/* 交付物条：一行一项，左边一条竖线，不抢结论句的注意力。 */
-.verdict-artifacts {
+/* 一行三个大号数字：22px 数字 + 12px 灰字说明（数字真实才渲染）。 */
+.verdict-stats {
   display: flex;
-  flex-direction: column;
-  gap: var(--palm-s1);
-  margin: var(--palm-s1) 0 0;
-  padding: 0 0 0 var(--palm-s3);
-  border-left: 2px solid var(--palm-line);
+  align-items: baseline;
+  gap: var(--palm-s4);
 }
 
-.verdict-artifact {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-2);
+.verdict-stats > div {
+  min-width: 0;
 }
 
-.verdict-artifact b {
+.verdict-stats b {
+  display: block;
+  font-size: var(--palm-t-xl);
   font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
   color: var(--palm-fg);
+  font-variant-numeric: tabular-nums;
 }
 
+.verdict-stats span {
+  display: block;
+  margin-top: var(--palm-hair);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+/* 底部彩色标签：一条真实事实一枚，没有就整行不渲染。 */
+.verdict-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s2);
+  padding-top: var(--palm-s2);
+  border-top: var(--palm-hair) solid var(--palm-line);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  height: var(--palm-s6);
+  padding: 0 var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+}
+
+.chip[data-tone='ok'] {
+  background: var(--palm-tint-ok);
+  color: var(--palm-ok);
+}
+
+.chip[data-tone='info'] {
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+}
+
+.chip[data-tone='warn'] {
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
+}
+
+/* 动作：最多三个，主按钮一档亮。 */
 .verdict-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--palm-s2);
   margin-top: var(--palm-s1);
-}
-
-.verdict-footnote {
-  margin-top: var(--palm-s1);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-
-
-/* 定版图：耗时（秒）是结论卡的第二眼信息，独立一行、xl 档。 */
-.verdict-seconds {
-  font-size: var(--palm-t-xl);
-  font-weight: var(--palm-w-bold);
-  line-height: var(--palm-lh-head);
-  color: var(--palm-fg);
 }
 /* ── 审批详情页（P6 ④ 屏） ─────────────────────────────────────────── */
 

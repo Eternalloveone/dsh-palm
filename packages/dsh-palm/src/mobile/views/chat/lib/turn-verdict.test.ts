@@ -58,23 +58,42 @@ describe('turnVerdictProps（文案与真实数字）', () => {
     expect((props?.headline ?? '').length).toBeLessThanOrEqual(49)
   })
 
-  it('交付物与产出文件各成一条，没有就不给', () => {
-    const withBoth = turnVerdictProps(input({
-      message: turnRow({ deliverables: [{ path: 'a.ts' }, { path: 'b.ts' }], produced: ['c.ts'] }),
-    }))
-    expect(withBoth?.artifacts).toEqual([{ label: '2 份交付物' }, { label: '1 个文件改动' }])
-
-    const neither = turnVerdictProps(input({ message: turnRow({ text: '说完了' }) }))
-    expect(neither?.artifacts).toBeUndefined()
+  it('耗时进大号数字：一位小数的秒（对照稿 12.4s）', () => {
+    const props = turnVerdictProps(input({ message: turnRow({ durationMs: 12_400 }) }))
+    expect(props?.stats).toEqual([{ value: '12.4s', label: '耗时' }])
+    const whole = turnVerdictProps(input({ message: turnRow({ durationMs: 8_000 }) }))
+    expect(whole?.stats).toEqual([{ value: '8s', label: '耗时' }])
+    const none = turnVerdictProps(input({ message: turnRow({ durationMs: undefined }) }))
+    expect(none?.stats).toBeUndefined()
   })
 
-  it('脚注只放宿主给的耗时，秒数四舍五入且至少 1 秒', () => {
-    const props = turnVerdictProps(input({ message: turnRow({ durationMs: 12_400 }) }))
-    expect(props?.footnote).toEqual({ seconds: 12 })
-    const tiny = turnVerdictProps(input({ message: turnRow({ durationMs: 200 }) }))
-    expect(tiny?.footnote).toEqual({ seconds: 1 })
-    const none = turnVerdictProps(input({ message: turnRow({ durationMs: undefined }) }))
-    expect(none?.footnote).toBeUndefined()
+  it('工具次数由调用方数出来：进大号数字与 chip-info，拿不到就两项都不出现', () => {
+    const withTools = turnVerdictProps(input({ message: turnRow({ durationMs: 5_000 }), tools: 9 }))
+    expect(withTools?.stats).toEqual([{ value: '5s', label: '耗时' }, { value: '9', label: '工具' }])
+    expect(withTools?.chips).toEqual([{ label: '9 次工具', tone: 'info' }])
+
+    const unknown = turnVerdictProps(input({ message: turnRow({ durationMs: 5_000 }) }))
+    expect(unknown?.stats).toEqual([{ value: '5s', label: '耗时' }])
+    expect(unknown?.chips).toBeUndefined()
+  })
+
+  it('交付物 + 产出文件合成「文件」数字与 chip-ok；缺的整项省略', () => {
+    const props = turnVerdictProps(input({
+      message: turnRow({ deliverables: [{ path: 'a.ts' }, { path: 'b.ts' }], produced: ['c.ts'] }),
+    }))
+    expect(props?.stats).toEqual([{ value: '3', label: '文件' }])
+    expect(props?.chips).toEqual([{ label: '3 个文件', tone: 'ok' }])
+
+    const neither = turnVerdictProps(input({ message: turnRow({ text: '说完了' }) }))
+    expect(neither?.stats).toBeUndefined()
+    expect(neither?.chips).toBeUndefined()
+  })
+
+  it('输出被截断 / 回复失败进 chip-warn（真发生了才出现）', () => {
+    const truncated = turnVerdictProps(input({ message: turnRow({ maxTokens: true }) }))
+    expect(truncated?.chips).toEqual([{ label: '输出被截断', tone: 'warn' }])
+    const failed = turnVerdictProps(input({ message: turnRow({ failed: true }) }))
+    expect(failed?.chips).toEqual([{ label: '本次回复失败', tone: 'warn' }])
   })
 
   it('running 态解释"结果出来后替换这张卡"；断线时说连接问题', () => {
@@ -97,7 +116,8 @@ describe('turnVerdictProps（文案与真实数字）', () => {
 
   it('绝不编造工具次数或 token（拿不到就不给）', () => {
     const props = turnVerdictProps(input({ message: turnRow({ durationMs: 5_000, produced: ['a.ts'] }) }))
-    expect(props?.footnote).toEqual({ seconds: 5 })
-    expect(Object.keys(props?.footnote ?? {})).toEqual(['seconds'])
+    expect(props?.stats).toEqual([{ value: '5s', label: '耗时' }, { value: '1', label: '文件' }])
+    expect(JSON.stringify(props)).not.toContain('token')
+    expect(JSON.stringify(props)).not.toContain('%')
   })
 })

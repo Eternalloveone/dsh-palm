@@ -96,6 +96,15 @@ export interface ChatRowsView {
 
 export function ChatRows(view: ChatRowsView): React.ReactElement {
   const rows = dedupeRows(view.messages)
+  // 结论卡的那行大号数字：本轮真实发生的工具调用数。turn 尾行自己不携带工具，
+  // 只能从同一轮的各条 assistant 行里按 callId 去重数——数不到就不传（不补 0）。
+  const toolsByTurn = new Map<number, Set<string>>()
+  for (const row of rows) {
+    if (row.turn === undefined || row.kind !== 'assistant') continue
+    const seen = toolsByTurn.get(row.turn) ?? new Set<string>()
+    for (const tool of row.tools ?? []) seen.add(tool.callId)
+    toolsByTurn.set(row.turn, seen)
+  }
   return (
     <>
       {view.hasOlder && (
@@ -123,11 +132,15 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${view.estimateHeight(message)}px` }
           : undefined
         const interrupted = view.rowOfInterrupted(message)
+        const turnTools = message.kind === 'turn' && message.turn !== undefined
+          ? toolsByTurn.get(message.turn)?.size
+          : undefined
         return (
           <MessageRow
             key={view.rowKeyOf(message)}
             enter={animateIn}
             message={interrupted}
+            turnTools={turnTools}
             sessionId={view.sessionId}
             showToolCalls={view.showToolCalls}
             showSystemMessages={view.showSystemMessages}

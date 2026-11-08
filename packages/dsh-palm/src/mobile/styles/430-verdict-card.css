@@ -1,8 +1,9 @@
-/* ── 结论卡 · 每轮一张（P4 四态一骨架） ────────────────────────────────
+/* ── 结论卡 · 每轮一张（对照稿 chat-rework.html） ───────────────────────
  *
- * 骨架：标签 / 结论句 / 补充一句 / 交付物条 / 动作 / 脚注。
- * 语义色**只作用于左边框**，不给整卡染色（完成=绿边，审批=琥珀边）。
- * 所有尺寸走 --palm-* 令牌，不写字面量。
+ * 骨架：3px 状态色带 / ✓ 已完成 / 17px 结论 / 一行三个 22px 数字 /
+ *       底部彩色标签（chip-ok / chip-info / chip-warn）/ 动作。
+ * 语义色只作用于顶边与标签，不给整卡染色。
+ * 所有尺寸走 --palm-* 令牌，不写字面量色值。
  */
 
 .verdict-card {
@@ -10,27 +11,41 @@
   flex-direction: column;
   gap: var(--palm-s2);
   margin: 0 0 var(--palm-s3);
-  padding: var(--palm-s4);
+  padding: var(--palm-s3);
   background: var(--palm-sur-1);
-  border: 1px solid var(--palm-line);
+  border: var(--palm-hair) solid var(--palm-line);
   border-top-width: 3px;
-  border-radius: var(--palm-r-l);
+  border-radius: var(--palm-r-m);
   box-shadow: var(--palm-hi), var(--palm-sh1);
 }
 
-/* 四态：只有左边框换色，卡片本身不变。 */
+/* 四态：只有顶边色带换色，卡片本身不变。 */
 .verdict-card[data-state='conclusion'] { border-top: 3px solid var(--palm-ok); }
 .verdict-card[data-state='decision'] { border-top: 3px solid var(--palm-warn); }
 .verdict-card[data-state='working'] { border-top: 3px solid var(--palm-accent); }
 .verdict-card[data-state='failed'] { border-top: 3px solid var(--palm-danger); }
 
+/* 标签行：16px 线性图标 + 文字，颜色跟着四态走。 */
 .verdict-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
   font-size: var(--palm-t-s);
   font-weight: var(--palm-w-bold);
   letter-spacing: 0.04em;
   color: var(--palm-fg-2);
 }
 
+.verdict-tag > svg {
+  flex: none;
+}
+
+.verdict-card[data-state='conclusion'] .verdict-tag { color: var(--palm-ok); }
+.verdict-card[data-state='decision'] .verdict-tag { color: var(--palm-warn); }
+.verdict-card[data-state='working'] .verdict-tag { color: var(--palm-accent); }
+.verdict-card[data-state='failed'] .verdict-tag { color: var(--palm-danger); }
+
+/* 结论句：17px 加粗，整张卡的第一可读内容。 */
 .verdict-headline {
   margin: 0;
   font-size: var(--palm-t-l);
@@ -39,6 +54,7 @@
   color: var(--palm-fg);
 }
 
+/* 补充一句：14px，次灰。 */
 .verdict-detail {
   margin: 0;
   font-size: var(--palm-t-m);
@@ -46,45 +62,72 @@
   color: var(--palm-fg-2);
 }
 
-/* 交付物条：一行一项，左边一条竖线，不抢结论句的注意力。 */
-.verdict-artifacts {
+/* 一行三个大号数字：22px 数字 + 12px 灰字说明（数字真实才渲染）。 */
+.verdict-stats {
   display: flex;
-  flex-direction: column;
-  gap: var(--palm-s1);
-  margin: var(--palm-s1) 0 0;
-  padding: 0 0 0 var(--palm-s3);
-  border-left: 2px solid var(--palm-line);
+  align-items: baseline;
+  gap: var(--palm-s4);
 }
 
-.verdict-artifact {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-2);
+.verdict-stats > div {
+  min-width: 0;
 }
 
-.verdict-artifact b {
+.verdict-stats b {
+  display: block;
+  font-size: var(--palm-t-xl);
   font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
   color: var(--palm-fg);
+  font-variant-numeric: tabular-nums;
 }
 
+.verdict-stats span {
+  display: block;
+  margin-top: var(--palm-hair);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+/* 底部彩色标签：一条真实事实一枚，没有就整行不渲染。 */
+.verdict-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--palm-s2);
+  padding-top: var(--palm-s2);
+  border-top: var(--palm-hair) solid var(--palm-line);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  height: var(--palm-s6);
+  padding: 0 var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+}
+
+.chip[data-tone='ok'] {
+  background: var(--palm-tint-ok);
+  color: var(--palm-ok);
+}
+
+.chip[data-tone='info'] {
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+}
+
+.chip[data-tone='warn'] {
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
+}
+
+/* 动作：最多三个，主按钮一档亮。 */
 .verdict-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--palm-s2);
   margin-top: var(--palm-s1);
-}
-
-.verdict-footnote {
-  margin-top: var(--palm-s1);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-
-
-/* 定版图：耗时（秒）是结论卡的第二眼信息，独立一行、xl 档。 */
-.verdict-seconds {
-  font-size: var(--palm-t-xl);
-  font-weight: var(--palm-w-bold);
-  line-height: var(--palm-lh-head);
-  color: var(--palm-fg);
 }

@@ -184,7 +184,7 @@ export function ComposerSection(props: ComposerSectionProps) {
             aria-haspopup="dialog"
             onClick={() => { setPlusOpen(true) }}
           >
-            <PlusIcon width={20} height={20} />
+            <PlusIcon width={16} height={16} />
           </Button>
           <Button
             type="button"
@@ -202,7 +202,7 @@ export function ComposerSection(props: ComposerSectionProps) {
               aria-label="语音输入"
               onClick={openVoice}
             >
-              <MicIcon width={20} height={20} />
+              <MicIcon width={16} height={16} />
             </Button>
           )}
           {/* 命令 chip 摆在输入框**里面**（边框和背景挪到 .chat-field 上）：与输入框
@@ -343,7 +343,7 @@ export function ComposerSection(props: ComposerSectionProps) {
             ) : running ? (
               <span className="chat-send-queuedText" aria-hidden="true">排队</span>
             ) : (
-              <SendIcon />
+              <SendIcon width={16} height={16} />
             )}
           </Button>
         </div>

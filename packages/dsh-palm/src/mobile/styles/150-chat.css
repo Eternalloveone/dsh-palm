@@ -15,13 +15,13 @@
      scroll anchoring keeps the visible region stable when frames above it
      change height (Chromium WebView supports this natively). */
   overflow-anchor: auto;
-  padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  padding: var(--palm-s3) var(--palm-s3) calc(env(safe-area-inset-bottom, 0) + var(--palm-s3));
   display: flex;
   flex-direction: column;
   /* 用户定的节奏（2026-10-13）：12px。卡片与紧随其后的正文另有 12px
      （见 .chat-* + .chat-flow-text 规则），所以卡片上下读起来正好是 12px ＋ 12px。
      注意：这是**全列表**的行间距，普通文字消息也按 12px 排。 */
-  gap: 12px;
+  gap: var(--palm-s3);
 }
 
 /* Scroll children never shrink. The bubbles pin an explicit min-height
@@ -138,13 +138,13 @@
 
 /* Message bubbles — the large-card tier. */
 .chat-msg {
-  max-width: 85%;
-  min-height: 48px;
-  padding: 12px 16px;
-  border-radius: var(--radius-card);
-  font-size: var(--text-base);
-  font-weight: 400;
-  line-height: 1.7;
+  max-width: 78%;
+  min-height: var(--palm-hit);
+  padding: var(--palm-s3);
+  border-radius: var(--palm-r-m);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-body);
   overflow-wrap: break-word;
   white-space: pre-wrap;
 }
@@ -195,14 +195,17 @@
   }
 }
 
+/* 用户气泡（对照稿）：右上停靠、深底、12/12/4/12 圆角、最大宽 78%。
+   不再用整块主题色 —— 主题色留给发送键与链接，气泡退回"一块安静的深底"。 */
 .chat-msg-user {
   align-self: flex-end;
   width: auto;
-  max-width: 85%;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  border-radius: var(--radius-card);
-  box-shadow: 0 1px 3px var(--accent-glow);
+  max-width: 78%;
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m) var(--palm-r-m) var(--palm-s1) var(--palm-r-m);
+  box-shadow: none;
 }
 
 /* 消息图片：0.1.5 起事件只带 attachmentId 引用，字节由 mobile.readAttachment
@@ -283,10 +286,9 @@
   color: var(--danger);
 }
 
-/* Assistant messages are full-width flat rows (Kimi-style, no bubble):
-   the visual hierarchy comes from the content itself — code-block and
-   diff cards, headings, blockquotes — not from a card frame around the
-   whole message. Only user messages keep a light bubble. */
+/* Assistant messages are independent prose blocks (no bubble, no frame):
+   the visual hierarchy comes from the content itself. 左右各留 4px：
+   正文不顶到屏幕边，和右侧的用户气泡在视觉上分开一档。 */
 .chat-msg-assistant {
   align-self: stretch;
   width: auto;
@@ -295,7 +297,7 @@
   border: none;
   box-shadow: none;
   border-radius: 0;
-  padding: 0;
+  padding: 0 var(--palm-s1);
 }
 
 .chat-msg-failed {
@@ -371,7 +373,7 @@
 }
 
 .chat-msg-user .chat-msg-time {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--palm-fg-3);
   text-align: right;
 }
 
@@ -499,13 +501,13 @@
 .chat-md-body h3 { font-size: 1.15em; }
 .chat-md-body h4, .chat-md-body h5, .chat-md-body h6 { font-size: 1.05em; }
 .chat-md-body code {
-  font-family: var(--font-mono);
-  font-size: 0.88em; /* ≈13px at the default 15px message size */
-  background: var(--bg-elevated);
-  color: var(--accent);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: none;
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-t-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-accent);
+  padding: 0 var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
   box-shadow: none;
 }
 .chat-md-body ul, .chat-md-body ol { margin: 6px 0 10px; padding-left: 20px; }

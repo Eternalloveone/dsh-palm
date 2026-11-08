@@ -149,33 +149,35 @@
 }
 
 /*
- * 过程组（桌面端 turn-process 的对应物）：一轮的思考与工具调用藏在同一个折叠头
- * 后面，头两行只有状态词/用时/报错信号、此刻到哪一步与改动量；步数在展开体首行
- * （「共 N 步」）。行不编号，层级只靠缩进与行首字形。
+ * 过程组（对照稿 chat-rework.html 的工具块）：**独立一张卡**。
+ * 头一行只说「跑了 N 个工具」+ 右侧总耗时；每个工具在头下面直接列一行
+ * （彩色状态点 + 动作 · 对象 + 状态词）。思考与 diff 卡仍在卡内展开，
+ * 答案永远在卡外。
  */
 .chat-proc {
   display: flex;
   flex-direction: column;
-  margin-top: var(--space-1);
+  margin-top: var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  overflow: hidden;
 }
 
 .chat-proc-head {
-  position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
+  align-items: center;
+  gap: var(--palm-s2);
   width: 100%;
-  /* 44px 是拇指友好的最小点击高度（原来 40px，真机上点开折叠要试两次）。 */
-  min-height: 44px;
-  /* 右边留给绝对定位的展开箭头 */
-  padding: 6px 26px 6px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-chip);
-  background: var(--card-bg);
-  color: var(--text-muted);
+  /* 44px 是拇指友好的最小点击高度 */
+  min-height: var(--palm-hit);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: none;
+  background: transparent;
+  color: var(--palm-fg);
   font: inherit;
-  font-size: var(--text-xs);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
   text-align: left;
   cursor: pointer;
 }
@@ -184,139 +186,71 @@
   cursor: default;
 }
 
-.chat-proc-lead {
-  flex: none;
-  /* emoji 与中文行对齐：定宽方形盒 + 双向居中 + line-height:1。emoji 字形的
-     上伸/下伸和中文不一样，不锁盒高就会把这一行顶高、也让符号看起来飘在文字上方。 */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--text-quaternary);
-}
-
-.chat-proc-lead-running {
-  color: var(--accent);
-  position: relative;
-  overflow: hidden;
-}
-
-/* 静态轮廓（同一条 path 描边）：不支持蒙版动画或用户要减少动态时显示。 */
-.chat-proc-whale-still {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-.chat-proc-whale-loop {
-  display: none;
-  position: absolute;
-  inset: 0;
-}
-
-/* 动画 PNG（/m/running-whale.png，就是桌面端在放的那一张）染色播放。
-   用 currentColor 当底色 + alpha 蒙版，形状随主题色走；这张图只在"思考中"
-   才被请求，静止时一个字节都不发。手写 SVG 动画到不了这个质感 —— 试过整体
-   旋转、拆成两片叶子、乃至用 SMIL 改路径数据，都还是"两片叶在转"。
-   不支持 mask-mode 的浏览器、以及开了"减弱动态效果"的系统，直接退回静态
-   SVG 轮廓（下面这段 @supports/@media 不成立时，默认就是静态形态）。 */
-@supports (mask-mode: alpha) and (mask-image: url('')) {
-  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
-    .chat-proc-whale-loop {
-      display: block;
-      background: currentColor;
-      mask: url('/m/running-whale.png') center / 100% 100% no-repeat;
-      mask-mode: alpha;
-      /* 让逐帧解码留在合成层上，别牵动整行重排。 */
-      will-change: transform;
-    }
-
-    .chat-proc-whale-still { display: none; }
-  }
-}
-
 .chat-proc-line {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--palm-s2);
   width: 100%;
+  min-width: 0;
 }
 
-/* 第一行：状态词是主角（灰阶里最重的一档），用时退到第三档。 */
+/* 标题是主角：14px 加粗正文色。 */
 .chat-proc-state {
   flex: none;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
 }
 
 /*
- * 第一行里的报错信号（「⚠ 2 处报错」）：比状态词弱一档（第三档灰、小一号），
- * 只在真有报错步骤时存在。不引入新层次、不用重色。
+ * 报错信号（「2 处报错」）：比标题弱一档，只在真有报错步骤时存在。
+ * 不用 ⚠ 之类的字形，纯文字也读得出来。
  */
 .chat-proc-errors {
   flex: none;
   color: var(--palm-danger);
-  font-size: 0.95em;
-  font-weight: 400;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
 }
 
+/* 右侧总耗时：第三档灰、等宽数字。 */
 .chat-proc-time {
   flex: none;
   margin-left: auto;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
   font-variant-numeric: tabular-nums;
 }
 
 .chat-proc-label {
   flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 第二行：此刻进行到哪一步 —— 正文色（这张卡的主角）。 */
-.chat-proc-current {
-  color: var(--text-primary);
-}
-
-.chat-proc-current-text {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 右侧补充信息（「改了 3 个文件」），第三档灰。 */
-.chat-proc-meta {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-tertiary);
-}
-
-/* 只有"运行中"给一点强调：比默认亮一档的灰边。 */
+/* 只有"运行中"给一点强调：比默认亮一档的边。 */
 .chat-proc-running > .chat-proc-head {
-  border-color: var(--border-default);
+  border-color: var(--palm-line);
 }
 
 .chat-proc-caret {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--palm-fg-3);
 }
 
 .chat-proc-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border-subtle);
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-top: var(--palm-hair) solid var(--palm-line);
 }
+
 
 /* 宿主唤醒消息的卡片（子代理/任务/定时/团队/外部事件…）。数值逐条对齐桌面端
    ui-chat 的 TurnTriggerNodeView.module.css：16px 圆角、描边、代码块灰底、
@@ -590,26 +524,33 @@
 }
 
 /*
- * Process timeline (desktop ToolRow parity): one row per tool call with a
- * state dot, the family glyph, the act's title and the args-derived summary.
- * The summary is the shrinkable slot — an unbreakable MCP tool id or a long
- * command ellipsizes instead of pushing the caret off the row.
+ * 工具块的行（对照稿）：一行一个工具 = 状态点 + 动作 · 对象 + 右侧状态词。
+ * 行与行之间只用一条细线分隔，整块是卡里的一张表，不是一叠小卡。
  */
+.chat-proc-tools {
+  display: flex;
+  flex-direction: column;
+}
+
 .chat-step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: 6px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--card-bg);
+  gap: var(--palm-s1);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-top: var(--palm-hair) solid var(--palm-line);
+  background: transparent;
+}
+
+.chat-proc-tools > .chat-step:first-child {
+  border-top: none;
 }
 
 .chat-step-head {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--palm-s2);
   width: 100%;
+  min-height: var(--palm-hit);
   padding: 0;
   border: 0;
   background: none;
@@ -619,52 +560,24 @@
   cursor: pointer;
 }
 
-.chat-step-icon {
+/* 状态点：8px 圆点。颜色只在宿主真报过状态时出现（见 data-state）。 */
+.chat-step-dot {
   flex: none;
-  /* 与 .chat-proc-lead 同一套对齐规则：定宽方形盒 + 居中 + line-height:1。
-     这里原来还有一条给 14px SVG 用的子规则，换成 emoji 后已无用、已一并删除；
-     emoji 若不定盒会按字形基线摆放，看着像飘在标题上方。 */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--text-muted);
+  width: var(--palm-s2);
+  height: var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-fg-3);
 }
 
-/* 非工具步骤（思考中 / 正在回答）也要有行首符号：💭 加轻微呼吸。
-   动效刻意比卡首的沙漏弱（那边是翻转），一张卡里不要两个东西抢眼睛。
-   注意：本文件的 CSS 在模板字符串里，注释里不得出现反引号或美元加花括号。 */
-.chat-step-icon-thinking {
-  animation: chat-step-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes chat-step-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-step-icon-thinking { animation: none; }
-  .chat-step-icon-spin { animation: none; }
-}
-
-/* 运行命令（bash 族）的齿轮只在"这一步正在跑"时转：结算后必须停，
-   否则"已完成"的卡里齿轮转个不停，读起来像还在干活。 */
-.chat-step-icon-spin {
-  animation: chat-step-spin 2.4s linear infinite;
-}
-
-@keyframes chat-step-spin {
-  to { transform: rotate(360deg); }
-}
+.chat-step-dot[data-state='ok'] { background: var(--palm-ok); }
+.chat-step-dot[data-state='running'] { background: var(--palm-accent); }
+.chat-step-dot[data-state='error'] { background: var(--palm-danger); }
+.chat-step-dot[data-state='stopped'] { background: var(--palm-warn); }
 
 .chat-step-title {
   flex: none;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
   white-space: nowrap;
 }
 
@@ -674,31 +587,29 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
 }
 
-.chat-step-tally {
+/* 右侧状态词：12px 第三档灰（成功/运行中/失败/已中断都照实写）。 */
+.chat-step-state {
   flex: none;
-  display: inline-flex;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  margin-left: auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
 }
 
-.chat-step-tally-add { color: var(--diff-add); }
-.chat-step-tally-del { color: var(--diff-del); }
+.chat-step-state-ok { color: var(--palm-ok); }
+.chat-step-state-error { color: var(--palm-danger); }
+.chat-step-state-running { color: var(--palm-accent); }
+.chat-step-state-stopped { color: var(--palm-warn); }
 
 .chat-step-caret {
   flex: none;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-
-@keyframes chat-step-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  display: flex;
+  align-items: center;
+  color: var(--palm-fg-3);
 }
 
 /* Tool diff card: file path header + red removed / green added lines,
@@ -818,21 +729,3 @@
   min-width: 0;
 }
 
-/* ── 过程行三态色条（定版图：绿=成功 / 红=失败 / 蓝=运行中）──────── */
-.chat-proc-head[data-state='ok'] {
-  border-left: 2px solid var(--palm-ok);
-}
-
-.chat-proc-head[data-state='failed'] {
-  border-left: 2px solid var(--palm-danger);
-}
-
-.chat-proc-head[data-state='running'] {
-  border-left: 2px solid var(--palm-accent);
-}
-
-.chat-proc-head[data-state='ok'],
-.chat-proc-head[data-state='failed'],
-.chat-proc-head[data-state='running'] {
-  padding-left: var(--palm-s2);
-}

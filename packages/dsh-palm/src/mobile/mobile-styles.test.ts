@@ -164,7 +164,7 @@ describe('mobileCss tap-target contract', () => {
     // 视觉尺寸保持不变（和主键拉开距离，避免误触），判定区靠伪元素补到 44px。
     const css = compact(mobileCss)
     expect(css).toContain('.chat-stop-mini { position: relative; }')
-    expect(css).toContain(".chat-stop-mini::after { content: ''; position: absolute; inset: -7px; }")
+    expect(css).toContain(".chat-stop-mini::after { content: ''; position: absolute; inset: calc(var(--palm-s2) * -0.75); }")
   })
 
   it('spaces stacked subagent rows apart', () => {

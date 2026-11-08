@@ -223,16 +223,12 @@ function procHeadEl(): HTMLElement {
   return document.querySelector('.chat-proc-head') as HTMLElement
 }
 
-/** 折叠头第一行：状态词 + 时间半句（秒表只在这一处）。 */
+/** 折叠头：一行「跑了 N 个工具 + 右侧总耗时」（无工具时是状态词）。 */
 function procStateOf(head: HTMLElement): string {
   return head.querySelector('.chat-proc-state')?.textContent ?? ''
 }
 function procTimeOf(head: HTMLElement): string {
   return head.querySelector('.chat-proc-time')?.textContent ?? ''
-}
-/** 折叠头第二行："此刻进行到哪一步"（没渲染时是空串）。 */
-function procCurrentOf(head: HTMLElement): string {
-  return head.querySelector('.chat-proc-current-text')?.textContent ?? ''
 }
 
 /** One history entry with a host presentation view riding beside the event. */
@@ -468,13 +464,13 @@ describe('ChatView message folds', () => {
     // 卡面不再带"· N 步"），第二行报最后一步做了什么。
     const head = await findProcHead()
     expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(head.querySelectorAll('.chat-proc-line')).toHaveLength(2)
-    expect(procStateOf(head)).toBe('已完成')
-    // 旧期望值 '1 步' → P11 新口径：步数移出卡面（展开体首行才报）。
+    expect(head.querySelectorAll('.chat-proc-line')).toHaveLength(1)
+    expect(procStateOf(head)).toBe('跑了 1 个工具')
     expect(procTimeOf(head)).toBe('')
     expect(head.textContent).not.toContain('步')
-    expect(procCurrentOf(head)).toBe('运行命令 · ls')
-    // Collapsed by default: neither the think row nor its text is in the DOM.
+    // 工具行默认可见（绿点 + 动作 · 参数 + 完成），不再藏在展开体里。
+    expect(head.closest('.chat-proc')!.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('ok')
+    // Collapsed body: neither the think row nor its text is in the DOM.
     expect(document.querySelector('.chat-think')).toBeNull()
     expect(screen.queryByText(/先看结构/)).toBeNull()
 
@@ -500,23 +496,17 @@ describe('ChatView message folds', () => {
 
     const head = await findProcHead()
     expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(procStateOf(head)).toBe('已完成')
-    // 旧期望值 '1 步' → P11 新口径：卡面不再带步数。
+    expect(procStateOf(head)).toBe('跑了 1 个工具')
     expect(procTimeOf(head)).toBe('')
     expect(head.textContent).not.toContain('步')
-    // 折叠时第二行已经报名了当前的/最后的一步（组头里就有"运行命令 · ls"）。
-    expect(procCurrentOf(head)).toBe('运行命令 · ls')
     expect(screen.queryByText('{"cmd":"ls"}')).toBeNull()
 
     fireEvent.click(head)
     expect(head.getAttribute('aria-expanded')).toBe('true')
-    // The group head carries the state/step line; the revealed step row carries
-    // the Chinese verb plus the args-derived summary, and stays folded itself.
-    // 范围限定在展开体里：组头第二行也含"运行命令"，不限定就会撞车。
-    const body = document.querySelector('.chat-proc-body') as HTMLElement
-    const step = await within(body).findByRole('button', { name: /运行命令/ })
-    // 这一轮的调用已被 tool/result 收尾（settledTurnEvents）⇒ 行读"完成"；
-    // "还在跑 ⇒ 运行中"那条契约由下面 process-timeline 的用例钉着。
+    // 工具行在卡里常显（不在展开体里），点行本身展开原始参数。
+    const step = await within(document.querySelector('.chat-proc') as HTMLElement)
+      .findByRole('button', { name: /运行命令/ })
+    // 这一轮的调用已被 tool/result 收尾（settledTurnEvents）⇒ 行读"完成"。
     expect(screen.getByText('完成')).toBeTruthy()
     expect(screen.getByText('ls')).toBeTruthy()
     expect(screen.queryByText('{"cmd":"ls"}')).toBeNull()
@@ -526,56 +516,44 @@ describe('ChatView message folds', () => {
     expect(await screen.findByText('{"cmd":"ls"}')).toBeTruthy()
   })
 
-  it('renders each tool call as a process-timeline row with a Chinese state word and a family glyph', async () => {
+  it('renders each tool call as a process-timeline row with a coloured state dot', async () => {
     window.localStorage.clear()
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    fireEvent.click(await findProcHead())
-    const step = await within(document.querySelector('.chat-proc-body') as HTMLElement)
-      .findByRole('button', { name: /运行命令/ })
-    // 行首字形是 emoji（这条是 bash 族 = 齿轮 ⚙️），不再是桌面端那套静态 SVG。
-    expect(step.querySelector('.chat-step-icon')!.textContent).toBe('⚙️')
-    // No result event settled the call, so the row still reads 运行中. The old
-    // coloured state dot is gone: state is spelled out in `.chat-step-state`.
+    const step = await within(await waitFor(() => {
+      const proc = document.querySelector('.chat-proc')
+      expect(proc).not.toBeNull()
+      return proc as HTMLElement
+    })).findByRole('button', { name: /运行命令/ })
+    // 行首是 8px 彩色状态点（不再是 emoji）：这条是运行中的调用 ⇒ 蓝点。
+    expect(step.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('running')
     const stepRow = step.closest('.chat-step') as HTMLElement
     expect(stepRow.getAttribute('data-state')).toBe('running')
     expect(stepRow.querySelector('.chat-step-state')!.textContent).toBe('运行中')
+    // 状态词是文字不是颜色：没有状态点专用的旧 class。
     expect(step.querySelector('.chat-step-dot-running')).toBeNull()
-    expect(step.querySelector('[class*="chat-step-dot"]')).toBeNull()
     expect(screen.getByText('运行命令')).toBeTruthy()
     expect(screen.getByText('ls')).toBeTruthy()
   })
 
-  it('draws the running indicator as the whale, not the hourglass emoji', async () => {
-    // The hourglass was an emoji, so it could not take the theme accent. The
-    // running lead now paints the animated PNG (the desktop client's own asset)
-    // as a currentColor mask, keeping the stroked path as the still fallback
-    // for browsers without mask-mode and for reduced-motion users.
+  it('running turn 用蓝点表示，不再有沙漏/鲸鱼 emoji 指示器', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
-    // The indicator only paints while the host says the turn runs (see
-    // `settled`): an idle session's leftover rows must not claim it. The
-    // reconcile probe must agree, or its fallback would retire the indicator
-    // mid-test (the probe is a fallback now; the host pushes the verdict).
     listSessionsMock.mockResolvedValue({
       items: [{ sessionId: 's-1', running: true } as never],
       hasMore: false,
     } as SessionPage)
     render(<ChatView session={{ ...session, running: true }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const lead = await screen.findByRole('status', { name: /运行中/ }).then(
-      () => document.querySelector('.chat-proc-lead-running'),
-      () => document.querySelector('.chat-proc-lead-running'),
-    )
-    expect(lead).not.toBeNull()
-    // Both layers exist; the stylesheet decides which one is painted.
-    expect(lead!.querySelector('.chat-proc-whale-loop')).not.toBeNull()
-    const still = lead!.querySelector('.chat-proc-whale-still')
-    expect(still).not.toBeNull()
-    expect(still!.tagName.toLowerCase()).toBe('svg')
-    expect(still!.querySelector('path')!.getAttribute('stroke')).toBe('currentColor')
-    // The emoji must be gone from the running lead entirely.
-    expect(document.body.textContent).not.toContain('⏳')
+    await screen.findByText('已完成修改')
+    const dot = document.querySelector('.chat-step-dot[data-state="running"]')
+    expect(dot).not.toBeNull()
+    // 运行中的工具行右侧照实写"运行中"。
+    expect(document.querySelector('.chat-step-state')!.textContent).toBe('运行中')
+    // emoji 必须从工具块里彻底消失。
+    expect(document.querySelector('.chat-proc')!.textContent).not.toContain('⏳')
+    expect(document.querySelector('.chat-proc')!.textContent).not.toContain('⚙️')
+    expect(document.querySelector('.chat-proc')!.textContent).not.toContain('🔧')
   })
 
   it('窗口里没有 turn/start 时，收工用时按宿主给的起点定格（不在收工瞬间往回跳）', async () => {
@@ -1171,7 +1149,9 @@ describe('ChatView initial-load race', () => {
     // The history turn's tool disclosure plus the live one both render (two
     // expandable process heads; the step count moved into the expanded body in
     // P11, so the old `button[name=/步/]` probe no longer names them).
-    expect(document.querySelectorAll('button.chat-proc-head').length).toBe(2)
+    // The history turn's tool row plus the live one both render (two process
+    // cards; the second one may be static when it has nothing to expand).
+    expect(document.querySelectorAll('.chat-proc-head').length).toBe(2)
   })
 
   it('carries the host view on live mux frames into the tool diff card', async () => {
@@ -1206,22 +1186,20 @@ describe('ChatView initial-load race', () => {
       })
     })
 
-    // The live diff card rides inside the live row's process group, so it is
-    // not in the DOM until that group is expanded; its body stays folded until
+    // The live diff card rides inside the live row's process card, so it is
+    // not in the DOM until that card is expanded; its body stays folded until
     // the artifact head itself is tapped.
     await screen.findByText('实时完成')
     const assistantRows = container.querySelectorAll('.chat-msg-assistant')
     const liveRow = assistantRows[assistantRows.length - 1] as HTMLElement
-    // 折叠头两行：状态词（P11 起卡面不再带步数），然后是最后一步做了什么
-    // （live 的 diff 卡就挂在这一行）。
+    // 标题行：跑了几个工具 + 总耗时；工具行常显（点行展开参数）。
     const liveHead = liveRow.querySelector('.chat-proc-head') as HTMLElement
-    expect(liveRow.querySelectorAll('.chat-proc-line')).toHaveLength(2)
-    expect(procStateOf(liveHead)).toBe('已完成')
-    // 旧期望值 '1 步' → 新口径：卡面不带步数。
+    expect(liveRow.querySelectorAll('.chat-proc-line')).toHaveLength(1)
+    expect(procStateOf(liveHead)).toBe('跑了 1 个工具')
     expect(procTimeOf(liveHead)).toBe('')
-    expect(liveHead.textContent).not.toContain('步')
-    expect(procCurrentOf(liveHead)).toBe('写入 · b.txt')
-    expect(liveHead.querySelector('.chat-proc-meta')!.textContent).toBe('改了 1 个文件')
+    const liveStep = liveRow.querySelector('.chat-step') as HTMLElement
+    expect(liveStep.getAttribute('data-step-title')).toBe('写入')
+    expect(liveStep.querySelector('.chat-step-summary')!.textContent).toBe('b.txt')
     expect(liveRow.querySelector('.chat-artifact')).toBeNull()
     const groupHead = liveRow.querySelector('.chat-proc-head') as HTMLButtonElement
     expect(groupHead.getAttribute('aria-expanded')).toBe('false')
@@ -2172,17 +2150,16 @@ describe('ChatView display toggles and context usage', () => {
     loadChatPageMock.mockResolvedValue(rowPage(toolEvents()))
     const view = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    // The process group is visible by default (an expandable head). The old
-    // `button[name=/步/]` probe is gone with the step count leaving the card face
-    // (P11); the head's class is the direct handle now.
-    expect(await screen.findByText('完成')).toBeTruthy()
-    expect(document.querySelector('button.chat-proc-head')).not.toBeNull()
+    // The process card is visible by default；工具行常显，标题行写「跑了 N 个工具」。
+    expect((await screen.findAllByText('完成')).length).toBeGreaterThan(0)
+    expect(document.querySelector('.chat-proc-head')).not.toBeNull()
+    expect(document.querySelector('.chat-step')).not.toBeNull()
 
     view.rerender(<ChatView session={session} onBack={() => {}} showToolCalls={false} showSystemMessages={false} />)
 
-    // The group is gone (no step rows left to fold) while the answer remains.
+    // The card is gone (no tool rows, no clock) while the answer remains.
     expect(document.querySelector('.chat-proc')).toBeNull()
-    expect(screen.getByText('完成')).toBeTruthy()
+    expect(screen.getAllByText('完成').length).toBeGreaterThan(0)
   })
 
   it('renders ONE process card for a whole turn split by the host\'s hidden injected rows', async () => {
@@ -2229,7 +2206,7 @@ describe('ChatView display toggles and context usage', () => {
       const head = await findProcHead()
       // 一轮一卡：三张卡合成一张。
       expect(container.querySelectorAll('.chat-proc')).toHaveLength(1)
-      expect(procStateOf(head)).toBe('已完成')
+      expect(procStateOf(head)).toBe('跑了 3 个工具')
       // 3 个工具全在（D2，展开体首行报步数），用时定格在真机那段 1分45秒。
       // 旧期望值 '用时1分45秒 · 3 步' → P11 新口径：卡面第一行只有用时。
       expect(procTimeOf(head)).toBe('用时1分45秒')
@@ -2270,20 +2247,16 @@ describe('ChatView display toggles and context usage', () => {
     ]))
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    // Collapsed by default: neither the step row nor the diff card is in the
-    // DOM, and the answer already sits outside the group.
+    // 工具行常显（彩点 + 动作 · 对象 + 完成），diff 卡要点开卡头才进 DOM。
     const groupHead = await findProcHead()
     expect(groupHead.getAttribute('aria-expanded')).toBe('false')
-    // 两行头：状态词（P11 起卡面不带步数）/ 最后一步做了什么（含改动量一句人话）。
-    expect(groupHead.querySelectorAll('.chat-proc-line')).toHaveLength(2)
-    expect(procStateOf(groupHead)).toBe('已完成')
-    // 旧期望值 '1 步' → 新口径：卡面第一行不带步数。
+    expect(groupHead.querySelectorAll('.chat-proc-line')).toHaveLength(1)
+    expect(procStateOf(groupHead)).toBe('跑了 1 个工具')
     expect(procTimeOf(groupHead)).toBe('')
-    expect(groupHead.textContent).not.toContain('步')
-    expect(procCurrentOf(groupHead)).toBe('写入 · a.txt')
-    expect(groupHead.querySelector('.chat-proc-meta')!.textContent).toBe('改了 1 个文件')
+    const step = container.querySelector('.chat-step') as HTMLElement
+    expect(step.getAttribute('data-step-title')).toBe('写入')
+    expect(step.querySelector('.chat-step-summary')!.textContent).toBe('a.txt')
     expect(container.querySelector('.chat-artifact')).toBeNull()
-    expect(container.querySelector('.chat-step')).toBeNull()
     expect(container.querySelector('.chat-flow-answer')!.textContent).toContain('完成')
 
     // Tap 1 expands the group: the artifact head (title + tally) appears, and
@@ -2307,16 +2280,15 @@ describe('ChatView display toggles and context usage', () => {
     expect(delRow?.className).toContain('chat-tool-diff-del')
     expect(addRow?.className).toContain('chat-tool-diff-add')
 
-    // The process timeline names the act in Chinese and keeps only that — no
-    // duplicated diff, no raw arguments JSON.
+    // The process timeline names the act in Chinese and keeps only that —
+    // no duplicated diff, no raw arguments JSON.
     expect(screen.getByText('写入')).toBeTruthy()
     expect(screen.queryByText('{"file_path":"a.txt"}')).toBeNull()
 
-    // The step row carries the same +/- tally as the artifact head (one shared
-    // calculation), so the timeline reads like the desktop's row suffix.
+    // 工具行只报状态（完成/运行中/失败/已中断），+/- 统计留在 diff 卡头里。
     const stepRow = screen.getByText('写入').closest('.chat-step')
-    expect(stepRow?.querySelector('.chat-step-tally-add')?.textContent).toBe('+1')
-    expect(stepRow?.querySelector('.chat-step-tally-del')?.textContent).toBe('−1')
+    expect(stepRow?.querySelector('.chat-step-dot')?.getAttribute('data-state')).toBe('ok')
+    expect(stepRow?.querySelector('.chat-step-state')?.textContent).toBe('完成')
 
     // The answer is judged by step: it lives OUTSIDE the group, anchored to
     // the final step's seq.
@@ -2358,7 +2330,7 @@ describe('ChatView display toggles and context usage', () => {
       if (el.classList.contains('chat-step')) return 'step'
       return el.getAttribute('data-part-id') === 'answer' ? 'answer' : 'narration'
     })
-    expect(order).toEqual(['narration', 'step', 'artifact', 'answer'])
+    expect(order).toEqual(['step', 'narration', 'artifact', 'answer'])
     // The narration is anchored inside the group at its own step; the answer
     // is anchored to the LAST step and stays outside, after the group.
     const narration = container.querySelector('.chat-flow-text[data-part-id="text-0"]') as HTMLElement
@@ -2852,7 +2824,8 @@ describe('ChatView stop button (#1041)', () => {
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('跑一下')
-    expect(screen.getAllByText('深度求索中').length).toBeGreaterThan(0)
+    expect(procStateOf(procHeadEl())).toBe('跑了 1 个工具')
+    expect(document.querySelector('.chat-proc')!.className).toContain('chat-proc-running')
     expect(screen.queryByText('已完成')).toBeNull()
   })
 
@@ -5161,7 +5134,7 @@ describe('ChatView turn clock (#outputting timer)', () => {
       const mux = new FakeMux()
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(procStateOf(lastProcHead())).toBe('跑了 1 个工具')
       expect(procTime()).toBe('用时1分29秒')
     } finally {
       vi.useRealTimers()
@@ -5361,7 +5334,9 @@ describe('ChatView stale turn boundary', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), { turnStartAt: T0 - 50_000, lastEventAt: T0 - 50_000 }))
     render(<ChatView session={{ ...session, running: false }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await flushPageLoad()
-    expect(procStateOf(lastProcHead())).toBe('已中断')
+    const head = lastProcHead()
+    expect(head.getAttribute('data-state')).toBe('stopped')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
   })
 
 
@@ -5380,7 +5355,7 @@ describe('ChatView stale turn boundary', () => {
       emitTurnStart(mux, 200, T0 - 40_000)
       emitChunk(mux, 201, T0 - 39_000)
       await settleLiveFold()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(procStateOf(lastProcHead())).not.toBe('已完成')
 
       // 新一轮开始：用户消息 + 新一轮的行都在，唯独 turn/end 和 turn/start 没到。
       emitSessionFrame(mux, 'user/message', 202, T0 - 1_000, {
@@ -5396,9 +5371,9 @@ describe('ChatView stale turn boundary', () => {
       })
       await settleLiveFold()
 
-      // 旧卡必须落定：活跃轮次已经翻到新一轮，不能再挂着「深度求索中」的秒表。
+      // 旧卡必须落定：活跃轮次已经翻到新一轮，不能再挂着"运行中"的秒表。
       const first = document.querySelectorAll('.chat-proc-head')[0] as HTMLElement
-      expect(procStateOf(first)).not.toBe('深度求索中')
+      expect(first.getAttribute('data-state')).not.toBe('running')
     } finally {
       vi.useRealTimers()
     }
@@ -5446,9 +5421,9 @@ it('does not light the indicator from a stale open turn when the host says nothi
       await settleLiveFold()
 
       expect(screen.queryByRole('status', { name: '输出中' })).toBeNull()
-      // The process head must settle too — the stale active-turn pointer was
-      // what kept it reading 深度求索中 with a stopwatch that never stopped.
-      expect(procStateOf(lastProcHead())).not.toBe('深度求索中')
+      // The process card must settle too — the stale active-turn pointer was
+      // what kept it running with a stopwatch that never stopped.
+      expect(document.querySelector('.chat-proc')?.className ?? '').not.toContain('chat-proc-running')
     } finally {
       vi.useRealTimers()
     }
@@ -5870,22 +5845,22 @@ it('does not light the indicator from a stale open turn when the host says nothi
 
       // 底部状态行说这一轮还在跑（它就是 running 渲染出来的）……
       expect(turnStatusEl().textContent).toBe('输出中')
-      // ……折叠头就不许写"已完成"：状态词是运行中，秒表也照报（行自己没有
-      // turnStartAt，靠页级锚点兜住）。
+      // ……卡头就不许写"已完成"式的静态态：卡带 chat-proc-running，秒表照报
+      // （行自己没有 turnStartAt，靠页级锚点兜住）。
       const head = lastProcHead()
       expect(head.closest('.chat-proc')!.className).toContain('chat-proc-running')
-      expect(procStateOf(head)).toBe('深度求索中')
+      expect(procStateOf(head)).toBe('跑了 1 个工具')
       expect(procTime(head)).toBe('用时30秒')
-      expect(head.querySelector('.chat-proc-current-text')!.textContent).toBe('思考中')
+      // 工具已经结算 ⇒ 行上的蓝点转绿、状态词照实写"完成"。
+      expect(head.closest('.chat-proc')!.querySelector('.chat-step-state')!.textContent).toBe('完成')
 
-      // turn/end 到了：活跃轮次一变，同一条定格行立刻回到"已完成"，秒表定格。
+      // turn/end 到了：活跃轮次一变，同一条定格行立刻落定，秒表定格。
       emitSessionFrame(mux, 'turn/end', 64, T0, { turn: 7, reason: { kind: 'ok' } })
       await settleLiveFold()
       expect(turnStatusEl()).toBeNull()
       const settled = lastProcHead()
       expect(settled.closest('.chat-proc')!.className).not.toContain('chat-proc-running')
-      expect(procStateOf(settled)).toBe('已完成')
-      // 旧期望值 '用时30秒 · 1 步' → P11 新口径：卡面不带步数。
+      expect(procStateOf(settled)).toBe('跑了 1 个工具')
       expect(procTime(settled)).toBe('用时30秒')
     } finally {
       vi.useRealTimers()

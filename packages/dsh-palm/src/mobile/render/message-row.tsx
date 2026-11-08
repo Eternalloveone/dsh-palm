@@ -8,17 +8,14 @@
  * @module dsh-palm/mobile/message-row
  */
 
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
+import { memo, useState, type CSSProperties } from 'react'
 import { formatTime } from '../shared/time.ts'
-import type { MessageFile, MessageImage, RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
+import type { RenderMessage } from './messages.ts'
 import { triggerEmojiOf, triggerTitleOf } from './messages.ts'
-import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from '../platform/attachment-images.ts'
-import { CollapsibleText, MarkdownText, highlightPlain } from './markdown-text.tsx'
-import { diffTallyOf, formatDuration, isRowRunning, processErrorsText, processFilesText, processHeadText, processModel, processStateText, processStepsText, processTimeText, toolDiffLines, visibleRowCount, type ProcessModel, type ProcessOutcome, type ProcessReasoningRow } from './process-rows.ts'
-import { stepModel, type StepVariant } from './step-view.ts'
+import { CollapsibleText } from './markdown-text.tsx'
+import { formatDuration } from './process-rows.ts'
 import { VerdictCard } from '../ui/verdict-card.tsx'
 import { turnVerdictProps } from '../views/chat/lib/turn-verdict.ts'
-import { formatFileSize } from './ui-text.ts'
 import { Button } from '../ui/primitives.tsx'
 
 
@@ -33,7 +30,7 @@ import { ProcessGroup } from '../message-row/process.tsx'
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from '../message-row/anchors.ts'
 
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, hostNowMs, liveTurnStartAt, liveTurn, settled, enter, liveClockTick, turnTools }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -92,6 +89,8 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   onRegenerate?: () => void
   /** 它自己的状态：待点、已发出（转圈）、发出失败（可再点）。 */
   regenerateState?: RegenerateState
+  /** 本轮真实工具调用数（ChatRows 按 (turn, callId) 去重数出来）：结论卡的大号数字用。 */
+  turnTools?: number
 }) {
   const focusSeqAttr = message.startSeq ?? message.seq
   // 宿主唤醒消息（子代理/任务/定时/团队/外部事件…）在手机端也出卡，与桌面端
@@ -175,7 +174,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
     if (reportCount === 0 && planItems.length === 0) {
       // 纯文字回合：以前这里直接返回 null，于是"这一轮说了什么"在列表里没有落点。
       // 现在给一张结论卡（四态由 turnVerdictProps 判定），正文第一句就是结论。
-      const verdict = turnVerdictProps({ message, running: false })
+      const verdict = turnVerdictProps({ message, running: false, ...(turnTools === undefined ? {} : { tools: turnTools }) })
       if (verdict === undefined) return null
       return (
         <div

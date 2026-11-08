@@ -448,7 +448,7 @@ export function processStepsText(model: ProcessModel, showToolCalls: boolean): s
  * （中断，不是报错），不计入。
  */
 export function processErrorsText(model: ProcessModel): string {
-  return model.errorCount > 0 ? `⚠ ${model.errorCount} 处报错` : ''
+  return model.errorCount > 0 ? `${model.errorCount} 处报错` : ''
 }
 
 export function visibleRowCount(model: ProcessModel, showToolCalls: boolean): number {

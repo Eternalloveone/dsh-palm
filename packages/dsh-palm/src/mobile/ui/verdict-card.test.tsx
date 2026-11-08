@@ -3,10 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { VerdictCard } from './verdict-card.tsx'
 
-describe('VerdictCard（结论卡四态）', () => {
-  it('四态各有自己的标签，且都带 data-state 供样式选边色', () => {
+describe('VerdictCard（结论卡四态 · 对照稿三段式）', () => {
+  it('四态各有自己的标签，且都带 data-state 供样式选顶边色带', () => {
     const cases = [
-      ['conclusion', '结论'],
+      ['conclusion', '已完成'],
       ['decision', '要你决定'],
       ['working', '正在做'],
       ['failed', '没做成'],
@@ -16,6 +16,8 @@ describe('VerdictCard（结论卡四态）', () => {
       const card = screen.getByRole('region', { name: label })
       expect(card.getAttribute('data-state')).toBe(state)
       expect(card.textContent).toContain(label)
+      // 标签行用 16px 线性 SVG，不用 ✓ 之类的字形。
+      expect(card.querySelector('.verdict-tag svg')).not.toBeNull()
       unmount()
     }
   })
@@ -24,30 +26,51 @@ describe('VerdictCard（结论卡四态）', () => {
     render(<VerdictCard state="conclusion" headline="重构已完成" detail="12 个文件" />)
     const heading = screen.getByRole('heading', { level: 2 })
     expect(heading.textContent).toBe('重构已完成')
-    const text = screen.getByRole('region', { name: '结论' }).textContent ?? ''
-    expect(text.indexOf('结论')).toBeLessThan(text.indexOf('重构已完成'))
+    const text = screen.getByRole('region', { name: '已完成' }).textContent ?? ''
+    expect(text.indexOf('已完成')).toBeLessThan(text.indexOf('重构已完成'))
     expect(text.indexOf('重构已完成')).toBeLessThan(text.indexOf('12 个文件'))
   })
 
-  it('不给 detail / artifacts / footnote 时不留空壳元素', () => {
+  it('不给 detail / stats / chips 时不留空壳元素', () => {
     render(<VerdictCard state="working" headline="正在跑测试" />)
     const card = screen.getByRole('region', { name: '正在做' })
     expect(card.querySelector('.verdict-detail')).toBeNull()
-    expect(card.querySelector('.verdict-artifacts')).toBeNull()
-    expect(card.querySelector('.verdict-footnote')).toBeNull()
+    expect(card.querySelector('.verdict-stats')).toBeNull()
+    expect(card.querySelector('.verdict-foot')).toBeNull()
+    expect(card.querySelector('.chip')).toBeNull()
   })
 
-  it('交付物条逐项渲染名字与细节', () => {
+  it('一行大号数字逐项渲染数字与说明（缺项由调用方省略）', () => {
     render(
       <VerdictCard
         state="conclusion"
         headline="改完了"
-        artifacts={[{ label: '3 个文件', detail: '+128 / -24' }, { label: '1 份报告' }]}
+        stats={[{ value: '12.4s', label: '耗时' }, { value: '9', label: '文件' }]}
       />,
     )
-    expect(screen.getByText('3 个文件')).toBeDefined()
-    expect(screen.getByText(/\+128 \/ -24/)).toBeDefined()
-    expect(screen.getByText('1 份报告')).toBeDefined()
+    const stats = document.querySelector('.verdict-stats') as HTMLElement
+    expect(stats.querySelectorAll(':scope > div')).toHaveLength(2)
+    expect(stats.textContent).toContain('12.4s')
+    expect(stats.textContent).toContain('耗时')
+    expect(stats.textContent).toContain('9')
+    expect(stats.textContent).toContain('文件')
+  })
+
+  it('底部彩色标签逐枚渲染，并带上 chip-ok / chip-info / chip-warn 的色调', () => {
+    render(
+      <VerdictCard
+        state="conclusion"
+        headline="改完了"
+        chips={[
+          { label: '12 个文件', tone: 'ok' },
+          { label: '+214 / −86', tone: 'info' },
+          { label: '待真机验证', tone: 'warn' },
+        ]}
+      />,
+    )
+    const chips = Array.from(document.querySelectorAll('.verdict-foot .chip'))
+    expect(chips.map(chip => chip.textContent)).toEqual(['12 个文件', '+214 / −86', '待真机验证'])
+    expect(chips.map(chip => chip.getAttribute('data-tone'))).toEqual(['ok', 'info', 'warn'])
   })
 
   it('动作最多直接摆 3 个，其余收进 ⋯ 且点开后可用', () => {
@@ -76,20 +99,8 @@ describe('VerdictCard（结论卡四态）', () => {
     expect(onRun).toHaveBeenCalledTimes(1)
   })
 
-  it('脚注只渲染真实数字，缺的整段省略', () => {
-    const first = render(
-      <VerdictCard state="conclusion" headline="完成" footnote={{ seconds: 42, tools: 7, tokens: 1234 }} />,
-    )
-    expect(screen.getByText('42s')).toBeDefined()
-    expect(screen.getByText('7 次工具 · 1.2k tokens')).toBeDefined()
-    first.unmount()
-
-    render(<VerdictCard state="conclusion" headline="完成" footnote={{ seconds: 3 }} />)
-    expect(screen.getByText('3s')).toBeDefined()
-  })
-
   it('绝不生成百分比（数字必须可验证）', () => {
-    render(<VerdictCard state="failed" headline="没跑通" footnote={{ seconds: 9, tools: 2 }} />)
+    render(<VerdictCard state="failed" headline="没跑通" stats={[{ value: '9s', label: '耗时' }]} />)
     const card = screen.getByRole('region', { name: '没做成' })
     expect(card.textContent).not.toContain('%')
   })

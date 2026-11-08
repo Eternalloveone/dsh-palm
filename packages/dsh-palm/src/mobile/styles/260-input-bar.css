@@ -3,8 +3,7 @@
 .chat-composer {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+  background: var(--palm-bg);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
@@ -13,23 +12,32 @@
   border-top: none;
 }
 
+/* 「+」/「/」/语音：32px 视觉，44px 命中区（对照稿里输入行最左边是一枚药丸）。 */
 .chat-attach-btn {
+  position: relative;
   flex: none;
   align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 10px;
-  color: var(--text-secondary);
-  background: transparent;
+  width: var(--palm-s7);
+  height: var(--palm-s7);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
+  color: var(--palm-fg-2);
+  background: var(--palm-sur-1);
   cursor: pointer;
 }
 
+.chat-attach-btn::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--palm-s2) * -0.75);
+  border-radius: inherit;
+}
+
 .chat-attach-btn:active {
-  background: var(--fill-strong);
+  background: var(--palm-sur-2);
 }
 
 /* The slash glyph: a text mark, not an icon, so it reads as "type a command"
@@ -141,7 +149,7 @@
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  min-height: 44px;
+  min-height: var(--palm-hit);
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-chip);
@@ -299,36 +307,31 @@
 
 .chat-inputbar {
   display: flex;
-  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。原来底部对齐，
-     输入框一长成两行，这几个图标就贴在底边，看着像没对齐。 */
+  /* 中线对齐：+ / 命令 / 语音 / 停止 / 发送都跟输入框的中心线走。 */
   align-items: center;
-  gap: var(--space-2);
-  padding: 8px 12px calc(env(safe-area-inset-bottom, 0px) + 10px);
-  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 10px), 10px);
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3) calc(env(safe-area-inset-bottom, 0) + var(--palm-s2));
+  background: var(--palm-bg);
 }
 
 .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--palm-hit);
   /* 4 行封顶：实测 132px（约 6 行）时草稿把最后一条消息和「输出中」整块遮住，
      写长文本反而看不见上下文。超出的内容在框内滚动。 */
   max-height: 104px;
   overflow-y: auto;
   field-sizing: content;
-  padding: 9px 16px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-capsule);
-  background: var(--bg-input);
-  color: var(--text-primary);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
   font: inherit;
   font-size: 16px; /* ≥16px：防止 iOS 聚焦缩放 */
-  font-weight: 400;
-  line-height: 1.45;
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-body);
   resize: none;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -340,28 +343,28 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 44px;
+  gap: var(--palm-s1);
+  min-height: var(--palm-hit);
   max-height: 104px;
-  padding: 2px 8px 2px 4px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-capsule);
-  background: var(--bg-input);
+  padding: var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-hit);
+  background: var(--palm-sur-1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .chat-field:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--palm-accent);
+  box-shadow: 0 0 0 3px var(--palm-tint-accent);
 }
 
 /* 框内的 textarea：不重复画边框，也不重复画焦点环。 */
 .chat-field > .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
+  min-height: var(--palm-s7);
   max-height: 100px;
-  padding: 7px 8px;
+  padding: var(--palm-s1) var(--palm-s2);
   border: none;
   background: transparent;
   box-shadow: none;
@@ -373,46 +376,47 @@
 }
 
 .chat-input::placeholder {
-  color: var(--text-muted);
+  color: var(--palm-fg-3);
 }
 
 .chat-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--palm-accent);
+  box-shadow: 0 0 0 3px var(--palm-tint-accent);
 }
 
 
 
-/* 排队发送：不再是「纸飞机 + 角上一只小钟」那种猜谜图标，改成拉长的胶囊上直接写「排队」。
-   40px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
+/* 排队发送：拉长的胶囊上直接写「排队」。
+   44px 圆钮里塞两个汉字放不下，所以排队态单独放宽。 */
 .chat-send.chat-send-queued {
   width: auto;
-  min-width: 56px;
-  padding: 0 14px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  min-width: calc(var(--palm-s7) * 1.75);
+  padding: 0 var(--palm-s3);
+  border-radius: var(--palm-r-full);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
 }
 
 .chat-send-queuedText {
   white-space: nowrap;
 }
 
+/* 发送键（对照稿）：44px 圆形、主题色底、深色箭头。 */
 .chat-send {
   flex: none;
   align-self: center;
-  width: 40px;
-  height: 40px;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--accent);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-accent);
   color: var(--accent-contrast);
   font: inherit;
   cursor: pointer;
-  box-shadow: 0 2px 10px var(--accent-glow);
+  box-shadow: var(--palm-sh1);
   transition: transform 0.15s ease, filter 0.15s ease;
 }
 
@@ -428,20 +432,15 @@
 }
 
 .chat-send:disabled {
-  background: var(--fill);
-  color: var(--text-muted);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-3);
   box-shadow: none;
 }
 
-.chat-send svg {
-  width: 18px;
-  height: 18px;
-}
-
 .chat-send-stop {
-  background: var(--bg-elevated);
-  color: var(--danger);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  background: var(--palm-sur-2);
+  color: var(--palm-danger);
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-line);
 }
 
 /* 运行中带草稿时的停止键：主键此时让给"发送"（排队），停止退成它左边的小方块。
@@ -449,20 +448,18 @@
 .chat-stop-mini {
   flex: none;
   align-self: center;
-  width: 30px;
-  height: 30px;
-  /* 底部那个 5px 外边距在 align-self:center 里会把整个按钮往上顶 2.5px：停止键
-     和输入框、发送键就不在同一条中线上了（真机看就是"按钮错开一格"）。左右留
-     间距、上下留 0，三点共用一条中线。 */
-  margin: 0 6px;
+  width: var(--palm-s7);
+  height: var(--palm-s7);
+  /* 左右留间距、上下留 0，三点共用一条中线。 */
+  margin: 0 var(--palm-s1);
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--bg-elevated);
-  color: var(--danger);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-danger);
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-line);
   font: inherit;
   cursor: pointer;
   transition: transform 0.15s ease;
@@ -472,8 +469,7 @@
   transform: scale(0.92);
 }
 
-/* 停止键的命中区：视觉上仍是 30px 的小方块（和主键拉开距离，避免误触），但手指按下去
-   的判定区补到 44px —— 30px 在手机上真的会按空，尤其单手握着、拇指贴着屏幕边缘的时候。 */
+/* 停止键的命中区：视觉上仍是 32px，判定区补到 44px。 */
 .chat-stop-mini {
   position: relative;
 }
@@ -481,40 +477,20 @@
 .chat-stop-mini::after {
   content: '';
   position: absolute;
-  inset: -7px;
+  inset: calc(var(--palm-s2) * -0.75);
 }
 
 .chat-stop-mini:disabled {
-  color: var(--text-muted);
+  color: var(--palm-fg-3);
   opacity: 0.6;
 }
 
-/* 窄屏（≤360px，iPhone SE 一类）：运行中且有草稿时，一行要塞三个附件键、输入框、
-   停止和发送，实测 320px 下正文只剩 60px（约三四个字）。这里把各键收小一圈、留白
-   和间距压紧，正文回到 110px 上下；键都留在原位，不改变任何操作路径。 */
+/* 窄屏（≤360px）：输入行不再收小发送键（44px 是触控下限），只压两侧留白。 */
 @media (max-width: 360px) {
   .chat-inputbar {
-    gap: 4px;
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-
-  .chat-attach-btn {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
-  }
-
-  .chat-stop-mini {
-    width: 26px;
-    height: 26px;
-    margin: 0 4px;
-  }
-
-  
-.chat-send {
-    width: 36px;
-    height: 36px;
+    gap: var(--palm-s1);
+    padding-left: var(--palm-s2);
+    padding-right: var(--palm-s2);
   }
 }
 
@@ -523,7 +499,7 @@
   margin: 4px 0;
   /* 36 → 44 的可点高度（真机清单第 5 项）：文字按钮本身矮，点"加载更早"经常
      点到下面的正文。只抬可点高度，字号颜色都不动。 */
-  min-height: 44px;
+  min-height: var(--palm-hit);
   border: none;
   background: transparent;
   color: var(--text-secondary);

@@ -1,65 +1,62 @@
-/* ── composer toolbar pills ──────────────────────────────────────────── */
+/* ── composer toolbar pills（对照稿：药丸一行 = 模型 + 权限） ─────────── */
 
-/* One row, two zones: the icon pills (model/permission) on the left, the
-   context ring pinned on the right (flex: none) so the session's
-   occupancy never scrolls out of view. The row never scrolls: the model
-   pill (the only elastic one) shrinks with an ellipsis while the
-   permission pill and the ring stay fixed and always visible. */
+/* 药丸行是输入区的一部分（同一块底、同一条顶边）：这一行与下面的输入行之间
+   不再有一条分隔线，只有 .chat-composer 自己的背景。 */
 .chat-tools {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px 0;
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3) 0;
+  border-top: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-bg);
 }
 
 .chat-tools-actions {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--palm-s2);
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
+/* 药丸：32px 高的胶囊，背景一档浅灰；视觉 32px、命中区 44px（见 ::after）。 */
 .chat-pill {
+  position: relative;
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  background: var(--card-bg);
-  color: var(--text-secondary);
+  gap: var(--palm-s1);
+  height: var(--palm-s7);
+  padding: 0 var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
   cursor: pointer;
   transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
 }
 
 .chat-pill > svg {
-  color: var(--accent);
+  flex: none;
+  color: var(--palm-accent);
 }
 
 .chat-pill:active {
   transform: scale(0.96);
-  border-color: var(--border-focus);
-  background: var(--accent-soft);
+  border-color: var(--palm-accent);
+  background: var(--palm-tint-accent);
 }
 
-/* 32px 高的 pill 视觉够用，拇指命中区却只有 32px。伪元素把命中区向外扩：
-   纵向 6px（上下没有邻居），横向只 2px —— 相邻药丸间距 8px，横向也扩 6px 会让两块
-   命中区重叠 4px，点空隙反而命中隔壁那个。 */
-.chat-pill {
-  position: relative;
-}
-
+/* 命中区向外扩：纵向 6px（上下没有邻居），横向只 2px —— 相邻药丸间距 8px，
+   横向也扩 6px 会让两块命中区重叠 4px，点空隙反而命中隔壁那个。 */
 .chat-pill::after {
   content: '';
   position: absolute;
-  inset: -6px -2px;
+  inset: calc(var(--palm-s2) * -0.75) 0;
   border-radius: inherit;
 }
 
@@ -70,12 +67,12 @@
 .mobile-quickchip::after {
   content: '';
   position: absolute;
-  inset: -4px;
+  inset: calc(var(--palm-s1) * -1);
   border-radius: inherit;
 }
 
 .chat-pill-name {
-  max-width: 80px;
+  max-width: calc(var(--palm-s8) * 2.5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -83,8 +80,8 @@
 
 .chat-pill-chevron {
   flex: none;
-  color: var(--text-quaternary);
-  font-size: 10px;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
 }
 
 /* Permission pills never shrink: their text is short and stays visible. */
@@ -99,14 +96,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--palm-s1);
   min-width: 0;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-default);
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  line-height: 1.4;
+  padding-left: var(--palm-s3);
+  border-left: var(--palm-hair) solid var(--palm-line);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-head);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
@@ -118,20 +115,20 @@
 }
 
 .chat-context-ring-track {
-  stroke: var(--fill);
+  stroke: var(--palm-line);
 }
 
 .chat-context-ring-fill {
-  stroke: var(--accent);
+  stroke: var(--palm-accent);
   transition: stroke-dasharray 0.3s ease;
 }
 
 .chat-context-warn {
-  color: var(--danger);
+  color: var(--palm-danger);
 }
 
 .chat-context-warn .chat-context-ring-fill {
-  stroke: var(--danger);
+  stroke: var(--palm-danger);
 }
 
 /* Context-usage popover: tap the ring to see the exact figures. Anchored
@@ -139,40 +136,40 @@
    list; an invisible fixed scrim closes it on outside taps. */
 .chat-context-pop {
   position: absolute;
-  right: 16px;
-  bottom: calc(100% + 10px);
+  right: var(--palm-s4);
+  bottom: calc(100% + var(--palm-s2));
   z-index: var(--z-popover);
   min-width: 150px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  background: var(--card-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-sh2);
 }
 
 .chat-context-pop-title {
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
 }
 
 .chat-context-pop-figures {
-  margin-top: 2px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+  margin-top: var(--palm-hair);
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  color: var(--palm-fg);
   font-variant-numeric: tabular-nums;
 }
 
 .chat-context-pop-figures span {
-  margin: 0 3px;
-  color: var(--text-quaternary);
-  font-weight: 400;
+  margin: 0 var(--palm-hair);
+  color: var(--palm-fg-3);
+  font-weight: var(--palm-w-normal);
 }
 
 .chat-context-pop-sub {
-  margin-top: 2px;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  margin-top: var(--palm-hair);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
 }
 
 .chat-context-pop-scrim {
@@ -184,4 +181,3 @@
   z-index: var(--z-scrim);
   background: transparent;
 }
-

@@ -1,26 +1,28 @@
 /**
  * 结论卡：每轮对话只出现一次的那张卡（四态一骨架）。
  *
- * 骨架（来自 `docs/mobile-design-spec.md` 第四节）：
+ * 版式来自 `docs/prototype/chat-rework.html`（390×844 对照稿）：
  *
  * ```
- * ┌ 标签（结论 / 要你决定 / 正在做 / 没做成）
- * │ 结论句（17px 加粗，必须第一句）
- * │ 补充一句（14px，次灰）
- * │ [交付物条]
- * │ [动作 1][动作 2]（最多 3 个，其余进 ⋯）
- * └ 脚注（思考秒数 · 工具次数 · token）
+ * ┌ 3px 状态色带（卡片顶边，随四态换色）
+ * │ ✓ 已完成            ← 标签行（12px，状态色）
+ * │ 一句结论             ← 17px 加粗，必须第一句
+ * │ 12.4s   2,666   9    ← 一行三个大号数字（22px），下面 12px 灰字说明
+ * │ [12 个文件][+214/−86][待真机验证]  ← 底部彩色标签
+ * │ [动作…]
+ * └
  * ```
  *
- * 四条硬规则（组件层面能守的都守了）：
+ * 三条硬规则（组件层面能守的都守了）：
  * 1. 每轮只出现一次 —— 由调用方保证；
  * 2. **第一句是结论** —— headline 必填、且是第一个可读元素；
- * 3. 数字真实可验证 —— footnote 只渲染调用方给的真数字，**不编百分比**；
- * 4. 动作只放最可能的 2–3 个 —— 超出 3 个的收进 `⋯` 菜单。
+ * 3. 数字真实可验证 —— 统计只渲染调用方给的真数字，**不编百分比、不补零**：
+ *    拿不到的数字整项不渲染（连占位都不留）。
  *
  * @module dsh-palm/mobile/ui/verdict-card
  */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { CheckIcon, ClockIcon, CloseIcon, HelpIcon } from '../components/icons.tsx'
 import { Button } from './primitives.tsx'
 
 /** 四态。 */
@@ -36,100 +38,96 @@ export interface VerdictAction {
   primary?: boolean
 }
 
-/** 交付物/影响范围条的一项。 */
-export interface VerdictArtifact {
-  /** 名字，如「3 个文件」。 */
+/** 一行三个大号数字里的一项（数字 + 12px 灰字说明）。 */
+export interface VerdictStat {
+  /** 数字或短语，如 `12.4s` / `2,666` / `9`。 */
+  value: string
+  /** 数字下面的说明，如「耗时」「工具」「文件」。 */
   label: string
-  /** 细节，如 `+128 / -24`。 */
-  detail?: string
 }
 
-/** 脚注里的真实数字（给不出就不给，绝不编）。 */
-export interface VerdictFootnote {
-  /** 思考耗时（秒）。 */
-  seconds?: number
-  /** 工具调用次数。 */
-  tools?: number
-  /** token 数（原值，渲染时按 k 缩写）。 */
-  tokens?: number
+/** 底部彩色标签的色调（对应 chip-ok / chip-info / chip-warn）。 */
+export type VerdictChipTone = 'ok' | 'info' | 'warn'
+
+/** 底部一行彩色标签里的一枚。 */
+export interface VerdictChip {
+  label: string
+  tone: VerdictChipTone
 }
 
 /** 结论卡的 props。 */
 export interface VerdictCardProps {
-  /** 当前状态，决定标签与左边框颜色。 */
+  /** 当前状态，决定标签与顶边色带。 */
   state: VerdictState
   /** 结论句：第一句就要说清"成了没成"。 */
   headline: string
   /** 补充一句（可省）。 */
   detail?: string
-  /** 交付物/影响范围条（可省）。 */
-  artifacts?: readonly VerdictArtifact[]
+  /** 一行三个大号数字（可省；只放真实数字）。 */
+  stats?: readonly VerdictStat[]
+  /** 底部彩色标签（可省；只放真实事实）。 */
+  chips?: readonly VerdictChip[]
   /** 动作，最多显示 3 个，其余收进 ⋯。 */
   actions?: readonly VerdictAction[]
-  /** 脚注（可省；数字必须真实）。 */
-  footnote?: VerdictFootnote
 }
 
-/** 四态对应的标签文案。 */
+/** 四态对应的标签文案（原型：结论位写「已完成」）。 */
 const STATE_LABEL: Record<VerdictState, string> = {
-  conclusion: '结论',
+  conclusion: '已完成',
   decision: '要你决定',
   working: '正在做',
   failed: '没做成',
 }
 
+/** 标签行前面的 16px 线性图标：形状也分四态，不只靠颜色。 */
+const STATE_ICON: Record<VerdictState, ReactNode> = {
+  conclusion: <CheckIcon width={16} height={16} />,
+  decision: <HelpIcon width={16} height={16} />,
+  working: <ClockIcon width={16} height={16} />,
+  failed: <CloseIcon width={16} height={16} />,
+}
+
 /** 最多直接摆出来的动作数。 */
 const MAX_VISIBLE_ACTIONS = 3
-
-/** token 数按需缩写（1.2k）；不四舍五入成百分比或估算值。 */
-function formatTokens(tokens: number): string {
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)
-}
-
-/** 拼脚注：只放真给出来的数字，缺的整段省略。 */
-function footnoteText(footnote: VerdictFootnote | undefined): string {
-  if (footnote === undefined) return ''
-  const parts: string[] = []
-  // 秒数由 VerdictCard 单独渲染成大字，这里不再拼进脚注字符串
-  if (footnote.tools !== undefined) parts.push(`${footnote.tools} 次工具`)
-  if (footnote.tokens !== undefined) parts.push(`${formatTokens(footnote.tokens)} tokens`)
-  return parts.join(' · ')
-}
 
 /**
  * 渲染一张结论卡。
  *
- * @param props - 状态、结论句与可选的动作/交付物/脚注
+ * @param props - 状态、结论句与可选的动作/统计/标签
  * @returns 结论卡元素
  */
-export function VerdictCard({
-  state,
-  headline,
-  detail,
-  artifacts,
-  actions,
-  footnote,
-}: VerdictCardProps) {
+export function VerdictCard({ state, headline, detail, stats, chips, actions }: VerdictCardProps) {
   const [overflowOpen, setOverflowOpen] = useState(false)
   const visible = (actions ?? []).slice(0, MAX_VISIBLE_ACTIONS)
   const overflow = (actions ?? []).slice(MAX_VISIBLE_ACTIONS)
-  const footnoteCaption = footnoteText(footnote)
+  const hasStats = stats !== undefined && stats.length > 0
+  const hasChips = chips !== undefined && chips.length > 0
 
   return (
     <section className="verdict-card" data-state={state} aria-label={STATE_LABEL[state]}>
-      <span className="verdict-tag">{STATE_LABEL[state]}</span>
+      <span className="verdict-tag">
+        {STATE_ICON[state]}
+        {STATE_LABEL[state]}
+      </span>
       <h2 className="verdict-headline">{headline}</h2>
       {detail === undefined ? null : <p className="verdict-detail">{detail}</p>}
-      {artifacts === undefined || artifacts.length === 0 ? null : (
-        <div className="verdict-artifacts">
-          {artifacts.map(artifact => (
-            <span className="verdict-artifact" key={artifact.label}>
-              <b>{artifact.label}</b>
-              {artifact.detail === undefined ? null : ` ${artifact.detail}`}
-            </span>
+      {hasStats ? (
+        <div className="verdict-stats">
+          {stats.map(stat => (
+            <div key={stat.label}>
+              <b>{stat.value}</b>
+              <span>{stat.label}</span>
+            </div>
           ))}
         </div>
-      )}
+      ) : null}
+      {hasChips ? (
+        <div className="verdict-foot">
+          {chips.map(chip => (
+            <span className="chip" data-tone={chip.tone} key={chip.label}>{chip.label}</span>
+          ))}
+        </div>
+      ) : null}
       {visible.length === 0 ? null : (
         <div className="verdict-actions">
           {visible.map(action => (
@@ -168,10 +166,6 @@ export function VerdictCard({
           )}
         </div>
       )}
-      {footnote?.seconds === undefined ? null : (
-        <span className="verdict-seconds">{footnote.seconds}s</span>
-      )}
-      {footnoteCaption === '' ? null : <span className="verdict-footnote">{footnoteCaption}</span>}
     </section>
   )
 }

@@ -61,10 +61,11 @@ function baseMessage(
 /** The row's structural nodes in DOM order, as stable labels. */
 function structureOf(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll(
-    '.chat-proc, .chat-proc-head, .chat-proc-body, .chat-think, .chat-step, .chat-artifact, .chat-flow-text, .chat-md-body',
+    '.chat-proc, .chat-proc-head, .chat-proc-tools, .chat-proc-body, .chat-think, .chat-step, .chat-artifact, .chat-flow-text, .chat-md-body',
   )).map((el) => {
     if (el.classList.contains('chat-proc')) return 'proc'
     if (el.classList.contains('chat-proc-head')) return 'proc-head'
+    if (el.classList.contains('chat-proc-tools')) return 'tools'
     if (el.classList.contains('chat-proc-body')) return 'proc-body'
     if (el.classList.contains('chat-think')) return 'think'
     if (el.classList.contains('chat-step')) return 'step'
@@ -76,15 +77,9 @@ function structureOf(container: HTMLElement): string[] {
   })
 }
 
-/** The head's lines in DOM order: first = state word + clock, second =
- *  "what step is happening" (the second one may legitimately not render). */
+/** The head's lines in DOM order：现在是单行（标题 + 总耗时）。 */
 function procLines(head: HTMLElement): HTMLElement[] {
   return Array.from(head.querySelectorAll('.chat-proc-line'))
-}
-
-/** The second line's briefing text (empty when the line is not rendered). */
-function currentLineOf(head: HTMLElement): string {
-  return head.querySelector('.chat-proc-current-text')?.textContent ?? ''
 }
 
 describe('秒表锚点记忆（跨重挂/跨刷新只许变早）', () => {
@@ -110,7 +105,7 @@ describe('MessageRow flow body (layout stability)', () => {
   // 锚点记忆落在 sessionStorage：用例之间必须清，否则上一条的锚点会被这一条继承。
   beforeEach(() => { resetTurnAnchors() })
 
-  it('renders pending and settled rows with the identical collapsed process group and trailing answer', () => {
+  it('renders pending and settled rows with the identical process card and trailing answer', () => {
     const pending = render(
       <MessageRow message={baseMessage(true)} showToolCalls showSystemMessages={false} />,
     )
@@ -118,16 +113,16 @@ describe('MessageRow flow body (layout stability)', () => {
       <MessageRow message={baseMessage(false)} showToolCalls showSystemMessages={false} />,
     )
 
-    // Both states: ONE process group (collapsed head only), then the answer
-    // OUTSIDE it — the pending→settled switch never re-lays the row.
-    expect(structureOf(pending.container)).toEqual(['proc', 'proc-head', 'text'])
-    expect(structureOf(settled.container)).toEqual(['proc', 'proc-head', 'text'])
+    // Both states: ONE process card (title row + always-visible tool rows), then
+    // the answer OUTSIDE it — the pending→settled switch never re-lays the row.
     for (const { container } of [pending, settled]) {
       const group = container.querySelector('.chat-proc') as HTMLElement
-      expect(group.getAttribute('data-proc-rows')).toBe('1')
-      // Collapsed by default: no body, no step row, no diff card in the DOM.
-      expect(group.querySelector('.chat-proc-body')).toBeNull()
-      expect(container.querySelector('.chat-step')).toBeNull()
+      expect(group).not.toBeNull()
+      expect(Number(group.getAttribute('data-proc-rows'))).toBeGreaterThanOrEqual(1)
+      // 工具行默认可见：不再藏在折叠体里。
+      expect(container.querySelector('.chat-proc-tools')).not.toBeNull()
+      expect(container.querySelectorAll('.chat-step')).toHaveLength(1)
+      expect(container.querySelector('.chat-proc-body')).toBeNull()
       expect(container.querySelectorAll('.chat-artifact')).toHaveLength(0)
       expect(container.querySelector('.chat-proc-head')!.getAttribute('aria-expanded')).toBe('false')
       expect(container.querySelector('.chat-proc-caret')).not.toBeNull()
@@ -137,26 +132,40 @@ describe('MessageRow flow body (layout stability)', () => {
       expect(answer.textContent).toContain('第一段')
       expect(answer.textContent).toContain('第二段')
     }
-    // The head is TWO lines: line one reports the turn's state and clock, line
-    // two says what step is happening right now. A running row names the
-    // wording only — no clock before the 3s threshold, and no step count…
+    // 标题行只有一行：跑了几个工具 + 右侧总耗时。
     const pendingHead = pending.container.querySelector('.chat-proc-head') as HTMLElement
-    expect(procLines(pendingHead)).toHaveLength(2)
-    expect(pendingHead.querySelector('.chat-proc-state')!.textContent).toBe('深度求索中')
+    expect(procLines(pendingHead)).toHaveLength(1)
+    expect(pendingHead.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
     expect(pendingHead.querySelector('.chat-proc-time')).toBeNull()
-    expect(procLines(pendingHead)[0]!.textContent).not.toContain('步')
-    expect(currentLineOf(pendingHead)).toBe('正在回答')
-    // …and a settled row reports the state word plus what the turn cost. The
-    // ` · N 步` suffix is GONE (P11: the step count moved into the expanded body,
-    // see the `.chat-proc-steps` assertions below).
     const settledHead = settled.container.querySelector('.chat-proc-head') as HTMLElement
-    expect(procLines(settledHead)).toHaveLength(2)
-    expect(settledHead.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    // 旧期望值 '用时1分20秒 · 1 步' → 新口径：卡面第一行只有用时。
+    expect(procLines(settledHead)).toHaveLength(1)
+    expect(settledHead.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
     expect(settledHead.querySelector('.chat-proc-time')!.textContent).toBe('用时1分20秒')
-    expect(procLines(settledHead)[0]!.textContent).not.toContain('步')
     expect(settledHead.getAttribute('aria-expanded')).toBe('false')
-    expect(currentLineOf(settledHead)).toBe('工具 · applyPatch')
+  })
+
+  it('工具行：彩色状态点 + 动作 · 对象 + 右侧状态词（状态只认宿主真报过的）', () => {
+    const withState = baseMessage(false, null, [{ ...tool, state: 'ok' }])
+    const ok = render(<MessageRow message={withState} showToolCalls showSystemMessages={false} />)
+    const row = ok.container.querySelector('.chat-step') as HTMLElement
+    expect(row.getAttribute('data-state')).toBe('ok')
+    expect(row.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('ok')
+    expect(row.querySelector('.chat-step-state')!.textContent).toBe('完成')
+    // 工具名 / 参数摘要来自 stepModel，不是编的。
+    expect(row.getAttribute('data-step-title')).toBeTruthy()
+    expect(row.querySelector('.chat-step-title')!.textContent).toBe(row.getAttribute('data-step-title'))
+
+    const runningRow = baseMessage(false, null, [{ ...tool, state: 'running' }])
+    const running = render(<MessageRow message={runningRow} showToolCalls showSystemMessages={false} />)
+    const live = running.container.querySelector('.chat-step') as HTMLElement
+    expect(live.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('running')
+    expect(live.querySelector('.chat-step-state')!.textContent).toBe('运行中')
+
+    // 宿主没报状态 ⇒ 灰点、不写状态词，不冒充成功也不冒充运行中。
+    const unknown = render(<MessageRow message={baseMessage(false, null, [tool])} showToolCalls showSystemMessages={false} />)
+    const grey = unknown.container.querySelector('.chat-step') as HTMLElement
+    expect(grey.getAttribute('data-state')).toBe('unknown')
+    expect(grey.querySelector('.chat-step-state')).toBeNull()
   })
 
   it('merges consecutive tool parts into one artifact card inside the expanded group', () => {
@@ -176,51 +185,41 @@ describe('MessageRow flow body (layout stability)', () => {
     const { container } = render(
       <MessageRow message={message} showToolCalls showSystemMessages={false} />,
     )
-    expect(container.querySelector('.chat-proc')!.getAttribute('data-proc-rows')).toBe('2')
-    // Nothing of the process is in the DOM while the group stays collapsed.
+    // 两张工具行始终可见；diff 卡在展开体里。
+    expect(container.querySelectorAll('.chat-step')).toHaveLength(2)
     expect(container.querySelector('.chat-artifact')).toBeNull()
 
     fireEvent.click(container.querySelector('.chat-proc-head')!)
-    // Two step rows, then ONE merged card, all inside the group body; the
-    // answer stays outside it.
-    expect(structureOf(container)).toEqual(['proc', 'proc-head', 'proc-body', 'step', 'step', 'artifact', 'text'])
+    expect(container.querySelector('.chat-proc-body')).not.toBeNull()
     expect(container.querySelectorAll('.chat-artifact')).toHaveLength(1)
     // Two files merged into one card: the head reads "编辑了 2 个文件".
     expect(container.querySelector('.chat-artifact-title')!.textContent).toBe('编辑了 2 个文件')
   })
 
-  it('without a flow, the diff card still rides inside the process group (revealed on tap)', () => {
+  it('without a flow, the diff card still rides inside the process card (revealed on tap)', () => {
     const message = baseMessage(false, null)
-    // The card is NOT visible without expanding the group, so the no-flow row
-    // matches the flow row: group head first, answer outside, card inside.
     const shown = render(
       <MessageRow message={message} showToolCalls showSystemMessages={false} />,
     )
-    expect(structureOf(shown.container)).toEqual(['proc', 'proc-head', 'text'])
+    // 工具行默认可见；diff 卡仍要点开展开体。
+    expect(shown.container.querySelectorAll('.chat-step')).toHaveLength(1)
     expect(shown.container.querySelector('.chat-artifact')).toBeNull()
     expect(shown.container.querySelector('.chat-md-body')).not.toBeNull()
     fireEvent.click(shown.container.querySelector('.chat-proc-head')!)
-    const body = shown.container.querySelector('.chat-proc-body') as HTMLElement
-    expect(body.querySelectorAll('.chat-step')).toHaveLength(1)
-    expect(body.querySelector('.chat-artifact-title')!.textContent).toBe('编辑了 1 个文件')
+    expect(shown.container.querySelector('.chat-artifact-title')!.textContent).toBe('编辑了 1 个文件')
 
     // showToolCalls=false drops the tool STEPS but keeps the diff cards (a card
-    // is the turn's output, not process noise) — so the group stays expandable
-    // and the head must NOT advertise a step count it no longer shows.
+    // is the turn's output, not process noise) — so the card stays expandable.
     const hidden = render(
       <MessageRow message={message} showToolCalls={false} showSystemMessages={false} />,
     )
-    expect(structureOf(hidden.container)).toEqual(['proc', 'proc-head', 'text'])
+    expect(hidden.container.querySelectorAll('.chat-step')).toHaveLength(0)
     expect(hidden.container.querySelector('.chat-proc-body')).toBeNull()
     expect(hidden.container.querySelector('.chat-artifact')).toBeNull()
     const hiddenHead = hidden.container.querySelector('.chat-proc-head') as HTMLElement
     expect(hiddenHead.tagName).toBe('BUTTON')
     expect(hiddenHead.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    // 工具行不渲染 ⇒ 不再声称"· N 步"，但用时照报。
     expect(hiddenHead.querySelector('.chat-proc-time')!.textContent).toBe('用时1分20秒')
-    // 改动量从灰阶里的 "+N −M" 改成一句人话，挂在第二行右侧。
-    expect(currentLineOf(hiddenHead)).toBe('工具 · applyPatch')
-    expect(hiddenHead.querySelector('.chat-proc-meta')!.textContent).toBe('改了 1 个文件')
 
     fireEvent.click(hiddenHead)
     expect(hidden.container.querySelectorAll('.chat-step')).toHaveLength(0)
@@ -258,9 +257,8 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(structureOf(container)).toEqual(['proc', 'proc-head', 'text'])
   })
 
-  it('静态头同样两行：第一行只有用时，第二行报最后一步做了什么', () => {
-    // 关掉"显示工具调用"且没有 diff 卡时，工具行不渲染 ⇒ 头是静态的，
-    // 但"最后一步做了什么"仍然说得出来。
+  it('静态头同样只有一行：状态词 + 用时（没有可展开的内容）', () => {
+    // 关掉"显示工具调用"且没有 diff 卡时，工具行不渲染 ⇒ 头是静态的。
     const message: RenderMessage = {
       id: 'a-static-two',
       kind: 'assistant',
@@ -277,16 +275,14 @@ describe('MessageRow flow body (layout stability)', () => {
     )
 
     const head = container.querySelector('.chat-proc-head-static') as HTMLElement
-    expect(head).not.toBeNull()
-    expect(procLines(head)).toHaveLength(2)
     expect(head.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
     expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时5秒')
-    expect(currentLineOf(head)).toBe('运行命令 · pytest -q')
     expect(container.querySelector('.chat-proc-caret')).toBeNull()
     expect(container.querySelector('.chat-proc-body')).toBeNull()
+    expect(container.querySelectorAll('.chat-step')).toHaveLength(0)
   })
 
-  it('运行中第二行随状态下变化：running 工具 → 标题 · 摘要，跑完 → 思考中，纯文本 → 正在回答', () => {
+  it('运行中的工具：标题行说跑了几个工具，行上的状态点与状态词跟着宿主状态走', () => {
     const toolsOf = (state: ToolCallInfo['state']): ToolCallInfo[] =>
       [{ callId: 'c1', name: 'bash', state, arguments: '{"cmd":"pytest -q"}' }]
     const runningRow: RenderMessage = {
@@ -300,34 +296,29 @@ describe('MessageRow flow body (layout stability)', () => {
       tools: toolsOf('running'),
     }
 
-    // running 的工具：第一行只有措辞，第二行是「标题 · 摘要」＋工具族字形。
     const running = render(<MessageRow message={runningRow} showToolCalls showSystemMessages={false} />)
     const runningHead = running.container.querySelector('.chat-proc-head') as HTMLElement
-    expect(runningHead.querySelector('.chat-proc-state')!.textContent).toBe('深度求索中')
+    expect(runningHead.querySelector('.chat-proc-state')!.textContent).toBe('跑了 1 个工具')
     expect(runningHead.querySelector('.chat-proc-time')).toBeNull()
-    expect(currentLineOf(runningHead)).toBe('运行命令 · pytest -q')
-    // 行首字形是 emoji（bash 族 = 齿轮 ⚙️，运行中还会转）。
-    expect(runningHead.querySelector('.chat-proc-current .chat-step-icon')!.textContent).toBe('⚙️')
+    const runningStep = running.container.querySelector('.chat-step') as HTMLElement
+    expect(runningStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('running')
+    expect(runningStep.querySelector('.chat-step-state')!.textContent).toBe('运行中')
 
-    // 工具跑完、下一句还没来：模型正在想下一步。
+    // 工具跑完：状态点/状态词换成完成，标题仍然是"跑了 N 个工具"。
     const finished = render(
       <MessageRow message={{ ...runningRow, id: 'a-run-done', tools: toolsOf('ok') }} showToolCalls showSystemMessages={false} />,
     )
-    const finishedHead = finished.container.querySelector('.chat-proc-head') as HTMLElement
-    expect(currentLineOf(finishedHead)).toBe('思考中')
-    // 思考行没有工具族，用 💭 顶上（轻微呼吸）：展开后每一行都有行首符号，
-    // 折叠卡第二行不该是唯一空着的那行。
-    expect(finishedHead.querySelector('.chat-step-icon')!.textContent).toBe('💭')
+    const finishedStep = finished.container.querySelector('.chat-step') as HTMLElement
+    expect(finishedStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('ok')
+    expect(finishedStep.querySelector('.chat-step-state')!.textContent).toBe('完成')
 
-    // 最新部件是文本：正在回答。
-    const answering = render(
-      <MessageRow
-        message={{ ...runningRow, id: 'a-ans', flow: [{ kind: 'tool', callId: 'c1' }, { kind: 'text', text: '正在写答案', seq: 7 }] }}
-        showToolCalls
-        showSystemMessages={false}
-      />,
+    // 失败的工具必须是红点 + 失败，不冒充完成。
+    const failed = render(
+      <MessageRow message={{ ...runningRow, id: 'a-run-err', tools: toolsOf('error') }} showToolCalls showSystemMessages={false} />,
     )
-    expect(currentLineOf(answering.container.querySelector('.chat-proc-head') as HTMLElement)).toBe('正在回答')
+    const failedStep = failed.container.querySelector('.chat-step') as HTMLElement
+    expect(failedStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('error')
+    expect(failedStep.querySelector('.chat-step-state')!.textContent).toBe('失败')
   })
 
   it('同一轮的锚点只能变早：更晚的 turnStartAt 不许把秒表打回去', () => {

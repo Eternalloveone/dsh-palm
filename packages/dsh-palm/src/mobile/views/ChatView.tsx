@@ -232,7 +232,7 @@ import type { HostBridge } from '../kernels/host-bridge.ts'
 export interface ChatViewProps {
   session: SessionView
   /** The page-lifetime mux client (undefined before the first effect tick). */
-  mux?: MuxClient | undefined  /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */  bridge?: HostBridge | undefined
+  mux?: MuxClient | undefined; /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */ bridge?: HostBridge | undefined
   onBack(): void
   /** Show tool-call disclosures (owned by the app, persisted via display-prefs). */
   showToolCalls: boolean
@@ -503,22 +503,7 @@ export function ChatView({
   // 滚动机制（容器/程序化认领/状态机/补拍/手势/回钉）统一在 ui/hooks/use-stick-to-bottom 里；
   // ChatView 只保留业务判断（未读、翻页、定位）。
   const scrollHandle = useStickToBottom()
-  const {
-    scrollRef,
-    scrollTopRef,
-    programmaticScrollRef,
-    programmaticValueRef,
-    programmaticAtRef,
-    lastTouchAtRef,
-    scrollStateRef,
-    scrollEvent,
-    setScrollTopProgrammatically,
-    pinToRealBottom,
-    scrollToBottom,
-    settleBottomRef,
-    settleBottomAfterCommit,
-    lastScrollHeightRef,
-  } = scrollHandle
+  const { scrollRef, scrollTopRef, programmaticScrollRef, programmaticValueRef, programmaticAtRef, lastTouchAtRef, scrollStateRef, scrollEvent, setScrollTopProgrammatically, pinToRealBottom, scrollToBottom, settleBottomRef, settleBottomAfterCommit, lastScrollHeightRef } = scrollHandle
   /**
    * 会话状态机：三根条的**唯一判据**（不再是影子，渲染完全由它决定）。
    *
@@ -592,17 +577,7 @@ export function ChatView({
   const [claimedCommand, setClaimedCommand] = useState<string | undefined>(undefined)
   /** 待发附件（图片 + 文件）全部归 use-chat-attachments（S4a 从本文件搬出）。 */
   const attachments = useChatAttachments({ sessionId: session.sessionId })
-  const {
-    attachImages,
-    attachFiles,
-    uploadingFiles,
-    setAttachImages,
-    setAttachFiles,
-    addImage,
-    addFiles,
-    retryStaged,
-    openPicker,
-  } = attachments
+  const { attachImages, attachFiles, uploadingFiles, setAttachImages, setAttachFiles, addImage, addFiles, retryStaged, openPicker } = attachments
 
   /** 输入框元素句柄：认领命令后把焦点移到参数区。 */
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -624,18 +599,7 @@ export function ChatView({
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
   const mountedRef = useRef(true)
   /** 语音输入（录音面板 / 实时字幕 / 转写回填）全部归 use-chat-voice（S4b 从本文件搬出）。 */
-  const {
-    voiceOpen,
-    voicePartial,
-    voicePhase,
-    voiceElapsed,
-    voiceStatus,
-    voiceWaveRef,
-    voiceDoneRef,
-    openVoice,
-    finishVoice,
-    closeVoice,
-  } = useChatVoice({ mountedRef, setInput })
+  const { voiceOpen, voicePartial, voicePhase, voiceElapsed, voiceStatus, voiceWaveRef, voiceDoneRef, openVoice, finishVoice, closeVoice } = useChatVoice({ mountedRef, setInput })
   /** Pinch-zoom state for code blocks (one active gesture at a time). */
   const pinchRef = useRef<{ block: HTMLElement; dist0: number; scale0: number } | undefined>(undefined)
   /**
@@ -735,27 +699,7 @@ export function ChatView({
     normalizeTurnEndTodo,
     foreground,
   })
-  const {
-    running,
-    runningTurn,
-    turnStartAt,
-    abandonedTurn,
-    hostLost,
-    applyTurnVerdict,
-    reconcileRunning,
-    refillGap,
-    reloadTail,
-    resetForSession,
-    clearHostLost,
-    clearActiveTurn,
-    beginTurn,
-    enqueueLiveEvent,
-    noteTailPageAnchor,
-    hasClosedTurn,
-    markSnapshotAlive,
-    isRunning,
-    getRunningTurn,
-  } = chatStream
+  const { running, runningTurn, turnStartAt, abandonedTurn, hostLost, applyTurnVerdict, reconcileRunning, refillGap, reloadTail, resetForSession, clearHostLost, clearActiveTurn, beginTurn, enqueueLiveEvent, noteTailPageAnchor, hasClosedTurn, markSnapshotAlive, isRunning, getRunningTurn } = chatStream
   const { applyInbox, refreshInbox } = useChatInbox({
     sessionId: session.sessionId,
     mountedRef,
@@ -2755,13 +2699,6 @@ export function ChatView({
 
   useChatOutboxFlush(offline, flushQueue)
 
-  /**
-   * 目标动作（暂停/恢复/编辑/清除）都走宿主命令注册表：手机端没有桌面那条
-   * 
-emote.goals.* 通道，而 /goal <verb> 是同一套语义的公开入口。
-   * 命令发出去之后立刻带 fresh 重读一次投影 —— 宿主处理是异步的，不重读就会
-   * 停在旧相位上（点了暂停还写着「进行中的目标」）。
-   */
   /**
    * 把条子上按下的动作落到宿主。
    *

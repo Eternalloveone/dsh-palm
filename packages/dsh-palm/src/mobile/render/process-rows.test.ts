@@ -402,7 +402,7 @@ describe('processErrorsText: 卡面第一行的极小报错信号', () => {
       tools: [{ ...tool('c1'), state: 'error' }],
     }))
     expect(one.errorCount).toBe(1)
-    expect(processErrorsText(one)).toBe('⚠ 1 处报错')
+    expect(processErrorsText(one)).toBe('1 处报错')
 
     const two = processModel(assistant({
       text: '',
@@ -410,7 +410,7 @@ describe('processErrorsText: 卡面第一行的极小报错信号', () => {
       tools: [{ ...tool('c1'), state: 'error' }, { ...tool('c2'), state: 'error' }, tool('c3')],
     }))
     expect(two.errorCount).toBe(2)
-    expect(processErrorsText(two)).toBe('⚠ 2 处报错')
+    expect(processErrorsText(two)).toBe('2 处报错')
   })
 
   it('没有报错步骤 ⇒ 空串（不留空占位）', () => {
