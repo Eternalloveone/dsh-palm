@@ -747,6 +747,25 @@ body,
 .empty-state-action {
   margin-top: var(--palm-s2);
 }
+
+
+/* 图标槽位（定版图：空态 = 图标 + 标题 + 主按钮） */
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+}
+
+.empty-state-icon > svg {
+  width: 16px;
+  height: 16px;
+}
 /* ── 失败态（P6 ⑰）：留住错误，给得起重试 ─────────────────────────── */
 
 .error-note {
@@ -791,6 +810,23 @@ body,
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--palm-r-s);
+}
+
+
+/* 失败态图标：和空态同一套 32/16 规格，保持节奏一致 */
+.error-note-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--palm-danger);
+}
+
+.error-note-icon > svg {
+  width: 16px;
+  height: 16px;
 }
 /* ── grouped lists + group titles ────────────────────────────────────── */
 

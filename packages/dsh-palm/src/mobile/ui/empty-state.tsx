@@ -17,6 +17,8 @@ export interface EmptyStateProps {
   hint?: string
   /** 可选动作：真的能点的一步（没动作就别给按钮）。 */
   action?: ReactNode
+  /** 可选图标：16px 线性 SVG，给空态一个视觉锚点。 */
+  icon?: ReactNode
 }
 
 /**
@@ -25,9 +27,10 @@ export interface EmptyStateProps {
  * @param props - 标题、可选说明、可选动作
  * @returns 空态块
  */
-export function EmptyState({ title, hint, action }: EmptyStateProps) {
+export function EmptyState({ title, hint, action, icon }: EmptyStateProps) {
   return (
     <div className="empty-state" role="status">
+      {icon === undefined ? null : <span className="empty-state-icon" aria-hidden>{icon}</span>}
       <p className="empty-state-title">{title}</p>
       {hint === undefined ? null : <p className="empty-state-hint">{hint}</p>}
       {action === undefined ? null : <div className="empty-state-action">{action}</div>}

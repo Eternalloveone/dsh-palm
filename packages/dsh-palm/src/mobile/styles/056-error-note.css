@@ -43,3 +43,20 @@
   border: 1px solid transparent;
   border-radius: var(--palm-r-s);
 }
+
+
+/* 失败态图标：和空态同一套 32/16 规格，保持节奏一致 */
+.error-note-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--palm-danger);
+}
+
+.error-note-icon > svg {
+  width: 16px;
+  height: 16px;
+}

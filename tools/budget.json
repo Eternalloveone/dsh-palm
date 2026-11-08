@@ -8,7 +8,7 @@
     "src/mobile/views/App.tsx": 1457
   },
   "dirs": {
-    "src/mobile": 63087,
+    "src/mobile": 63130,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
     "src/mobile/components": 2525,
@@ -24,7 +24,7 @@
     "src/mobile/session": 2876,
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
-    "src/mobile/ui": 1439,
+    "src/mobile/ui": 1446,
     "src/mobile/views": 21841,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 134

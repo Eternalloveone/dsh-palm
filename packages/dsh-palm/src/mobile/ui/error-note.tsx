@@ -9,6 +9,7 @@
  *
  * @module dsh-palm/mobile/ui/error-note
  */
+import type { ReactNode } from 'react'
 import { Button } from './primitives.tsx'
 
 export interface ErrorNoteProps {
@@ -20,6 +21,8 @@ export interface ErrorNoteProps {
   retryLabel?: string
   /** 可选：收起（用户明确不想再看见时）。 */
   onDismiss?: (() => void) | undefined
+  /** 可选图标：16px 线性 SVG。 */
+  icon?: ReactNode
 }
 
 /**
@@ -28,9 +31,10 @@ export interface ErrorNoteProps {
  * @param props - 错误文案与可选的行动
  * @returns 失败态块
  */
-export function ErrorNote({ message, onRetry, retryLabel = '重试', onDismiss }: ErrorNoteProps) {
+export function ErrorNote({ message, onRetry, retryLabel = '重试', onDismiss, icon }: ErrorNoteProps) {
   return (
     <div className="error-note" role="alert">
+      {icon === undefined ? null : <span className="error-note-icon" aria-hidden>{icon}</span>}
       <p className="error-note-message">{message}</p>
       {onRetry === undefined && onDismiss === undefined ? null : (
         <div className="error-note-actions">

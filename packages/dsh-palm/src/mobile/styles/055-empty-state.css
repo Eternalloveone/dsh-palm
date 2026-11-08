@@ -26,3 +26,22 @@
 .empty-state-action {
   margin-top: var(--palm-s2);
 }
+
+
+/* 图标槽位（定版图：空态 = 图标 + 标题 + 主按钮） */
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: var(--palm-s2);
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+}
+
+.empty-state-icon > svg {
+  width: 16px;
+  height: 16px;
+}
