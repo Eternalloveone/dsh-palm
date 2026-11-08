@@ -1016,9 +1016,11 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
         counts={{
           all: rows.length,
           running: rows.filter(row => row.running).length,
+          pending: rows.filter(row => pendingIds.has(row.sessionId)).length,
         }}
       />
       <SessionListRoster
+        pendingIds={pendingIds}
         loading={loading}
         rows={rows}
         groups={groups}

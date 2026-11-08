@@ -22,6 +22,8 @@ export interface SessionRowHandlers {
 }
 
 export interface SessionListRosterProps {
+  /** 正在等用户批准/回答的会话 id：行上会显示「待确认」胶囊。 */
+  pendingIds?: ReadonlySet<string> | undefined
   loading: boolean
   rows: readonly SessionView[]
   groups: ReadonlyArray<{ bucket: DayBucket; rows: SessionView[] }>
@@ -38,7 +40,18 @@ export interface SessionListRosterProps {
 
 /** The roster list itself. */
 export function SessionListRoster({
-  loading, rows, groups, hasMore, openSwipeId, previewCache, sentinelRef, rowHandlers, keepBottom, onLoadMore, onDeleteRow,
+  loading,
+  rows,
+  groups,
+  hasMore,
+  openSwipeId,
+  previewCache,
+  sentinelRef,
+  rowHandlers,
+  keepBottom,
+  onLoadMore,
+  onDeleteRow,
+  pendingIds,
 }: SessionListRosterProps) {
   return (
       <ul className="mobile-list">
@@ -101,9 +114,12 @@ export function SessionListRoster({
                             <span className="sess-title">{row.title}</span>
                           </span>
                           <span className="sess-meta">
-                            {row.blank && <span className="sess-status">新</span>}
-                            {row.running && <span className="sess-status">进行中</span>}
-                            {row.error !== undefined && <span className="sess-status" title={row.error}>出错</span>}
+                            {row.blank && <span className="sess-status sess-status-info">新</span>}
+                            {row.running && <span className="sess-status sess-status-ok">进行中</span>}
+                            {pendingIds?.has(row.sessionId) === true && (
+                              <span className="sess-status sess-status-warn">待确认</span>
+                            )}
+                            {row.error !== undefined && <span className="sess-status sess-status-danger" title={row.error}>出错</span>}
                             <span className="sess-time">{formatFullTime(row.updatedAt)}</span>
                           </span>
                           {preview !== undefined && <span className="card-desc">{preview}</span>}
