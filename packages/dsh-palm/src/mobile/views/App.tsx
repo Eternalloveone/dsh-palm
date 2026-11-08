@@ -12,6 +12,8 @@ import { logTail, reportError } from '../data/diag.ts'
 import { observeSession, prompt } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
+import { handleAppFrame } from '../kernels/app-frame-slice.ts'
+import { createHostBridge } from '../kernels/host-bridge.ts'
 import { MuxClient } from '../stream/mux.ts'
 import { startNotify, stopNotify } from '../platform/notify.ts'
 import { usePageVisible } from '../stream/foreground.ts'
@@ -581,6 +583,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
    *  Drives the entry chip's green breathing dot + numeric badge. */
   const [runOverviewLive, setRunOverviewLive] = useState(0)
   const muxRef = useRef<MuxClient | undefined>(undefined)
+  const bridgeRef = useRef<ReturnType<typeof createHostBridge> | undefined>(undefined)
+
   /** 收工浮层：当前显示的那一条（undefined＝没在显示）。 */
   const [finishToast, setFinishToast] = useState<FinishedRun | undefined>(undefined)
   /** 聊天页顶部的「别的会话跑完了」条：聊天页不弹底部浮层（会盖住输入框）。 */
@@ -758,22 +762,18 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   useEffect(() => {
     const mux = new MuxClient(undefined, { onUnpaired })
     muxRef.current = mux
-    mux.start()
-    const unsubscribe = mux.onFrame((frame) => {
-      if (frame.type === 'session/jobs' || frame.type === 'session/subscribed') {
-        recomputeActive()
-        return
-      }
-      // turn/start + turn/end move the running-session mirror; refresh so the
-      // entry dot/badge tracks a plain conversation turn too.
-      if (frame.type === 'session/event') {
-        const eventType = (frame.event as { type?: string }).type
-        if (eventType === 'turn/start' || eventType === 'turn/end') recomputeActive()
-        if (eventType === 'turn/end') collectFinished(String(frame.sessionId), frame.event as TurnEndEvent)
-      }
-    })
+    // P3：全站唯一订阅点。App 持有 mux，其它视图/切片都经 bridge 订阅，
+    // 于是同一帧只派发一次，重连（新 generation）也只通知一处。
+    const bridge = createHostBridge(mux)
+    bridgeRef.current = bridge
+    bridge.start()
+    const unsubscribe = bridge.onFrame(frame => handleAppFrame(frame, {
+      recomputeActive,
+      collectFinished: (sessionId, event) => collectFinished(sessionId, event as TurnEndEvent),
+    }))
+
     recomputeActive()
-    return () => { unsubscribe(); mux.stop() }
+    return () => { unsubscribe(); bridge.stop() }
   }, [onUnpaired, recomputeActive])
 
   // Running-set re-check for the roster entry, polled while the roster — the

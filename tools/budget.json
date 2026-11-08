@@ -14,7 +14,7 @@
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
-    "src/mobile/kernels": 760,
+    "src/mobile/kernels": 790,
     "src/mobile/message-row": 958,
     "src/mobile/platform": 4420,
     "src/mobile/projections": 530,
@@ -24,7 +24,7 @@
     "src/mobile/shared": 267,
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1170,
-    "src/mobile/views": 20500,
+    "src/mobile/views": 20560,
     "src/mobile/wire": 246
   },
   "dirsRaised": {
@@ -49,7 +49,11 @@
       "expires": "2027-03-31"
     },
     "src/mobile/kernels": {
-      "reason": "P3 单一订阅点：kernels/host-bridge.ts（一帧只派发一次 + 重连代数）与其 8 条单测；视图后续改接此内核，旧订阅点删除后本值回落",
+      "reason": "P3 单一订阅点：kernels/host-bridge.ts（一帧一次派发 + 重连代数）+ app-frame-slice.ts（App 帧规则抽出，可单测）及 8 条单测；视图全部改接后旧订阅点删除，本值回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/views": {
+      "reason": "P3 接入单一订阅点：App.tsx 改用 createHostBridge（+14 行，含 mux.bridge 说明）；视图改接完成后旧订阅点删除，本值回落",
       "expires": "2027-03-31"
     }
   }
