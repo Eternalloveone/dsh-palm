@@ -89,6 +89,12 @@ export function AppearanceView({ onBack }: AppearanceViewProps) {
                   aria-pressed={skin === name}
                   onClick={() => { pickSkin(name) }}
                 >
+                  {/* 定版图：皮肤不是一行文字，是一张能看见颜色的预览卡 */}
+                  <span className={`appearance-swatch appearance-swatch-${name}`} aria-hidden>
+                    <span className="appearance-swatch-bar" />
+                    <span className="appearance-swatch-bar" />
+                    <span className="appearance-swatch-dot" />
+                  </span>
                   <span className="appearance-row-main">{SKIN_LABEL[name]}</span>
                   <span className="appearance-row-sub">{SKIN_HINT[name]}</span>
                   {skin === name ? <span className="appearance-row-mark">当前</span> : null}
