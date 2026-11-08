@@ -132,11 +132,7 @@ describe('「返回」的落点（漏一个页面就是死按钮）', () => {
     expect(backTargetOf(route({ kind: 'run-overview' }))).toEqual({ kind: 'workspaces' })
   })
 
-  it('会话页的三个分支：搜索定位 / 从运行中进入 / 独立会话 / 普通进入', () => {
-    expect(backTargetOf(route({ kind: 'chat', session: sessionRow, workspace: workspaceRow }), { fromLocate: true }))
-      .toEqual({ kind: 'workspaces' })
-    expect(backTargetOf(route({ kind: 'chat', session: sessionRow, workspace: workspaceRow, fromRunOverview: true })))
-      .toEqual({ kind: 'run-overview' })
+  it('会话页的兜底分支：独立会话 / 普通进入（搜索定位与运行中进入已由页面栈覆盖）', () => {
     expect(backTargetOf(route({ kind: 'chat', session: sessionRow, workspace: standaloneRow })))
       .toEqual({ kind: 'workspaces' })
     expect(backTargetOf(route({ kind: 'chat', session: sessionRow, workspace: workspaceRow })))

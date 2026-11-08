@@ -89,7 +89,7 @@ describe('页面栈 vs backTargetOf（迁移等价性）', () => {
     const stack = pushPage(
       pushPage(createPageStack<Route>('workspaces', { kind: 'workspaces' }), 'run-overview', { kind: 'run-overview' }),
       'chat',
-      { kind: 'chat', session, workspace, fromRunOverview: true },
+      { kind: 'chat', session, workspace },
     )
     expect(currentOf(popPage(stack))?.value).toEqual({ kind: 'run-overview' })
   })

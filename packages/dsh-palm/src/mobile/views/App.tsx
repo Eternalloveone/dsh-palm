@@ -12,7 +12,7 @@ import { logTail, reportError } from '../data/diag.ts'
 import { observeSession, prompt } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
-import { handleAppFrame } from '../kernels/app-frame-slice.ts'
+import { handleAppFrame } from '../kernels/app-frame-slice.ts'
 import { createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
 import { createHostBridge } from '../kernels/host-bridge.ts'
 import { MuxClient } from '../stream/mux.ts'
@@ -132,8 +132,6 @@ type Route =
     focusMessageId?: string
     focusPartId?: string
     focusQuery?: string
-    /** Opened from the run-overview page: back returns there, not to a list. */
-    fromRunOverview?: boolean
   }
   /** 子代理自己的会话（只读）：从"运行中"页的子代理行点进来。 */
   | { kind: 'sub-chat'; sessionId: string; label?: string; parentTitle?: string }
@@ -196,18 +194,9 @@ export function chatRouteFromUrl(workspaceId: string, sessionId: string, seq?: n
  * 没有它的分支、落到最后的 `return previous`。以后再加页面，TypeScript 会因为
  * "没覆盖所有分支"直接报错，不会再默默变砖。
  */
-export function backTargetOf(route: Route, options: { fromLocate?: boolean } = {}): Route {
+export function backTargetOf(route: Route): Route {
   switch (route.kind) {
     case 'chat':
-      if (options.fromLocate === true) {
-        // Reached from a workspace-search locate: go straight back to the roster
-        // with the search surface restored (one back press).
-        return { kind: 'workspaces' }
-      }
-      if (route.fromRunOverview === true) {
-        // Opened from the run-overview page: one back press returns there.
-        return { kind: 'run-overview' }
-      }
       if (route.workspace.workspaceId === STANDALONE_WORKSPACE.workspaceId) {
         // A standalone chat has no session list behind it: return to the roster
         // instead of a phantom empty list.
@@ -975,15 +964,18 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       locateFromSearchRef.current = false
       setRestoreSearch({ ...locateSearchSnapRef.current })
     }
-    // P6：先问页面栈"上一页是谁"——那是**事实**，不是猜的。
-    // 栈里只有当前页（冷启动/深链直达）时才退回 backTargetOf 的启发式，
-    // 保证任何情况下按返回都有落点。
+    // P6：页面栈是返回的**唯一真源**——上一页是事实，不是猜的。
+    // 只有"栈里就一页"（冷启动 / 深链直达 / 首帧就在会话页）时没有事实可用，
+    // 才退回 backTargetOf 的启发式，保证按返回总有个落点。
+    //
+    // 注意：搜索面恢复（locateFromSearchRef）与路由是两件事，仍按标记处理；
+    // 它影响的是"回去以后列表上该不该还在搜索态"，不是"回到哪一页"。
     const popped = popPage(stackRef.current)
     stackRef.current = popped
     const restored = currentOf(popped)?.value
     setTransition(previous => ({
       current: {
-        route: restored ?? backTargetOf(previous.current.route, { fromLocate }),
+        route: restored ?? backTargetOf(previous.current.route),
         forward: false,
       },
       leaving: previous.current,
@@ -1137,7 +1129,6 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       kind: 'chat',
       session,
       workspace: STANDALONE_WORKSPACE,
-      fromRunOverview: true,
     })
   }, [navigate])
 
