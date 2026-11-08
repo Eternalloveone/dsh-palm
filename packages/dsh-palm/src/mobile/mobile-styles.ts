@@ -9847,10 +9847,18 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
 }
 
 .model-page-body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: var(--palm-s4);
+}
+
+/* grow 槽本身不是滚动容器：给正文一个确定高度（与审批页同一口径）。 */
+.model-page [data-slot='diff'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .model-page-section + .model-page-section {
@@ -9876,7 +9884,7 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   padding: var(--palm-s3) var(--palm-s4);
   text-align: left;
   background: var(--palm-sur-1);
-  border: 1px solid var(--palm-line);
+  border: var(--palm-hair) solid var(--palm-line);
   border-radius: var(--palm-r-m);
   color: var(--palm-fg);
 }
@@ -9899,9 +9907,18 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
 }
 
 .model-page-row-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
   margin-left: auto;
   font-size: var(--palm-t-s);
   color: var(--palm-accent);
+}
+
+.model-page-row-mark > svg {
+  flex: none;
+  width: var(--palm-s4);
+  height: var(--palm-s4);
 }
 
 .model-page-note {
@@ -9915,7 +9932,142 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
-  border-top: 1px solid var(--palm-line);
+  border-top: var(--palm-hair) solid var(--palm-line);
+}
+
+
+/* ── ⑤ 视觉重做：当前模型卡 / 三档分段 / 说明行（定版图口径）───── */
+
+/* 当前模型卡：名字与说明在左，「切换」在右；底色用 accent 淡染，
+   一眼就能和背景、和下面未选中的档位分开（定版图里当前项也是染色卡）。 */
+.model-page-current {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s3);
+  padding: var(--palm-s4);
+  border: var(--palm-hair) solid color-mix(in srgb, var(--palm-accent) 52%, var(--palm-line));
+  border-radius: var(--palm-r-l);
+  background: var(--palm-tint-accent);
+  box-shadow: var(--palm-hi), var(--palm-sh1);
+}
+
+/* 模型图标（icons.tsx 的 16px 线性 SVG，定版尺寸只走令牌）。 */
+.model-page-current > svg {
+  flex: none;
+  width: var(--palm-s4);
+  height: var(--palm-s4);
+  color: var(--palm-accent);
+}
+
+.model-page-current-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  min-inline-size: 0;
+}
+
+/* 卡里的模型名比列表行大一号：它是这一屏的主角。 */
+.model-page-current .model-page-row-main {
+  font-size: var(--palm-t-l);
+  line-height: var(--palm-lh-head);
+}
+
+.model-page-current .model-page-row-sub {
+  flex: none;
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+  overflow-wrap: anywhere;
+}
+
+/* 切换：一枚 44px 的次级按钮，不跟模型名抢视线。 */
+.model-page-switch {
+  flex: none;
+  min-inline-size: calc(var(--palm-hit) + var(--palm-s4));
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.model-page-switch[aria-expanded='true'] {
+  border-color: var(--palm-accent);
+  background: var(--palm-tint-accent);
+}
+
+/* 思考强度：三档分段；选中的那一档才有底色与强调描边。 */
+.model-page-efforts {
+  display: flex;
+  gap: var(--palm-s1);
+  padding: var(--palm-s1);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+.model-page-effort {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--palm-s1);
+  min-inline-size: 0;
+  min-block-size: calc(var(--palm-hit) + var(--palm-s2));
+  padding: var(--palm-s1) var(--palm-s2);
+  border: var(--palm-hair) solid transparent;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-2);
+  font: inherit;
+}
+
+.model-page-effort .model-page-row-main {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-2);
+}
+
+.model-page-effort .model-page-row-sub {
+  flex: none;
+  color: var(--palm-fg-3);
+  text-align: center;
+}
+
+.model-page-effort[aria-pressed='true'] {
+  border-color: var(--palm-accent);
+  background: var(--palm-tint-accent);
+}
+
+.model-page-effort[aria-pressed='true'] .model-page-row-main {
+  color: var(--palm-fg);
+}
+
+.model-page-effort[aria-pressed='true'] .model-page-row-sub {
+  color: var(--palm-fg-2);
+}
+
+/* 分段下面的那行说明：贴着控件，不要飘到下一块去。 */
+.model-page-efforts + .model-page-note {
+  margin-top: var(--palm-s3);
+}
+
+.model-page-row:focus-visible,
+.model-page-switch:focus-visible,
+.model-page-effort:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+/* 空态里的「重新加载」沿用既有 .mobile-button，只把颜色接到 palm 令牌上。 */
+.model-page .empty-state-action .mobile-button {
+  border-color: var(--palm-line);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
 }
 /* ── 外观页（P6 ⑭ 屏） ─────────────────────────────────────────────── */
 

@@ -107,7 +107,9 @@ describe('architecture guardrails', () => {
       'views/ChatView.tsx': 4211,
       'views/DiffView.tsx': 80,
       'views/MarketView.tsx': 245,
-      'views/ModelView.tsx': 203,
+      // 2026-11-08：P6 ⑤ 模型与思考页按定版图重做（当前模型卡 + 切换抽屉 + 三档分段），
+      // 旧的一列式列表拆成三段；行数只增这一次，之后只许降。
+      'views/ModelView.tsx': 267,
       'views/OutlineView.tsx': 99,
       'views/SettingsForm.tsx': 549,
       'views/ContextView.tsx': 119,
