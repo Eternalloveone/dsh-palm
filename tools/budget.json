@@ -14,7 +14,7 @@
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
-    "src/mobile/kernels": 860,
+    "src/mobile/kernels": 940,
     "src/mobile/message-row": 958,
     "src/mobile/platform": 4420,
     "src/mobile/projections": 530,
@@ -49,7 +49,7 @@
       "expires": "2027-03-31"
     },
     "src/mobile/kernels": {
-      "reason": "P3 模型切片：kernels/preview-slice.ts（会话行摘要取数 + 限流并发，10 条单测），从 SessionListView 抽出，视图层去取数的第一步",
+      "reason": "P3 模型切片：host-bridge + app-frame-slice + preview-slice + list-cache-slice（各带单测），全部从视图抽出；视图层去取数完成后旧实现删除，本值回落",
       "expires": "2027-03-31"
     },
     "src/mobile/views": {

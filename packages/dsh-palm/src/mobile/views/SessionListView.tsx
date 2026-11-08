@@ -68,6 +68,7 @@ import {
   SessionMenuSheet,
 } from './list/session-list-sheets.tsx'
 import { fetchSessionPreview, mapLimited } from '../kernels/preview-slice.ts'
+import { createListCacheSlice } from '../kernels/list-cache-slice.ts'
 
 /** How many sessions get a lazily-fetched last-message preview. */
 export const PREVIEW_FETCH_LIMIT = 12
@@ -112,50 +113,33 @@ const SESSION_CV_KEEP_BOTTOM = 12
 /** Horizontal swipe distance (px) that opens/closes the delete action. */
 const SWIPE_TRIGGER_PX = 40
 
-/** Cross-mount preview cache: summaries survive a chat round-trip too
- *  (exported for test isolation). Persisted for PWA cold starts. */
-export const sessionPreviewCache = new Map<string, string>()/** 预览切片的依赖注入：读取、折叠、压缩各一件，便于单测替换。 */const previewDeps = { history, foldEvents, previewSummary }
-
-/** Seed caches once per page life: the persisted store covers PWA cold
- *  starts (memory caches are gone, localStorage survives). */
-let persistedSeeded = false
-function seedPersistedCaches(): void {
-  if (persistedSeeded) return
-  persistedSeeded = true
-  if (sessionPreviewCache.size === 0) {
-    for (const [sessionId, summary] of loadPersistedPreviews()) sessionPreviewCache.set(sessionId, summary)
-  }
-  maintainPersistedCaches()
-}
-
-/** Write-through helper: memory cache + persisted store in one step. */
-function setCachedList(
-  workspaceId: string,
-  value: { rows: SessionView[]; cursor?: string; hasMore: boolean },
-): void {
-  sessionListCache.set(workspaceId, { ...value, at: Date.now() })
-  // Deferred (list-persist): a roster page is a whole-blob rewrite, so it must
-  // not run on the fetch/frame that produced it.
-  queuePersistedList(workspaceId, value)
-}
-
-/** Publish the live preview map to the persisted store. Deferred and coalesced
- *  (list-persist): the map is one blob, and the page-hide hooks flush it. */
-function syncPersistedPreviews(): void {
-  queuePersistedPreviews(sessionPreviewCache)
-}
 
 
+
+
+
+/** 预览切片的依赖注入：读取、折叠、压缩各一件，便于单测替换。 */
+const previewDeps = { history, foldEvents, previewSummary }
+
+/** 列表缓存切片：名册页写穿 + 摘要表持久化 + 冷启动播种。 */
+const listCache = createListCacheSlice({
+  sessionListCache: sessionListCache as never,
+  loadPersistedPreviews,
+  maintainPersistedCaches: maintainPersistedCaches as never,
+  queuePersistedList: queuePersistedList as never,
+  queuePersistedPreviews,
+})
+
+/** 行摘要缓存（跨挂载存活；导出供测试隔离）。 */
+export const sessionPreviewCache = listCache.sessionPreviewCache
 
 /** Props for the session list. */
 export interface SessionListViewProps {
   workspace: WorkspaceRow
   /** The live-event client, for the host's session-list frames. */
-  /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */
-
-  bridge?: HostBridge | undefined
-
   mux?: MuxClient | undefined
+  /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */
+  bridge?: HostBridge | undefined
   /** Session carried by a notification deep link; opened after the list loads. */
   initialSessionId?: string
   onBack(): void
@@ -481,7 +465,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
       (items) => {
         if (!aliveRef.current) return
         cacheSummaries(items)
-        syncPersistedPreviews()
+        listCache.syncPreviews()
         setPreviewTick(tick => tick + 1)
       },
       () => {
@@ -498,7 +482,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
           cacheSummaries([{ sessionId: row.sessionId, summary }])
         }).then(() => {
           if (aliveRef.current) {
-            syncPersistedPreviews()
+            listCache.syncPreviews()
             setPreviewTick(tick => tick + 1)
           }
         })
@@ -570,7 +554,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
     // Cross-mount restore (v3.2) + PWA cold-start restore (v3.3): seed
     // state from the memory cache, else the persisted store, before any
     // network — then let the refresh below reconcile.
-    seedPersistedCaches()
+    listCache.ensureSeeded()
     const key = String(workspace.workspaceId)
     let cached = sessionListCache.get(key)
     if (cached !== undefined && Date.now() - cached.at >= LIST_CACHE_TTL_MS) cached = undefined
@@ -656,7 +640,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
           }
         }
         setRows(applyLive(seeded, liveRef.current))
-        setCachedList(key, { rows, cursor: page.nextCursor, hasMore: page.hasMore })
+        listCache.writeList(key, { rows, cursor: page.nextCursor, hasMore: page.hasMore })
         loadPreviews(rows)
         cursorRef.current = page.nextCursor
         setHasMore(page.hasMore)
@@ -791,7 +775,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
           // Keep the cross-mount/persisted caches in step with the roster.
           const cached = sessionListCache.get(String(workspace.workspaceId))
           if (cached !== undefined) {
-            setCachedList(String(workspace.workspaceId), { rows: next, cursor: page.nextCursor, hasMore: page.hasMore })
+            listCache.writeList(String(workspace.workspaceId), { rows: next, cursor: page.nextCursor, hasMore: page.hasMore })
           }
           return next
         })
@@ -872,7 +856,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
           const next = [view, ...previous]
           const cached = sessionListCache.get(String(workspace.workspaceId))
           if (cached !== undefined) {
-            setCachedList(String(workspace.workspaceId), { rows: next, cursor: cached.cursor, hasMore: cached.hasMore })
+            listCache.writeList(String(workspace.workspaceId), { rows: next, cursor: cached.cursor, hasMore: cached.hasMore })
           }
           return next
         })
@@ -969,7 +953,7 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
       const next = previous.filter(item => item.sessionId !== row.sessionId)
       const cached = sessionListCache.get(String(workspace.workspaceId))
       if (cached !== undefined) {
-        setCachedList(String(workspace.workspaceId), { rows: next, cursor: cached.cursor, hasMore: cached.hasMore })
+        listCache.writeList(String(workspace.workspaceId), { rows: next, cursor: cached.cursor, hasMore: cached.hasMore })
       }
       return next
     })
