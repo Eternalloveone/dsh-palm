@@ -36,3 +36,6 @@ export const MAX_ATTACHMENT_BASE64_CHARS = 28 * 1024 * 1024
 
 /** 用量/余额的短缓存 TTL。 */
 export const USAGE_CACHE_TTL_MS = 60_000
+
+/** 会话快照的陈旧期：超过 TTL 但还在这个窗口内，先给旧值再后台刷新。 */
+export const SESSION_SNAPSHOT_STALE_MS = 5 * 60_000

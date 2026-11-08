@@ -573,74 +573,8 @@ async function locateSessionMeta(apiProxy: ApiProxy): Promise<{
  * 立刻用旧名册作答，后台再刷新（子代理在索引阶段就已排除，旧名册最多让标签
  * 晚几分钟更新，不会漏出不该看的会话）。
  */
-const SESSION_SNAPSHOT_STALE_MS = 5 * 60_000
 
-async function ordinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
-  const cached = processState.ordinarySearchSnapshotCache
-  const fresh = cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_LIST_TTL_MS
-  if (fresh) return cached.value
-  const stale = cached !== undefined && cached.proxy === apiProxy && Date.now() - cached.at < SESSION_SNAPSHOT_STALE_MS
-  if (stale) {
-    // 后台刷新：失败就算了（旧名册还能用），下次再试。必须吞掉异常，否则后台
-    // Promise 变成 unhandledRejection 会把宿主进程带走。
-    processState.ordinarySearchSnapshotRefresh ??= loadOrdinarySearchSnapshot(apiProxy)
-      .catch(() => undefined)
-      .finally(() => { processState.ordinarySearchSnapshotRefresh = undefined })
-    return cached.value
-  }
-  const pending = loadOrdinarySearchSnapshot(apiProxy)
-  processState.ordinarySearchSnapshotRefresh = pending.catch(() => undefined).finally(() => { processState.ordinarySearchSnapshotRefresh = undefined })
-  return await pending
-}
 
-async function loadOrdinarySearchSnapshot(apiProxy: ApiProxy): Promise<OrdinarySearchSnapshot> {
-  const [sessionResponse, workspaceResponse] = await Promise.all([
-    apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-search-roster'), payload: {} } as never),
-    apiProxy?.workspace?.list === undefined ? undefined : apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-search-workspaces'), payload: {} } as never).catch(() => undefined),
-  ])
-  const sessionResult = (sessionResponse as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; updatedAt?: number; cwd?: string; origin?: string; projections?: { values?: Record<string, unknown> } }>; hasMore?: boolean } } }).result
-  if (sessionResult?.ok !== true) throw new Error('search session classification unavailable')
-  const workspaceResult = (workspaceResponse as { result?: { ok?: boolean; value?: { items?: Array<{ workspaceId: string; path?: string; title?: string; sessionIds?: string[] }>; archivedSessionIds?: string[] } } } | undefined)?.result
-  const archived = new Set(workspaceResult?.ok === true ? (workspaceResult.value?.archivedSessionIds ?? []).map(String) : [])
-  const workspace = new Map<string, string>()
-  const workspaceTitle = new Map<string, string>()
-  const workspacePaths: Array<{ workspaceId: string; path: string }> = []
-  const normalizePath = (value: string): string => value.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
-  if (workspaceResult?.ok === true) {
-    for (const item of workspaceResult.value?.items ?? []) {
-      if (typeof item.title === 'string' && item.title !== '') workspaceTitle.set(item.workspaceId, item.title)
-      if (typeof item.path === 'string' && item.path !== '') workspacePaths.push({ workspaceId: item.workspaceId, path: normalizePath(item.path) })
-      for (const sessionId of item.sessionIds ?? []) workspace.set(String(sessionId), item.workspaceId)
-    }
-  }
-  const sessions: OrdinarySearchSession[] = []
-  for (const item of sessionResult.value?.items ?? []) {
-    const sessionId = String(item.sessionId)
-    if (item.origin === 'subagent' || archived.has(sessionId)) continue
-    const projectedTitle = item.projections?.values?.title
-    sessions.push({
-      sessionId,
-      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0,
-      ...(typeof projectedTitle === 'string' && projectedTitle !== '' ? { title: projectedTitle } : {}),
-    })
-    if (!workspace.has(sessionId) && typeof item.cwd === 'string' && item.cwd !== '') {
-      const cwd = normalizePath(item.cwd)
-      const owner = workspacePaths
-        .filter(entry => cwd === entry.path || cwd.startsWith(`${entry.path}/`))
-        .sort((a, b) => b.path.length - a.path.length)[0]
-      if (owner !== undefined) workspace.set(sessionId, owner.workspaceId)
-    }
-  }
-  const value: OrdinarySearchSnapshot = {
-    sessions,
-    byId: new Map(sessions.map(item => [item.sessionId, item])),
-    workspace,
-    workspaceTitle,
-    rosterPartial: sessionResult.value?.hasMore === true,
-  }
-  processState.ordinarySearchSnapshotCache = { at: Date.now(), proxy: apiProxy, value }
-  return value
-}
 
 interface SearchDocument {
   rows: SearchDocumentRow[]
@@ -844,7 +778,7 @@ const MOBILE_API_METHOD_PREFIX = `${MOBILE_API_PREFIX}/`
  */
 import { registerSearchIndex } from './mobile/api/search-index-registry.ts'
 import type { MobileApiCtx } from './mobile/api/context.ts'
-import { LOCATE_TTL_MS, MAX_ATTACHMENT_BASE64_CHARS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_REFRESH_MIN_MS, SESSION_LIST_TTL_MS, SESSION_PAGE_SIZE, USAGE_CACHE_TTL_MS } from './mobile/api/constants.ts'
+import { LOCATE_TTL_MS, MAX_ATTACHMENT_BASE64_CHARS, ROSTER_TTL_MS, SEARCH_ALL_SESSIONS, SEARCH_MESSAGES_LIMIT, SEARCH_SYNC_DEBOUNCE_MS, SESSION_LIST_REFRESH_MIN_MS, SESSION_LIST_TTL_MS, SESSION_PAGE_SIZE, SESSION_SNAPSHOT_STALE_MS, USAGE_CACHE_TTL_MS } from './mobile/api/constants.ts'
 import { wrap } from './mobile/api/wrap.ts'
 import { workspaceList } from './mobile/api/workspace-list.ts'
 import { workspaceCreate, workspaceDelete, workspaceRename, workspaceArchiveSession } from './mobile/api/workspace-mutations.ts'
@@ -875,6 +809,7 @@ import { MOBILE_ALLOWLIST } from './mobile/api/allowlist.ts'
 import { mobileUsage } from './mobile/api/mobile-usage.ts'
 import { mobileSessionState, readGoalProjection } from './mobile/api/mobile-session-state.ts'
 import { readInboxProjection, shouldRefreshInbox } from './mobile/api/inbox-fresh.ts'
+import { ordinarySearchSnapshot } from './mobile/api/search-snapshot.ts'
 export { shouldRefreshInbox }
 export { MOBILE_ALLOWLIST }
 // 索引库的登记与关闭搬到 api/search-index-registry.ts（B 步第一块）。
