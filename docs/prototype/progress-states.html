@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>进度显示四种情况</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.11);
+    --fg:#e9ebf2; --fg2:#9aa0ae; --fg3:#666c7a;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:18px;padding:20px;width:max-content;flex-wrap:wrap}
+  .col{width:390px}
+  .cap{font-size:12px;color:#9aa0ae;margin:0 0 8px 6px}
+  .cap b{color:#e3e6ee;font-weight:600}
+  .phone{width:390px;height:300px;border-radius:30px;overflow:hidden;background:var(--bg);box-shadow:0 20px 50px rgba(0,0,0,.7),0 0 0 7px #191920;padding:18px 18px 0;position:relative}
+  .note{margin-top:9px;font-size:11px;color:#7c8290;line-height:1.6}
+
+  .trow{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg3)}
+  .trow .st{width:7px;height:7px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 3px rgba(124,140,255,.15);flex:none}
+  .trow b{color:var(--fg2);font-weight:500}
+  .trow .tm{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--fg3)}
+  .goal{font-size:15px;font-weight:600;line-height:1.45;margin-top:9px;letter-spacing:-.01em}
+  .bmeta{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:10.5px;color:var(--fg3)}
+  .bmeta .r{margin-left:auto}
+  .dotsep{width:2px;height:2px;border-radius:999px;background:var(--fg3);opacity:.6}
+
+  /* 1 确定进度 */
+  .bar{height:3px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:11px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#7c8cff,#a78bfa)}
+
+  /* 2 点阵：一个点 = 一步，未知末尾用省略 */
+  .dots{display:flex;align-items:center;gap:5px;margin-top:13px;height:6px}
+  .dots i{width:6px;height:6px;border-radius:999px;background:rgba(255,255,255,.14);display:block}
+  .dots i.on{background:var(--accent)}
+  .dots i.now{background:var(--accent);box-shadow:0 0 0 3px rgba(124,140,255,.16)}
+  .dots .gap{color:var(--fg3);font-size:11px;letter-spacing:1px;line-height:1;margin-left:2px}
+
+  /* 3 不定进度：条纹 */
+  .indet{height:3px;border-radius:999px;background:rgba(255,255,255,.07);margin-top:11px;overflow:hidden;position:relative}
+  .indet i{position:absolute;top:0;bottom:0;width:38%;border-radius:999px;background:linear-gradient(90deg,rgba(124,140,255,0),#7c8cff,rgba(124,140,255,0));left:26%}
+
+  /* 4 卡住 */
+  .trow .st.warn{background:var(--warn);box-shadow:0 0 0 3px rgba(224,165,44,.15)}
+  .trow b.warn{color:var(--warn)}
+  .fix{margin-top:11px;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:8px;
+    background:rgba(224,165,44,.1);border:1px solid rgba(224,165,44,.22);font-size:11px;color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- 1 -->
+  <div class="col">
+    <p class="cap"><b>① 知道总数</b>：agent 给了计划（7 步）→ 确定进度条</p>
+    <div class="phone">
+      <div class="trow"><span class="st"></span><b>正在做</b><span>· 第 4 步 / 共 7 步</span><span class="tm">00:42</span></div>
+      <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+      <div class="bar"><i style="width:57%"></i></div>
+      <div class="bmeta"><span>改 1 个文件</span><span class="dotsep"></span><span>v4.1-flash</span><span class="r">2 条排队</span></div>
+    </div>
+    <p class="note">只有 agent 明确拆了计划才用。<b>没有计划就不要画这根条。</b></p>
+  </div>
+
+  <!-- 2 -->
+  <div class="col">
+    <p class="cap"><b>② 只知道做了几步</b>：点阵，未知用省略号</p>
+    <div class="phone">
+      <div class="trow"><span class="st"></span><b>正在做</b><span>· 已做 4 步</span><span class="tm">00:42</span></div>
+      <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+      <div class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="now"></i><span class="gap">⋯</span></div>
+      <div class="bmeta"><span>改 1 个文件</span><span class="dotsep"></span><span>v4.1-flash</span><span class="r">2 条排队</span></div>
+    </div>
+    <p class="note">一个点 = 一步，做完点亮，当前那步有光晕。<b>点会一直加，永远不会"卡在第一步"。</b></p>
+  </div>
+
+  <!-- 3 -->
+  <div class="col">
+    <p class="cap"><b>③ 什么都不知道</b>：不定进度（来回扫）+ 时间</p>
+    <div class="phone">
+      <div class="trow"><span class="st"></span><b>正在做</b><span>· 正在读 views/ChatView.tsx</span><span class="tm">00:42</span></div>
+      <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+      <div class="indet"><i></i></div>
+      <div class="bmeta"><span>v4.1-flash</span><span class="r">2 条排队</span></div>
+    </div>
+    <p class="note">iOS 原生就有的 indeterminate 效果：<b>不假装知道进度</b>，只表达"在动"。</p>
+  </div>
+
+  <!-- 4 -->
+  <div class="col">
+    <p class="cap"><b>④ 30 秒没动静</b>：从"在动"变"看起来停了"</p>
+    <div class="phone">
+      <div class="trow"><span class="st warn"></span><b class="warn">可能卡住了</b><span>· 42 秒没有新动作</span><span class="tm">00:42</span></div>
+      <div class="goal">让消息链接跳转的命中率从 6/11 提到 9/11</div>
+      <div class="fix">⟳ 重试这一步　·　继续等　·　停止</div>
+      <div class="bmeta"><span>最后动作：运行 pnpm test</span></div>
+    </div>
+    <p class="note">这才是真正的"假进度"杀手：<b>没事件就明说没事件</b>，并给三个出口。</p>
+  </div>
+
+</div>
+</body>
+</html>
