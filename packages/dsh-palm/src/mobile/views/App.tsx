@@ -139,7 +139,7 @@ type Route =
   | { kind: 'sub-chat'; sessionId: string; label?: string; parentTitle?: string }
 
 /** 路由的稳定 key：同 key 视为"同一页"（用于页面栈去重）。 */
-function routeKeyOf(route: Route): string {
+export function routeKeyOf(route: Route): string {
   if (route.kind === 'chat') return `chat:${route.session.sessionId}`
   if (route.kind === 'sub-chat') return `sub-chat:${route.sessionId}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
