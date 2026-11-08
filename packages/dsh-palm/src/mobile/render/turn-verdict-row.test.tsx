@@ -34,7 +34,7 @@ describe('回合尾行 → 结论卡（P4 接入）', () => {
     renderRow(turnRow({ text: '重构已完成。剩下两步在下周。', durationMs: 8_000 }))
     const card = screen.getByRole('region', { name: '结论' })
     expect(card.textContent).toContain('重构已完成。')
-    expect(card.textContent).toContain('8 秒')
+    expect(card.textContent).toContain('8s')
     // 长句只在结论位出现一次，不整段重复
     expect(card.textContent).not.toContain('剩下两步在下周。')
   })

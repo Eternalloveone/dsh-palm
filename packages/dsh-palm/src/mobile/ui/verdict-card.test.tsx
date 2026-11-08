@@ -80,11 +80,12 @@ describe('VerdictCard（结论卡四态）', () => {
     const first = render(
       <VerdictCard state="conclusion" headline="完成" footnote={{ seconds: 42, tools: 7, tokens: 1234 }} />,
     )
-    expect(screen.getByText('42 秒 · 7 次工具 · 1.2k tokens')).toBeDefined()
+    expect(screen.getByText('42s')).toBeDefined()
+    expect(screen.getByText('7 次工具 · 1.2k tokens')).toBeDefined()
     first.unmount()
 
     render(<VerdictCard state="conclusion" headline="完成" footnote={{ seconds: 3 }} />)
-    expect(screen.getByText('3 秒')).toBeDefined()
+    expect(screen.getByText('3s')).toBeDefined()
   })
 
   it('绝不生成百分比（数字必须可验证）', () => {

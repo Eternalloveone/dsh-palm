@@ -79,3 +79,12 @@
   color: var(--palm-fg-3);
 }
 
+
+
+/* 定版图：耗时（秒）是结论卡的第二眼信息，独立一行、xl 档。 */
+.verdict-seconds {
+  font-size: var(--palm-t-xl);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg);
+}

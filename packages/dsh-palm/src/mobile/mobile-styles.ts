@@ -9476,6 +9476,15 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg-3);
 }
 
+
+
+/* 定版图：耗时（秒）是结论卡的第二眼信息，独立一行、xl 档。 */
+.verdict-seconds {
+  font-size: var(--palm-t-xl);
+  font-weight: var(--palm-w-bold);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg);
+}
 /* ── 审批详情页（P6 ④ 屏） ─────────────────────────────────────────── */
 
 .approval-page {

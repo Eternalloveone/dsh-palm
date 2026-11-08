@@ -36,7 +36,7 @@ export const QUALITY_BUDGET = {
    * 理由：组件层是后续 18 屏复用的基础，替代各屏自己拼的样式；
    * P8 清账时旧类名必须同批删除，届时本值只降不升。
    */
-  cssClasses: { value: 872, why: 'P4 结论卡新增 7 个类（骨架 6 + 交付物项 1）；P8 合并旧类后回落' },
+  cssClasses: { value: 873, why: 'P4 结论卡新增 7 个类（骨架 6 + 交付物项 1）；P8 合并旧类后回落' },
   /** `!important` 次数：层叠失控的信号。 */
   cssImportant: { value: 2, why: '应为 0；出现即说明选择器权重已经打起来' },
   /** `views/` 里直接 import 数据层（api.ts / mux.ts）的文件数：W4 归零。 */

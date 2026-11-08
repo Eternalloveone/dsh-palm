@@ -90,7 +90,7 @@ function formatTokens(tokens: number): string {
 function footnoteText(footnote: VerdictFootnote | undefined): string {
   if (footnote === undefined) return ''
   const parts: string[] = []
-  if (footnote.seconds !== undefined) parts.push(`${footnote.seconds} 秒`)
+  // 秒数由 VerdictCard 单独渲染成大字，这里不再拼进脚注字符串
   if (footnote.tools !== undefined) parts.push(`${footnote.tools} 次工具`)
   if (footnote.tokens !== undefined) parts.push(`${formatTokens(footnote.tokens)} tokens`)
   return parts.join(' · ')
@@ -167,6 +167,9 @@ export function VerdictCard({
             </>
           )}
         </div>
+      )}
+      {footnote?.seconds === undefined ? null : (
+        <span className="verdict-seconds">{footnote.seconds}s</span>
       )}
       {footnoteCaption === '' ? null : <span className="verdict-footnote">{footnoteCaption}</span>}
     </section>
