@@ -3,10 +3,11 @@
  *
  * 以前审批是长在对话正文里的面板：用户要判断"能不能让它动这个文件"，
  * 却只能在一个滚动列表里看一小段 diff。这一屏把同一份信息放进**独立页面**：
- * 风险、工具、完整参数各占一块，返回由页面栈负责（回到对话）。
+ * 工具与风险、待执行的命令、影响警告各占一块，返回由页面栈负责（回到对话）。
  *
- * 组件复用：面板主体仍是 `ApprovalPanel`（交互与二次确认逻辑不重写），
- * 这里只负责"页面外壳 + 排布 + 上下文的补充说明"。
+ * 组件复用：判定与提交仍是 `ApprovalPanel`（`presentation="page"` 只换排布，
+ * 1.5 秒按住、busy / not-found 处理都没有第二份实现），这里只负责页面外壳与
+ * 上下文补充。
  *
  * @module dsh-palm/mobile/views/ApprovalView
  */
@@ -17,14 +18,6 @@ import { IconButton } from '../ui/primitives.tsx'
 
 /** 审批载荷的类型：直接取面板的 props，视图层不碰数据层（`viewDataImports` 棘轮）。 */
 type PendingApproval = Parameters<typeof ApprovalPanel>[0]['approval']
-
-/** 风险级别的中文说法（界面上不出现枚举名）。 */
-const RISK_LABEL: Record<string, string> = {
-  read: '只读',
-  write: '会改文件',
-  exec: '会执行命令',
-  network: '会联网',
-}
 
 export interface ApprovalViewProps {
   sessionId: string
@@ -47,8 +40,7 @@ export interface ApprovalViewProps {
  */
 export function ApprovalView(props: ApprovalViewProps) {
   const { sessionId, sessionTitle, approval, preview, argsText, onBack, onResolved } = props
-  const risk = approval.risk ?? 'write'
-  const riskLabel = RISK_LABEL[risk] ?? '会改文件'
+  const context = sessionTitle === undefined || sessionTitle === '' ? '来自对话' : sessionTitle
 
   return (
     <SlotLayout
@@ -60,11 +52,9 @@ export function ApprovalView(props: ApprovalViewProps) {
             <div className="mobile-headerSlot">
               <IconButton label="返回" className="mobile-back" onClick={onBack}>‹</IconButton>
             </div>
-            <h1 className="mobile-title">要你决定</h1>
+            <h1 className="mobile-title">需要你批准</h1>
             <div className="mobile-headerSlot mobile-headerSlot-right" />
-            <p className="approval-page-sub" data-risk={risk}>
-              {sessionTitle === undefined ? riskLabel : `${sessionTitle} · ${riskLabel}`}
-            </p>
+            <p className="approval-page-sub">{context}</p>
           </header>
         ),
         body: (
@@ -74,13 +64,14 @@ export function ApprovalView(props: ApprovalViewProps) {
               sessionId={sessionId}
               preview={preview}
               argsText={argsText}
+              presentation="page"
               onResolved={onResolved}
             />
           </div>
         ),
         actions: (
           <p className="approval-page-hint">
-            同意后它才会动手；不处理也不会自己往下走。
+            批准后它才会动手；不处理也不会自己往下走。
           </p>
         ),
       }}

@@ -35,3 +35,227 @@
   color: var(--palm-fg-3);
   border-top: 1px solid var(--palm-line);
 }
+
+/* ── ④ 视觉重做：等宽命令块 / 黄色风险条 / 底部双按钮 ───────────── */
+
+/* 副标题占满标题行：header 是 grid，旧的 flex 百分比在 grid 里不生效。 */
+.approval-page-sub {
+  grid-column: 1 / -1;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+/* grow 槽本身不是滚动容器：给里面的正文一个确定高度。 */
+.approval-page [data-slot='body'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.approval-page-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 审批主体是一列：元信息 → 命令块 → 风险条 → 操作。 */
+.approval-detail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--palm-s3);
+  min-block-size: 0;
+}
+
+.approval-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--palm-s2);
+}
+
+.approval-detail-tool,
+.approval-detail-risk {
+  padding: var(--palm-s1) var(--palm-s2);
+  border-radius: var(--palm-r-s);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-head);
+}
+
+.approval-detail-tool {
+  border: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font-family: var(--font-mono);
+}
+
+/* 语义色只落在描边与图标上；文字仍用前景色，纸皮肤下也过 AA。 */
+.approval-detail-risk {
+  border: var(--palm-hair) solid var(--palm-line);
+  color: var(--palm-fg);
+}
+
+.approval-detail-risk[data-risk='write'] {
+  border-color: var(--palm-warn);
+}
+
+.approval-detail-risk[data-risk='exec'],
+.approval-detail-risk[data-risk='install'] {
+  border-color: var(--palm-danger);
+}
+
+.approval-detail-reason {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-m);
+  line-height: var(--palm-lh-body);
+}
+
+/* 「将要执行什么」：等宽代码块；长行横滑，不折成看不懂的几段。 */
+.approval-detail-command {
+  max-inline-size: 100%;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  overflow: hidden;
+}
+
+.approval-detail-command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s3);
+  border-bottom: var(--palm-hair) solid var(--palm-line);
+}
+
+.approval-detail-command-label {
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+}
+
+.approval-detail-expand {
+  flex: none;
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: none;
+  background: transparent;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  cursor: pointer;
+}
+
+.approval-detail-code,
+.approval-detail-args {
+  margin: 0;
+  padding: var(--palm-s3);
+  color: var(--palm-fg);
+  font-family: var(--font-mono);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  white-space: pre;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.approval-detail-code {
+  min-height: var(--palm-hit);
+}
+
+.approval-detail-args {
+  max-height: 40vh;
+  overflow-y: auto;
+  border-top: var(--palm-hair) solid var(--palm-line);
+  color: var(--palm-fg-2);
+}
+
+.approval-detail-noargs {
+  margin: 0;
+  padding: var(--palm-s3);
+  border: var(--palm-hair) dashed var(--palm-line);
+  border-radius: var(--palm-r-m);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+}
+
+/* 黄色警告条：只在非只读审批上出现（只读不动手）。 */
+.approval-detail-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--palm-s2);
+  margin: 0;
+  padding: var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-warn);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-warn);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+}
+
+.approval-detail-warning-icon {
+  flex: none;
+  inline-size: var(--palm-s4);
+  block-size: var(--palm-s4);
+  color: var(--palm-warn);
+}
+
+/* 两个决定并排，紧跟在风险条后面（定版图口径：动作属于这张审批卡）。 */
+.approval-detail-actions {
+  display: flex;
+  gap: var(--palm-s3);
+  padding-top: var(--palm-s2);
+}
+
+.approval-detail-approve,
+.approval-detail-reject {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  height: var(--palm-hit);
+  border-radius: var(--palm-r-m);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+  cursor: pointer;
+  transition: filter 0.12s ease, opacity 0.12s ease;
+}
+
+.approval-detail-approve {
+  border: var(--palm-hair) solid var(--palm-ok);
+  background: var(--palm-tint-ok);
+  color: var(--palm-fg);
+}
+
+.approval-detail-reject {
+  border: var(--palm-hair) solid var(--palm-danger);
+  background: var(--palm-tint-danger);
+  color: var(--palm-fg);
+}
+
+.approval-detail-approve:active,
+.approval-detail-reject:active {
+  filter: brightness(1.08);
+}
+
+.approval-detail-approve-holding {
+  filter: brightness(0.92);
+}
+
+.approval-detail-approve:disabled,
+.approval-detail-reject:disabled {
+  opacity: 0.36;
+  filter: none;
+}
+
+.approval-detail-expand:focus-visible,
+.approval-detail-approve:focus-visible,
+.approval-detail-reject:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}

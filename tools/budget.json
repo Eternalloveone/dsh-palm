@@ -8,10 +8,10 @@
     "src/mobile/views/App.tsx": 1516
   },
   "dirs": {
-    "src/mobile": 63806,
+    "src/mobile": 64138,
     "src/mobile/styles": 0,
     "src/mobile/api": 3564,
-    "src/mobile/components": 2525,
+    "src/mobile/components": 2651,
     "src/mobile/data": 1687,
     "src/mobile/design": 345,
     "src/mobile/dev": 191,
@@ -68,6 +68,10 @@
     },
     "src/mobile/message-row": {
       "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/components": {
+      "reason": "P6 ④ 审批详情页：ApprovalPanel 增加 page 展示分支（复用同一套 respondApproval / 按住判定，不复制逻辑）；P8 摘旧浮层时回落",
       "expires": "2027-03-31"
     }
   },

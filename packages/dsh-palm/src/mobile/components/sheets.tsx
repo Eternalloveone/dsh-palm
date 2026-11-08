@@ -16,6 +16,7 @@ import { latestBatchOf } from '../session/question-batches.ts'
 import { Sheet } from '../ui/sheet.tsx'
 import type { TurnEntry } from '../session/turn-outline.ts'
 import { Button } from '../ui/primitives.tsx'
+import { ShieldIcon } from './icons.tsx'
 
 /** One switchable permission preset (the `permissions` projection shape). */
 export interface PermissionOption {
@@ -445,6 +446,48 @@ const RISK_LABEL: Record<'read' | 'write' | 'exec' | 'install', string> = {
 /** How long the user must hold the allow button for an exec-risk tool. */
 const HOLD_TO_ALLOW_MS = 1500
 
+/** 参数里最像「要做什么」的字段（与 120 字预览同一优先级）。 */
+const COMMAND_ARG_KEYS = ['command', 'cmd', 'file_path', 'path', 'pattern', 'url', 'query'] as const
+
+/**
+ * 详情页等宽代码块里展示的「这一步要做什么」。
+ *
+ * 预览在 120 字处截断，`pnpm build && curl … | sh` 会被截在管道之前；详情页必须
+ * 优先用原始参数里的完整值，只有参数缺失时才退回预览。非 JSON 的原文直接展示。
+ */
+function commandTextOf(preview: string | undefined, argsText: string | undefined): string {
+  if (argsText !== undefined) {
+    const raw = argsText.trim()
+    if (raw !== '') {
+      try {
+        const parsed: unknown = JSON.parse(raw)
+        if (typeof parsed === 'string') return parsed
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const record = parsed as Record<string, unknown>
+          for (const key of COMMAND_ARG_KEYS) {
+            const value = record[key]
+            if (typeof value === 'string' && value.trim() !== '') return value
+          }
+        } else {
+          return raw
+        }
+      } catch {
+        return raw
+      }
+    }
+  }
+  if (preview !== undefined && preview.trim() !== '') return preview
+  return argsText ?? ''
+}
+
+/** 风险条文案：只在非只读审批上出现（只读不动手，不需要警告）。 */
+const RISK_WARNING: Record<'read' | 'write' | 'exec' | 'install', string> = {
+  read: '',
+  write: '批准后它会写入工作区文件，已有内容可能被覆盖。',
+  exec: '批准后它会真实执行这条命令，执行过程中不能撤销。',
+  install: '批准后会变更插件或依赖，可能要重启才生效。',
+}
+
 /**
  * One pending tool approval card with allow/reject actions.
  *
@@ -454,7 +497,7 @@ const HOLD_TO_ALLOW_MS = 1500
  * instead of a tap. Before this, `bash` and `read_file` looked identical and
  * `pnpm build && curl … | sh` was cut to `pnpm build && curl …` at 120 chars.
  */
-export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsText }: {
+export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsText, presentation = 'card' }: {
   approval: PendingApproval
   sessionId: string
   onResolved(approvalId: string): void
@@ -462,6 +505,8 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
   preview?: string
   /** 原始参数（展开区用；宿主侧已按 8 KB 截断）。 */
   argsText?: string
+  /** `card` = 对话正文里的内联卡片（默认）；`page` = ④ 审批详情页的整页展示。 */
+  presentation?: 'card' | 'page'
 }) {
   const [busy, setBusy] = useState(false)
   const [panelError, setPanelError] = useState<string | undefined>(undefined)
@@ -515,6 +560,83 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
       setHolding(false)
       act('allowed-once')
     }, HOLD_TO_ALLOW_MS)
+  }
+
+  // ④ 详情页：同一套判定与提交逻辑，换成「元信息 → 等宽命令块 → 风险条 → 双按钮」
+  // 的整页排布。对话里的内联卡片仍走下面的分支，两处不各写一遍 respondApproval。
+  if (presentation === 'page') {
+    const command = commandTextOf(preview, argsText)
+    return (
+      <div className="approval-detail" role="alert">
+        <div className="approval-detail-meta">
+          <span className="approval-detail-tool">{approval.toolName}</span>
+          <span className="approval-detail-risk" data-risk={risk}>{RISK_LABEL[risk]}</span>
+          {approval.reason !== undefined && (
+            <p className="approval-detail-reason">{approval.reason}</p>
+          )}
+        </div>
+
+        {command === '' ? (
+          <p className="approval-detail-noargs">宿主没有给出参数；这里只显示工具名。</p>
+        ) : (
+          <section className="approval-detail-command" aria-label="待执行的命令">
+            <div className="approval-detail-command-head">
+              <span className="approval-detail-command-label">待批准</span>
+              {argsText !== undefined && (
+                <Button
+                  type="button"
+                  className="approval-detail-expand"
+                  aria-expanded={expanded}
+                  onClick={() => { setExpanded(value => !value) }}
+                >
+                  {expanded ? '收起参数' : '原始参数'}
+                </Button>
+              )}
+            </div>
+            <pre className="approval-detail-code">{command}</pre>
+            {expanded && argsText !== undefined && <pre className="approval-detail-args">{argsText}</pre>}
+          </section>
+        )}
+
+        {risk !== 'read' && (
+          <p className="approval-detail-warning" data-risk={risk} role="note">
+            <ShieldIcon className="approval-detail-warning-icon" />
+            <span>{RISK_WARNING[risk]}</span>
+          </p>
+        )}
+
+        {panelError !== undefined && <p className="chat-approval-error">{panelError}</p>}
+
+        <div className="approval-detail-actions">
+          <Button
+            type="button"
+            className={`approval-detail-approve${holding ? ' approval-detail-approve-holding' : ''}`}
+            disabled={busy}
+            onPointerDown={startHold}
+            onPointerUp={clearHold}
+            onPointerLeave={clearHold}
+            onPointerCancel={clearHold}
+            onClick={(event) => {
+              if (requiresHold) {
+                if (event.detail === 0) act('allowed-once')
+                return
+              }
+              act('allowed-once')
+            }}
+          >
+            {busy ? '提交中…' : holding ? '继续按住…' : requiresHold ? '按住 1.5 秒批准' : '批准'}
+          </Button>
+          <Button
+            type="button"
+            className="approval-detail-reject"
+            disabled={busy}
+            onClick={() => { act('rejected') }}
+          >
+            拒绝
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (
