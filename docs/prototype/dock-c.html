@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>输入区 · C 方案打磨</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b; --sur2:#181820;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.11);
+    --fg:#e9ebf2; --fg2:#9aa0ae; --fg3:#666c7a;
+    --accent:#7c8cff; --warn:#e0a52c;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{display:flex;gap:20px;padding:20px;width:max-content}
+  .col{width:390px}
+  .cap{font-size:12px;color:#9aa0ae;margin:0 0 8px 6px}
+  .cap b{color:#e3e6ee;font-weight:600}
+  .phone{position:relative;width:390px;height:560px;border-radius:38px;overflow:hidden;background:var(--bg);box-shadow:0 22px 60px rgba(0,0,0,.7),0 0 0 8px #191920}
+  .filler{position:absolute;inset:0 0 150px;padding:16px 18px;font-size:12.5px;color:#4f5462;line-height:1.9}
+
+  /* ── 输入区 ── */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:10px 0 18px;background:rgba(11,11,16,.98);border-top:1px solid var(--line)}
+
+  .queue{margin:0 18px 10px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);
+    background:rgba(224,165,44,.07);border-radius:9px;padding:7px 10px;line-height:1.4}
+
+  .row{display:flex;align-items:center;gap:10px;padding:0 18px}
+  .plus{width:36px;height:36px;border-radius:999px;border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:16px;flex:none;background:transparent}
+  .field{flex:1;height:36px;border-radius:18px;background:var(--sur);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:12.5px;color:var(--fg3);letter-spacing:.01em}
+  .send{width:36px;height:36px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;font-size:15px;flex:none}
+
+  /* 元信息行：左胶囊（唯一可点区），右状态（纯展示） */
+  .meta{display:flex;align-items:center;gap:10px;padding:10px 18px 0;height:32px}
+  .chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;
+    background:rgba(255,255,255,.045);font-size:10.5px;color:var(--fg2);letter-spacing:.01em;flex:none}
+  .chip .seg{display:inline-flex;align-items:center}
+  .chip .div{width:1px;height:9px;background:rgba(255,255,255,.14);margin:0 8px}
+
+  .right{margin-left:auto;display:inline-flex;align-items:center;gap:9px;font-size:10.5px;color:var(--fg3);letter-spacing:.01em}
+  .right .tm{font-variant-numeric:tabular-nums}
+  .right .ctx{display:inline-flex;align-items:center;gap:4px;color:var(--fg2)}
+  .ring{width:10px;height:10px;border-radius:999px;border:1.8px solid rgba(124,140,255,.28);border-top-color:var(--accent);display:inline-block;box-sizing:border-box}
+  .dotsep{width:2px;height:2px;border-radius:999px;background:var(--fg3);opacity:.6}
+
+  .note{margin-top:9px;font-size:11px;color:#7c8290;line-height:1.55}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- 空闲 -->
+  <div class="col">
+    <p class="cap"><b>A · 空闲</b>：左胶囊 = 设置入口，右状态 = 纯展示</p>
+    <div class="phone">
+      <div class="filler">（内容区）</div>
+      <div class="dock">
+        <div class="row"><div class="plus">+</div><div class="field">说点什么…</div><div class="send">↑</div></div>
+        <div class="meta">
+          <span class="chip"><span class="seg">v4.1-flash</span><span class="div"></span><span class="seg">完全访问</span></span>
+          <span class="right"><span class="tm">空闲</span><span class="dotsep"></span><span class="ctx"><span class="ring"></span>44%</span></span>
+        </div>
+      </div>
+    </div>
+    <p class="note">胶囊高度 24、字号 10.5、无描边只有 4.5% 白底；右侧状态字号同宽，用圆点和环分开。</p>
+  </div>
+
+  <!-- 运行中 -->
+  <div class="col">
+    <p class="cap"><b>B · 运行中</b>：队列条 + 计时进状态位，胶囊不变</p>
+    <div class="phone">
+      <div class="filler">（内容区）</div>
+      <div class="dock">
+        <div class="queue">⧉ 2 条排队 · 当前任务结束后执行</div>
+        <div class="row"><div class="plus">+</div><div class="field">说点什么…（会打断当前任务）</div><div class="send">↑</div></div>
+        <div class="meta">
+          <span class="chip"><span class="seg">v4.1-flash</span><span class="div"></span><span class="seg">完全访问</span></span>
+          <span class="right"><span class="tm" style="color:var(--fg2)">00:42</span><span class="dotsep"></span><span class="ctx"><span class="ring"></span>44%</span></span>
+        </div>
+      </div>
+    </div>
+    <p class="note">队列条只在有排队时出现，用琥珀 7% 底 + 9 圆角；输入框提示语随状态变化。</p>
+  </div>
+
+</div>
+</body>
+</html>
