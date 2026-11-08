@@ -22,7 +22,7 @@ describe('产物列表页（P6 ⑧ 屏）', () => {
     render(<ArtifactsView turns={turns} onBack={() => {}} />)
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('产物')
     expect(screen.getByText(/3 个文件，其中 1 个是交付物/)).toBeDefined()
-    const groups = [...document.querySelectorAll('.artifacts-group-title')].map(node => node.textContent)
+    const groups = [...document.querySelectorAll('.palm-spec-group-head')].map(node => node.firstChild?.textContent)
     expect(groups).toEqual(['第 2 轮', '第 1 轮'])
   })
 
@@ -57,15 +57,20 @@ describe('产物列表页（P6 ⑧ 屏）', () => {
     expect(screen.getByText('src/mobile/views/App.tsx')).toBeDefined()
   })
 
-  it('每张卡是两行：文件名 + 类型标签同一行，路径另起一行且排在最后', () => {
+  it('每行是「左图标 + 文件名 / 路径 + 类型标签」，DOM 顺序即视觉顺序', () => {
     render(<ArtifactsView turns={turns} onBack={() => {}} />)
     const row = screen.getByText('App.tsx').closest('button')!
-    // DOM 顺序就是视觉顺序：第一行 name + badge，第二行 path。
     expect([...row.children].map(node => node.className)).toEqual([
-      'artifacts-row-name',
-      'artifacts-row-badge artifacts-row-badge-produced',
-      'artifacts-row-path',
+      'palm-spec-row-ico',
+      'palm-spec-row-main',
+      'palm-spec-row-value',
     ])
+    // 左图标是 16px 线性 SVG（尺寸由 CSS 令牌定）
+    expect(row.querySelector('.palm-spec-row-ico svg')).not.toBeNull()
+    const main = row.querySelector('.palm-spec-row-main')!
+    expect([...main.children].map(node => node.className)).toEqual(['palm-spec-row-title', 'palm-spec-row-sub'])
+    // 标签在右列：交付物绿 / 改动蓝
+    expect(row.querySelector('.palm-spec-tag')?.getAttribute('data-kind')).toBe('edit')
   })
 
   it('分组标题可点，右侧带一个 16px 线性箭头（图标由 CSS 定尺寸）', () => {

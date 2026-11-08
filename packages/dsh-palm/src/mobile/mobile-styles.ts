@@ -157,6 +157,33 @@ export const mobileCss = `${designTokensCss()}
   --palm-dock-queue-r: 9px;
   --palm-dock-queue-size: 11px;
   --palm-dock-queue-bg: rgba(224, 165, 44, 0.07);
+
+  /* ── 五屏统一规格（设置 / 外观 / 产物 / 审批 / 搜索） ───────────────────
+   * 版式真源：docs/prototype/overview.html「4 · 设置」～「8 · 搜索」五个格子
+   *          + docs/visual-acceptance.md「2026-11-08 最终状态」。
+   * 这五屏只共用 515-five-screens.css 一层类，尺寸/字号一律引用下面这些令牌，
+   * 组件样式里不再出现裸 px（灰色三档仍走 --palm-fg / --palm-fg-2 / --palm-fg-3）。 */
+  --palm-spec-search-h: 32px;      /* 搜索框高（定版 30–34）*/
+  --palm-spec-search-r: 10px;      /* 搜索框圆角：无描边，靠表面色分层 */
+  --palm-spec-head-size: 11px;     /* 分组标题字号（定版 10–11，弱化）*/
+  --palm-spec-card-r: 10px;        /* 分组卡圆角 */
+  --palm-spec-ico: 18px;           /* 行内图标方块 */
+  --palm-spec-ico-r: 6px;          /* 图标方块圆角 */
+  --palm-spec-glyph: 16px;         /* 方块内 / 列表左侧的线性图标 */
+  --palm-spec-swatch: 44px;        /* 皮肤卡色板高 */
+  --palm-spec-skin-r: 10px;        /* 皮肤卡圆角 */
+  --palm-spec-code-r: 10px;        /* 审批命令块圆角 */
+  --palm-spec-empty-ico: 38px;     /* 空态图标方块 */
+  --palm-spec-empty-r: 12px;       /* 空态图标方块圆角 */
+
+  /* 皮肤卡色板：每张卡画的是**那一套皮肤**的真实底色与强调色，
+     因此不能引用当前皮肤令牌，只能在这里落三对字面值（本文件不计入 cssHex）。 */
+  --palm-skin-graphite-bg: #15151c;
+  --palm-skin-graphite-ink: #7c8cff;
+  --palm-skin-paper-bg: #faf8f4;
+  --palm-skin-paper-ink: #8a5a2b;
+  --palm-skin-nocturne-bg: #0f1520;
+  --palm-skin-nocturne-ink: #22d3ee;
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -854,22 +881,22 @@ body,
 }
 
 
-/* 图标槽位（定版图：空态 = 图标 + 标题 + 主按钮） */
+/* 图标槽位（定版图：空态 = 38px 图标方块 + 标题 + 一句说明 + 主按钮） */
 .empty-state-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--palm-spec-empty-ico);
+  height: var(--palm-spec-empty-ico);
   margin-bottom: var(--palm-s2);
-  border-radius: var(--palm-r-full);
+  border-radius: var(--palm-spec-empty-r);
   background: var(--palm-sur-2);
   color: var(--palm-fg-2);
 }
 
 .empty-state-icon > svg {
-  width: 16px;
-  height: 16px;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
 }
 /* ── 失败态（P6 ⑰）：留住错误，给得起重试 ─────────────────────────── */
 
@@ -2172,129 +2199,6 @@ button.settings-row:focus-visible {
   color: var(--text-muted);
   font-size: 11.5px;
 }
-
-/* ── 定版图对齐（设置页 · 第 13 屏） ───────────────────────────────────
-   全宽搜索框 + 分组卡：分组标题 12 灰字在左、说明靠右；卡内行是
-   「32 图标方块 · 17 标题 / 12 说明 · 14 右值/箭头/开关」，行高 ≥44，
-   卡与卡之间 12。只作用于设置页：.settings-search 是本页独有的前导
-   节点，插件市场复用 .settings-group/.settings-row 但没有它，正好被
-   ~ 选择器挡在外面。尺寸/颜色全部引用 --palm-* 令牌，未新增类名。 */
-
-/* 搜索框：44 高、12 圆角、表面色。 */
-.settings-search .mobile-searchInput {
-  height: var(--palm-hit);
-  padding: 0 var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-}
-
-/* 分组卡：12 圆角、1px hairline、组间 12。 */
-.settings-search ~ .settings-group {
-  margin: 0 var(--palm-s4) var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  background: var(--palm-sur-1);
-  box-shadow: none;
-}
-
-/* 分组标题：12px 灰字 + 右侧浅灰说明（同一行，长说明省略）。 */
-.settings-search ~ .settings-group > .settings-groupTitle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--palm-s2);
-  height: var(--palm-s7);
-  padding: 0 var(--palm-s4);
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.settings-search ~ .settings-group > .settings-groupTitle > .settings-groupDesc {
-  margin-left: auto;
-  max-width: 70%;
-  overflow: hidden;
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-  letter-spacing: 0;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 行：32 图标列 + 文本 + 右侧值；44 触控下限，两行文字撑到约 60。 */
-.settings-search ~ .settings-group .settings-row,
-.settings-search ~ .settings-group .mobile-row {
-  grid-template-columns: var(--palm-s7) minmax(0, 1fr) auto;
-  gap: var(--palm-s3);
-  min-height: var(--palm-hit);
-  padding: 0 var(--palm-s4);
-  border-bottom: var(--palm-hair) solid var(--palm-line);
-}
-
-/* 进阶/主机配置行是 <button class="mobile-row">：底色交还给分组卡，避免比卡面亮一档。 */
-.settings-search ~ .settings-group .mobile-row {
-  background: transparent;
-}
-
-/* 图标方块 32×32、圆角 8、浅底 + 16px 线性图标。 */
-.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-icon {
-  width: var(--palm-s7);
-  height: var(--palm-s7);
-}
-
-.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-icon > * {
-  width: var(--palm-s7);
-  height: var(--palm-s7);
-  border-radius: var(--palm-r-s);
-  background: var(--palm-sur-2);
-  color: var(--palm-fg-2);
-}
-
-.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-icon svg {
-  width: var(--palm-s4);
-  height: var(--palm-s4);
-}
-
-/* 两行文字的内边距收到 8：行密度对齐定版图，同时保住 44 的触控高度。 */
-.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-main {
-  gap: var(--palm-s1);
-  padding: var(--palm-s2) 0;
-}
-
-.settings-search ~ .settings-group :is(.settings-row, .mobile-row) .card-desc {
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-s);
-  line-height: var(--palm-lh-body);
-}
-
-.settings-search ~ .settings-group .settings-rowValue {
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-m);
-}
-
-/* 卡片最后一行不再画分割线（按钮行外面还裹着一层 <li>，要按父级取末行）。 */
-.settings-search ~ .settings-group > .settings-row:last-child,
-.settings-search ~ .settings-group > li:last-child > .settings-row,
-.settings-search ~ .settings-group > li:last-child > .mobile-row {
-  border-bottom: 0;
-}
-
-/* 开关轨道保持 24 高的视觉，但热区补到 44×44（拇指按得准）。 */
-.settings-search ~ .settings-group .settings-switch::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: var(--palm-hit);
-  height: var(--palm-hit);
-  transform: translate(-50%, -50%);
-}
-
 /* ── empty / error / boot states ─────────────────────────────────────── */
 
 .mobile-empty {
@@ -2374,21 +2278,23 @@ button.settings-row:focus-visible {
   border-color: var(--border-focus);
 }
 
+/* 空态图标槽位：定版图口径 = 38px 圆角方块 + 16px 线性图标。
+   与 .empty-state-icon（055-empty-state.css）同一尺寸，两种空态容器看起来是一套。 */
 .empty-icon {
-  width: 64px;
-  height: 64px;
+  width: var(--palm-spec-empty-ico);
+  height: var(--palm-spec-empty-ico);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 8px;
-  border-radius: var(--radius-full);
-  background: var(--fill);
-  color: var(--text-tertiary);
+  margin-bottom: var(--palm-s2);
+  border-radius: var(--palm-spec-empty-r);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
 }
 
 .empty-icon svg {
-  width: 28px;
-  height: 28px;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
 }
 
 .empty-title {
@@ -10031,6 +9937,13 @@ details.think-block[open] .chat-disclosure-caret {
   gap: var(--palm-s2);
 }
 
+/* 元信息的「工具 / 风险」是一对标签：键弱、值强（定版图 .ameta .k）。 */
+.approval-detail-key {
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-head);
+}
+
 .approval-detail-tool,
 .approval-detail-risk {
   padding: var(--palm-s1) var(--palm-s2);
@@ -10073,7 +9986,7 @@ details.think-block[open] .chat-disclosure-caret {
 .approval-detail-command {
   max-inline-size: 100%;
   border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
+  border-radius: var(--palm-spec-code-r);
   background: var(--palm-sur-1);
   overflow: hidden;
 }
@@ -10139,7 +10052,8 @@ details.think-block[open] .chat-disclosure-caret {
   line-height: var(--palm-lh-body);
 }
 
-/* 黄色警告条：只在非只读审批上出现（只读不动手）。 */
+/* 琥珀警示条：只在非只读审批上出现（只读不动手）。文案用警示色，
+   因为这是"等你决定、不可撤销"，不是"失败"——危险色留给拒绝与失败。 */
 .approval-detail-warning {
   display: flex;
   align-items: flex-start;
@@ -10147,9 +10061,9 @@ details.think-block[open] .chat-disclosure-caret {
   margin: 0;
   padding: var(--palm-s3);
   border: var(--palm-hair) solid var(--palm-warn);
-  border-radius: var(--palm-r-m);
+  border-radius: var(--palm-spec-code-r);
   background: var(--palm-tint-warn);
-  color: var(--palm-fg-2);
+  color: var(--palm-warn);
   font-size: var(--palm-t-s);
   line-height: var(--palm-lh-body);
 }
@@ -10161,7 +10075,7 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-warn);
 }
 
-/* 两个决定并排，紧跟在风险条后面（定版图口径：动作属于这张审批卡）。 */
+/* 两个决定并排：绿=批准、红=拒绝（定版图 .abtn：色只落在这一对按钮上）。 */
 .approval-detail-actions {
   display: flex;
   gap: var(--palm-s3);
@@ -10183,14 +10097,14 @@ details.think-block[open] .chat-disclosure-caret {
 
 .approval-detail-approve {
   border: var(--palm-hair) solid var(--palm-ok);
-  background: var(--palm-tint-ok);
-  color: var(--palm-fg);
+  background: color-mix(in srgb, var(--palm-ok) 16%, transparent);
+  color: var(--palm-ok);
 }
 
 .approval-detail-reject {
   border: var(--palm-hair) solid var(--palm-danger);
   background: var(--palm-tint-danger);
-  color: var(--palm-fg);
+  color: var(--palm-danger);
 }
 
 .approval-detail-approve:active,
@@ -10620,316 +10534,6 @@ details.think-block[open] .chat-disclosure-caret {
   background: var(--palm-sur-1);
   color: var(--palm-fg);
 }
-/* ── 外观页（P6 ⑭ 屏） ─────────────────────────────────────────────── */
-
-.appearance-page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--palm-bg);
-  color: var(--palm-fg);
-}
-
-.appearance-page-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--palm-s4);
-}
-
-.appearance-section + .appearance-section {
-  margin-top: var(--palm-s5);
-}
-
-.appearance-title {
-  margin: 0 0 var(--palm-s2);
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
-  color: var(--palm-fg-2);
-}
-
-.appearance-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--palm-s2);
-  width: 100%;
-  min-height: 44px;
-  margin-bottom: var(--palm-s2);
-  padding: var(--palm-s3) var(--palm-s4);
-  text-align: left;
-  background: var(--palm-sur-1);
-  border: 1px solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  color: var(--palm-fg);
-}
-
-.appearance-row[aria-pressed='true'] {
-  border-color: var(--palm-accent);
-  box-shadow: var(--palm-hi), var(--palm-sh1);
-}
-
-.appearance-row-main {
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
-}
-
-.appearance-row-sub {
-  flex: 1 0 100%;
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.appearance-row-mark {
-  margin-left: auto;
-  font-size: var(--palm-t-s);
-  color: var(--palm-accent);
-}
-
-.appearance-page-hint {
-  margin: var(--palm-s4) 0 0;
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-
-/* ── 皮肤预览卡（定版图：色板即该皮肤的真实配色）────────────────── */
-.appearance-swatch {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 3px;
-  flex: none;
-  width: 44px;
-  height: 44px;
-  padding: 6px;
-  border-radius: var(--palm-r-m);
-  background: var(--swatch-bg);
-  border: 1px solid var(--palm-line);
-}
-
-.appearance-swatch-bar {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--swatch-bar);
-}
-
-.appearance-swatch-dot {
-  align-self: flex-end;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--palm-r-full);
-  background: var(--swatch-accent);
-}
-
-.appearance-swatch-graphite { --swatch-bg: #15151c; --swatch-bar: #2a2a3a; --swatch-accent: #7c8cff; }
-.appearance-swatch-paper    { --swatch-bg: #faf8f4; --swatch-bar: #e2ddd2; --swatch-accent: #8a5a2b; }
-.appearance-swatch-nocturne { --swatch-bg: #0f1520; --swatch-bar: #1e2c40; --swatch-accent: #22d3ee; }
-
-.appearance-row[aria-pressed='true'] .appearance-swatch {
-  border-color: var(--palm-accent);
-  box-shadow: 0 0 0 1px var(--palm-accent);
-}
-
-
-/* ── 搜索页（P6 ② 屏）：列表页入口 + 独立页 ─────────────────────── */
-
-/* 会话列表顶部的搜索入口：外形沿用原来的内嵌搜索框，点一下进独立页。 */
-.sess-searchEntry {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s2);
-  height: var(--palm-hit);
-  margin: var(--palm-s2) var(--palm-s4) 0;
-  padding: 0 var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-l);
-  background: var(--palm-sur-1);
-  color: var(--palm-fg-3);
-  font-size: var(--palm-t-m);
-  text-align: left;
-}
-
-.sess-searchEntry:active {
-  background: var(--palm-sur-2);
-}
-
-.sess-searchEntry svg {
-  flex: none;
-  width: 16px;
-  height: 16px;
-}
-
-.sess-searchEntry-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--palm-bg);
-  color: var(--palm-fg);
-}
-
-.search-page [data-slot='input'] {
-  flex: none;
-}
-
-.search-page [data-slot='results'] {
-  display: flex;
-  flex-direction: column;
-}
-
-.search-page-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s2);
-  height: var(--palm-hit);
-  margin: var(--palm-s3) var(--palm-s4);
-  padding: 0 var(--palm-s3);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-l);
-  background: var(--palm-sur-1);
-}
-
-.search-page-bar:focus-within {
-  border-color: var(--palm-accent);
-}
-
-.search-page-bar-icon {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  color: var(--palm-fg-3);
-}
-
-.search-page-field {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--palm-fg);
-  font: inherit;
-  font-size: var(--palm-t-l);
-  outline: none;
-}
-
-.search-page-field::placeholder {
-  color: var(--palm-fg-3);
-}
-
-.search-page-clear {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--palm-hit);
-  height: var(--palm-hit);
-  margin-right: calc(var(--palm-s3) * -1);
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--palm-fg-3);
-}
-
-.search-page-clear svg {
-  width: 16px;
-  height: 16px;
-}
-
-.search-page-clear:active {
-  color: var(--palm-fg);
-}
-
-.search-page-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 var(--palm-s4) var(--palm-s4);
-}
-
-.search-page-note {
-  margin: 0;
-  padding: var(--palm-s2) 0;
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.search-page-list {
-  display: flex;
-  flex-direction: column;
-  border-top: var(--palm-hair) solid var(--palm-line);
-}
-
-.search-page-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--palm-s1);
-  width: 100%;
-  min-height: var(--palm-hit);
-  padding: var(--palm-s3) var(--palm-s2);
-  border: none;
-  border-bottom: var(--palm-hair) solid var(--palm-line);
-  background: transparent;
-  color: var(--palm-fg);
-  text-align: left;
-}
-
-.search-page-row:active {
-  background: var(--palm-sur-1);
-}
-
-.search-page-row:focus-visible {
-  outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: calc(var(--palm-focus) * -1);
-}
-
-.search-page-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--palm-s2);
-  width: 100%;
-}
-
-.search-page-row-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--palm-t-m);
-  font-weight: var(--palm-w-bold);
-}
-
-.search-page-row-time {
-  flex: none;
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-  font-variant-numeric: tabular-nums;
-}
-
-.search-page-row-snippet {
-  display: -webkit-box;
-  overflow: hidden;
-  font-size: var(--palm-t-s);
-  line-height: var(--palm-lh-body);
-  color: var(--palm-fg-2);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.search-page-row-meta {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
 /* ── 回合大纲页（P6 ⑫ 屏） ─────────────────────────────────────────── */
 
 .outline-page {
@@ -11134,17 +10738,9 @@ details.think-block[open] .chat-disclosure-caret {
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
 }
-/* ── 产物列表页（P6 ⑧ 屏） ─────────────────────────────────────────── */
+/* ── 产物摘要页（P6 ⑨ 屏）与交付详情页：列表页头已并入 515-five-screens ── */
 
-.artifacts-page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--palm-bg);
-  color: var(--palm-fg);
-}
-
-/* 顶部一句说明：横跨 header 的整行（.mobile-header 是 48px / 1fr / auto 三列网格）。 */
+/* 产物页头部那一句（"N 个文件，其中 M 个是交付物"）：横跨 header 整行。 */
 .artifacts-page-sub {
   grid-column: 1 / -1;
   margin: 0;
@@ -11154,177 +10750,9 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg-2);
 }
 
-.artifacts-page-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: var(--palm-s4);
-}
-
-/* grow 槽本身不是滚动容器：正文自己滚，长清单才不会把页面撑出屏幕。 */
-.artifacts-page [data-slot='list'] {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* 一组 = 一轮：标题 → 文件卡，组内一律 8px；组与组之间 16px。
-   卡片间距交给 gap，不再给每张卡留 margin（最后一张不会多出一截尾巴）。 */
-.artifacts-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--palm-s2);
-}
-
-.artifacts-group + .artifacts-group {
-  margin-top: var(--palm-s4);
-}
-
-/* 分组标题：12px 灰，不抢文件名；整行仍是 44px 触控区（见 .artifacts-group-link）。 */
-.artifacts-group-title {
-  margin: 0;
-  font-size: var(--palm-t-s);
-  font-weight: var(--palm-w-normal);
-  line-height: var(--palm-lh-body);
-  color: var(--palm-fg-3);
-}
-
-/* 可点标题：右侧 16px 箭头表示"还有一轮摘要"。 */
-.artifacts-group-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--palm-s1);
-  inline-size: 100%;
-  min-block-size: var(--palm-hit);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-}
-
-.artifacts-group-link > svg {
-  flex: none;
-  inline-size: var(--palm-s4);
-  block-size: var(--palm-s4);
-  color: var(--palm-fg-3);
-}
-
-.artifacts-group-link:active {
-  color: var(--palm-fg-2);
-}
-
-.artifacts-group-link:focus-visible {
-  outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
-  border-radius: var(--palm-r-s);
-}
-
-/* 一张文件卡（两行）：第一行文件名 17/600 + 右侧类型标签；
-   第二行路径 12px 灰、单行省略。内边距 12/14、圆角 12、1px hairline、表面色。 */
-.artifacts-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--palm-s1) var(--palm-s2);
-  inline-size: 100%;
-  min-block-size: var(--palm-hit);
-  padding: var(--palm-s3) 14px;
-  text-align: start;
-  background: var(--palm-sur-1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
-  color: var(--palm-fg);
-  font: inherit;
-}
-
-.artifacts-row:active {
-  background: var(--palm-sur-2);
-}
-
-.artifacts-row:focus-visible {
-  outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
-}
-
-.artifacts-row-name {
-  grid-column: 1;
-  grid-row: 1;
-  min-inline-size: 0;
-  overflow: hidden;
-  font-size: var(--palm-t-l);
-  font-weight: var(--palm-w-bold);
-  line-height: var(--palm-lh-head);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.artifacts-row-path {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  min-inline-size: 0;
-  overflow: hidden;
-  font-size: var(--palm-t-s);
-  line-height: var(--palm-lh-body);
-  color: var(--palm-fg-3);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 类型标签：交付物绿 / 产物蓝；18px 高、12px 字，贴在文件名右侧同一行。 */
-.artifacts-row-badge {
-  grid-column: 2;
-  grid-row: 1;
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 var(--palm-s2);
-  border-radius: var(--palm-r-s);
-  font-size: var(--palm-t-s);
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.artifacts-row-badge-deliverable {
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
-  color: var(--palm-ok);
-}
-
-.artifacts-row-badge-produced {
-  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
-  color: var(--palm-accent);
-}
-
-/* ── 产物摘要页（P6 ⑨ 屏，产物列表 ⑧ 的下级页） ───────────────────── */
-
-/* 摘要页的行卡与 ⑧ 同款（共用 .artifacts-row），这里只声明"可选第三行"的排布。 */
-.artifact-summary-row {
-  grid-auto-rows: min-content;
-}
-
-/* 「本轮共 N 个文件」：12px 灰，紧跟分组标题。 */
-.artifact-summary-meta {
-  margin: 0;
-  font-size: var(--palm-t-s);
-  line-height: var(--palm-lh-body);
-  color: var(--palm-fg-2);
-}
-
-.artifact-summary-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--palm-s2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.artifact-summary-item {
-  min-inline-size: 0;
-}
+/* ── 产物摘要页（P6 ⑨ 屏，产物列表 ⑧ 的下级页） ─────────────────────
+ * 分组头与文件行直接用 515-five-screens.css 那层规格件（SpecGroupHead / SpecRow），
+ * 原来这一屏自己那套 .artifacts-row* / .artifact-summary-* 已随 ⑧ 一起收掉。 */
 
 /* 空态里唯一的动作：回产物列表换一轮（与全站按钮同一套令牌、--palm-hit 触控）。 */
 .artifact-summary-empty-action {
@@ -11341,6 +10769,15 @@ details.think-block[open] .chat-disclosure-caret {
 .artifact-summary-empty-action:focus-visible {
   outline: var(--palm-focus) solid var(--palm-accent);
   outline-offset: var(--palm-hair);
+}
+
+/* 分组标题：12px 灰，交付详情页（⑩）还在用。 */
+.artifacts-group-title {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
 }
 
 /* ── 交付详情页（会话正文流 · 交付卡的下级页） ───────────────────────
@@ -11626,5 +11063,470 @@ details.think-block[open] .chat-disclosure-caret {
   margin: var(--palm-s3) 0 0;
   font-size: var(--palm-t-s);
   color: var(--palm-danger);
+}
+/* ── 五屏统一规格：设置 / 外观 / 产物 / 审批 / 搜索（P6 收尾切片） ────────
+ *
+ * 版式真源：docs/prototype/overview.html「4 · 设置」～「8 · 搜索」五个格子，
+ * 口径见 docs/visual-acceptance.md「2026-11-08 最终状态」。
+ *
+ * 为什么单独一层：这五个屏原来各写一套（appearance-* / artifacts-* /
+ * search-page-* / settings-*），同一个"分组卡 + 图标方块行"被抄了四遍，改一处
+ * 其余三处就开始漂。这里把**五屏共用的四种形状**收成一层，屏里只留业务差异：
+ *
+ * 1. 搜索框（32 高、圆角 10、无描边）；
+ * 2. 分组标题（11px 弱化 + 右侧说明）+ 分组卡（圆角 10、行内 18 图标方块）；
+ * 3. 列表行（左 16px 线性 SVG + 主文案 + 右侧弱值，行高 ≥44）；
+ * 4. 类型标签（交付物绿 / 改动蓝 / 警示琥珀 / 拒绝红）。
+ *
+ * 尺寸全部来自 000-tokens.css 的 --palm-spec-*，颜色只用 --palm-* 三档灰与语义色。
+ * 语义色约束（验收口径）：危险色只用于「删除 / 失败 / 拒绝」，警示色只用于
+ * 「等审批 / 卡住」；这里用 data-kind 表达，不在屏里写死颜色。
+ */
+
+/* ── ① 搜索框 ────────────────────────────────────────────────────────── */
+
+.palm-spec-search {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  height: var(--palm-spec-search-h);
+  margin: var(--palm-s2) var(--palm-s4) var(--palm-s3);
+  padding: 0 var(--palm-s3);
+  border: 0;
+  border-radius: var(--palm-spec-search-r);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+}
+
+/* 无描边：焦点只用一圈强调色内阴影，不改变盒子尺寸。 */
+.palm-spec-search:focus-within {
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-accent);
+}
+
+.palm-spec-search > svg {
+  flex: none;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
+}
+
+.palm-spec-search-field {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  outline: none;
+}
+
+.palm-spec-search-field::placeholder {
+  color: var(--palm-fg-3);
+}
+
+/* 32 高的框里放不下 44 的按钮：脸不变，热区用伪元素补到 44×44。 */
+.palm-spec-search-clear {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--palm-spec-search-h);
+  height: var(--palm-spec-search-h);
+  margin-right: calc(var(--palm-s3) * -1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--palm-fg-3);
+}
+
+.palm-spec-search-clear::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--palm-s2) * -0.75);
+}
+
+.palm-spec-search-clear > svg {
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
+}
+
+.palm-spec-search-clear:active {
+  color: var(--palm-fg);
+}
+
+/* 列表页顶部的搜索入口：与搜索框同形，只是整块可点。 */
+.palm-spec-search-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  width: 100%;
+  height: var(--palm-spec-search-h);
+  padding: 0 var(--palm-s3);
+  border: 0;
+  border-radius: var(--palm-spec-search-r);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg-3);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  text-align: start;
+}
+
+.palm-spec-search-entry > svg {
+  flex: none;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
+}
+
+.palm-spec-search-entry:active {
+  background: var(--palm-sur-2);
+}
+
+/* ── ② 分组标题 + 分组卡 ─────────────────────────────────────────────── */
+
+.palm-spec-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  margin: var(--palm-s3) var(--palm-s4) var(--palm-s1);
+  font-size: var(--palm-spec-head-size);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg-3);
+  letter-spacing: 0;
+}
+
+/* 右侧说明：与标题同档字号、同档灰度，长说明自己省略。 */
+.palm-spec-group-note {
+  margin-left: auto;
+  max-width: 70%;
+  overflow: hidden;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-spec-head-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 可点的分组标题（产物页「第 N 轮 · M 个文件 ›」）：整行 ≥44 触控。 */
+button.palm-spec-group-head {
+  width: auto;
+  min-height: var(--palm-hit);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--palm-spec-head-size);
+  text-align: start;
+}
+
+button.palm-spec-group-head > svg {
+  flex: none;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
+  color: var(--palm-fg-3);
+}
+
+button.palm-spec-group-head:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: calc(var(--palm-focus) * -1);
+  border-radius: var(--palm-spec-card-r);
+}
+
+.palm-spec-group {
+  margin: 0 var(--palm-s4) var(--palm-s3);
+  padding: 0;
+  list-style: none;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-spec-card-r);
+  background: var(--palm-sur-1);
+  overflow: hidden;
+}
+
+/* ── ③ 行：图标方块 + 主文案 + 次文案 + 右侧值 ───────────────────────── */
+
+.palm-spec-row {
+  display: grid;
+  grid-template-columns: var(--palm-spec-ico) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--palm-s3);
+  width: 100%;
+  min-height: var(--palm-hit);
+  padding: var(--palm-s2) var(--palm-s4);
+  border: 0;
+  border-block-start: var(--palm-hair) solid var(--palm-line);
+  background: transparent;
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+}
+
+/* 卡内首行不再画分隔线（行可能是直接子节点，也可能裹在 <li> 里）。 */
+.palm-spec-group > :first-child > .palm-spec-row,
+.palm-spec-group > .palm-spec-row:first-child {
+  border-block-start: 0;
+}
+
+/* 没有图标方块的行（搜索结果）：网格少一列，文案吃满。 */
+.palm-spec-row[data-noicon] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* 选中态只用强调色描边 + 强调色右值，**不填充**（填充会把行面与卡面拉平）。 */
+.palm-spec-row[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-accent);
+}
+
+.palm-spec-row[aria-pressed='true'] .palm-spec-row-value {
+  color: var(--palm-accent);
+}
+
+.palm-spec-row:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: calc(var(--palm-focus) * -1);
+}
+
+.palm-spec-row-ico {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--palm-spec-ico);
+  height: var(--palm-spec-ico);
+  border-radius: var(--palm-spec-ico-r);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+}
+
+.palm-spec-row-ico > svg {
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
+}
+
+.palm-spec-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  min-width: 0;
+}
+
+.palm-spec-row-title {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  min-width: 0;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-normal);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg);
+}
+
+/* 标题文字自己吃省略号：角标不该被长标题挤没。 */
+.palm-spec-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-spec-row-sub {
+  overflow: hidden;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 命中片段给两行：一行装不下"那句话说在哪"，两行足够又不至于把列表撑散。 */
+.palm-spec-row[data-lines='2'] .palm-spec-row-sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
+/* 第三行细注（来源 / 命中类型）：比次文案还弱一档，永远单行。 */
+.palm-spec-row-meta {
+  overflow: hidden;
+  font-size: var(--palm-spec-head-size);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-spec-row-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  max-width: 8em;
+  min-width: 0;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.palm-spec-row-value > svg {
+  flex: none;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
+  color: var(--palm-fg-3);
+}
+
+/* ── ④ 类型标签 / 关键词高亮 ─────────────────────────────────────────── */
+
+.palm-spec-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: var(--palm-s1) var(--palm-s2);
+  border-radius: var(--palm-r-s);
+  font-size: var(--palm-t-s);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.palm-spec-tag[data-kind='ok'] {
+  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  color: var(--palm-ok);
+}
+
+.palm-spec-tag[data-kind='edit'] {
+  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  color: var(--palm-accent);
+}
+
+.palm-spec-tag[data-kind='warn'] {
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
+}
+
+.palm-spec-tag[data-kind='danger'] {
+  background: var(--palm-tint-danger);
+  color: var(--palm-danger);
+}
+
+/* 命中片段里的关键词：强调色，不加粗（中文合成加粗会糊）。 */
+.palm-spec-mark {
+  padding: 0 var(--palm-s1);
+  border-radius: var(--palm-s1);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-style: normal;
+  font-weight: var(--palm-w-normal);
+}
+
+/* ── ⑤ 皮肤卡（外观页）：选中 = 强调色描边，不填充 ───────────────────── */
+
+.palm-spec-skins {
+  display: flex;
+  gap: var(--palm-s2);
+  margin: 0 var(--palm-s4) var(--palm-s3);
+}
+
+.palm-spec-skin {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--palm-s1);
+  min-width: 0;
+  padding: var(--palm-s2);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-spec-skin-r);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: center;
+}
+
+/* 选中态只加描边 + 一圈淡色光晕，卡面颜色不变（填充会把色板读串）。 */
+.palm-spec-skin[aria-pressed='true'] {
+  border-color: var(--palm-accent);
+  box-shadow: 0 0 0 var(--palm-focus) var(--palm-tint-accent);
+}
+
+.palm-spec-skin:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.palm-spec-skin-sw {
+  height: var(--palm-spec-swatch);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-spec-skin-bg);
+}
+
+.palm-spec-skin-name {
+  overflow: hidden;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-head);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-spec-skin-hint {
+  overflow: hidden;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-head);
+  color: var(--palm-fg-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palm-spec-skin[aria-pressed='true'] .palm-spec-skin-hint {
+  color: var(--palm-accent);
+}
+
+/* 三张卡各自的色板：色值落在令牌层，这里只做映射。 */
+.palm-spec-skin[data-skin='graphite'] {
+  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-graphite-bg), var(--palm-skin-graphite-ink));
+}
+
+.palm-spec-skin[data-skin='paper'] {
+  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-paper-bg), var(--palm-skin-paper-ink));
+}
+
+.palm-spec-skin[data-skin='nocturne'] {
+  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-nocturne-bg), var(--palm-skin-nocturne-ink));
+}
+
+/* ── ⑥ 五屏页壳：一列、正文自己滚，页脚说明统一 12px 弱灰 ─────────────── */
+
+.palm-spec-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+/* grow 槽本身不是滚动容器：它只把高度传给里面的 .palm-spec-body。 */
+.palm-spec-page > [data-grow] {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.palm-spec-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--palm-s2) 0 var(--palm-s4);
+}
+
+.palm-spec-foot {
+  margin: 0;
+  padding: var(--palm-s2) var(--palm-s4) var(--palm-s4);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
 }
 `;

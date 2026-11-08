@@ -9,12 +9,13 @@
  *
  * 1. **按轮筛选**：轮号来自路由（`/m/s/:id/artifacts/:turn`），缺轮号的早期产物
  *    归到「更早的轮次」；
- * 2. **单轮汇总**：文件数 + 每个文件一行（文件名 + 彩色类型标签 + 路径）；
- *    卡片与 ⑧ 完全同款，本屏只在上面多一句「本轮共 N 个文件」。
+ * 2. **单轮汇总**：文件数 + 每个文件一行（文件名 + 类型标签 + 路径）；
+ *    行与 ⑧ 用的是同一层规格件（`SpecGroupHead` / `SpecGroup` / `SpecRow`），
+ *    所以"文件数"直接做成分组标题右侧的说明，不再单独占一行。
  *
  * 定版图里每行还有"大小 / 时间"，但产物流里**没有**这两项（`ArtifactFile` 只有
  * path / description / kind）。拿不到就不显示 —— 不编一个"0 KB"或假时间出来。
- * 宿主给的 description 也不占卡片行：本屏的卡片只排定版图里的两行主信息。
+ * 宿主给的 description 也不占卡片行：本屏的行只排定版图里的两行主信息。
  *
  * 只吃 props：不 import api.ts / mux.ts，取数仍由对话页与 App 路由负责。
  *
@@ -25,6 +26,7 @@ import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
 import { EmptyState } from '../ui/empty-state.tsx'
 import { FolderIcon } from '../components/icons.tsx'
+import { SpecGroup, SpecGroupHead, SpecRow, SpecTag } from './screen-spec.tsx'
 import type { ArtifactFile, ArtifactTurn } from '../session/artifacts.ts'
 
 /** 路径取最后一段（一行里先看文件名）。 */
@@ -83,43 +85,37 @@ export function ArtifactSummaryView({ turns, turn, onBack, onOpenFile }: Artifac
           </header>
         ),
         list: (
-          <div className="artifacts-page-body">
-            <section className="artifacts-group">
-              <h2 className="artifacts-group-title">{turnTitle(turn)}</h2>
-              <p className="artifact-summary-meta">本轮共 {files.length} 个文件</p>
-              {files.length === 0 ? (
-                <EmptyState
-                  icon={<FolderIcon />}
-                  title="这一轮没有产出文件"
-                  hint="回到产物列表，换一轮看看。"
-                  action={(
-                    <Button className="artifact-summary-empty-action" onClick={onBack}>
-                      回到产物列表
-                    </Button>
-                  )}
-                />
-              ) : (
-                <ul className="artifact-summary-list" aria-label="本轮产物文件">
-                  {files.map(file => (
-                    <li className="artifact-summary-item" key={file.path}>
-                      <Button
-                        className="artifacts-row artifact-summary-row"
-                        title={file.path}
-                        onClick={() => { onOpenFile?.(file.path) }}
-                      >
-                        <span className="artifacts-row-name">{baseName(file.path)}</span>
-                        {file.kind === 'deliverable' ? (
-                          <span className="artifacts-row-badge artifacts-row-badge-deliverable">交付物</span>
-                        ) : (
-                          <span className="artifacts-row-badge artifacts-row-badge-produced">产物</span>
-                        )}
-                        <span className="artifacts-row-path">{file.path}</span>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+          <div className="palm-spec-body">
+            <SpecGroupHead title={turnTitle(turn)} note={`${files.length} 个文件`} />
+            {files.length === 0 ? (
+              <EmptyState
+                icon={<FolderIcon />}
+                title="这一轮没有产出文件"
+                hint="回到产物列表，换一轮看看。"
+                action={(
+                  <Button className="artifact-summary-empty-action" onClick={onBack}>
+                    回到产物列表
+                  </Button>
+                )}
+              />
+            ) : (
+              <SpecGroup label="本轮产物文件">
+                {files.map(file => (
+                  <SpecRow
+                    key={file.path}
+                    icon={<FolderIcon />}
+                    title={baseName(file.path)}
+                    sub={file.path}
+                    value={(
+                      <SpecTag kind={file.kind === 'deliverable' ? 'ok' : 'edit'}>
+                        {file.kind === 'deliverable' ? '交付物' : '产物'}
+                      </SpecTag>
+                    )}
+                    onClick={() => { onOpenFile?.(file.path) }}
+                  />
+                ))}
+              </SpecGroup>
+            )}
           </div>
         ),
       }}

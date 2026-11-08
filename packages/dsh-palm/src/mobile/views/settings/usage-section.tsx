@@ -160,50 +160,46 @@ export interface UsageSectionProps {
 export function UsageSection({
   show, usage, error, visibleUsage, usageOpen, usageBusy, setUsageOpen, refreshUsage,
 }: UsageSectionProps) {
+  if (!show) return null
   return (
     <>
-        {show && (
-          <ul className="settings-group">
-            <li className="settings-groupTitle">用量 <span className="settings-groupDesc">套餐与配额</span></li>
-            {usage === undefined && error === undefined && (
-              // 余额查询要跑好几个 provider（实测 3 秒+）。只有一行"加载中…"时
-              // 看不出是在等还是卡死了，给一条骨架。
-              <li className="settings-note" aria-busy="true">
-                <span className="settings-skeleton" aria-hidden />
-                正在读取用量…
-              </li>
-            )}
-            {/* Providers with no balance/usage endpoint are hidden: only rows
-                the host can actually query (ok / no-key / error) render. */}
-            {visibleUsage !== undefined && visibleUsage.providers.length > 0 && !usageOpen && (
-              <SettingsRow
-                icon={<GaugeIcon />}
-                title="用量"
-                desc={usageSummaryText(visibleUsage)}
-                action={<RowChevron />}
-                onClick={() => { setUsageOpen(true) }}
-              />
-            )}
-            {visibleUsage !== undefined && visibleUsage.providers.length > 0 && usageOpen && (
-              <li>
-                {visibleUsage.providers.map(provider => (
-                  <UsageProviderCard key={provider.name} provider={provider} />
-                ))}
-                <div className="usage-actions">
-                  <Button type="button" className="mobile-button" onClick={() => { setUsageOpen(false) }}>收起</Button>
-                  <Button
-                    type="button"
-                    className="mobile-button mobile-button-primary"
-                    disabled={usageBusy}
-                    onClick={() => { void refreshUsage() }}
-                  >
-                    {usageBusy ? '查询中…' : '刷新'}
-                  </Button>
-                </div>
-              </li>
-            )}
-          </ul>
-        )}
+      {usage === undefined && error === undefined && (
+        // 余额查询要跑好几个 provider（实测 3 秒+）。只有一行"加载中…"时
+        // 看不出是在等还是卡死了，给一条骨架。
+        <p className="settings-note" aria-busy="true">
+          <span className="settings-skeleton" aria-hidden />
+          正在读取用量…
+        </p>
+      )}
+      {/* Providers with no balance/usage endpoint are hidden: only rows
+          the host can actually query (ok / no-key / error) render. */}
+      {visibleUsage !== undefined && visibleUsage.providers.length > 0 && !usageOpen && (
+        <SettingsRow
+          icon={<GaugeIcon />}
+          title="用量"
+          desc={usageSummaryText(visibleUsage)}
+          action={<RowChevron />}
+          onClick={() => { setUsageOpen(true) }}
+        />
+      )}
+      {visibleUsage !== undefined && visibleUsage.providers.length > 0 && usageOpen && (
+        <div>
+          {visibleUsage.providers.map(provider => (
+            <UsageProviderCard key={provider.name} provider={provider} />
+          ))}
+          <div className="usage-actions">
+            <Button type="button" className="mobile-button" onClick={() => { setUsageOpen(false) }}>收起</Button>
+            <Button
+              type="button"
+              className="mobile-button mobile-button-primary"
+              disabled={usageBusy}
+              onClick={() => { void refreshUsage() }}
+            >
+              {usageBusy ? '查询中…' : '刷新'}
+            </Button>
+          </div>
+        </div>
+      )}
     </>
   )
 }

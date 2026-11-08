@@ -1,14 +1,15 @@
 /**
- * ② 搜索（独立页面，P6 第 ② 屏迁移）。
+ * ② 搜索（独立页面，P6 第 ② 屏迁移；2026-11-08 按总览图「8 · 搜索」统一版式）。
  *
  * 原来会话列表/工作区首页各有一个页内搜索框：一处只能看标题，一处把结果和
  * 工作区花名册挤在同一屏。这一屏把「找东西」单独拿出来，回答一个问题：
  * **我要的那句话在哪个会话里？**
  *
- * 数据由 App 注入（`search` 属性）：宿主索引（`mobile.search`）为主，索引还没
- * 建好时 App 自己退回旧入口 `mobile.searchAll` —— 本视图不直连 api.ts / mux.ts，
- * 也不自己造 RPC。命中的片段、seq、messageId 都是宿主给的，没有片段就只显示
- * 标题，绝不补一段编造的正文。
+ * 版式（总览图 8 格）：进页自动聚焦 → 一个搜索框（32 高、无描边）→ 命中列表，
+ * 片段里的关键词用强调色高亮。数据由 App 注入（`search` 属性）：宿主索引
+ * （`mobile.search`）为主，索引还没建好时 App 自己退回旧入口 `mobile.searchAll` ——
+ * 本视图不直连 api.ts / mux.ts，也不自己造 RPC。命中的片段、seq、messageId 都是
+ * 宿主给的，没有片段就只显示标题，绝不补一段编造的正文。
  *
  * @module dsh-palm/mobile/views/SearchView
  */
@@ -17,8 +18,9 @@ import { searchLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
 import { EmptyState } from '../ui/empty-state.tsx'
 import { ErrorNote } from '../ui/error-note.tsx'
-import { Button, IconButton } from '../ui/primitives.tsx'
-import { SearchIcon, CloseIcon } from '../components/icons.tsx'
+import { IconButton } from '../ui/primitives.tsx'
+import { Highlight, SpecGroup, SpecGroupHead, SpecRow, SpecSearch } from './screen-spec.tsx'
+import { SearchIcon } from '../components/icons.tsx'
 import { errorText } from '../shared/error-text.ts'
 import { formatFullTime } from '../shared/time.ts'
 
@@ -153,7 +155,7 @@ export function SearchView({ search, onBack, onPick, initialTerm = '' }: SearchV
   return (
     <SlotLayout
       spec={searchLayout}
-      className="search-page"
+      className="palm-spec-page search-page"
       slots={{
         input: (
           <>
@@ -164,41 +166,26 @@ export function SearchView({ search, onBack, onPick, initialTerm = '' }: SearchV
               <h1 className="mobile-title">搜索</h1>
               <div className="mobile-headerSlot mobile-headerSlot-right" />
             </header>
-            <div className="search-page-bar">
-              <SearchIcon className="search-page-bar-icon" />
-              <input
-                ref={inputRef}
-                type="search"
-                className="search-page-field"
-                placeholder="搜索会话和消息"
-                aria-label="搜索会话和消息"
-                autoComplete="off"
-                spellCheck={false}
-                enterKeyHint="search"
-                value={term}
-                onChange={(event) => { setTerm(event.target.value) }}
-                onCompositionStart={() => { setComposing(true) }}
-                onCompositionEnd={(event) => {
-                  setComposing(false)
-                  setTerm(event.currentTarget.value)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape' && term !== '') {
-                    event.preventDefault()
-                    clear()
-                  }
-                }}
-              />
-              {term === '' ? null : (
-                <Button type="button" className="search-page-clear" aria-label="清空搜索" onClick={clear}>
-                  <CloseIcon />
-                </Button>
-              )}
-            </div>
+            <SpecSearch
+              value={term}
+              onChange={setTerm}
+              placeholder="搜索会话和消息"
+              label="搜索会话和消息"
+              inputRef={inputRef}
+              onClear={clear}
+              onCompositionStart={() => { setComposing(true) }}
+              onCompositionEnd={(value) => { setComposing(false); setTerm(value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && term !== '') {
+                  event.preventDefault()
+                  clear()
+                }
+              }}
+            />
           </>
         ),
         results: (
-          <div className="search-page-body">
+          <div className="palm-spec-body">
             {status === 'error' ? (
               <ErrorNote
                 message={errorMessage}
@@ -216,7 +203,7 @@ export function SearchView({ search, onBack, onPick, initialTerm = '' }: SearchV
             ) : null}
 
             {showWaiting ? (
-              <p className="search-page-note" role="status">正在搜索…</p>
+              <p className="palm-spec-foot" role="status">正在搜索…</p>
             ) : null}
 
             {showEmpty ? (
@@ -229,12 +216,11 @@ export function SearchView({ search, onBack, onPick, initialTerm = '' }: SearchV
 
             {showList ? (
               <>
-                <p className="search-page-note" role="status">
-                  {partial
-                    ? `找到 ${hits.length} 条，更早的会话可能没覆盖`
-                    : `找到 ${hits.length} 条`}
-                </p>
-                <div className="search-page-list">
+                <SpecGroupHead
+                  title={`找到 ${hits.length} 条`}
+                  note={partial ? '更早的会话可能没覆盖' : undefined}
+                />
+                <SpecGroup>
                   {hits.map((hit, index) => {
                     const title = hit.title !== undefined && hit.title !== '' ? hit.title : '未命名会话'
                     const snippet = hit.snippet ?? ''
@@ -244,27 +230,24 @@ export function SearchView({ search, onBack, onPick, initialTerm = '' }: SearchV
                     const source = hit.workspaceTitle !== undefined && hit.workspaceTitle !== ''
                       ? hit.workspaceTitle
                       : undefined
+                    const meta = [
+                      hit.kind === 'message' ? '正文命中' : '标题命中',
+                      ...(source === undefined ? [] : [source]),
+                      ...(hit.hits !== undefined && hit.hits > 1 ? [`另有 ${hit.hits - 1} 条`] : []),
+                    ].join(' · ')
                     return (
-                      <Button
+                      <SpecRow
                         key={hitKey(hit, index)}
-                        type="button"
-                        className="search-page-row"
+                        lines={2}
+                        title={title}
+                        sub={snippet === '' ? undefined : <Highlight text={snippet} term={query} />}
+                        meta={meta}
+                        value={time}
                         onClick={() => { onPick(hit, query) }}
-                      >
-                        <span className="search-page-row-head">
-                          <span className="search-page-row-title">{title}</span>
-                          {time === undefined ? null : <span className="search-page-row-time">{time}</span>}
-                        </span>
-                        {snippet === '' ? null : <span className="search-page-row-snippet">{snippet}</span>}
-                        <span className="search-page-row-meta">
-                          {hit.kind === 'message' ? '正文命中' : '标题命中'}
-                          {source === undefined ? '' : ` · ${source}`}
-                          {hit.hits !== undefined && hit.hits > 1 ? ` · 另有 ${hit.hits - 1} 条正文命中` : ''}
-                        </span>
-                      </Button>
+                      />
                     )
                   })}
-                </div>
+                </SpecGroup>
               </>
             ) : null}
           </div>

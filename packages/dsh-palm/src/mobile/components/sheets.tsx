@@ -570,15 +570,15 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
     }, HOLD_TO_ALLOW_MS)
   }
 
-  // ④ 详情页：同一套判定与提交逻辑，换成「元信息 → 等宽命令块 → 风险条 → 双按钮」
-  // 的整页排布。对话里的内联卡片仍走下面的分支，两处不各写一遍 respondApproval。
+  // ④ 详情页：同一套判定与提交逻辑，换成「元信息 → 等宽命令块 → 风险条 → 双按钮」的整页排布；
+  // 对话里的内联卡片仍走下面的分支，两处不各写一遍 respondApproval。
   if (presentation === 'page') {
     const command = commandTextOf(preview, argsText)
     return (
       <div className="approval-detail" role="alert">
         <div className="approval-detail-meta">
-          <span className="approval-detail-tool">{approval.toolName}</span>
-          <span className="approval-detail-risk" data-risk={risk}>{RISK_LABEL[risk]}</span>
+          <span className="approval-detail-key">工具</span><span className="approval-detail-tool">{approval.toolName}</span>
+          <span className="approval-detail-key">风险</span><span className="approval-detail-risk" data-risk={risk}>{RISK_LABEL[risk]}</span>
           {approval.reason !== undefined && (
             <p className="approval-detail-reason">{approval.reason}</p>
           )}

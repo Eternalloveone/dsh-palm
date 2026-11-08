@@ -729,14 +729,14 @@ describe('SettingsView sub-config search', () => {
     render(<SettingsView onBack={() => {}} />)
     // 主页偏好行（不依赖默认收起的「主机配置」分组卡）。
     await screen.findByText('主题')
-    const values = Array.from(document.querySelectorAll('.settings-row .settings-rowValue'))
+    const values = Array.from(document.querySelectorAll('.palm-spec-row .settings-rowValue'))
     expect(values.length).toBeGreaterThan(0)
     for (const value of values) {
       expect((value.textContent ?? '').trim().length).toBeLessThanOrEqual(6)
     }
     // 通知行的值是一个状态词；完整说明只在通知子页里出现。
-    const title = screen.getByText('通知', { selector: '.card-titleText' })
-    const row = title.closest('.settings-row') as HTMLElement
+    const title = screen.getByText('通知', { selector: '.palm-spec-row-text' })
+    const row = title.closest('.palm-spec-row') as HTMLElement
     expect(row.querySelector('.settings-rowValue')!.textContent).toBe('不支持')
   })
 

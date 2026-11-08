@@ -13,7 +13,7 @@
  * 阈值按"有明显差异的像素占比"算（默认 1.5%），字体抗锯齿不会被判红。
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { BASE, WORKSPACE, chatUrl, homeUrl, listUrl, pw, rpc } from '../mobile-scenarios/lib/env.mjs'
+import { BASE, WORKSPACE, chatUrl, homeUrl, listUrl, pw, pressAndWait, rpc } from '../mobile-scenarios/lib/env.mjs'
 
 const BASELINE_DIR = new URL('./baseline/', import.meta.url)
 const REPORT_DIR = new URL('./reports/', import.meta.url)
@@ -55,8 +55,8 @@ const surfaces = [
     async prepare(page) {
       await page.goto(listUrl(), { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(2000)
-      await page.locator('[aria-label="设置"]').first().click()
-      await page.waitForTimeout(2000)
+      // 等设置页自己的标记（搜索框 aria-label 只有这一屏有），别用固定 sleep 赌。
+      await pressAndWait(page, '[aria-label="设置"]', '[aria-label="搜索设置"]', { settle: 900 })
     },
   },
   {
@@ -81,10 +81,8 @@ const surfaces = [
     async prepare(page) {
       await page.goto(listUrl(), { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(1800)
-      await page.locator('[aria-label="设置"]').first().click({ timeout: 6000 })
-      await page.waitForTimeout(2000)
-      await page.getByText('外观与皮肤').first().click({ timeout: 6000 })
-      await page.waitForTimeout(1800)
+      await pressAndWait(page, '[aria-label="设置"]', '[aria-label="搜索设置"]')
+      await pressAndWait(page, '.palm-spec-row:has-text("外观与皮肤")', '.palm-spec-skin', { settle: 700 })
     },
   },
   {
@@ -93,8 +91,7 @@ const surfaces = [
     async prepare(page) {
       await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(3000)
-      await page.locator('[aria-label="产物"]').first().click({ timeout: 6000 })
-      await page.waitForTimeout(1800)
+      await pressAndWait(page, '[aria-label="产物"]', '.artifacts-page-sub', { settle: 700 })
     },
   },
   {
@@ -103,8 +100,7 @@ const surfaces = [
     async prepare(page) {
       await page.goto(chatUrl(sessionId), { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(3000)
-      await page.locator('[aria-label="模型与思考"]').first().click({ timeout: 6000 })
-      await page.waitForTimeout(1800)
+      await pressAndWait(page, '[aria-label="模型与思考"]', '.model-page', { settle: 700 })
     },
   },
 ]

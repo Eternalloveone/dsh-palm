@@ -49,21 +49,23 @@
   border-color: var(--border-focus);
 }
 
+/* 空态图标槽位：定版图口径 = 38px 圆角方块 + 16px 线性图标。
+   与 .empty-state-icon（055-empty-state.css）同一尺寸，两种空态容器看起来是一套。 */
 .empty-icon {
-  width: 64px;
-  height: 64px;
+  width: var(--palm-spec-empty-ico);
+  height: var(--palm-spec-empty-ico);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 8px;
-  border-radius: var(--radius-full);
-  background: var(--fill);
-  color: var(--text-tertiary);
+  margin-bottom: var(--palm-s2);
+  border-radius: var(--palm-spec-empty-r);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
 }
 
 .empty-icon svg {
-  width: 28px;
-  height: 28px;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
 }
 
 .empty-title {

@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-08T13:21:21.332Z",
+  "base": "http://127.0.0.1:3080",
+  "sessionId": "session-ca097944-c111-4416-b001-ecec33ec558d",
+  "results": [
+    {
+      "id": "search",
+      "title": "8 · 搜索",
+      "ok": true,
+      "path": "C:\\Users\\Administrator\\dsh-source\\dsh-palm\\docs\\screenshots\\impl-search.png",
+      "bytes": 209944
+    }
+  ],
+  "overview": "C:\\Users\\Administrator\\dsh-source\\dsh-palm\\docs\\screenshots\\impl-overview.png"
+}

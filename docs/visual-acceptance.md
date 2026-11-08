@@ -111,3 +111,68 @@
 2. diff 页只有文件内容本身是 unified diff 时才显示增删色；宿主 readFile 只给当前文本。
 3. 模型页「取消 / 确定」与「建议强度」未画——没有暂存流程与宿主建议值。
 4. 大纲页宿主独有轮次显示「未加载」而不是编时间。
+
+---
+
+## 七、2026-11-08 实现对照（五屏统一规格）
+
+设计真源：`docs/prototype/overview.html` 第 4–8 格 + `docs/screenshots/prototype-overview.png`。
+实现截图：`docs/screenshots/impl-settings.png` / `impl-appearance.png` / `impl-artifacts.png` / `impl-search.png`（390×844，2x），拼图 `docs/screenshots/impl-overview.png`。
+复现：`node tools/shot-impl-five.mjs`（逐屏独立 context、走真实导航路径、内容没到位就报错不写图；跳过与失败都记在 `docs/screenshots/impl-shots.json`）。
+
+做法是**先做一层共用规格、再套五屏**：`src/mobile/views/screen-spec.tsx`（`SpecSearch` / `SpecGroupHead` / `SpecGroup` / `SpecRow` / `SpecTag` / `Highlight`）+ `src/mobile/styles/515-five-screens.css`（`.palm-spec-*`）+ `000-tokens.css` 里的 `--palm-spec-*` / `--palm-skin-*` 令牌。五屏不再各写一套搜索框、分组卡、图标方块行。
+
+### 4 · 设置
+| 设计稿 | 实现 | 取舍 |
+|---|---|---|
+| 搜索框 + 三组「外观 / 对话 / 其他」 | 一致：`.palm-spec-search`（32 高、无描边）+ 三组 `.palm-spec-group-head` | 旧版两段式（外观组 + 其余一坨）；「对话」拆出来单独成组 |
+| 分组标题 10–11px 弱化 + 右侧说明 | 11px + `--palm-fg-3`，右侧 `.palm-spec-group-note` | 说明按组定：「显示效果」「聊天与提醒」「用量 · 进阶 · 关于」 |
+| 行内 18×18 图标方块 + 主文案 + 次文案 + 右值 | `SpecRow` 网格 `ico/main/auto`，图标 18 + 圆角 6 | 行高 ≥44；右值弱化；只有带 `›` 的行可点 |
+| 无嵌套卡片 | 一致（删掉 `.settings-search ~ .settings-group` 那段 122 行补丁） | 主机配置不再「卡中卡」，改成同级第二个分组卡（展开时才出现） |
+| 底部说明 | 口径说明并入「其他」组下方 `<p class="palm-spec-foot">` | 原来占一条底栏，要滚到底才看得到 |
+
+### 5 · 外观
+| 设计稿 | 实现 | 取舍 |
+|---|---|---|
+| 三张皮肤卡（色板 + 名称 + 一句说明） | `.palm-spec-skin` × 3，色板取 `--palm-skin-*` 令牌 | 色板字面值从组件搬进 tokens：`cssHex` 54 → 45 |
+| 选中 = 强调色描边，不是填充 | 卡片：强调色描边 + 2px 强调色外圈；行：inset 描边 + 强调色右值 | 设计稿只画了卡片态，行（字号/密度/明暗）按同一口径处理，避免「选中 = 整行变蓝」 |
+| 字号 / 密度 / 明暗 三组 | 三组 `SpecGroup`，选中行右值显示「当前」 | 「当前」用强调色，不用猜 |
+| 改完即生效 | 页脚「改完立刻生效，不用重启。」 | 与设计稿一致 |
+
+### 6 · 产物
+| 设计稿 | 实现 | 取舍 |
+|---|---|---|
+| 按任务分组，标题「第 N 轮 / M 个文件」+ 箭头 | `SpecGroupHead`（可点，进该轮摘要） | 摘要页复用同一套 `SpecRow` |
+| 交付物绿标 / 改动蓝标 | `SpecTag kind="ok"` / `kind="edit"`（`--palm-ok` / `--palm-accent`） | 危险色不用在这里：改动不是危险 |
+| 行 = 图标 + 文件名 + 路径 + 标签 | `FolderIcon`（交付物）/ `PencilIcon`（工具产物） | 长路径用 `text-overflow` 截断显示，DOM 里保留全文 |
+| 空态 | `EmptyState` + `FolderIcon`「还没有产出文件」 | 与 ⑧ 屏同一套空态 |
+
+### 7 · 审批（**未生成截图**）
+| 设计稿 | 实现 | 取舍 |
+|---|---|---|
+| 元信息（工具 / 风险）+ 等宽命令块 + 琥珀警示条 + 并排双按钮 | 一致：`.approval-detail-key` / `.approval-command` / `.approval-warning` / 并排双按钮 | 命令块与警示条圆角统一到 `--palm-spec-code-r`（10） |
+| 批准用安全色、拒绝用危险色 | 批准 `--palm-ok` 16% 底；拒绝 `--palm-danger` + 危险底色 | 危险色只给「拒绝 / 失败」 |
+| 1.5 秒长按确认 | 保留（没有为了截图改交互） | — |
+
+> **为什么这一屏没有图**：本机宿主当下没有待批审批（`mobile.pending` 扫了 40 个会话全是空的）。要造一条得往用户会话里发一轮真会触发审批的任务，属于写操作；本轮只做只读截图，所以这一屏记为**未执行**，不拿旧图或示意图顶替。`tools/shot-impl-five.mjs` 里这屏是 `optional`：哪次宿主真有审批就自动补拍，没有就在 `impl-shots.json` 里记原因。
+
+### 8 · 搜索
+| 设计稿 | 实现 | 取舍 |
+|---|---|---|
+| 进页自动聚焦 + 搜索框 32–34 高 | `SpecSearch` + `inputRef`（挂载即聚焦） | 用 `type="text"` + `inputMode="search"`：`type=search` 会多一个浏览器自带清除按钮，实测截图里出现两个 × |
+| 命中片段里关键词高亮（强调色） | `<Highlight text={snippet} term={query}/>` → `<mark class="palm-spec-mark">` | 大小写不敏感的字面量匹配，不走正则（用户输入 `(` 不会把页面炸掉） |
+| 结果行为「标题 + 高亮片段 + 元信息」 | `SpecRow lines={2}`，元信息「正文命中 · 另有 N 条」 | 搜索行没有左侧图标（设计稿也没有），`data-noicon` 让网格退回单列 |
+| 空态 / 失败 / 加载 | `EmptyState`（SearchIcon）/ `ErrorNote` / `role="status"`「正在搜索…」 | 加载态只留一句文字，不塞骨架：检索多数在 1 秒内 |
+
+### 灰阶口径（本轮最大的取舍）
+设计稿正文写的是 `#e9ebf2 / #9aa0ae / #666c7a`，实现用的是已定版令牌 `--palm-fg / --palm-fg-2 / --palm-fg-3`（石墨皮 `#f4f4f8 / #a6a6b6 / #70707f`）。
+**没有把全局三档灰改成设计稿字面值**：这三个令牌是 18 屏 + `tests/golden/tokens.json` + 对比度测试的共同基准，改一次要连带重拍 18 屏基线并重算对比度；本轮目标是「五屏同一套格式」，主/次/弱的相对关系本来就是同一套，字面值差 2–4% 属于调色而非版式。真要整体调色应作为独立切片一次性改令牌、全量重拍。
+
+### 验证与预算
+- 单测：`2967` 条 / 260 个文件（`2955` 通过 / 1 expected fail / 11 skipped）；五屏相关单测 74 条全绿。
+- 门禁串行全绿：`gen:css` / `typecheck` / `build` / `test` / `sync-budgets`（无上调）/ `check-budget`（`files=5 dirs=20`）。
+- 质量预算（只降不升，本轮全部**下调**）：`cssPx` 1600 → 1491、`cssClasses` 965 → 951、`cssHex` 54 → 45。
+- 目录/文件预算（同一口径脚本实测；门禁 `check-budget` 通过）：`src/mobile` 66704 → 66725 / 66816，`views` 22489 → 22609 / 22648，`components` 2800 = 2800（没有上调，用等量抵消换来的），`ui` 2125。
+- ⑨ 产物摘要页顺带并入同一层规格件（`SpecGroupHead` / `SpecGroup` / `SpecRow` + `SpecTag`）：原来自己那套 `.artifacts-row*` / `.artifact-summary-*` 收掉，⑧ 改了之后它不再单独留在旧卡片样式上。
+- 令牌基线 `tests/golden/tokens.json` 显式重生成（只新增 `--palm-spec-*`（12）与 `--palm-skin-*`（6），无删改）。
+- 像素基线已重拍：`node tools/mobile-visual/run.mjs --update` → `tools/mobile-visual/baseline/`（7 个界面全部更新）；随后跑对比模式全绿（设置页 1.18% 是活的用量数字，其余 0%）。

@@ -1,19 +1,22 @@
 /**
- * ⑧ 产物列表（独立页面，P6 第 6 屏迁移）。
+ * ⑧ 产物列表（独立页面，P6 第 6 屏迁移；2026-11-08 按总览图「6 · 产物」统一版式）。
  *
  * 这一屏回答一个具体问题：**这次会话到底动了哪些文件？**
- * 按轮分组、最近的在前，交付物与"改过但没交付"分开标，点一行看 diff（⑩）。
+ * 按任务分组、最近的在前；交付物（绿标）与改动（蓝标）分开标，点一行看 diff（⑩）。
  *
- * 数据来自 `session/artifacts.ts` 的聚合（对话页算好传进来，页面不重复遍历消息）。
+ * 版式（总览图 6 格）：按任务分组 → 分组标题（`第 N 轮 · M 个文件`）+ 可点箭头 →
+ * 卡内行 = 16px 线性图标 + 文件名 + 右侧类型标签。行高 ≥44，图标与标签来自
+ * `ui/screen-spec.tsx`；数据仍来自 `session/artifacts.ts` 的聚合（页面不遍历消息）。
  *
  * @module dsh-palm/mobile/views/ArtifactsView
  */
 import { artifactsLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
-import { Button, IconButton } from '../ui/primitives.tsx'
+import { IconButton } from '../ui/primitives.tsx'
 import { EmptyState } from '../ui/empty-state.tsx'
+import { SpecGroup, SpecGroupHead, SpecRow, SpecTag } from './screen-spec.tsx'
 import { artifactTally, type ArtifactTurn } from '../session/artifacts.ts'
-import { ChevronRightIcon, FolderIcon } from '../components/icons.tsx'
+import { FolderIcon, PencilIcon } from '../components/icons.tsx'
 
 /** 路径取最后一段（列表里只看文件名）。 */
 function baseName(path: string): string {
@@ -43,7 +46,7 @@ export function ArtifactsView({ turns, onBack, onOpenFile, onOpenTurn }: Artifac
   return (
     <SlotLayout
       spec={artifactsLayout}
-      className="artifacts-page"
+      className="palm-spec-page artifacts-page"
       slots={{
         header: (
           <header className="mobile-header">
@@ -60,41 +63,37 @@ export function ArtifactsView({ turns, onBack, onOpenFile, onOpenTurn }: Artifac
           </header>
         ),
         list: (
-          <div className="artifacts-page-body">
+          <div className="palm-spec-body">
             {turns.length === 0 ? (
               <EmptyState
-        icon={<FolderIcon />}
-        title="还没有产出文件"
-        hint="改动过的文件、生成的报告会按轮列在这里。"
-      />
+                icon={<FolderIcon />}
+                title="还没有产出文件"
+                hint="改动过的文件、生成的报告会按轮列在这里。"
+              />
             ) : (
               turns.map(group => (
-                <section className="artifacts-group" key={String(group.turn ?? 'old')}>
-                  <h2 className="artifacts-group-title">
-                    <Button
-                      className="artifacts-group-link"
-                      onClick={() => { onOpenTurn?.(group.turn) }}
-                    >
-                      {group.turn === undefined ? '更早' : `第 ${group.turn} 轮`}
-                      <ChevronRightIcon />
-                    </Button>
-                  </h2>
-                  {group.files.map(file => (
-                    <Button
-                      key={file.path}
-                      className="artifacts-row"
-                      title={file.path}
-                      onClick={() => { onOpenFile?.(file.path) }}
-                    >
-                      <span className="artifacts-row-name">{baseName(file.path)}</span>
-                      {file.kind === 'deliverable' ? (
-                        <span className="artifacts-row-badge artifacts-row-badge-deliverable">交付物</span>
-                      ) : (
-                        <span className="artifacts-row-badge artifacts-row-badge-produced">产物</span>
-                      )}
-                      <span className="artifacts-row-path">{file.path}</span>
-                    </Button>
-                  ))}
+                <section key={String(group.turn ?? 'old')}>
+                  <SpecGroupHead
+                    title={group.turn === undefined ? '更早' : `第 ${group.turn} 轮`}
+                    note={`${group.files.length} 个文件`}
+                    onClick={() => { onOpenTurn?.(group.turn) }}
+                  />
+                  <SpecGroup>
+                    {group.files.map(file => (
+                      <SpecRow
+                        key={file.path}
+                        icon={file.kind === 'deliverable' ? <FolderIcon /> : <PencilIcon />}
+                        title={baseName(file.path)}
+                        sub={file.path}
+                        value={
+                          file.kind === 'deliverable'
+                            ? <SpecTag kind="ok">交付物</SpecTag>
+                            : <SpecTag kind="edit">改动</SpecTag>
+                        }
+                        onClick={() => { onOpenFile?.(file.path) }}
+                      />
+                    ))}
+                  </SpecGroup>
                 </section>
               ))
             )}

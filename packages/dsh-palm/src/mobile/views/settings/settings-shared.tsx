@@ -8,6 +8,7 @@ import { Sheet } from '../../ui/sheet.tsx'
 import { toast } from '../../components/toast.tsx'
 import { dropAllChatCaches } from '../../session/chat-cache.ts'
 import { Button } from '../../ui/primitives.tsx'
+import { SpecGroup, SpecGroupHead, SpecRow } from '../screen-spec.tsx'
 
 /** Source badge: where a setting takes effect / can be changed. */
 export function ScopeBadge({ scope }: { scope: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend' }) {
@@ -41,6 +42,16 @@ export function formatInboxTime(ts: number): string {
     : `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${time}`
 }
 
+/** 一张分组卡 + 它的小标题：设置页只允许三层（标题 / 卡 / 行），不再套卡。 */
+export function SettingsGroup({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+  return (
+    <>
+      <SpecGroupHead title={title} note={note} />
+      <SpecGroup>{children}</SpecGroup>
+    </>
+  )
+}
+
 /** One row of the unified settings card: icon · title/value · control. */
 export function SettingsRow({ icon, title, desc, action, onClick, locateId, focused, scope = 'phone' }: {
   icon: ReactNode
@@ -59,27 +70,17 @@ export function SettingsRow({ icon, title, desc, action, onClick, locateId, focu
    */
   scope?: 'phone' | 'sync' | 'desktop' | 'ro' | 'recommend'
 }) {
-  const body = (
-    <>
-      <span className="card-icon"><span aria-hidden>{icon}</span></span>
-      <span className="card-main">
-        <span className="card-title"><span className="card-titleText">{title}</span><ScopeBadge scope={scope} /></span>
-        {desc !== undefined && <span className="card-desc">{desc}</span>}
-      </span>
-      <span className="card-action">{action}</span>
-    </>
-  )
-  const attributes = locateId === undefined ? {} : { 'data-locate-id': locateId }
-  const cls = 'settings-row' + (focused === true ? ' settings-focus' : '')
-  if (onClick === undefined) {
-    return <li className={cls} {...attributes}>{body}</li>
-  }
   return (
-    <li>
-      <Button type="button" className={cls} onClick={onClick} {...attributes}>
-        {body}
-      </Button>
-    </li>
+    <SpecRow
+      icon={icon}
+      title={title}
+      badge={<ScopeBadge scope={scope} />}
+      sub={desc}
+      value={action}
+      onClick={onClick}
+      locateId={locateId}
+      focused={focused}
+    />
   )
 }
 

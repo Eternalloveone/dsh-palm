@@ -50,9 +50,9 @@ export interface SessionListSearchEntryProps {
  */
 export function SessionListSearchEntry({ onOpen }: SessionListSearchEntryProps) {
   return (
-    <Button type="button" className="sess-searchEntry" aria-label="搜索会话和消息" onClick={onOpen}>
+    <Button type="button" className="palm-spec-search-entry" aria-label="搜索会话和消息" onClick={onOpen}>
       <SearchIcon />
-      <span className="sess-searchEntry-label">搜索会话和消息</span>
+      <span>搜索会话和消息</span>
     </Button>
   )
 }

@@ -20,19 +20,18 @@ export interface DeviceSectionProps {
 
 export function DeviceSection({ show, setDeviceOpen }: DeviceSectionProps) {
   return (
-        <ul className="settings-group">
-          <li className="settings-groupTitle">设备 <span className="settings-groupDesc">已配对设备管理</span></li>
-          <IosInstallHint />
-          {show && (
-            <SettingsRow
-              icon={<ShieldIcon />}
-              title="设备管理"
-              desc="查看已配对设备 · 重命名 · 退出本机（设为主设备请在桌面端操作）"
-              action={<RowChevron />}
-              onClick={() => { setDeviceOpen(true) }}
-            />
-          )}
-        </ul>
+    <>
+      <IosInstallHint />
+      {show && (
+        <SettingsRow
+          icon={<ShieldIcon />}
+          title="设备管理"
+          desc="查看已配对设备 · 重命名 · 退出本机（设为主设备请在桌面端操作）"
+          action={<RowChevron />}
+          onClick={() => { setDeviceOpen(true) }}
+        />
+      )}
+    </>
   )
 }
 

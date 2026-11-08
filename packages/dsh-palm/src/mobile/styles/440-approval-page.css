@@ -76,6 +76,13 @@
   gap: var(--palm-s2);
 }
 
+/* 元信息的「工具 / 风险」是一对标签：键弱、值强（定版图 .ameta .k）。 */
+.approval-detail-key {
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-head);
+}
+
 .approval-detail-tool,
 .approval-detail-risk {
   padding: var(--palm-s1) var(--palm-s2);
@@ -118,7 +125,7 @@
 .approval-detail-command {
   max-inline-size: 100%;
   border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
+  border-radius: var(--palm-spec-code-r);
   background: var(--palm-sur-1);
   overflow: hidden;
 }
@@ -184,7 +191,8 @@
   line-height: var(--palm-lh-body);
 }
 
-/* 黄色警告条：只在非只读审批上出现（只读不动手）。 */
+/* 琥珀警示条：只在非只读审批上出现（只读不动手）。文案用警示色，
+   因为这是"等你决定、不可撤销"，不是"失败"——危险色留给拒绝与失败。 */
 .approval-detail-warning {
   display: flex;
   align-items: flex-start;
@@ -192,9 +200,9 @@
   margin: 0;
   padding: var(--palm-s3);
   border: var(--palm-hair) solid var(--palm-warn);
-  border-radius: var(--palm-r-m);
+  border-radius: var(--palm-spec-code-r);
   background: var(--palm-tint-warn);
-  color: var(--palm-fg-2);
+  color: var(--palm-warn);
   font-size: var(--palm-t-s);
   line-height: var(--palm-lh-body);
 }
@@ -206,7 +214,7 @@
   color: var(--palm-warn);
 }
 
-/* 两个决定并排，紧跟在风险条后面（定版图口径：动作属于这张审批卡）。 */
+/* 两个决定并排：绿=批准、红=拒绝（定版图 .abtn：色只落在这一对按钮上）。 */
 .approval-detail-actions {
   display: flex;
   gap: var(--palm-s3);
@@ -228,14 +236,14 @@
 
 .approval-detail-approve {
   border: var(--palm-hair) solid var(--palm-ok);
-  background: var(--palm-tint-ok);
-  color: var(--palm-fg);
+  background: color-mix(in srgb, var(--palm-ok) 16%, transparent);
+  color: var(--palm-ok);
 }
 
 .approval-detail-reject {
   border: var(--palm-hair) solid var(--palm-danger);
   background: var(--palm-tint-danger);
-  color: var(--palm-fg);
+  color: var(--palm-danger);
 }
 
 .approval-detail-approve:active,

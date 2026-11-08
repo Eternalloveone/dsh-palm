@@ -33,6 +33,49 @@ export async function launch({ headed = false } = {}) {
   return { browser, context }
 }
 
+/**
+ * 点一个入口，并等**目标屏自己的标记**出现。
+ *
+ * 为什么不能只点一次就睡一会儿：
+ * 1. `hasTouch: true` 的上下文里 Chrome 的移动端模拟会忽略 mouse 事件
+ *    （`locator.click()` 点了没反应），只有触摸 tap 能点进去；
+ * 2. 连 tap 也会偶发被吃掉（实测设置齿轮约 3 次里 1 次不跳转）。
+ * 两种失手的表现都是"截图成功、内容停在上一屏"——基线会被悄悄写成错的屏。
+ *
+ * 所以这里：先 tap → 等标记；等不到再 tap；最后兜底派发一次 DOM click。
+ * 入口真坏了标记永远不出现，最后还是失败（不会假装通过）。
+ */
+export async function pressAndWait(page, selector, marker, { attempts = 3, timeout = 12_000, settle = 0 } = {}) {
+  const appeared = async (ms) => page.waitForSelector(marker, { timeout: ms }).then(() => true).catch(() => false)
+  const dispatch = async () => page.evaluate((sel) => {
+    document.querySelector(sel)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  }, selector)
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const target = page.locator(selector).first()
+    try {
+      await target.tap({ timeout: 6_000 })
+    } catch (reason) {
+      const message = String(reason)
+      // 非触摸上下文：tap 不被支持，退回 click。
+      if (/does not support tap|hasTouch/i.test(message)) await target.click({ timeout: 6_000 })
+      else await dispatch()
+    }
+    if (await appeared(4_000)) {
+      if (settle > 0) await page.waitForTimeout(settle)
+      return true
+    }
+    await dispatch()
+    if (await appeared(3_000)) {
+      if (settle > 0) await page.waitForTimeout(settle)
+      return true
+    }
+  }
+  // 最后一次失败要带出真实原因（标记没出现 = 入口坏了）。
+  await page.waitForSelector(marker, { timeout })
+  return true
+}
+
 /** 聊天页 URL（debug=1 让 window.__palmRows 可用）。 */
 export function chatUrl(sessionId, { debug = true } = {}) {
   const query = new URLSearchParams({ workspace: WORKSPACE })

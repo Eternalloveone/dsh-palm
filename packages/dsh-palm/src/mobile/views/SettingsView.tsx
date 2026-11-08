@@ -33,18 +33,19 @@ import { SlidersIcon } from '../components/icons.tsx'
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../platform/notify-triggers.ts'
 import { SettingsForm, isWritableField, namespaceTitle } from './SettingsForm.tsx'
-import { Button, EmptyState, IconButton } from '../ui/primitives.tsx'
-import { AdvancedSection, type SettingsGroupRow } from './settings/advanced-section.tsx'
-import { AppearanceSection } from './settings/appearance-section.tsx'
+import { EmptyState, IconButton } from '../ui/primitives.tsx'
+import { AdvancedSection, HostConfigGroups, type SettingsGroupRow } from './settings/advanced-section.tsx'
+import { AppearanceSection, ChatSection } from './settings/appearance-section.tsx'
 import { DeviceManagementView, DeviceSection } from './settings/device-section.tsx'
 import { NotifyPage } from './settings/notify-page.tsx'
 import { NotifySection } from './settings/notify-section.tsx'
-import { OtherSection } from './settings/other-section.tsx'
+import { OtherSection, SETTINGS_FOOTNOTE } from './settings/other-section.tsx'
 import { SettingsOverlays } from './settings/settings-overlays.tsx'
-import { RowChevron } from './settings/settings-shared.tsx'
+import { RowChevron, SettingsGroup, SettingsRow } from './settings/settings-shared.tsx'
 import { UsageSection } from './settings/usage-section.tsx'
 import { VoicePage, VoiceSection } from './settings/voice-section.tsx'
 import { SETTINGS_GROUPS, matchSettingsIndex, settingsLocateProps, type SettingsIndexEntry } from './settings/settings-groups.tsx'
+import { SpecSearch } from './screen-spec.tsx'
 
 export interface SettingsViewProps {
   /** 打开「外观」页（P6 ⑭ 屏）；不给就还开浮层。 */
@@ -653,7 +654,7 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   }).filter((row): row is SettingsGroupRow => row !== undefined)
 
   return (
-    <div className="mobile">
+    <div className="palm-spec-page">
       <header className="mobile-header">
         <div className="mobile-headerSlot">
           <IconButton label="返回" className="mobile-back" onClick={onBack}>‹</IconButton>
@@ -661,102 +662,99 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
         <h1 className="mobile-title">设置</h1>
         <div className="mobile-headerSlot mobile-headerSlot-right" />
       </header>
-      <div className="mobile-scroll">
+      <div className="palm-spec-body">
         {error !== undefined && <p className="mobile-error mobile-pad" role="alert">{error}</p>}
 
-        <div className="settings-search">
-          <input
-            type="search"
-            className="mobile-searchInput"
-            placeholder="搜索设置…"
-            aria-label="搜索设置"
-            value={query}
-            onChange={(event) => { setQuery(event.target.value) }}
-          />
-        </div>
+        <SpecSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="搜索设置…"
+          label="搜索设置"
+          onClear={() => { setQuery('') }}
+        />
 
         {indexHits.length > 0 && (
-          <ul className="settings-group">
-            <li className="settings-groupTitle">配置项 <span className="settings-groupDesc">通知 / 语音页内</span></li>
+          <SettingsGroup title="配置项" note="通知 / 语音页内">
             {indexHits.map(item => (
-              <li key={item.id}>
-                <Button
-                  className="settings-row"
-                  onClick={() => { activateSetting(item) }}
-                >
-                  <span className="card-icon"><span aria-hidden><SlidersIcon /></span></span>
-                  <span className="card-main">
-                    <span className="card-title"><span className="card-titleText">{item.label}</span></span>
-                    <span className="card-desc">{item.group} · 点击定位</span>
-                  </span>
-                  <span className="card-action"><RowChevron /></span>
-                </Button>
-              </li>
+              <SettingsRow
+                key={item.id}
+                icon={<SlidersIcon />}
+                title={item.label}
+                desc={`${item.group} · 点击定位`}
+                action={<RowChevron />}
+                onClick={() => { activateSetting(item) }}
+              />
             ))}
-          </ul>
+          </SettingsGroup>
         )}
 
-        {/* 图例不再占首屏：默认项不带角标，「只在桌面端改」的说明统一放页脚。 */}
+        {/* 定版图口径：整页只有三张卡——外观 / 对话 / 其他；每张卡里是行，不再套卡。 */}
+        <SettingsGroup title="外观" note="显示效果">
+          <AppearanceSection
+            onOpenAppearance={onOpenAppearance}
+            showTheme={show.theme}
+            showFont={show.font}
+            showDensity={show.density}
+            showLineNumbers={show.lineNumbers}
+            themeLabel={themeLabel}
+            fontScale={fontScale}
+            density={density}
+            lineNumbers={lineNumbers}
+            setSheet={setSheet}
+            setLineNumbersState={setLineNumbersState}
+          />
+        </SettingsGroup>
 
-        <AppearanceSection
-          onOpenAppearance={onOpenAppearance}
-        showTheme={show.theme}
-          showFont={show.font}
-          showDensity={show.density}
-          showLineNumbers={show.lineNumbers}
-          showAutoScroll={show.autoScroll}
-          showHaptics={show.haptics}
-          themeLabel={themeLabel}
-          fontScale={fontScale}
-          density={density}
-          lineNumbers={lineNumbers}
-          autoScroll={autoScroll}
-          haptics={haptics}
-          setSheet={setSheet}
-          setLineNumbersState={setLineNumbersState}
-          setAutoScrollState={setAutoScrollState}
-          setHapticsState={setHapticsState}
-        />
+        <SettingsGroup title="对话" note="聊天与提醒">
+          <ChatSection
+            showAutoScroll={show.autoScroll}
+            showHaptics={show.haptics}
+            autoScroll={autoScroll}
+            haptics={haptics}
+            setAutoScrollState={setAutoScrollState}
+            setHapticsState={setHapticsState}
+          />
+          <NotifySection show={show.notify} notifyState={notifyState} setNotifyOpen={setNotifyOpen} />
+          <VoiceSection
+            show={show.voice}
+            voiceServices={voiceServices}
+            hostVoiceServices={hostVoiceServices}
+            openVoicePage={openVoicePage}
+          />
+          <DeviceSection show={show.device} setDeviceOpen={setDeviceOpen} />
+        </SettingsGroup>
 
-        <UsageSection
-          show={show.usage}
-          usage={usage}
-          error={error}
-          visibleUsage={visibleUsage}
-          usageOpen={usageOpen}
-          usageBusy={usageBusy}
-          setUsageOpen={setUsageOpen}
-          refreshUsage={refreshUsage}
-        />
+        <SettingsGroup title="其他" note="用量 · 进阶 · 关于">
+          <UsageSection
+            show={show.usage}
+            usage={usage}
+            error={error}
+            visibleUsage={visibleUsage}
+            usageOpen={usageOpen}
+            usageBusy={usageBusy}
+            setUsageOpen={setUsageOpen}
+            refreshUsage={refreshUsage}
+          />
+          <AdvancedSection showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
+          <OtherSection
+            showCache={show.cache}
+            showFeedback={show.feedback}
+            showAbout={show.about}
+            setConfirmClear={setConfirmClear}
+            setSheet={setSheet}
+          />
+        </SettingsGroup>
 
-        <NotifySection show={show.notify} notifyState={notifyState} setNotifyOpen={setNotifyOpen} />
-
-        <VoiceSection
-          show={show.voice}
-          voiceServices={voiceServices}
-          hostVoiceServices={hostVoiceServices}
-          openVoicePage={openVoicePage}
-        />
-
-        <DeviceSection show={show.device} setDeviceOpen={setDeviceOpen} />
-
-        <AdvancedSection
+        <HostConfigGroups
           showAdvanced={showAdvanced}
           term={term}
           namespaces={namespaces}
           error={error}
           groupRows={groupRows}
-          setShowAdvanced={setShowAdvanced}
           setOpenGroup={setOpenGroup}
         />
 
-        <OtherSection
-          showCache={show.cache}
-          showFeedback={show.feedback}
-          showAbout={show.about}
-          setConfirmClear={setConfirmClear}
-          setSheet={setSheet}
-        />
+        <p className="palm-spec-foot">{SETTINGS_FOOTNOTE}</p>
 
         {term !== '' && hitCount === 0 && indexHits.length === 0 && (
           <EmptyState description={<>没有匹配「{query.trim()}」的设置项</>} />

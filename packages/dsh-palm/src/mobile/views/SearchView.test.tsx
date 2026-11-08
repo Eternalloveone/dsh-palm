@@ -89,7 +89,7 @@ describe('搜索独立页（P6 ② 屏）', () => {
     render(<SearchView search={fakeSearch({ 日志: [hitB] })} onBack={() => {}} onPick={() => {}} />)
     type('日志')
     await waitFor(() => expect(screen.getByText('发布日志')).toBeDefined())
-    expect(document.querySelectorAll('.search-page-row-snippet')).toHaveLength(0)
+    expect(document.querySelectorAll('.palm-spec-row-sub')).toHaveLength(0)
     expect(screen.getByText(/标题命中/)).toBeDefined()
   })
 
@@ -97,7 +97,7 @@ describe('搜索独立页（P6 ② 屏）', () => {
     render(<SearchView search={fakeSearch({ 发布: [hitA] })} onBack={() => {}} onPick={() => {}} />)
     type('发布')
     await waitFor(() => expect(screen.getByText(formatFullTime(1_700_000_000_000))).toBeDefined())
-    expect(document.querySelectorAll('.search-page-row-time')).toHaveLength(1)
+    expect(document.querySelectorAll('.palm-spec-row-value')).toHaveLength(1)
   })
 
   it('返回按钮交给调用方（弹栈回会话列表）', () => {

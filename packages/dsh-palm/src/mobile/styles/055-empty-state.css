@@ -28,20 +28,20 @@
 }
 
 
-/* 图标槽位（定版图：空态 = 图标 + 标题 + 主按钮） */
+/* 图标槽位（定版图：空态 = 38px 图标方块 + 标题 + 一句说明 + 主按钮） */
 .empty-state-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--palm-spec-empty-ico);
+  height: var(--palm-spec-empty-ico);
   margin-bottom: var(--palm-s2);
-  border-radius: var(--palm-r-full);
+  border-radius: var(--palm-spec-empty-r);
   background: var(--palm-sur-2);
   color: var(--palm-fg-2);
 }
 
 .empty-state-icon > svg {
-  width: 16px;
-  height: 16px;
+  width: var(--palm-spec-glyph);
+  height: var(--palm-spec-glyph);
 }

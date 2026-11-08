@@ -144,6 +144,33 @@
   --palm-dock-queue-r: 9px;
   --palm-dock-queue-size: 11px;
   --palm-dock-queue-bg: rgba(224, 165, 44, 0.07);
+
+  /* ── 五屏统一规格（设置 / 外观 / 产物 / 审批 / 搜索） ───────────────────
+   * 版式真源：docs/prototype/overview.html「4 · 设置」～「8 · 搜索」五个格子
+   *          + docs/visual-acceptance.md「2026-11-08 最终状态」。
+   * 这五屏只共用 515-five-screens.css 一层类，尺寸/字号一律引用下面这些令牌，
+   * 组件样式里不再出现裸 px（灰色三档仍走 --palm-fg / --palm-fg-2 / --palm-fg-3）。 */
+  --palm-spec-search-h: 32px;      /* 搜索框高（定版 30–34）*/
+  --palm-spec-search-r: 10px;      /* 搜索框圆角：无描边，靠表面色分层 */
+  --palm-spec-head-size: 11px;     /* 分组标题字号（定版 10–11，弱化）*/
+  --palm-spec-card-r: 10px;        /* 分组卡圆角 */
+  --palm-spec-ico: 18px;           /* 行内图标方块 */
+  --palm-spec-ico-r: 6px;          /* 图标方块圆角 */
+  --palm-spec-glyph: 16px;         /* 方块内 / 列表左侧的线性图标 */
+  --palm-spec-swatch: 44px;        /* 皮肤卡色板高 */
+  --palm-spec-skin-r: 10px;        /* 皮肤卡圆角 */
+  --palm-spec-code-r: 10px;        /* 审批命令块圆角 */
+  --palm-spec-empty-ico: 38px;     /* 空态图标方块 */
+  --palm-spec-empty-r: 12px;       /* 空态图标方块圆角 */
+
+  /* 皮肤卡色板：每张卡画的是**那一套皮肤**的真实底色与强调色，
+     因此不能引用当前皮肤令牌，只能在这里落三对字面值（本文件不计入 cssHex）。 */
+  --palm-skin-graphite-bg: #15151c;
+  --palm-skin-graphite-ink: #7c8cff;
+  --palm-skin-paper-bg: #faf8f4;
+  --palm-skin-paper-ink: #8a5a2b;
+  --palm-skin-nocturne-bg: #0f1520;
+  --palm-skin-nocturne-ink: #22d3ee;
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */

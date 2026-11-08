@@ -16,21 +16,17 @@ export interface VoiceSectionProps {
 }
 
 export function VoiceSection({ show, voiceServices, hostVoiceServices, openVoicePage }: VoiceSectionProps) {
+  if (!show) return null
   return (
-        <ul className="settings-group">
-          <li className="settings-groupTitle">语音 <span className="settings-groupDesc">语音输入与转写</span></li>
-          {show && (
-            <SettingsRow
-              icon={<MicIcon />}
-              title="语音服务"
-              desc={voiceServices.length === 0
-                ? (hostVoiceServices.length > 0 ? `桌面端已配置 ${hostVoiceServices.length} 个转写服务` : '语音转写服务，按序回退')
-                : `${voiceServices.length} 个服务 · 按序回退`}
-              action={<RowChevron />}
-              onClick={() => { openVoicePage() }}
-            />
-          )}
-        </ul>
+    <SettingsRow
+      icon={<MicIcon />}
+      title="语音服务"
+      desc={voiceServices.length === 0
+        ? (hostVoiceServices.length > 0 ? `桌面端已配置 ${hostVoiceServices.length} 个转写服务` : '语音转写服务，按序回退')
+        : `${voiceServices.length} 个服务 · 按序回退`}
+      action={<RowChevron />}
+      onClick={() => { openVoicePage() }}
+    />
   )
 }
 

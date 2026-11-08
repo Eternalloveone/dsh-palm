@@ -1,11 +1,16 @@
 /**
- * 「其他」分组：清除缓存、反馈、关于、性能报告，以及页脚的口径说明。
+ * 「其他」分组行：清除缓存、反馈与建议、关于、性能报告。
+ * 口径说明（页脚那句话）由 SettingsView 用 `SETTINGS_FOOTNOTE` 渲染在卡片之外，
+ * 卡片里只留可点的行。分组卡由 SettingsView 提供。
  */
 import { InfoIcon, TrashIcon, UpperRightIcon } from '../../components/icons.tsx'
 import pkg from '../../../../package.json'
 import { PerfReportRow } from '../../platform/perf-report.tsx'
 import { BUILD_HASH } from '../../platform/build-info.ts'
 import { RowChevron, SettingsRow } from './settings-shared.tsx'
+
+/** 页脚口径说明：密钥类配置永不上手机，只读/同步项各是什么含义。 */
+export const SETTINGS_FOOTNOTE = '密钥类配置永不显示、不可在手机端修改。带「只读」的项只能在桌面端改；带「同步桌面」的项会一并改掉桌面端设置。'
 
 export interface OtherSectionProps {
   showCache: boolean
@@ -20,41 +25,34 @@ export function OtherSection({
 }: OtherSectionProps) {
   return (
     <>
-        <ul className="settings-group">
-          <li className="settings-groupTitle">其他</li>
-          {showCache && (
-            <SettingsRow
-              icon={<TrashIcon />}
-              title="清除缓存"
-              desc="清除离线壳缓存（PWA）"
-              action={<RowChevron />}
-              onClick={() => { setConfirmClear(true) }}
-            />
-          )}
-          {showFeedback && (
-            <SettingsRow
-              icon={<UpperRightIcon />}
-              title="反馈与建议"
-              desc="遇到问题或想要新功能，去 GitHub 告诉我"
-              action={<RowChevron />}
-              onClick={() => { window.open('https://github.com/Eternalloveone/dsh-palm/issues/new', '_blank', 'noopener') }}
-            />
-          )}
-          {showAbout && (
-            <SettingsRow
-              icon={<InfoIcon />}
-              title="关于"
-              desc={`掌上 DSH · 版本 ${pkg.version}${BUILD_HASH === undefined ? '' : ` · 构建 ${BUILD_HASH}`}`}
-              action={<RowChevron />}
-              onClick={() => { setSheet('about') }}
-            />
-          )}
-          <PerfReportRow />
-        </ul>
-
-        <p className="settings-note">
-          密钥类配置永不显示、不可在手机端修改。带「只读」的项只能在桌面端改；带「同步桌面」的项会一并改掉桌面端设置。
-        </p>
+      {showCache && (
+        <SettingsRow
+          icon={<TrashIcon />}
+          title="清除缓存"
+          desc="清除离线壳缓存（PWA）"
+          action={<RowChevron />}
+          onClick={() => { setConfirmClear(true) }}
+        />
+      )}
+      {showFeedback && (
+        <SettingsRow
+          icon={<UpperRightIcon />}
+          title="反馈与建议"
+          desc="遇到问题或想要新功能，去 GitHub 告诉我"
+          action={<RowChevron />}
+          onClick={() => { window.open('https://github.com/Eternalloveone/dsh-palm/issues/new', '_blank', 'noopener') }}
+        />
+      )}
+      {showAbout && (
+        <SettingsRow
+          icon={<InfoIcon />}
+          title="关于"
+          desc={`掌上 DSH · 版本 ${pkg.version}${BUILD_HASH === undefined ? '' : ` · 构建 ${BUILD_HASH}`}`}
+          action={<RowChevron />}
+          onClick={() => { setSheet('about') }}
+        />
+      )}
+      <PerfReportRow />
     </>
   )
 }
