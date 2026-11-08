@@ -75,9 +75,7 @@ export function ArtifactsView({ turns, onBack, onOpenFile, onOpenTurn }: Artifac
                       className="artifacts-group-link"
                       onClick={() => { onOpenTurn?.(group.turn) }}
                     >
-                      <span className="artifacts-group-label">
-                        {group.turn === undefined ? '更早' : `第 ${group.turn} 轮`}
-                      </span>
+                      {group.turn === undefined ? '更早' : `第 ${group.turn} 轮`}
                       <ChevronRightIcon />
                     </Button>
                   </h2>
@@ -89,12 +87,12 @@ export function ArtifactsView({ turns, onBack, onOpenFile, onOpenTurn }: Artifac
                       onClick={() => { onOpenFile?.(file.path) }}
                     >
                       <span className="artifacts-row-name">{baseName(file.path)}</span>
-                      <span className="artifacts-row-path">{file.path}</span>
                       {file.kind === 'deliverable' ? (
                         <span className="artifacts-row-badge artifacts-row-badge-deliverable">交付物</span>
                       ) : (
                         <span className="artifacts-row-badge artifacts-row-badge-produced">产物</span>
                       )}
+                      <span className="artifacts-row-path">{file.path}</span>
                     </Button>
                   ))}
                 </section>
@@ -102,7 +100,6 @@ export function ArtifactsView({ turns, onBack, onOpenFile, onOpenTurn }: Artifac
             )}
           </div>
         ),
-        footer: <p className="artifacts-page-hint">点了看改动内容；这里只读。</p>,
       }}
     />
   )

@@ -9,11 +9,12 @@
  *
  * 1. **按轮筛选**：轮号来自路由（`/m/s/:id/artifacts/:turn`），缺轮号的早期产物
  *    归到「更早的轮次」；
- * 2. **单轮汇总**：文件数 / 交付物数、每个文件一行（文件名 + 彩色类型标签 + 路径，
- *    交付物还带宿主声明的说明）。
+ * 2. **单轮汇总**：文件数 + 每个文件一行（文件名 + 彩色类型标签 + 路径）；
+ *    卡片与 ⑧ 完全同款，本屏只在上面多一句「本轮共 N 个文件」。
  *
  * 定版图里每行还有"大小 / 时间"，但产物流里**没有**这两项（`ArtifactFile` 只有
  * path / description / kind）。拿不到就不显示 —— 不编一个"0 KB"或假时间出来。
+ * 宿主给的 description 也不占卡片行：本屏的卡片只排定版图里的两行主信息。
  *
  * 只吃 props：不 import api.ts / mux.ts，取数仍由对话页与 App 路由负责。
  *
@@ -65,7 +66,6 @@ export interface ArtifactSummaryViewProps {
  */
 export function ArtifactSummaryView({ turns, turn, onBack, onOpenFile }: ArtifactSummaryViewProps) {
   const files = filesOfTurn(turns, turn)
-  const delivered = files.filter(file => file.kind === 'deliverable').length
 
   return (
     <SlotLayout
@@ -84,52 +84,44 @@ export function ArtifactSummaryView({ turns, turn, onBack, onOpenFile }: Artifac
         ),
         list: (
           <div className="artifacts-page-body">
-            <section className="artifact-summary-head">
-              <h2 className="artifact-summary-turn">{turnTitle(turn)}</h2>
-              <p className="artifact-summary-meta">
-                {files.length === 0
-                  ? '本轮 0 个文件'
-                  : `本轮 ${files.length} 个文件，其中 ${delivered} 个是交付物`}
-              </p>
-            </section>
-            {files.length === 0 ? (
-              <EmptyState
-                icon={<FolderIcon />}
-                title="这一轮没有产出文件"
-                hint="回到产物列表，换一轮看看。"
-                action={(
-                  <Button className="artifact-summary-empty-action" onClick={onBack}>
-                    回到产物列表
-                  </Button>
-                )}
-              />
-            ) : (
-              <ul className="artifact-summary-list" aria-label="本轮产物文件">
-                {files.map(file => (
-                  <li className="artifact-summary-item" key={file.path}>
-                    <Button
-                      className="artifact-summary-row"
-                      title={file.path}
-                      onClick={() => { onOpenFile?.(file.path) }}
-                    >
-                      <span className="artifact-summary-name">{baseName(file.path)}</span>
-                      {file.kind === 'deliverable' ? (
-                        <span className="artifacts-row-badge artifacts-row-badge-deliverable">交付物</span>
-                      ) : (
-                        <span className="artifacts-row-badge artifacts-row-badge-produced">产物</span>
-                      )}
-                      {file.description === undefined ? null : (
-                        <span className="artifact-summary-desc">{file.description}</span>
-                      )}
-                      <span className="artifact-summary-path">{file.path}</span>
+            <section className="artifacts-group">
+              <h2 className="artifacts-group-title">{turnTitle(turn)}</h2>
+              <p className="artifact-summary-meta">本轮共 {files.length} 个文件</p>
+              {files.length === 0 ? (
+                <EmptyState
+                  icon={<FolderIcon />}
+                  title="这一轮没有产出文件"
+                  hint="回到产物列表，换一轮看看。"
+                  action={(
+                    <Button className="artifact-summary-empty-action" onClick={onBack}>
+                      回到产物列表
                     </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  )}
+                />
+              ) : (
+                <ul className="artifact-summary-list" aria-label="本轮产物文件">
+                  {files.map(file => (
+                    <li className="artifact-summary-item" key={file.path}>
+                      <Button
+                        className="artifacts-row artifact-summary-row"
+                        title={file.path}
+                        onClick={() => { onOpenFile?.(file.path) }}
+                      >
+                        <span className="artifacts-row-name">{baseName(file.path)}</span>
+                        {file.kind === 'deliverable' ? (
+                          <span className="artifacts-row-badge artifacts-row-badge-deliverable">交付物</span>
+                        ) : (
+                          <span className="artifacts-row-badge artifacts-row-badge-produced">产物</span>
+                        )}
+                        <span className="artifacts-row-path">{file.path}</span>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         ),
-        footer: <p className="artifacts-page-hint">点了看改动内容；这里只读。</p>,
       }}
     />
   )

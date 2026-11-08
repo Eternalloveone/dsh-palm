@@ -58,14 +58,13 @@ export const approvalLayout: LayoutSpec = {
   ],
 }
 
-/** ⑧ 产物列表：标题 → 分组清单（吃剩余）→ 摘要入口。 */
+/** ⑧ 产物列表：标题 → 分组清单（吃剩余）；页脚说明已并入顶部那一句。 */
 export const artifactsLayout: LayoutSpec = {
   name: 'artifacts',
   required: ['header', 'list'],
   blocks: [
     { slot: 'header' },
     { slot: 'list', grow: true },
-    { slot: 'footer' },
   ],
 }
 

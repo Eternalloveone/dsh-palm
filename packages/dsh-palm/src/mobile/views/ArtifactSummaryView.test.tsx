@@ -24,7 +24,7 @@ describe('产物摘要页（P6 ⑨ 屏）', () => {
     render(<ArtifactSummaryView turns={turns} turn={3} onBack={() => {}} />)
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('产物·摘要')
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('第 3 轮')
-    expect(screen.getByText(/本轮 2 个文件，其中 1 个是交付物/)).toBeDefined()
+    expect(screen.getByText('本轮共 2 个文件')).toBeDefined()
     expect(screen.getByText('report.md')).toBeDefined()
     expect(screen.getByText('App.tsx')).toBeDefined()
     // 别的轮次一个文件都不许混进来。
@@ -44,7 +44,7 @@ describe('产物摘要页（P6 ⑨ 屏）', () => {
     const onBack = vi.fn()
     render(<ArtifactSummaryView turns={turns} turn={9} onBack={onBack} />)
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('第 9 轮')
-    expect(screen.getByText('本轮 0 个文件')).toBeDefined()
+    expect(screen.getByText('本轮共 0 个文件')).toBeDefined()
     expect(screen.getByText('这一轮没有产出文件')).toBeDefined()
     expect(screen.getByText('回到产物列表，换一轮看看。')).toBeDefined()
     expect(document.querySelectorAll('.artifact-summary-row')).toHaveLength(0)
@@ -60,23 +60,38 @@ describe('产物摘要页（P6 ⑨ 屏）', () => {
     expect(onOpenFile).toHaveBeenCalledWith('docs/report.md')
   })
 
-  it('交付物与工具产物用不同标签，说明只在宿主给的时候显示', () => {
+  it('交付物与工具产物用不同标签，卡片只排两行主信息', () => {
     render(<ArtifactSummaryView turns={turns} turn={3} onBack={() => {}} />)
     const delivered = screen.getByText('report.md').closest('button')
     expect(delivered?.textContent).toContain('交付物')
-    expect(delivered?.textContent).toContain('交付报告')
+    // 宿主给的 description 不再占卡片行：定版图这一屏只有 名称/标签 + 路径。
+    expect(delivered?.textContent).not.toContain('交付报告')
     const produced = screen.getByText('App.tsx').closest('button')
     expect(produced?.textContent).toContain('产物')
     expect(produced?.textContent).not.toContain('交付物')
   })
 
-  it('行里只有拿得到的信息：文件名、类型、说明、路径；不编大小与时间', () => {
+  it('行里只有拿得到的信息：文件名、类型、路径；不编大小与时间', () => {
     render(<ArtifactSummaryView turns={turns} turn={3} onBack={() => {}} />)
     const row = screen.getByText('report.md').closest('button')
-    expect(row?.textContent).toBe('report.md交付物交付报告docs/report.md')
+    // 两行主信息固定：第一行文件名 + 标签，第二行路径。
+    expect(row?.textContent).toBe('report.md交付物docs/report.md')
     // 产物流没有大小/时间字段：不出现 "12 KB"、"3 分钟前" 这类编出来的数。
     expect(row?.textContent).not.toMatch(/\d+\s*(KB|MB|B)\b/u)
     expect(row?.textContent).not.toMatch(/分钟|小时|天前/u)
+  })
+
+  it('摘要行卡与产物列表同款：名称 + 标签同一行，路径另起一行', () => {
+    render(<ArtifactSummaryView turns={turns} turn={3} onBack={() => {}} />)
+    const row = screen.getByText('report.md').closest('button')!
+    expect(row.classList.contains('artifacts-row')).toBe(true)
+    expect(row.classList.contains('artifact-summary-row')).toBe(true)
+    const parts = [...row.children].map(node => node.className)
+    expect(parts).toEqual([
+      'artifacts-row-name',
+      'artifacts-row-badge artifacts-row-badge-deliverable',
+      'artifacts-row-path',
+    ])
   })
 
   it('返回按钮交回产物列表', () => {

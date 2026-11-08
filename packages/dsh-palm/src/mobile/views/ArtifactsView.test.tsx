@@ -57,6 +57,32 @@ describe('产物列表页（P6 ⑧ 屏）', () => {
     expect(screen.getByText('src/mobile/views/App.tsx')).toBeDefined()
   })
 
+  it('每张卡是两行：文件名 + 类型标签同一行，路径另起一行且排在最后', () => {
+    render(<ArtifactsView turns={turns} onBack={() => {}} />)
+    const row = screen.getByText('App.tsx').closest('button')!
+    // DOM 顺序就是视觉顺序：第一行 name + badge，第二行 path。
+    expect([...row.children].map(node => node.className)).toEqual([
+      'artifacts-row-name',
+      'artifacts-row-badge artifacts-row-badge-produced',
+      'artifacts-row-path',
+    ])
+  })
+
+  it('分组标题可点，右侧带一个 16px 线性箭头（图标由 CSS 定尺寸）', () => {
+    render(<ArtifactsView turns={turns} onBack={() => {}} />)
+    const title = screen.getByText('第 2 轮').closest('button')!
+    const icon = title.querySelector('svg')
+    expect(icon).not.toBeNull()
+    expect(icon?.getAttribute('aria-hidden')).toBe('true')
+    expect(icon?.querySelector('path')?.getAttribute('d')).toBe('m10 6 6 6-6 6')
+  })
+
+  it('页脚说明已并入顶部那一句，不再占一条底栏', () => {
+    render(<ArtifactsView turns={turns} onBack={() => {}} />)
+    expect(document.querySelector('.artifacts-page-hint')).toBeNull()
+    expect(document.querySelector('[data-slot="footer"]')).toBeNull()
+  })
+
   it('点每轮分组标题进入这一轮的产物摘要', () => {
     const onOpenTurn = vi.fn()
     render(<ArtifactsView turns={turns} onBack={() => {}} onOpenTurn={onOpenTurn} />)
