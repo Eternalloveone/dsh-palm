@@ -1009,7 +1009,15 @@ export function SessionListView({ workspace, mux, bridge, initialSessionId, onBa
         onOpenPicker={() => { setPresetPickerOpen(true) }}
         onOpenHelp={() => { setPresetHelpOpen(true) }}
       />
-      <SessionListFilters folderFilter={folderFilter} folders={folders} onSelect={setFolderFilter} />
+      <SessionListFilters
+        folderFilter={folderFilter}
+        folders={folders}
+        onSelect={setFolderFilter}
+        counts={{
+          all: rows.length,
+          running: rows.filter(row => row.running).length,
+        }}
+      />
       <SessionListRoster
         loading={loading}
         rows={rows}

@@ -7906,6 +7906,51 @@ button.settings-row:active {
   background: var(--bg-elevated) !important;
 }
 
+
+
+/* ── 会话行状态胶囊与计数（定版图：绿=进行中 / 琥珀=待确认 / 红=出错）── */
+.sess-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--palm-s2);
+  height: 18px;
+  border-radius: var(--palm-r-full);
+  font-size: var(--palm-t-s);
+  line-height: 1;
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+}
+
+.sess-status-ok {
+  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  color: var(--palm-ok);
+}
+
+.sess-status-warn {
+  background: color-mix(in srgb, var(--palm-warn) 18%, transparent);
+  color: var(--palm-warn);
+}
+
+.sess-status-danger {
+  background: color-mix(in srgb, var(--palm-danger) 18%, transparent);
+  color: var(--palm-danger);
+}
+
+.sess-status-info {
+  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  color: var(--palm-accent);
+}
+
+.mobile-groupCount {
+  color: var(--palm-fg-3);
+  font-weight: var(--palm-w-normal);
+}
+
+.sess-chipCount {
+  margin-left: var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+}
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {

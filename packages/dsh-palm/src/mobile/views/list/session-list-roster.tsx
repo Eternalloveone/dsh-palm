@@ -65,7 +65,7 @@ export function SessionListRoster({
           return groups.map(group => {
           return (
             <li key={group.bucket} style={{ listStyle: 'none' }}>
-              <div className="mobile-groupTitle">{group.bucket}</div>
+              <div className="mobile-groupTitle">{group.bucket}<span className="mobile-groupCount"> · {group.rows.length}</span></div>
               {group.rows.map(row => {
                 const preview = row.preview ?? previewCache.get(row.sessionId)
                   ?? (row.turns !== undefined ? `${row.turns} 轮对话` : undefined)

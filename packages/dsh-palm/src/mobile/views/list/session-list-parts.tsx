@@ -129,10 +129,12 @@ export interface SessionListFiltersProps {
   folderFilter: string
   folders: SessionFoldersView | undefined
   onSelect(folderId: string): void
+  /** 每个筛选键下的会话条数（定版图：「全部 40 / 进行中 1」）。缺省就不显示数字。 */
+  counts?: Readonly<Record<string, number>> | undefined
 }
 
 /** F1: the three fixed filters plus the host-side folder chips. */
-export function SessionListFilters({ folderFilter, folders, onSelect }: SessionListFiltersProps) {
+export function SessionListFilters({ folderFilter, folders, onSelect, counts }: SessionListFiltersProps) {
   // F1: fixed filters + host-side folders. An old host has no folders, so only
   // the three fixed chips render and the list is unchanged.
   return (
