@@ -7,7 +7,7 @@
     "src/mobile/views/ChatView.tsx": 4139
   },
   "dirs": {
-    "src/mobile": 61100,
+    "src/mobile": 61300,
     "src/mobile/styles": 340,
     "src/mobile/api": 6500,
     "src/mobile/components": 2570,
@@ -25,7 +25,8 @@
     "src/mobile/stream": 2577,
     "src/mobile/ui": 1350,
     "src/mobile/views": 20640,
-    "src/mobile/wire": 246
+    "src/mobile/wire": 246,
+    "src/mobile/layouts": 260
   },
   "dirsRaised": {
     "src/mobile": {
@@ -58,6 +59,10 @@
     },
     "src/mobile/render": {
       "reason": "P4 结论卡接入 render/message-row.tsx：纯文字回合由空白改为渲染结论卡（+18 行）与 4 条行级测试；旧状态条合并后回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/layouts": {
+      "reason": "P5 布局契约：9 个屏的默认排布（纯数据）+ 7 条契约测试（必填槽恰好一次、滚动区唯一、排布可序列化）",
       "expires": "2027-03-31"
     }
   }

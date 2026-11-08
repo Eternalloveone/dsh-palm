@@ -22,6 +22,8 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { fetchLatestVersion, isNewerVersion } from './latest-version.ts'
+import { renameWithRetry } from './atomic-write.ts'
+
 
 /** 本面板所属的包。 */
 export const DEFAULT_PKG_NAME = '@eternalloveone/dsh-palm'
@@ -467,7 +469,7 @@ async function runNpmTrack(plan: UpdatePlan, ctx: {
     throw new Error(`更新没成功：${reason}，安装目录没有改动`)
   }
   try {
-    fsOps.renameSync(installedDir, retiredDir)
+    renameWithRetry(installedDir, retiredDir)
   } catch (error) {
     cleanup()
     const reason = `备份旧安装失败（${messageOf(error)}）`
@@ -499,7 +501,7 @@ async function runNpmTrack(plan: UpdatePlan, ctx: {
     let restored = true
     try {
       fsOps.rmSync(installedDir, { recursive: true, force: true })
-      fsOps.renameSync(retiredDir, installedDir)
+      renameWithRetry(retiredDir, installedDir)
     } catch {
       restored = false
     }

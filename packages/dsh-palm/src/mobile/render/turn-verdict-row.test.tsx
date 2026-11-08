@@ -23,7 +23,6 @@ function renderRow(message: RenderMessage): void {
       sessionId="s-1"
       showToolCalls={false}
       showSystemMessages={false}
-      settle
     /> as never,
   )
 }
