@@ -4,8 +4,8 @@
     "src/mobile-api.ts": 1629,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 73,
-    "src/mobile/views/ChatView.tsx": 4160,
-    "src/mobile/views/App.tsx": 1420
+    "src/mobile/views/ChatView.tsx": 4166,
+    "src/mobile/views/App.tsx": 1429
   },
   "dirs": {
     "src/mobile": 63000,
@@ -64,6 +64,16 @@
     },
     "src/mobile/layouts": {
       "reason": "P5 布局契约：9 个屏的默认排布（纯数据）+ 7 条契约测试（必填槽恰好一次、滚动区唯一、排布可序列化）",
+      "expires": "2027-03-31"
+    }
+  },
+  "filesRaised": {
+    "src/mobile/views/ChatView.tsx": {
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/views/App.tsx": {
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     }
   }

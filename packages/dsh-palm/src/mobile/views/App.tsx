@@ -123,6 +123,7 @@ import { ModelView } from './ModelView.tsx'
 import { AppearanceView } from './AppearanceView.tsx'
 import { OutlineView } from './OutlineView.tsx'
 import { ArtifactsView } from './ArtifactsView.tsx'
+import { ContextView } from './ContextView.tsx'
 import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.ts'
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
 
@@ -144,6 +145,13 @@ type Route =
     focusMessageId?: string
     focusPartId?: string
     focusQuery?: string
+  }
+  /** ⑦ 上下文占用：对话页点占用环进来，返回即弹栈回对话。 */
+  | {
+    kind: 'context'
+    session: SessionView
+    workspace: WorkspaceRow
+    usage: { contextWindow?: number; pressureTokens?: number; projectedTokens?: number }
   }
   /** ⑧ 产物列表：对话页「▤」进来，返回即弹栈回对话。 */
   | {
@@ -200,6 +208,7 @@ export function routeKeyOf(route: Route): string {
   if (route.kind === 'appearance') return 'appearance'
   if (route.kind === 'outline') return `outline:${route.session.sessionId}`
   if (route.kind === 'artifacts') return `artifacts:${route.session.sessionId}`
+  if (route.kind === 'context') return `context:${route.session.sessionId}`
   if (route.kind === 'sessions') return `sessions:${String(route.workspace.workspaceId)}`
   if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
   return route.kind
@@ -272,6 +281,9 @@ export function backTargetOf(route: Route): Route {
     case 'sub-chat':
       // 只读子会话只有一个入口：运行中页。
       return { kind: 'run-overview' }
+    case 'context':
+      // 兜底（栈里只有它）：占用属于某个会话，退回对话。
+      return { kind: 'chat', session: route.session, workspace: route.workspace }
     case 'artifacts':
       // 兜底（栈里只有它）：产物属于某个会话，退回对话。
       return { kind: 'chat', session: route.session, workspace: route.workspace }
@@ -370,7 +382,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, 'sub-chat': 2 } as const
+const ROUTE_DEPTH = { workspaces: 0, 'run-overview': 1, sessions: 1, settings: 2, chat: 2, approval: 3, diff: 3, model: 3, appearance: 3, outline: 3, artifacts: 3, context: 3, 'sub-chat': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -1283,7 +1295,12 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             {...(route.parentTitle === undefined ? {} : { parentTitle: route.parentTitle })}
             onBack={back}
           />
-          : route.kind === 'artifacts'
+          : route.kind === 'context'
+            ? <ContextView
+              {...route.usage}
+              onBack={back}
+            />
+            : route.kind === 'artifacts'
             ? <ArtifactsView
               turns={route.turns}
               onBack={back}
@@ -1345,6 +1362,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             onOpenDiff={(path) => { navigate({ kind: 'diff', session: route.session, workspace: route.workspace, path }) }}
             onOpenOutline={(turns, currentTurn) => { navigate({ kind: 'outline', session: route.session, workspace: route.workspace, turns, currentTurn }) }}
             onOpenArtifacts={(turns) => { navigate({ kind: 'artifacts', session: route.session, workspace: route.workspace, turns }) }}
+            onOpenContext={(usage) => { navigate({ kind: 'context', session: route.session, workspace: route.workspace, usage }) }}
             onOpenApproval={(approval, preview, argsText) => {
               navigate({
                 kind: 'approval',

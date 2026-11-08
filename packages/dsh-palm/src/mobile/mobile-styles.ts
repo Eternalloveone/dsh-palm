@@ -10205,4 +10205,68 @@ button.chat-turn-tail-head:active { opacity: 0.7; }
   color: var(--palm-fg-3);
   border-top: 1px solid var(--palm-line);
 }
+/* ── 上下文占用页（P6 ⑦ 屏） ───────────────────────────────────────── */
+
+.context-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--palm-bg);
+  color: var(--palm-fg);
+}
+
+.context-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--palm-s4);
+}
+
+/* 占用条：四档宽度（不用行内样式，遵守 inlineStyles 棘轮）。 */
+.context-bar {
+  height: 12px;
+  margin-bottom: var(--palm-s4);
+  background: var(--palm-sur-2);
+  border-radius: var(--palm-r-s);
+  overflow: hidden;
+}
+
+.context-bar-fill {
+  display: block;
+  height: 100%;
+  width: 25%;
+  background: var(--palm-accent);
+  border-radius: var(--palm-r-s);
+}
+
+.context-bar-fill[data-level='2'] { width: 50%; }
+.context-bar-fill[data-level='3'] { width: 75%; }
+.context-bar-fill[data-level='4'] { width: 100%; }
+
+/* 快满了换警示色：只换色，不改结构。 */
+.context-bar-fill[data-pressure='high'] { background: var(--palm-warn); }
+
+.context-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--palm-s2) var(--palm-s3);
+  margin: 0 0 var(--palm-s4);
+  font-size: var(--palm-t-m);
+}
+
+.context-facts dt {
+  color: var(--palm-fg-2);
+}
+
+.context-facts dd {
+  margin: 0;
+  font-weight: var(--palm-w-bold);
+}
+
+.context-page-note {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-3);
+}
 `;

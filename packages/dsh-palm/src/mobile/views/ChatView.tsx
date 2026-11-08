@@ -256,6 +256,8 @@ export interface ChatViewProps {
   onOpenFinished?: ((sessionId: string) => void) | undefined
   /** 收起这条提示。 */
   onDismissFinished?: (() => void) | undefined
+  /** 打开上下文占用页（P6 ⑦ 屏）；不给就还是原来的浮层。 */
+  onOpenContext?: ((usage: { contextWindow?: number; pressureTokens?: number; projectedTokens?: number }) => void) | undefined
   /** 打开产物列表页（P6 ⑧ 屏）；不给就不显示入口。 */
   onOpenArtifacts?: ((turns: readonly ArtifactTurn[]) => void) | undefined
   /** 打开回合大纲独立页（P6 ⑫ 屏）；不给就还开浮层。 */
@@ -322,6 +324,7 @@ export function ChatView({
   onOpenDiff,
   onOpenOutline,
   onOpenArtifacts,
+  onOpenContext,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
