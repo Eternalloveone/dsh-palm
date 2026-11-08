@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>极简三段式</title>
+<style>
+  :root{
+    --bg:#0b0b10; --sur:#14141b;
+    --line:rgba(255,255,255,.06);
+    --fg:#eceef5; --fg2:#9aa0ae; --fg3:#666b78;
+    --accent:#7c8cff; --ok:#3ddc84; --warn:#e0a52c;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#000;color:var(--fg);font-family:-apple-system,"SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .stage{padding:22px;width:max-content}
+  .phone{position:relative;width:390px;height:844px;border-radius:42px;overflow:hidden;background:var(--bg);box-shadow:0 26px 70px rgba(0,0,0,.7),0 0 0 9px #191920}
+  .status{height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12.5px;font-weight:600}
+  .status .i{font-size:10px;opacity:.8}
+  .nav{display:flex;align-items:center;gap:9px;padding:0 12px 2px}
+  .nb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:14px}
+  .nt{flex:1;text-align:center}
+  .nt b{display:block;font-size:15px}
+  .nt span{display:block;font-size:10px;color:var(--fg3);margin-top:1px}
+
+  .flow{position:absolute;inset:92px 0 170px;overflow:hidden;padding:8px 18px 0}
+
+  /* 一段 = 三行 */
+  .seg{padding:16px 0;border-bottom:1px solid var(--line)}
+  .seg:last-child{border-bottom:0}
+  .q{font-size:13px;color:var(--fg2);line-height:1.5;margin-bottom:8px}
+  .a{display:flex;align-items:baseline;gap:7px;font-size:15px;line-height:1.45;font-weight:500}
+  .a .st{width:7px;height:7px;border-radius:999px;background:var(--ok);flex:none;position:relative;top:-2px}
+  .a .st.run{background:var(--accent);box-shadow:0 0 0 3px rgba(124,140,255,.16)}
+  .a .tx{flex:1}
+  .a.run .tx{color:#dfe2ee}
+  .m{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:var(--fg3)}
+  .m .sep{width:3px;height:3px;border-radius:999px;background:var(--fg3);opacity:.55}
+  .m .proc{color:var(--accent);margin-left:auto}
+
+  /* 输入区 */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:6px 0 20px;background:linear-gradient(180deg,rgba(11,11,16,0),rgba(11,11,16,.98) 18%)}
+  .queue{margin:0 16px 9px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);background:rgba(224,165,44,.07);border-radius:8px;padding:7px 10px}
+  .row{display:flex;align-items:center;gap:9px;padding:0 16px}
+  .plus{width:38px;height:38px;border-radius:999px;border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:var(--fg2);font-size:17px;flex:none}
+  .field{flex:1;height:38px;border-radius:19px;background:var(--sur);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--fg3)}
+  .send{width:38px;height:38px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#0b0b12;font-weight:700;flex:none}
+  .meta{display:flex;align-items:center;gap:8px;padding:9px 20px 0;font-size:11px;color:var(--fg3)}
+  .meta .set{display:inline-flex;align-items:center;gap:5px;color:var(--fg2)}
+  .meta .right{margin-left:auto;display:inline-flex;align-items:center;gap:10px}
+  .ring{width:11px;height:11px;border-radius:999px;border:2px solid rgba(124,140,255,.3);border-top-color:var(--accent);display:inline-block}
+  .meta .stt{display:inline-flex;align-items:center;gap:4px;color:var(--fg2);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="status"><span>9:41</span><span class="i">●●● ▮</span></div>
+    <div class="nav"><div class="nb">☰</div><div class="nt"><b>修复移动端跳转</b><span>dsh-palm</span></div><div class="nb">⋯</div></div>
+
+    <div class="flow">
+
+      <div class="seg">
+        <div class="q">帮我查一下为什么点消息里的链接跳不到对应位置</div>
+        <div class="a run"><span class="st run"></span><span class="tx">正在改跳转收尾逻辑</span></div>
+        <div class="m"><span>已走 4 步</span><span class="sep"></span><span>改 1 个文件</span><span class="proc">过程 ›</span></div>
+      </div>
+
+      <div class="seg">
+        <div class="q">上一轮修好的按钮，窄屏又塌了</div>
+        <div class="a"><span class="st"></span><span class="tx">跳转窗口收尾重做，命中率 9/11</span></div>
+        <div class="m"><span>12.4s</span><span class="sep"></span><span>改 12 个文件</span><span class="sep"></span><span>1 个交付物</span><span class="proc">过程 ›</span></div>
+      </div>
+
+      <div class="seg">
+        <div class="q">工具栏按钮在窄屏下塌成两行</div>
+        <div class="a"><span class="st"></span><span class="tx">改成单行溢出滚动，不再换行</span></div>
+        <div class="m"><span>8s</span><span class="sep"></span><span>改 2 个文件</span><span class="proc">过程 ›</span></div>
+      </div>
+
+      <div class="seg">
+        <div class="q">顺手把设置页的分组间距收紧一点</div>
+        <div class="a"><span class="st"></span><span class="tx">分组间距 16 → 12，卡片圆角 12</span></div>
+        <div class="m"><span>4.1s</span><span class="sep"></span><span>改 1 个文件</span><span class="proc">过程 ›</span></div>
+      </div>
+
+    </div>
+
+    <div class="dock">
+      <div class="queue">⧉ 2 条排队，当前任务结束后按顺序执行</div>
+      <div class="row"><div class="plus">+</div><div class="field">说点什么…（打断当前任务）</div><div class="send">↑</div></div>
+      <div class="meta"><span class="set">⚙ v4.1-flash · 完全访问 ⌄</span><span class="right"><span class="stt">⏱ 00:12</span><span class="stt"><span class="ring"></span>44%</span></span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
