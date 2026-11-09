@@ -246,7 +246,7 @@ export function StatusStrip({
           <b data-part="label">{label}</b>
           {mini || detail === undefined ? null : <span data-part="detail">{detail}</span>}
         </span>
-        {mini || right === undefined ? null : <span data-part="right">{right}</span>}
+        {mini || right === undefined ? null : <span data-part="right" data-role="strip-time">{right}</span>}
       </span>
     </div>
   )

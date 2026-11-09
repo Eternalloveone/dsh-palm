@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 /**
  * 过程卡（工具调用块）的渲染契约 —— 2026-11-08 按对照稿重排后：
- * 1. 独立一张卡：标题行「跑了 N 个工具」+ 右侧总耗时；
+ * 1. 独立一张卡：标题行「12 次工具调用 · 2 处报错」（计时与状态词只在任务头状态条）；
  * 2. 工具行**默认可见**（以前藏在折叠体里）：彩色状态点 + 动作 · 对象 + 状态词，
  *    状态只认宿主真报过的（ok / running / error / stopped），没有就是灰点；
  * 3. 展开体只放思考、叙述文本与 diff 卡，答案永远在卡外；
- * 4. 关掉"显示工具调用"只藏工具行，不挡思考、用时与 diff 卡；
+ * 4. 关掉"显示工具调用"只藏工具行，不挡思考与 diff 卡；
  * 5. 报错信号是纯文字（「2 处报错」），不用 ⚠ 之类的字形；
- * 6. 步数进展开体（「共 N 步」），卡面只有工具数与总耗时。
+ * 6. 步数进展开体（「共 N 步」），卡面只有工具数。
  */
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -53,14 +53,16 @@ describe('过程卡：独立一张卡，标题行 + 常显工具行', () => {
     tools: [diffTool],
   })
 
-  it('标题行单行：跑了几个工具 + 右侧总耗时；工具行默认可见，答案在卡外', () => {
+  it('标题行单行：跑了几个工具 + 几处报错（没有耗时）；工具行默认可见，答案在卡外', () => {
     const { container } = renderRow(message)
 
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
     expect(head.getAttribute('aria-expanded')).toBe('false')
     expect(head.querySelectorAll('.chat-proc-line')).toHaveLength(1)
     expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时6分24秒')
+    // 计时只在任务头状态条：过程头不再挂「用时 X」。
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
+    expect(head.textContent).not.toContain('用时')
     // 卡面没有步数（步数进展开体）。
     expect(head.textContent).not.toContain('步')
 
@@ -103,12 +105,12 @@ describe('过程卡：独立一张卡，标题行 + 常显工具行', () => {
     expect(body.querySelector('.chat-artifact')).not.toBeNull()
   })
 
-  it('关掉"显示工具调用"：只藏工具行，思考、用时与 diff 卡都还在', () => {
+  it('关掉"显示工具调用"：只藏工具行，思考与 diff 卡都还在（头行不借状态词补位）', () => {
     const { container } = renderRow(message, false)
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    // 工具行藏了 ⇒ 标题退回状态词，不声称"跑了 N 个工具"。
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时6分24秒')
+    // 工具行藏了 ⇒ 不声称"跑了 N 个工具"，也不拿状态词补位：落「—」。
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
     expect(container.querySelectorAll('.chat-step')).toHaveLength(0)
 
     fireEvent.click(head)
@@ -134,11 +136,11 @@ describe('过程行：默认只露最近 3 条（2026-11-08 实机投诉：12 �
     tools: toolsOf(12),
   })
 
-  it('12 次工具调用：头行照报总数与总耗时，正文只列最近 3 步 + 「还有 9 步 ›」', () => {
+  it('12 次工具调用：头行照报总数（无耗时），正文只列最近 3 步 + 「还有 9 步 ›」', () => {
     const { container } = renderRow(twelve)
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
     expect(head.querySelector('.chat-proc-state')!.textContent).toBe('12 次工具调用')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时42分3秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
 
     // 折叠行 + 最近 3 行，一行一步。
     expect(container.querySelectorAll('.chat-proc-tools > .chat-step')).toHaveLength(4)
@@ -202,15 +204,15 @@ describe('过程卡：答案按步骤切在卡外', () => {
     expect(inGroup.textContent).not.toContain('改完了')
   })
 
-  it('纯文本回合没有过程行：头是静态的，照样显示用时', () => {
+  it('纯文本回合没有过程行：头是静态的，只剩「—」（计时归任务头状态条）', () => {
     const { container } = renderRow(assistant({ text: '就一句话', durationMs: 19_000 }))
 
     const head = container.querySelector('.chat-proc-head-static') as HTMLElement
     expect(head).not.toBeNull()
     expect(head.getAttribute('role')).toBe('status')
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时19秒')
-    expect(head.getAttribute('aria-label')).toBe('已完成，用时19秒')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
+    expect(head.getAttribute('aria-label')).toBe('—')
     expect(head.querySelector('.chat-proc-caret')).toBeNull()
     expect(head.getAttribute('aria-expanded')).toBeNull()
     expect(container.querySelectorAll('button.chat-proc-head')).toHaveLength(0)
@@ -231,7 +233,7 @@ describe('过程卡：四态与报错信号', () => {
     const head = container.querySelector('.chat-proc-head') as HTMLElement
     expect(head.getAttribute('data-state')).toBe('failed')
     expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时5秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
     // 工具本身是完成的：行上照实写"完成"，不因整轮失败而冒充工具失败。
     expect(container.querySelector('.chat-step-state')!.textContent).toBe('完成')
   })
@@ -257,7 +259,7 @@ describe('过程卡：四态与报错信号', () => {
     expect(stopped.container.querySelector('.chat-step-state')!.textContent).toBe('已中断')
   })
 
-  it('有报错步骤 ⇒ 纯文字报错标记；位置在状态词之后、用时之前，不用 ⚠', () => {
+  it('有报错步骤 ⇒ 纯文字报错标记；位置在计数之后，不再有耗时段，不用 ⚠', () => {
     const { container } = renderRow(assistant({
       text: '答案',
       durationMs: 5_000,
@@ -274,8 +276,9 @@ describe('过程卡：四态与报错信号', () => {
     expect(marker.textContent).toBe('2 处报错')
     const line = head.querySelector('.chat-proc-label') as HTMLElement
     expect(Array.from(line.children).map(el => (el as HTMLElement).className.split(' ')[0]))
-      .toEqual(['palm-proc-main', 'palm-proc-note', 'palm-proc-time'])
+      .toEqual(['palm-proc-main', 'palm-proc-note'])
     expect(head.textContent).not.toContain('⚠')
+    expect(head.textContent).not.toContain('用时')
   })
 
   it('无报错步骤 ⇒ 完全不出现报错标记（不留空占位）', () => {
@@ -299,7 +302,8 @@ describe('过程卡：四态与报错信号', () => {
     }))
 
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时1分45秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
+    expect(head.textContent).not.toContain('用时')
     expect(head.textContent).not.toContain('步')
     expect(container.querySelector('.chat-step-tally')).toBeNull()
     expect(container.querySelector('.chat-step-tally-add')).toBeNull()
@@ -310,10 +314,10 @@ describe('过程卡：四态与报错信号', () => {
   })
 })
 
-describe('过程卡：运行中与秒表', () => {
+describe('过程卡：运行中（计时已收进任务头状态条）', () => {
   const runningTool: ToolCallInfo = { callId: 'c1', name: 'bash', state: 'running', arguments: '{"cmd":"pytest -q"}' }
 
-  it('运行中：根节点带 chat-proc-running，蓝点 + 运行中，不足 3 秒不报秒数', () => {
+  it('运行中：根节点带 chat-proc-running，蓝点 + 运行中，头行仍然不报秒', () => {
     const { container } = renderRow(assistant({
       text: '',
       pending: true,
@@ -332,7 +336,7 @@ describe('过程卡：运行中与秒表', () => {
     expect(container.querySelector('.chat-step-state')!.textContent).toBe('运行中')
   })
 
-  it('运行中：过了 3 秒阈值才报实时用时', () => {
+  it('运行中：过了 3 秒阈值也不在过程头报用时（同一屏只留状态条那一个计时）', () => {
     const { container } = renderRow(assistant({
       text: '',
       pending: true,
@@ -342,10 +346,11 @@ describe('过程卡：运行中与秒表', () => {
     }))
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
     expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时3分33秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
+    expect(head.textContent).not.toMatch(/\d+分\d+秒|\d+(\.\d+)?s/)
   })
 
-  it('宿主按步发消息：pending 已落下但还有工具在跑，仍是运行中（秒表不消失）', () => {
+  it('宿主按步发消息：pending 已落下但还有工具在跑，仍是运行中', () => {
     const { container } = renderRow(assistant({
       text: '',
       pending: false,
@@ -356,7 +361,7 @@ describe('过程卡：运行中与秒表', () => {
 
     expect(container.querySelector('.chat-proc')!.className).toContain('chat-proc-running')
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时3分33秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
     expect(container.querySelector('.chat-step-state')!.textContent).toBe('运行中')
   })
 })
@@ -374,37 +379,17 @@ describe('过程卡：按步定格的行靠"活跃轮次"判还在跑（真机 1
     ...overrides,
   })
 
-  it('① 活跃轮次里的定格行：卡带 chat-proc-running、过 3 秒报实时用时；工具行仍是"完成"', () => {
+  it('① 活跃轮次里的定格行：卡带 chat-proc-running；头行仍只报计数；工具行仍是"完成"', () => {
     const { container } = renderRow(frozenStep({ turnStartAt: Date.now() - 213_000 }), true, 7)
 
     expect(container.querySelector('.chat-proc')!.className).toContain('chat-proc-running')
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
     expect(head.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时3分33秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
     expect(container.querySelector('.chat-step-state')!.textContent).toBe('完成')
   })
 
-  it('① 行自己没有 turnStartAt 时，页级锚点兜住秒表', () => {
-    const { container } = render(
-      <MessageRow
-        message={frozenStep()}
-        showToolCalls={true}
-        showSystemMessages={false}
-        liveTurn={7}
-        liveTurnStartAt={Date.now() - 95_000}
-      />,
-    )
-    const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时1分35秒')
-  })
-
-  it('① 连页级锚点都没有 ⇒ 不报秒表（锚点只认宿主时间）', () => {
-    const { container } = renderRow(frozenStep({ firstSeenAt: Date.now() - 4_000 }), true, 7)
-    const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-time')).toBeNull()
-  })
-
-  it('② turn/end 到了（活跃轮次翻走）⇒ 卡立刻落定，秒表定格', () => {
+  it('② turn/end 到了（活跃轮次翻走）⇒ 卡立刻落定；过程头始终不带耗时', () => {
     const live = renderRow(frozenStep(), true, 7)
     expect(live.container.querySelector('.chat-proc')!.className).toContain('chat-proc-running')
     live.unmount()
@@ -412,7 +397,8 @@ describe('过程卡：按步定格的行靠"活跃轮次"判还在跑（真机 1
     const { container } = renderRow(frozenStep({ durationMs: 105_000 }), true, 8)
     expect(container.querySelector('.chat-proc')!.className).not.toContain('chat-proc-running')
     const head = container.querySelector('.chat-proc-head') as HTMLButtonElement
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时1分45秒')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
+    expect(head.textContent).not.toContain('用时')
   })
 })
 
@@ -434,7 +420,7 @@ describe('过程卡：续跑不编造', () => {
 })
 
 describe('交付卡：全页唯一的一张卡', () => {
-  it('卡头 + 交付物 + 产出文件常显；数量与耗时口径对齐定版图', () => {
+  it('卡头 + 交付物 + 产出文件常显；只剩数量口径（时长归状态条）', () => {
     const { container } = renderRow({
       id: 'turn-tail:0',
       kind: 'turn',
@@ -448,14 +434,16 @@ describe('交付卡：全页唯一的一张卡', () => {
     })
 
     expect(container.querySelector('.palm-delivery')).not.toBeNull()
-    // 卡头：✓ 交付完成 + 耗时（不再默认折叠，也不再写「本轮产出」）。
+    // 卡头：✓ 交付完成（不再默认折叠，也不再写「本轮产出」）；时长只在任务头状态条，
+    // 卡面没有第二只表 —— 没有步数时 meta 整块不渲染。
     expect(container.querySelector('.palm-delivery-title')!.textContent).toBe('交付完成')
-    expect(container.querySelector('.palm-delivery-meta')!.textContent).toBe('6分24秒')
+    expect(container.querySelector('.palm-delivery-meta')).toBeNull()
+    expect(container.textContent).not.toMatch(/\d+分\d+秒|\d+(\.\d+)?s\b/)
     // 明细：交付物 + 产出文件各一行，带各自的类型标签。
     expect(container.textContent).toContain('交付报告')
     expect(container.textContent).toContain('src/a.ts')
     expect(container.querySelector('.palm-delivery-tag')!.textContent).toBe('交付物')
-    // 汇总行给真实文件数；「用时」二字只属于过程头，不在卡里重复。
+    // 汇总行给真实文件数；卡里不写「用时」二字（过程头也不报了，计时只在状态条）。
     expect(container.querySelector('.palm-delivery-sum')!.textContent).toContain('2 个文件')
     expect(container.textContent).not.toContain('用时')
   })

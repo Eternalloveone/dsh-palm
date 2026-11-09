@@ -228,17 +228,37 @@ async function findProcHead(): Promise<HTMLButtonElement> {
   })
 }
 
-/** 过程卡的头：有过程行时是 button，纯文本回合是静态 div —— 秒表都在第一行。 */
+/** 过程卡的头：有过程行时是 button，纯文本回合是静态 div。 */
 function procHeadEl(): HTMLElement {
   return document.querySelector('.chat-proc-head') as HTMLElement
 }
 
-/** 折叠头：一行「跑了 N 个工具 + 右侧总耗时」（无工具时是状态词）。 */
+/** 折叠头：一行「N 次工具调用 · M 处报错」（没有计数时是「—」）。 */
 function procStateOf(head: HTMLElement): string {
   return head.querySelector('.chat-proc-state')?.textContent ?? ''
 }
+/** 过程头**永远不带计时**：`data-role="strip-time"` 只在任务头状态条里。 */
 function procTimeOf(head: HTMLElement): string {
   return head.querySelector('.chat-proc-time')?.textContent ?? ''
+}
+
+/** 状态词与计时唯一的落点：任务头状态条（最后一枚 = 最新一轮）。 */
+function lastStrip(): HTMLElement | null {
+  const strips = document.querySelectorAll('.palm-strip')
+  return strips.length === 0 ? null : strips[strips.length - 1] as HTMLElement
+}
+/** 状态条的计时文案（没渲染时是空串）。 */
+function stripTimeOf(): string {
+  return lastStrip()?.querySelector('[data-role="strip-time"]')?.textContent ?? ''
+}
+/** 状态条的文案（状态词 + 步数）。 */
+function stripLabelOf(): string {
+  return lastStrip()?.querySelector('[data-part="label"]')?.textContent ?? ''
+}
+/** 状态条计时换算成秒：读数是 0.1 秒精度，断言留 ±0.5 秒的调度抖动。 */
+function stripSeconds(): number {
+  const match = /^([\d.]+)s$/.exec(stripTimeOf())
+  return match === null ? Number.NaN : Number(match[1])
 }
 
 /** One history entry with a host presentation view riding beside the event. */
@@ -607,11 +627,11 @@ describe('ChatView message folds', () => {
 
     // 真时钟下不用 settleLiveFold（它要假时钟）：findByText 自己会等 rAF 合并那一拍。
     // 300 秒（真起点 0 秒 → 收工 300 秒）；退回窗口最早一行只会是 170 秒。
-    expect(await screen.findByText('用时5分0秒')).toBeTruthy()
-    expect(screen.queryByText('用时2分50秒')).toBeNull()
+    expect(await screen.findByText('5分0秒')).toBeTruthy()
+    expect(screen.queryByText('2分50秒')).toBeNull()
   })
 
-  it('renders the turn tail as a file report (the duration lives in the process head) at the end of the turn', async () => {
+  it('renders the turn tail as a file report (the duration lives in the status strip) at the end of the turn', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([
       makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '写报告' }] }, 0),
       makeEntry('turn/start', { turn: 1 }, 1),
@@ -626,13 +646,13 @@ describe('ChatView message folds', () => {
     seedHostAuthority(false)
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    // The turn clock belongs to the non-interactive process head (this turn
-    // ran no steps, so the head is a plain status line).
-    const clock = await screen.findByText('用时3秒')
-    const staticHead = clock.closest('.chat-proc-head-static') as HTMLElement
+    // 计时只属于任务头状态条（这一轮没有步骤 ⇒ 过程头是静态的，只画「—」）。
+    await waitFor(() => { expect(stripSeconds()).toBeCloseTo(3, 0) })
+    const staticHead = container.querySelector('.chat-proc-head-static') as HTMLElement
     expect(staticHead?.tagName).toBe('DIV')
     expect(staticHead?.getAttribute('aria-expanded')).toBeNull()
-    expect(procStateOf(staticHead)).toBe('已完成')
+    expect(procStateOf(staticHead)).toBe('—')
+    expect(procTimeOf(staticHead)).toBe('')
     // 只有时钟、没有过程行 ⇒ 第二行不渲染（静态头只有一行）。
     expect(staticHead.querySelectorAll('.chat-proc-line')).toHaveLength(1)
 
@@ -640,7 +660,7 @@ describe('ChatView message folds', () => {
     const tail = await screen.findByText('交付完成')
     expect(tail.closest('.chat-turn-tail')).not.toBeNull()
     expect(container.querySelector('.palm-delivery-sum')!.textContent).toContain('1 个文件')
-    // 用时不再在尾巴里重复报（它只在过程卡第一行，见上）。
+    // 用时不再在尾巴里重复报（它只在任务头状态条，见上）。
     expect(tail.closest('.chat-turn-tail')!.textContent).not.toContain('用时')
     // 明细行自带类型标签；旧的「本轮产出文件」分组标题已经随折叠卡一起删掉。
     expect(screen.queryByText('本轮产出文件')).toBeNull()
@@ -2234,7 +2254,7 @@ describe('ChatView display toggles and context usage', () => {
       expect(procStateOf(head)).toBe('3 次工具调用')
       // 3 个工具全在（D2，展开体首行报步数），用时定格在真机那段 1分45秒。
       // 旧期望值 '用时1分45秒 · 3 步' → P11 新口径：卡面第一行只有用时。
-      expect(procTimeOf(head)).toBe('用时1分45秒')
+      expect(procTimeOf(head)).toBe('')
       expect(head.textContent).not.toContain('步')
       // 一轮一卡：最后一步的文本在组外当答案，前两步的叙述留在组内。
       const answer = container.querySelector('.chat-flow-answer') as HTMLElement
@@ -3039,8 +3059,8 @@ describe('ChatView stop button (#1041)', () => {
       const head = procHeadEl()
       expect(head).not.toBeNull()
       expect(head.className).toContain('chat-proc-head-static')
-      expect(head.getAttribute('aria-label')).toBe('深度求索中')
-      expect(procStateOf(head)).toBe('深度求索中')
+      expect(head.getAttribute('aria-label')).toBe('—')
+      expect(head.getAttribute('data-state')).toBe('running')
       expect(head.querySelector('.chat-proc-time')).toBeNull()
 
       // The host goes unreachable: every reconciliation probe fails. A single
@@ -3061,8 +3081,8 @@ describe('ChatView stop button (#1041)', () => {
       expect(turnStatusEl()).toBeNull()
       expect(document.querySelector('.chat-turn-time')).toBeNull()
       // 秒表还在走，而且在过程卡第一行：网络抖动没把它清零。
-      expect(procStateOf(head)).toBe('深度求索中')
-      expect(procTimeOf(head)).toBe('用时30秒')
+      expect(head.getAttribute('data-state')).toBe('running')
+      expect(stripSeconds()).toBeCloseTo(30, 0)
       // The turn is deliberately still open - that is the whole point: the
       // composer keeps offering 停止 instead of falling back to 发送.
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
@@ -3075,11 +3095,11 @@ describe('ChatView stop button (#1041)', () => {
       } as SessionPage)
       await vi.advanceTimersByTimeAsync(10_000)
       act(() => { seedHostAuthority(true) })
-      expect(procTimeOf(head)).toBe('用时40秒')
+      expect(stripSeconds()).toBeCloseTo(40, 0)
       emitChunk(mux, 41, Date.now())
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(turnStatusEl()).toBeNull()
-      expect(procTimeOf(head)).toBe('用时40秒')
+      expect(stripSeconds()).toBeCloseTo(40, 0)
     } finally {
       vi.useRealTimers()
     }
@@ -4982,17 +5002,14 @@ describe('ChatView run-status strip (todo/write)', () => {
   })
 })
 
-describe('ChatView turn clock（过程卡第一行的秒表）', () => {
+describe('ChatView turn clock（状态条唯一的秒表）', () => {
   const T0 = 1_700_000_000_000
 
-  /** 最后一条助手行里的过程卡头 —— 秒表唯一出现在它的第一行。 */
+  /** 最后一条助手行里的过程卡头 —— 只报计数，计时归任务头状态条。 */
   const lastProcHead = (): HTMLElement => {
     const rows = document.querySelectorAll('.chat-msg-assistant')
     return (rows[rows.length - 1] as HTMLElement).querySelector('.chat-proc-head') as HTMLElement
   }
-  /** 卡第一行的时间半句（没渲染时是空串）。 */
-  const procTime = (head: HTMLElement = lastProcHead()): string =>
-    head.querySelector('.chat-proc-time')?.textContent ?? ''
 
   /** 一页"进行中的回合"：turn/start＋一枚文本 chunk（没有 assistant/message 就
    *  不会收尾）。行的锚点因此就是日志里的 turn/start 时间 —— 重载进一个已经跑了
@@ -5002,7 +5019,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
     makeEntryAt('assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: '在写' } }, 2, chunkAt),
   ], { turnStartAt: startedAt })
 
-  it('shows the elapsed clock only once the turn has run past the 3s threshold', async () => {
+  it('状态条从第一秒就报实时计时，收工后定格（过程头不再挂秒表）', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
     seedHostAuthority(true)
@@ -5012,35 +5029,36 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(T0)
-      // A young turn (2s in): the state word only, no clock yet.
+      // 2 秒的年轻回合：状态条已经报 2s（计时在状态条，不在过程头）。
       emitTurnStart(mux, 60, Date.now() - 2_000)
       emitChunk(mux, 61, Date.now())
       await settleLiveFold()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
-      expect(procTime()).toBe('')
-      expect(lastProcHead().getAttribute('aria-label')).toBe('深度求索中')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
+      expect(stripLabelOf()).toBe('思考')
+      expect(stripSeconds()).toBeCloseTo(2, 0)
+      expect(lastProcHead().getAttribute('aria-label')).toBe('—')
 
-      // 正文里没有「输出中」也没有任何秒表：这一轮在跑，但页面只有过程卡那
-      // 一行在说（P4 起秒表就只在过程卡第一行）。
+      // 正文里没有「输出中」；计时只在任务头状态条那一处。
       expect(turnStatusEl()).toBeNull()
       expect(document.querySelector('.chat-turn-time')).toBeNull()
 
       // A turn started 20s ago (anchor from the logged turn/start, desktop
-      // parity): the clock appears with the true elapsed duration.
+      // parity): the clock shows the true elapsed duration.
       emitTurnStart(mux, 62, T0 - 20_000, 1)
       emitChunk(mux, 63, T0, 1)
       await settleLiveFold()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
-      expect(procTime()).toBe('用时20秒')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
+      expect(stripSeconds()).toBeCloseTo(20, 0)
 
       // turn/end stamps the frozen duration and ends the turn;
-      // the settled card keeps reporting what the turn cost.
+      // the settled strip keeps reporting what the turn cost.
       emitSessionFrame(mux, 'turn/end', 64, T0, { turn: 1 })
       await settleLiveFold()
       expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
       expect(turnStatusEl()).toBeNull()
-      expect(procStateOf(lastProcHead())).toBe('已完成')
-      expect(procTime()).toBe('用时20秒')
+      expect(lastProcHead().getAttribute('data-state')).toBe('ok')
+      expect(stripLabelOf()).toBe('完成')
+      expect(stripSeconds()).toBeCloseTo(20, 0)
     } finally {
       vi.useRealTimers()
     }
@@ -5061,14 +5079,14 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       // 读数 = 20 + 4 = 24 秒。
       emitChunk(mux, 71, T0 + 4_000, 1)
       await settleLiveFold()
-      expect(procTime()).toBe('用时24秒')
+      expect(stripSeconds()).toBeCloseTo(24, 0)
 
       // 紧接着一帧慢包：它的样本被延迟压低 4 秒。每帧直接覆盖偏移的话，
       // 秒表会当场从 24 秒掉回 20 秒（再来一帧又跳回去 —— 就是"节奏很怪"）。
       // 取窗口内最大值后，慢包只是没被采纳，读数不动。
       emitChunk(mux, 72, T0, 1)
       await settleLiveFold()
-      expect(procTime()).toBe('用时24秒')
+      expect(stripSeconds()).toBeCloseTo(24, 0)
     } finally {
       vi.useRealTimers()
     }
@@ -5091,15 +5109,15 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       // ticks once on the frozen clock — 90s of real elapsed, not mount time.
       await flushPageLoad()
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
-      expect(procTime()).toBe('用时1分30秒')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
+      expect(stripTimeOf()).toBe('1分30秒')
 
       // A live turn/end closes the turn: the card freezes the duration it counted.
       emitSessionFrame(mux, 'turn/end', 60, T0, { turn: 0 })
       await settleLiveFold()
       expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
-      expect(procStateOf(lastProcHead())).toBe('已完成')
-      expect(procTime()).toBe('用时1分30秒')
+      expect(lastProcHead().getAttribute('data-state')).toBe('ok')
+      expect(stripTimeOf()).toBe('1分30秒')
 
       // A fresh turn/start re-anchors: the new row's clock counts from ITS
       // start, not from the previous turn's elapsed.
@@ -5107,7 +5125,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       emitChunk(mux, 62, T0, 1)
       await settleLiveFold()
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
-      expect(procTime()).toBe('用时5秒')
+      expect(stripSeconds()).toBeCloseTo(5, 0)
     } finally {
       vi.useRealTimers()
     }
@@ -5131,7 +5149,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       expect(procStateOf(lastProcHead())).toBe('1 次工具调用')
-      expect(procTime()).toBe('用时1分29秒')
+      expect(stripTimeOf()).toBe('1分29秒')
     } finally {
       vi.useRealTimers()
     }
@@ -5147,14 +5165,14 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
   }
   function stateAt(index: number): string {
     const head = procHeadAt(index)
-    return head === null ? '' : procStateOf(head)
+    return head === null ? '' : (head.getAttribute('data-state') ?? '')
   }
   /** 当前还在跑的过程卡数量：任何时刻最多 1 张。 */
   function liveCount(): number {
     return Array.from(document.querySelectorAll('.chat-msg-assistant'))
       .filter(row => {
         const head = row.querySelector('.chat-proc-head')
-        return head !== null && procStateOf(head as HTMLElement) === '深度求索中'
+        return head !== null && head.getAttribute('data-state') === 'running'
       }).length
   }
 
@@ -5171,7 +5189,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       emitTurnStart(mux, 300, T0 - 5_000, 0)
       emitChunk(mux, 301, T0 - 4_000, 0)
       await settleLiveFold()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
 
       // 插话：用户行比锚点新，但轮号没变 —— 这一轮还在跑。
       emitSessionFrame(mux, 'user/message', 302, T0 - 1_000, { id: 'u-steer', role: 'user', content: [{ type: 'text', text: '顺便再改一处' }] })
@@ -5182,8 +5200,8 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       // 过程卡按回合归属：插话把这一轮切成两段之后，卡挂在**本轮第一段**上，
       // 后段只画正文（否则同一轮会出现两张卡）。所以这里不再断言「最后一张卡」，
       // 而是断言「这一轮的卡还在，且仍在跑」。
-      const heads = [...document.querySelectorAll('.chat-proc-head')].map(head => procStateOf(head as HTMLElement))
-      expect(heads).toContain('深度求索中')
+      const heads = [...document.querySelectorAll('.chat-proc-head')].map(head => head.getAttribute('data-state'))
+      expect(heads).toContain('running')
       expect(liveCount()).toBeGreaterThanOrEqual(1)
     } finally {
       vi.useRealTimers()
@@ -5202,7 +5220,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       emitTurnStart(mux, 400, T0 - 90_000, 0)
       emitChunk(mux, 401, T0 - 89_000, 0)
       await settleLiveFold()
-      expect(stateAt(0)).toBe('深度求索中')
+      expect(stateAt(0)).toBe('running')
       expect(liveCount()).toBe(1)
 
       // 排队第一条被认领（边界帧全丢，只有新一轮的行到）。
@@ -5212,7 +5230,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
         message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '第一条已处理' }] },
       })
       await settleLiveFold()
-      expect(stateAt(0)).not.toBe('深度求索中')
+      expect(stateAt(0)).not.toBe('running')
       expect(liveCount()).toBe(0)
 
       // 排队第二条被认领。
@@ -5222,7 +5240,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
         message: { id: 'a-2', role: 'assistant', content: [{ type: 'text', text: '第二条在处理' }] },
       })
       await settleLiveFold()
-      expect(stateAt(0)).not.toBe('深度求索中')
+      expect(stateAt(0)).not.toBe('running')
       expect(liveCount()).toBe(0)
     } finally {
       vi.useRealTimers()
@@ -5241,16 +5259,16 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       emitTurnStart(mux, 500, T0 - 50_000, 0)
       emitChunk(mux, 501, T0 - 49_000, 0)
       await settleLiveFold()
-      expect(stateAt(0)).toBe('深度求索中')
+      expect(stateAt(0)).toBe('running')
 
       emitSessionFrame(mux, 'turn/end', 502, T0 - 20_000, { turn: 0 })
       emitTurnStart(mux, 503, T0 - 1_000, 1)
       emitChunk(mux, 504, T0, 1)
       await settleLiveFold()
 
-      expect(stateAt(0)).not.toBe('深度求索中')
+      expect(stateAt(0)).not.toBe('running')
       expect(liveCount()).toBe(1)
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
     } finally {
       vi.useRealTimers()
     }
@@ -5358,7 +5376,7 @@ describe('ChatView stale turn boundary', () => {
       emitTurnStart(mux, 200, T0 - 40_000)
       emitChunk(mux, 201, T0 - 39_000)
       await settleLiveFold()
-      expect(procStateOf(lastProcHead())).not.toBe('已完成')
+      expect(lastProcHead().getAttribute('data-state')).not.toBe('ok')
 
       // 新一轮开始：用户消息 + 新一轮的行都在，唯独 turn/end 和 turn/start 没到。
       emitSessionFrame(mux, 'user/message', 202, T0 - 1_000, {
@@ -5454,7 +5472,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       // 水合前（还没有本会话的宿主快照）：过程条不写状态词、不报耗时 —— 只「—」。
       expect(procStateOf(lastProcHead())).toBe('—')
-      expect(procTime()).toBe('')
+      expect(stripTimeOf()).toBe('')
       // The running-reconcile probe (RUNNING_RECONCILE_MS) reads the tail: the
       // turn is still open, so the clock keeps counting and never restarts.
       act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
@@ -5468,12 +5486,12 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       // 秒表在过程卡第一行，锚点还是 live 帧的 turn/start（T0-2s）：
       // 2s + 10.05s = 12s，绝不被探针清零重来。
       act(() => { seedHostAuthority(true) })
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
       expect(turnStatusEl()).toBeNull()
-      expect(procTime()).toBe('用时12秒')
+      expect(stripSeconds()).toBeCloseTo(12, 0)
       // 探针之后秒表继续往前走（没有被清零回 0）。
       act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
-      expect(procTime()).toBe('用时22秒')
+      expect(stripSeconds()).toBeCloseTo(22, 0)
     } finally {
       vi.useRealTimers()
     }
@@ -5505,7 +5523,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       await settleLiveFold()
       // 水合前：探针还没跑、快照还没到，过程条只画「—」。
       expect(procStateOf(lastProcHead())).toBe('—')
-      expect(procTime()).toBe('')
+      expect(stripTimeOf()).toBe('')
       // 静默满一个 reconcile 周期：探针读历史尾巴，读到窗口外的 turn/start，
       // 页级锚点因此被取回 —— 秒表从 0 秒跳到「日志起点起算」的 1分40秒
       // （90s 日志 + 10s 静默周期），而不是 firstSeenAt 的 10 秒。
@@ -5513,8 +5531,8 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       await flushPageLoad()
       // 权威快照此时落到同一个切面：结论资格放开，秒表用探针取回的页级锚点。
       act(() => { seedHostAuthority(true) })
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
-      expect(procTime()).toBe('用时1分40秒')
+      expect(lastProcHead().getAttribute('data-state')).toBe('running')
+      expect(stripTimeOf()).toBe('1分40秒')
     } finally {
       vi.useRealTimers()
     }
@@ -5549,7 +5567,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       await settleLiveFold()
       act(() => { vi.advanceTimersByTime(1_000) })
       // 660 秒 + 1 秒 = 11分1秒。锚点若认 time（=T0）这里只会数出 1 秒，正是那个 bug。
-      expect(procTime()).toBe('用时11分1秒')
+      expect(stripTimeOf()).toBe('11分1秒')
     } finally {
       vi.useRealTimers()
     }
@@ -5785,7 +5803,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       // Anchor from the page: 60s elapsed on the (uncalibrated) phone clock.
-      expect(procTime()).toBe('用时1分0秒')
+      expect(stripTimeOf()).toBe('1分0秒')
       // The host clock is 3s AHEAD of the phone: a live content frame
       // reports host time T0 + 3s (turn/start frames are excluded from the
       // calibration, content frames are not).
@@ -5796,12 +5814,12 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       })
       await settleLiveFold()
       // 校准后立刻重算：60s 锚点 + 3s 宿主超前 = 1分3秒。
-      expect(procTime()).toBe('用时1分3秒')
+      expect(stripTimeOf()).toBe('1分3秒')
       // One tick later (fake now advanced 1s): elapsed counts on HOST time,
       // exactly what the desktop would show (1分4秒) - not the phone's
       // fast/slow guess.
       act(() => { vi.advanceTimersByTime(1_000) })
-      expect(procTime()).toBe('用时1分4秒')
+      expect(stripTimeOf()).toBe('1分4秒')
     } finally {
       vi.useRealTimers()
     }
@@ -5819,13 +5837,13 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       emitTurnStart(mux, 60, T0 - 95_000)
       emitChunk(mux, 61, T0)
       await settleLiveFold()
-      expect(procTime()).toBe('用时1分35秒')
+      expect(stripTimeOf()).toBe('1分35秒')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('真机形状：回合中途被按步定格的行读到"深度求索中"，turn/end 一到立刻回到"已完成"', async () => {
+  it('真机形状：回合中途被按步定格的行，卡带 running；turn/end 一到立刻落定', async () => {
     // 17:52 那一轮：宿主按步发 assistant/message ⇒ 行落在 DOM 里就已经
     // pending:false，而且它的最后一个工具（运行命令 · Recompile Debug.c）也早就
     // 返回了（tool/result ⇒ state:'ok'）。行内没有任何"还在跑"的痕迹，只有
@@ -5862,7 +5880,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       const head = lastProcHead()
       expect(head.closest('.chat-proc')!.className).toContain('chat-proc-running')
       expect(procStateOf(head)).toBe('1 次工具调用')
-      expect(procTime(head)).toBe('用时30秒')
+      expect(stripSeconds()).toBeCloseTo(30, 0)
       // 工具已经结算 ⇒ 行上的蓝点转绿、状态词照实写"完成"。
       expect(head.closest('.chat-proc')!.querySelector('.chat-step-state')!.textContent).toBe('完成')
 
@@ -5873,7 +5891,92 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       const settled = lastProcHead()
       expect(settled.closest('.chat-proc')!.className).not.toContain('chat-proc-running')
       expect(procStateOf(settled)).toBe('1 次工具调用')
-      expect(procTime(settled)).toBe('用时30秒')
+      expect(stripSeconds()).toBeCloseTo(30, 0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * 一屏（整个会话页 DOM）里"带时间文本的元素"必须恰好一个：状态条那只。
+   * 墙钟时间戳（`.chat-msg-time` / `.chat-trigger-time`）不是计时，排除在外；
+   * 过程头、输入区右侧、任务头顶部都不许再出现第二只表。
+   */
+  const screenTimers = (): Element[] => [...document.body.querySelectorAll('*')]
+    .filter(element => element.children.length === 0
+      && element.closest('.chat-msg-time, .chat-trigger-time') === null
+      && /\d+分\d+秒|\d+(\.\d+)?s\b|\d{1,2}:\d{2}/.test(element.textContent ?? ''))
+
+  it('一屏只有一个计时元素（运行中）：就是状态条那只，过程头与输入区都不带时间', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+    seedHostAuthority(true)
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('还没有消息，发一句话开始吧')
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      emitTurnStart(mux, 600, T0 - 95_000, 0)
+      emitChunk(mux, 601, T0, 0)
+      await settleLiveFold()
+
+      const timers = screenTimers()
+      expect(timers).toHaveLength(1)
+      expect(timers[0]!.getAttribute('data-role')).toBe('strip-time')
+      expect(timers[0]!.closest('.palm-strip')).not.toBeNull()
+      // 95 秒：运行中报的是实时计时（回合锚点 → 现在）。
+      expect(timers[0]!.textContent).toBe('1分35秒')
+      // 过程折叠头：只有计数，没有时间半句（`.chat-proc-time` 已下线）。
+      expect(container.querySelector('.chat-proc-time')).toBeNull()
+      expect(container.querySelector('.chat-proc-head')!.textContent).not.toMatch(/\d+\s*秒|\d+(\.\d+)?s\b/)
+      // 输入区右侧只剩状态词与上下文环。
+      const meta = container.querySelector('.chat-meta-right')!
+      expect(meta.querySelector('.chat-meta-status')!.textContent).toBe('运行中')
+      expect(meta.textContent).not.toMatch(/\d{1,2}:\d{2}/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('一屏只有一个计时元素（终态）：收工后仍是那一只，报的是总耗时', async () => {
+    loadChatPageMock.mockResolvedValue(rowPage([]))
+    historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
+    seedHostAuthority(true)
+    const mux = new FakeMux()
+    const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('还没有消息，发一句话开始吧')
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0)
+      emitTurnStart(mux, 600, T0 - 95_000, 1)
+      emitSessionFrame(mux, 'assistant/message', 601, T0, {
+        turn: 1,
+        step: 0,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '改完了' }] },
+      })
+      emitSessionFrame(mux, 'deliverables/presented', 601.5, T0, {
+        turn: 1,
+        callId: 'c1',
+        files: [{ path: 'report.md', description: '交付报告' }],
+      })
+      emitSessionFrame(mux, 'turn/end', 602, T0, { turn: 1, reason: { kind: 'completed' } })
+      await settleLiveFold()
+
+      const timers = screenTimers()
+      expect(timers).toHaveLength(1)
+      expect(timers[0]!.getAttribute('data-role')).toBe('strip-time')
+      // 95 秒 = 1分35秒：终态报总耗时，不是 0s、也不再是第二只表。
+      expect(timers[0]!.textContent).toBe('1分35秒')
+      expect(stripLabelOf()).toBe('完成')
+      // 交付卡就在这一屏上：卡面只报件数，不再复述同一段时长（真机复核抓到的第 5 只表）。
+      const delivery = container.querySelector('.palm-delivery')!
+      expect(delivery).not.toBeNull()
+      expect(delivery.querySelector('.palm-delivery-meta')).toBeNull()
+      expect(delivery.textContent).not.toMatch(/\d+分\d+秒|\d+(\.\d+)?s\b/)
+      // 输入区回到「空闲」且没有计时。
+      expect(container.querySelector('.chat-meta-status')!.textContent).toBe('空闲')
+      expect(container.querySelector('.chat-meta-right')!.textContent).not.toMatch(/\d{1,2}:\d{2}/)
     } finally {
       vi.useRealTimers()
     }
@@ -5909,7 +6012,7 @@ describe('运行态表达：不再有「输出中」状态行（2026-11-08 删�
       // 这一轮确实在跑（输入区主键是停止），过程条也真的画出来了。
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(procHeadEl()).not.toBeNull()
-      expect(procStateOf(procHeadEl())).toBe('深度求索中')
+      expect(procHeadEl().getAttribute('data-state')).toBe('running')
       // 但正文里没有任何「输出中」的呈现：文案、状态行节点、三个脉动点都没有。
       expectNoOutputStream()
     } finally {
@@ -5936,7 +6039,7 @@ describe('运行态表达：不再有「输出中」状态行（2026-11-08 删�
       // 收工：主键回到「发送」，过程条那行说「已完成」，旧状态行依旧不存在。
       expect(screen.getByRole('button', { name: '发送' })).toBeTruthy()
       expect(procHeadEl()).not.toBeNull()
-      expect(procStateOf(procHeadEl())).toBe('已完成')
+      expect(procHeadEl().getAttribute('data-state')).toBe('ok')
       expectNoOutputStream()
     } finally {
       vi.useRealTimers()
@@ -6315,7 +6418,7 @@ describe('ChatView 再进会话第一帧就有内容', () => {
     // 首帧不写「加载中…」、也不先下任何结论：只有与真实任务头同构的骨架。
     expect(document.querySelector('[data-skeleton]')).not.toBeNull()
     expect(screen.queryByText('加载中…')).toBeNull()
-    expect(document.querySelector('.palm-turn-state')!.textContent).toBe('—')
+    expect(document.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('—')
   })
 })
 

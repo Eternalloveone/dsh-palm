@@ -32,7 +32,7 @@ import { ProcessGroup } from '../message-row/process.tsx'
 // 兼容旧调用点：锚点逻辑在 message-row/anchors.ts，公开 API 不变。
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from '../message-row/anchors.ts'
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, liveClockTick, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -56,7 +56,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   style?: CSSProperties
   /**
    * 页级回合锚点（ChatView 从 turn/start、历史尾页或 reconcile 探针恢复的那一个）。
-   * 行内秒表拿不到自己的 turnStartAt 时改用它，否则中途重载会从头开始数。
+   * 任务头状态条的计时拿不到自己的 turnStartAt 时改用它，否则中途重载会从头开始数。
    */
   liveTurnStartAt?: number
   /**
@@ -81,12 +81,15 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   enter?: boolean
   /**
    * 父级的 1 Hz 心跳（见 live-clock.ts）。只有正在跑的那一行才收得到；它每秒
-   * 变一次，作用是把这一行叫醒 —— 秒表读数在渲染时直接取墙钟，所以"重渲染"
-   * 就等于"数字刷新"，不依赖本行自己的定时器还活着。
+   * 变一次，作用是把这一行叫醒 —— 状态条的计时读数在渲染时直接取墙钟，所以
+   * "重渲染"就等于"数字刷新"。
+   *
+   * 本组件**不读它的值**：它是 `memo` 的失效键（props 变 = 重渲染）。读数与
+   * 时钟数据都在 `AssistantBody` → 状态条里，过程头已经不报时了。
    */
   liveClockTick?: number
   /**
-   * Host clock minus local clock (ms), for the running process head's timer.
+   * Host clock minus local clock (ms), for the running turn header's timer.
    * A plain number: it changes only when a frame re-calibrates the skew, so
    * memoized rows are not re-rendered once per second.
    */
@@ -198,7 +201,6 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       >
         <DeliveryCard
           completed
-          {...(message.durationMs === undefined ? {} : { durationMs: message.durationMs })}
           {...(message.plan === undefined ? {} : { steps: message.plan.items.length })}
           deliverables={deliverables}
           changes={changes}
@@ -234,7 +236,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} liveClockTick={liveClockTick} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
       ) : (
         <>
           <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />

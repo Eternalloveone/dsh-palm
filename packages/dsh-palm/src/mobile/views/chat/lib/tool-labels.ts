@@ -40,14 +40,6 @@ export function permissionShortLabel(value: string): string {
   return displayName(value)
 }
 
-/** 回合计时（状态位）：mm:ss，秒向下取整（与桌面计时同口径）。 */
-export function formatClock(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const minutes = Math.floor(total / 60)
-  const seconds = total % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
-
 /** 上下文占用百分比（纯展示）：没有投影时用 `--` 占位。 */
 export function formatContextPercent(pct: number | undefined): string {
   return pct === undefined ? '--' : `${Math.round(pct)}%`

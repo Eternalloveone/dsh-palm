@@ -35,7 +35,7 @@ const tool: ToolCallInfo = {
 
 /** A null flow means "no flow" (the tail layout path); undefined triggers
  *  the default interleaved flow — use null explicitly for the no-flow case.
- *  `durationMs` is the turn clock the collapsed process head reports. */
+ *  `durationMs` is the settled turn clock the task-header status strip reports. */
 function baseMessage(
   pending: boolean,
   flow: RenderMessage['flow'] | null = [
@@ -132,7 +132,7 @@ describe('MessageRow flow body (layout stability)', () => {
       expect(answer.textContent).toContain('第一段')
       expect(answer.textContent).toContain('第二段')
     }
-    // 标题行只有一行：跑了几个工具 + 右侧总耗时。
+    // 标题行只有一行：跑了几个工具（计时只在任务头状态条）。
     const pendingHead = pending.container.querySelector('.chat-proc-head') as HTMLElement
     expect(procLines(pendingHead)).toHaveLength(1)
     expect(pendingHead.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
@@ -140,7 +140,8 @@ describe('MessageRow flow body (layout stability)', () => {
     const settledHead = settled.container.querySelector('.chat-proc-head') as HTMLElement
     expect(procLines(settledHead)).toHaveLength(1)
     expect(settledHead.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
-    expect(settledHead.querySelector('.chat-proc-time')!.textContent).toBe('用时1分20秒')
+    expect(settledHead.querySelector('.chat-proc-time')).toBeNull()
+    expect(settledHead.textContent).not.toContain('用时')
     expect(settledHead.getAttribute('aria-expanded')).toBe('false')
   })
 
@@ -218,8 +219,8 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(hidden.container.querySelector('.chat-artifact')).toBeNull()
     const hiddenHead = hidden.container.querySelector('.chat-proc-head') as HTMLElement
     expect(hiddenHead.tagName).toBe('BUTTON')
-    expect(hiddenHead.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    expect(hiddenHead.querySelector('.chat-proc-time')!.textContent).toBe('用时1分20秒')
+    expect(hiddenHead.querySelector('.chat-proc-state')!.textContent).toBe('—')
+    expect(hiddenHead.querySelector('.chat-proc-time')).toBeNull()
 
     fireEvent.click(hiddenHead)
     expect(hidden.container.querySelectorAll('.chat-step')).toHaveLength(0)
@@ -245,19 +246,19 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(head.tagName).toBe('DIV')
     expect(head.className).toContain('chat-proc-head-static')
     expect(head.getAttribute('aria-expanded')).toBeNull()
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时5秒')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
     // 纯文本回合没有过程行 ⇒ 第二行不渲染，静态头就只有一行。
     expect(procLines(head)).toHaveLength(1)
     expect(head.querySelector('.chat-proc-current')).toBeNull()
     // 静态头把同一句话挂在 aria-label 上（读屏器读到的和看到的一致）。
-    expect(head.getAttribute('aria-label')).toBe('已完成，用时5秒')
+    expect(head.getAttribute('aria-label')).toBe('—')
     expect(container.querySelector('.chat-proc-caret')).toBeNull()
     expect(container.querySelector('.chat-proc-body')).toBeNull()
     expect(structureOf(container)).toEqual(['proc', 'proc-head', 'text'])
   })
 
-  it('静态头同样只有一行：状态词 + 用时（没有可展开的内容）', () => {
+  it('静态头同样只有一行：只剩计数占位「—」（没有可展开的内容）', () => {
     // 关掉"显示工具调用"且没有 diff 卡时，工具行不渲染 ⇒ 头是静态的。
     const message: RenderMessage = {
       id: 'a-static-two',
@@ -275,8 +276,8 @@ describe('MessageRow flow body (layout stability)', () => {
     )
 
     const head = container.querySelector('.chat-proc-head-static') as HTMLElement
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('已完成')
-    expect(head.querySelector('.chat-proc-time')!.textContent).toBe('用时5秒')
+    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
+    expect(head.querySelector('.chat-proc-time')).toBeNull()
     expect(container.querySelector('.chat-proc-caret')).toBeNull()
     expect(container.querySelector('.chat-proc-body')).toBeNull()
     expect(container.querySelectorAll('.chat-step')).toHaveLength(0)
@@ -321,10 +322,11 @@ describe('MessageRow flow body (layout stability)', () => {
     expect(failedStep.querySelector('.chat-step-state')!.textContent).toBe('失败')
   })
 
-  it('同一轮的锚点只能变早：更晚的 turnStartAt 不许把秒表打回去', () => {
-    // 真机（2026-11-02）：过程条计时从「5分10秒」突然跳回「1分20秒」，然后从小往大长。
+  it('同一轮的锚点只能变早：更晚的 turnStartAt 不许把状态条计时打回去', () => {
+    // 真机（2026-11-02）：计时从「5分10秒」突然跳回「1分20秒」，然后从小往大长。
     // 根因是重连/翻页后 turnStartAt 被算成窗口里第一条事件的时间（更晚）——
-    // 一轮的起点是既成事实，只能被更准的值纠正，不能变晚。
+    // 一轮的起点是既成事实，只能被更准的值纠正，不能变晚。计时现在只剩状态条一处，
+    // 保护随之落在任务头上（artifacts.tsx 的 stableTurnAnchor）。
     vi.useFakeTimers()
     try {
       const t0 = 1_700_000_000_000
@@ -336,73 +338,77 @@ describe('MessageRow flow body (layout stability)', () => {
       const view = render(
         <MessageRow message={early} showToolCalls showSystemMessages={false} hostNowMs={t0} />,
       )
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分10秒')
+      const stripTime = (): string =>
+        view.container.querySelector('[data-role="strip-time"]')?.textContent ?? ''
+      expect(stripTime()).toBe('5分10秒')
 
       // 锚点被换成"晚 230 秒"的那个值：读数必须**顶住**，不能变成 1分20秒
       const late: RenderMessage = { ...early, turnStartAt: t0 - 80_000 }
       view.rerender(<MessageRow message={late} showToolCalls showSystemMessages={false} hostNowMs={t0} />)
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分10秒')
+      expect(stripTime()).toBe('5分10秒')
 
       // 更早的锚点是"更准的纠正"，允许采纳
       const corrected: RenderMessage = { ...early, turnStartAt: t0 - 330_000 }
       view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} hostNowMs={t0} />)
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时5分30秒')
+      expect(stripTime()).toBe('5分30秒')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('行内秒表走宿主时间：锚点优先 turnStartAt，hostNowMs 把用时整体平移', () => {
+  it('状态条计时走宿主时间：锚点优先 turnStartAt，hostNowMs 把读数整体平移', () => {
     vi.useFakeTimers()
     try {
       const t0 = 1_700_000_000_000
       vi.setSystemTime(t0)
       const message: RenderMessage = {
         ...baseMessage(true),
-        // 行的第一次事件晚于回合起点：秒表必须认 turnStartAt，不是 firstSeenAt。
+        // 行的第一次事件晚于回合起点：计时必须认 turnStartAt，不是 firstSeenAt。
         turnStartAt: t0 - 10_000,
         firstSeenAt: t0 - 9_000,
       }
       const view = render(
         <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 2_000} />,
       )
+      const stripTime = (): string =>
+        view.container.querySelector('[data-role="strip-time"]')?.textContent ?? ''
       // 宿主时间比手机快 2 秒 ⇒ 10 秒的回合显示 12 秒。
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时12秒')
+      expect(stripTime()).toBe('12s')
 
       act(() => { vi.advanceTimersByTime(3_000) })
       // 宿主时间由父级每拍重新给（W3-5：渲染层不再自己读墙钟），这里模拟下一拍。
       view.rerender(
         <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 5_000} />,
       )
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时15秒')
+      expect(stripTime()).toBe('15s')
 
       // 校准被重新算小（这里变小）：读数跟着真值回落。以前这里有一层"只增不减"
-      // 的棘轮把它冻在 15 秒，代价是偏大的样本永久留在屏幕上 —— 秒表从此比桌面快，
+      // 的棘轮把它冻在 15 秒，代价是偏大的样本永久留在屏幕上 —— 计时从此比桌面快，
       // 下一帧真值追上来时一口气跨两秒（真机"突然跳 2 秒"）。
       view.rerender(
         <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 3_000} />,
       )
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时13秒')
+      expect(stripTime()).toBe('13s')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('读数按整秒向下取整，与桌面 formatRunDuration 一致', () => {
+  it('状态条读数保留一位小数（formatSeconds 口径，与定版图一致）', () => {
     vi.useFakeTimers()
     try {
       const t0 = 1_700_000_000_000
       vi.setSystemTime(t0)
       const message: RenderMessage = { ...baseMessage(true), turnStartAt: t0 - 3_500 }
       const view = render(<MessageRow message={message} showToolCalls showSystemMessages={false} />)
-      // 3.5 秒（已过 3 秒阈值）：四舍五入会显示 4 秒 —— 比桌面多一秒；向下取整是 3 秒。
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时3秒')
+      // 3.5 秒：不再走旧的「整秒向下取整 + 3 秒阈值」口径，而是定版图的一位小数。
+      expect(view.container.querySelector('[data-role="strip-time"]')!.textContent).toBe('3.5s')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('父级心跳能把秒表叫醒：本行定时器一次都没触发也不影响读数', () => {
+  it('父级心跳能把状态条计时叫醒：本行定时器一次都没触发也不影响读数', () => {
     vi.useFakeTimers()
     try {
       const t0 = 1_700_000_000_000
@@ -411,19 +417,21 @@ describe('MessageRow flow body (layout stability)', () => {
       const view = render(
         <MessageRow message={message} showToolCalls showSystemMessages={false} liveClockTick={0} />,
       )
+      const stripTime = (): string =>
+        view.container.querySelector('[data-role="strip-time"]')?.textContent ?? ''
       // 后台：本行的定时器被冻住（一次都没触发），系统时间却照走。
       vi.setSystemTime(t0 + 65_000)
       // 父级心跳每回到一次前台都会变：props 一变，memo 就挡不住这一行重渲染。
       view.rerender(
         <MessageRow message={message} showToolCalls showSystemMessages={false} liveClockTick={1} />,
       )
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时1分5秒')
+      expect(stripTime()).toBe('1分5秒')
       // 再一拍，读数继续跟上。
       vi.setSystemTime(t0 + 71_000)
       view.rerender(
         <MessageRow message={message} showToolCalls showSystemMessages={false} liveClockTick={2} />,
       )
-      expect(view.container.querySelector('.chat-proc-time')!.textContent).toBe('用时1分11秒')
+      expect(stripTime()).toBe('1分11秒')
     } finally {
       vi.useRealTimers()
     }

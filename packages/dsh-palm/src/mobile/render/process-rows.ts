@@ -8,12 +8,12 @@
  *   turn-process 子树同构。
  * - **答案**：`flow` 末尾的那个文本段（答案永远在产生它的步骤之后）。单步或
  *   无 flow 的行退回 `message.text`。
- * - **折叠头**：第一行只承载状态词与用时（`已完成，用时1分20秒` / `深度求索中，
- *   用时6分24秒`）。**没有权威证据时是 `unknown`**：只落「—」，不写状态词也不
- *   报耗时（见 processOutcome 的 authority）。耗时数据来自 fold 盖在行上的
- *   `turnStartAt`（运行中实时）与 `durationMs`（回合结束定格）；真有报错步骤时，
- *   状态词右边多一个很弱的报错数（见 processErrorsText）。**步数不在卡面上了**：
- *   展开体首行报「共 N 步」（见 processStepsText，用户拍板：步数移出卡面、展开才看）。
+ * - **折叠头**：第一行只报计数（`12 次工具调用` ＋ `2 处报错`）。状态词与计时全页
+ *   只在任务头状态条（`ui/status-strip.tsx`）—— 这一行再报一份就是真机上的第二个
+ *   状态词、第三条计时。没有工具计数时落「—」（沿用 unknown 档，不写状态词、不报
+ *   耗时）；真有报错步骤时，计数右边多一个很弱的报错数（见 processErrorsText）。
+ *   **步数不在卡面上了**：展开体首行报「共 N 步」（见 processStepsText，用户拍板：
+ *   步数移出卡面、展开才看）。
  */
 import type { RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { isRowRunning } from '../shared/session-state.ts'
@@ -46,25 +46,12 @@ export interface ProcessTextRow {
 export type ProcessRow = ProcessReasoningRow | ProcessToolRow | ProcessTextRow
 
 /**
- * 折叠头的状态词：一眼看出成没成（失败与中断不再冒充成功）。
+ * 折叠头的状态类别：决定 `data-state`（样式与诊断用）与「成败」的判据。
  *
  * `unknown` 的语义 = **手里没有能下结论的权威数据**（宿主快照没到/过期）：
  * 不猜成功、不猜失败，也不猜「在跑」。UI 落「—」且不报耗时。
  */
 export type ProcessOutcome = 'running' | 'ok' | 'stopped' | 'failed' | 'unknown'
-
-const OUTCOME_TEXT: Record<ProcessOutcome, string> = {
-  running: '深度求索中',
-  ok: '已完成',
-  stopped: '已中断',
-  failed: '失败',
-  // 没权威数据：不写状态词（「—」是"没有结论"的标记，不是第四个结论）。
-  unknown: '—',
-}
-
-export function processStateText(outcome: ProcessOutcome): string {
-  return OUTCOME_TEXT[outcome]
-}
 
 /** 判据的单一实现在 `shared/session-state.ts`（保留此处导出以兼容既有导入）。 */
 export { isRowRunning }
@@ -422,43 +409,4 @@ export function processErrorsText(model: ProcessModel): string {
 export function visibleRowCount(model: ProcessModel, showToolCalls: boolean): number {
   if (showToolCalls) return model.rows.length
   return model.rows.filter(row => row.kind !== 'tool').length + model.artifactCount
-}
-
-/**
- * 折叠头的整句（静态头的 aria-label 与测试口径）：状态词 + 耗时。
- *
- * 没有权威证据（`model.outcome === 'unknown'`）时只有「—」、不报耗时；
- * 调用方说「停了」而行里仍判在跑时也不许落到「已完成」—— 那是又一处猜测。
- */
-/** 少于这个时长不报秒数：刚开口就闪一个"用时1秒"反而像故障。 */
-export const RUNNING_CLOCK_THRESHOLD_MS = 3_000
-
-export function processHeadText(model: ProcessModel, input: { running: boolean; durationMs: number | undefined; liveElapsedMs?: number }): string {
-  const outcome: ProcessOutcome = model.outcome === 'unknown'
-    ? 'unknown'
-    : input.running ? 'running' : (model.outcome === 'running' ? 'unknown' : model.outcome)
-  const time = processTimeText(outcome, input)
-  // 屏幕上状态词与用时是两个元素（用时靠右对齐，不该出现孤零零的逗号）。
-  return time === '' ? processStateText(outcome) : `${processStateText(outcome)}，${time}`
-}
-
-/**
- * 状态词后面那半句（「，用时3分33秒」）。运行中不足阈值时是空的 ——
- * 刚开口就闪一个"用时1秒"反而像故障；回合没结束又没锚点时也只有状态词。
- *
- * 步数已经不在这一句里（用户拍板：步数移出卡面，展开体首行报「共 N 步」）：
- * 没有时长 ⇒ 空串，第一行只剩状态词，绝不出现孤零零的 `N 步`。
- */
-export function processTimeText(
-  outcome: ProcessOutcome,
-  input: { durationMs: number | undefined; liveElapsedMs?: number },
-): string {
-  if (outcome === 'running') {
-    return input.liveElapsedMs === undefined || input.liveElapsedMs < RUNNING_CLOCK_THRESHOLD_MS
-      ? ''
-      : `用时${formatDuration(input.liveElapsedMs)}`
-  }
-  // 没有权威数据时不报耗时：一个"用时"就是「跑完了」的结论。
-  if (outcome === 'unknown') return ''
-  return input.durationMs === undefined ? '' : `用时${formatDuration(input.durationMs)}`
 }

@@ -5,6 +5,8 @@
  * 1. `kind='unknown'` = **无权威数据**：灰、没有状态词（落「—」）、不报步数、不报耗时；
  * 2. 未水合的首块是骨架：与真实任务头同一套类名（高度同构），没有「加载中…」文案；
  * 3. 一次水合只改口一次：unknown → 终态；之后同一轮再收到「在跑」也不许改写。
+ *
+ * 状态词与计时只在状态条：unknown 档没有 `[data-role="strip-time"]`。
  */
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -30,20 +32,24 @@ describe('TurnHeader：unknown 不画任何结论', () => {
     const { container } = render(<TurnHeader kind="unknown" steps={{ done: 3, total: 7 }} durationMs={12_400} />)
     const head = container.querySelector('.palm-turn-head')!
     expect(head.getAttribute('data-kind')).toBe('unknown')
-    expect(container.querySelector('.palm-turn-state')!.textContent).toBe('—')
+    // 状态词只在状态条：unknown 落「—」，没有独立的状态行可言。
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('—')
+    expect(container.querySelector('.palm-turn-state')).toBeNull()
     expect(container.querySelector('.palm-turn-steps')).toBeNull()
-    expect(container.querySelector('.palm-turn-time')).toBeNull()
+    expect(container.querySelector('[data-role="strip-time"]')).toBeNull()
     expect(container.textContent).not.toContain('已完成')
     // 状态条：仍然画（不许整块消失），但没有刻度轨（不编步数）。
     expect(container.querySelector('.palm-strip')!.getAttribute('data-kind')).toBe('unknown')
     expect(container.querySelector('.palm-strip-rail')).toBeNull()
   })
 
-  it('终态照旧报步数与耗时（unknown 的规则不外溢）', () => {
+  it('终态照旧报步数与耗时（unknown 的规则不外溢），且耗时只在状态条', () => {
     const { container } = render(<TurnHeader kind="done" steps={{ done: 7, total: 7 }} durationMs={12_400} />)
-    expect(container.querySelector('.palm-turn-state')!.textContent).toBe('已完成')
-    expect(container.querySelector('.palm-turn-steps')!.textContent).toContain('7 步')
-    expect(container.querySelector('.palm-turn-time')!.textContent).toBe('12.4s')
+    const label = container.querySelector('.palm-strip [data-part="label"]')!
+    expect(label.textContent).toContain('7 步')
+    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12.4s')
+    expect(container.querySelector('.palm-turn-time')).toBeNull()
+    expect(container.querySelector('.palm-turn-state')).toBeNull()
   })
 })
 
@@ -57,9 +63,13 @@ describe('TurnHeadSkeleton：未水合的首块', () => {
     )
     const [skeleton, real] = Array.from(container.querySelectorAll('.palm-turn-head'))
     expect(skeleton.className).toBe(real.className)
-    for (const part of ['.palm-turn-top', '.palm-turn-dot', '.palm-turn-state', '.palm-strip']) {
+    for (const part of ['.palm-turn-goal', '.palm-strip']) {
       expect(skeleton.querySelector(part), part).not.toBeNull()
       expect(real.querySelector(part), part).not.toBeNull()
+    }
+    // 顶部状态行随真实头一起删了：骨架也不许再画一个。
+    for (const gone of ['.palm-turn-top', '.palm-turn-dot', '.palm-turn-state']) {
+      expect(skeleton.querySelector(gone), gone).toBeNull()
     }
     const text = skeleton.textContent ?? ''
     expect(text).not.toContain('加载中')
@@ -126,6 +136,6 @@ describe('水合只改口一次：unknown → 终态，之后不许 done → run
     sequence.push(status.kind)
     expect(sequence).toEqual(['unknown', 'done', 'done'])
     const { container } = render(<TurnHeader kind={status.kind} />)
-    expect(container.querySelector('.palm-turn-state')!.textContent).toBe('已完成')
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('完成')
   })
 })

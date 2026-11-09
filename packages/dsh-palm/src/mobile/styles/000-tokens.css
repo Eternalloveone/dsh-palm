@@ -118,7 +118,6 @@
   --palm-flow-meta-size: 10.5px;
   --palm-flow-tally-size: 10px;
   --palm-flow-tag-size: 9.5px;
-  --palm-flow-dot: 7px;
   --palm-flow-card-r: 14px;
   --palm-flow-rule: rgba(255, 255, 255, 0.05);
   --palm-flow-card-line: rgba(61, 220, 132, 0.22);
@@ -126,7 +125,8 @@
   --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
   --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
 
-  /* ── 任务头四行（状态行 / 目标 / 状态条 / 元信息）───────────────────
+  /* ── 任务头三行（目标 / 状态条 / 元信息）────────────────────────────
+   * 状态词与计时只在状态条；顶部「状态点 + 状态词 + 步数 + 耗时」那一行已删除。
    * 与 28px 状态条配套收窄：行间 8 → 6、上 4 → 2、下 12 → 10。
    * 目标行字号 15px 不动（它是这一轮的主信息），只把最小行高钉成 20px，
    * 好让 TurnHeadSkeleton 的占位与真实目标行同高。 */

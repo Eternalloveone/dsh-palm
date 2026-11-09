@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 /**
  * 过程折叠行的渲染契约（版式真源 overview.html「2 · 会话正文」）：
- * 1. 「▸ 7 步过程 · 31 次工具调用」：步数与工具调用数分开报，缺项少说一项；
- * 2. 两个计数都拿不到时退回状态词（`已完成`），不编数字；
+ * 1. 「▸ 31 次工具调用」：只报计数；步数归状态条，头行不再报「N 步过程」；
+ * 2. 计数拿不到时退回调用方给的占位（`—`），不编数字、不借状态词补位；
  * 3. 展开状态与回调都由既有过程组传入（本组件不持有状态）：点整行走 onToggle；
  * 4. 运行中才显示「最近 3 步」，超出只留最后 3 条；
- * 5. 不给 onToggle 时是不可点的静态行（role=status，没有 aria-expanded）。
+ * 5. 不给 onToggle 时是不可点的静态行（role=status，没有 aria-expanded）；
+ * 6. **没有计时元素**：耗时只出现在任务头状态条（`data-role="strip-time"`）。
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,24 +14,30 @@ import { ProcessLine } from './process-line.tsx'
 
 afterEach(() => { cleanup() })
 
+/** 计时口径（与真机复核一致）：分秒 / 秒 / mm:ss。 */
+const TIMER = /\d+分\d+秒|\d+(\.\d+)?s|\d{2}:\d{2}/
+
 describe('ProcessLine（过程折叠行）', () => {
-  it('主文案：步数 + 工具调用数，缺一项就少说一项', () => {
-    const { container, unmount } = render(<ProcessLine steps={7} toolCalls={31} />)
-    expect(container.querySelector('.palm-proc-main')!.textContent).toBe('7 步过程 · 31 次工具调用')
+  it('主文案：只报工具调用数（步数归状态条，头行不再重复）', () => {
+    const { container, unmount } = render(<ProcessLine toolCalls={31} />)
+    expect(container.querySelector('.palm-proc-main')!.textContent).toBe('31 次工具调用')
+    expect(container.textContent).not.toContain('步过程')
     unmount()
-    const onlyCalls = render(<ProcessLine toolCalls={31} />)
-    expect(onlyCalls.container.querySelector('.palm-proc-main')!.textContent).toBe('31 次工具调用')
-    onlyCalls.unmount()
-    const onlySteps = render(<ProcessLine steps={7} />)
-    expect(onlySteps.container.querySelector('.palm-proc-main')!.textContent).toBe('7 步过程')
+    const withNote = render(<ProcessLine toolCalls={12} note="2 处报错" />)
+    expect(withNote.container.querySelector('.palm-proc-main')!.textContent).toBe('12 次工具调用')
+    expect(withNote.container.querySelector('.palm-proc-note')!.textContent).toBe('2 处报错')
+    withNote.unmount()
   })
 
-  it('两个计数都拿不到时退回状态词，不编数字', () => {
-    const { container } = render(<ProcessLine label="已完成" time="用时6分24秒" />)
-    expect(container.querySelector('.palm-proc-main')!.textContent).toBe('已完成')
-    expect(container.querySelector('.palm-proc-time')!.textContent).toBe('用时6分24秒')
+  it('计数拿不到时退回调用方给的占位（「—」），不编数字', () => {
+    const { container } = render(<ProcessLine label="—" />)
+    expect(container.querySelector('.palm-proc-main')!.textContent).toBe('—')
     expect(container.textContent).not.toContain('工具调用')
     expect(container.textContent).not.toContain('步过程')
+    // 这一行永远不出现计时元素（计时只在状态条）。
+    expect(container.querySelector('.palm-proc-time')).toBeNull()
+    expect(container.querySelector('.chat-proc-time')).toBeNull()
+    expect(container.textContent).not.toMatch(TIMER)
   })
 
   it('点击整行走既有 onToggle；展开状态是受控的（▸ / ▾）', () => {

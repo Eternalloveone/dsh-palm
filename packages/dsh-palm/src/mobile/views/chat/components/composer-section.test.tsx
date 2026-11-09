@@ -10,7 +10,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionModels } from '../../../../api-proxy-types'
 import { ComposerMeta } from './composer-meta.tsx'
 import { ComposerSection, type ComposerSectionProps } from './composer-section.tsx'
-import { formatClock, formatContextPercent } from '../lib/tool-labels.ts'
+import { formatContextPercent } from '../lib/tool-labels.ts'
 
 afterEach(cleanup)
 
@@ -106,16 +106,17 @@ describe('ComposerMeta（胶囊 + 状态 + 面板）', () => {
     expect(screen.getByText('工作区写入')).toBeTruthy()
   })
 
-  it('keeps context percent and clock formatting in the display-only group', () => {
-    const { container } = render(<ComposerMeta {...metaProps({ statusText: '00:42' })} />)
-    expect(container.querySelector('.chat-meta-right')?.textContent).toContain('00:42')
-    expect(container.querySelector('.chat-meta-right')?.textContent).toContain('44%')
+  it('keeps the status word and context percent in the display-only group, with no clock', () => {
+    const { container } = render(<ComposerMeta {...metaProps({ statusText: '运行中' })} />)
+    const right = container.querySelector('.chat-meta-right')?.textContent ?? ''
+    expect(right).toContain('运行中')
+    expect(right).toContain('44%')
+    // 元信息行不再报秒：一屏只留状态条那一个计时（运行态由红色停止键表达）。
+    expect(right).not.toMatch(/\d{1,2}:\d{2}/)
+    expect(container.querySelector('.chat-meta-status')!.textContent).toBe('运行中')
     expect(formatContextPercent(44)).toBe('44%')
     expect(formatContextPercent(0)).toBe('0%')
     expect(formatContextPercent(undefined)).toBe('--')
-    expect(formatClock(42_000)).toBe('00:42')
-    expect(formatClock(65_000)).toBe('01:05')
-    expect(formatClock(-1)).toBe('00:00')
   })
 
   it('regresses the old multi-pill row: no arrow, no chat-pill/chat-context', () => {

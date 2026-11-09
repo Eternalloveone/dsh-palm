@@ -84,11 +84,13 @@ describe('未水合：只画骨架，不画任何结论态', () => {
     expect(container.querySelector('.chat-msg-assistant')).not.toBeNull()
     const head = container.querySelector('.palm-turn-head')!
     expect(head.getAttribute('data-kind')).toBe('unknown')
-    expect(container.querySelector('.palm-turn-state')!.textContent).toBe('—')
-    expect(container.querySelector('.palm-turn-time')).toBeNull()
     // 任务头与状态条都不下结论（过程折叠条是逐步骤摘要，另有口径）。
     expect(head.textContent).not.toContain('已完成')
     expect(container.querySelector('.palm-strip')!.textContent).not.toContain('已完成')
+    // 状态词只在状态条：unknown 落「—」，没有独立状态行、也没有计时元素。
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('—')
+    expect(container.querySelector('.palm-turn-state')).toBeNull()
+    expect(container.querySelector('[data-role="strip-time"]')).toBeNull()
   })
 
   it('行已到但快照未到：过程条头行与任务头同为 unknown，不再各说一套', () => {
@@ -125,8 +127,11 @@ describe('水合后：一次性画真实状态，且不回退', () => {
     const row = assistantRow(3, { durationMs: 12_400, turnStartAt: AT - 12_400 })
     const { container } = render(<ChatRows {...viewOf({ messages: [row] })} />)
     expect(container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('done')
-    expect(container.querySelector('.palm-turn-state')!.textContent).toBe('已完成')
-    expect(container.querySelector('.palm-turn-time')!.textContent).toBe('12.4s')
+    // 状态词与计时都在状态条：任务头里只有这一个计时元素。
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('完成')
+    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12.4s')
+    expect(container.querySelector('.palm-turn-time')).toBeNull()
+    expect(container.querySelectorAll('[data-role="strip-time"]')).toHaveLength(1)
   })
 
   it('过期的快照不算水合（超过 12s 的新鲜窗），仍只画 unknown', () => {
@@ -134,7 +139,7 @@ describe('水合后：一次性画真实状态，且不回退', () => {
     const row = assistantRow(3, { turnStartAt: AT - 60_000 })
     const { container } = render(<ChatRows {...viewOf({ messages: [row] })} />)
     expect(container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('unknown')
-    expect(container.querySelector('.palm-turn-state')!.textContent).toBe('—')
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('—')
     expect(container.querySelector('.palm-turn-head')!.textContent).not.toContain('已完成')
     expect(container.querySelector('.palm-strip')!.textContent).not.toContain('已完成')
   })

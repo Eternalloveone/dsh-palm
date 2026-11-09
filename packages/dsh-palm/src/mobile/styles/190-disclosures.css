@@ -154,7 +154,8 @@
  * 2026-11-08 实机投诉：一回合 12 次工具调用被画成 12 张卡（44 的命中高度 + 8 的上下
  * 留白 + 描边/底色 + 行间 gap ≈ 90 一张），一屏只能看 6 条，扫不完。定版不再画
  * 卡片外壳：整块只是正文里的一段过程表，行与行之间最多一条极淡分隔线。
- * 头一行只说工具数与总耗时（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
+ * 头一行只说工具数与报错数（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
+ * 状态词与耗时不在这一行：全页只在任务头状态条（真机上曾并排出现两个状态词、两条计时）。
  */
 .chat-proc {
   display: flex;
@@ -185,8 +186,8 @@
 }
 
 .chat-proc-line {
-  /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸ 与「用时」，写死 100% 会把它们挤到
-     第二行 —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
+  /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸，写死 100% 会把它挤到第二行
+      —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -211,16 +212,6 @@
   color: var(--palm-danger);
   font-size: var(--palm-proc-head-size);
   font-weight: var(--palm-w-normal);
-}
-
-/* 右侧总耗时：第三档灰、等宽数字。 */
-.chat-proc-time {
-  flex: none;
-  margin-left: auto;
-  color: var(--palm-fg-3);
-  font-size: var(--palm-proc-head-size);
-  font-weight: var(--palm-w-normal);
-  font-variant-numeric: tabular-nums;
 }
 
 .chat-proc-label {
@@ -423,12 +414,13 @@
 .chat-step-dot[data-state='error'] { background: var(--palm-danger); }
 .chat-step-dot[data-state='stopped'] { background: var(--palm-warn); }
 
-/* 工具名：短、不可省，但不许把目标挤没（长了自己也省略）。 */
+/*
+ * 工具名：**不可收缩**（flex: none）。它是这一行的动词（「工具」「运行命令」「写入」），
+ * 一旦允许收缩，窄屏上就会被压成一个字 —— 真机 320/390 宽下量到的就是「工·」。
+ * 省略号只属于右边的目标：.chat-step-summary 吃剩余宽度、在尾部省略。
+ */
 .chat-step-title {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   white-space: nowrap;
   font-size: var(--palm-flow-row-size);
   color: var(--palm-fg);

@@ -1,19 +1,22 @@
 /**
- * 回合任务头：一个回合的四行摘要（会话正文流的第一块）。
+ * 回合任务头：一个回合的三行摘要（会话正文流的第一块）。
  *
  * 版式真源（唯一）：
  * - `docs/prototype/overview.html`「2 · 会话正文」：
- *   `● 已完成 · 7 步 / 7 步        12.4s` → 目标一行（15px/600）→ 28px 状态条；
- * - `docs/screenshots/prototype-overview.png`：同上，肉眼基线；
- * - `docs/prototype/delivery-card.html` A 图：`.trow` / `.goal` / `.bmeta`。
+ *   目标一行（15px/600）→ 28px 状态条 → 元信息；
+ * - `docs/screenshots/prototype-overview.png`：肉眼基线；
+ * - `docs/prototype/delivery-card.html` A 图：`.goal` / `.bmeta`。
  *
- * 四行固定顺序：
- * 1. **状态行**：状态点 + 状态词 + 步数（`7 步 / 7 步`）+ 右侧耗时；
- * 2. **目标**：这一轮要什么（15px/600，最多两行的高度由文本自己撑）；
- * 3. **状态条**：{@link StatusStrip}（种类/进度/步数都来自 `session/task-status.ts`）；
- * 4. **元信息**：`改 N 个文件 · N 测试通过 · 模型`（10px 弱化，拿不到的那项不出现）。
+ * 三行固定顺序：
+ * 1. **目标**：这一轮要什么（15px/600，最多两行的高度由文本自己撑）；
+ * 2. **状态条**：{@link StatusStrip}（种类/进度/步数/计时都来自
+ *    `session/task-status.ts`，**状态词与计时全页只此一处**）；
+ * 3. **元信息**：`改 N 个文件 · N 测试通过 · 模型`（10px 弱化，拿不到的那项不出现）。
  *
- * 三条硬规则：
+ * 四条硬规则：
+ * - **状态词与计时只在状态条**：任务头不再画「状态点 + 状态词 + `N 步 / M 步` +
+ *   耗时」那一行 —— 它和状态条说的是同一件事，真机上一屏因此出现两个状态词、
+ *   两条计时。步数由状态条的文案与刻度轨承担，不再另开一行。
  * - **不造数据**：所有字段都是可选的，拿不到就不画那一行/那一段；
  * - **不写行内样式**：颜色/字号全走 `--palm-flow-*` 与 `--palm-*` 令牌；
  * - **触控 ≥44px**：状态条给了 `onOpen` 时由 `StatusStrip` 自己撑到 `--palm-hit`。
@@ -26,13 +29,11 @@ import { StatusStrip, type StatusStripKind, type StatusStripSteps } from './stat
 export interface TurnHeaderProps {
   /** 回合状态（`session/task-status.ts` 产出的同一套词表）。 */
   kind: StatusStripKind
-  /** 状态词覆盖（默认按 `kind` 取「已完成 / 失败 / 思考中…」）。 */
-  state?: string
-  /** 计划步数：给了就在状态行报 `N 步 / M 步`，也传给状态条画刻度轨。 */
+  /** 计划步数：传给状态条画刻度轨与 `完成 · N 步`（任务头不再另报一份）。 */
   steps?: StatusStripSteps
   /** 0..1 进度（交给状态条；不给就走未知档）。 */
   progress?: number
-  /** 这一轮用了多久（毫秒）。运行中传实时值，收工后传 `durationMs`。 */
+  /** 这一轮用了多久（毫秒）：交给状态条右侧（运行中实时值，收工后 `durationMs`）。 */
   durationMs?: number
   /** 目标一行：这一轮的用户请求 / 会话目标；没有就不画。 */
   goal?: string
@@ -46,9 +47,9 @@ export interface TurnHeaderProps {
   onOpen?: () => void
 }
 
-/** 状态行用的完整状态词。 */
-const STATE_WORD: Record<StatusStripKind, string> = {
-  think: '思考中',
+/** 状态条用的短状态词（`完成 · 7 步`，与定版图同一个口径）。 */
+const STRIP_WORD: Record<StatusStripKind, string> = {
+  think: '思考',
   read: '读文件',
   edit: '改文件',
   test: '跑测试',
@@ -56,18 +57,10 @@ const STATE_WORD: Record<StatusStripKind, string> = {
   stuck: '可能卡住了',
   // 没有权威数据：不写状态词（灰点 + 破折号），不猜「进行中」也不猜「已完成」。
   unknown: '—',
-  done: '已完成',
+  done: '完成',
   failed: '失败',
   stopped: '已中断',
   queued: '排队中',
-}
-
-/** 状态条用的短状态词（`完成 · 7 步`，与定版图同一个口径）。 */
-const STRIP_WORD: Record<StatusStripKind, string> = {
-  ...STATE_WORD,
-  think: '思考',
-  edit: '改文件',
-  done: '完成',
 }
 
 /**
@@ -97,11 +90,10 @@ function countText(value: number): string {
  * 渲染一个回合的任务头。
  *
  * @param props - 状态、目标、步数、耗时与元信息
- * @returns 任务头（四行里只画拿得到的那几行）
+ * @returns 任务头（三行里只画拿得到的那几行）
  */
 export function TurnHeader({
   kind,
-  state,
   steps,
   progress,
   durationMs,
@@ -112,12 +104,10 @@ export function TurnHeader({
   onOpen,
 }: TurnHeaderProps) {
   const known = kind !== 'unknown'
-  const word = state ?? STATE_WORD[kind]
   // 无权威数据时耗时不画（还没开始的回合报「12.4s」就是编数字），步数也不报。
   const time = !known || durationMs === undefined || !Number.isFinite(durationMs)
     ? ''
     : formatSeconds(durationMs)
-  const stepsText = !known || steps === undefined ? '' : `· ${Math.max(0, Math.round(steps.done))} 步 / ${Math.max(0, Math.round(steps.total))} 步`
   const stripLabel = !known || steps === undefined ? STRIP_WORD[kind] : `${STRIP_WORD[kind]} · ${Math.max(0, Math.round(steps.done))} 步`
 
   const meta: string[] = []
@@ -127,12 +117,6 @@ export function TurnHeader({
 
   return (
     <div className="palm-turn-head" data-kind={kind}>
-      <div className="palm-turn-top">
-        <span className="palm-turn-dot" aria-hidden="true" />
-        <span className="palm-turn-state">{word}</span>
-        {stepsText === '' ? null : <span className="palm-turn-steps">{stepsText}</span>}
-        {time === '' ? null : <span className="palm-turn-time">{time}</span>}
-      </div>
       {goal === undefined || goal.trim() === '' ? null : <p className="palm-turn-goal">{goal}</p>}
       <StatusStrip
         kind={kind}
@@ -149,17 +133,13 @@ export function TurnHeader({
 
 /**
  * 未水合时的首块占位（替代旧的「加载中…」文案）：逐行复刻真实任务头的行序与
- * 类名（状态行 / 目标行 / 状态条），高度全吃同一套 `--palm-turn-*` 令牌，所以
- * 真实内容落地时不会跳一下。目标行用 `.palm-turn-goal` 占位（不是另画骨架条），
- * 与真实目标共用 `--palm-turn-goal-h` —— 这是「骨架与真实头同高」的可验口径。
+ * 类名（目标行 / 状态条），高度全吃同一套 `--palm-turn-*` 令牌，所以真实内容
+ * 落地时不会跳一下。目标行用 `.palm-turn-goal` 占位（不是另画骨架条），与真实
+ * 目标共用 `--palm-turn-goal-h` —— 这是「骨架与真实头同高」的可验口径。
  */
 export function TurnHeadSkeleton() {
   return (
     <div className="palm-turn-head" data-kind="unknown" data-skeleton aria-busy="true" aria-label="正在读取会话">
-      <div className="palm-turn-top">
-        <span className="palm-turn-dot" aria-hidden="true" />
-        <span className="palm-turn-state">—</span>
-      </div>
       <p className="palm-turn-goal" data-skeleton-goal aria-hidden="true"><span data-skeleton-line /></p>
       <StatusStrip kind="unknown" label="—" />
     </div>

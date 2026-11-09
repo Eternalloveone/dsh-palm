@@ -4,7 +4,7 @@
  * 2026-11-08 实机投诉后重排为**正文里的一张过程表**（不再是一叠卡）：
  *
  * ```
- * ┌ 12 次工具调用  2 处报错          用时42分3秒   ← 24px / 11px
+ * ┌ 12 次工具调用  2 处报错                      ← 24px / 11px
  * │ 还有 9 步 ›                                  ← 默认只露最近 3 条
  * │ ● 读文件 · ChatView.tsx            完成      ← 36px 单行，无卡片外壳
  * └ [展开：思考块 / 叙述文本 / diff 卡]
@@ -14,6 +14,9 @@
  * 思考与 diff 卡仍在展开体里，答案永远留在卡外。状态点只报宿主真给过的状态
  * （`running`/`ok`/`error`/`stopped`），拿不到就是灰点，不编"成功/失败"。
  *
+ * 头一行只报**计数**：工具调用数与报错数。状态词与计时全页只在任务头的状态条
+ * （`ui/status-strip.tsx`）—— 这一行再报一份就是真机上的第二个状态词、第三条计时。
+ *
  * @module dsh-palm/mobile/message-row/process
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -21,9 +24,7 @@ import type { RenderMessage, ToolCallInfo } from '../render/messages.ts'
 import { MarkdownText } from '../render/markdown-text.tsx'
 import {
   processErrorsText,
-  processStateText,
   processStepsText,
-  processTimeText,
   visibleRowCount,
   type ProcessModel,
   type ProcessOutcome,
@@ -34,7 +35,6 @@ import { stepModel } from '../render/step-view.ts'
 import { ChevronDownIcon, ChevronRightIcon } from '../components/icons.tsx'
 import { ProcessLine } from '../ui/process-line.tsx'
 import { Button } from '../ui/primitives.tsx'
-import { forgetTurnAnchor, stableTurnAnchor } from './anchors.ts'
 import { ArtifactCards } from './artifact-cards.tsx'
 import { BlockList, type BlockRegistry } from './block-registry.tsx'
 import { toVM } from './to-vm.ts'
@@ -44,12 +44,13 @@ import type { MessageBlock } from './types.ts'
 const RECENT_TOOLS = 3
 
 /**
- * 一轮的"过程组"（桌面端 turn-process 的对应物）。头一行只说两件事：
- * 这一轮跑了多少个工具、一共花了多久；每行工具在头下面直接列出来。
+ * 一轮的"过程组"（桌面端 turn-process 的对应物）。头一行只报两件事：
+ * 这一轮跑了多少个工具、有几处报错；每行工具在头下面直接列出来。
+ * 状态词与计时不在这里（全页只在任务头状态条），所以本组件不再需要时钟。
  * 没有可展开的内容（没有思考、没有叙述、没有 diff 卡）时头是静态的，
  * 不假装能点开。
  */
-export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, authority, liveClockTick }: {
+export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, authority }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
@@ -57,15 +58,11 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
   focusExpand?: boolean
   sessionId?: string
-  hostNowMs?: number
-  liveTurnStartAt?: number
   /**
    * 宿主快照到齐（水合门，见 `chat-rows.tsx`）。没到就**只画 `unknown`**：
    * 不写状态词、不报耗时。**缺省 = 已水合**（直接渲染这一行的宿主/测试自带证据）。
    */
   authority?: boolean
-  /** 父级的 1 Hz 心跳（见 live-clock.ts）。它每秒变一次，负责把这一行叫醒。 */
-  liveClockTick?: number
 }) {
   const [open, setOpen] = useState(false)
   // 「还有 N 步 ›」只展开一次：点过就全量，不再二次折叠（回看一轮跑过的 12 步时，
@@ -82,34 +79,6 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   // 在打架时兜成「已完成」，正是最后一条「缺字段当成功」）。
   const outcome: ProcessOutcome = authority !== false ? model.outcome : 'unknown'
   const running = outcome === 'running'
-  // 有外部心跳就靠它叫醒；单独渲染这一行（测试、别的宿主）时才自己挂一个。
-  const [, setSelfTick] = useState(0)
-  useEffect(() => {
-    if (!running || liveClockTick !== undefined) return
-    const id = setInterval(() => { setSelfTick(previous => previous + 1) }, 1_000)
-    return () => { clearInterval(id) }
-  }, [running, liveClockTick])
-  // 秒表走宿主时间：渲染层只做「宿主时间 − 锚点」，本机墙钟不参与（W3-5）。
-  const now = hostNowMs ?? Date.now()
-  // 锚点只认**宿主时间**：行上的 turnStartAt（turn/end 盖的）与页级 liveTurnStartAt。
-  const rawAnchor = message.turnStartAt ?? liveTurnStartAt
-  // 见 `stableTurnAnchor`：同一轮只认见过的最早锚点（跨重挂、跨刷新都在）。
-  const anchorKey = `${sessionId ?? ''}:${message.turn ?? message.id}`
-  const clockAnchor = running
-    ? stableTurnAnchor(anchorKey, rawAnchor)
-    : (forgetTurnAnchor(anchorKey), rawAnchor)
-  // 结束时间以 turn/end 盖上的 durationMs 为准；窗口没收到 turn/end 时退回
-  // turn/start 与最后一次触碰的时间差（中断的回合也能给出可信的耗时）。
-  const liveElapsedMs = running && clockAnchor !== undefined
-    ? Math.max(0, now - clockAnchor)
-    : undefined
-  const durationMs = message.durationMs
-    ?? (message.turnStartAt !== undefined ? Math.max(0, message.time - message.turnStartAt) : undefined)
-  const stateText = processStateText(outcome)
-  const timeText = processTimeText(outcome, {
-    durationMs,
-    ...(liveElapsedMs !== undefined ? { liveElapsedMs } : {}),
-  })
   // 报错信号：只在这轮真有条目报错的工具步骤时才出现，没有就什么也不留。
   const errorsText = processErrorsText(model)
   const toolRows = model.rows.filter((row): row is ProcessToolRow => row.kind === 'tool')
@@ -117,11 +86,10 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   // 一行一步：默认只露最近 3 条，其余收成一行「还有 N 步 ›」（12 条工具不再刷两屏）。
   const hiddenTools = showAllTools ? 0 : Math.max(0, visibleTools.length - RECENT_TOOLS)
   const shownTools = hiddenTools === 0 ? visibleTools : visibleTools.slice(hiddenTools)
-  // 过程折叠行（新设计「▸ 7 步过程 · 31 次工具调用」）：计划步数与工具调用数分开报，
-  // 缺项就少说一项；展开/收起**复用本组件已有的 `open` 状态**，不另起一份状态。
-  // 头行不再另报一份「最近：…」—— 最近 3 步本来就常显在下面，同一条信息说两遍
-  // 只会多出一条折行（实机量到的第二行）。
-  const planSteps = message.plan?.items.length
+  // 过程折叠行（「▸ 31 次工具调用 · 2 处报错」）：**只报计数**。计划步数在状态条的
+  // 文案/刻度轨里，状态词与计时也在那里；这里再报一份就是同一件事说两遍。
+  // 展开/收起**复用本组件已有的 `open` 状态**，不另起一份状态。
+  // 头行不再另报一份「最近：…」—— 最近 3 步本来就常显在下面。
   // 展开体：思考块、步骤之间的叙述文本、diff 卡。工具行已经常显，不再进这里。
   const bodyRows = visibleRowCount(model, false)
   const stepsText = processStepsText(model, showToolCalls)
@@ -130,11 +98,10 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
     <ProcessLine
       className={bodyRows === 0 ? 'chat-proc-head chat-proc-head-static' : 'chat-proc-head'}
       state={outcome}
-      label={stateText}
-      {...(planSteps === undefined || planSteps <= 0 ? {} : { steps: planSteps })}
+      // 没有工具计数时不给结论：沿用 unknown 档的「—」，不拿状态词补位。
+      label="—"
       {...(showToolCalls && model.toolCount > 0 ? { toolCalls: model.toolCount } : {})}
       {...(errorsText === '' ? {} : { note: errorsText })}
-      {...(timeText === '' ? {} : { time: timeText })}
       {...(bodyRows === 0 ? {} : { expanded: open, onToggle: () => { setOpen(value => !value) } })}
     />
   )

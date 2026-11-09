@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * 交付卡的渲染契约（版式真源 delivery-card.html A 图）：
- * 1. 卡头（✓ 交付完成 + 耗时·步数）→ 交付物行 → 改动最大的 2 个文件行 → 汇总 → 卡尾；
+ * 1. 卡头（✓ 交付完成 + 步数）→ 交付物行 → 改动最大的 2 个文件行 → 汇总 → 卡尾；
  * 2. 失败/中断（completed=false）与「什么都没交回」都不画卡（全页唯一卡片）；
  * 3. 增删行数按千分位格式化；同一份 tally 同时服务行内与汇总行；
  * 4. 文件行点开走既有 onOpenFile，卡尾「看全部改动」走 onOpenChanges。
@@ -23,7 +23,6 @@ describe('DeliveryCard（交付卡）', () => {
     const { container } = render(
       <DeliveryCard
         completed
-        durationMs={12_400}
         steps={7}
         deliverables={[{ path: 'docs/jump.md', description: '跳转排查说明' }]}
         changes={CHANGES}
@@ -34,7 +33,10 @@ describe('DeliveryCard（交付卡）', () => {
       />,
     )
     expect(screen.getByText('交付完成')).toBeTruthy()
-    expect(screen.getByText('12.4s · 7 步')).toBeTruthy()
+    // 卡头只报步数：这一轮的时长只在任务头状态条里说一次（卡面不再重复）。
+    expect(screen.getByText('7 步')).toBeTruthy()
+    expect(container.textContent).not.toMatch(/\d+分\d+秒|\d+(\.\d+)?s\b/)
+    expect(container.querySelector('.palm-delivery-time')).toBeNull()
     expect(screen.getByText('跳转排查说明')).toBeTruthy()
     // 只上卡增删总量最大的 2 个改动；第三名（budget.json）留给「看全部改动」。
     expect(screen.getByText('styles/240-toolbar.css')).toBeTruthy()

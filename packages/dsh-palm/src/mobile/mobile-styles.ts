@@ -131,7 +131,6 @@ export const mobileCss = `${designTokensCss()}
   --palm-flow-meta-size: 10.5px;
   --palm-flow-tally-size: 10px;
   --palm-flow-tag-size: 9.5px;
-  --palm-flow-dot: 7px;
   --palm-flow-card-r: 14px;
   --palm-flow-rule: rgba(255, 255, 255, 0.05);
   --palm-flow-card-line: rgba(61, 220, 132, 0.22);
@@ -139,7 +138,8 @@ export const mobileCss = `${designTokensCss()}
   --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
   --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
 
-  /* ── 任务头四行（状态行 / 目标 / 状态条 / 元信息）───────────────────
+  /* ── 任务头三行（目标 / 状态条 / 元信息）────────────────────────────
+   * 状态词与计时只在状态条；顶部「状态点 + 状态词 + 步数 + 耗时」那一行已删除。
    * 与 28px 状态条配套收窄：行间 8 → 6、上 4 → 2、下 12 → 10。
    * 目标行字号 15px 不动（它是这一轮的主信息），只把最小行高钉成 20px，
    * 好让 TurnHeadSkeleton 的占位与真实目标行同高。 */
@@ -3494,7 +3494,8 @@ button.settings-row:focus-visible {
  * 2026-11-08 实机投诉：一回合 12 次工具调用被画成 12 张卡（44 的命中高度 + 8 的上下
  * 留白 + 描边/底色 + 行间 gap ≈ 90 一张），一屏只能看 6 条，扫不完。定版不再画
  * 卡片外壳：整块只是正文里的一段过程表，行与行之间最多一条极淡分隔线。
- * 头一行只说工具数与总耗时（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
+ * 头一行只说工具数与报错数（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
+ * 状态词与耗时不在这一行：全页只在任务头状态条（真机上曾并排出现两个状态词、两条计时）。
  */
 .chat-proc {
   display: flex;
@@ -3525,8 +3526,8 @@ button.settings-row:focus-visible {
 }
 
 .chat-proc-line {
-  /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸ 与「用时」，写死 100% 会把它们挤到
-     第二行 —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
+  /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸，写死 100% 会把它挤到第二行
+      —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -3551,16 +3552,6 @@ button.settings-row:focus-visible {
   color: var(--palm-danger);
   font-size: var(--palm-proc-head-size);
   font-weight: var(--palm-w-normal);
-}
-
-/* 右侧总耗时：第三档灰、等宽数字。 */
-.chat-proc-time {
-  flex: none;
-  margin-left: auto;
-  color: var(--palm-fg-3);
-  font-size: var(--palm-proc-head-size);
-  font-weight: var(--palm-w-normal);
-  font-variant-numeric: tabular-nums;
 }
 
 .chat-proc-label {
@@ -3763,12 +3754,13 @@ button.settings-row:focus-visible {
 .chat-step-dot[data-state='error'] { background: var(--palm-danger); }
 .chat-step-dot[data-state='stopped'] { background: var(--palm-warn); }
 
-/* 工具名：短、不可省，但不许把目标挤没（长了自己也省略）。 */
+/*
+ * 工具名：**不可收缩**（flex: none）。它是这一行的动词（「工具」「运行命令」「写入」），
+ * 一旦允许收缩，窄屏上就会被压成一个字 —— 真机 320/390 宽下量到的就是「工·」。
+ * 省略号只属于右边的目标：.chat-step-summary 吃剩余宽度、在尾部省略。
+ */
 .chat-step-title {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   white-space: nowrap;
   font-size: var(--palm-flow-row-size);
   color: var(--palm-fg);
@@ -7706,9 +7698,11 @@ button.settings-row:active {
   background: var(--palm-strip-rail-now);
 }
 
-/* ── 会话正文流：任务头（状态点 + 状态词 + 步数 + 耗时 / 目标 / 状态条） ──
+/* ── 会话正文流：任务头（目标 / 状态条 / 元信息） ─────────────────────────
    版式真源：overview.html「2 · 会话正文」；delivery-card.html A 图的 .thead。
-   四行固定顺序：①状态行 ②目标（15px/600）③状态条 ④弱化元信息行。
+   三行固定顺序：①目标（15px/600）②状态条 ③弱化元信息行。
+   状态词与计时**只在状态条**：顶部那条「状态点 + 状态词 + N 步 / M 步 + 耗时」
+   已删除（真机一屏因此有两个状态词、四条计时）。
    2026-11-09 随 28px 状态条收窄：行间 gap 8 → 6、上下内边距 4/12 → 2/10
    （全部走 --palm-turn-* 令牌）；目标行仍 15px，元信息 10.5 → 10。 */
 .palm-turn-head {
@@ -7716,46 +7710,6 @@ button.settings-row:active {
   flex-direction: column;
   gap: var(--palm-turn-gap);
   padding-block: var(--palm-turn-pad-t) var(--palm-turn-pad-b);
-}
-
-.palm-turn-top {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s1);
-  min-block-size: var(--palm-s5);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.palm-turn-dot {
-  flex: none;
-  inline-size: var(--palm-flow-dot);
-  block-size: var(--palm-flow-dot);
-  border-radius: var(--palm-r-full);
-  background: var(--palm-fg-3);
-}
-
-.palm-turn-head[data-kind='think'] .palm-turn-dot { background: var(--palm-accent); }
-/* 无权威数据：灰点（默认 --palm-fg-3），不借「思考」的强调色。 */
-.palm-turn-head[data-kind='read'] .palm-turn-dot,
-.palm-turn-head[data-kind='edit'] .palm-turn-dot,
-.palm-turn-head[data-kind='test'] .palm-turn-dot { background: var(--palm-accent-2); }
-.palm-turn-head[data-kind='approve'] .palm-turn-dot,
-.palm-turn-head[data-kind='stuck'] .palm-turn-dot { background: var(--palm-warn); }
-.palm-turn-head[data-kind='done'] .palm-turn-dot { background: var(--palm-ok); }
-.palm-turn-head[data-kind='failed'] .palm-turn-dot { background: var(--palm-danger); }
-
-.palm-turn-state {
-  color: var(--palm-fg-2);
-  font-weight: var(--palm-w-normal);
-}
-
-.palm-turn-steps { color: var(--palm-fg-3); }
-
-.palm-turn-time {
-  margin-inline-start: auto;
-  color: var(--palm-fg-3);
-  font-variant-numeric: tabular-nums;
 }
 
 .palm-turn-goal {
@@ -7776,10 +7730,11 @@ button.settings-row:active {
   color: var(--palm-fg-3);
 }
 
-/* ── 过程折叠行：「▸ 7 步过程 · 31 次工具调用」 ────────────────────────
+/* ── 过程折叠行：「▸ 12 次工具调用 · 2 处报错」 ─────────────────────────
    整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
-   这里只画，不新建状态。运行中在下方追加「最近 3 步」。 */
-/* 过程折叠行（「12 次工具调用 2 处报错 用时42分3秒」）：定版 24 高 / 11 号字。
+   这里只画，不新建状态。运行中在下方追加「最近 3 步」。
+   计数之外不再报状态词与耗时：那两样全页只在任务头状态条。 */
+/* 过程折叠行（「12 次工具调用 2 处报错」）：定版 24 高 / 11 号字。
  * 它只是一条注脚，不再吃 44 的拇指区 —— 展开入口在头行上，行本身照旧可点。 */
 .palm-proc {
   display: flex;
@@ -7818,12 +7773,6 @@ button.palm-proc:focus-visible {
 .palm-proc[data-state='unknown'] .palm-proc-main { color: var(--palm-proc-unknown); }
 
 .palm-proc-note { color: var(--palm-warn); }
-
-.palm-proc-time {
-  margin-inline-start: auto;
-  color: var(--palm-fg-3);
-  font-variant-numeric: tabular-nums;
-}
 
 .palm-proc-recent {
   flex-basis: 100%;

@@ -20,6 +20,7 @@ import { Button } from '../ui/primitives.tsx'
 import { TurnHeader } from '../ui/turn-header.tsx'
 import { deriveTaskStatus, planStepsOf, taskActivityOf, type TaskSteps } from '../session/task-status.ts'
 import { isRowRunning } from '../render/process-rows.ts'
+import { forgetTurnAnchor, stableTurnAnchor } from './anchors.ts'
 import { ProcessGroup } from './process.tsx'
 
 /**
@@ -29,7 +30,7 @@ import { ProcessGroup } from './process.tsx'
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, liveClockTick, turnGoal, modelName, turnSteps }: {
+export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, turnGoal, modelName, turnSteps }: {
   message: RenderMessage
   showToolCalls: boolean
   forceOpen: boolean
@@ -47,8 +48,6 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
    * **缺省 = 已水合**：只有会话页知道水合进度，它显式传 false 时门才关上。
    */
   hydrated?: boolean
-  /** 父级的 1 Hz 心跳（见 live-clock.ts）：只有正在跑的那一行才收得到。 */
-  liveClockTick?: number
   /** 这一轮的目标（用户请求原文，由 ChatRows 按轮折出来）：任务头第二行。 */
   turnGoal?: string
   /** 模型名：任务头元信息行（拿不到就不显示）。 */
@@ -76,9 +75,15 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
     && (visibleRows > 0 || message.durationMs !== undefined || message.turnStartAt !== undefined)
   // 任务头（新「会话正文流」的第一块）：状态/步数/进度/耗时全部从现有回合数据折出来，
   // 不再另造一份「现在到哪一步」。运行中报实时秒表，收工后以 turn/end 的 durationMs 定格。
-  const anchor = message.turnStartAt ?? liveTurnStartAt
   const now = hostNowMs ?? Date.now()
   const running = authority ? isRowRunning(message, liveTurn, settled) : undefined
+  // 锚点**只许变早**（真机 2026-11-02 / 11-03：重载后计时从 5分10秒 跳回 1分20秒，
+  // 再从小往大长）。秒表现在只剩状态条一处，锚点一抖就是屏幕上的计时一抖。
+  const rawAnchor = message.turnStartAt ?? liveTurnStartAt
+  const anchorKey = `${sessionId ?? ''}:${message.turn ?? message.id}`
+  const anchor = running === true
+    ? stableTurnAnchor(anchorKey, rawAnchor)
+    : (forgetTurnAnchor(anchorKey), rawAnchor)
   const liveElapsed = running === true && anchor !== undefined ? Math.max(0, now - anchor) : undefined
   // 终态只在有权威时下：宿主说失败 / turn/end 说中断 / 宿主说这一轮没在跑（= 完成）。
   const outcome = !authority ? undefined
@@ -114,7 +119,7 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
           {...(modelName === undefined || modelName === '' ? {} : { model: modelName })}
         />
       )}
-      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} authority={authority} liveClockTick={liveClockTick} />}
+      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} authority={authority} />}
       {answer !== undefined && answer !== '' && (model.answerSeq === undefined ? (
         <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />
       ) : (

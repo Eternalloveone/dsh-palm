@@ -87,7 +87,7 @@ import { ChatEmptyView } from './chat/components/chat-empty.tsx'
 import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText, type SearchHit } from './chat/lib/chat-search-match.ts'
 import { ChatAttentionPanels } from './chat/components/chat-attention-panels.tsx'
 import { JumpControls } from './chat/components/scroll-controls.tsx'
-import { formatClock, type ModelPickerCatalog } from './chat/lib/tool-labels.ts'
+import type { ModelPickerCatalog } from './chat/lib/tool-labels.ts'
 import { useChatDraft } from './chat/hooks/use-chat-draft.ts'
 import { ComposerSection } from './chat/components/composer-section.tsx'
 import { useLongPress } from '../ui/hooks/use-long-press.ts'
@@ -1480,12 +1480,13 @@ function ChatSessionView({
    * 不跑的行收不到这个 prop，memo 照旧挡住它们。
    */
   const liveClockTick = useLiveClock(turnLive && foreground)
-  /** 状态位：空闲写「空闲」，运行中写 mm:ss（与目标条的「已跑」同一根锚）。 */
-  const dockStatus = ((): string => {
-    if (!running || turnStartAt === null) return '空闲'
-    const hostNow = hostClock.hostNow()
-    return formatClock(hostNow === undefined ? 0 : Math.max(0, hostNow - turnStartAt))
-  })()
+  /**
+   * 状态位：空闲写「空闲」，运行中写「运行中」。
+   *
+   * **不在这里报秒**：一屏只留一个计时（任务头状态条），运行态另有输入框右侧的
+   * 红色停止键表达；这里再走一个 mm:ss 就是同一件事第三个地方。
+   */
+  const dockStatus = running ? '运行中' : '空闲'
   /**
    * 目标条上的进度摘要：已跑多久、走到第几步。
    *

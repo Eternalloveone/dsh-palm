@@ -773,9 +773,11 @@ button.settings-row:active {
   background: var(--palm-strip-rail-now);
 }
 
-/* ── 会话正文流：任务头（状态点 + 状态词 + 步数 + 耗时 / 目标 / 状态条） ──
+/* ── 会话正文流：任务头（目标 / 状态条 / 元信息） ─────────────────────────
    版式真源：overview.html「2 · 会话正文」；delivery-card.html A 图的 .thead。
-   四行固定顺序：①状态行 ②目标（15px/600）③状态条 ④弱化元信息行。
+   三行固定顺序：①目标（15px/600）②状态条 ③弱化元信息行。
+   状态词与计时**只在状态条**：顶部那条「状态点 + 状态词 + N 步 / M 步 + 耗时」
+   已删除（真机一屏因此有两个状态词、四条计时）。
    2026-11-09 随 28px 状态条收窄：行间 gap 8 → 6、上下内边距 4/12 → 2/10
    （全部走 --palm-turn-* 令牌）；目标行仍 15px，元信息 10.5 → 10。 */
 .palm-turn-head {
@@ -783,46 +785,6 @@ button.settings-row:active {
   flex-direction: column;
   gap: var(--palm-turn-gap);
   padding-block: var(--palm-turn-pad-t) var(--palm-turn-pad-b);
-}
-
-.palm-turn-top {
-  display: flex;
-  align-items: center;
-  gap: var(--palm-s1);
-  min-block-size: var(--palm-s5);
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.palm-turn-dot {
-  flex: none;
-  inline-size: var(--palm-flow-dot);
-  block-size: var(--palm-flow-dot);
-  border-radius: var(--palm-r-full);
-  background: var(--palm-fg-3);
-}
-
-.palm-turn-head[data-kind='think'] .palm-turn-dot { background: var(--palm-accent); }
-/* 无权威数据：灰点（默认 --palm-fg-3），不借「思考」的强调色。 */
-.palm-turn-head[data-kind='read'] .palm-turn-dot,
-.palm-turn-head[data-kind='edit'] .palm-turn-dot,
-.palm-turn-head[data-kind='test'] .palm-turn-dot { background: var(--palm-accent-2); }
-.palm-turn-head[data-kind='approve'] .palm-turn-dot,
-.palm-turn-head[data-kind='stuck'] .palm-turn-dot { background: var(--palm-warn); }
-.palm-turn-head[data-kind='done'] .palm-turn-dot { background: var(--palm-ok); }
-.palm-turn-head[data-kind='failed'] .palm-turn-dot { background: var(--palm-danger); }
-
-.palm-turn-state {
-  color: var(--palm-fg-2);
-  font-weight: var(--palm-w-normal);
-}
-
-.palm-turn-steps { color: var(--palm-fg-3); }
-
-.palm-turn-time {
-  margin-inline-start: auto;
-  color: var(--palm-fg-3);
-  font-variant-numeric: tabular-nums;
 }
 
 .palm-turn-goal {
@@ -843,10 +805,11 @@ button.settings-row:active {
   color: var(--palm-fg-3);
 }
 
-/* ── 过程折叠行：「▸ 7 步过程 · 31 次工具调用」 ────────────────────────
+/* ── 过程折叠行：「▸ 12 次工具调用 · 2 处报错」 ─────────────────────────
    整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
-   这里只画，不新建状态。运行中在下方追加「最近 3 步」。 */
-/* 过程折叠行（「12 次工具调用 2 处报错 用时42分3秒」）：定版 24 高 / 11 号字。
+   这里只画，不新建状态。运行中在下方追加「最近 3 步」。
+   计数之外不再报状态词与耗时：那两样全页只在任务头状态条。 */
+/* 过程折叠行（「12 次工具调用 2 处报错」）：定版 24 高 / 11 号字。
  * 它只是一条注脚，不再吃 44 的拇指区 —— 展开入口在头行上，行本身照旧可点。 */
 .palm-proc {
   display: flex;
@@ -885,12 +848,6 @@ button.palm-proc:focus-visible {
 .palm-proc[data-state='unknown'] .palm-proc-main { color: var(--palm-proc-unknown); }
 
 .palm-proc-note { color: var(--palm-warn); }
-
-.palm-proc-time {
-  margin-inline-start: auto;
-  color: var(--palm-fg-3);
-  font-variant-numeric: tabular-nums;
-}
 
 .palm-proc-recent {
   flex-basis: 100%;

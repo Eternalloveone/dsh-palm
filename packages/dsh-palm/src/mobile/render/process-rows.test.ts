@@ -7,7 +7,7 @@
  * 2. 之前各步的文本留在组内当过程叙述，不在答案里重复。
  */
 import { describe, expect, it } from 'vitest'
-import { formatDuration, lineCount, processErrorsText, processFilesText, processHeadText, processModel, processOutcome, processStateText, processStepsText, processTimeText, RUNNING_CLOCK_THRESHOLD_MS, tallyOfTools } from './process-rows.ts'
+import { formatDuration, lineCount, processErrorsText, processFilesText, processModel, processOutcome, processStepsText, tallyOfTools } from './process-rows.ts'
 import { isRowRunning } from './process-rows.ts'
 import type { RenderMessage, ToolCallInfo } from './messages.ts'
 
@@ -163,56 +163,7 @@ describe('processModel: 老数据兜底', () => {
   })
 })
 
-describe('processHeadText / processStateText / processTimeText: 计时只出现在组头第一行', () => {
-  it('运行中只说"深度求索中"（不报步数），结束说"已完成，用时 X"（口径已去掉步数）', () => {
-    const model = processModel(assistant({ text: '', flow: [{ kind: 'tool', callId: 'c1' }], tools: [tool('c1')] }), undefined, undefined, true)
-
-    // 运行中不报步数：进展交给第二行"此刻到哪一步"。
-    expect(processHeadText(model, { running: true, durationMs: 384_000 })).toBe('深度求索中')
-    expect(processHeadText(model, { running: true, durationMs: 384_000 })).not.toContain('步')
-    // 结束定格：状态词＋耗时。**步数不再进这一句**（P11 用户拍板：步数移出卡面，
-    // 改由展开体首行的 processStepsText 报「共 N 步」），所以旧的
-    // '已完成，用时6分24秒 · 1 步' 期望值同步改成新口径。
-    expect(processHeadText(model, { running: false, durationMs: 384_000 })).toBe('已完成，用时6分24秒')
-    expect(processHeadText(model, { running: false, durationMs: 384_000 })).not.toContain('步')
-  })
-
-  it('运行中只有超过阈值才报秒数（liveElapsedMs 三条分支）', () => {
-    const model = processModel(assistant({ text: '', flow: [{ kind: 'tool', callId: 'c1' }], tools: [tool('c1')] }), undefined, undefined, true)
-
-    // 分支一：还没有实时秒数（行内时钟还没挂上）——只说状态词。
-    expect(processHeadText(model, { running: true, durationMs: undefined })).toBe('深度求索中')
-    // 分支二：不到阈值——刚开口就闪一个"用时1秒"反而像故障。
-    expect(processHeadText(model, { running: true, durationMs: undefined, liveElapsedMs: 0 })).toBe('深度求索中')
-    expect(processHeadText(model, { running: true, durationMs: undefined, liveElapsedMs: 2_999 })).toBe('深度求索中')
-    // 分支三：到/超过阈值——报宿主时间算出来的用时（分秒措辞与桌面端同格式）。
-    expect(processHeadText(model, { running: true, durationMs: undefined, liveElapsedMs: RUNNING_CLOCK_THRESHOLD_MS })).toBe('深度求索中，用时3秒')
-    expect(processHeadText(model, { running: true, durationMs: undefined, liveElapsedMs: 213_000 })).toBe('深度求索中，用时3分33秒')
-    // 阈值是公开契约：3 秒。
-    expect(RUNNING_CLOCK_THRESHOLD_MS).toBe(3_000)
-  })
-
-  it('没有可展开的行时不带步数（纯文本回复也显示用时）', () => {
-    const model = processModel(assistant({ text: '就一句话' }), undefined, undefined, true)
-
-    expect(processHeadText(model, { running: false, durationMs: 19_000 })).toBe('已完成，用时19秒')
-    expect(processHeadText(model, { running: true, durationMs: undefined })).toBe('深度求索中')
-  })
-
-  it('没有回合时钟时只给状态词而不是空白（也不出现孤零零的"N 步"）', () => {
-    const model = processModel(assistant({ text: '', flow: [{ kind: 'tool', callId: 'c1' }], tools: [tool('c1')] }), undefined, undefined, true)
-
-    expect(processHeadText(model, { running: false, durationMs: undefined })).toBe('已完成')
-    // 旧口径在无时长时会退化成只报步数（'已完成，1 步'）：步数已移出卡面，现在只剩状态词。
-    expect(processHeadText(model, { running: false, durationMs: undefined })).not.toContain('步')
-  })
-
-  it('运行中的实时秒数压过传入的 durationMs（回合没结束就没有定格耗时）', () => {
-    const model = processModel(assistant({ text: '', flow: [{ kind: 'tool', callId: 'c1' }], tools: [tool('c1')] }), undefined, undefined, true)
-
-    expect(processHeadText(model, { running: true, durationMs: 384_000, liveElapsedMs: 65_000 })).toBe('深度求索中，用时1分5秒')
-  })
-
+describe('折叠头：只报计数（状态词与计时全在状态条）', () => {
   it('processStepsText：步数改在展开体首行报，关掉"显示工具调用"时不再声称步数', () => {
     const model = processModel(assistant({
       text: '',
@@ -227,32 +178,20 @@ describe('processHeadText / processStateText / processTimeText: 计时只出现�
     expect(processStepsText(processModel(assistant({ text: '就一句话' })), true)).toBe('')
   })
 
-  it('processTimeText 就是状态词后面那半句（只剩用时：步数已移出卡面）', () => {
-    expect(processTimeText('running', { durationMs: undefined })).toBe('')
-    expect(processTimeText('running', { durationMs: 1_000, liveElapsedMs: 2_999 })).toBe('')
-    expect(processTimeText('running', { durationMs: undefined, liveElapsedMs: 65_000 })).toBe('用时1分5秒')
-    // 旧口径（'2 步' / '用时19秒 · 2 步'）改成新口径：步数不进这一句。
-    expect(processTimeText('ok', { durationMs: undefined })).toBe('')
-    expect(processTimeText('ok', { durationMs: 19_000 })).toBe('用时19秒')
-    expect(processTimeText('ok', { durationMs: 19_000 })).not.toContain('步')
-  })
-
-  it('成败真源：失败与中断不再冒充成功', () => {
+  it('成败真源：失败与中断不再冒充成功（状态词由状态条按 outcome 上屏）', () => {
     const failed = processModel(assistant({ text: '答案', failed: true }), undefined, undefined, true)
-    expect(processStateText(failed.outcome)).toBe('失败')
-    expect(processHeadText(failed, { running: false, durationMs: 5_000 })).toBe('失败，用时5秒')
+    expect(failed.outcome).toBe('failed')
 
     const stopped = processModel(assistant({ text: '答案', tools: [{ ...tool('c1'), state: 'stopped' }] }), undefined, undefined, true)
-    expect(processStateText(stopped.outcome)).toBe('已中断')
-    expect(processHeadText(stopped, { running: false, durationMs: 5_000 })).toBe('已中断，用时5秒')
+    expect(stopped.outcome).toBe('stopped')
 
     const maxed = processModel(assistant({ text: '答案', maxTokens: true }), undefined, undefined, true)
-    expect(processStateText(maxed.outcome)).toBe('已中断')
+    expect(maxed.outcome).toBe('stopped')
   })
 
   it('成败真源：还有工具在跑就是运行中，哪怕 pending 已经落下', () => {
-    // 宿主按步发 assistant/message：行会在回合中途被标成已结束。只看 pending 会
-    // 把运行中的卡片读成"已完成"、秒表消失（真机 bug 根因）。
+    // 宿主按步发 assistant 消息：行会在回合中途被标成已结束。只看 pending 会
+    // 把运行中的卡片读成"已完成"（真机 bug 根因）。
     const midTurn = processModel(assistant({
       text: '',
       pending: false,
@@ -261,7 +200,6 @@ describe('processHeadText / processStateText / processTimeText: 计时只出现�
     }), undefined, undefined, true)
 
     expect(midTurn.outcome).toBe('running')
-    expect(processStateText(midTurn.outcome)).toBe('深度求索中')
 
     // turn/end 会把在跑的工具翻成 stopped ⇒ 不会把已结束的回合误判成运行中。
     const ended = processModel(assistant({
@@ -274,7 +212,7 @@ describe('processHeadText / processStateText / processTimeText: 计时只出现�
     expect(ended.outcome).toBe('stopped')
   })
 
-  it('调用方说停了但模型仍判在跑：不许落到「已完成」，落 unknown（—）', () => {
+  it('调用方说停了但模型仍判在跑：卡面保持 running，头行不再有状态词可以打架', () => {
     const model = processModel(assistant({
       text: '',
       pending: true,
@@ -283,13 +221,9 @@ describe('processHeadText / processStateText / processTimeText: 计时只出现�
     }), undefined, undefined, true)
 
     expect(model.outcome).toBe('running')
-    expect(processStateText(model.outcome)).toBe('深度求索中')
-    expect(processHeadText(model, { running: true, durationMs: 9_000 })).toBe('深度求索中')
-    // 旧口径（'已完成，用时9秒 · 3 步' → '已完成，用时9秒'）在这条分支上正是
-    // 「缺字段当成功」：调用方说这一轮停了，可行里还挂着 pending，谁也没说成功。
-    // 两个判据打架时只许落 unknown，不许兜一个「已完成」。
-    expect(processHeadText(model, { running: false, durationMs: 9_000 })).toBe('—')
-    expect(processTimeText('unknown', { durationMs: 9_000 })).toBe('')
+    // 旧口径靠 processHeadText 把矛盾折成「—」；状态词搬去状态条之后，过程头
+    // 只剩计数这一种文案（渲染契约见 ui/process-line.test.tsx），没有「已完成」可补位。
+    expect(model.toolCount).toBe(1)
   })
 })
 
@@ -565,17 +499,9 @@ describe('unknown：没有权威证据时不判成功、也不判失败', () => 
     expect(processOutcome(assistant({ text: '', failed: true }), undefined, undefined, true)).toBe('failed')
   })
 
-  it('processModel：unknown 的状态词是「—」、没有耗时（即使行上有 durationMs）', () => {
+  it('processModel：unknown 只落「—」这一档，不编状态词（计时只属于状态条）', () => {
     const model = processModel(settled())
     expect(model.outcome).toBe('unknown')
-    expect(processStateText(model.outcome)).toBe('—')
-    expect(processTimeText(model.outcome, { durationMs: 19_000 })).toBe('')
-    expect(processHeadText(model, { running: false, durationMs: 19_000 })).toBe('—')
-  })
-
-  it('processHeadText：authority 为假时连 input.running 也不翻成「深度求索中」', () => {
-    const model = processModel(settled())
-    expect(processHeadText(model, { running: true, durationMs: undefined, liveElapsedMs: 65_000 })).toBe('—')
   })
 })
 

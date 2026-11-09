@@ -3,8 +3,11 @@
  *
  * 旧的浮起多 pill 行把模型、权限、上下文环拆成三个并排入口，既占高度，也和
  * C 案的底部三行（队列 / 输入 / 元信息）对不上。现在左边只有一个可点区域，
- * 点开是同一块「模型与权限」面板；右边只读：运行中显示 mm:ss，空闲显示「空闲」，
- * 后面跟一个小圆环与上下文百分比。
+ * 点开是同一块「模型与权限」面板；右边只读：状态词（`空闲` / `运行中`）＋
+ * 小圆环与上下文百分比。
+ *
+ * 右侧**不再有计时**：同一屏的计时只在任务头状态条里（`ui/status-strip.tsx`）；
+ * 运行态已经由输入框右侧的红色停止键表达，这里再走一个 mm:ss 就是重复。
  */
 import type { ReactNode } from 'react'
 import type { SessionModels } from '../../../../api-proxy-types'
@@ -23,7 +26,7 @@ export interface ComposerMetaProps {
   /** 上下文用量：undefined 表示宿主还没给投影。 */
   contextUsage: { pct: number; window: number; pressure: number } | undefined
   panelOpen: boolean
-  /** 状态位文案：空闲 =「空闲」，运行中 = mm:ss。 */
+  /** 状态位文案：空闲 =「空闲」，运行中 =「运行中」；计时不在这里。 */
   statusText: string
   pickerBusy: boolean
   togglePanel: () => void

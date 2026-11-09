@@ -2,7 +2,7 @@
  * 交付卡：一页里**唯一的一张卡**（会话正文流的收尾块）。
  *
  * 版式真源（唯一）：
- * - `docs/prototype/delivery-card.html` A 图：卡头（✓ 交付完成 + 耗时·步数）→
+ * - `docs/prototype/delivery-card.html` A 图：卡头（✓ 交付完成 + 步数；计时只在任务头状态条）→
  *   交付物行 → 改动行（+N −D +「修改」标签）→ 汇总行 → 卡尾（提交 · 已推送 + 看全部改动）；
  * - `docs/prototype/overview.html`「2 · 会话正文」：卡上只留 2 行明细；
  * - `docs/screenshots/prototype-delivery.png`：肉眼基线。
@@ -18,7 +18,6 @@
  */
 import type { ReactElement } from 'react'
 import { Button } from './primitives.tsx'
-import { formatSeconds } from './turn-header.tsx'
 
 /** 一条改动：路径 + 可选增删行数（拿不到行数时行内不显示 tally）。 */
 export interface DeliveryFileChange {
@@ -37,9 +36,7 @@ export interface DeliveryDeliverable {
 export interface DeliveryCardProps {
   /** 回合是否正常收工：失败/中断传 false（整张卡不渲染）。 */
   completed: boolean
-  /** 这一轮用了多久（毫秒）。 */
-  durationMs?: number
-  /** 计划步数（卡头 `12.4s · 7 步` 里的那一半）。 */
+  /** 计划步数（卡头「交付完成 · 7 步」里的那一半；计时只在任务头状态条）。 */
   steps?: number
   /** 交付物（`present` 声明），按出现顺序；卡上最多列 2 条。 */
   deliverables?: readonly DeliveryDeliverable[]
@@ -84,12 +81,11 @@ function weightOf(change: DeliveryFileChange): number {
 /**
  * 渲染交付卡。
  *
- * @param props - 完成状态、耗时步数、交付物、改动、汇总与回调
+ * @param props - 完成状态、步数、交付物、改动、汇总与回调
  * @returns 卡片；失败/中断或没有任何产物时为 `null`
  */
 export function DeliveryCard({
   completed,
-  durationMs,
   steps,
   deliverables = [],
   changes = [],
@@ -118,8 +114,8 @@ export function DeliveryCard({
 
   if (files === 0 && shownDeliverables.length === 0 && changed.length === 0) return null
 
+  // 卡头只报「N 步」：这一轮用了多久只在任务头状态条里说一次（卡面再报一遍就是两只表）。
   const headMeta: string[] = []
-  if (durationMs !== undefined && Number.isFinite(durationMs)) headMeta.push(formatSeconds(durationMs))
   if (steps !== undefined && steps > 0) headMeta.push(`${Math.round(steps)} 步`)
 
   const row = (
