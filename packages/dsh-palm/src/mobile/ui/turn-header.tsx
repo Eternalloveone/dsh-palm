@@ -3,7 +3,7 @@
  *
  * 版式真源（唯一）：
  * - `docs/prototype/overview.html`「2 · 会话正文」：
- *   `● 已完成 · 7 步 / 7 步        12.4s` → 目标一行（15px/600）→ 32px 状态条；
+ *   `● 已完成 · 7 步 / 7 步        12.4s` → 目标一行（15px/600）→ 28px 状态条；
  * - `docs/screenshots/prototype-overview.png`：同上，肉眼基线；
  * - `docs/prototype/delivery-card.html` A 图：`.trow` / `.goal` / `.bmeta`。
  *
@@ -11,7 +11,7 @@
  * 1. **状态行**：状态点 + 状态词 + 步数（`7 步 / 7 步`）+ 右侧耗时；
  * 2. **目标**：这一轮要什么（15px/600，最多两行的高度由文本自己撑）；
  * 3. **状态条**：{@link StatusStrip}（种类/进度/步数都来自 `session/task-status.ts`）；
- * 4. **元信息**：`改 N 个文件 · N 测试通过 · 模型`（10.5px 弱化，拿不到的那项不出现）。
+ * 4. **元信息**：`改 N 个文件 · N 测试通过 · 模型`（10px 弱化，拿不到的那项不出现）。
  *
  * 三条硬规则：
  * - **不造数据**：所有字段都是可选的，拿不到就不画那一行/那一段；
@@ -20,7 +20,6 @@
  *
  * @module dsh-palm/mobile/ui/turn-header
  */
-import { Skeleton } from './primitives.tsx'
 import { StatusStrip, type StatusStripKind, type StatusStripSteps } from './status-strip.tsx'
 
 /** 任务头的 props：全部取自现有回合数据，缺哪项就不画哪项。 */
@@ -149,8 +148,10 @@ export function TurnHeader({
 }
 
 /**
- * 未水合时的首块占位（替代旧的「加载中…」文案）：复用任务头同一套类名与子元素
- * 顺序，高度由构造保证相同，真实内容落地时不会跳一下。
+ * 未水合时的首块占位（替代旧的「加载中…」文案）：逐行复刻真实任务头的行序与
+ * 类名（状态行 / 目标行 / 状态条），高度全吃同一套 `--palm-turn-*` 令牌，所以
+ * 真实内容落地时不会跳一下。目标行用 `.palm-turn-goal` 占位（不是另画骨架条），
+ * 与真实目标共用 `--palm-turn-goal-h` —— 这是「骨架与真实头同高」的可验口径。
  */
 export function TurnHeadSkeleton() {
   return (
@@ -159,7 +160,7 @@ export function TurnHeadSkeleton() {
         <span className="palm-turn-dot" aria-hidden="true" />
         <span className="palm-turn-state">—</span>
       </div>
-      <Skeleton lines={2} />
+      <p className="palm-turn-goal" data-skeleton-goal aria-hidden="true"><span data-skeleton-line /></p>
       <StatusStrip kind="unknown" label="—" />
     </div>
   )

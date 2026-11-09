@@ -1,9 +1,9 @@
 /**
- * 状态条：任务头那条 32px 胶囊 + 方案 A 刻度轨（新设计方案的第一个组件）。
+ * 状态条：任务头那条 28px 胶囊 + 方案 A 刻度轨（新设计方案的第一个组件）。
  *
  * 版式真源（唯一）：
- * - `docs/prototype/pet-strip-v5.html` ①：32px 主条、圆角 11、渐变填充、
- *   18~20px 内联宠物、白色文字 + 1px 暗阴影、右侧等宽数字；
+ * - `docs/prototype/pet-strip-v5.html` ①：28px 主条、圆角 10、渐变填充、
+ *   18px 内联宠物、11px 白色文字 + 1px 暗阴影、右侧等宽数字；
  * - `docs/prototype/overview.html`「2 · 会话正文」：成品态（`完成 · 7 步` +
  *   7 格刻度轨）；
  * - `docs/screenshots/prototype-overview.png`：同上，肉眼基线。
@@ -16,7 +16,7 @@
  *    这里把 0..1 折成 5% 一档的 `data-fill`，宽度由样式表按档位给。
  *    进度未知时落 `unknown` 档 —— 样式表给「游走块」，`prefers-reduced-motion`
  *    下退回静止块。
- * 3. **触控 ≥44px**：32px 是视觉高度；给了 `onOpen` 时外层是可点行
+ * 3. **触控 ≥44px**：28px 只是视觉高度；给了 `onOpen` 时外层是可点行
  *    （`ListRow`：role=button + 键盘激活），最小高度吃 `--palm-hit`。
  *
  * 迷你版（132×22 / 圆角 8）是同一个组件的 `size='mini'`：抽屉列表行里只留
@@ -47,9 +47,6 @@ export interface StatusStripSteps {
   readonly total: number
 }
 
-/** 刻度轨一格的三种状态：已做 / 当前 / 未做。 */
-export type StatusRailCell = 'done' | 'now' | 'todo'
-
 /** 状态条的 props。 */
 export interface StatusStripProps {
   /** 状态种类：决定渐变与宠物表情。 */
@@ -64,7 +61,7 @@ export interface StatusStripProps {
   progress?: number
   /** 有它才画刻度轨；拿不到计划就别传（不要编步数）。 */
   steps?: StatusStripSteps
-  /** `main` = 32px 主条（默认）；`mini` = 132×22 抽屉行版本。 */
+  /** `main` = 28px 主条（默认）；`mini` = 132×22 抽屉行版本。 */
   size?: 'main' | 'mini'
   /** 有它整条才可点：外层撑到 44px 触控区并带键盘激活。 */
   onOpen?: () => void
@@ -195,9 +192,9 @@ function fillBucketOf(progress: number | undefined, kind: StatusStripKind): stri
  *
  * @param steps - 步数（可省）
  * @param kind - 当前状态
- * @returns 每格状态；拿不到步数时是空数组（整条轨不渲染）
+ * @returns 每格状态（`done` / `now` / `todo`）；拿不到步数时是空数组（整条轨不渲染）
  */
-function railCellsOf(steps: StatusStripSteps | undefined, kind: StatusStripKind): StatusRailCell[] {
+function railCellsOf(steps: StatusStripSteps | undefined, kind: StatusStripKind): Array<'done' | 'now' | 'todo'> {
   if (steps === undefined) return []
   const total = Math.floor(steps.total)
   if (!Number.isFinite(total) || total <= 0) return []

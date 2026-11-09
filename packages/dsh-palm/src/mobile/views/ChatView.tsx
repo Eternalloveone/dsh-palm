@@ -160,7 +160,6 @@ import { copyText, openFilePath, shareText } from '../render/code-actions.ts'
 import { MuxClient } from '../stream/mux.ts'
 import { getAutoScroll, subscribeDisplayPrefs } from '../platform/display-prefs.ts'
 import { timeVisibility } from '../render/ui-text.ts'
-import { listOutbox, type OutboxEntry } from '../platform/offline.ts'
 import { QueueDock } from '../components/queue-dock.tsx'
 import { InsertBar } from './chat/components/insert-bar.tsx'
 import { GoalBar } from '../components/goal-bar.tsx'
@@ -538,8 +537,6 @@ function ChatSessionView({
   const commandFetchAtRef = useRef(0)
   /** Quoted message (context bar above the composer; sent as a blockquote preamble). */
   const [quoted, setQuoted] = useState<string | undefined>(undefined)
-  /** The queued outbox entries (banner lets the user remove one at a time). */
-  const [queuedEntries, setQueuedEntries] = useState<OutboxEntry[]>([])
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
   const mountedRef = useRef(true)
   /** 语音输入（录音面板 / 实时字幕 / 转写回填）全部归 use-chat-voice（S4b 从本文件搬出）。 */
@@ -840,14 +837,8 @@ function ChatSessionView({
 
   /* ── offline mode ──────────────────────────────────────────────────── */
 
-  /** Refresh the queued entry list (banner count is derived from it, not stored twice). */
-  const refreshOutbox = useCallback((): void => {
-    void listOutbox().then(entries => {
-      setQueuedEntries(entries)
-    })
-  }, [])
-
-  const { probeHost } = useChatConnectivity({ sessionId: session.sessionId, offline, setOffline, refreshOutbox })
+  // 断线提示只关心「连没连上」；待发队列的界面已下线（恢复后自动重发，见 use-chat-outbox-flush）。
+  useChatConnectivity({ sessionId: session.sessionId, offline, setOffline })
 
   // 四个排队动作在 use-queue-actions.ts（失败路径的分支比动作本身多）。
 
@@ -2604,13 +2595,13 @@ function ChatSessionView({
 
   const {
     send, sendEditedMessage, claimCommand, releaseCommand,
-    flushQueue, removeQueuedEntry, draftEmpty, primaryStops,
+    flushQueue, draftEmpty, primaryStops,
   } = useChatComposer({
     sessionId: session.sessionId, mux, offline, running, runningRef,
     input, setInput, attachImages, setAttachImages, attachFiles, setAttachFiles,
     uploadingFiles, quoted, setQuoted, claimedCommand, setClaimedCommand, sending, setSending,
     commands, shadowEvent, refreshInbox, refreshGoal, runCommand, removeDraft,
-    setError, mountedRef, refreshOutbox,
+    setError, mountedRef,
     focusComposer: () => { requestAnimationFrame(() => { composerRef.current?.focus() }) },
     clearEditMessage: () => { setEditMessage(undefined) },
   })
@@ -3684,6 +3675,7 @@ function ChatSessionView({
         title={title}
         onMore={() => { setMoreOpen(true) }}
       />
+      <OfflineBanner offline={offline} />
       <ChatSearchBar
         open={chatSearchOpen}
         term={chatSearchTerm}
@@ -3701,13 +3693,6 @@ function ChatSessionView({
         onClose={() => { setChatSearchOpen(false); setChatSearchTerm('') }}
       />
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
-      <OfflineBanner
-        offline={offline}
-        queuedCount={queuedEntries.length}
-        entries={queuedEntries}
-        onFlush={flushQueue}
-        onRemove={removeQueuedEntry}
-      />
       <div
         className="chat-scroll"
         ref={ref => { scrollRef.current = ref ?? undefined }}

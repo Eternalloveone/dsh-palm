@@ -9,8 +9,27 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TurnHeader, formatSeconds } from './turn-header.tsx'
+import { mobileCss } from '../mobile-styles.ts'
 
 afterEach(() => { cleanup() })
+
+/** 去掉注释后的样式表：规则边界才好用 `}` 定位。 */
+const CSS = mobileCss.replace(/\/\*[\s\S]*?\*\//g, '')
+
+/** 读一条规则的声明体（选择器要写全，且必须从规则边界开始）。 */
+function ruleBody(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp('(?:^|[}])\\s*' + escaped + '\\s*\\{([^}]*)\\}').exec(CSS)
+  if (match === null) throw new Error(`样式表里找不到规则 ${selector}`)
+  return match[1] ?? ''
+}
+
+/** 读一个 px 令牌的数值（没定义或不是 px 一律报错）。 */
+function pxToken(name: string): number {
+  const match = new RegExp(name + ':\\s*(-?\\d+(?:\\.\\d+)?)px').exec(mobileCss)
+  if (match === null) throw new Error(`找不到 px 令牌 ${name}`)
+  return Number(match[1])
+}
 
 describe('TurnHeader（回合任务头）', () => {
   it('四行齐全：状态点+状态词+步数+耗时 / 目标 / 状态条 / 元信息', () => {
@@ -69,5 +88,18 @@ describe('TurnHeader（回合任务头）', () => {
     expect(formatSeconds(63_400)).toBe('1分3秒')
     expect(formatSeconds(384_000)).toBe('6分24秒')
     expect(formatSeconds(0)).toBe('0s')
+  })
+
+  it('随 28px 状态条收窄：行间 6 / 上 2 / 下 10、元信息 10px；目标行 15px 不动', () => {
+    expect(pxToken('--palm-turn-gap')).toBe(6)
+    expect(pxToken('--palm-turn-pad-t')).toBe(2)
+    expect(pxToken('--palm-turn-pad-b')).toBe(10)
+    expect(pxToken('--palm-turn-meta-size')).toBe(10)
+    // 目标行是这一轮的主信息：字号保持 15px（只钉最小行高给骨架占位共用）。
+    expect(pxToken('--palm-flow-goal-size')).toBe(15)
+    expect(ruleBody('.palm-turn-head')).toContain('gap: var(--palm-turn-gap)')
+    expect(ruleBody('.palm-turn-head')).toContain('padding-block: var(--palm-turn-pad-t) var(--palm-turn-pad-b)')
+    expect(ruleBody('.palm-turn-meta')).toContain('font-size: var(--palm-turn-meta-size)')
+    expect(ruleBody('.palm-turn-goal')).toContain('font-size: var(--palm-flow-goal-size)')
   })
 })

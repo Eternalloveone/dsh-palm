@@ -8,8 +8,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { StatusStrip, type StatusStripKind } from './status-strip.tsx'
+import { mobileCss } from '../mobile-styles.ts'
 
 afterEach(() => { cleanup() })
+
+/** 去掉注释后的样式表：规则边界才好用 `}` 定位。 */
+const CSS = mobileCss.replace(/\/\*[\s\S]*?\*\//g, '')
+
+/** 读一条规则的声明体（选择器要写全，且必须从规则边界开始）。 */
+function ruleBody(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp('(?:^|[}])\\s*' + escaped + '\\s*\\{([^}]*)\\}').exec(CSS)
+  if (match === null) throw new Error(`样式表里找不到规则 ${selector}`)
+  return match[1] ?? ''
+}
+
+/** 读一个 px 令牌的数值（没定义或不是 px 一律报错）。 */
+function pxToken(name: string): number {
+  const match = new RegExp(name + ':\\s*(-?\\d+(?:\\.\\d+)?)px').exec(mobileCss)
+  if (match === null) throw new Error(`找不到 px 令牌 ${name}`)
+  return Number(match[1])
+}
 
 const KINDS: readonly StatusStripKind[] = [
   'think', 'read', 'edit', 'test', 'approve', 'stuck',
@@ -122,5 +141,42 @@ describe('StatusStrip（状态胶囊 · 定版 pet-strip-v5）', () => {
     const text = document.body.textContent ?? ''
     expect(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u.test(text)).toBe(false)
     expect(document.querySelector('img')).toBeNull()
+  })
+})
+
+describe('状态条样式契约（28px 主条 · 真机偏大）', () => {
+  it('主条 28px / 圆角 10 / 宠物 18 / 主文案 11px，全部走 --palm-strip-* 令牌', () => {
+    expect(pxToken('--palm-strip-h')).toBe(28)
+    expect(pxToken('--palm-strip-r')).toBe(10)
+    expect(pxToken('--palm-strip-pet')).toBe(18)
+    expect(pxToken('--palm-strip-size')).toBe(11)
+    expect(pxToken('--palm-strip-right-size')).toBeLessThanOrEqual(10)
+    // 内边距也按比例收（8 → 7），不是写死在规则里。
+    expect(pxToken('--palm-strip-pad')).toBe(7)
+    expect(ruleBody('.palm-strip')).toContain('block-size: var(--palm-strip-h)')
+    expect(ruleBody('.palm-strip')).toContain('border-radius: var(--palm-strip-r)')
+    expect(ruleBody('.palm-strip-body')).toContain('padding-inline: var(--palm-strip-pad)')
+    expect(ruleBody(".palm-strip [data-part='label']")).toContain('font-size: var(--palm-strip-size)')
+  })
+
+  it('刻度轨 4px、格间隙 2px（条与轨之间同步收到 5px）', () => {
+    expect(pxToken('--palm-strip-rail-h')).toBe(4)
+    expect(pxToken('--palm-strip-rail-gap')).toBe(2)
+    expect(pxToken('--palm-strip-rail-mt')).toBe(5)
+    expect(ruleBody('.palm-strip-rail')).toContain('gap: var(--palm-strip-rail-gap)')
+    expect(ruleBody('.palm-strip-rail i')).toContain('block-size: var(--palm-strip-rail-h)')
+    expect(ruleBody('.palm-strip-wrap')).toContain('gap: var(--palm-strip-rail-mt)')
+  })
+
+  it('迷你版（132×22 / 宠物 12 / 12px 字）不跟着缩；可点外层仍撑到 44px', () => {
+    expect(pxToken('--palm-strip-mini-w')).toBe(132)
+    expect(pxToken('--palm-strip-mini-h')).toBe(22)
+    expect(pxToken('--palm-strip-pet-mini')).toBe(12)
+    expect(ruleBody(".palm-strip[data-size='mini']")).toContain('inline-size: var(--palm-strip-mini-w)')
+    expect(ruleBody(".palm-strip[data-size='mini']")).toContain('block-size: var(--palm-strip-mini-h)')
+    expect(ruleBody(".palm-strip[data-size='mini'] [data-part='label']")).toContain('font-size: var(--palm-t-s)')
+    // 28px 只是视觉高度：给了 onOpen 时外层是可点行，最小高度吃 --palm-hit。
+    expect(pxToken('--palm-hit')).toBe(44)
+    expect(ruleBody(".palm-strip-wrap[role='button']")).toContain('min-block-size: var(--palm-hit)')
   })
 })

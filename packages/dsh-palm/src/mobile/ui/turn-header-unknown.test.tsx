@@ -10,8 +10,20 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TurnHeader, TurnHeadSkeleton } from './turn-header.tsx'
 import { deriveTaskStatus, foldTaskStatus } from '../session/task-status.ts'
+import { mobileCss } from '../mobile-styles.ts'
 
 afterEach(() => { cleanup() })
+
+/** 去掉注释后的样式表：规则边界才好用 `}` 定位。 */
+const CSS = mobileCss.replace(/\/\*[\s\S]*?\*\//g, '')
+
+/** 读一条规则的声明体（选择器要写全，且必须从规则边界开始）。 */
+function ruleBody(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp('(?:^|[}])\\s*' + escaped + '\\s*\\{([^}]*)\\}').exec(CSS)
+  if (match === null) throw new Error(`样式表里找不到规则 ${selector}`)
+  return match[1] ?? ''
+}
 
 describe('TurnHeader：unknown 不画任何结论', () => {
   it('没有状态词（落「—」）、没有步数、没有耗时，data-kind 交给样式表上灰', () => {
@@ -54,6 +66,26 @@ describe('TurnHeadSkeleton：未水合的首块', () => {
     expect(text).not.toContain('已完成')
     expect(text).not.toContain('运行中')
     expect(container.textContent).not.toContain('加载中')
+  })
+
+  it('骨架与真实任务头同高：逐行同一套类名，目标行吃同一个 --palm-turn-goal-h', () => {
+    const { container } = render(
+      <>
+        <TurnHeadSkeleton />
+        <TurnHeader kind="done" goal="把首帧跳变修掉" durationMs={12_400} />
+      </>,
+    )
+    const [skeleton, real] = Array.from(container.querySelectorAll('.palm-turn-head'))
+    // 真实头（一行目标、无元信息）的行序 = 骨架的行序；同一套类名 = 同一套高度令牌。
+    const rows = (head: Element): string[] => Array.from(head.children).map(child => child.className)
+    expect(rows(skeleton)).toEqual(rows(real))
+    expect(skeleton.querySelector('.palm-turn-goal')).not.toBeNull()
+    expect(real.querySelector('.palm-turn-goal')).not.toBeNull()
+    // 目标行的最小行高由令牌钉死，骨架占位与真实目标共用这一个值。
+    expect(ruleBody('.palm-turn-goal')).toContain('min-block-size: var(--palm-turn-goal-h)')
+    // 骨架没有元信息行（真实头没给元信息时也没有），两边都靠 --palm-turn-gap 分行。
+    expect(skeleton.querySelector('.palm-turn-meta')).toBeNull()
+    expect(ruleBody('.palm-turn-head')).toContain('gap: var(--palm-turn-gap)')
   })
 })
 

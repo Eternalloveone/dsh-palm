@@ -13,7 +13,7 @@ import { logTail } from '../../../data/diag.ts'
 import { cancelSession, inboxOf, newRequestId, prompt } from '../../../data/session.ts'
 import { addOptimisticInsert, addOptimisticQueueItem, dropOptimisticInsert, dropOptimisticQueueItem } from '../../../stream/session-store.ts'
 import { createSubmitLedger, SUBMIT_INFLIGHT_MS, type SubmitLedger } from '../../../kernels/intent.ts'
-import { enqueuePrompt, flushOutbox, removeFromOutbox } from '../../../platform/offline.ts'
+import { enqueuePrompt, flushOutbox } from '../../../platform/offline.ts'
 import { buildPromptParts, type AttachedImage, type PromptPart } from '../../../platform/image.ts'
 import type { StagedFile } from './use-chat-attachments.ts'
 import { errorText, staleHostHint } from '../../../shared/error-text.ts'
@@ -106,7 +106,6 @@ export interface UseChatComposerOptions {
    */
   setError: (message: string | undefined) => void
   mountedRef: { current: boolean }
-  refreshOutbox: () => void
   focusComposer: () => void
   clearEditMessage: () => void
 }
@@ -117,9 +116,8 @@ export interface ChatComposer {
   sendEditedMessage: (messageId: string, newText: string) => void
   claimCommand: (name: string, argument?: string) => void
   releaseCommand: () => void
-  /** 连接恢复后补发离线队列；丢弃一条离线条目（横幅上的 ×）。 */
+  /** 连接恢复后补发离线队列。 */
   flushQueue: () => void
-  removeQueuedEntry: (id: string) => void
   draftEmpty: boolean
   primaryStops: boolean
 }
@@ -152,7 +150,6 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     removeDraft,
     setError,
     mountedRef,
-    refreshOutbox,
     focusComposer,
     clearEditMessage,
   } = options
@@ -251,7 +248,6 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
           setQuoted(undefined)
           setAttachImages([])
           toast('已离线保存，恢复网络后自动发送')
-          refreshOutbox()
         })
       return
     }
@@ -425,24 +421,18 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     )
   }, [sessionId, mux, clearEditMessage])
 
-  /** Drop one queued prompt (the banner's per-entry remove button). */
-  const removeQueuedEntry = useCallback((id: string): void => {
-    void removeFromOutbox(id).then(() => { refreshOutbox() })
-  }, [refreshOutbox])
-
   /** Deliver the queued prompts once the connection is back. */
   const flushQueue = useCallback((): void => {
     void flushOutbox(entry => prompt(entry.sessionId, textParts(entry.text))).then(
       ({ sent, failed }) => {
         if (sent > 0) toast(failed > 0 ? `已同步 ${sent} 条，${failed} 条待重试` : `已同步 ${sent} 条消息`)
-        refreshOutbox()
         if (sent > 0) mux?.poke()
       },
     )
-  }, [mux, refreshOutbox])
+  }, [mux])
 
   const draftEmpty = input.trim() === '' && attachImages.length === 0 && attachFiles.length === 0 && claimedCommand === undefined
   const primaryStops = running && draftEmpty
 
-  return { send, sendEditedMessage, claimCommand, releaseCommand, flushQueue, removeQueuedEntry, draftEmpty, primaryStops }
+  return { send, sendEditedMessage, claimCommand, releaseCommand, flushQueue, draftEmpty, primaryStops }
 }

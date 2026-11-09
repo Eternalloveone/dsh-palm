@@ -65,20 +65,26 @@ export const mobileCss = `${designTokensCss()}
   --palm-hair: 1px;
   --palm-focus: 2px;
 
-  /* ── 状态条（32px 主条 + 22px 迷你条 + 方案 A 刻度轨） ───────────────
+  /* ── 状态条（28px 主条 + 22px 迷你条 + 方案 A 刻度轨） ───────────────
    * 版式真源：docs/prototype/pet-strip-v5.html ① / overview.html「2 · 会话正文」。
+   * 2026-11-09 真机偏大：主条 32 → 28、圆角 11 → 10、宠物 20 → 18、主文案 11px、
+   * 刻度轨 5 → 4。迷你条（132×22）保持原尺寸，是抽屉行里的第二类用法。
    * 渐变与宠物墨色按 11 种任务状态各一份：组件样式里不再出现裸色值。 */
-  --palm-strip-h: 32px;
-  --palm-strip-r: 11px;
+  --palm-strip-h: 28px;
+  --palm-strip-r: 10px;
+  --palm-strip-size: 11px;
+  --palm-strip-detail-size: 10.5px;
+  --palm-strip-right-size: 10px;
+  --palm-strip-pad: 7px;
   --palm-strip-mini-w: 132px;
   --palm-strip-mini-h: 22px;
   --palm-strip-mini-r: 8px;
-  --palm-strip-pet: 20px;
+  --palm-strip-pet: 18px;
   --palm-strip-pet-mini: 12px;
-  --palm-strip-rail-h: 5px;
+  --palm-strip-rail-h: 4px;
   --palm-strip-rail-r: 3px;
-  --palm-strip-rail-gap: 3px;
-  --palm-strip-rail-mt: 6px;
+  --palm-strip-rail-gap: 2px;
+  --palm-strip-rail-mt: 5px;
   --palm-strip-track: #101016;
   --palm-strip-border: rgba(255, 255, 255, 0.08);
   --palm-strip-fg: #f4f6fb;
@@ -132,6 +138,23 @@ export const mobileCss = `${designTokensCss()}
   --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 220, 132, 0.06), rgba(20, 20, 27, 0.9));
   --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
   --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
+
+  /* ── 任务头四行（状态行 / 目标 / 状态条 / 元信息）───────────────────
+   * 与 28px 状态条配套收窄：行间 8 → 6、上 4 → 2、下 12 → 10。
+   * 目标行字号 15px 不动（它是这一轮的主信息），只把最小行高钉成 20px，
+   * 好让 TurnHeadSkeleton 的占位与真实目标行同高。 */
+  --palm-turn-gap: 6px;
+  --palm-turn-pad-t: 2px;
+  --palm-turn-pad-b: 10px;
+  --palm-turn-goal-h: 20px;
+  --palm-turn-meta-size: 10px;
+
+  /* ── 连接提示（会话页顶部一行 · 断线 / 已重连）─────────────────────
+   * 节点常驻 DOM，靠 data-state 收起（0 高 + 透明），恢复后 800ms 再淡出。
+   * 28px 是它展开后的行高：只报连接状态，不做 toast、不挡内容区。 */
+  --palm-offline-h: 28px;
+  --palm-offline-size: 11px;
+  --palm-offline-dur: 180ms;
 
   /* ── 输入区底栏（C 案：队列条 + 输入行 + 元信息行） ─────────────────────
    * 版式真源：docs/prototype/dock-c.html + overview.html「2 · 会话正文」。
@@ -7144,47 +7167,34 @@ body:has(.lightbox-backdrop) .toast-host {
   font-size: var(--text-sm);
 }
 
-/* Offline / queued banner (32px, warning wash, slide-down). */
+/* 连接提示：会话页顶部一行（展开 ≤28px），在内容区之上、顶栏之下。
+   不是 toast：不悬浮、不盖内容；节点常驻 DOM，收起走 data-state（0 高 + 透明），
+   所以恢复后「已重连」能自己淡出，不会把下面的内容顶一下再落回来。 */
 .chat-offline-banner {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  min-height: 32px;
-  padding: 0 16px;
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  animation: banner-in 0.2s ease both;
+  overflow: hidden;
+  block-size: var(--palm-offline-h);
+  padding-inline: var(--palm-s3);
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
+  font-size: var(--palm-offline-size);
+  white-space: nowrap;
+  transition:
+    block-size var(--palm-offline-dur) ease,
+    opacity var(--palm-offline-dur) ease;
 }
 
-@keyframes banner-in {
-  from {
-    transform: translateY(-32px);
-    opacity: 0;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
+.chat-offline-banner[data-state='gone'] {
+  block-size: 0;
+  opacity: 0;
 }
 
-.chat-offline-retry {
-  flex: none;
-  border: none;
+/* 已重连：退成灰字、不底色（成功不抢眼，它只说明「刚才断过」）。 */
+.chat-offline-banner[data-state='back'] {
   background: transparent;
-  color: var(--danger);
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-}
-
-.chat-offline-retry:active {
-  background: var(--danger-soft);
+  color: var(--palm-fg-3);
 }
 
 /* Quote bar above the composer (3px accent rail, first 20 chars). */
@@ -7437,6 +7447,8 @@ button.settings-row:active {
  *
  * 版式真源：docs/prototype/pet-strip-v5.html ①（主条高度 / 圆角 / 渐变填充 /
  * 内联宠物 / 白色暗阴影文字 / 右侧等宽数字全部走 --palm-strip-* 令牌），
+ * 2026-11-09 真机偏大：主条 32 → 28、圆角 11 → 10、宠物 20 → 18、主文案 11px。
+ * 迷你条（132×22）不动 —— 它是抽屉行里的第二类用法。
  * 刻度轨用方案 A：条下方一条细轨，完成绿、当前蓝、未做灰。
  * overview.html「2 · 会话正文」里那条是同一个东西的成品态。
  *
@@ -7564,7 +7576,7 @@ button.settings-row:active {
   gap: var(--palm-s2);
   inline-size: 100%;
   min-inline-size: 0;
-  padding-inline: var(--palm-s2);
+  padding-inline: var(--palm-strip-pad);
 }
 
 /* 宠物：纯内联 SVG，墨色由 data-kind 选，形状由组件决定（不许 emoji / 图片）。 */
@@ -7615,7 +7627,7 @@ button.settings-row:active {
 .palm-strip [data-part='label'] {
   overflow: hidden;
   color: var(--palm-strip-fg);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-strip-size);
   font-weight: var(--palm-w-bold);
   line-height: var(--palm-lh-head);
   text-overflow: ellipsis;
@@ -7627,7 +7639,7 @@ button.settings-row:active {
   overflow: hidden;
   min-inline-size: 0;
   color: var(--palm-strip-detail-fg);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-strip-detail-size);
   font-weight: var(--palm-w-normal);
   text-overflow: ellipsis;
   text-shadow: var(--palm-strip-text-shadow);
@@ -7638,7 +7650,7 @@ button.settings-row:active {
 .palm-strip [data-part='right'] {
   flex: none;
   color: var(--palm-strip-right-fg);
-  font-size: var(--palm-t-s);
+  font-size: var(--palm-strip-right-size);
   font-variant-numeric: tabular-nums;
   text-shadow: var(--palm-strip-text-shadow);
   white-space: nowrap;
@@ -7655,6 +7667,11 @@ button.settings-row:active {
 .palm-strip[data-size='mini'] .palm-strip-body {
   gap: var(--palm-s1);
   padding-inline: var(--palm-s1);
+}
+
+/* 迷你条不跟着主条缩字：132×22 是抽屉行里的第二类用法，12px 是它可读的下限。 */
+.palm-strip[data-size='mini'] [data-part='label'] {
+  font-size: var(--palm-t-s);
 }
 
 .palm-strip[data-size='mini'] .palm-strip-pet {
@@ -7691,12 +7708,14 @@ button.settings-row:active {
 
 /* ── 会话正文流：任务头（状态点 + 状态词 + 步数 + 耗时 / 目标 / 状态条） ──
    版式真源：overview.html「2 · 会话正文」；delivery-card.html A 图的 .thead。
-   四行固定顺序：①状态行 ②目标（15px/600）③状态条 ④弱化元信息行。 */
+   四行固定顺序：①状态行 ②目标（15px/600）③状态条 ④弱化元信息行。
+   2026-11-09 随 28px 状态条收窄：行间 gap 8 → 6、上下内边距 4/12 → 2/10
+   （全部走 --palm-turn-* 令牌）；目标行仍 15px，元信息 10.5 → 10。 */
 .palm-turn-head {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-s2);
-  padding-block: var(--palm-s1) var(--palm-s3);
+  gap: var(--palm-turn-gap);
+  padding-block: var(--palm-turn-pad-t) var(--palm-turn-pad-b);
 }
 
 .palm-turn-top {
@@ -7741,6 +7760,7 @@ button.settings-row:active {
 
 .palm-turn-goal {
   margin: 0;
+  min-block-size: var(--palm-turn-goal-h);
   color: var(--palm-fg);
   font-size: var(--palm-flow-goal-size);
   font-weight: var(--palm-w-bold);
@@ -7752,7 +7772,7 @@ button.settings-row:active {
   display: flex;
   flex-wrap: wrap;
   gap: var(--palm-s1);
-  font-size: var(--palm-flow-meta-size);
+  font-size: var(--palm-turn-meta-size);
   color: var(--palm-fg-3);
 }
 
@@ -7965,7 +7985,6 @@ button.palm-delivery-row:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .chat-reasoning-more,
   .chat-offline-banner,
-  .chat-offline-retry,
   .chat-quote-bar,
   .chat-msg-regenerate-icon,
   .voice-backdrop,

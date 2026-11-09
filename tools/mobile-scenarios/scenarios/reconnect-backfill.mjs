@@ -10,16 +10,16 @@ import { chatUrl, sleep } from '../lib/env.mjs'
 import { checkNoDuplicateIds, makeMonotonicGuard, sampleChat } from '../lib/invariants.mjs'
 
 /**
- * 是否还挂着断线横幅。
+ * 是否还挂着断线提示。
  *
  * 2026-11-08 起底部那条「输出中／连接中断」状态 chip 已经删掉，断线只在
- * `OfflineBanner`（`.chat-offline-banner`）里说。所以这里只读那个节点，
- * **绝不全文匹配** —— 实测就栽过：会话正文里正好有一句
- * "不掉行、不重复、不留「连接中断」"，全文匹配会把用户自己的话当成断线横幅，
- * 于是场景永远红（假失败）。
+ * `OfflineBanner`（`.chat-offline-banner`）里说。2026-11-09 起这条提示**常驻 DOM**、
+ * 靠 `data-state` 收起，所以判据是状态而不是节点存在；同样**绝不全文匹配** ——
+ * 实测就栽过：会话正文里正好有一句"不掉行、不重复、不留「连接中断」"，
+ * 全文匹配会把用户自己的话当成断线横幅，于是场景永远红（假失败）。
  */
 const disconnectBanner = page => page.evaluate(() => (
-  document.querySelector('.chat-offline-banner') !== null
+  document.querySelector('.chat-offline-banner')?.getAttribute('data-state') !== 'gone'
 ))
 
 export const scenario = {

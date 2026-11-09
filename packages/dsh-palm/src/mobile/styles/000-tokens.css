@@ -52,20 +52,26 @@
   --palm-hair: 1px;
   --palm-focus: 2px;
 
-  /* ── 状态条（32px 主条 + 22px 迷你条 + 方案 A 刻度轨） ───────────────
+  /* ── 状态条（28px 主条 + 22px 迷你条 + 方案 A 刻度轨） ───────────────
    * 版式真源：docs/prototype/pet-strip-v5.html ① / overview.html「2 · 会话正文」。
+   * 2026-11-09 真机偏大：主条 32 → 28、圆角 11 → 10、宠物 20 → 18、主文案 11px、
+   * 刻度轨 5 → 4。迷你条（132×22）保持原尺寸，是抽屉行里的第二类用法。
    * 渐变与宠物墨色按 11 种任务状态各一份：组件样式里不再出现裸色值。 */
-  --palm-strip-h: 32px;
-  --palm-strip-r: 11px;
+  --palm-strip-h: 28px;
+  --palm-strip-r: 10px;
+  --palm-strip-size: 11px;
+  --palm-strip-detail-size: 10.5px;
+  --palm-strip-right-size: 10px;
+  --palm-strip-pad: 7px;
   --palm-strip-mini-w: 132px;
   --palm-strip-mini-h: 22px;
   --palm-strip-mini-r: 8px;
-  --palm-strip-pet: 20px;
+  --palm-strip-pet: 18px;
   --palm-strip-pet-mini: 12px;
-  --palm-strip-rail-h: 5px;
+  --palm-strip-rail-h: 4px;
   --palm-strip-rail-r: 3px;
-  --palm-strip-rail-gap: 3px;
-  --palm-strip-rail-mt: 6px;
+  --palm-strip-rail-gap: 2px;
+  --palm-strip-rail-mt: 5px;
   --palm-strip-track: #101016;
   --palm-strip-border: rgba(255, 255, 255, 0.08);
   --palm-strip-fg: #f4f6fb;
@@ -119,6 +125,23 @@
   --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 220, 132, 0.06), rgba(20, 20, 27, 0.9));
   --palm-flow-tag-ok: rgba(61, 220, 132, 0.14);
   --palm-flow-tag-edit: rgba(124, 140, 255, 0.14);
+
+  /* ── 任务头四行（状态行 / 目标 / 状态条 / 元信息）───────────────────
+   * 与 28px 状态条配套收窄：行间 8 → 6、上 4 → 2、下 12 → 10。
+   * 目标行字号 15px 不动（它是这一轮的主信息），只把最小行高钉成 20px，
+   * 好让 TurnHeadSkeleton 的占位与真实目标行同高。 */
+  --palm-turn-gap: 6px;
+  --palm-turn-pad-t: 2px;
+  --palm-turn-pad-b: 10px;
+  --palm-turn-goal-h: 20px;
+  --palm-turn-meta-size: 10px;
+
+  /* ── 连接提示（会话页顶部一行 · 断线 / 已重连）─────────────────────
+   * 节点常驻 DOM，靠 data-state 收起（0 高 + 透明），恢复后 800ms 再淡出。
+   * 28px 是它展开后的行高：只报连接状态，不做 toast、不挡内容区。 */
+  --palm-offline-h: 28px;
+  --palm-offline-size: 11px;
+  --palm-offline-dur: 180ms;
 
   /* ── 输入区底栏（C 案：队列条 + 输入行 + 元信息行） ─────────────────────
    * 版式真源：docs/prototype/dock-c.html + overview.html「2 · 会话正文」。

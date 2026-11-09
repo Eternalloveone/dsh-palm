@@ -7,7 +7,9 @@
  *
  * 所以这里做两件事：
  * 1. 事件（offline/online/focus/pageshow/visibilitychange）都只触发**主动探一次**；
- * 2. 断着的时候自己每 5 秒探一次，通了就撤横幅并立刻冲刷离线队列。
+ * 2. 断着的时候自己每 5 秒探一次，通了就撤掉断线提示。
+ *
+ * 探测器只维护「连没连上」这一件事；待发队列的冲刷在 `use-chat-outbox-flush`。
  *
  * 探测**自带 4 秒短超时**：默认 60 秒的请求超时会让探测本身卡住，横幅既不撤也不重探。
  *
@@ -27,13 +29,11 @@ export interface ChatConnectivityDeps {
   sessionId: string
   offline: boolean
   setOffline: (value: boolean) => void
-  /** 通了之后要立刻冲刷离线队列。 */
-  refreshOutbox: () => void
 }
 
 /** @returns 手动探一次宿主（发消息前也可以用它确认在线）。 */
 export function useChatConnectivity(deps: ChatConnectivityDeps): { probeHost: () => Promise<boolean> } {
-  const { sessionId, offline, setOffline, refreshOutbox } = deps
+  const { sessionId, offline, setOffline } = deps
 
   /**
    * 探一次宿主：成功即在线，失败/超时即仍断。
@@ -73,11 +73,7 @@ export function useChatConnectivity(deps: ChatConnectivityDeps): { probeHost: ()
     }
   }, [probeHost, setOffline])
 
-  // 断开期间自己恢复：每 5 秒探一次宿主（通了就撤横幅，队列随即自动发出去）。
-  useEffect(() => {
-    refreshOutbox()
-  }, [refreshOutbox])
-
+  // 断开期间自己恢复：每 5 秒探一次宿主（通了就撤掉断线提示，队列由 flush hook 排空）。
   useEffect(() => {
     if (!offline) return
     let cancelled = false
@@ -88,7 +84,6 @@ export function useChatConnectivity(deps: ChatConnectivityDeps): { probeHost: ()
         if (cancelled) return
         if (reachable) {
           setOffline(false)
-          refreshOutbox()
         } else {
           timer = setTimeout(tick, OFFLINE_PROBE_MS)
         }
@@ -98,7 +93,7 @@ export function useChatConnectivity(deps: ChatConnectivityDeps): { probeHost: ()
     // `offline` 事件给出，立刻再探一次只会让测试与真机都多一次无谓请求。
     timer = setTimeout(tick, OFFLINE_PROBE_MS)
     return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer) }
-  }, [offline, probeHost, setOffline, refreshOutbox])
+  }, [offline, probeHost, setOffline])
 
   return { probeHost }
 }

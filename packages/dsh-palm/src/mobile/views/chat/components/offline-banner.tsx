@@ -1,58 +1,49 @@
-import { Button } from '../../../ui/primitives.tsx'
 /**
- * 离线/待发条：断网提示、待发条数与逐条移除。
+ * 连接提示：会话页顶部的一行（断线 / 已重连）。
  *
- * S6f 从 `ChatView` 搬出。判据由调用方给（`offline` 来自真实请求的连通性总线，
- * 不是 `navigator.onLine`——安卓上它会一直停在 false）；这里只负责画出来。
+ * 三条硬规则：
+ * 1. **一行、展开 ≤28px**（`--palm-offline-h`）：只说连接状态，不做 toast、
+ *    不盖内容区、不和插入条/队列条抢空间；
+ * 2. **无图标块、无按钮**：断线「连接中断，正在重连…」，恢复「已重连」；
+ * 3. **节点常驻 DOM**：收起走 `data-state`（0 高 + 透明过渡），不条件卸载 ——
+ *    卸载再挂载会让下面的正文跳一下。
+ *
+ * 与状态条的 `unknown` 是两件事：断线只说明「手里没有权威数据」，
+ * 状态条仍保持 unknown，但不在这里把它染成红色（不碰任何状态条样式）。
+ *
+ * @module dsh-palm/mobile/views/chat/components/offline-banner
  */
+import { useEffect, useState } from 'react'
+
+/** 「已重连」停留多久再淡出：够看清一句话，又不占着版面。 */
+export const RECONNECT_FLASH_MS = 800
+
+/** gone = 已收起（0 高）；off = 断着；back = 刚恢复。 */
+type OfflineState = 'gone' | 'off' | 'back'
+
 export interface OfflineBannerProps {
-  /** 是否连不上宿主。 */
+  /** 是否连不上宿主（真相源：真实请求的连通性总线，不是 navigator.onLine）。 */
   offline: boolean
-  /** 离线队列里还有几条。 */
-  queuedCount: number
-  /** 逐条展示（让用户能单独移除某一条，而不是"整个队列重来"）。 */
-  entries: ReadonlyArray<{ id: string; text: string }>
-  onFlush: () => void
-  onRemove: (id: string) => void
 }
 
-export function OfflineBanner({ offline, queuedCount, entries, onFlush, onRemove }: OfflineBannerProps) {
-  if (!offline && queuedCount === 0) return null
+export function OfflineBanner({ offline }: OfflineBannerProps) {
+  // 进页面就断着时首帧直接是断线态，不先画一帧空行。
+  const [state, setState] = useState<OfflineState>(offline ? 'off' : 'gone')
+
+  useEffect(() => {
+    if (offline) { setState('off'); return }
+    setState(prev => (prev === 'off' ? 'back' : prev))
+  }, [offline])
+
+  useEffect(() => {
+    if (state !== 'back') return
+    const timer = setTimeout(() => { setState('gone') }, RECONNECT_FLASH_MS)
+    return () => { clearTimeout(timer) }
+  }, [state])
+
   return (
-    <div
-      className="chat-offline-banner"
-      role="status"
-      style={{ flexDirection: 'column', alignItems: 'stretch', padding: '8px 16px' }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span>
-          {offline
-            ? '网络已断开，消息将在恢复后发送'
-            : queuedCount > 0
-              ? `${queuedCount} 条离线消息待发送`
-              : ''}
-        </span>
-        {!offline && queuedCount > 0 && (
-          <Button type="button" className="chat-offline-retry" onClick={onFlush}>重试</Button>
-        )}
-      </div>
-      {entries.length > 0 && (
-        <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {entries.map(entry => (
-            <li key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)' }}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.text}</span>
-              <Button
-                type="button"
-                className="chat-offline-retry"
-                aria-label="移除待发送消息"
-                onClick={() => { onRemove(entry.id) }}
-              >
-                移除
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="chat-offline-banner" data-state={state} role="status">
+      {state === 'off' ? '连接中断，正在重连…' : state === 'back' ? '已重连' : ''}
     </div>
   )
 }

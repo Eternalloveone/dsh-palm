@@ -83,7 +83,6 @@ function Harness(props: { offline?: boolean; running?: boolean; initialInput?: s
     removeDraft: () => {},
     setError: () => {},
     mountedRef: { current: true },
-    refreshOutbox: () => {},
     focusComposer: () => {},
     clearEditMessage: () => {},
   })

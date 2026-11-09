@@ -135,7 +135,7 @@ import { loadChatPage } from '../data/chat-page.ts'
 import { prompt } from '../api.ts'
 import { startVoiceRecording, voiceSupported, type VoiceRecording } from '../platform/voice-input.ts'
 import { transcribeVoice } from '../api.ts'
-import { listOutbox, removeFromOutbox, removeOutboxForSession } from '../platform/offline.ts'
+import { listOutbox, removeOutboxForSession } from '../platform/offline.ts'
 
 const session: SessionView = {
   sessionId: 's-1',
@@ -352,8 +352,6 @@ const promptMock = vi.mocked(prompt)
 const startVoiceRecordingMock = vi.mocked(startVoiceRecording)
 const voiceSupportedMock = vi.mocked(voiceSupported)
 const removeOutboxForSessionMock = vi.mocked(removeOutboxForSession)
-const listOutboxMock = vi.mocked(listOutbox)
-const removeFromOutboxMock = vi.mocked(removeFromOutbox)
 
 beforeEach(() => {
   // 状态仓与 toast 都是模块级单例：每个用例开始时清空，免得乐观项/隐藏表/C 串到下一条。
@@ -3921,30 +3919,33 @@ describe('ChatView offline banner', () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
-    expect(screen.queryByText('网络已断开，消息将在恢复后发送')).toBeNull()
+    expect(screen.queryByText('连接中断，正在重连…')).toBeNull()
     onLine.mockRestore()
   })
 
-  it('shows the offline banner on the browser hint and clears it when the host answers', async () => {
-    // 断线提示立刻给横幅（fail-safe），但恢复不能只等 online 事件：
-    // 宿主一旦答话（这里用一帧实时事件代表）就立刻撤掉。
+  it('shows the one-line offline hint on the browser hint, then says 已重连 when the host answers', async () => {
+    // 断线提示立刻给出一行（fail-safe），但恢复不能只等 online 事件：
+    // 宿主一旦答话（这里用一帧实时事件代表）就改口「已重连」并自己收起。
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     act(() => { window.dispatchEvent(new Event('offline')) })
-    expect(await screen.findByText('网络已断开，消息将在恢复后发送')).toBeTruthy()
+    expect(await screen.findByText('连接中断，正在重连…')).toBeTruthy()
+    expect(document.querySelector('.chat-offline-banner')?.getAttribute('data-state')).toBe('off')
     act(() => {
       mux.emit({
         type: 'event',
         event: { type: 'todo/write', seq: 9_000, time: Date.now(), data: { items: [] } },
       } as never)
     })
-    await waitFor(() => { expect(screen.queryByText('网络已断开，消息将在恢复后发送')).toBeNull() })
-
+    expect(await screen.findByText('已重连')).toBeTruthy()
+    // 节点不卸载：只是换 data-state（800ms 后由 CSS 过渡收起）。
+    expect(document.querySelector('.chat-offline-banner')?.getAttribute('data-state')).toBe('back')
   })
+
   it('queues a prompt while the host is unreachable and sends it once the host answers', async () => {
-    // 真机承诺的是「网络恢复后自动发送」：横幅挂着时进队列，宿主一答话就自动发出去。
+    // 真机承诺的是「网络恢复后自动发送」：断着的时候进队列，宿主一答话就自动发出去。
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     const mux = new FakeMux()
     vi.mocked(listOutbox).mockResolvedValue([])
@@ -3954,12 +3955,12 @@ describe('ChatView offline banner', () => {
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('已完成修改')
     act(() => { window.dispatchEvent(new Event('offline')) })
-    await screen.findByText('网络已断开，消息将在恢复后发送')
+    await screen.findByText('连接中断，正在重连…')
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '断网时写的话' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     await waitFor(() => { expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ text: '断网时写的话' })) })
     expect(prompt).not.toHaveBeenCalled()
-    // 宿主答话（一帧实时事件）：横幅撤掉，队列自动排空。
+    // 宿主答话（一帧实时事件）：提示改口，队列自动排空。
     vi.mocked(listOutbox).mockResolvedValue([{ id: 'o9', sessionId: 's-1', text: '断网时写的话', queuedAt: 1 }])
     act(() => {
       mux.emit({
@@ -3969,15 +3970,21 @@ describe('ChatView offline banner', () => {
     })
     await waitFor(() => { expect(flushMock).toHaveBeenCalled() })
   })
-  it('removes an individual queued entry from the banner', async () => {
-    listOutboxMock.mockResolvedValue([{ id: 'o1', sessionId: 's-1', text: '离线消息', queuedAt: 1 }])
-    removeFromOutboxMock.mockResolvedValue(undefined)
+
+  it('hangs the hint above the content area: in DOM before the scroll body and the insert bar', async () => {
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    // The banner lists the queued entry.
-    expect(await screen.findByText('离线消息')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '移除待发送消息' }))
-    await waitFor(() => { expect(removeFromOutboxMock).toHaveBeenCalledWith('o1') })
+    await screen.findByText('已完成修改')
+    const banner = document.querySelector('.chat-offline-banner')
+    const scroll = document.querySelector('.chat-scroll')
+    const insert = document.querySelector('.insert-bar')
+    expect(banner).not.toBeNull()
+    expect(scroll).not.toBeNull()
+    expect(insert).not.toBeNull()
+    // 在正文与输入区之前（不与插入条/队列条抢位置），也不在滚动区里（不随正文滚走）。
+    expect(banner!.compareDocumentPosition(scroll!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(banner!.compareDocumentPosition(insert!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(scroll!.contains(banner)).toBe(false)
   })
 })
 
