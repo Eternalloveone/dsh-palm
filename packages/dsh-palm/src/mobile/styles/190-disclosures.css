@@ -231,9 +231,11 @@
   white-space: nowrap;
 }
 
-/* 只有"运行中"给一点强调：比默认亮一档的边。 */
-.chat-proc-running > .chat-proc-head {
-  border-color: var(--palm-line);
+/* 没有权威结论（unknown）：状态词/计数退到第三档灰，不冒充任何结论色。
+   （旧的 .chat-proc-running > .chat-proc-head 是死规则：头行本身 border: none，
+   画不出边；随这次删掉。） */
+.chat-proc-head[data-state='unknown'] .chat-proc-state {
+  color: var(--palm-proc-unknown);
 }
 
 .chat-proc-caret {

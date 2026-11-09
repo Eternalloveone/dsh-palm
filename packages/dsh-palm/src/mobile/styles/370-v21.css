@@ -884,6 +884,9 @@ button.palm-proc:focus-visible {
 
 .palm-proc-main { color: var(--palm-fg-2); }
 
+/* 没有权威结论：计数/「—」退到第三档灰（状态词与耗时本来就不出现）。 */
+.palm-proc[data-state='unknown'] .palm-proc-main { color: var(--palm-proc-unknown); }
+
 .palm-proc-note { color: var(--palm-warn); }
 
 .palm-proc-time {

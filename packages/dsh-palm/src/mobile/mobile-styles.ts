@@ -203,6 +203,7 @@ export const mobileCss = `${designTokensCss()}
   --palm-proc-row-pad: 6px;       /* 行内上下留白（定版 6–8）*/
   --palm-proc-head-h: 24px;       /* 过程头行高（定版 24）*/
   --palm-proc-head-size: 11px;    /* 过程头字号（定版 11）*/
+  --palm-proc-unknown: var(--palm-fg-3);  /* 没有权威结论时的灰态（灰点/「—」）*/
   --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
   --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
   --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/
@@ -3547,9 +3548,11 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
-/* 只有"运行中"给一点强调：比默认亮一档的边。 */
-.chat-proc-running > .chat-proc-head {
-  border-color: var(--palm-line);
+/* 没有权威结论（unknown）：状态词/计数退到第三档灰，不冒充任何结论色。
+   （旧的 .chat-proc-running > .chat-proc-head 是死规则：头行本身 border: none，
+   画不出边；随这次删掉。） */
+.chat-proc-head[data-state='unknown'] .chat-proc-state {
+  color: var(--palm-proc-unknown);
 }
 
 .chat-proc-caret {
@@ -7790,6 +7793,9 @@ button.palm-proc:focus-visible {
 }
 
 .palm-proc-main { color: var(--palm-fg-2); }
+
+/* 没有权威结论：计数/「—」退到第三档灰（状态词与耗时本来就不出现）。 */
+.palm-proc[data-state='unknown'] .palm-proc-main { color: var(--palm-proc-unknown); }
 
 .palm-proc-note { color: var(--palm-warn); }
 

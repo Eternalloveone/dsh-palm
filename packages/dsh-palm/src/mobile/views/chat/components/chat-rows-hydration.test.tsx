@@ -90,6 +90,33 @@ describe('未水合：只画骨架，不画任何结论态', () => {
     expect(head.textContent).not.toContain('已完成')
     expect(container.querySelector('.palm-strip')!.textContent).not.toContain('已完成')
   })
+
+  it('行已到但快照未到：过程条头行与任务头同为 unknown，不再各说一套', () => {
+    // 过程折叠条曾经绕开这道门：任务头已经画「—」了，它的头行还在按 settled 猜
+    // 「已完成 / 深度求索中」。两者必须是同一个结论（都 unknown）。
+    const row = assistantRow(3, {
+      text: '',
+      pending: true,
+      turnStartAt: AT - 5_000,
+      flow: [{ kind: 'tool', callId: 'c1' }],
+      tools: [{ callId: 'c1', name: 'bash', state: 'running', arguments: '{"cmd":"pnpm test"}' }],
+    })
+    const { container } = render(<ChatRows {...viewOf({
+      messages: [row],
+      liveTurn: 3,
+      isRowRunning: () => true,
+      settledOf: () => false,
+    })} />)
+
+    expect(container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('unknown')
+    const proc = container.querySelector('.chat-proc-head') as HTMLElement
+    expect(proc.getAttribute('data-state')).toBe('unknown')
+    // 工具计数是实际行数据，保留；状态词与耗时是结论，不出现。
+    expect(proc.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
+    expect(proc.querySelector('.chat-proc-time')).toBeNull()
+    expect(proc.textContent).not.toContain('已完成')
+    expect(proc.textContent).not.toContain('深度求索中')
+  })
 })
 
 describe('水合后：一次性画真实状态，且不回退', () => {

@@ -20,7 +20,6 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { RenderMessage, ToolCallInfo } from '../render/messages.ts'
 import { MarkdownText } from '../render/markdown-text.tsx'
 import {
-  isRowRunning,
   processErrorsText,
   processStateText,
   processStepsText,
@@ -50,7 +49,7 @@ const RECENT_TOOLS = 3
  * 没有可展开的内容（没有思考、没有叙述、没有 diff 卡）时头是静态的，
  * 不假装能点开。
  */
-export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, liveTurn, settled, liveClockTick }: {
+export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, hostNowMs, liveTurnStartAt, authority, liveClockTick }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
@@ -60,9 +59,11 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   sessionId?: string
   hostNowMs?: number
   liveTurnStartAt?: number
-  liveTurn?: number
-  /** 宿主已裁决这一轮停了：残留的 pending / running 工具不算"还在跑"。 */
-  settled?: boolean
+  /**
+   * 宿主快照到齐（水合门，见 `chat-rows.tsx`）。没到就**只画 `unknown`**：
+   * 不写状态词、不报耗时。**缺省 = 已水合**（直接渲染这一行的宿主/测试自带证据）。
+   */
+  authority?: boolean
   /** 父级的 1 Hz 心跳（见 live-clock.ts）。它每秒变一次，负责把这一行叫醒。 */
   liveClockTick?: number
 }) {
@@ -75,9 +76,12 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
   useEffect(() => {
     if (focusExpand === true) setOpen(true)
   }, [focusExpand])
-  // 与 processOutcome 共用同一个"还在跑"判据：只认 pending 会让运行中的卡片读成
-  // "已完成"，秒表也会消失；按步定格的行只有活跃轮次能救它。
-  const running = isRowRunning(message, liveTurn, settled)
+  // 状态词的唯一来源：`model.outcome`（它的判据在 processOutcome：没有 authority
+  // 就是 unknown）。这里不再另判一遍「还在跑」—— 两处判据一旦打架，就会各自
+  // 写一个状态词（旧的 `running ? … : model.outcome === 'running' ? 'ok'` 还会
+  // 在打架时兜成「已完成」，正是最后一条「缺字段当成功」）。
+  const outcome: ProcessOutcome = authority !== false ? model.outcome : 'unknown'
+  const running = outcome === 'running'
   // 有外部心跳就靠它叫醒；单独渲染这一行（测试、别的宿主）时才自己挂一个。
   const [, setSelfTick] = useState(0)
   useEffect(() => {
@@ -101,7 +105,6 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
     : undefined
   const durationMs = message.durationMs
     ?? (message.turnStartAt !== undefined ? Math.max(0, message.time - message.turnStartAt) : undefined)
-  const outcome: ProcessOutcome = running ? 'running' : (model.outcome === 'running' ? 'ok' : model.outcome)
   const stateText = processStateText(outcome)
   const timeText = processTimeText(outcome, {
     durationMs,

@@ -9,15 +9,15 @@
  * - **答案**：`flow` 末尾的那个文本段（答案永远在产生它的步骤之后）。单步或
  *   无 flow 的行退回 `message.text`。
  * - **折叠头**：第一行只承载状态词与用时（`已完成，用时1分20秒` / `深度求索中，
- *   用时6分24秒`），耗时数据来自 fold 盖在行上的 `turnStartAt`（运行中实时）与
- *   `durationMs`（回合结束定格）；真有报错步骤时，状态词右边多一个很弱的报错数
- *   （见 processErrorsText）。**步数不在卡面上了**：展开体首行报「共 N 步」
- *   （见 processStepsText，用户拍板：步数移出卡面、展开才看）。
+ *   用时6分24秒`）。**没有权威证据时是 `unknown`**：只落「—」，不写状态词也不
+ *   报耗时（见 processOutcome 的 authority）。耗时数据来自 fold 盖在行上的
+ *   `turnStartAt`（运行中实时）与 `durationMs`（回合结束定格）；真有报错步骤时，
+ *   状态词右边多一个很弱的报错数（见 processErrorsText）。**步数不在卡面上了**：
+ *   展开体首行报「共 N 步」（见 processStepsText，用户拍板：步数移出卡面、展开才看）。
  */
 import type { RenderMessage, ToolCallInfo, ToolDiffView } from './messages.ts'
 import { isRowRunning } from '../shared/session-state.ts'
 import { formatDuration } from '../shared/time.ts'
-import { stepModel, type StepVariant } from './step-view.ts'
 
 /** 一段思考：缩进文本块，折叠时只看标题，展开才看正文。 */
 export interface ProcessReasoningRow {
@@ -45,14 +45,21 @@ export interface ProcessTextRow {
 
 export type ProcessRow = ProcessReasoningRow | ProcessToolRow | ProcessTextRow
 
-/** 折叠头的状态词：一眼看出成没成（失败与中断不再冒充成功）。 */
-export type ProcessOutcome = 'running' | 'ok' | 'stopped' | 'failed'
+/**
+ * 折叠头的状态词：一眼看出成没成（失败与中断不再冒充成功）。
+ *
+ * `unknown` 的语义 = **手里没有能下结论的权威数据**（宿主快照没到/过期）：
+ * 不猜成功、不猜失败，也不猜「在跑」。UI 落「—」且不报耗时。
+ */
+export type ProcessOutcome = 'running' | 'ok' | 'stopped' | 'failed' | 'unknown'
 
 const OUTCOME_TEXT: Record<ProcessOutcome, string> = {
   running: '深度求索中',
   ok: '已完成',
   stopped: '已中断',
   failed: '失败',
+  // 没权威数据：不写状态词（「—」是"没有结论"的标记，不是第四个结论）。
+  unknown: '—',
 }
 
 export function processStateText(outcome: ProcessOutcome): string {
@@ -62,22 +69,21 @@ export function processStateText(outcome: ProcessOutcome): string {
 /** 判据的单一实现在 `shared/session-state.ts`（保留此处导出以兼容既有导入）。 */
 export { isRowRunning }
 
-/** 成败的真源：turn/end 的 failed / max-tokens，以及被它收尾的 stopped 工具。 */
-export function processOutcome(message: RenderMessage, liveTurn?: number, settled?: boolean): ProcessOutcome {
+/**
+ * 成败的真源：turn/end 的 failed / max-tokens，以及被它收尾的 stopped 工具。
+ *
+ * `authority` = 宿主快照到齐（会话页水合门，见 `session/task-status.ts` 的
+ * `taskAuthority`）。没有它时**一个结论都不下**：这条兜底 `: 'ok'` 曾经把
+ * 「没有 turn/end 证据」说成成功，于是首帧画「已完成」、快照一到又改口「运行中」。
+ * 缺省 false（失败闭合）：忘传 = 没有证据，不是「默认成功」。
+ */
+export function processOutcome(message: RenderMessage, liveTurn?: number, settled?: boolean, authority = false): ProcessOutcome {
+  // 没权威数据：连「在跑 / 停了」都不说（行里的 pending 也可能只是缓存种子）。
+  if (!authority) return 'unknown'
   if (isRowRunning(message, liveTurn, settled)) return 'running'
   if (message.failed === true) return 'failed'
   if (message.maxTokens === true) return 'stopped'
   return (message.tools ?? []).some(tool => tool.state === 'stopped') ? 'stopped' : 'ok'
-}
-
-/** 折叠头第二行：此刻进行到哪一步。 */
-export interface ProcessCurrent {
-  /** tool＝有具体动作；thinking＝模型在想；answering＝在写回复。 */
-  readonly kind: 'tool' | 'thinking' | 'answering'
-  /** 一行简报，例如「运行命令 · pytest -q」。 */
-  readonly text: string
-  /** 工具行的族（留给行首字形用）。 */
-  readonly variant?: StepVariant
 }
 
 export interface ProcessModel {
@@ -93,9 +99,7 @@ export interface ProcessModel {
   /** 这一轮所有 diff 视图的增/删行数（折叠头显示，不用展开就能看到改动量）。 */
   readonly tallyAdds: number
   readonly tallyDels: number
-  /** 折叠头第二行的内容；没有值得说的一步时为 undefined（隐藏该行）。 */
-  readonly current: ProcessCurrent | undefined
-  /** 这一轮成没成。 */
+  /** 折叠头第一行的状态词；没有权威证据时是 `unknown`（`—`、无耗时）。 */
   readonly outcome: ProcessOutcome
   /** 这一轮改过几个文件（去重后的 diff 路径数）。 */
   readonly changedFiles: number
@@ -177,7 +181,7 @@ function answerPartOf(
  * Order is preserved exactly as the fold recorded it, so thinking and tool calls
  * stay interleaved the way they happened.
  */
-export function processModel(message: RenderMessage, liveTurn?: number, settled?: boolean): ProcessModel {
+export function processModel(message: RenderMessage, liveTurn?: number, settled?: boolean, authority = false): ProcessModel {
   const flow = message.flow ?? []
   const toolsById = new Map((message.tools ?? []).map(tool => [tool.callId, tool] as const))
 
@@ -278,7 +282,6 @@ export function processModel(message: RenderMessage, liveTurn?: number, settled?
     answer = message.text
   }
 
-  const current = currentStepOf(message, rows, liveTurn, settled)
   const changed = new Set<string>()
   let artifactTitle = ''
   // 报错数只算「最终仍然失败」的调用：同一 callId 先 error、后来重试成功（state 变 ok）
@@ -317,52 +320,13 @@ export function processModel(message: RenderMessage, liveTurn?: number, settled?
     answerSeq,
     toolCount,
     reasoningCount,
-    current,
-    outcome: processOutcome(message, liveTurn, settled),
+    outcome: processOutcome(message, liveTurn, settled, authority),
     changedFiles: changed.size,
     errorCount,
     artifactTitle,
     artifactCount: rows.filter(row => row.kind === 'tool' && row.tool.view !== undefined).length,
     tallyAdds: tally.adds,
     tallyDels: tally.dels,
-  }
-}
-
-/**
- * 这一轮"看得见的行"有几行 —— 决定折叠头是不是可展开的。关掉"显示工具调用"时
- * 工具行不渲染，但有 diff 视图的卡片仍然渲染，所以卡片也要算进去。
- */
-/** 折叠头第二行：此刻进行到哪一步。运行中看最新事件，结束后报最后一步做了什么。 */
-function currentStepOf(message: RenderMessage, rows: readonly ProcessRow[], liveTurn?: number, settled?: boolean): ProcessCurrent | undefined {
-  // 复用同一个"还在跑"判据（含活跃轮次）：pending 已落下但还有工具在跑、或这一行
-  // 就属于当前活跃轮次的行同样是运行中，第二行必须走"进行中"分支（末尾是思考报
-  // "思考中"、末尾是文本报"正在回答"）。
-  if (isRowRunning(message, liveTurn, settled)) {
-    const flow = message.flow ?? []
-    const last = [...flow].reverse().find(part => !(part.kind === 'text' && part.text.trim() === ''))
-    if (last === undefined || last.kind === 'reasoning') return { kind: 'thinking', text: '思考中' }
-    if (last.kind === 'text') return { kind: 'answering', text: '正在回答' }
-    const row = rows.find(candidate => candidate.kind === 'tool' && candidate.tool.callId === last.callId)
-    if (row === undefined || row.kind !== 'tool') return { kind: 'thinking', text: '思考中' }
-    // 工具已经跑完、下一句还没来：模型正在想下一步。
-    return row.tool.state === 'running' ? currentOfTool(row.tool) : { kind: 'thinking', text: '思考中' }
-  }
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
-    const row = rows[i]
-    if (row === undefined) continue
-    if (row.kind === 'tool') return currentOfTool(row.tool)
-    if (row.kind === 'reasoning') return { kind: 'thinking', text: `深度思考 ${row.lines} 行` }
-  }
-  return undefined
-}
-
-/** 工具行的一句话：「运行命令 · pytest -q」。 */
-function currentOfTool(tool: ToolCallInfo): ProcessCurrent {
-  const model = stepModel(tool)
-  return {
-    kind: 'tool',
-    text: model.summary === '' ? model.title : `${model.title} · ${model.summary}`,
-    variant: model.variant,
   }
 }
 
@@ -451,29 +415,30 @@ export function processErrorsText(model: ProcessModel): string {
   return model.errorCount > 0 ? `${model.errorCount} 处报错` : ''
 }
 
+/**
+ * 这一轮"看得见的行"有几行 —— 决定折叠头是不是可展开的。关掉"显示工具调用"时
+ * 工具行不渲染，但有 diff 视图的卡片仍然渲染，所以卡片也要算进去。
+ */
 export function visibleRowCount(model: ProcessModel, showToolCalls: boolean): number {
   if (showToolCalls) return model.rows.length
   return model.rows.filter(row => row.kind !== 'tool').length + model.artifactCount
 }
 
 /**
- * The collapsed head's label (the static head's `aria-label` and the whole
- * sentence in tests): the state word plus the turn's duration. Running turns
- * tick (`深度求索中，用时6分24秒`), settled turns report what they cost
- * (`已完成，用时1分20秒`). The step count is NOT part of it any more — it moved
- * into the expanded panel (`共 N 步`, see processStepsText).
+ * 折叠头的整句（静态头的 aria-label 与测试口径）：状态词 + 耗时。
+ *
+ * 没有权威证据（`model.outcome === 'unknown'`）时只有「—」、不报耗时；
+ * 调用方说「停了」而行里仍判在跑时也不许落到「已完成」—— 那是又一处猜测。
  */
 /** 少于这个时长不报秒数：刚开口就闪一个"用时1秒"反而像故障。 */
 export const RUNNING_CLOCK_THRESHOLD_MS = 3_000
 
 export function processHeadText(model: ProcessModel, input: { running: boolean; durationMs: number | undefined; liveElapsedMs?: number }): string {
-  // 运行中不报时间：实时计时归过程卡自己的第一行（liveElapsedMs）——P4 起就只在
-  // 那一行数秒（旧的底部「输出中 · 6分24秒」状态行 2026-11-08 已删）。
-  // 同一时刻只允许一个地方在数秒。
-  const outcome: ProcessOutcome = input.running ? 'running' : (model.outcome === 'running' ? 'ok' : model.outcome)
+  const outcome: ProcessOutcome = model.outcome === 'unknown'
+    ? 'unknown'
+    : input.running ? 'running' : (model.outcome === 'running' ? 'unknown' : model.outcome)
   const time = processTimeText(outcome, input)
-  // 屏幕上状态词与用时是两个元素（用时靠右对齐，不该出现孤零零的逗号），
-  // 但整句（aria-label 与测试用）保持"已完成，用时1分20秒"。
+  // 屏幕上状态词与用时是两个元素（用时靠右对齐，不该出现孤零零的逗号）。
   return time === '' ? processStateText(outcome) : `${processStateText(outcome)}，${time}`
 }
 
@@ -493,5 +458,7 @@ export function processTimeText(
       ? ''
       : `用时${formatDuration(input.liveElapsedMs)}`
   }
+  // 没有权威数据时不报耗时：一个"用时"就是「跑完了」的结论。
+  if (outcome === 'unknown') return ''
   return input.durationMs === undefined ? '' : `用时${formatDuration(input.durationMs)}`
 }

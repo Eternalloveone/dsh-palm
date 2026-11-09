@@ -190,6 +190,7 @@
   --palm-proc-row-pad: 6px;       /* 行内上下留白（定版 6–8）*/
   --palm-proc-head-h: 24px;       /* 过程头行高（定版 24）*/
   --palm-proc-head-size: 11px;    /* 过程头字号（定版 11）*/
+  --palm-proc-unknown: var(--palm-fg-3);  /* 没有权威结论时的灰态（灰点/「—」）*/
   --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
   --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
   --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/

@@ -56,9 +56,17 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
   /** 这一轮的计划步数（计划快照可能只挂在收尾行上，由 ChatRows 回填）。 */
   turnSteps?: TaskSteps
 }) {
+  /**
+   * 结论资格（水合门的落点）：宿主快照到齐才许下**任何**结论 —— 在跑、停、完成都算。
+   * 以前这里无条件 `deriveTaskStatus(undefined, …)`：「不在跑 + 行上没有失败标记」被
+   * `processOutcome` 兜成 `ok` → 首帧画「已完成」，等宿主的「在跑」一到又改口「运行中」。
+   * 没资格时连 `running` 都不给（不给 = 状态机判 `unknown`），否则首帧先写「思考中」
+   * 再被改写成「已完成」，同样是把结论画两遍。过程条的行模型吃同一个资格。
+   */
+  const authority = hydrated !== false
   // 判据的第二行（第二行状态词）与头的状态词必须同源：[liveTurn] 也要进依赖，
   // 否则活跃轮次一变（turn/end 到了、下一轮开了）这一行的第二行不会重算。
-  const model = useMemo(() => processModel(message, liveTurn, settled), [message, liveTurn, settled])
+  const model = useMemo(() => processModel(message, liveTurn, settled, authority), [message, liveTurn, settled, authority])
   // 有过程行，或者至少有一枚回合时钟（纯文本回复也要显示"本轮用了 X"）。
   // 注意：这个开关只挡工具行，不挡整组 —— 关掉工具调用不该连带丢掉思考与用时。
   const visibleRows = visibleRowCount(model, showToolCalls)
@@ -70,14 +78,6 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
   // 不再另造一份「现在到哪一步」。运行中报实时秒表，收工后以 turn/end 的 durationMs 定格。
   const anchor = message.turnStartAt ?? liveTurnStartAt
   const now = hostNowMs ?? Date.now()
-  /**
-   * 结论资格（水合门的落点）：宿主快照到齐才许下**任何**结论 —— 在跑、停、完成都算。
-   * 以前这里无条件 `deriveTaskStatus(undefined, …)`：「不在跑 + 行上没有失败标记」被
-   * `processOutcome` 兜成 `ok` → 首帧画「已完成」，等宿主的「在跑」一到又改口「运行中」。
-   * 没资格时连 `running` 都不给（不给 = 状态机判 `unknown`），否则首帧先写「思考中」
-   * 再被改写成「已完成」，同样是把结论画两遍。
-   */
-  const authority = hydrated !== false
   const running = authority ? isRowRunning(message, liveTurn, settled) : undefined
   const liveElapsed = running === true && anchor !== undefined ? Math.max(0, now - anchor) : undefined
   // 终态只在有权威时下：宿主说失败 / turn/end 说中断 / 宿主说这一轮没在跑（= 完成）。
@@ -114,7 +114,7 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
           {...(modelName === undefined || modelName === '' ? {} : { model: modelName })}
         />
       )}
-      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} liveClockTick={liveClockTick} />}
+      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} authority={authority} liveClockTick={liveClockTick} />}
       {answer !== undefined && answer !== '' && (model.answerSeq === undefined ? (
         <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />
       ) : (

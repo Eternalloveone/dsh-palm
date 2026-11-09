@@ -8,7 +8,7 @@ import type { SessionModels } from '../../api-proxy-types'
 import { ChatView, loadTurnReportRows, offersRegenerate, quotePathForReference, renderRows } from './ChatView.tsx'
 import { MAX_TAIL_BUFFER_EVENTS, RUNNING_RECONCILE_MS } from './chat/state/stream-state.ts'
 import { resetTurnAnchors } from '../render/message-row.tsx'
-import { addOptimisticQueueItem, resetSessionStoreForTest } from '../stream/session-store.ts'
+import { addOptimisticQueueItem, applySnapshot, resetSessionStoreForTest } from '../stream/session-store.ts'
 import { resetToastsForTest, ToastHost } from '../components/toast.tsx'
 
 import { sessionState } from '../api.ts'
@@ -415,6 +415,20 @@ afterEach(() => {
   localStorage.clear()
 })
 
+
+/**
+ * 给过程条「结论资格」：会话页水合门只认本会话的宿主原子快照（见 taskAuthority）。
+ * 这些用例测的是水合后的状态词/秒表，先让假宿主交出同一份权威；没有它的路径
+ * 由 process-group-unknown 与 chat-rows-hydration 专门覆盖（只画「—」、无耗时）。
+ */
+let authorityMaxSeq = 0
+function seedHostAuthority(running: boolean): void {
+  // 每次调用都推一个更大的行水位：applySnapshot 只在「有变化」时落盘，重复同一份
+  // 快照不会刷新 asOf —— 而结论资格看的是 asOf 的新鲜度。反复播种=宿主持续答话。
+  authorityMaxSeq += 1
+  applySnapshot({ sessionId: 's-1', rows: [], maxSeq: authorityMaxSeq, queue: [], queueRevision: 0, turn: { running }, asOf: Date.now() })
+}
+
 /** 把 `mobile.sessionState` 的 mock 还原成「这条通道不可用」（默认语义）。 */
 function resetSessionStateMock(): void {
   const api = vi.mocked(sessionState)
@@ -581,6 +595,7 @@ describe('ChatView message folds', () => {
       }, 101, t0 + 130_000),
     ], { turnStartAt: t0 }))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     expect(await screen.findByText('在跑编译')).toBeTruthy()
@@ -610,6 +625,7 @@ describe('ChatView message folds', () => {
       makeEntry('deliverables/presented', { turn: 1, callId: 'c1', files: [{ path: 'report.md', description: '交付报告' }] }, 3),
       makeEntry('turn/end', { turn: 1, reason: { kind: 'done' } }, 4),
     ]))
+    seedHostAuthority(false)
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
     // The turn clock belongs to the non-interactive process head (this turn
@@ -2211,6 +2227,7 @@ describe('ChatView display toggles and context usage', () => {
     // 每一行都带 (turn, step)：重复的 React key 会在这条断言里现形（React 用
     // console.error 报 "Encountered two children with the same key"）。
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    seedHostAuthority(false)
     const { container } = render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     try {
       const head = await findProcHead()
@@ -2814,6 +2831,7 @@ describe('ChatView stop button (#1041)', () => {
       { event: { type: 'tool/call', seq: 3, time: 1_700_000_000_200, data: { turn: 1, step: 0, callId: 'c1', name: 'bash', arguments: '{"cmd":"pnpm verify"}' } } as WireEvent },
     ], { turnStartAt: 1_700_000_000_000 }))
     const mux = new FakeMux()
+    seedHostAuthority(false)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('跑一下')
     expect(procStateOf(procHeadEl())).toBe('1 次工具调用')
@@ -3006,6 +3024,7 @@ describe('ChatView stop button (#1041)', () => {
   it('sustained host silence keeps the turn (and the process-card clock) alive', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
 
@@ -3038,6 +3057,9 @@ describe('ChatView stop button (#1041)', () => {
       // Third consecutive failure (30 s of unreachability): the turn and its
       // clock stay alive — 聊天页不再自己印一条状态行（断线由 OfflineBanner 说）。
       await vi.advanceTimersByTimeAsync(10_000)
+      // 快照通道仍然活着（只是日志尾页/名单不可达）：结论资格不许因为对账失败而
+      // 过期 —— 每 10 秒重新落一份同一结论的宿主快照，模拟宿主仍在答话。
+      act(() => { seedHostAuthority(true) })
       expect(turnStatusEl()).toBeNull()
       expect(document.querySelector('.chat-turn-time')).toBeNull()
       // 秒表还在走，而且在过程卡第一行：网络抖动没把它清零。
@@ -3054,6 +3076,7 @@ describe('ChatView stop button (#1041)', () => {
         hasMore: false,
       } as SessionPage)
       await vi.advanceTimersByTimeAsync(10_000)
+      act(() => { seedHostAuthority(true) })
       expect(procTimeOf(head)).toBe('用时40秒')
       emitChunk(mux, 41, Date.now())
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
@@ -4975,6 +4998,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
   it('shows the elapsed clock only once the turn has run past the 3s threshold', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     // 尾页必须**已经落地**再进假时钟：尾页没落地时 live 帧只会进缓冲区。
     await screen.findByText('还没有消息，发一句话开始吧')
@@ -5018,6 +5042,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
   it('一帧慢包不会把秒表的宿主偏移拖回去（偏移取窗口内最大值）', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
     vi.useFakeTimers()
@@ -5053,6 +5078,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
       loadChatPageMock.mockResolvedValue(runningTurnPage(T0 - 90_000))
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       // Flush the page promise (microtask): the anchor lands, the effect
       // ticks once on the frozen clock — 90s of real elapsed, not mount time.
@@ -5094,6 +5120,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
         makeEntryAt('tool/call', { turn: 0, step: 0, callId: 'c-89', name: 'bash', arguments: '{}' }, 2, T0 - 89_000),
       ]))
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       expect(procStateOf(lastProcHead())).toBe('1 次工具调用')
@@ -5131,6 +5158,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       vi.setSystemTime(T0)
       loadChatPageMock.mockResolvedValue(rowPage([]))
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       emitTurnStart(mux, 300, T0 - 5_000, 0)
@@ -5161,6 +5189,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       vi.setSystemTime(T0)
       loadChatPageMock.mockResolvedValue(rowPage([]))
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       emitTurnStart(mux, 400, T0 - 90_000, 0)
@@ -5199,6 +5228,7 @@ describe('ChatView turn clock（过程卡第一行的秒表）', () => {
       vi.setSystemTime(T0)
       loadChatPageMock.mockResolvedValue(rowPage([]))
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       emitTurnStart(mux, 500, T0 - 50_000, 0)
@@ -5297,6 +5327,7 @@ describe('ChatView stale turn boundary', () => {
     // 旧逻辑把这种「边界开着但名单说不跑」判成收工，卡片落在 ok 分支显示
     // 「已完成 ✅ 用时 X」，正文却是半句 —— 假成功。收尾词必须是「已中断」。
     loadChatPageMock.mockResolvedValue(rowPage(turnEvents(), { turnStartAt: T0 - 50_000, lastEventAt: T0 - 50_000 }))
+    seedHostAuthority(false)
     render(<ChatView session={{ ...session, running: false }} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await flushPageLoad()
     const head = lastProcHead()
@@ -5414,7 +5445,8 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       emitChunk(mux, 60, T0)
       await settleLiveFold()
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      // 水合前（还没有本会话的宿主快照）：过程条不写状态词、不报耗时 —— 只「—」。
+      expect(procStateOf(lastProcHead())).toBe('—')
       expect(procTime()).toBe('')
       // The running-reconcile probe (RUNNING_RECONCILE_MS) reads the tail: the
       // turn is still open, so the clock keeps counting and never restarts.
@@ -5425,8 +5457,10 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       // a status line of its own.
       expect(screen.getByRole('button', { name: '停止' })).toBeTruthy()
       expect(screen.queryByRole('status', { name: '连接中断' })).toBeNull()
-      // 秒表在过程卡第一行（P4 起不再挂底部状态行），锚点还是 live 帧的
-      // turn/start（T0-2s）：2s + 10.05s = 12s，绝不被探针清零重来。
+      // 权威快照这时才到（探针只负责回合开合，结论资格仍归 taskAuthority）：
+      // 秒表在过程卡第一行，锚点还是 live 帧的 turn/start（T0-2s）：
+      // 2s + 10.05s = 12s，绝不被探针清零重来。
+      act(() => { seedHostAuthority(true) })
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
       expect(turnStatusEl()).toBeNull()
       expect(procTime()).toBe('用时12秒')
@@ -5462,13 +5496,16 @@ it('does not start a turn from a stale open turn when the host says nothing runs
         chunk: { type: 'reasoning-delta', index: 0, text: '先看结构' },
       })
       await settleLiveFold()
-      expect(procStateOf(lastProcHead())).toBe('深度求索中')
+      // 水合前：探针还没跑、快照还没到，过程条只画「—」。
+      expect(procStateOf(lastProcHead())).toBe('—')
       expect(procTime()).toBe('')
       // 静默满一个 reconcile 周期：探针读历史尾巴，读到窗口外的 turn/start，
       // 页级锚点因此被取回 —— 秒表从 0 秒跳到「日志起点起算」的 1分40秒
       // （90s 日志 + 10s 静默周期），而不是 firstSeenAt 的 10 秒。
       act(() => { vi.advanceTimersByTime(RUNNING_RECONCILE_MS + 50) })
       await flushPageLoad()
+      // 权威快照此时落到同一个切面：结论资格放开，秒表用探针取回的页级锚点。
+      act(() => { seedHostAuthority(true) })
       expect(procStateOf(lastProcHead())).toBe('深度求索中')
       expect(procTime()).toBe('用时1分40秒')
     } finally {
@@ -5486,6 +5523,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       loadChatPageMock.mockResolvedValue(rowPage([]))
       historyMock.mockResolvedValue(historyPage([]))
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       // 这一行十一分钟前就在写了（turn/start 已经不可读）。
@@ -5736,6 +5774,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
       loadChatPageMock.mockResolvedValue(runningTurnPage(T0 - 60_000, T0 - 59_000))
       historyMock.mockResolvedValue({ events: [], hasMore: false } as HistoryPage)
       const mux = new FakeMux()
+      seedHostAuthority(true)
       render(<ChatView session={{ ...session, running: true }} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
       await flushPageLoad()
       // Anchor from the page: 60s elapsed on the (uncalibrated) phone clock.
@@ -5764,6 +5803,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
   it('formats multi-minute turns like the desktop label (Xm Ys)', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
     vi.useFakeTimers()
@@ -5785,6 +5825,7 @@ it('does not start a turn from a stale open turn when the host says nothing runs
     // ChatView 的活跃轮次（turn/start 帧给的轮号）能证明这一轮还开着。
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
 
@@ -5847,6 +5888,7 @@ describe('运行态表达：不再有「输出中」状态行（2026-11-08 删�
   it('运行中：没有「输出中」文案与呼吸点，过程条照常渲染', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
 
@@ -5871,6 +5913,7 @@ describe('运行态表达：不再有「输出中」状态行（2026-11-08 删�
   it('收工后：同样没有「输出中」，过程条落定为「已完成」', async () => {
     loadChatPageMock.mockResolvedValue(rowPage([]))
     const mux = new FakeMux()
+    seedHostAuthority(true)
     render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('还没有消息，发一句话开始吧')
 
