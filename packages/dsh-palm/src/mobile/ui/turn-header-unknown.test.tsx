@@ -47,7 +47,7 @@ describe('TurnHeader：unknown 不画任何结论', () => {
     const { container } = render(<TurnHeader kind="done" steps={{ done: 7, total: 7 }} durationMs={12_400} />)
     const label = container.querySelector('.palm-strip [data-part="label"]')!
     expect(label.textContent).toContain('7 步')
-    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12.4s')
+    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12s')
     expect(container.querySelector('.palm-turn-time')).toBeNull()
     expect(container.querySelector('.palm-turn-state')).toBeNull()
   })

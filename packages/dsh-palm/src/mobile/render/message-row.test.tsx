@@ -402,7 +402,7 @@ describe('MessageRow flow body (layout stability)', () => {
       const message: RenderMessage = { ...baseMessage(true), turnStartAt: t0 - 3_500 }
       const view = render(<MessageRow message={message} showToolCalls showSystemMessages={false} />)
       // 3.5 秒：不再走旧的「整秒向下取整 + 3 秒阈值」口径，而是定版图的一位小数。
-      expect(view.container.querySelector('[data-role="strip-time"]')!.textContent).toBe('3.5s')
+      expect(view.container.querySelector('[data-role="strip-time"]')!.textContent).toBe('3s')
     } finally {
       vi.useRealTimers()
     }

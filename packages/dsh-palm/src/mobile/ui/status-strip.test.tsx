@@ -105,7 +105,7 @@ describe('StatusStrip（状态胶囊 · 定版 pet-strip-v5）', () => {
         kind="read"
         label="读文件"
         detail="ChatView.tsx"
-        right="0.6s"
+        right="0s"
         steps={{ done: 1, total: 3 }}
         size="mini"
       />,
@@ -122,8 +122,8 @@ describe('StatusStrip（状态胶囊 · 定版 pet-strip-v5）', () => {
   })
 
   it('不给 onOpen 时是状态区；给了就是可点行（键盘也能开）', () => {
-    const idle = render(<StatusStrip kind="done" label="完成" detail="12 个文件" right="12.4s" />)
-    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('完成，12 个文件，12.4s')
+    const idle = render(<StatusStrip kind="done" label="完成" detail="12 个文件" right="12s" />)
+    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('完成，12 个文件，12s')
     expect(document.querySelector('.palm-strip-wrap')?.getAttribute('role')).toBeNull()
     idle.unmount()
 

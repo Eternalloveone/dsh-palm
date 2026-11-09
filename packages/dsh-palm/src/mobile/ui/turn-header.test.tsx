@@ -76,7 +76,7 @@ describe('TurnHeader（回合任务头）', () => {
     const only = timers[0]!
     expect(only.getAttribute('data-role')).toBe('strip-time')
     expect(only.closest('.palm-strip')).not.toBeNull()
-    expect(only.textContent).toBe('12.4s')
+    expect(only.textContent).toBe('12s')
     // 旧状态行的耗时元素不复存在（也不存在第二个计时元素）。
     expect(container.querySelector('.palm-turn-time')).toBeNull()
     expect(container.querySelectorAll('[data-role="strip-time"]')).toHaveLength(1)
@@ -128,8 +128,11 @@ describe('TurnHeader（回合任务头）', () => {
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
-  it('formatSeconds：一分钟内保留一位小数，更长走分秒口径', () => {
-    expect(formatSeconds(12_400)).toBe('12.4s')
+  it('formatSeconds：一分钟内是整数秒、不含小数点，更长走分秒口径', () => {
+    expect(formatSeconds(12_400)).toBe('12s')
+    expect(formatSeconds(3_500)).toBe('3s')
+    expect(formatSeconds(999)).toBe('0s')
+    expect(formatSeconds(59_999)).toBe('59s')
     expect(formatSeconds(63_400)).toBe('1分3秒')
     expect(formatSeconds(384_000)).toBe('6分24秒')
     expect(formatSeconds(0)).toBe('0s')

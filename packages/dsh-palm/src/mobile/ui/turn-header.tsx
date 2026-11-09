@@ -64,18 +64,20 @@ const STRIP_WORD: Record<StatusStripKind, string> = {
 }
 
 /**
- * 耗时 → 定版图口径的秒数（一分钟内 `12.4s`；更长走 `6分24秒`，与手机端既有口径一致）。
+ * 耗时 → 整数秒（一分钟内 `12s`；更长走 `6分24秒`）。
+ *
+ * **不出现小数**：秒表读数是整数心跳，小数既让人去追「为什么是 12.4 而不是
+ * 12.5」，也让同一段时间在不同截图里对不上。向下取整与秒表语义一致（满 12s
+ * 才显示 12s），不会出现「还没到就报满」。
  *
  * @param ms - 毫秒
- * @returns `12.4s` / `6分24秒` 这样的短文本
+ * @returns `12s` / `6分24秒` 这样的短文本
  */
 export function formatSeconds(ms: number): string {
-  const seconds = Math.max(0, ms) / 1000
-  if (seconds < 60) {
-    const rounded = Math.round(seconds * 10) / 10
-    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}s`
+  const total = Math.floor(Math.max(0, ms) / 1000)
+  if (total < 60) {
+    return `${total}s`
   }
-  const total = Math.floor(seconds)
   const minutes = Math.floor(total / 60)
   const rest = total % 60
   return `${minutes}分${rest}秒`

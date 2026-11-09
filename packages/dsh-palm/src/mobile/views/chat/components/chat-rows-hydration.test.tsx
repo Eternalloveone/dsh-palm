@@ -129,7 +129,8 @@ describe('水合后：一次性画真实状态，且不回退', () => {
     expect(container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('done')
     // 状态词与计时都在状态条：任务头里只有这一个计时元素。
     expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('完成')
-    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12.4s')
+    // 整数秒：不出现小数点（12.4s 这种读数会让人去追「为什么不是 12.5」）。
+    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12s')
     expect(container.querySelector('.palm-turn-time')).toBeNull()
     expect(container.querySelectorAll('[data-role="strip-time"]')).toHaveLength(1)
   })
