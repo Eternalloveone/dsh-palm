@@ -7,7 +7,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.86);
+  /* 与角标的 --palm-scrim（55%）同一族，这里是"整屏压暗"的强档。 */
+  background: var(--palm-scrim-strong);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -51,8 +52,8 @@
   justify-content: center;
   border-radius: 50%;
   border: none;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  background: var(--palm-tint-accent);
+  color: var(--palm-on-scrim);
 }
 
 .lightbox-close svg {
@@ -67,7 +68,7 @@
   right: 0;
   text-align: center;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--palm-on-scrim-soft);
   pointer-events: none;
 }
 
@@ -77,14 +78,20 @@
   font-size: 12.5px;
 }
 
-/* Sheet option rows: 56px, icon + text + right check. */
+/* Sheet option rows: 52px, icon + text + right value.
+ *
+ * 2026-11-11 真机（newsprint 皮肤下的「更多」）：右边的值用了 --text-base（17px）
+ * 和强调色，比左边 14px 的标题还大还艳 —— 一屏读下来，眼睛先落在「1 个文件」
+ * 「Markdown」上，菜单反而成了配角。这里把主从关系摆正：
+ *   标题 15px/500 主色 → 右侧值 13px/400 次要灰（数字等宽对齐）。
+ */
 .sheet-option {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  min-height: 56px;
-  padding: 8px 12px;
+  min-height: 50px;
+  padding: 6px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius-chip);
   background: transparent;
@@ -131,22 +138,27 @@
 }
 
 .sheet-option-title {
-  font-size: 14px;
-  font-weight: 400;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .sheet-option-desc {
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-sm);
   font-weight: 400;
   line-height: 1.4;
 }
 
+/* 右侧的值只是信息（几个文件、什么格式），不是动作也不是状态：
+   比标题小两档、用次要灰，数字等宽避免逐行跳动。强调色留给真正的选中态
+   （`.sheet-option-selected`）和危险项。 */
 .sheet-option-check {
   flex: none;
-  color: var(--accent);
-  font-size: var(--text-base);
-  font-weight: 500;
+  color: var(--palm-fg-3);
+  font-size: 13px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .sheet-confirm-desc {
@@ -203,7 +215,7 @@
   border: none;
   border-radius: var(--radius-chip);
   background: var(--danger);
-  color: #fff;
+  color: var(--palm-on-scrim);
   font: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -224,12 +236,14 @@
 /* Primary action button (accent fill) inside sheets. */
 .mobile-button-primary {
   border: none;
-  background: var(--accent);
-  color: var(--accent-contrast);
+  /* 2026-11-10 纸色实拍：主按钮原来写死旧蓝（--accent 在两套主题里同值、换肤不变），
+     整页暖白只剩它一颗蓝按钮。改走皮肤令牌。 */
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
 }
 
 .mobile-button-primary:active {
-  background: var(--accent);
+  background: var(--palm-accent);
   filter: brightness(1.08);
 }
 
@@ -264,7 +278,7 @@
 }
 
 .voice-service-desc {
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -351,7 +365,7 @@
 }
 
 .voice-form-input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
 }
 
 /* Paired-device management rows (settings → 设备管理). */
@@ -398,7 +412,7 @@
 
 .device-badge-primary {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: var(--palm-accent-16);
 }
 
 .device-badge-current {
@@ -410,7 +424,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -419,7 +433,7 @@
 
 .device-status {
   flex: none;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
 }
 
 .device-status-on {
@@ -471,10 +485,11 @@
   color: var(--danger);
 }
 
-/* ⋯ 菜单行左侧图标：与 .sheet-option-title 同高，统一从 --palm-t-l 取尺寸。 */
+/* ⋯ 菜单行左侧图标：跟标题同高、让出一点呼吸感，颜色压到次要灰 ——
+   图标是路标，不是装饰，别和标题抢亮度。 */
 .sheet-option > svg {
   flex: none;
-  inline-size: var(--palm-t-l);
-  block-size: var(--palm-t-l);
-  color: var(--palm-fg-2);
+  inline-size: 18px;
+  block-size: 18px;
+  color: var(--palm-fg-3);
 }

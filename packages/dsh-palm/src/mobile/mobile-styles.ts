@@ -25,6 +25,8 @@ export const mobileCss = `${designTokensCss()}
   --palm-t-l: 17px;
   --palm-t-xl: 22px;
   --palm-t-2xl: 28px;
+  /* 阅读流正文专用：与通用中号字阶分开，避免连带放大按钮和列表。 */
+  --palm-chat-body-size: 15px;
 
   /* ── 行高：只有 2 档 ── */
   --palm-lh-body: 1.5;
@@ -52,6 +54,8 @@ export const mobileCss = `${designTokensCss()}
 
   /* ── 字体：等宽（行号、代码块、路径） ── */
   --palm-font-mono: var(--font-mono);
+  /* 正文字族：默认跟随桌面注入的 --font-sans；换皮肤时可覆盖（报纸皮肤用衬线）。 */
+  --palm-font-sans: var(--font-sans);
 
   /* ── 物性 ── */
   --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -61,7 +65,27 @@ export const mobileCss = `${designTokensCss()}
   /* ── 触摸目标 ── */
   --palm-hit: 44px;
 
+  /* ── 主键的按下与禁用（2026-11-10）：六套主键原来分两派 —— 一派 scale(0.98)+提亮，
+     另一派只把透明度降到 0.88，抽屉那颗连按下态都没有。同一个动作三种反馈，
+     用户会以为有的键没反应。三个值收在令牌层，以后改一次全都对齐。 ── */
+  --palm-btn-press-scale: 0.98;
+  --palm-btn-press-dim: 1.1;
+  /* 卡片里的两颗键（审批允许 / 提问提交）**不许**用 scale：审批键是"按 1.5 秒"的
+     长按确认，按下去缩一圈再保持 1.5 秒是错的；它们的按下反馈只降透明度。 */
+  --palm-btn-press-flat: 0.88;
+  --palm-btn-disabled-opacity: 0.6;
+
   /* 物性：1px 细线与焦点环宽度（组件层不写裸 px） */
+  /* 压在**图片**上的小控件（缩略图角标、灯箱翻页）用这个固定压暗层：
+   不跟皮肤走 —— 底下是照片，不是皮肤表面。用皮肤表面色会让角标在半数照片上消失。 */
+  --palm-scrim: rgba(0, 0, 0, 0.55);
+  --palm-on-scrim: rgba(255, 255, 255, 0.96);
+  /* 整屏压暗（灯箱、预览）：比角标的 55% 更狠，保证图片之外的地方不抢戏。 */
+  --palm-scrim-strong: rgba(0, 0, 0, 0.86);
+  /* 轻遮罩：选择器背景这种「只压暗一点」的场景，0.55 的 scrim 太重。 */
+  --palm-scrim-soft: rgba(0, 0, 0, 0.2);
+  /* 遮罩上的次要文字（灯箱说明）：on-scrim 给正文，这一档弱一些。 */
+  --palm-on-scrim-soft: rgba(255, 255, 255, 0.62);
   --palm-hair: 1px;
   --palm-focus: 2px;
 
@@ -81,45 +105,11 @@ export const mobileCss = `${designTokensCss()}
   --palm-strip-mini-r: 8px;
   --palm-strip-pet: 18px;
   --palm-strip-pet-mini: 12px;
-  --palm-strip-rail-h: 4px;
-  --palm-strip-rail-r: 3px;
-  --palm-strip-rail-gap: 2px;
-  --palm-strip-rail-mt: 5px;
-  --palm-strip-track: #101016;
-  --palm-strip-border: rgba(255, 255, 255, 0.08);
   --palm-strip-fg: #f4f6fb;
   --palm-strip-detail-fg: rgba(255, 255, 255, 0.62);
   --palm-strip-right-fg: rgba(255, 255, 255, 0.8);
   --palm-strip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --palm-strip-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0) 60%);
-  --palm-strip-pet-body: rgba(4, 8, 14, 0.55);
-  --palm-strip-pet-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-  --palm-strip-grad-think: linear-gradient(100deg, #2b2a72, #4a49b8);
-  --palm-strip-grad-read: linear-gradient(100deg, #123a56, #1c6f9c);
-  --palm-strip-grad-edit: linear-gradient(100deg, #14395a, #1f6f8e);
-  --palm-strip-grad-test: linear-gradient(100deg, #0f3a55, #1a6f96);
-  --palm-strip-grad-approve: linear-gradient(100deg, #5a3f08, #8a6318);
-  --palm-strip-grad-stuck: linear-gradient(100deg, #4a3306, #6f4f12);
-  --palm-strip-grad-done: linear-gradient(100deg, #0d5033, #177a4a 52%, #2b2a72);
-  --palm-strip-grad-failed: linear-gradient(100deg, #5c1327, #8c1f38);
-  --palm-strip-grad-stopped: linear-gradient(100deg, #2a2a33, #3f3f4d);
-  --palm-strip-grad-queued: linear-gradient(100deg, rgba(124, 140, 255, 0.1), rgba(124, 140, 255, 0.02));
   /* 无权威数据：灰（不再借用「思考」那套紫渐变，免得把"不知道"画成"在做"）。 */
-  --palm-strip-grad-unknown: linear-gradient(100deg, #17171d, #24242c);
-  --palm-strip-ink-think: #cfd4ff;
-  --palm-strip-ink-read: #a9e6ff;
-  --palm-strip-ink-edit: #9fd8ff;
-  --palm-strip-ink-test: #a9e6ff;
-  --palm-strip-ink-approve: #ffd98a;
-  --palm-strip-ink-stuck: #ffd98a;
-  --palm-strip-ink-done: #c8f8db;
-  --palm-strip-ink-failed: #ffb3c0;
-  --palm-strip-ink-stopped: #d5d7e2;
-  --palm-strip-ink-queued: #9aa0ae;
-  --palm-strip-ink-unknown: #9aa0ae;
-  --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
-  --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
-  --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);
 
   /* ── 会话正文流（任务头 / 过程折叠行 / 交付卡） ───────────────────────
    * 版式真源：docs/prototype/overview.html「2 · 会话正文」
@@ -145,7 +135,14 @@ export const mobileCss = `${designTokensCss()}
    * 好让 TurnHeadSkeleton 的占位与真实目标行同高。 */
   --palm-turn-gap: 6px;
   --palm-turn-pad-t: 2px;
-  --palm-turn-pad-b: 10px;
+  --palm-turn-pad-b: 4px;
+  /* 待发队列面板（2026-11-10 用户：面板太高）：行高 32、伪元素上下各补 6 命中区。 */
+  --palm-queue-row-h: 32px;
+  --palm-queue-row-hit: 6px;
+  /* 待发队列头行两颗按钮（2026-11-10 用户：太大了、不协调）：26 高、等宽圆角；
+     命中区靠 ::after 上下各补 9，仍是 44。 */
+  --palm-queue-btn-h: 26px;
+  --palm-queue-btn-hit: 9px;
   --palm-turn-goal-h: 20px;
   --palm-turn-meta-size: 10px;
 
@@ -161,9 +158,9 @@ export const mobileCss = `${designTokensCss()}
    * 半透明底色只落在这里：240/250/260 组件样式一律引用 palm-dock-* 令牌。 */
   --palm-dock-pad: 18px;
   --palm-dock-gap: 10px;
-  --palm-dock-field-h: 40px;
+  --palm-dock-field-h: 48px;
   --palm-dock-field-r: 20px;
-  --palm-dock-input-h: 32px;
+  --palm-dock-input-h: 44px;
   --palm-dock-circle: 36px;
   --palm-dock-meta-h: 30px;
   --palm-dock-chip-h: 24px;
@@ -174,7 +171,8 @@ export const mobileCss = `${designTokensCss()}
   --palm-dock-chip-div-bg: rgba(255, 255, 255, 0.14);
   --palm-dock-status-size: 10.5px;
   --palm-dock-dot: 2px;
-  --palm-dock-ring: 10px;
+  /* 2026-11-10：10px 的环在真机上分不出比例，放大到 12px。 */
+  --palm-dock-ring: 12px;
   --palm-dock-ring-line: 2px;
   --palm-dock-ring-track: rgba(124, 140, 255, 0.28);
   --palm-dock-queue-h: 30px;
@@ -184,9 +182,9 @@ export const mobileCss = `${designTokensCss()}
 
   /* ── 插入条（dock 固定槽位：已插入本轮的补充消息） ─────────────────────
    * 组件永远挂载，0fr → 1fr 过渡高度；消失走 data-state 而不是卸载。
-   * 明细行 ≤36px（--palm-insert-row-h），“撤回”的命中区靠 --palm-hit 撑到 44px。 */
-  --palm-insert-h: 30px;           /* 折叠摘要的最小高度 */
-  --palm-insert-row-h: 36px;       /* 明细行高上限（触控命中另行补到 44） */
+   * 摘要与每条明细均有独立 44px 触控高度，不靠跨行伪元素扩展命中区。 */
+  --palm-insert-h: 44px;           /* 折叠摘要高度 */
+  --palm-insert-row-h: 44px;       /* 明细行和撤回动作高度 */
   --palm-insert-dur: 220ms;        /* 出现/消失/展开的过渡时长 */
   --palm-insert-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --palm-insert-gap: var(--palm-s2);
@@ -200,7 +198,7 @@ export const mobileCss = `${designTokensCss()}
    *          + docs/visual-acceptance.md「2026-11-08 最终状态」。
    * 这五屏只共用 515-five-screens.css 一层类，尺寸/字号一律引用下面这些令牌，
    * 组件样式里不再出现裸 px（灰色三档仍走 --palm-fg / --palm-fg-2 / --palm-fg-3）。 */
-  --palm-spec-search-h: 32px;      /* 搜索框高（定版 30–34）*/
+  --palm-spec-search-h: 44px;      /* 搜索框与清除按钮触控高度 */
   --palm-spec-search-r: 10px;      /* 搜索框圆角：无描边，靠表面色分层 */
   --palm-spec-head-size: 11px;     /* 分组标题字号（定版 10–11，弱化）*/
   --palm-spec-card-r: 10px;        /* 分组卡圆角 */
@@ -230,8 +228,8 @@ export const mobileCss = `${designTokensCss()}
   --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
   --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
   --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/
-  --palm-drawer-new-h: 40px;      /* 「新建会话」主按钮高 */
-  --palm-drawer-search-h: 34px;   /* 「搜索会话和消息」行高 */
+  --palm-drawer-new-h: 44px;      /* 「新建会话」主按钮高 */
+  --palm-drawer-search-h: 44px;   /* 「搜索会话和消息」行高 */
   --palm-drawer-strip-w: 88px;    /* 行右侧迷你状态条宽 */
   --palm-drawer-strip-h: 18px;    /* 行右侧迷你状态条高 */
 
@@ -243,6 +241,12 @@ export const mobileCss = `${designTokensCss()}
   --palm-skin-paper-ink: #8a5a2b;
   --palm-skin-nocturne-bg: #0f1520;
   --palm-skin-nocturne-ink: #22d3ee;
+  --palm-skin-claude-bg: #ffffff;
+  --palm-skin-claude-ink: #8c4d38;
+  --palm-skin-endfield-bg: #e8e8e2;
+  --palm-skin-endfield-ink: #5f5b00;
+  --palm-skin-newsprint-bg: #f5f3ed;
+  --palm-skin-newsprint-ink: #065588;
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -254,13 +258,32 @@ html[data-skin='graphite'] {
   --palm-line: rgba(255, 255, 255, 0.07);
   --palm-fg: #f4f4f8;
   --palm-fg-2: #a6a6b6;
-  --palm-fg-3: #70707f;
+  /* 2026-11-10：三级辅助文字实测 3.90:1，低于 WCAG AA（需求点名"避免低对比辅助文字"），
+     抬到 4.68:1；仍明显暗于 fg-2（7.8:1），层级没被抹平。 */
+  --palm-fg-3: #7e7e8f;
   --palm-accent: #7c8cff;
+  /* 鲸鱼尾巴的固有色（吉祥物不跟交互色走：paper 皮肤 accent 是墨棕，鲸鱼仍是蓝的）。 */
+  --palm-whale: #7c8cff;
   --palm-accent-2: #a78bfa;
+  --palm-on-accent: #101015;
   --palm-ok: #3ddc84;
   --palm-warn: #e0a52c;
   --palm-danger: #ff6b81;
   --palm-tint-warn: rgba(224, 165, 44, 0.12);
+  /* 断线状态带：--palm-tint-warn 是"薄雾"级别（10~12%），做整宽横条时看不出边界；
+     这是"带子"级别（24%），聊天页顶部与全站离线条共用同一档。 */
+  --palm-warn-band: rgba(224, 165, 44, 0.24);
+  /* 搜索命中的底色：accent 26% 混在浮层底色上的**预混值**。
+     写成字面量是因为 color-mix() 要 Safari 16.2，iOS 15 上会让命中词没有底色。 */
+  --palm-search-mark: #303457;
+
+  /* 预混令牌：这些位置在 iOS 15 上原本是 color-mix()，不支持时整块变透明。 */
+  --palm-press-bg: #202027;
+  --palm-danger-band: #482832;
+  --palm-danger-line: #964454;
+  --palm-ok-band: #1c372e;
+  --palm-accent-line: #464e89;
+  --palm-accent-16: #252840;
   --palm-tint-ok: rgba(61, 220, 132, 0.1);
   --palm-tint-danger: rgba(255, 107, 129, 0.12);
   --palm-tint-accent: rgba(124, 140, 255, 0.14);
@@ -270,6 +293,8 @@ html[data-skin='graphite'] {
 
 /* ═══════════ 皮肤：纸（暖白 / 印刷感 / 更小圆角） ═══════════ */
 html[data-skin='paper'] {
+  /* 2026-11-10 状态条重做：主条不再是「整条深色渐变」，底色要跟着皮肤走，
+     否则纸色皮肤上会出现一张黑条压在白底上（实拍确认）。 */
   --palm-r-s: 6px;
   --palm-r-m: 10px;
   --palm-r-l: 14px;
@@ -279,13 +304,36 @@ html[data-skin='paper'] {
   --palm-line: rgba(28, 26, 23, 0.12);
   --palm-fg: #1c1a17;
   --palm-fg-2: #5d5852;
-  --palm-fg-3: #8b857e;
+  /* 2026-11-10：纸色皮肤的三级文字只有 3.44:1（最差的一套），压到 4.76:1；
+     fg-2 仍是最深的一档（6.6:1），说明文字与正文还分得开。 */
+  --palm-fg-3: #746e67;
   --palm-accent: #8a5a2b;
+  --palm-whale: #3f6ae0;
   --palm-accent-2: #b8804a;
-  --palm-ok: #2f8f5b;
-  --palm-warn: #a97617;
-  --palm-danger: #b8455a;
+  --palm-on-accent: #ffffff;
+  /* 2026-11-10：绿（完成条）写在自己的淡底上 3.41:1，一起压到 4.6:1。 */
+  --palm-ok: #1f6f45;
+  /* 2026-11-10：纸色皮肤上「警告」正文写在自己的 10% 淡底上只有 3.35:1 ——
+     审批页那句「批准后它会真实执行这条命令」正是这个组合，等于让人看不清风险。
+     压到 4.8:1，色相不变。 */
+  --palm-warn: #8a5f10;
+  /* 2026-11-10：同理，"拒绝/删除"的红写在红淡底上只有 4.28:1，压到 5.1:1。 */
+  --palm-danger: #a63b4f;
   --palm-tint-warn: rgba(169, 118, 23, 0.1);
+  /* 断线状态带：--palm-tint-warn 是"薄雾"级别（10~12%），做整宽横条时看不出边界；
+     这是"带子"级别（24%），聊天页顶部与全站离线条共用同一档。 */
+  --palm-warn-band: rgba(169, 118, 23, 0.24);
+  /* 搜索命中的底色：accent 26% 混在浮层底色上的**预混值**。
+     写成字面量是因为 color-mix() 要 Safari 16.2，iOS 15 上会让命中词没有底色。 */
+  --palm-search-mark: #e1d4c8;
+
+  /* 预混令牌：这些位置在 iOS 15 上原本是 color-mix()，不支持时整块变透明。 */
+  --palm-press-bg: #f4f4f3;
+  --palm-danger-band: #ebd4d8;
+  --palm-danger-line: #ce939e;
+  --palm-ok-band: #d9e7df;
+  --palm-accent-line: #c7b099;
+  --palm-accent-16: #ece5dd;
   --palm-tint-ok: rgba(47, 143, 91, 0.1);
   --palm-tint-danger: rgba(184, 69, 90, 0.1);
   --palm-tint-accent: rgba(138, 90, 43, 0.1);
@@ -293,8 +341,191 @@ html[data-skin='paper'] {
   --palm-sh1: 0 1px 2px rgba(28, 26, 23, 0.08);
   --palm-sh2: 0 6px 20px rgba(28, 26, 23, 0.12);
   --palm-shadow: 0 0 0 1px rgba(28, 26, 23, 0.1), 0 10px 30px rgba(28, 26, 23, 0.14);
+  /*
+   * 过程区 / 结论卡（交付卡）的表面色：基础令牌里那四个是**深色值**
+   * （深色渐变 + 白色 5% 分隔线），浅色皮肤不覆盖就会在白底上画出一块深色卡、
+   * 分隔线直接消失（2026-11-10 组件预览截图实拍）。这里是纸感暖白的等价物。
+   */
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(47, 143, 91, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(28, 26, 23, 0.08);
+  --palm-flow-card-line: rgba(47, 143, 91, 0.28);
+  --palm-flow-tag-ok: rgba(47, 143, 91, 0.12);
+  --palm-flow-tag-edit: rgba(138, 90, 43, 0.12);
+  /*
+   * 过程条的轨道色（2026-11-10 纸色 900px 实拍）：
+   * 基础值是为深色底写的霓虹绿（47,191,116 → 61,220,132）与靛（75,74,224 → 124,140,255），
+   * 摆在暖白纸面上像荧光笔 —— 一条「完成」底下横着一排发光的绿条。
+   * 纸色皮肤用自己的语义色：完成 = 墨绿，进行中 = 棕（本皮肤强调色）。
+   */
+
+  /*
+   * 2026-11-10 皮肤契约（补齐）：以下 11 个令牌原来只在基础 :root 里有**深色值**，
+   * 纸色皮肤没覆盖 → 白底上出现半透明黑罩、深色浮层文字、几乎看不见的输入区芯片。
+   * 契约：凡"颜色"类令牌，三套皮肤必须各自定义，不靠基础值兜底。
+   */
+  --palm-scrim: rgba(28, 26, 23, 0.42);
+  --palm-on-scrim: #faf8f4;
+  --palm-scrim-strong: rgba(28, 26, 23, 0.8);
+  --palm-scrim-soft: rgba(28, 26, 23, 0.12);
+  --palm-on-scrim-soft: rgba(250, 248, 244, 0.7);
+  --palm-strip-fg: #1c1a17;
+  --palm-strip-detail-fg: #5d5852;
+  --palm-strip-right-fg: #746e67;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(28, 26, 23, 0.05);
+  --palm-dock-chip-div-bg: rgba(28, 26, 23, 0.16);
+  --palm-dock-ring-track: rgba(138, 90, 43, 0.3);
+  --palm-dock-queue-bg: rgba(169, 118, 23, 0.09);
   color-scheme: light;
 }
+/* ═══════════ 皮肤：endfield ══════════════════════════════════════════════════
+ * 来自 ymh0000123/dsh-theme-endfield（8315d58）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='endfield'] {
+  --palm-r-s: 2px;
+  --palm-r-m: 4px;
+  --palm-r-l: 6px;
+  --palm-bg: #e8e8e2;
+  --palm-sur-1: #f5f5f2;
+  --palm-sur-2: #ddddd8;
+  --palm-line: rgba(206, 206, 201, 0.5);
+  --palm-fg: #101110;
+  --palm-fg-2: #4a4c48;
+  --palm-fg-3: #646662;
+  --palm-accent: #5f5b00;
+  --palm-whale: #5f5b00;
+  --palm-accent-2: #777426;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1d6841;
+  --palm-warn: #7a540e;
+  --palm-danger: #9c374a;
+  --palm-tint-warn: rgba(122, 84, 14, 0.1);
+  --palm-warn-band: rgba(122, 84, 14, 0.24);
+  --palm-search-mark: #cecdb3;
+  --palm-press-bg: #dfdfda;
+  --palm-danger-band: #dfd3d0;
+  --palm-danger-line: #d3b6b7;
+  --palm-ok-band: #d0d9cf;
+  --palm-accent-line: #b8b793;
+  --palm-accent-16: #dddccb;
+  --palm-tint-ok: rgba(29, 104, 65, 0.1);
+  --palm-tint-danger: rgba(156, 55, 74, 0.1);
+  --palm-tint-accent: rgba(95, 91, 0, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(16, 17, 16, 0.08);
+  --palm-sh2: 0 6px 20px rgba(16, 17, 16, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(16, 17, 16, 0.1), 0 10px 30px rgba(16, 17, 16, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(29, 104, 65, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(16, 17, 16, 0.08);
+  --palm-flow-card-line: rgba(29, 104, 65, 0.28);
+  --palm-flow-tag-ok: rgba(29, 104, 65, 0.12);
+  --palm-flow-tag-edit: rgba(95, 91, 0, 0.12);
+  --palm-scrim: rgba(16, 17, 16, 0.42);
+  --palm-on-scrim: #e8e8e2;
+  --palm-scrim-strong: rgba(16, 17, 16, 0.8);
+  --palm-scrim-soft: rgba(16, 17, 16, 0.12);
+  --palm-on-scrim-soft: rgba(232, 232, 226, 0.7);
+  --palm-strip-fg: #101110;
+  --palm-strip-detail-fg: #4a4c48;
+  --palm-strip-right-fg: #646662;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(16, 17, 16, 0.05);
+  --palm-dock-chip-div-bg: rgba(16, 17, 16, 0.16);
+  --palm-dock-ring-track: rgba(95, 91, 0, 0.3);
+  --palm-dock-queue-bg: rgba(122, 84, 14, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #650d82;
+  --tok-string: #0a6c1a;
+  --tok-comment: #7b795a;
+  --tok-number: #82510d;
+  --tok-type: #82170d;
+  --tok-func: #5f5b00;
+  --tok-prop: #0a6c64;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：claude ══════════════════════════════════════════════════
+ * 来自 Nwflower/dsh-claude-style（c49419e）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='claude'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #ffffff;
+  --palm-sur-1: #fafafa;
+  --palm-sur-2: #ececec;
+  --palm-line: rgba(231, 226, 221, 0.5);
+  --palm-fg: #161616;
+  --palm-fg-2: #5c5c5c;
+  --palm-fg-3: #747474;
+  --palm-accent: #8c4d38;
+  --palm-whale: #8c4d38;
+  --palm-accent-2: #9d6856;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1f6f45;
+  --palm-warn: #8a5f10;
+  --palm-danger: #a63b4f;
+  --palm-tint-warn: rgba(138, 95, 16, 0.1);
+  --palm-warn-band: rgba(138, 95, 16, 0.24);
+  --palm-search-mark: #ddcdc8;
+  --palm-press-bg: #f6f6f6;
+  --palm-danger-band: #f4e7ea;
+  --palm-danger-line: #e6c8ce;
+  --palm-ok-band: #e4eee9;
+  --palm-accent-line: #d7c1b9;
+  --palm-accent-16: #e8dedb;
+  --palm-tint-ok: rgba(31, 111, 69, 0.1);
+  --palm-tint-danger: rgba(166, 59, 79, 0.1);
+  --palm-tint-accent: rgba(140, 77, 56, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(22, 22, 22, 0.08);
+  --palm-sh2: 0 6px 20px rgba(22, 22, 22, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(22, 22, 22, 0.1), 0 10px 30px rgba(22, 22, 22, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(31, 111, 69, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(22, 22, 22, 0.08);
+  --palm-flow-card-line: rgba(31, 111, 69, 0.28);
+  --palm-flow-tag-ok: rgba(31, 111, 69, 0.12);
+  --palm-flow-tag-edit: rgba(140, 77, 56, 0.12);
+  --palm-scrim: rgba(22, 22, 22, 0.42);
+  --palm-on-scrim: #ffffff;
+  --palm-scrim-strong: rgba(22, 22, 22, 0.8);
+  --palm-scrim-soft: rgba(22, 22, 22, 0.12);
+  --palm-on-scrim-soft: rgba(255, 255, 255, 0.7);
+  --palm-strip-fg: #161616;
+  --palm-strip-detail-fg: #5c5c5c;
+  --palm-strip-right-fg: #747474;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(22, 22, 22, 0.05);
+  --palm-dock-chip-div-bg: rgba(22, 22, 22, 0.16);
+  --palm-dock-ring-track: rgba(140, 77, 56, 0.3);
+  --palm-dock-queue-bg: rgba(138, 95, 16, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #753c88;
+  --tok-string: #357841;
+  --tok-comment: #8c7972;
+  --tok-number: #806238;
+  --tok-type: #88433c;
+  --tok-func: #8c4d38;
+  --tok-prop: #32716c;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+
+
+
+
+
+
+
+
+
+
 
 /* ═══════════ 皮肤：夜航（深蓝 / 霓虹 / 更圆） ═══════════ */
 html[data-skin='nocturne'] {
@@ -303,17 +534,37 @@ html[data-skin='nocturne'] {
   --palm-r-l: 20px;
   --palm-bg: #080c14;
   --palm-sur-1: #0f1520;
-  --palm-sur-2: #16203010;
+  /* 2026-11-10：原来是 6% 半透明（#16203010），叠在 --palm-sur-1 上只差 1.006:1 ——
+     卡片套卡片、浮层压卡片全都糊成一片。改成不透明的第二层，层间距 1.105:1，
+     与石墨/纸色同一档；顺带不再受底下是图片还是底色影响。 */
+  --palm-sur-2: #161f2e;
   --palm-line: rgba(120, 180, 255, 0.14);
   --palm-fg: #e8f1ff;
   --palm-fg-2: #9db3d1;
-  --palm-fg-3: #64789a;
+  /* 2026-11-10：夜航的三级文字 4.38:1，差一点点过线；提到 5.03:1。 */
+  --palm-fg-3: #6d82a5;
   --palm-accent: #22d3ee;
+  --palm-whale: #22d3ee;
   --palm-accent-2: #818cf8;
+  --palm-on-accent: #0a0a0f;
   --palm-ok: #34d399;
   --palm-warn: #fbbf24;
   --palm-danger: #fb7185;
   --palm-tint-warn: rgba(251, 191, 36, 0.12);
+  /* 断线状态带：--palm-tint-warn 是"薄雾"级别（10~12%），做整宽横条时看不出边界；
+     这是"带子"级别（24%），聊天页顶部与全站离线条共用同一档。 */
+  --palm-warn-band: rgba(251, 191, 36, 0.24);
+  /* 搜索命中的底色：accent 26% 混在浮层底色上的**预混值**。
+     写成字面量是因为 color-mix() 要 Safari 16.2，iOS 15 上会让命中词没有底色。 */
+  --palm-search-mark: #144656;
+
+  /* 预混令牌：这些位置在 iOS 15 上原本是 color-mix()，不支持时整块变透明。 */
+  --palm-press-bg: #1a202b;
+  --palm-danger-band: #432936;
+  --palm-danger-line: #914858;
+  --palm-ok-band: #153535;
+  --palm-accent-line: #187083;
+  --palm-accent-16: #123341;
   --palm-tint-ok: rgba(52, 211, 153, 0.1);
   --palm-tint-danger: rgba(251, 113, 133, 0.12);
   --palm-tint-accent: rgba(34, 211, 238, 0.12);
@@ -321,13 +572,112 @@ html[data-skin='nocturne'] {
   --palm-sh1: 0 1px 2px rgba(0, 0, 0, 0.6);
   --palm-sh2: 0 6px 22px rgba(0, 0, 0, 0.7);
   --palm-shadow: 0 0 0 1px rgba(120, 180, 255, 0.16), 0 10px 30px rgba(0, 0, 0, 0.7);
+  /*
+   * 2026-11-10 皮肤契约（补齐）：夜航原来缺 13 个颜色令牌，全部落回石墨的深色值 ——
+   * 于是在深蓝底上出现靛紫芯片、石墨绿标签（--palm-flow-tag-ok）这类"两套配色混搭"。
+   * 这里按夜航自己的青/蓝绿/琥珀语义给全，不再依赖基础值。
+   */
+  --palm-scrim: rgba(3, 6, 12, 0.6);
+  --palm-on-scrim: #e8f1ff;
+  --palm-scrim-strong: rgba(3, 6, 12, 0.88);
+  --palm-scrim-soft: rgba(3, 6, 12, 0.25);
+  --palm-on-scrim-soft: rgba(232, 241, 255, 0.64);
+  --palm-strip-fg: #e8f1ff;
+  --palm-strip-detail-fg: rgba(232, 241, 255, 0.66);
+  --palm-strip-right-fg: rgba(232, 241, 255, 0.82);
+  --palm-strip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --palm-dock-chip-bg: rgba(120, 180, 255, 0.06);
+  --palm-dock-chip-div-bg: rgba(120, 180, 255, 0.18);
+  --palm-dock-ring-track: rgba(34, 211, 238, 0.28);
+  --palm-dock-queue-bg: rgba(251, 191, 36, 0.08);
+  --palm-flow-tag-ok: rgba(52, 211, 153, 0.14);
+  --palm-flow-tag-edit: rgba(34, 211, 238, 0.14);
   color-scheme: dark;
 }
+/* ═══════════ 皮肤：报纸（newsprint）═══════════════════════════════════════
+ * 移植自 dsh-skin-market 里的 2754LM/dsh-theme-newsprint（MIT）：暖白报纸底 +
+ * 墨色正文 + 单一海蓝强调。桌面那份是 cordis 插件、改的是 --dsw-alias-*；
+ * 手机端是另一套令牌与组件，所以**重新表达**而不是复用代码：
+ * 角色一一对应（base→bg、raised→sur-1、container→sur-2、ink→fg 三档、blue→accent），
+ * 混色值提前算成字面量（iOS 15 没有 color-mix）。
+ * 装饰（衬线正文、报头双线）在 610-skin-newsprint.css。
+ */
+html[data-skin='newsprint'] {
+  --palm-r-s: 4px;
+  --palm-r-m: 8px;
+  --palm-r-l: 12px;
+  --palm-bg: #f5f3ed;
+  --palm-sur-1: #fdfdfa;
+  --palm-sur-2: #ebe7de;
+  --palm-line: rgba(31, 9, 9, 0.12);
+  --palm-fg: #1f0909;
+  --palm-fg-2: #5a5049;
+  --palm-fg-3: #776c62;
+  --palm-accent: #065588;
+  --palm-whale: #065588;
+  --palm-accent-2: #0a6aa0;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #4d6b43;
+  --palm-warn: #8d5a14;
+  --palm-danger: #9a0c0c;
+  --palm-tint-warn: rgba(179, 116, 28, 0.1);
+  --palm-warn-band: rgba(179, 116, 28, 0.24);
+  --palm-search-mark: #bdd1dc;
+  --palm-press-bg: #efeadd;
+  --palm-danger-band: #ead7d2;
+  --palm-danger-line: #dcb2ae;
+  --palm-ok-band: #e1e3d9;
+  --palm-accent-line: #a1bcca;
+  --palm-accent-16: #d5e2e8;
+  --palm-tint-ok: rgba(77, 107, 67, 0.1);
+  --palm-tint-danger: rgba(154, 12, 12, 0.1);
+  --palm-tint-accent: rgba(6, 85, 136, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(31, 9, 9, 0.08);
+  --palm-sh2: 0 6px 20px rgba(31, 9, 9, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(31, 9, 9, 0.1), 0 10px 30px rgba(31, 9, 9, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(77, 107, 67, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(31, 9, 9, 0.08);
+  --palm-flow-card-line: rgba(77, 107, 67, 0.28);
+  --palm-flow-tag-ok: rgba(77, 107, 67, 0.12);
+  --palm-flow-tag-edit: rgba(6, 85, 136, 0.12);
+  --palm-scrim: rgba(31, 9, 9, 0.42);
+  --palm-on-scrim: #f5f3ed;
+  --palm-scrim-strong: rgba(31, 9, 9, 0.8);
+  --palm-scrim-soft: rgba(31, 9, 9, 0.12);
+  --palm-on-scrim-soft: rgba(245, 243, 237, 0.7);
+  --palm-strip-fg: #1f0909;
+  --palm-strip-detail-fg: #5a5049;
+  --palm-strip-right-fg: #776c62;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(31, 9, 9, 0.05);
+  --palm-dock-chip-div-bg: rgba(31, 9, 9, 0.16);
+  --palm-dock-ring-track: rgba(6, 85, 136, 0.3);
+  --palm-dock-queue-bg: rgba(179, 116, 28, 0.09);
+  /* 只有报纸皮肤换字体：衬线正文是这套皮肤的签名。 */
+  --palm-font-sans: 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'PingFang SC', Georgia, serif;
+  /* 语法高亮：从报纸的海蓝强调色派生（与移植器同一套算法）。 */
+  --tok-keyword: #650d82;
+  --tok-string: #0b731c;
+  --tok-comment: #657e8c;
+  --tok-number: #82510d;
+  --tok-type: #82170d;
+  --tok-func: #065588;
+  --tok-prop: #0b736a;
+  color-scheme: light;
+}
+
 
 /* ── 旧名桥接（一次性）：历史样式的 767 处引用改由上面的 --palm-* 驱动 ──
    designTokensCss() 先注入，这一段在它之后，因此这里的映射会覆盖旧字面值。
    下一步是把旧名逐批替换掉，届时删掉本段即可。 */
-:root {
+/*
+ * 选择器用 :root:root（特异性 0,2,0）而不是 :root —— design/tokens.ts 注入的
+ * :root[data-theme='dark']（0,1,1）和 @media(prefers-color-scheme:dark){:root:not(...)}（0,2,0）
+ * 都会比单个 :root 更"重"，桥接就永远输，于是深色模式下仍是旧调色板在画
+ * （2026-11-10 实测：石墨皮肤下 --accent 取到 #5b5cf0 而不是 #7c8cff）。
+ */
+:root:root {
   /* 字号：整条上移一档（旧 11/12/13/15/16.5 → 新 13/14/15/18/23） */
   --text-xs: var(--palm-t-s);
   --text-sm: var(--palm-t-s);
@@ -351,6 +701,99 @@ html[data-skin='nocturne'] {
   --radius-sheet: var(--palm-r-l);
   --radius-capsule: var(--palm-r-full);
   --radius-full: var(--palm-r-full);
+
+  /*
+   * 强调色的旧名（2026-11-10）：design/tokens.ts 里 --accent / --accent-soft /
+   * --accent-contrast 两套主题都是同一组值、**换肤不变**，于是纸色页面上到处是靛蓝
+   * （主按钮、发送键、进度条、链接…本轮前面逐个修了三处，才看清是同一条根）。
+   * 这三个旧名在这里一次性指回皮肤令牌：100 余处历史引用不必逐个改，
+   * 也不会再出现"棕色文字 + 淡蓝底"这种半新半旧的组合。
+   * 前景色对应的淡底已由 skin-contrast.test.ts 量过 ≥4.5:1。
+   */
+  --accent: var(--palm-accent);
+  --accent-soft: var(--palm-tint-accent);
+  --accent-contrast: var(--palm-on-accent);
+  /* 2026-11-10：原来是 color-mix(accent 45%)；iOS 15 上光晕没有。指向预混令牌。 */
+  --accent-glow: var(--palm-accent-line);
+
+  /*
+   * 大面积底色（2026-11-10，切片 56）：上面四族 + 强调色只覆盖了"强调"，
+   * 页面底/表面/抬高面/卡片底这四族仍然是按**明暗主题**注入的字面值、换肤不变。
+   * 三套皮肤各自配了一个主题，所以看不出问题；一旦加第四套皮肤，就会出现
+   * "新强调色 + 旧底色"。这里把四族指回皮肤令牌，让"换皮肤"真正等于"换整套表面"。
+   * 文字与描边（--text-* / --border-*）**刻意先不接**：它们与底色的对比需要逐屏量，
+   * 放到下一个切片，避免一次改两件事没法归因。
+   */
+  --bg-page: var(--palm-bg);
+  --bg-surface: var(--palm-sur-1);
+  --bg-elevated: var(--palm-sur-2);
+  --card-bg: var(--palm-sur-1);
+
+  /*
+   * 文字 / 描边 / 阴影（2026-11-10，切片 57）：上一片把底色接进皮肤后，
+   * 文字还是主题注入的固定灰 —— 纸色皮肤下深字对暖底的对比没量过，夜航皮肤下
+   * 又少了那层蓝调。这三族一接，正文/次要/三级、行描边、卡片阴影全部按皮肤走。
+   *
+   * 敢一次接完，是因为 skin-contrast.test.ts 已经逐皮肤量过 --palm-fg* 与
+   * --palm-sur-* 的对比度（≥4.5），接过来等于直接继承了那组已验证的数字；
+   * 反过来，主题值反而是**没量过**的那一组。
+   */
+  --text-primary: var(--palm-fg);
+  --text-secondary: var(--palm-fg-2);
+  --text-tertiary: var(--palm-fg-3);
+  --text-quaternary: var(--palm-fg-3);
+  --border-default: var(--palm-line);
+  --border-focus: var(--palm-accent);
+  --card-border: var(--palm-line);
+  --card-shadow: var(--palm-shadow);
+
+  /*
+   * 2026-11-10「主题色与皮肤冲突」的根：上面接了 34 个旧名，剩下 42 个还在吃
+   * design/tokens.ts 的**按明暗主题**注入值，而样式里还引用了 150+ 次
+   * （--danger 34、--fill 30、--border-subtle 38、--code-bg 9、--positive 9…）。
+   * 结果是同一屏上「皮肤的颜色」和「主题的颜色」各画一半：纸色皮肤上弹出一块靛蓝，
+   * 夜航皮肤上出现石墨绿的红/绿，切系统深色再整套翻一次。
+   *
+   * 这一段把剩下能对的旧名一次性接回皮肤令牌 —— 换皮 = 换整套颜色，
+   * 不再有第二个调色板参与绘制。唯一刻意例外是语法高亮 --tok-*：
+   * 它需要自己的色相（关键字紫/字符串绿…），由 skin.ts 把 data-theme 钉成
+   * 皮肤极性来保证明暗配套。
+   */
+  --border-subtle: var(--palm-line);
+  --fill: var(--palm-sur-2);
+  --fill-strong: var(--palm-press-bg);
+  --bg-input: var(--palm-sur-1);
+  --header-bg: var(--palm-bg);
+  --dialog-bg: var(--palm-sur-1);
+  --toast-bg: var(--palm-sur-2);
+  --toast-text: var(--palm-fg);
+  --backdrop: var(--palm-scrim);
+  --shadow-lg: var(--palm-shadow);
+  --text-muted: var(--palm-fg-3);
+  --danger: var(--palm-danger);
+  --danger-soft: var(--palm-tint-danger);
+  --positive: var(--palm-ok);
+  --warning: var(--palm-warn);
+  --code-bg: var(--palm-sur-1);
+  --code-text: var(--palm-fg);
+  --code-border: var(--palm-line);
+  --code-head-bg: var(--palm-sur-2);
+  --code-head-border: var(--palm-line);
+  --diff-add: var(--palm-ok);
+  --diff-del: var(--palm-danger);
+  --diff-add-bg: var(--palm-tint-ok);
+  --diff-del-bg: var(--palm-tint-danger);
+  --diff-add-word: var(--palm-ok-band);
+  --diff-del-word: var(--palm-danger-band);
+  --tone-positive-soft: var(--palm-tint-ok);
+  --tone-positive-ink: var(--palm-ok);
+  --tone-neutral-soft: var(--palm-sur-2);
+  --tone-neutral-ink: var(--palm-fg-2);
+  --tone-warning-soft: var(--palm-tint-warn);
+  --tone-warning-ink: var(--palm-warn);
+  --tone-danger-ink: var(--palm-danger);
+  --tone-info-soft: var(--palm-tint-accent);
+  --tone-info-ink: var(--palm-accent);
 }
 /* ── 组件层 · 物性骨架（P1 设计系统） ─────────────────────────── */
 /*
@@ -436,7 +879,7 @@ body {
   height: 100%;
   background: var(--bg-page);
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--palm-font-sans);
   font-size: var(--text-base);
   font-weight: 400;
   line-height: 1.5;
@@ -687,7 +1130,7 @@ body,
   z-index: var(--z-header);
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
   gap: var(--space-1);
   padding: calc(env(safe-area-inset-top, 0px) + 4px) 4px 4px;
@@ -725,29 +1168,73 @@ body,
 
 .mobile-titleWrap {
   min-width: 0;
+  text-align: center;
 }
 
 .mobile-titleInline {
   display: block;
 }
 
-/* 标题下的一行工作区名（10.5px，定版图的副标题）。 */
+/* 标题下的一行次级信息：工作区名 ·(可选) 运行徽标（2026-11-11 起徽标也在这行）。 */
 .mobile-titlePath {
   margin: 1px 0 0;
-  font-size: var(--palm-flow-meta-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--palm-s1);
+  min-inline-size: 0;
+  font-size: var(--text-sm);
   font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-head);
-  color: var(--palm-fg-3);
-  text-align: left;
+  color: var(--text-secondary);
+  text-align: center;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── 顶栏运行徽标（2026-11-10）────────────────────────────────────────────
+   输入框上方那行「任务 3/7 · 子代理 2 个运行中」搬到顶栏，做成一个可点的小徽标：
+   它不跟输入区抢注意力，点开是既有的运行详情面板（计划 / 后台任务 / 子代理）。 */
+.chat-run-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  padding: var(--palm-hair) var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+}
+
+/* 在跑的记号：一个小圆点，省一个 class（预算只降不升）。 */
+.chat-run-badge::before {
+  content: '';
+  inline-size: var(--palm-s1);
+  block-size: var(--palm-s1);
+  border-radius: 50%;
+  background: var(--palm-accent);
+  flex: none;
+}
+
+/* 徽标搬进第二行后视觉只有 18px 高：用一块不可见的扩展区把点击目标撑到 44px，
+   不动布局（移动端最小触控 44px 是这一版定下的硬规则）。 */
+.chat-run-badge::after {
+  content: '';
+  position: absolute;
+  inset: -13px -10px;
+}
+
+.chat-run-badge:active { opacity: 0.72; }
 
 /* ── icon buttons (48px hot zones) ───────────────────────────────────── */
 
 .mobile-back,
-.mobile-theme-toggle,
 .mobile-iconbtn {
   flex: none;
   width: 48px;
@@ -766,13 +1253,11 @@ body,
 }
 
 .mobile-back:active,
-.mobile-theme-toggle:active,
 .mobile-iconbtn:active {
   background: var(--fill);
   transform: scale(0.94);
 }
 
-.mobile-theme-toggle svg,
 .mobile-iconbtn svg {
   width: 20px;
   height: 20px;
@@ -833,6 +1318,20 @@ body,
   text-align: center;
 }
 
+/* 会话首屏的空态（2026-11-10 实拍）：.chat 是 flex 列，空态没有 flex 权重时
+ * composer 会停在屏幕中间、下面留一大片空；同一块里标题居中、图标块却被 stretch
+ * 顶在左边。这里让它吃掉剩余高度并把内容十字居中 —— composer 回到屏幕底部。 */
+.chat > .empty-state {
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  /* 320px 实拍（2026-11-10）：草稿写到五六行时，空态这块的 flex 最小高度是
+     auto（内容高度），它不肯让位，于是 composer 被整块顶到屏幕外 —— 最后一行
+     和发送键都露不出来。这里允许它缩到 0、必要时自己滚，composer 就永远在视口里。 */
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
 .empty-state-title {
   margin: 0;
   font-size: var(--palm-t-l);
@@ -878,7 +1377,7 @@ body,
   gap: var(--palm-s2);
   margin: var(--palm-s3) 0;
   padding: var(--palm-s3) var(--palm-s4);
-  background: var(--palm-sur-1);
+  background: var(--palm-tint-danger);
   border: 1px solid var(--palm-danger);
   border-radius: var(--palm-r-m);
 }
@@ -1001,7 +1500,7 @@ body,
 /* 按压态：scale(0.98) + 背景变亮 5% */
 .mobile-row:active {
   transform: scale(0.98);
-  background: color-mix(in srgb, var(--text-primary) 5%, var(--card-bg));
+  background: var(--palm-press-bg);
   border-color: var(--border-default);
 }
 
@@ -1229,7 +1728,7 @@ body,
   vertical-align: middle;
 }
 .settings-badge-phone { background: var(--tone-positive-soft); color: var(--tone-positive-ink); }
-.settings-badge-sync { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
+.settings-badge-sync { background: var(--accent-soft); color: var(--accent); }
 .settings-badge-desktop { background: var(--tone-neutral-soft); color: var(--tone-neutral-ink); }
 .settings-badge-ro { background: var(--danger-soft); color: var(--tone-danger-ink); }
 .settings-badge-recommend { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
@@ -1242,7 +1741,7 @@ body,
 .settings-details summary {
   display: inline-block;
   font-size: 12px;
-  color: var(--accent, #4d6bfe);
+  color: var(--accent);
   cursor: pointer;
   padding: 2px 0;
 }
@@ -1253,7 +1752,7 @@ body,
   line-height: 1.7;
   margin: 4px 0 0;
   padding-left: 12px;
-  border-left: 2px solid var(--accent-soft, #eef1ff);
+  border-left: 2px solid var(--accent-soft);
 }
 
 /* Notification inbox rows: kind pill + title + time on one line, body below. */
@@ -1307,7 +1806,12 @@ body,
 .settings-inboxKind-task-done { background: var(--tone-positive-soft); color: var(--tone-positive-ink); }
 .settings-inboxKind-task-failed { background: var(--danger-soft); color: var(--tone-danger-ink); }
 .settings-inboxKind-todo-done { background: var(--tone-info-soft); color: var(--tone-info-ink); }
-.settings-inboxKind-turn-done { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
+.settings-inboxKind-turn-done { background: var(--accent-soft); color: var(--accent); }
+/* 需要用户动手的两类（2026-11-10，390px 实拍）：审批与提问原来没有专属配色，落回灰底，
+   在「最近通知」里跟普通条目一样不起眼 —— 而它们恰恰是"卡住等你"的。统一用警示色，
+   与绿（完成）/ 红（失败）/ 蓝（规划）/ 靛（回复）区分开。 */
+.settings-inboxKind-approval { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
+.settings-inboxKind-question { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
 .settings-inboxTitle {
   font-size: 13px;
   font-weight: 500;
@@ -1355,8 +1859,8 @@ body,
   margin: 0 16px 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--accent-soft, #eef1ff);
-  color: var(--accent, #4d6bfe);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1401,7 +1905,7 @@ body,
   cursor: pointer;
 }
 .settings-roToggle {
-  color: var(--accent, #4d6bfe);
+  color: var(--accent);
   font-weight: 500;
 }
 .settings-roList {
@@ -1553,6 +2057,10 @@ button.settings-row:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* 送达失败/已过滤行：不能和中性统计同款灰字 —— 用户扫一眼得知道"这里出过错"。
+   复合选择器是必须的：后面 .settings-note 的 color 同权重，单写一个类会被盖掉。 */
+.settings-note.notify-delivery-fail { color: var(--palm-danger); }
+.settings-note.notify-delivery-drop { color: var(--palm-warn); }
 .settings-note {
   padding: 10px 16px 12px;
   color: var(--text-tertiary);
@@ -1604,8 +2112,8 @@ button.settings-row:focus-visible {
   border-radius: 6px;
   letter-spacing: 0.3px;
 }
-.usage-badge-ok { background: var(--accent-soft); color: var(--accent); }
-.usage-badge-no { background: rgba(245, 158, 11, 0.14); color: var(--warning); }
+.usage-badge-ok { background: var(--palm-tint-accent); color: var(--palm-accent); }
+.usage-badge-no { background: var(--palm-tint-warn); color: var(--warning); }
 .usage-badge-na { background: var(--bg-elevated); color: var(--text-quaternary); }
 .usage-badge-err { background: var(--danger-soft); color: var(--danger); }
 .usage-meter {
@@ -1617,7 +2125,8 @@ button.settings-row:focus-visible {
 .usage-meterFill {
   height: 100%;
   border-radius: 6px;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  /* 2026-11-10 纸色实拍：进度条原来是旧蓝，整页换成暖白后只剩它在发蓝。 */
+  background: linear-gradient(90deg, var(--palm-accent), var(--palm-accent-2));
   transition: width 0.4s ease;
 }
 /* One quota window block (5-hour / weekly): label row + meter + reset note. */
@@ -1694,77 +2203,70 @@ button.settings-row:focus-visible {
   border-top: 1px solid var(--border-subtle);
 }
 
-.settings-themeOptions {
-  display: flex;
-  gap: 6px;
-}
-
-.settings-themeOption {
-  padding: 6px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-chip);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease;
-}
-
-.settings-themeOption:active {
-  transform: scale(0.96);
-}
-
-.settings-themeOption-on {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}/* Toggle switch: 44 × 24, 12px radius, accent when on. */
-/* 审计实测 44x24：开关本体只有 24px 高，拇指容易点空。
-   视觉轨道保持 24，热区加到 32（padding + content-box 裁切）。 */
-.settings-switch{
-  /* 审计实测只有 44x24：热区太小。高度给到 32（滑钮按 24 居中，视觉基本不变）。 */
+/* Toggle switch: 44×32 track inside a 44×44 button hit area. */
+.settings-switch {
   position: relative;
   flex: none;
-  width: 44px;
-  min-height: 32px;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
   padding: 0;
   border: none;
-  /* 32 高 + 16 半径 = 胶囊。原来是 12，深色下看着像"圆角方块"，用户反馈看不懂 */
-  border-radius: 16px;
-  background: var(--border-default);
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
   transition: background-color 0.18s ease;
-}.settings-switch::after{
+}
+
+.settings-switch::before {
   content: '';
   position: absolute;
-  /* 垂直居中：轨道 32、钮 20 → 上下各 6。原来写死 top:2px，钮偏上 4px，
-     真机看着就是"开关歪了/形状怪"。 */
+  inset-inline: 0;
+  top: 50%;
+  width: var(--palm-hit);
+  height: 32px;
+  transform: translateY(-50%);
+  border-radius: 16px;
+  background: var(--border-default);
+  transition: background-color 0.18s ease;
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  /* Track 32 and thumb 20 leave a centered 6px inset on each side. */
   top: 50%;
   left: 2px;
   width: 20px;
   height: 20px;
   transform: translateY(-50%);
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-sh1);
   transition: transform 0.18s ease;
-}.settings-switch-on{
-  background: var(--accent);
-}.settings-switch-on::after{
+}
+
+.settings-switch-on::before {
+  /* 2026-11-10（paper / nocturne 实拍）：原来写的是旧名 --accent —— 它在两套主题里
+     都是同一个蓝（见 design/tokens.ts），换肤时不变，于是纸色（棕）与夜航（青）下
+     开关仍是蓝的。换肤要换的是这一处，改走皮肤令牌。 */
+  background: var(--palm-accent);
+}
+
+.settings-switch-on::after {
   transform: translate(20px, -50%);
 }
 
 .settings-input {
   flex: 1;
   min-width: 0;
+  min-height: var(--palm-hit);
   padding: 8px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
+  font-size: 16px;
   outline: none;
   transition: border-color 0.15s ease;
 }
@@ -1779,12 +2281,14 @@ button.settings-row:focus-visible {
 
 .settings-textarea {
   width: 100%;
+  min-height: var(--palm-hit);
   padding: 8px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
+  font-size: 16px;
   line-height: 1.5;
   resize: vertical;
   outline: none;
@@ -1905,6 +2409,7 @@ button.settings-row:focus-visible {
 
 .settings-optionChip {
   flex: none;
+  min-height: var(--palm-hit);
   padding: 6px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);
@@ -2071,6 +2576,14 @@ button.settings-row:focus-visible {
 [data-skeleton] { display: flex; flex-direction: column; gap: var(--palm-s1); inline-size: 100%; }
 [data-skeleton-line] { display: block; block-size: var(--palm-s3); border-radius: var(--palm-r-full); background: var(--fill); }
 [data-skeleton-line]:last-child { inline-size: 60%; }
+
+/* 加载时的状态条占位（2026-11-10 实拍）：骨架里原来放的是真 StatusStrip，
+ * 屏幕上出现「一条空药丸 + 一个破折号」，像坏掉的控件。这里把它画成纯粹的
+ * 占位面：填充色即骨架色、去掉描边、不写任何文字。 */
+.palm-strip[data-skeleton='true'] {
+  background: var(--fill);
+  border-color: transparent;
+}
 /* ── buttons ─────────────────────────────────────────────────────────── */
 
 .mobile-button {
@@ -2113,7 +2626,7 @@ button.settings-row:focus-visible {
   border: none;
   border-radius: var(--palm-r-m);
   background: var(--palm-accent);
-  color: var(--accent-contrast);
+  color: var(--palm-on-accent);
   font: inherit;
   font-size: var(--palm-t-l);
   font-weight: var(--palm-w-bold);
@@ -2123,12 +2636,12 @@ button.settings-row:focus-visible {
 }
 
 .mobile-new:active {
-  transform: scale(0.98);
-  filter: brightness(1.1);
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
 }
 
 .mobile-new:disabled {
-  opacity: 0.6;
+  opacity: var(--palm-btn-disabled-opacity);
   transform: none;
   box-shadow: none;
 }
@@ -2223,7 +2736,7 @@ button.settings-row:focus-visible {
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--palm-sh2);
   cursor: pointer;
   /* Same press-vs-selection guard as the turn handle: a held press on the
      round button must still count as a tap. */
@@ -2251,7 +2764,7 @@ button.settings-row:focus-visible {
   padding: 0 5px;
   border-radius: 9px;
   background: var(--danger);
-  color: #fff;
+  color: var(--palm-on-accent);
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
@@ -2262,8 +2775,8 @@ button.settings-row:focus-visible {
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes chat-jump-pulse {
-  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
-  50% { box-shadow: 0 2px 18px var(--accent-soft, rgba(124, 108, 255, 0.45)); }
+  0%, 100% { box-shadow: var(--palm-sh2); }
+  50% { box-shadow: 0 2px 18px var(--accent-soft); }
 }
 
 /* Font-size preference: 小 / 标准 / 大。三档是 13 / 15 / 18px —— 原先 14/15/16.5
@@ -2289,7 +2802,7 @@ button.settings-row:focus-visible {
   min-height: var(--palm-hit);
   padding: var(--palm-s3);
   border-radius: var(--palm-r-m);
-  font-size: var(--palm-t-m);
+  font-size: var(--palm-chat-body-size);
   font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-body);
   overflow-wrap: break-word;
@@ -2386,7 +2899,7 @@ button.settings-row:focus-visible {
 
 .chat-msg-file-glyph {
   flex: none;
-  color: var(--accent, #4f7cff);
+  color: var(--accent);
 }
 
 .chat-msg-file-name {
@@ -2423,7 +2936,7 @@ button.settings-row:focus-visible {
   border: 1px dashed var(--border-default);
   border-radius: 10px;
   background: transparent;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -2464,10 +2977,12 @@ button.settings-row:focus-visible {
 .chat-msg-maxtokens {
   margin-top: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--warning, #e69641);
+  border: var(--palm-hair) solid var(--palm-warn);
   border-radius: var(--radius-card, 8px);
-  background: color-mix(in srgb, var(--warning, #e69641) 10%, transparent);
-  color: var(--warning, #e69641);
+  /* 2026-11-10：原来 border/底/字三处都写 var(--warning, #e69641)，既绕开皮肤令牌
+     （裸色兜底），又用 color-mix 现算淡底 —— iOS 15 上淡底消失只剩文字。 */
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
   font-size: var(--text-xs);
   line-height: 1.5;
   word-break: break-word;
@@ -2611,7 +3126,7 @@ button.settings-row:focus-visible {
 .chat-command + .chat-flow-text,
 .chat-trigger + .chat-md,
 .chat-trigger + .chat-flow-text { margin-top: 12px; }
-/* Soft line breaks (single-\n markdown lists, agent status lines) render as
+/* Soft line breaks (single-\\n markdown lists, agent status lines) render as
    <br /> inside a paragraph: give each a small air gap, or consecutive
    single-line writes read as one dense block. */
 .chat-md-body p br {
@@ -2692,14 +3207,20 @@ button.settings-row:focus-visible {
 .chat-md-body img.md-local-img[data-local-state='loaded'] {
   border: none;
 }
-.chat-md-body img.md-local-img[data-local-state='failed'] {
-  min-width: 0;
-  min-height: 0;
+/* 读不到时不再留破图：渲染器会把它换成这枚牌子（带 alt 与路径），
+   用户一眼看出是「主机上没有这个文件」而不是 App 坏了。
+   牌子可点：一次读失败常常只是图还没写完，点一下重试（2026-11-11 真机）。 */
+.chat-md-body .md-img-missing {
+  display: block;
+  margin: var(--palm-s2) 0;
   padding: 8px 10px;
-  border-color: var(--danger);
-  background: transparent;
-  color: var(--danger);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-chip);
+  color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+  cursor: pointer;
 }
 /* 文档/消息正文里的超长路径（无空格的连续 token）必须在文本 run 处可折，
    否则它会把消息或文件预览（.fp-md 没有 .chat-msg 祖先，继承不到任何
@@ -3006,7 +3527,7 @@ button.settings-row:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 40px;
+  min-height: var(--palm-hit);
   padding: 0 16px;
   background: var(--code-head-bg);
   border-bottom: 1px solid var(--code-head-border);
@@ -3046,6 +3567,7 @@ button.settings-row:focus-visible {
 }
 
 .diff-btn {
+  position: relative;
   height: 28px;
   padding: 0 10px;
   border-radius: 8px;
@@ -3056,6 +3578,16 @@ button.settings-row:focus-visible {
   transition: transform 0.1s ease, filter 0.1s ease, background-color 0.12s ease;
 }
 
+/* Keep compact button chrome; extend only vertically so neighboring actions stay separate. */
+.diff-btn::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 50%;
+  block-size: var(--palm-hit);
+  transform: translateY(-50%);
+}
+
 .diff-btn:active {
   transform: scale(0.96);
 }
@@ -3063,7 +3595,7 @@ button.settings-row:focus-visible {
 .diff-accept {
   border: none;
   background: var(--positive);
-  color: #fff;
+  color: var(--palm-on-accent);
 }
 
 .diff-reject {
@@ -3099,7 +3631,9 @@ button.settings-row:focus-visible {
 }
 
 .diff-row-review {
-  grid-template-columns: 24px 40px 40px minmax(0, 1fr);
+  grid-template-columns: var(--palm-hit) 40px 40px minmax(0, 1fr);
+  min-height: var(--palm-hit);
+  align-items: center;
 }
 
 .diff-oldno,
@@ -3146,9 +3680,11 @@ button.settings-row:focus-visible {
   border-radius: 2px;
 }
 
-/* Review mode: 24px action column with per-line + / − buttons. */
+/* Review mode reserves one full touch cell per line; the visible + / − stays compact. */
 .diff-review-cell {
+  position: relative;
   display: flex;
+  align-self: stretch;
   align-items: center;
   justify-content: center;
 }
@@ -3163,11 +3699,18 @@ button.settings-row:focus-visible {
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
-  transition: transform 0.1s ease, filter 0.1s ease;
+  transition: opacity 0.1s ease;
+}
+
+/* The cell contains the entire hit layer, so adjacent lines never overlap. */
+.diff-line-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
 }
 
 .diff-line-btn:active {
-  transform: scale(0.9);
+  opacity: 0.72;
 }
 
 .diff-line-add-btn {
@@ -3181,7 +3724,7 @@ button.settings-row:focus-visible {
 }
 
 .diff-line-btn-on {
-  filter: brightness(1.25);
+  outline: 1px solid currentColor;
 }
 
 .diff-decided {
@@ -3206,7 +3749,7 @@ button.settings-row:focus-visible {
 
 .diff-fold-btn {
   flex: none;
-  height: 30px;
+  min-height: var(--palm-hit);
   padding: 0 12px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -3235,7 +3778,7 @@ button.settings-row:focus-visible {
 
 .diff-confirm {
   flex: none;
-  height: 32px;
+  min-height: var(--palm-hit);
   padding: 0 14px;
   border: none;
   border-radius: 8px;
@@ -3296,6 +3839,7 @@ button.settings-row:focus-visible {
 
 .diff-undo {
   flex: none;
+  min-height: var(--palm-hit);
   margin-left: auto;
   border: none;
   background: transparent;
@@ -3310,20 +3854,28 @@ button.settings-row:focus-visible {
 /* ── file-path links (host file opener) ───────────────────────────────── */
 
 .chat-md-body a.file-link {
-  /* 审计实测 189x16：正文里的文件链接太矮，点不中。上下各扩 8px 热区、
-     用负 margin 抵消，行高不变（否则正文会散）。 */
-  display: inline-block;
+  /*
+   * 2026-11-10 实机：链接下那条虚线落在了**下一行文字上**（截图里"不用重新烧录。"
+   * 被一条虚线穿过）。原因不是虚线画错，而是它根本不是下划线 —— 是 inline-block
+   * 的 border-bottom：盒子的底边在 padding 8px 之下，而 -8px 的负 margin 又把整个
+   * 盒子往上提，两边一凑，线就落在行间、压住下面那行字。
+   *
+   * 改法：链接回到 inline（inline 的上下 padding 不撑行高），虚线交给
+   * text-decoration —— 它永远贴着字形基线画，padding 再多也不会跑位；
+   * 上下各 8px 的 padding 仍然保留，触控热区不变。
+   */
+  display: inline;
   padding: 8px 2px;
-  margin: -8px 0;
   color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  text-decoration: underline dashed var(--palm-accent-line);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
   overflow-wrap: anywhere;
 }
 
 @media (hover: hover) {
   .chat-md-body a.file-link:hover {
-    text-decoration: underline;
+    text-decoration: underline solid var(--palm-accent-line);
   }
 }
 
@@ -3494,13 +4046,15 @@ button.settings-row:focus-visible {
  * 2026-11-08 实机投诉：一回合 12 次工具调用被画成 12 张卡（44 的命中高度 + 8 的上下
  * 留白 + 描边/底色 + 行间 gap ≈ 90 一张），一屏只能看 6 条，扫不完。定版不再画
  * 卡片外壳：整块只是正文里的一段过程表，行与行之间最多一条极淡分隔线。
- * 头一行只说工具数与报错数（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
+ * 头一行只说工具数与报错数；静态行高 --palm-proc-head-h，可点击行实体占位 --palm-hit。
  * 状态词与耗时不在这一行：全页只在任务头状态条（真机上曾并排出现两个状态词、两条计时）。
  */
 .chat-proc {
   display: flex;
   flex-direction: column;
-  margin-top: var(--palm-s1);
+  /* 2026-11-10：状态条与过程条之间不再留一道空白 —— 二者是同一段的"标题行 + 明细"，
+     原来 margin + 任务头 10px 底距让它们看起来像两块无关的内容。 */
+  margin-top: 0;
 }
 
 .chat-proc-head {
@@ -3508,7 +4062,7 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: var(--palm-s1);
   width: 100%;
-  /* 头行只是一条注脚：24 高 / 11 号字，不再占 44 的拇指区（展开入口在行上）。 */
+  /* 静态摘要保持 24 高 / 11 号字；可点击摘要另以 44px 实体高度覆盖。 */
   min-height: var(--palm-proc-head-h);
   padding: 0 var(--palm-s2);
   border: none;
@@ -3525,9 +4079,13 @@ button.settings-row:focus-visible {
   cursor: default;
 }
 
+.chat-proc-head:not(.chat-proc-head-static) {
+  min-height: var(--palm-hit);
+}
+
 .chat-proc-line {
   /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸，写死 100% 会把它挤到第二行
-      —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
+      —— 静态 24 高的文字行会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -3586,27 +4144,30 @@ button.settings-row:focus-visible {
 }
 
 
-/* 宿主唤醒消息的卡片（子代理/任务/定时/团队/外部事件…）。数值逐条对齐桌面端
-   ui-chat 的 TurnTriggerNodeView.module.css：16px 圆角、描边、代码块灰底、
-   头部 12px/16px、标题 13px、时间右对齐 12px、正文左缩进 40px、正文区最高 240px。
-   外边距单独给足 —— 真机反馈"卡片离周围文字太近、不协调"。 */
+/* 宿主唤醒消息的**通知行**（子代理/任务/定时/团队/外部事件…）。语义对齐桌面端
+   ui-chat 的 TurnTriggerNodeView（图标 + 标题 + 时间 + 可展开正文），但视觉是手机端的
+   紧凑版：一行 12px 次要文字，行高 28px（2026-11-11 两次收紧，见下）。 */
 .chat-trigger {
-  margin: 14px 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  background: var(--code-bg);
+  /* 2026-11-11 用户连着两次提「这个任务通知条占的空间太大」。结论：它不是"卡片"，是一条
+     **通知行**，不该有灰底、描边、大圆角和 12px 内边距。现在只剩一行 12px 次要文字 +
+     右侧时间 + 折叠箭头，行高 28px；要展开点整行（正文在 details 里）。 */
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
 }
 .chat-trigger-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 4px 2px;
+  min-block-size: 28px;
   cursor: pointer;
   list-style: none;
-  color: var(--text-primary);
-  font-size: 13px;
+  color: var(--palm-fg-2);
+  font-size: 12px;
 }
 .chat-trigger-head::-webkit-details-marker {
   display: none;
@@ -3623,11 +4184,11 @@ button.settings-row:focus-visible {
   flex: none;
   margin-left: auto;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .chat-trigger-body {
-  padding: 0 16px 12px 40px;
+  padding: 2px 2px 8px;
 }
 .chat-trigger-note {
   margin: 8px 0;
@@ -3711,6 +4272,16 @@ button.settings-row:focus-visible {
   flex-direction: column;
 }
 
+/* 阅读流首屏只留过程摘要；点开过程头后恢复完整步骤列表。 */
+.chat-proc[data-tools='summary'] > .chat-proc-tools {
+  display: none;
+}
+
+/* 活跃回合保持需要关注的步骤；已完成步骤仍可从摘要中展开查看。 */
+.chat-proc[data-tools='active'] > .chat-proc-tools > .chat-step[data-state='ok'] {
+  display: none;
+}
+
 .chat-step {
   display: flex;
   flex-direction: column;
@@ -3720,9 +4291,6 @@ button.settings-row:focus-visible {
   background: transparent;
 }
 
-.chat-proc-tools > .chat-step:first-child {
-  border-top: none;
-}
 
 .chat-step-head {
   display: flex;
@@ -3734,7 +4302,6 @@ button.settings-row:focus-visible {
   padding: var(--palm-proc-row-pad) 0;
   border: 0;
   background: none;
-  color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -3791,30 +4358,15 @@ button.settings-row:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.chat-step-state-ok { color: var(--palm-ok); }
+/* 成功步骤的「完成」退成辅助色（2026-11-10 展开态实拍）：四行步骤各挂一枚绿「完成」，
+   像四枚徽章，反而把真正的异常淹掉。绿色圆点已经说明这一步过了；只有失败/中断/运行中
+   才需要语义色把眼睛拉过去。 */
+.chat-step-state-ok { color: var(--palm-fg-3); }
 .chat-step-state-error { color: var(--palm-danger); }
 .chat-step-state-running { color: var(--palm-accent); }
 .chat-step-state-stopped { color: var(--palm-warn); }
 
-.chat-step-caret {
-  flex: none;
-  display: flex;
-  align-items: center;
-  color: var(--palm-fg-3);
-}
 
-/*
- * 「还有 N 步 ›」：默认只露最近 3 步，其余收成这一行（同一条 --palm-proc-row-h 行，
- * 颜色退到第三档灰）。点它一次全展开，不是二次折叠。
- */
-.chat-step[data-state='fold'] .chat-step-title {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.chat-step[data-state='fold'] .chat-step-caret {
-  margin-left: auto;
-}
 
 /* Tool diff card: file path header + red removed / green added lines,
    reusing the DiffView palette (--diff-add/--diff-del). The max-height
@@ -3845,10 +4397,10 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: var(--space-2);
   width: 100%;
+  min-height: var(--palm-hit);
   padding: 0;
   border: none;
   background: var(--code-head-bg);
-  color: inherit;
   font: inherit;
   cursor: pointer;
   text-align: left;
@@ -3911,6 +4463,18 @@ button.settings-row:focus-visible {
   font-weight: 600;
 }
 
+/* 路径行从纯文本变成按钮（点开文件预览）：清掉 UA 的边框/背景/居中，外观与代码行一致。 */
+button.chat-tool-diff-path {
+  inline-size: 100%;
+  border: none;
+  /* 颜色/底色沿用 .chat-tool-diff-path（这里只清按钮外观），不重复引用 --text-secondary：该令牌有独立用量预算。 */
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+button.chat-tool-diff-path:active { opacity: 0.72; }
+
 .chat-tool-diff-del {
   background: var(--diff-del-bg);
   color: var(--diff-del);
@@ -3940,7 +4504,7 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 34px;
+  min-height: var(--palm-hit);
   padding: 6px 12px 2px;
   border: none;
   background: transparent;
@@ -4075,7 +4639,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-task-dot-stopping {
-  background: var(--warning, #d9a13b);
+  background: var(--warning);
 }
 
 .chat-task-dot-completed {
@@ -4087,7 +4651,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-task-dot-failed {
-  background: var(--danger, #d9534f);
+  background: var(--danger);
 }
 
 .chat-task-copy {
@@ -4196,13 +4760,6 @@ button.settings-row:focus-visible {
  * automatic minimum looks at. The rows carry min-width: 0 so the guard survives
  * a child that resets the property.
  */
-.chat-approval-panel,
-.chat-question-panel {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
 .chat-approval-header,
 .chat-approval-reason,
 .chat-question-option,
@@ -4211,7 +4768,8 @@ button.settings-row:focus-visible {
   min-width: 0;
 }
 
-/* 「将要执行什么」：等宽、两行封顶。审批卡片不能因为一条长命令把整页顶宽。 */
+/* 「将要执行什么」：等宽、限高可滚。审批卡片不能因为一条长命令把整页顶宽，
+   但也**不能把命令切掉**——读不完就批等于盲批。 */
 .chat-approval-preview {
   margin: 6px 0 0;
   padding: 8px 10px;
@@ -4223,10 +4781,11 @@ button.settings-row:focus-visible {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* 2026-11-10 双皮肤实拍：原来这里是 -webkit-line-clamp: 2，长命令被硬切在
+     「…&& p」处且没有展开入口。改成"限高 + 内部可滚"：读得完，也不顶宽。 */
+  max-block-size: calc(var(--palm-t-s) * 1.5 * 5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* The header is a row: a long reason drops onto its own line, and a long tool
@@ -4244,10 +4803,13 @@ button.settings-row:focus-visible {
 
 .chat-approval-panel {
   margin: 4px 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 12px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border: 1px solid var(--palm-warn);
   border-radius: var(--radius-card);
-  background: var(--card-bg);
+  background: var(--palm-tint-warn);
   box-shadow: var(--card-shadow);
 }
 
@@ -4290,7 +4852,7 @@ button.settings-row:focus-visible {
 
 .chat-risk-exec {
   color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  border-color: var(--palm-danger-line);
 }
 
 .chat-risk-install {
@@ -4299,6 +4861,7 @@ button.settings-row:focus-visible {
 }
 
 .chat-approval-expand {
+  min-height: var(--palm-hit);
   margin-top: 6px;
   padding: 0;
   border: none;
@@ -4334,43 +4897,43 @@ button.settings-row:focus-visible {
 
 .chat-approval-allow {
   flex: 1;
-  height: 44px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  min-height: var(--palm-hit);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
   font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
   cursor: pointer;
   transition: transform 0.1s ease, filter 0.1s ease;
 }
 
+/* 长按确认键：按下时**只**降透明度，不做 scale —— 按下去缩一圈再保持 1.5 秒是错的。
+   也不改 filter：长按过程中的 --holding 用 filter 表达进度，不能被 :active 抢掉。 */
 .chat-approval-allow:active {
-  transform: scale(0.98);
-  filter: brightness(1.08);
+  opacity: var(--palm-btn-press-flat);
 }
 
 .chat-approval-allow:disabled {
-  opacity: 0.6;
+  opacity: var(--palm-btn-disabled-opacity);
   transform: none;
 }
 
 .chat-approval-reject {
   flex: 1;
-  height: 44px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-chip);
+  min-height: var(--palm-hit);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--palm-t-m);
   cursor: pointer;
   transition: transform 0.1s ease, background-color 0.1s ease;
 }
 
 .chat-approval-reject:active {
-  transform: scale(0.98);
   background: var(--fill);
 }
 
@@ -4381,11 +4944,14 @@ button.settings-row:focus-visible {
 
 .chat-question-panel {
   margin: 4px 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 12px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
-  box-shadow: var(--card-shadow);
+  border: var(--palm-hair) solid var(--palm-accent);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-sh1);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -4397,17 +4963,19 @@ button.settings-row:focus-visible {
   gap: 6px;
 }
 
+/* 卡头是"这张卡属于什么"，问句才是"要你回答什么"（2026-11-10 实拍：两行一样重，
+   打开卡片分不清哪句要答）。卡头退成小号二级前景，问句升到正文最亮的一档。 */
 .chat-question-header {
-  font-size: 14px;
+  font-size: var(--palm-t-s);
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--palm-fg-2);
 }
 
 .chat-question-text {
-  font-size: var(--text-md);
-  font-weight: 400;
-  color: var(--text-primary);
-  line-height: 1.5;
+  font-size: var(--palm-t-l);
+  font-weight: 500;
+  color: var(--palm-fg);
+  line-height: 1.45;
 }
 
 .chat-question-detail {
@@ -4426,27 +4994,28 @@ button.settings-row:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
+  min-height: var(--palm-hit);
   padding: 12px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
   cursor: pointer;
-  font-size: var(--text-md);
+  font-size: var(--palm-t-m);
   transition: border-color 0.12s ease, background-color 0.12s ease, transform 0.1s ease;
 }
 
 .chat-question-option:active {
-  transform: scale(0.98);
+  opacity: 0.88;
 }
 
 .chat-question-option input {
   margin: 2px 0 0;
   flex: none;
-  accent-color: var(--accent);
+  accent-color: var(--palm-accent);
 }
 
 .chat-question-option-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--palm-accent);
+  background: var(--palm-tint-accent);
 }
 
 .chat-question-option-label {
@@ -4462,14 +5031,15 @@ button.settings-row:focus-visible {
 
 .chat-question-custom {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--palm-hit);
   box-sizing: border-box;
   padding: 8px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  background: var(--bg-input);
-  color: var(--text-primary);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
   font: inherit;
+  font-size: 16px;
   resize: vertical;
   outline: none;
   transition: border-color 0.15s ease;
@@ -4480,25 +5050,25 @@ button.settings-row:focus-visible {
 }
 
 .chat-question-submit {
-  height: 44px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  min-height: var(--palm-hit);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
   font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
   cursor: pointer;
   transition: transform 0.1s ease, filter 0.1s ease;
 }
 
+/* 同卡片的提交键：同样不做 scale（卡片里两颗键动作要一致），只降透明度。 */
 .chat-question-submit:active {
-  transform: scale(0.98);
-  filter: brightness(1.08);
+  opacity: var(--palm-btn-press-flat);
 }
 
 .chat-question-submit:disabled {
-  opacity: 0.6;
+  opacity: var(--palm-btn-disabled-opacity);
   transform: none;
 }
 
@@ -4640,11 +5210,11 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
-/* 视觉 36px（不撑高明细行），命中区补到 44px（--palm-hit）。 */
+/* 撤回动作与明细行共用独立触控单元，避免跨行命中相邻动作。 */
 [data-insert-withdraw] {
-  position: relative;
   flex: none;
   height: var(--palm-insert-row-h);
+  min-width: var(--palm-hit);
   padding: 0 var(--palm-s2);
   border: none;
   border-radius: var(--palm-r-s);
@@ -4653,13 +5223,6 @@ button.settings-row:focus-visible {
   font: inherit;
   font-size: var(--palm-t-s);
   cursor: pointer;
-}
-
-[data-insert-withdraw]::after {
-  content: '';
-  position: absolute;
-  inset: calc((var(--palm-hit) - var(--palm-insert-row-h)) / -2) 0;
-  border-radius: inherit;
 }
 
 [data-insert-withdraw]:active {
@@ -4743,18 +5306,78 @@ button.settings-row:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: var(--palm-s1);
+  /* 2026-11-11：圆环从 span 变成按钮（点开上下文明细），要把按钮的默认外观全部抹掉。 */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   color: var(--palm-fg-2);
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.chat-meta-ring {
-  box-sizing: border-box;
-  width: var(--palm-dock-ring);
-  height: var(--palm-dock-ring);
-  border: var(--palm-dock-ring-line) solid var(--palm-dock-ring-track);
-  border-top-color: var(--palm-accent);
-  border-radius: var(--palm-dock-chip-r);
+/* 点按反馈：整块（环 + 数字）一起压暗一点，不做位移动画。 */
+.chat-meta-ctx:active {
+  opacity: 0.62;
 }
+
+/* 用到 70% 变琥珀、90% 变红：环与数字同色，扫一眼就知道要不要处理。 */
+.chat-meta-ctx[data-tone='warn'] { color: var(--palm-warn); }
+.chat-meta-ctx[data-tone='danger'] { color: var(--palm-danger); }
+
+/*
+ * 上下文明细小卡片（2026-11-11 用户：「圆环点不了，点一下弹出一个小圆框看明细」）。
+ *
+ * 容器直接复用模型面板的 \`.chat-picker-panel\`（同一个浮层语言、同一套遮罩关闭），
+ * 这里只把它从"通栏"收成"右侧小卡"：不铺满整行，最多 260px，靠右与圆环对齐。
+ * 类名预算 800 已满，所以只新增这一个类，条目排版借用既有的 \`.sheet-option-desc\`。
+ */
+/* 双类选择器：240 在 250-picker 之前加载，单类压不住 .chat-picker-panel 的 left/right。 */
+.chat-picker-panel.chat-meta-pop {
+  left: auto;
+  right: var(--palm-s4);
+  inline-size: max-content;
+  max-inline-size: min(260px, calc(100vw - 2 * var(--palm-s4)));
+  gap: var(--palm-s1);
+}
+
+/*
+ * 2026-11-10 用户：「右下角这个上下文用量圆环渲染显示不准确」。
+ * 以前它是一个 border 圆：只有 border-top 上色 ⇒ 永远画「四分之一圈」，跟旁边的百分比
+ * 无关（3% 和 90% 长得一模一样）。现在换成 SVG 弧：弧长 = 百分比（--palm-ctx-ratio），
+ * 颜色跟数字一起走（accent → warn → danger）。
+ */
+.chat-meta-ring {
+  flex: none;
+  inline-size: var(--palm-dock-ring);
+  block-size: var(--palm-dock-ring);
+}
+
+/* 0%（没有投影）时不画弧：round 线帽会在零长度上留一个亮点，看着像「有一点点占用」。 */
+.chat-meta-ring[data-empty] circle:last-of-type { display: none; }
+
+/* 轨道（第一个圆）：淡淡的底圈。 */
+.chat-meta-ring circle:first-of-type {
+  fill: none;
+  stroke: var(--palm-dock-ring-track);
+  stroke-width: 2.4;
+}
+
+/* 进度弧（第二个圆）：弧长由 strokeDasharray 属性给（pathLength=100 ⇒ 数值就是百分比）。 */
+.chat-meta-ring circle:last-of-type {
+  fill: none;
+  stroke: var(--palm-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dasharray 0.25s ease;
+}
+
+.chat-meta-ctx[data-tone='warn'] .chat-meta-ring circle:last-of-type { stroke: var(--palm-warn); }
+.chat-meta-ctx[data-tone='danger'] .chat-meta-ring circle:last-of-type { stroke: var(--palm-danger); }
 /* ── in-place quick picker (model search panel / permission list) ────── */
 
 /* Full-screen transparent scrim above the message list; tapping it (or the
@@ -4768,7 +5391,7 @@ button.settings-row:focus-visible {
   bottom: 0;
   left: 0;
   z-index: var(--z-scrim);
-  background: rgba(15, 15, 25, 0.2);
+  background: var(--palm-scrim-soft);
 }
 
 .chat-composer {
@@ -4791,7 +5414,7 @@ button.settings-row:focus-visible {
   border: 1px solid var(--border-default);
   border-radius: 14px;
   background: var(--card-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--palm-sh2);
   max-height: 42vh;
   overflow-y: auto;
   scrollbar-width: none;
@@ -4910,9 +5533,10 @@ button.settings-row:focus-visible {
 .chat-composer {
   display: flex;
   flex-direction: column;
+  /* 2026-11-10：原来这里挂了两行 backdrop-filter: blur(20px)，但底色是**不透明**的
+     --palm-bg —— 模糊的是它自己，一个像素也看不见，只剩真机上的 GPU 开销。
+     输入区本来也不该透出后面的聊天内容（打字时会被干扰），所以直接删掉。 */
   background: var(--palm-bg);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
 }
 
 .chat-composer .chat-inputbar {
@@ -4973,25 +5597,44 @@ button.settings-row:focus-visible {
 
 .chat-attach-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 18px;
-  height: 18px;
+  top: 0;
+  right: 0;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
   padding: 0;
   border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: var(--text-sm);
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: transparent;
+  font-size: 0;
   line-height: 1;
   cursor: pointer;
+  /* 2026-11-10 整屏复核：热区是 44px，可「×」原来只有 18px 且挤在最角上，
+     用户看不出删除区从哪儿开始，容易误删。改成把「×」居中放进热区。 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.chat-attach-remove:active {
-  background: rgba(0, 0, 0, 0.8);
+.chat-attach-remove::before {
+  content: '×';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  /* 底子是**照片**，不是皮肤表面：用皮肤色会让角标在半数照片上消失
+     （浅照片配浅底、深照片配深底）。改用不随皮肤的压暗层 + 白叉，
+     再补一圈 1px 亮边，保证任何底图上都立得住。 */
+  background: var(--palm-scrim);
+  color: var(--palm-on-scrim);
+  box-shadow: 0 0 0 var(--palm-hair) var(--palm-on-scrim);
+  font-size: var(--text-sm);
+}
+
+.chat-attach-remove:active::before {
+  background: var(--palm-sur-1);
 }
 
 /* 待发送的文件附件（+ 菜单 → 文件）：图片用缩略图，文件用一行"图标 + 文件名 + 大小"。
@@ -5111,6 +5754,13 @@ button.settings-row:focus-visible {
   overflow-x: auto;
 }
 
+/* 附件横排溢出提示（2026-11-10，390px 实拍）：三件附件时右侧直接切在屏幕上，看不出还能滑。
+   与审批命令块同一套做法：只在真溢出时（data-fade=end）画右缘渐隐，遮罩取 currentColor。 */
+.chat-file-bar[data-fade='end'] {
+  -webkit-mask-image: linear-gradient(to right, currentColor 0 calc(100% - var(--palm-s6)), transparent 100%);
+  mask-image: linear-gradient(to right, currentColor 0 calc(100% - var(--palm-s6)), transparent 100%);
+}
+
 .chat-file-item {
   flex: none;
   display: inline-flex;
@@ -5127,7 +5777,7 @@ button.settings-row:focus-visible {
 
 .chat-file-glyph {
   flex: none;
-  color: var(--accent, #4f7cff);
+  color: var(--accent);
 }
 
 .chat-file-name {
@@ -5146,10 +5796,9 @@ button.settings-row:focus-visible {
 
 .chat-file-remove {
   flex: none;
-  /* 视觉 18px、热区 36px：拇指点得中，chip 也不会被撑大（负 margin 抵消占位）。 */
-  width: 36px;
-  height: 36px;
-  margin: -9px -9px -9px 0;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
+  margin: 0;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -5190,7 +5839,9 @@ button.settings-row:focus-visible {
 
 .chat-file-retry {
   flex: none;
-  padding: 0;
+  min-width: var(--palm-hit);
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
   border: none;
   background: transparent;
   color: var(--danger);
@@ -5220,7 +5871,9 @@ button.settings-row:focus-visible {
      写长文本反而看不见上下文。超出的内容在框内滚动。 */
   max-height: 104px;
   overflow-y: auto;
-  field-sizing: content;
+  /* 2026-11-10 删掉 field-sizing: content：它让 textarea 按内容宽度排版，
+     框却只有那么宽 —— 真机表现为「每行左右各掉半个字」。高度改由组件按
+     scrollHeight 写死（ComposerSection 的 autosize），跨端一致。 */
   padding: var(--palm-s2) var(--palm-s3);
   border: var(--palm-hair) solid var(--palm-line);
   border-radius: var(--palm-r-full);
@@ -5243,10 +5896,21 @@ button.settings-row:focus-visible {
   align-items: center;
   gap: var(--palm-s1);
   min-height: var(--palm-dock-field-h);
-  max-height: 104px;
-  padding: var(--palm-s1);
+  /* 4 行整行高（24px×4）+ 上下各 8px = 112px：切在整行边界上，
+     不会出现"最后一行只露出半截"的残缺观感。 */
+  max-height: 112px;
+  /* 2026-11-10 三轮实机：外**壳不再留内边距**。
+     原因：内边距留在壳上时，textarea 只有壳内那一小块，左右各 16px 的死区
+     点不到、也不会出光标 —— 用户说的「输入文字显示区域要跟这个框一样」。
+     内边距改由 textarea 自己承担（见下面的 .chat-field > .chat-input），
+     它的盒子覆盖整个壳，点哪儿都能落光标，字仍然离圆弧有 16px。 */
+  padding: 0;
   border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-dock-field-r);
+  /* 2026-11-10 真机第二轮：圆角太大时首行/末行的字形会压进圆弧被切掉半个字。
+     半径收到 18px、左右内边距加到 16px，字形离弧线有余量。 */
+  border-radius: 18px;
+  /* 万一以后又出现内容溢出，宁可沿直角矩形裁掉，也不要让字跑到框外。 */
+  overflow: hidden;
   background: var(--palm-sur-1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -5260,9 +5924,29 @@ button.settings-row:focus-visible {
 .chat-field > .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: var(--palm-dock-input-h);
-  max-height: 100px;
-  padding: var(--palm-s1) var(--palm-s2);
+  /* 2026-11-10 真机：「四角显示不全、每行掉一个字」。根因是 field-sizing: content
+     让 textarea 按**内容宽度**排版（内容比框宽），再被框裁掉左右各半个字。
+     这里把行内尺寸钉死成 100%，让它只按内容长**高**，永远不横向溢出。 */
+  inline-size: 100%;
+  max-inline-size: 100%;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  /* 高度由组件按 scrollHeight 写死（见 composer-section 的 autosize），
+     不再依赖 field-sizing —— iOS 16/17 本来就不支持它。 */
+  /* 内边距归 textarea 自己：上下 12 + 行高 22 = 46px，壳再撑到 48px；
+     左右 16px 让字形躲开 18px 圆角。盒子覆盖整个壳 → 点框内任何位置都能落光标。 */
+  padding: 12px 16px;
+  /* 2026-11-11 真机第四轮：**圆角必须清零**。
+     通用 \`.chat-input\` 上的 \`border-radius: var(--palm-r-full)\`（9999px）在
+     textarea 上会变成一个椭圆，\`overflow-y:auto\` 又按这个椭圆裁切 ——
+     这就是「四角缺字、首尾两行被啃掉一块」的真正原因（描边截图可证）。
+     壳自己已经有 18px 圆角 + overflow:hidden，textarea 只需要一个直角盒子。 */
+  border-radius: 0;
+  min-height: 46px;
+  /* 高度取行高的整数倍（4 行整）：滚动时看到的都是整行，不会上下各露半行；
+     上下再留一点余量，首行的字头（丿/一横）不贴边被切（2026-11-10 真机）。 */
+  max-height: 112px;
+  line-height: 22px;
   border: none;
   background: transparent;
   box-shadow: none;
@@ -5312,7 +5996,9 @@ button.settings-row:focus-visible {
   border: none;
   border-radius: var(--palm-r-full);
   background: var(--palm-accent);
-  color: var(--accent-contrast);
+  /* 2026-11-10：--accent-contrast 恒为白，压在三套皮肤的亮靛/青上只有 1.8~2.6:1；
+     用皮肤给的前景色（石墨/夜航近黑，纸色白）。 */
+  color: var(--palm-on-accent);
   font: inherit;
   cursor: pointer;
   box-shadow: var(--palm-sh1);
@@ -5324,6 +6010,12 @@ button.settings-row:focus-visible {
   position: absolute;
   inset: calc((var(--palm-hit) - var(--palm-dock-circle)) / -2);
   border-radius: inherit;
+}
+
+/* 发送键原来只有 hover 放大，没有按下态（触屏上 hover 永不触发，等于完全没反馈）。 */
+.chat-send:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
 }
 
 @media (hover: hover) {
@@ -5615,9 +6307,11 @@ button.settings-row:focus-visible {
 
 .sheet-title {
   flex: none;
-  padding: 12px 16px 14px;
-  font-size: 17px;
-  font-weight: 500;
+  /* 2026-11-11 真机：17px/500 的居中标题配 15px 的列表行，标题既不够"标题"
+     又占掉一行高度。改成 16px/600 并把上下留白收一档，标题更像标题、列表更贴身。 */
+  padding: 14px 16px 10px;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--text-primary);
   text-align: center;
 }
@@ -5717,6 +6411,56 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
+/*
+ * 工作区切换条（2026-11-11 用户：「抽屉里那个切换工作区是纯图标，看不出是在这切
+ * 工作区」）。
+ *
+ * 原来头部的可点部分只有右侧一枚 16px 的箭头 —— 既小又像装饰，而左边显示工作区
+ * 名的那一块反倒点不动。现在把「头像 + 名字 + 路径」整块变成按钮（≥44px），
+ * 右侧写清楚「切换 ⌄」：能点的地方和说的事是同一块。
+ */
+.palm-drawer-ws-btn {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--palm-s2);
+  min-inline-size: 0;
+  min-block-size: var(--palm-hit);
+  padding: 4px 6px;
+  margin-inline: -6px;
+  border: 0;
+  border-radius: var(--palm-r-m);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.palm-drawer-ws-btn:active {
+  background: var(--palm-sur-1);
+}
+
+/* 右侧「切换 ⌄」：文字 + 箭头 + 一层淡底，做成一眼能看出是按钮的胶囊。
+   只写箭头（改造前）看不出意图，只写灰字又太像说明文字。 */
+.palm-drawer-ws-switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+}
+
+/* 抽屉里的图标一律 16×16（项目规则：图标固定尺寸、不参与 flex 拉伸）。 */
+.palm-drawer-ws-switch > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
 /* 新建（满宽主按钮 40 高 / 圆角 12）与搜索（34 高 / 无边框）。 */
 .palm-drawer-new {
   display: inline-flex;
@@ -5733,6 +6477,18 @@ button.settings-row:focus-visible {
   font-size: var(--palm-t-m);
   font-weight: var(--palm-w-bold);
   white-space: nowrap;
+}
+
+/* 抽屉的「新建会话」原来既没有按下态也没有禁用态：点下去没反馈，灰掉也不明显。
+   跟其余五颗主键共用同一组令牌。 */
+.palm-drawer-new:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+.palm-drawer-new:disabled {
+  opacity: var(--palm-btn-disabled-opacity);
+  transform: none;
 }
 
 .palm-drawer-search {
@@ -5761,6 +6517,15 @@ button.settings-row:focus-visible {
   overscroll-behavior: contain;
 }
 
+/* 空列表的说明行：不留一块空白（那会被读成"界面坏了"）。 */
+.palm-drawer-empty {
+  margin: 0;
+  padding: var(--palm-s3) var(--palm-s2);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  line-height: var(--palm-lh-body);
+}
+
 .palm-drawer-group {
   display: flex;
   flex-direction: column;
@@ -5769,9 +6534,19 @@ button.settings-row:focus-visible {
 
 .palm-drawer-bucket {
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--palm-s2);
   font-size: var(--palm-t-s);
   font-weight: var(--palm-w-normal);
+  /* 二级前景色（2026-11-10）：三级灰的分组标题在深色皮肤上几乎读不出来，
+     而它是长列表里唯一的定位信息。条数仍用三级色，不跟会话标题抢。 */
+  color: var(--palm-fg-2);
+}
+
+.palm-drawer-bucket-count {
   color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .palm-drawer-rows {
@@ -5802,7 +6577,11 @@ button.settings-row:focus-visible {
   outline-offset: var(--palm-hair);
 }
 
-.palm-drawer-row-current { background: var(--palm-sur-2); }
+.palm-drawer-row-current {
+  background: var(--palm-sur-2);
+  /* 当前位置的第二个信号（2026-11-10）：只靠底色差，在带迷你状态条的行走里看不出来。 */
+  box-shadow: inset 2px 0 0 var(--palm-accent);
+}
 
 .palm-drawer-title {
   flex: 1 1 auto;
@@ -5814,7 +6593,12 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
-/* 底部三入口：图标 + 文字 + 右侧小字。 */
+/* 底部入口（2026-11-11 C 版）：小标题 + 一块带底色的圆角卡片。
+ *
+ * 老版是三行等高、只有两行带右小字（\`12\` / \`本机\`），右边缘参差；三条之间只隔
+ * 4px，看起来就是会话列表多出来的三行。现在把它们框进一块 --palm-sur-2 的卡片，
+ * 与列表之间靠「工具」小标题 + 一条发丝线分层，三行统一带右箭头。
+ */
 .palm-drawer-foot {
   display: flex;
   flex-direction: column;
@@ -5823,7 +6607,23 @@ button.settings-row:focus-visible {
   border-top: var(--palm-hair) solid var(--palm-line);
 }
 
-.palm-drawer-entry {
+.palm-drawer-tools-title {
+  margin: 0;
+  padding-inline-start: var(--palm-s2);
+  font-size: var(--palm-t-s);
+  letter-spacing: 0.08em;
+  color: var(--palm-fg-3);
+}
+
+.palm-drawer-tools {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  overflow: hidden;
+}
+
+.palm-drawer-tool {
   display: flex;
   align-items: center;
   gap: var(--palm-s2);
@@ -5831,7 +6631,8 @@ button.settings-row:focus-visible {
   min-block-size: var(--palm-hit);
   padding: 0 var(--palm-s2);
   border: 0;
-  border-radius: var(--palm-r-m);
+  /* 行间发丝线靠「除第一行外都画上边线」，比 gap 更贴 iOS 分组表。 */
+  border-block-start: var(--palm-hair) solid var(--palm-line);
   background: transparent;
   color: var(--palm-fg-2);
   font: inherit;
@@ -5840,13 +6641,24 @@ button.settings-row:focus-visible {
   white-space: nowrap;
 }
 
-.palm-drawer-entry:active { background: var(--palm-sur-2); }
+.palm-drawer-tool:first-child { border-block-start: 0; }
 
-.palm-drawer-entry > small {
+.palm-drawer-tool:active { background: var(--palm-sur-1); }
+
+/* 主文案吃掉剩余宽度：右侧小字与箭头永远不被挤掉。 */
+.palm-drawer-tool > span { flex: 1 1 auto; min-inline-size: 0; }
+
+.palm-drawer-tool > small {
   flex: none;
-  margin-inline-start: auto;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+}
+
+/* 箭头弱化：它是「这里能进去」的提示，不该和主文案抢注意力。 */
+.palm-drawer-tool > svg:last-child {
+  flex: none;
+  color: var(--palm-fg-3);
+  opacity: 0.7;
 }
 
 
@@ -5877,19 +6689,15 @@ button.settings-row:focus-visible {
 .palm-drawer-ws > b,
 .palm-drawer-new > span,
 .palm-drawer-search > span,
-.palm-drawer-entry > span {
+.palm-drawer-tool > span {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 底部三入口：左侧 --palm-drawer-glyph 图标 + 主文案单行 + 右侧小字（小字永不被挤掉）。 */
-.palm-drawer-entry > span {
-  flex: 1 1 auto;
-}
-
-.palm-drawer-entry > small {
+/* 底部入口右侧的小字（「12 个文件」「本机」）不换行。 */
+.palm-drawer-tool > small {
   white-space: nowrap;
 }
 
@@ -5899,6 +6707,397 @@ button.settings-row:focus-visible {
   flex: none;
   inline-size: var(--palm-drawer-strip-w);
   block-size: var(--palm-drawer-strip-h);
+}
+
+/* ── 切换工作区面板（2026-11-11 重做） ──────────────────────────────────
+ * 老版本每行都画完整绝对路径（长路径折两行、单条 ~90px）、同名工作区分不清、无分组、
+ * 无搜索、当前项无标记。现在：搜索条（sticky）+ 三段列表（当前 / 最近用过 / 按项目分组）
+ * + 底部计数与「＋ 新建」。行高 44–48，一屏 12 行左右。
+ */
+.ws-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+}
+
+.ws-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--palm-s1) var(--palm-s1);
+  background: var(--palm-sur-1);
+}
+
+.ws-search-icon {
+  flex: none;
+  font-size: var(--palm-t-s);
+  opacity: 0.6;
+}
+
+.ws-search-input {
+  flex: 1;
+  min-inline-size: 0;
+  height: 36px;
+  padding: 0 var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: 13px;
+  /* 真机（2026-11-11）：不写 outline 的话，点进搜索框会出现系统白框，在深色面板上
+     比输入框本身还显眼。改成细描边 + 淡底，焦点仍然看得出来。 */
+  outline: none;
+}
+
+.ws-search-new {
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: var(--palm-t-m);
+}
+
+/* 面板打开时焦点会落在这个「＋」上（搜索框排在它前面，见 focus-trap 的 initialFocusWithin）。
+   不写这行就是系统默认的白环 —— 在深色面板上比按钮本身还显眼。 */
+.ws-search-new:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: 2px;
+}
+
+.ws-search-input:focus-visible {
+  box-shadow: 0 0 0 1px var(--palm-accent);
+}
+
+.ws-search-input::placeholder {
+  color: var(--palm-fg-3);
+}
+
+.ws-search-clear,
+.ws-search-new {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 14px;
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  line-height: 1;
+}
+
+.ws-list {
+  display: flex;
+  flex-direction: column;
+  /* 底部「共 N 个 / ＋ 新建」是 sticky 的：留出它的高度，最后一行才不会被盖住。 */
+  padding-block-end: 56px;
+}
+
+/* 组标题：11px、字距略松；项目组右侧给数量。 */
+/* 组头：项目组是可点的折叠按钮（一行 40px，右侧带数量）；「当前 / 最近用过」只是纯文字。 */
+.ws-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  inline-size: 100%;
+  min-block-size: 36px;
+  padding: var(--palm-s1) var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-3);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ws-group-head:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-caret {
+  flex: none;
+  inline-size: 12px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.ws-group-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s2) var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+/* 展开的组头里，标题不换行、提示弱化、数量靠右。 */
+.ws-group-head .ws-group-label {
+  padding: 0;
+  flex: 1;
+  min-inline-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-group-plain {
+  display: flex;
+  align-items: baseline;
+  gap: var(--palm-s1);
+  padding: var(--palm-s3) var(--palm-s2) var(--palm-s1);
+}
+
+.ws-group-hint {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.ws-group-head .ws-group-count {
+  margin-inline-start: auto;
+}
+
+/* 搜索命中：只加底色，不改字重（整行重量变了反而看不清命中位置）。 */
+.ws-mark {
+  border-radius: 3px;
+  background: var(--palm-tint-accent);
+  color: inherit;
+}
+
+.ws-group-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s1) var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ws-row:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-row-current {
+  background: var(--palm-tint-accent);
+}
+
+.ws-tick {
+  flex: none;
+  inline-size: 14px;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+.ws-meta {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-empty {
+  margin: 16px 10px;
+  color: var(--palm-fg-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+
+
+
+/* 新建工作区：内联表单，不叠第二个弹层。 */
+.ws-create {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px 4px;
+}
+
+.ws-create-label {
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+}
+
+.ws-create-input {
+  inline-size: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+
+
+
+.ws-create-cancel,
+.ws-create-submit {
+  min-block-size: var(--palm-hit);
+  padding: 0 14px;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ws-create-submit {
+  border-color: transparent;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+}
+
+.ws-create-submit:disabled,
+.ws-create-cancel:disabled {
+  opacity: 0.5;
+}
+
+/* 搜索行右侧常驻的「＋ 新建」，与清除按钮同样大小；列表末尾一行计数。 */
+
+.ws-foot-count {
+  margin: 0;
+  padding: var(--palm-s2) 0 var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+/* 每行右侧的「⋯」与它的操作菜单（重命名 / 删除）。行本身仍整行可点（= 切过去）。 */
+.ws-row-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ws-row-wrap > .ws-row {
+  flex: 1 1 100%;
+  min-inline-size: 0;
+  /* 右侧给「⋯」让位（按钮是绝对定位，不参与换行，否则会单独占一行）。 */
+  padding-inline-end: calc(var(--palm-hit) + var(--palm-s1));
+}
+
+.ws-row-more {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  flex: none;
+  inline-size: var(--palm-hit);
+  block-size: var(--palm-hit);
+  border: none;
+  background: transparent;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ws-row-more:active {
+  color: var(--palm-fg);
+}
+
+/* 菜单浮在这一行右下：不改网格、不挤动别的行。 */
+.ws-menu {
+  position: absolute;
+  inset-block-start: calc(100% - var(--palm-s1));
+  inset-inline-end: var(--palm-s2);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 120px;
+  padding: var(--palm-s1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-shadow);
+}
+
+.ws-menu [role='menuitem'] {
+  padding: var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  text-align: start;
+  cursor: pointer;
+}
+
+.ws-menu [role='menuitem']:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-menu [role='menuitem'][data-danger] {
+  color: var(--palm-danger);
+}
+
+.ws-create-submit[data-danger] {
+  background: var(--palm-danger);
+}
+
+/* 行内展开的两个动作（重命名 / 删除）。不弹浮层：手机上浮层会盖住下面的行，也容易被滚动抢手势。 */
+.ws-actions {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--palm-s2);
+  padding: 0 var(--palm-s2) var(--palm-s1);
+}
+
+.ws-action {
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  cursor: pointer;
+}
+
+.ws-action:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-action-danger {
+  color: var(--palm-danger);
+}
+
+/* 表单内的排版收紧：.sheet-note 自带 12/16 内边距，在窄抽屉里会把提示顶到中间。 */
+.ws-create .sheet-note {
+  margin: var(--palm-s1) 0 0;
+  padding: 0;
+}
+
+.ws-create .sheet-confirm-actions {
+  justify-content: flex-end;
+  gap: var(--palm-s2);
 }
 /* ── file preview sheet (in-chat .file-link taps) ─────────────────────── */
 
@@ -6030,7 +7229,7 @@ button.settings-row:focus-visible {
 }
 
 .fp-error {
-  color: var(--danger, #d5484a);
+  color: var(--danger);
 }
 
 /* Sandboxed HTML preview: a white canvas keeps un-styled documents readable
@@ -6042,7 +7241,7 @@ button.settings-row:focus-visible {
   min-height: 240px;
   border: none;
   border-radius: 8px;
-  background: #fff;
+  background: var(--palm-sur-1);
 }
 
 /* Local image preview inside the sheet: fit width, auto height, scrollable. */
@@ -6069,7 +7268,8 @@ button.settings-row:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.86);
+  /* 与角标的 --palm-scrim（55%）同一族，这里是"整屏压暗"的强档。 */
+  background: var(--palm-scrim-strong);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -6113,8 +7313,8 @@ button.settings-row:focus-visible {
   justify-content: center;
   border-radius: 50%;
   border: none;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  background: var(--palm-tint-accent);
+  color: var(--palm-on-scrim);
 }
 
 .lightbox-close svg {
@@ -6129,7 +7329,7 @@ button.settings-row:focus-visible {
   right: 0;
   text-align: center;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--palm-on-scrim-soft);
   pointer-events: none;
 }
 
@@ -6139,14 +7339,20 @@ button.settings-row:focus-visible {
   font-size: 12.5px;
 }
 
-/* Sheet option rows: 56px, icon + text + right check. */
+/* Sheet option rows: 52px, icon + text + right value.
+ *
+ * 2026-11-11 真机（newsprint 皮肤下的「更多」）：右边的值用了 --text-base（17px）
+ * 和强调色，比左边 14px 的标题还大还艳 —— 一屏读下来，眼睛先落在「1 个文件」
+ * 「Markdown」上，菜单反而成了配角。这里把主从关系摆正：
+ *   标题 15px/500 主色 → 右侧值 13px/400 次要灰（数字等宽对齐）。
+ */
 .sheet-option {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  min-height: 56px;
-  padding: 8px 12px;
+  min-height: 50px;
+  padding: 6px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius-chip);
   background: transparent;
@@ -6193,22 +7399,27 @@ button.settings-row:focus-visible {
 }
 
 .sheet-option-title {
-  font-size: 14px;
-  font-weight: 400;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .sheet-option-desc {
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-sm);
   font-weight: 400;
   line-height: 1.4;
 }
 
+/* 右侧的值只是信息（几个文件、什么格式），不是动作也不是状态：
+   比标题小两档、用次要灰，数字等宽避免逐行跳动。强调色留给真正的选中态
+   （\`.sheet-option-selected\`）和危险项。 */
 .sheet-option-check {
   flex: none;
-  color: var(--accent);
-  font-size: var(--text-base);
-  font-weight: 500;
+  color: var(--palm-fg-3);
+  font-size: 13px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .sheet-confirm-desc {
@@ -6265,7 +7476,7 @@ button.settings-row:focus-visible {
   border: none;
   border-radius: var(--radius-chip);
   background: var(--danger);
-  color: #fff;
+  color: var(--palm-on-scrim);
   font: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -6286,12 +7497,14 @@ button.settings-row:focus-visible {
 /* Primary action button (accent fill) inside sheets. */
 .mobile-button-primary {
   border: none;
-  background: var(--accent);
-  color: var(--accent-contrast);
+  /* 2026-11-10 纸色实拍：主按钮原来写死旧蓝（--accent 在两套主题里同值、换肤不变），
+     整页暖白只剩它一颗蓝按钮。改走皮肤令牌。 */
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
 }
 
 .mobile-button-primary:active {
-  background: var(--accent);
+  background: var(--palm-accent);
   filter: brightness(1.08);
 }
 
@@ -6326,7 +7539,7 @@ button.settings-row:focus-visible {
 }
 
 .voice-service-desc {
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6413,7 +7626,7 @@ button.settings-row:focus-visible {
 }
 
 .voice-form-input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
 }
 
 /* Paired-device management rows (settings → 设备管理). */
@@ -6460,7 +7673,7 @@ button.settings-row:focus-visible {
 
 .device-badge-primary {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: var(--palm-accent-16);
 }
 
 .device-badge-current {
@@ -6472,7 +7685,7 @@ button.settings-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6481,7 +7694,7 @@ button.settings-row:focus-visible {
 
 .device-status {
   flex: none;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
 }
 
 .device-status-on {
@@ -6533,12 +7746,13 @@ button.settings-row:focus-visible {
   color: var(--danger);
 }
 
-/* ⋯ 菜单行左侧图标：与 .sheet-option-title 同高，统一从 --palm-t-l 取尺寸。 */
+/* ⋯ 菜单行左侧图标：跟标题同高、让出一点呼吸感，颜色压到次要灰 ——
+   图标是路标，不是装饰，别和标题抢亮度。 */
 .sheet-option > svg {
   flex: none;
-  inline-size: var(--palm-t-l);
-  block-size: var(--palm-t-l);
-  color: var(--palm-fg-2);
+  inline-size: 18px;
+  block-size: 18px;
+  color: var(--palm-fg-3);
 }
 /* ── centered confirm dialog ─────────────────────────────────────────── */
 
@@ -6641,7 +7855,7 @@ button.settings-row:focus-visible {
 .dialog-btn-danger {
   border: none;
   background: var(--danger);
-  color: #fff;
+  color: var(--palm-on-accent);
 }
 
 .dialog-btn-danger:active {
@@ -6739,7 +7953,7 @@ body:has(.lightbox-backdrop) .toast-host {
   }
 }/* ── focus rings ─────────────────────────────────────────────────────── */
 
-.mobile-back:focus-visible, .mobile-theme-toggle:focus-visible, .mobile-iconbtn:focus-visible, .mobile-headerAction:focus-visible, .mobile-quickchip:focus-visible, .mobile-searchInput:focus-visible, .mobile-row:focus-visible, .mobile-createCard:focus-visible, .mobile-presetTrigger:focus-visible, .mobile-presetHelp:focus-visible, .mobile-button:focus-visible, .mobile-new:focus-visible, .settings-themeOption:focus-visible, .settings-optionChip:focus-visible, .settings-switch:focus-visible, .dialog-btn:focus-visible, .dialog-input:focus-visible, .chat-send:focus-visible, .chat-msg-toggle:focus-visible, .chat-load-older:focus-visible, .chat-disclosure-head:focus-visible, .chat-question-option:focus-within, .ctx-item:focus-visible, .sheet-option:focus-visible, .sheet-confirm-danger:focus-visible, .chat-input:focus-visible{
+.mobile-back:focus-visible, .mobile-iconbtn:focus-visible, .mobile-headerAction:focus-visible, .mobile-quickchip:focus-visible, .mobile-searchInput:focus-visible, .mobile-row:focus-visible, .mobile-createCard:focus-visible, .mobile-presetTrigger:focus-visible, .mobile-presetHelp:focus-visible, .mobile-button:focus-visible, .mobile-new:focus-visible, .settings-themeOption:focus-visible, .settings-optionChip:focus-visible, .settings-switch:focus-visible, .dialog-btn:focus-visible, .dialog-input:focus-visible, .chat-send:focus-visible, .chat-msg-toggle:focus-visible, .chat-load-older:focus-visible, .chat-disclosure-head:focus-visible, .chat-question-option:focus-within, .ctx-item:focus-visible, .sheet-option:focus-visible, .sheet-confirm-danger:focus-visible, .chat-input:focus-visible{
   outline: none;
   box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
 }
@@ -6784,14 +7998,43 @@ body:has(.lightbox-backdrop) .toast-host {
   outline: none;
 }
 
+/* 提交中（readOnly）要看得出来改不了：只读在浏览器里没有外观变化，
+   用户敲字没反应会以为输入框坏了。降一档透明度，和禁用按钮同一档。 */
+.mobile-pairInput:read-only {
+  opacity: var(--palm-btn-disabled-opacity);
+}
+
 .mobile-pairInput:focus-visible {
   border-color: var(--border-focus);
   box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
 }
 
+/* 配对页的提交键：以前视觉全借抽屉的 .mobile-new，抽屉一改它就跟着变形。
+   现在自己写完整一套（高度/圆角/底色/字色/字重/禁用与按下态），
+   配色仍走皮肤令牌，不新增裸色。 */
 .mobile-pairSubmit {
   width: 100%;
   margin: 0;
+  block-size: var(--palm-hit);
+  border: none;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+  font: inherit;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  cursor: pointer;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.mobile-pairSubmit:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+.mobile-pairSubmit:disabled {
+  opacity: var(--palm-btn-disabled-opacity);
+  transform: none;
 }
 
 /* ── Mobile plugin market (MarketView) ───────────────────────────────── */
@@ -6878,7 +8121,6 @@ body:has(.lightbox-backdrop) .toast-host {
   .page-enter-back,
   .page-exit-back,
   .mobile-back,
-  .mobile-theme-toggle,
   .mobile-iconbtn,
   .mobile-headerAction,
   .mobile-quickchip,
@@ -6887,6 +8129,10 @@ body:has(.lightbox-backdrop) .toast-host {
   .mobile-button,
   .mobile-button-muted,
   .mobile-new,
+  .palm-drawer-new,
+  .mobile-pairSubmit,
+  .chat-question-submit,
+  .chat-approval-allow,
   .chat-send,
   .chat-msg,
   .chat-msg-toggle,
@@ -6907,10 +8153,72 @@ body:has(.lightbox-backdrop) .toast-host {
   .insert-bar,
   [data-insert-details],
   [data-insert-summary] > span:last-child,
-  .settings-themeOption,
-  .settings-optionChip {
+  .settings-optionChip,
+  /* 2026-11-10 全量对账补上的 13 个：跳转键、diff 两键、拒绝键、提问选项、
+     停止键、语音服务、设备键、对话框键、市场安装、代码块缩放、语音波形。 */
+  .chat-jump-latest,
+  .chat-jump-turns,
+  .diff-btn,
+  .diff-confirm,
+  .chat-approval-reject,
+  .chat-question-option,
+  .chat-stop-mini,
+  .voice-service-btn,
+  .device-btn,
+  .dialog-btn,
+  .market-install,
+  .code-block pre,
+  .voice-wave[data-live='1'] span,
+  /* 2026-11-10 第二轮对账：animation 驱动的**装饰性**动效（骨架屏闪烁、进/出场、
+     遮罩淡入淡出、定位高亮、轮次拖动条、语音面板滑入、波形）。表达状态的动画
+     （转圈 spinner、运行中呼吸点、不确定进度条）不在这里，见测试里的白名单。 */
+  .page-loading-rows span,
+  .settings-skeleton,
+  .chat-jump-latest-hot,
+  .chat-msg:not(.chat-msg-no-enter),
+  .code-fade,
+  .palm-drawer-scrim,
+  .dialog-backdrop,
+  .voice-backdrop,
+  .voice-sheet,
+  .voice-wave span,
+  .voice-done,
+  .toast-out,
+  .finish-toast,
+  .chat-quote-bar,
+  .chat-reasoning-more,
+  .chat-offline-banner,
+  .chat-msg-focus,
+  [data-locate-id][data-focus],
+  .turn-scrub,
+  .chat-status-strip-leaving,
+  /* 2026-11-10 过程条的两处**装饰**动效：环弧慢转、展开逐行滑入。
+     同批的「运行中呼吸点」是状态表达，留在测试白名单里 —— 它停下来，
+     用户反而要靠猜才知道还在跑。 */
+  .chat-proc-open .chat-step,
+  .chat-proc-open .palm-proc-recent,
+  .chat-cmdline-item[data-phase='in'],
+  .chat-cmdline-item[data-phase='out'],
+  /* 2026-11-11 计数滚动（过程条的「N 次工具调用 / 改 N 个文件」）：
+     它是**装饰**，不是状态表达 —— 关掉动画的人应当立刻看到新数字，而不是等 480ms。 */
+  .palm-roll-track,
+  .palm-roll-track.is-gliding {
     animation: none;
     transition: none;
+  }
+
+  /* 定位高亮原来**只有**一段脉冲动画：动画一停，用户按了"跳到这一条"却看不出跳到哪。
+     这不是动画取舍，是功能缺口。减弱动效下改成静态标记。
+     两处**分开写**：聊天消息本身没有边框，整圈描边一眼就能看见；
+     设置页每行本来就有 1px 描边，再套一圈同样的等于没标记（实拍确认），改用左侧竖条。 */
+  .chat-msg-focus {
+    background: var(--palm-tint-accent);
+    box-shadow: inset 0 0 0 var(--palm-focus) var(--palm-accent);
+  }
+
+  [data-locate-id][data-focus] {
+    background: var(--palm-tint-accent);
+    box-shadow: inset var(--palm-focus) 0 0 var(--palm-accent);
   }
 
   /* Nothing animates in this branch, so there is no transition to watch: drop
@@ -7050,97 +8358,183 @@ body:has(.lightbox-backdrop) .toast-host {
   margin: 0 12px 4px;
   /* 用户连着两轮说"还是太高"：外层 8→6→4px、行内 6→0、按钮 44→30px，
      整条从 62px 压到 40px。左右仍留 12px，文字不贴自己的边框。 */
-  padding: 4px 12px;
+  padding: 2px 10px;
   border: 1px solid var(--border-default);
   border-radius: 10px;
   background: var(--bg-elevated);
 }
+/* 头行（2026-11-10 方案 A）：左边「N 条排队 + 什么时候执行」，右边主操作与 ⋯。
+   以前这一行是折叠按钮，多条时要先点一下才看得见内容 —— 排队这种「等着发出去」
+   的东西，顺序和内容必须一眼可见。 */
 .queue-dockHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--palm-s1);
   width: 100%;
-  padding: 2px 0;
-  border: none;
-  background: transparent;
+  /* 2026-11-10 用户：「面板高度太高」。头行 44 → 32，行高 44 → 32，
+     再把面板内边距与列表间距各收一档 —— 一条排队从 ~190px 压到 ~120px。 */
+  min-height: var(--palm-queue-row-h);
+  padding: 0;
   color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: 600;
 }
-.queue-dockCount {
-  color: var(--accent, #4f7cff);
-}
-.queue-dockChevron {
-  color: var(--text-tertiary);
-}
-.queue-dockList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-}
-/* 只有一条的时候上面没有"N 条排队"那一行，6px 的顶间距就变成了一条空带：
-   整条卡片因此显得头重脚轻。第一条贴在顶边上。 */
-.queue-dock > .queue-dockList:first-child {
-  margin-top: 0;
-}
-.queue-dockRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* 行内再铺一层不同的底色就等于"卡片套卡片"，真机上看是两层框。整条只留外层
-     底板，行本身透明。插话（已插入本轮）条目已经搬到插入条，不在这里画。 */
-  padding: 0;
-  border-radius: 8px;
-  background: transparent;
-}
-.queue-dockText {
+
+/* 「当前任务结束后执行」是说明，不是标题：更淡、可以省略。 */
+.queue-dockHint {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+/* 计数同时是折叠开关（2026-11-10）：超过 1 条默认收起，点它展开。 */
+.queue-dockCount {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--palm-s1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 箭头跟着文字走（\`.palm-proc-caret\` 默认 auto 会把它推到行尾）。 */
+.queue-dockCount .palm-proc-caret {
+  margin-inline-start: 0;
+}
+.queue-dockList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  margin: var(--palm-s1) 0 0;
+  padding: 0;
+  list-style: none;
+  /* 2026-11-10：每行换行后变两行，列表再没有上限就会一路往上吃掉正文。
+     封顶到视口的三分之一左右，多出来的条目在列表内滚动。 */
+  max-block-size: 32vh;
+  overflow-y: auto;
+}
+.queue-dockRow {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  /* 行内再铺一层不同的底色就等于"卡片套卡片"。整条只留外层底板，行本身透明。 */
+  padding: 0;
+  background: transparent;
+}
+
+/* 「已插入本轮」那一行：同一条卡片的最后一行，用虚线跟排队项分开。 */
+.queue-dock > .insert-bar {
+  margin: 0;
+  border-top: 1px dashed var(--palm-line);
+  padding-top: 2px;
+}
+/* 正文是**按钮**（点它打开这张卡的动作表），但要长得像文字。 */
+.queue-dockText {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 视觉 32（用户嫌高），命中区仍 44：用伪元素纵向补，不占布局。 */
+  min-height: var(--palm-queue-row-h);
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--text-primary);
+  font: inherit;
   font-size: var(--text-sm);
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
+}
+
+/* 每行右侧的删除（×）：比一行四个按钮里的「删除」更小的误点面，但它只做一件事。 */
+/* 行内两个小控件（⋯ / ×）：视觉小，命中区用定位撑到 44×44。 */
+.queue-dockX {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--palm-r-full);
+  background: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.queue-dockX::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
 }
 .queue-dockActions {
   flex: 0 0 auto;
   display: flex;
-  /* 删除与插话相邻且只有 4px 间隔，误删不可撤销：把间距和命中区一起放大。 */
-  gap: 10px;
+  align-items: center;
+  /* 删除与插话相邻，误删不可撤销：间距 8 起步，命中区靠两颗按钮各自补。 */
+  gap: var(--palm-s2);
 }
 
 .queue-dockBtn {
   flex: none;
-  /* 用户两轮反馈"还是太高"：纵向收到 30px、横向留 40px，相邻间距加到 10px ——
-     靠间距而不是按钮自身的空白来兜住误点。整条因此从 62px 压到 40px，
-     和一条消息气泡差不多高。 */
-  min-height: 30px;
-  min-width: 40px;
-  padding: 2px 9px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
+  /* 2026-11-10（第二次）：用户「看着太大了，不协调，要排版对齐」。
+     两颗按钮统一 26 高、同一圆角、同一字号，在 32 高的头行里上下居中；
+     ⋯ 不再是 44 宽的胶囊（看着像大药丸），而是 26×26 的圆。
+     命中区仍由 ::after 上下各补 9 撑到 44。 */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: var(--palm-queue-btn-h);
+  min-inline-size: var(--palm-queue-btn-h);
+  padding: 0 var(--palm-s2);
+  line-height: 1;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-full);
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--palm-fg-3);
   font-size: var(--text-xs);
 }
 .queue-dockBtn-primary {
-  /* 主操作要在一行里被一眼认出来：实心强调色，不再是和编辑/删除同款的描边。 */
+  /* 主操作要在一行里被一眼认出来：实心强调色，不再是和编辑/删除同款的描边。
+     2026-11-10：原来写 var(--accent, #4f7cff) + color: #fff —— 兜底字面色 + 裸白，
+     正好绕开 skin-contrast 量过的 --palm-on-accent。换成皮肤令牌。 */
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--palm-s1);
   border-color: transparent;
-  background: var(--accent, #4f7cff);
-  color: #fff;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
   font-weight: 600;
 }
-.queue-dockBtnIcon {
-  flex: none;
+.queue-dockBtn::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-btn-hit) * -1);
+  inset-inline: 0;
 }
+
 .queue-dockBtn:disabled {
-  opacity: 0.4;
+  opacity: var(--palm-btn-disabled-opacity);
 }
 .queue-dockEdit {
   display: flex;
@@ -7151,12 +8545,13 @@ body:has(.lightbox-backdrop) .toast-host {
 .queue-dockInput {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: var(--palm-hit);
   padding: 5px 8px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--text-primary);
-  font-size: var(--text-sm);
+  font-size: 16px;
 }
 
 /* 连接提示：会话页顶部一行（展开 ≤28px），在内容区之上、顶栏之下。
@@ -7169,8 +8564,13 @@ body:has(.lightbox-backdrop) .toast-host {
   overflow: hidden;
   block-size: var(--palm-offline-h);
   padding-inline: var(--palm-s3);
-  background: var(--palm-tint-warn);
-  color: var(--palm-warn);
+  /* 2026-11-10 对照三方案后定：--palm-tint-warn（10~12%）几乎看不出"带子到哪儿为止"，
+     只剩一行黄字飘在顶上。改用 --palm-warn-band（24% 的普通 rgba）：
+     断线是全屏状态，本来就该整宽，而不是角落标记（那样会和定位/插话的竖条混）。 */
+  background: var(--palm-warn-band);
+  /* 带子加深到 24% 后，"琥珀字 + 琥珀带"在纸色皮肤上只有 4.04:1（低于 AA）。
+     带子本身已经说明"这是警告"，文字改回正文色（三套皮肤都 ≥ 10:1）。 */
+  color: var(--palm-fg);
   font-size: var(--palm-offline-size);
   white-space: nowrap;
   transition:
@@ -7217,6 +8617,8 @@ body:has(.lightbox-backdrop) .toast-host {
 /* 已认领命令（桌面端 composer 里那颗 chip）：命令词一块蓝色，参数在输入框里。
    排在与输入框同一行的中心线上，输入框长高时跟着垂直居中。 */
 .chat-command-chip {
+  /* 外壳内边距归零后，chip 自己保证离左边框的距离（2026-11-10）。 */
+  margin-inline-start: var(--palm-s3);
   flex: 0 1 auto;
   align-self: center;
   display: inline-flex;
@@ -7226,7 +8628,7 @@ body:has(.lightbox-backdrop) .toast-host {
   margin-left: 4px;
   padding: 3px 4px 3px 9px;
   border-radius: calc(var(--radius-chip) + 4px);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: var(--palm-accent-16);
   color: var(--accent);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -7237,6 +8639,13 @@ body:has(.lightbox-backdrop) .toast-host {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
 }
 
 .chat-command-chipClose {
@@ -7304,14 +8713,17 @@ body:has(.lightbox-backdrop) .toast-host {
   gap: var(--space-3);
 }
 
+/* 录音面板的两颗键：几何（高度/圆角/字号）全部走令牌，颜色走皮肤令牌。
+   2026-11-10：原来写死 44px / 999px / 15px，并用旧名 --border-default / --bg-elevated /
+   --text-secondary —— 改一次触控下限或换皮肤就得回来对一遍。 */
 .voice-cancel {
   min-width: 96px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid var(--border-default);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  font-size: 15px;
+  height: var(--palm-hit);
+  border-radius: var(--palm-r-full);
+  border: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-l);
 }
 
 .voice-sheet {
@@ -7327,9 +8739,14 @@ body:has(.lightbox-backdrop) .toast-host {
   animation: sheet-up 0.3s ease-out both;
 }
 
-/* 录音快到 60 秒上限时的提醒：只变颜色和字重，不改字号（避免面板跳动）。 */
-.voice-text-warn {
-  color: var(--accent);
+/* 录音快到 60 秒上限时的提醒：只变颜色和字重，不改字号（避免面板跳动）。
+   2026-11-10 真 DOM 实拍：原来和「正在录音」同为 --accent，只多一档字重，等于没提醒；
+   改成警示色（语义令牌 --palm-warn）。**必须用复合选择器**：.voice-text 在文件里
+   排在后面且同特异性，单写 .voice-text-warn 会被它的颜色盖掉（第一次改就是这样
+   静默失效的，截图逐字节一致才发现）。
+   注意：CSS 注释里不能出现反引号，生成器把它当模板字符串的结束符，整份样式会变成数字。 */
+.voice-text.voice-text-warn {
+  color: var(--palm-warn);
   font-weight: 600;
 }
 /* 实时字幕：说完一句就换一行，最多三行（再多会把录音按钮挤出屏幕）。 */
@@ -7397,23 +8814,39 @@ body:has(.lightbox-backdrop) .toast-host {
   white-space: nowrap;
 }
 
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
+}
+
 .voice-done {
   /* 44px 是拇指能稳稳按到的下限；40px 在真机上要低头瞄准，而且这是录音结束时唯一的出口。 */
-  height: 44px;
+  height: var(--palm-hit);
   padding: 0 24px;
   border: none;
-  border-radius: var(--radius-capsule);
+  border-radius: var(--palm-r-full);
   background: var(--accent);
   color: var(--accent-contrast);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--palm-t-m);
   font-weight: 500;
   cursor: pointer;
 }
 
 .voice-done:active {
-  transform: scale(0.97);
-  filter: brightness(1.08);
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+/* 转写中：这个按钮 disabled、文案变「请稍候」，但它原来**没有任何禁用态**——
+   实心强调色、看着完全能点，用户会反复戳一个不会响应的地方。 */
+.voice-done:disabled {
+  opacity: var(--palm-btn-disabled-opacity);
+  cursor: default;
+  transform: none;
+  filter: none;
 }
 
 /* Settings search field. */
@@ -7454,7 +8887,7 @@ button.settings-row:active {
 .palm-strip-wrap {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-strip-rail-mt);
+  /* 平铺一行之后不再有刻度轨，条与轨之间那道 5px 缝一起下线。 */
   min-inline-size: 0;
 }
 
@@ -7475,90 +8908,25 @@ button.settings-row:active {
   inline-size: var(--palm-strip-mini-w);
 }
 
+/*
+ * 状态栏（2026-11-10 第三版）：**平铺一行**，不是胶囊。
+ * 用户口径：「不要状态条和滑动条，只有一个状态栏，平铺显示」。
+ * 所以这里没有底色块、没有描边、没有填充、没有刻度轨 —— 只剩
+ * 「鲸尾 + 文案 + 时间」，靠留白与正文分开；进度只由过程条的点阵表达。
+ */
 .palm-strip {
-  position: relative;
   display: flex;
   align-items: center;
-  overflow: hidden;
-  block-size: var(--palm-strip-h);
-  border: var(--palm-hair) solid var(--palm-strip-border);
-  border-radius: var(--palm-strip-r);
-  background: var(--palm-strip-track);
+  min-inline-size: 0;
+  border: 0;
+  background: none;
+  /* 平铺后不再有深色底衬，字色必须回到皮肤本身的前景三档；
+     原来那套"白字 + 暗描影"只对深色渐变成立，放在纸色上就是灰糊。 */
+  --palm-strip-fg: var(--palm-fg);
+  --palm-strip-detail-fg: var(--palm-fg-2);
+  --palm-strip-right-fg: var(--palm-fg-3);
+  --palm-strip-text-shadow: none;
 }
-
-/* 渐变只在这里分派：组件样式里不出现裸色值。 */
-.palm-strip[data-kind='think'] { --palm-strip-current: var(--palm-strip-grad-think); }
-.palm-strip[data-kind='read'] { --palm-strip-current: var(--palm-strip-grad-read); }
-.palm-strip[data-kind='edit'] { --palm-strip-current: var(--palm-strip-grad-edit); }
-.palm-strip[data-kind='test'] { --palm-strip-current: var(--palm-strip-grad-test); }
-.palm-strip[data-kind='approve'] { --palm-strip-current: var(--palm-strip-grad-approve); }
-.palm-strip[data-kind='stuck'] { --palm-strip-current: var(--palm-strip-grad-stuck); }
-.palm-strip[data-kind='done'] { --palm-strip-current: var(--palm-strip-grad-done); }
-.palm-strip[data-kind='failed'] { --palm-strip-current: var(--palm-strip-grad-failed); }
-.palm-strip[data-kind='stopped'] { --palm-strip-current: var(--palm-strip-grad-stopped); }
-.palm-strip[data-kind='queued'] { --palm-strip-current: var(--palm-strip-grad-queued); }
-.palm-strip[data-kind='unknown'] { --palm-strip-current: var(--palm-strip-grad-unknown); }
-
-.palm-strip-fill {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  border-radius: var(--palm-strip-r) 0 0 var(--palm-strip-r);
-  background: var(--palm-strip-current, var(--palm-strip-grad-unknown));
-}
-
-/* 顶部一道高光，让主条看起来有厚度（原型 .fill::after）。 */
-.palm-strip-fill::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--palm-strip-gloss);
-}
-
-/* 进度档位：0..100%，每 5% 一档（不写行内样式）。 */
-.palm-strip-fill[data-fill='p0'] { inline-size: 0; }
-.palm-strip-fill[data-fill='p5'] { inline-size: 5%; }
-.palm-strip-fill[data-fill='p10'] { inline-size: 10%; }
-.palm-strip-fill[data-fill='p15'] { inline-size: 15%; }
-.palm-strip-fill[data-fill='p20'] { inline-size: 20%; }
-.palm-strip-fill[data-fill='p25'] { inline-size: 25%; }
-.palm-strip-fill[data-fill='p30'] { inline-size: 30%; }
-.palm-strip-fill[data-fill='p35'] { inline-size: 35%; }
-.palm-strip-fill[data-fill='p40'] { inline-size: 40%; }
-.palm-strip-fill[data-fill='p45'] { inline-size: 45%; }
-.palm-strip-fill[data-fill='p50'] { inline-size: 50%; }
-.palm-strip-fill[data-fill='p55'] { inline-size: 55%; }
-.palm-strip-fill[data-fill='p60'] { inline-size: 60%; }
-.palm-strip-fill[data-fill='p65'] { inline-size: 65%; }
-.palm-strip-fill[data-fill='p70'] { inline-size: 70%; }
-.palm-strip-fill[data-fill='p75'] { inline-size: 75%; }
-.palm-strip-fill[data-fill='p80'] { inline-size: 80%; }
-.palm-strip-fill[data-fill='p85'] { inline-size: 85%; }
-.palm-strip-fill[data-fill='p90'] { inline-size: 90%; }
-.palm-strip-fill[data-fill='p95'] { inline-size: 95%; }
-.palm-strip-fill[data-fill='p100'] { inline-size: 100%; }
-
-/* 进度未知：游走块（原型的 travel），只用来表示「正在做、但没拆出计划」。 */
-.palm-strip-fill[data-fill='unknown'] {
-  inline-size: 28%;
-  animation: palm-strip-travel 3.2s ease-in-out infinite;
-}
-
-/* 无权威数据：灰块静止（"还不知道"不是"正在做"，游走块会读成后者）。 */
-.palm-strip[data-kind='unknown'] .palm-strip-fill { animation: none; }
-
-@keyframes palm-strip-travel {
-  0%, 100% { inset-inline-start: 0; }
-  50% { inset-inline-start: 64%; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .palm-strip-fill[data-fill='unknown'] {
-    animation: none;
-  }
-}
-
 /* 一行内容：宠物 + 主文案 + 可选小灰字 + 右侧时间。 */
 .palm-strip-body {
   position: relative;
@@ -7571,42 +8939,6 @@ button.settings-row:active {
   padding-inline: var(--palm-strip-pad);
 }
 
-/* 宠物：纯内联 SVG，墨色由 data-kind 选，形状由组件决定（不许 emoji / 图片）。 */
-.palm-strip-pet {
-  flex: none;
-  inline-size: var(--palm-strip-pet);
-  block-size: var(--palm-strip-pet);
-  color: var(--palm-strip-ink-unknown);
-  filter: drop-shadow(var(--palm-strip-pet-shadow));
-}
-
-.palm-strip[data-kind='think'] .palm-strip-pet { color: var(--palm-strip-ink-think); }
-.palm-strip[data-kind='read'] .palm-strip-pet { color: var(--palm-strip-ink-read); }
-.palm-strip[data-kind='edit'] .palm-strip-pet { color: var(--palm-strip-ink-edit); }
-.palm-strip[data-kind='test'] .palm-strip-pet { color: var(--palm-strip-ink-test); }
-.palm-strip[data-kind='approve'] .palm-strip-pet { color: var(--palm-strip-ink-approve); }
-.palm-strip[data-kind='stuck'] .palm-strip-pet { color: var(--palm-strip-ink-stuck); }
-.palm-strip[data-kind='done'] .palm-strip-pet { color: var(--palm-strip-ink-done); }
-.palm-strip[data-kind='failed'] .palm-strip-pet { color: var(--palm-strip-ink-failed); }
-.palm-strip[data-kind='stopped'] .palm-strip-pet { color: var(--palm-strip-ink-stopped); }
-.palm-strip[data-kind='queued'] .palm-strip-pet { color: var(--palm-strip-ink-queued); }
-
-.palm-strip-pet [data-pet='body'] {
-  fill: var(--palm-strip-pet-body);
-  stroke: currentColor;
-  stroke-width: 2;
-}
-
-.palm-strip-pet [data-pet='eye'] {
-  fill: currentColor;
-}
-
-.palm-strip-pet [data-pet='line'] {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-}
 
 .palm-strip [data-part='main'] {
   display: flex;
@@ -7627,6 +8959,13 @@ button.settings-row:active {
   white-space: nowrap;
 }
 
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
+}
+
 .palm-strip [data-part='detail'] {
   overflow: hidden;
   min-inline-size: 0;
@@ -7638,6 +8977,13 @@ button.settings-row:active {
   white-space: nowrap;
 }
 
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
+}
+
 /* 右侧（耗时 / 等你 42s）：等宽数字，别让数字跳宽。 */
 .palm-strip [data-part='right'] {
   flex: none;
@@ -7646,6 +8992,13 @@ button.settings-row:active {
   font-variant-numeric: tabular-nums;
   text-shadow: var(--palm-strip-text-shadow);
   white-space: nowrap;
+}
+
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
 }
 
 /* 迷你版：132×22 / 圆角 8，用于抽屉列表行（同一组件，只换尺寸）。 */
@@ -7666,36 +9019,48 @@ button.settings-row:active {
   font-size: var(--palm-t-s);
 }
 
+/* 尾鳍：16×16 的盒子，里面两层（动画 PNG / 静止 SVG）。 */
+.palm-strip-pet {
+  position: relative;
+  display: block;
+  flex: none;
+  inline-size: 15px;
+  block-size: 15px;
+  color: inherit;
+}
+
+.palm-strip-whale-still {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.palm-strip-whale-loop { display: none; }
+
+/*
+ * 活的鲸尾：/m/running-whale.png（v1.7.1 起桌面端在放的那张逐帧动画 PNG），
+ * 以 currentColor 当底色做 alpha 蒙版 —— 形状随状态色走。只在支持蒙版、且用户
+ * 没开「减弱动态效果」时播放；否则由上面那层静止 SVG 兜底。
+ * 手写路径动画到不了这个质感（1.7.0 试过旋转/拆叶/改路径，仍是"两片叶在转"）。
+ */
+@supports (mask-mode: alpha) and (mask-image: url('')) {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    .palm-strip-whale-loop {
+      display: block;
+      position: absolute;
+      inset: 0;
+      background: currentColor;
+      mask: url('/m/running-whale.png') center / 100% 100% no-repeat;
+      mask-mode: alpha;
+      will-change: transform;
+    }
+
+    .palm-strip-whale-still { display: none; }
+  }
+}
 .palm-strip[data-size='mini'] .palm-strip-pet {
   inline-size: var(--palm-strip-pet-mini);
   block-size: var(--palm-strip-pet-mini);
-}
-
-.palm-strip[data-size='mini'] .palm-strip-fill {
-  border-radius: var(--palm-strip-mini-r) 0 0 var(--palm-strip-mini-r);
-}
-
-/* 刻度轨（方案 A）：条下方一条细轨，一格一步。 */
-.palm-strip-rail {
-  display: flex;
-  gap: var(--palm-strip-rail-gap);
-  inline-size: 100%;
-}
-
-.palm-strip-rail i {
-  display: block;
-  flex: 1 1 0;
-  block-size: var(--palm-strip-rail-h);
-  border-radius: var(--palm-strip-rail-r);
-  background: var(--palm-strip-rail-todo);
-}
-
-.palm-strip-rail i[data-state='done'] {
-  background: var(--palm-strip-rail-done);
-}
-
-.palm-strip-rail i[data-state='now'] {
-  background: var(--palm-strip-rail-now);
 }
 
 /* ── 会话正文流：任务头（目标 / 状态条 / 元信息） ─────────────────────────
@@ -7712,47 +9077,65 @@ button.settings-row:active {
   padding-block: var(--palm-turn-pad-t) var(--palm-turn-pad-b);
 }
 
+/*
+ * 目标行是**次级标签**，不是第二个标题（2026-11-10 整屏实拍）：原来与正文同字号
+ * （15px）近白色加粗，一屏里出现两个"标题"。现在降一档字号与颜色，高度契约不变
+ * （骨架与真实头同高，见 --palm-turn-goal-h）。
+ *
+ * 2026-11-10 重设计：降字号之后它又"消失"了 —— 一整屏看不出这段属于哪一轮。
+ * 用**左侧竖条 + 正文色**重新把它立起来，但**不加字号**（避免又变成第二个标题）：
+ * 竖条是"这一段的锚点"，字号仍是次级。 */
 .palm-turn-goal {
   margin: 0;
   min-block-size: var(--palm-turn-goal-h);
+  padding-inline-start: var(--palm-s3);
+  border-inline-start: 3px solid var(--palm-accent);
   color: var(--palm-fg);
-  font-size: var(--palm-flow-goal-size);
+  font-size: var(--palm-flow-title-size);
   font-weight: var(--palm-w-bold);
   line-height: var(--palm-lh-head);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.01em;
 }
 
+/* 元信息（改几个文件 / 多少测试）：原来 10px + 三级灰，属于典型的低对比辅助文字。
+   抬到辅助层字号与二级前景色，仍比正文低一档，但不需要眯眼。 */
 .palm-turn-meta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--palm-s1);
-  font-size: var(--palm-turn-meta-size);
-  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-2);
 }
 
 /* ── 过程折叠行：「▸ 12 次工具调用 · 2 处报错」 ─────────────────────────
    整行是一条 44px 触控带；展开状态与展开/收起回调由既有过程组持有，
    这里只画，不新建状态。运行中在下方追加「最近 3 步」。
    计数之外不再报状态词与耗时：那两样全页只在任务头状态条。 */
-/* 过程折叠行（「12 次工具调用 2 处报错」）：定版 24 高 / 11 号字。
- * 它只是一条注脚，不再吃 44 的拇指区 —— 展开入口在头行上，行本身照旧可点。 */
+/* 过程折叠行：静态摘要 24 高 / 11 号字，可点击摘要实体占位 44px。 */
 .palm-proc {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--palm-s1);
+  gap: var(--palm-s2);
   inline-size: 100%;
   min-block-size: var(--palm-proc-head-h);
-  padding: 0;
-  border: 0;
-  background: none;
+  /* 2026-11-10 重设计：折叠行从「一行灰字」变成一条窄条（--palm-sur-1 + hairline +
+     圆角），和上面的目标行、下面的正文分开层次。可点与静态两种用同一条外观 ——
+     同一个位置不该有两种样子。 */
+  padding: 6px var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-1);
   color: var(--palm-fg-2);
   font: inherit;
   font-size: var(--palm-proc-head-size);
   text-align: start;
 }
 
-button.palm-proc { cursor: pointer; }
+button.palm-proc {
+  min-block-size: var(--palm-hit);
+  cursor: pointer;
+}
 
 button.palm-proc:active { opacity: 0.72; }
 
@@ -7761,37 +9144,196 @@ button.palm-proc:focus-visible {
   outline-offset: 2px;
 }
 
+/* 2026-11-10 重设计：折叠行的三件套 —— 左状态点、中文字、右箭头。
+   箭头挪到最右（通用"展开"位置），状态点在最左（这一行代表哪段过程）。 */
 .palm-proc-caret {
   flex: none;
-  inline-size: var(--palm-s3);
+  margin-inline-start: auto;
   color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
 }
+
+/* 状态点：颜色只做强化，含义由文字给（读屏读的是 aria-label）。 */
+.palm-proc-dot {
+  flex: none;
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+  background: var(--palm-fg-3);
+}
+
+.palm-proc-dot[data-state='ok'] { background: var(--palm-ok); }
+.palm-proc-dot[data-state='running'] { background: var(--palm-accent); }
+.palm-proc-dot[data-state='failed'],
+.palm-proc-dot[data-state='error'] { background: var(--palm-danger); }
+.palm-proc-dot[data-state='stopped'] { background: var(--palm-warn); }
 
 .palm-proc-main { color: var(--palm-fg-2); }
 
 /* 没有权威结论：计数/「—」退到第三档灰（状态词与耗时本来就不出现）。 */
 .palm-proc[data-state='unknown'] .palm-proc-main { color: var(--palm-proc-unknown); }
 
-.palm-proc-note { color: var(--palm-warn); }
-
-.palm-proc-recent {
-  flex-basis: 100%;
-  padding-inline-start: var(--palm-s5);
+/* 「2 处报错」从裸黄字改成小胶囊：这是**要你注意**的信息，得有一块自己的底。 */
+.palm-proc-note {
+  padding: 1px var(--palm-s2);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
   font-size: var(--palm-flow-meta-size);
+}
+
+/* 「改 N 个文件」：这一轮的产出量，和「N 次工具调用 · M 处报错」同一行之下的第二类计数。
+   2026-11-10 从任务头状态条灰字搬来（用户要求），所以这里必须是**安静**的一档灰。 */
+.palm-proc-files {
+  flex: none;
   color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+}
+
+/*
+ * 计数滚动（2026-11-11 用户二次拍板：**要数字滚动的动效，不要牌面**）。
+ *
+ * 没有底板、没有边框、没有中缝：数字就是普通文字，继承颜色/字号/字重。
+ * 变化的那一位是一个竖直滚轮：轨道里排着 0-9 两遍，向上滚过中间那些数字，
+ * 停在新的那位上（3 → 7 会真的滚过 4、5、6）。静止时与普通文字完全一致。
+ */
+/*
+ * 一位数字的窗口：高度 = 一格，滚出窗口的部分裁掉（裁的是轨道，不是字形）。
+ *
+ * 2026-11-11 用户：「数字和后面的文字没有水平对齐」。
+ *
+ * 根因是 overflow: hidden —— 按 CSS 2.1，**overflow 不是 visible 的 inline-block，
+ * 基线取盒子底边**（不是里面文字的基线）。数字因此被顶高，只能靠 vertical-align 猜一个
+ * em 值去补；而 em 值依赖字体度量，桌面调好了、手机字体不同又歪。
+ *
+ * 改用 clip-path: inset(0) 裁切：它不改变基线，这一格就按普通文字的规矩对齐 ——
+ * 数字的基线 = 格子文字的基线 = 正文基线（换字体、换字号都不跑）。
+ */
+.palm-roll {
+  --palm-roll-h: 1.25em;
+  display: inline-block;
+  block-size: var(--palm-roll-h);
+  line-height: var(--palm-roll-h);
+  clip-path: inset(0);
+  vertical-align: baseline;
+}
+
+.palm-roll-track {
+  display: flex;
+  flex-direction: column;
+  /* 位移由组件写成行内 transform（见 ui/flip-number.tsx），这里只管轨道排版。 */
+}
+
+/* 只有正在滚的那一位加过渡：静止的数字连 will-change 都不占。 */
+.palm-roll-track.is-gliding {
+  transition: transform 480ms cubic-bezier(0.2, 0.9, 0.25, 1);
+  will-change: transform;
+}
+
+.palm-roll-cell {
+  display: block;
+  height: var(--palm-roll-h);
+  line-height: var(--palm-roll-h);
+  font-variant-numeric: tabular-nums;
+}
+
+
+/*
+ * 折叠态「当前命令」：**固定高度的一行**，位置与高度都不随内容变化。
+ * 2026-11-10 第二次投诉后的定案：原来折叠时把每个活动工具行都铺在过程条下面，
+ * 第 8 条一来列表就长高 18px，整块被顶下去（"跳来跳去"）。
+ * 现在只留一行，换命令时旧文案淡出（上移 3px）、新文案淡入（下移 3px），320ms。
+ */
+.chat-cmdline {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  block-size: 20px;
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: var(--palm-flow-meta-size);
+  color: var(--palm-fg-2);
+}
+
+/* 左侧一道细竖线：标出"这是当前动作"，比整行高亮稳。 */
+.chat-cmdline-mark {
+  flex: none;
+  inline-size: 2px;
+  block-size: 11px;
+  border-radius: 1px;
+  background: var(--palm-accent);
+  opacity: 0.65;
+}
+
+.chat-cmdline[data-state='error'] .chat-cmdline-mark { background: var(--palm-danger); opacity: 1; }
+.chat-cmdline[data-state='stopped'] .chat-cmdline-mark { background: var(--palm-warn); opacity: 1; }
+
+.chat-cmdline-text {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  block-size: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, #000 86%, transparent);
+}
+
+.chat-cmdline-item {
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
+}
+
+.chat-cmdline-item[data-phase='in'] {
+  animation: palm-cmd-in 320ms ease-out both;
+}
+
+.chat-cmdline-item[data-phase='out'] {
+  animation: palm-cmd-out 320ms ease-in both;
+}
+
+@keyframes palm-cmd-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes palm-cmd-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-3px); }
 }
 
 /* ── 交付卡：全页唯一的一张卡 ────────────────────────────────────────
    版式真源：delivery-card.html A 图（卡头 → 交付物/改动行 → 汇总 → 卡尾）。
    根节点带 chat-turn-tail 是给卡片诊断探针与既有行身份用的历史钩子，
-   卡面本身全部由 palm-delivery-* 重画。 */
+   卡面本身全部由 palm-delivery-* 重画。
+
+   2026-11-10 收窄（整屏实拍：一张卡吃掉半屏，绿色渐变更抢眼）。三条改动：
+   1. 不再通栏：max-inline-size 收到 336px（320 屏上退化成 100%），
+      右边自然留白 —— 它是一张"回执"，不该和正文一样宽；
+   2. **不再用绿色渐变底**：回到普通表面色 + 中性描边，绿只留在勾与标签上；
+   3. 圆角与内边距跟其他卡片对齐（--palm-r-m / --palm-s3）。 */
 .palm-delivery {
   display: block;
+  /* 平铺：与正文同宽（正文列左右各 16px，卡片所在行只有 12px 的内边距，补 4px 对齐）。 */
+  max-inline-size: 100%;
+  margin-inline: var(--palm-s1);
   margin-block-start: var(--palm-s3);
   padding: 0;
-  border: var(--palm-hair) solid var(--palm-flow-card-line);
-  border-radius: var(--palm-flow-card-r);
-  background: var(--palm-flow-card-bg);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
   overflow: hidden;
 }
 
@@ -7799,8 +9341,8 @@ button.palm-proc:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--palm-s2);
-  padding: var(--palm-s3) var(--palm-s3) var(--palm-s2);
-  border-block-end: var(--palm-hair) solid var(--palm-flow-rule);
+  padding: var(--palm-s2) var(--palm-s3);
+  border-block-end: var(--palm-hair) solid var(--palm-line);
 }
 
 .palm-delivery-check {
@@ -7814,6 +9356,49 @@ button.palm-proc:focus-visible {
   background: var(--palm-tint-ok);
   color: var(--palm-ok);
   font-size: var(--palm-t-s);
+}
+
+/*
+ * P4 四态：同一张骨架，只换状态色与文案 —— 不新增组件、不写裸色。
+ * success 用默认的绿勾；failure 红边 + 红字形；unknown 中性灰（不猜成功）；
+ * running 用强调色，表示这一轮还没收工。
+ */
+.palm-delivery[data-state='failure'] {
+  border-color: var(--palm-danger);
+}
+
+.palm-delivery[data-state='failure'] .palm-delivery-check {
+  background: var(--palm-tint-danger);
+  color: var(--palm-danger);
+}
+
+.palm-delivery[data-state='unknown'] .palm-delivery-check {
+  background: var(--palm-tint-warn);
+  color: var(--palm-fg-2);
+}
+
+.palm-delivery[data-state='unknown'] .palm-delivery-title {
+  color: var(--palm-fg-2);
+}
+
+.palm-delivery[data-state='running'] .palm-delivery-check {
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+}
+
+.palm-delivery-reason {
+  margin: 0;
+  padding: 0 var(--palm-s3) var(--palm-s2);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-flow-meta-size);
+  line-height: var(--palm-lh-body);
+  /* 2026-11-10 多行堆栈实拍：宿主把四条错误用换行拼成一段，默认把换行折成空格，
+     四行错误糊成一堵字墙。pre-line 保留换行、折叠多余空白，长度不变。 */
+  white-space: pre-line;
+}
+
+.palm-delivery-retry {
+  margin-inline-start: var(--palm-s2);
 }
 
 .palm-delivery-title {
@@ -7845,7 +9430,7 @@ button.palm-proc:focus-visible {
 }
 
 .palm-delivery-row + .palm-delivery-row {
-  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  border-block-start: var(--palm-hair) solid var(--palm-line);
 }
 
 button.palm-delivery-row { cursor: pointer; }
@@ -7859,7 +9444,8 @@ button.palm-delivery-row:focus-visible {
 
 .palm-delivery-icon {
   flex: none;
-  inline-size: var(--palm-s4);
+  /* 与卡头勾选圈同宽（s5），这样标题文字与行文字的左边线完全对齐。 */
+  inline-size: var(--palm-s5);
   color: var(--palm-fg-2);
   font-size: var(--palm-t-s);
   text-align: center;
@@ -7871,6 +9457,13 @@ button.palm-delivery-row:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.queue-dockText::after {
+  content: '';
+  position: absolute;
+  inset-block: calc(var(--palm-queue-row-hit) * -1);
+  inset-inline: 0;
 }
 
 .palm-delivery-tally {
@@ -7899,9 +9492,11 @@ button.palm-delivery-row:focus-visible {
 
 .palm-delivery-sum {
   display: flex;
-  gap: var(--palm-s3);
-  padding: var(--palm-s2) var(--palm-s3);
-  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--palm-s1) var(--palm-s3);
+  padding: 0;
+  border: 0;
   font-size: var(--palm-flow-meta-size);
   color: var(--palm-fg-3);
 }
@@ -7912,23 +9507,144 @@ button.palm-delivery-row:focus-visible {
   font-weight: var(--palm-w-bold);
 }
 
+.palm-delivery-commit {
+  color: var(--palm-fg-3);
+  font-family: var(--palm-font-mono);
+  font-size: var(--palm-flow-meta-size);
+}
+
+/*
+ * 卡尾：左边汇总、右边「看全部改动 ›」。2026-11-10 再收：汇总与按钮原来各占一行，
+ * 按钮被推成整行宽（用户第二次说"这一块还是太宽"）。现在同一行，按钮只占文字宽度、
+ * 贴右，右边线与行内的标签列对齐。
+ */
 .palm-delivery-foot {
   display: flex;
   align-items: center;
   gap: var(--palm-s2);
-  padding: var(--palm-s2) var(--palm-s3);
-  border-block-start: var(--palm-hair) solid var(--palm-flow-rule);
+  /* 2026-11-10 实机：这一块上下太高（61px）。卡已平铺到正文宽度，这一行只要放得下
+     11px 的文字，别再撑成 44px 触控条的高度。 */
+  padding: var(--palm-s1) var(--palm-s3);
+  border-block-start: var(--palm-hair) solid var(--palm-line);
   font-size: var(--palm-flow-meta-size);
   color: var(--palm-fg-3);
 }
 
 .palm-delivery-more {
+  flex: none;
   margin-inline-start: auto;
-  min-block-size: var(--palm-hit);
+  /* 视觉上只是文字；上下留 28px 的点击高度（比 44px 矮，仍在 24px 可用下限之上）。 */
+  min-block-size: var(--palm-s6);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--palm-flow-meta-size);
   color: var(--palm-accent);
+  cursor: pointer;
+}
+.palm-delivery-more:active { opacity: 0.72; }
+
+.palm-delivery-more:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--palm-focus) var(--palm-accent);
 }
 
-.palm-delivery-more:active { opacity: 0.72; }
+
+/* ── 过程条动效（2026-11-10 方案 A + B + D） ────────────────────────────────
+   三条自我约束：
+   1. 只动 transform / opacity，不动宽高 → 不触发重排；
+   2. 只在 running 时出现，完成/失败立即停（全屏都在闪 = 廉价）；
+   3. prefers-reduced-motion 时全部关掉，只留静态点阵与进度长度。
+   颜色全部走令牌；扫光用 accent 令牌，不写裸色。 */
+
+.palm-proc {
+  position: relative;
+  overflow: hidden;
+}
+
+/* 2026-11-10：右侧环形进度已删除（用户：「没有任何作用」）。
+   步数只在展开体首行「共 N 步」报，头行右侧只留展开箭头。 */
+
+/* A：状态点呼吸（只 running）。外圈用 box-shadow 扩散，不占布局。 */
+.palm-proc-dot[data-state='running'] {
+  animation: palm-proc-breathe 1.6s ease-in-out infinite;
+}
+
+/* D：展开时明细逐行滑入（列表本身已存在，只给它一个入场动作）。 */
+.chat-proc-open .chat-step,
+.chat-proc-open .palm-proc-recent {
+  animation: palm-proc-row-in 0.32s ease-out both;
+}
+
+.chat-proc-open .chat-step:nth-child(2) { animation-delay: 0.06s; }
+.chat-proc-open .chat-step:nth-child(3) { animation-delay: 0.12s; }
+.chat-proc-open .chat-step:nth-child(4) { animation-delay: 0.18s; }
+
+@keyframes palm-proc-breathe {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--palm-accent-16); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 5px transparent; }
+
+}
+
+
+
+@keyframes palm-proc-row-in {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 状态条重设计（2026-11-10）：鲸尾标记 + 底边潮汐线 ─────────────────────
+   用户拍的：状态词叫「深度求索中」，左边一枚鲸尾。11 张宠物脸下线，识别改靠
+   **底色 + 文案**，不靠画脸（18px 的表情在小条里本来就糊）。
+   主条的进度填充从"整条渐变"改成**底边 3px 潮汐线** —— 一屏最亮的东西应该是正文。 */
+
+.palm-strip[data-size='main'] {
+  --palm-strip-fg: var(--palm-fg);
+  --palm-strip-detail-fg: var(--palm-fg-2);
+  --palm-strip-right-fg: var(--palm-fg-3);
+}
+
+/* 鲸尾方标：24×24、圆角 8。
+ * 底色跟着状态走（tint），**尾鳍本身永远是品牌强调色**（--palm-accent）。
+ * 2026-11-10 用户反馈：以前尾鳍跟着状态变色，done/idle/unknown 下变成灰绿/灰，
+ * 每个皮肤看过去都像「灰鲸鱼」。现在颜色只由底色承担，鲸鱼始终是那只蓝鲸。 */
+.palm-strip-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 8px;
+  background: var(--palm-accent-16);
+  color: var(--palm-whale);
+}
+
+.palm-strip[data-size='mini'] .palm-strip-mark {
+  inline-size: var(--palm-strip-pet);
+  block-size: var(--palm-strip-pet);
+  border-radius: 6px;
+}
+
+.palm-strip-mark[data-kind='think'],
+.palm-strip-mark[data-kind='read'],
+.palm-strip-mark[data-kind='edit'],
+.palm-strip-mark[data-kind='test'] {
+  background: var(--palm-accent-16);
+}
+
+/* 空闲与未知：底色中性（不抢眼、不假装在干活），但鲸鱼仍是品牌色 —— 它只是安静，不是死了。 */
+.palm-strip-mark[data-kind='idle'],
+.palm-strip-mark[data-kind='unknown'] {
+  background: var(--palm-sur-2);
+}
+
+.palm-strip-mark[data-kind='done'] { background: var(--palm-ok-band); }
+.palm-strip-mark[data-kind='failed'] { background: var(--palm-danger-band); }
+.palm-strip-mark[data-kind='approve'],
+.palm-strip-mark[data-kind='stuck'],
+.palm-strip-mark[data-kind='stopped'],
+.palm-strip-mark[data-kind='queued'] { background: var(--palm-tint-warn); }
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -8038,13 +9754,15 @@ details.think-block[open] .chat-disclosure-caret {
 @keyframes dshPalmFocusPulse {
   0% {
     box-shadow:
-      inset 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent),
-      0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+
+
+      0 0 0 0 var(--palm-accent-16);
   }
   70% {
     box-shadow:
-      inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
-      0 0 14px 2px color-mix(in srgb, var(--accent) 26%, transparent);
+
+
+      0 0 14px 2px var(--palm-search-mark);
   }
   100% {
     box-shadow:
@@ -8066,16 +9784,18 @@ details.think-block[open] .chat-disclosure-caret {
    用 .mobile 提一级特异性，避免被上面 .mobile mark 的 background 盖掉。 */
 .mobile .chat-search-mark {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 26%, var(--bg-elevated));
+  /* 2026-11-10：原来是 color-mix(accent 26%, bg-elevated)。iOS 15 不支持 color-mix，
+     整条声明失效 → 命中词没有底色，搜索定位等于瞎了。改成预混令牌。 */
+  background: var(--palm-search-mark);
   border-radius: 3px;
   padding: 0 1px;
   font-weight: 600;
 }
 
 .mobile .chat-msg-user .chat-search-mark {
-  color: #1a1a2e;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--palm-fg);
+  background: var(--palm-sur-1);
+  box-shadow: inset 0 0 0 1px var(--palm-accent-line);
 }
 
 .mobile .chat-md pre .chat-search-mark,
@@ -8108,7 +9828,7 @@ details.think-block[open] .chat-disclosure-caret {
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--palm-sh2);
   cursor: pointer;
   /* A press-and-hold must still count as a tap, AND the hold must own the
      gesture: with manipulation/auto the browser claims the move for page
@@ -8141,7 +9861,7 @@ details.think-block[open] .chat-disclosure-caret {
   border-radius: 14px;
   background: var(--card-bg);
   border: 1px solid var(--accent);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--palm-shadow);
   animation: chat-jump-in 160ms ease-out;
   pointer-events: none;
 }
@@ -8205,7 +9925,7 @@ details.think-block[open] .chat-disclosure-caret {
   top: 11px;
   height: 4px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: var(--palm-search-mark);
 }
 .turn-scrub-tick {
   position: absolute;
@@ -8274,6 +9994,7 @@ details.think-block[open] .chat-disclosure-caret {
 .chat-goal-main {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: var(--palm-hit);
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -8316,7 +10037,7 @@ details.think-block[open] .chat-disclosure-caret {
   position: relative;
   flex: none;
   height: 28px;
-  min-width: 28px;
+  min-width: var(--palm-hit);
   padding: 0 8px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-chip);
@@ -8329,7 +10050,8 @@ details.think-block[open] .chat-disclosure-caret {
 .chat-goal-btn::after {
   content: '';
   position: absolute;
-  inset: -8px;
+  inset-block: -8px;
+  inset-inline: 0;
 }
 .chat-goal-btn:disabled {
   opacity: 0.5;
@@ -8397,14 +10119,14 @@ details.think-block[open] .chat-disclosure-caret {
 .chat-goal-input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 32px;
+  min-height: var(--palm-hit);
   padding: 0 8px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: 16px;
 }
 @media (max-width: 360px) {
   .chat-goal-label {
@@ -8488,8 +10210,11 @@ details.think-block[open] .chat-disclosure-caret {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--warning, #f5a524) 18%, var(--bg-elevated, #1a1a1a));
-  border-bottom: 1px solid var(--border-focus);
+  /* 2026-11-10：原来是 color-mix(warning 18%, bg-elevated)，既带裸色兜底又在
+     iOS 15 上整条失效（离线条直接透明）。改用皮肤里的普通 rgba 淡染，
+     与聊天页顶部那条断线带同一个来源。 */
+  background: var(--palm-warn-band);
+  border-bottom: var(--palm-hair) solid var(--border-focus);
 }
 
 .mobile-offline-retry {
@@ -8523,7 +10248,7 @@ details.think-block[open] .chat-disclosure-caret {
   border-radius: 14px;
   background: var(--toast-bg);
   color: var(--toast-text);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--palm-shadow);
   cursor: pointer;
   text-align: left;
   font: inherit;
@@ -8590,7 +10315,7 @@ details.think-block[open] .chat-disclosure-caret {
   height: 11px;
   flex: none;
   border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1.5px solid var(--palm-accent-line);
   border-top-color: var(--accent);
   animation: goalSpin 700ms linear infinite;
 }
@@ -8611,8 +10336,8 @@ details.think-block[open] .chat-disclosure-caret {
   min-width: 48px;
   padding: 0 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--danger) 22%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: var(--palm-danger-band);
+  border-color: var(--palm-danger-line);
   color: var(--danger);
 }
 .chat-stop-mini-text {
@@ -8636,13 +10361,17 @@ details.think-block[open] .chat-disclosure-caret {
 /* 附件 chip 上的「取消」：上传中随时可停（弱网不等 120 秒超时） */
 .chat-file-cancel {
   flex: none;
-  min-height: 36px;
-  padding: 0 8px;
+  min-width: var(--palm-hit);
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
   border-radius: 999px;
   border: 1px solid var(--border-default);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--text-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .chat-file-cancel:active { opacity: 0.7; }
 /* ── 审批详情页（P6 ④ 屏） ─────────────────────────────────────────── */
@@ -8673,13 +10402,16 @@ details.think-block[open] .chat-disclosure-caret {
   min-height: 0;
   overflow-y: auto;
   padding: var(--palm-s4);
+  min-inline-size: 0;
 }
 
 .approval-page-hint {
   margin: 0;
   padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
   font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
+  /* 这句话解释的是「批准之后会发生什么」，属于决策信息，不是可有可无的脚注：
+     三级灰在大屏上离按钮 200px 远，基本没人会读。抬到二级色。 */
+  color: var(--palm-fg-2);
   border-top: 1px solid var(--palm-line);
 }
 
@@ -8704,6 +10436,9 @@ details.think-block[open] .chat-disclosure-caret {
   flex: 1 1 auto;
   flex-direction: column;
   overflow-y: auto;
+  /* flex 项的自动最小宽度是 min-content：一条长命令能把整个审批块顶出屏幕，
+     「原始参数」切换按钮随之被挤出视口（2026-11-10 实拍）。 */
+  min-inline-size: 0;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -8714,6 +10449,8 @@ details.think-block[open] .chat-disclosure-caret {
   flex-direction: column;
   gap: var(--palm-s3);
   min-block-size: 0;
+  /* 同上：这一列也不能被长命令撑开。 */
+  min-inline-size: 0;
 }
 
 .approval-detail-meta {
@@ -8808,17 +10545,37 @@ details.think-block[open] .chat-disclosure-caret {
 .approval-detail-args {
   margin: 0;
   padding: var(--palm-s3);
+  /* 命令块自己封顶：不把「待批准」那一行（含切换按钮）顶出屏幕。
+     2026-11-10：原来写 white-space: pre + 横向滚动 —— 手机上批一条命令得**横着拖**
+     才看得全；而聊天卡片里同一段命令是换行读的。两个审批面两种读法没道理，
+     统一成"换行读 + 限高竖向滚"。 */
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  max-block-size: calc(var(--palm-t-s) * 1.4 * 10);
   color: var(--palm-fg);
   font-family: var(--font-mono);
   font-size: var(--palm-t-s);
   line-height: var(--palm-lh-body);
-  white-space: pre;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
 .approval-detail-code {
   min-height: var(--palm-hit);
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+
+/* 横滚溢出提示（2026-11-10，320px 实拍）：命令块在容器圆角上被切掉一截时，右缘给
+ * 一道渐隐 —— 用户才知道后面还有命令没读到。只在真溢出（data-fade=end）时出现，
+ * 短命令没有尾巴；滚到最右由 hook 撤掉。
+ * 渐隐用 currentColor 画：遮罩只看透明度，不引入任何新颜色值。 */
+.approval-detail-code[data-fade='end'] {
+  -webkit-mask-image: linear-gradient(to right, currentColor 0 calc(100% - var(--palm-s6)), transparent 100%);
+  mask-image: linear-gradient(to right, currentColor 0 calc(100% - var(--palm-s6)), transparent 100%);
 }
 
 .approval-detail-args {
@@ -8883,7 +10640,7 @@ details.think-block[open] .chat-disclosure-caret {
 
 .approval-detail-approve {
   border: var(--palm-hair) solid var(--palm-ok);
-  background: color-mix(in srgb, var(--palm-ok) 16%, transparent);
+  background: var(--palm-ok-band);
   color: var(--palm-ok);
 }
 
@@ -8964,7 +10721,9 @@ details.think-block[open] .chat-disclosure-caret {
 .diff-page-lines {
   font-family: var(--palm-font-mono);
   font-size: var(--palm-t-s);
-  line-height: var(--palm-lh-body);
+  /* 2026-11-10 实机：行高按正文口径（1.5 倍 + 上下内边距）落到代码上太松，一屏只看
+     得到十来行。代码行用紧凑行高（1.45），垂直内边距收成 1px —— 一屏多出近一半。 */
+  line-height: 1.45;
   color: var(--palm-fg);
   user-select: text;
   -webkit-user-select: text;
@@ -8972,13 +10731,13 @@ details.think-block[open] .chat-disclosure-caret {
 
 /*
  * 一行三列：行号（等宽右对齐）/ 增删符号 / 内容。
- * minmax(0, 1fr) 是窄屏不横向溢出的关键：内容列可被压缩，超长行截断而不是撑破卡片。
+ * minmax(0, 1fr) 是窄屏不横向溢出的关键：内容列可被压缩，超长行折行而不是撑破卡片。
  */
 .diff-page-row {
   display: grid;
   grid-template-columns: max-content var(--palm-s4) minmax(0, 1fr);
   align-items: baseline;
-  padding: var(--palm-s1) var(--palm-s3) var(--palm-s1) var(--palm-s2);
+  padding: 1px var(--palm-s3) 1px var(--palm-s2);
 }
 
 .diff-page-no {
@@ -9000,12 +10759,13 @@ details.think-block[open] .chat-disclosure-caret {
   -webkit-user-select: none;
 }
 
-/* 超长行在这里截断：pre 保住缩进，overflow+ellipsis 截掉右边。 */
+/* 超长行软换行（2026-11-10）：原来在这里截断（overflow + ellipsis），手机上除了长按
+ * 复制没有别的办法看到后半行。pre-wrap 保住行首缩进，anywhere 让长标识符也能断行；
+ * 行号列按基线对齐，仍和首行对得上，且不出现横向滚动。 */
 .diff-page-text {
   padding-right: var(--palm-s2);
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* 新增行：浅绿底 + 绿色左侧条；行号提亮到正文色，和上下文行区分开。 */
@@ -9140,7 +10900,8 @@ details.think-block[open] .chat-disclosure-caret {
 
 .outline-node {
   /* 轴线颜色：比 --palm-line 亮一点，否则细线在深底上根本看不见。 */
-  --outline-axis: color-mix(in srgb, var(--palm-fg-3) 48%, transparent);
+  /* 2026-11-10：原来是 color-mix(fg-3 48%)，iOS 15 上没有轴线。 */
+  --outline-axis: var(--palm-line);
   position: relative;
   min-inline-size: 0;
 }
@@ -9188,7 +10949,7 @@ details.think-block[open] .chat-disclosure-caret {
 
 /* 当前正在读的那一轮：整行淡染 + 强调描边（定版图里"你看的是这条"）。 */
 .outline-node-row[aria-current='true'] {
-  border-color: color-mix(in srgb, var(--palm-accent) 48%, var(--palm-line));
+  border-color: var(--palm-accent-line);
   background: var(--palm-tint-accent);
 }
 
@@ -9340,6 +11101,9 @@ details.think-block[open] .chat-disclosure-caret {
   display: flex;
   flex-direction: column;
   gap: var(--palm-s4);
+  /* 2026-11-10 实机：这一页原来没有任何左右内边距，汇总行和三组清单全都贴着屏幕
+     边缘（x=0），而页头副标题却从 16px 起 —— 整页看着"歪的"。统一到 16px。 */
+  padding: 0 var(--palm-s4) var(--palm-s5);
 }
 
 /* 顶部汇总：N 个文件 / +A −D / N 测试通过（拿不到的项整项不画）。 */
@@ -9395,9 +11159,15 @@ details.think-block[open] .chat-disclosure-caret {
 .palm-dd-list {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-s2);
+  /* 2026-11-10：三组各自一串"独立卡片"看起来像三堆碎块，行距还被卡片间隙吃掉。
+     现在一组 = 一张卡（圆角 + 细边），行间只用分隔线，信息密度和视觉重量都回来。 */
+  gap: 0;
   margin: 0;
   padding: 0;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  overflow: hidden;
   list-style: none;
 }
 
@@ -9409,18 +11179,23 @@ details.think-block[open] .chat-disclosure-caret {
   gap: var(--palm-s2);
   min-block-size: var(--palm-hit);
   padding: var(--palm-s2) var(--palm-s3);
-  background: var(--palm-sur-1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
+  background: none;
+  border: 0;
+  border-radius: 0;
   color: var(--palm-fg);
   font: inherit;
+}
+
+/* 行间分隔线挂在 li 上：行本身是按钮，画边框会跟 :active 底色打架。 */
+.palm-dd-list > li + li .palm-dd-row {
+  border-block-start: var(--palm-hair) solid var(--palm-line);
 }
 
 .palm-dd-row:active { background: var(--palm-sur-2); }
 
 .palm-dd-row:focus-visible {
   outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
+  outline-offset: calc(var(--palm-focus) * -1);
 }
 
 .palm-dd-icon {
@@ -9433,12 +11208,30 @@ details.think-block[open] .chat-disclosure-caret {
   block-size: var(--palm-s4);
 }
 
+/* 文件名两行式：主行是名字/说明，副行是暗一档的路径（各自省略号，互不挤占）。 */
 .palm-dd-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   min-inline-size: 0;
   overflow: hidden;
-  font-size: var(--palm-t-m);
+}
+
+.palm-dd-file,
+.palm-dd-dir {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.palm-dd-file {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
+}
+
+.palm-dd-dir {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
 }
 
 .palm-dd-tally {
@@ -9456,7 +11249,7 @@ details.think-block[open] .chat-disclosure-caret {
 .palm-dd-badge {
   padding: 0 var(--palm-s1);
   border-radius: var(--palm-r-s);
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  background: var(--palm-ok-band);
   color: var(--palm-ok);
   font-size: var(--palm-t-s);
 }
@@ -9483,29 +11276,43 @@ details.think-block[open] .chat-disclosure-caret {
   padding: var(--palm-s4);
 }
 
-/* 占用条：四档宽度（不用行内样式，遵守 inlineStyles 棘轮）。 */
+/* 占用条：原生 <progress>。宽度由浏览器按 value/max 算比例，
+   不再用"四档宽度"糊（26% 曾被画成半满）。三条规则分别对应
+   内核默认外观、轨道、填充；缺一条就会露出系统蓝。 */
 .context-bar {
-  height: 12px;
-  margin-bottom: var(--palm-s4);
-  background: var(--palm-sur-2);
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  inline-size: 100%;
+  block-size: 12px;
+  margin: 0 0 var(--palm-s4);
+  border: none;
   border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
   overflow: hidden;
 }
 
-.context-bar-fill {
-  display: block;
-  height: 100%;
-  width: 25%;
+.context-bar::-webkit-progress-bar {
+  background: var(--palm-sur-2);
+  border-radius: var(--palm-r-s);
+}
+
+.context-bar::-webkit-progress-value {
   background: var(--palm-accent);
   border-radius: var(--palm-r-s);
 }
 
-.context-bar-fill[data-level='2'] { width: 50%; }
-.context-bar-fill[data-level='3'] { width: 75%; }
-.context-bar-fill[data-level='4'] { width: 100%; }
+.context-bar::-moz-progress-bar {
+  background: var(--palm-accent);
+  border-radius: var(--palm-r-s);
+}
 
-/* 快满了换警示色：只换色，不改结构。 */
-.context-bar-fill[data-pressure='high'] { background: var(--palm-warn); }
+/* 快满了换色：只换色，不改结构。
+   2026-11-10 双皮肤实拍：纸色皮肤里 --palm-warn 与 --palm-accent 几乎同色（橄榄棕 vs 棕），
+   警示档与常态档看不出区别。改用 --palm-danger：三套皮肤都与强调色拉得开，
+   而且"上下文快满"本来就更接近"要出事"而不是"提示一下"。 */
+.context-bar[data-pressure='high']::-webkit-progress-value { background: var(--palm-danger); }
+.context-bar[data-pressure='high']::-moz-progress-bar { background: var(--palm-danger); }
 
 .context-facts {
   display: grid;
@@ -9550,6 +11357,14 @@ details.think-block[open] .chat-disclosure-caret {
 .context-page-figure-unit {
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+}
+
+/* 百分比（2026-11-10）：和「已占用」同一条基线，但字号抬到 13px、二级色 ——
+ * 它是这一屏真正要回答的那个数，不该比单位还弱。 */
+.context-page-figure-pct {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-2);
+  font-variant-numeric: tabular-nums;
 }
 /* ── 批准方式页（P6 ⑥ 屏） ─────────────────────────────────────────── */
 
@@ -9612,11 +11427,88 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg-3);
 }
 
+/* 最放开那一档的二次确认（2026-11-10）：与对话页的确认浮层同一套语义色 ——
+ * 警示条用 --palm-tint-warn + --palm-warn，确认按钮描边同色，取消保持安静。 */
+.approval-mode-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin-top: var(--palm-s2);
+  padding: var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-warn);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-warn);
+}
+
+.approval-mode-confirm-text {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+}
+
+.approval-mode-confirm-actions {
+  display: flex;
+  gap: var(--palm-s2);
+  justify-content: flex-end;
+}
+
+.approval-mode-confirm-ok {
+  border-color: var(--palm-warn);
+  color: var(--palm-warn);
+  font-weight: var(--palm-w-bold);
+}
+
+
 .approval-mode-error {
   margin: var(--palm-s3) 0 0;
   font-size: var(--palm-t-s);
   color: var(--palm-danger);
 }
+/* ── 用量页（2026-11-11）──────────────────────────────────────────────
+ * 从设置的「其他」分组里搬出来的独立页：抽屉底部「用量」直接进。
+ * 页面骨架复用 settingsLayout，这里只补三件事：页面滚动区、右上「刷新」、卡片间距。
+ */
+
+.usage-page {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.usage-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s3) var(--palm-s6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 右上角「刷新」：文字键，命中区仍按 44px 给足（手机上点小字很难）。 */
+.usage-refresh {
+  min-block-size: 32px;
+  padding: 0 var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  white-space: nowrap;
+}
+
+/* 按下态与其余主键同一套令牌（不引入 color-mix：老 Android WebView 不一定支持）。 */
+.usage-refresh:active { filter: brightness(var(--palm-btn-press-dim)); }
+
+.usage-refresh:disabled {
+  color: var(--palm-fg-3);
+  opacity: var(--palm-btn-disabled-opacity);
+}
+
+/* 卡片之间留白：设置页里它们是同一分组内的连排，独立页要多一点呼吸。 */
+.usage-page .usage-provider + .usage-provider { margin-block-start: var(--palm-s2); }
 /* ── 五屏统一规格：设置 / 外观 / 产物 / 审批 / 搜索（P6 收尾切片） ────────
  *
  * 版式真源：docs/prototype/overview.html「4 · 设置」～「8 · 搜索」五个格子，
@@ -9626,7 +11518,7 @@ details.think-block[open] .chat-disclosure-caret {
  * search-page-* / settings-*），同一个"分组卡 + 图标方块行"被抄了四遍，改一处
  * 其余三处就开始漂。这里把**五屏共用的四种形状**收成一层，屏里只留业务差异：
  *
- * 1. 搜索框（32 高、圆角 10、无描边）；
+ * 1. 搜索框（44 高、圆角 10、无描边）；
  * 2. 分组标题（11px 弱化 + 右侧说明）+ 分组卡（圆角 10、行内 18 图标方块）；
  * 3. 列表行（左 16px 线性 SVG + 主文案 + 右侧弱值，行高 ≥44）；
  * 4. 类型标签（交付物绿 / 改动蓝 / 警示琥珀 / 拒绝红）。
@@ -9649,7 +11541,7 @@ details.think-block[open] .chat-disclosure-caret {
   border-radius: var(--palm-spec-search-r);
   background: var(--palm-sur-1);
   color: var(--palm-fg-3);
-  font-size: var(--palm-t-m);
+  font-size: 16px;
 }
 
 /* 无描边：焦点只用一圈强调色内阴影，不改变盒子尺寸。 */
@@ -9672,7 +11564,7 @@ details.think-block[open] .chat-disclosure-caret {
   background: transparent;
   color: var(--palm-fg);
   font: inherit;
-  font-size: var(--palm-t-m);
+  font-size: 16px;
   outline: none;
 }
 
@@ -9680,26 +11572,18 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg-3);
 }
 
-/* 32 高的框里放不下 44 的按钮：脸不变，热区用伪元素补到 44×44。 */
+/* 搜索框与清除操作共用实体 44px 控件高度，避免热区溢入输入区域。 */
 .palm-spec-search-clear {
-  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
   width: var(--palm-spec-search-h);
   height: var(--palm-spec-search-h);
-  margin-right: calc(var(--palm-s3) * -1);
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--palm-fg-3);
-}
-
-.palm-spec-search-clear::after {
-  content: '';
-  position: absolute;
-  inset: calc(var(--palm-s2) * -0.75);
 }
 
 .palm-spec-search-clear > svg {
@@ -9723,7 +11607,9 @@ details.think-block[open] .chat-disclosure-caret {
   font-size: var(--palm-spec-head-size);
   font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-head);
-  color: var(--palm-fg-3);
+  /* 二级前景色（2026-11-10 设置页实拍）：11px 三级灰在深色皮肤上几乎读不出来，
+     而这是整页唯一的分区线索。与切片 6 的抽屉分组标题保持同一个口径。 */
+  color: var(--palm-fg-2);
   letter-spacing: 0;
 }
 
@@ -9918,13 +11804,15 @@ button.palm-spec-group-head:focus-visible {
   white-space: nowrap;
 }
 
+/* 2026-11-10：这两条原来用 color-mix 现算淡底，iOS 15 上整条声明被丢弃 → 标签变透明。
+   皮肤里本来就有普通 rgba 的 --palm-tint-ok / --palm-tint-accent，直接用。 */
 .palm-spec-tag[data-kind='ok'] {
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  background: var(--palm-tint-ok);
   color: var(--palm-ok);
 }
 
 .palm-spec-tag[data-kind='edit'] {
-  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  background: var(--palm-tint-accent);
   color: var(--palm-accent);
 }
 
@@ -9987,6 +11875,8 @@ button.palm-spec-group-head:focus-visible {
   height: var(--palm-spec-swatch);
   border-radius: var(--palm-r-s);
   background: var(--palm-spec-skin-bg);
+  /* 深色皮肤（石墨 / 夜航）的底色和深色页面几乎同色，没有这道内描边就看不出卡片边界。 */
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-line);
 }
 
 .palm-spec-skin-name {
@@ -10010,17 +11900,26 @@ button.palm-spec-group-head:focus-visible {
   color: var(--palm-accent);
 }
 
-/* 三张卡各自的色板：色值落在令牌层，这里只做映射。 */
+/* 三张卡各自的色板：色值落在令牌层，这里只做映射。
+ * 2026-11-10 外观页截图：原来是「底色 → 强调色」的 140° 对角渐变，石墨（中性灰）
+ * 被画成一块蓝紫，三张卡看着都是"蓝色皮肤"。现在**底色占 64% 为主**，强调色只在
+ * 底边留一条带 —— 一眼能认出是石墨 / 纸 / 夜航，强调色也仍然在。 */
 .palm-spec-skin[data-skin='graphite'] {
-  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-graphite-bg), var(--palm-skin-graphite-ink));
+  --palm-spec-skin-bg:
+    linear-gradient(180deg, transparent 0 82%, var(--palm-skin-graphite-ink) 82%),
+    var(--palm-skin-graphite-bg);
 }
 
 .palm-spec-skin[data-skin='paper'] {
-  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-paper-bg), var(--palm-skin-paper-ink));
+  --palm-spec-skin-bg:
+    linear-gradient(180deg, transparent 0 82%, var(--palm-skin-paper-ink) 82%),
+    var(--palm-skin-paper-bg);
 }
 
 .palm-spec-skin[data-skin='nocturne'] {
-  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-nocturne-bg), var(--palm-skin-nocturne-ink));
+  --palm-spec-skin-bg:
+    linear-gradient(180deg, transparent 0 82%, var(--palm-skin-nocturne-ink) 82%),
+    var(--palm-skin-nocturne-bg);
 }
 
 /* ── ⑥ 五屏页壳：一列、正文自己滚，页脚说明统一 12px 弱灰 ─────────────── */
@@ -10056,5 +11955,354 @@ button.palm-spec-group-head:focus-visible {
   font-size: var(--palm-t-s);
   line-height: var(--palm-lh-body);
   color: var(--palm-fg-3);
+}
+/* ── 皮肤商店（2026-11-11）──────────────────────────────────────────────
+ * 全屏浮层：两列卡片网格，每张卡上半是这套配色的迷你界面。
+ * 颜色一律由卡片自己的行内变量给（皮肤是"预览一份别人的配色"，不能用当前皮肤
+ * 的令牌，否则预览会跟着当前皮肤变）。
+ */
+
+.skin-store-hint {
+  margin: 0 0 var(--palm-s3);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.skin-store-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--palm-s2);
+}
+
+.skin-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  inline-size: 100%;
+  padding: 0 0 var(--palm-s2);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+  overflow: hidden;
+}
+
+.skin-card-on {
+  border-color: var(--palm-accent);
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-accent);
+}
+
+.skin-card:active { filter: brightness(var(--palm-btn-press-dim)); }
+
+/* 迷你界面：只用**那一套皮肤自己的底色与强调色**画三块（顶栏 / 气泡 / 输入条）。
+ * 色值落在 000-tokens.css 的 --palm-skin-*-bg/-ink 上，这里只做映射，不写裸色。 */
+.skin-card-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  block-size: 96px;
+  padding: var(--palm-s2);
+  border-block-end: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-skin-shot-bg);
+}
+
+.skin-card-shot[data-skin='graphite'] {
+  --palm-skin-shot-bg: var(--palm-skin-graphite-bg);
+  --palm-skin-shot-ink: var(--palm-skin-graphite-ink);
+}
+
+.skin-card-shot[data-skin='paper'] {
+  --palm-skin-shot-bg: var(--palm-skin-paper-bg);
+  --palm-skin-shot-ink: var(--palm-skin-paper-ink);
+}
+
+.skin-card-shot[data-skin='nocturne'] {
+  --palm-skin-shot-bg: var(--palm-skin-nocturne-bg);
+  --palm-skin-shot-ink: var(--palm-skin-nocturne-ink);
+}
+
+.skin-card-shot[data-skin='newsprint'] {
+  --palm-skin-shot-bg: var(--palm-skin-newsprint-bg);
+  --palm-skin-shot-ink: var(--palm-skin-newsprint-ink);
+}
+
+.skin-card-shot[data-skin='endfield'] {
+  --palm-skin-shot-bg: var(--palm-skin-endfield-bg);
+  --palm-skin-shot-ink: var(--palm-skin-endfield-ink);
+}
+
+.skin-card-shot[data-skin='claude'] {
+  --palm-skin-shot-bg: var(--palm-skin-claude-bg);
+  --palm-skin-shot-ink: var(--palm-skin-claude-ink);
+}
+
+.skin-card-shot-bar {
+  inline-size: 46px;
+  block-size: var(--palm-s1);
+  border-radius: 2px;
+  background: var(--palm-skin-shot-ink);
+  opacity: 0.35;
+}
+
+.skin-card-shot-bubble {
+  inline-size: 74%;
+  block-size: 26px;
+  border-radius: 10px 10px 10px 3px;
+  background: var(--palm-skin-shot-ink);
+  opacity: 0.16;
+}
+
+.skin-card-shot-input {
+  margin-block-start: auto;
+  block-size: 16px;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-skin-shot-ink);
+  opacity: 0.85;
+}
+
+.skin-card-name {
+  padding-inline: var(--palm-s2);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.skin-card-hint {
+  padding-inline: var(--palm-s2);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+/* 来源与许可：一直显示，不藏进详情页（2026-11-11 用户要求）。 */
+.skin-card-source {
+  padding-inline: var(--palm-s2);
+  font-size: 11px;
+  color: var(--palm-fg-3);
+}
+
+.skin-card-tick {
+  position: absolute;
+  inset-block-start: var(--palm-s2);
+  inset-inline-end: var(--palm-s2);
+  display: grid;
+  place-items: center;
+  inline-size: 20px;
+  block-size: 20px;
+  border-radius: 50%;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.skin-store-foot {
+  display: flex;
+  gap: var(--palm-s2);
+  margin-block-start: var(--palm-s3);
+  padding-block-end: var(--palm-s2);
+}
+
+.skin-store-foot > .mobile-button { flex: 1 1 0; }
+/* ── 组合件样式（2026-11-10 重设计：原语层） ────────────────────────────
+   对应 ui/primitives.tsx 里的 SectionHeader / SectionCard / ResultRow / ActionBar。
+   规则：这里**只许出现令牌**，不写十六进制、不写 rgb()、不写魔法数字圆角。
+   structure 用例会拦「裸色」与「页面自己写的圆角」。 */
+
+.palm-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) 0;
+}
+
+.palm-section-title {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+  letter-spacing: 0.02em;
+  color: var(--palm-fg-2);
+}
+
+.palm-section-gap { flex: 1; }
+
+.palm-section-hint {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.palm-section-action {
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: transparent;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+[data-section-card] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s4);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+/* 浮层：压在卡片之上（审批块、待发队列、浮窗内容）。必须是可分辨的第三层，
+   所以用 --palm-sur-2 而不是把 sur-1 再加一层透明。 */
+[data-section-card][data-level='raised'] {
+  background: var(--palm-sur-2);
+}
+
+.palm-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  font-size: var(--palm-t-m);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg);
+}
+
+[data-result-row] {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  min-height: var(--palm-hit);
+  font-size: var(--palm-t-s);
+}
+
+.palm-result-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--palm-fg-2);
+}
+
+.palm-result-add { color: var(--palm-ok); font-weight: var(--palm-w-bold); }
+.palm-result-del { color: var(--palm-danger); font-weight: var(--palm-w-bold); }
+.palm-result-gap { flex: 1; }
+
+.palm-result-action {
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: transparent;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-action-bar {
+  display: flex;
+  gap: var(--palm-s2);
+  padding-top: var(--palm-s2);
+}
+
+.palm-action-primary,
+.palm-action-secondary {
+  min-height: var(--palm-hit);
+  border-radius: var(--palm-r-m);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 主操作实心强调色：深浅皮肤都靠 --palm-on-accent 保证字读得出来。 */
+.palm-action-primary {
+  flex: 1.4;
+  border: 0;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+}
+
+.palm-action-secondary {
+  flex: 1;
+  border: var(--palm-hair) solid var(--palm-line);
+  background: transparent;
+  color: var(--palm-fg-2);
+}
+
+.palm-action-primary:disabled,
+.palm-action-secondary:disabled { opacity: var(--palm-btn-disabled-opacity); }
+/* ── 报纸皮肤（newsprint）的装饰层（2026-11-11）────────────────────────────
+ * 移植自 2754LM/dsh-theme-newsprint（MIT）。底色与墨色在 000-tokens.css 的
+ * \`html[data-skin='newsprint']\` 块里；这里只放**颜色令牌表达不了**的部分：
+ * 衬线正文、报头双线、栏目小标题的小型大写间距。
+ *
+ * 为什么字体也放进皮肤：桌面上那份皮肤的签名就是「衬线正文 + 报纸笔画」，
+ * 只换颜色会变成"浅色版的石墨"，用户一眼认不出这是报纸。
+ */
+
+/* 正文用衬线（字族在令牌里给，缺字体时自然回落到系统无衬线）。 */
+html[data-skin='newsprint'] body {
+  letter-spacing: 0.01em;
+}
+
+/* 报头：标题用衬线加粗，下面压一条 2px 墨线 —— 报纸的分栏从这里开始。 */
+html[data-skin='newsprint'] .mobile-title {
+  font-family: var(--palm-font-sans);
+  font-weight: var(--palm-w-bold);
+  letter-spacing: 0.06em;
+}
+
+html[data-skin='newsprint'] .mobile-header {
+  box-shadow: inset 0 -2px 0 var(--palm-fg);
+}
+
+/* 分组小标题：拉开字距，像报纸的栏目名。 */
+html[data-skin='newsprint'] .palm-spec-group-head {
+  letter-spacing: 0.12em;
+}
+
+/* 引用块与分隔线：用墨色细线，而不是圆角卡片。 */
+html[data-skin='newsprint'] blockquote {
+  border-inline-start: 3px solid var(--palm-accent);
+  padding-inline-start: var(--palm-s2);
+}
+/* ── Claude 皮肤（claude）的装饰层（2026-11-11）─────────────────────────────
+ * 移植自 Nwflower/dsh-claude-style（MIT，556★）。底色/墨色/陶土橙在
+ * 000-tokens.css 的 \`html[data-skin='claude']\` 块里；这里只放**颜色令牌表达不了**的部分：
+ * 衬线标题、极细的暖边、引用块的橙线。
+ *
+ * 为什么这些必须单独一层：Claude 桌面端的辨识度有一半来自「衬线大标题 + 几乎看不见的边框」，
+ * 只把底色换成米白，看起来就是"另一个浅色主题"。
+ */
+
+/* 标题走衬线：Claude 的标题是 serif，正文仍是无衬线。 */
+html[data-skin='claude'] .mobile-title {
+  font-family: Georgia, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* 分隔线压到几乎看不见：Claude 用暖灰细线，而不是 1px 实色的"分割条"。 */
+html[data-skin='claude'] .mobile-header {
+  box-shadow: inset 0 -1px 0 var(--palm-line);
+}
+
+/* 分组小标题降一档字重、不加字距 —— 桌面端是安静的灰字，不是标签。 */
+html[data-skin='claude'] .palm-spec-group-head {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* 引用块：陶土橙竖线，跟强调色同一个来源。 */
+html[data-skin='claude'] blockquote {
+  border-inline-start: 3px solid var(--palm-accent);
+  padding-inline-start: var(--palm-s2);
+}
+
+/* 代码块：桌面端是"浅一档的纸"，不是深色底板，也不该有大圆角。 */
+html[data-skin='claude'] .code-block {
+  border-color: var(--palm-line);
+}
+
+html[data-skin='claude'] .code-head {
+  background: var(--palm-sur-2);
 }
 `;
