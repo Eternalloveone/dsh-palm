@@ -1,0 +1,44 @@
+/* ── 皮肤装饰层模板（复制这个文件开始写）──────────────────────────────────
+ *
+ * 用途：颜色令牌表达不了的东西——字体、笔画、边框粗细、圆角例外、动效。
+ * 放在 `src/mobile/styles/6NN-skin-<皮肤id>.css`（600 段专用），
+ * `gen-mobile-css` 按文件名排序自动纳入，不需要改任何注册表。
+ *
+ * 三条硬规则（都有测试守着，见 src/mobile/styles/skin-decor.test.ts）：
+ *
+ *   1. **只写令牌，不写裸色**：颜色一律 `var(--palm-*)` 或 `var(--tok-*)`。
+ *      写 `#fff` / `rgba(0,0,0,.1)` 会在换明暗档时不跟着反色。
+ *   2. **每条规则前面必须有 `html[data-skin='<id>']`**：否则这条装饰会跑到**所有**皮肤上。
+ *   3. **类名必须真实存在**：写之前先在 `src/mobile/**\/*.tsx` 里搜一下这个类。
+ *      报纸皮肤第一版就白写过三条规则（`.palm-spec-head-title` 根本不存在）。
+ *
+ * 下面是真实存在的钩子（都已验证）：.mobile-title / .mobile-header /
+ * .palm-spec-group-head / .chat-md-body / .code-block / .code-head / .code-lang /
+ * .settings-group / blockquote / pre / table
+ */
+
+/* 标题字族：皮肤最直观的"气质"来自这里（衬线 = 报刊/文学，等宽 = 工程/终端）。 */
+html[data-skin='REPLACE_ME'] .mobile-title {
+  font-family: Georgia, 'Songti SC', 'Noto Serif CJK SC', serif;
+}
+
+/* 页头笔画：把 1px 细线换成 2px 墨线，就是报纸；换成 0 就变"无边界"。 */
+html[data-skin='REPLACE_ME'] .mobile-header {
+  box-shadow: inset 0 -2px 0 var(--palm-fg);
+}
+
+/* 分组小标题：字距拉开像栏目名，或压平像表单标签。 */
+html[data-skin='REPLACE_ME'] .palm-spec-group-head {
+  letter-spacing: 0.12em;
+}
+
+/* 引用块：用强调色竖线代替圆角卡片。 */
+html[data-skin='REPLACE_ME'] blockquote {
+  border-inline-start: 3px solid var(--palm-accent);
+  padding-inline-start: var(--palm-s2);
+}
+
+/* 代码块：桌面端常常是"浅一档的纸"，不是深色底板。 */
+html[data-skin='REPLACE_ME'] .code-block {
+  border-color: var(--palm-line);
+}
