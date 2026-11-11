@@ -11,7 +11,7 @@
  * @module dsh-palm/mobile/design/tokens.test
  */
 import { describe, expect, it } from 'vitest'
-import { DARK_PALETTE, LIGHT_PALETTE, designTokensCss } from './tokens.ts'
+import { DARK_PALETTE, LIGHT_PALETTE, SYNTAX_DARK, SYNTAX_LIGHT, designTokensCss } from './tokens.ts'
 
 /* ── WCAG 对比度 ─────────────────────────────────────────────────────── */
 
@@ -43,6 +43,9 @@ function contrast(fg: string, bg: string): number | undefined {
 
 /* ── 生成结果的结构 ──────────────────────────────────────────────────── */
 
+/** 运行时允许由主题切换的令牌：只有语法高亮。 */
+const SYNTAX_ONLY = /^--tok-/
+
 const CSS = designTokensCss()
 
 function bodyAfter(selector: string, close: string): string {
@@ -69,17 +72,35 @@ describe('design tokens', () => {
     expect(Object.keys(LIGHT_PALETTE).sort()).toEqual(Object.keys(DARK_PALETTE).sort())
   })
 
-  it('浅色进 :root，深色同时进「钉死」与「跟随系统」两处', () => {
-    for (const [name, value] of Object.entries(LIGHT_PALETTE)) {
-      expect(ROOT_BODY, `${name} 没进 :root`).toContain(`${name}: ${value};`)
-      expect(declarationsOf(ROOT_BODY, name), `${name} 在 :root 里声明了多次`).toBe(1)
-    }
-    for (const [name, value] of Object.entries(DARK_PALETTE)) {
-      expect(DARK_BODY, `${name} 没进钉死深色`).toContain(`${name}: ${value};`)
-      expect(MEDIA_BODY, `${name} 没进系统深色`).toContain(`${name}: ${value};`)
-      expect(declarationsOf(DARK_BODY, name), `${name} 在钉死深色里声明了多次`).toBe(1)
-    }
-  })
+  it(
+    // 2026-11-10 起，这里只验**语法高亮**两套色板：界面颜色全部由 000-tokens.css
+    // 的皮肤令牌定义，生成器不再铺第二份（见下一条用例）。
+    '语法高亮：浅色进 :root，深色同时进「钉死」与「跟随系统」两处',
+    () => {
+      for (const [name, value] of Object.entries(SYNTAX_LIGHT)) {
+        expect(ROOT_BODY, `${name} 没进 :root`).toContain(`${name}: ${value};`)
+        expect(declarationsOf(ROOT_BODY, name), `${name} 在 :root 里声明了多次`).toBe(1)
+      }
+      for (const [name, value] of Object.entries(SYNTAX_DARK)) {
+        expect(DARK_BODY, `${name} 没进钉死深色`).toContain(`${name}: ${value};`)
+        expect(MEDIA_BODY, `${name} 没进系统深色`).toContain(`${name}: ${value};`)
+        expect(declarationsOf(DARK_BODY, name), `${name} 在钉死深色里声明了多次`).toBe(1)
+      }
+    },
+  )
+
+  it(
+    // 这条是「主题与皮肤冲突」的根本解法：生成器**不许**再输出任何界面颜色。
+    // 一旦有人把 --accent / --bg-page 之类重新铺进 :root，运行时就又有两套色板
+    // 抢同一个属性，纸色 / 夜航皮肤会重新出现"半套旧色"。
+    '生成器只输出语法色板，界面颜色一律交给皮肤令牌',
+    () => {
+      const leaked = Object.keys(LIGHT_PALETTE)
+        .filter((name) => !SYNTAX_ONLY.test(name))
+        .filter((name) => CSS.includes(`${name}:`))
+      expect(leaked, '这些界面颜色不该出现在生成的 CSS 里').toEqual([])
+    },
+  )
 
   it('钉死深色与跟随系统深色逐字相同', () => {
     const dedented = MEDIA_BODY

@@ -15,12 +15,10 @@ import pkg from '../../../package.json'
 import { latestVersion, readDiagnostics } from '../data/diag.ts'
 import { notifyEvents, readNotifyConfig, testNotifyChannels, writeNotifyConfig } from '../data/notify.ts'
 import { readSettings } from '../data/settings.ts'
-import { fetchUsage } from '../data/usage.ts'
 import { fetchHostVoiceServices } from '../data/voice.ts'
 import type { DeliveryRecordView, DeliveryStatsView, MobileHealthView, NotifyEventView, UsageView } from '../api.ts'
 import { errorText } from '../shared/error-text.ts'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush } from '../platform/notify.ts'
-import { getMobileThemeMode, subscribeMobileTheme } from '../mobile-theme.ts'
 import { toast } from '../components/toast.tsx'
 import {
   getAutoScroll, getDensity, getFontScale, getHaptics, getLineNumbers,
@@ -29,7 +27,7 @@ import {
 import {
   getVoiceServices, subscribeVoiceServices, syncHostVoiceServices, type VoiceService,
 } from '../platform/voice-services.ts'
-import { SlidersIcon } from '../components/icons.tsx'
+import { ContrastIcon, SlidersIcon } from '../components/icons.tsx'
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../platform/notify-triggers.ts'
 import { refreshPage, usePage } from '../page-cache.ts'
@@ -42,8 +40,9 @@ import { NotifyPage } from './settings/notify-page.tsx'
 import { NotifySection } from './settings/notify-section.tsx'
 import { OtherSection, SETTINGS_FOOTNOTE } from './settings/other-section.tsx'
 import { SettingsOverlays } from './settings/settings-overlays.tsx'
+import { SkinStoreSheet } from './settings/SkinStoreSheet.tsx'
+import { SKIN_LABEL, getSkin, type MobileSkin } from '../platform/skin.ts'
 import { RowChevron, SettingsGroup, SettingsRow } from './settings/settings-shared.tsx'
-import { UsageSection } from './settings/usage-section.tsx'
 import { VoicePage, VoiceSection } from './settings/voice-section.tsx'
 import { SETTINGS_GROUPS, matchSettingsIndex, settingsLocateProps, type SettingsIndexEntry } from './settings/settings-groups.tsx'
 import { SpecSearch } from './screen-spec.tsx'
@@ -70,13 +69,12 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [marketOpen, setMarketOpen] = useState(false)
   // Local preference state (mirrors display-prefs + theme stores).
-  const themeMode = useSyncExternalStore(subscribeMobileTheme, getMobileThemeMode)
   const [fontScale, setFontScaleState] = useState<FontScale>(() => getFontScale())
   const [density, setDensityState] = useState<Density>(() => getDensity())
   const [lineNumbers, setLineNumbersState] = useState(() => getLineNumbers())
   const [autoScroll, setAutoScrollState] = useState(() => getAutoScroll())
   const [haptics, setHapticsState] = useState(() => getHaptics())
-  const [sheet, setSheet] = useState<'theme' | 'font' | 'density' | 'about' | null>(null)
+  const [sheet, setSheet] = useState<'font' | 'density' | 'about' | null>(null)
   // Health report for the About sheet. Fetched on open (never cached): a stale
   // report would show a broken contract as healthy, which is the one thing this
   // block exists to prevent.
@@ -127,17 +125,6 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   const [pushplusToken, setPushplusToken] = useState('')
   // Web Push (L2) subscription state: undefined while probing.
   const [webPushOn, setWebPushOn] = useState<boolean | undefined>(undefined)
-  // Per-provider usage/balance (synced from desktop): collapsed into a summary
-  // row by default; the group expands to the full provider list.
-  const [usage, setUsage] = useState<UsageView | undefined>(undefined)
-  const [usageBusy, setUsageBusy] = useState(false)
-  const [usageOpen, setUsageOpen] = useState(false)
-  // Providers with no queryable balance/usage endpoint never render on the
-  // phone (the host still reports them; the phone only shows rows it can act
-  // on — ok / no-key / error).
-  const visibleUsage: UsageView | undefined = usage === undefined
-    ? undefined
-    : { ...usage, providers: usage.providers.filter(provider => provider.status !== 'unsupported') }
   // Notification-page trigger inputs (synced from the loaded config).
   const [thresholdInput, setThresholdInput] = useState('30')
   const [cooldownInput, setCooldownInput] = useState('2')
@@ -220,19 +207,14 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
     return () => { cancelled = true }
   }, [])
 
-  // Per-provider usage/balance on mount; failures leave the card hidden (no
-  // usage row rendered) rather than surfacing an error the user cannot act on.
-  useEffect(() => {
-    let cancelled = false
-    void fetchUsage().then(
-      (view) => { if (!cancelled) setUsage(view) },
-      () => { /* usage unavailable: card stays hidden */ },
-    )
-    return () => { cancelled = true }
-  }, [])
+  // Per-provider usage/balance 已经不在这里了：2026-11-11 用户反馈「点用量跳进设置栏」，
+  // 那一块整段搬到 views/UsageView.tsx（抽屉底部「用量」直接进），设置页不再查询用量。
 
   // 设置搜索：实时过滤偏好行与配置卡；常用项天然置顶（主题/字体在最前）。
   // Hooks stay above every early return — query state is unconditional.
+  /** 皮肤商店浮层（2026-11-11：入口在设置首屏第一组）。 */
+  const [skinStoreOpen, setSkinStoreOpen] = useState(false)
+  const [currentSkin, setCurrentSkin] = useState<MobileSkin>(() => getSkin())
   const [query, setQuery] = useState('')
   const term = query.trim().toLowerCase()
   // 命中计数：搜索时「没有匹配」的空态只在真的没有任何一行命中时才显示
@@ -284,8 +266,6 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
       : notifyPermission === 'denied'
         ? '已拒绝'
         : '未授权'
-
-  const themeLabel = themeMode === 'dark' ? '深色' : themeMode === 'light' ? '浅色' : '跟随系统'
 
   /** The completion-notify permission row: request on first tap, restart the
    * L1 channel when already granted. */
@@ -599,27 +579,14 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
     setFocusId(entry.id)
   }
 
-  /** Refresh the per-provider usage surface, bypassing the host's short cache. */
-  const refreshUsage = async (): Promise<void> => {
-    setUsageBusy(true)
-    try {
-      setUsage(await fetchUsage(true))
-    } catch (reason: unknown) {
-      toast(errorText(reason))
-    } finally {
-      setUsageBusy(false)
-    }
-  }
 
   // 搜索命中在主渲染里按原顺序求值：hit() 的命中计数语义与拆分前一致。
   const show = {
-    theme: hit('主题', 'theme', '深色', '浅色', '外观'),
     font: hit('字体大小', 'font'),
     density: hit('消息密度', 'density', '紧凑', '舒适'),
     lineNumbers: hit('代码块行号', '行号', 'line'),
     autoScroll: hit('自动滚动', 'scroll'),
     haptics: hit('震动', 'vibrate', '通知震动'),
-    usage: hit('用量', '余量', '配额', '余额'),
     notify: hit('通知', 'notify', '推送', '提醒', '阈值', '间隔'),
     voice: hit('语音服务', '转写', 'voice', '语音'),
     device: hit('设备管理', '配对', '设备', 'device', 'pair'),
@@ -677,14 +644,23 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
         )}
 
         {/* 定版图口径：整页只有三张卡——外观 / 对话 / 其他；每张卡里是行，不再套卡。 */}
+        <SettingsGroup title="皮肤" note="换一套配色与气质">
+          <SettingsRow
+            icon={<ContrastIcon />}
+            title="皮肤商店"
+            desc={`当前 ${SKIN_LABEL[currentSkin]} · 点进去当场试穿`}
+            action={<RowChevron />}
+            onClick={() => { setSkinStoreOpen(true) }}
+          />
+        </SettingsGroup>
+
+
         <SettingsGroup title="外观" note="显示效果">
           <AppearanceSection
             onOpenAppearance={onOpenAppearance}
-            showTheme={show.theme}
             showFont={show.font}
             showDensity={show.density}
             showLineNumbers={show.lineNumbers}
-            themeLabel={themeLabel}
             fontScale={fontScale}
             density={density}
             lineNumbers={lineNumbers}
@@ -712,17 +688,7 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
           <DeviceSection show={show.device} setDeviceOpen={setDeviceOpen} />
         </SettingsGroup>
 
-        <SettingsGroup title="其他" note="用量 · 进阶 · 关于">
-          <UsageSection
-            show={show.usage}
-            usage={usage}
-            error={error}
-            visibleUsage={visibleUsage}
-            usageOpen={usageOpen}
-            usageBusy={usageBusy}
-            setUsageOpen={setUsageOpen}
-            refreshUsage={refreshUsage}
-          />
+        <SettingsGroup title="其他" note="进阶 · 关于">
           <AdvancedSection showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
           <OtherSection
             showCache={show.cache}
@@ -749,10 +715,15 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
         )}
       </div>
 
+      {skinStoreOpen ? (
+        <SkinStoreSheet
+          onClose={() => { setSkinStoreOpen(false); setCurrentSkin(getSkin()) }}
+        />
+      ) : null}
+
       <SettingsOverlays
         sheet={sheet}
         setSheet={setSheet}
-        themeMode={themeMode}
         fontScale={fontScale}
         density={density}
         setFontScaleState={setFontScaleState}

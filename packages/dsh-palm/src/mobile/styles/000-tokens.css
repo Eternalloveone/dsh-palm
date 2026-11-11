@@ -12,6 +12,8 @@
   --palm-t-l: 17px;
   --palm-t-xl: 22px;
   --palm-t-2xl: 28px;
+  /* 阅读流正文专用：与通用中号字阶分开，避免连带放大按钮和列表。 */
+  --palm-chat-body-size: 15px;
 
   /* ── 行高：只有 2 档 ── */
   --palm-lh-body: 1.5;
@@ -39,6 +41,8 @@
 
   /* ── 字体：等宽（行号、代码块、路径） ── */
   --palm-font-mono: var(--font-mono);
+  /* 正文字族：默认跟随桌面注入的 --font-sans；换皮肤时可覆盖（报纸皮肤用衬线）。 */
+  --palm-font-sans: var(--font-sans);
 
   /* ── 物性 ── */
   --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -48,7 +52,27 @@
   /* ── 触摸目标 ── */
   --palm-hit: 44px;
 
+  /* ── 主键的按下与禁用（2026-11-10）：六套主键原来分两派 —— 一派 scale(0.98)+提亮，
+     另一派只把透明度降到 0.88，抽屉那颗连按下态都没有。同一个动作三种反馈，
+     用户会以为有的键没反应。三个值收在令牌层，以后改一次全都对齐。 ── */
+  --palm-btn-press-scale: 0.98;
+  --palm-btn-press-dim: 1.1;
+  /* 卡片里的两颗键（审批允许 / 提问提交）**不许**用 scale：审批键是"按 1.5 秒"的
+     长按确认，按下去缩一圈再保持 1.5 秒是错的；它们的按下反馈只降透明度。 */
+  --palm-btn-press-flat: 0.88;
+  --palm-btn-disabled-opacity: 0.6;
+
   /* 物性：1px 细线与焦点环宽度（组件层不写裸 px） */
+  /* 压在**图片**上的小控件（缩略图角标、灯箱翻页）用这个固定压暗层：
+   不跟皮肤走 —— 底下是照片，不是皮肤表面。用皮肤表面色会让角标在半数照片上消失。 */
+  --palm-scrim: rgba(0, 0, 0, 0.55);
+  --palm-on-scrim: rgba(255, 255, 255, 0.96);
+  /* 整屏压暗（灯箱、预览）：比角标的 55% 更狠，保证图片之外的地方不抢戏。 */
+  --palm-scrim-strong: rgba(0, 0, 0, 0.86);
+  /* 轻遮罩：选择器背景这种「只压暗一点」的场景，0.55 的 scrim 太重。 */
+  --palm-scrim-soft: rgba(0, 0, 0, 0.2);
+  /* 遮罩上的次要文字（灯箱说明）：on-scrim 给正文，这一档弱一些。 */
+  --palm-on-scrim-soft: rgba(255, 255, 255, 0.62);
   --palm-hair: 1px;
   --palm-focus: 2px;
 
@@ -68,45 +92,11 @@
   --palm-strip-mini-r: 8px;
   --palm-strip-pet: 18px;
   --palm-strip-pet-mini: 12px;
-  --palm-strip-rail-h: 4px;
-  --palm-strip-rail-r: 3px;
-  --palm-strip-rail-gap: 2px;
-  --palm-strip-rail-mt: 5px;
-  --palm-strip-track: #101016;
-  --palm-strip-border: rgba(255, 255, 255, 0.08);
   --palm-strip-fg: #f4f6fb;
   --palm-strip-detail-fg: rgba(255, 255, 255, 0.62);
   --palm-strip-right-fg: rgba(255, 255, 255, 0.8);
   --palm-strip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --palm-strip-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0) 60%);
-  --palm-strip-pet-body: rgba(4, 8, 14, 0.55);
-  --palm-strip-pet-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-  --palm-strip-grad-think: linear-gradient(100deg, #2b2a72, #4a49b8);
-  --palm-strip-grad-read: linear-gradient(100deg, #123a56, #1c6f9c);
-  --palm-strip-grad-edit: linear-gradient(100deg, #14395a, #1f6f8e);
-  --palm-strip-grad-test: linear-gradient(100deg, #0f3a55, #1a6f96);
-  --palm-strip-grad-approve: linear-gradient(100deg, #5a3f08, #8a6318);
-  --palm-strip-grad-stuck: linear-gradient(100deg, #4a3306, #6f4f12);
-  --palm-strip-grad-done: linear-gradient(100deg, #0d5033, #177a4a 52%, #2b2a72);
-  --palm-strip-grad-failed: linear-gradient(100deg, #5c1327, #8c1f38);
-  --palm-strip-grad-stopped: linear-gradient(100deg, #2a2a33, #3f3f4d);
-  --palm-strip-grad-queued: linear-gradient(100deg, rgba(124, 140, 255, 0.1), rgba(124, 140, 255, 0.02));
   /* 无权威数据：灰（不再借用「思考」那套紫渐变，免得把"不知道"画成"在做"）。 */
-  --palm-strip-grad-unknown: linear-gradient(100deg, #17171d, #24242c);
-  --palm-strip-ink-think: #cfd4ff;
-  --palm-strip-ink-read: #a9e6ff;
-  --palm-strip-ink-edit: #9fd8ff;
-  --palm-strip-ink-test: #a9e6ff;
-  --palm-strip-ink-approve: #ffd98a;
-  --palm-strip-ink-stuck: #ffd98a;
-  --palm-strip-ink-done: #c8f8db;
-  --palm-strip-ink-failed: #ffb3c0;
-  --palm-strip-ink-stopped: #d5d7e2;
-  --palm-strip-ink-queued: #9aa0ae;
-  --palm-strip-ink-unknown: #9aa0ae;
-  --palm-strip-rail-todo: rgba(255, 255, 255, 0.1);
-  --palm-strip-rail-done: linear-gradient(90deg, #2fbf74, #3ddc84);
-  --palm-strip-rail-now: linear-gradient(90deg, #4b4ae0, #7c8cff);
 
   /* ── 会话正文流（任务头 / 过程折叠行 / 交付卡） ───────────────────────
    * 版式真源：docs/prototype/overview.html「2 · 会话正文」
@@ -132,7 +122,14 @@
    * 好让 TurnHeadSkeleton 的占位与真实目标行同高。 */
   --palm-turn-gap: 6px;
   --palm-turn-pad-t: 2px;
-  --palm-turn-pad-b: 10px;
+  --palm-turn-pad-b: 4px;
+  /* 待发队列面板（2026-11-10 用户：面板太高）：行高 32、伪元素上下各补 6 命中区。 */
+  --palm-queue-row-h: 32px;
+  --palm-queue-row-hit: 6px;
+  /* 待发队列头行两颗按钮（2026-11-10 用户：太大了、不协调）：26 高、等宽圆角；
+     命中区靠 ::after 上下各补 9，仍是 44。 */
+  --palm-queue-btn-h: 26px;
+  --palm-queue-btn-hit: 9px;
   --palm-turn-goal-h: 20px;
   --palm-turn-meta-size: 10px;
 
@@ -148,9 +145,9 @@
    * 半透明底色只落在这里：240/250/260 组件样式一律引用 palm-dock-* 令牌。 */
   --palm-dock-pad: 18px;
   --palm-dock-gap: 10px;
-  --palm-dock-field-h: 40px;
+  --palm-dock-field-h: 48px;
   --palm-dock-field-r: 20px;
-  --palm-dock-input-h: 32px;
+  --palm-dock-input-h: 44px;
   --palm-dock-circle: 36px;
   --palm-dock-meta-h: 30px;
   --palm-dock-chip-h: 24px;
@@ -161,7 +158,8 @@
   --palm-dock-chip-div-bg: rgba(255, 255, 255, 0.14);
   --palm-dock-status-size: 10.5px;
   --palm-dock-dot: 2px;
-  --palm-dock-ring: 10px;
+  /* 2026-11-10：10px 的环在真机上分不出比例，放大到 12px。 */
+  --palm-dock-ring: 12px;
   --palm-dock-ring-line: 2px;
   --palm-dock-ring-track: rgba(124, 140, 255, 0.28);
   --palm-dock-queue-h: 30px;
@@ -171,9 +169,9 @@
 
   /* ── 插入条（dock 固定槽位：已插入本轮的补充消息） ─────────────────────
    * 组件永远挂载，0fr → 1fr 过渡高度；消失走 data-state 而不是卸载。
-   * 明细行 ≤36px（--palm-insert-row-h），“撤回”的命中区靠 --palm-hit 撑到 44px。 */
-  --palm-insert-h: 30px;           /* 折叠摘要的最小高度 */
-  --palm-insert-row-h: 36px;       /* 明细行高上限（触控命中另行补到 44） */
+   * 摘要与每条明细均有独立 44px 触控高度，不靠跨行伪元素扩展命中区。 */
+  --palm-insert-h: 44px;           /* 折叠摘要高度 */
+  --palm-insert-row-h: 44px;       /* 明细行和撤回动作高度 */
   --palm-insert-dur: 220ms;        /* 出现/消失/展开的过渡时长 */
   --palm-insert-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --palm-insert-gap: var(--palm-s2);
@@ -187,7 +185,7 @@
    *          + docs/visual-acceptance.md「2026-11-08 最终状态」。
    * 这五屏只共用 515-five-screens.css 一层类，尺寸/字号一律引用下面这些令牌，
    * 组件样式里不再出现裸 px（灰色三档仍走 --palm-fg / --palm-fg-2 / --palm-fg-3）。 */
-  --palm-spec-search-h: 32px;      /* 搜索框高（定版 30–34）*/
+  --palm-spec-search-h: 44px;      /* 搜索框与清除按钮触控高度 */
   --palm-spec-search-r: 10px;      /* 搜索框圆角：无描边，靠表面色分层 */
   --palm-spec-head-size: 11px;     /* 分组标题字号（定版 10–11，弱化）*/
   --palm-spec-card-r: 10px;        /* 分组卡圆角 */
@@ -217,8 +215,8 @@
   --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
   --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
   --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/
-  --palm-drawer-new-h: 40px;      /* 「新建会话」主按钮高 */
-  --palm-drawer-search-h: 34px;   /* 「搜索会话和消息」行高 */
+  --palm-drawer-new-h: 44px;      /* 「新建会话」主按钮高 */
+  --palm-drawer-search-h: 44px;   /* 「搜索会话和消息」行高 */
   --palm-drawer-strip-w: 88px;    /* 行右侧迷你状态条宽 */
   --palm-drawer-strip-h: 18px;    /* 行右侧迷你状态条高 */
 
@@ -230,6 +228,12 @@
   --palm-skin-paper-ink: #8a5a2b;
   --palm-skin-nocturne-bg: #0f1520;
   --palm-skin-nocturne-ink: #22d3ee;
+  --palm-skin-claude-bg: #ffffff;
+  --palm-skin-claude-ink: #8c4d38;
+  --palm-skin-endfield-bg: #e8e8e2;
+  --palm-skin-endfield-ink: #5f5b00;
+  --palm-skin-newsprint-bg: #f5f3ed;
+  --palm-skin-newsprint-ink: #065588;
 }
 
 /* ═══════════ 皮肤：石墨（默认，深色） ═══════════ */
@@ -241,13 +245,32 @@ html[data-skin='graphite'] {
   --palm-line: rgba(255, 255, 255, 0.07);
   --palm-fg: #f4f4f8;
   --palm-fg-2: #a6a6b6;
-  --palm-fg-3: #70707f;
+  /* 2026-11-10：三级辅助文字实测 3.90:1，低于 WCAG AA（需求点名"避免低对比辅助文字"），
+     抬到 4.68:1；仍明显暗于 fg-2（7.8:1），层级没被抹平。 */
+  --palm-fg-3: #7e7e8f;
   --palm-accent: #7c8cff;
+  /* 鲸鱼尾巴的固有色（吉祥物不跟交互色走：paper 皮肤 accent 是墨棕，鲸鱼仍是蓝的）。 */
+  --palm-whale: #7c8cff;
   --palm-accent-2: #a78bfa;
+  --palm-on-accent: #101015;
   --palm-ok: #3ddc84;
   --palm-warn: #e0a52c;
   --palm-danger: #ff6b81;
   --palm-tint-warn: rgba(224, 165, 44, 0.12);
+  /* 断线状态带：--palm-tint-warn 是"薄雾"级别（10~12%），做整宽横条时看不出边界；
+     这是"带子"级别（24%），聊天页顶部与全站离线条共用同一档。 */
+  --palm-warn-band: rgba(224, 165, 44, 0.24);
+  /* 搜索命中的底色：accent 26% 混在浮层底色上的**预混值**。
+     写成字面量是因为 color-mix() 要 Safari 16.2，iOS 15 上会让命中词没有底色。 */
+  --palm-search-mark: #303457;
+
+  /* 预混令牌：这些位置在 iOS 15 上原本是 color-mix()，不支持时整块变透明。 */
+  --palm-press-bg: #202027;
+  --palm-danger-band: #482832;
+  --palm-danger-line: #964454;
+  --palm-ok-band: #1c372e;
+  --palm-accent-line: #464e89;
+  --palm-accent-16: #252840;
   --palm-tint-ok: rgba(61, 220, 132, 0.1);
   --palm-tint-danger: rgba(255, 107, 129, 0.12);
   --palm-tint-accent: rgba(124, 140, 255, 0.14);
@@ -257,6 +280,8 @@ html[data-skin='graphite'] {
 
 /* ═══════════ 皮肤：纸（暖白 / 印刷感 / 更小圆角） ═══════════ */
 html[data-skin='paper'] {
+  /* 2026-11-10 状态条重做：主条不再是「整条深色渐变」，底色要跟着皮肤走，
+     否则纸色皮肤上会出现一张黑条压在白底上（实拍确认）。 */
   --palm-r-s: 6px;
   --palm-r-m: 10px;
   --palm-r-l: 14px;
@@ -266,13 +291,36 @@ html[data-skin='paper'] {
   --palm-line: rgba(28, 26, 23, 0.12);
   --palm-fg: #1c1a17;
   --palm-fg-2: #5d5852;
-  --palm-fg-3: #8b857e;
+  /* 2026-11-10：纸色皮肤的三级文字只有 3.44:1（最差的一套），压到 4.76:1；
+     fg-2 仍是最深的一档（6.6:1），说明文字与正文还分得开。 */
+  --palm-fg-3: #746e67;
   --palm-accent: #8a5a2b;
+  --palm-whale: #3f6ae0;
   --palm-accent-2: #b8804a;
-  --palm-ok: #2f8f5b;
-  --palm-warn: #a97617;
-  --palm-danger: #b8455a;
+  --palm-on-accent: #ffffff;
+  /* 2026-11-10：绿（完成条）写在自己的淡底上 3.41:1，一起压到 4.6:1。 */
+  --palm-ok: #1f6f45;
+  /* 2026-11-10：纸色皮肤上「警告」正文写在自己的 10% 淡底上只有 3.35:1 ——
+     审批页那句「批准后它会真实执行这条命令」正是这个组合，等于让人看不清风险。
+     压到 4.8:1，色相不变。 */
+  --palm-warn: #8a5f10;
+  /* 2026-11-10：同理，"拒绝/删除"的红写在红淡底上只有 4.28:1，压到 5.1:1。 */
+  --palm-danger: #a63b4f;
   --palm-tint-warn: rgba(169, 118, 23, 0.1);
+  /* 断线状态带：--palm-tint-warn 是"薄雾"级别（10~12%），做整宽横条时看不出边界；
+     这是"带子"级别（24%），聊天页顶部与全站离线条共用同一档。 */
+  --palm-warn-band: rgba(169, 118, 23, 0.24);
+  /* 搜索命中的底色：accent 26% 混在浮层底色上的**预混值**。
+     写成字面量是因为 color-mix() 要 Safari 16.2，iOS 15 上会让命中词没有底色。 */
+  --palm-search-mark: #e1d4c8;
+
+  /* 预混令牌：这些位置在 iOS 15 上原本是 color-mix()，不支持时整块变透明。 */
+  --palm-press-bg: #f4f4f3;
+  --palm-danger-band: #ebd4d8;
+  --palm-danger-line: #ce939e;
+  --palm-ok-band: #d9e7df;
+  --palm-accent-line: #c7b099;
+  --palm-accent-16: #ece5dd;
   --palm-tint-ok: rgba(47, 143, 91, 0.1);
   --palm-tint-danger: rgba(184, 69, 90, 0.1);
   --palm-tint-accent: rgba(138, 90, 43, 0.1);
@@ -280,8 +328,191 @@ html[data-skin='paper'] {
   --palm-sh1: 0 1px 2px rgba(28, 26, 23, 0.08);
   --palm-sh2: 0 6px 20px rgba(28, 26, 23, 0.12);
   --palm-shadow: 0 0 0 1px rgba(28, 26, 23, 0.1), 0 10px 30px rgba(28, 26, 23, 0.14);
+  /*
+   * 过程区 / 结论卡（交付卡）的表面色：基础令牌里那四个是**深色值**
+   * （深色渐变 + 白色 5% 分隔线），浅色皮肤不覆盖就会在白底上画出一块深色卡、
+   * 分隔线直接消失（2026-11-10 组件预览截图实拍）。这里是纸感暖白的等价物。
+   */
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(47, 143, 91, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(28, 26, 23, 0.08);
+  --palm-flow-card-line: rgba(47, 143, 91, 0.28);
+  --palm-flow-tag-ok: rgba(47, 143, 91, 0.12);
+  --palm-flow-tag-edit: rgba(138, 90, 43, 0.12);
+  /*
+   * 过程条的轨道色（2026-11-10 纸色 900px 实拍）：
+   * 基础值是为深色底写的霓虹绿（47,191,116 → 61,220,132）与靛（75,74,224 → 124,140,255），
+   * 摆在暖白纸面上像荧光笔 —— 一条「完成」底下横着一排发光的绿条。
+   * 纸色皮肤用自己的语义色：完成 = 墨绿，进行中 = 棕（本皮肤强调色）。
+   */
+
+  /*
+   * 2026-11-10 皮肤契约（补齐）：以下 11 个令牌原来只在基础 :root 里有**深色值**，
+   * 纸色皮肤没覆盖 → 白底上出现半透明黑罩、深色浮层文字、几乎看不见的输入区芯片。
+   * 契约：凡"颜色"类令牌，三套皮肤必须各自定义，不靠基础值兜底。
+   */
+  --palm-scrim: rgba(28, 26, 23, 0.42);
+  --palm-on-scrim: #faf8f4;
+  --palm-scrim-strong: rgba(28, 26, 23, 0.8);
+  --palm-scrim-soft: rgba(28, 26, 23, 0.12);
+  --palm-on-scrim-soft: rgba(250, 248, 244, 0.7);
+  --palm-strip-fg: #1c1a17;
+  --palm-strip-detail-fg: #5d5852;
+  --palm-strip-right-fg: #746e67;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(28, 26, 23, 0.05);
+  --palm-dock-chip-div-bg: rgba(28, 26, 23, 0.16);
+  --palm-dock-ring-track: rgba(138, 90, 43, 0.3);
+  --palm-dock-queue-bg: rgba(169, 118, 23, 0.09);
   color-scheme: light;
 }
+/* ═══════════ 皮肤：endfield ══════════════════════════════════════════════════
+ * 来自 ymh0000123/dsh-theme-endfield（8315d58）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='endfield'] {
+  --palm-r-s: 2px;
+  --palm-r-m: 4px;
+  --palm-r-l: 6px;
+  --palm-bg: #e8e8e2;
+  --palm-sur-1: #f5f5f2;
+  --palm-sur-2: #ddddd8;
+  --palm-line: rgba(206, 206, 201, 0.5);
+  --palm-fg: #101110;
+  --palm-fg-2: #4a4c48;
+  --palm-fg-3: #646662;
+  --palm-accent: #5f5b00;
+  --palm-whale: #5f5b00;
+  --palm-accent-2: #777426;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1d6841;
+  --palm-warn: #7a540e;
+  --palm-danger: #9c374a;
+  --palm-tint-warn: rgba(122, 84, 14, 0.1);
+  --palm-warn-band: rgba(122, 84, 14, 0.24);
+  --palm-search-mark: #cecdb3;
+  --palm-press-bg: #dfdfda;
+  --palm-danger-band: #dfd3d0;
+  --palm-danger-line: #d3b6b7;
+  --palm-ok-band: #d0d9cf;
+  --palm-accent-line: #b8b793;
+  --palm-accent-16: #dddccb;
+  --palm-tint-ok: rgba(29, 104, 65, 0.1);
+  --palm-tint-danger: rgba(156, 55, 74, 0.1);
+  --palm-tint-accent: rgba(95, 91, 0, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(16, 17, 16, 0.08);
+  --palm-sh2: 0 6px 20px rgba(16, 17, 16, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(16, 17, 16, 0.1), 0 10px 30px rgba(16, 17, 16, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(29, 104, 65, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(16, 17, 16, 0.08);
+  --palm-flow-card-line: rgba(29, 104, 65, 0.28);
+  --palm-flow-tag-ok: rgba(29, 104, 65, 0.12);
+  --palm-flow-tag-edit: rgba(95, 91, 0, 0.12);
+  --palm-scrim: rgba(16, 17, 16, 0.42);
+  --palm-on-scrim: #e8e8e2;
+  --palm-scrim-strong: rgba(16, 17, 16, 0.8);
+  --palm-scrim-soft: rgba(16, 17, 16, 0.12);
+  --palm-on-scrim-soft: rgba(232, 232, 226, 0.7);
+  --palm-strip-fg: #101110;
+  --palm-strip-detail-fg: #4a4c48;
+  --palm-strip-right-fg: #646662;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(16, 17, 16, 0.05);
+  --palm-dock-chip-div-bg: rgba(16, 17, 16, 0.16);
+  --palm-dock-ring-track: rgba(95, 91, 0, 0.3);
+  --palm-dock-queue-bg: rgba(122, 84, 14, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #650d82;
+  --tok-string: #0a6c1a;
+  --tok-comment: #7b795a;
+  --tok-number: #82510d;
+  --tok-type: #82170d;
+  --tok-func: #5f5b00;
+  --tok-prop: #0a6c64;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：claude ══════════════════════════════════════════════════
+ * 来自 Nwflower/dsh-claude-style（c49419e）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='claude'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #ffffff;
+  --palm-sur-1: #fafafa;
+  --palm-sur-2: #ececec;
+  --palm-line: rgba(231, 226, 221, 0.5);
+  --palm-fg: #161616;
+  --palm-fg-2: #5c5c5c;
+  --palm-fg-3: #747474;
+  --palm-accent: #8c4d38;
+  --palm-whale: #8c4d38;
+  --palm-accent-2: #9d6856;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1f6f45;
+  --palm-warn: #8a5f10;
+  --palm-danger: #a63b4f;
+  --palm-tint-warn: rgba(138, 95, 16, 0.1);
+  --palm-warn-band: rgba(138, 95, 16, 0.24);
+  --palm-search-mark: #ddcdc8;
+  --palm-press-bg: #f6f6f6;
+  --palm-danger-band: #f4e7ea;
+  --palm-danger-line: #e6c8ce;
+  --palm-ok-band: #e4eee9;
+  --palm-accent-line: #d7c1b9;
+  --palm-accent-16: #e8dedb;
+  --palm-tint-ok: rgba(31, 111, 69, 0.1);
+  --palm-tint-danger: rgba(166, 59, 79, 0.1);
+  --palm-tint-accent: rgba(140, 77, 56, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(22, 22, 22, 0.08);
+  --palm-sh2: 0 6px 20px rgba(22, 22, 22, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(22, 22, 22, 0.1), 0 10px 30px rgba(22, 22, 22, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(31, 111, 69, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(22, 22, 22, 0.08);
+  --palm-flow-card-line: rgba(31, 111, 69, 0.28);
+  --palm-flow-tag-ok: rgba(31, 111, 69, 0.12);
+  --palm-flow-tag-edit: rgba(140, 77, 56, 0.12);
+  --palm-scrim: rgba(22, 22, 22, 0.42);
+  --palm-on-scrim: #ffffff;
+  --palm-scrim-strong: rgba(22, 22, 22, 0.8);
+  --palm-scrim-soft: rgba(22, 22, 22, 0.12);
+  --palm-on-scrim-soft: rgba(255, 255, 255, 0.7);
+  --palm-strip-fg: #161616;
+  --palm-strip-detail-fg: #5c5c5c;
+  --palm-strip-right-fg: #747474;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(22, 22, 22, 0.05);
+  --palm-dock-chip-div-bg: rgba(22, 22, 22, 0.16);
+  --palm-dock-ring-track: rgba(140, 77, 56, 0.3);
+  --palm-dock-queue-bg: rgba(138, 95, 16, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #753c88;
+  --tok-string: #357841;
+  --tok-comment: #8c7972;
+  --tok-number: #806238;
+  --tok-type: #88433c;
+  --tok-func: #8c4d38;
+  --tok-prop: #32716c;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+
+
+
+
+
+
+
+
+
+
 
 /* ═══════════ 皮肤：夜航（深蓝 / 霓虹 / 更圆） ═══════════ */
 html[data-skin='nocturne'] {
@@ -290,17 +521,37 @@ html[data-skin='nocturne'] {
   --palm-r-l: 20px;
   --palm-bg: #080c14;
   --palm-sur-1: #0f1520;
-  --palm-sur-2: #16203010;
+  /* 2026-11-10：原来是 6% 半透明（#16203010），叠在 --palm-sur-1 上只差 1.006:1 ——
+     卡片套卡片、浮层压卡片全都糊成一片。改成不透明的第二层，层间距 1.105:1，
+     与石墨/纸色同一档；顺带不再受底下是图片还是底色影响。 */
+  --palm-sur-2: #161f2e;
   --palm-line: rgba(120, 180, 255, 0.14);
   --palm-fg: #e8f1ff;
   --palm-fg-2: #9db3d1;
-  --palm-fg-3: #64789a;
+  /* 2026-11-10：夜航的三级文字 4.38:1，差一点点过线；提到 5.03:1。 */
+  --palm-fg-3: #6d82a5;
   --palm-accent: #22d3ee;
+  --palm-whale: #22d3ee;
   --palm-accent-2: #818cf8;
+  --palm-on-accent: #0a0a0f;
   --palm-ok: #34d399;
   --palm-warn: #fbbf24;
   --palm-danger: #fb7185;
   --palm-tint-warn: rgba(251, 191, 36, 0.12);
+  /* 断线状态带：--palm-tint-warn 是"薄雾"级别（10~12%），做整宽横条时看不出边界；
+     这是"带子"级别（24%），聊天页顶部与全站离线条共用同一档。 */
+  --palm-warn-band: rgba(251, 191, 36, 0.24);
+  /* 搜索命中的底色：accent 26% 混在浮层底色上的**预混值**。
+     写成字面量是因为 color-mix() 要 Safari 16.2，iOS 15 上会让命中词没有底色。 */
+  --palm-search-mark: #144656;
+
+  /* 预混令牌：这些位置在 iOS 15 上原本是 color-mix()，不支持时整块变透明。 */
+  --palm-press-bg: #1a202b;
+  --palm-danger-band: #432936;
+  --palm-danger-line: #914858;
+  --palm-ok-band: #153535;
+  --palm-accent-line: #187083;
+  --palm-accent-16: #123341;
   --palm-tint-ok: rgba(52, 211, 153, 0.1);
   --palm-tint-danger: rgba(251, 113, 133, 0.12);
   --palm-tint-accent: rgba(34, 211, 238, 0.12);
@@ -308,13 +559,112 @@ html[data-skin='nocturne'] {
   --palm-sh1: 0 1px 2px rgba(0, 0, 0, 0.6);
   --palm-sh2: 0 6px 22px rgba(0, 0, 0, 0.7);
   --palm-shadow: 0 0 0 1px rgba(120, 180, 255, 0.16), 0 10px 30px rgba(0, 0, 0, 0.7);
+  /*
+   * 2026-11-10 皮肤契约（补齐）：夜航原来缺 13 个颜色令牌，全部落回石墨的深色值 ——
+   * 于是在深蓝底上出现靛紫芯片、石墨绿标签（--palm-flow-tag-ok）这类"两套配色混搭"。
+   * 这里按夜航自己的青/蓝绿/琥珀语义给全，不再依赖基础值。
+   */
+  --palm-scrim: rgba(3, 6, 12, 0.6);
+  --palm-on-scrim: #e8f1ff;
+  --palm-scrim-strong: rgba(3, 6, 12, 0.88);
+  --palm-scrim-soft: rgba(3, 6, 12, 0.25);
+  --palm-on-scrim-soft: rgba(232, 241, 255, 0.64);
+  --palm-strip-fg: #e8f1ff;
+  --palm-strip-detail-fg: rgba(232, 241, 255, 0.66);
+  --palm-strip-right-fg: rgba(232, 241, 255, 0.82);
+  --palm-strip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --palm-dock-chip-bg: rgba(120, 180, 255, 0.06);
+  --palm-dock-chip-div-bg: rgba(120, 180, 255, 0.18);
+  --palm-dock-ring-track: rgba(34, 211, 238, 0.28);
+  --palm-dock-queue-bg: rgba(251, 191, 36, 0.08);
+  --palm-flow-tag-ok: rgba(52, 211, 153, 0.14);
+  --palm-flow-tag-edit: rgba(34, 211, 238, 0.14);
   color-scheme: dark;
 }
+/* ═══════════ 皮肤：报纸（newsprint）═══════════════════════════════════════
+ * 移植自 dsh-skin-market 里的 2754LM/dsh-theme-newsprint（MIT）：暖白报纸底 +
+ * 墨色正文 + 单一海蓝强调。桌面那份是 cordis 插件、改的是 --dsw-alias-*；
+ * 手机端是另一套令牌与组件，所以**重新表达**而不是复用代码：
+ * 角色一一对应（base→bg、raised→sur-1、container→sur-2、ink→fg 三档、blue→accent），
+ * 混色值提前算成字面量（iOS 15 没有 color-mix）。
+ * 装饰（衬线正文、报头双线）在 610-skin-newsprint.css。
+ */
+html[data-skin='newsprint'] {
+  --palm-r-s: 4px;
+  --palm-r-m: 8px;
+  --palm-r-l: 12px;
+  --palm-bg: #f5f3ed;
+  --palm-sur-1: #fdfdfa;
+  --palm-sur-2: #ebe7de;
+  --palm-line: rgba(31, 9, 9, 0.12);
+  --palm-fg: #1f0909;
+  --palm-fg-2: #5a5049;
+  --palm-fg-3: #776c62;
+  --palm-accent: #065588;
+  --palm-whale: #065588;
+  --palm-accent-2: #0a6aa0;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #4d6b43;
+  --palm-warn: #8d5a14;
+  --palm-danger: #9a0c0c;
+  --palm-tint-warn: rgba(179, 116, 28, 0.1);
+  --palm-warn-band: rgba(179, 116, 28, 0.24);
+  --palm-search-mark: #bdd1dc;
+  --palm-press-bg: #efeadd;
+  --palm-danger-band: #ead7d2;
+  --palm-danger-line: #dcb2ae;
+  --palm-ok-band: #e1e3d9;
+  --palm-accent-line: #a1bcca;
+  --palm-accent-16: #d5e2e8;
+  --palm-tint-ok: rgba(77, 107, 67, 0.1);
+  --palm-tint-danger: rgba(154, 12, 12, 0.1);
+  --palm-tint-accent: rgba(6, 85, 136, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(31, 9, 9, 0.08);
+  --palm-sh2: 0 6px 20px rgba(31, 9, 9, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(31, 9, 9, 0.1), 0 10px 30px rgba(31, 9, 9, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(77, 107, 67, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(31, 9, 9, 0.08);
+  --palm-flow-card-line: rgba(77, 107, 67, 0.28);
+  --palm-flow-tag-ok: rgba(77, 107, 67, 0.12);
+  --palm-flow-tag-edit: rgba(6, 85, 136, 0.12);
+  --palm-scrim: rgba(31, 9, 9, 0.42);
+  --palm-on-scrim: #f5f3ed;
+  --palm-scrim-strong: rgba(31, 9, 9, 0.8);
+  --palm-scrim-soft: rgba(31, 9, 9, 0.12);
+  --palm-on-scrim-soft: rgba(245, 243, 237, 0.7);
+  --palm-strip-fg: #1f0909;
+  --palm-strip-detail-fg: #5a5049;
+  --palm-strip-right-fg: #776c62;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(31, 9, 9, 0.05);
+  --palm-dock-chip-div-bg: rgba(31, 9, 9, 0.16);
+  --palm-dock-ring-track: rgba(6, 85, 136, 0.3);
+  --palm-dock-queue-bg: rgba(179, 116, 28, 0.09);
+  /* 只有报纸皮肤换字体：衬线正文是这套皮肤的签名。 */
+  --palm-font-sans: 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'PingFang SC', Georgia, serif;
+  /* 语法高亮：从报纸的海蓝强调色派生（与移植器同一套算法）。 */
+  --tok-keyword: #650d82;
+  --tok-string: #0b731c;
+  --tok-comment: #657e8c;
+  --tok-number: #82510d;
+  --tok-type: #82170d;
+  --tok-func: #065588;
+  --tok-prop: #0b736a;
+  color-scheme: light;
+}
+
 
 /* ── 旧名桥接（一次性）：历史样式的 767 处引用改由上面的 --palm-* 驱动 ──
    designTokensCss() 先注入，这一段在它之后，因此这里的映射会覆盖旧字面值。
    下一步是把旧名逐批替换掉，届时删掉本段即可。 */
-:root {
+/*
+ * 选择器用 :root:root（特异性 0,2,0）而不是 :root —— design/tokens.ts 注入的
+ * :root[data-theme='dark']（0,1,1）和 @media(prefers-color-scheme:dark){:root:not(...)}（0,2,0）
+ * 都会比单个 :root 更"重"，桥接就永远输，于是深色模式下仍是旧调色板在画
+ * （2026-11-10 实测：石墨皮肤下 --accent 取到 #5b5cf0 而不是 #7c8cff）。
+ */
+:root:root {
   /* 字号：整条上移一档（旧 11/12/13/15/16.5 → 新 13/14/15/18/23） */
   --text-xs: var(--palm-t-s);
   --text-sm: var(--palm-t-s);
@@ -338,4 +688,97 @@ html[data-skin='nocturne'] {
   --radius-sheet: var(--palm-r-l);
   --radius-capsule: var(--palm-r-full);
   --radius-full: var(--palm-r-full);
+
+  /*
+   * 强调色的旧名（2026-11-10）：design/tokens.ts 里 --accent / --accent-soft /
+   * --accent-contrast 两套主题都是同一组值、**换肤不变**，于是纸色页面上到处是靛蓝
+   * （主按钮、发送键、进度条、链接…本轮前面逐个修了三处，才看清是同一条根）。
+   * 这三个旧名在这里一次性指回皮肤令牌：100 余处历史引用不必逐个改，
+   * 也不会再出现"棕色文字 + 淡蓝底"这种半新半旧的组合。
+   * 前景色对应的淡底已由 skin-contrast.test.ts 量过 ≥4.5:1。
+   */
+  --accent: var(--palm-accent);
+  --accent-soft: var(--palm-tint-accent);
+  --accent-contrast: var(--palm-on-accent);
+  /* 2026-11-10：原来是 color-mix(accent 45%)；iOS 15 上光晕没有。指向预混令牌。 */
+  --accent-glow: var(--palm-accent-line);
+
+  /*
+   * 大面积底色（2026-11-10，切片 56）：上面四族 + 强调色只覆盖了"强调"，
+   * 页面底/表面/抬高面/卡片底这四族仍然是按**明暗主题**注入的字面值、换肤不变。
+   * 三套皮肤各自配了一个主题，所以看不出问题；一旦加第四套皮肤，就会出现
+   * "新强调色 + 旧底色"。这里把四族指回皮肤令牌，让"换皮肤"真正等于"换整套表面"。
+   * 文字与描边（--text-* / --border-*）**刻意先不接**：它们与底色的对比需要逐屏量，
+   * 放到下一个切片，避免一次改两件事没法归因。
+   */
+  --bg-page: var(--palm-bg);
+  --bg-surface: var(--palm-sur-1);
+  --bg-elevated: var(--palm-sur-2);
+  --card-bg: var(--palm-sur-1);
+
+  /*
+   * 文字 / 描边 / 阴影（2026-11-10，切片 57）：上一片把底色接进皮肤后，
+   * 文字还是主题注入的固定灰 —— 纸色皮肤下深字对暖底的对比没量过，夜航皮肤下
+   * 又少了那层蓝调。这三族一接，正文/次要/三级、行描边、卡片阴影全部按皮肤走。
+   *
+   * 敢一次接完，是因为 skin-contrast.test.ts 已经逐皮肤量过 --palm-fg* 与
+   * --palm-sur-* 的对比度（≥4.5），接过来等于直接继承了那组已验证的数字；
+   * 反过来，主题值反而是**没量过**的那一组。
+   */
+  --text-primary: var(--palm-fg);
+  --text-secondary: var(--palm-fg-2);
+  --text-tertiary: var(--palm-fg-3);
+  --text-quaternary: var(--palm-fg-3);
+  --border-default: var(--palm-line);
+  --border-focus: var(--palm-accent);
+  --card-border: var(--palm-line);
+  --card-shadow: var(--palm-shadow);
+
+  /*
+   * 2026-11-10「主题色与皮肤冲突」的根：上面接了 34 个旧名，剩下 42 个还在吃
+   * design/tokens.ts 的**按明暗主题**注入值，而样式里还引用了 150+ 次
+   * （--danger 34、--fill 30、--border-subtle 38、--code-bg 9、--positive 9…）。
+   * 结果是同一屏上「皮肤的颜色」和「主题的颜色」各画一半：纸色皮肤上弹出一块靛蓝，
+   * 夜航皮肤上出现石墨绿的红/绿，切系统深色再整套翻一次。
+   *
+   * 这一段把剩下能对的旧名一次性接回皮肤令牌 —— 换皮 = 换整套颜色，
+   * 不再有第二个调色板参与绘制。唯一刻意例外是语法高亮 --tok-*：
+   * 它需要自己的色相（关键字紫/字符串绿…），由 skin.ts 把 data-theme 钉成
+   * 皮肤极性来保证明暗配套。
+   */
+  --border-subtle: var(--palm-line);
+  --fill: var(--palm-sur-2);
+  --fill-strong: var(--palm-press-bg);
+  --bg-input: var(--palm-sur-1);
+  --header-bg: var(--palm-bg);
+  --dialog-bg: var(--palm-sur-1);
+  --toast-bg: var(--palm-sur-2);
+  --toast-text: var(--palm-fg);
+  --backdrop: var(--palm-scrim);
+  --shadow-lg: var(--palm-shadow);
+  --text-muted: var(--palm-fg-3);
+  --danger: var(--palm-danger);
+  --danger-soft: var(--palm-tint-danger);
+  --positive: var(--palm-ok);
+  --warning: var(--palm-warn);
+  --code-bg: var(--palm-sur-1);
+  --code-text: var(--palm-fg);
+  --code-border: var(--palm-line);
+  --code-head-bg: var(--palm-sur-2);
+  --code-head-border: var(--palm-line);
+  --diff-add: var(--palm-ok);
+  --diff-del: var(--palm-danger);
+  --diff-add-bg: var(--palm-tint-ok);
+  --diff-del-bg: var(--palm-tint-danger);
+  --diff-add-word: var(--palm-ok-band);
+  --diff-del-word: var(--palm-danger-band);
+  --tone-positive-soft: var(--palm-tint-ok);
+  --tone-positive-ink: var(--palm-ok);
+  --tone-neutral-soft: var(--palm-sur-2);
+  --tone-neutral-ink: var(--palm-fg-2);
+  --tone-warning-soft: var(--palm-tint-warn);
+  --tone-warning-ink: var(--palm-warn);
+  --tone-danger-ink: var(--palm-danger);
+  --tone-info-soft: var(--palm-tint-accent);
+  --tone-info-ink: var(--palm-accent);
 }

@@ -63,10 +63,13 @@ const current = {
   'graphite': snapshot("html[data-skin='graphite']"),
   'paper': snapshot("html[data-skin='paper']"),
   'nocturne': snapshot("html[data-skin='nocturne']"),
+  'newsprint': snapshot("html[data-skin='newsprint']"),
+  'endfield': snapshot("html[data-skin='endfield']"),
+  'claude': snapshot("html[data-skin='claude']"),
 }
 
 describe('视觉基线：令牌表（golden）', () => {
-  it('三套皮肤都解析得出令牌（不是空表）', () => {
+  it('每一套皮肤都解析得出令牌（不是空表）', () => {
     for (const [skin, tokens] of Object.entries(current)) {
       expect(Object.keys(tokens).length, `${skin} 没有解析到令牌`).toBeGreaterThan(10)
     }
@@ -76,6 +79,9 @@ describe('视觉基线：令牌表（golden）', () => {
     const keys = Object.keys(current.graphite).sort()
     expect(Object.keys(current.paper).sort()).toEqual(keys)
     expect(Object.keys(current.nocturne).sort()).toEqual(keys)
+    expect(Object.keys(current.newsprint).sort()).toEqual(keys)
+    expect(Object.keys(current.endfield).sort()).toEqual(keys)
+    expect(Object.keys(current.claude).sort()).toEqual(keys)
   })
 
   it('与基线一致（改色/改间距必须显式更新基线）', () => {

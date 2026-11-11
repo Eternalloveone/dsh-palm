@@ -1,0 +1,149 @@
+/* ── 皮肤商店（2026-11-11）──────────────────────────────────────────────
+ * 全屏浮层：两列卡片网格，每张卡上半是这套配色的迷你界面。
+ * 颜色一律由卡片自己的行内变量给（皮肤是"预览一份别人的配色"，不能用当前皮肤
+ * 的令牌，否则预览会跟着当前皮肤变）。
+ */
+
+.skin-store-hint {
+  margin: 0 0 var(--palm-s3);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.skin-store-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--palm-s2);
+}
+
+.skin-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  inline-size: 100%;
+  padding: 0 0 var(--palm-s2);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+  overflow: hidden;
+}
+
+.skin-card-on {
+  border-color: var(--palm-accent);
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-accent);
+}
+
+.skin-card:active { filter: brightness(var(--palm-btn-press-dim)); }
+
+/* 迷你界面：只用**那一套皮肤自己的底色与强调色**画三块（顶栏 / 气泡 / 输入条）。
+ * 色值落在 000-tokens.css 的 --palm-skin-*-bg/-ink 上，这里只做映射，不写裸色。 */
+.skin-card-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  block-size: 96px;
+  padding: var(--palm-s2);
+  border-block-end: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-skin-shot-bg);
+}
+
+.skin-card-shot[data-skin='graphite'] {
+  --palm-skin-shot-bg: var(--palm-skin-graphite-bg);
+  --palm-skin-shot-ink: var(--palm-skin-graphite-ink);
+}
+
+.skin-card-shot[data-skin='paper'] {
+  --palm-skin-shot-bg: var(--palm-skin-paper-bg);
+  --palm-skin-shot-ink: var(--palm-skin-paper-ink);
+}
+
+.skin-card-shot[data-skin='nocturne'] {
+  --palm-skin-shot-bg: var(--palm-skin-nocturne-bg);
+  --palm-skin-shot-ink: var(--palm-skin-nocturne-ink);
+}
+
+.skin-card-shot[data-skin='newsprint'] {
+  --palm-skin-shot-bg: var(--palm-skin-newsprint-bg);
+  --palm-skin-shot-ink: var(--palm-skin-newsprint-ink);
+}
+
+.skin-card-shot[data-skin='endfield'] {
+  --palm-skin-shot-bg: var(--palm-skin-endfield-bg);
+  --palm-skin-shot-ink: var(--palm-skin-endfield-ink);
+}
+
+.skin-card-shot[data-skin='claude'] {
+  --palm-skin-shot-bg: var(--palm-skin-claude-bg);
+  --palm-skin-shot-ink: var(--palm-skin-claude-ink);
+}
+
+.skin-card-shot-bar {
+  inline-size: 46px;
+  block-size: var(--palm-s1);
+  border-radius: 2px;
+  background: var(--palm-skin-shot-ink);
+  opacity: 0.35;
+}
+
+.skin-card-shot-bubble {
+  inline-size: 74%;
+  block-size: 26px;
+  border-radius: 10px 10px 10px 3px;
+  background: var(--palm-skin-shot-ink);
+  opacity: 0.16;
+}
+
+.skin-card-shot-input {
+  margin-block-start: auto;
+  block-size: 16px;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-skin-shot-ink);
+  opacity: 0.85;
+}
+
+.skin-card-name {
+  padding-inline: var(--palm-s2);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.skin-card-hint {
+  padding-inline: var(--palm-s2);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+/* 来源与许可：一直显示，不藏进详情页（2026-11-11 用户要求）。 */
+.skin-card-source {
+  padding-inline: var(--palm-s2);
+  font-size: 11px;
+  color: var(--palm-fg-3);
+}
+
+.skin-card-tick {
+  position: absolute;
+  inset-block-start: var(--palm-s2);
+  inset-inline-end: var(--palm-s2);
+  display: grid;
+  place-items: center;
+  inline-size: 20px;
+  block-size: 20px;
+  border-radius: 50%;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.skin-store-foot {
+  display: flex;
+  gap: var(--palm-s2);
+  margin-block-start: var(--palm-s3);
+  padding-block-end: var(--palm-s2);
+}
+
+.skin-store-foot > .mobile-button { flex: 1 1 0; }

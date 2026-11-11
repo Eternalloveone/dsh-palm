@@ -189,6 +189,31 @@ const STRUCTURAL_CSS = `
   --text-lg: 16.5px;
 `
 
+/**
+ * 只有「语法高亮」需要按明暗分两套色板。
+ *
+ * 2026-11-10「主题与皮肤冲突」的**根本解法**：把第二个调色板从运行时的 CSS 里请出去。
+ * 原来 designTokensCss() 会把 58 个旧名按 data-theme 铺进页面，与 --palm-* 的皮肤令牌
+ * 各画一半 —— 纸色皮肤上蹦靛蓝、夜航皮肤上出现石墨绿、切一次系统深色再翻一遍；
+ * 想靠"桥接 + 提高特异性"压住它，本质仍是两套色板抢同一个位置，容易再破。
+ *
+ * 现在：**界面颜色只有 000-tokens.css 一个出处**（--palm-* 与它们的旧名桥接），
+ * 主题只剩一件事 —— 给代码块挑明暗两套语法色（--tok-*）。两套色板不再有交叉点，
+ * 也就不存在"谁压谁"。LIGHT_PALETTE / DARK_PALETTE 仅作桌面同源的参考值保留。
+ */
+const SYNTAX_ONLY = /^--tok-/
+
+/** 从完整色板里挑出语法高亮那几项。 */
+function syntaxOf(palette: Palette): Palette {
+  return Object.fromEntries(Object.entries(palette).filter(([name]) => SYNTAX_ONLY.test(name)))
+}
+
+/** 浅色语法色板（运行时）。 */
+export const SYNTAX_LIGHT: Palette = syntaxOf(LIGHT_PALETTE)
+
+/** 深色语法色板（运行时）。 */
+export const SYNTAX_DARK: Palette = syntaxOf(DARK_PALETTE)
+
 function declarations(palette: Palette, indent = '  '): string {
   return Object.entries(palette)
     .map(([name, value]) => indent + name + ': ' + value + ';')
@@ -200,20 +225,26 @@ function declarations(palette: Palette, indent = '  '): string {
  * 两段深色共用 DARK_PALETTE，从结构上杜绝「两种深色不一样」。
  */
 export function designTokensCss(): string {
-  const dark = declarations(DARK_PALETTE)
+  const dark = declarations(SYNTAX_DARK)
   return [
     '/* ── design tokens（由 design/tokens.ts 生成，勿手改） ─────────────── */',
+    /*
+     * 结构令牌（间距/字号/圆角/层级）+ 浅色语法色板。
+     *
+     * 界面颜色**刻意不在这里**：它们全部由 styles/000-tokens.css 的皮肤令牌定义，
+     * 这里再铺一份就会重新变成「两套色板抢同一个属性」。
+     */
     ':root {',
     STRUCTURAL_CSS.trim(),
-    declarations(LIGHT_PALETTE),
+    declarations(SYNTAX_LIGHT),
     '}',
     '',
-    '/* Explicit dark: pinned by the toggle, the settings sheet, or the host. */',
+    '/* 语法高亮：钉死深色（皮肤会把 data-theme 定成自己的极性）。 */',
     ":root[data-theme='dark'] {",
     dark,
     '}',
     '',
-    '/* System mode: the OS scheme decides while no palette is pinned. */',
+    '/* 首帧脚本尚未执行时的兜底：跟随系统深浅，只影响语法高亮。 */',
     '@media (prefers-color-scheme: dark) {',
     "  :root:not([data-theme='light']) {",
     dark.split('\n').map(line => '  ' + line).join('\n'),

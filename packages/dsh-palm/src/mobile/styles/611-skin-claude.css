@@ -1,0 +1,41 @@
+/* ── Claude 皮肤（claude）的装饰层（2026-11-11）─────────────────────────────
+ * 移植自 Nwflower/dsh-claude-style（MIT，556★）。底色/墨色/陶土橙在
+ * 000-tokens.css 的 `html[data-skin='claude']` 块里；这里只放**颜色令牌表达不了**的部分：
+ * 衬线标题、极细的暖边、引用块的橙线。
+ *
+ * 为什么这些必须单独一层：Claude 桌面端的辨识度有一半来自「衬线大标题 + 几乎看不见的边框」，
+ * 只把底色换成米白，看起来就是"另一个浅色主题"。
+ */
+
+/* 标题走衬线：Claude 的标题是 serif，正文仍是无衬线。 */
+html[data-skin='claude'] .mobile-title {
+  font-family: Georgia, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* 分隔线压到几乎看不见：Claude 用暖灰细线，而不是 1px 实色的"分割条"。 */
+html[data-skin='claude'] .mobile-header {
+  box-shadow: inset 0 -1px 0 var(--palm-line);
+}
+
+/* 分组小标题降一档字重、不加字距 —— 桌面端是安静的灰字，不是标签。 */
+html[data-skin='claude'] .palm-spec-group-head {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* 引用块：陶土橙竖线，跟强调色同一个来源。 */
+html[data-skin='claude'] blockquote {
+  border-inline-start: 3px solid var(--palm-accent);
+  padding-inline-start: var(--palm-s2);
+}
+
+/* 代码块：桌面端是"浅一档的纸"，不是深色底板，也不该有大圆角。 */
+html[data-skin='claude'] .code-block {
+  border-color: var(--palm-line);
+}
+
+html[data-skin='claude'] .code-head {
+  background: var(--palm-sur-2);
+}
