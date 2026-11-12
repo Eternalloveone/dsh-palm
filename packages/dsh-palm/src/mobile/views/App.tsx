@@ -54,7 +54,8 @@ const PREFETCHED_WORKSPACES = new Set<string>()
 import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
 import { invalidateSession, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
-import { applyRunningState, countRunningElsewhere, mergeDrawerRows, paintDrawerRows, scopedToWorkspace } from './drawer-rows.ts'
+import { applyRunningState, countRunningElsewhere, mergeDrawerRows, orderDrawerRows, paintDrawerRows, scopedToWorkspace } from './drawer-rows.ts'
+import { loadPinnedSessions, loadPinnedWorkspaces, togglePinnedSession, togglePinnedWorkspace } from '../session/pins.ts'
 import { Button } from '../ui/primitives.tsx'
 import { WorkspacePicker } from './chat/components/workspace-picker.tsx'
 import { useWorkspaceActions } from './chat/hooks/use-workspace-actions.ts'
@@ -613,6 +614,31 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [bootError, setBootError] = useState<string | undefined>(undefined)
   /** 工作区花名册：抽屉的身份区与切换面板共用。 */
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceRow[]>([])
+  /**
+   * 用户主动置顶的会话 / 工作区（2026-11-12 用户：「没有实现这个工作区和会话的置顶」）。
+   *
+   * 存在 localStorage（`session/pins.ts`）：置顶是**本机偏好**，桌面端没有这个概念，
+   * 写进宿主会让「手机上钉的」跑到别的设备上。两个 Set 只用于渲染判断，
+   * 真正的读写都走 pins 模块（它负责坏数据兜底）。
+   */
+  const [pinnedSessions, setPinnedSessions] = useState<ReadonlySet<string>>(() => loadPinnedSessions())
+  const [pinnedWorkspaces, setPinnedWorkspaces] = useState<ReadonlySet<string>>(() => loadPinnedWorkspaces())
+  /** 长按一行切换置顶：写盘 → 同步 state → 就地重排（不重排的话图钉亮了下一次打开才生效）。 */
+  const toggleSessionPin = useCallback((sessionId: string) => {
+    const pinned = togglePinnedSession(sessionId)
+    const next = loadPinnedSessions()
+    setPinnedSessions(next)
+    toast(pinned ? '已置顶，长按可取消' : '已取消置顶')
+    setDrawer(previous => previous === undefined
+      ? previous
+      : { ...previous, rows: orderDrawerRows(previous.rows, previous.session.sessionId, next) })
+  }, [])
+  /** 长按工作区切换里的一行切换工作区置顶（key 与 drawer-rows.pathKey 同口径）。 */
+  const toggleWorkspacePin = useCallback((key: string) => {
+    const pinned = togglePinnedWorkspace(key)
+    setPinnedWorkspaces(loadPinnedWorkspaces())
+    toast(pinned ? '工作区已置顶' : '已取消置顶')
+  }, [])
   /**
    * 工作区名字的唯一出口（`session/workspace-directory.ts`）。
    *
@@ -1235,8 +1261,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     const workspaceId = String(current.workspaceId ?? '')
     const persisted = workspaceId === '' ? undefined : loadPersistedList(workspaceId)
     const cachedRows = persisted?.rows ?? []
-    // 第一帧与刷新后同一个排序（当前会话钉第一行，其余按时间倒序，见 drawer-rows.ts）。
-    const rows = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows)
+    // 第一帧与刷新后同一个排序（用户置顶的在前，其后当前会话，其余按时间倒序）。
+    const rows = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows, Date.now(), loadPinnedSessions())
     const pendingEntries = muxRef.current?.pendingSnapshot() ?? []
     setDrawer({
       session: current.session,
@@ -1267,7 +1293,15 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     const applyFresh = (fresh: readonly SessionView[]): void => {
       setDrawer(currentDrawer => currentDrawer === undefined || String(currentDrawer.workspaceId) !== workspaceId
         ? currentDrawer
-        : { ...currentDrawer, rows: mergeDrawerRows(fresh, currentDrawer.rows, currentDrawer.session.sessionId) })
+        : {
+          ...currentDrawer,
+          // 合并之后再按置顶权重排一次：新到的那页里可能有用户钉过的会话。
+          rows: orderDrawerRows(
+            mergeDrawerRows(fresh, currentDrawer.rows, currentDrawer.session.sessionId),
+            currentDrawer.session.sessionId,
+            loadPinnedSessions(),
+          ),
+        })
     }
     /**
      * 兜底：宿主按工作区过滤只回了「当前这一条」（归属表落后时的样子），或者这次请求
@@ -1626,6 +1660,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           rows={drawer.rows}
           finishedIds={drawer.finished}
           pendingIds={drawer.pending}
+          pinnedSessions={pinnedSessions}
+          onTogglePin={toggleSessionPin}
           currentSessionId={drawer.session.sessionId === '' ? undefined : drawer.session.sessionId}
           workspaceCount={workspaces.length}
           onSwitchWorkspace={() => { setDrawer(undefined); setWorkspacePickerOpen(true) }}
@@ -1656,6 +1692,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           currentWorkspaceId={routeRef.current.kind === "chat" ? String(routeRef.current.workspaceId ?? "") : ""}
           currentPath={routeRef.current.kind === "chat" ? workspaceView(routeRef.current.workspaceId).path : ""}
           onPick={(workspace) => { pickWorkspace(workspace.workspaceId) }}
+          pinnedWorkspaces={pinnedWorkspaces}
+          onTogglePin={toggleWorkspacePin}
           onClose={() => { setWorkspacePickerOpen(false) }}
           onCreate={workspaceActions.create}
           onRename={workspaceActions.rename}

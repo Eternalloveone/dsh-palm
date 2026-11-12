@@ -126,20 +126,39 @@ export function mergeDrawerRows(
  * 兜底，保证同一份数据永远给出同一个顺序。
  *
  * @param rows - 待排序的行
- * @param pinnedSessionId - 要钉在第一行的会话；不在列表里就按纯时间排
+ * @param pinnedSessionId - 要钉在第一行的会话（当前打开的那个）；不在列表里就按纯时间排
+ * @param pinnedIds - 用户**主动**置顶的会话 id（可多个）。与 `pinnedSessionId` 不同：
+ *   那个是「当前打开」，这个是用户的选择且跨重启保留。置顶组整体排在最前，组内仍按
+ *   时间倒序；当前会话若没被置顶，则排在置顶组之后、其余之前。
  * @returns 新数组，不修改入参
  */
 export function orderDrawerRows<T extends { sessionId: string; updatedAt: number }>(
   rows: readonly T[],
   pinnedSessionId?: string,
+  pinnedIds?: ReadonlySet<string>,
 ): T[] {
   const sorted = [...rows].sort((a, b) => b.updatedAt - a.updatedAt
     || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-  if (pinnedSessionId === undefined) return sorted
-  const index = sorted.findIndex(row => String(row.sessionId) === String(pinnedSessionId))
-  if (index <= 0) return sorted
-  const [pinned] = sorted.splice(index, 1)
-  return pinned === undefined ? sorted : [pinned, ...sorted]
+  const hasPins = pinnedIds !== undefined && pinnedIds.size > 0
+  if (!hasPins) {
+    if (pinnedSessionId === undefined) return sorted
+    const index = sorted.findIndex(row => String(row.sessionId) === String(pinnedSessionId))
+    if (index <= 0) return sorted
+    const [pinned] = sorted.splice(index, 1)
+    return pinned === undefined ? sorted : [pinned, ...sorted]
+  }
+  const pinnedRows = sorted.filter(row => pinnedIds.has(String(row.sessionId)))
+  const rest = sorted.filter(row => !pinnedIds.has(String(row.sessionId)))
+  // 当前会话没被用户钉住时，仍然给它「紧贴置顶组」的位置 —— 这是原来那条
+  // 「一进抽屉就看见自己」的保证，别因为加了手动置顶把它弄丢。
+  if (pinnedSessionId !== undefined) {
+    const index = rest.findIndex(row => String(row.sessionId) === String(pinnedSessionId))
+    if (index > 0) {
+      const [current] = rest.splice(index, 1)
+      if (current !== undefined) rest.unshift(current)
+    }
+  }
+  return [...pinnedRows, ...rest]
 }
 
 /**
@@ -165,14 +184,15 @@ export function paintDrawerRows(
   current: SessionView | undefined,
   cached: readonly SessionView[],
   now: number = Date.now(),
+  pinnedIds?: ReadonlySet<string>,
 ): SessionView[] {
-  if (current === undefined) return orderDrawerRows(cached)
+  if (current === undefined) return orderDrawerRows(cached, undefined, pinnedIds)
   const rest = cached.filter(row => row.sessionId !== current.sessionId)
   const known = cached.find(row => row.sessionId === current.sessionId)
   const pinned = current.updatedAt > 0
     ? current
     : { ...current, updatedAt: known !== undefined && known.updatedAt > 0 ? known.updatedAt : now }
-  return orderDrawerRows([pinned, ...rest], current.sessionId)
+  return orderDrawerRows([pinned, ...rest], current.sessionId, pinnedIds)
 }
 
 /**

@@ -82,6 +82,37 @@ describe('orderDrawerRows（抽屉的排序只此一处）', () => {
     expect(orderDrawerRows([...rows].reverse()).map(r => r.sessionId)).toEqual(['a', 'b', 'c'])
   })
 
+  describe('用户主动置顶（pinnedIds）', () => {
+    it('置顶组整体排最前，组内仍按时间倒序', () => {
+      const rows = [row('a', 300), row('b', 200), row('c', 100)]
+      const order = orderDrawerRows(rows, undefined, new Set(['c', 'b']))
+      expect(order.map(r => r.sessionId)).toEqual(['b', 'c', 'a'])
+    })
+
+    it('置顶优先于「当前会话」：当前会话没被钉住就排在置顶组之后', () => {
+      const rows = [row('a', 300), row('cur', 50), row('b', 100)]
+      const order = orderDrawerRows(rows, 'cur', new Set(['b']))
+      expect(order.map(r => r.sessionId)).toEqual(['b', 'cur', 'a'])
+    })
+
+    it('当前会话也在置顶组里时只出现一次', () => {
+      const rows = [row('a', 300), row('b', 100)]
+      const order = orderDrawerRows(rows, 'a', new Set(['a']))
+      expect(order.map(r => r.sessionId)).toEqual(['a', 'b'])
+    })
+
+    it('空置顶集合等价于没传（老行为不变）', () => {
+      const rows = [row('a', 300), row('cur', 50), row('b', 100)]
+      expect(orderDrawerRows(rows, 'cur', new Set()).map(r => r.sessionId))
+        .toEqual(orderDrawerRows(rows, 'cur').map(r => r.sessionId))
+    })
+
+    it('置顶的会话不在当前页时不报错（分页常见）', () => {
+      const rows = [row('a', 300), row('b', 100)]
+      expect(orderDrawerRows(rows, undefined, new Set(['ghost'])).map(r => r.sessionId)).toEqual(['a', 'b'])
+    })
+  })
+
   it('第一帧与刷新后同一顺序：钉住当前会话 + 时间倒序', () => {
     // 打开时：当前会话（老）+ 缓存行
     const paint = orderDrawerRows([row('cur', 50), row('a', 300), row('b', 100)], 'cur')

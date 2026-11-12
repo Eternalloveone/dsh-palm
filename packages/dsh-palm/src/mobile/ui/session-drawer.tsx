@@ -15,6 +15,7 @@ import { SKIN_LABEL, getSkin } from '../platform/skin.ts'
 import { Overlay } from './overlay.tsx'
 import { StatusStrip, type StatusStripKind } from './status-strip.tsx'
 import { drawerWhenLabel } from './drawer-when.ts'
+import { useLongPress } from './use-long-press.ts'
 
 /** 一天（毫秒）：今天/昨天分界。 */
 const DAY_MS = 86_400_000
@@ -57,6 +58,10 @@ export interface SessionDrawerProps {
   finishedIds: ReadonlySet<string>
   /** 等用户批准的会话 id（mux pending 镜像）：画「等审批」mini 条。 */
   pendingIds?: ReadonlySet<string>
+  /** 用户主动置顶的会话 id：这些行排在分组最前，标题前带一枚图钉。 */
+  pinnedSessions?: ReadonlySet<string>
+  /** 长按一行切换它的置顶状态（未传则长按无效）。 */
+  onTogglePin?: ((sessionId: string) => void) | undefined
   currentSessionId?: string
   /** 工作区数量：>1 时身份区画切换箭头（单工作区不画）。 */
   workspaceCount?: number
@@ -80,12 +85,90 @@ export interface SessionDrawerProps {
  * @param props - 工作区、会话行与动作
  * @returns 抽屉（Overlay 自带 Esc / 焦点陷阱 / 遮罩关闭）
  */
+/**
+ * 一条可「长按置顶」的抽屉行。
+ *
+ * 抽成组件而不是内联在 `map` 里的原因：`useLongPress` 是 hook，不能按行调用。
+ * 长按切换置顶而不是「点击右侧图标」，是因为右侧已经被「什么时候」占了 ——
+ * 再塞一个按钮会把标题挤到更窄（360px 上标题折行是真机问过的问题）。
+ */
+function PinnableRow({
+  sessionId,
+  current,
+  pinned,
+  onPick,
+  onTogglePin,
+  children,
+}: {
+  sessionId: string
+  current: boolean
+  pinned: boolean
+  onPick(): void
+  onTogglePin: ((sessionId: string) => void) | undefined
+  children: React.ReactNode
+}): React.ReactElement {
+  const handlers = useLongPress(
+    onTogglePin === undefined ? undefined : () => { onTogglePin(sessionId) },
+  )
+  const pinProps = onTogglePin === undefined
+    ? {}
+    : {
+      onPointerDown: handlers.onPointerDown,
+      onPointerMove: handlers.onPointerMove,
+      onPointerUp: handlers.onPointerUp,
+      onPointerLeave: handlers.onPointerLeave,
+      onPointerCancel: handlers.onPointerCancel,
+      onClickCapture: handlers.onClickCapture,
+    }
+  return (
+    <li {...pinProps}>
+      <ListRow
+        className={`palm-drawer-row${current ? ' palm-drawer-row-current' : ''}${pinned ? ' palm-drawer-row-pinned' : ''}`}
+        onClick={onPick}
+      >
+        {pinned ? <PinGlyph /> : null}
+        {children}
+      </ListRow>
+    </li>
+  )
+}
+
+/** 置顶图钉。12px 线性，与抽屉里其它图标同一套笔画。 */
+function PinGlyph(): React.ReactElement {
+  return (
+    <svg className="palm-drawer-pin" width="12" height="12" viewBox="0 0 16 16" aria-label="已置顶" role="img">
+      <path
+        d="M6 1.5h4l-.6 3.2 2.1 2.1-1 1-2.1-2.1H7.6L5.5 7.8l-1-1 2.1-2.1L6 1.5Zm2 7.2v5.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function SessionDrawer(props: SessionDrawerProps) {
   const now = Date.now()
   const pending = props.pendingIds ?? new Set<string>()
-  const groups = BUCKETS
-    .map(title => ({ title, rows: props.rows.filter(row => drawerBucketOf(row.updatedAt, now) === title) }))
-    .filter(group => group.rows.length > 0)
+  /*
+   * 置顶的行单独成组放最前（2026-11-12）。
+   *
+   * 只把置顶项排到数组最前是**不够的** —— 抽屉下面又按 `drawerBucketOf` 分「今天/昨天/
+   * 更早」三组重画，置顶那条照样落回它原来的时间组里（真机实测：图钉出来了、
+   * localStorage 也写了，但那一行还在原位）。所以这里先把它抽出来，
+   * 原时间组里要排除掉，否则同一行会出现两次。
+   */
+  const pinnedIds = props.pinnedSessions ?? new Set<string>()
+  const pinnedRows = props.rows.filter(row => pinnedIds.has(row.sessionId))
+  const restRows = props.rows.filter(row => !pinnedIds.has(row.sessionId))
+  const groups = [
+    ...(pinnedRows.length === 0 ? [] : [{ title: '置顶', rows: pinnedRows }]),
+    ...BUCKETS
+      .map(title => ({ title, rows: restRows.filter(row => drawerBucketOf(row.updatedAt, now) === title) }))
+      .filter(group => group.rows.length > 0),
+  ]
   /**
    * 工作区名。
    *
@@ -149,17 +232,19 @@ export function SessionDrawer(props: SessionDrawerProps) {
                 const status = statusOf(row, props.finishedIds, pending)
                 const when = drawerWhenLabel(row.updatedAt, now)
                 return (
-                  <li key={row.sessionId}>
-                    <ListRow
-                      className={'palm-drawer-row' + (row.sessionId === props.currentSessionId ? ' palm-drawer-row-current' : '')}
-                      onClick={() => { props.onPick(row) }}
-                    >
-                      <span className="palm-drawer-title">{row.title}</span>
-                      {status === undefined ? null : <StatusStrip kind={status.kind} label={status.label} size="mini" />}
-                      {/* 右侧那句「什么时候」：2026-11-11 用户「侧边栏的右边有点空」。 */}
-                      {when === '' ? null : <small className="palm-drawer-when">{when}</small>}
-                    </ListRow>
-                  </li>
+                  <PinnableRow
+                    key={row.sessionId}
+                    sessionId={row.sessionId}
+                    current={row.sessionId === props.currentSessionId}
+                    pinned={props.pinnedSessions?.has(row.sessionId) === true}
+                    onPick={() => { props.onPick(row) }}
+                    onTogglePin={props.onTogglePin}
+                  >
+                    <span className="palm-drawer-title">{row.title}</span>
+                    {status === undefined ? null : <StatusStrip kind={status.kind} label={status.label} size="mini" />}
+                    {/* 右侧那句「什么时候」：2026-11-11 用户「侧边栏的右边有点空」。 */}
+                    {when === '' ? null : <small className="palm-drawer-when">{when}</small>}
+                  </PinnableRow>
                 )
               })}
             </ul>

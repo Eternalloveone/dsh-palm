@@ -24,6 +24,7 @@ import {
   type WorkspaceRowView,
 } from './workspace-picker-model.ts'
 import { readExpandedGroups, writeExpandedGroups } from './workspace-picker-store.ts'
+import { pathKey } from '../../drawer-rows.ts'
 import { useWorkspaceActivity } from '../hooks/use-workspace-activity.ts'
 import { PathBrowser } from './path-browser.tsx'
 import { FolderIcon } from '../../../components/icons.tsx'
@@ -35,6 +36,10 @@ export interface WorkspacePickerProps<T extends WorkspaceLike> {
   currentWorkspaceId: string
   /** 选中一行：调用方负责切换工作区。 */
   onPick(workspace: T): void
+  /** 用户主动置顶的工作区 key（与 `drawer-rows.pathKey` 同口径）：这些行在组内置顶并带图钉。 */
+  pinnedWorkspaces?: ReadonlySet<string>
+  /** 切换某个工作区的置顶状态（未传则不画「置顶」动作）。 */
+  onTogglePin?: ((key: string) => void) | undefined
   /** 关闭面板。 */
   onClose(): void
   /**
@@ -128,6 +133,24 @@ export function WorkspacePicker<T extends WorkspaceLike>(props: WorkspacePickerP
     () => buildWorkspaceGroups(workspaces, currentWorkspaceId, query, Date.now(), sessionActivity),
     [workspaces, currentWorkspaceId, query, sessionActivity],
   )
+  /**
+   * 组内把用户置顶的工作区提到最前（2026-11-12 用户：「没有实现这个工作区…的置顶」）。
+   *
+   * 只在**组内**调序、不跨组搬：分组本身是「当前 / 项目 / 最近」三种语义
+   * （见 `buildWorkspaceGroups`），把一条最近用过的塞进「项目」组会让组的含义失真。
+   * 组内保持其余行的原顺序（模型已经按相关性排过了）。
+   */
+  const orderedGroups = useMemo(() => {
+    const pinned = props.pinnedWorkspaces
+    if (pinned === undefined || pinned.size === 0) return groups
+    return groups.map(group => ({
+      ...group,
+      rows: [
+        ...group.rows.filter(row => pinned.has(pathKey(row.raw.path))),
+        ...group.rows.filter(row => !pinned.has(pathKey(row.raw.path))),
+      ],
+    }))
+  }, [groups, props.pinnedWorkspaces])
   /** 正在搜索：结果里每一行都要带路径，否则用户不知道命中的是哪一条。 */
   const searching = query.trim() !== ''
 
@@ -293,9 +316,9 @@ export function WorkspacePicker<T extends WorkspaceLike>(props: WorkspacePickerP
               >＋</Button>
             </div>
             <div role="menu" aria-label="工作区" className="ws-list">
-              {groups.length === 0 ? (
+              {orderedGroups.length === 0 ? (
                 <p className="ws-empty">没有匹配的工作区</p>
-              ) : groups.map(group => {
+              ) : orderedGroups.map(group => {
                 /*
                  * 项目组默认折叠成一行组头：34 个工作区全铺开要滑六屏，而且每行右侧都挂一个「⋯」，
                  * 满屏都是点。折叠后一屏能看到十几组，点开哪组才展开哪组。
@@ -371,6 +394,13 @@ export function WorkspacePicker<T extends WorkspaceLike>(props: WorkspacePickerP
                         {menuFor === row.id ? (
                           // 手机上不弹浮层：行内展开两个动作，既不遮住下面的行，也不会被滚动手势抢走。
                           <div className="ws-actions">
+                            {props.onTogglePin === undefined ? null : (
+                              <Button
+                                role="menuitem"
+                                className="ws-action"
+                                onClick={() => { props.onTogglePin?.(pathKey(row.raw.path)) }}
+                              >{props.pinnedWorkspaces?.has(pathKey(row.raw.path)) === true ? '取消置顶' : '置顶'}</Button>
+                            )}
                             <Button
                               role="menuitem"
                               className="ws-action"

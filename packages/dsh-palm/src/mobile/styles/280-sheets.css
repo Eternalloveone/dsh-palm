@@ -394,6 +394,13 @@
   box-shadow: inset 2px 0 0 var(--palm-accent);
 }
 
+/* 置顶行的图钉（2026-11-12）：12px 线性，颜色随当前皮肤的主色，跟着标题一起走。
+   不加背景块 —— 抽屉行本来就只有 44px 高，多一块底色会把「当前会话」那条底色信号搅混。 */
+.palm-drawer-pin {
+  flex: 0 0 auto;
+  color: var(--palm-accent);
+}
+
 .palm-drawer-title {
   flex: 1 1 auto;
   min-inline-size: 0;
