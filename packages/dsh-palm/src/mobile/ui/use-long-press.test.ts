@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, useLongPress } from './use-long-press.ts'
+import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, LONG_PRESS_SWALLOW_MS, useLongPress } from './use-long-press.ts'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })
@@ -92,6 +92,18 @@ describe('长按之后的 click 要吞掉', () => {
   it('没长按过就放行', () => {
     const onLongPress = vi.fn()
     const { result } = renderHook(() => useLongPress(onLongPress))
+    const { event, stopPropagation } = click()
+    result.current.onClickCapture(event)
+    expect(stopPropagation).not.toHaveBeenCalled()
+  })
+
+  it('长按之后超过时间窗的 click 要放行（动作条里的按钮靠这条能用）', () => {
+    // 真机踩过：无限期吞掉的版本，长按展开动作条后点「删除」第一下没反应。
+    const onLongPress = vi.fn()
+    const { result } = renderHook(() => useLongPress(onLongPress))
+    result.current.onPointerDown(pointer())
+    vi.advanceTimersByTime(LONG_PRESS_MS)
+    vi.advanceTimersByTime(LONG_PRESS_SWALLOW_MS + 50)
     const { event, stopPropagation } = click()
     result.current.onClickCapture(event)
     expect(stopPropagation).not.toHaveBeenCalled()

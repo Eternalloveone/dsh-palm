@@ -9,7 +9,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import { logTail, reportError } from '../data/diag.ts'
-import { createSession, listSessions, observeSession, prompt, runningSessions, sendCommand } from '../data/session.ts'
+import { archiveSession, createSession, listSessions, observeSession, prompt, runningSessions, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
 import { handleAppFrame } from '../kernels/app-frame-slice.ts'
@@ -638,6 +638,31 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     const pinned = togglePinnedWorkspace(key)
     setPinnedWorkspaces(loadPinnedWorkspaces())
     toast(pinned ? '工作区已置顶' : '已取消置顶')
+  }, [])
+  /**
+   * 删除一条会话（2026-11-12 用户：「会话删除功能，能做吗？」）。
+   *
+   * 底层是宿主的 `workspace.archiveSession` —— 它的语义是**归档**：宿主不再把它列进
+   * 会话表，手机端的 roster 也被 `host/session-list.ts` 过滤掉（那里的注释写着
+   * 「桌面删掉的会话不能从手机 roster 里冒出来」）。也就是说对用户而言就是删除，
+   * 但**不可撤销** —— 手机上恢复不了一条被归档的会话，所以抽屉里要连点两次才执行。
+   *
+   * 删的是**当前正打开的那场**时不改路由：页面里已有的历史仍然可读，用户返回后它
+   * 就不在列表里了。硬跳转（回空会话/回工作区）会打断用户正在看的内容，而这条操作
+   * 本来就不高频 —— 宁可少做一步，也别把人正在读的东西抽走。
+   */
+  const deleteSession = useCallback((sessionId: string) => {
+    void archiveSession(sessionId).then(
+      () => {
+        setDrawer(previous => previous === undefined
+          ? previous
+          : { ...previous, rows: previous.rows.filter(row => row.sessionId !== sessionId) })
+        const isCurrent = routeRef.current.kind === 'chat'
+          && String(routeRef.current.session.sessionId) === String(sessionId)
+        toast(isCurrent ? '已删除，返回后不再列出' : '已删除这个会话')
+      },
+      (reason: unknown) => { toast(`删除失败：${errorText(reason)}`) },
+    )
   }, [])
   /**
    * 工作区名字的唯一出口（`session/workspace-directory.ts`）。
@@ -1662,6 +1687,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           pendingIds={drawer.pending}
           pinnedSessions={pinnedSessions}
           onTogglePin={toggleSessionPin}
+          onDelete={deleteSession}
           currentSessionId={drawer.session.sessionId === '' ? undefined : drawer.session.sessionId}
           workspaceCount={workspaces.length}
           onSwitchWorkspace={() => { setDrawer(undefined); setWorkspacePickerOpen(true) }}

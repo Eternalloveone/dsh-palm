@@ -8,6 +8,7 @@
  * 行右侧只在三种有据可查的状态下画 132×22 迷你条：等审批（宿主 pending 镜像）、
  * 运行中（宿主运行集合）、完成（刚结束账本）。普通会话保持干净。
  */
+import { useState } from 'react'
 import type { SessionView } from '../shared/session-view.ts'
 import { ChevronDownIcon, ChevronRightIcon, GaugeIcon, RowsIcon, SearchIcon, SlidersIcon } from '../components/icons.tsx'
 import { Button, ListRow } from './primitives.tsx'
@@ -62,6 +63,14 @@ export interface SessionDrawerProps {
   pinnedSessions?: ReadonlySet<string>
   /** 长按一行切换它的置顶状态（未传则长按无效）。 */
   onTogglePin?: ((sessionId: string) => void) | undefined
+  /**
+   * 删除一条会话（2026-11-12 用户：「会话删除功能，能做吗？」）。
+   *
+   * 底层是宿主的 `workspace.archiveSession`（插件侧 `archiveSession(sessionId)` 早就
+   * 封装好并放行了，只是一直没有入口）。**不可撤销** —— 手机上恢复不了一条被归档的
+   * 会话，所以动作条里要连点两次（「删除」→「确认删除？不可恢复」）。
+   */
+  onDelete?: ((sessionId: string) => void) | undefined
   currentSessionId?: string
   /** 工作区数量：>1 时身份区画切换箭头（单工作区不画）。 */
   workspaceCount?: number
@@ -98,6 +107,10 @@ function PinnableRow({
   pinned,
   onPick,
   onTogglePin,
+  menuOpen,
+  confirmingDelete,
+  onOpenMenu,
+  onDelete,
   children,
 }: {
   sessionId: string
@@ -105,21 +118,23 @@ function PinnableRow({
   pinned: boolean
   onPick(): void
   onTogglePin: ((sessionId: string) => void) | undefined
+  /** 这一行的动作条是否展开（长按打开）。 */
+  menuOpen: boolean
+  /** 动作条里的「删除」是否已进入二次确认。 */
+  confirmingDelete: boolean
+  onOpenMenu(): void
+  onDelete: ((sessionId: string) => void) | undefined
   children: React.ReactNode
 }): React.ReactElement {
-  const handlers = useLongPress(
-    onTogglePin === undefined ? undefined : () => { onTogglePin(sessionId) },
-  )
-  const pinProps = onTogglePin === undefined
-    ? {}
-    : {
-      onPointerDown: handlers.onPointerDown,
-      onPointerMove: handlers.onPointerMove,
-      onPointerUp: handlers.onPointerUp,
-      onPointerLeave: handlers.onPointerLeave,
-      onPointerCancel: handlers.onPointerCancel,
-      onClickCapture: handlers.onClickCapture,
-    }
+  const handlers = useLongPress(menuOpen ? undefined : onOpenMenu)
+  const pinProps = {
+    onPointerDown: handlers.onPointerDown,
+    onPointerMove: handlers.onPointerMove,
+    onPointerUp: handlers.onPointerUp,
+    onPointerLeave: handlers.onPointerLeave,
+    onPointerCancel: handlers.onPointerCancel,
+    onClickCapture: handlers.onClickCapture,
+  }
   return (
     <li {...pinProps}>
       <ListRow
@@ -129,6 +144,31 @@ function PinnableRow({
         {pinned ? <PinGlyph /> : null}
         {children}
       </ListRow>
+      {/*
+       * 动作条（2026-11-12）：长按展开，和工作区选择器里的 `ws-actions` 同一套做法 ——
+       * 手机上不弹浮层，行内展开既不遮住下面的行，也不会被滚动手势抢走。
+       *
+       * 删除是**两步**：先点「删除」，按钮变成「确认删除？」再点一次才真的删。
+       * 这一条不可撤销（宿主是归档，手机上没法恢复），一步误触代价太大。
+       */}
+      {menuOpen ? (
+        <div className="palm-drawer-actions">
+          {onTogglePin === undefined ? null : (
+            <Button
+              role="menuitem"
+              className="palm-drawer-action"
+              onClick={() => { onTogglePin(sessionId) }}
+            >{pinned ? '取消置顶' : '置顶'}</Button>
+          )}
+          {onDelete === undefined ? null : (
+            <Button
+              role="menuitem"
+              className={`palm-drawer-action${confirmingDelete ? ' palm-drawer-action-danger' : ''}`}
+              onClick={() => { onDelete(sessionId) }}
+            >{confirmingDelete ? '确认删除？不可恢复' : '删除'}</Button>
+          )}
+        </div>
+      ) : null}
     </li>
   )
 }
@@ -178,6 +218,28 @@ export function SessionDrawer(props: SessionDrawerProps) {
    */
   const name = props.workspace.title !== '' ? props.workspace.title : '工作区'
   const showSwitch = (props.workspaceCount ?? 1) > 1 && props.onSwitchWorkspace !== undefined
+  /*
+   * 动作条状态：哪一行展开了（`menuFor`）、其中「删除」是否已进入二次确认（`confirmFor`）。
+   *
+   * 放在抽屉这一层而不是每行自己管：同时只该有一行展开（两行都摊着动作条，列表会跳），
+   * 而且点另一行要能关掉上一行。`confirmFor` 与 `menuFor` 分开，是为了「置顶 → 再点删除」
+   * 时不必重新走一遍长按。
+   */
+  const [menuFor, setMenuFor] = useState<string | undefined>(undefined)
+  const [confirmFor, setConfirmFor] = useState<string | undefined>(undefined)
+  const openMenu = (sessionId: string): void => {
+    setMenuFor(previous => (previous === sessionId ? undefined : sessionId))
+    setConfirmFor(undefined)
+  }
+  const requestDelete = (sessionId: string): void => {
+    if (confirmFor !== sessionId) {
+      setConfirmFor(sessionId)
+      return
+    }
+    props.onDelete?.(sessionId)
+    setMenuFor(undefined)
+    setConfirmFor(undefined)
+  }
   return (
     <Overlay
       title="会话与工作区"
@@ -239,6 +301,10 @@ export function SessionDrawer(props: SessionDrawerProps) {
                     pinned={props.pinnedSessions?.has(row.sessionId) === true}
                     onPick={() => { props.onPick(row) }}
                     onTogglePin={props.onTogglePin}
+                    menuOpen={menuFor === row.sessionId}
+                    confirmingDelete={confirmFor === row.sessionId}
+                    onOpenMenu={() => { openMenu(row.sessionId) }}
+                    onDelete={props.onDelete === undefined ? undefined : requestDelete}
                   >
                     <span className="palm-drawer-title">{row.title}</span>
                     {status === undefined ? null : <StatusStrip kind={status.kind} label={status.label} size="mini" />}

@@ -401,6 +401,30 @@
   color: var(--palm-accent);
 }
 
+/* 抽屉行的动作条（2026-11-12）：长按展开，和工作区选择器的 `.ws-actions` 同一套做法。
+   行内展开而不是浮层 —— 手机上没有空间放 popover，滚动手势也会把它抢走。 */
+.palm-drawer-actions {
+  display: flex;
+  gap: var(--palm-s2);
+  padding: 0 var(--palm-s2) var(--palm-s2);
+}
+
+.palm-drawer-action {
+  flex: 1 1 auto;
+  min-block-size: 36px;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font-size: var(--palm-t-s);
+}
+
+/* 二次确认态：同一个按钮再点一次才真的删。做成危险色，避免误触。 */
+.palm-drawer-action-danger {
+  background: var(--palm-danger-band, var(--palm-sur-2));
+  color: var(--palm-danger, var(--palm-fg));
+  font-weight: 600;
+}
+
 .palm-drawer-title {
   flex: 1 1 auto;
   min-inline-size: 0;

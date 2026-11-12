@@ -18,6 +18,14 @@ import { useCallback, useEffect, useRef } from 'react'
 export const LONG_PRESS_MS = 500
 /** 手指移动超过这个距离就当滚动，取消长按。 */
 export const LONG_PRESS_SLOP_PX = 10
+/**
+ * 长按触发后多久内的 click 算「同一次手势的误触」。
+ *
+ * 松手时系统会补一个 click，必须吞掉（否则会把会话打开）。但**不能无限期吞** ——
+ * 长按展开动作条之后，用户点条里的按钮是**一次新的操作**，那一下必须放行。
+ * 真机实测过没这个窗口的版本：长按 → 点「删除」，第一下总是没反应。
+ */
+export const LONG_PRESS_SWALLOW_MS = 400
 
 export interface LongPressHandlers {
   onPointerDown: (event: React.PointerEvent) => void
@@ -35,7 +43,8 @@ export interface LongPressHandlers {
 export function useLongPress(onLongPress: (() => void) | undefined, enabled = true): LongPressHandlers {
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const originRef = useRef<{ x: number; y: number } | undefined>(undefined)
-  const firedRef = useRef(false)
+  /** 长按触发时的时间戳（0 = 从未触发）。用它划出「同一手势」的时间窗。 */
+  const firedAtRef = useRef(0)
   const callbackRef = useRef(onLongPress)
   callbackRef.current = onLongPress
 
@@ -55,14 +64,14 @@ export function useLongPress(onLongPress: (() => void) | undefined, enabled = tr
   return {
     onPointerDown: (event) => {
       if (!active) return
-      firedRef.current = false
+      firedAtRef.current = 0
       // 先清上一次（会连 origin 一起清），再记这一次的起点 —— 顺序反了就会把
       // 刚到手的坐标清掉，于是 onPointerMove 一直读到 undefined、滑动永远取消失败。
       cancel()
       originRef.current = { x: event.clientX, y: event.clientY }
       timerRef.current = setTimeout(() => {
         timerRef.current = undefined
-        firedRef.current = true
+        firedAtRef.current = Date.now()
         callbackRef.current?.()
       }, LONG_PRESS_MS)
     },
@@ -75,10 +84,13 @@ export function useLongPress(onLongPress: (() => void) | undefined, enabled = tr
     onPointerUp: cancel,
     onPointerLeave: cancel,
     onPointerCancel: cancel,
-    // 长按已经触发过：吞掉紧随其后的 click，别让抽屉把会话打开。
+    // 长按刚触发过：吞掉紧随其后的 click，别让抽屉把会话打开。
+    // 只吞**时间窗内**的那一次 —— 之后用户点动作条里的按钮是新的操作，必须放行。
     onClickCapture: (event) => {
-      if (!firedRef.current) return
-      firedRef.current = false
+      if (firedAtRef.current === 0) return
+      const elapsed = Date.now() - firedAtRef.current
+      if (elapsed > LONG_PRESS_SWALLOW_MS) return
+      firedAtRef.current = 0
       event.preventDefault()
       event.stopPropagation()
     },
