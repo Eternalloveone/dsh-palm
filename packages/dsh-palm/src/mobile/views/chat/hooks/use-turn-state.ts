@@ -199,7 +199,8 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
     if (snapshotAliveRef.current) {
       if (reconcileInFlightRef.current) return
       reconcileInFlightRef.current = true
-      void sessionState(sessionId).then(
+      // 只要回合字段：整页行（一次 129 KB）不必每 1.5–3 s 重传一遍（C2）。
+      void sessionState(sessionId, { rows: false }).then(
         (snapshot) => {
           reconcileFailureRef.current = 0
           if (aliveRef.current) setHostLost(false)
@@ -390,6 +391,13 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
     verdictSeqRef.current = Number.NEGATIVE_INFINITY
     // 上一场的"已收工"不能挡住这一场：换会话 = 重新开始收工台账。
     closedTurnRef.current = undefined
+    // 轮号在各会话里独立编号（P4：实例跨会话复用后才成立的风险）：上一场记下的
+    // 「turn 3 已收工」会让这一场的 turn 3 提前冒出交付卡，「已中断」会让它被盖章，
+    // 「连接中断」会让新会话一进来就挂错误态 —— 三本账必须一起换新。
+    closedTurnsRef.current = new Set()
+    setAbandonedTurn(undefined)
+    setHostLost(false)
+    reconcileFailureRef.current = 0
     applyTurnVerdict({ running: seedRunning })
     // 会话切换：上一轮的轮号绝不能留给下一场（名单恢复的 running 会把它当成
     // 活跃轮次，把上一场那一轮的卡片误判成运行中）。

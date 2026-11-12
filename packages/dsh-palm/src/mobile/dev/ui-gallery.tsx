@@ -14,7 +14,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { CloseIcon, InboxIcon } from '../components/icons.tsx'
-import { getMobileTheme, toggleMobileTheme, type ResolvedTheme } from '../mobile-theme.ts'
+import { skinPolarity } from '../platform/skin.ts'
 import { Sheet } from '../ui/sheet.tsx'
 import { ConfirmDialog, PromptDialog } from '../components/dialog.tsx'
 import { ImageLightbox } from '../components/image-lightbox.tsx'
@@ -44,7 +44,7 @@ export function UiGallery() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [chip, setChip] = useState(true)
-  const [theme, setTheme] = useState<ResolvedTheme>(getMobileTheme())
+  const [theme] = useState(skinPolarity())
 
   return (
     <main className="mobile-pad" data-ui-gallery>
@@ -53,12 +53,8 @@ export function UiGallery() {
         打开方式 <code>/m/#dev/ui</code>。这里只验证底座，不是产品页面。
       </p>
 
-      <Section title="主题">
-        <p className="card-desc">当前：{theme}</p>
-        <Button
-          className="mobile-button"
-          onClick={() => { setTheme(toggleMobileTheme()) }}
-        >切换深浅色</Button>
+      <Section title="皮肤">
+        <p className="card-desc">当前明暗：{theme}（明暗由皮肤决定，外观页换皮肤即可）</p>
       </Section>
 
       <Section title="按钮" hint="普通 / 块级 / 危险 / 禁用">

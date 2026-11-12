@@ -59,6 +59,39 @@
   color: var(--palm-fg-3);
 }
 
+/* 最放开那一档的二次确认（2026-11-10）：与对话页的确认浮层同一套语义色 ——
+ * 警示条用 --palm-tint-warn + --palm-warn，确认按钮描边同色，取消保持安静。 */
+.approval-mode-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  margin-top: var(--palm-s2);
+  padding: var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-warn);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-warn);
+}
+
+.approval-mode-confirm-text {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg-2);
+}
+
+.approval-mode-confirm-actions {
+  display: flex;
+  gap: var(--palm-s2);
+  justify-content: flex-end;
+}
+
+.approval-mode-confirm-ok {
+  border-color: var(--palm-warn);
+  color: var(--palm-warn);
+  font-weight: var(--palm-w-bold);
+}
+
+
 .approval-mode-error {
   margin: var(--palm-s3) 0 0;
   font-size: var(--palm-t-s);

@@ -7,6 +7,7 @@
  */
 
 import { useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Overlay } from './overlay.tsx'
 
 /** Shared bottom-sheet props. */
@@ -20,6 +21,18 @@ export interface SheetProps {
 const DISMISS_THRESHOLD_PX = 80
 /** Pull-up distance past which release expands the sheet to full height. */
 const EXPAND_THRESHOLD_PX = 40
+
+/**
+ * 把浮层挂到 `document.body`。
+ *
+ * 为什么需要：浮层是 `position: fixed`，但只要祖先有 `transform` / `filter` / `contain`，
+ * fixed 就会退化成相对那个祖先定位 —— 排队卡在输入区里，直接渲染的浮层会被压到输入行
+ * 下面、还被容器裁掉（2026-11-10 真机截图）。挂到 body 就回到视口坐标。
+ */
+export function SheetPortal({ children }: { children: ReactNode }) {
+  if (typeof document === 'undefined') return <>{children}</>
+  return createPortal(children, document.body)
+}
 
 /** Render one bottom sheet with backdrop, drag handle, and centered title. */
 export function Sheet({ title, onClose, children }: SheetProps) {

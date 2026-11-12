@@ -23,6 +23,7 @@
  *
  * @module dsh-palm/mobile/ui/turn-header
  */
+import { useEffect, useRef, useState } from 'react'
 import { StatusStrip, type StatusStripKind, type StatusStripSteps } from './status-strip.tsx'
 
 /** 任务头的 props：全部取自现有回合数据，缺哪项就不画哪项。 */
@@ -45,22 +46,64 @@ export interface TurnHeaderProps {
   model?: string
   /** 点状态条打开运行详情（给了才可点）。 */
   onOpen?: () => void
+  /**
+   * 上一轮结束的时间戳（毫秒）：`idle` 时用它报「4 分钟前」。
+   * 拿不到就不报 —— 宁可少一个字，也不编一个时间。
+   */
+  closedAtMs?: number
 }
 
-/** 状态条用的短状态词（`完成 · 7 步`，与定版图同一个口径）。 */
-const STRIP_WORD: Record<StatusStripKind, string> = {
-  think: '思考',
-  read: '读文件',
-  edit: '改文件',
-  test: '跑测试',
-  approve: '等你决定',
-  stuck: '可能卡住了',
-  // 没有权威数据：不写状态词（灰点 + 破折号），不猜「进行中」也不猜「已完成」。
-  unknown: '—',
-  done: '完成',
-  failed: '失败',
-  stopped: '已中断',
-  queued: '排队中',
+/**
+ * 状态条的**词池**（2026-11-11：从「12 个固定标签」改成「族 + 池 + 轮播」）。
+ *
+ * 为什么不是换一批更好的词：Claude Code 的灵动来自**换的机制**而不是词本身 ——
+ * 它准备了 187 个 -ing 动词随机轮播（Pondering / Cogitating / Noodling …），
+ * 一个都不高级，但每次不一样。反过来，那批词的中文译本把 187 条全译成
+ * 「正在 + 动作」，同一个句式，看两天就成公文了。所以这里：
+ *
+ * 1. **只在同一族内换**（想/读/改/跑）—— 族外随机会让用户立刻失去「它在干嘛」；
+ * 2. **关键档一律不随机**（等你/静着/闲着/等回话/成了/没成/收了/排着）：
+ *    这几档一抖就让人焦虑，必须每次看到都一模一样；
+ * 3. 每族最后一个词是最保守的说法（思考/读文件/改文件/跑测试）——
+ *    轮播里会出现，也是最不会被误读的兜底；
+ * 4. 不写成「正在…」：中文的 -ing 直译是公文腔，改成「着 / 一遍 / 呢」的口语节奏。
+ */
+const STRIP_POOL: Record<StatusStripKind, readonly string[]> = {
+  think: ['琢磨着', '盘算着', '捋一捋', '过脑子', '想辙呢', '思考'],
+  read: ['翻着', '扒一扒', '扫一眼', '翻箱底', '对细节', '读文件'],
+  edit: ['落笔', '动刀', '缝一针', '改着', '补一段', '改文件'],
+  test: ['跑着', '试一遍', '敲命令', '等回显', '验一下', '跑测试'],
+  approve: ['等你放行'],
+  // 2026-11-10 用户：不要替用户宣布故障。事实只是「久没有新动静」，
+  // 正常的长编译/大文件读写也会这样；词只陈述事实，下一步放在灰字里。
+  stuck: ['静着'],
+  idle: ['闲着'],
+  /*
+   * 没有权威数据（快照没到 / 12 秒新鲜窗过期）：**说事实，不下结论**。
+   * 曾经留白（结果真机上只剩一枚灰鲸尾、一个字都没有），也曾经写「状态未知」；
+   * 现在说「等回话」—— 陈述"我们在等宿主答话"，不假装在跑，也不再是一片空白。
+   */
+  unknown: ['等回话'],
+  done: ['成了'],
+  failed: ['没成'],
+  stopped: ['收了'],
+  queued: ['排着'],
+}
+
+/** 进行中词池的轮播周期（毫秒）：4 秒够看清楚换了一次，又不至于晃眼。 */
+export const STRIP_ROTATE_MS = 4_000
+
+/**
+ * 取这一帧该显示的状态词（纯函数，测试与快照都按它走）。
+ *
+ * @param kind - 状态种类
+ * @param rotateTick - 轮播脉冲（时间每 4 秒 +1，步数变化也 +1）
+ * @returns 该族的第 `rotateTick % 池长` 个词
+ */
+export function stripWordOf(kind: StatusStripKind, rotateTick: number): string {
+  const pool = STRIP_POOL[kind]
+  const index = Math.abs(Math.trunc(rotateTick)) % pool.length
+  return pool[index] ?? pool[0] ?? ''
 }
 
 /**
@@ -81,6 +124,26 @@ export function formatSeconds(ms: number): string {
   const minutes = Math.floor(total / 60)
   const rest = total % 60
   return `${minutes}分${rest}秒`
+}
+
+/**
+ * 时间戳 → 「刚结束」/「4 分钟前」/「2 小时前」/「3 天前」。
+ *
+ * 只做粗粒度：这一行是背景信息，不是秒表（秒表在右侧）。
+ * 未来时间（时钟回拨）按「刚结束」处理，不显示负数。
+ *
+ * @param since - 起点时间戳（毫秒）
+ * @param now - 当前时间戳（毫秒），默认取系统时间，测试可注入
+ * @returns 一句中文
+ */
+export function formatAgo(since: number, now: number = Date.now()): string {
+  const sec = Math.max(0, Math.floor((now - since) / 1000))
+  if (sec < 60) return '刚结束'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min} 分钟前`
+  const hour = Math.floor(min / 60)
+  if (hour < 24) return `${hour} 小时前`
+  return `${Math.floor(hour / 24)} 天前`
 }
 
 /** 计数按千分位分组（`2,923`），与定版图一致；非有限数直接空串。 */
@@ -104,16 +167,82 @@ export function TurnHeader({
   testsPassed,
   model,
   onOpen,
+  closedAtMs,
 }: TurnHeaderProps) {
   const known = kind !== 'unknown'
-  // 无权威数据时耗时不画（还没开始的回合报「12.4s」就是编数字），步数也不报。
-  const time = !known || durationMs === undefined || !Number.isFinite(durationMs)
+  // 时钟**只要拿到时长就画**：状态可以待定（unknown 一个字都不写），但右端的计时
+  // 不许突然消失（2026-11-10 用户明确要求）。真正没数据时 durationMs 本来就是空。
+  const time = durationMs === undefined || !Number.isFinite(durationMs)
     ? ''
     : formatSeconds(durationMs)
-  const stripLabel = !known || steps === undefined ? STRIP_WORD[kind] : `${STRIP_WORD[kind]} · ${Math.max(0, Math.round(steps.done))} 步`
+  const stepsDone = steps === undefined ? 0 : Math.max(0, Math.round(steps.done))
+  /*
+   * 轮播脉冲：「每 4 秒」或「每完成一步」各前进一步（见 STRIP_POOL 的说明）。
+   * 状态一换（think → edit）词池跟着换，索引继续走 —— 不重置，省一次渲染；
+   * 池长为 1 的关键档根本不起定时器，永远显示同一个词。
+   */
+  const pool = STRIP_POOL[kind]
+  const [rotateTick, setRotateTick] = useState(0)
+  useEffect(() => {
+    if (pool.length < 2) return
+    // 开了「减弱动态效果」的用户不换词 —— 与鲸鱼动画同一个尊重。
+    const media = typeof window === 'undefined' || typeof window.matchMedia !== 'function'
+      ? undefined
+      : window.matchMedia('(prefers-reduced-motion: reduce)')
+    if (media?.matches === true) return
+    const timer = setInterval(() => { setRotateTick(value => value + 1) }, STRIP_ROTATE_MS)
+    return () => { clearInterval(timer) }
+  }, [pool])
+  const lastStepsRef = useRef<StatusStripSteps | undefined>(steps)
+  useEffect(() => {
+    if (lastStepsRef.current === steps) return
+    lastStepsRef.current = steps
+    if (pool.length > 1) setRotateTick(value => value + 1)
+  }, [steps, pool])
+  /*
+   * 换了一种动作（think → edit）就回到本族第一个词。
+   *
+   * 不重置的话，索引会顺着上一个族的进度往下走，经常一换动作就落在族尾那个
+   * 最保守的兜底词上（真机实测：切到 edit 首帧是「改文件」）—— 看着像没生效。
+   * 重置一次只多一帧渲染，换来"每次动手都从最生动那个词说起"。
+   */
+  const lastKindRef = useRef<StatusStripKind>(kind)
+  useEffect(() => {
+    if (lastKindRef.current === kind) return
+    lastKindRef.current = kind
+    setRotateTick(0)
+  }, [kind])
+
+  const stripWord = stripWordOf(kind, rotateTick)
+  const stripLabel = !known || steps === undefined ? stripWord : `${stripWord} · ${stepsDone} 步`
+
+  // 灰字（detail）三个终态各说一句事实：完成说做了什么，空闲说可以发话，
+  // 未知说在等谁。其余状态（进行中）不塞灰字 —— 那里已经有工具名/命令了。
+  const stripDetail = ((): string | undefined => {
+    if (kind === 'done') {
+      // 2026-11-10：改动数搬进过程条头（`改 N 个文件`），这里只在**没有改动**时说一句；
+      // 有改动就整条灰字不出现 —— 同一件事不在两处各说一遍。
+      return changedFiles === undefined || changedFiles === 0 ? '未做改动' : undefined
+    }
+    if (kind === 'idle') return '等你发话'
+    // 慢 ≠ 坏：说清事实并给出两个可选动作，不预设它卡死了。
+    if (kind === 'stuck') return '比平时慢一点 · 也可以停止后重发'
+    /*
+     * 待定态：**连时长都没有**的时候才补灰字（有计时的话时间已经说明"还在走"，
+     * 再叠一句就成两行噪音）。这句只陈述"在等谁"，不下结论。
+     */
+    if (kind === 'unknown') return time === '' ? '还没收到这一步的结果' : undefined
+    return undefined
+  })()
+
+  // 右侧：正在跑/刚跑完是耗时；空闲是「上一轮多久前」（时钟回拨不显示负数）。
+  const stripRight = kind === 'idle'
+    ? (closedAtMs === undefined ? undefined : formatAgo(closedAtMs))
+    : (time === '' ? undefined : time)
 
   const meta: string[] = []
-  if (changedFiles !== undefined && changedFiles > 0) meta.push(`改 ${countText(changedFiles)} 个文件`)
+  // 「改 N 个文件」全页只在**过程条头**报一次（2026-11-10 用户：鲸鱼尾下方的这行删掉、
+  // 不再显示）。任务头这里连运行中也不报 —— 它属于"这一轮干了什么"，不属于状态。
   if (testsPassed !== undefined && testsPassed > 0) meta.push(`${countText(testsPassed)} 测试通过`)
   if (model !== undefined && model !== '') meta.push(model)
 
@@ -125,7 +254,8 @@ export function TurnHeader({
         label={stripLabel}
         {...(progress === undefined || !known ? {} : { progress })}
         {...(!known || steps === undefined ? {} : { steps })}
-        {...(time === '' ? {} : { right: time })}
+        {...(stripDetail === undefined ? {} : { detail: stripDetail })}
+        {...(stripRight === undefined ? {} : { right: stripRight })}
         {...(onOpen === undefined ? {} : { onOpen })}
       />
       {meta.length === 0 ? null : <div className="palm-turn-meta">{meta.join(' · ')}</div>}
@@ -143,7 +273,12 @@ export function TurnHeadSkeleton() {
   return (
     <div className="palm-turn-head" data-kind="unknown" data-skeleton aria-busy="true" aria-label="正在读取会话">
       <p className="palm-turn-goal" data-skeleton-goal aria-hidden="true"><span data-skeleton-line /></p>
-      <StatusStrip kind="unknown" label="—" />
+      {/* 状态条也用同一套类名占位（高度同构），但**不放真的 StatusStrip**：
+          加载时屏幕上那条「空药丸 + 破折号」看起来像坏掉的控件（2026-11-10 实拍）。
+          占位块由 `[data-skeleton='true']` 的样式画成一条填充条，没有文字。 */}
+      <div className="palm-strip-wrap" aria-hidden="true">
+        <div className="palm-strip" data-size="main" data-kind="unknown" data-skeleton="true" aria-hidden="true" />
+      </div>
     </div>
   )
 }

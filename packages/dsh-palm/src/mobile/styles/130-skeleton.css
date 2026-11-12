@@ -5,3 +5,11 @@
 [data-skeleton] { display: flex; flex-direction: column; gap: var(--palm-s1); inline-size: 100%; }
 [data-skeleton-line] { display: block; block-size: var(--palm-s3); border-radius: var(--palm-r-full); background: var(--fill); }
 [data-skeleton-line]:last-child { inline-size: 60%; }
+
+/* 加载时的状态条占位（2026-11-10 实拍）：骨架里原来放的是真 StatusStrip，
+ * 屏幕上出现「一条空药丸 + 一个破折号」，像坏掉的控件。这里把它画成纯粹的
+ * 占位面：填充色即骨架色、去掉描边、不写任何文字。 */
+.palm-strip[data-skeleton='true'] {
+  background: var(--fill);
+  border-color: transparent;
+}

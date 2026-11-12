@@ -154,13 +154,15 @@
  * 2026-11-08 实机投诉：一回合 12 次工具调用被画成 12 张卡（44 的命中高度 + 8 的上下
  * 留白 + 描边/底色 + 行间 gap ≈ 90 一张），一屏只能看 6 条，扫不完。定版不再画
  * 卡片外壳：整块只是正文里的一段过程表，行与行之间最多一条极淡分隔线。
- * 头一行只说工具数与报错数（--palm-proc-head-h / --palm-proc-head-size），每行工具压到一条 --palm-proc-row-h 单行。
+ * 头一行只说工具数与报错数；静态行高 --palm-proc-head-h，可点击行实体占位 --palm-hit。
  * 状态词与耗时不在这一行：全页只在任务头状态条（真机上曾并排出现两个状态词、两条计时）。
  */
 .chat-proc {
   display: flex;
   flex-direction: column;
-  margin-top: var(--palm-s1);
+  /* 2026-11-10：状态条与过程条之间不再留一道空白 —— 二者是同一段的"标题行 + 明细"，
+     原来 margin + 任务头 10px 底距让它们看起来像两块无关的内容。 */
+  margin-top: 0;
 }
 
 .chat-proc-head {
@@ -168,7 +170,7 @@
   align-items: center;
   gap: var(--palm-s1);
   width: 100%;
-  /* 头行只是一条注脚：24 高 / 11 号字，不再占 44 的拇指区（展开入口在行上）。 */
+  /* 静态摘要保持 24 高 / 11 号字；可点击摘要另以 44px 实体高度覆盖。 */
   min-height: var(--palm-proc-head-h);
   padding: 0 var(--palm-s2);
   border: none;
@@ -185,9 +187,13 @@
   cursor: default;
 }
 
+.chat-proc-head:not(.chat-proc-head-static) {
+  min-height: var(--palm-hit);
+}
+
 .chat-proc-line {
   /* 吃剩余宽度，而不是 width:100%：头行里还有 ▸，写死 100% 会把它挤到第二行
-      —— 24 高的注脚会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
+      —— 静态 24 高的文字行会变成 37 高的两行（2026-11-08 实机量到的就是这个）。 */
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -246,27 +252,30 @@
 }
 
 
-/* 宿主唤醒消息的卡片（子代理/任务/定时/团队/外部事件…）。数值逐条对齐桌面端
-   ui-chat 的 TurnTriggerNodeView.module.css：16px 圆角、描边、代码块灰底、
-   头部 12px/16px、标题 13px、时间右对齐 12px、正文左缩进 40px、正文区最高 240px。
-   外边距单独给足 —— 真机反馈"卡片离周围文字太近、不协调"。 */
+/* 宿主唤醒消息的**通知行**（子代理/任务/定时/团队/外部事件…）。语义对齐桌面端
+   ui-chat 的 TurnTriggerNodeView（图标 + 标题 + 时间 + 可展开正文），但视觉是手机端的
+   紧凑版：一行 12px 次要文字，行高 28px（2026-11-11 两次收紧，见下）。 */
 .chat-trigger {
-  margin: 14px 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  background: var(--code-bg);
+  /* 2026-11-11 用户连着两次提「这个任务通知条占的空间太大」。结论：它不是"卡片"，是一条
+     **通知行**，不该有灰底、描边、大圆角和 12px 内边距。现在只剩一行 12px 次要文字 +
+     右侧时间 + 折叠箭头，行高 28px；要展开点整行（正文在 details 里）。 */
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
 }
 .chat-trigger-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 4px 2px;
+  min-block-size: 28px;
   cursor: pointer;
   list-style: none;
-  color: var(--text-primary);
-  font-size: 13px;
+  color: var(--palm-fg-2);
+  font-size: 12px;
 }
 .chat-trigger-head::-webkit-details-marker {
   display: none;
@@ -283,11 +292,11 @@
   flex: none;
   margin-left: auto;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .chat-trigger-body {
-  padding: 0 16px 12px 40px;
+  padding: 2px 2px 8px;
 }
 .chat-trigger-note {
   margin: 8px 0;
@@ -371,6 +380,16 @@
   flex-direction: column;
 }
 
+/* 阅读流首屏只留过程摘要；点开过程头后恢复完整步骤列表。 */
+.chat-proc[data-tools='summary'] > .chat-proc-tools {
+  display: none;
+}
+
+/* 活跃回合保持需要关注的步骤；已完成步骤仍可从摘要中展开查看。 */
+.chat-proc[data-tools='active'] > .chat-proc-tools > .chat-step[data-state='ok'] {
+  display: none;
+}
+
 .chat-step {
   display: flex;
   flex-direction: column;
@@ -380,9 +399,6 @@
   background: transparent;
 }
 
-.chat-proc-tools > .chat-step:first-child {
-  border-top: none;
-}
 
 .chat-step-head {
   display: flex;
@@ -394,7 +410,6 @@
   padding: var(--palm-proc-row-pad) 0;
   border: 0;
   background: none;
-  color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -451,30 +466,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-.chat-step-state-ok { color: var(--palm-ok); }
+/* 成功步骤的「完成」退成辅助色（2026-11-10 展开态实拍）：四行步骤各挂一枚绿「完成」，
+   像四枚徽章，反而把真正的异常淹掉。绿色圆点已经说明这一步过了；只有失败/中断/运行中
+   才需要语义色把眼睛拉过去。 */
+.chat-step-state-ok { color: var(--palm-fg-3); }
 .chat-step-state-error { color: var(--palm-danger); }
 .chat-step-state-running { color: var(--palm-accent); }
 .chat-step-state-stopped { color: var(--palm-warn); }
 
-.chat-step-caret {
-  flex: none;
-  display: flex;
-  align-items: center;
-  color: var(--palm-fg-3);
-}
 
-/*
- * 「还有 N 步 ›」：默认只露最近 3 步，其余收成这一行（同一条 --palm-proc-row-h 行，
- * 颜色退到第三档灰）。点它一次全展开，不是二次折叠。
- */
-.chat-step[data-state='fold'] .chat-step-title {
-  font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
-}
-
-.chat-step[data-state='fold'] .chat-step-caret {
-  margin-left: auto;
-}
 
 /* Tool diff card: file path header + red removed / green added lines,
    reusing the DiffView palette (--diff-add/--diff-del). The max-height
@@ -505,10 +505,10 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
+  min-height: var(--palm-hit);
   padding: 0;
   border: none;
   background: var(--code-head-bg);
-  color: inherit;
   font: inherit;
   cursor: pointer;
   text-align: left;
@@ -570,6 +570,18 @@
   color: var(--text-secondary);
   font-weight: 600;
 }
+
+/* 路径行从纯文本变成按钮（点开文件预览）：清掉 UA 的边框/背景/居中，外观与代码行一致。 */
+button.chat-tool-diff-path {
+  inline-size: 100%;
+  border: none;
+  /* 颜色/底色沿用 .chat-tool-diff-path（这里只清按钮外观），不重复引用 --text-secondary：该令牌有独立用量预算。 */
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+button.chat-tool-diff-path:active { opacity: 0.72; }
 
 .chat-tool-diff-del {
   background: var(--diff-del-bg);

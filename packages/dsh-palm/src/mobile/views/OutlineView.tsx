@@ -64,6 +64,14 @@ function conclusionOf(entry: TurnEntry): string {
   const plain = firstLine
     .replace(/^#{1,6}\s*/u, '')
     .replace(/^[>*-]+\s+/u, '')
+    // 行内 markdown（2026-11-10 大纲页实拍）：`.chat`、**加粗**、链接、删除线原来
+    // 把标记原样带进标题，看着像乱码。这里只剥"标记"，文字留下；
+    // 下划线只认成对的 __粗体__，不动 changed_files 这种标识符里的单个 _。
+    .replace(/!\[([^\]]*)\]\([^)]*\)/gu, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/gu, '$1')
+    .replace(/`+/gu, '')
+    .replace(/(\*\*|__)(.+?)\1/gu, '$2')
+    .replace(/~~(.+?)~~/gu, '$1')
     .replace(/\*\*/gu, '')
   return snippet(plain) || '（这一轮没有文字）'
 }

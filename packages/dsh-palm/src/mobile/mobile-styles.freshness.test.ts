@@ -36,6 +36,11 @@ describe('样式表生成物与源文件一致', () => {
       .map(name => readFileSync(join(STYLES_DIR, name), 'utf8'))
       .join('')
       .replace(/\r\n/g, '\n')
+      // 生成器要把正文转义成模板字符串的内容（反斜杠 / 反引号 / `${` 各加一层）。
+      // 这里不跟着转义，注释里写一个带反引号的类名就会让这条假红（2026-11-10）。
+      .replace(/\\/g, '\\\\')
+      .replace(/`/g, '\\`')
+      .replace(/\$\{/g, '\\${')
     const generated = readFileSync(GENERATED, 'utf8').replace(/\r\n/g, '\n')
     expect(generated.endsWith(body + '`;\n')).toBe(true)
   })

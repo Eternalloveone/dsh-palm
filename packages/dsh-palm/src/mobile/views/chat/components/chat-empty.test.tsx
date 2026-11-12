@@ -47,7 +47,8 @@ describe('空会话首屏', () => {
     render(<ChatEmptyView title="新会话" onStartSession={() => {}} onOpenSettings={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     expect(screen.getByRole('menuitem', { name: /设置/ })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: /切换主题/ })).toBeTruthy()
+    // 2026-11-10：明暗由皮肤决定，「切换主题」已从菜单删掉。
+    expect(screen.queryByRole('menuitem', { name: /主题/ })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: /这一轮的产物/ })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: /在本会话内搜索/ })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: /导出会话/ })).toBeNull()

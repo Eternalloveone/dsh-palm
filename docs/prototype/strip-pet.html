@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态条桌宠方案</title>
+<style>
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#08080c;color:#f2f4fa;font-family:-apple-system,"SF Pro Text","PingFang SC",system-ui,sans-serif}
+  .wrap{padding:22px 24px;width:max-content}
+  h1{font-size:15px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{font-size:11px;color:#666c7a;margin:0 0 18px}
+  .group{margin-bottom:20px}
+  .gh{display:flex;align-items:baseline;gap:8px;margin:0 0 8px}
+  .gh b{font-size:12px;font-weight:600}
+  .gh span{font-size:10.5px;color:#666c7a}
+  .rec{font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(124,140,255,.16);color:#b8c0ff}
+  .row{display:flex;align-items:center;gap:14px;margin-bottom:7px}
+  .tag{width:74px;font-size:10px;color:#666c7a;text-align:right;flex:none}
+
+  /* 28px 状态条（与实现同尺寸）*/
+  .strip{position:relative;width:390px;height:28px;border-radius:10px;background:#101016;border:1px solid rgba(255,255,255,.06);overflow:hidden;flex:none}
+  .fill{position:absolute;left:0;top:0;bottom:0}
+  .g-think .fill{background:linear-gradient(100deg,#1b2a6b,#3a3f9e 60%,#2b2a72)}
+  .g-done  .fill{background:linear-gradient(100deg,#0d5033,#177a4a 60%,#2b2a72)}
+  .g-stuck .fill{background:linear-gradient(100deg,#3d2a08,#7a5a14 60%,#6b4a10)}
+  .g-unk   .fill{background:linear-gradient(100deg,#1a1a22,#26262f)}
+  .striprow{position:absolute;inset:0;display:flex;align-items:center;gap:7px;padding:0 9px}
+  .pet{width:18px;height:18px;flex:none;display:block}
+  .txt{font-size:11px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rt{font-size:10px;color:rgba(255,255,255,.82);flex:none;font-variant-numeric:tabular-nums}
+
+  /* 刻度轨 */
+  .rail{display:flex;gap:2px;width:390px;margin-top:5px}
+  .rail i{height:4px;border-radius:2px;background:rgba(255,255,255,.09);flex:1}
+  .rail i.on{background:linear-gradient(90deg,#2fbf74,#3ddc84)}
+  .rail i.now{background:linear-gradient(90deg,#3ddc84,#7c8cff)}
+  .rail i.warn{background:#e0a52c}
+
+  /* A 原地表情：宠物固定，表情随状态变 */
+  .a .pet{transform-origin:50% 80%}
+  /* B 离散步进：宠物在 fill 前沿，按格跳 */
+  .b .pet{position:absolute;top:5px;left:0;transition:left .28s cubic-bezier(.2,.8,.3,1)}
+  .b .petwrap{position:absolute;inset:0}
+  /* C 足迹：原地 + 身后脚印 */
+  .paw{width:5px;height:5px;border-radius:50% 50% 50% 0;background:rgba(255,255,255,.28);transform:rotate(-20deg);flex:none}
+  .paws{position:absolute;inset:0;display:flex;align-items:center;gap:4px;padding-left:30px;pointer-events:none}
+  .b .paws{padding-left:0;left:30px}
+
+  .note{font-size:10px;color:#666c7a;margin:3px 0 0 88px}
+  .legend{display:flex;gap:18px;font-size:10px;color:#666c7a;margin-top:14px}
+  .legend b{color:#9aa0ae;font-weight:500}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>状态条里的桌宠：三种放法</h1>
+  <p class="sub">全部 28px 高、18px 宠物，跟现在实现同尺寸。左边是状态，右边是宠物怎么表达这个状态。</p>
+
+  <!-- ========== A ========== -->
+  <div class="group a">
+    <div class="gh"><b>A · 原地表情</b><span>宠物不动，用表情和呼吸表达</span><span class="rec">推荐</span></div>
+
+    <div class="row"><div class="tag">思考中</div>
+      <div class="strip g-think"><div class="fill" style="width:38%"></div>
+        <div class="striprow">
+          <svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#06170e" stroke="#c8f8db" stroke-width="2.1"/><path d="M11.2 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M15.8 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M12.4 19.2 q2.6 1.4 5.2 0" stroke="#c8f8db" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M5.6 11 l-2 -2.6" stroke="#c8f8db" stroke-width="1.8" stroke-linecap="round"/><path d="M24.4 11 l2 -2.6" stroke="#c8f8db" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div class="txt"><b>思考</b> · 正在读 12 个文件</div><div class="rt">14s</div></div>
+      </div></div>
+    <div class="rail"><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i><i></i><i></i></div>
+
+    <div class="row" style="margin-top:9px"><div class="tag">等审批</div>
+      <div class="strip g-stuck"><div class="fill" style="width:57%"></div>
+        <div class="striprow">
+          <svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#1b1205" stroke="#f3d79a" stroke-width="2.1"/><circle cx="11.9" cy="15" r="1.5" fill="#f3d79a"/><circle cx="18.1" cy="15" r="1.5" fill="#f3d79a"/><path d="M12.8 20 h4.4" stroke="#f3d79a" stroke-width="1.6" stroke-linecap="round"/><path d="M5.6 11 l-2 -2.6" stroke="#f3d79a" stroke-width="1.8" stroke-linecap="round"/><path d="M24.4 11 l2 -2.6" stroke="#f3d79a" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div class="txt"><b>等你确认</b> · 3 个文件要写</div><div class="rt">等你 2分</div></div>
+      </div></div>
+    <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="warn"></i><i></i><i></i></div>
+
+    <div class="row" style="margin-top:9px"><div class="tag">已完成</div>
+      <div class="strip g-done"><div class="fill" style="width:100%"></div>
+        <div class="striprow">
+          <svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#04150c" stroke="#c8f8db" stroke-width="2.1"/><path d="M10.6 14.2 q1.8 -2.6 3.6 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M15.8 14.2 q1.8 -2.6 3.6 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M11.6 18.4 q3.4 2.8 6.8 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M5.6 11 l-2 -2.6" stroke="#c8f8db" stroke-width="1.8" stroke-linecap="round"/><path d="M24.4 11 l2 -2.6" stroke="#c8f8db" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div class="txt"><b>完成</b> · 7 步</div><div class="rt">12s</div></div>
+      </div></div>
+    <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+
+    <div class="row" style="margin-top:9px"><div class="tag">数据未到</div>
+      <div class="strip g-unk"><div class="fill" style="width:0%"></div>
+        <div class="striprow">
+          <svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#0b0b10" stroke="#70707f" stroke-width="2.1"/><circle cx="11.9" cy="14.6" r="1.3" fill="#70707f"/><circle cx="18.1" cy="14.6" r="1.3" fill="#70707f"/><path d="M12.6 19.6 q2.4 -1.2 4.8 0" stroke="#70707f" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M5.6 11 l-2 -2.6" stroke="#70707f" stroke-width="1.8" stroke-linecap="round"/><path d="M24.4 11 l2 -2.6" stroke="#70707f" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div class="txt" style="color:#70707f">—</div><div class="rt" style="color:#70707f">—</div></div>
+      </div></div>
+    <div class="rail"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+
+    <p class="note">宠物固定在左侧：眨眼=思考、张嘴=等你、笑眼=完成、灰脸=数据没到。没有任何横向滑动。</p>
+  </div>
+
+  <!-- ========== B ========== -->
+  <div class="group b">
+    <div class="gh"><b>B · 离散步进</b><span>宠物站在进度前沿，每完成一步跳一格</span></div>
+
+    <div class="row"><div class="tag">第 2 步 / 7</div>
+      <div class="strip g-think"><div class="fill" style="width:34%"></div>
+        <div class="petwrap">
+          <svg class="pet" style="left:calc(34% - 24px)" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#06170e" stroke="#c8f8db" stroke-width="2.1"/><path d="M11.2 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M15.8 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M12.4 19.2 q2.6 1.4 5.2 0" stroke="#c8f8db" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          <div class="paws"><span class="paw"></span><span class="paw"></span></div>
+        </div>
+        <div class="striprow" style="padding-left:30px"><div class="txt" style="padding-left:22px"><b>思考</b> · 正在读 12 个文件</div><div class="rt">14s</div></div>
+      </div></div>
+    <div class="rail"><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i><i></i><i></i></div>
+
+    <div class="row" style="margin-top:9px"><div class="tag">第 5 步 / 7</div>
+      <div class="strip g-think"><div class="fill" style="width:72%"></div>
+        <div class="petwrap">
+          <svg class="pet" style="left:calc(72% - 24px)" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#06170e" stroke="#c8f8db" stroke-width="2.1"/><path d="M11.2 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M15.8 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M12.4 19.2 q2.6 1.4 5.2 0" stroke="#c8f8db" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          <div class="paws"><span class="paw"></span><span class="paw"></span><span class="paw"></span><span class="paw"></span><span class="paw"></span></div>
+        </div>
+        <div class="striprow" style="padding-left:30px"><div class="txt" style="padding-left:22px"><b>思考</b> · 正在跑测试</div><div class="rt">48s</div></div>
+      </div></div>
+    <div class="rail"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i></div>
+
+    <p class="note">位移只发生在「一步真的做完了」那一瞬间（0.28s 跳一格），不是连续滑动；身后脚印就是做过的步数。</p>
+  </div>
+
+  <!-- ========== C ========== -->
+  <div class="group">
+    <div class="gh"><b>C · 足迹拖尾</b><span>宠物不动，身后留脚印表达做了多少</span></div>
+
+    <div class="row"><div class="tag">做了 3 步</div>
+      <div class="strip g-think"><div class="fill" style="width:44%"></div>
+        <div class="striprow">
+          <svg class="pet" viewBox="0 0 30 30"><ellipse cx="15" cy="17" rx="9.6" ry="8.8" fill="#06170e" stroke="#c8f8db" stroke-width="2.1"/><path d="M11.2 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M15.8 14.4 q1.5 -1.9 3 0" stroke="#c8f8db" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M12.4 19.2 q2.6 1.4 5.2 0" stroke="#c8f8db" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M5.6 11 l-2 -2.6" stroke="#c8f8db" stroke-width="1.8" stroke-linecap="round"/><path d="M24.4 11 l2 -2.6" stroke="#c8f8db" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div class="txt"><b>思考</b> · 正在读 12 个文件</div><div class="rt">14s</div></div>
+        <div class="paws" style="padding-left:0;justify-content:flex-start;right:auto;width:44%;padding-left:32px"><span class="paw"></span><span class="paw"></span><span class="paw"></span></div>
+      </div></div>
+    <div class="rail"><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i><i></i><i></i></div>
+
+    <p class="note">脚印密度等于步数，但 28px 高度里脚印只有 5px，远看会糊成一条虚线。</p>
+  </div>
+
+  <div class="legend"><span><b>尺寸</b>：条 28 × 390、宠物 18、脚印 5</span><span><b>动效</b>：A 表情帧 2s 循环；B 步进 0.28s；C 无位移</span><span><b>未知总量</b>：A 灰脸思考、B/C 停在原地</span></div>
+</div>
+</body>
+</html>

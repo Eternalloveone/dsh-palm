@@ -64,6 +64,22 @@ export const processState: {
   sessionListSortedCache:
     | { key: string; items: Array<{ updatedAt: number; sessionId: string }> }
     | undefined
+  /**
+   * `session.list` 的 contentKey 记忆。
+   *
+   * 3395 个会话时 key 是 ~100 KB 的字符串；旧实现每一页都重拼一遍。
+   * 花名册刷新会换掉 `roster` 数组引用，用它当版本号即可 O(1) 判「没变」。
+   */
+  sessionListKeyCache:
+    | {
+      roster: readonly unknown[]
+      workspaceId: string | undefined
+      owned: ReadonlySet<string> | undefined
+      key: string
+    }
+    | undefined
+  /** 会话列表里「运行中」行的短 TTL 核对缓存（2 秒，见 session-list-handler）。 */
+  sessionListRunningCache: Map<string, { at: number; running: boolean }>
   /** workspace.list 的 TTL 缓存。 */
   workspaceListTtlCache: TtlResponse | undefined
   /** agentPreset.list 的 TTL 缓存。 */
@@ -83,6 +99,8 @@ export const processState: {
   locateSessionCache: undefined,
   ordinarySearchSnapshotCache: undefined,
   sessionListSortedCache: undefined,
+  sessionListKeyCache: undefined,
+  sessionListRunningCache: new Map(),
   workspaceListTtlCache: undefined,
   agentPresetTtlCache: undefined,
   searchSyncTimer: undefined,

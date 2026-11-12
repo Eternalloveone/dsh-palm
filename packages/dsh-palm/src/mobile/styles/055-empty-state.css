@@ -8,6 +8,20 @@
   text-align: center;
 }
 
+/* 会话首屏的空态（2026-11-10 实拍）：.chat 是 flex 列，空态没有 flex 权重时
+ * composer 会停在屏幕中间、下面留一大片空；同一块里标题居中、图标块却被 stretch
+ * 顶在左边。这里让它吃掉剩余高度并把内容十字居中 —— composer 回到屏幕底部。 */
+.chat > .empty-state {
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  /* 320px 实拍（2026-11-10）：草稿写到五六行时，空态这块的 flex 最小高度是
+     auto（内容高度），它不肯让位，于是 composer 被整块顶到屏幕外 —— 最后一行
+     和发送键都露不出来。这里允许它缩到 0、必要时自己滚，composer 就永远在视口里。 */
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
 .empty-state-title {
   margin: 0;
   font-size: var(--palm-t-l);

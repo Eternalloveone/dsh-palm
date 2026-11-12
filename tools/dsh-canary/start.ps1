@@ -2,11 +2,25 @@
 # 注意（PowerShell 5.1 两个坑，之前踩过）：
 #   · $HOME 是只读自动变量 —— 用 $CanaryHome，别用 $Home；
 #   · Set-Content -Encoding utf8 会写 BOM，JSON 读不了 —— 用 .NET 写无 BOM UTF-8。
+param([string]$HostAddress = '127.0.0.1')
+
 $ErrorActionPreference = 'Continue'
 $Canary = 'D:\dsh-canary'
 $CanaryHome = Join-Path $Canary 'home'
 $ProfileDir = Join-Path $CanaryHome 'profiles\web'
 $Log = Join-Path $Canary 'canary.log'
+$parsedHost = $null
+try { $parsedHost = [System.Net.IPAddress]::Parse($HostAddress) } catch {
+  throw 'HostAddress must be one concrete local IPv4 address; wildcard addresses are not allowed.'
+}
+if ($parsedHost.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork -or
+    $parsedHost.Equals([System.Net.IPAddress]::Any)) {
+  throw 'HostAddress must be one concrete local IPv4 address; wildcard addresses are not allowed.'
+}
+$localAddresses = @(Get-NetIPAddress -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress)
+if ($HostAddress -notin $localAddresses) {
+  throw "HostAddress $HostAddress is not assigned to a local interface."
+}
 New-Item -ItemType Directory -Force -Path $ProfileDir | Out-Null
 
 function W([string]$m) {
@@ -50,11 +64,17 @@ $env:DSH_HOME = $CanaryHome
 $env:NO_COLOR = '1'
 $bin = Join-Path $Canary 'node_modules\@deepseek-ai\dsh\lib\bin.js'
 W "DSH_HOME=$CanaryHome"
+W "绑定地址: $HostAddress"
+
+W '安装/校验 canary profile 插件'
+& node $bin plugin --profile web install
+if ($LASTEXITCODE -ne 0) { throw "dsh plugin install failed with exit code $LASTEXITCODE" }
 
 $out = Join-Path $Canary 'canary.out.log'
 $err = Join-Path $Canary 'canary.err.log'
 Remove-Item $out, $err -ErrorAction SilentlyContinue
-$p = Start-Process -FilePath 'node' -ArgumentList @($bin, '--profile', 'web', '--port', '3099', '--no-open') -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+$trustedHost = "${HostAddress}:3099"
+$p = Start-Process -FilePath 'node' -ArgumentList @($bin, '--profile', 'web', '--port', '3099', '--host', $HostAddress, '--trusted-host', $trustedHost, '--no-open') -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
 W "pid=$($p.Id)"
 
 $ready = $false

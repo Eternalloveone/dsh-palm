@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>无路版：宠物承载进度</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#08080c;color:#f2f4fa;font-family:-apple-system,"PingFang SC",system-ui,sans-serif}
+  .wrap{padding:22px 24px;width:max-content}
+  h1{font-size:15px;font-weight:600;margin:0 0 3px}
+  .sub{font-size:11px;color:#666c7a;margin:0 0 18px}
+  .card{background:#0e0e14;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px 16px;margin-bottom:14px;width:430px}
+  .ch{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+  .ch b{font-size:12px}
+  .ch span{font-size:10px;color:#666c7a;line-height:1.5}
+  .rec{font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(124,140,255,.16);color:#b8c0ff;flex:none}
+  .row{display:flex;align-items:center;gap:9px;height:36px}
+  .row+.row{margin-top:4px}
+  .pet{flex:none;image-rendering:pixelated}
+  .txt{font-size:11.5px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm{font-size:10px;color:#666c7a;flex:none;font-variant-numeric:tabular-nums}
+  .note{font-size:10px;color:#666c7a;margin:10px 0 0;line-height:1.65}
+  .ring{position:relative;width:34px;height:34px;flex:none;display:grid;place-items:center}
+  .ring svg.arc{position:absolute;inset:0;transform:rotate(-90deg)}
+  .bubbles{display:flex;gap:5px;flex:none}
+  .bub{width:7px;height:7px;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14)}
+  .bub.on{background:#3ddc84;border-color:#3ddc84}
+  .bub.now{background:#7c8cff;border-color:#7c8cff}
+  .count{font-size:10px;color:#9aa0ae;flex:none;font-variant-numeric:tabular-nums}
+  .ticks{display:flex;gap:3px;flex:none}
+  .ticks i{width:4px;height:8px;border-radius:2px;background:rgba(255,255,255,.12)}
+  .ticks i.on{background:#3ddc84}
+  .ticks i.now{background:#7c8cff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>不要“路”的三种做法</h1>
+  <p class="sub">共同点：没有轨道、没有虚线、没有填充条。进度由角色或它的附属物表达。</p>
+
+  <div class="card">
+    <div class="ch"><b>A · 能量环</b><span>宠物居中，环闭合即完成（Finch / Apple Watch 的路子）</span><span class="rec">推荐</span></div>
+    <div id="a"></div>
+    <p class="note">环只有 2px 弧线、绕在宠物身上，不占横向空间 → 右侧文字可以完整显示。<br>未知总量时环变成缓慢旋转的虚线段（不是填充），依然没有“路”。</p>
+  </div>
+
+  <div class="card">
+    <div class="ch"><b>B · 气泡串</b><span>每完成一步点亮一颗，当前那颗在跳（Tamagotchi 式计数）</span></div>
+    <div id="b"></div>
+    <p class="note">7 颗 = 总步数，实心 = 做完，跳动 = 正在做。没有底轨，所以不会读成“跑道”。<br>步数未知时只显示一颗跳动，不假装有 7 颗。</p>
+  </div>
+
+  <div class="card">
+    <div class="ch"><b>C · 纯角色 + 计数</b><span>最克制：只有宠物、「3 / 7」和一排小方块</span></div>
+    <div id="c"></div>
+    <p class="note">信息最少，最不容易看错。缺点是“还剩多少”不明显，得靠数字读。<br>适合放在会话列表那种很小的位置。</p>
+  </div>
+</div>
+
+<script>
+const BODY = [
+  [4,2],[5,2],[10,2],[11,2],
+  [4,3],[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],[11,3],
+  [4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+  [4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+  [5,6],[6,6],[7,6],[8,6],[9,6],[10,6],
+  [5,7],[6,7],[7,7],[8,7],[9,7],[10,7],
+  [5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
+  [5,9],[6,9],[7,9],[8,9],[9,9],[10,9],
+]
+const LEGS = {
+  walkA: [[5,10],[6,11],[9,10],[10,11]],
+  walkB: [[6,10],[6,11],[9,10],[9,11]],
+  idle:  [[6,10],[6,11],[9,10],[9,11]],
+  sleep: [[6,10],[9,10]],
+}
+const TAIL = {
+  walkA: [[12,7],[12,8],[13,8]],
+  walkB: [[13,7],[13,8],[13,9]],
+  idle:  [[12,8],[12,9],[13,9]],
+  sleep: [[12,9],[13,9],[13,10]],
+}
+
+function petSvg(frame, tone, size) {
+  frame = frame || 'idle'; tone = tone || '#9ff0c4'; size = size || 24
+  const dark = '#0b0b12'
+  const r = (x, y, c) => '<rect x="' + x + '" y="' + y + '" width="1" height="1" fill="' + c + '"/>'
+  let s = ''
+  BODY.forEach(p => { s += r(p[0], p[1], tone) })
+  ;(LEGS[frame] || LEGS.idle).forEach(p => { s += r(p[0], p[1], tone) })
+  ;(TAIL[frame] || TAIL.idle).forEach(p => { s += r(p[0], p[1], tone) })
+  if (frame === 'sleep') {
+    s += r(5, 5, dark) + r(6, 5, dark) + r(9, 5, dark) + r(10, 5, dark)
+  } else {
+    s += r(6, 5, dark) + r(9, 5, dark)
+  }
+  return '<svg class="pet" width="' + size + '" height="' + size + '" viewBox="0 0 16 16" ' +
+    'shape-rendering="crispEdges" style="width:' + size + 'px;height:' + size + 'px">' + s + '</svg>'
+}
+
+function ringRow(pct, color, frame, tone, label, time) {
+  const r = 15, C = 2 * Math.PI * r, on = C * pct / 100
+  return '<div class="row">' +
+    '<div class="ring">' +
+      '<svg class="arc" viewBox="0 0 34 34" width="34" height="34">' +
+        '<circle cx="17" cy="17" r="' + r + '" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="2"/>' +
+        '<circle cx="17" cy="17" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" ' +
+        'stroke-dasharray="' + on.toFixed(1) + ' ' + (C - on).toFixed(1) + '"/>' +
+      '</svg>' + petSvg(frame, tone, 22) +
+    '</div>' +
+    '<div class="txt">' + label + '</div><div class="tm">' + time + '</div></div>'
+}
+
+function bubbles(done, now, total) {
+  let out = ''
+  for (let i = 0; i < total; i++) {
+    out += '<span class="' + (i < done ? 'bub on' : (i === now ? 'bub now' : 'bub')) + '"></span>'
+  }
+  return '<div class="bubbles">' + out + '</div>'
+}
+
+function ticks(done, total) {
+  let out = ''
+  for (let i = 0; i < total; i++) {
+    out += '<i class="' + (i < done ? 'on' : (i === done ? 'now' : '')) + '"></i>'
+  }
+  return '<div class="ticks">' + out + '</div>'
+}
+
+document.getElementById('a').innerHTML =
+  ringRow(35, '#7c8cff', 'walkA', '#9ff0c4', '思考 · 读 12 个文件', '14s') +
+  ringRow(100, '#3ddc84', 'idle', '#9ff0c4', '完成 · 7 步', '2分04秒') +
+  ringRow(0, '#5c6270', 'sleep', '#8a9099', '—', '—')
+
+document.getElementById('b').innerHTML =
+  '<div class="row">' + petSvg('walkA') + bubbles(3, 3, 7) +
+    '<div class="txt" style="margin-left:2px">思考 · 跑测试</div><div class="tm">48s</div></div>' +
+  '<div class="row">' + petSvg('idle') + bubbles(7, 7, 7) +
+    '<div class="txt" style="margin-left:2px">完成 · 7 步</div><div class="tm">2分04秒</div></div>'
+
+document.getElementById('c').innerHTML =
+  '<div class="row">' + petSvg('walkA') +
+    '<div class="txt">改文件 · 第 3 步</div><div class="count">3 / 7</div>' + ticks(3, 7) +
+    '<div class="tm">24s</div></div>' +
+  '<div class="row">' + petSvg('sleep', '#8a9099') +
+    '<div class="txt" style="color:#70707f">—</div><div class="count">—</div>' + ticks(0, 7) +
+    '<div class="tm">—</div></div>'
+</script>
+</body>
+</html>

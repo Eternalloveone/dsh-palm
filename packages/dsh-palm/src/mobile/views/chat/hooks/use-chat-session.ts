@@ -19,8 +19,9 @@
  * @module dsh-palm/mobile/views/chat/use-chat-session
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import {
+  collapseDuplicateRows,
   dedupeById,
   dedupeSameStep,
   keepTurnReports,
@@ -30,6 +31,7 @@ import {
 } from '../../../render/messages.ts'
 import { reportDuplicateCards } from '../../../session/duplicate-report.ts'
 import { reportError } from '../../../data/diag.ts'
+import { useSessionState } from './use-session-scope.ts'
 
 /** Options for the row model. */
 export interface ChatSessionOptions {
@@ -65,7 +67,8 @@ export interface ChatSessionHandle {
  */
 export function useChatSession(options: ChatSessionOptions): ChatSessionHandle {
   const { sessionId, initialRows, getOpenTurn } = options
-  const [rows, setRows] = useState<RenderMessage[]>(initialRows)
+  // 行属于本会话：换会话即回到该会话的首帧快照（否则 A 的行会被 commitRows 的并集留下来）。
+  const [rows, setRows] = useSessionState<RenderMessage[]>(sessionId, initialRows)
 
   const commitRows = useCallback((
     incoming: readonly RenderMessage[] | ((previous: readonly RenderMessage[]) => readonly RenderMessage[]),
@@ -77,10 +80,11 @@ export function useChatSession(options: ChatSessionOptions): ChatSessionHandle {
       const raw = typeof incoming === 'function' ? incoming(previous) : incoming
       const next = renderRows(keepTurnReports(previous, raw), allowGuessedTails, getOpenTurn())
       const merged = dedupeById(merge ? preferRicherRows(previous, next) : next)
-      // Live evidence: a duplicate card occasionally still shows up on a real
-      // phone. Store the rows at that moment (at most once per minute per
-      // session, silent on failure) instead of guessing.
-      const deduped = [...dedupeSameStep(merged)]
+      // 最后一道：用与轮号无关的强证据（共享 callId / seq 区间重叠）收敛。
+      // 上面的 dedupeSameStep 依赖 turn+step，缺轮号时整条放弃 —— 真机上"快照行 + 流行"
+      // 正是这种形态，于是同一轮的过程条会画两遍（2026-11-12 用户再次复现）。
+      const collapsed = collapseDuplicateRows(merged)
+      const deduped = [...dedupeSameStep(collapsed)]
       reportDuplicateCards(sessionId, deduped, report => {
         void reportError(report, 'duplicate-cards').catch(() => {})
       })

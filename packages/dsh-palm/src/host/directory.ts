@@ -15,6 +15,7 @@ import { promisify } from 'node:util'
 import { basename, dirname, join, resolve } from 'node:path'
 import { RpcId } from '../api-proxy-types'
 import type { ApiProxy } from '../api-proxy-types'
+import { hydrateSessionRoster, isRosterHydrated, rosterTtlCache } from './session-roster.ts'
 import type { ChatWindowService } from '../chat-window.ts'
 import { READ_CHAT_MAX_ROWS } from '../chat-window.ts'
 import { homedir } from 'node:os'
@@ -109,33 +110,127 @@ export function isAbsolutePath(value: string): boolean {
  * `C:\…\dsh-source\dsh-palm\packages\…` somewhere in the same conversation).
  * The caller stats each candidate and uses the first that exists.
  */
+/**
+ * 找一个会话的 cwd：宿主的分页接口一页 40 条，只查第一页会漏掉老会话（用户有 3500+
+ * 个会话），漏了就退回 process.cwd()，相对路径自然对不上 → "文件不可读"。
+ * 这里最多翻 5 页（200 条），仍找不到就返回 undefined（保持原有的兜底顺序）。
+ *
+ * @param apiProxy - 宿主 API 代理
+ * @param sessionId - 目标会话
+ * @returns 会话的工作目录；找不到时 undefined
+ */
+/**
+ * 从会话花名册里直接取 cwd（同步、零 RPC）。
+ *
+ * 花名册还没水合时顺手水合一次（读的是磁盘快照，几毫秒），这样"开机后第一次点文件"
+ * 也不必等一次全量会话枚举（实测冷启动 3.2 秒，用户体感就是"点了打不开"）。
+ *
+ * @param sessionId - 目标会话
+ * @param apiProxy - 宿主代理（水合时要用）
+ * @returns 会话的 cwd；花名册里没有就 undefined
+ */
+function cwdFromRoster(sessionId: string, apiProxy: ApiProxy): string | undefined {
+  try {
+    // 必须把真实代理交给水合：花名册的后台刷新靠它（传 undefined 会让抽屉只剩缓存）。
+    if (!isRosterHydrated()) hydrateSessionRoster(apiProxy)
+    const cache = rosterTtlCache()
+    const item = cache?.rawItems.find(raw => raw.sessionId === sessionId)
+    return typeof item?.cwd === 'string' && item.cwd !== '' ? item.cwd : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function findSessionCwd(apiProxy: ApiProxy, sessionId: string): Promise<string | undefined> {
+  // 0) 花名册缓存（含落盘快照）：命中就完全不用发 RPC。
+  //    抽屉打开过、或本进程启动时水合过，就有这条路径。
+  const fromRoster = cwdFromRoster(sessionId, apiProxy)
+  if (fromRoster !== undefined) return fromRoster
+  let cursor: string | undefined
+  for (let page = 0; page < 5; page += 1) {
+    const response = await apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-readfile'), payload: cursor === undefined ? {} : { cursor } } as never)
+    const value = (response as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; cwd?: string }>; nextCursor?: string; hasMore?: boolean } } }).result?.value
+    const items = value?.items ?? []
+    const cwd = items.find(item => item.sessionId === sessionId)?.cwd
+    if (typeof cwd === 'string' && cwd !== '') return cwd
+    if (value?.hasMore !== true || value?.nextCursor === undefined) return undefined
+    cursor = value.nextCursor
+  }
+  return undefined
+}
+
+/**
+ * 相对路径找基准目录的两个缓存（2026-11-10）。
+ *
+ * 为什么要有：原来每打开一个文件都要现查一次 `sessions.list`（冷启动实测 6.3 秒）
+ * 和 `workspace.list` —— 手机上表现成"点了路径要等很久，很多时候干脆打不开"。
+ * 这两份数据在一次会话里几乎不变，缓存后打开文件不再有这两次往返。
+ */
+const READ_BASE_TTL_MS = 30_000
+let readWorkspacePathsCache: { at: number; paths: string[] } | undefined
+/** sessionId → 该会话的 cwd（命中就不再发 RPC）。 */
+const readSessionCwdCache = new Map<string, string>()
+
+/**
+ * 有人把 Windows 绝对路径写成了 `/C:/Users/x.png`（前导斜杠 + 盘符）。
+ *
+ * 2026-11-11 真机：正文里的图片一张都显示不出来，界面上写着
+ * 「方案 A未找到 · /C:/Users/Administrator/dsh-source/.../workspace-picker-a.png」——
+ * 文件其实**就在那里**。原因是 `/C:/…` 在 Windows 上也是"绝对路径"，`resolve` 会把它
+ * 解成 `C:\C:\Users\…`，于是 stat 落空。
+ *
+ * 只剥「斜杠 + 盘符」这一种形态（`/C:/`、`\C:\`、`/c:/`），别的一律原样返回：
+ * 正常的 POSIX 绝对路径 `/home/me/a.png` 不能被改写。
+ *
+ * @param raw - 用户/模型写出来的路径
+ * @returns 归一化后的路径
+ */
+export function normalizeAuthoredPath(raw: string): string {
+  return raw.replace(/^[/\\]([A-Za-z]:[/\\])/, '$1')
+}
+
 export async function readCandidates(
   apiProxy: ApiProxy,
   raw: string,
   sessionId: string | undefined,
   chatWindows: ChatWindowService | undefined,
 ): Promise<string[]> {
+  // 先归一化：`/C:/x.png` 这种写法在 Windows 上会被 resolve 成 `C:\C:\x.png`。
+  raw = normalizeAuthoredPath(raw)
   if (isAbsolutePath(raw)) return [resolve(raw)]
   const bases: string[] = []
   /** Exact absolute targets recovered from the chat window (already full paths). */
   const candidatesRaw: string[] = []
   if (sessionId !== undefined) {
-    try {
-      const response = await apiProxy.sessions.list({ rpcId: RpcId('dsh-palm-readfile'), payload: {} } as never)
-      const items = (response as { result?: { ok?: boolean; value?: { items?: Array<{ sessionId: string; cwd?: string }> } } }).result?.value?.items ?? []
-      const cwd = items.find(item => item.sessionId === sessionId)?.cwd
-      if (typeof cwd === 'string' && cwd !== '') bases.push(cwd)
-    } catch {
-      // session lookup failed: fall through to the remaining bases
+    const cached = readSessionCwdCache.get(sessionId)
+    if (cached !== undefined) {
+      bases.push(cached)
+    } else {
+      try {
+        const cwd = await findSessionCwd(apiProxy, sessionId)
+        if (cwd !== undefined && cwd !== '') {
+          readSessionCwdCache.set(sessionId, cwd)
+          bases.push(cwd)
+        }
+      } catch {
+        // session lookup failed: fall through to the remaining bases
+      }
     }
   }
+  bases.push(process.cwd())
   try {
-    bases.push(process.cwd())
-    const response = await apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-readfile-ws'), payload: {} } as never)
-    const wsItems = (response as { result?: { ok?: boolean; value?: { items?: Array<{ path?: string }> } } }).result?.value?.items ?? []
-    for (const item of wsItems) {
-      if (typeof item.path === 'string' && item.path !== '') bases.push(item.path)
+    const now = Date.now()
+    if (readWorkspacePathsCache === undefined || now - readWorkspacePathsCache.at > READ_BASE_TTL_MS) {
+      const response = await apiProxy.workspace.list({ rpcId: RpcId('dsh-palm-readfile-ws'), payload: {} } as never)
+      const wsItems = (response as { result?: { ok?: boolean; value?: { items?: Array<{ path?: string }> } } }).result?.value?.items ?? []
+      readWorkspacePathsCache = {
+        at: now,
+        paths: wsItems
+          .map(item => (typeof item.path === 'string' ? item.path : ''))
+          .filter(path => path !== ''),
+      }
     }
+    for (const path of readWorkspacePathsCache.paths) bases.push(path)
   } catch {
     // workspace enumeration failed: process.cwd() is already in the list
   }
@@ -190,7 +285,98 @@ export async function readCandidates(
     seen.add(target)
     candidates.push(target)
   }
+  // 2026-11-11 用户：「交付卡里有的文件点开显示找不到这个文件」。
+  //
+  // 现场是工具把路径写成**相对它自己的工作目录**（例如 `ui/sheet.tsx`，真实位置是
+  // `packages/dsh-palm/src/mobile/ui/sheet.tsx`）。上面那几条基准目录都拼不出来，
+  // 聊天记录里也未必留过它的绝对形式。这里补最后一条：按路径后缀在工作区里找**唯一**
+  // 同名文件。只在「按基准目录确实都不存在」时启用，避免每次预览都去扫盘。
+  if (/[\\/]/u.test(raw) && ![...seen].some(path => existsSync(path))) {
+    // 按**路径段**比后缀（不是按字符串）：ui/sheet.tsx 不能配到 xui/sheet.tsx。
+    const tailSegments = pathSegmentsOf(raw)
+    for (const base of bases.slice(0, SUFFIX_SEARCH_MAX_ROOTS)) {
+      if (base === '') continue
+      // 歧义（两个同名文件）时**不猜**：宁可报"找不到"，也不要打开另一个文件。
+      let hit: string | undefined
+      let ambiguous = false
+      for (const file of await indexedFilesUnder(base)) {
+        if (!endsWithSegments(file, tailSegments)) continue
+        if (hit === undefined) hit = file
+        else if (hit !== file) { ambiguous = true; break }
+      }
+      if (hit !== undefined && !ambiguous) {
+        const target = resolve(hit)
+        if (!seen.has(target)) { seen.add(target); candidates.push(target) }
+      }
+    }
+  }
   return candidates
+}
+
+/** 路径 → 归一化的小写段数组（去空段、认两种分隔符）。 */
+function pathSegmentsOf(path: string): string[] {
+  return path.replaceAll('\\', '/').replace(/^\.\//u, '').toLowerCase().split('/').filter(segment => segment !== '')
+}
+
+/** `path` 的路径段是否以 `tail` 结尾（按段比，避免 `xui` 命中 `ui`）。 */
+function endsWithSegments(path: string, tail: readonly string[]): boolean {
+  if (tail.length === 0) return false
+  const full = pathSegmentsOf(path)
+  if (full.length < tail.length) return false
+  const start = full.length - tail.length
+  return tail.every((segment, index) => full[start + index] === segment)
+}
+
+/** 后缀兜底最多查几个基准目录（工作区多开时别扫一遍整台机器）。 */
+const SUFFIX_SEARCH_MAX_ROOTS = 3
+/** 一次索引最多记多少个文件：够覆盖常规仓库，超了宁可放弃兜底。 */
+const SUFFIX_INDEX_MAX_FILES = 20_000
+/** 索引深度上限：`node_modules/a/b/c/...` 那种没必要走到底。 */
+const SUFFIX_INDEX_MAX_DEPTH = 8
+/** 索引缓存时长：文件增删不必秒级准确，60 秒足够。 */
+const SUFFIX_INDEX_TTL_MS = 60_000
+/** 这些目录里的文件不需要进索引（体积大、且不是会话改动的目标）。 */
+const SUFFIX_SKIP_DIRS = new Set([
+  'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', 'coverage',
+  '.next', '.nuxt', '.cache', '.turbo', 'target', '.venv', 'venv', '__pycache__',
+])
+
+/** root → 索引结果（含生成时间）。 */
+const fileIndexCache = new Map<string, { at: number; files: string[] }>()
+
+/**
+ * `root` 下的文件清单（懒建索引，缓存 60 秒）。
+ *
+ * @param root - 基准目录（工作区根 / 会话 cwd）
+ * @returns 绝对文件路径；读不动就返回空表（调用方按"没找到"处理）
+ */
+async function indexedFilesUnder(root: string): Promise<string[]> {
+  const cached = fileIndexCache.get(root)
+  const now = Date.now()
+  if (cached !== undefined && now - cached.at < SUFFIX_INDEX_TTL_MS) return cached.files
+  const files: string[] = []
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > SUFFIX_INDEX_MAX_DEPTH || files.length >= SUFFIX_INDEX_MAX_FILES) return
+    let handle
+    try {
+      handle = await opendir(dir)
+    } catch {
+      return
+    }
+    for await (const entry of handle) {
+      if (files.length >= SUFFIX_INDEX_MAX_FILES) return
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (SUFFIX_SKIP_DIRS.has(entry.name)) continue
+        await walk(full, depth + 1)
+      } else if (entry.isFile()) {
+        files.push(full)
+      }
+    }
+  }
+  await walk(root, 0)
+  fileIndexCache.set(root, { at: now, files })
+  return files
 }
 
 /** Windows drive letters that exist (A:-Z:), rendered as the This-PC drive picker. */

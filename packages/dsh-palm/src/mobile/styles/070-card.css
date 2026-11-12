@@ -63,7 +63,7 @@
 /* 按压态：scale(0.98) + 背景变亮 5% */
 .mobile-row:active {
   transform: scale(0.98);
-  background: color-mix(in srgb, var(--text-primary) 5%, var(--card-bg));
+  background: var(--palm-press-bg);
   border-color: var(--border-default);
 }
 

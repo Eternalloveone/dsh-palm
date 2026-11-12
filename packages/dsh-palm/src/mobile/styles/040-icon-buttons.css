@@ -1,7 +1,6 @@
 /* ── icon buttons (48px hot zones) ───────────────────────────────────── */
 
 .mobile-back,
-.mobile-theme-toggle,
 .mobile-iconbtn {
   flex: none;
   width: 48px;
@@ -20,13 +19,11 @@
 }
 
 .mobile-back:active,
-.mobile-theme-toggle:active,
 .mobile-iconbtn:active {
   background: var(--fill);
   transform: scale(0.94);
 }
 
-.mobile-theme-toggle svg,
 .mobile-iconbtn svg {
   width: 20px;
   height: 20px;

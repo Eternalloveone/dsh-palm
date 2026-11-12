@@ -5,10 +5,6 @@ import {
   dedupeQueue,
   describeBars,
   leaseAlive,
-  optimisticAlive,
-  QUEUE_EMPTY_HOLD_MS,
-  QUEUE_HIDDEN_MS,
-  QUEUE_OPTIMISTIC_MS,
   sessionStatusReducer,
   shouldAccept,
   visibleQueue,
@@ -121,10 +117,12 @@ describe('describeBars：三根条的唯一判据', () => {
       : sessionStatusReducer(withTurn, { type: 'plan', at: at2, source: 'snapshot', todo: plan.value })
   }
 
-  it('超过 20 秒没有新输出 → 提示「卡住了」（这是别处看不到的信息）', () => {
+  it('很久没有新输出也不再说「已 N 秒没有新输出」（2026-11-10 整句下线）', () => {
+    // 那句话是否定式文案，且它描述的事实（慢）在过程条与时钟上已经有了。
+    // 现在这条判据只剩一个作用：**正常运行中状态条什么都不说**。
     const checkAt = at + STALL_HINT_MS + 15_000
     const state = heartbeat(reduce([{ type: 'turn', at, source: 'frame', running: true, lastActivityAt: at }]), checkAt, at)
-    expect(describeBars(state, checkAt).statusBar).toBe('已 35 秒没有新输出')
+    expect(describeBars(state, checkAt).statusBar).toBeUndefined()
   })
 
   it('刚开跑就发消息：不许闪一下「已 N 秒没有新输出」', () => {
@@ -133,16 +131,16 @@ describe('describeBars：三根条的唯一判据', () => {
     const state = reduce([{ type: 'turn', at, source: 'local', running: true, lastActivityAt: at - 30_000 }])
     // 开跑 5 秒：旧行时间戳虽然很老，但不该说卡住
     expect(describeBars(state, at + 5_000).statusBar).toBeUndefined()
-    // 开跑 25 秒后仍没有新输出：这时候才该说
+    // 开跑 25 秒后仍没有新输出：2026-11-10 起也不再说那句话了。
     const later = sessionStatusReducer(state, { type: 'turn', at: at + 25_000, source: 'frame', running: true, lastActivityAt: at - 30_000 })
     expect(later.turn?.value.runningSince).toBe(at)
-    expect(describeBars(later, at + 25_000).statusBar).toBe('已 55 秒没有新输出')
+    expect(describeBars(later, at + 25_000).statusBar).toBeUndefined()
   })
 
-  it('长时等待的写法带分钟', () => {
+  it('长时等待（分钟级）同样不说话', () => {
     const checkAt = at + 4 * 60_000
     const state = heartbeat(reduce([{ type: 'turn', at, source: 'frame', running: true, lastActivityAt: at }]), checkAt, at)
-    expect(describeBars(state, checkAt).statusBar).toBe('已 4 分没有新输出')
+    expect(describeBars(state, checkAt).statusBar).toBeUndefined()
   })
 
   it('有任务时优先说任务（卡住提示不该顶掉进度）', () => {
@@ -188,58 +186,6 @@ describe('describeBars：三根条的唯一判据', () => {
 
 })
 
-describe('排队条可见判定（三个 TTL 收成一个语义）', () => {
-  const host = [item('h1', '第一条')]
-  const base = { host, optimistic: [], hiddenAt: new Map<string, number>() }
-
-  it('隐藏表在 90 秒内有效，过期后该项自己回来（不靠外部清理）', () => {
-    const hiddenAt = new Map([['h1', at]])
-    expect(visibleQueue({ ...base, hiddenAt }, at + 1_000)).toHaveLength(0)
-    expect(visibleQueue({ ...base, hiddenAt }, at + QUEUE_HIDDEN_MS + 1).map(entry => entry.id)).toEqual(['h1'])
-  })
-
-  it('乐观项在 45 秒内显示；超时自动退场', () => {
-    const optimistic = [{ pendingId: 'local-1', text: '刚发的', placement: 'queued' as const, at }]
-    expect(visibleQueue({ ...base, optimistic }, at + 1_000).map(entry => entry.id)).toEqual(['h1', 'local-1'])
-    expect(visibleQueue({ ...base, optimistic }, at + QUEUE_OPTIMISTIC_MS + 1).map(entry => entry.id)).toEqual(['h1'])
-  })
-
-  it('宿主队列里出现同一条正文 → 乐观项立刻退场（真行接上，不显示两条）', () => {
-    const optimistic = [{ pendingId: 'local-1', text: '刚发的', placement: 'queued' as const, at }]
-    const nextHost = [item('h2', '刚发的')]
-    expect(visibleQueue({ host: nextHost, optimistic, hiddenAt: new Map() }, at + 100).map(entry => entry.id)).toEqual(['h2'])
-    // 判据本身也单独可测
-    expect(optimisticAlive(optimistic[0]!, {
-      host: nextHost,
-      optimistic: [],
-      hiddenAt: new Map(),
-    }, at + 100)).toBe(false)
-  })
-
-  it('读到空队列时不因"超时"消失，只有正面证据（已进对话）才消失', () => {
-    // 契约变更（2026-10-31 真机："排队条有时候莫名其妙消失"）：
-    // 空快照不再在 N 秒后无条件清空 —— 宿主的队列投影本来就常常慢半拍。
-    const emptyHold = { items: host, until: at + QUEUE_EMPTY_HOLD_MS }
-    // 刚过旧窗口（4 秒）也要保留
-    expect(visibleQueue({ ...base, host: [], emptyHold }, at + 10_000).map(entry => entry.id)).toEqual(['h1'])
-    // 兜底期限到了才算"没有证据"
-    expect(visibleQueue({ ...base, host: [], emptyHold }, at + QUEUE_EMPTY_HOLD_MS + 1)).toHaveLength(0)
-    // 正面证据：这条正文已经出现在对话里 → 立刻消失
-    expect(visibleQueue({
-      ...base,
-      host: [],
-      emptyHold,
-      spokenTexts: new Set([String(host[0]?.text ?? '')]),
-    }, at + 10_000)).toHaveLength(0)
-  })
-
-  it('隐藏表对观察窗里那份也生效（不留幽灵行）', () => {
-    const hiddenAt = new Map([['h1', at]])
-    const emptyHold = { items: host, until: at + QUEUE_EMPTY_HOLD_MS }
-    expect(visibleQueue({ host: [], optimistic: [], hiddenAt, emptyHold }, at + 100)).toHaveLength(0)
-  })
-})
-
 describe('目标条：可见性由 describeBars 决定（阶段 2b）', () => {
   it('有目标且租约有效 → 显示', () => {
     const state = reduce([{ type: 'goal', at, source: 'snapshot', goal: { objective: 'x', phase: 'active' } }])
@@ -268,152 +214,11 @@ describe('回合来源优先级（花名册会撒谎）', () => {
 })
 
 describe('排队条不许出现「一模一样的第二条」', () => {
-  const base = { host: [], optimistic: [], hiddenAt: new Map<string, number>() }
-
-  it('同一条正文被点了两次排队（两个本地 id）→ 只显示一条，取最新的', () => {
-    const optimistic = [
-      { pendingId: 'local-1', text: '帮我跑一遍测试', placement: 'queued' as const, at },
-      { pendingId: 'local-2', text: '帮我跑一遍测试  ', placement: 'queued' as const, at: at + 500 },
-    ]
-    const view = visibleQueue({ ...base, optimistic, normalize: (text: string) => text.replace(/\s+/g, ' ').trim() }, at + 1_000)
-    expect(view).toHaveLength(1)
-    expect(view[0]?.id).toBe('local-2')
-  })
 
   it('宿主同一条列了两次（同 id）→ 只显示一条', () => {
-    const view = visibleQueue({
-      host: [item('h1', '一条'), item('h1', '一条')],
-      optimistic: [],
-      hiddenAt: new Map(),
-    }, at)
+    const view = visibleQueue({ host: [item('h1', '一条'), item('h1', '一条')] })
     expect(view).toHaveLength(1)
   })
 
-  it('正文不同就是两条（真的是两条排队）', () => {
-    const optimistic = [
-      { pendingId: 'local-1', text: '第一件事', placement: 'queued' as const, at },
-      { pendingId: 'local-2', text: '第二件事', placement: 'queued' as const, at: at + 100 },
-    ]
-    expect(visibleQueue({ ...base, optimistic }, at + 200)).toHaveLength(2)
-  })
 })
 
-describe('排队条：投递完成之后不能再挂着（2026-10-30 真机）', () => {
-  const item = (id: string, text: string) => ({ id, placement: 'queued' as const, text, editable: true })
-
-  it('老宿主（无 queueToken）投影还挂着、但对话里已是最后一条用户消息 → 不显示', () => {
-    // 真机：13:31 的用户气泡和底部排队条是同一条正文 —— 老宿主认领之后投影没刷新。
-    const visible = visibleQueue({
-      host: [item('q1', '摄像头画面需要加一个时间水印')],
-      optimistic: [],
-      hiddenIds: new Set(),
-      hiddenAt: new Map(),
-      lastUserText: '摄像头画面需要加一个时间水印',
-      legacyQueue: true,
-      normalize: text => text.trim(),
-    }, 1_000)
-    expect(visible).toHaveLength(0)
-  })
-
-  it('新宿主（有 queueToken）不吃这条兜底：刚排上的消息不能被自己隐藏掉', () => {
-    // 实测 2026-10-30：新宿主队列 1 条，但对话里已有同一句（本地回显），
-    // 兜底判据把排队条整条隐藏 → 用户既看不到也没法撤回。
-    const visible = visibleQueue({
-      host: [item('q1', '第二条消息')],
-      optimistic: [],
-      hiddenIds: new Set(),
-      hiddenAt: new Map(),
-      lastUserText: '第二条消息',
-      legacyQueue: false,
-      normalize: text => text.trim(),
-    }, 1_000)
-    expect(visible.map(entry => entry.text)).toEqual(['第二条消息'])
-  })
-
-  it('只比最新一条：同类正文的历史消息不会误伤真正排队的那条', () => {
-    const visible = visibleQueue({
-      host: [item('q2', '继续')],
-      optimistic: [],
-      hiddenIds: new Set(),
-      hiddenAt: new Map(),
-      // 最新一条是别的话，历史上的「继续」不该让这条消失
-      lastUserText: '换个话题',
-      normalize: text => text.trim(),
-    }, 1_000)
-    expect(visible.map(entry => entry.text)).toEqual(['继续'])
-  })
-})
-
-describe('乐观项按「宿主多出新条目」退场（2026-10-30 架构修法）', () => {
-  const intent = (over: Partial<Parameters<typeof optimisticAlive>[0]> = {}) => ({
-    pendingId: 'local-1',
-    text: '带图的消息',
-    placement: 'queued' as const,
-    at: 1_000,
-    ...over,
-  })
-
-  it('正文被宿主改写了（图片前缀 / 引用块 / 折行），靠"多出新 id"退场', () => {
-    // 真机：带附件的消息，宿主那行正文变成「[图片] 带图的消息」，与本地正文永不相等，
-    // 乐观项要挂到 45 秒 TTL 才走 —— 这 45 秒里屏幕上是两条排队条。
-    // 这里的形状是：提交前队列里已有 h1（别人的），提交后多出 h2（我这条，正文被改写）。
-    const alive = optimisticAlive(
-      intent({ knownHostIds: ['h1'] }),
-      { host: [item('h1', '别人的消息'), item('h2', '[图片] 带图的消息')], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
-      2_000,
-    )
-    expect(alive).toBe(false)
-  })
-
-  it('提交前就存在的同文条目不算「我的那条」（不会误退）', () => {
-    const alive = optimisticAlive(
-      intent({ knownHostIds: ['h1'] }),
-      { host: [item('h1', '带图的消息')], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
-      2_000,
-    )
-    expect(alive).toBe(true)
-  })
-
-  it('这一轮还在跑：排队项不许按时间淘汰（长回合里排队条自己消失就是它）', () => {
-    // 真机（2026-11-01）："排队消息有时候显示消失"。排队消息要等**这一轮结束**才被
-    // 宿主取走，而一轮可能跑好几分钟；乐观项原本 45 秒就过期，于是长回合里排队条
-    // 自己没了 —— 消息其实还在宿主队列里。
-    const idle = optimisticAlive(
-      intent({}),
-      { host: [], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
-      60_000,
-    )
-    expect(idle).toBe(false) // 空闲时仍然按 TTL 兜底（宿主静默丢弃不能永久挂着）
-
-    const running = optimisticAlive(
-      intent({}),
-      { host: [], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map(), running: true },
-      60_000,
-    )
-    expect(running).toBe(true)
-
-    // 但"已经进了对话正文"这条证据在跑着的时候同样有效，照样退场
-    const spoken = optimisticAlive(
-      intent({}),
-      {
-        host: [],
-        optimistic: [],
-        hiddenIds: new Set(),
-        hiddenAt: new Map(),
-        running: true,
-        spokenTexts: new Set(['带图的消息']),
-      },
-      60_000,
-    )
-    expect(spoken).toBe(false)
-  })
-
-  it('正文一致仍然退场（老路径不受影响）', () => {
-    const alive = optimisticAlive(
-      intent({ knownHostIds: [] }),
-      { host: [item('h9', '带图的消息')], optimistic: [], hiddenIds: new Set(), hiddenAt: new Map() },
-      2_000,
-    )
-    expect(alive).toBe(false)
-  })
-})

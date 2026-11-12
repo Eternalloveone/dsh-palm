@@ -319,6 +319,16 @@ export function PlayIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** Pause bars (goal bar: 目标进行中). */
+export function PauseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)} strokeWidth={2.2}>
+      <path d="M9 5.5v13" />
+      <path d="M15 5.5v13" />
+    </svg>
+  )
+}
+
 /** CPU chip (model selector pill). */
 export function ModelIcon(props: SVGProps<SVGSVGElement>) {
   return (

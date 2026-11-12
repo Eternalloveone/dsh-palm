@@ -12,7 +12,7 @@
   vertical-align: middle;
 }
 .settings-badge-phone { background: var(--tone-positive-soft); color: var(--tone-positive-ink); }
-.settings-badge-sync { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
+.settings-badge-sync { background: var(--accent-soft); color: var(--accent); }
 .settings-badge-desktop { background: var(--tone-neutral-soft); color: var(--tone-neutral-ink); }
 .settings-badge-ro { background: var(--danger-soft); color: var(--tone-danger-ink); }
 .settings-badge-recommend { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
@@ -25,7 +25,7 @@
 .settings-details summary {
   display: inline-block;
   font-size: 12px;
-  color: var(--accent, #4d6bfe);
+  color: var(--accent);
   cursor: pointer;
   padding: 2px 0;
 }
@@ -36,7 +36,7 @@
   line-height: 1.7;
   margin: 4px 0 0;
   padding-left: 12px;
-  border-left: 2px solid var(--accent-soft, #eef1ff);
+  border-left: 2px solid var(--accent-soft);
 }
 
 /* Notification inbox rows: kind pill + title + time on one line, body below. */
@@ -90,7 +90,12 @@
 .settings-inboxKind-task-done { background: var(--tone-positive-soft); color: var(--tone-positive-ink); }
 .settings-inboxKind-task-failed { background: var(--danger-soft); color: var(--tone-danger-ink); }
 .settings-inboxKind-todo-done { background: var(--tone-info-soft); color: var(--tone-info-ink); }
-.settings-inboxKind-turn-done { background: var(--accent-soft, #eef1ff); color: var(--accent, #4d6bfe); }
+.settings-inboxKind-turn-done { background: var(--accent-soft); color: var(--accent); }
+/* 需要用户动手的两类（2026-11-10，390px 实拍）：审批与提问原来没有专属配色，落回灰底，
+   在「最近通知」里跟普通条目一样不起眼 —— 而它们恰恰是"卡住等你"的。统一用警示色，
+   与绿（完成）/ 红（失败）/ 蓝（规划）/ 靛（回复）区分开。 */
+.settings-inboxKind-approval { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
+.settings-inboxKind-question { background: var(--tone-warning-soft); color: var(--tone-warning-ink); }
 .settings-inboxTitle {
   font-size: 13px;
   font-weight: 500;
@@ -138,8 +143,8 @@
   margin: 0 16px 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--accent-soft, #eef1ff);
-  color: var(--accent, #4d6bfe);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -184,7 +189,7 @@
   cursor: pointer;
 }
 .settings-roToggle {
-  color: var(--accent, #4d6bfe);
+  color: var(--accent);
   font-weight: 500;
 }
 .settings-roList {
@@ -336,6 +341,10 @@ button.settings-row:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* 送达失败/已过滤行：不能和中性统计同款灰字 —— 用户扫一眼得知道"这里出过错"。
+   复合选择器是必须的：后面 .settings-note 的 color 同权重，单写一个类会被盖掉。 */
+.settings-note.notify-delivery-fail { color: var(--palm-danger); }
+.settings-note.notify-delivery-drop { color: var(--palm-warn); }
 .settings-note {
   padding: 10px 16px 12px;
   color: var(--text-tertiary);
@@ -387,8 +396,8 @@ button.settings-row:focus-visible {
   border-radius: 6px;
   letter-spacing: 0.3px;
 }
-.usage-badge-ok { background: var(--accent-soft); color: var(--accent); }
-.usage-badge-no { background: rgba(245, 158, 11, 0.14); color: var(--warning); }
+.usage-badge-ok { background: var(--palm-tint-accent); color: var(--palm-accent); }
+.usage-badge-no { background: var(--palm-tint-warn); color: var(--warning); }
 .usage-badge-na { background: var(--bg-elevated); color: var(--text-quaternary); }
 .usage-badge-err { background: var(--danger-soft); color: var(--danger); }
 .usage-meter {
@@ -400,7 +409,8 @@ button.settings-row:focus-visible {
 .usage-meterFill {
   height: 100%;
   border-radius: 6px;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  /* 2026-11-10 纸色实拍：进度条原来是旧蓝，整页换成暖白后只剩它在发蓝。 */
+  background: linear-gradient(90deg, var(--palm-accent), var(--palm-accent-2));
   transition: width 0.4s ease;
 }
 /* One quota window block (5-hour / weekly): label row + meter + reset note. */
@@ -477,77 +487,70 @@ button.settings-row:focus-visible {
   border-top: 1px solid var(--border-subtle);
 }
 
-.settings-themeOptions {
-  display: flex;
-  gap: 6px;
-}
-
-.settings-themeOption {
-  padding: 6px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-chip);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease;
-}
-
-.settings-themeOption:active {
-  transform: scale(0.96);
-}
-
-.settings-themeOption-on {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}/* Toggle switch: 44 × 24, 12px radius, accent when on. */
-/* 审计实测 44x24：开关本体只有 24px 高，拇指容易点空。
-   视觉轨道保持 24，热区加到 32（padding + content-box 裁切）。 */
-.settings-switch{
-  /* 审计实测只有 44x24：热区太小。高度给到 32（滑钮按 24 居中，视觉基本不变）。 */
+/* Toggle switch: 44×32 track inside a 44×44 button hit area. */
+.settings-switch {
   position: relative;
   flex: none;
-  width: 44px;
-  min-height: 32px;
+  width: var(--palm-hit);
+  height: var(--palm-hit);
   padding: 0;
   border: none;
-  /* 32 高 + 16 半径 = 胶囊。原来是 12，深色下看着像"圆角方块"，用户反馈看不懂 */
-  border-radius: 16px;
-  background: var(--border-default);
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
   transition: background-color 0.18s ease;
-}.settings-switch::after{
+}
+
+.settings-switch::before {
   content: '';
   position: absolute;
-  /* 垂直居中：轨道 32、钮 20 → 上下各 6。原来写死 top:2px，钮偏上 4px，
-     真机看着就是"开关歪了/形状怪"。 */
+  inset-inline: 0;
+  top: 50%;
+  width: var(--palm-hit);
+  height: 32px;
+  transform: translateY(-50%);
+  border-radius: 16px;
+  background: var(--border-default);
+  transition: background-color 0.18s ease;
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  /* Track 32 and thumb 20 leave a centered 6px inset on each side. */
   top: 50%;
   left: 2px;
   width: 20px;
   height: 20px;
   transform: translateY(-50%);
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-sh1);
   transition: transform 0.18s ease;
-}.settings-switch-on{
-  background: var(--accent);
-}.settings-switch-on::after{
+}
+
+.settings-switch-on::before {
+  /* 2026-11-10（paper / nocturne 实拍）：原来写的是旧名 --accent —— 它在两套主题里
+     都是同一个蓝（见 design/tokens.ts），换肤时不变，于是纸色（棕）与夜航（青）下
+     开关仍是蓝的。换肤要换的是这一处，改走皮肤令牌。 */
+  background: var(--palm-accent);
+}
+
+.settings-switch-on::after {
   transform: translate(20px, -50%);
 }
 
 .settings-input {
   flex: 1;
   min-width: 0;
+  min-height: var(--palm-hit);
   padding: 8px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
+  font-size: 16px;
   outline: none;
   transition: border-color 0.15s ease;
 }
@@ -562,12 +565,14 @@ button.settings-row:focus-visible {
 
 .settings-textarea {
   width: 100%;
+  min-height: var(--palm-hit);
   padding: 8px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
+  font-size: 16px;
   line-height: 1.5;
   resize: vertical;
   outline: none;
@@ -688,6 +693,7 @@ button.settings-row:focus-visible {
 
 .settings-optionChip {
   flex: none;
+  min-height: var(--palm-hit);
   padding: 6px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-chip);

@@ -16,6 +16,7 @@ import { latestBatchOf } from '../session/question-batches.ts'
 import { Sheet } from '../ui/sheet.tsx'
 import type { TurnEntry } from '../session/turn-outline.ts'
 import { Button } from '../ui/primitives.tsx'
+import { useOverflowFade } from '../ui/overflow-fade.ts'
 import { MicIcon, ShieldIcon } from './icons.tsx'
 
 /** One switchable permission preset (the `permissions` projection shape). */
@@ -66,11 +67,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * The composer's + menu: attachments, slash commands, and voice input. C 案
+ * The composer's + menu: attachments and slash commands. C 案
  * collapses the old "/" and mic buttons into this one entry so the input row
  * stays `[+] [field] [↑]`.
+ *
+ * 2026-11-12 用户：「+ 号菜单里的语音输入入口要移除」。麦克风已经常驻在输入框
+ * 右侧（点一下就就地录音），菜单里再放一个是同一个动作的第二次入口，
+ * 还得多点一层。菜单只留"往里放东西"的三项 + 斜杠命令。
  */
-export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFile, onOpenCommands, onOpenVoice, onClose }: {
+export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFile, onOpenCommands, onClose }: {
   onPickImage(): void
   onPickCamera(): void
   /**
@@ -86,7 +91,6 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
    */
   onPickHostFile(): void
   onOpenCommands(): void
-  onOpenVoice?(): void
   onClose(): void
 }) {
   return (
@@ -150,12 +154,6 @@ export function PlusSheet({ onPickImage, onPickCamera, onPickFiles, onPickHostFi
           <span className="sheet-option-copy"><span className="sheet-option-title">斜杠命令</span><span className="sheet-option-desc">选一条命令，补完参数再发</span></span>
           <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9.5 2 6.5 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
         </Button>
-        {onOpenVoice === undefined ? null : (
-          <Button type="button" role="menuitem" className="sheet-option" onClick={onOpenVoice}>
-            <span className="sheet-option-copy"><span className="sheet-option-title">语音输入</span><span className="sheet-option-desc">说一句，转成文字再发</span></span>
-            <MicIcon width={18} height={18} />
-          </Button>
-        )}
       </div>
     </Sheet>
   )
@@ -521,6 +519,8 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
   const [expanded, setExpanded] = useState(false)
   const [holding, setHolding] = useState(false)
   const holdTimerRef = useRef<number | undefined>(undefined)
+  // 命令块的横滚溢出（2026-11-10）：真溢出时右缘给一道渐隐，别让用户以为命令就这么多。
+  const codeFade = useOverflowFade<HTMLPreElement>()
   const risk = approval.risk ?? 'write'
   const requiresHold = risk === 'exec'
 
@@ -597,11 +597,11 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
                   aria-expanded={expanded}
                   onClick={() => { setExpanded(value => !value) }}
                 >
-                  {expanded ? '收起参数' : '原始参数'}
+                  {expanded ? '收起参数' : '查看参数'}
                 </Button>
               )}
             </div>
-            <pre className="approval-detail-code">{command}</pre>
+            <pre className="approval-detail-code" ref={codeFade.ref} data-fade={codeFade.fade}>{command}</pre>
             {expanded && argsText !== undefined && <pre className="approval-detail-args">{argsText}</pre>}
           </section>
         )}
@@ -666,7 +666,7 @@ export function ApprovalPanel({ approval, sessionId, onResolved, preview, argsTe
             aria-expanded={expanded}
             onClick={() => { setExpanded(value => !value) }}
           >
-            {expanded ? '收起参数' : '展开完整参数'}
+            {expanded ? '收起参数' : '查看参数'}
           </Button>
           {expanded && <pre className="chat-approval-args">{argsText}</pre>}
         </>

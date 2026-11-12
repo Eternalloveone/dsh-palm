@@ -1,33 +1,34 @@
 /**
- * 状态条：任务头那条 28px 胶囊 + 方案 A 刻度轨（新设计方案的第一个组件）。
+ * 状态栏：回合头下面那一行平铺的状态（2026-11-10 重设计第三版）。
  *
- * 版式真源（唯一）：
- * - `docs/prototype/pet-strip-v5.html` ①：28px 主条、圆角 10、渐变填充、
- *   18px 内联宠物、11px 白色文字 + 1px 暗阴影、右侧等宽数字；
- * - `docs/prototype/overview.html`「2 · 会话正文」：成品态（`完成 · 7 步` +
- *   7 格刻度轨）；
- * - `docs/screenshots/prototype-overview.png`：同上，肉眼基线。
+ * 用户口径：「做成桌面端 DSH 那种 —— 不要状态条、不要滑动条，只有一个状态栏，平铺显示。」
+ * 于是这一版**没有胶囊、没有填充、没有刻度轨**：只有一行
+ * `[鲸尾] 深度求索中 · 改 delivery-card.tsx            02:14`
+ * 与正文之间靠留白分开；进度只由过程条的点阵表达，不再有第二种。
  *
  * 三条硬规则：
- * 1. **宠物是纯内联 SVG**：禁 emoji、禁图片资源；11 种状态各一张简单表情
- *    （思考=圆眼 / 读=大眼 / 改·跑=眯眼 / 等审批=举牌 / 卡住=闭眼 /
- *    完成=笑+举双手 / 失败=× 眼 / 停止=横眼 / 排队=无表情 / 未知=圆眼）。
- * 2. **进度不写行内样式**：CSP 与 `inlineStyles` 预算都拦行内 style；
- *    这里把 0..1 折成 5% 一档的 `data-fill`，宽度由样式表按档位给。
- *    进度未知时落 `unknown` 档 —— 样式表给「游走块」，`prefers-reduced-motion`
- *    下退回静止块。
- * 3. **触控 ≥44px**：28px 只是视觉高度；给了 `onOpen` 时外层是可点行
- *    （`ListRow`：role=button + 键盘激活），最小高度吃 `--palm-hit`。
+ * 1. ** whale 是纯内联 SVG**：禁 emoji、禁图片资源。11 种状态共用一枚尾鳍，
+ *    识别交给底色（运行靛 / 完成绿 / 失败红 / 等待琥珀 / 未知灰）与文案。
+ *    当前是手绘简化尾鳍，拿到官方素材只需替换 `WHALE_TAIL`。
+ * 2. **平铺、不抢注意力**：没有底色块与描边；一屏里最亮的东西应该是正文。
+ * 3. **触控 ≥44px**：行本身只有 22px 视觉高度；给了 `onOpen` 时外层由 `ListRow`
+ *    撑到 `--palm-hit`。
  *
- * 迷你版（132×22 / 圆角 8）是同一个组件的 `size='mini'`：抽屉列表行里只留
- * 宠物 + 主文案，去掉副文案、右侧与刻度轨。
+ * 迷你版（`size='mini'`，132×22 圆角）保留给抽屉列表行：那里空间小，一块底色
+ * 能帮它从整列文字里跳出来。
  *
  * @module dsh-palm/mobile/ui/status-strip
  */
 import type { ReactNode } from 'react'
 import { ListRow } from './primitives.tsx'
 
-/** 状态条的 11 种任务状态（状态机 `session/task-status.ts` 产出同一套值）。 */
+/**
+ * 状态栏的 12 种任务状态（状态机 `session/task-status.ts` 产出同一套值）。
+ *
+ * 2026-11-10 拆出 `idle`：以前「宿主说没在跑」也落到 `unknown`，界面就是一个破折号，
+ * 用户看到的是「空闲 = —」。现在两者分开：`idle` = 明确空闲（可以发话），
+ * `unknown` = 手里确实没有权威数据（快照没到）。
+ */
 export type StatusStripKind =
   | 'think'
   | 'read'
@@ -35,197 +36,81 @@ export type StatusStripKind =
   | 'test'
   | 'approve'
   | 'stuck'
+  | 'idle'
   | 'unknown'
   | 'done'
   | 'failed'
   | 'stopped'
   | 'queued'
 
-/** 刻度轨的一步计数（`done` 已完成、`total` 总步数）。 */
+/**
+ * 步数计数（`done` 已完成 / `total` 总步数）。
+ *
+ * 2026-11-10 起**只作为数据存在**：状态栏不再画刻度轨（用户要求平铺一行），
+ * 进度只由过程条的点阵表达。类型留着是因为状态机（`session/task-status.ts`）
+ * 仍要向下传它，去掉会让"这一轮几步"在数据层断掉。
+ */
 export interface StatusStripSteps {
   readonly done: number
   readonly total: number
 }
-
-/** 状态条的 props。 */
+/** 状态栏的 props。 */
 export interface StatusStripProps {
-  /** 状态种类：决定渐变与宠物表情。 */
+  /** 状态种类：决定鲸尾底色。 */
   kind: StatusStripKind
-  /** 主文案（如「完成 · 7 步」「读文件」「等你就绪」）。 */
+  /** 主文案（如「深度求索中」「完成 · 7 步」）。 */
   label: string
-  /** 副文案：小灰字（如文件名、命令、`没拆出计划`），可省。 */
+  /** 副文案：小灰字（如文件名、命令），可省。 */
   detail?: string
   /** 右侧文字（耗时、`等你 42s`），可省。 */
   right?: string
-  /** 0..1 的进度；`undefined` = 不知道（走游走块）。 */
-  progress?: number
-  /** 有它才画刻度轨；拿不到计划就别传（不要编步数）。 */
-  steps?: StatusStripSteps
-  /** `main` = 28px 主条（默认）；`mini` = 132×22 抽屉行版本。 */
+  /** `main` = 平铺一行（默认）；`mini` = 132×22 抽屉行版本。 */
   size?: 'main' | 'mini'
-  /** 有它整条才可点：外层撑到 44px 触控区并带键盘激活。 */
+  /** 有它整行才可点：外层撑到 44px 触控区并带键盘激活。 */
   onOpen?: () => void
 }
 
-/** 终态：刻度轨不再有「当前」格。 */
-const TERMINAL_KINDS: ReadonlySet<StatusStripKind> = new Set<StatusStripKind>(['done', 'failed', 'stopped'])
+/**
+ * 鲸尾的**静止**轮廓（16×16 描边路径），只在两处出现：
+ * 浏览器不支持 `mask-mode`，或系统开了「减弱动态效果」。
+ *
+ * 活的版本是 `/m/running-whale.png` —— v1.7.1 起就是桌面端在放的那张逐帧动画
+ * PNG，用 `currentColor` 当底色做 alpha 蒙版染成状态色。手写路径动画到不了这个
+ * 质感（v1.7.0 试过整体旋转、拆两片叶子、SMIL 改路径，都还是"两片叶子在转"），
+ * 所以这次直接把 1.7.1 的实现搬回来。
+ */
+const WHALE_REST_PATH =
+  'M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.94 8.88 8.43 9.6 8.43C11.285 8.43 12.106 8.281 12.685 8.104C13.71 7.791 14.585 6.768 15.055 5.945C15.137 5.803 14.99 5.641 14.829 5.671C13.829 5.86 12.828 5.376 11.827 4.978C10.659 4.514 9.491 4.707 8.935 4.876C8.805 4.915 8.658 4.819 8.636 4.686C8.468 3.643 7.405 2.615 5.498 2.238C4.54 2.048 3.748 1.574 3.347 1.202C3.252 1.113 3.088 1.125 3.03 1.242C2.628 2.059 2.168 3.82 5.248 6.115C5.82 6.494 6.31 6.785 6.574 7.637C6.72 8.104 6.157 9.168 6.061 9.368C5.157 11.27 5.089 12.19 4.926 13.742'
 
-/** 一张表情的零件（坐标按 viewBox 0 0 30 30，和原型同一套）。 */
-const FACES: Record<StatusStripKind, ReactNode> = {
-  // 思考：圆眼。
-  think: (
-    <>
-      <circle data-pet="eye" cx="11.6" cy="15" r="1.9" />
-      <circle data-pet="eye" cx="18.4" cy="15" r="1.9" />
-    </>
-  ),
-  // 读：大眼。
-  read: (
-    <>
-      <circle data-pet="eye" cx="11.4" cy="15" r="2.4" />
-      <circle data-pet="eye" cx="18.6" cy="15" r="2.4" />
-    </>
-  ),
-  // 改文件：眯眼（两道短弧，留出间距才看得成两只眼）。
-  edit: (
-    <>
-      <path data-pet="line" d="M10.1 15.3 q1.7 -1.9 3.4 0" />
-      <path data-pet="line" d="M16.5 15.3 q1.7 -1.9 3.4 0" />
-    </>
-  ),
-  // 跑测试：眯眼（和「改」同一张脸，区别在渐变与文案）。
-  test: (
-    <>
-      <path data-pet="line" d="M10.1 15.3 q1.7 -1.9 3.4 0" />
-      <path data-pet="line" d="M16.5 15.3 q1.7 -1.9 3.4 0" />
-    </>
-  ),
-  // 等审批：举牌（头顶一块宽牌子，两只手向两侧举着）。
-  approve: (
-    <>
-      <rect data-pet="line" x="6.2" y="1.2" width="17.6" height="5.4" rx="1.6" />
-      <path data-pet="line" d="M8.8 10.6 L7.6 6.6" />
-      <path data-pet="line" d="M21.2 10.6 L22.4 6.6" />
-      <circle data-pet="eye" cx="11.8" cy="15.4" r="1.8" />
-      <circle data-pet="eye" cx="18.2" cy="15.4" r="1.8" />
-    </>
-  ),
-  // 卡住：闭眼（向下垂的弧）。
-  stuck: (
-    <>
-      <path data-pet="line" d="M10.1 15 q1.9 1.9 3.8 0" />
-      <path data-pet="line" d="M16.1 15 q1.9 1.9 3.8 0" />
-    </>
-  ),
-  // 未知：圆眼（还没拆出计划，但确实在动）。
-  unknown: (
-    <>
-      <circle data-pet="eye" cx="11.6" cy="15" r="1.9" />
-      <circle data-pet="eye" cx="18.4" cy="15" r="1.9" />
-    </>
-  ),
-  // 完成：笑眼 + 举双手 + 一张笑嘴。
-  done: (
-    <>
-      <path data-pet="line" d="M10.1 15.2 q1.7 -2 3.4 0" />
-      <path data-pet="line" d="M16.5 15.2 q1.7 -2 3.4 0" />
-      <path data-pet="line" d="M4.6 11.4 L2.3 8.4" />
-      <path data-pet="line" d="M25.4 11.4 L27.7 8.4" />
-      <path data-pet="line" d="M12.4 19.6 q2.6 2.4 5.2 0" />
-    </>
-  ),
-  // 失败：× 眼。
-  failed: (
-    <>
-      <path data-pet="line" d="M10.4 13.4 l2.6 2.6" />
-      <path data-pet="line" d="M13 13.4 l-2.6 2.6" />
-      <path data-pet="line" d="M17 13.4 l2.6 2.6" />
-      <path data-pet="line" d="M19.6 13.4 l-2.6 2.6" />
-    </>
-  ),
-  // 停止：横眼 + 一条平嘴。
-  stopped: (
-    <>
-      <path data-pet="line" d="M10.4 15 h4" />
-      <path data-pet="line" d="M15.6 15 h4" />
-      <path data-pet="line" d="M12.8 20 h4.4" />
-    </>
-  ),
-  // 排队：无表情（只有身体，什么都不画）。
-  queued: null,
-}
-
-/** 一只宠物：身体 + 该状态的表情零件。 */
-function PetFace({ kind }: { kind: StatusStripKind }) {
+/**
+ * 渲染鲸尾标记。
+ *
+ * @param props.kind - 决定底色（样式表按 `data-kind` 分派）
+ * @returns 内联 SVG（`aria-hidden`：状态含义由主文案与 `aria-label` 承担）
+ */
+function WhaleMark({ kind }: { kind: StatusStripKind }) {
   return (
-    <svg className="palm-strip-pet" viewBox="0 0 30 30" aria-hidden="true" focusable="false">
-      <ellipse data-pet="body" cx="15" cy="17" rx="10" ry="9.2" />
-      {FACES[kind]}
-    </svg>
+    <span className="palm-strip-mark" data-kind={kind} aria-hidden="true">
+      <span className="palm-strip-pet" data-mark="whale" data-kind={kind}>
+        {/* 动态层：1.7.1 的逐帧 PNG，以 currentColor 蒙版染色（见样式表）。 */}
+        <span className="palm-strip-whale-loop" />
+        {/* 静止层：不支持蒙版 / 开了减弱动效时唯一可见的一层。 */}
+        <svg className="palm-strip-whale-still" viewBox="0 0 16 16" fill="none" focusable="false">
+          <path d={WHALE_REST_PATH} stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </span>
   )
 }
 
 /**
- * 进度 → `data-fill` 档位。
+ * 渲染一行状态栏。
  *
- * - 已知进度：夹到 0..1，按 5% 取整（`p0`…`p100`）；
- * - 未知进度：终态与排队默认铺满（终态不该一直游走），其余走 `unknown`
- *   → 样式表的游走块。
- *
- * @param progress - 0..1 或 undefined
- * @param kind - 当前状态（决定未知时的落点）
- * @returns `data-fill` 的取值
+ * @param props - 状态、文案与尺寸
+ * @returns 一行平铺的状态（`main`）或抽屉里的小胶囊（`mini`）；给了 `onOpen` 时可点
  */
-function fillBucketOf(progress: number | undefined, kind: StatusStripKind): string {
-  if (progress === undefined || !Number.isFinite(progress)) {
-    return TERMINAL_KINDS.has(kind) || kind === 'queued' ? 'p100' : 'unknown'
-  }
-  const clamped = Math.min(1, Math.max(0, progress))
-  return `p${Math.round(clamped * 20) * 5}`
-}
-
-/**
- * 步数 → 刻度轨每一格的状态。
- *
- * 已做 = `done` 格；当前 = 第 `done + 1` 格（仅进行中的状态才有）；
- * 其余 = 未做。终态没有「当前」格 —— 全做完就是全绿，没做完也不再假装在做。
- *
- * @param steps - 步数（可省）
- * @param kind - 当前状态
- * @returns 每格状态（`done` / `now` / `todo`）；拿不到步数时是空数组（整条轨不渲染）
- */
-function railCellsOf(steps: StatusStripSteps | undefined, kind: StatusStripKind): Array<'done' | 'now' | 'todo'> {
-  if (steps === undefined) return []
-  const total = Math.floor(steps.total)
-  if (!Number.isFinite(total) || total <= 0) return []
-  const done = Math.min(Math.max(0, Math.floor(steps.done)), total)
-  const active = !TERMINAL_KINDS.has(kind) && kind !== 'queued'
-  return Array.from({ length: total }, (_, index) => {
-    if (index < done) return 'done'
-    if (active && index === done) return 'now'
-    return 'todo'
-  })
-}
-
-/**
- * 渲染一条状态条。
- *
- * @param props - 状态、文案、进度、步数与尺寸
- * @returns 状态条（含可选刻度轨）；给了 `onOpen` 时外层是可点行
- */
-export function StatusStrip({
-  kind,
-  label,
-  detail,
-  right,
-  progress,
-  steps,
-  size = 'main',
-  onOpen,
-}: StatusStripProps) {
+export function StatusStrip({ kind, label, detail, right, size = 'main', onOpen }: StatusStripProps): ReactNode {
   const mini = size === 'mini'
-  const fill = fillBucketOf(progress, kind)
-  const cells = mini ? [] : railCellsOf(steps, kind)
   // 读屏念一条完整的话：只念画出来的部分（迷你版没有副文案/右侧）。
   const spoken = [label, mini ? undefined : detail, mini ? undefined : right]
     .filter((part): part is string => part !== undefined && part !== '')
@@ -239,11 +124,10 @@ export function StatusStrip({
       role="status"
       aria-label={spoken === '' ? undefined : spoken}
     >
-      <span className="palm-strip-fill" data-fill={fill} aria-hidden="true" />
       <span className="palm-strip-body">
-        <PetFace kind={kind} />
+        <WhaleMark kind={kind} />
         <span data-part="main">
-          <b data-part="label">{label}</b>
+          {label === '' ? null : <b data-part="label">{label}</b>}
           {mini || detail === undefined ? null : <span data-part="detail">{detail}</span>}
         </span>
         {mini || right === undefined ? null : <span data-part="right" data-role="strip-time">{right}</span>}
@@ -251,25 +135,13 @@ export function StatusStrip({
     </div>
   )
 
-  const rail = cells.length === 0 ? null : (
-    <div className="palm-strip-rail" aria-hidden="true">
-      {cells.map((state, index) => <i key={index} data-state={state} />)}
-    </div>
-  )
-
   if (onOpen === undefined) {
-    return (
-      <div className="palm-strip-wrap" data-size={size}>
-        {strip}
-        {rail}
-      </div>
-    )
+    return <div className="palm-strip-wrap" data-size={size}>{strip}</div>
   }
 
   return (
     <ListRow className="palm-strip-wrap" onClick={onOpen}>
       {strip}
-      {rail}
     </ListRow>
   )
 }

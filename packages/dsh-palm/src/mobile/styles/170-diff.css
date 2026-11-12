@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 40px;
+  min-height: var(--palm-hit);
   padding: 0 16px;
   background: var(--code-head-bg);
   border-bottom: 1px solid var(--code-head-border);
@@ -54,6 +54,7 @@
 }
 
 .diff-btn {
+  position: relative;
   height: 28px;
   padding: 0 10px;
   border-radius: 8px;
@@ -64,6 +65,16 @@
   transition: transform 0.1s ease, filter 0.1s ease, background-color 0.12s ease;
 }
 
+/* Keep compact button chrome; extend only vertically so neighboring actions stay separate. */
+.diff-btn::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 50%;
+  block-size: var(--palm-hit);
+  transform: translateY(-50%);
+}
+
 .diff-btn:active {
   transform: scale(0.96);
 }
@@ -71,7 +82,7 @@
 .diff-accept {
   border: none;
   background: var(--positive);
-  color: #fff;
+  color: var(--palm-on-accent);
 }
 
 .diff-reject {
@@ -107,7 +118,9 @@
 }
 
 .diff-row-review {
-  grid-template-columns: 24px 40px 40px minmax(0, 1fr);
+  grid-template-columns: var(--palm-hit) 40px 40px minmax(0, 1fr);
+  min-height: var(--palm-hit);
+  align-items: center;
 }
 
 .diff-oldno,
@@ -154,9 +167,11 @@
   border-radius: 2px;
 }
 
-/* Review mode: 24px action column with per-line + / − buttons. */
+/* Review mode reserves one full touch cell per line; the visible + / − stays compact. */
 .diff-review-cell {
+  position: relative;
   display: flex;
+  align-self: stretch;
   align-items: center;
   justify-content: center;
 }
@@ -171,11 +186,18 @@
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
-  transition: transform 0.1s ease, filter 0.1s ease;
+  transition: opacity 0.1s ease;
+}
+
+/* The cell contains the entire hit layer, so adjacent lines never overlap. */
+.diff-line-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
 }
 
 .diff-line-btn:active {
-  transform: scale(0.9);
+  opacity: 0.72;
 }
 
 .diff-line-add-btn {
@@ -189,7 +211,7 @@
 }
 
 .diff-line-btn-on {
-  filter: brightness(1.25);
+  outline: 1px solid currentColor;
 }
 
 .diff-decided {
@@ -214,7 +236,7 @@
 
 .diff-fold-btn {
   flex: none;
-  height: 30px;
+  min-height: var(--palm-hit);
   padding: 0 12px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -243,7 +265,7 @@
 
 .diff-confirm {
   flex: none;
-  height: 32px;
+  min-height: var(--palm-hit);
   padding: 0 14px;
   border: none;
   border-radius: 8px;
@@ -304,6 +326,7 @@
 
 .diff-undo {
   flex: none;
+  min-height: var(--palm-hit);
   margin-left: auto;
   border: none;
   background: transparent;

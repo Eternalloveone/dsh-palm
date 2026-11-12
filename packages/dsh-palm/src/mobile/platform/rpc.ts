@@ -158,12 +158,26 @@ export async function callUnary<T>(
         signal: controller.signal,
       })
     } catch (error) {
-      let reason: string
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        reason = timedOut ? 'timeout' : 'aborted'
-      } else {
-        reason = error instanceof Error ? error.message : String(error)
+      const aborted = error instanceof DOMException && error.name === 'AbortError'
+      /**
+       * 「我们自己不要这次答案」不是链路证据（2026-11-12 真机，切旧会话必闪横幅）。
+       *
+       * 会话切换时旧页还要活 260 ms（转场动画）才卸载，卸载会 abort 仍在飞的尾页读
+       * （`readChat` / `logTail` / `session.history`），宿主与 nginx 那头记的正是 499。
+       * 把这个结局当断网，横幅就正好在新会话顶部亮「网络慢了一点，正在恢复…」——
+       * 老会话尾页读 1~4 s，abort 必然打在在飞的请求上；新会话几十毫秒就读完，abort
+       * 打在空处，所以桌面和快会话从来看不到。
+       *
+       * 页面在后台时浏览器会掐掉在飞请求，同样不是断网：回前台会重新探一次。
+       */
+      const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+      const cancelled = hidden || (!timedOut && (signal?.aborted === true || aborted))
+      if (cancelled) {
+        throw new RpcTransportError(timedOut ? '请求超时，请重试' : '请求已取消')
       }
+      const reason = aborted
+        ? (timedOut ? 'timeout' : 'aborted')
+        : (error instanceof Error ? error.message : String(error))
       // 请求根本没送出去：立刻算断网。超时是另一端没答 —— 链路可能是"挂着"的
       // 弱网（地铁、隧道半开），也有可能是某一个调用慢；连续两次都没答话才算断，
       // 任何一次答话都会把计数清零。

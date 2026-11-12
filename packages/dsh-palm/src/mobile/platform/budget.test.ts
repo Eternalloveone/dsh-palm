@@ -15,7 +15,11 @@ interface Budget {
   dirsRaised?: Record<string, { reason: string; expires: string }>
 }
 
-const isSource = (name: string) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && !name.endsWith('.d.ts')
+/** 生成物不计：`mobile-styles.ts` 由 `scripts/gen-mobile-css.mjs` 从 `src/mobile/styles/*.css`
+ *  拼出（那份 CSS 本身已计入），再计一遍等于同一份样式付两次预算。新鲜度由
+ *  `mobile-styles.freshness.test.ts` 保证，不靠预算。 */
+const GENERATED = new Set(['mobile-styles.ts'])
+const isSource = (name: string) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && !name.endsWith('.d.ts') && !GENERATED.has(name)
 
 function countLines(file: string): number {
   const text = readFileSync(file, 'utf8')
@@ -63,6 +67,29 @@ describe('行数预算（只降不升）', () => {
       if (actual > cap) over.push(`${rel}: ${actual} > ${cap}`)
     }
     expect(over).toEqual([])
+  })
+
+  it('预算没有虚高（上限不得超过实测的 105% + 1）', () => {
+    const stale: string[] = []
+    for (const [rel, cap] of Object.entries(budget.files)) {
+      let actual = 0
+      try {
+        actual = countLines(join(PKG, rel))
+      } catch {
+        continue
+      }
+      if (cap > Math.ceil(actual * 1.05) + 1) stale.push(`file ${rel}: cap ${cap} > 实测 ${actual}`)
+    }
+    for (const [rel, cap] of Object.entries(budget.dirs)) {
+      let actual = 0
+      try {
+        actual = dirLines(join(PKG, rel))
+      } catch {
+        continue
+      }
+      if (cap > Math.ceil(actual * 1.05) + 1) stale.push(`dir ${rel}: cap ${cap} > 实测 ${actual}`)
+    }
+    expect(stale, `预算虚高，先跑 node tools/check-budget.mjs --write 收回：\n${stale.join('\n')}`).toEqual([])
   })
 
   it('没有已过期的"上调豁免"', () => {

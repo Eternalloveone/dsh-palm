@@ -62,7 +62,7 @@ export function MessageImages({ sessionId, images }: { sessionId: string; images
 }
 
 /** 单张图片：占位 → data URL；点一下由 ChatView 的滚动点击处理开全屏。 */
-function MessageImageTile({ sessionId, image }: { sessionId: string; image: MessageImage }) {
+export function MessageImageTile({ sessionId, image }: { sessionId: string; image: MessageImage }) {
   const [url, setUrl] = useState<string | undefined>(() => cachedAttachmentUrl(image.attachmentId))
   const [failed, setFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -90,14 +90,14 @@ function MessageImageTile({ sessionId, image }: { sessionId: string; image: Mess
         type="button"
         role="listitem"
         className={`chat-msg-image chat-msg-image-placeholder${failed ? ' chat-msg-image-failed' : ''}`}
-        aria-label={failed ? `${label}，加载失败，点击重试` : `${label}，加载中`}
+        aria-label={failed ? `${label}，没显示出来，点击重试` : `${label}，加载中`}
         onClick={() => {
           if (!failed) return
           setFailed(false)
           setAttempt(value => value + 1)
         }}
       >
-        {failed ? '图片加载失败，点击重试' : '图片加载中…'}
+        {failed ? '这张图没显示出来，点一下重试' : '图片加载中…'}
       </Button>
     )
   }

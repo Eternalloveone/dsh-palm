@@ -83,6 +83,8 @@ export function PairRequiredView({ initialError, onPaired, navigate }: PairRequi
           autoCapitalize="off"
           spellCheck={false}
           inputMode="url"
+          /* 提交中只读：否则用户改了地址/链接，提交的却是点击那一刻的值。 */
+          readOnly={submitting}
         />
         <label className="mobile-pairLabel" htmlFor="mobile-pair-link">配对链接或配对码</label>
         <input
@@ -90,12 +92,16 @@ export function PairRequiredView({ initialError, onPaired, navigate }: PairRequi
           className="mobile-pairInput"
           value={value}
           onChange={(event) => { setValue(event.target.value) }}
+          /* 原来这里是空框 + 抽象标签，新用户不知道要粘的是链接还是一串码。
+             占位提示把两种可接受形式都说出来，且给出链接的样子。 */
+          placeholder="dsh:// 链接，或 6 位配对码"
+          readOnly={submitting}
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
         />
         {error === undefined ? null : <p className="mobile-error" role="alert">{error}</p>}
-        <Button className="mobile-new mobile-pairSubmit" type="submit" disabled={submitting}>
+        <Button className="mobile-pairSubmit" type="submit" disabled={submitting}>
           {submitting ? '正在配对' : '配对'}
         </Button>
       </form>

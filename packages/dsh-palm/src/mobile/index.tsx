@@ -10,7 +10,7 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './views/App.tsx'
 import { ErrorBoundary } from './components/error-boundary.tsx'
-import { initMobileTheme } from './mobile-theme.ts'
+import { applySkin } from './platform/skin.ts'
 import { applyDisplayPrefs } from './platform/display-prefs.ts'
 import { registerMobilePwa } from '../mobile-pwa.ts'
 import { watchBuildRefresh } from './platform/build-refresh.ts'
@@ -18,9 +18,9 @@ import { consumeMobilePairUrl } from './platform/pairing.ts'
 import { installJumpProbeIfRequested } from './platform/debug-jump-log.ts'
 import { watchPushResubscribe } from './platform/notify.ts'
 
-// Apply the persisted (or default system) theme and the local display
-// preferences before first paint, so the page never flashes the wrong look.
-initMobileTheme()
+// Apply the persisted skin (surface + accent + light/dark polarity) and the local
+// display preferences before first paint, so the page never flashes the wrong look.
+applySkin()
 applyDisplayPrefs()
 // A phone keeps the PWA page alive for hours: after a host rebuild it would keep
 // running the old bundle (and the old UI) until the user clears the cache by hand.

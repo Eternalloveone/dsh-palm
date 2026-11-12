@@ -6,7 +6,7 @@
   gap: var(--palm-s2);
   margin: var(--palm-s3) 0;
   padding: var(--palm-s3) var(--palm-s4);
-  background: var(--palm-sur-1);
+  background: var(--palm-tint-danger);
   border: 1px solid var(--palm-danger);
   border-radius: var(--palm-r-m);
 }

@@ -32,10 +32,30 @@ export interface DeliveryDeliverable {
   readonly description?: string
 }
 
+/**
+ * 结论卡的**四态**（P4）：运行中 / 交付完成 / 没做成 / 结局未知。
+ *
+ * 为什么要有第四态：宿主没给结论字段时（断线、快照缺 turn、老宿主），原来的实现
+ * 要么画一张「交付完成」，要么什么都不画 —— 两种都是在替宿主猜。现在未知就写未知，
+ * 不猜成功。
+ */
+export type DeliveryState = 'running' | 'success' | 'failure' | 'unknown'
+
+/** 每态一句标题 + 一个字形（字形只是冗余线索，文案本身要读得出来）。 */
+const STATE_FACE: Record<DeliveryState, { title: string; glyph: string }> = {
+  running: { title: '进行中', glyph: '◐' },
+  success: { title: '交付完成', glyph: '✓' },
+  failure: { title: '没做成', glyph: '!' },
+  unknown: { title: '结局未知', glyph: '—' },
+}
+
 /** 交付卡的 props：全部来自现有回合数据，缺哪项就不画哪项。 */
 export interface DeliveryCardProps {
-  /** 回合是否正常收工：失败/中断传 false（整张卡不渲染）。 */
-  completed: boolean
+  /**
+   * 这一轮的结局（P4 四态）。省略等于 `success`（既有调用方都是"正常收工"）。
+   * 失败/中断传 `failure`，拿不到结论传 `unknown`。
+   */
+  state?: DeliveryState
   /** 计划步数（卡头「交付完成 · 7 步」里的那一半；计时只在任务头状态条）。 */
   steps?: number
   /** 交付物（`present` 声明），按出现顺序；卡上最多列 2 条。 */
@@ -48,6 +68,10 @@ export interface DeliveryCardProps {
   commit?: string
   /** 已推送（只与 `commit` 一起出现）。 */
   pushed?: boolean
+  /** 失败/未知时的一句原因（拿不到就不画）。 */
+  reason?: string
+  /** 失败态的重试入口（不传就不画按钮）。 */
+  onRetry?: () => void
   /** 点文件行打开预览。 */
   onOpenFile?: (path: string) => void
   /** 「看全部改动 ›」：交给既有的全部改动页。 */
@@ -79,25 +103,25 @@ function weightOf(change: DeliveryFileChange): number {
 }
 
 /**
- * 渲染交付卡。
+ * 渲染结论/交付卡（四态一骨架）。
  *
- * @param props - 完成状态、步数、交付物、改动、汇总与回调
- * @returns 卡片；失败/中断或没有任何产物时为 `null`
+ * @param props - 结局状态、步数、交付物、改动、汇总与回调
+ * @returns 卡片；`success` 且没有任何产物时为 `null`（不画空壳），其余三态总是画
  */
 export function DeliveryCard({
-  completed,
+  state = 'success',
   steps,
   deliverables = [],
   changes = [],
   testsPassed,
   commit,
   pushed,
+  reason,
+  onRetry,
   onOpenFile,
   onOpenChanges,
 }: DeliveryCardProps) {
-  // 失败/中断不画卡：状态条的终态就是结论，再挂一张「交付完成」会自相矛盾。
-  if (!completed) return null
-
+  const face = STATE_FACE[state]
   const declared = new Set(deliverables.map(file => file.path))
   // 卡片明细：交付物去掉已经声明过的路径，再按增删总量从大到小取前 2 条。
   const changed = changes
@@ -112,7 +136,8 @@ export function DeliveryCard({
   const dels = changes.reduce((sum, change) => sum + (change.dels ?? 0), 0)
   const hasTallyTotals = changes.some(change => hasTally(change))
 
-  if (files === 0 && shownDeliverables.length === 0 && changed.length === 0) return null
+  // 只有"正常收工且什么都没交回"才不画卡；失败/未知即使没有文件也是这一轮的结论。
+  if (state === 'success' && files === 0 && shownDeliverables.length === 0 && changed.length === 0) return null
 
   // 卡头只报「N 步」：这一轮用了多久只在任务头状态条里说一次（卡面再报一遍就是两只表）。
   const headMeta: string[] = []
@@ -159,12 +184,20 @@ export function DeliveryCard({
 
   return (
     // chat-turn-tail 是历史钩子（卡片诊断探针 + 既有行身份）：卡面由 palm-delivery-* 重画。
-    <div className="chat-turn-tail palm-delivery">
+    <div className="chat-turn-tail palm-delivery" data-state={state}>
       <div className="palm-delivery-head">
-        <span className="palm-delivery-check" aria-hidden="true">✓</span>
-        <span className="palm-delivery-title">交付完成</span>
+        <span className="palm-delivery-check" aria-hidden="true">{face.glyph}</span>
+        <span className="palm-delivery-title">{face.title}</span>
         {headMeta.length === 0 ? null : <span className="palm-delivery-meta">{headMeta.join(' · ')}</span>}
+        {state !== 'failure' || onRetry === undefined ? null : (
+          <Button type="button" className="palm-delivery-more palm-delivery-retry" onClick={onRetry}>
+            重试
+          </Button>
+        )}
       </div>
+      {reason === undefined || reason === '' ? null : (
+        <p className="palm-delivery-reason">{reason}</p>
+      )}
       {shownDeliverables.map(file => row(
         `deliver:${file.path}`,
         '▤',
@@ -177,36 +210,42 @@ export function DeliveryCard({
       {changed.map(change => row(
         `change:${change.path}`,
         '✎',
-        change.path,
+        /* 卡只有 288px：显示文件名就够认，完整路径在交付详情页（两行式）看。 */
+        baseName(change.path),
         change,
         hasTally(change) && change.dels === 0 && change.adds !== undefined
           ? { text: '新增' }
           : { text: '修改', kind: 'edit' },
         change.path,
       ))}
-      <div className="palm-delivery-sum">
-        <span className="palm-delivery-count"><b>{countText(files)}</b> 个文件</span>
-        {hasTallyTotals ? (
-          <span className="palm-delivery-count">
-            <b className="palm-delivery-add">+{countText(adds)}</b>
-            {' '}
-            <b className="palm-delivery-del">−{countText(dels)}</b>
-          </span>
-        ) : null}
-        {testsPassed === undefined || testsPassed <= 0 ? null : (
-          <span className="palm-delivery-count"><b>{countText(testsPassed)}</b> 测试通过</span>
+      {/*
+        卡尾一行：左边「N 个文件 +A −D」汇总，右边「看全部改动 ›」。
+        2026-11-10 实机：这一块原来先占一行汇总、再占一行文字按钮，按钮还顶到卡片
+        最右边（等于用整行宽度强调卡有多宽）。现在合成一行、按钮只占文字宽度。
+      */}
+      <div className="palm-delivery-foot">
+        <span className="palm-delivery-sum">
+          <span className="palm-delivery-count"><b>{countText(files)}</b> 个文件</span>
+          {hasTallyTotals ? (
+            <span className="palm-delivery-count">
+              <b className="palm-delivery-add">+{countText(adds)}</b>
+              {' '}
+              <b className="palm-delivery-del">−{countText(dels)}</b>
+            </span>
+          ) : null}
+          {testsPassed === undefined || testsPassed <= 0 ? null : (
+            <span className="palm-delivery-count"><b>{countText(testsPassed)}</b> 测试通过</span>
+          )}
+          {commit === undefined ? null : (
+            <span className="palm-delivery-commit">提交 {commit}{pushed === true ? ' · 已推送' : ''}</span>
+          )}
+        </span>
+        {onOpenChanges === undefined ? null : (
+          <Button type="button" className="palm-delivery-more" onClick={onOpenChanges}>
+            看全部改动 ›
+          </Button>
         )}
       </div>
-      {commit === undefined && onOpenChanges === undefined ? null : (
-        <div className="palm-delivery-foot">
-          {commit === undefined ? <span /> : <span>提交 {commit}{pushed === true ? ' · 已推送' : ''}</span>}
-          {onOpenChanges === undefined ? null : (
-            <Button type="button" className="palm-delivery-more" onClick={onOpenChanges}>
-              看全部改动 ›
-            </Button>
-          )}
-        </div>
-      )}
     </div>
   )
 }

@@ -68,14 +68,17 @@ describe('SettingsForm schema rendering', () => {
     listAgentPresetsMock.mockResolvedValue({ presets: [], authorable: false, hasDocument: false })
   })
 
-  it('renders enum unions as option buttons and applies the theme locally', async () => {
+  it('renders enum unions as option buttons without touching the document theme', async () => {
+    // 2026-11-10：宿主 ui-theme 不再驱动手机端明暗（明暗由皮肤决定）。
+    // 表单仍然渲染/可点，但不能偷偷改 data-theme，否则皮肤与它会打架。
     const ns = namespace('ui-theme', { preference: 'light' }, envelope({
       preference: { type: 'union', list: ['light', 'dark', 'system'] },
     }))
     render(<SettingsForm namespaces={[ns]} allNamespaces={[]} onBack={() => {}} />)
     const dark = await screen.findByRole('button', { name: 'dark' })
+    const before = document.documentElement.dataset.theme
     fireEvent.click(dark)
-    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.dataset.theme).toBe(before)
   })
 
   it('renders booleans as switches and strings as inputs', async () => {

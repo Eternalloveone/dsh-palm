@@ -11,8 +11,7 @@
  *
  * 导出仍复用原来的导出面板（Markdown / 单文件 HTML / 长图），文案里说明脱敏。
  */
-import { FolderIcon, SearchIcon, SlidersIcon, UpperRightIcon } from '../../../components/icons.tsx'
-import { ThemeMenuItem } from '../../../components/theme-toggle.tsx'
+import { FolderIcon, RowsIcon, SearchIcon, SlidersIcon, UpperRightIcon } from '../../../components/icons.tsx'
 import { Sheet } from '../../../ui/sheet.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 
@@ -26,6 +25,8 @@ export interface ChatMoreMenuProps {
   onToggleSearch?: (() => void) | undefined
   /** 打开导出面板；空会话没有这个入口。 */
   onOpenExport?: (() => void) | undefined
+  /** 任务页入口（进行中 / 刚完成的总览）。 */
+  onOpenTasks?: (() => void) | undefined
   onOpenSettings?: (() => void) | undefined
 }
 
@@ -83,7 +84,24 @@ export function ChatMoreMenu(props: ChatMoreMenuProps) {
             <span className="sheet-option-check">Markdown</span>
           </Button>
         )}
-        <ThemeMenuItem />
+        {/* 「设置」不属于这一轮的内容，用一条细线隔开：上面是"看这一轮"，
+            下面是"改这套 App"。分隔线本来就有样式，只是这里没用上。 */}
+        {props.onOpenSettings === undefined ? null : <div className="sheet-option-divider" />}
+        {/* 「任务」跟「设置」一样是全局功能，不是这一轮的内容：放在分隔线下面。 */}
+        {props.onOpenTasks === undefined ? null : (
+          <Button
+            type="button"
+            role="menuitem"
+            className="sheet-option"
+            onClick={() => { props.onClose(); props.onOpenTasks?.() }}
+          >
+            <RowsIcon />
+            <span className="sheet-option-copy">
+              <span className="sheet-option-title">任务</span>
+              <span className="sheet-option-desc">进行中 / 刚完成的会话</span>
+            </span>
+          </Button>
+        )}
         {props.onOpenSettings === undefined ? null : (
           <Button
             type="button"
@@ -111,6 +129,8 @@ export interface SessionSheetsProps {
   artifactCount?: number | undefined
   onOpenArtifacts?: (() => void) | undefined
   onToggleSearch?: (() => void) | undefined
+  /** 任务页入口（进行中 / 刚完成的总览）。 */
+  onOpenTasks?: (() => void) | undefined
   onOpenSettings?: (() => void) | undefined
   onCopyExport: (format: 'md' | 'html') => void
   onDownloadExport: (format: 'md' | 'html') => void

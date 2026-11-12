@@ -25,7 +25,6 @@ vi.mock('../api.ts', () => ({
   fetchHostVoiceServices: vi.fn(),
   readNotifyConfig: vi.fn(),
   writeNotifyConfig: vi.fn(),
-  fetchUsage: vi.fn(),
   notifyEvents: vi.fn(),
   latestVersion: vi.fn(),
   testNotifyChannels: vi.fn(),
@@ -38,14 +37,13 @@ vi.mock('../api.ts', () => ({
     now: Date.now(),
   })),
 }))
-import { fetchHostVoiceServices, fetchUsage, latestVersion, listAgentPresets, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
+import { fetchHostVoiceServices, latestVersion, listAgentPresets, notifyEvents, readDiagnostics, readNotifyConfig, readSettings, writeNotifyConfig } from '../api.ts'
 import { resetPageCache } from '../page-cache.ts'
 
 const readSettingsMock = vi.mocked(readSettings)
 const listAgentPresetsMock = vi.mocked(listAgentPresets)
 const fetchHostVoiceServicesMock = vi.mocked(fetchHostVoiceServices)
 const readNotifyConfigMock = vi.mocked(readNotifyConfig)
-const fetchUsageMock = vi.mocked(fetchUsage)
 const writeNotifyConfigMock = vi.mocked(writeNotifyConfig)
 const notifyEventsMock = vi.mocked(notifyEvents)
 const latestVersionMock = vi.mocked(latestVersion)
@@ -116,7 +114,6 @@ describe('SettingsView card list', () => {
       kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
-    fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
   })
 
   /** 展开「进阶 → 主机配置」：分组卡默认收起，用例要点它们先展开。 */
@@ -309,102 +306,6 @@ describe('SettingsView card list', () => {
     expect(getVoiceServices().length).toBe(1)
   })
 
-  it('shows the per-provider usage card collapsed, then expands/refreshes/collapses', async () => {
-    fetchUsageMock.mockResolvedValue({
-      fetchedAt: 0,
-      providers: [{
-        name: 'ollama',
-        baseURL: 'https://ollama.com/v1',
-        kind: 'usage',
-        status: 'ok',
-        plan: 'pro',
-        usedPercent: 0.459,
-        sessionUsed: 0.054,
-        fetchedAt: 0,
-        models: [{ name: 'deepseek-v4-flash:0731', requestCount: 2934 }],
-      }],
-    })
-    render(<SettingsView onBack={() => {}} />)
-
-    // Collapsed: a single row whose summary shows the Ok provider's remaining quota.
-    expect(await screen.findByText(/余量 54%/)).toBeTruthy()
-    expect(screen.queryByText('45.9%')).toBeNull()
-
-    // Expand: the provider detail (5-hour + weekly windows, reset notes).
-    fireEvent.click(screen.getByRole('button', { name: /用量/ }))
-    expect(screen.getByText(/45\.9% · 余 54\.1%/)).toBeTruthy()
-    // 提供方没给重置时刻时，两条窗口都说明自己是滑动窗口（不编假的重置时间）。
-    expect(screen.getAllByText(/窗口随请求持续滑动/).length).toBe(2)
-    expect(screen.getByText('2,934 次')).toBeTruthy()
-
-    // Refresh: re-fetches, bypassing the host cache ({ refresh: true }).
-    fetchUsageMock.mockClear()
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
-    await waitFor(() => expect(fetchUsageMock).toHaveBeenCalledWith(true))
-
-    // Collapse back to the summary row.
-    fireEvent.click(screen.getByRole('button', { name: '收起' }))
-    expect(screen.queryByText('45.9%')).toBeNull()
-  })
-
-  it('hides providers without a queryable balance/usage endpoint', async () => {
-    fetchUsageMock.mockResolvedValue({
-      fetchedAt: 0,
-      providers: [
-        {
-          name: 'ollama',
-          baseURL: 'https://ollama.com/v1',
-          kind: 'usage',
-          status: 'ok',
-          plan: 'pro',
-          usedPercent: 0.459,
-          fetchedAt: 0,
-        },
-        { name: 'agnes-ai', baseURL: 'https://apihub.agnes-ai.com/v1', kind: 'usage', status: 'unsupported', fetchedAt: 0 },
-      ],
-    })
-    render(<SettingsView onBack={() => {}} />)
-
-    // The queryable provider shows in the collapsed summary…
-    expect(await screen.findByText(/余量 54%/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /用量/ }))
-    // …and the endpoint-less provider never renders, collapsed or expanded.
-    expect(await screen.findByText(/45\.9% · 余 54\.1%/)).toBeTruthy()
-    expect(screen.queryByText('agnes-ai')).toBeNull()
-  })
-
-  it('renders the 5-hour usage window with its own meter and reset note', async () => {
-    fetchUsageMock.mockResolvedValue({
-      fetchedAt: 0,
-      providers: [
-        {
-          name: 'ollama',
-          baseURL: 'https://ollama.com/v1',
-          kind: 'usage',
-          status: 'ok',
-          plan: 'pro',
-          usedPercent: 0.879,
-          sessionUsed: 0.5,
-          sessionResetsAt: Date.parse('2026-10-11T02:00:00Z'),
-          weeklyResetsAt: Date.parse('2026-10-12T00:00:00Z'),
-          summary: '近 7 天 9,764 次请求',
-          models: [],
-          fetchedAt: 0,
-        },
-      ],
-    })
-    render(<SettingsView onBack={() => {}} />)
-    expect(await screen.findByText(/余量 12%/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /用量/ }))
-    // 两条配额窗口各带自己的进度条与**真实**重置时间：/api/balance 现在给
-    // resets_at，所以那句话从"无固定重置时刻"改成了具体时间。
-    expect(screen.getByText('近 5 小时')).toBeTruthy()
-    expect(screen.getByText('50%')).toBeTruthy()
-    expect(screen.getByText(/87\.9% · 余 12\.1%/)).toBeTruthy()
-    expect(screen.getAllByText(/重置于 \d{2}-\d{2} \d{2}:\d{2}/).length).toBe(2)
-    // 百分比回来之后，请求数总计仍作为一行事实显示（不再被百分比分支挤掉）。
-    expect(screen.getByText('近 7 天 9,764 次请求')).toBeTruthy()
-  })
 })
 
 describe('SettingsView notification page (L3 channels)', () => {
@@ -429,7 +330,6 @@ describe('SettingsView notification page (L3 channels)', () => {
       kinds: { jobs: false, todo: true, turns: false, approvals: true },
       channels: { serverchan: { configured: false }, bark: { configured: false }, telegram: { configured: false }, wxpusher: { configured: false }, pushplus: { configured: false } },
     })
-    fetchUsageMock.mockResolvedValue({ providers: [], fetchedAt: 0 })
     notifyEventsMock.mockResolvedValue({ items: [] })
     latestVersionMock.mockResolvedValue({ latest: '0.7.3', isNewer: false })
   })
@@ -729,8 +629,9 @@ describe('SettingsView sub-config search', () => {
   // 设置中开启」（15 字）塞进去，标题列被挤成一个字，用户看到的是「通…」。
   it('keeps every row value to a short state word', async () => {
     render(<SettingsView onBack={() => {}} />)
-    // 主页偏好行（不依赖默认收起的「主机配置」分组卡）。
-    await screen.findByText('主题')
+    // 2026-11-10 起没有「主题」行；「字号与密度」入口要调用方传 onOpenAppearance 才画，
+    // 这里改用常驻的「通知」行做 hydration 锚点（下面紧接着就断言它的值）。
+    await screen.findByText('通知', { selector: '.palm-spec-row-text' })
     const values = Array.from(document.querySelectorAll('.palm-spec-row .settings-rowValue'))
     expect(values.length).toBeGreaterThan(0)
     for (const value of values) {
@@ -742,10 +643,10 @@ describe('SettingsView sub-config search', () => {
     expect(row.querySelector('.settings-rowValue')!.textContent).toBe('不支持')
   })
 
-  it('设置页给出「外观与皮肤」入口，点了真能进外观页', () => {
+  it('设置页给出「字号与密度」入口，点了真能进外观页', () => {
     const onOpenAppearance = vi.fn()
     render(<SettingsView onBack={() => {}} onOpenAppearance={onOpenAppearance} />)
-    const row = screen.getByText('外观与皮肤').closest('button')
+    const row = screen.getByText('字号与密度').closest('button')
     expect(row).not.toBeNull()
     row!.click()
     expect(onOpenAppearance).toHaveBeenCalledTimes(1)
@@ -753,6 +654,6 @@ describe('SettingsView sub-config search', () => {
 
   it('不给回调时不渲染这一行（老页面行为不变）', () => {
     render(<SettingsView onBack={() => {}} />)
-    expect(screen.queryByText('外观与皮肤')).toBeNull()
+    expect(screen.queryByText('字号与密度')).toBeNull()
   })
 })

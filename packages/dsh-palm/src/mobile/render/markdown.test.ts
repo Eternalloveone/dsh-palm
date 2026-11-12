@@ -5,7 +5,7 @@
  * link to the host file opener.
  */
 import { describe, expect, it } from 'vitest'
-import { escapeHtml, localImagePath, parseMarkdown, parseSegments, parseStreamPrefix, renderInline, renderMarkdown, safeUrl } from './markdown.ts'
+import { escapeHtml, localImagePath, localPathOf, parseMarkdown, parseSegments, parseStreamPrefix, renderInline, renderMarkdown, safeUrl } from './markdown.ts'
 
 describe('safeUrl', () => {
   it('allows http/https/mailto/fragments and scheme-less targets', () => {
@@ -38,6 +38,12 @@ describe('localImagePath', () => {
     expect(localImagePath('./docs/a.webp')).toBe('./docs/a.webp')
     expect(localImagePath('docs/a.gif')).toBe('docs/a.gif')
     expect(localImagePath('  D:/shots/a.png  ')).toBe('D:/shots/a.png')
+  })
+
+  it('把「前导斜杠 + 盘符」拉回正常（真机：正文图片报未找到）', () => {
+    expect(localImagePath('/C:/Users/a/shots/x.png')).toBe('C:/Users/a/shots/x.png')
+    // 正常的 POSIX 绝对路径不能被改写
+    expect(localImagePath('/home/u/a.jpg')).toBe('/home/u/a.jpg')
   })
 
   it('decodes percent escapes and drops query/fragment suffixes', () => {
@@ -162,6 +168,43 @@ describe('renderMarkdown', () => {
     // A path inside fenced code (not an inline span) is untouched elsewhere;
     // an inline span with trailing text after the path stays inert.
     expect(renderInline('`src/main.ts 的说明`')).not.toContain('file-link')
+  })
+
+  /**
+   * 2026-11-11 真机：正文里 `[说明](路径)` 这种链接点了打不开预览 ——
+   * `safeUrl` 只放行 http/https/mailto，`C:/x.md` 被当成非法 scheme `c:` 丢掉
+   * （只剩点不动的纯文本），`docs/x.md` 则变成站内链接、点了 404。
+   */
+  describe('[说明](本机路径) 走文件预览，而不是外链/纯文本', () => {
+    it('Windows 绝对路径变成文件链接', () => {
+      expect(renderInline('见 [说明](C:/proj/README.md) 这份')).toBe(
+        '见 <a class="file-link" data-path="C:/proj/README.md">说明</a> 这份',
+      )
+      expect(renderInline('见 [说明](<C:\\proj\\README.md>)')).toContain('data-path="C:\\proj\\README.md"')
+    })
+
+    it('相对路径与 file:// 也算本机文件，行号/锚点尾巴剥掉', () => {
+      expect(renderInline('[说明](docs/x.md)')).toContain('data-path="docs/x.md"')
+      expect(renderInline('[说明](./a.md)')).toContain('data-path="./a.md"')
+      expect(renderInline('[说明](docs/x.md#L24)')).toContain('data-path="docs/x.md"')
+      expect(renderInline('[说明](docs/x.md:24)')).toContain('data-path="docs/x.md"')
+      expect(renderInline('[说明](file:///C:/proj/README.md)')).toContain('data-path="C:/proj/README.md"')
+    })
+
+    it('外链、站内路由、锚点都不受影响', () => {
+      expect(renderInline('[说明](https://example.com/a.md)')).toContain('href="https://example.com/a.md"')
+      expect(renderInline('[聊天](/m/chat)')).not.toContain('file-link')
+      expect(renderInline('[锚点](#top)')).not.toContain('file-link')
+      expect(renderInline('[说明](docs/)')).not.toContain('file-link')
+    })
+
+    it('localPathOf 把路径洗成宿主能直接读的样子', () => {
+      expect(localPathOf('C:/proj/README.md')).toBe('C:/proj/README.md')
+      expect(localPathOf('docs/x.md#L24-L30')).toBe('docs/x.md')
+      expect(localPathOf('a.ts:24')).toBe('a.ts')
+      expect(localPathOf('  [not-a-path]  ')).toBe(null)
+      expect(localPathOf('https://example.com/a.md')).toBe(null)
+    })
   })
 
   it('splits segments at code and diff fences, preserving order', () => {

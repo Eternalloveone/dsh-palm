@@ -33,11 +33,11 @@ describe('FinishedElsewhereBar（聊天页顶部条）', () => {
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
-  it('出错的回合写「出错退出」，被中断的写「已中断」', () => {
+  it('出错的回合写「异常结束」，被中断的写「已中断」', () => {
     const { unmount } = render(
       <FinishedElsewhereBar title="A" status="error" onOpen={() => {}} onDismiss={() => {}} />,
     )
-    expect(screen.getByRole('button', { name: /A/ }).textContent).toContain('出错退出')
+    expect(screen.getByRole('button', { name: /A/ }).textContent).toContain('异常结束')
     unmount()
     render(<FinishedElsewhereBar title="B" status="stopped" onOpen={() => {}} onDismiss={() => {}} />)
     expect(screen.getByRole('button', { name: /B/ }).textContent).toContain('已中断')

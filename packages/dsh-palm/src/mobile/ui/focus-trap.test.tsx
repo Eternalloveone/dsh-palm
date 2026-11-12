@@ -92,3 +92,43 @@ describe('useFocusTrap', () => {
     }
   })
 })
+
+/**
+ * 真机回归（2026-11-11）：「切换工作区」面板一打开，搜索框就获得焦点、键盘弹出来，
+ * 把面板顶掉一半 —— 用户的原话是「为啥会直接进搜索框，这不合理」。
+ *
+ * 原因是 `useFocusTrap` 聚焦「第一个可聚焦元素」，而那个面板的第一个就是搜索输入框。
+ */
+function PanelWithSearch() {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useFocusTrap(ref)
+  return (
+    <div ref={ref} role="dialog" aria-modal="true" aria-label="面板">
+      <input aria-label="搜索" />
+      <button type="button">新建</button>
+      <button type="button">第一条</button>
+    </div>
+  )
+}
+
+describe('useFocusTrap：打开时不要抢输入框', () => {
+  it('面板里第一个是输入框时，焦点落在下一个按钮上（不弹键盘）', () => {
+    render(<PanelWithSearch />)
+    expect(document.activeElement?.tagName).toBe('BUTTON')
+    expect(document.activeElement?.textContent).toBe('新建')
+  })
+
+  it('面板里只有输入框时，仍然聚焦输入框（纯输入对话框行为不变）', () => {
+    function OnlyInput() {
+      const ref = useRef<HTMLDivElement | null>(null)
+      useFocusTrap(ref)
+      return (
+        <div ref={ref} role="dialog" aria-modal="true" aria-label="只有输入">
+          <input aria-label="名字" />
+        </div>
+      )
+    }
+    render(<OnlyInput />)
+    expect(document.activeElement?.tagName).toBe('INPUT')
+  })
+})

@@ -76,7 +76,7 @@
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--palm-sh2);
   cursor: pointer;
   /* Same press-vs-selection guard as the turn handle: a held press on the
      round button must still count as a tap. */
@@ -104,7 +104,7 @@
   padding: 0 5px;
   border-radius: 9px;
   background: var(--danger);
-  color: #fff;
+  color: var(--palm-on-accent);
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
@@ -115,8 +115,8 @@
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes chat-jump-pulse {
-  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
-  50% { box-shadow: 0 2px 18px var(--accent-soft, rgba(124, 108, 255, 0.45)); }
+  0%, 100% { box-shadow: var(--palm-sh2); }
+  50% { box-shadow: 0 2px 18px var(--accent-soft); }
 }
 
 /* Font-size preference: 小 / 标准 / 大。三档是 13 / 15 / 18px —— 原先 14/15/16.5
@@ -142,7 +142,7 @@
   min-height: var(--palm-hit);
   padding: var(--palm-s3);
   border-radius: var(--palm-r-m);
-  font-size: var(--palm-t-m);
+  font-size: var(--palm-chat-body-size);
   font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-body);
   overflow-wrap: break-word;
@@ -239,7 +239,7 @@
 
 .chat-msg-file-glyph {
   flex: none;
-  color: var(--accent, #4f7cff);
+  color: var(--accent);
 }
 
 .chat-msg-file-name {
@@ -276,7 +276,7 @@
   border: 1px dashed var(--border-default);
   border-radius: 10px;
   background: transparent;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -317,10 +317,12 @@
 .chat-msg-maxtokens {
   margin-top: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--warning, #e69641);
+  border: var(--palm-hair) solid var(--palm-warn);
   border-radius: var(--radius-card, 8px);
-  background: color-mix(in srgb, var(--warning, #e69641) 10%, transparent);
-  color: var(--warning, #e69641);
+  /* 2026-11-10：原来 border/底/字三处都写 var(--warning, #e69641)，既绕开皮肤令牌
+     （裸色兜底），又用 color-mix 现算淡底 —— iOS 15 上淡底消失只剩文字。 */
+  background: var(--palm-tint-warn);
+  color: var(--palm-warn);
   font-size: var(--text-xs);
   line-height: 1.5;
   word-break: break-word;
@@ -545,14 +547,20 @@
 .chat-md-body img.md-local-img[data-local-state='loaded'] {
   border: none;
 }
-.chat-md-body img.md-local-img[data-local-state='failed'] {
-  min-width: 0;
-  min-height: 0;
+/* 读不到时不再留破图：渲染器会把它换成这枚牌子（带 alt 与路径），
+   用户一眼看出是「主机上没有这个文件」而不是 App 坏了。
+   牌子可点：一次读失败常常只是图还没写完，点一下重试（2026-11-11 真机）。 */
+.chat-md-body .md-img-missing {
+  display: block;
+  margin: var(--palm-s2) 0;
   padding: 8px 10px;
-  border-color: var(--danger);
-  background: transparent;
-  color: var(--danger);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-chip);
+  color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+  cursor: pointer;
 }
 /* 文档/消息正文里的超长路径（无空格的连续 token）必须在文本 run 处可折，
    否则它会把消息或文件预览（.fp-md 没有 .chat-msg 祖先，继承不到任何

@@ -107,18 +107,22 @@ describe('DiffRows（单文件 diff 行视图）', () => {
     expect([...container.querySelectorAll('.diff-page-no')].map(no => no.textContent)).toEqual(['1', '2', '3'])
   })
 
-  it('超长行：完整文本留在 DOM，视觉上截断（不横向溢出）', () => {
+  it('超长行：完整文本软换行显示（不再截断成一行省略号）', () => {
     const long = `export const payload = '${'a'.repeat(400)}'`
     const { container } = render(<DiffRows text={`${long}\n`} />)
 
     const text = container.querySelector('.diff-page-text')
     expect(text?.textContent).toBe(long)
-    expect(container.querySelector('.diff-page-block')?.getAttribute('data-overflow')).toBe('truncate')
+    // 2026-11-10：原来长行直接截断（ellipsis），手机上除了长按选中复制没有别的办法
+    // 看到后半行——只读的 diff 页等于看不全。改成软换行：缩进由 pre-wrap 保留，
+    // 长标识符用 anywhere 断行，行号仍对齐到首行、不出现横向滚动。
+    expect(container.querySelector('.diff-page-block')?.getAttribute('data-overflow')).toBe('wrap')
 
     const textRule = ruleBody('.diff-page-text')
-    expect(textRule).toMatch(/text-overflow:\s*ellipsis/)
-    expect(textRule).toMatch(/overflow:\s*hidden/)
-    expect(textRule).toMatch(/white-space:\s*pre/)
+    expect(textRule).toMatch(/white-space:\s*pre-wrap/)
+    expect(textRule).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(textRule).not.toMatch(/text-overflow:\s*ellipsis/)
+    expect(textRule).not.toMatch(/overflow:\s*hidden/)
     // 正文容器只纵向滚：横向滚动会把行号滑出视野。
     expect(ruleBody('.diff-page-body')).not.toMatch(/overflow-x/)
   })

@@ -5,7 +5,7 @@
 import { act, render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { createChatStore } from './store.ts'
-import { useChatSessionStore, useChatState } from './use-chat-store.ts'
+import { useChatSelector, useChatSessionStore, useChatState } from './use-chat-store.ts'
 
 describe('useChatState', () => {
   it('dispatch 后组件读到新状态', () => {
@@ -37,6 +37,60 @@ describe('useChatState', () => {
     const before = renders
     act(() => { store.dispatch({ type: 'intent/send-settled' }) })
     expect(renders).toBe(before)
+  })
+})
+
+describe('useChatSelector', () => {
+  it('只认选中的字段：别的字段怎么翻都不重渲染', () => {
+    const store = createChatStore()
+    let renders = 0
+    function Probe(): null {
+      useChatSelector(store, (state) => state.phase)
+      renders += 1
+      return null
+    }
+
+    render(<Probe />)
+    const before = renders
+    act(() => { store.dispatch({ type: 'intent/send-start', at: 1 }) })
+    act(() => { store.dispatch({ type: 'intent/send-settled' }) })
+    expect(renders).toBe(before)
+    act(() => { store.dispatch({ type: 'session/ready' }) })
+    expect(renders).toBe(before + 1)
+  })
+})
+
+/*
+ * P2 / A1′ 的生产侧闸门：发送态翻转不许再惊动会话页。
+ *
+ * `sending` 在一次发送里翻两次；如果 `useChatSessionStore` 还是整表订阅，
+ * 整个 ChatView（4000 行 JSX + 行列表 props）就跟着重建两遍 —— 用户说的
+ * 「点按钮卡」。`sending`/`stopping` 已下沉到作曲区自订阅（见
+ * `views/chat/components/chat-rows-sending-gate.test.tsx`）。
+ */
+describe('useChatSessionStore 的窄订阅', () => {
+  it('发送/停止/重新生成翻转不重渲染会话页，phase/notice 仍然订阅', () => {
+    let api: ReturnType<typeof useChatSessionStore> | undefined
+    let renders = 0
+    function Probe(): null {
+      api = useChatSessionStore('标题')
+      renders += 1
+      return null
+    }
+
+    render(<Probe />)
+    const before = renders
+    act(() => { api?.setSending(true) })
+    act(() => { api?.setSending(false) })
+    act(() => { api?.setStopping(true) })
+    act(() => { api?.setStopping(false) })
+    act(() => { api?.setRegenerate('busy') })
+    act(() => { api?.setRegenerate('idle') })
+    expect(renders).toBe(before)
+    // 状态没丢，只是不从这里订阅。
+    expect(api?.store.getState()).toMatchObject({ sending: false, stopping: false, regenerate: 'idle' })
+    act(() => { api?.setError('发送失败') })
+    expect(renders).toBe(before + 1)
   })
 })
 

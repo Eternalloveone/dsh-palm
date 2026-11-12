@@ -77,7 +77,7 @@ describe('未水合：只画骨架，不画任何结论态', () => {
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
-  it('有缓存行（种子先上屏）但没水合：行照画，任务头 unknown、不报耗时', () => {
+  it('有缓存行（种子先上屏）但没水合：行照画，任务头 unknown 但不写状态词、时钟照走', () => {
     // 缓存页是"回合还在跑"时的快照：没有 turn/end 的用时，也就没有任何收工证据。
     const row = assistantRow(3, { turnStartAt: AT - 5_000, pending: true })
     const { container } = render(<ChatRows {...viewOf({ messages: [row] })} />)
@@ -87,10 +87,10 @@ describe('未水合：只画骨架，不画任何结论态', () => {
     // 任务头与状态条都不下结论（过程折叠条是逐步骤摘要，另有口径）。
     expect(head.textContent).not.toContain('已完成')
     expect(container.querySelector('.palm-strip')!.textContent).not.toContain('已完成')
-    // 状态词只在状态条：unknown 落「—」，没有独立状态行、也没有计时元素。
-    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('—')
+    // 状态待定时状态条写「确认中」（2026-11-11 起；以前留白，用户报「鲸尾后面是空白」），时钟不许消失。
+    expect(container.querySelector('.palm-strip [data-part="label"]')).not.toBeNull()
+    expect(container.querySelector('[data-role="strip-time"]')).not.toBeNull()
     expect(container.querySelector('.palm-turn-state')).toBeNull()
-    expect(container.querySelector('[data-role="strip-time"]')).toBeNull()
   })
 
   it('行已到但快照未到：过程条头行与任务头同为 unknown，不再各说一套', () => {
@@ -128,7 +128,7 @@ describe('水合后：一次性画真实状态，且不回退', () => {
     const { container } = render(<ChatRows {...viewOf({ messages: [row] })} />)
     expect(container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('done')
     // 状态词与计时都在状态条：任务头里只有这一个计时元素。
-    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('完成')
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('成了')
     // 整数秒：不出现小数点（12.4s 这种读数会让人去追「为什么不是 12.5」）。
     expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12s')
     expect(container.querySelector('.palm-turn-time')).toBeNull()
@@ -140,7 +140,8 @@ describe('水合后：一次性画真实状态，且不回退', () => {
     const row = assistantRow(3, { turnStartAt: AT - 60_000 })
     const { container } = render(<ChatRows {...viewOf({ messages: [row] })} />)
     expect(container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('unknown')
-    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('—')
+    expect(container.querySelector('.palm-strip [data-part="label"]')).not.toBeNull()
+    expect(container.querySelector('[data-role="strip-time"]')).not.toBeNull()
     expect(container.querySelector('.palm-turn-head')!.textContent).not.toContain('已完成')
     expect(container.querySelector('.palm-strip')!.textContent).not.toContain('已完成')
   })

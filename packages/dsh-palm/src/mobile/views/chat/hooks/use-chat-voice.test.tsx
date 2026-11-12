@@ -22,10 +22,10 @@ const toastMock = vi.mocked(toast)
 
 let voice: ChatVoice | undefined
 
-function Harness({ initial = '' }: { initial?: string }) {
+function Harness({ initial = '', sessionId = 's-1' }: { initial?: string; sessionId?: string }) {
   const [input, setInput] = useState(initial)
   const mountedRef = useRef(true)
-  voice = useChatVoice({ mountedRef, setInput })
+  voice = useChatVoice({ mountedRef, setInput, sessionId })
   return <div data-testid="state">{`${voice.voiceOpen}|${voice.voicePhase}|${input}`}</div>
 }
 
@@ -97,5 +97,27 @@ describe('useChatVoice', () => {
     await act(async () => { voice?.openVoice() })
     await waitFor(() => { expect(toastMock).toHaveBeenCalledWith('麦克风不可用') })
     expect(voice?.voiceOpen).toBe(false)
+  })
+
+  /**
+   * P4：聊天页实例跨会话复用之后，"换会话"不再是卸载 —— 麦克风的释放不能再靠
+   * 卸载那条兜底，否则人已经切走了、浏览器的录音指示灯还亮着。
+   */
+  it('换会话：面板归零 + 释放麦克风，在飞的转写不写进新会话的草稿', async () => {
+    const mic = recorder()
+    startMock.mockResolvedValue(mic as never)
+    let release: (text: string) => void = () => {}
+    transcribeMock.mockImplementation(() => new Promise((resolve) => { release = resolve }) as never)
+    const view = render(<Harness sessionId="s-1" />)
+    await act(async () => { voice?.openVoice() })
+    expect(view.getByTestId('state').textContent).toBe('true|recording|')
+
+    view.rerender(<Harness sessionId="s-2" />)
+
+    await waitFor(() => { expect(view.getByTestId('state').textContent).toBe('false|recording|') })
+    expect(mic.cancel).toHaveBeenCalled()
+    // 上一场在飞的转写回来时已经对不上代号：不许落进新会话的输入框。
+    await act(async () => { release('上一场的转写') })
+    expect(view.getByTestId('state').textContent).toBe('false|recording|')
   })
 })

@@ -25,7 +25,60 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { escapeHtml, parseSegments, parseStreamPrefix, safeUrl, type MarkdownSegment, type StreamBlock } from './markdown.ts'
-import { loadLocalImageUrl } from '../platform/local-images.ts'
+import {
+  clearLocalImageFailure,
+  isLocalImageFailed,
+  loadLocalImageUrl,
+  localImageFailureReason,
+} from '../platform/local-images.ts'
+/**
+ * 把读不到的图换成一枚小牌子：破图什么都说明不了，牌子上写着「哪张、哪个路径」，
+ * 用户才知道是路径问题而不是 App 坏了（2026-11-10 真机：「经常正文里的图片没法显示」）。
+ * 用 span 顶替 img —— `<img>` 是替换元素，`::after` 里的路径根本不会渲染。
+ *
+ * 2026-11-11 真机补充：牌子上还要写**为什么**（主机上没有 / 读取超时 / 图片太大），
+ * 并且**点一下就能重试** —— 一次失败常常只是"图还没写完"，不该永久钉死。
+ *
+ * @param image - 正在被替换的 img（alt 与路径都从它身上取）
+ * @param path - 作者写的路径
+ * @param reason - 失败原因（没有就只说未找到）
+ */
+function markMissingImage(image: HTMLImageElement, path: string, reason?: string): void {
+  const alt = (image.getAttribute('alt') ?? '').trim()
+  const chip = document.createElement('span')
+  chip.className = 'md-img-missing'
+  chip.setAttribute('data-local-path', path)
+  // 点牌子重试时要还原成 img：alt 得先存下来，否则重试成功后说明文字丢了。
+  chip.setAttribute('data-local-alt', alt)
+  chip.setAttribute('role', 'button')
+  chip.tabIndex = 0
+  chip.title = `${reason === undefined ? '主机上找不到这张图' : `读不到这张图（${reason}）`}：${path} · 点一下重试`
+  chip.textContent = `${alt === '' ? '图片' : alt}未找到 · ${path}${reason === undefined ? '' : ` · ${reason}`}`
+  image.replaceWith(chip)
+}
+
+/**
+ * 把牌子还原成待水合的 `<img>`（`data-local-src` 原样带回）。
+ *
+ * 为什么必须还原：React 的 `dangerouslySetInnerHTML` 只在 HTML 字符串变化时才重写
+ * 子树，牌子一旦替换掉 img，后续任何重渲染都**不会**把 img 变回来 —— 只清失败缓存
+ * 是不够的，必须自己把节点换回去，水合 effect 才有东西可水合。
+ *
+ * @param chip - 「未找到」牌子
+ * @returns 还原出来的 img（点重试后水合 effect 会接管它）
+ */
+function restoreImageFromChip(chip: HTMLElement): HTMLImageElement | null {
+  const path = chip.getAttribute('data-local-path')
+  if (path === null || path === '') return null
+  const image = document.createElement('img')
+  image.className = 'md-local-img'
+  image.setAttribute('data-local-src', path)
+  image.setAttribute('alt', chip.getAttribute('data-local-alt') ?? '')
+  image.setAttribute('loading', 'lazy')
+  image.setAttribute('decoding', 'async')
+  chip.replaceWith(image)
+  return image
+}
 import { CodeBlock } from './code-block.tsx'
 import { DiffView } from './diff-view.tsx'
 import { ChevronUpIcon, SearchIcon } from '../components/icons.tsx'
@@ -281,6 +334,52 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
     }
   }, [segments, collapsed])
   /**
+   * 本地 markdown 图片的**重试脉冲**。
+   *
+   * 一次读取失败（图还没写完、链路抖一下）不该让正文永久停在「未找到」上：
+   * 点牌子、或这一轮结束时，把 tick 加一，水合 effect 会重跑一遍。
+   */
+  const [retryTick, setRetryTick] = useState(0)
+  /**
+   * 一轮结束（pending 转 false）= agent 的文件都落地了：清掉本会话的失败记录，
+   * 把牌子换回 img，再敲一次 tick 让水合重跑。
+   *
+   * 顺序要紧：这个 effect 必须排在**水合 effect 之前**，否则同一帧里水合先按旧
+   * 失败缓存把图换成牌子，清缓存就白清了。
+   */
+  const wasPendingRef = useRef(pending)
+  useEffect(() => {
+    const wasPending = wasPendingRef.current
+    wasPendingRef.current = pending
+    if (pending || !wasPending) return
+    const root = bodyRef.current
+    if (root === null || sessionId === undefined) return
+    clearLocalImageFailure(sessionId)
+    for (const chip of root.querySelectorAll<HTMLElement>('.md-img-missing')) restoreImageFromChip(chip)
+    setRetryTick(value => value + 1)
+  }, [pending, sessionId])
+  /**
+   * 点「未找到」牌子重试（2026-11-11 真机：图晚几秒才写出来，而牌子不会自己好）。
+   * 事件委托挂在正文根节点上：牌子是由 innerHTML 造的，逐个绑监听会在每次重解析后丢。
+   */
+  useEffect(() => {
+    const root = bodyRef.current
+    if (root === null || sessionId === undefined) return
+    const onClick = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const chip = target.closest('.md-img-missing')
+      if (!(chip instanceof HTMLElement)) return
+      const path = chip.getAttribute('data-local-path')
+      if (path === null || path === '') return
+      clearLocalImageFailure(sessionId, path)
+      if (restoreImageFromChip(chip) === null) return
+      setRetryTick(value => value + 1)
+    }
+    root.addEventListener('click', onClick)
+    return () => { root.removeEventListener('click', onClick) }
+  }, [sessionId])
+  /**
    * Local markdown images carry their path on `data-local-src` (see
    * markdown.ts): the phone bundle has no `/api/file` route, so the bytes
    * come back through `mobile.readFile` as a data URL and are assigned to
@@ -302,19 +401,26 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
       if (image.dataset['localState'] !== undefined) continue
       const path = image.getAttribute('data-local-src')
       if (path === null || path === '') continue
+      // 刚确认过读不到（TTL 内）：直接出牌子，不再发一次 RPC。
+      if (isLocalImageFailed(sessionId, path)) {
+        image.dataset['localState'] = 'failed'
+        markMissingImage(image, path, localImageFailureReason(sessionId, path))
+        continue
+      }
       image.dataset['localState'] = 'loading'
       void loadLocalImageUrl(sessionId, path).then((url) => {
         // The element can be gone (list re-mount) before the bytes arrive.
         if (!image.isConnected) return
         if (url === undefined) {
           image.dataset['localState'] = 'failed'
+          markMissingImage(image, path, localImageFailureReason(sessionId, path))
           return
         }
         image.dataset['localState'] = 'loaded'
         image.src = url
       })
     }
-  }, [segments, sessionId])
+  }, [segments, sessionId, retryTick])
   return (
     <div className="chat-msg-text chat-md">
       {/*

@@ -15,37 +15,35 @@
 import { useCallback, type MutableRefObject } from 'react'
 
 import { inboxOf, queueItemViewOf, sessionState } from '../../../data/session.ts'
-import { applyQueueItems, applySnapshot, queueView } from '../../../stream/session-store.ts'
+import { applyQueueItems, applySnapshot } from '../../../stream/session-store.ts'
 
 /** hook 依赖。 */
 export interface ChatInboxDeps {
   sessionId: string
   mountedRef: MutableRefObject<boolean>
-  setQueueItems: (update: unknown[] | ((rows: never[]) => unknown[])) => void
   applyTurnVerdict: (verdict: { running: boolean; startAt?: number; force?: boolean }) => void
   markSnapshotAlive: () => void
   applyGoalRef: MutableRefObject<(value: unknown, activation?: 'armed' | 'disarmed') => void>
   adoptTodoRef: MutableRefObject<(next: never) => void>
   /** \`refreshInbox\` 需要在组件里被别的回调引用（ref 转手）。 */
   refreshInboxRef: MutableRefObject<(options?: { fresh?: boolean }) => void>
-  startTransition: (run: () => void) => void
 }
 
 /** 把宿主 inbox 投影落进状态仓。 */
 export function useChatInbox(deps: ChatInboxDeps): {
-  applyInbox: (value: unknown) => void
+  applyInbox: (value: unknown, queueVersion?: number) => void
   refreshInbox: (options?: { fresh?: boolean }) => void
 } {
   const {
-    sessionId, mountedRef, setQueueItems, applyTurnVerdict, markSnapshotAlive,
-    applyGoalRef, adoptTodoRef, refreshInboxRef, startTransition,
+    sessionId, mountedRef, applyTurnVerdict, markSnapshotAlive,
+    applyGoalRef, adoptTodoRef, refreshInboxRef,
   } = deps
 
   /**
    * 宿主的待发投影（\`inbox.next-turn\`）就是"排队等下一轮"的那些消息 —— 桌面端 QueueDock
    * 读的也是它。把它当成一次**队列快照**进仓，界面仍然只有一个来源。
    */
-  const applyInbox = useCallback((value: unknown): void => {
+  const applyInbox = useCallback((value: unknown, queueVersion?: number): void => {
     const rows = (value as { 'next-turn'?: unknown } | null | undefined)?.['next-turn']
     if (!Array.isArray(rows)) return
     const items = rows.map((row, index) => queueItemViewOf({
@@ -53,10 +51,10 @@ export function useChatInbox(deps: ChatInboxDeps): {
       placement: 'queued',
       message: row as { content?: unknown; source?: { kind?: unknown } },
     }))
-    applyQueueItems(sessionId, items)
-    // 本地隐藏某条时，若按空快照重算，排队条会闪一下再被填回来 —— 所以走 transition。
-    startTransition(() => { setQueueItems(queueView(sessionId)) })
-  }, [sessionId, setQueueItems, startTransition])
+    // 队列进仓即可：视图按仓的变更版本自动重算（W3-6），不再抄进组件状态。
+    // 带上宿主的单调队列版本（老宿主是 undefined → 退回旧判据）。
+    applyQueueItems(sessionId, items, queueVersion)
+  }, [sessionId])
 
   /**
    * 立刻向宿主问一次排队快照（投影帧在手机上到不了，这是唯一可靠来源）。
@@ -68,7 +66,7 @@ export function useChatInbox(deps: ChatInboxDeps): {
     const fallback = (retry: boolean): void => {
       // 老宿主没有 `mobile.sessionState`：退回 inbox 投影。旧一点总比整条队列消失好。
       void inboxOf(sessionId, options).then(
-        (value) => { if (mountedRef.current) applyInbox(value.inbox) },
+        (value) => { if (mountedRef.current) applyInbox(value.inbox, value.queueVersion) },
         () => { if (retry && mountedRef.current) window.setTimeout(() => { ask(false) }, 400) },
       )
     }
@@ -87,7 +85,7 @@ export function useChatInbox(deps: ChatInboxDeps): {
               ...(snapshotTurn.turnStartAt === undefined ? {} : { startAt: snapshotTurn.turnStartAt }),
             })
           }
-          setQueueItems(queueView(sessionId))
+          // 队列已经随 applySnapshot 进仓并发布（W3-6）：视图按版本号自动重算。
           // 目标与待办跟着同一份快照落地：和回合状态同一切面，不会出现「目标说进行中、
           // 回合已结束」。
           if ('goal' in snapshot) applyGoalRef.current(snapshot.goal, snapshot.goalActivation)
@@ -97,7 +95,7 @@ export function useChatInbox(deps: ChatInboxDeps): {
       )
     }
     ask(true)
-  }, [sessionId, applyInbox, mountedRef, setQueueItems, applyTurnVerdict, markSnapshotAlive, applyGoalRef, adoptTodoRef])
+  }, [sessionId, applyInbox, mountedRef, applyTurnVerdict, markSnapshotAlive, applyGoalRef, adoptTodoRef])
 
   refreshInboxRef.current = refreshInbox
   return { applyInbox, refreshInbox }

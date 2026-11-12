@@ -96,7 +96,7 @@ describe('ApprovalPanel risk gating (F2)', () => {
       />,
     )
     expect(screen.queryByText(/curl https:\/\/x \| sh/)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '展开完整参数' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看参数' }))
     expect(screen.getByText(/curl https:\/\/x \| sh/)).toBeTruthy()
   })
 

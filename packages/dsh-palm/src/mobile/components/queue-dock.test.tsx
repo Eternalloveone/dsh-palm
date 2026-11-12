@@ -29,19 +29,28 @@ describe('QueueDock', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('offers 撤回 next to 删除 (withdraw returns the text, delete discards it)', () => {
+  it('撤回 在动作表里（撤回把原文放回输入框，删除是丢弃）', () => {
     const onWithdraw = vi.fn(async () => {})
     render(<QueueDock {...baseProps({ items: [queued('q-1', '改一下这句')], onWithdraw })} />)
-    fireEvent.click(screen.getByRole('button', { name: '撤回排队消息到输入框' }))
+    // 方案 A：一行只留正文 + ×，其余动作收进这张卡的动作表。
+    fireEvent.click(screen.getByRole('button', { name: '排队消息：改一下这句' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /撤回并放回输入框/ }))
     expect(onWithdraw).toHaveBeenCalledWith('q-1')
   })
 
-  it('shows every queued row without a tap, so the order is visible', () => {
-    // 排了三条只显示「3 条排队」，用户不知道排了什么、顺序对不对，还要再点一次才看得见。
+  it('超过 1 条默认收起，点「N 条排队」才摊开（2026-11-10 用户：面板太高）', () => {
     render(<QueueDock {...baseProps({ items: [queued('q1', '第一条'), queued('q2', '第二条'), queued('q3', '第三条')] })} />)
+    // 默认只留头行：一行正文都不占。
+    expect(screen.queryByText('第一条')).toBeNull()
+    const toggle = screen.getByRole('button', { name: '3 条排队，展开列表' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
     expect(screen.getByText('第一条')).toBeTruthy()
     expect(screen.getByText('第二条')).toBeTruthy()
     expect(screen.getByText('第三条')).toBeTruthy()
+    // 再点一次收回去，开关状态跟着翻。
+    fireEvent.click(screen.getByRole('button', { name: '3 条排队，收起列表' }))
+    expect(screen.queryByText('第一条')).toBeNull()
   })
 
   it('steering 项不在这里画：它归 InsertBar（默认折叠成一条摘要，避免两行）', () => {
@@ -65,17 +74,17 @@ describe('QueueDock', () => {
     expect(screen.queryByText(/插话中/)).toBeNull()
   })
 
-  it('disables edit for non-plain-text rows and keeps remove/steer enabled', () => {
+  it('非纯文本只能删/插队，编辑在动作表里是灰的', () => {
     const props = baseProps({
       items: [
         { id: 'q1', placement: 'queued', text: '[image] 图片消息', editable: false },
       ],
     })
     render(<QueueDock {...props} />)
-    const edit = screen.getByRole('button', { name: '编辑排队消息' }) as HTMLButtonElement
-    expect(edit.disabled).toBe(true)
     expect((screen.getByRole('button', { name: '删除排队消息' }) as HTMLButtonElement).disabled).toBe(false)
     expect((screen.getByRole('button', { name: '立即插入当前回合' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '这条消息的更多操作' }))
+    expect((screen.getByRole('menuitem', { name: '编辑' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('steer is disabled while the agent is not running', () => {
@@ -83,24 +92,18 @@ describe('QueueDock', () => {
     expect((screen.getByRole('button', { name: '立即插入当前回合' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('lists multiple rows up front and still lets the header collapse them', () => {
-    // 默认展开：排了几条就该看见几条，否则要再点一次才知道排了什么、顺序对不对。
-    render(<QueueDock {...baseProps({ items: [queued('q1', '一'), queued('q2', '二')] })} />)
-    const head = screen.getByRole('button', { name: /2 条排队/ })
-    expect(head).toBeTruthy()
-    expect(screen.getByText('一')).toBeTruthy()
-    expect(screen.getByText('二')).toBeTruthy()
-    // 收起仍然可用（空间不够时用户能主动折起来）。
-    fireEvent.click(head)
-    expect(screen.queryByText('一')).toBeNull()
-    fireEvent.click(head)
-    expect(screen.getByText('一')).toBeTruthy()
+  it('头行常显计数与说明；只有 1 条时不折叠（不必多点一次）', () => {
+    render(<QueueDock {...baseProps({ items: [queued('q1', '唯一的')] })} />)
+    expect(screen.getByText('1 条排队')).toBeTruthy()
+    expect(screen.getByText('当前任务结束后执行')).toBeTruthy()
+    expect(screen.getByText('唯一的')).toBeTruthy()
   })
 
   it('edits inline and commits through onEdit', () => {
     const onEdit = vi.fn(async () => {})
     render(<QueueDock {...baseProps({ onEdit, items: [queued('q1', '原文')] })} />)
-    fireEvent.click(screen.getByRole('button', { name: '编辑排队消息' }))
+    fireEvent.click(screen.getByRole('button', { name: '排队消息：原文' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑' }))
     const input = screen.getByRole('textbox') as HTMLInputElement
     fireEvent.change(input, { target: { value: '改后' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -112,7 +115,8 @@ describe('QueueDock', () => {
     // 「消息已开始发送」，用户会以为手慢了。空串在本地就拦住。
     const onEdit = vi.fn(async () => {})
     render(<QueueDock {...baseProps({ onEdit, items: [queued('q1', '原文')] })} />)
-    fireEvent.click(screen.getByRole('button', { name: '编辑排队消息' }))
+    fireEvent.click(screen.getByRole('button', { name: '排队消息：原文' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑' }))
     const input = screen.getByRole('textbox') as HTMLInputElement
     fireEvent.change(input, { target: { value: '   ' } })
     const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement
@@ -128,7 +132,8 @@ describe('QueueDock', () => {
       releaseRemove = () => resolve()
     }))
     render(<QueueDock {...baseProps({ onRemove, items: [queued('q1', '一条'), queued('q2', '两条')] })} />)
-    // 两行默认已展开，不用再点表头。
+    // 两条默认收起，先摊开才点得到行内的删除。
+    fireEvent.click(screen.getByRole('button', { name: '2 条排队，展开列表' }))
     // Start removing q1 (the RPC is unresolved).
     fireEvent.click(screen.getAllByRole('button', { name: '删除排队消息' })[0]!)
     expect(onRemove).toHaveBeenCalledTimes(1)
@@ -154,5 +159,42 @@ describe('QueueDock', () => {
     expect(screen.queryByText('立即发送')).toBeNull()
     release?.()
     await vi.waitFor(() => { expect(screen.getByText('立即发送')).toBeTruthy() })
+  })
+})
+
+/**
+ * 2026-11-10 真机：「动作表打开后，过一会儿它自己关了」。
+ * 根因：浮层只存了 id，然后在**当帧队列**里 `find`；队列每几秒被刷新一次，
+ * 宿主接管乐观项时 id 从 `local-…` 换成宿主 id，`find` 落空 ⇒ 整块不渲染。
+ * 现在浮层记的是「打开那一刻的快照」，队列怎么变都不影响它。
+ */
+describe('QueueDock 动作表不会自己消失', () => {
+  beforeEach(() => { cleanup() })
+  afterEach(() => { cleanup() })
+
+  it('宿主接管后 id 变了：浮层还在，操作落到新 id', () => {
+    const onRemove = vi.fn(async () => {})
+    const { rerender } = render(<QueueDock {...baseProps({ items: [queued('local-1', '改一下这句')], onRemove })} />)
+    fireEvent.click(screen.getByRole('button', { name: '排队消息：改一下这句' }))
+    expect(screen.getByRole('menu', { name: '排队消息操作' })).toBeTruthy()
+
+    // 队列刷新：乐观项被宿主接管，id 换掉、正文不变。
+    rerender(<QueueDock {...baseProps({ items: [queued('host-9', '改一下这句')], onRemove })} />)
+    expect(screen.getByRole('menu', { name: '排队消息操作' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /删除/ }))
+    expect(onRemove).toHaveBeenCalledWith('host-9')
+  })
+
+  it('这一轮把最后一条取走了：浮层留在原地，选项禁用并说明原因', () => {
+    const { rerender } = render(<QueueDock {...baseProps({ items: [queued('q1', '改一下这句')] })} />)
+    fireEvent.click(screen.getByRole('button', { name: '排队消息：改一下这句' }))
+    rerender(<QueueDock {...baseProps({ items: [] })} />)
+
+    expect(screen.getByRole('menu', { name: '排队消息操作' })).toBeTruthy()
+    expect(screen.getByRole('status')).toBeTruthy()
+    for (const name of [/编辑/, /撤回并放回输入框/, /立即发送/, /删除/]) {
+      const item = screen.getByRole('menuitem', { name }) as HTMLButtonElement
+      expect(item.disabled, name.source).toBe(true)
+    }
   })
 })

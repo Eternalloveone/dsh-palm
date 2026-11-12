@@ -112,9 +112,52 @@ export function afterCursor(row: { updatedAt: number; sessionId: string }, posit
 export function visibleSessionRows(
   rawItems: ReadonlyArray<RosterItem>,
   archivedSessionIds: ReadonlySet<string>,
-): Array<{ updatedAt: number; sessionId: string }> {
+  /* 返回 RosterItem 而不是就地写窄类型：调用方还要读 unning / cwd 等字段，
+     写成 {updatedAt, sessionId} 会让它们在类型上消失（运行时还在，但编译器不认）。 */
+): RosterItem[] {
   return rawItems.filter(item =>
     item.origin !== 'subagent'
     && item.blank !== true
     && !archivedSessionIds.has(String(item.sessionId)))
+}
+
+/**
+ * 工作区 → 会话归属表：`workspace.list` 的 `sessionIds` **并上**按 `cwd` 推出来的归属。
+ *
+ * 为什么要有 `cwd` 这一半（2026-11-10「抽屉只剩当前会话」）：`sessionIds` 有 TTL、
+ * 也会在新会话刚建出来时落后一拍。表落后时按它过滤，抽屉里就只剩当前这一条 ——
+ * 用户看到的正是"全部的会话都没了"。而每条会话自带 `cwd`、每个工作区自带 `path`，
+ * 两边归一后按**最长前缀**归属：`D:\work\ICNT9388` 不会把
+ * `D:\work\ICNT9388\1.Code\07.FEP` 名下的会话抢走。
+ *
+ * @param workspaces - `workspace.list` 的行（`workspaceId` / `path` / `sessionIds`）
+ * @param rows - 花名册行（`sessionId` / `cwd`）
+ * @returns `workspaceId → Set<sessionId>`（并集，不改原表）
+ */
+export function ownedByWorkspaces(
+  workspaces: ReadonlyArray<{ workspaceId: string; path?: string; sessionIds?: readonly string[] }>,
+  rows: ReadonlyArray<{ sessionId: string; cwd?: string }>,
+): Map<string, Set<string>> {
+  const owned = new Map<string, Set<string>>()
+  for (const workspace of workspaces) {
+    owned.set(String(workspace.workspaceId), new Set((workspace.sessionIds ?? []).map(String)))
+  }
+  // 深的路径优先：嵌套工作区各自收自己的孩子。
+  const byDepth = workspaces
+    .map(workspace => ({ id: String(workspace.workspaceId), path: normalizeWorkspacePath(workspace.path) }))
+    .filter(workspace => workspace.path !== '')
+    .sort((a, b) => b.path.length - a.path.length)
+  for (const row of rows) {
+    const cwd = normalizeWorkspacePath(row.cwd)
+    if (cwd === '') continue
+    const hit = byDepth.find(workspace => cwd === workspace.path || cwd.startsWith(`${workspace.path}/`))
+    if (hit !== undefined) owned.get(hit.id)?.add(String(row.sessionId))
+  }
+  return owned
+}
+
+/** 路径归一：斜杠统一、去尾斜杠、小写（Windows 大小写不敏感）。 */
+export function normalizeWorkspacePath(path: string | undefined): string {
+  if (path === undefined) return ''
+  return path.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }

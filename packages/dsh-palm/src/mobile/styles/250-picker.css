@@ -11,7 +11,7 @@
   bottom: 0;
   left: 0;
   z-index: var(--z-scrim);
-  background: rgba(15, 15, 25, 0.2);
+  background: var(--palm-scrim-soft);
 }
 
 .chat-composer {
@@ -34,7 +34,7 @@
   border: 1px solid var(--border-default);
   border-radius: 14px;
   background: var(--card-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--palm-sh2);
   max-height: 42vh;
   overflow-y: auto;
   scrollbar-width: none;
@@ -53,7 +53,16 @@
 
 /* One option row: 44px touch target, leading check column, title + sub. */
 .chat-picker-row {
-  flex: none;
+  /*
+   * 2026-11-12 用户（手机截图）：「点模型或权限，为什么会出现这种矩形长条」。
+   *
+   * 原来是 `flex: none` —— 行按钮宽度只跟内容一样长，它的背景（`:active` 的 --fill、
+   * 选中态的 --accent-soft）也只有文字那么长，手机上一按就是"文字下面一条浅色矩形"，
+   * 而且触摸高亮会残留，于是一行一条。现在让行铺满面板，背景是整行；顺手关掉点击高亮。
+   */
+  flex: 1 1 auto;
+  align-self: stretch;
+  inline-size: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -67,6 +76,7 @@
   font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chat-picker-row:active {

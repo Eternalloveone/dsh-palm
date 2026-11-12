@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>工作区选择 · 方案 A 设计稿</title>
+<style>
+  :root{
+    --bg:#faf8f4; --sur1:#ffffff; --sur2:#f2eee7; --line:rgba(28,26,23,.12);
+    --fg:#1c1a17; --fg2:#5d5852; --fg3:#746e67; --accent:#8a5a2b; --tint:rgba(138,90,43,.10);
+  }
+  *{box-sizing:border-box; -webkit-font-smoothing:antialiased}
+  body{margin:0;width:393px;background:var(--bg);font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:var(--fg)}
+  .backdrop{height:851px;background:rgba(28,26,23,.35);position:relative}
+  .sheet{position:absolute;left:0;right:0;bottom:0;height:700px;background:var(--sur1);border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden}
+  .grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 0}
+  .head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 6px}
+  .head h1{font-size:16px;font-weight:600;margin:0}
+  .close{width:28px;height:28px;border-radius:14px;background:var(--sur2);color:var(--fg2);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .search{margin:2px 16px 8px;display:flex;align-items:center;gap:6px;height:36px;padding:0 10px;border-radius:10px;background:var(--sur2);color:var(--fg3);font-size:13px}
+  .search .mag{font-size:12px}
+  .list{flex:1;overflow-y:auto;padding:2px 8px 24px}
+  .grouplabel{font-size:11px;letter-spacing:.02em;color:var(--fg3);padding:12px 10px 4px;display:flex;justify-content:space-between}
+  .row{display:flex;align-items:center;gap:10px;min-height:44px;padding:5px 10px;border-radius:10px}
+  .row.current{background:var(--tint)}
+  .tick{width:14px;flex:none;color:var(--accent);font-size:12px;text-align:center}
+  .copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .t{font-size:14px;line-height:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .d{font-size:11px;line-height:15px;color:var(--fg3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+  .meta{flex:none;font-size:11px;color:var(--fg3)}
+  .foot{padding:8px 16px 14px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--fg3)}
+  .foot b{color:var(--accent);font-weight:500}
+</style></head>
+<body><div class="backdrop"><div class="sheet">
+  <div class="grab"></div>
+  <div class="head"><h1>切换工作区</h1><div class="close">✕</div></div>
+  <div class="search"><span class="mag">🔍</span><span>搜索名称或路径…</span></div>
+  <div class="list">
+    <div class="grouplabel"><span>当前</span></div>
+    <div class="row current">
+      <span class="tick">✓</span>
+      <span class="copy"><span class="t">ICNT9388</span><span class="d">…\1.Code\06.DP523\ICNT9388</span></span>
+      <span class="meta">4 个会话</span>
+    </div>
+
+    <div class="grouplabel"><span>最近用过</span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">dsh-palm</span><span class="d">D:\work\dsh-palm</span></span><span class="meta">今天</span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">dsh_dev</span><span class="d">D:\work\dsh_dev</span></span><span class="meta">昨天</span></div>
+
+    <div class="grouplabel"><span>ICNT9388 · 1.Code</span><span>4</span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">ICNT9388</span><span class="d">00.master</span></span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">07.FEP</span><span class="d">07.FEP</span></span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">test_stylus_tx_rx_merge</span><span class="d">02.Test</span></span></div>
+
+    <div class="grouplabel"><span>ICNA3611</span><span>2</span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">ICNA3611</span><span class="d">1.FEP</span></span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">ICNA3611</span><span class="d">2.CP</span></span></div>
+
+    <div class="grouplabel"><span>ICNT9268S</span><span>1</span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">ICNT9268S_EngineeringCode</span><span class="d">2.ICNT9268S_FT\…\ouchae-oled</span></span></div>
+
+    <div class="grouplabel"><span>其它</span><span>2</span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">steam</span><span class="d">D:\steam</span></span></div>
+    <div class="row"><span class="tick"></span><span class="copy"><span class="t">workspace</span><span class="d">D:\workspace</span></span></div>
+  </div>
+  <div class="foot"><span>共 11 个工作区</span><span><b>＋</b> 新建</span></div>
+</div></div></body></html>

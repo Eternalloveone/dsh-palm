@@ -9,10 +9,11 @@
  * 用户选完文件发送框一片空白，看着像"没加进去"。现在选完立刻挂一条 uploading，
  * 成功转 ready、失败转 failed（点一下重传），发送框始终反映用户选了什么。
  */
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
 import { compressImageFile, MAX_ATTACHED_IMAGES, readAsDataURL, type AttachedImage } from '../../../platform/image.ts'
 import { uploadAttachment } from '../../../data/workspace.ts'
 import { toast } from '../../../components/toast.tsx'
+import { useSessionState } from './use-session-scope.ts'
 
 /**
  * 待发附件的一条（桌面端 composer 那颗 chip 的复刻）。
@@ -66,14 +67,16 @@ export interface ChatAttachments {
 
 export function useChatAttachments(options: { sessionId: string }): ChatAttachments {
   const { sessionId } = options
+  // 附件是**会话作用域**的（P4：实例跨会话复用）：留着上一场的 chip，用户在新会话
+  // 一按发送就把别人的图/文件带出去（receiptId 还是上一场的）。三个状态一起归零。
   /** Images picked or pasted into the composer, awaiting send (community-style attach). */
-  const [attachImages, setAttachImages] = useState<AttachedImage[]>([])
+  const [attachImages, setAttachImages] = useSessionState<AttachedImage[]>(sessionId, [])
   /** Live mirror of attachImages for the async addImage cap check (no stale closure). */
   const attachImagesRef = useRef(attachImages)
   useEffect(() => { attachImagesRef.current = attachImages }, [attachImages])
-  const [attachFiles, setAttachFiles] = useState<StagedFile[]>([])
+  const [attachFiles, setAttachFiles] = useSessionState<StagedFile[]>(sessionId, [])
   /** 正在上传的附件个数：>0 时先别发，免得发出一条缺附件的消息。 */
-  const [uploadingFiles, setUploadingFiles] = useState(0)
+  const [uploadingFiles, setUploadingFiles] = useSessionState(sessionId, 0)
   const attachFilesRef = useRef(attachFiles)
   useEffect(() => { attachFilesRef.current = attachFiles }, [attachFiles])
   /** 上一次点出来的文件选择框节点：下一次打开前先摘掉，避免节点堆积。 */
@@ -85,7 +88,7 @@ export function useChatAttachments(options: { sessionId: string }): ChatAttachme
       // A decode failure (HEIC etc.) can't be sent: drop it and tell the user
       // instead of silently keeping an unusable attachment.
       if (failed) {
-        toast('该图片无法解码，已忽略')
+        toast('这张图读不出来，已跳过')
         return
       }
       // Over the cap: refuse loudly rather than silently dropping the image.

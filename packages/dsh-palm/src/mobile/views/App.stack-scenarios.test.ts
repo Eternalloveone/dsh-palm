@@ -22,8 +22,8 @@ const ws = { workspaceId: 'ws-1', path: '/repo', title: 'repo', sessionIds: [], 
 const sessionA = { sessionId: 'a', title: 'A', updatedAt: 0, running: false, blank: false } as never
 const sessionB = { sessionId: 'b', title: 'B', updatedAt: 0, running: false, blank: false } as never
 
-const chat = (session: never): Route => ({ kind: 'chat', session, workspace: ws })
-const settings = (session: never): Route => ({ kind: 'settings', session, workspace: ws })
+const chat = (session: never): Route => ({ kind: 'chat', session, workspaceId: 'ws-1' })
+const settings = (session: never): Route => ({ kind: 'settings', session, workspaceId: 'ws-1' })
 
 /** 走一步：压栈 + 前进。 */
 function go(stack: ReturnType<typeof createPageStack<Route>>, next: Route) {
@@ -50,7 +50,7 @@ describe('页面栈场景（会话页是根）', () => {
   it('会话 → 设置 → 外观：两层子页按顺序弹回设置、再弹回会话', () => {
     let stack = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
     stack = go(stack, settings(sessionA))
-    stack = go(stack, { kind: 'appearance', session: sessionA, workspace: ws })
+    stack = go(stack, { kind: 'appearance', session: sessionA, workspaceId: 'ws-1' })
     stack = popPage(stack)
     expect(currentOf(stack)?.value.kind).toBe('settings')
     stack = popPage(stack)
@@ -65,21 +65,21 @@ describe('页面栈场景（会话页是根）', () => {
   it('resetToRoot 用于"回到会话"动作：深度归 1，根页数据保留', () => {
     let stack = createPageStack<Route>(routeKeyOf(chat(sessionA)), chat(sessionA))
     stack = go(stack, settings(sessionA))
-    stack = go(stack, { kind: 'appearance', session: sessionA, workspace: ws })
+    stack = go(stack, { kind: 'appearance', session: sessionA, workspaceId: 'ws-1' })
     const root = resetToRoot(stack)
     expect(depthOf(root)).toBe(1)
     expect(currentOf(root)?.value.kind).toBe('chat')
   })
 
   it('产物摘要的 key 带上目标轮次：同一会话的不同轮不会被当成同一页', () => {
-    expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspace: ws, turn: 2, turns: [] }))
+    expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspaceId: 'ws-1', turn: 2, turns: [] }))
       .toBe('artifact-summary:a:2')
-    expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspace: ws, turn: undefined, turns: [] }))
+    expect(routeKeyOf({ kind: 'artifact-summary', session: sessionA, workspaceId: 'ws-1', turn: undefined, turns: [] }))
       .toBe('artifact-summary:a:earlier')
   })
 
   it('搜索 / 设置的 key 带工作区；会话的 key 带会话 id', () => {
-    expect(routeKeyOf({ kind: 'search', session: sessionA, workspace: ws })).toBe('search:ws-1')
+    expect(routeKeyOf({ kind: 'search', session: sessionA, workspaceId: 'ws-1' })).toBe('search:ws-1')
     expect(routeKeyOf(settings(sessionA))).toBe('settings:ws-1')
     expect(routeKeyOf(chat(sessionA))).toBe('chat:a')
   })

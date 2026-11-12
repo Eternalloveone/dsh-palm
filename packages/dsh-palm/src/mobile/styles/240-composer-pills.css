@@ -6,6 +6,12 @@
   position: relative;
   z-index: var(--z-composer);
   flex: none;
+  /* 2026-11-12 真机：「点模型或权限，底部出现一条灰色长条」。
+     底栏最下面那段（输入行与屏幕底边之间的留白）没有自己的背景：
+     平时透出的是页面底色，和周围一样看不出来；面板一打开，它透出的
+     就是 .chat-picker-scrim 的 12% 黑，于是变成一条灰带。
+     整块底栏给不透明底色，谁来加遮罩都不会再透。 */
+  background: var(--palm-bg);
 }
 
 /* 队列条：只在有排队时出现，输入行上方。琥珀 7% 底 + 9 圆角 + 11px。 */
@@ -136,11 +142,11 @@
   white-space: nowrap;
 }
 
-/* 视觉 36px（不撑高明细行），命中区补到 44px（--palm-hit）。 */
+/* 撤回动作与明细行共用独立触控单元，避免跨行命中相邻动作。 */
 [data-insert-withdraw] {
-  position: relative;
   flex: none;
   height: var(--palm-insert-row-h);
+  min-width: var(--palm-hit);
   padding: 0 var(--palm-s2);
   border: none;
   border-radius: var(--palm-r-s);
@@ -149,13 +155,6 @@
   font: inherit;
   font-size: var(--palm-t-s);
   cursor: pointer;
-}
-
-[data-insert-withdraw]::after {
-  content: '';
-  position: absolute;
-  inset: calc((var(--palm-hit) - var(--palm-insert-row-h)) / -2) 0;
-  border-radius: inherit;
 }
 
 [data-insert-withdraw]:active {
@@ -170,6 +169,19 @@
   height: var(--palm-dock-meta-h);
   padding: 0 var(--palm-dock-pad);
   background: var(--palm-bg);
+  /*
+   * 2026-11-12 真机：「点模型或权限，底部出现一条灰色长条」。
+   *
+   * 面板的遮罩（.chat-picker-scrim，z=40）盖在这一行上：DOM 里它排在
+   * 元信息行**后面**，又因为元信息行没建层叠上下文，同一层级下"后者压前者"，
+   * 于是整行被压上 12% 黑 —— 看着就是输入框下面一条灰带。
+   *
+   * 连带后果更严重：那一行本来是可点的（模型/权限胶囊、上下文环），
+   * 被遮罩盖住时点它只会关面板，点不到胶囊。
+   * 输入行早就用 z-index: var(--z-composer) 躲开了，元信息行漏了这一步。
+   */
+  position: relative;
+  z-index: var(--z-composer);
 }
 
 .chat-meta-chip {
@@ -205,12 +217,6 @@
   white-space: nowrap;
 }
 
-.chat-meta-div {
-  width: var(--palm-hair);
-  height: var(--palm-dock-chip-div-h);
-  margin: 0 var(--palm-s2);
-  background: var(--palm-dock-chip-div-bg);
-}
 
 .chat-meta-right {
   margin-left: auto;
@@ -239,15 +245,215 @@
   display: inline-flex;
   align-items: center;
   gap: var(--palm-s1);
+  /* 2026-11-11：圆环从 span 变成按钮（点开上下文明细），要把按钮的默认外观全部抹掉。 */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   color: var(--palm-fg-2);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 点按反馈：整块（环 + 数字）一起压暗一点，不做位移动画。 */
+.chat-meta-ctx:active {
+  opacity: 0.62;
+}
+
+/* 用到 70% 变琥珀、90% 变红：环与数字同色，扫一眼就知道要不要处理。 */
+.chat-meta-ctx[data-tone='warn'] { color: var(--palm-warn); }
+.chat-meta-ctx[data-tone='danger'] { color: var(--palm-danger); }
+
+/*
+ * 上下文明细小卡片（2026-11-11 用户：「圆环点不了，点一下弹出一个小圆框看明细」）。
+ *
+ * 容器直接复用模型面板的 `.chat-picker-panel`（同一个浮层语言、同一套遮罩关闭），
+ * 这里只把它从"通栏"收成"右侧小卡"：不铺满整行，最多 260px，靠右与圆环对齐。
+ * 类名预算 800 已满，所以只新增这一个类，条目排版借用既有的 `.sheet-option-desc`。
+ */
+/* 双类选择器：240 在 250-picker 之前加载，单类压不住 .chat-picker-panel 的 left/right。 */
+.chat-picker-panel.chat-meta-pop {
+  left: auto;
+  right: var(--palm-s4);
+  inline-size: max-content;
+  max-inline-size: min(260px, calc(100vw - 2 * var(--palm-s4)));
+  gap: var(--palm-s1);
+}
+
+/*
+ * 2026-11-10 用户：「右下角这个上下文用量圆环渲染显示不准确」。
+ * 以前它是一个 border 圆：只有 border-top 上色 ⇒ 永远画「四分之一圈」，跟旁边的百分比
+ * 无关（3% 和 90% 长得一模一样）。现在换成 SVG 弧：弧长 = 百分比（--palm-ctx-ratio），
+ * 颜色跟数字一起走（accent → warn → danger）。
+ */
+.chat-meta-ring {
+  flex: none;
+  inline-size: var(--palm-dock-ring);
+  block-size: var(--palm-dock-ring);
+}
+
+/* 0%（没有投影）时不画弧：round 线帽会在零长度上留一个亮点，看着像「有一点点占用」。 */
+.chat-meta-ring[data-empty] circle:last-of-type { display: none; }
+
+/* 轨道（第一个圆）：淡淡的底圈。 */
+.chat-meta-ring circle:first-of-type {
+  fill: none;
+  stroke: var(--palm-dock-ring-track);
+  stroke-width: 2.4;
+}
+
+/* 进度弧（第二个圆）：弧长由 strokeDasharray 属性给（pathLength=100 ⇒ 数值就是百分比）。 */
+.chat-meta-ring circle:last-of-type {
+  fill: none;
+  stroke: var(--palm-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dasharray 0.25s ease;
+}
+
+.chat-meta-ctx[data-tone='warn'] .chat-meta-ring circle:last-of-type { stroke: var(--palm-warn); }
+.chat-meta-ctx[data-tone='danger'] .chat-meta-ring circle:last-of-type { stroke: var(--palm-danger); }
+
+/*
+ * 上下文明细弹窗（2026-11-12 用户：进度条 + 压缩上下文按钮，放最下面）。
+ * 只放信息：用了多少 / 百分比 / 还剩多少 / 一句话建议。
+ * 唯一的动作放在最底部，不跟上面的模型、权限按钮抢位置，也不加视觉噪音。
+ */
+.chat-meta-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  min-inline-size: 228px;
+  max-inline-size: min(268px, 76vw);
+  padding: var(--palm-s3);
+}
+
+.ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+}
+
+.ctx-head-title {
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  letter-spacing: 0.04em;
+}
+
+.ctx-head-pct {
+  color: var(--palm-fg);
+  font-size: var(--palm-t-m);
   font-variant-numeric: tabular-nums;
 }
 
-.chat-meta-ring {
-  box-sizing: border-box;
-  width: var(--palm-dock-ring);
-  height: var(--palm-dock-ring);
-  border: var(--palm-dock-ring-line) solid var(--palm-dock-ring-track);
-  border-top-color: var(--palm-accent);
-  border-radius: var(--palm-dock-chip-r);
+/* 进度条用 SVG 而不是带 width 的 div：宽度是动态数据，走 inline style 会被预算门拦住；SVG 的 width 是属性，不算。 */
+.ctx-bar {
+  display: block;
+  inline-size: 100%;
+  block-size: 6px;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.ctx-bar-track {
+  fill: var(--palm-line);
+}
+
+.ctx-bar-fill {
+  fill: var(--palm-accent);
+}
+
+.ctx-line {
+  margin: 0;
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-line-muted {
+  color: var(--palm-fg-3);
+}
+
+.ctx-hint {
+  margin: 0;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  line-height: 1.55;
+}
+
+/* 压缩上下文：弹窗里唯一能动的一颗，必须一眼看出是按钮。
+   2026-11-12 用户真机：「太普通了，第一眼看不出来能点击」——原来是透明底 + 细描边，
+   和上面的只读信息行长得一样。改成实心强调色，令牌和会话页主按钮 .mobile-new 同一套
+   （accent 底 + on-accent 字 + 2px 抬起阴影 + 按下缩放变暗），左边补一个「向内收拢」
+   的图标、右边补 chevron：形状、颜色、指示三样一起说"这里能点"。 */
+.ctx-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  margin-block-start: var(--palm-s1);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: none;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.ctx-compact:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+.ctx-compact-icon {
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ctx-compact-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-inline-size: 0;
+}
+
+.ctx-compact-title {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 主副文案同色：on-accent 在六套皮肤上都过 AA，压透明度就会掉档，
+   层次只靠字号和字重分。 */
+.ctx-compact-sub {
+  color: inherit;
+  font-size: var(--palm-t-s);
+}
+
+.ctx-compact-go {
+  flex: none;
+  margin-inline-start: auto;
+  inline-size: 16px;
+  block-size: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.72;
 }

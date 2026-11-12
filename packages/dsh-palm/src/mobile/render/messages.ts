@@ -439,6 +439,14 @@ function applyUserMessage(state: FoldState, event: WireEvent): void {
     })
     return
   }
+  /*
+   * 2026-11-12 试过给用户行也填 `turn`（想让用户命中也有结构坐标），**必须撤销**：
+   * `turn` 是折叠分组的键，用户行一旦带上 turn 就会被卷进同一轮的过程条里，
+   * goal 条等卡片随之不渲染（ChatView 3 条 goal 测试立刻红）。
+   *
+   * 用户命中的定位靠 `messageId`（wire id 稳定）已经够；缺坐标只影响
+   * 「行被跨页合并后 messageId 对不上」这一种情况，而合并发生在 assistant 侧。
+   */
   const message: RenderMessage = {
     id,
     kind: 'user',
@@ -850,7 +858,7 @@ function applyToolCall(state: FoldState, event: WireEvent): void {
   const existingIndex = tools.findIndex(tool => tool.callId === callId)
   const isNewCall = existingIndex === -1
   const nextTools: ToolCallInfo[] = isNewCall
-    ? [...tools, { callId, name, state: 'running', ...(args !== undefined ? { arguments: args } : {}), ...(view !== undefined ? { view } : {}) }]
+    ? [...tools, { callId, name, state: 'running', startedAt: event.time, ...(args !== undefined ? { arguments: args } : {}), ...(view !== undefined ? { view } : {}) }]
     : tools.map((tool, index) => index === existingIndex
       ? { ...tool, ...(args !== undefined ? { arguments: args } : {}), ...(view !== undefined ? { view } : {}) }
       : tool)
@@ -864,6 +872,31 @@ function applyToolCall(state: FoldState, event: WireEvent): void {
   }
   replaceMessage(state, target, next)
   retargetTurnStep(state, key, target, next)
+}
+
+/**
+ * 工具输出正文（详情面板里「输出」那一段）。
+ *
+ * `tool/result` 的内容可能是字符串、文字块数组或 `{ text }` 单块。以前 fold 阶段
+ * 直接丢掉，手机端就只能看到"跑了什么"，看不到"印出了什么"（2026-11-10 用户要求补
+ * 详情面板）。这里截断到 200 行 / 20000 字符：面板可以滚，但整份日志不该进内存。
+ */
+function outputTextOf(content: unknown): string | undefined {
+  const raw = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+        .map(block => (typeof block === 'string' ? block : isRecord(block) ? pickString(block['text']) ?? '' : ''))
+        .filter(text => text !== '')
+        .join('\n')
+      : isRecord(content)
+        ? pickString(content['text']) ?? ''
+        : ''
+  const text = raw.trim()
+  if (text === '') return undefined
+  const lines = text.split('\n')
+  const clipped = lines.length > 200 ? `${lines.slice(0, 200).join('\n')}\n…` : text
+  return clipped.length > 20_000 ? `${clipped.slice(0, 20_000)}…` : clipped
 }
 
 /**
@@ -886,6 +919,10 @@ function applyToolResult(state: FoldState, event: WireEvent): void {
   // The result settles the row's state even when it carries no diff view (a
   // read/search/terminal result): the timeline's dot must stop spinning.
   const settled: ToolCallInfo['state'] = message['isError'] === true || message['error'] !== undefined ? 'error' : 'ok'
+  // 工具产出的图片（截图、read 到的 png）：以前整块丢掉，过程条里就永远没有图。
+  const images = imagesFromContent(message['content'])
+  // 输出正文（桌面端详情面板能看到「这条命令印了什么」；手机端以前在 fold 阶段就丢了）。
+  const output = outputTextOf(message['content']) ?? outputTextOf(data['output'])
   for (const row of state.messages) {
     if (row.kind !== 'assistant' || row.tools === undefined) continue
     const index = row.tools.findIndex(tool => tool.callId === callId)
@@ -894,6 +931,9 @@ function applyToolResult(state: FoldState, event: WireEvent): void {
       ? {
           ...tool,
           state: settled,
+          endedAt: event.time,
+          ...(output === undefined ? {} : { output }),
+          ...(images.length === 0 ? {} : { images }),
           ...(view !== undefined ? { view } : {}),
           ...(meta === undefined ? {} : (() => {
             const paths = metaPathsOf(tool.name, meta)
@@ -1446,6 +1486,60 @@ export const KEEP_ORPHAN_REPORT_TURNS = 2
  * 规则保守：中间没有用户行插进来，就沿用上一条助手行的轮号；遇到用户行即清空。
  * 没有需要补的行时返回**原数组**（保持引用，避免多余重渲染）。
  */
+/**
+ * 用**与轮号无关的强证据**收敛重复行：同一批工具调用被画了两遍，或两行的 seq 区间重叠。
+ *
+ * 为什么需要这一层（2026-11-12 用户在真机上又看到「同一轮的过程条出现两三次」）：
+ *
+ * `dedupeSameStep` 的身份键是 `t{turn}s{step}` / `t{turn}c{callIds}` —— **只要有一边
+ * 缺 `turn`（或两边 step 不同、callId 集合不同），它就直接放弃**，两行原样留下。
+ * 真机上「页面快照行」和「实时流行」恰恰是这种形态：一边带轮号、一边没有；
+ * 两份快照的工具计数也不完全一样（119 次 vs 110 次），callId 集合只是包含关系，
+ * 拼出来的键不相等。
+ *
+ * `session/duplicate-report.ts` 的 `findDuplicateCards` 早就会用强证据认出这种重复
+ * （共享 callId / seq 区间重叠），但它只负责**上报**，没有参与去重 ——
+ * 检测器认得出、去重器认不出，重复卡片就一直在真机上冒。
+ *
+ * 这一层把同一套证据接到去重上：证据成立就留下「信息更全」的那份。
+ * 一次工具调用只有一个 `callId`，一条消息只有一个 seq 区间，同一批数据的两份快照
+ * 必然共享其中之一；而同一轮的相邻两步 seq 不重叠，不会被误伤。
+ *
+ * @param rows - 渲染行
+ * @returns 收敛后的行（顺序保持）
+ */
+export function collapseDuplicateRows(rows: readonly RenderMessage[]): RenderMessage[] {
+  if (rows.length < 2) return [...rows]
+  const scoreOf = (item: RenderMessage): number =>
+    (item.tools?.length ?? 0) * 1000
+    + (item.text?.length ?? 0)
+    + (item.deliverables?.length ?? 0) * 500
+    + (item.flow?.length ?? 0) * 100
+  const drop = new Set<number>()
+  const assistants: number[] = []
+  for (let index = 0; index < rows.length; index += 1) {
+    if (rows[index]?.kind === 'assistant') assistants.push(index)
+  }
+  for (let a = 0; a < assistants.length; a += 1) {
+    for (let b = a + 1; b < assistants.length; b += 1) {
+      const leftIndex = assistants[a]!
+      const rightIndex = assistants[b]!
+      if (drop.has(leftIndex) || drop.has(rightIndex)) continue
+      const left = rows[leftIndex]!
+      const right = rows[rightIndex]!
+      const callIds = new Set((left.tools ?? []).map(tool => tool.callId))
+      const sharedTool = (right.tools ?? []).some(tool => callIds.has(tool.callId))
+      const leftMin = left.startSeq ?? left.seq
+      const rightMin = right.startSeq ?? right.seq
+      const overlapSeq = left.seq >= rightMin && right.seq >= leftMin && left.id !== right.id
+      if (!sharedTool && !overlapSeq) continue
+      drop.add(scoreOf(left) >= scoreOf(right) ? rightIndex : leftIndex)
+    }
+  }
+  if (drop.size === 0) return [...rows]
+  return rows.filter((_, index) => !drop.has(index))
+}
+
 /**
  * 合并"同一回合的同一个步骤"被两份页各画了一次的行。
  *

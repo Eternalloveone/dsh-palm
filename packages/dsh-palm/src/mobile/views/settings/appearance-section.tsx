@@ -12,15 +12,13 @@ import { RowChevron, SettingsRow, ToggleRow } from './settings-shared.tsx'
 export interface AppearanceSectionProps {
   /** 打开「外观」独立页；不给就不显示这一行（老版设置页行为不变）。 */
   onOpenAppearance?: (() => void) | undefined
-  showTheme: boolean
   showFont: boolean
   showDensity: boolean
   showLineNumbers: boolean
-  themeLabel: string
   fontScale: FontScale
   density: Density
   lineNumbers: boolean
-  setSheet: (sheet: 'theme' | 'font' | 'density' | 'about' | null) => void
+  setSheet: (sheet: 'font' | 'density' | 'about' | null) => void
   setLineNumbersState: (value: boolean) => void
 }
 
@@ -36,27 +34,18 @@ export interface ChatSectionProps {
 
 /** 「外观」组的行：显示效果（皮肤入口 / 主题 / 字号 / 密度 / 代码行号）。 */
 export function AppearanceSection({
-  showTheme, showFont, showDensity, showLineNumbers, onOpenAppearance,
-  themeLabel, fontScale, density, lineNumbers, setSheet, setLineNumbersState,
+  showFont, showDensity, showLineNumbers, onOpenAppearance,
+  fontScale, density, lineNumbers, setSheet, setLineNumbersState,
 }: AppearanceSectionProps) {
   return (
     <>
       {onOpenAppearance === undefined ? null : (
         <SettingsRow
           icon={<ContrastIcon />}
-          title="外观与皮肤"
-          desc="皮肤、字号、明暗在一页里调"
+          title="字号与密度"
+          desc="字号、密度、明暗在一页里调（皮肤在上一组）"
           action={<RowChevron />}
           onClick={onOpenAppearance}
-        />
-      )}
-      {showTheme && (
-        <SettingsRow
-          icon={<ContrastIcon />}
-          title="主题"
-          desc="深色 / 浅色 / 跟随系统"
-          action={<><span className="settings-rowValue">{themeLabel}</span><RowChevron /></>}
-          onClick={() => { setSheet('theme') }}
         />
       )}
       {showFont && (

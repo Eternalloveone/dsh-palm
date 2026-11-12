@@ -22,6 +22,54 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = join(HERE, '..', '..')
 const REPO_ROOT = join(PACKAGE_ROOT, '..', '..')
 
+/**
+ * 去掉块注释与行注释（保留字符串里的内容不动，这里只判关键字，够用）。
+ *
+ * 判据铁律：**先剥注释再判**。`ChatView` 的注释里写着"11 个 useState → 1 个"，
+ * 直接对整份源码做正则就会把说明书当成代码。
+ */
+function stripComments(source: string): string {
+  let out = ''
+  let i = 0
+  let quote: string | undefined
+  while (i < source.length) {
+    const char = source[i]!
+    const next = source[i + 1]
+    if (quote !== undefined) {
+      out += char
+      if (char === '\\') { out += next ?? ''; i += 2; continue }
+      if (char === quote) quote = undefined
+      i += 1
+      continue
+    }
+    if (char === '"' || char === "'" || char === '`') { quote = char; out += char; i += 1; continue }
+    if (char === '/' && next === '*') {
+      const end = source.indexOf('*/', i + 2)
+      i = end === -1 ? source.length : end + 2
+      continue
+    }
+    if (char === '/' && next === '/') {
+      const end = source.indexOf('\n', i)
+      i = end === -1 ? source.length : end
+      continue
+    }
+    out += char
+    i += 1
+  }
+  return out
+}
+
+/**
+ * ChatView 里允许出现的 `useState` 个数（只减不增）。
+ *
+ * 2026-11-10：这条断言原来写的是 `match(/useState\(/g)`，而本仓所有调用都带
+ * 泛型（`useState<T>(...)`），于是它恒等于 0 —— 一个永远通过的护栏比没有更糟
+ * （它让人以为"已经收到 0 个"）。改成同时匹配 `useState<` 与 `useState(`、
+ * 并先剥注释后，真实基线是 24；待批/待答搬进账本后 22，W3-6 把队列改成仓的只读
+ * 投影后又少一个（`useState<QueueItemView[]>` 删除），现在 21。
+ */
+const CHAT_VIEW_USE_STATE_BUDGET = 22
+
 /** Every production source file under src/mobile. */
 function mobileSources(dir = HERE): string[] {
   const out: string[] = []
@@ -64,9 +112,44 @@ describe('architecture guardrails', () => {
     // 行数预算可以被 useMemo / 内联函数骗过去，useState 骗不了：每一个都代表一处
     // 散落在组件里的界面状态。S1 把它从 30 收到 0；之后只许更少。
     // 想加回去？先想清楚它能不能进 chat-machine 的某个切片。
-    const text = readFileSync(join(PACKAGE_ROOT, 'src', 'mobile', 'views', 'ChatView.tsx'), 'utf8')
-    const count = (text.match(/useState\(/g) ?? []).length
-    expect(count, `ChatView 里又出现了 ${count} 个 useState（预算 0）`).toBeLessThanOrEqual(0)
+    //
+    // 计数必须覆盖泛型写法（`useState<T>(`）：只匹配 `useState(` 会让断言恒真
+    // （实测漏掉 24 个），这正是 2026-11-10 修掉的那个假护栏。
+    const text = stripComments(readFileSync(join(PACKAGE_ROOT, 'src', 'mobile', 'views', 'ChatView.tsx'), 'utf8'))
+    const count = (text.match(/useState[<(]/g) ?? []).length
+    expect(count, `ChatView 里有 ${count} 个 useState（预算 ${CHAT_VIEW_USE_STATE_BUDGET}）`)
+      .toBeLessThanOrEqual(CHAT_VIEW_USE_STATE_BUDGET)
+  })
+
+  /*
+   * W3-2 第二步：待批审批 / 待答问题只能有一份所有者。
+   *
+   * 这两份事实曾经是 ChatView 的两个 useState，于是 SSE 帧、弱网轮询、审批页
+   * 各写一份，换会话靠"进会话清空"挡串写（代价：切回来卡片没了）。现在事实在
+   * runtime/chat/pending-store.ts 里按会话分桶。这条断言钉住"不许搬回组件"。
+   */
+  it('待批/待答事实不在 ChatView 里另存一份', () => {
+    const text = stripComments(readFileSync(join(PACKAGE_ROOT, 'src', 'mobile', 'views', 'ChatView.tsx'), 'utf8'))
+    const localArrays = [...text.matchAll(/useState<[^>\n]*>\s*\(/g)]
+      .map(match => match[0])
+      .filter(declaration => /PendingApproval|PendingQuestionItem/.test(declaration))
+    expect(localArrays, `ChatView 又自己存了待处理事实：${localArrays.join(' / ')}`).toEqual([])
+    expect(/useSessionPending\(/.test(text), 'ChatView 没有从会话账本读待处理事实').toBe(true)
+  })
+
+  /*
+   * W3-2 第二步收口：审批详情页不许吃"导航快照"。
+   *
+   * 路由曾经把整条审批对象抄进 `Route.approval`，于是页面与对话面板各有一份
+   * 事实：别处答完之后，详情页还在请你批准一个已经不存在的调用。现在路由只存
+   * `approvalId`（导航身份），页面按 id 从会话账本读（views/approval-route.tsx）。
+   */
+  it('审批路由只存 approvalId（内容归会话账本）', () => {
+    const text = stripComments(readFileSync(join(PACKAGE_ROOT, 'src', 'mobile', 'views', 'App.tsx'), 'utf8'))
+    const block = /kind: 'approval'([\s\S]{0,800}?)\n  \}/.exec(text)?.[1] ?? ''
+    expect(block, 'App.tsx 里找不到 approval 路由定义').not.toBe('')
+    expect(/approvalId: string/.test(block), 'approval 路由没有 approvalId').toBe(true)
+    expect(/\bapproval:/.test(block), 'approval 路由又把审批内容抄了一份').toBe(false)
   })
 
   it('views/chat 必须分区（顶层不许再放文件）', () => {
@@ -85,67 +168,29 @@ describe('architecture guardrails', () => {
   })
 
   it('keeps the largest view files inside their current budget (only goes down)', () => {
-    const budgets: Record<string, number> = {
-      // 2026-11-08 架构收敛：工作区页 / 会话列表页 / 运行总览 / 子代理页整页删除，
-      // 路由与抽屉接过后 App 只剩壳 + 启动落点；1539 → 1325，之后只许降。
-      'views/App.tsx': 1_325,
-      'views/SettingsView.tsx': 786,
-      'views/AppearanceView.tsx': 147,
-      'views/ApprovalView.tsx': 95,
-      // 2026-11-08：P6 ⑨ 产物摘要页把每轮分组标题改成可点行（onOpenTurn + --palm-hit 触控区）；
-      // 只增这一次，之后只许降。
-      'views/ArtifactsView.tsx': 115,
-      // 2026-11-08：P6 ⑨ 产物摘要页（产物列表的下级页：单轮筛选 + 汇总 + 文件行，
-      // 只吃 props、不碰数据层）；新文件补登记，本值只增这一次。
-      'views/ArtifactSummaryView.tsx': 142,
-      // 2026-11-08 架构收敛：顶栏四图标收进 ⋯ 菜单、会话管理菜单删除、空态搬到
-      // chat-empty.tsx；4211 → 4088，之后只许降。
-      'views/ChatView.tsx': 4_088,
-      // 2026-11-08：P6 ⑩ 单文件 diff 页按定版图重做（文件名 + 路径、行号列、
-      // 增删底色、超长行截断）；旧的「复用浮层」外壳换成页面自己的取数三态，
-      // 行视图拆到 components/diff-rows.tsx，本值只增这一次。
-      'views/DiffView.tsx': 139,
-      'views/MarketView.tsx': 245,
-      // 2026-11-08：P6 ⑫ 回合大纲页按定版图重做（竖时间轴节点 = 序号 + 结论标题 +
-      // 时间，当前轮整行高亮）；旧的"一行一轮"列表换成时间轴，本值只增这一次。
-      'views/OutlineView.tsx': 156,
-      'views/SettingsForm.tsx': 549,
-      'views/ContextView.tsx': 119,
-      'views/ApprovalModeView.tsx': 94,
+    // 单一真相：文件上限只在 tools/budget.json 维护；这里不再维护第二张表。
+    // 2026-11-11：原表与 CLI 的 budget.json 数值不一致（App 1325 vs 1308），
+    // 两处各自红/绿；合并后 architecture / budget.test / check-budget 三处同源。
+    const budget = JSON.parse(readFileSync(join(REPO_ROOT, 'tools', 'budget.json'), 'utf8')) as {
+      files: Record<string, number>
     }
+    const budgets = Object.fromEntries(
+      Object.entries(budget.files)
+        .filter(([rel]) => rel.startsWith('src/mobile/views/'))
+        .map(([rel, cap]) => [rel.slice('src/mobile/'.length), cap]),
+    )
     for (const [file, budget] of Object.entries(budgets)) {
       const lines = readFileSync(join(HERE, file), 'utf8').split('\n').length
       expect(lines, `${file} grew past its budget (${lines} > ${budget})`).toBeLessThanOrEqual(budget)
     }
   })
 
-  /**
-   * 目标线（2026-11-06 用户拍板改判据）。
-   *
-   * 原来是「ChatView ≤ 600、最大文件 ≤ 1200」。600 行是按"ChatView 只剩壳"反推的，
-   * 而它里面还有约 4000 行是会话逻辑本体（SSE 折叠、缺口回填、轮次裁决、定位搜索、
-   * 队列对账），不是拆组件能消掉的 —— 追 600 只会堆出巨型 deps 的 hook。改判：
-   *
-   * - `views/ChatView.tsx` ≤ 2500 行（壳 + 协调器）；
-   * - 任何 `src/mobile` 下的生产文件 ≤ 1200 行（当前违规：ChatView / SettingsView /
-   *   MarketView，靠后续拆分区解决）；
-   * - 单个 hook / 组件 ≤ 400 行。
-   *
-   * 用 `it.fails` 表达"目标尚未达成"：现在这条断言必然失败，所以它以"预期失败"计通过；
-   * 一旦真的达标，它会变绿并让本用例失败 —— 那时把 `it.fails` 改成 `it` 并把这条注释
-   * 删掉，就是把目标线升格成硬门禁的时刻。
+  /*
+   * 2026-11-11：原「目标线」用 `it.fails` 表达（ChatView ≤2500、单文件 ≤1200）。
+   * 但预期失败会把永久违规计成通过，达标反而变红——那不是门禁，是记账。
+   * 目标线改由 tools/budget.json 的实测基准承担（只降不升 + 反向虚高断言）；
+   * 这条 expected-fail 随之删除。
    */
-  it.fails('reaches the target budgets (see comment: flip to it() once green)', () => {
-    const violations: string[] = []
-    for (const file of SOURCES) {
-      const relPath = rel(file)
-      if (!/^(views|data|shared|chat)\//.test(relPath.replace(/^mobile\//, ''))) continue
-      const lines = readFileSync(file, 'utf8').split('\n').length
-      if (lines > 1_200) violations.push(`${relPath} = ${lines} > 1200`)
-      if (relPath === 'views/ChatView.tsx' && lines > 2_500) violations.push(`ChatView = ${lines} > 2500`)
-    }
-    expect(violations).toEqual([])
-  })
 
   it('has exactly one definition of each shared helper', () => {
     const definitions: Record<string, RegExp> = {
@@ -176,6 +221,48 @@ describe('architecture guardrails', () => {
       const isKnownPair = cycle.length === 2 && knownPair.every(name => cycle.includes(name))
       expect(isKnownPair, `new cycle: ${cycle.join(' -> ')}`).toBe(true)
     }
+  })
+
+  /*
+   * 队列 / outbox 账本的所有权（2026-11-10 复核结论，写成护栏防回退）。
+   *
+   * - 「排队消息」是宿主侧的队列：账本在 `stream/session-store.ts`，视图只经
+   *   `useSessionQueue` 读版本号，**不许再抄一份数组**（抄一份就会出现"界面显示 3 条、
+   *   宿主实际 2 条"这种对不上的状态）。
+   * - 「离线待发」是本地 IndexedDB 里的一条队列：账本在 `platform/offline.ts`，
+   *   只有它写 `outbox` 这个 store；视图侧只许经两个钩子（入队 / 冲队列）触达，
+   *   不许第三处直接摸存储。
+   */
+  it('待发队列只有一份账本：视图不许再抄队列数组', () => {
+    const offenders: string[] = []
+    for (const file of SOURCES) {
+      const path = rel(file)
+      if (!path.startsWith('views/')) continue
+      const code = stripComments(readFileSync(file, 'utf8'))
+      // useState<QueueItemView[]> / useReducer 里自己攒队列 = 第二份事实。
+      if (/useState<\s*QueueItemView\[\]/.test(code)) offenders.push(path)
+    }
+    expect(offenders, `views 里出现了第二份队列数组: ${offenders.join(', ')}`).toEqual([])
+  })
+
+  it('outbox 存储只有 platform/offline.ts 写，视图只能经两个钩子触达', () => {
+    // 1) 谁直接写这个 store：只允许账本自己 + 建表（history-cache 负责 schema）。
+    const touchStore = SOURCES
+      .filter((file) => /'outbox'/.test(stripComments(readFileSync(file, 'utf8'))))
+      .map(rel)
+      .filter(path => path !== 'platform/offline.ts' && path !== 'session/history-cache.ts')
+    expect(touchStore, `除账本与建表外还有人碰 outbox store: ${touchStore.join(', ')}`).toEqual([])
+
+    // 2) 视图侧谁 import 了 offline.ts：只许这两个钩子（其余一律经它们）。
+    const allowed = new Set([
+      'views/chat/hooks/use-chat-composer.ts',
+      'views/chat/hooks/use-chat-outbox-flush.ts',
+    ])
+    const importers = SOURCES
+      .filter((file) => /platform\/offline\.ts/.test(stripComments(readFileSync(file, 'utf8'))))
+      .map(rel)
+      .filter(path => path !== 'platform/offline.ts' && !allowed.has(path))
+    expect(importers, `绕过钩子直接摸 outbox: ${importers.join(', ')}`).toEqual([])
   })
 
   /*

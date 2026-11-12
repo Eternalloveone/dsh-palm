@@ -35,24 +35,30 @@ function renderBar(overrides: Partial<Parameters<typeof InsertBarView>[0]> = {})
 }
 
 describe('InsertBarView', () => {
-  it('默认折叠成一行摘要（同轮 agent/job 共用一条标题）', () => {
+  it('默认展开（每条都要能被单独处理），摘要仍可收起', () => {
+    // 2026-11-10 用户要求「每条插队消息可以独立编辑/删除/处理」：明细默认展开，
+    // 每条右侧有自己的动作入口；摘要按钮仍可收起。
     const { container } = renderBar()
     const bar = container.querySelector('.insert-bar')
     expect(bar?.getAttribute('data-state')).toBe('shown')
     expect(screen.getByText('已插入 2 条补充消息')).toBeTruthy()
     const summary = screen.getByRole('button', { name: /已插入 2 条补充消息/ })
-    expect(summary.getAttribute('aria-expanded')).toBe('false')
-    // 明细在 DOM 里（高度 0），但读屏与可见性都按折叠处理。
-    expect(container.querySelector('[data-insert-details]')?.getAttribute('aria-hidden')).toBe('true')
+    expect(summary.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('[data-insert-details]')?.getAttribute('aria-hidden')).toBe('false')
   })
 
-  it('点摘要展开明细：aria-expanded / aria-hidden 同步翻转', () => {
+  it('点摘要收起/展开：aria-expanded / aria-hidden 同步翻转', () => {
+    // 2026-11-10 起默认展开（每条要能被单独处理），所以第一次点击是收起。
     const { container } = renderBar()
     const summary = screen.getByRole('button', { name: /已插入 2 条补充消息/ })
+    expect(summary.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('[data-insert-details]')?.getAttribute('aria-hidden')).toBe('false')
+    fireEvent.click(summary)
+    expect(summary.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('.insert-bar')?.getAttribute('data-expanded')).toBe('false')
+    expect(container.querySelector('[data-insert-details]')?.getAttribute('aria-hidden')).toBe('true')
     fireEvent.click(summary)
     expect(summary.getAttribute('aria-expanded')).toBe('true')
-    expect(container.querySelector('.insert-bar')?.getAttribute('data-expanded')).toBe('true')
-    expect(container.querySelector('[data-insert-details]')?.getAttribute('aria-hidden')).toBe('false')
     expect(screen.getByText('补一句：先跑测试')).toBeTruthy()
     expect(screen.getByText('Background subagent 完成')).toBeTruthy()
   })
@@ -60,9 +66,8 @@ describe('InsertBarView', () => {
   it('明细里的「撤回」把条目 id 交回调用方', () => {
     const onWithdraw = vi.fn()
     renderBar({ onWithdraw })
-    // 默认折叠也能点到（按钮始终在 DOM 里），但先展开更接近真机路径。
-    fireEvent.click(screen.getByRole('button', { name: /已插入 2 条补充消息/ }))
-    fireEvent.click(screen.getAllByRole('button', { name: '撤回插入消息' })[0]!)
+    // 默认已展开：直接点条目上的撤回。
+    fireEvent.click(screen.getAllByRole('button', { name: /撤回插入消息/ })[0]!)
     expect(onWithdraw).toHaveBeenCalledWith('a')
   })
 
@@ -90,12 +95,16 @@ describe('InsertBarView', () => {
 })
 
 describe('插入条样式契约', () => {
-  it('明细行 ≤36px、撤回命中区补到 --palm-hit(44px)、高度 0fr → 1fr 过渡', () => {
+  it('摘要和明细操作各自占据独立的 44px 行，且保留 0fr → 1fr 过渡', () => {
     const row = /--palm-insert-row-h:\s*(\d+(?:\.\d+)?)px/.exec(mobileCss)
     expect(row).not.toBeNull()
-    expect(Number(row?.[1])).toBeLessThanOrEqual(36)
+    expect(Number(row?.[1])).toBe(44)
+    expect(mobileCss).toMatch(/--palm-insert-h:\s*44px/)
+    expect(mobileCss).toMatch(/\[data-insert-summary\]\s*\{[^}]*min-height:\s*var\(--palm-insert-h\)/)
+    expect(mobileCss).toMatch(/\[data-insert-details\]\s*li\s*\{[^}]*height:\s*var\(--palm-insert-row-h\)/)
+    expect(mobileCss).toMatch(/\[data-insert-withdraw\]\s*\{[^}]*height:\s*var\(--palm-insert-row-h\)/)
+    expect(mobileCss).not.toMatch(/\[data-insert-withdraw\]::after\s*\{/)
     expect(mobileCss).toMatch(/--palm-insert-dur:\s*\d+ms/)
-    expect(mobileCss).toMatch(/\[data-insert-withdraw\]::after\s*\{[^}]*var\(--palm-hit\)/)
     expect(mobileCss).toMatch(/\.insert-bar\s*\{[^}]*grid-template-rows:\s*0fr/)
     expect(mobileCss).toMatch(/\.insert-bar\[data-state='shown'\]\s*\{[^}]*grid-template-rows:\s*1fr/)
   })

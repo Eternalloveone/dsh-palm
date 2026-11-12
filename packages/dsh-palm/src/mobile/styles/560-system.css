@@ -1,0 +1,124 @@
+/* ── 组合件样式（2026-11-10 重设计：原语层） ────────────────────────────
+   对应 ui/primitives.tsx 里的 SectionHeader / SectionCard / ResultRow / ActionBar。
+   规则：这里**只许出现令牌**，不写十六进制、不写 rgb()、不写魔法数字圆角。
+   structure 用例会拦「裸色」与「页面自己写的圆角」。 */
+
+.palm-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) 0;
+}
+
+.palm-section-title {
+  margin: 0;
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+  letter-spacing: 0.02em;
+  color: var(--palm-fg-2);
+}
+
+.palm-section-gap { flex: 1; }
+
+.palm-section-hint {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.palm-section-action {
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: transparent;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+[data-section-card] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s4);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+/* 浮层：压在卡片之上（审批块、待发队列、浮窗内容）。必须是可分辨的第三层，
+   所以用 --palm-sur-2 而不是把 sur-1 再加一层透明。 */
+[data-section-card][data-level='raised'] {
+  background: var(--palm-sur-2);
+}
+
+.palm-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  font-size: var(--palm-t-m);
+  line-height: var(--palm-lh-body);
+  color: var(--palm-fg);
+}
+
+[data-result-row] {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  min-height: var(--palm-hit);
+  font-size: var(--palm-t-s);
+}
+
+.palm-result-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--palm-fg-2);
+}
+
+.palm-result-add { color: var(--palm-ok); font-weight: var(--palm-w-bold); }
+.palm-result-del { color: var(--palm-danger); font-weight: var(--palm-w-bold); }
+.palm-result-gap { flex: 1; }
+
+.palm-result-action {
+  min-height: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: transparent;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+  font-weight: var(--palm-w-bold);
+}
+
+.palm-action-bar {
+  display: flex;
+  gap: var(--palm-s2);
+  padding-top: var(--palm-s2);
+}
+
+.palm-action-primary,
+.palm-action-secondary {
+  min-height: var(--palm-hit);
+  border-radius: var(--palm-r-m);
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 主操作实心强调色：深浅皮肤都靠 --palm-on-accent 保证字读得出来。 */
+.palm-action-primary {
+  flex: 1.4;
+  border: 0;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+}
+
+.palm-action-secondary {
+  flex: 1;
+  border: var(--palm-hair) solid var(--palm-line);
+  background: transparent;
+  color: var(--palm-fg-2);
+}
+
+.palm-action-primary:disabled,
+.palm-action-secondary:disabled { opacity: var(--palm-btn-disabled-opacity); }

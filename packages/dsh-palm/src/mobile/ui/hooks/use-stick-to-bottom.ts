@@ -59,7 +59,7 @@ export interface ChatScrollHandle {
  * Create the scroll layer for one chat view.
  * @returns refs and actions; stable for the lifetime of the component.
  */
-export function useStickToBottom(): ChatScrollHandle {
+export function useStickToBottom(scope?: string): ChatScrollHandle {
   const scrollRef = useRef<HTMLDivElement | undefined>(undefined)
   const scrollTopRef = useRef(0)
   const programmaticScrollRef = useRef(false)
@@ -68,6 +68,18 @@ export function useStickToBottom(): ChatScrollHandle {
   const programmaticAtRef = useRef(0)
   const scrollStateRef = useRef<ScrollState>(createScrollState())
   const lastScrollHeightRef = useRef(0)
+  // 换会话（P4：聊天页实例跨会话复用）：状态机由 `scrollEvent({type:'open'})` 归零，
+  // 但"上一个位置/上一份高度/程序化认领"这几个判据还留着上一场数 —— 不一起清，
+  // 新会话第一拍会按旧读数判断"读者在哪"，落点就停在上一场的位置上。
+  const scopeRef = useRef(scope)
+  if (scope !== undefined && scopeRef.current !== scope) {
+    scopeRef.current = scope
+    scrollTopRef.current = 0
+    lastScrollHeightRef.current = 0
+    programmaticScrollRef.current = false
+    programmaticValueRef.current = -1
+    programmaticAtRef.current = 0
+  }
 
   const scrollEvent = useCallback((event: ScrollEvent): void => {
     scrollStateRef.current = scrollReducer(scrollStateRef.current, event)

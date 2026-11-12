@@ -5,14 +5,14 @@
  *
  * **纯搬运**：判定顺序与真机结论注释逐字保留。视图只装配一个 props 对象。
  */
-import type { CSSProperties } from 'react'
+import { memo, type CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
 import { toolDiffLines } from '../../../render/process-rows.ts'
 import { MessageRow, type TurnDeliveryFacts } from '../../../render/message-row.tsx'
-import { planStepsOf, taskAuthority, type TaskSteps } from '../../../session/task-status.ts'
-import { cachedSnapshot } from '../../../stream/session-store.ts'
+import { planStepsOf, type TaskSteps } from '../../../session/task-status.ts'
 import { TurnHeadSkeleton } from '../../../ui/turn-header.tsx'
 import { Button } from '../../../ui/primitives.tsx'
+import { useRowHydrated } from '../hooks/use-row-hydrated.ts'
 
 /** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */
 export const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
@@ -65,14 +65,27 @@ export interface ChatRowsView {
   sessionId: string
   showToolCalls: boolean
   showSystemMessages: boolean
-  /** 宿主时间（毫秒）：行内秒表只做「宿主时间 − 锚点」，没校准就没有秒表（W3-5）。 */
+  /** 宿主时间（毫秒，10 秒桶）：只用来算「几分钟前 / 快照是否新鲜」。 */
   hostNowMs?: number
+  /**
+   * 宿主时间取数函数（引用恒定）。
+   *
+   * 秒表要的是"渲染那一刻的宿主时间"，但把它当 prop 传数值会让每行的 `memo` 失效
+   * （毫秒值每次渲染都变）。传函数两头都占：引用不变，行内渲染时现取。
+   * 刷新靠 `liveClockTick` —— 只有正在跑的那一行收到它。
+   */
+  hostNow?: () => number
   /** 会话目标（任务头第二行「目标」）：只认宿主给的目标，不拿用户原话凑。 */
   goal?: string
   /** 秒表的真锚点（日志里的 turn/start）。 */
   clockAnchor: number | undefined
   liveTurn: number | undefined
-  liveClockTick: number
+  /**
+   * 已废弃：1 Hz 心跳下沉到 `MessageRow` 内部自己起搏（见那边的 `rowRunning`）。
+   *
+   * 留着是为了不改调用点的形状；传什么都不再看。
+   */
+  liveClockTick?: number
   /** 这一行是否已收工（按轮判定）。 */
   settledOf: (message: RenderMessage) => boolean
   /** 这一行是否正在跑（决定要不要带 liveClockTick）。 */
@@ -102,7 +115,21 @@ export interface ChatRowsView {
   onOpenDelivery?: (facts: TurnDeliveryFacts) => void
 }
 
-export function ChatRows(view: ChatRowsView): React.ReactElement {
+/**
+ * 消息列表的渲染边界。
+ *
+ * `memo` 是这里唯一的目的：**任何与消息无关的状态变化都不许把整列表重算一遍**。
+ * 点一次上下文弹层、发一条消息（`sending` 翻面）、开关抽屉、1 Hz 秒表心跳 ——
+ * 以前这些全会让 ChatRows 重新执行，逐行重建 props，于是 `MessageRow` 的 memo
+ * 对每一行都失效（真机 10× CPU 降频实测：一次轻点 400~600 ms 脚本时间）。
+ *
+ * 它能挡住的前提（改动前必须知道）：
+ * 1. 传进来的 props 引用要稳（ChatView 侧一律 `useCallback` / 分桶的 `hostNow*`）；
+ * 2. 行级回调不许在 `.map` 里现造闭包（现造 = 每行一个新引用 = 每行必重渲染）。
+ * 第 2 条由 `chat-rows-memo.test.tsx` 守着：谁把 `onOpenFile` 改回内联箭头，
+ * 那条用例会当场红。
+ */
+export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactElement {
   const rows = dedupeRows(view.messages)
   /**
    * 结论资格（水合门）：**该会话的行**落定（`loading` 落下）+ **本会话的宿主快照**
@@ -110,7 +137,7 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
    * （④ 缓存种子先上屏），状态条判 `unknown` —— 先画「已完成」再被「运行中」改写，
    * 就是真机那条首帧跳变。
    */
-  const hydrated = !view.loading && taskAuthority(cachedSnapshot(view.sessionId), view.hostNowMs ?? Date.now())
+  const hydrated = useRowHydrated(view.sessionId, view.loading, view.hostNowMs)
   // ── 按轮折叠的「任务头 / 交付卡」数据 ──────────────────────────────────
   // 一个回合的数据散在多行上（每步一条 assistant + 一条 turn 收尾行），视图层只在
   // 这里折一次；MessageRow 只负责画，不自己猜数字（拿不到的字段留 undefined）。
@@ -175,6 +202,8 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           : undefined
         const interrupted = view.rowOfInterrupted(message)
         const turn = message.turn
+        /** 只算一次：它同时决定秒表粒度（用哪个时间桶）和要不要带心跳。 */
+        const rowRunning = view.isRowRunning(interrupted)
         return (
           <MessageRow
             key={view.rowKeyOf(message)}
@@ -183,18 +212,19 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
             sessionId={view.sessionId}
             showToolCalls={view.showToolCalls}
             showSystemMessages={view.showSystemMessages}
+            hostNow={view.hostNow}
             hostNowMs={view.hostNowMs}
             liveTurnStartAt={view.clockAnchor}
             liveTurn={view.liveTurn}
             settled={view.settledOf(message)}
             hydrated={hydrated}
-            liveClockTick={view.isRowRunning(interrupted) ? view.liveClockTick : undefined}
+            rowRunning={rowRunning}
             showTime={view.timeFlags[index] === true}
             focused={message.id === view.focusMsgId}
             focusedQuery={message.id === view.focusMsgId && view.chatHitQuery !== '' ? view.chatHitQuery : view.effectiveFocusQuery}
             focusExpand={message.id === view.focusMsgId && view.chatHitQuery !== ''}
             style={cv}
-            onOpenFile={(path) => { view.onOpenFile(path) }}
+            onOpenFile={view.onOpenFile}
             {...(view.onOpenDelivery === undefined ? {} : { onOpenChanges: view.onOpenDelivery })}
             onRegenerate={view.regenerateFor(message)}
             regenerateState={view.regenerateState}
@@ -213,12 +243,13 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
           sessionId={view.sessionId}
           showToolCalls={view.showToolCalls}
           showSystemMessages={view.showSystemMessages}
+          hostNow={view.hostNow}
           hostNowMs={view.hostNowMs}
           liveTurnStartAt={view.clockAnchor}
           liveTurn={view.liveTurn}
           settled={false}
           hydrated={hydrated}
-          liveClockTick={view.liveClockTick}
+          rowRunning={true}
           showTime={false}
           focused={false}
           focusedQuery={''}
@@ -233,4 +264,4 @@ export function ChatRows(view: ChatRowsView): React.ReactElement {
         : <p className="chat-typing">还没有消息，发一句话开始吧</p>)}
     </>
   )
-}
+})

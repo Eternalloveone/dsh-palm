@@ -91,13 +91,15 @@ details.think-block[open] .chat-disclosure-caret {
 @keyframes dshPalmFocusPulse {
   0% {
     box-shadow:
-      inset 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent),
-      0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+
+
+      0 0 0 0 var(--palm-accent-16);
   }
   70% {
     box-shadow:
-      inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
-      0 0 14px 2px color-mix(in srgb, var(--accent) 26%, transparent);
+
+
+      0 0 14px 2px var(--palm-search-mark);
   }
   100% {
     box-shadow:
@@ -119,16 +121,18 @@ details.think-block[open] .chat-disclosure-caret {
    用 .mobile 提一级特异性，避免被上面 .mobile mark 的 background 盖掉。 */
 .mobile .chat-search-mark {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 26%, var(--bg-elevated));
+  /* 2026-11-10：原来是 color-mix(accent 26%, bg-elevated)。iOS 15 不支持 color-mix，
+     整条声明失效 → 命中词没有底色，搜索定位等于瞎了。改成预混令牌。 */
+  background: var(--palm-search-mark);
   border-radius: 3px;
   padding: 0 1px;
   font-weight: 600;
 }
 
 .mobile .chat-msg-user .chat-search-mark {
-  color: #1a1a2e;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--palm-fg);
+  background: var(--palm-sur-1);
+  box-shadow: inset 0 0 0 1px var(--palm-accent-line);
 }
 
 .mobile .chat-md pre .chat-search-mark,

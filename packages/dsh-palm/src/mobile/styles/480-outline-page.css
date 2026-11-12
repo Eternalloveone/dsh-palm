@@ -51,7 +51,8 @@
 
 .outline-node {
   /* 轴线颜色：比 --palm-line 亮一点，否则细线在深底上根本看不见。 */
-  --outline-axis: color-mix(in srgb, var(--palm-fg-3) 48%, transparent);
+  /* 2026-11-10：原来是 color-mix(fg-3 48%)，iOS 15 上没有轴线。 */
+  --outline-axis: var(--palm-line);
   position: relative;
   min-inline-size: 0;
 }
@@ -99,7 +100,7 @@
 
 /* 当前正在读的那一轮：整行淡染 + 强调描边（定版图里"你看的是这条"）。 */
 .outline-node-row[aria-current='true'] {
-  border-color: color-mix(in srgb, var(--palm-accent) 48%, var(--palm-line));
+  border-color: var(--palm-accent-line);
   background: var(--palm-tint-accent);
 }
 

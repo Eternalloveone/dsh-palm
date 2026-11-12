@@ -6,7 +6,7 @@
  * 进出会话刷新（缓存秒开 + 低水位快照不许覆盖高水位）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { addOptimisticQueueItem, applyQueueItems, applySnapshot, cachedRows, cachedSnapshot, dropOptimisticQueueItem, hideQueueItem, normalizeQueueText, queueView, resetSessionStoreForTest, subscribeSessionStore, unhideQueueItem, type SessionSnapshot, QUEUE_EMPTY_HOLD_MS,
+import { applyQueueItems, applySnapshot, cachedRows, cachedSnapshot, normalizeQueueText, queueView, resetSessionStoreForTest, subscribeSessionStore, type SessionSnapshot,
   claimQueueHead,
 } from './session-store.ts'
 import type { QueueItemView } from '../api.ts'
@@ -56,75 +56,12 @@ describe('快照的单调合并', () => {
   })
 })
 
-describe('乐观项（点发送立刻看得见）', () => {
-  it('刚点发送、宿主还没回：队列里立刻有这一条', () => {
-    applySnapshot(snapshot({ queueRevision: 7, queue: [] }))
-    addOptimisticQueueItem(SESSION, { text: '帮我看下这个报错', placement: 'queued' })
-    expect(queueView(SESSION).map(row => row.text)).toEqual(['帮我看下这个报错'])
-  })
 
-  it('宿主快照把这条排进来之后，乐观项退场（不会重复两条）', () => {
-    applySnapshot(snapshot({ queueRevision: 7, queue: [] }))
-    addOptimisticQueueItem(SESSION, { text: '同一条', placement: 'queued' })
-    // 宿主把它排进队列：版本 +1，条目里带着同一条文本。
-    applySnapshot(snapshot({ queueRevision: 8, queue: [item('q9', '同一条')] }))
-    expect(queueView(SESSION)).toEqual([item('q9', '同一条')])
-  })
-
-  it('版本翻过但条目还没到：乐观项必须留着（真机 bug：曾经这里就被清空了）', () => {
-    applySnapshot(snapshot({ queueRevision: 7, queue: [] }))
-    addOptimisticQueueItem(SESSION, { text: '还没回显', placement: 'queued' })
-    // 宿主把写收下了（版本 +1），但它读的是几分钟前的投影快照：队列里还没有这一条。
-    applySnapshot(snapshot({ queueRevision: 8, queue: [] }))
-    expect(queueView(SESSION).map(row => row.text)).toEqual(['还没回显'])
-  })
-
-  it('超过 45 秒还没被认下来：乐观项退场，不留幽灵卡', async () => {
-    vi.useFakeTimers()
-    try {
-      applySnapshot(snapshot({ queueRevision: 7, queue: [] }))
-      addOptimisticQueueItem(SESSION, { text: '早就投递了', placement: 'queued' })
-      vi.advanceTimersByTime(46_000)
-      expect(queueView(SESSION)).toEqual([])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('写失败要能撤掉乐观项（不留假条目）', () => {
-    applySnapshot(snapshot({ queueRevision: 1, queue: [] }))
-    const pendingId = addOptimisticQueueItem(SESSION, { text: '发不出去的', placement: 'queued' })
-    expect(queueView(SESSION)).toHaveLength(1)
-    dropOptimisticQueueItem(SESSION, pendingId)
-    expect(queueView(SESSION)).toEqual([])
-  })
-
-})
-
-describe('本地隐藏（删除/插队立刻生效）', () => {
-  it('删除立刻看不到，宿主版本跟上之后隐藏自动失效', () => {
-    applySnapshot(snapshot({ queueRevision: 5, queue: [item('q1', '删掉我')] }))
-    hideQueueItem(SESSION, 'q1')
-    expect(queueView(SESSION)).toEqual([])
-    // 宿主把这次删除处理完（版本 +1）：隐藏退场，之后的权威队列说了算。
-    applySnapshot(snapshot({ queueRevision: 6, queue: [item('q2', '另一条')] }))
-    expect(queueView(SESSION).map(row => row.text)).toEqual(['另一条'])
-  })
-
-  it('被拒时把隐藏撤掉（条目回到队列）', () => {
-    applySnapshot(snapshot({ queueRevision: 5, queue: [item('q1', '插不进去')] }))
-    hideQueueItem(SESSION, 'q1')
-    unhideQueueItem(SESSION, 'q1')
-    expect(queueView(SESSION).map(row => row.text)).toEqual(['插不进去'])
-  })
-})
 
 describe('老宿主的回退路径', () => {
-  it('只有 inbox 投影时，队列同样进仓（隐藏/乐观项不会把队列清空）', () => {
+  it('只有 inbox 投影时，队列同样进仓（后到的投影覆盖前一份）', () => {
     applyQueueItems(SESSION, [item('q1', '来自投影')])
     expect(queueView(SESSION).map(row => row.text)).toEqual(['来自投影'])
-    hideQueueItem(SESSION, 'q1')
-    expect(queueView(SESSION)).toEqual([])
     applyQueueItems(SESSION, [item('q2', '又一条')])
     expect(queueView(SESSION).map(row => row.text)).toEqual(['又一条'])
   })
@@ -156,119 +93,6 @@ describe('订阅与缓存', () => {
   })
 })
 
-describe('深入排查后修掉的三条（2026-10-28 第二轮）', () => {
-  it('删除过的条目：宿主版本涨了但快照里还挂着它，不许画回来', () => {
-    applySnapshot(snapshot({ queueRevision: 5, queue: [item('q1', '删我')] }))
-    hideQueueItem(SESSION, 'q1')
-    expect(queueView(SESSION)).toEqual([])
-    // 宿主处理了别的写（版本 5→6），但它读的投影快照里 q1 还在。
-    applySnapshot(snapshot({ queueRevision: 6, queue: [item('q1', '删我'), item('q2', '新的一条')] }))
-    expect(queueView(SESSION).map(row => row.id)).toEqual(['q2'])
-  })
-
-  it('删除过的条目：权威队列真的没有它了，隐藏自动解除', () => {
-    applySnapshot(snapshot({ queueRevision: 5, queue: [item('q1', '删我')] }))
-    hideQueueItem(SESSION, 'q1')
-    applySnapshot(snapshot({ queueRevision: 6, queue: [] }))
-    expect(queueView(SESSION)).toEqual([])
-    // 隐藏解除之后，同 id 万一又出现（宿主重发）就照常显示。
-    applySnapshot(snapshot({ queueRevision: 7, queue: [item('q1', '删我')] }))
-    expect(queueView(SESSION).map(row => row.id)).toEqual(['q1'])
-  })
-
-  it('乐观项在消息进了对话之后就退场（不用等 45 秒）', () => {
-    applySnapshot(snapshot({ queueRevision: 3, queue: [] }))
-    addOptimisticQueueItem(SESSION, { text: '已经被认领的一条', placement: 'queued' })
-    expect(queueView(SESSION)).toHaveLength(1)
-    // 宿主把它认领成这一轮的用户消息：对话里出现了同样的文本。
-    applySnapshot(snapshot({
-      queueRevision: 3,
-      maxSeq: 40,
-      rows: [{ id: 'r1', kind: 'user', text: '已经被认领的一条' }] as never,
-    }))
-    expect(queueView(SESSION)).toEqual([])
-  })
-
-  it('隐藏表 90 秒兜底：宿主永不收敛也不永久屏蔽', async () => {
-    vi.useFakeTimers()
-    try {
-      applySnapshot(snapshot({ queueRevision: 5, queue: [item('q1', '宿主卡住')] }))
-      hideQueueItem(SESSION, 'q1')
-      expect(queueView(SESSION)).toEqual([])
-      vi.advanceTimersByTime(91_000)
-      // 同一份（仍含 q1 的）快照再落地：TTL 已到，隐藏解除，这一条重新显示。
-      applySnapshot(snapshot({ queueRevision: 6, queue: [item('q1', '宿主卡住')] }))
-      expect(queueView(SESSION).map(row => row.id)).toEqual(['q1'])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-})
-
-describe('空队列观察窗（切后台回来排队条不许凭空消失）', () => {
-  const snap = (queue: unknown[], revision: number, now: number): SessionSnapshot => ({
-    sessionId: 's-hold',
-    rows: [],
-    maxSeq: 1,
-    queue: queue as SessionSnapshot['queue'],
-    queueRevision: revision,
-    turn: { running: false },
-    asOf: now,
-  })
-  const item = (id: string, text: string) => ({ id, placement: 'queued' as const, text, editable: true })
-
-  it('读到空队列先不自清：观察窗内仍显示上一条', () => {
-    resetSessionStoreForTest()
-    applySnapshot(snap([item('a', '排队中')], 1, Date.now()))
-    expect(queueView('s-hold')).toHaveLength(1)
-    // 宿主投影瞬时回了空队列（版本涨了，内容却是空）
-    applySnapshot(snap([], 2, Date.now()))
-    expect(queueView('s-hold')).toHaveLength(1)
-  })
-
-  it('观察窗过了才真的清空', () => {
-    resetSessionStoreForTest()
-    const start = Date.now()
-    applySnapshot(snap([item('a', '排队中')], 1, start))
-    applySnapshot(snap([], 2, start))
-    const realNow = Date.now
-    try {
-      Date.now = () => start + QUEUE_EMPTY_HOLD_MS + 1
-      expect(queueView('s-hold')).toHaveLength(0)
-    } finally {
-      Date.now = realNow
-    }
-  })
-
-  it('期间又有非空队列回来 → 立刻以新的为准，观察窗作废', () => {
-    resetSessionStoreForTest()
-    applySnapshot(snap([item('a', '排队中')], 1, Date.now()))
-    applySnapshot(snap([], 2, Date.now()))
-    applySnapshot(snap([item('b', '后来的')], 3, Date.now()))
-    const view = queueView('s-hold')
-    expect(view.map(entry => entry.text)).toEqual(['后来的'])
-  })
-})
-
-describe('排队条的显示来源只有一条（回显只负责“丢件检测”）', () => {
-  it('本地回显（queued-echo）不会往队列视图里多塞一条', () => {
-    // 这条边界是刻意留的：回显负责“消息其实已经发出去了”的检测（lostQueuedEchoes），
-    // 但它**不是**显示来源。显示只认 visibleQueue（宿主队列 + 乐观项 + 隐藏/空窗）。
-    resetSessionStoreForTest()
-    const view = queueView('session-echo')
-    expect(view).toEqual([])
-  })
-
-  it('乐观项进了宿主队列后同一条正文只出现一次', () => {
-    resetSessionStoreForTest()
-    applyQueueItems('session-dup', [
-      { id: 'q1', placement: 'queued', text: '刚发的', editable: true },
-    ])
-    const view = queueView('session-dup')
-    expect(view.filter(item => item.text === '刚发的')).toHaveLength(1)
-  })
-})
-
 describe('排队条不残留（2026-10-29 真机：发送完 / 插队后消息条还在）', () => {
   it('队首被认领后，一份「还没算上认领」的陈旧快照不能把它画回来', () => {
     resetSessionStoreForTest()
@@ -285,15 +109,6 @@ describe('排队条不残留（2026-10-29 真机：发送完 / 插队后消息�
     expect(queueView('s-1').map(row => row.id)).toEqual(['q2'])
   })
 
-  it('插队（立即发送）之后同样的陈旧快照也不会让它回来', () => {
-    resetSessionStoreForTest()
-    const items = [{ id: 'q9', placement: 'queued' as const, text: '插队这条', editable: true }]
-    applyQueueItems('s-2', items)
-    hideQueueItem('s-2', 'q9')
-    expect(queueView('s-2')).toHaveLength(0)
-    applyQueueItems('s-2', items)
-    expect(queueView('s-2')).toHaveLength(0)
-  })
 })
 
 describe('队列内容指纹（2026-10-30 桌面端入队看不到）', () => {

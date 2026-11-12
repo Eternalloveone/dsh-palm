@@ -182,4 +182,4 @@ export { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, list
 
 
 // session 域的实现已搬到 data/impl/session.ts（W4-4）；这里只转出，对外 API 不变。
-export { turnOutlineOf, sessionState, inboxOf, goalOf, goalAction, turnState, runningSessions, listSessions, searchAll, searchSessions, searchMessages, createSession, history, readChat, observeSession, prompt, newRequestId, queueItemViewOf, updateQueue, sendCommand, renameSession, cancelSession, subagentsList, respondApproval, respondQuestion, archiveSession, readSessionFolders, createSessionFolder, renameSessionFolder, removeSessionFolder, assignSessionFolder } from './data/impl/session.ts'
+export { turnOutlineOf, sessionState, inboxOf, goalOf, goalAction, turnState, runningSessions, deliveryAccepted, listSessions, searchAll, searchSessions, searchMessages, createSession, history, readChat, observeSession, prompt, newRequestId, queueItemViewOf, updateQueue, sendCommand, renameSession, cancelSession, subagentsList, respondApproval, respondQuestion, archiveSession, readSessionFolders, createSessionFolder, renameSessionFolder, removeSessionFolder, assignSessionFolder } from './data/impl/session.ts'

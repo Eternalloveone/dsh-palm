@@ -26,13 +26,16 @@
   min-height: 0;
   overflow-y: auto;
   padding: var(--palm-s4);
+  min-inline-size: 0;
 }
 
 .approval-page-hint {
   margin: 0;
   padding: var(--palm-s3) var(--palm-s4) var(--palm-s4);
   font-size: var(--palm-t-s);
-  color: var(--palm-fg-3);
+  /* 这句话解释的是「批准之后会发生什么」，属于决策信息，不是可有可无的脚注：
+     三级灰在大屏上离按钮 200px 远，基本没人会读。抬到二级色。 */
+  color: var(--palm-fg-2);
   border-top: 1px solid var(--palm-line);
 }
 
@@ -57,6 +60,9 @@
   flex: 1 1 auto;
   flex-direction: column;
   overflow-y: auto;
+  /* flex 项的自动最小宽度是 min-content：一条长命令能把整个审批块顶出屏幕，
+     「原始参数」切换按钮随之被挤出视口（2026-11-10 实拍）。 */
+  min-inline-size: 0;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -67,6 +73,8 @@
   flex-direction: column;
   gap: var(--palm-s3);
   min-block-size: 0;
+  /* 同上：这一列也不能被长命令撑开。 */
+  min-inline-size: 0;
 }
 
 .approval-detail-meta {
@@ -161,17 +169,37 @@
 .approval-detail-args {
   margin: 0;
   padding: var(--palm-s3);
+  /* 命令块自己封顶：不把「待批准」那一行（含切换按钮）顶出屏幕。
+     2026-11-10：原来写 white-space: pre + 横向滚动 —— 手机上批一条命令得**横着拖**
+     才看得全；而聊天卡片里同一段命令是换行读的。两个审批面两种读法没道理，
+     统一成"换行读 + 限高竖向滚"。 */
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  max-block-size: calc(var(--palm-t-s) * 1.4 * 10);
   color: var(--palm-fg);
   font-family: var(--font-mono);
   font-size: var(--palm-t-s);
   line-height: var(--palm-lh-body);
-  white-space: pre;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
 .approval-detail-code {
   min-height: var(--palm-hit);
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+
+/* 横滚溢出提示（2026-11-10，320px 实拍）：命令块在容器圆角上被切掉一截时，右缘给
+ * 一道渐隐 —— 用户才知道后面还有命令没读到。只在真溢出（data-fade=end）时出现，
+ * 短命令没有尾巴；滚到最右由 hook 撤掉。
+ * 渐隐用 currentColor 画：遮罩只看透明度，不引入任何新颜色值。 */
+.approval-detail-code[data-fade='end'] {
+  -webkit-mask-image: linear-gradient(to right, currentColor 0 calc(100% - var(--palm-s6)), transparent 100%);
+  mask-image: linear-gradient(to right, currentColor 0 calc(100% - var(--palm-s6)), transparent 100%);
 }
 
 .approval-detail-args {
@@ -236,7 +264,7 @@
 
 .approval-detail-approve {
   border: var(--palm-hair) solid var(--palm-ok);
-  background: color-mix(in srgb, var(--palm-ok) 16%, transparent);
+  background: var(--palm-ok-band);
   color: var(--palm-ok);
 }
 

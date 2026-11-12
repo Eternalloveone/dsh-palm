@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>过程条翻牌计数 · 效果图 v2</title>
+<style>
+  :root{
+    --page:#0a0a0f; --surface:#13131a; --elevated:#1c1c28;
+    --ink:#f0f0f5; --ink2:#a0a0b0; --ink3:#7f7f8c;
+    --line:#2a2a3a; --line-soft:#1e1e2a;
+    --accent:#5b5cf0;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --cell-h: 20px; --cell-w: 14.5px; --cell-fs: 12.5px; --cell-gap: 2px; --cell-r: 3.5px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#07070b;color:var(--ink);font-family:var(--sans)}
+  .sheet{width:1020px;margin:0 auto;padding:26px 30px 30px}
+  .sheetHead{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+  .sheetHead h1{font-size:17px;margin:0;letter-spacing:.2px}
+  .sheetHead .tag{font:500 11px/1 var(--mono);color:var(--ink3);border:1px solid var(--line);border-radius:99px;padding:4px 9px}
+  .sheetSub{color:var(--ink3);font-size:12px;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:452px 1fr;gap:18px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--line-soft);border-radius:14px;padding:15px 16px 16px}
+  .panelTitle{font-size:10.5px;color:var(--ink3);letter-spacing:.7px;text-transform:uppercase;margin:0 0 12px;font-family:var(--mono)}
+  .panelNote{font-size:11.5px;color:var(--ink3);line-height:1.7;margin:10px 0 0}
+  .panelNote b{color:var(--ink2);font-weight:500}
+  .panelNote code{font:500 10.5px/1 var(--mono);background:#101017;border:1px solid var(--line-soft);border-radius:5px;padding:2px 5px;color:#cfd2ff}
+
+  /* ───────── 手机原位（390 宽） ───────── */
+  .phone{width:390px;background:var(--page);border:1px solid var(--line);border-radius:18px;padding:13px 13px 16px}
+  .phoneBar{display:flex;justify-content:space-between;font:500 10.5px/1 var(--mono);color:var(--ink3);margin-bottom:11px}
+  .bubble{background:var(--elevated);border-radius:12px;padding:9px 11px;font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:9px;max-width:88%}
+  .processLine{
+    display:flex;align-items:center;gap:8px;
+    background:#0f0f16;border:1px solid var(--line-soft);border-radius:11px;
+    padding:0 11px;height:42px;font-size:12.5px;color:var(--ink2);
+  }
+  .chev{width:13px;height:13px;flex:none;color:var(--ink3)}
+  .processText{display:flex;align-items:center;gap:7px;line-height:1}
+  .numWord{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--ink2)}
+  .dotSep{width:3px;height:3px;border-radius:99px;background:#3a3a48;flex:none;margin:0 1px}
+  .spacer{flex:1}
+  .clock{font:500 10.5px/1 var(--mono);color:var(--ink3);white-space:nowrap}
+  .pulse{width:6px;height:6px;border-radius:99px;background:var(--accent);flex:none;margin-right:6px}
+  .expanded{margin-top:9px;border-left:1px solid var(--line-soft);padding:2px 0 2px 9px}
+  .step{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink3);padding:3px 0;line-height:1.4}
+  .step i{width:5px;height:5px;border-radius:99px;background:#4ade80;flex:none;font-style:normal}
+  .step span{color:var(--ink2);font-family:var(--mono);font-size:11px}
+
+  /* ───────── 翻牌数字 ───────── */
+  .flipNum{display:inline-flex;gap:var(--cell-gap);align-items:center;vertical-align:-3px}
+  .flip{
+    position:relative;display:inline-block;width:var(--cell-w);height:var(--cell-h);
+    perspective:160px;font:600 var(--cell-fs)/1 var(--mono);color:#f4f6ff;
+    font-variant-numeric:tabular-nums;border-radius:var(--cell-r);
+    box-shadow:0 1px 0 rgba(255,255,255,.05), 0 0 0 1px rgba(255,255,255,.045);
+  }
+  .flip>span{position:absolute;left:0;width:100%;height:50%;overflow:hidden;backface-visibility:hidden}
+  .flip .top{bottom:50%;border-radius:var(--cell-r) var(--cell-r) 0 0;background:#212130}
+  .flip .btm{top:50%;border-radius:0 0 var(--cell-r) var(--cell-r);background:#1e1e2a}
+  .flip .top i,.flip .btm i{
+    position:absolute;left:0;width:100%;height:var(--cell-h);
+    display:flex;align-items:center;justify-content:center;font-style:normal;
+  }
+  .flip .top i{top:0}
+  .flip .btm i{top:calc(var(--cell-h) / -2)}
+  .flip .hinge{position:absolute;left:0;top:50%;width:100%;height:1px;background:rgba(255,255,255,.07);z-index:4;transform:translateY(-.5px)}
+  .flip .flap-t,.flip .flap-b{
+    position:absolute;left:0;width:100%;height:50%;overflow:hidden;
+    z-index:3;
+  }
+  .flip .flap-t i,.flip .flap-b i{
+    position:absolute;left:0;width:100%;height:var(--cell-h);
+    display:flex;align-items:center;justify-content:center;font-style:normal;
+  }
+  .flip .flap-t i{top:0}
+  .flip .flap-b i{top:calc(var(--cell-h) / -2)}
+  .flip .flap-t{bottom:50%;border-radius:var(--cell-r) var(--cell-r) 0 0;background:#212130;transform-origin:bottom center;transform:rotateX(0deg);border-bottom:0}
+  .flip .flap-b{top:50%;border-radius:0 0 var(--cell-r) var(--cell-r);background:#1e1e2a;transform-origin:top center;transform:rotateX(90deg)}
+  .flip.go .flap-t{animation:flipTop .19s cubic-bezier(.45,.05,.55,1) forwards}
+  .flip.go .flap-b{animation:flipBottom .19s cubic-bezier(.25,.8,.35,1) .095s forwards}
+  @keyframes flipTop{from{transform:rotateX(0deg);filter:brightness(1)}to{transform:rotateX(-90deg);filter:brightness(.62)}}
+  @keyframes flipBottom{from{transform:rotateX(90deg);filter:brightness(.62)}to{transform:rotateX(0deg);filter:brightness(1)}}
+  @media (prefers-reduced-motion: reduce){ .flip.go .flap-t,.flip.go .flap-b{animation:none} }
+
+  /* ───────── 放大区 ───────── */
+  .zoom{--cell-h:62px;--cell-w:44px;--cell-fs:38px;--cell-gap:5px;--cell-r:8px;display:flex;align-items:center;gap:16px;padding:8px 2px 22px}
+  .zoomLabel{font:500 11px/1.7 var(--mono);color:var(--ink3)}
+  .zoomLabel b{color:var(--ink2);font-weight:500;font-family:var(--sans);font-size:12px}
+
+  /* ───────── 分帧 ───────── */
+  .frames{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .frame{background:#0f0f16;border:1px solid var(--line-soft);border-radius:10px;padding:11px 8px 12px;display:flex;flex-direction:column;align-items:center;gap:9px}
+  .frame .t{font:500 10px/1 var(--mono);color:var(--ink3)}
+  .frame .cap{font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.55}
+  .frame .flipNum{--cell-h:30px;--cell-w:22px;--cell-fs:19px;--cell-gap:2.5px;--cell-r:4px}
+  /* 冻结的半翻状态：让静帧也看得出「牌子在转」 */
+  .flip.fz-1 .flap-t{transform:rotateX(-62deg);filter:brightness(.62)}
+  .flip.fz-1 .flap-b{transform:rotateX(90deg)}
+  .flip.fz-2 .flap-t{transform:rotateX(-90deg);filter:brightness(.62)}
+  .flip.fz-2 .flap-b{transform:rotateX(34deg);filter:brightness(.85)}
+
+  /* ───────── 规格表 ───────── */
+  .states{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:2px 0 4px}
+  .stateItem{display:flex;flex-direction:column;gap:8px;padding:10px 11px;background:#0f0f16;border:1px solid var(--line-soft);border-radius:9px}
+  .stateItem .lab{font-size:10.5px;color:var(--ink3);line-height:1.3}
+  .stateItem .val{display:flex;align-items:center;min-height:19px}
+  .stateItem .flipNum{vertical-align:0}
+  .plainPlus{font:600 12px/1 var(--mono);color:#f4f6ff;background:#1e1e29;border-radius:3.5px;padding:3px 4px}
+  .plainDash{font:500 12.5px/1 var(--mono);color:var(--ink3)}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:2px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{color:var(--ink3);font-weight:500;font-size:10.5px;letter-spacing:.5px;font-family:var(--mono)}
+  td:first-child{color:var(--ink2);white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+  td code{font:500 10.5px/1 var(--mono);background:#0f0f16;border:1px solid var(--line-soft);border-radius:5px;padding:2px 5px;color:#cfd2ff}
+  .controls{display:flex;gap:8px;margin-top:12px}
+  .btn{font:500 11.5px/1 var(--sans);color:var(--ink2);background:#0f0f16;border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+  .btn:hover{color:var(--ink);border-color:#3a3a50}
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet">
+  <div class="sheetHead">
+    <h1>过程条数字 · 记分牌翻牌效果</h1>
+    <span class="tag">v2 · 2026-11-11</span>
+  </div>
+  <p class="sheetSub">「N 次工具调用」「改 N 个文件」的数字改成翻牌计数：只翻发生变化的那一位，其余位保持不动。</p>
+
+  <div class="grid">
+    <!-- ── 左：手机原位 ── -->
+    <section class="panel">
+      <p class="panelTitle">原位 · 390 宽</p>
+      <div class="phone">
+        <div class="phoneBar"><span>dsh-palm</span><span>过程条</span></div>
+        <div class="bubble">正在按计划改排队的对账逻辑，先把权威队列接上。</div>
+
+        <div class="processLine">
+          <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+          <div class="processText">
+            <span class="numWord"><span class="flipNum" id="toolsA"></span>次工具调用</span>
+            <span class="dotSep"></span>
+            <span class="numWord">改<span class="flipNum" id="filesA"></span>个文件</span>
+          </div>
+          <span class="spacer"></span>
+          <span class="pulse"></span>
+          <span class="clock">3:42</span>
+        </div>
+
+        <div class="expanded">
+          <div class="step"><i></i>改 <span>session-store.ts</span> · +18 −6</div>
+          <div class="step"><i></i>跑 <span>vitest src/mobile/stream</span> · 全部通过</div>
+        </div>
+
+        <div class="bubble" style="margin-top:9px;max-width:74%">好，我先把删除那条跑通。</div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="replay">重播一次</button>
+        <button class="btn" id="jump">跳到 24 / 5</button>
+      </div>
+      <p class="panelNote">牌面 <b>14 × 19px</b>，与 12.5px 正文同基线；整行高度仍是 <b>42px</b>，骨架一点不动。</p>
+    </section>
+
+    <!-- ── 右：放大 + 分帧 ── -->
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <section class="panel">
+        <p class="panelTitle">放大 · 结构</p>
+        <div class="zoom">
+          <span class="flipNum" id="toolsBig"></span>
+          <span class="zoomLabel"><b>次工具调用</b><br />上下两片对开，中缝 1px 暗线</span>
+        </div>
+        <div class="zoom" style="padding-top:0;padding-bottom:6px">
+          <span class="flipNum" id="filesBig"></span>
+          <span class="zoomLabel"><b>个文件</b><br />十位没变就一声不响 —— 只有个位翻</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="panelTitle">动效分解 · 一位数字 285ms</p>
+        <div class="frames">
+          <div class="frame">
+            <span class="t">0 ms</span>
+            <span class="flipNum" data-frame="0" data-from="12" data-to="17"></span>
+            <span class="cap">旧值在上<br />新值扣在背后</span>
+          </div>
+          <div class="frame">
+            <span class="t">95 ms</span>
+            <span class="flipNum" data-frame="1" data-from="12" data-to="17"></span>
+            <span class="cap">上半片倒下<br />露出新值上半</span>
+          </div>
+          <div class="frame">
+            <span class="t">190 ms</span>
+            <span class="flipNum" data-frame="2" data-from="12" data-to="17"></span>
+            <span class="cap">下半片抬起<br />盖住旧值下半</span>
+          </div>
+          <div class="frame">
+            <span class="t">落定</span>
+            <span class="flipNum" data-frame="3" data-from="12" data-to="17"></span>
+            <span class="cap">12 → 17<br />十位的 1 全程没动</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ── 边界状态 ── -->
+  <section class="panel" style="margin-top:18px">
+    <p class="panelTitle">边界状态</p>
+    <div class="states">
+      <span class="stateItem"><span class="lab">还没调用</span><span class="val"><span class="flipNum" data-static="0"></span></span></span>
+      <span class="stateItem"><span class="lab">个位</span><span class="val"><span class="flipNum" data-static="7"></span></span></span>
+      <span class="stateItem"><span class="lab">两位数</span><span class="val"><span class="flipNum" data-static="12"></span></span></span>
+      <span class="stateItem"><span class="lab">三位数</span><span class="val"><span class="flipNum" data-static="128"></span></span></span>
+      <span class="stateItem"><span class="lab">溢出</span><span class="val"><span class="plainPlus">99+</span></span></span>
+      <span class="stateItem"><span class="lab">未开始</span><span class="val"><span class="plainDash">—</span></span></span>
+    </div>
+    <p class="panelNote">三位以上直接写 <b>99+</b>：12px 下三位牌面会挤成一排算盘，反而读不出数量。</p>
+  </section>
+
+  <!-- ── 规格 ── -->
+  <section class="panel" style="margin-top:18px">
+    <p class="panelTitle">落地参数</p>
+    <table>
+      <tr><th>项</th><th>取值</th><th>说明</th></tr>
+      <tr><td>牌面</td><td>14 × 19px · 圆角 3.5px · 缝 1px</td><td>与 12.5px 正文同基线，行高不变（42px）</td></tr>
+      <tr><td>数字</td><td>12px / 600 / tabular-nums</td><td>等宽数字，个位变化不让整行抖动</td></tr>
+      <tr><td>时长</td><td>上半 190ms · 下半 190ms（延迟 95ms）</td><td>总 285ms；再慢就挡阅读</td></tr>
+      <tr><td>缓动</td><td>上 <code>cubic-bezier(.45,.05,.55,1)</code><br />下 <code>cubic-bezier(.25,.8,.35,1)</code></td><td>下落匀速、落定带一点重量</td></tr>
+      <tr><td>触发</td><td>只在该位变化时翻</td><td>3 → 4 只翻个位；9 → 10 才翻两位</td></tr>
+      <tr><td>亮度</td><td>翻动中 1 → .62</td><td>牌子背光，不抢正文注意力</td></tr>
+      <tr><td>合并</td><td>同一秒多次变化只翻一次（尾随 120ms）</td><td>一轮连开 5 个工具不会连翻 5 次</td></tr>
+      <tr><td>降级</td><td><code>prefers-reduced-motion</code> → 直接换字</td><td>不做动画，数字照旧准确</td></tr>
+      <tr><td>成本</td><td>纯 CSS：2 个 span + 2 个 keyframes</td><td>无 canvas / 无依赖 / 不碰现有骨架</td></tr>
+    </table>
+  </section>
+</div>
+
+<script>
+  function makeCell(digit){
+    const el = document.createElement('span');
+    el.className = 'flip';
+    el.innerHTML =
+      '<span class="top"><i>' + digit + '</i></span>' +
+      '<span class="btm"><i>' + digit + '</i></span>' +
+      '<span class="flap-t"><i>' + digit + '</i></span>' +
+      '<span class="flap-b"><i>' + digit + '</i></span>' +
+      '<span class="hinge"></span>';
+    return el;
+  }
+
+  function flipDigit(cell, next){
+    const cur = cell.querySelector('.top i').textContent;
+    if (cur === next) return;
+    cell.querySelector('.flap-t i').textContent = cur;
+    cell.querySelector('.flap-b i').textContent = next;
+    cell.querySelector('.top i').textContent = next;
+    cell.classList.remove('go');
+    void cell.offsetWidth;
+    cell.classList.add('go');
+    clearTimeout(cell._t);
+    cell._t = setTimeout(() => {
+      cell.querySelector('.btm i').textContent = next;
+      cell.querySelector('.flap-t i').textContent = next;
+      cell.classList.remove('go');
+    }, 320);
+  }
+
+  function setNumber(el, value){
+    const chars = String(value).split('');
+    while (el.children.length < chars.length) el.appendChild(makeCell('0'));
+    while (el.children.length > chars.length) el.removeChild(el.lastElementChild);
+    chars.forEach((ch, i) => flipDigit(el.children[i], ch));
+  }
+
+  document.querySelectorAll('[data-static]').forEach(el => setNumber(el, el.dataset.static));
+
+  // 分帧：0=起始 1=上半倒 2=下半抬 3=落定
+  document.querySelectorAll('[data-frame]').forEach(el => {
+    const to = el.dataset.to, from = el.dataset.from;
+    const frame = Number(el.dataset.frame);
+    for (let i = 0; i < to.length; i += 1) el.appendChild(makeCell('0'));
+    [...to].forEach((ch, i) => {
+      const cell = el.children[i];
+      const oldCh = from.length >= to.length ? from[from.length - to.length + i] : ch;
+      const changed = oldCh !== ch;
+      const topCh = frame === 0 ? oldCh : ch;
+      const btmCh = frame === 3 ? ch : oldCh;
+      cell.querySelector('.flap-t i').textContent = oldCh;
+      cell.querySelector('.flap-b i').textContent = ch;
+      cell.querySelector('.top i').textContent = topCh;
+      cell.querySelector('.btm i').textContent = btmCh;
+      if (changed && (frame === 1 || frame === 2)) cell.classList.add('fz-' + frame);
+    });
+  });
+
+  const seq = [{t:3,f:0},{t:7,f:1},{t:12,f:3},{t:17,f:3},{t:24,f:5},{t:24,f:5}];
+  let step = 0;
+  const toolsEls = [document.getElementById('toolsA'), document.getElementById('toolsBig')];
+  const filesEls = [document.getElementById('filesA'), document.getElementById('filesBig')];
+  toolsEls.forEach(el => setNumber(el, seq[0].t));
+  filesEls.forEach(el => setNumber(el, seq[0].f));
+  function play(){
+    step = (step + 1) % seq.length;
+    const s = seq[step];
+    toolsEls.forEach(el => setNumber(el, s.t));
+    filesEls.forEach(el => setNumber(el, s.f));
+  }
+  let timer = setInterval(play, 1500);
+  document.getElementById('replay').onclick = () => { clearInterval(timer); step = 0; play(); timer = setInterval(play, 1500); };
+  document.getElementById('jump').onclick = () => {
+    clearInterval(timer); step = 4;
+    toolsEls.forEach(el => setNumber(el, 24));
+    filesEls.forEach(el => setNumber(el, 5));
+    timer = setInterval(play, 1500);
+  };
+</script>
+</body>
+</html>

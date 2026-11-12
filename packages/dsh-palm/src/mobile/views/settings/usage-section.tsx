@@ -64,6 +64,9 @@ export function UsageProviderCard({ provider }: { provider: UsageProviderView })
       </div>
       {provider.status === 'ok' && provider.kind === 'usage' && provider.usedPercent !== undefined && (
         <>
+          {/* 单位铁律（2026-11-10）：宿主给的是 **0..1 的分数**（0.459 = 45.9%），
+              这里统一 ×100 出百分数。拿整数（62）造样例会画出「6200.0%」。
+              单位由 `SettingsView.test.tsx` 的 0.459 → 「余量 54%」 钉住。 */}
           {provider.sessionUsed !== undefined && (
             <div className="usage-block">
               <div className="usage-row">

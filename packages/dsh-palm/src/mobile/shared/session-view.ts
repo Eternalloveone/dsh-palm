@@ -23,6 +23,21 @@ export interface SessionView {
 }
 
 /** Map a list row to the surface model; the title comes from projections when present. */
+/**
+ * 会话所属目录的名字（`dsh-palm` / `ICNT9388`）。
+ *
+ * Windows 的 cwd 是反斜杠路径：只按 `/` 拆会把整条 `D:\dev\app` 当成名字，
+ * 同一个目录下的会话于是全显示成同一个截断路径（2026-11-11 的标题 bug 就是这么来的）。
+ * 任务页现在也要用它标"这条在跑的任务属于哪个工作区"，所以抽出来共用。
+ *
+ * @param cwd - 会话的工作目录（可缺）
+ * @returns 目录名；给空或没给时返回 undefined
+ */
+export function cwdTail(cwd: string | undefined): string | undefined {
+  if (cwd === undefined || cwd === '') return undefined
+  return cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? cwd
+}
+
 export function toSessionView(item: {
   sessionId: string
   updatedAt: number
@@ -36,12 +51,10 @@ export function toSessionView(item: {
   // Windows cwd is a backslash path, so splitting on '/' alone would return the
   // whole `D:\dev\app` as a "title" — every session of one directory then
   // showed the same truncated path.
-  const cwdTail = item.cwd !== undefined && item.cwd !== ''
-    ? item.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? item.cwd
-    : undefined
+  const tail = cwdTail(item.cwd)
   const title = typeof titleValue === 'string' && titleValue !== ''
     ? titleValue
-    : cwdTail ?? '新会话'
+    : tail ?? '新会话'
   const previewValue = values?.preview
   const stats = values?.sessionStats
   const turns = typeof stats === 'object' && stats !== null

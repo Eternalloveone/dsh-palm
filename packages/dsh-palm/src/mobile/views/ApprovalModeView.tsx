@@ -5,13 +5,19 @@
  * 命令没注册就是切不了（`PermissionConfirmSheet` 里同一套判定）。所以这一页
  * 只做三件事：说清当前是什么、列出可选的是什么、危险的给一句提醒。
  *
+ * 2026-11-10：最放开那一档（`needsPermissionConfirm`）在这一页也要先确认 ——
+ * 对话页的内联选择器走 `PermissionConfirmSheet`，这一页以前点一下就发命令，
+ * 同一个动作两条路径、两种安全等级。
+ *
  * 数据形状直接复用 `parsePermissionSelect` 的结果，页面不解析投影。
  *
  * @module dsh-palm/mobile/views/ApprovalModeView
  */
+import { useState } from 'react'
 import { settingsLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
 import { Button, IconButton } from '../ui/primitives.tsx'
+import { needsPermissionConfirm } from './chat/lib/permission-confirm.ts'
 
 /** 选项（与宿主投影同形）。 */
 export interface ApprovalModeOption {
@@ -38,6 +44,16 @@ export interface ApprovalModeViewProps {
  * @returns 批准方式页
  */
 export function ApprovalModeView({ currentValue, options, onApply, error, onBack }: ApprovalModeViewProps) {
+  // 正在等二次确认的那一档（只有 needsPermissionConfirm 会用它）。
+  const [confirming, setConfirming] = useState<string | undefined>(undefined)
+  const apply = (value: string): void => {
+    if (onApply === undefined) return
+    if (value !== currentValue && needsPermissionConfirm(value)) {
+      setConfirming(value)
+      return
+    }
+    onApply(value)
+  }
   return (
     <SlotLayout
       spec={settingsLayout}
@@ -65,7 +81,7 @@ export function ApprovalModeView({ currentValue, options, onApply, error, onBack
                     className="approval-mode-row"
                     aria-pressed={isCurrent}
                     disabled={onApply === undefined}
-                    onClick={() => { onApply?.(option.value) }}
+                    onClick={() => { apply(option.value) }}
                   >
                     <span className="approval-mode-row-name">{option.name}</span>
                     {isCurrent ? <span className="approval-mode-row-mark">当前</span> : null}
@@ -77,6 +93,29 @@ export function ApprovalModeView({ currentValue, options, onApply, error, onBack
               })
             )}
             {error === undefined ? null : <p className="approval-mode-error">{error}</p>}
+            {/* 最放开那一档的二次确认（2026-11-10）：与对话页的确认浮层同一个口径，
+                文案只讲"放开之后会怎样"，不做道德劝说。 */}
+            {confirming === undefined ? null : (
+              <div className="approval-mode-confirm" role="alertdialog" aria-label="确认放开完全权限">
+                <p className="approval-mode-confirm-text">
+                  放开后它不再逐条问你：改文件、跑命令都会直接执行。只在信任当前任务时放开。
+                </p>
+                <div className="approval-mode-confirm-actions">
+                  <Button type="button" className="mobile-button" onClick={() => { setConfirming(undefined) }}>取消</Button>
+                  <Button
+                    type="button"
+                    className="approval-mode-confirm-ok"
+                    onClick={() => {
+                      const value = confirming
+                      setConfirming(undefined)
+                      if (value !== undefined) onApply?.(value)
+                    }}
+                  >
+                    确认放开
+                  </Button>
+                </div>
+              </div>
+            )}
             <p className="approval-mode-note">
               放宽批准范围会减少确认弹窗，也会让工具在你没看过的情况下就执行。只在信任当前任务时放宽。
             </p>

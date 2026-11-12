@@ -2,7 +2,7 @@
 /**
  * 连接提示（极简一行）的契约：
  * 1. 一行、展开 ≤28px、11px 弱化色（琥珀 / 灰），**无图标块、无按钮**；
- * 2. 断线「连接中断，正在重连…」；恢复「已重连」，800ms 后 `data-state` 收起；
+ * 2. 断线「网络慢了一点，正在恢复…」；恢复「已重连」，800ms 后 `data-state` 收起；
  * 3. 收起**不卸载** —— 节点一直在 DOM 里，只是 0 高 + 透明（否则下面的正文会跳）。
  *
  * 与状态条的 `unknown` 是两件事：断线只说明没有权威数据，状态条自己保持 unknown。
@@ -42,9 +42,9 @@ describe('OfflineBanner（断线提示 · 极简一行）', () => {
     expect(ruleBody(".chat-offline-banner[data-state='gone']")).toContain('block-size: 0')
   })
 
-  it('断线：一行「连接中断，正在重连…」，无图标块、无按钮', () => {
+  it('断线：一行「网络慢了一点，正在恢复…」，无图标块、无按钮', () => {
     const { container } = render(<OfflineBanner offline />)
-    expect(screen.getByText('连接中断，正在重连…')).toBeTruthy()
+    expect(screen.getByText('网络慢了一点，正在恢复…')).toBeTruthy()
     expect(container.querySelector('.chat-offline-banner')?.getAttribute('data-state')).toBe('off')
     expect(container.querySelector('button')).toBeNull()
     expect(container.querySelector('svg')).toBeNull()
@@ -73,7 +73,10 @@ describe('OfflineBanner（断线提示 · 极简一行）', () => {
     const banner = ruleBody('.chat-offline-banner')
     expect(banner).toContain('block-size: var(--palm-offline-h)')
     expect(banner).toContain('font-size: var(--palm-offline-size)')
-    expect(banner).toContain('var(--palm-warn)')
+    // 2026-11-10：警示语义改由**带子**承担（--palm-warn-band 24% 普通 rgba），
+  // 文字回到正文色 —— 琥珀字压在加深后的琥珀带上，纸色皮肤只有 4.04:1。
+  expect(banner).toContain('var(--palm-warn-band)')
+  expect(banner).toContain('var(--palm-fg)')
     // 不把「断线」染成错误红：状态未知 ≠ 出错。
     expect(banner).not.toContain('var(--palm-danger)')
     expect(mobileCss).not.toContain('.chat-offline-retry')

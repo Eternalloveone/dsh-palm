@@ -38,7 +38,7 @@ function renderView(input: Partial<TurnDeliveryFacts> = {}, testsPassed?: number
 
 describe('交付详情页', () => {
   it('按交付物 / 新增 / 修改三组渲染，标题带真实条数', () => {
-    renderView({
+    const { container } = renderView({
       deliverables: [{ path: 'docs/report.md', description: '交付报告' }],
       changes: [
         { path: 'src/a.ts', adds: 96, dels: 0 },
@@ -49,8 +49,12 @@ describe('交付详情页', () => {
     expect(screen.getByText('新增 · 1')).toBeTruthy()
     expect(screen.getByText('修改 · 1')).toBeTruthy()
     expect(screen.getByText('交付报告')).toBeTruthy()
-    expect(screen.getByText('src/a.ts')).toBeTruthy()
-    expect(screen.getByText('src/b.ts')).toBeTruthy()
+    // 两行式：第一行文件名，第二行路径（2026-11-10 实机排版修正）。
+    const files = [...container.querySelectorAll('.palm-dd-file')].map(node => node.textContent)
+    const dirs = [...container.querySelectorAll('.palm-dd-dir')].map(node => node.textContent)
+    expect(files).toContain('a.ts')
+    expect(files).toContain('b.ts')
+    expect(dirs).toContain('src')
   })
 
   it('空分组整组不画', () => {
@@ -66,7 +70,7 @@ describe('交付详情页', () => {
       changes: [{ path: 'src/b.ts', adds: 6, dels: 12 }],
     })
     fireEvent.click(screen.getByText('report.md'))
-    fireEvent.click(screen.getByText('src/b.ts'))
+    fireEvent.click(screen.getByText('b.ts'))
     expect(opened).toEqual(['docs/report.md', 'src/b.ts'])
   })
 
@@ -88,13 +92,13 @@ describe('交付详情页', () => {
     const sixDeliverables = Array.from({ length: 6 }, (_, index) => ({ path: `docs/d${index}.md` }))
     const sevenChanges = Array.from({ length: 7 }, (_, index) => ({ path: `src/e${index}.ts`, adds: 1, dels: 1 }))
     const { container } = renderView({ deliverables: sixDeliverables, changes: sevenChanges })
-    const visibleNames = (): string[] => [...container.querySelectorAll('.palm-dd-name')].map(node => node.textContent ?? '')
+    const visibleNames = (): string[] => [...container.querySelectorAll('.palm-dd-file')].map(node => node.textContent ?? '')
     // 第一组（交付物）默认展开：6 条全在。
     expect(visibleNames().filter(name => name.startsWith('d'))).toHaveLength(6)
     // 修改组默认收起：只露前 5 条。
-    expect(visibleNames().filter(name => name.startsWith('src/e'))).toHaveLength(5)
+    expect(visibleNames().filter(name => name.startsWith('e'))).toHaveLength(5)
     fireEvent.click(screen.getByRole('button', { name: '展开全部' }))
-    expect(visibleNames().filter(name => name.startsWith('src/e'))).toHaveLength(7)
+    expect(visibleNames().filter(name => name.startsWith('e'))).toHaveLength(7)
     // 展开后两个组都可「收起」：按 DOM 顺序点第一组的那个。
     fireEvent.click(screen.getAllByRole('button', { name: '收起' })[0]!)
     expect(visibleNames().filter(name => name.startsWith('d'))).toHaveLength(5)

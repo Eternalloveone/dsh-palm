@@ -15,29 +15,43 @@
   padding: var(--palm-s4);
 }
 
-/* 占用条：四档宽度（不用行内样式，遵守 inlineStyles 棘轮）。 */
+/* 占用条：原生 <progress>。宽度由浏览器按 value/max 算比例，
+   不再用"四档宽度"糊（26% 曾被画成半满）。三条规则分别对应
+   内核默认外观、轨道、填充；缺一条就会露出系统蓝。 */
 .context-bar {
-  height: 12px;
-  margin-bottom: var(--palm-s4);
-  background: var(--palm-sur-2);
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  inline-size: 100%;
+  block-size: 12px;
+  margin: 0 0 var(--palm-s4);
+  border: none;
   border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
   overflow: hidden;
 }
 
-.context-bar-fill {
-  display: block;
-  height: 100%;
-  width: 25%;
+.context-bar::-webkit-progress-bar {
+  background: var(--palm-sur-2);
+  border-radius: var(--palm-r-s);
+}
+
+.context-bar::-webkit-progress-value {
   background: var(--palm-accent);
   border-radius: var(--palm-r-s);
 }
 
-.context-bar-fill[data-level='2'] { width: 50%; }
-.context-bar-fill[data-level='3'] { width: 75%; }
-.context-bar-fill[data-level='4'] { width: 100%; }
+.context-bar::-moz-progress-bar {
+  background: var(--palm-accent);
+  border-radius: var(--palm-r-s);
+}
 
-/* 快满了换警示色：只换色，不改结构。 */
-.context-bar-fill[data-pressure='high'] { background: var(--palm-warn); }
+/* 快满了换色：只换色，不改结构。
+   2026-11-10 双皮肤实拍：纸色皮肤里 --palm-warn 与 --palm-accent 几乎同色（橄榄棕 vs 棕），
+   警示档与常态档看不出区别。改用 --palm-danger：三套皮肤都与强调色拉得开，
+   而且"上下文快满"本来就更接近"要出事"而不是"提示一下"。 */
+.context-bar[data-pressure='high']::-webkit-progress-value { background: var(--palm-danger); }
+.context-bar[data-pressure='high']::-moz-progress-bar { background: var(--palm-danger); }
 
 .context-facts {
   display: grid;
@@ -82,4 +96,12 @@
 .context-page-figure-unit {
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+}
+
+/* 百分比（2026-11-10）：和「已占用」同一条基线，但字号抬到 13px、二级色 ——
+ * 它是这一屏真正要回答的那个数，不该比单位还弱。 */
+.context-page-figure-pct {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg-2);
+  font-variant-numeric: tabular-nums;
 }

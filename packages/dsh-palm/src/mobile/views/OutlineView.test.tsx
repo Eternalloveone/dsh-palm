@@ -68,6 +68,31 @@ describe('回合大纲页（P6 ⑫ 屏）', () => {
     expect(titleOf(nodes[2] ?? null)).toBe('这句是提问')
   })
 
+  it('标题里的行内 markdown 标记要剥掉（星号、反引号、链接、删除线）', () => {
+    // 2026-11-10 大纲页实拍：结论里写着 `.chat` 与 **加粗**，标题把标记原样带出来。
+    render(
+      <OutlineView
+        entries={[
+          entry(1, { response: '空态没有 flex 权重，`.chat` 是 flex 列，输入框紧跟在 chips 后面。' }),
+          entry(2, { response: '**改 pre-wrap + anywhere**，行号仍对齐首行。' }),
+          entry(3, { response: '看 [这份文档](https://example.com/doc) 的第三节。' }),
+          entry(4, { response: '~~旧方案~~ 保留四态卡片。' }),
+          entry(5, { response: '变量 changed_files 和 snake_case 保持原样。' }),
+        ]}
+        currentTurn={0}
+        onBack={() => {}}
+        onPick={() => {}}
+      />,
+    )
+    const nodes = [...document.querySelectorAll('.outline-node')]
+    expect(titleOf(nodes[0] ?? null)).toBe('空态没有 flex 权重，.chat 是 flex 列，输入框紧跟在 chips 后面。')
+    expect(titleOf(nodes[1] ?? null)).toBe('改 pre-wrap + anywhere，行号仍对齐首行。')
+    expect(titleOf(nodes[2] ?? null)).toBe('看 这份文档 的第三节。')
+    expect(titleOf(nodes[3] ?? null)).toBe('旧方案 保留四态卡片。')
+    // 下划线不能乱剥：标识符里的 _ 是代码，不是强调。
+    expect(titleOf(nodes[4] ?? null)).toBe('变量 changed_files 和 snake_case 保持原样。')
+  })
+
   it('节点显示这一轮开始的时间；宿主独有的未加载轮次没有时间就如实不给', () => {
     const at = new Date(2026, 10, 8, 13, 16, 0).getTime()
     render(

@@ -26,27 +26,8 @@ import type { RenderMessage } from '../../../render/messages.ts'
 import { recallChatSnapshot } from '../../../session/chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../../stream/scroll-machine.ts'
 import type { ChatScrollHandle } from '../../../ui/hooks/use-stick-to-bottom.ts'
-import { createCache } from '../../../kernels/cache.ts'
-import { CACHE_POLICIES } from '../../../kernels/cache-policies.ts'
-
-/** 预取页缓存（数字游标 → 页）。有界，容量见策略表。 */
-export interface PagePrefetchCache {
-  get(beforeSeq: number): ChatPageResult | undefined
-  has(beforeSeq: number): boolean
-  set(beforeSeq: number, page: ChatPageResult): void
-  delete(beforeSeq: number): void
-}
-
-/** 用 Cache 内核做一份带容量上限的预取缓存（内核键是字符串，这里转一层）。 */
-function createPagePrefetchCache(): PagePrefetchCache {
-  const store = createCache<ChatPageResult>({ maxEntries: CACHE_POLICIES.pagePrefetch.maxEntries })
-  return {
-    get: beforeSeq => store.get(String(beforeSeq)),
-    has: beforeSeq => store.has(String(beforeSeq)),
-    set: (beforeSeq, page) => { store.set(String(beforeSeq), page) },
-    delete: beforeSeq => { store.delete(String(beforeSeq)) },
-  }
-}
+import { createPagePrefetchCache, type PagePrefetchCache } from '../../../history/page-prefetch-cache.ts'
+import { capturePrependAnchor, restorePrependScrollTop, type PrependAnchor } from '../../../history/chat-scroll-anchor.ts'
 
 /** Abort an older-page request that never answers (weak links hang, not fail). */
 export const LOAD_OLDER_TIMEOUT_MS = 90_000
@@ -98,15 +79,6 @@ export function initialSnapshotRows(sessionId: string): { rows: RenderMessage[];
   return recallChatSnapshot(sessionId)
 }
 
-/** Anchor captured before a prepend, restored after the commit. */
-interface PrependAnchor {
-  top: number
-  height?: number
-  rowId?: string
-  rowTop?: number
-  rowSeq?: number
-}
-
 /** Pager state + entry points. */
 export interface ChatHistoryHandle {
   /** Whether more history exists (kept in sync with adopted pages). */
@@ -124,26 +96,12 @@ export interface ChatHistoryHandle {
    * @param maxRows - cap for a locate page (different window, no anchor shift).
    */
   loadOlder(silent?: boolean, beforeSeq?: number, chain?: boolean, maxRows?: number): void
+  /** Capture a predicate that turns false when the session epoch changes. */
+  captureSessionGuard(): () => boolean
   /** Ask the next commit to re-follow the tail (silent auto-extend). */
   markFollowAfterPrepend(): void
   /** The in-memory snapshot for this session (open-time seeding). */
   recallSnapshot(): { rows: RenderMessage[]; hasOlder: boolean } | undefined
-}
-
-/** Row at the top of the viewport: its screen position survives a prepend. */
-function captureRow(scroller: HTMLElement): { id: string; top: number; seq: number } | undefined {
-  const rows = scroller.querySelectorAll('[data-message-id]')
-  for (const row of rows) {
-    const rect = row.getBoundingClientRect()
-    if (rect.bottom > 80) {
-      return {
-        id: row.getAttribute('data-message-id') ?? '',
-        top: Math.round(rect.top),
-        seq: Number(row.getAttribute('data-row-seq') ?? '0'),
-      }
-    }
-  }
-  return undefined
 }
 
 /**
@@ -155,7 +113,12 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
   const { sessionId, messages, getFirstRow, loadedRowCount, preparePage, adoptPage, getScroll, actions, onLoading, onError } = options
   const [hasOlder, setHasOlder] = useState(false)
   const pendingRef = useRef(false)
-  const queuedRef = useRef<{ beforeSeq?: number } | undefined>(undefined)
+  const queuedRef = useRef<{
+    silent: boolean
+    beforeSeq?: number
+    chain: boolean
+    maxRows?: number
+  } | undefined>(undefined)
   // 预取页缓存有上限（Cache 内核，W4）：以前是个裸 Map，一次搜索跳转就塞一页，
   // 长会话里来回跳几十次就是几十页正文常驻内存。预取的意义只是"下一次点击不用等"，
   // 留最近几页足够。
@@ -163,6 +126,13 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
   const chainPagesRef = useRef(0)
   const followAfterPrependRef = useRef(false)
   const prependAnchorRef = useRef<PrependAnchor | undefined>(undefined)
+  const epochRef = useRef(0)
+  const sessionIdRef = useRef(sessionId)
+  const requestRef = useRef<{
+    epoch: number
+    controller: AbortController
+    timeout: ReturnType<typeof setTimeout>
+  } | undefined>(undefined)
   const loadOlderRef = useRef<(silent?: boolean, beforeSeq?: number, chain?: boolean, maxRows?: number) => void>(() => {})
   // Latest closures without making the layout effect re-run on every render.
   const getScrollRef = useRef(getScroll)
@@ -170,24 +140,50 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
   const actionsRef = useRef(actions)
   actionsRef.current = actions
 
-  const captureAnchor = (silent: boolean): PrependAnchor | undefined => {
-    const scroll = getScrollRef.current()
-    const scroller = scroll?.scrollRef.current
-    if (scroll === undefined || scroller === undefined) return undefined
-    const row = silent ? undefined : captureRow(scroller)
-    return {
-      top: scroll.scrollTopRef.current,
-      height: scroller.scrollHeight,
-      ...(row === undefined ? {} : { rowId: row.id, rowTop: row.top, rowSeq: row.seq }),
+  // A pager instance survives route renders. Invalidate and abort its in-flight
+  // request synchronously at the session boundary so a late page cannot write
+  // through the previous render's adoptPage closure into the newly opened chat.
+  useLayoutEffect(() => {
+    epochRef.current += 1
+    const epoch = epochRef.current
+    sessionIdRef.current = sessionId
+    chainPagesRef.current = 0
+    pendingRef.current = false
+    queuedRef.current = undefined
+    followAfterPrependRef.current = false
+    prependAnchorRef.current = undefined
+    pageCacheRef.current = createPagePrefetchCache()
+    setHasOlder(false)
+
+    return () => {
+      if (epochRef.current !== epoch) return
+      epochRef.current += 1
+      const request = requestRef.current
+      if (request !== undefined && request.epoch === epoch) {
+        clearTimeout(request.timeout)
+        request.controller.abort(new DOMException('history session changed', 'AbortError'))
+        requestRef.current = undefined
+      }
+      pendingRef.current = false
+      queuedRef.current = undefined
+      followAfterPrependRef.current = false
+      prependAnchorRef.current = undefined
+      pageCacheRef.current = createPagePrefetchCache()
     }
-  }
+  }, [sessionId])
+
+  const captureSessionGuard = useCallback(() => {
+    const epoch = epochRef.current
+    const owner = sessionId
+    return () => epochRef.current === epoch && sessionIdRef.current === owner
+  }, [sessionId])
 
   const loadOlder = useCallback((silent = false, beforeSeqOverride?: number, chain = false, maxRows?: number) => {
     if (pendingRef.current) {
       // A page is already in flight: remember this request and replay it once
       // the page lands. Dropping it makes the caller think it paged (search
       // "next" lands exactly on this race).
-      queuedRef.current = { beforeSeq: beforeSeqOverride }
+      queuedRef.current = { silent, beforeSeq: beforeSeqOverride, chain, maxRows }
       return
     }
     pendingRef.current = true
@@ -203,12 +199,26 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
     // Anchor BEFORE the request: React's commit-time focus restoration can
     // zero scrollTop while the old page is swapped, so measuring after the
     // await would anchor to the wrong content.
-    const anchor = captureAnchor(silent)
+    const anchor = capturePrependAnchor(getScrollRef.current(), silent)
 
     const controller = new AbortController()
+    const requestEpoch = epochRef.current
     const timeout = setTimeout(() => {
       controller.abort(new DOMException('load older timed out', 'TimeoutError'))
     }, LOAD_OLDER_TIMEOUT_MS)
+    const request = { epoch: requestEpoch, controller, timeout }
+    requestRef.current = request
+    const isCurrent = captureSessionGuard()
+    const releaseRequest = (): void => {
+      clearTimeout(timeout)
+      if (requestRef.current === request) requestRef.current = undefined
+    }
+    const replayQueued = (): void => {
+      const queued = queuedRef.current
+      if (queued === undefined || !isCurrent()) return
+      queuedRef.current = undefined
+      loadOlderRef.current(queued.silent, queued.beforeSeq, queued.chain, queued.maxRows)
+    }
 
     // A coalesced turn spans many step rows; page by its FIRST row's seq,
     // otherwise the request re-fetches steps already shown and prepending
@@ -224,58 +234,76 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
     void pageRequest.then(
       async (page) => {
         clearTimeout(timeout)
-        pendingRef.current = false
-        if (!silent) onLoading(false)
-
-        const older = await preparePage(page)
-        adoptPage(older, page, { silent, maxRows, beforeSeq, first })
-
-        // Restore the reader's position for a manual prepend; a silent
-        // auto-extend instead re-follows the tail at commit time.
-        const scroll = getScrollRef.current()
-        if (older.length > 0 && maxRows === undefined && scroll !== undefined) {
-          if (silent && scroll.scrollStateRef.current.gap <= FOLLOW_THRESHOLD_PX) {
-            followAfterPrependRef.current = true
-          } else if (anchor !== undefined) {
-            prependAnchorRef.current = anchor
-          }
+        if (!isCurrent()) {
+          // **不要在这里清 pendingRef**：这个响应属于上一个会话，而 pendingRef
+          // 是跨会话共享的那一个 —— 此刻它代表的可能是新会话正在飞的请求
+          // （`use-chat-history.test.tsx` 第 125 行就是钉这个的）。会话切换时的
+          // 清理由上面的重置逻辑负责。
+          releaseRequest()
+          return
         }
-
-        // An empty page must not write `hasOlder`: a skewed cursor also
-        // returns empty, and treating it as "the end" freezes history forever.
-        if (older.length > 0) setHasOlder(page.hasMore)
-
-        // Silent auto-extend chain: stop at the page cap, history end, or the
-        // target row count.
-        if (chain && page.hasMore && chainPagesRef.current < OPEN_HISTORY_MAX_PAGES) {
-          if (loadedRowCount() < OPEN_HISTORY_TARGET_ROWS) {
-            chainPagesRef.current += 1
-            loadOlderRef.current(true, undefined, true)
+        try {
+          const older = await preparePage(page)
+          if (!isCurrent()) {
+            releaseRequest()
+            return
           }
-        }
 
-        // Replay the request that was blocked while this page was in flight.
-        const queued = queuedRef.current
-        if (queued !== undefined) {
-          queuedRef.current = undefined
-          loadOlderRef.current(true, queued.beforeSeq, false, maxRows)
+          adoptPage(older, page, { silent, maxRows, beforeSeq, first })
+
+          // Restore the reader's position for a manual prepend; a silent
+          // auto-extend instead re-follows the tail at commit time.
+          const scroll = getScrollRef.current()
+          if (older.length > 0 && maxRows === undefined && scroll !== undefined) {
+            if (silent && scroll.scrollStateRef.current.gap <= FOLLOW_THRESHOLD_PX) {
+              followAfterPrependRef.current = true
+            } else if (anchor !== undefined) {
+              prependAnchorRef.current = anchor
+            }
+          }
+
+          // An empty page must not write `hasOlder`: a skewed cursor also
+          // returns empty, and treating it as "the end" freezes history forever.
+          if (older.length > 0) setHasOlder(page.hasMore)
+
+          releaseRequest()
+          pendingRef.current = false
+          if (!silent) onLoading(false)
+
+          // Silent auto-extend chain: stop at the page cap, history end, or the
+          // target row count. Release the current request first so this next
+          // page starts immediately instead of being coalesced into the queue.
+          if (chain && page.hasMore && chainPagesRef.current < OPEN_HISTORY_MAX_PAGES) {
+            if (loadedRowCount() < OPEN_HISTORY_TARGET_ROWS) {
+              chainPagesRef.current += 1
+              loadOlderRef.current(true, undefined, true)
+            }
+          }
+
+          replayQueued()
+        } catch (reason: unknown) {
+          releaseRequest()
+          // 早退时不动 pendingRef：它可能是新会话正在飞的那个请求的状态
+          // （见上面 success 分支的说明与 use-chat-history.test.tsx:125）。
+          if (!isCurrent()) return
+          pendingRef.current = false
+          if (!silent) onLoading(false)
+          if (!silent) onError(reason)
+          replayQueued()
         }
       },
       (reason: unknown) => {
-        clearTimeout(timeout)
+        releaseRequest()
+        if (!isCurrent()) return
         pendingRef.current = false
         onLoading(false)
         // The auto-extend is best-effort: keep the loaded tail and the manual
         // button; only a user-initiated load surfaces the error.
         if (!silent) onError(reason)
-        const queued = queuedRef.current
-        if (queued !== undefined) {
-          queuedRef.current = undefined
-          loadOlderRef.current(true, queued.beforeSeq, false, maxRows)
-        }
+        replayQueued()
       },
     )
-  }, [sessionId, getFirstRow, loadedRowCount, preparePage, adoptPage, onLoading, onError])
+  }, [sessionId, getFirstRow, loadedRowCount, preparePage, adoptPage, onLoading, onError, captureSessionGuard])
 
   loadOlderRef.current = loadOlder
 
@@ -295,41 +323,21 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
       prependAnchorRef.current = undefined
       const box = scrollRef.current
       if (box !== undefined) {
-        // With a concrete row, calibrate by SCREEN POSITION only: height delta
-        // under-/over-shoots under windowed rendering (observed +17793px).
-        if (pending.rowId === undefined) {
-          const grown = box.scrollHeight - (pending.height ?? box.scrollHeight)
-          if (grown > 0) {
-            setScrollTopProgrammatically(box, pending.top + grown)
-            lastScrollHeightRef.current = box.scrollHeight
-          }
+        const restore = (): void => {
+          const scroller = scrollRef.current
+          if (scroller === undefined) return
+          const target = restorePrependScrollTop(scroller, pending)
+          if (target === undefined) return
+          setScrollTopProgrammatically(scroller, target)
+          lastScrollHeightRef.current = scroller.scrollHeight
         }
-        if (pending.rowId !== undefined && pending.rowTop !== undefined) {
-          const rowId = pending.rowId
-          const rowTop = pending.rowTop
-          const rowSeq = pending.rowSeq
+        // With a concrete row, calibrate by screen position only: height
+        // deltas under/overshoot under windowed rendering.
+        if (pending.rowId === undefined) {
+          restore()
+        } else if (pending.rowTop !== undefined) {
           const correct = (): void => {
-            const scroller = scrollRef.current
-            if (scroller === undefined) return
-            let row = scroller.querySelector(`[data-message-id="${CSS.escape(rowId)}"]`)
-            if (row === null && typeof rowSeq === 'number' && rowSeq > 0) {
-              // The row may have been re-identified by the page merge: only an
-              // EXACTLY equal seq is acceptable (a near neighbour may be half
-              // a page away and would throw the reader).
-              let best: Element | null = null
-              let bestGap = Number.POSITIVE_INFINITY
-              for (const candidate of scroller.querySelectorAll('[data-row-seq]')) {
-                const gap = Math.abs(Number(candidate.getAttribute('data-row-seq') ?? '0') - rowSeq)
-                if (gap < bestGap) { bestGap = gap; best = candidate }
-              }
-              row = best !== null && bestGap <= 1 ? best : null
-            }
-            if (row === null) return
-            const delta = Math.round(row.getBoundingClientRect().top) - rowTop
-            // Clamp absurd values: more than two viewports means the wrong
-            // element; leave the reader where they are rather than yank them.
-            if (Math.abs(delta) <= 2 || Math.abs(delta) > scroller.clientHeight * 2) return
-            setScrollTopProgrammatically(scroller, Math.max(0, scroller.scrollTop + delta))
+            restore()
           }
           correct()
           requestAnimationFrame(correct)
@@ -353,5 +361,5 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
 
   const recallSnapshot = useCallback(() => recallChatSnapshot(sessionId), [sessionId])
 
-  return { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend, recallSnapshot }
+  return { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, captureSessionGuard, markFollowAfterPrepend, recallSnapshot }
 }

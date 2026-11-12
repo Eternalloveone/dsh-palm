@@ -10,7 +10,7 @@
   border-radius: 14px;
   background: var(--card-bg);
   border: 1px solid var(--accent);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--palm-shadow);
   animation: chat-jump-in 160ms ease-out;
   pointer-events: none;
 }
@@ -74,7 +74,7 @@
   top: 11px;
   height: 4px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: var(--palm-search-mark);
 }
 .turn-scrub-tick {
   position: absolute;

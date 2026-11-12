@@ -16,6 +16,103 @@ import type { AgentLookup } from './commands-goals.ts'
 
 const queueRevisions = new Map<string, number>()
 
+/**
+ * 队列的**单调版本**（架构级修法，2026-11-10）。
+ *
+ * 排队条这一族毛病（消失又出现、已发送的复活、删不掉、一闪一闪）根子是同一条：
+ * 屏幕上那条「权威队列」其实是**投影快照**，而投影会慢半拍甚至几分钟。客户端只能靠
+ * TTL / 观察窗 / 隐藏表 / 正文比对去猜 —— 补丁互相打架。
+ *
+ * 这里给队列一个只增不减的版本号，并且**只在事件发生时推进**：
+ *   · 宿主推来的队列帧（`session/projection` 的 inbox，或 `session/queue`）；
+ *   · `turn/start`（队首被认领走）。
+ * 读投影**不推进版本** —— 于是「版本没变」就等于「内容没变」，客户端可以直接丢弃
+ * 任何版本不大于已应用值的快照，陈旧投影在数学上再也画不回来。
+ */
+const queueVersions = new Map<string, number>()
+/** 上一次事件里看到的队列内容指纹（只有内容真的变了才 +1）。 */
+const queueTokens = new Map<string, string>()
+
+/** 这个会话的队列版本（0 = 还没有任何事件）。 */
+export function queueVersionOf(sessionId: string): number {
+  return queueVersions.get(sessionId) ?? 0
+}
+
+/** 推进版本（只增不减）；返回推进后的值。 */
+export function bumpQueueVersion(sessionId: string): number {
+  const next = queueVersionOf(sessionId) + 1
+  queueVersions.set(sessionId, next)
+  return next
+}
+
+/** 测试用：清空版本表。 */
+export function resetQueueVersionsForTest(): void {
+  queueVersions.clear()
+  queueTokens.clear()
+}
+
+/**
+ * 给「写操作的读己之写」定一个版本号：**内容没变就不推进**。
+ *
+ * 2026-11-11 真机：「排队消息条显示不稳定 —— 点完发送要退出重进才出现，有时候直接就消失了」。
+ *
+ * 原来 `readQueue` 每读一次就 `bumpQueueVersion()`（读一次就 +1），于是：
+ *  ① 应答里的版本永远最新，客户端把它当权威记下（`entry.queueVersion = N`）；
+ *  ② 宿主真正入队后推来的投影帧/快照版本还是 N（没事件 `queueVersionOf` 不动），
+ *     客户端按「版本不大于已应用值就丢弃」的栅栏**把它挡在门外**；
+ *  ③ 界面就锁在应答那一刻的空队列上，只有退出会话（重订阅会清掉版本基准）再进来
+ *     才看得到那条排队消息 —— 正是用户说的"要退出来刷新一下"。
+ *
+ * 现在只有**内容真的变了**才 +1（与 `stampQueueVersion` 同一套指纹）：读不推进版本；
+ * 内容相同的那次应答版本不变，客户端的栅栏会丢掉它 —— 丢掉是对的，内容本来就一样。
+ *
+ * @param sessionId - 会话
+ * @param items - 这次现读到的队列行
+ * @returns 当前版本（内容变了才是新号）
+ */
+export function queueVersionForRead(
+  sessionId: string,
+  items: ReadonlyArray<{ id: string; text: string }>,
+): number {
+  const token = queueTokenOf(items)
+  const previous = queueTokens.get(sessionId)
+  queueTokens.set(sessionId, token)
+  return previous === token ? queueVersionOf(sessionId) : bumpQueueVersion(sessionId)
+}
+
+/**
+ * 给一帧打上队列版本（只认事件，不认读投影）。
+ *
+ * - `session/projection` + key 为 inbox：内容指纹变了才 +1（投影帧本身就是事件）；
+ * - `session/queue`：显式队列帧，直接 +1；
+ * - `session/event` 的 turn/start：队首被认领，+1（内容由下一次帧或轮询给出）。
+ */
+export function stampQueueVersion(payload: unknown): unknown {
+  const frame = payload as { type?: unknown; sessionId?: unknown; key?: unknown; value?: unknown; event?: unknown } | null | undefined
+  if (frame === null || typeof frame !== 'object') return payload
+  const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined
+  if (sessionId === undefined || sessionId === '') return payload
+  const bumpOnContent = (items: ReadonlyArray<{ id: string; text: string }>): number => {
+    const token = queueTokenOf(items)
+    const previous = queueTokens.get(sessionId)
+    queueTokens.set(sessionId, token)
+    return previous === token ? queueVersionOf(sessionId) : bumpQueueVersion(sessionId)
+  }
+  if (frame.type === 'session/projection' && frame.key === 'inbox') {
+    return { ...(payload as object), queueVersion: bumpOnContent(queueItemsOf(frame.value)) }
+  }
+  if (frame.type === 'session/queue') {
+    return { ...(payload as object), queueVersion: bumpQueueVersion(sessionId) }
+  }
+  if (frame.type === 'session/event') {
+    const event = frame.event as { type?: unknown } | null | undefined
+    if (event !== null && typeof event === 'object' && event.type === 'turn/start') {
+      return { ...(payload as object), queueVersion: bumpQueueVersion(sessionId) }
+    }
+  }
+  return payload
+}
+
 export function queueRevisionOf(sessionId: string): number {
   return queueRevisions.get(sessionId) ?? 0
 }
@@ -196,7 +293,17 @@ export function queueItemsOf(inbox: unknown): Array<{ id: string; placement: 'qu
       ...(keepParts.length === 0 ? {} : { keepParts }),
     })
   })
-  return items
+  // 同一条消息可能**同时**出现在 `next-turn`（queued）与 `next-step`（steering）里：
+  // 宿主把它插进这一轮之后，`next-turn` 那一份变成陈旧的，但投影不会立刻删。
+  // 结果手机端既画「1 条排队」又画「已插入 1 条补充消息」，用户看到的是「已经发送了还在排队」
+  // （2026-11-10 真机）。在**投影这一层**就把 queued 那份去掉：所有客户端（含还没更新的
+  // 老 bundle）拿到的都是干净的一份，不用每个界面各写一遍判据。
+  const steeringText = new Set(
+    items.filter(item => item.placement === 'steering').map(item => item.text.replace(/\s+/g, ' ').trim()),
+  )
+  const merged = items.filter(item => item.placement !== 'queued'
+    || !steeringText.has(item.text.replace(/\s+/g, ' ').trim()))
+  return merged
 }
 
 /**

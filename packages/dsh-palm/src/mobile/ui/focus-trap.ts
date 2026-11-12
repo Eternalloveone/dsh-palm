@@ -45,6 +45,31 @@ export function focusWithoutScroll(target: HTMLElement): void {
   target.focus({ preventScroll: true })
 }
 
+/** 聚焦时会**弹出软键盘**的控件（手机上聚焦它们 = 键盘顶上来，面板被挤掉一半）。 */
+const TEXTUAL_SELECTOR = [
+  'input:not([type="checkbox"]):not([type="radio"])',
+  'textarea',
+  'select',
+].join(', ')
+
+/**
+ * 打开面板时该聚焦谁。
+ *
+ * 为什么不是「第一个可聚焦元素」（原实现）：真机反馈 2026-11-11 —— 从抽屉点「切换工作区」，
+ * 面板刚滑上来**搜索框就拿到焦点、键盘立刻弹出来**，把面板顶掉一半，用户以为"一打开就在搜索"。
+ * 原来 `focusableWithin()[0]` 拿到的正是那个 `<input>`。
+ *
+ * 规则：优先第一个「不弹键盘」的控件（按钮/链接）；面板里确实只有输入框时才退回输入框
+ * （纯输入对话框里键盘本来就是要弹的，行为不变）。
+ *
+ * @param container - 浮层面板
+ * @returns 要聚焦的元素（没有可聚焦控件时返回 undefined）
+ */
+export function initialFocusWithin(container: HTMLElement): HTMLElement | undefined {
+  const items = focusableWithin(container)
+  return items.find(item => !item.matches(TEXTUAL_SELECTOR)) ?? items[0]
+}
+
 /**
  * Trap focus inside `containerRef` while it is mounted.
  *
@@ -60,7 +85,7 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>): void 
     if (container === null) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
 
-    const first = focusableWithin(container)[0]
+    const first = initialFocusWithin(container)
     if (first !== undefined) {
       focusWithoutScroll(first)
     } else {

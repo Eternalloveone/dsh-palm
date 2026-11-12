@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>像素桌宠进度条</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#08080c;color:#f2f4fa;font-family:-apple-system,"PingFang SC",system-ui,sans-serif}
+  .wrap{padding:22px 24px}
+  h1{font-size:15px;font-weight:600;margin:0 0 4px}
+  .sub{font-size:11px;color:#666c7a;margin:0 0 20px}
+  .gh{font-size:11px;color:#9aa0ae;margin:18px 0 8px}
+  .gh b{color:#e3e6ee}
+
+  /* 轨道：没有填充，只有一条虚线跑道 */
+  .track{position:relative;width:390px;height:26px;border-radius:10px;background:#0e0e14;border:1px solid rgba(255,255,255,.05);overflow:hidden}
+  .track::before{content:"";position:absolute;left:9px;right:9px;bottom:5px;height:2px;
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.16) 0 4px,transparent 4px 9px)}
+  /* 走过的路：只留极淡的余晖 */
+  .trail{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(124,140,255,.13),rgba(124,140,255,.03));border-radius:10px 0 0 10px}
+  .pet{position:absolute;bottom:2px;width:24px;height:24px;image-rendering:pixelated;transition:left .5s cubic-bezier(.3,.9,.3,1)}
+  .cap-row{display:flex;align-items:baseline;width:390px;margin-bottom:3px}
+  .lbl{font-size:11px;color:#c9cedb;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm{font-size:10px;color:#666c7a;flex:none;font-variant-numeric:tabular-nums;margin-left:8px}
+
+  .cap{font-size:10px;color:#666c7a;margin:6px 0 0}
+
+  /* 精灵图演示 */
+  .sprites{display:flex;gap:14px;align-items:flex-end;margin-bottom:6px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:5px}
+  .cell svg{width:44px;height:44px;image-rendering:pixelated;background:#11111a;border-radius:8px;padding:4px}
+  .cell span{font-size:9.5px;color:#666c7a}
+  .big{display:flex;gap:18px;align-items:flex-end;background:#0e0e14;border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px 16px;width:max-content}
+  .big .cell svg{width:64px;height:64px;background:transparent}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>像素桌宠跑在进度条里</h1>
+  <p class="sub">没有填充条，只有一条虚线跑道；宠物所在的位置就是进度。它一直在走，走到底就是做完了。</p>
+
+  <div class="gh"><b>角色与动作帧</b>（16×16 像素，走路两帧 + 待机 + 完工）</div>
+  <div class="big" id="sprites"></div>
+
+  <div class="gh"><b>四种状态</b>：位置=进度，动作为状态</div>
+  <div id="tracks"></div>
+
+  <p class="cap">文字在跑道上方独立成行（永不压字）；跑道 390×26，宠物 24px，底部虚线是路，走过的部分只有极淡余晖。</p>
+</div>
+
+<script>
+// 16×16 像素猫：每帧是一组 [x,y] 像素坐标，按层上色
+const FRAMES = {
+  walkA: {
+    body: [[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],
+           [4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+           [4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+           [4,6],[5,6],[6,6],[7,6],[8,6],[9,6],[10,6],[11,6],
+           [4,7],[5,7],[6,7],[7,7],[8,7],[9,7],[10,7],[11,7],
+           [5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
+           [5,9],[6,9],[7,9],[8,9],[9,9],[10,9],
+           [5,10],[6,10],[7,10],[8,10],[9,10],[10,10],
+           [5,11],[10,11],            // 前腿
+           [4,12],[11,12]],           // 后腿（迈开）
+    ear:  [[4,2],[5,2],[10,2],[11,2],[6,2],[9,2]],
+    eye:  [[6,5],[9,5]],
+    tail: [[12,8],[12,9],[13,9]],
+  },
+  walkB: {
+    body: [[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],
+           [4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+           [4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+           [4,6],[5,6],[6,6],[7,6],[8,6],[9,6],[10,6],[11,6],
+           [4,7],[5,7],[6,7],[7,7],[8,7],[9,7],[10,7],[11,7],
+           [5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
+           [5,9],[6,9],[7,9],[8,9],[9,9],[10,9],
+           [5,10],[6,10],[7,10],[8,10],[9,10],[10,10],
+           [6,11],[9,11],             // 前腿（并拢）
+           [6,12],[9,12]],
+    ear:  [[4,2],[5,2],[10,2],[11,2],[6,2],[9,2]],
+    eye:  [[6,5],[9,5]],
+    tail: [[12,8],[13,8],[13,9]],
+  },
+  idle: {
+    body: [[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],
+           [4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+           [4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+           [4,6],[5,6],[6,6],[7,6],[8,6],[9,6],[10,6],[11,6],
+           [4,7],[5,7],[6,7],[7,7],[8,7],[9,7],[10,7],[11,7],
+           [5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
+           [5,9],[6,9],[7,9],[8,9],[9,9],[10,9],
+           [5,10],[6,10],[7,10],[8,10],[9,10],[10,10],
+           [6,11],[9,11],[6,12],[9,12]],
+    ear:  [[4,2],[5,2],[10,2],[11,2],[6,2],[9,2]],
+    eye:  [[6,5],[9,5]],           // 睁眼
+    tail: [[12,9],[12,10],[13,10]],
+  },
+  sleep: {
+    body: [[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],
+           [4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+           [4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+           [4,6],[5,6],[6,6],[7,6],[8,6],[9,6],[10,6],[11,6],
+           [4,7],[5,7],[6,7],[7,7],[8,7],[9,7],[10,7],[11,7],
+           [5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
+           [5,9],[6,9],[7,9],[8,9],[9,9],[10,9],
+           [5,10],[6,10],[7,10],[8,10],[9,10],[10,10],
+           [6,11],[9,11]],
+    ear:  [[4,2],[5,2],[10,2],[11,2],[6,2],[9,2]],
+    eye:  [],                       // 闭眼（下面画横线）
+    tail: [[12,10],[13,10],[13,11]],
+  },
+}
+
+const COLORS = { body:'#9ff0c4', ear:'#7fd7a8', eye:'#0b0b12', tail:'#7fd7a8', line:'#3ddc84' }
+
+function pet(f, palette='#9ff0c4', eyeColor='#0b0b12', accent='#7fd7a8') {
+  const fr = FRAMES[f]
+  const r = (x,y,c,w=1,h=1) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`
+  let s = ''
+  for (const [x,y] of fr.body) s += r(x,y,palette)
+  for (const [x,y] of fr.ear)  s += r(x,y,accent)
+  for (const [x,y] of fr.eye)  s += r(x,y,eyeColor)
+  for (const [x,y] of fr.tail) s += r(x,y,accent)
+  if (f === 'sleep') { s += r(6,5,eyeColor,2,1) + r(9,5,eyeColor,2,1) }  // 闭眼
+  return `<svg viewBox="0 0 16 16" shape-rendering="crispEdges">${s}</svg>`
+}
+
+// 精灵展示
+document.getElementById('sprites').innerHTML = [
+  ['walkA','走路 A'],['walkB','走路 B'],['idle','待机'],['sleep','数据未到'],
+].map(([f,n]) => `<div class="cell">${pet(f)}<span>${n}</span></div>`).join('')
+
+// 轨道
+const states = [
+  {p:12, f:'walkA', label:'思考中 · 读文件', time:'8s', color:'#9ff0c4', accent:'#7fd7a8', track:'#0e0e14'},
+  {p:38, f:'walkB', label:'改文件 · 第 3 步', time:'24s', color:'#9ff0c4', accent:'#7fd7a8', track:'#0e0e14'},
+  {p:64, f:'walkA', label:'跑测试', time:'1分12秒', color:'#9ff0c4', accent:'#7fd7a8', track:'#0e0e14'},
+  {p:100,f:'walkB', label:'完成 · 7 步', time:'2分04秒', color:'#9ff0c4', accent:'#7fd7a8', track:'#0e0e14'},
+  {p:0,  f:'sleep', label:'—', time:'—', color:'#6c7280', accent:'#5c6270', track:'#0b0b10'},
+]
+document.getElementById('tracks').innerHTML = states.map(s => {
+  // 宠物中心对齐进度点，并夹在轨道内（左右各留 12px），永不压到边界
+  const x = s.p === 0 ? 12 : Math.min(390 - 24 - 12, Math.max(12, 390 * s.p / 100 - 12))
+  return `
+  <div style="margin-bottom:10px">
+    <div class="cap-row"><div class="lbl">${s.label}</div><div class="tm">${s.time}</div></div>
+    <div class="track" style="background:${s.track}">
+      <div class="trail" style="width:${Math.max(0, x + 12)}px"></div>
+      <div class="pet" style="left:${x}px">${pet(s.f, s.color, '#0b0b12', s.accent)}</div>
+    </div>
+  </div>`
+}).join('')
+</script>
+</body>
+</html>

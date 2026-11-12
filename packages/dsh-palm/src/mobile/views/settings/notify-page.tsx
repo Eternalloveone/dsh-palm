@@ -49,6 +49,22 @@ export interface NotifyPageProps {
   persistChannels: () => Promise<void>
 }
 
+/**
+ * 「最近通知」的类别徽章（2026-11-10，390px 实拍）。
+ *
+ * 原来是一条三元链，只认得 task-done / task-failed / todo-done，其余一律落到
+ * 「回复」—— 于是审批通知读作「回复 需要你批准：…」，用户会以为是已回复的消息。
+ * 改成直表：每种 kind 一个词，认不出来的才退回「回复」。
+ */
+const INBOX_KIND_LABEL: Record<string, string> = {
+  'task-done': '完成',
+  'task-failed': '失败',
+  'todo-done': '规划',
+  'turn-done': '回复',
+  approval: '审批',
+  question: '提问',
+}
+
 export function NotifyPage({
   setNotifyOpen, inboxStats, inboxDeliveries, inboxBusy, inbox, locateProps,
   notifyPermission, notifyDesc, notifyBusy, handleNotifyClick, notifyConfig, kindsOn, handleKindToggle,
@@ -99,7 +115,12 @@ export function NotifyPage({
                 </p>
               )}
               {(inboxDeliveries ?? []).filter(record => record.status !== 'sent').slice(0, 8).map(record => (
-                <p className="settings-note" key={`${record.at}-${record.eventId}-${record.channel}`}>
+                <p
+                  /* 2026-11-10 双皮肤实拍：失败行和上面两行中性统计同款灰字，
+                     用户扫一眼分不出"这里出过错"。单独给类名，样式表用复合选择器上色。 */
+                  className={`settings-note ${record.status === 'dropped' ? 'notify-delivery-drop' : 'notify-delivery-fail'}`}
+                  key={`${record.at}-${record.eventId}-${record.channel}`}
+                >
                   {new Date(record.at).toLocaleTimeString()} · {record.channel} · {record.status === 'dropped' ? '已过滤' : '失败'}
                   {record.detail !== undefined ? ` · ${record.detail}` : ''}
                 </p>
@@ -136,7 +157,7 @@ export function NotifyPage({
                   >
                     <span className="settings-inboxLine">
                       <span className={`settings-inboxKind settings-inboxKind-${item.kind}`}>
-                        {item.kind === 'task-done' ? '完成' : item.kind === 'task-failed' ? '失败' : item.kind === 'todo-done' ? '规划' : '回复'}
+                        {INBOX_KIND_LABEL[item.kind] ?? '回复'}
                       </span>
                       <span className="settings-inboxTitle">{item.title}</span>
                       <span className="settings-inboxTime">{formatInboxTime(item.ts)}</span>

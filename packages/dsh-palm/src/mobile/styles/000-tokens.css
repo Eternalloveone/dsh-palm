@@ -143,8 +143,8 @@
   /* ── 输入区底栏（C 案：队列条 + 输入行 + 元信息行） ─────────────────────
    * 版式真源：docs/prototype/dock-c.html + overview.html「2 · 会话正文」。
    * 半透明底色只落在这里：240/250/260 组件样式一律引用 palm-dock-* 令牌。 */
-  --palm-dock-pad: 18px;
-  --palm-dock-gap: 10px;
+  --palm-dock-pad: 14px;      /* 2026-11-12：「一行放不了几个字」→ 18→14，一行多约一个字 */
+  --palm-dock-gap: 6px;       /* 2026-11-12：10→8→6（配合 + 缩到 28，一行多约 1 个字） */
   --palm-dock-field-h: 48px;
   --palm-dock-field-r: 20px;
   --palm-dock-input-h: 44px;
@@ -214,7 +214,7 @@
   --palm-proc-unknown: var(--palm-fg-3);  /* 没有权威结论时的灰态（灰点/「—」）*/
   --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
   --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
-  --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/
+  --palm-drawer-w: 338px;         /* 左侧抽屉宽（窄屏取 86vw）：2026-11-11 先 308→362 嫌空，同日再收回到 338 */
   --palm-drawer-new-h: 44px;      /* 「新建会话」主按钮高 */
   --palm-drawer-search-h: 44px;   /* 「搜索会话和消息」行高 */
   --palm-drawer-strip-w: 88px;    /* 行右侧迷你状态条宽 */

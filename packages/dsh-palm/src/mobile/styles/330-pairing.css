@@ -38,13 +38,42 @@
   outline: none;
 }
 
+/* 提交中（readOnly）要看得出来改不了：只读在浏览器里没有外观变化，
+   用户敲字没反应会以为输入框坏了。降一档透明度，和禁用按钮同一档。 */
+.mobile-pairInput:read-only {
+  opacity: var(--palm-btn-disabled-opacity);
+}
+
 .mobile-pairInput:focus-visible {
   border-color: var(--border-focus);
   box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
 }
 
+/* 配对页的提交键：以前视觉全借抽屉的 .mobile-new，抽屉一改它就跟着变形。
+   现在自己写完整一套（高度/圆角/底色/字色/字重/禁用与按下态），
+   配色仍走皮肤令牌，不新增裸色。 */
 .mobile-pairSubmit {
   width: 100%;
   margin: 0;
+  block-size: var(--palm-hit);
+  border: none;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+  font: inherit;
+  font-size: var(--palm-t-l);
+  font-weight: var(--palm-w-bold);
+  cursor: pointer;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.mobile-pairSubmit:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+.mobile-pairSubmit:disabled {
+  opacity: var(--palm-btn-disabled-opacity);
+  transform: none;
 }
 

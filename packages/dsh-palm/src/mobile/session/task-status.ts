@@ -25,7 +25,8 @@
  * 拿不到的就不给：没有计划 → 没有 `steps` / `progress`（界面走 `unknown` 的
  * 游走块）；没有正在跑的工具 → 不猜「在读/在改」；没有终态证据 → 不进终态。
  * **`unknown` 的唯一语义 = 手里没有能下结论的权威数据**：`turn.running` 缺席
- * （宿主快照没到/已过期）时只许给它 —— 以前这条路顺着「没在跑」落到 done，
+ * （宿主快照没到/已过期）时只许给它；`turn.running === false` 是权威事实，走
+ * `idle`（2026-11-10 拆开，之前两者混用，空闲时状态条只显示一个破折号）—— 以前这条路顺着「没在跑」落到 done，
  * 真机上就是「先已完成、随后跳成运行中」。
  *
  * @module dsh-palm/mobile/session/task-status
@@ -358,12 +359,13 @@ export function foldTaskStatus(previous: TaskStatus | undefined, input: TaskStat
   // 等你就绪：那一轮正在等你决定，比「在跑」更靠前。
   if (input.approval === true) return make('approve', false)
 
-  // 没在跑：还有排队消息就说「排队」，否则就是「不知道」（不假装成功）。
+  // 没在跑：还有排队消息就说「排队」，否则就是**空闲**（2026-11-10：宿主明确说没在跑，
+  // 这是事实，不是「不知道」。以前这里也走 unknown，界面就只剩一个破折号）。
   if (!running) {
     if ((input.queued ?? 0) > 0) {
       return make('queued', false, { carry: undefined, steps: undefined, derivedProgress: undefined })
     }
-    return make('unknown', false)
+    return make('idle', false, { carry: undefined, steps: undefined, derivedProgress: undefined })
   }
 
   // 兜底 2：在跑但静默太久 → 卡住（不是终态：下一帧一到就接着走）。

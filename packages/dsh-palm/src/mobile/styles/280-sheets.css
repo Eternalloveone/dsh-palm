@@ -15,7 +15,9 @@
   flex-direction: column;
   justify-content: flex-end;
   background: var(--backdrop);
-  animation: sheet-fade 0.18s ease;
+  /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
+     （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
+  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes sheet-fade {
@@ -89,9 +91,11 @@
 
 .sheet-title {
   flex: none;
-  padding: 12px 16px 14px;
-  font-size: 17px;
-  font-weight: 500;
+  /* 2026-11-11 真机：17px/500 的居中标题配 15px 的列表行，标题既不够"标题"
+     又占掉一行高度。改成 16px/600 并把上下留白收一档，标题更像标题、列表更贴身。 */
+  padding: 14px 16px 10px;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--text-primary);
   text-align: center;
 }
@@ -113,7 +117,7 @@
 }
 
 /* ── 会话抽屉（P6 第 3 步 · overview.html「1 · 会话抽屉」） ────────────
- * 左侧面板 --palm-drawer-w（窄屏 86vw），只有右侧两角是圆的；行 ≥ --palm-hit，
+ * 左侧面板 --palm-drawer-w（窄屏 86vw：比 308px 舒展一点，又不至于像全屏），只有右侧两角是圆的；行 ≥ --palm-hit，
  * 底部三入口带右侧小字。 */
 .palm-drawer-scrim {
   position: fixed;
@@ -122,7 +126,9 @@
   display: flex;
   justify-content: flex-start;
   background: var(--backdrop);
-  animation: sheet-fade 0.18s ease;
+  /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
+     （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
+  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 .palm-drawer {
@@ -140,12 +146,37 @@
      会跟着手指上下跑，遮罩下看着就是「错位」。 */
   overflow: hidden;
   overscroll-behavior: contain;
-  animation: palm-drawer-in 0.2s ease;
+  /* 整块从左边拉出来（-100% → 0），**不淡入**：侧边栏淡入在真机上就是
+     「先灰一下再出现」。曲线取 iOS 那条（起步利落、落地稳住），340ms。 */
+  animation: palm-drawer-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes palm-drawer-in {
-  from { transform: translateX(-12px); opacity: 0; }
-  to { transform: none; opacity: 1; }
+  from { transform: translate3d(-100%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes drawer-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 退出要走完再卸载（App 里 onClose 会等 240ms）。关闭比打开快：
+   iOS 的默认手感，慢了像拖泥带水。 */
+.palm-drawer.is-closing {
+  animation: palm-drawer-out 240ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.palm-drawer-scrim.is-closing {
+  animation: drawer-scrim-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes palm-drawer-out {
+  to { transform: translate3d(-100%, 0, 0); }
+}
+
+@keyframes drawer-scrim-out {
+  to { opacity: 0; }
 }
 
 /* 工作区身份：方形头像 + 名称 + 路径。 */
@@ -191,6 +222,56 @@
   white-space: nowrap;
 }
 
+/*
+ * 工作区切换条（2026-11-11 用户：「抽屉里那个切换工作区是纯图标，看不出是在这切
+ * 工作区」）。
+ *
+ * 原来头部的可点部分只有右侧一枚 16px 的箭头 —— 既小又像装饰，而左边显示工作区
+ * 名的那一块反倒点不动。现在把「头像 + 名字 + 路径」整块变成按钮（≥44px），
+ * 右侧写清楚「切换 ⌄」：能点的地方和说的事是同一块。
+ */
+.palm-drawer-ws-btn {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--palm-s2);
+  min-inline-size: 0;
+  min-block-size: var(--palm-hit);
+  padding: 4px 6px;
+  margin-inline: -6px;
+  border: 0;
+  border-radius: var(--palm-r-m);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.palm-drawer-ws-btn:active {
+  background: var(--palm-sur-1);
+}
+
+/* 右侧「切换 ⌄」：文字 + 箭头 + 一层淡底，做成一眼能看出是按钮的胶囊。
+   只写箭头（改造前）看不出意图，只写灰字又太像说明文字。 */
+.palm-drawer-ws-switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+}
+
+/* 抽屉里的图标一律 16×16（项目规则：图标固定尺寸、不参与 flex 拉伸）。 */
+.palm-drawer-ws-switch > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
 /* 新建（满宽主按钮 40 高 / 圆角 12）与搜索（34 高 / 无边框）。 */
 .palm-drawer-new {
   display: inline-flex;
@@ -207,6 +288,18 @@
   font-size: var(--palm-t-m);
   font-weight: var(--palm-w-bold);
   white-space: nowrap;
+}
+
+/* 抽屉的「新建会话」原来既没有按下态也没有禁用态：点下去没反馈，灰掉也不明显。
+   跟其余五颗主键共用同一组令牌。 */
+.palm-drawer-new:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+.palm-drawer-new:disabled {
+  opacity: var(--palm-btn-disabled-opacity);
+  transform: none;
 }
 
 .palm-drawer-search {
@@ -235,6 +328,15 @@
   overscroll-behavior: contain;
 }
 
+/* 空列表的说明行：不留一块空白（那会被读成"界面坏了"）。 */
+.palm-drawer-empty {
+  margin: 0;
+  padding: var(--palm-s3) var(--palm-s2);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  line-height: var(--palm-lh-body);
+}
+
 .palm-drawer-group {
   display: flex;
   flex-direction: column;
@@ -243,9 +345,19 @@
 
 .palm-drawer-bucket {
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--palm-s2);
   font-size: var(--palm-t-s);
   font-weight: var(--palm-w-normal);
+  /* 二级前景色（2026-11-10）：三级灰的分组标题在深色皮肤上几乎读不出来，
+     而它是长列表里唯一的定位信息。条数仍用三级色，不跟会话标题抢。 */
+  color: var(--palm-fg-2);
+}
+
+.palm-drawer-bucket-count {
   color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .palm-drawer-rows {
@@ -276,7 +388,11 @@
   outline-offset: var(--palm-hair);
 }
 
-.palm-drawer-row-current { background: var(--palm-sur-2); }
+.palm-drawer-row-current {
+  background: var(--palm-sur-2);
+  /* 当前位置的第二个信号（2026-11-10）：只靠底色差，在带迷你状态条的行走里看不出来。 */
+  box-shadow: inset 2px 0 0 var(--palm-accent);
+}
 
 .palm-drawer-title {
   flex: 1 1 auto;
@@ -288,7 +404,24 @@
   white-space: nowrap;
 }
 
-/* 底部三入口：图标 + 文字 + 右侧小字。 */
+/*
+ * 行右侧那句「什么时候」：2026-11-11 用户「侧边栏的右边有点空」—— 一行的标题在左、
+ * 状态条靠右，中间到右边缘一大条空白，什么信息都没有。时间是最省地方又真有用的一种
+ * 填充（今天给时刻、昨天给「昨天」、更早给月-日），宽 5 个字符，不会把标题挤变形。
+ */
+.palm-drawer-when {
+  flex: none;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 底部入口（2026-11-11 C 版）：小标题 + 一块带底色的圆角卡片。
+ *
+ * 老版是三行等高、只有两行带右小字（`12` / `本机`），右边缘参差；三条之间只隔
+ * 4px，看起来就是会话列表多出来的三行。现在把它们框进一块 --palm-sur-2 的卡片，
+ * 与列表之间靠「工具」小标题 + 一条发丝线分层，三行统一带右箭头。
+ */
 .palm-drawer-foot {
   display: flex;
   flex-direction: column;
@@ -297,7 +430,15 @@
   border-top: var(--palm-hair) solid var(--palm-line);
 }
 
-.palm-drawer-entry {
+.palm-drawer-tools {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  overflow: hidden;
+}
+
+.palm-drawer-tool {
   display: flex;
   align-items: center;
   gap: var(--palm-s2);
@@ -305,7 +446,8 @@
   min-block-size: var(--palm-hit);
   padding: 0 var(--palm-s2);
   border: 0;
-  border-radius: var(--palm-r-m);
+  /* 行间发丝线靠「除第一行外都画上边线」，比 gap 更贴 iOS 分组表。 */
+  border-block-start: var(--palm-hair) solid var(--palm-line);
   background: transparent;
   color: var(--palm-fg-2);
   font: inherit;
@@ -314,13 +456,24 @@
   white-space: nowrap;
 }
 
-.palm-drawer-entry:active { background: var(--palm-sur-2); }
+.palm-drawer-tool:first-child { border-block-start: 0; }
 
-.palm-drawer-entry > small {
+.palm-drawer-tool:active { background: var(--palm-sur-1); }
+
+/* 主文案吃掉剩余宽度：右侧小字与箭头永远不被挤掉。 */
+.palm-drawer-tool > span { flex: 1 1 auto; min-inline-size: 0; }
+
+.palm-drawer-tool > small {
   flex: none;
-  margin-inline-start: auto;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+}
+
+/* 箭头弱化：它是「这里能进去」的提示，不该和主文案抢注意力。 */
+.palm-drawer-tool > svg:last-child {
+  flex: none;
+  color: var(--palm-fg-3);
+  opacity: 0.7;
 }
 
 
@@ -351,19 +504,15 @@
 .palm-drawer-ws > b,
 .palm-drawer-new > span,
 .palm-drawer-search > span,
-.palm-drawer-entry > span {
+.palm-drawer-tool > span {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 底部三入口：左侧 --palm-drawer-glyph 图标 + 主文案单行 + 右侧小字（小字永不被挤掉）。 */
-.palm-drawer-entry > span {
-  flex: 1 1 auto;
-}
-
-.palm-drawer-entry > small {
+/* 底部入口右侧的小字（「12 个文件」「本机」）不换行。 */
+.palm-drawer-tool > small {
   white-space: nowrap;
 }
 
@@ -373,4 +522,701 @@
   flex: none;
   inline-size: var(--palm-drawer-strip-w);
   block-size: var(--palm-drawer-strip-h);
+}
+
+/* ── 切换工作区面板（2026-11-11 重做） ──────────────────────────────────
+ * 老版本每行都画完整绝对路径（长路径折两行、单条 ~90px）、同名工作区分不清、无分组、
+ * 无搜索、当前项无标记。现在：搜索条（sticky）+ 三段列表（当前 / 最近用过 / 按项目分组）
+ * + 底部计数与「＋ 新建」。行高 44–48，一屏 12 行左右。
+ */
+.ws-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+}
+
+.ws-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--palm-s1) var(--palm-s1);
+  background: var(--palm-sur-1);
+}
+
+.ws-search-icon {
+  flex: none;
+  font-size: var(--palm-t-s);
+  opacity: 0.6;
+}
+
+.ws-search-input {
+  flex: 1;
+  min-inline-size: 0;
+  height: 36px;
+  padding: 0 var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: 13px;
+  /* 真机（2026-11-11）：不写 outline 的话，点进搜索框会出现系统白框，在深色面板上
+     比输入框本身还显眼。改成细描边 + 淡底，焦点仍然看得出来。 */
+  outline: none;
+}
+
+.ws-search-new {
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: var(--palm-t-m);
+}
+
+/* 面板打开时焦点会落在这个「＋」上（搜索框排在它前面，见 focus-trap 的 initialFocusWithin）。
+   不写这行就是系统默认的白环 —— 在深色面板上比按钮本身还显眼。 */
+.ws-search-new:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: 2px;
+}
+
+.ws-search-input:focus-visible {
+  box-shadow: 0 0 0 1px var(--palm-accent);
+}
+
+.ws-search-input::placeholder {
+  color: var(--palm-fg-3);
+}
+
+.ws-search-clear,
+.ws-search-new {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 14px;
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  line-height: 1;
+}
+
+.ws-list {
+  display: flex;
+  flex-direction: column;
+  /* 底部「共 N 个 / ＋ 新建」是 sticky 的：留出它的高度，最后一行才不会被盖住。 */
+  padding-block-end: 56px;
+}
+
+/* 组标题：11px、字距略松；项目组右侧给数量。 */
+/* 组头：项目组是可点的折叠按钮（一行 40px，右侧带数量）；「当前 / 最近用过」只是纯文字。 */
+.ws-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  inline-size: 100%;
+  min-block-size: 36px;
+  padding: var(--palm-s1) var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-3);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ws-group-head:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-caret {
+  flex: none;
+  inline-size: 12px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.ws-group-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s2) var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+/* 展开的组头里，标题不换行、提示弱化、数量靠右。 */
+.ws-group-head .ws-group-label {
+  padding: 0;
+  flex: 1;
+  min-inline-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-group-plain {
+  display: flex;
+  align-items: baseline;
+  gap: var(--palm-s1);
+  padding: var(--palm-s3) var(--palm-s2) var(--palm-s1);
+}
+
+.ws-group-hint {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.ws-group-head .ws-group-count {
+  margin-inline-start: auto;
+}
+
+/* 搜索命中：只加底色，不改字重（整行重量变了反而看不清命中位置）。 */
+.ws-mark {
+  border-radius: 3px;
+  background: var(--palm-tint-accent);
+  color: inherit;
+}
+
+.ws-group-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: var(--palm-s1) var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ws-row:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-row-current {
+  background: var(--palm-tint-accent);
+}
+
+.ws-tick {
+  flex: none;
+  inline-size: 14px;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+.ws-meta {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-empty {
+  margin: 16px 10px;
+  color: var(--palm-fg-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+
+
+
+/* 新建工作区：内联表单，不叠第二个弹层。 */
+.ws-create {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px 4px;
+}
+
+.ws-create-label {
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+}
+
+.ws-create-input {
+  inline-size: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+/*
+ * 新建工作区 →「点选电脑上的目录」（2026-11-11）。
+ *
+ * 一层目录一屏：面包屑在顶、列表可滚（44vh 上限，键盘/底部按钮都还够得着）、
+ * 底部两个动作。行高跟抽屉一致用 --palm-hit（44px），手指点得中。
+ */
+.pb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: 4px 6px 0;
+}
+
+.pb-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+}
+
+.pb-back {
+  flex: none;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: none;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+}
+
+.pb-label {
+  margin: 0;
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+}
+
+.pb-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  font-size: var(--palm-t-s);
+}
+
+.pb-crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pb-crumb-sep {
+  padding: 0 2px;
+  color: var(--palm-fg-3);
+}
+
+.pb-entry-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--palm-fg-3);
+}
+
+.pb-entry-icon > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.pb-crumb {
+  max-inline-size: 40vw;
+  overflow: hidden;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 当前这一层：不再是链接，压暗成普通文字。 */
+.pb-crumb-here {
+  overflow: hidden;
+  padding: 2px 4px;
+  color: var(--palm-fg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pb-list {
+  max-block-size: 44vh;
+  overflow: auto;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+.pb-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: none;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  text-align: start;
+}
+
+.pb-entry:active {
+  background: var(--palm-sur-2);
+}
+
+.pb-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pb-note {
+  margin: 0;
+  padding: var(--palm-s3);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+.pb-hint {
+  margin: 0;
+}
+
+
+
+
+.ws-create-cancel,
+.ws-create-submit {
+  min-block-size: var(--palm-hit);
+  padding: 0 14px;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ws-create-submit {
+  border-color: transparent;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+}
+
+.ws-create-submit:disabled,
+.ws-create-cancel:disabled {
+  opacity: 0.5;
+}
+
+/* 搜索行右侧常驻的「＋ 新建」，与清除按钮同样大小；列表末尾一行计数。 */
+
+.ws-foot-count {
+  margin: 0;
+  padding: var(--palm-s2) 0 var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+/* 每行右侧的「⋯」与它的操作菜单（重命名 / 删除）。行本身仍整行可点（= 切过去）。 */
+.ws-row-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ws-row-wrap > .ws-row {
+  flex: 1 1 100%;
+  min-inline-size: 0;
+  /* 右侧给「⋯」让位（按钮是绝对定位，不参与换行，否则会单独占一行）。 */
+  padding-inline-end: calc(var(--palm-hit) + var(--palm-s1));
+}
+
+.ws-row-more {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  flex: none;
+  inline-size: var(--palm-hit);
+  block-size: var(--palm-hit);
+  border: none;
+  background: transparent;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ws-row-more:active {
+  color: var(--palm-fg);
+}
+
+/* 菜单浮在这一行右下：不改网格、不挤动别的行。 */
+.ws-menu {
+  position: absolute;
+  inset-block-start: calc(100% - var(--palm-s1));
+  inset-inline-end: var(--palm-s2);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 120px;
+  padding: var(--palm-s1);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-shadow);
+}
+
+.ws-menu [role='menuitem'] {
+  padding: var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  text-align: start;
+  cursor: pointer;
+}
+
+.ws-menu [role='menuitem']:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-menu [role='menuitem'][data-danger] {
+  color: var(--palm-danger);
+}
+
+.ws-create-submit[data-danger] {
+  background: var(--palm-danger);
+}
+
+/* 行内展开的两个动作（重命名 / 删除）。不弹浮层：手机上浮层会盖住下面的行，也容易被滚动抢手势。 */
+.ws-actions {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--palm-s2);
+  padding: 0 var(--palm-s2) var(--palm-s1);
+}
+
+.ws-action {
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: none;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  cursor: pointer;
+}
+
+.ws-action:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-action-danger {
+  color: var(--palm-danger);
+}
+
+/*
+ * 新建工作区的两个「点选」入口（2026-11-11 晚）。
+ *
+ * 之前它们是 `.ws-action`：透明背景 + 灰色小字，看着就是一句说明文字 —— 用户的原话
+ * 「不然用户可能意识不到这个可以点击」。现在做成整宽的行卡片：边框 + 浅底 + 左侧图标
+ * + 右侧 `›`，和抽屉底部的「设置 / 用量」同一种语言，一眼就是能按的东西。
+ */
+.ws-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  text-align: start;
+}
+
+.ws-pick:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-pick-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--palm-accent);
+}
+
+.ws-pick-icon > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.ws-pick-copy {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-pick-tail {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+}
+
+/* 表单内的排版收紧：.sheet-note 自带 12/16 内边距，在窄抽屉里会把提示顶到中间。 */
+.ws-create .sheet-note {
+  margin: var(--palm-s1) 0 0;
+  padding: 0;
+}
+
+.ws-create .sheet-confirm-actions {
+  justify-content: flex-end;
+  gap: var(--palm-s2);
+}
+
+/*
+ * 任务页骨架（2026-11-11 真机：整页一起滚、行高参差）：外层只负责竖向滚动，
+ * 行结构统一 —— 每行至少 --palm-hit 高、右侧时间用 tabular 数字对齐，
+ * 长短标题都单行截断，免得行高跟着标题长度跳、一屏里参差不齐。
+ */
+.tasks-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) 0 calc(var(--palm-s4) + env(safe-area-inset-bottom, 0px));
+}
+
+.tasks-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.tasks-group-head {
+  margin: 0;
+  padding: var(--palm-s2) var(--palm-s3) var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tasks-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: 52px;
+  padding: 6px var(--palm-s3);
+  border: 0;
+  border-bottom: var(--palm-hair) solid var(--palm-line);
+  background: none;
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+}
+
+.tasks-row:active {
+  background: var(--palm-sur-2);
+}
+
+.tasks-dot {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--palm-fg-3);
+}
+
+/* 状态点：强调色 = 在跑，灰点 = 没在跑 —— 用户要一眼分出"哪个在动"和"哪个已经停了"。 */
+.tasks-dot-live {
+  background: var(--palm-accent);
+}
+
+.tasks-title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 工作区位：任务页把几个工作区的在跑会话排在一起，标题旁边必须有一格说"这是谁的活"。
+   只做提示，取宽度上限后省略 —— 它不该把标题挤成一条缝。 */
+.tasks-where {
+  flex: none;
+  max-inline-size: 104px;
+  overflow: hidden;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-meta {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks-chev {
+  flex: none;
+  color: var(--palm-fg-3);
+}
+
+.tasks-actions {
+  display: flex;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3);
+}
+
+.tasks-clear {
+  flex: 1;
+  min-block-size: var(--palm-hit);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: none;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-m);
+}
+
+.tasks-new {
+  flex: 1;
+  min-block-size: var(--palm-hit);
 }

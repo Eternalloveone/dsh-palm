@@ -32,9 +32,11 @@ export async function turnOutlineOf(sessionId: string): Promise<{ turns: unknown
  * 于是"队列说还有一条、回合说已经开始了"这类矛盾随时可见。这条通道把三者收成一份，
  * 由 `session-store.ts` 按 seq / revision 单调合并（低水位的一律丢弃）。
  */
+/** @param options.rows - 传 `false` 就**不要行**（C2）：整页行是这份快照里最贵的一段
+ *  （一次 129 KB），回合对账只读 `turn`；老宿主忽略该字段、照旧回行，两端都不破。 */
 export async function sessionState(
   sessionId: string,
-  options: { fresh?: boolean } = {},
+  options: { fresh?: boolean; rows?: boolean } = {},
 ): Promise<{
   sessionId: string
   rows: RenderMessage[]
@@ -43,6 +45,12 @@ export async function sessionState(
   queueRevision: number
   /** 队列内容指纹（任何客户端改动队列它都会变；老宿主缺省）。 */
   queueToken?: string
+  /**
+   * 队列的**单调版本**（2026-11-10 架构修法）：宿主只在「队列事件」发生时 +1，
+   * 读投影不推进。客户端据此丢弃「版本不大于已应用值」的陈旧快照 ——
+   * 这是排队条 TTL / 观察窗 / 隐藏表那一族补丁的替代品。老宿主缺省。
+   */
+  queueVersion?: number
   turn: { running: boolean; turnStartAt?: number; lastEventAt?: number }
   /** 目标投影（与 mobile.goal 同一个形状），同一切面下发。 */
   goal?: unknown
@@ -54,11 +62,12 @@ export async function sessionState(
   return await callUnary('mobile.sessionState', {
     sessionId,
     ...(options.fresh === true ? { fresh: true } : {}),
+    ...(options.rows === false ? { rows: false } : {}),
   })
 }
 
-export async function inboxOf(sessionId: string, options: { fresh?: boolean } = {}): Promise<{ inbox: unknown }> {
-  return await callUnary<{ inbox: unknown }>('mobile.inbox', {
+export async function inboxOf(sessionId: string, options: { fresh?: boolean } = {}): Promise<{ inbox: unknown; queueVersion?: number }> {
+  return await callUnary<{ inbox: unknown; queueVersion?: number }>('mobile.inbox', {
     sessionId,
     ...(options.fresh === true ? { fresh: true } : {}),
   })
@@ -106,6 +115,22 @@ export async function turnState(sessionId: string): Promise<TurnState> {
 
 export async function runningSessions(): Promise<{ sessionIds: string[] }> {
   return await callUnary<{ sessionIds: string[] }>('mobile.runningSessions', {})
+}
+
+/**
+ * 这笔投递宿主受理过没有。
+ *
+ * 2026-11-12：送达核实唯一一条**不是猜**的证据。宿主在处理 `session.prompt` 成功返回时
+ * 记下 `sessionId + requestId`，这里直接问它。返回 `accepted: false` 表示"没有记录"
+ * （宿主重启过、或真的没送到），调用方应当按 unknown 处理 —— 不要据此回撤正文。
+ *
+ * @param sessionId - 会话 id
+ * @param requestId - 这次投递的 id
+ * @returns 受理过为 true
+ */
+export async function deliveryAccepted(sessionId: string, requestId: string): Promise<boolean> {
+  const reply = await callUnary<{ accepted?: boolean }>('session.deliveryCheck', { sessionId, requestId })
+  return reply?.accepted === true
 }
 
 /** One session.list page; omit the cursor for the first page. */
@@ -243,8 +268,8 @@ export async function prompt(
    */
   requestId: string = newRequestId(),
   mode: PromptMode = 'queue',
-): Promise<void> {
-  await callUnary<{ accepted: true }>('session.prompt', {
+): Promise<QueueAck | undefined> {
+  return await callUnary<QueueAck | undefined>('session.prompt', {
     sessionId,
     mode,
     content: parts,
@@ -280,9 +305,19 @@ export function queueItemViewOf(item: {
   return { id: item.id, placement: item.placement, text, editable, ...(sourceKind === undefined ? {} : { sourceKind }) }
 }
 
+/**
+ * 写操作的应答里带回来的**权威队列**（方案 A：读己之写，2026-11-10）。
+ *
+ * 宿主不发队列变更事件，投影会滞后；所以由插件在写操作返回前读一次活 agent 的
+ * 内存 inbox，随应答下发。undefined = 老宿主，没带（此时退回旧判据）。
+ */
+export interface QueueAck {
+  queue?: QueueItemView[]
+  queueVersion?: number
+}
 /** Edit / remove / steer one pending queued message on the host. */
-export async function updateQueue(sessionId: string, itemId: string, action: QueueAction): Promise<void> {
-  await callUnary<{ accepted: true }>('session.updateQueue', { sessionId, itemId, action })
+export async function updateQueue(sessionId: string, itemId: string, action: QueueAction): Promise<QueueAck | undefined> {
+  return await callUnary<QueueAck | undefined>('session.updateQueue', { sessionId, itemId, action })
 }
 
 /**

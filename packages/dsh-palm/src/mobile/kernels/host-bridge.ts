@@ -93,7 +93,7 @@ export function createHostBridge<Frame extends HostFrameLike>(
   }
 
   const onType = (type: string, listener: HostFrameListener<Frame>): (() => void) =>
-    onFrame(frame => { if (frame.type === type) listener(frame) })
+    onFrame((frame, rpcId) => { if (frame.type === type) listener(frame, rpcId) })
 
   return {
     start,

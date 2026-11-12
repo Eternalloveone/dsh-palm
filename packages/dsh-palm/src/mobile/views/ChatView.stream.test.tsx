@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatView } from './ChatView.tsx'
 import { resetSessionStoreForTest } from '../stream/session-store.ts'
+import { resetSessionPendingStores } from '../runtime/chat/pending-store.ts'
 import { LONG_TEXT_LIMIT } from '../render/markdown-text.tsx'
 import { type SessionView } from '../shared/session-view.ts'
 import { type ChatPageResult } from '../data/chat-page.ts'
@@ -166,6 +167,8 @@ function body(): HTMLElement {
 beforeEach(() => {
   // 状态仓是模块级单例：每个用例开始时清空，免得乐观项/隐藏表串到下一条。
   resetSessionStoreForTest()
+  // 待批/待答账本同理（W3-2 第二步）：本文件会推 question/requested 帧。
+  resetSessionPendingStores()
   fetchMobilePreferencesMock.mockResolvedValue({ mobileEnterToSend: true })
   modelsMock.mockResolvedValue({
     current: { provider: 'fx', model: 'fx-1' },

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>过程条计数 · 数字滚动（odometer）</title>
+<style>
+  :root{
+    --page:#0a0a0f; --surface:#13131a; --ink:#f0f0f5; --ink2:#a0a0b0; --ink3:#7f7f8c;
+    --line:#2a2a3a; --line-soft:#1e1e2a; --accent:#5b5cf0;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#07070b;color:var(--ink);font-family:var(--sans)}
+  .sheet{width:1000px;margin:0 auto;padding:26px 30px 30px}
+  .head{display:flex;align-items:baseline;gap:12px;margin-bottom:5px}
+  .head h1{font-size:17px;margin:0;letter-spacing:.2px}
+  .head .tag{font:500 11px/1 var(--mono);color:var(--ink3);border:1px solid var(--line);border-radius:99px;padding:4px 9px}
+  .sub{color:var(--ink3);font-size:12px;margin:0 0 20px;line-height:1.6}
+  .sub b{color:var(--ink2);font-weight:500}
+  .panel{background:var(--surface);border:1px solid var(--line-soft);border-radius:14px;padding:15px 16px 16px;margin-bottom:18px}
+  .panelTitle{font-size:10.5px;color:var(--ink3);letter-spacing:.7px;text-transform:uppercase;margin:0 0 12px;font-family:var(--mono)}
+  .note{font-size:11.5px;color:var(--ink3);line-height:1.7;margin:10px 0 0}
+  .note b{color:var(--ink2);font-weight:500}
+
+  .grid{display:grid;grid-template-columns:452px 1fr;gap:18px;align-items:start}
+  .phone{width:390px;background:var(--page);border:1px solid var(--line);border-radius:18px;padding:13px}
+  .phoneBar{display:flex;justify-content:space-between;font:500 10.5px/1 var(--mono);color:var(--ink3);margin-bottom:11px}
+  .bubble{background:#1c1c28;border-radius:12px;padding:9px 11px;font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:9px;max-width:88%}
+  .line{display:flex;align-items:center;gap:8px;background:#0f0f16;border:1px solid var(--line-soft);border-radius:11px;padding:0 11px;height:42px;font-size:12.5px;color:var(--ink2)}
+  .chev{width:13px;height:13px;flex:none;color:var(--ink3)}
+  .txt{display:flex;align-items:center;gap:7px;line-height:1}
+  .sep{width:3px;height:3px;border-radius:99px;background:#3a3a48;flex:none;margin:0 1px}
+  .spacer{flex:1}
+  .clock{font:500 10.5px/1 var(--mono);color:var(--ink3)}
+  .dot{width:6px;height:6px;border-radius:99px;background:var(--accent);flex:none;margin-right:6px}
+  .btnRow{display:flex;gap:8px;margin-top:12px}
+  .btn{font:500 11.5px/1 var(--sans);color:var(--ink2);background:#0f0f16;border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+  .btn:hover{color:var(--ink);border-color:#3a3a50}
+
+  /* ── 与应用同一份 CSS（370-v21.css 里的 .palm-roll 块） ── */
+  .palm-roll{
+    --palm-roll-h:1.25em;
+    display:inline-block;height:var(--palm-roll-h);line-height:var(--palm-roll-h);
+    overflow:hidden;vertical-align:-0.2em;
+  }
+  .palm-roll-track{display:flex;flex-direction:column}
+  .palm-roll-track.is-gliding{transition:transform 480ms cubic-bezier(0.2,0.9,0.25,1);will-change:transform}
+  .palm-roll-cell{display:block;height:var(--palm-roll-h);line-height:var(--palm-roll-h);font-variant-numeric:tabular-nums}
+
+  /* 放大版（只放大字号，规则同上） */
+  .zoom{--cell:56px;display:flex;align-items:center;gap:26px;padding:14px 2px 6px;font-size:36px}
+  .zoom .lab{font-size:11.5px;color:var(--ink3);line-height:1.7}
+  .zoom .lab b{color:var(--ink2);font-weight:500;font-size:12px}
+  .big{font-size:36px;color:var(--ink)}
+
+  .frames{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .fr{background:#0f0f16;border:1px solid var(--line-soft);border-radius:10px;padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .fr .t{font:500 10px/1 var(--mono);color:var(--ink3)}
+  .fr .cap{font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.55}
+  .fr .stage{font-size:26px;color:var(--ink);height:34px;display:flex;align-items:center}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{color:var(--ink3);font-weight:500;font-size:10.5px;letter-spacing:.5px;font-family:var(--mono)}
+  td:first-child{color:var(--ink2);white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+  td code{font:500 10.5px/1 var(--mono);background:#0f0f16;border:1px solid var(--line-soft);border-radius:5px;padding:2px 5px;color:#cfd2ff}
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet">
+  <div class="head">
+    <h1>过程条计数 · 数字滚动（odometer）</h1>
+    <span class="tag">v4 · 2026-11-11</span>
+  </div>
+  <p class="sub">把 3D 翻牌换成<b>竖直滚轮</b>：变化的那一位向上滚过中间那些数字（3 → 7 真的会看到 4、5、6），<b>静止时 DOM 里只有一个数字</b>，和普通文字没有区别。</p>
+
+  <div class="grid">
+    <section class="panel">
+      <p class="panelTitle">原位 · 390 宽</p>
+      <div class="phone">
+        <div class="phoneBar"><span>dsh-palm</span><span>过程条</span></div>
+        <div class="bubble">正在按计划改排队的对账逻辑，先把权威队列接上。</div>
+        <div class="line">
+          <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+          <div class="txt">
+            <span><span id="liveTools"></span><span>次工具调用</span></span>
+            <span class="sep"></span>
+            <span>改<span id="liveFiles"></span>个文件</span>
+          </div>
+          <span class="spacer"></span>
+          <span class="dot"></span><span class="clock">3:42</span>
+        </div>
+        <div class="bubble" style="margin-top:9px;max-width:74%">好，我先把删除那条跑通。</div>
+      </div>
+      <div class="btnRow">
+        <button class="btn" id="replay">重播</button>
+        <button class="btn" id="step">再 +1 次</button>
+      </div>
+      <p class="note">行高与字号完全没改：滚轮窗口 <b>1.25em</b>、基线偏移 <b>-0.2em</b>，过程条仍是 42px。</p>
+    </section>
+
+    <section class="panel">
+      <p class="panelTitle">放大 · 3 → 7（经过 4、5、6）</p>
+      <div class="zoom">
+        <span class="big" id="bigNum"></span>
+        <span class="lab"><b>480ms</b><br />cubic-bezier(.2,.9,.25,1)<br />向上滚，永远不倒退</span>
+      </div>
+      <p class="note">滚完立刻把轨道收回成单独一格 —— 所以静止时它和普通数字一模一样，连宽度都不会变。</p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <p class="panelTitle">分帧（3 → 7，五帧）</p>
+    <div class="frames" id="frames"></div>
+  </section>
+
+  <section class="panel">
+    <p class="panelTitle">实现要点</p>
+    <table>
+      <tr><th>项</th><th>做法</th><th>为什么</th></tr>
+      <tr><td>轨道</td><td>只铺<b>这次要经过的那几格</b>（3、4、5、6、7）</td><td>常驻 0-9 会让 DOM 文本变成 <code>0123456789</code>，复制/读屏/断言全错</td></tr>
+      <tr><td>收回</td><td>滚完 <code>480ms + 60ms</code> 后塌回一格</td><td>静止时与普通文字等价，也不占 <code>will-change</code></td></tr>
+      <tr><td>方向</td><td>永远朝上；9 → 0 也是朝上（接第一圈）</td><td>odometer 的物理直觉，不会来回摆</td></tr>
+      <tr><td>位数</td><td>key 从个位往左编</td><td>9 → 10 只滚个位、冒出新十位，不会整串一起滚</td></tr>
+      <tr><td>无障碍</td><td>滚轮 <code>aria-hidden</code>，读屏读 <code>aria-label</code></td><td>否则会念成一串数字</td></tr>
+      <tr><td>减弱动效</td><td>直接落到新数字</td><td>组件内判断 + CSS 里 <code>transition: none</code> 双保险</td></tr>
+    </table>
+  </section>
+</div>
+
+<script>
+  const LAP = 10
+  const DIGITS = ['0','1','2','3','4','5','6','7','8','9']
+
+  function rollPath(from, to){
+    const s = DIGITS.indexOf(from), e = DIGITS.indexOf(to)
+    if (s < 0 || e < 0 || s === e) return [to]
+    const steps = (e - s + LAP) % LAP
+    return Array.from({ length: steps + 1 }, (_, i) => DIGITS[(s + i) % LAP])
+  }
+
+  function makeDigit(ch, size){
+    const win = document.createElement('span')
+    win.className = 'palm-roll'
+    const track = document.createElement('span')
+    track.className = 'palm-roll-track'
+    track.innerHTML = '<span class="palm-roll-cell">' + ch + '</span>'
+    win.appendChild(track)
+    return win
+  }
+
+  function setDigit(win, ch){
+    const track = win.querySelector('.palm-roll-track')
+    const from = track.textContent.slice(-1)
+    if (from === ch) return
+    const path = rollPath(from, ch)
+    track.classList.remove('is-gliding')
+    track.style.transform = 'translateY(0)'
+    track.innerHTML = path.map(d => '<span class="palm-roll-cell">' + d + '</span>').join('')
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      track.classList.add('is-gliding')
+      track.style.transform = 'translateY(calc(var(--palm-roll-h) * -' + (path.length - 1) + '))'
+    }))
+    setTimeout(() => {
+      track.classList.remove('is-gliding')
+      track.style.transform = 'translateY(0)'
+      track.innerHTML = '<span class="palm-roll-cell">' + ch + '</span>'
+    }, 540)
+  }
+
+  /* 一位数 / 两位数都靠"多一个滚轮"来长出来 */
+  function setNumber(host, value){
+    const text = String(value)
+    while (host.children.length < text.length) host.appendChild(makeDigit('0'))
+    while (host.children.length > text.length) host.removeChild(host.lastElementChild)
+    ;[...text].forEach((ch, i) => setDigit(host.children[i], ch))
+  }
+
+  const tools = document.getElementById('liveTools')
+  const files = document.getElementById('liveFiles')
+  const big = document.getElementById('bigNum')
+  let n = 3, f = 0
+  setNumber(tools, n); setNumber(files, f); setNumber(big, n)
+
+  function bump(to){
+    n = to
+    setNumber(tools, n); setNumber(big, n)
+    if (n % 3 === 0) { f = Math.min(9, f + 1); setNumber(files, f) }
+  }
+  const seq = [7, 12, 17, 24, 31]
+  let i = 0
+  document.getElementById('replay').onclick = () => { i = 0; n = 3; f = 0; setNumber(tools, 3); setNumber(files, 0); setNumber(big, 3); setTimeout(() => bump(seq[0]), 80) }
+  document.getElementById('step').onclick = () => { bump(n + 1) }
+  setTimeout(() => { bump(seq[0]) }, 500)
+  setInterval(() => { i = (i + 1) % seq.length; bump(seq[i]) }, 2600)
+
+  /* 五帧定格：把轨道直接摆在中途，展示"滚"的样子 */
+  const stops = [
+    { t: '0 ms', at: 0, cap: '旧数字 3<br />占满窗口' },
+    { t: '120 ms', at: 1.25, cap: '3 正在上去<br />4 从下面进来' },
+    { t: '240 ms', at: 2.6, cap: '过场：5、6<br />糊成一竖条' },
+    { t: '360 ms', at: 3.55, cap: '7 就位<br />还在微调' },
+    { t: '落定', at: 4, cap: '只剩 7<br />DOM 也只剩一格' },
+  ]
+  const frames = document.getElementById('frames')
+  stops.forEach(stop => {
+    const box = document.createElement('div'); box.className = 'fr'
+    const t = document.createElement('span'); t.className = 't'; t.textContent = stop.t
+    const stage = document.createElement('span'); stage.className = 'stage'
+    if (stop.at === 4) {
+      stage.innerHTML = '<span class="palm-roll"><span class="palm-roll-track"><span class="palm-roll-cell">7</span></span></span>'
+    } else {
+      stage.innerHTML = '<span class="palm-roll"><span class="palm-roll-track" style="transform:translateY(calc(var(--palm-roll-h) * -' + stop.at + '))">' +
+        ['3','4','5','6','7'].map(d => '<span class="palm-roll-cell">' + d + '</span>').join('') +
+        '</span></span>'
+    }
+    const cap = document.createElement('span'); cap.className = 'cap'; cap.innerHTML = stop.cap
+    box.append(t, stage, cap); frames.appendChild(box)
+  })
+</script>
+</body>
+</html>

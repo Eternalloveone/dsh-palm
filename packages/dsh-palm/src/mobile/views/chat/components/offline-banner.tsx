@@ -4,7 +4,7 @@
  * 三条硬规则：
  * 1. **一行、展开 ≤28px**（`--palm-offline-h`）：只说连接状态，不做 toast、
  *    不盖内容区、不和插入条/队列条抢空间；
- * 2. **无图标块、无按钮**：断线「连接中断，正在重连…」，恢复「已重连」；
+ * 2. **无图标块、无按钮**：断线「网络慢了一点，正在恢复…」，恢复「已重连」；
  * 3. **节点常驻 DOM**：收起走 `data-state`（0 高 + 透明过渡），不条件卸载 ——
  *    卸载再挂载会让下面的正文跳一下。
  *
@@ -43,7 +43,7 @@ export function OfflineBanner({ offline }: OfflineBannerProps) {
 
   return (
     <div className="chat-offline-banner" data-state={state} role="status">
-      {state === 'off' ? '连接中断，正在重连…' : state === 'back' ? '已重连' : ''}
+      {state === 'off' ? '网络慢了一点，正在恢复…' : state === 'back' ? '已重连' : ''}
     </div>
   )
 }

@@ -115,7 +115,7 @@ describe('transcribeWav', () => {
     expect(String(second[0])).toBe('https://b.example/v1/audio/transcriptions')
   })
 
-  it('returns a stable generic error when all services fail (no internal details)', async () => {
+  it('all services failed → 说清楚试了几个、第一个为什么失败（仍不带第三方内容）', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: 'nope' }, 503))
     const result = await transcribeWav(AUDIO, [
       { name: 'A', baseURL: 'https://a.example/v1', apiKey: 'k1', model: 'm1' },
@@ -123,12 +123,12 @@ describe('transcribeWav', () => {
     ])
     expect('error' in result).toBe(true)
     const error = (result as { error: string }).error
-    // The phone sees only a stable user-facing refusal — never the service
-    // labels, the ASR response body, or the fetch exception message.
-    expect(error).toBe('转写服务不可用')
-    expect(error).not.toContain('A')
-    expect(error).not.toContain('B')
-    expect(error).not.toContain('HTTP')
+    // 2026-11-12 用户：「提示转写服务不可用，这是什么情况」——笼统到无法自查。
+    // 现在带回去的是**本进程生成**的摘要：几个服务、第一个的状态码。
+    expect(error).toContain('2 个服务都试过了')
+    expect(error).toContain('HTTP 503')
+    // 第三方响应体依旧一个字节都不回传。
+    expect(error).not.toContain('nope')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -140,7 +140,7 @@ describe('transcribeWav', () => {
     ])
     expect('error' in result).toBe(true)
     const error = (result as { error: string }).error
-    expect(error).toBe('转写服务不可用')
+    expect(error).toContain('HTTP 500')
     expect(error).not.toContain('internal-secret-token-abc')
     expect(error).not.toContain('a.example')
   })

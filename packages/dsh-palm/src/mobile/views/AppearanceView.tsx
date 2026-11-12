@@ -3,8 +3,7 @@
  *
  * 以前外观是设置页里的几个浮层（主题/字号/密度各一个）：改一项要开一次浮层，
  * 改完看不到"现在整体长什么样"。这一屏把它们放在一起，改完立刻生效。
- *
- * 版式：三张皮肤卡（色板即该皮肤真实配色，选中只加强调色描边、**不填充**）+
+ * 版式：
  * 字号 / 密度 / 明暗三组行（行内右侧是当前值）。尺寸走 --palm-spec-* 令牌，
  * 复用的是 `ui/screen-spec.tsx` 那一层（分组卡 + 行）。
  *
@@ -25,21 +24,9 @@ import {
   type Density,
   type FontScale,
 } from '../platform/display-prefs.ts'
-import { getSkin, setSkin, SKIN_HINT, SKIN_LABEL, type MobileSkin } from '../platform/skin.ts'
-import { getMobileThemeMode, setMobileThemeMode, type MobileThemeMode } from '../mobile-theme.ts'
 
-const SKINS: readonly MobileSkin[] = ['graphite', 'paper', 'nocturne']
 const SCALES: readonly FontScale[] = ['small', 'standard', 'large']
 const DENSITIES: readonly Density[] = ['compact', 'cozy']
-
-/** 主题三档的中文说明。 */
-const THEME_LABEL: Record<MobileThemeMode, string> = {
-  system: '跟随系统',
-  light: '浅色',
-  dark: '深色',
-}
-
-const THEMES: readonly MobileThemeMode[] = ['system', 'light', 'dark']
 
 export interface AppearanceViewProps {
   onBack(): void
@@ -52,15 +39,11 @@ export interface AppearanceViewProps {
  * @returns 外观页
  */
 export function AppearanceView({ onBack }: AppearanceViewProps) {
-  const [skin, setSkinState] = useState<MobileSkin>(() => getSkin())
   const [scale, setScaleState] = useState<FontScale>(() => getFontScale())
   const [density, setDensityState] = useState<Density>(() => getDensity())
-  const [theme, setThemeState] = useState<MobileThemeMode>(() => getMobileThemeMode())
 
-  const pickSkin = (next: MobileSkin): void => { setSkinState(next); setSkin(next) }
   const pickScale = (next: FontScale): void => { setScaleState(next); setFontScale(next) }
   const pickDensity = (next: Density): void => { setDensityState(next); setDensity(next) }
-  const pickTheme = (next: MobileThemeMode): void => { setThemeState(next); setMobileThemeMode(next) }
 
   return (
     <SlotLayout
@@ -78,24 +61,6 @@ export function AppearanceView({ onBack }: AppearanceViewProps) {
         ),
         groups: (
           <div className="palm-spec-body">
-            <SpecGroupHead title="皮肤" note={`当前 ${SKIN_LABEL[skin]}`} />
-            <div className="palm-spec-skins">
-              {SKINS.map(name => (
-                <Button
-                  key={name}
-                  className="palm-spec-skin"
-                  data-skin={name}
-                  aria-pressed={skin === name}
-                  onClick={() => { pickSkin(name) }}
-                >
-                  {/* 定版图：皮肤不是一行文字，是一张能看见颜色的预览卡 */}
-                  <span className="palm-spec-skin-sw" aria-hidden />
-                  <span className="palm-spec-skin-name">{SKIN_LABEL[name]}</span>
-                  <span className="palm-spec-skin-hint">{skin === name ? '选中' : SKIN_HINT[name]}</span>
-                </Button>
-              ))}
-            </div>
-
             <SpecGroupHead title="字号" note="正文行高 1.5" />
             <SpecGroup>
               {SCALES.map(name => (
@@ -122,20 +87,7 @@ export function AppearanceView({ onBack }: AppearanceViewProps) {
               ))}
             </SpecGroup>
 
-            <SpecGroupHead title="明暗" note="跟随系统或手动" />
-            <SpecGroup>
-              {THEMES.map(name => (
-                <SpecRow
-                  key={name}
-                  title={THEME_LABEL[name]}
-                  value={theme === name ? '当前' : undefined}
-                  pressed={theme === name}
-                  onClick={() => { pickTheme(name) }}
-                />
-              ))}
-            </SpecGroup>
-
-            <p className="palm-spec-foot">改完立刻生效，不用重启。</p>
+            <p className="palm-spec-foot">明暗由皮肤决定：石墨 / 夜航是深色底，纸是浅色底。改完立刻生效，不用重启。</p>
           </div>
         ),
       }}

@@ -26,3 +26,20 @@ export function staleHostHint(message: string): string | undefined {
     ? '宿主端插件可能仍在运行旧版本：请重启 dsh web 后再试。'
     : undefined
 }
+
+/**
+ * 这次失败是不是**宿主明确拒绝**（4xx）？
+ *
+ * 用途：`session.prompt` 失败后要不要再花 8 秒核实"是不是其实送到了"。4xx 就是拒收，
+ * 没有"已经在队列里"的可能，直接报错别让用户等；超时 / 断流 / 5xx 才值得核实。
+ * 408（超时）与 429（限流）不算明确拒绝：宿主可能一边回 429 一边已经排进队列了。
+ *
+ * @param message - `errorText()` 出来的文案（形如 `HTTP 403 forbidden`）
+ * @returns 明确被拒 → true
+ */
+export function isConclusiveRejection(message: string): boolean {
+  const match = /^HTTP (\d{3})/u.exec(message.trim())
+  if (match === null) return false
+  const status = Number(match[1])
+  return status >= 400 && status < 500 && status !== 408 && status !== 429
+}

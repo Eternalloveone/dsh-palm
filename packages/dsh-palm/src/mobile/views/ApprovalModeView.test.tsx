@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApprovalModeView } from './ApprovalModeView.tsx'
 
@@ -45,5 +45,43 @@ describe('批准方式页（P6 ⑥ 屏）', () => {
   it('应用失败时显示错误（命令未注册等）', () => {
     render(<ApprovalModeView currentValue="ask" options={options} error="权限命令未在宿主注册，无法切换" onBack={() => {}} />)
     expect(screen.getByText(/未在宿主注册/)).toBeDefined()
+  })
+
+  it('最放开那一档不在第一次点击就生效（与对话页内联选择器的确认一致）', () => {
+    // 2026-11-10 审查：对话页里点 danger-full-access 会先弹 PermissionConfirmSheet，
+    // 而这一页点一下就发 /permission；同一个动作两条路径、两种安全等级。
+    const onApply = vi.fn()
+    const risky = [
+      { value: 'ask', name: '每次询问' },
+      { value: 'danger-full-access', name: '完全放开', description: '不再逐条问你' },
+    ]
+    render(<ApprovalModeView currentValue="ask" options={risky} onApply={onApply} onBack={() => {}} />)
+
+    fireEvent.click(screen.getByText('完全放开').closest('button')!)
+    expect(onApply).not.toHaveBeenCalled()
+    expect(screen.getByText(/确认放开/)).toBeDefined()
+
+    // 取消：什么都不发，确认条收起来。
+    fireEvent.click(screen.getByText('取消'))
+    expect(onApply).not.toHaveBeenCalled()
+    expect(screen.queryByText(/确认放开/)).toBeNull()
+
+    // 再点一次并确认，才真的把值交出去。
+    fireEvent.click(screen.getByText('完全放开').closest('button')!)
+    fireEvent.click(screen.getByText(/确认放开/))
+    expect(onApply).toHaveBeenCalledWith('danger-full-access')
+  })
+
+  it('已经是这一档、或者普通档位，仍然点一下就切', () => {
+    const onApply = vi.fn()
+    const risky = [
+      { value: 'ask', name: '每次询问' },
+      { value: 'danger-full-access', name: '完全放开' },
+    ]
+    render(<ApprovalModeView currentValue="danger-full-access" options={risky} onApply={onApply} onBack={() => {}} />)
+    // 当前档：点了也走 onApply（调用方自己会忽略同值），不需要再确认。
+    screen.getByText('完全放开').closest('button')!.click()
+    expect(onApply).toHaveBeenCalledWith('danger-full-access')
+    expect(screen.queryByText(/确认放开/)).toBeNull()
   })
 })

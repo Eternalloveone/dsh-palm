@@ -27,6 +27,8 @@ export const MOBILE_ALLOWLIST: ReadonlySet<string> = new Set([
   'session.history',
   'session.search',
   'session.prompt',
+  // 送达核实：问宿主"这笔 requestId 你受理过没有"（只读、只回布尔）。
+  'session.deliveryCheck',
   'session.updateQueue',
   'session.models',
   'session.selectModel',

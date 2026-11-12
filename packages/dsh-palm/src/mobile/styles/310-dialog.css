@@ -99,7 +99,7 @@
 .dialog-btn-danger {
   border: none;
   background: var(--danger);
-  color: #fff;
+  color: var(--palm-on-accent);
 }
 
 .dialog-btn-danger:active {

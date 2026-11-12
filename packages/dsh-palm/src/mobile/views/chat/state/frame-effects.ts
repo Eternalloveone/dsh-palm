@@ -78,13 +78,17 @@ export interface FrameContext {
   refreshSubagents: () => void
   refreshInbox: (options?: { fresh?: boolean }) => void
   claimQueueHead: (sessionId: string) => void
-  queueView: (sessionId: string) => QueueItemView[]
-  setQueueItems: Dispatch<SetStateAction<QueueItemView[]>>
-  applyQueueItems: (sessionId: string, items: QueueItemView[]) => void
+  /**
+   * 重订阅基线：新一条连接到达时把旧队列视图清掉（W3-6 起清空动作由会话仓表达，
+   * 组件里不再有队列数组可以清）。
+   */
+  rebaselineQueueView: (sessionId: string) => void
+  applyQueueItems: (sessionId: string, items: QueueItemView[], queueVersion?: number) => void
   setJobs: Dispatch<SetStateAction<JobView[]>>
   setPermissions: Dispatch<SetStateAction<PermissionSelectValue | undefined>>
   setContextPressure: Dispatch<SetStateAction<ContextPressureData | undefined>>
-  applyInbox: (value: unknown) => void
+  /** 队列投影进仓；`queueVersion` 是宿主的单调队列版本（栅栏用，老宿主缺省）。 */
+  applyInbox: (value: unknown, queueVersion?: number) => void
   applyGoal: (value: unknown) => void
   setGoal: Dispatch<SetStateAction<MobileGoal | null | undefined>>
   setPendingApprovals: Dispatch<SetStateAction<PendingApproval[]>>
@@ -294,7 +298,8 @@ export function onTurnStart(ctx: FrameContext, event: WireEvent): void {
   // 一起移走：只清本地列表的话，下一份快照（可能是几分钟前的投影）会把
   // 被认领的那条画回来，排队条就「消失→出现」闪一下。
   ctx.claimQueueHead(ctx.sessionId)
-  startTransition(() => { ctx.setQueueItems(ctx.queueView(ctx.sessionId)) })
+  // 仓已经发布变化（claimQueueHead → publish），视图按版本号自动重算，
+  // 不再需要把 queueView 抄进组件状态（W3-6）。
   ctx.refreshInbox({ fresh: true })
 }
 
@@ -337,7 +342,7 @@ function onProjection(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'sessi
   if (frame.key === 'contextPressure') ctx.setContextPressure(parseContextPressure(frame.value))
   // 排队消息也走投影：宿主从不发 `session/queue`，发的是 `inbox`。漏了这条，
   // 手机端就永远看不到"已排队"的那几条。
-  if (frame.key === 'inbox') ctx.applyInbox(frame.value)
+  if (frame.key === 'inbox') ctx.applyInbox(frame.value, (frame as { queueVersion?: number }).queueVersion)
   // 目标条也走投影：宿主在目标每次变更后推 key='goal' 的帧。
   if (frame.key === 'goal') ctx.applyGoal(frame.value)
 }
@@ -362,7 +367,9 @@ function onJobs(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'session/job
  * this one — if any — repopulate them.
  */
 function onSubscribed(ctx: FrameContext): void {
-  startTransition(() => { ctx.setQueueItems([]); ctx.setJobs([]) })
+  // 队列的清空动作归会话仓（W3-6）：组件里不再有队列数组，清空只能由仓表达。
+  // 之后到达的队列帧/更高 revision 的快照会自动让基线失效（见 session-store）。
+  startTransition(() => { ctx.rebaselineQueueView(ctx.sessionId); ctx.setJobs([]) })
   // 新一条连接的基线帧：断线期间丢掉的 turn/end（或 turn/start）不会重放，
   // 手机就会一直显示在跑，或者该亮的时候不亮。基线一到就核一次。
   ctx.reconcileRunning()
@@ -378,8 +385,9 @@ function onQueue(ctx: FrameContext, frame: Extract<MuxFrame, { type: 'session/qu
       message: item.message as { content?: unknown; source?: { kind?: unknown } },
     }))
     // 帧也进状态仓：队列只有一个来源，本地隐藏/乐观项才不会跟帧互相盖掉。
-    ctx.applyQueueItems(ctx.sessionId, items)
-    ctx.setQueueItems(ctx.queueView(ctx.sessionId))
+    // 仓发布后视图按版本号自动重算，这里不再往组件状态里抄一份（W3-6）。
+    // 带上宿主的单调版本：比已应用值旧的帧不会再改队列（版本栅栏）。
+    ctx.applyQueueItems(ctx.sessionId, items, (frame as { queueVersion?: number }).queueVersion)
   })
 }
 

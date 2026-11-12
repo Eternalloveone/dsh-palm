@@ -11,7 +11,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MarkdownText } from './markdown-text.tsx'
-import { resetLocalImageCache } from '../platform/local-images.ts'
+import {
+  LOCAL_IMAGE_RETRY_MS,
+  isLocalImageFailed,
+  localImageFailureReason,
+  markLocalImageFailed,
+  resetLocalImageCache,
+} from '../platform/local-images.ts'
 
 const readFile = vi.fn()
 
@@ -100,6 +106,20 @@ describe('MarkdownText 的本地图片水合', () => {
     expect(image.getAttribute('src')).toBeNull()
   })
 
+  it('读不到时换成带路径的小牌子，而不是留一个破图', async () => {
+    // 2026-11-10 真机反馈「经常正文里的图片没法显示」：破图只显示 alt，
+    // 谁也看不出是主机上没这个文件。牌子写明是哪张、哪个路径。
+    readFile.mockRejectedValue(new Error('no such file'))
+    const body = renderBody('![动作表](docs/screenshots/missing.png)')
+    await waitFor(() => {
+      const chip = body.querySelector('.md-img-missing')
+      expect(chip).not.toBeNull()
+      expect(chip?.getAttribute('data-local-path')).toBe('docs/screenshots/missing.png')
+      expect(chip?.textContent).toContain('动作表未找到')
+      expect(chip?.textContent).toContain('docs/screenshots/missing.png')
+    })
+    expect(body.querySelector('img.md-local-img')).toBeNull()
+  })
   it('宿主判成文本时也不当图片显示（反面）', async () => {
     readFile.mockResolvedValue({ kind: 'text', path: 'D:/a.png', name: 'a.png', text: 'oops' })
     const body = renderBody('![shot](D:/a.png)')
@@ -139,6 +159,73 @@ describe('MarkdownText 的本地图片水合', () => {
     const body = container.querySelector('.chat-md-body') as HTMLElement
     expect(body.querySelector('img.md-local-img')).not.toBeNull()
     expect(readFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('读不到的图会自己重试（2026-11-11 真机：正文里的图一直不显示）', () => {
+  // 真机现场：agent 先按 markdown 引用截图、几秒后才把 PNG 写出来。第一次水合读到
+  // 「找不到」，而失败记录只进不出 → 牌子一直挂到整页重开。用户看到的就是
+  // 「正文中的图片还是没显示」。
+  it('点一下「未找到」牌子就重试，图能补上', async () => {
+    readFile.mockRejectedValueOnce(new Error('no such file'))
+    readFile.mockResolvedValue({ kind: 'image', path: 'docs/screenshots/a.png', name: 'a.png', dataUrl: DATA_URL })
+    const body = renderBody('![动作表](docs/screenshots/a.png)')
+
+    const chip = await waitFor(() => {
+      const found = body.querySelector('.md-img-missing')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(chip.getAttribute('data-local-alt')).toBe('动作表')
+
+    fireEvent.click(chip)
+    await waitFor(() => {
+      const image = body.querySelector('img.md-local-img') as HTMLImageElement
+      expect(image.getAttribute('src')).toBe(DATA_URL)
+    })
+    // 重试成功后牌子必须消失，且 alt 没有在还原时丢掉。
+    expect(body.querySelector('.md-img-missing')).toBeNull()
+    expect(body.querySelector('img.md-local-img')?.getAttribute('alt')).toBe('动作表')
+  })
+
+  it('一轮结束时自动重试：流式期间失败、收尾后图落地就能显示', async () => {
+    readFile.mockRejectedValueOnce(new Error('no such file'))
+    readFile.mockResolvedValue({ kind: 'image', path: 'D:/a.png', name: 'a.png', dataUrl: DATA_URL })
+    const text = '![动作表](D:/a.png)\n\n尾巴还在流'
+    const { container, rerender } = render(<MarkdownText text={text} pending sessionId="s-1" />)
+    const body = container.querySelector('.chat-md-body') as HTMLElement
+
+    await waitFor(() => { expect(body.querySelector('.md-img-missing')).not.toBeNull() })
+
+    rerender(<MarkdownText text={text} pending={false} sessionId="s-1" />)
+    await waitFor(() => {
+      const image = body.querySelector('img.md-local-img') as HTMLImageElement
+      expect(image.getAttribute('src')).toBe(DATA_URL)
+    })
+  })
+
+  it('失败只在 TTL 内挡住重复请求，过期后允许再试', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-11-11T15:00:00Z'))
+      markLocalImageFailed('s-1', 'D:/a.png', '主机上没有这个文件')
+      expect(isLocalImageFailed('s-1', 'D:/a.png')).toBe(true)
+      expect(localImageFailureReason('s-1', 'D:/a.png')).toBe('主机上没有这个文件')
+
+      vi.setSystemTime(new Date(Date.now() + LOCAL_IMAGE_RETRY_MS + 1))
+      expect(isLocalImageFailed('s-1', 'D:/a.png')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('牌子上写出人话原因，别只说「未找到」', async () => {
+    readFile.mockRejectedValue(new Error('宿主上找不到这个文件'))
+    const body = renderBody('![动作表](D:/a.png)')
+    await waitFor(() => {
+      const chip = body.querySelector('.md-img-missing')
+      expect(chip?.textContent).toContain('主机上没有这个文件')
+    })
   })
 })
 

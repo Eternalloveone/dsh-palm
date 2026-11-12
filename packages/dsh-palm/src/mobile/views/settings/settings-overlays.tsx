@@ -5,7 +5,6 @@
 import pkg from '../../../../package.json'
 import { mutateSettings } from '../../data/settings.ts'
 import type { MobileHealthView } from '../../api.ts'
-import { setMobileThemeMode, type MobileThemeMode } from '../../mobile-theme.ts'
 import { applyDisplayPrefs, setDensity, setFontScale, type Density, type FontScale } from '../../platform/display-prefs.ts'
 import { BUILD_HASH } from '../../platform/build-info.ts'
 import { Sheet } from '../../ui/sheet.tsx'
@@ -15,9 +14,8 @@ import { OptionSheet, clearAppCaches } from './settings-shared.tsx'
 import { Button } from '../../ui/primitives.tsx'
 
 export interface SettingsOverlaysProps {
-  sheet: 'theme' | 'font' | 'density' | 'about' | null
-  setSheet: (sheet: 'theme' | 'font' | 'density' | 'about' | null) => void
-  themeMode: MobileThemeMode
+  sheet: 'font' | 'density' | 'about' | null
+  setSheet: (sheet: 'font' | 'density' | 'about' | null) => void
   fontScale: FontScale
   density: Density
   setFontScaleState: (value: FontScale) => void
@@ -33,28 +31,12 @@ export interface SettingsOverlaysProps {
 }
 
 export function SettingsOverlays({
-  sheet, setSheet, themeMode, fontScale, density, setFontScaleState, setDensityState,
+  sheet, setSheet, fontScale, density, setFontScaleState, setDensityState,
   versionBusy, versionStatus, handleVersionCheck, health, swControlled, healthFailing,
   confirmClear, setConfirmClear,
 }: SettingsOverlaysProps) {
   return (
     <>
-      {sheet === 'theme' && (
-        <OptionSheet
-          title="主题"
-          value={themeMode}
-          options={[
-            { value: 'dark', label: '深色' },
-            { value: 'light', label: '浅色' },
-            { value: 'system', label: '跟随系统' },
-          ]}
-          onPick={(value: MobileThemeMode) => {
-            setMobileThemeMode(value)
-            void mutateSettings('ui-theme', [{ op: 'set', path: ['preference'], value }]).catch(() => {})
-          }}
-          onClose={() => { setSheet(null) }}
-        />
-      )}
       {sheet === 'font' && (
         <OptionSheet
           title="字体大小"

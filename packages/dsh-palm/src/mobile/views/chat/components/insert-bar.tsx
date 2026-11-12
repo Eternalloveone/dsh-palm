@@ -19,19 +19,27 @@ import { useEffect, useState } from 'react'
 import { INSERT_HIDE_CONFIRM_MS, INSERT_MIN_VISIBLE_MS, INSERT_SOURCE_LABELS, summarizeInserts, type InsertEntry } from '../../../session/insert-queue.ts'
 import { insertView, subscribeSessionStore, withdrawInsert } from '../../../stream/session-store.ts'
 import { Button } from '../../../ui/primitives.tsx'
+import { Sheet, SheetPortal } from '../../../ui/sheet.tsx'
 
 /** 纯展示层：只吃条目，方便单测（不碰 store / 订阅）。 */
 export interface InsertBarViewProps {
   entries: readonly InsertEntry[]
   /** 这一轮是否在跑（只影响 data 属性与将来文案，不参与挂载）。 */
   running: boolean
+  /** 撤回：从这一轮摘下来、原文放回输入框（用户改完再发）。 */
   onWithdraw: (id: string) => void
+  /** 删除：直接丢弃，不回输入框。不给就退回 onWithdraw。 */
+  onRemove?: (id: string) => void
 }
 
-export function InsertBarView({ entries, running, onWithdraw }: InsertBarViewProps) {
-  const [expanded, setExpanded] = useState(false)
+export function InsertBarView({ entries, running, onWithdraw, onRemove }: InsertBarViewProps) {
+  /** 默认展开：每条都可能有自己要处理的（撤回/删除），藏起来就没人找得到（2026-11-10 用户要求）。 */
+  const [expanded, setExpanded] = useState(true)
+  /** 动作表针对哪一条。 */
+  const [sheetId, setSheetId] = useState<string | null>(null)
   const summary = summarizeInserts(entries)
   const shown = summary.total > 0
+  const sheetEntry = sheetId === null ? undefined : summary.entries.find(entry => entry.id === sheetId)
   return (
     <div
       className="insert-bar"
@@ -62,27 +70,54 @@ export function InsertBarView({ entries, running, onWithdraw }: InsertBarViewPro
                   <Button
                     type="button"
                     data-insert-withdraw=""
-                    aria-label="撤回插入消息"
+                    aria-label={`撤回插入消息：${entry.text}`}
                     onClick={() => { onWithdraw(entry.id) }}
                   >撤回</Button>
+                  <Button
+                    type="button"
+                    className="queue-dockX"
+                    aria-label={`已插入消息的更多操作：${entry.text}`}
+                    onClick={() => { setSheetId(entry.id) }}
+                  >⋯</Button>
                 </li>
               ))}
             </ul>
           </div>
         </div>
       </div>
+      {sheetEntry !== undefined && (
+        <SheetPortal>
+        <Sheet title="这条已插入的消息" onClose={() => { setSheetId(null) }}>
+          <div role="menu" aria-label="已插入消息的操作">
+            <Button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setSheetId(null); onWithdraw(sheetEntry.id) }}
+            >
+              <span className="sheet-option-copy"><span className="sheet-option-title">撤回并放回输入框</span><span className="sheet-option-desc">不发送，先回到输入框里改</span></span>
+            </Button>
+            <Button
+              type="button"
+              role="menuitem"
+              className="sheet-option"
+              onClick={() => { setSheetId(null); (onRemove ?? onWithdraw)(sheetEntry.id) }}
+            >
+              <span className="sheet-option-copy"><span className="sheet-option-title">删除</span><span className="sheet-option-desc">直接丢弃这条</span></span>
+            </Button>
+          </div>
+        </Sheet>
+        </SheetPortal>
+      )}
     </div>
   )
 }
 
-/** 容器：订阅状态仓；组件本身始终挂载，条目为空时只是 data-state=empty。 */
-export interface InsertBarProps {
-  sessionId: string
-  running: boolean
-  onWithdraw: (id: string) => void
-}
-
-export function InsertBar({ sessionId, running, onWithdraw }: InsertBarProps) {
+/**
+ * 订阅「已插入本轮」的条目。抽成 hook 是为了让 `QueueCard` 能把插入条和排队项
+ * 画在**同一张卡**里（2026-11-10 方案 A），而不是两个各自带边框的小盒子。
+ */
+export function useInsertEntries(sessionId: string): readonly InsertEntry[] {
   const [entries, setEntries] = useState<readonly InsertEntry[]>(() => insertView(sessionId))
   useEffect(() => {
     setEntries(insertView(sessionId))
@@ -103,6 +138,18 @@ export function InsertBar({ sessionId, running, onWithdraw }: InsertBarProps) {
     }, INSERT_MIN_VISIBLE_MS + INSERT_HIDE_CONFIRM_MS)
     return () => { clearTimeout(timer) }
   }, [entries, sessionId])
+  return entries
+}
+
+/** 容器：订阅状态仓；组件本身始终挂载，条目为空时只是 data-state=empty。 */
+export interface InsertBarProps {
+  sessionId: string
+  running: boolean
+  onWithdraw: (id: string) => void
+}
+
+export function InsertBar({ sessionId, running, onWithdraw }: InsertBarProps) {
+  const entries = useInsertEntries(sessionId)
   return (
     <InsertBarView
       entries={entries}

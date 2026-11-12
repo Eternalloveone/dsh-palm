@@ -13,7 +13,7 @@ import { formatTime } from '../shared/time.ts'
 import type { RenderMessage } from './messages.ts'
 import { triggerEmojiOf, triggerTitleOf } from './messages.ts'
 import { CollapsibleText } from './markdown-text.tsx'
-import { DeliveryCard, type DeliveryDeliverable, type DeliveryFileChange } from '../ui/delivery-card.tsx'
+import { DeliveryCard, type DeliveryDeliverable, type DeliveryFileChange, type DeliveryState } from '../ui/delivery-card.tsx'
 import type { TaskSteps } from '../session/task-status.ts'
 import { Button } from '../ui/primitives.tsx'
 
@@ -28,11 +28,27 @@ import { forgetTurnAnchor, stableTurnAnchor, type RegenerateState } from '../mes
 import { MessageFiles, MessageImages } from '../message-row/attachments.tsx'
 import { AssistantBody } from '../message-row/artifacts.tsx'
 import { ProcessGroup } from '../message-row/process.tsx'
+import { useLiveClock } from '../platform/live-clock.ts'
 
 // 兼容旧调用点：锚点逻辑在 message-row/anchors.ts，公开 API 不变。
 export { forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from '../message-row/anchors.ts'
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted }: {
+/**
+ * 已经播过入场动画的消息 id（模块级，跨重挂保留）。
+ *
+ * 真机"输出时老抖一下/闪一下"的根因之一：正在流式落地的行，key 会随着 turn/step
+ * 补齐而变（`rowKeyOf` 从 id 变成 t<turn>.<step>），React 重挂 → `.chat-msg` 上的
+ * `msg-in` 动画重播。同一个 id 只该有一次入场。上限 800 条，超了整体清空（历史行
+ * 本来也不再需要这层记忆）。
+ */
+const enteredIds = new Set<string>()
+
+/** 测试用：清空"已经播过入场动画"的记忆（模块级状态，跨用例会串）。 */
+export function resetEnteredIds(): void {
+  enteredIds.clear()
+}
+
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -89,11 +105,19 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
    */
   liveClockTick?: number
   /**
+   * 这一行是否正在跑：**秒表心跳在这里自己起搏**（A2）。心跳原来在 `ChatView` 里，
+   * 每秒把 4000 行的视图函数体重跑一遍；下沉后只有这一行重渲染，布尔值稳定。
+   */
+  rowRunning?: boolean
+  /**
    * Host clock minus local clock (ms), for the running turn header's timer.
    * A plain number: it changes only when a frame re-calibrates the skew, so
    * memoized rows are not re-rendered once per second.
    */
+  /** 宿主时间（毫秒，10 秒桶）：只用来算「几分钟前 / 快照是否新鲜」。 */
   hostNowMs?: number
+  /** 宿主时间取数函数（引用恒定；传数值会让每行 memo 失效）。 */
+  hostNow?: () => number
   /** Regenerate affordance: shown on the last settled assistant reply. */
   onRegenerate?: () => void
   /** 它自己的状态：待点、已发出（转圈）、发出失败（可再点）。 */
@@ -109,6 +133,14 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   /** 这一轮是否正常收工；失败/中断传 false —— 交付卡不画（终态交给状态条）。 */
   turnCompleted?: boolean
 }) {
+  /**
+   * 运行行的秒表心跳：**在这一行自己起搏**。
+   *
+   * 以前是 `ChatView` 里的 `useLiveClock`，每秒把 4000 行的视图函数体整个重跑一遍，
+   * 只为给一行换个数字。下沉到这里后只有这一行每秒重渲染；`rowRunning` 是布尔值，
+   * 引用稳定，别的行照旧被 `memo` 挡住。
+   */
+  useLiveClock(rowRunning === true)
   const focusSeqAttr = message.startSeq ?? message.seq
   // 宿主唤醒消息（子代理/任务/定时/团队/外部事件…）在手机端也出卡，与桌面端
   // ui-chat 的 TurnTriggerNodeView 对齐：标题按 source.kind 取（文案与桌面端 locale
@@ -166,18 +198,22 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       </div>
     )
   }
-  // Turn tail（收尾行）：新「会话正文流」里这里只画**交付卡**——全页唯一的一张卡。
-  // 失败/中断（turnCompleted=false）不画：终态由任务头的状态条表达，不再叠一张
-  // 「交付完成」自相矛盾。计划不再单独出胶囊：步数已经进任务头（ChatRows 按轮回填）。
+  // Turn tail（收尾行）：新「会话正文流」里这里只画**一张结论卡**——全页唯一的一张卡。
+  // P4 四态：正常收工 = success；失败 = failure；中断但没标记失败 = unknown
+  // —— 后两种以前直接不画，等于把"这一轮到底怎么了"从界面上抹掉。
+  // 计划不再单独出胶囊：步数已经进任务头（ChatRows 按轮回填）。
   if (message.kind === 'turn') {
-    if (turnCompleted === false) return null
+    const state: DeliveryState = turnCompleted !== false
+      ? 'success'
+      : (message.failed === true ? 'failure' : 'unknown')
     const deliverables = message.deliverables ?? []
     // 收尾行自带的「产出文件」没有增删行数；ChatRows 的 diff 统计优先，缺的按路径补上。
     const changes: DeliveryFileChange[] = turnChanges === undefined ? [] : [...turnChanges]
     for (const path of message.produced ?? []) {
       if (!changes.some(change => change.path === path)) changes.push({ path })
     }
-    if (deliverables.length === 0 && changes.length === 0) return null
+    // 正常收工又什么都没交回：不画空壳卡。失败/未知即使没有文件也要画。
+    if (state === 'success' && deliverables.length === 0 && changes.length === 0) return null
     // 「看全部改动」的入口只在有路由回调时出现：没有回执的路由会变成死按钮。
     const turn = message.turn
     const openChanges = onOpenChanges === undefined || turn === undefined
@@ -199,13 +235,17 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
         className="chat-turn-tail-row"
         style={style}
       >
+        {/* 失败态的「重试」走调用方给的重生成（2026-11-10）：卡片本来就有这个入口，
+            但 MessageRow 一直没接进来，失败回合只写「没做成」、没有下一步动作。
+            没给回调就不画按钮 —— 不放假入口。 */}
         <DeliveryCard
-          completed
+          state={state}
           {...(message.plan === undefined ? {} : { steps: message.plan.items.length })}
           deliverables={deliverables}
           changes={changes}
           {...(onOpenFile === undefined ? {} : { onOpenFile })}
           {...(openChanges === undefined ? {} : { onOpenChanges: openChanges })}
+          {...(state === 'failure' && onRegenerate !== undefined ? { onRetry: onRegenerate } : {})}
         />
       </div>
     )
@@ -227,16 +267,24 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   if (!hasReasoning && !hasTools && !hasText && !hasFailTag && !hasFlowText && !hasImages && files === undefined) {
     return null
   }
+  // 同一个 id 只播一次入场：重挂（key 变）不重播 —— 否则流式期间每补齐一次 turn/step
+  // 就闪一下。
+  const alreadyEntered = enteredIds.has(message.id)
+  if (!alreadyEntered) {
+    if (enteredIds.size > 800) enteredIds.clear()
+    enteredIds.add(message.id)
+  }
+  const showEnter = enter !== false && !alreadyEntered
   return (
     <div
       data-mid={message.id}
       data-message-id={message.id}
       data-row-seq={focusSeqAttr}
-      className={`chat-msg chat-msg-${message.kind}${enter === false ? ' chat-msg-no-enter' : ''}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
+      className={`chat-msg chat-msg-${message.kind}${showEnter ? '' : ' chat-msg-no-enter'}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNow={hostNow} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
       ) : (
         <>
           <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />

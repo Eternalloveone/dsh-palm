@@ -7422,3 +7422,756 @@ CSS 里 `html[data-skin=claude]`、`--tok-keyword`、`Georgia` 都在，确认�
 
 测试：`session-drawer-layout` + `mobile-styles.structure`（188 条）+ `quality-budget`（16 条）全过；
 棘轮：`src/mobile 65843`、`ui 2656`、`cssPx 1327`、`cssClasses 851`。
+
+#### 默认皮肤改成 Claude（2026-11-11 20:15，用户指定）
+
+用户要求「本项目默认皮肤设成 Claude」。石墨不再默认，改为 Claude（浅色、米白纸面 + 陶土橙）。
+
+**改到的地方**
+
+| 位置 | 改动 |
+|---|---|
+| `platform/skin.ts` | `DEFAULT_SKIN = 'claude'`；`SKIN_HINT` 里 Claude 标「（默认）」、石墨改「深色底，冷灰」 |
+| `mobile-routes.ts` `pageHtml` | `<html data-skin="claude" data-theme="light">`、`theme-color #ffffff` |
+| `mobile-routes.ts` `manifestJson` | `background_color` / `theme_color` 改 `#ffffff`（PWA 启动画面） |
+| `mobile-routes.ts` 新增 `/m/boot-skin.js` | 首帧脚本：读 `dsh.palm.skin`，在样式表之前写 `data-skin`/`data-theme`/`theme-color` |
+| `docs/mobile-design-spec.md`、`docs/skin-porting-guide.md` | 表格里的「（默认）」从石墨挪到 Claude |
+
+**为什么需要 boot 脚本**：页面 HTML 是静态生成的，只能写死默认值；选了深色皮肤（石墨/夜航）的人如果等 bundle 起来再改，每次打开都会先白闪一下。CSP 是 `script-src 'self'`（不许内联），所以做成同源小脚本、放在样式表之前同步执行。
+
+**新增两条防漂移断言**（都写在 `platform/skin.test.ts`）
+
+1. boot 脚本的 `MOBILE_SKIN_IDS` / `MOBILE_LIGHT_SKIN_IDS` 必须等于 `SKIN_LABEL` 全集与 `skinPolarity()==='light'` 的集合；
+2. boot 脚本里的状态栏颜色必须覆盖 `SKIN_CHROME` 的六个值。
+
+这两条是"构建不会失败、只会白屏或状态栏串色"的那类错——所以拿源码直接比名单。写第二条时当场抓到过真 bug：脚本里 paper 写成了 `#ffffff`（正确是 `#faf8f4`）。
+
+**顺带修的**：`session-drawer-layout.test.tsx` 原来把抽屉里「设置」右侧的皮肤名写死成「石墨」，改为跟随 `SKIN_LABEL[getSkin()]`。
+
+验证：typecheck 0、build 0、全量 **2740 通过 / 245 文件**。
+**待做**：宿主进程仍是旧代码（`/m/` 的 HTML 里还没有 `data-skin="claude"`），要重启宿主才能在手机上看到效果。
+#### 抽屉会话顺序「一打开就变」：合并时又在重排（同日 20:20）
+
+先确认数据源没问题（都是实测，不是推断）：
+
+| 检查 | 结果 |
+|---|---|
+| 连打两次 `session.list`（间隔 3 秒） | 40 行**顺序完全一致**、`updatedAt` **0 处变化**，宿主已按时间倒序 |
+| 连开三次抽屉，每次读两帧（立刻 / 2.6 秒后） | 三次顺序**完全一致**，第一帧与稳定态也一致 |
+
+所以不是宿主乱发，也不是分组（今天/昨天/更早按本地午夜切，一天内不会变）。
+
+**需要说明的是：我没能在本地复现出这次跳变** —— 测试那 20 秒里，那个 running 会话没有新输出，
+`updatedAt` 没动，所以两次打开自然一样。但代码里唯一能造成「每次打开都变」的机制就在
+`mergeDrawerRows`（`views/drawer-rows.ts`）：
+
+打开抽屉先用本地缓存画一帧（按时间排好），一秒后宿主那一页到达，它又 `orderDrawerRows(merged)`
+**重排一遍**。只要有一个会话在跑（`running: true`），它的 `updatedAt` 每几秒刷新一次，
+宿主页里的时间永远比缓存新 —— 每次打开都能看到它往上浮一位。
+
+改：合并时**冻结顺序**。
+
+1. 已经在显示的行保持原位，只把字段（标题 / 运行态 / 时间）换成宿主那一版；
+2. 宿主页里**没显示过**的新会话，按 `updatedAt` 插到第一个更旧的行前面（不一律追加到末尾）；
+3. 当前会话仍钉第一行。
+
+重新打开抽屉走的还是 `paintDrawerRows`（按最新时间重排），所以
+「打开过程中绝不跳」和「跨次打开跟着最新走」两件事都保住了。
+
+测试：`drawer-rows.test.ts` 12 → 14 条（新增「宿主让某行 updatedAt 变大时不重排」「新会话按时间插位」）；
+`App` + 抽屉布局 + 行排序 38 条通过。棘轮：`src/mobile 65874`、`views 19917`。
+
+#### 抽屉删掉「产物与文档」+ 搜索定位改走 DOM 快通道（同日 20:45）
+
+**一、抽屉底部只剩「设置 / 用量」**
+
+用户要求：右上角「⋯ → 这一轮的产物」已经是同一个入口（还带「N 个文件」），抽屉里那条重复了。
+删掉按钮，并一起清掉 `onOpenArtifacts` / `artifactCount` 两个 prop、App 的两处传参和 `FolderIcon` 导入
+（留着一个没人读的 prop 只会让下一个人以为这里还有入口）。
+
+测试同步：底部入口 3 → 2 行（搜索 + 两行）、抽屉图标 7 → 5（多工作区 8 → 6）、动作序列去掉 `'artifacts'`。
+效果图 `docs/screenshots/drawer-no-artifact.png`。
+
+**二、搜索定位：先看屏幕上的高亮，再谈推算**
+
+实测（headless 393×851，5 个词各点三次「下一个」，判据 = 视口内到底有没有高亮）：
+
+| 词 | 改前落空 | 改后落空 |
+|---|---|---|
+| 皮肤 | 1/3 | 0/3 |
+| port-skin | 1/3 | 0/3 |
+| ENOENT | 0/3 | 0/3 |
+| 棘轮 | 0/3 | 0/3 |
+| 1/8 | 2/3 | 0/3 |
+| **合计** | **4/15** | **0/15** |
+
+机制：原来「下一个」一律走「索引 seq → 推算在哪一行 → 行内第几处 → 滚过去」，任何一环认不出来
+（合并卡、窗口边界、同一行多处）就只能降级：翻页把视口带走，或就近亮一处。现在加一条
+**DOM 快通道** `nudgeToRenderedMark`：这一屏已经渲染出 `mark.chat-search-mark` 时，直接按几何
+位置在当前高亮之间走一步（next 取视口 35% 之下第一个、没有就回绕到第一个；prev 反之），
+接住就返回；认不出来（词在更早历史里、整卡折叠着）才落回原来的索引/翻页逻辑。
+
+方向从 `onNext` / `onPrev` 显式传入，**不在 `gotoChatHit` 里读 `chatSearchAt`** —— 那会让它的
+`useCallback` 每次计数变化都重建，把计数重置回第 1 条（这个坑在改动中当场踩到，被 242 条
+ChatView 测试抓到，改成显式参数后全绿）。
+
+顺带修掉两处：单命中的词（`port-skin` 1/1）点「下一个」不再被翻页带走；末尾再点「下一个」
+现在正确回绕到 `1/3`（改前卡在 3/3 且视口里没有高亮）。
+
+测试：ChatView 242 通过；抽屉 16 条；质量/样式/行数预算 192 条；棘轮
+`src/mobile 65923`、`views 19973`、`files.ChatView.tsx 4032`。
+
+#### 抽屉底部去掉「工具」小标题（同日 21:05）
+
+用户要求。删掉 `<p className="palm-drawer-tools-title">工具</p>`，并连同 `.palm-drawer-tools-title`
+的全部 5 条声明一起删（不留没人引用的死规则）。卡片本身、上方分隔线、两行入口都不变。
+
+测试：抽屉 16 条 + 质量/样式/行数预算 192 条全过。类名总数减 1，棘轮不用抬。
+效果图 `docs/screenshots/drawer-no-tools-title.png`。
+
+#### 抽屉「展开时右边有点空」：78% → 92% 宽（同日 21:15）
+
+实测：`inline-size: min(var(--palm-drawer-w, 308px), 86vw)` 在 393px 屏上取 **308px = 78%**，
+右侧留 85px 一条**没有任何信息**的暗边（只是被遮罩压暗的聊天页），看着就是空落落的。
+
+改：
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| `--palm-drawer-w` | 308px | **362px** |
+| 窄屏上限 | `86vw` | **`92vw`** |
+| 393px 屏实际宽度 | 308px（78%） | **362px（92%）** |
+| 右侧露出的边 | 85px | **31px**（只够暗示「能滑走」） |
+
+为什么不做 100%：全宽之后就没有「这是抽屉、往右能滑回去」的暗示了，得另加一个关闭按钮，
+多一个控件换 31px 不值得。
+
+更新基线：改尺寸令牌必须显式更新 `tests/golden/tokens.json`
+（`PALM_UPDATE_TOKENS=1 pnpm test tokens-golden`），否则 `tokens-golden` 会红 —— 这是设计如此。
+
+效果图：`docs/screenshots/drawer-wide-92.png`。
+
+**另一个「空」的来源**（如果指的是抽屉内部：标题到状态条之间那段横向空白）：
+会话行右侧目前只有状态条（运行中/等审批），没有时间。补上相对时间（`9分 / 19:47 / 昨天 / 11-09`）
+右侧就有信息了，演示图 `docs/screenshots/drawer-row-time-demo.png`（注入 DOM 模拟，未落地）。
+
+#### 侧边栏右侧空：每行补一句「什么时候」（同日 21:30）
+
+用户澄清：「不是屏幕右侧，是侧边栏的右边」—— 即抽屉内部，一行里标题在左、状态条靠右，
+**中间到右边缘一大条空白**，什么信息都没有。补时间是最省地方又真有用的填充。
+
+改：
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| 行右侧 | 只有状态条（运行中/等审批），普通行整段空 | 状态条 + **时间**，普通行也有 |
+| 时间格式 | — | 今天 `21:12`、昨天 `昨天`、更早 `11-09`、跨年 `2025-12-31` |
+| 数字对齐 | — | `font-variant-numeric: tabular-nums`（列不跳） |
+| 宽度 | — | `flex: none` + 标题 `flex:1 + ellipsis`，5 个字符恒定，不会把标题挤变形 |
+
+新增纯函数 `drawerWhenLabel(updatedAt, now)`（`views/drawer-rows.ts`），与分组用的
+「今天/昨天」同一口径（本地午夜切），拿不到时间戳返回空串（那一行就不画，不显示 1970）。
+
+测试：`drawer-rows.test.ts` +2（今天/昨天/更早/跨年/空值）、`session-drawer.test.tsx` 12 条；
+连带修了两条被新文本影响的旧断言（用组头查「昨天」而不是全文本、普通行改查 `.palm-drawer-title`）。
+棘轮：`src/mobile 65959`、`ui 2676`、`views 20009`。
+
+效果图：`docs/screenshots/drawer-row-time-real.png`（真包，不是注入）。
+
+#### 报头那条黑线 + 抽屉再收窄（同日 21:45）
+
+**一、「标题栏下方那条黑色横线」是什么**
+
+是**报纸皮肤自己画的**，不是浏览器的 bug：
+
+```css
+html[data-skin='newsprint'] .mobile-header {
+  box-shadow: inset 0 -2px 0 var(--palm-fg);   /* 2px 正文墨色 */
+}
+```
+
+`--palm-fg` 就是正文那个近黑的墨色，2px 压在 48px 高的标题栏底下 —— 手机屏上就是一条黑杠。
+而且 `.mobile-header` 本身已经有 `border-bottom: 1px solid var(--border-subtle)`
+（`rgba(31, 9, 9, 0.12)`，极淡），两条叠在一起更显重。
+
+已删掉那条皮肤规则，**保留 header 自带的那条 1px 淡边**（分隔还在，只是不再抢眼）。
+想要回报纸墨线：把那条 box-shadow 恢复即可（注释里留了原文）。
+
+实测（headless，真包）：`box-shadow: none`、`border-bottom: 1px solid rgba(31, 9, 9, 0.12)`。
+截图 `docs/screenshots/header-line-none.png`。
+
+**二、抽屉再从 92% 收到 86%**
+
+| 项 | 上一版 | 现在 |
+|---|---|---|
+| `--palm-drawer-w` | 362px | **338px** |
+| 窄屏上限 | 92vw | **86vw** |
+| 393px 屏实际宽度 | 362px（92%） | **338px（86%）** |
+
+用户原话「太宽了，缩短一点」。86% 介于最初的 78% 和刚才的 92% 之间：比 78% 舒展，又不像全屏。
+截图 `docs/screenshots/drawer-86.png`。
+
+改尺寸令牌又触发 `tokens-golden`，已按规矩 `PALM_UPDATE_TOKENS=1` 更新基线。
+测试：样式/令牌/质量/行数 362 条全过。
+
+#### 新建工作区可以「点选电脑上的目录」（同日 22:00）
+
+用户：「新建工作区的时候，这个路径要能点选远程电脑端路径」—— 手机上打多层绝对路径不现实。
+
+**能力早就在，只差接上**：宿主侧的 `mobile.listDirectory`（`host/directory.ts`）本来就有，还带
+`crumbs`（从根到当前的整条链）与 `home`；前端 `data/impl/fs.ts` 的 `listDirectory()` 也现成
+（`sheets.tsx` 的「电脑文件」一直在用）。缺的只是新建表单里那一步。
+
+新增 `views/chat/components/path-browser.tsx`：
+
+| 交互 | 说明 |
+|---|---|
+| 入口 | 新建表单里「浏览电脑上的目录…」（在「用当前目录」上面） |
+| 起点 | 输入框有内容就从那里开始，否则**从当前工作区路径开始**（新建同级项目最常见的场景） |
+| 面包屑 | `D:\ › work › dsh-palm`，前面几层可点，当前层加粗不可点 |
+| 列表 | 只列目录（宿主默认就不回文件），`44vh` 上限可滚，行高 `--palm-hit`（44px） |
+| 上一级 | 走 `crumbs` 的倒数第二项，到根时禁用 |
+| 用这个目录 | 把绝对路径填回输入框（**不直接创建**，用户还能改一层或补子目录） |
+| 退出 | 「← 手动填」原样回到表单，不塞路径 |
+
+顺带两处打磨：面包屑之间补了 `›` 分隔（一排蓝字挤在一起读不出层级）；目录图标从彩色 emoji `📁`
+换成 `FolderIcon`（灰色线条，跟报纸/石墨皮肤一致，emoji 在纸色底上太跳）。
+
+测试：`workspace-picker.test.tsx` +2（点选→填回输入框；「手动填」不塞路径），23 条全过。
+真机实拍（headless 393×851 真包）：从 `D:\work\dsh-palm` 起，面包屑与目录都正确读到了。
+截图 `docs/screenshots/ws-path-browser.png`。
+
+棘轮：`src/mobile 66253`、`views 20163`。
+
+#### 新建工作区的两个入口改成「行卡片」（同日 22:15）
+
+用户：「「浏览电脑上的目录…」这个要不要做个按钮或者有更好的展示方式？不然用户可能意识不到
+这个可以点击」。
+
+根因是它当时套的是 `.ws-action`：**透明背景 + 灰色小字**，在表单里读起来就是一句说明文字。
+
+改：新增 `.ws-pick`，两个入口都变成整宽行卡片 —— 边框 + 浅底 + 左侧 16px 蓝色文件夹图标 +
+右侧 `›`，和抽屉底部「设置 / 用量」同一套语言。
+
+| | 之前 | 现在 |
+|---|---|---|
+| 形状 | 一行灰字，无边框无底色 | 355×44px 卡片，1px 边框 + 浅底 + 圆角 |
+| 可点线索 | 只有文字本身 | 图标 + 右箭头，两侧都指向「能进去」 |
+| 行高 | 44（但视觉上像一行说明） | 44（`--palm-hit`） |
+| 文案 | 浏览电脑上的目录… | 浏览电脑上的目录 / 用当前目录 · `<路径>` |
+
+测试：`workspace-picker` 23 条全过（无障碍名仍是「浏览电脑上的目录」，用例不用改）；
+预算 `src/mobile 66314`、`views 20172`。截图 `docs/screenshots/ws-create-picks.png`。
+
+#### 方案稿：把「进行中 / 刚完成」收进一个「任务」页（未落地，2026-11-11 22:20）
+
+用户问：怎么知道哪些会话在跑、哪些刚跑完？以前能在一个界面看全，现在有没有更好的入口。
+
+**现状**：数据全在，只是没有入口 ——
+
+| 数据 | 宿主 RPC | 字段 |
+|---|---|---|
+| 哪些会话在跑 | `mobile.runningSessions` | `sessionIds`（只有 id，**没有开始时间**） |
+| 刚跑完的 | `mobile.finishedRuns({op:'read'})` | `title` / `finishedAt` / `status`(done\|error\|stopped) / `durationMs` / `summary` |
+| 会话标题 | `session.list` | `title` / `workspace` |
+
+现在唯一能看到的是抽屉里会话行右侧那个 mini 状态条（运行中 / 完成）—— 要一行行翻，
+而且「刚完成」十分钟后就混进普通会话里，看不出哪些是刚才跑完的。
+
+**推荐方案：独立「任务」页**（图 `docs/screenshots/tasks-proposal.png`）
+
+- 两段：进行中（N）/ 刚完成（最近 24 小时）
+- 每行：状态点 + 会话标题 + 结果与时耗 + `›`，点进去回那个会话
+- 底部：「清除已完成」+「新建会话」
+- 入口两处：抽屉底部「工具」卡片加一行「任务」（跟设置 / 用量并列）+ 「⋯」菜单里也放一个
+
+**诚实说明一处**：图里「已跑 3 分 12 秒」现在**拿不到** —— `runningSessions` 只回 sessionIds，
+没有开始时间。两个选择：(a) 先只显示「运行中」（零成本）；(b) 宿主补一个 `startedAt`（约 20 分钟，
+改宿主代码、要重启进程）。「刚完成」那边的时耗是现成的（`durationMs`），不用动。
+
+**没选的两条路**：
+
+| 方案 | 为什么不做 |
+|---|---|
+| 抽屉顶部加「进行中 / 刚完成」分组 | 只解决"看得见"，不解决"看全"：抽屉只有当前工作区的会话，跨工作区的进行中看不到；而且塞进列表会让"今天 / 昨天"的分组变乱 |
+| 聊天页常驻悬浮胶囊「2 个在跑」 | 天天挤占聊天内容；「刚完成」不需要常驻在眼前 |
+
+成本：页面 + 路由 + 两个入口 + 测试 + 真机截图 ≈ 40 分钟（不含上面的 startedAt）。
+
+#### 修：打开抽屉时会话从「更早」跳到「今天」（2026-11-11 22:35）
+
+用户报：「一点击侧边栏，会话会从『更早』分组切到『今天』分组」。追问确认：**只打开抽屉就跳**，不需要点会话。
+
+**根因**：抽屉分组只看 `SessionView.updatedAt`（`ui/session-drawer.tsx:47`，按本地午夜切今天/昨天/更早）。
+而**从 HUD、搜索结果或 URL 直接进会话**时，路由里的 `updatedAt` 是 `0`
+（`App.tsx:1049` 的 `openFinishedChat` 直接写 `updatedAt: 0`，搜索命中则 `hit.updatedAt ?? 0`）。
+于是抽屉首帧拿 0 去分桶 → 落「更早」；后台宿主页一到、`mergeDrawerRows` 把行换成真实时间 → 跳「今天」。
+用户什么都没干，分组自己变了。
+
+**修法**（`views/drawer-rows.ts` 的 `paintDrawerRows`，纯函数，不动 App 行数预算）：
+当前会话 `updatedAt > 0` 就不动；否则先用缓存里同 id 行的真实时间，缓存也没有才用「此刻」。
+刚打开的会话本来就属于「最近在用」，先归「今天」比先归「更早」再跳走合理。
+
+**验证**：Playwright 走真链路（pair 链接进会话 → 点 ☰ → 分别读 100ms 与 3s 后的分组）：
+`FIRST=[今天 3 / 更早 37]`，`LATER=[今天 3 / 更早 37]` —— 首帧与刷新后完全一致。
+单测 19 例通过（新增 3 例：缓存补时间、无缓存用此刻、真实时间不被改写）。
+
+**同批红（不是我引入的）**：`ui/session-drawer.tsx → ../views/drawer-rows.ts` 反向依赖、
+`views` 直连 api、cssPx 1344/1327、cssClasses 870/851、目录 66328/66314 —— 都是并行会话今天新加的
+「行右侧显示时间」等功能带来的，我没有动它们的代码。
+#### 任务入口的位置：抽屉底部「工具」第三行（同日 22:32）
+
+用户追问「任务页入口放在哪里」。实拍（往真抽屉里注入一行）见 `docs/screenshots/tasks-entry.png`：
+
+抽屉底部「工具」卡片从两行变三行 —— **设置 / 用量 / 任务**，任务那行右侧显示实时计数「2 在跑」。
+图里那两条「运行中」是当时真实状态，不是摆拍。
+
+选这里的理由：
+
+| 候选 | 判断 |
+|---|---|
+| **抽屉底部工具卡片（选它）** | 常驻、和「设置 / 用量」同一层级（都是"全局功能"）；右侧还能挂计数，一眼看到有几个在跑 |
+| 「⋯」菜单 | 作为**第二入口**保留：在聊天页里不跳出去就能进任务页 |
+| 抽屉顶部动态条（有任务才出现） | 更好发现，但要额外做一条会跳动/消失的 UI，且和「新建会话」抢第一屏；先不上 |
+| 聊天页常驻悬浮胶囊 | 挤占聊天内容，否 |
+| 标题栏第三个图标 | 标题栏已经左右各一个（抽屉 / ⋯），再加就挤了 |
+
+#### 架构收口：ui 不再反依赖 views（2026-11-11 22:45）
+
+并行会话今天给抽屉加「行右侧时间」时，把 `drawerWhenLabel` 放在 `views/drawer-rows.ts`，而 `ui/session-drawer.tsx` 直接 import 它 —— 架构测试报
+`ui/session-drawer.tsx → ../views/drawer-rows.ts`（ui 内核只许向下依赖）。
+
+**改法（两处，都是"把该住哪层的东西放回哪层"）**
+
+| 违规 | 修法 |
+|---|---|
+| `ui → views/drawer-rows.ts` | `drawerWhenLabel` 整体搬到 `ui/drawer-when.ts`（含 `DAY_MS`），测试跟着搬到 `ui/drawer-when.test.ts`；`views/drawer-rows.ts` 只留归属/排序/合并三个纯函数 |
+| `views/chat/components/path-browser.tsx: listDirectory` | 新增 `session/directory-listing.ts`（`listDirectoryForPicker`），视图不再直连 `api.ts`；取数口径收到 session 层 |
+
+顺带修了 `App.test.tsx` 的旧断言：抽屉底部「产物与文档」入口今天已被用户要求删掉（右上角「⋯ → 这一轮的产物」是同一入口），用例从"三入口"改成"两入口 + 断言它确实不在"。
+
+**预算收口**（行数只降不升，抬必须记账）
+
+| 项 | 旧 | 新 | 原因 |
+|---|---|---|---|
+| `tools/budget.json` `src/mobile` | 66314 | 66365 | 本次 +51（两个新文件 + 并行增量） |
+| 同上 `src/mobile/session` | 3197 | 3220 | +23 = `directory-listing.ts` |
+| 同上 `src/mobile/ui` | 2676 | 2692 | +16 = `drawer-when.ts` |
+| `quality-budget.ts` cssPx | 1327 | 1344 | +17 处尺寸：工作区面板 46/16/13px、用量页、结果动作条 |
+| 同上 cssClasses | 851 | 870 | +19 类：`.ws-*` / `.pb-*` / `.usage-*` / 抽屉工具卡 |
+
+验证：`typecheck 0`、`build 0`、全量 **2749 通过 / 246 文件**（含架构两条、App 抽屉那条）。
+#### 任务 vs 设置：对调，并且「没任务就不出现」（同日 22:48）
+
+用户提议把「任务」和「设置」对调。**同意**，而且可以更进一步。
+
+对调后的顺序：**任务 / 设置 / 用量**（实拍 `docs/screenshots/tasks-entry-top.png`）。
+
+理由：
+
+1. 三行里**只有任务那行会变**（`2 在跑` / 空闲），信息价值最高，理应第一眼看到；
+2. 设置是"改一次就不动"的配置，放第一行只是习惯，不承载信息；
+3. 卡片第一行带顶部圆角，是最醒目的位置。
+
+**再进一步**：没有进行中、也没有刚完成时，**任务那行整行不画** —— 否则卡片第一行写着「任务 · 空闲」，
+白占 46px 还把关设置往下挤。有任务才出现，出现时就在最上面。
+
+这样卡片有两种面孔：
+
+| 状态 | 卡片内容 |
+|---|---|
+| 有任务 | 任务（2 在跑） / 设置（报纸） / 用量（本机） |
+| 空闲 | 设置（报纸） / 用量（本机）—— 和现在完全一样 |
+
+成本不变：仍约 40 分钟（任务页 + 抽屉入口 + 「⋯」菜单入口 + 测试 + 真机截图）。
+
+#### 「任务」页落地（2026-11-11 23:45）
+
+用户：「落地吧」。按前面定的方案做完，真机实拍：
+
+| 项 | 实现 |
+|---|---|
+| 新页面 | `views/TasksView.tsx`：进行中（蓝点）/ 刚完成（灰点）两段，行 = 点 + 标题 + 状态（`运行中` / `完成 · 1 分 30 秒`）+ `›` |
+| 数据 | `runningSessions` + `finishedRuns` + `session.list`（标题用 `toSessionView` 从 projections 取，退回 cwd 尾巴） |
+| 轮询 | 5 秒一次，只刷这两个集合 |
+| 入口 1 | 抽屉底部「工具」卡片**第一行**（任务 / 设置 / 用量）—— 用户要求与设置对调 |
+| 入口 2 | 「⋯」菜单分隔线下面（任务 / 设置） |
+| 没有任务 | 抽屉那行**整行不画**（不白占 46px）；任务页显示空状态 |
+| 计数来源 | `drawer.rows` 里 `running` 的会话 + `finished`，**不是** `pending`（那是"排队中的消息"，实测会让计数恒为 0） |
+
+落地过程中修掉三个只有真机才暴露的问题：
+
+1. **标题全空**：`HostFinishedRun.title` 可能是空串 → 用 sessionId 的尾巴（`2b647b27`）顶上；
+2. **「刚完成」铺了 12 条半年前的记录**：`finishedRuns` 是累积文件，加 24 小时窗口 + 按 `finishedAt` 倒序；
+3. **一直停在「正在读任务…」**：三个请求原来串行发，最慢那个要等两遍 → 改成 `Promise.all` 并行。
+
+测试：ChatView 242 + App 路由栈 + chat 组件共 **460 条全过**；抽屉 17 条（新增「任务行只在有任务时画，且在工具卡片最前面」）；
+预算 `src/mobile 66770`、`views 20446`、`ui 2702`、`ChatView.tsx 4036`、`App.tsx 1487`。
+
+截图：`docs/screenshots/tasks-page-real.png`（真包，进行中 3 / 刚完成 8）、`docs/screenshots/tasks-entry-real.png`（抽屉里那一行）。
+
+## 2026-11-12 子代理详情页（点进去看它做了什么）
+
+**问题**：手机上子代理只有两处影子 —— 顶栏徽标「子代理 N 个运行中」和对话里一条「子任务状态更新」。它跑了哪些工具、结论是什么，一概看不到；长任务卡住时用户分不清是慢还是死了。
+
+**业界两条路都有人踩坑**：Claude Code 主线程只给一行 `Done (…)` 且点不开（被当 bug 报，issue #66646）；它的 VS Code 面板反过来把每个子代理全铺进主对话，fan-out 时无法阅读（#83213）。所以走**列表 → 点开独立页**。
+
+**改动**
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 数据 | `session/subagent-detail.ts`（新） | 子代理本身就是一个会话（`SubagentListEntry.id` 是 `SessionId`），读它的尾部一页 (`loadChatPage`)，折成「步骤 + 结论」。`toolDetail()` 从工具参数 JSON 里挖一行摘要（command/query/url/path…）。步骤上限 40，工具总数照实统计 |
+| 页面 | `views/SubagentView.tsx`（新） | 页头（任务名 / 运行中 / 已跑时长 / 工具数）→ **最近一步**（折叠态也回答「它现在在干什么」）→ 前 N 步折叠 → 过程时间线 → 当前输出 → 复制结论 / 返回。运行中每 8 秒自刷新 |
+| 入口 | `render/run-status.tsx` | 面板里的子代理行加 `onOpen` → 变可点行并带右侧箭头；不给 onOpen 时保持纯展示（老调用方与既有测试不受影响） |
+| 路由 | `views/App.tsx` | 新 `Route.kind = 'subagent'`（深度 2，key 带子会话 id）；`backTargetOf` 兜底回会话 |
+| 样式 | `styles/520-subagent.css`（新） | 22 条规则，全部走令牌 |
+
+**两个只有实现时才会发现的坑**
+1. **折叠按钮不能按「还剩多少」显示**：一展开 `hidden` 就变 0，按钮跟着消失，用户再也收不回去 —— 改成按「步骤总数 > 预览数」显示；
+2. **`flow` 里的 `tool` part 只有 callId**：工具名与参数在 `RenderMessage.tools[]`（`ToolCallInfo.name/arguments`）里，两处要按 callId 对齐才能显示「`web_search "find in page"`」这种人话。
+
+**测试**：`session/subagent-detail.test.ts` 9 条（参数摘要/优先级/截断/尾部上限/空态）、`views/SubagentView.test.tsx` 7 条（折叠展开/空结论禁用复制/失败态/返回）、`render/run-status.test.tsx` 原有 16 条仍绿。
+
+**预算**（本次上调，理由写进 `tools/budget.json` 与 `quality-budget.ts` 的 why）：`src/mobile 67800`、`views 20800`、`session 3400`、`render 7135`、`api 3780`、`ChatView.tsx 4055`、`App.tsx 1500`、`cssPx 1362`、`cssClasses 912`。
+
+**真机验收（未做）**：需要一次真实的子代理运行，点顶栏徽标 → 面板里点那一行 → 详情页。效果图见 `docs/screenshots/mock-subagent-detail.png`。
+
+### 补：入口不能跟着任务一起消失（2026-11-12 用户：「任务没在跑的时候就不显示，这不合理」）
+
+徽标原来只在「有在跑的子代理」时算出一个 bit，于是**跑完 = 入口消失**，用户再也进不去看「它最后做了什么」。
+
+改两处：
+
+1. `runBadgeBits`：只要有子代理（含已结束）就出 `代理 N`；有在跑的才报在跑的个数。真的没有子代理时才不画（顶栏不白占位）。
+2. `RunBadge` 的读屏文案分开两种情况：「子代理 2 个运行中」/「子代理 3 个（已结束）」——否则听上去像还在跑。
+
+测试：`run-status.test.tsx` +3 条（全结束仍出徽标 / 有在跑只报在跑数 / 全无则不画）。
+
+#### 三件事：矩形长条的成因 / 删「更多」/ 上下文档窗重做（2026-11-12 00:45）
+
+用户连着提了三件事，一次改完。
+
+**① 「点模型或权限为什么出现矩形长条」**
+
+根因在 `.chat-picker-row` 上是 `flex: none` —— 行按钮的宽度只跟**文字**一样长，
+于是它的背景（`:active` 的 `--fill`、选中态的 `--accent-soft`）也只有文字那么长；
+手机上触摸高亮还会残留，于是一行一条浅色矩形，看着像"文字下面贴了条标签"。
+
+修法：`flex: 1 1 auto; align-self: stretch; inline-size: 100%`（行铺满面板，背景即整行），
+外加 `-webkit-tap-highlight-color: transparent`。实测行宽 97/134/143 → **343**（面板内宽）。
+
+**② 「更多」模块删掉**
+
+权限面板底部原来有「上下文用量 / 批准方式设置」两个跳页入口。已删：
+上下文改由右下角圆环就地展开（还带进度条），批准方式在设置页另有入口。
+
+**③ 圆环弹窗重做**（`docs/screenshots/ctx-pop.png`）
+
+从上到下：`上下文用量 … 44%` → 进度条 → `已用 222k / 窗口 500k` → `还剩 278k`
+→ 一句建议 → 「压缩上下文」描边按钮（副标题：把旧回合折成摘要，腾出窗口）。
+
+两个实现细节：
+- 进度条用 SVG（`width` 是数据 → 属性），**不用带 `%` 的 inline style** —— `design/quality-budget` 的
+  `inlineStyles` 门会拦；
+- 圆角交给容器（`border-radius + overflow: hidden`）：`preserveAspectRatio="none"` 横向拉伸后，
+  `rect` 上的 `rx` 会变成椭圆，右端看着像被切平。
+- 压缩按钮直接发 `/compact`（宿主本来就支持，`session.command` 的应答会等模型总结，超时 180s）。
+
+#### 「同一轮过程条出现两三次」的根因与系统修法（2026-11-12 01:00）
+
+**现场**（用户手机截图）：同一轮出现两条「静着 · 比平时慢一点 … 57分18秒」，各带一张过程卡，
+一张 `119 次工具调用`、一张 `110 次工具调用` —— 两份**不同时刻的快照**同时留在列表里。
+
+**代码事实链**（不是推测）：
+
+1. `views/chat/hooks/use-chat-session.ts` 的 `commitRows` 是唯一写入口，已经串了三道：
+   `keepTurnReports` → `renderRows` → `dedupeById` → `dedupeSameStep`。
+2. `dedupeSameStep`（`render/messages.ts`）的身份键是 `t{turn}s{step}` / `t{turn}c{callIds}`，
+   而 `stepKeyOf` 第一句就是 `if (item.kind !== 'assistant' || item.turn === undefined) return undefined`
+   —— **一边缺轮号，这一行就完全不参与去重**。
+3. 卡上的工具计数 119 vs 110 ⇒ 两份快照的 callId 集合只是包含关系，`[...callIds].sort().join(',')`
+   拼出来的键不相等 ⇒ 即使两边都有轮号也合不上。
+4. `session/duplicate-report.ts` 的 `findDuplicateCards` 用的是**与轮号无关**的强证据
+   （共享 callId / seq 区间重叠），注释里写得很直白：「真机上『页面快照行』和『实时流行』
+   正是同一 seq 的两份，之前这里要求同轮才算，于是一边有轮号、一边没有时被漏掉（现场一个报告都没收到）」。
+
+**结论**：检测器认得出重复，去重器认不出 —— 这道缝就是「过程条出现两三次」的稳定来源。
+以前每遇到一次就打一块补丁（`dedupeById` / `dedupeSameStep` / 合成行让位），都是按 `turn` 判身份，
+所以只要宿主那边轮号缺失或两份快照不一致，补丁就整条失效。
+
+**修法（这一类的通解）**：新加 `render/messages.ts` 的 `collapseDuplicateRows`，
+把「共享 callId / seq 区间重叠」这套**已经验证过的强证据**接进 `commitRows` 的最后一环：
+
+- 一次工具调用只有一个 `callId`，一条消息只有一个 seq 区间 ⇒ 同一份数据的两份快照必共享其一；
+- 同一轮的相邻两步 seq 区间不重叠 ⇒ 不会被误伤（有测试锁住）；
+- 不同轮说同样的话 ⇒ 不合并（有测试锁住）；
+- 三份并存时也收敛成一份（对应用户说的「两三次」）。
+
+**证据**：`render/duplicate-collapse.test.ts` 5 条，第一条先证明旧逻辑**拦不住**
+（`dedupeSameStep` 返回 2 行），再证明新层收敛为 1 行 —— 先钉死成因，再证明修法。
+
+**没做的**：`turnStartAt` 是 session 级的（`rawClockAnchor = turnStartAt ?? …`），
+所以如果真有两轮同时在跑，第二个轮头会显示同一个时长。这次没动它 —— 先看重复条消失后是否还刺眼。
+
+### 修：子代理详情页上下滑不动（2026-11-12 真机）
+
+**现象**：进详情页后内容超出屏幕，手指上下滑没反应。
+
+**根因**：页面骨架复用了 `settingsLayout`，但只写了「内容排版」没写「滚动三段式」。`SlotLayout` 只负责摆槽位，滚动得由页面自己的 CSS 负责，缺一条就滑不动：
+
+| 段 | 必须有 | 我原来漏了 |
+|---|---|---|
+| ① 页面根 | `display:flex; flex-direction:column; block-size:100%` | 整条漏 |
+| ② grow 槽 | `display:flex; flex-direction:column; overflow:hidden` | 整条漏 |
+| ③ 正文 | `flex:1 1 auto; min-block-size:0; overflow-y:auto` | `overflow-y` 与高度约束 |
+
+照 `480-outline-page.css` 的样板补齐（`overview`/`outline`/`approval` 都是这个形状）。
+
+**为什么单测没抓到**：jsdom 不算布局，`overflow` 滑不滑组件测试看不出来。补 3 条 CSS 断言钉住三段式（`mobile-styles.structure.test.ts`「子代理详情页要能上下滚」）。
+
+**生效方式**：CSS 是构建产物（`lib/mobile/app.css`），改了 CSS 必须 `pnpm build`，只跑 `gen-mobile-css` 只更新了 `mobile-styles.ts`。宿主按文件 mtime 缓存静态资源，**刷新页面即生效，不用重启**。
+
+#### 两个问题：排队消息"回撤到发送框"的根因 / 输入框不跟光标（2026-11-12 08:30）
+
+**问题一：「明明发送成功了，文字又回到发送框」**
+
+不是有个"回撤"动作把它塞回去的 —— 是**输入框从头到尾没被清空过**。代码事实（`views/chat/hooks/use-chat-composer.ts` 的 `send()`）：
+
+| 分支 | 触发条件 | 对输入框做了什么 |
+|---|---|---|
+| 成功 | `prompt()` 正常 resolve | `setInput('')` 清空 ✓ |
+| 核实 `delivered` | 超时后核实到队列/尾部有它 | 清空 ✓ |
+| 核实 `absent` | 明确没送到 | 保留（正确 —— 本来就没送出去） |
+| **核实 `unknown`** | 队列读不通 / 消息已从队列消失 | **不清空**，只 toast「消息可能已送出，正在确认…」，把清空交给后台 `confirmLater` |
+
+而 `confirmLater` 的判据是 `await probeQueueForRequest(...) !== 'yes' → continue` —— **只查队列**。
+消息一旦真的发出去（本轮结束、队列被消费），队列里就再也没有它，三次探测（5/12/25 秒）全是 `no`，
+循环走完、函数结束，**输入框一次都没清过**。用户看到的就是：排队条出现了 / 消息已经发出去了，
+而发送框里还躺着一份一模一样的文字。
+
+所以准确说法是「**发送成功了但草稿没被收走**」，不是"回撤"。
+
+修法（三处）：
+1. `unknown` 分支**当下就清空**输入框（正文已写进 `rememberQueuedEcho` 底稿，不会丢），toast 改成「消息已送出，正在确认…」；
+2. 后台确认改用完整的 `verifyDelivered`（队列 requestId / 同文行 / **会话尾部 user 消息**），消息已经离开队列也能判 delivered；
+3. 只有后台明确判 `absent` 时，才把原文放回输入框（且框里已有新内容就不覆盖）—— 那才是唯一该"回撤"的时刻。
+
+**问题二：输入框不跟最新文字换行显示**
+
+`composer-section.tsx` 的 `fitComposer()` 已经有自动高度（镜像元素量高，1~4 行），
+但超过 4 行后**框内滚动的 scrollTop 一直是 0**。实测（真包，逐行喂文本）：
+
+| 行数 | 框高 | 内容高 | `scrollTop`（修前） | 最新行可见 |
+|---|---|---|---|---|
+| 4 | 112 | 112 | 0 | ✓ |
+| 5 | 112 | 134 | **0** | ✗ |
+| 6 | 112 | 156 | **0** | ✗ |
+| 8 | 112 | 200 | **0** | ✗ |
+
+原因：那段滚动代码只把 scrollTop「对齐到整行边界」，而它在 0 时对齐之后还是 0 —— 等于什么都没做。
+
+修法：正文一变化就把 `scrollTop` 设到 `scrollHeight`（滚到最新一行），前提是**光标在末尾**；
+光标不在末尾（用户在翻旧行）或只是宽度变化（ResizeObserver）时保持不动。
+修后实测：5 行 scrollTop=22、6 行 44、8 行 88，`atBottom` 全部 true。
+
+测试：composer 组件 99 条、composer hooks 61 条全过；包已重建。
+
+### 修：点模型/权限时底部那条灰色长条（2026-11-12 真机截图）
+
+**现象**：点「模型」或「权限」打开面板，输入框下方多出一条横贯的灰带。
+
+**根因（两处叠加）**：
+1. 面板遮罩 `.chat-picker-scrim` 是底栏（`.chat-dock`）的子元素，DOM 里排在元信息行 `.chat-meta` **之后**，`z-index: 40`；
+2. `.chat-meta` 没有 `position/z-index`（输入行 `.chat-composer` 有 `z-index: 50` 躲开了，元信息行漏了）⇒ 同一层级下「后者压前者」，整行被压上 12% 黑。
+
+**连带后果更严重**：那一行本来可点（模型/权限胶囊、上下文环），被遮罩盖住后点它只会关面板 —— 面板开着时根本点不到胶囊。
+
+**修**：`.chat-meta` 补 `position: relative; z-index: var(--z-composer)`（与输入行同层）；另给 `.chat-dock` 整块不透明底色，兜住底边安全区留白。
+
+**验证**：真包实测 `elementFromPoint` 在 y=828/838/848 全部命中 `.chat-meta`（修复前全部命中 scrim），截图 `docs/screenshots/verify-meta.png` 灰带消失。新增 2 条 CSS 断言（`mobile-styles.structure.test.ts`「元信息行必须压在面板遮罩之上」）。
+
+### 子代理详情页：动作条钉在屏幕底部（2026-11-12 用户要求）
+
+原来「复制结论 / 返回」在滚动区末尾，长过程要划到底才看得见返回。
+
+`settingsLayout` 只有 `header` / `groups` 两个槽（加 footer 会触发 `validateLayout` 的契约错误），所以在 groups 内部再分两层：
+
+```
+.subagent-page-shell   ← 吃满 grow 槽高度（flex 列）
+├── .subagent-page-body ← flex:1 + overflow-y:auto，自己滚
+└── .subagent-actions   ← flex:none，钉在底部（含安全区留白 + 上分隔线）
+```
+
+测试：`SubagentView.test.tsx` 加 1 条 —— 断言动作条 `closest('.subagent-page-body')` 为 null（不在滚动容器里），父节点是 shell。
+
+### 修：面板与上下文明细同时开着互相遮挡（2026-11-12 真机）
+
+**现象**：点「完全访问」打开权限面板，接着点右下角上下文圆环 → 上下文明细卡片浮出来，被权限面板压住，只露出一角。
+
+**根因**：模型/权限面板（`panel`）与上下文明细（`ctxOpen`）是两套独立开关，没有互斥，两个浮层能同时存在。
+
+**修**：做成互斥 ——
+- 点圆环打开明细时 `closePanel()`；
+- 点模型/权限胶囊时 `setCtxOpen(false)`。
+
+测试：`composer-meta.ring.test.tsx` +2 条（两个方向各一条，断言面板被收起 / 明细不再残留）。
+
+#### 工作区名字收敛成唯一真源（2026-11-12 09:20，用户：「这是补丁吗，要系统解决」）
+
+用户说得对：上一版（抽屉里按路径末段兜 + App 里查列表补名）只是补丁，而且**三处各自兜底还兜得不一样**。
+
+**病根**：`Route` 的 17 个变体每个都内嵌整份 `workspace: WorkspaceRow`（不是 workspaceId），
+于是每个造路由的地方都得自己拼对象 —— 首帧 `EMPTY_WORKSPACE`、深链 `title: ''`、
+跨工作区搜索 `hit.workspaceTitle ?? ''`。拼不全就留空串，下游各自猜。
+
+**第一步（本次落地）**：新增 `src/mobile/session/workspace-directory.ts` 的 `resolveWorkspace()`，
+把「名字从哪来、没有再显示什么」收敛成**一个函数**：
+
+| 顺序 | 来源 | `ready` |
+|---|---|---|
+| 1 | 路由自带标题 | true |
+| 2 | 用 workspaceId 查已加载列表 | true |
+| 3 | 路径末段（`D:\work\dsh-palm` → `dsh-palm`） | false |
+| 4 | 中性名「工作区」 | false |
+
+`ready` 只用于区分「权威名 / 临时名」，展示层不需要再判断第二次。
+
+接入点（现在全走同一个函数）：
+- `App.tsx` `workspaceView()`（useCallback，依赖 `workspaces`）→
+  - 会话页顶栏 `workspaceName={workspaceView(target.workspace).name}`（这条以前**完全没兜底**，空就空着）
+  - 抽屉 `workspace={{ title: workspaceView(drawer.workspace).name, path: … }}`
+- `ui/session-drawer.tsx` 删掉自己按路径猜的逻辑，只留最后一道空串防线（显示「工作区」）。
+
+**证据**：`workspace-directory.test.ts` 8 条（含"纯空白标题也算没给"、"列表有行但没标题就用它的路径"），
+`session-drawer.test.tsx` 17 条（新增"空标题显示中性名、绝不再出现本机工作区"），App 测试全过。
+
+**第二步（未做，另约）**：`Route.workspace: WorkspaceRow` → `Route.workspaceId: string`。
+17 处构造 + 6 处读取 + 相关测试，约 1.5 小时，动的是路由类型，建议单独一轮。
+做完之后"拼对象拼漏了"这件事在结构上不可能发生，`resolveWorkspace` 会成为唯一入口。
+
+### 抽屉动效改成 iOS 那套（2026-11-12 用户：「怪怪的，一点都不高级」）
+
+**原来为什么怪**：
+1. 面板只平移 12px 再整体淡入 —— 既不像"从侧边拉出"，也不像淡入，两种语言混着；
+2. 侧边栏淡入在真机上就是"先灰一下再出现"；
+3. 曲线是 `ease`（起步快、收尾软），没有 iOS 那种"出发利落、落地稳住"；
+4. 关闭瞬间消失（卸载即无），没有退场。
+
+**改法**（`280-sheets.css` + `020-transitions.css` + `App.tsx` + `session-drawer.tsx`）：
+
+| 项 | 原来 | 现在 |
+|---|---|---|
+| 进场位移 | `translateX(-12px)` + opacity 0 | `translate3d(-100%,0,0) → 0`，**不淡入** |
+| 曲线 | `ease` | `cubic-bezier(0.32, 0.72, 0, 1)`（iOS 那条） |
+| 时长 | 200ms | 进场 340ms / 退场 240ms |
+| 遮罩 | 与抽屉同步淡入 180ms | 单独 300ms 渐入（收尾慢一拍，两层才有前后） |
+| 退场 | 无（瞬间消失） | 先挂 `is-closing` 滑出 240ms 再卸载 |
+| 后面那页 | 不动 | `scale(0.955) + translateX(3%) + 18px 圆角`，像被推开的卡片 |
+
+`DRAWER_OUT_MS = 240` 在 `App.tsx`，只有「关掉抽屉」走退场动画；点某一行是页面转场，抽屉立刻让位。
+
+**减弱动效**：`.palm-drawer` / `.palm-drawer.is-closing` / `.palm-drawer-scrim.is-closing` / `.page-stage` 全部登记进 `360-reduced-motion.css`（守卫「凡是 animation 的选择器都要登记」要求）。
+
+**实测**（真包）：进场 `animationName=palm-drawer-in, duration=340`；关闭中 `.palm-drawer` 的 `left=-81` 且 class 带 `is-closing`；400ms 后节点消失；`.page-stage` 打开时 `matrix(0.955,0,0,0.955,11.79,0)` + 圆角 18px，关闭后回到 `none`。
+
+#### 第二步：Route 只存身份，名字只剩一个来源（2026-11-12 08:10）
+
+第一步（`resolveWorkspace` + 两处接入）之后，路由本身还在内嵌 `WorkspaceRow`，
+所以"造路由的地方得自己拼对象"这个病根还在。这次一步拔掉：
+
+**`Route` 的 17 个变体：`workspace: WorkspaceRow` → `workspaceId: string`**
+
+| 原来 | 现在 |
+|---|---|
+| `EMPTY_WORKSPACE`（首帧占位） | `workspaceId: ''` |
+| `chatRouteOf(session, workspace)` | `chatRouteOf(session, workspaceId)` |
+| `chatRouteFromUrl()` 里现拼一份 `{ title: '', path: '' }` | `workspaceId` |
+| 跨工作区搜索现拼 `hit.workspaceTitle ?? ''` | `String(hit.workspaceId ?? '')` |
+| 抽屉快照 `drawer.workspace` | `drawer.workspaceId` |
+
+读名字的地方全部改走 `workspaceView()`（= `resolveWorkspace`）；按路径过滤会话的地方
+（`scopedToWorkspace`）改传 `workspaceView(id)`（它只需要 `path`）。
+
+**结果**：全仓已经没有任何一处"自己拼一个 workspace 对象"的代码 —— 结构上不会再出现
+"某个入口忘了填标题"。`grep -rn "本机工作区"` 只剩注释与测试说明。
+
+验证：
+- `tsc -b` 通过
+- `src/mobile/views` 663 条、`src/mobile/{ui,session,platform,design}` 708 条全过
+- 预算棘轮已随 App.tsx 行数更新（1529）
+
+### 语音输入：从「+ 面板第四层」搬到输入框（2026-11-12，按效果图实现）
+
+**原来**：`+` →「添加内容」→ 滚到最后一项「语音输入」→ 整屏模态面板（录音时看不见对话，也看不见草稿）。
+
+**现在**：
+
+| 层 | 改动 |
+|---|---|
+| 入口 | `composer-section.tsx`：`.chat-field` 内右端常驻 `.chat-mic`（空框带底色、有字退成次要灰，`data-empty` 控制） |
+| 录音态 | 同一个 `.chat-field` 就地换成 `data-voice="recording"`：红点脉冲 + 五根波形 + `mm:ss` 计时 + ✕ 取消 + ■ 停止；**不弹模态** |
+| 实时转写 | `.chat-inputbar` 上方一行 `.chat-voice-live`（有字幕显示字幕，没字幕显示状态文案；最多 2 行） |
+| 转写回填 | 沿用 `use-chat-voice` → `setInput`，落进输入框可编辑，**不自动发送** |
+| 取消 | 三个出口：✕ 按钮、Esc（window 捕获）、`+` 面板那一项仍保留（老路径不断） |
+| 删除 | `voice-sheet.tsx` 整个文件删掉；`chat-overlays.tsx` 去掉 voice 分支 |
+
+**踩到的两个真机问题**（都已修）：
+1. 状态文字塞在录音条里放不下 —— 真机 393px 下被截成「正在听 2s / 最…」；移到上方 live 行后完整显示。
+2. `--palm-fs-s` / `--palm-fs-xs` 这两个字号令牌**不存在**（真实的是 `--palm-t-s`），`styles-vars` / `structure` 守卫直接红；`#fff` 也被 `no-raw-colors` 拦下，换 `--palm-on-accent`。`--lv`（波形响度）要在 `.chat-voice-wave` 里先声明默认值，否则「var 必须有定义」那条红。
+
+**测试**：`ChatView.test.tsx` 重写 4 条语音用例（原来的都断言模态 dialog）——
+就地录音不弹面板 / 取消不填字不提交 / Esc 取消 / 转写中取消后迟到结果被丢弃。golden trace 用 `UPDATE_TRACE=1` 重建（差异只有多出的「语音输入」按钮）。
+
+**真包验收**（Playwright + fake mic）：点麦克风 → `data-voice="recording"`、计时 `00:02`、上方「正在听 2s / 最长 60s」、`[role=dialog]` 为 null；点 ✕ → 回到常态、输入框仍为空。截图 `docs/screenshots/voice-recording.png`。
+
+### 修：语音录音条"太丑"（2026-11-12 用户第二拍）
+
+第一版按效果图做了结构，但真机截图一眼假。逐条对出来的原因：
+
+| 症状 | 根因 |
+|---|---|
+| 框里出现一个白底黑框的方按钮 | `chat-voice-cancel` 只写了类名**没写样式**，原生 `<button>` 就是那副样子 |
+| 五根波形像 `IIIII` | 响度变量名是 `--voice-level`，我写成了 `--lv` ⇒ 一直读默认值；而且五根用**同一个乘数**，静止时必然等高 |
+| 红点/波形/计时挤在左边，右边空一大块 | 删掉状态文字后没有 `flex:1` 的元素，停止键停在计时后面（没推到右端） |
+| 上方那行只是灰字 | 效果图是「文字 + 右侧取消」，做成了整行一段 |
+
+修法：
+1. 取消移到**框外**（上方那行右侧）做成文字按钮 —— 效果图的录音条里本来就没有第二颗按钮，塞进去必挤；
+2. 波形改用真变量 `--voice-level`，七根各给不同乘数（`18/11/16/9/14/10/13`），静止时也是错落的；
+3. `.chat-voice-stop` 加 `margin-inline-start: auto`，停止键贴到右端（实测距框右缘 9px）；
+4. 波形不透明度 0.72 → 0.92、停止键 32 → 34px、`[data-voice]` 左内边距收窄，对齐效果图比例。
+
+验收（真包 + fake mic）：七根条实测高度 `22/15/20/13/18/14/17`（不再等高）、计时 `00:03`、停止键右端 gap 9px、`[role=dialog]` 为 null。截图 `docs/screenshots/voice-recording.png`。
+
+### 事故与修复：ChatView.tsx 被写成非法 UTF-8（2026-11-12 15:00 前后）
+
+**现象**：`pnpm typecheck` 报 `TS1002 Unterminated string literal`（L725 / L1515 / L2154），`read` 工具直接拒绝该文件（invalid UTF-8）。
+
+**范围**：762 行含非法字节，典型形态是中文末字节被替换成 `?` 且吞掉后一个字节 —— 例如 `—`（`E2 80 94`）变成 `E2 80 3F`、`框'`（`E6 A1 86 27`）变成 `E6 A1 3F`。ASCII 代码完好，所以只有 3 处真正破坏语法（字符串引号被吞）。
+
+**修复**：
+1. 用 `git show HEAD:…` 取原始文本，按「损坏点之前的前缀 + 最后一个损坏点之后的后缀」双端匹配工作区行 → **自动修复 660 行**（注释与文案原样还原）；
+2. 手工修 3 处语法：`toast('正在载入…')`（3 处同文）、`第 ${turn} 轮不在更早的历史里`；
+3. 全文转回 LF（写回时曾被写成 CRLF）。
+4. 修复后：typecheck 0、build 0、`ChatView.test.tsx` 242 条全过。
+
+**遗留**：**98 行注释里仍有 `�` 替换符**（不影响编译与运行，但源码难看）。它们集中在 `*` / `//` 注释续行，HEAD 里已无对应原文（该块被重写过）。要清理得逐条按语义重写。
+
+**推断的成因**：写回时用了「按非 UTF-8 编码读 → 按 UTF-8 写」的路径（`?` 是编码器无法表示字符的替换符，吞字节是定长缓冲的痕迹）。不是 `edit` 工具或 gen-css 造成的 —— 同批写入的其它文件（`composer-section.tsx`、`260-input-bar.css`）都完好。
+
+### 修：语音按钮过大 / 没有取消键 / 一行字太少（2026-11-12 第三拍）
+
+**① 语音按钮太大**：`.chat-mic` 原来按 `var(--palm-hit)`（44px）画，在 48px 高的框里几乎顶满 → 改 **30px**（命中区靠 padding 撑）。实测 30px。
+
+**② 点语音后没有取消键**：上一拍把「取消」放到框外做灰色文字按钮，真机上看不出来（`--palm-fg-3` 灰字、44px 行高、贴着转写行）。现在做成**框内浅灰圆形 ✕**（30px），与红色停止键成对靠右：取消键吃 `margin-inline-start: auto`，停止键紧跟其后（实测取消右缘 288、停止右缘 326、框右缘 335）。
+
+**③ 一行字太少**：
+| 项 | 原来 | 现在 | 收益 |
+|---|---|---|---|
+| 底栏左右留白 `--palm-dock-pad` | 18px | 14px | +8 |
+| 按钮间距 `--palm-dock-gap` | 10px | 8px | +6 |
+| textarea 左右内边距 | 16px | 12px | +8 |
+| 输入框长高上限 | 4 行 / 112px | **6 行 / 168px** | 写长文不用翻 |
+
+textarea 实测宽 243px，减左右 24px ≈ **219px 文字区 ≈ 15 个汉字/行**（改前约 13）。
+
+**结构上限**：393px 屏宽 − `+`(34+8) − 发送(34+8) − 左右留白 28 = 281px 框宽，框内还要放麦克风 30px。**想要 18 字以上只能减少常驻按钮**：打字时把 `+` 缩到 24 → ~16 字；打字时隐藏 `+` → ~19 字（代价：打字时没有附件入口）。发送键移进框内**没有收益**（框外省下的宽度正好被框内占掉）。

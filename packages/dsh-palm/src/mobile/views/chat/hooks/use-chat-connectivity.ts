@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect } from 'react'
 
-import { history } from '../../../data/session.ts'
+import { readDiagnostics } from '../../../data/diag.ts'
 import { onConnectivityChange } from '../../../platform/rpc.ts'
 
 /** 离线横幅的探测间隔与超时（真机取值，改之前先量）。 */
@@ -26,17 +26,21 @@ export const OFFLINE_PROBE_TIMEOUT_MS = 4_000
 
 /** hook 依赖。 */
 export interface ChatConnectivityDeps {
-  sessionId: string
   offline: boolean
   setOffline: (value: boolean) => void
 }
 
 /** @returns 手动探一次宿主（发消息前也可以用它确认在线）。 */
 export function useChatConnectivity(deps: ChatConnectivityDeps): { probeHost: () => Promise<boolean> } {
-  const { sessionId, offline, setOffline } = deps
+  const { offline, setOffline } = deps
 
   /**
    * 探一次宿主：成功即在线，失败/超时即仍断。
+   *
+   * 探的必须是**宿主自己**，不能是某个会话的尾页（`history(sessionId, …, 1)`）：
+   * 老会话冷读时那一页要 1~4 s，4 s 的探针会自己超时，横幅就赖着不走——
+   * 表现是"网络早好了，提示还挂着"。`mobile.diagnostics` 只回答宿主版本与目录，
+   * 实测 6~12 ms，与会话冷热无关。
    *
    * 自带短超时：默认 60 秒的请求超时在"弱网挂着"的场景下会让探测本身卡住。
    * 4 秒没答话就当这次没通。
@@ -47,12 +51,12 @@ export function useChatConnectivity(deps: ChatConnectivityDeps): { probeHost: ()
       timer = setTimeout(() => { resolve(false) }, OFFLINE_PROBE_TIMEOUT_MS)
     })
     const call = Promise.resolve()
-      .then(() => history(sessionId, undefined, 1))
+      .then(() => readDiagnostics())
       .then(() => true, () => false)
     return Promise.race([call, timeout]).finally(() => {
       if (timer !== undefined) clearTimeout(timer)
     })
-  }, [sessionId])
+  }, [])
 
   useEffect(() => {
     const unsubscribe = onConnectivityChange(online => { setOffline(!online) })

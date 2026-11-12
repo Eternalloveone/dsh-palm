@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>过程条数字 · 纯动效翻牌（无牌面）</title>
+<style>
+  :root{
+    --page:#0a0a0f; --surface:#13131a; --ink:#f0f0f5; --ink2:#a0a0b0; --ink3:#7f7f8c;
+    --line:#2a2a3a; --line-soft:#1e1e2a; --accent:#5b5cf0;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --cell-h: 20px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#07070b;color:var(--ink);font-family:var(--sans)}
+  .sheet{width:1000px;margin:0 auto;padding:26px 30px 30px}
+  .head{display:flex;align-items:baseline;gap:12px;margin-bottom:5px}
+  .head h1{font-size:17px;margin:0;letter-spacing:.2px}
+  .head .tag{font:500 11px/1 var(--mono);color:var(--ink3);border:1px solid var(--line);border-radius:99px;padding:4px 9px}
+  .sub{color:var(--ink3);font-size:12px;margin:0 0 20px;line-height:1.6}
+  .sub b{color:var(--ink2);font-weight:500}
+  .grid{display:grid;grid-template-columns:452px 1fr;gap:18px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--line-soft);border-radius:14px;padding:15px 16px 16px}
+  .panelTitle{font-size:10.5px;color:var(--ink3);letter-spacing:.7px;text-transform:uppercase;margin:0 0 12px;font-family:var(--mono)}
+  .note{font-size:11.5px;color:var(--ink3);line-height:1.7;margin:10px 0 0}
+  .note b{color:var(--ink2);font-weight:500}
+
+  .phone{width:390px;background:var(--page);border:1px solid var(--line);border-radius:18px;padding:13px}
+  .phoneBar{display:flex;justify-content:space-between;font:500 10.5px/1 var(--mono);color:var(--ink3);margin-bottom:11px}
+  .bubble{background:#1c1c28;border-radius:12px;padding:9px 11px;font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:9px;max-width:88%}
+  .line{display:flex;align-items:center;gap:8px;background:#0f0f16;border:1px solid var(--line-soft);border-radius:11px;padding:0 11px;height:42px;font-size:12.5px;color:var(--ink2)}
+  .chev{width:13px;height:13px;flex:none;color:var(--ink3)}
+  .txt{display:flex;align-items:center;gap:7px;line-height:1}
+  .sep{width:3px;height:3px;border-radius:99px;background:#3a3a48;flex:none;margin:0 1px}
+  .spacer{flex:1}
+  .clock{font:500 10.5px/1 var(--mono);color:var(--ink3)}
+  .dot{width:6px;height:6px;border-radius:99px;background:var(--accent);flex:none;margin-right:6px}
+  .btnRow{display:flex;gap:8px;margin-top:12px}
+  .btn{font:500 11.5px/1 var(--sans);color:var(--ink2);background:#0f0f16;border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+  .btn:hover{color:var(--ink);border-color:#3a3a50}
+
+  /* 纯翻牌数字：没有牌面，只有字 */
+  .flipNum{display:inline-flex;align-items:center;gap:1px;vertical-align:-3px;margin:0 1px}
+  .fd{
+    position:relative;display:inline-block;height:var(--cell-h);
+    min-width:.62em;text-align:center;font-size:inherit;line-height:var(--cell-h);
+    font-variant-numeric:tabular-nums;font-weight:inherit;color:inherit;
+    perspective:220px;
+  }
+  .fdA{transform-style:preserve-3d;will-change:transform}
+  .fdA.out{animation:fdAout .13s cubic-bezier(.45,.05,.55,1) forwards}
+  .fdA.in{animation:fdAin .15s cubic-bezier(.2,.85,.3,1) forwards}
+  @keyframes fdAout{from{transform:rotateX(0deg);opacity:1;filter:brightness(1)}to{transform:rotateX(-92deg);opacity:.55;filter:brightness(1.25)}}
+  @keyframes fdAin{from{transform:rotateX(88deg);opacity:.5;filter:brightness(1.25)}to{transform:rotateX(0deg);opacity:1;filter:brightness(1)}}
+
+  .fdB .half,.fdB .st-top{position:absolute;left:0;width:100%;height:50%;overflow:hidden}
+  .fdB .st-top{bottom:50%}
+  .fdB .t{bottom:50%;transform-origin:bottom center;backface-visibility:hidden}
+  .fdB .b{top:50%;transform-origin:top center;backface-visibility:hidden;transform:rotateX(90deg)}
+  .fdB .oldB{top:50%}
+  .fdB .half>i,.fdB .st-top>i{
+    position:absolute;left:0;width:100%;height:var(--cell-h);
+    display:flex;align-items:center;justify-content:center;
+    font-style:normal;line-height:var(--cell-h);
+  }
+  .fdB .t>i,.fdB .st-top>i{top:0}
+  .fdB .b>i{top:calc(var(--cell-h) / -2)}
+  .fdB .oldB>i{top:calc(var(--cell-h) / -2)}
+  .fdB.go .t{animation:fdBtop .19s cubic-bezier(.45,.05,.55,1) forwards}
+  .fdB.go .b{animation:fdBbot .19s cubic-bezier(.22,.85,.3,1) .095s forwards}
+  @keyframes fdBtop{from{transform:rotateX(0deg);opacity:1}to{transform:rotateX(-90deg);opacity:.35}}
+  @keyframes fdBbot{from{transform:rotateX(90deg);opacity:.4}to{transform:rotateX(0deg);opacity:1}}
+
+  .fdB.f1 .t{transform:rotateX(-58deg);opacity:.55}
+  .fdB.f1 .b{transform:rotateX(90deg);opacity:.4}
+  .fdB.f2 .t{transform:rotateX(-90deg);opacity:0}
+  .fdB.f2 .b{transform:rotateX(26deg);opacity:.85}
+  .fdB.f2 .oldB{opacity:0}
+
+  .zoom{--cell-h:56px;display:flex;align-items:center;gap:26px;padding:10px 2px 20px;font-size:36px}
+  .zoom .lab{font-size:11.5px;color:var(--ink3);line-height:1.7}
+  .zoom .lab b{color:var(--ink2);font-weight:500;font-size:12px}
+
+  .frames{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .fr{background:#0f0f16;border:1px solid var(--line-soft);border-radius:10px;padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:9px}
+  .fr .t{font:500 10px/1 var(--mono);color:var(--ink3)}
+  .fr .cap{font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.55}
+  .fr .flipNum{--cell-h:30px;font-size:19px}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{color:var(--ink3);font-weight:500;font-size:10.5px;letter-spacing:.5px;font-family:var(--mono)}
+  td:first-child{color:var(--ink2);white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+  td code{font:500 10.5px/1 var(--mono);background:#0f0f16;border:1px solid var(--line-soft);border-radius:5px;padding:2px 5px;color:#cfd2ff}
+  .states{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:2px 0 4px}
+  .st{display:flex;flex-direction:column;gap:8px;padding:10px 11px;background:#0f0f16;border:1px solid var(--line-soft);border-radius:9px}
+  .st .lab{font-size:10.5px;color:var(--ink3)}
+  .st .val{display:flex;align-items:center;min-height:20px;font-size:12.5px;color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet">
+  <div class="head">
+    <h1>过程条数字 · 纯翻牌动效（去掉牌面）</h1>
+    <span class="tag">v3 · 2026-11-11</span>
+  </div>
+  <p class="sub">没有底板、没有边框、没有中缝暗线 —— 就是<b>文字自己在翻</b>。数字继承正文的颜色、字号与字重，只在变化的那 0.3 秒里有动作。</p>
+
+  <div class="grid">
+    <section class="panel">
+      <p class="panelTitle">原位 · 390 宽</p>
+      <div class="phone">
+        <div class="phoneBar"><span>dsh-palm</span><span>过程条</span></div>
+        <div class="bubble">正在按计划改排队的对账逻辑，先把权威队列接上。</div>
+        <div class="line">
+          <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+          <div class="txt">
+            <span><span class="flipNum" id="toolsB"></span>次工具调用</span>
+            <span class="sep"></span>
+            <span>改<span class="flipNum" id="filesB"></span>个文件</span>
+          </div>
+          <span class="spacer"></span>
+          <span class="dot"></span><span class="clock">3:42</span>
+        </div>
+        <div class="bubble" style="margin-top:9px;max-width:74%">好，我先把删除那条跑通。</div>
+      </div>
+      <div class="btnRow">
+        <button class="btn" id="replay">重播</button>
+        <button class="btn" id="both">两个变体同时翻</button>
+      </div>
+      <p class="note">行高、字号、行距一个字都没改；翻动时最大占用仍是 <b>20px</b>，不会把过程条撑高。</p>
+    </section>
+
+    <section class="panel">
+      <p class="panelTitle">两个变体 · 放大</p>
+      <div class="zoom">
+        <span class="flipNum" id="bigA" data-variant="A"></span>
+        <span class="lab"><b>A · 整字翻</b><br />字形绕中线翻过去，中途换字<br />280ms，最像「翻了一下」</span>
+      </div>
+      <div class="zoom" style="padding-top:0">
+        <span class="flipNum" id="bigB" data-variant="B"></span>
+        <span class="lab"><b>B · 上下对开</b><br />旧的上半翻走、新的下半翻上来<br />285ms，更像站牌翻牌机</span>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top:18px">
+    <p class="panelTitle">B 的分帧（12 → 17，只有个位动）</p>
+    <div class="frames">
+      <div class="fr"><span class="t">0 ms</span><span class="flipNum" data-frame="0"></span><span class="cap">旧字完整<br />没人看得出要翻</span></div>
+      <div class="fr"><span class="t">95 ms</span><span class="flipNum" data-frame="1"></span><span class="cap">上半片翻到侧面<br />新字上半透出来</span></div>
+      <div class="fr"><span class="t">190 ms</span><span class="flipNum" data-frame="2"></span><span class="cap">下半片翻上来<br />旧字下半退场</span></div>
+      <div class="fr"><span class="t">落定</span><span class="flipNum" data-frame="3"></span><span class="cap">新字完整<br />十位的 1 没动过</span></div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top:18px">
+    <p class="panelTitle">边界</p>
+    <div class="states">
+      <span class="st"><span class="lab">还没调用</span><span class="val"><span class="flipNum" data-static="0"></span></span></span>
+      <span class="st"><span class="lab">个位</span><span class="val"><span class="flipNum" data-static="7"></span></span></span>
+      <span class="st"><span class="lab">两位数</span><span class="val"><span class="flipNum" data-static="12"></span></span></span>
+      <span class="st"><span class="lab">三位数</span><span class="val"><span class="flipNum" data-static="128"></span></span></span>
+      <span class="st"><span class="lab">溢出（纯文本）</span><span class="val">99+</span></span>
+      <span class="st"><span class="lab">未开始</span><span class="val" style="color:#7f7f8c">—</span></span>
+    </div>
+    <p class="note">位数变化时给容器加 <b>width 120ms</b> 过渡：9 → 10 是「多长出一位」，不跳。</p>
+  </section>
+
+  <section class="panel" style="margin-top:18px">
+    <p class="panelTitle">与上一版的差别</p>
+    <table>
+      <tr><th>项</th><th>v2（记分牌）</th><th>v3（纯动效）</th></tr>
+      <tr><td>底板</td><td>14×20 深色牌面 + 圆角 + 描边</td><td><b>无</b>，只有文字</td></tr>
+      <tr><td>中缝</td><td>常驻 1px 暗线</td><td>没有；只有翻动瞬间的明暗差</td></tr>
+      <tr><td>配色</td><td>固定 #f4f6ff</td><td>继承 <code>currentColor</code>，跟着主题走</td></tr>
+      <tr><td>字重</td><td>600 等宽</td><td>继承正文，<code>tabular-nums</code> 防跳宽</td></tr>
+      <tr><td>行高影响</td><td>牌面 20px</td><td>字形 20px，行高不变</td></tr>
+      <tr><td>动效</td><td>上下两片各 190ms</td><td>A 280ms 整字翻 / B 285ms 对开</td></tr>
+      <tr><td>实现</td><td>2 span + 2 keyframes</td><td>A 1 span + 2 keyframes（更省）</td></tr>
+    </table>
+    <p class="note">推荐 <b>A（整字翻）</b>：一个元素、两段关键帧，代码最少；静止时和普通文字完全一样，只有变化的 0.3 秒看得出「翻」。<b>B</b> 更像翻牌机，但每位数字要 4 层 clip，代价大。</p>
+  </section>
+</div>
+
+<script>
+  function dEl(ch, variant){
+    const el = document.createElement('span')
+    el.className = 'fd fd' + variant
+    if (variant === 'A'){ el.textContent = ch; return el }
+    el.innerHTML =
+      '<span class="st-top"><i>' + ch + '</i></span>' +
+      '<span class="half t"><i>' + ch + '</i></span>' +
+      '<span class="half oldB"><i>' + ch + '</i></span>' +
+      '<span class="half b"><i>' + ch + '</i></span>'
+    return el
+  }
+
+  function setA(el, next){
+    if (el.textContent === next) return
+    el.classList.remove('in'); el.classList.add('out')
+    setTimeout(function(){
+      el.textContent = next
+      el.classList.remove('out'); el.classList.add('in')
+      setTimeout(function(){ el.classList.remove('in') }, 160)
+    }, 130)
+  }
+
+  function setB(el, next){
+    const topEl = el.querySelector('.st-top i')
+    const cur = topEl.textContent
+    if (cur === next) return
+    const tHalf = el.querySelector('.t')
+    const bHalf = el.querySelector('.b')
+    const oldB = el.querySelector('.oldB')
+    // 复位上一次的落定状态（上次翻完是靠内联样式定住的）
+    tHalf.style.transform = ''; tHalf.style.opacity = ''
+    bHalf.style.transform = ''; bHalf.style.opacity = ''
+    oldB.style.opacity = ''
+    el.classList.remove('go')
+    tHalf.querySelector('i').textContent = cur      // 翻走的上半片 = 旧值
+    bHalf.querySelector('i').textContent = next     // 翻上来的下半片 = 新值
+    topEl.textContent = next                        // 露出来的上半 = 新值
+    void el.offsetWidth
+    el.classList.add('go')
+    clearTimeout(el._t)
+    el._t = setTimeout(function(){
+      el.classList.remove('go')
+      tHalf.style.transform = 'rotateX(-90deg)'
+      tHalf.style.opacity = '0'
+      bHalf.style.transform = 'rotateX(0deg)'
+      bHalf.style.opacity = '1'
+      oldB.style.opacity = '0'
+    }, 300)
+  }
+
+  function setNumber(root, value, variant){
+    const chars = String(value).split('')
+    while (root.children.length < chars.length) root.appendChild(dEl('0', variant))
+    while (root.children.length > chars.length) root.removeChild(root.lastElementChild)
+    chars.forEach(function(ch, i){ variant === 'A' ? setA(root.children[i], ch) : setB(root.children[i], ch) })
+  }
+
+  document.querySelectorAll('[data-static]').forEach(function(el){ setNumber(el, el.dataset.static, 'A') })
+  document.querySelectorAll('[data-frame]').forEach(function(el){
+    const frame = Number(el.dataset.frame)
+    ;['1', '7'].forEach(function(ch, i){
+      const cell = dEl(ch, 'B')
+      const oldCh = i === 0 ? '1' : '2'
+      const tHalf = cell.querySelector('.t')
+      const bHalf = cell.querySelector('.b')
+      const oldB = cell.querySelector('.oldB')
+      tHalf.querySelector('i').textContent = oldCh
+      oldB.querySelector('i').textContent = oldCh
+      bHalf.querySelector('i').textContent = ch
+      cell.querySelector('.st-top i').textContent = i === 0 ? ch : (frame === 0 ? oldCh : ch)
+
+      if (i === 1 && oldCh !== ch){
+        if (frame === 0){ bHalf.style.transform = 'rotateX(90deg)' }
+        if (frame === 1){
+          tHalf.style.transform = 'rotateX(-58deg)'
+          tHalf.style.opacity = '.55'
+          bHalf.style.transform = 'rotateX(90deg)'
+        }
+        if (frame === 2){
+          tHalf.style.transform = 'rotateX(-90deg)'
+          tHalf.style.opacity = '0'
+          bHalf.style.transform = 'rotateX(26deg)'
+          bHalf.style.opacity = '.85'
+          oldB.style.opacity = '0'
+        }
+        if (frame === 3){
+          tHalf.style.transform = 'rotateX(-90deg)'
+          tHalf.style.opacity = '0'
+          bHalf.style.transform = 'rotateX(0deg)'
+          oldB.style.opacity = '0'
+        }
+      }
+      el.appendChild(cell)
+    })
+  })
+
+  const seq = [{t:3,f:0},{t:7,f:1},{t:12,f:3},{t:17,f:3},{t:24,f:5},{t:24,f:5}]
+  let step = 0
+  const tA = document.getElementById('toolsB'), fA = document.getElementById('filesB')
+  const bA = document.getElementById('bigA'), bB = document.getElementById('bigB')
+  setNumber(tA, seq[0].t, 'A'); setNumber(fA, seq[0].f, 'A')
+  setNumber(bA, seq[0].t, 'A'); setNumber(bB, seq[0].t, 'B')
+  function play(){
+    step = (step + 1) % seq.length
+    const s = seq[step]
+    setNumber(tA, s.t, 'A'); setNumber(fA, s.f, 'A')
+    setNumber(bA, s.t, 'A'); setNumber(bB, s.t, 'B')
+  }
+  const still = location.search.indexOf('still') >= 0
+  let timer = still ? 0 : setInterval(play, 1600)
+  document.getElementById('replay').onclick = function(){ clearInterval(timer); step = 0; play(); timer = setInterval(play, 1600) }
+  document.getElementById('both').onclick = function(){ step = -1; play() }
+</script>
+</body>
+</html>

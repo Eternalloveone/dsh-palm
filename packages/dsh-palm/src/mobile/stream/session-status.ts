@@ -267,21 +267,10 @@ export function describeBars(state: SessionStatus, now: number): BarsView {
   const allDone = total > 0 && done === total && liveJobs === 0 && liveSubagents === 0
   const idle = !turnRunning && allDone
   if (idle) parts.length = 0
-  else if (parts.length === 0 && turnRunning) {
-    // 正常运行中**什么都不说**：过程条有相位与用时，再加一条就是噪音。
-    // 只有「看起来卡住了」才值得占一行 —— 那才是用户在等、而且别处看不到的信息。
-    const lastActivity = turnAlive ? state.turn?.value.lastActivityAt : undefined
-    const startedAt = turnAlive ? state.turn?.value.startedAt : undefined
-    const runningSince = turnAlive ? state.turn?.value.runningSince : undefined
-    const since = lastActivity ?? startedAt
-    // 宽限期：这一轮才刚开跑（< 20 秒）就不可能是「卡住」。
-    // 真机（2026-10-29）：「点了发送，状态条先闪一下『已 30 秒没有新输出』再消失」——
-    // 那一刻队列里最新的行还是上一轮的旧行，事件时间自然是几十秒前。
-    const settledEnough = runningSince === undefined || now - runningSince >= STALL_HINT_MS
-    if (since !== undefined && settledEnough && now - since >= STALL_HINT_MS) {
-      parts.push(`已 ${formatElapsed(now - since)}没有新输出`)
-    }
-  }
+  // 2026-11-10 删掉「已 N 秒没有新输出」这一句：
+  // ① 它是**否定式**文案（读起来像报错），而它描述的事实（慢）在过程条与状态条时钟上已经有了；
+  // ② 输入框上方那一行整行下线，任务/子代理改由顶栏徽标 + 运行详情面板承担。
+  // 判据仍留在下面：正常运行中这一条**什么都不说**。
 
   return {
     ...(parts.length > 0 ? { statusBar: parts.join(' · ') } : {}),
@@ -301,183 +290,23 @@ export function barsSignature(view: BarsView): string {
 
 /* ────────────────────────── 排队条的可见判定 ────────────────────────── */
 
-/**
- * 排队条的三个 TTL 常量，收进来后的统一口径（阶段 1 会替换 `session-store` 里那三份）。
- *
- * 它们本来各管一件事，但语义是同一个：**「先这么显示，最多显示这么久」**。
- * 收成租约之后，队列里每一项自己带截止时刻，不再靠外部的隐藏表 + 观察窗拼出来。
- */
-/** 多久没有新输出才值得提示「卡住了」。20 秒：比正常的思考间隔长，又不至于让人干等。 */
-export const STALL_HINT_MS = 20_000
-export const QUEUE_HIDDEN_MS = 90_000
-export const QUEUE_OPTIMISTIC_MS = 45_000
-/**
- * 空快照观察窗的**兜底**期限。
- *
- * 语义已经变了：不再"4 秒后无条件清空"，而是"没有正面证据就保留"，
- * 这个值只是防止极端情况下永远不消失（比如本地状态坏了）。
- */
-export const QUEUE_EMPTY_HOLD_MS = 30 * 60_000
-
-/** 本地乐观项（发送后、宿主快照回来之前先画）。 */
-export interface QueueIntent {
-  readonly pendingId: string
-  readonly text: string
-  readonly placement: 'queued' | 'steering'
-  readonly at: number
-  /**
-   * 提交那一刻宿主队列里已有的条目 id。
-   *
-   * 退场判据用它：**提交之后宿主队列里多出一条新 id**，就认为我这次投递落地了。
-   * 以前只比「正文相同」，一旦正文被宿主改写（带图片 → `[图片] 正文`、带引用 →
-   * 拼进去的引用块、多行被压成一行），就永远对不上，乐观项要挂到 45 秒 TTL 才走
-   * —— 屏幕上正好是「一条消息两条排队条」。按"新出现"判，与正文无关。
-   */
-  readonly knownHostIds?: readonly string[]
-  /** 本次投递的幂等键（宿主行经由插件身份桥标回同一个值时即视为落地）。 */
-  readonly requestId?: string
-}
-
 export interface QueueInputs {
-  /** 宿主给的队列（权威快照或投影）。 */
+  /** 宿主的权威队列（快照 / 应答 / 投影）。 */
   readonly host: readonly QueueItemView[]
-  /** 本地乐观项（带自己的时间戳，过期自动退场）。 */
-  readonly optimistic: readonly QueueIntent[]
-  /**
-   * 已经确定的隐藏项（由调用方按「宿主版本追上了没有」判断）。
-   *
-   * 版本判据留在状态仓里是有意的：它需要知道快照版本，属于存储层知识；
-   * 而「隐藏能撑多久」由这里的 TTL 兜底 —— 两份判据各管一件事，不重复。
-   */
-  readonly hiddenIds?: ReadonlySet<string>
-  /** 本地已经删掉/插队掉的 id → 隐藏时刻（TTL 兜底，避免宿主永不收敛时永久屏蔽）。 */
-  readonly hiddenAt: ReadonlyMap<string, number>
-  /** 上一次非空队列与「读到空」的观察窗截止时刻。 */
-  readonly emptyHold?: { readonly items: readonly QueueItemView[]; readonly until: number }
-  /** 已经进了对话的正文（宿主认领成这一轮的用户消息），乐观项据此退场。 */
-  readonly spokenTexts?: ReadonlySet<string>
-  /**
-   * 这一轮是不是还在跑。
-   *
-   * 为什么影响排队项的寿命（2026-11-01 真机："排队消息有时候显示消失"）：
-   * 排队消息只有在**当前这一轮结束**时才会被宿主取走，而一轮可能跑好几分钟；
-   * 而乐观项原本 45 秒就超时退场 —— 于是长回合里排队条会自己消失（消息其实还在）。
-   * 所以：**在跑的时候不按时间淘汰**，只按"已送达/已进正文"这类证据退场；
-   * 空下来之后仍然按 TTL 兜底，避免宿主静默丢弃时永久挂着。
-   */
-  readonly running?: boolean
-  /**
-   * 对话里**最新**那条用户消息的正文（归一化后）。
-   *
-   * 宿主队列来自投影快照，认领之后它还会挂一阵子（投影按分钟级刷新）。手机端如果不
-   * 用「这条已经出现在对话最后了」来兜底，排队条就会在消息发出去之后继续挂着 ——
-   * 真机 2026-10-30：同一条「摄像头画面需要加一个时间水印」既是 13:31 的用户气泡，
-   * 又还是底部排队条。
-   *
-   * 只比**最新**那条而不是全部历史：用户可能把同一句话再说一遍（"继续"），拿全历史
-   * 比会把真正排队的那条误当成已发送。
-   */
-  readonly lastUserText?: string
-  /**
-   * 宿主是否只给「投影快照」那套（没有 `queueToken`）。
-   *
-   * `lastUserText` 是给**老宿主**的兜底：它们的队列来自分钟级快照，认领之后条目还挂着。
-   * 新宿主走活 agent 的 `inbox.nextTurn`，本来就准 —— 这时再拿「对话里最后一条用户消息」
-   * 去隐藏条目就会误伤：刚发出去的消息在这条新判据下会**立刻从排队条上消失**
-   * （实测 2026-10-30：宿主队列 1 条、屏幕上 0 行，用户既看不到也没法撤回）。
-   */
-  readonly legacyQueue?: boolean
-  /** 正文归一化（默认原样比较）。 */
-  readonly normalize?: (text: string) => string
 }
+/** 多久没有新输出才值得提示「卡住了」。20 秒（状态条现在已不再使用这句话，常量留给调用方）。 */
+export const STALL_HINT_MS = 20_000
 
-/** 乐观项退场判据：宿主队列里出现同一条正文、或已经进了对话、或超时。 */
-export function optimisticAlive(intent: QueueIntent, inputs: QueueInputs, now: number): boolean {
-  // 在跑的时候不按时间淘汰：排队消息要等这一轮结束才会被取走，而一轮可能很久。
-  if (inputs.running !== true && now - intent.at >= QUEUE_OPTIMISTIC_MS) return false
-  const normalize = inputs.normalize ?? ((text: string): string => text)
-  const text = normalize(intent.text)
-  // ① 身份对上（插件侧身份桥把 requestId 标在宿主行上）：最可靠，和正文无关。
-  const requestId = intent.requestId
-  if (requestId !== undefined && inputs.host.some(item => (item as { requestId?: string }).requestId === requestId)) return false
-  const known = intent.knownHostIds
-  // 只有「提交之后新出现的行」才算这次投递的结果；提交前就在队列里的同文行是别人的/上一次的。
-  const fresh = known === undefined ? inputs.host : inputs.host.filter(item => !known.includes(item.id))
-  // ① 正文对上（宿主原样保存时的主路径）。
-  if (fresh.some(item => normalize(item.text) === text)) return false
-  // ② 已经进了对话正文。
-  if (inputs.spokenTexts?.has(text) === true) return false
-  // ③ 新出现了行（正文被改写：图片前缀 / 引用块 / 折行 → 正文永远对不上）。
-  if (known !== undefined && fresh.length > 0) return false
-  return true
-}
-
-/**
- * 排队条**该显示哪些**（唯一判据）。
- *
- * 顺序就是优先级：宿主队列在前，本地乐观项补在后面（还没被宿主接管的那些）。
- * 隐藏、乐观超时、空队列观察窗全部按「时刻比较」处理 —— 不需要任何额外的布尔开关，
- * 也不会出现「时间到了但没人来清」的残留。
- */
-export function visibleQueue(inputs: QueueInputs, now: number): readonly QueueItemView[] {
-  const hidden = (id: string): boolean => {
-    if (inputs.hiddenIds?.has(id) === true) {
-      const at = inputs.hiddenAt.get(id)
-      // 版本判据说它该隐藏；再看 TTL 是否还没撑过（防止宿主永不收敛时永久屏蔽）。
-      return at === undefined || now - at < QUEUE_HIDDEN_MS
-    }
-    const at = inputs.hiddenAt.get(id)
-    return at !== undefined && now - at < QUEUE_HIDDEN_MS
+export function visibleQueue(inputs: QueueInputs): readonly QueueItemView[] {
+  // C1b（2026-11-11）：这里只剩一件事 —— 按 id 去重。
+  // 隐藏表、空队列观察窗、正文比对全部删除：队列的真值来自宿主的权威应答与快照，
+  // 陈旧数据由 `applySnapshot` / `applyQueueItems` 的版本栅栏挡住。
+  const seen = new Set<string>()
+  const view: QueueItemView[] = []
+  for (const item of inputs.host) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    view.push(item)
   }
-  const normalize = inputs.normalize ?? ((text: string): string => text)
-  // 宿主条目按 id 去重（投影可能把同一条列两次）。
-  const seenHost = new Set<string>()
-  const host = inputs.host.filter(item => {
-    if (hidden(item.id)) return false
-    if (seenHost.has(item.id)) return false
-    // 老宿主的投影残留兜底（见 `legacyQueue`）：只有它才需要这条判据。
-    if (
-      inputs.legacyQueue === true
-      && inputs.lastUserText !== undefined
-      && normalize(item.text) === inputs.lastUserText
-    ) return false
-    seenHost.add(item.id)
-    return true
-  })
-  // 乐观项按**正文**去重：同一条消息被点了两次「排队」（弱网下双击很常见）会塞进两条
-  // 只差本地 id 的乐观项，屏幕上就是「莫名其妙多出来一个一模一样的」。同文只留最新那份。
-  const seenText = new Set<string>()
-  const extra: QueueItemView[] = []
-  for (const intent of [...inputs.optimistic].sort((a, b) => b.at - a.at)) {
-    if (!optimisticAlive(intent, { ...inputs, host: inputs.host }, now)) continue
-    const key = normalize(intent.text)
-    if (seenText.has(key)) continue
-    seenText.add(key)
-    extra.push({
-      id: intent.pendingId,
-      placement: intent.placement,
-      text: intent.text,
-      editable: true,
-    })
-  }
-  const combined = [...host, ...extra]
-  if (combined.length > 0) return combined
-  /**
-   * 读到空：**不因为一次空快照就把排队条擦掉**。
-   *
-   * 2026-10-31 真机反馈："排队消息条有时候会莫名其妙消失"。根因是这里的判据：
-   * 只要一次读空空了、并且超过 4 秒观察窗，界面就清空 —— 而宿主的队列投影本来就
-   * 经常慢半拍到几十秒（弱网/日志很大时更明显），于是条子凭空消失，过一会儿又回来。
-   *
-   * 新判据（正面证据才允许消失）：
-   *   · 这条的正文已经出现在对话里（说明它真的开始跑了）→ 消失；
-   *   · 用户自己删了（隐藏表）→ 消失；
-   *   · 其余情况一律保留，直到 `until` 这个**很长的**兜底期限（30 分钟）到期。
-   */
-  if (inputs.emptyHold !== undefined && inputs.emptyHold.until > now) {
-    const spoken = (text: string): boolean => inputs.spokenTexts?.has(normalize(text)) === true
-    const kept = inputs.emptyHold.items.filter(item => !hidden(item.id) && !spoken(item.text))
-    if (kept.length > 0) return kept
-  }
-  return []
+  return view
 }

@@ -203,3 +203,103 @@ export function ErrorState({ icon, title, reason, action, className = 'mobile-em
     </div>
   )
 }
+
+/* ── 组合件：一套「区块」的写法（2026-11-10 重设计的原语层） ─────────────
+   以前每个页面自己拼「标题行 + 卡片 + 结果行 + 两个按钮」，于是圆角、间距、
+   边框色在各屏各不相同。这里收成四个组合件，页面只描述结构，外观全部走
+   styles/560-system.css 里的令牌。
+   规则：组合件**不接受 style**，也不接受颜色参数 —— 要换外观先改令牌。 */
+
+export interface SectionAction {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+}
+
+/** 区块标题行：左标题（h2）、右侧提示或一个动作。 */
+export function SectionHeader({ title, hint, action }: {
+  title: string
+  hint?: ReactNode
+  action?: SectionAction
+}) {
+  return (
+    <div className="palm-section-head">
+      <h2 className="palm-section-title">{title}</h2>
+      <span className="palm-section-gap" />
+      {hint === undefined ? null : <span className="palm-section-hint">{hint}</span>}
+      {action === undefined ? null : (
+        <Button type="button" className="palm-section-action" disabled={action.disabled} onClick={action.onClick}>
+          {action.label}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** 区块卡：`surface` = 卡片层，`raised` = 浮层（压在别的内容之上）。 */
+export function SectionCard({ title, hint, action, level = 'surface', className, children }: {
+  title?: string
+  hint?: ReactNode
+  action?: SectionAction
+  level?: 'surface' | 'raised'
+  className?: string
+  children?: ReactNode
+}) {
+  return (
+    <section className={className} data-section-card data-level={level}>
+      {title === undefined ? null : <SectionHeader title={title} hint={hint} action={action} />}
+      <div className="palm-section-body">{children}</div>
+    </section>
+  )
+}
+
+/** 结果行：文件名 + 增删行数 + 右侧动作（把三个 chip 收成一行）。 */
+export function ResultRow({ name, added, removed, action, className }: {
+  name: string
+  added?: number
+  removed?: number
+  action?: SectionAction
+  className?: string
+}) {
+  return (
+    <div className={className} data-result-row>
+      <span className="palm-result-name">{name}</span>
+      {added === undefined || added === 0 ? null : <span className="palm-result-add" data-sign="added">+{added}</span>}
+      {removed === undefined || removed === 0 ? null : <span className="palm-result-del" data-sign="removed">−{removed}</span>}
+      <span className="palm-result-gap" />
+      {action === undefined ? null : (
+        <Button type="button" className="palm-result-action" disabled={action.disabled} onClick={action.onClick}>
+          {action.label}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+export interface ActionSpec {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+}
+
+/** 操作条：主操作占 1.4 份宽、次操作 1 份，间距固定（各屏曾经各写一遍）。 */
+export function ActionBar({ primary, secondary }: { primary: ActionSpec; secondary?: ActionSpec }) {
+  return (
+    <div className="palm-action-bar">
+      <Button
+        type="button"
+        className="palm-action-primary"
+        data-primary=""
+        disabled={primary.disabled}
+        onClick={primary.onClick}
+      >
+        {primary.label}
+      </Button>
+      {secondary === undefined ? null : (
+        <Button type="button" className="palm-action-secondary" disabled={secondary.disabled} onClick={secondary.onClick}>
+          {secondary.label}
+        </Button>
+      )}
+    </div>
+  )
+}

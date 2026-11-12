@@ -13,7 +13,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { MessageRow, forgetTurnAnchor, resetTurnAnchors, stableTurnAnchor } from './message-row.tsx'
+import { MessageRow, forgetTurnAnchor, resetEnteredIds, resetTurnAnchors, stableTurnAnchor } from './message-row.tsx'
+import { resetElapsedSamples } from '../message-row/turn-clock.ts'
 import type { RenderMessage, ToolCallInfo } from './messages.ts'
 
 // 图片字节走 attachment-images（内容寻址缓存）：测试里当作已缓存，组件同步渲染。
@@ -83,7 +84,8 @@ function procLines(head: HTMLElement): HTMLElement[] {
 }
 
 describe('秒表锚点记忆（跨重挂/跨刷新只许变早）', () => {
-  beforeEach(() => { resetTurnAnchors() })
+  beforeEach(() => {
+  resetEnteredIds(); resetTurnAnchors() })
 
   it('同一轮重复取锚点永远取最早的：晚到的锚点不会把读数打回去', () => {
     // 真机 2026-11-03：行在 turn/step 到位时会卸载重挂，行内记忆丢了就再跳一次。
@@ -103,7 +105,7 @@ describe('秒表锚点记忆（跨重挂/跨刷新只许变早）', () => {
 
 describe('MessageRow flow body (layout stability)', () => {
   // 锚点记忆落在 sessionStorage：用例之间必须清，否则上一条的锚点会被这一条继承。
-  beforeEach(() => { resetTurnAnchors() })
+  beforeEach(() => { resetTurnAnchors(); resetElapsedSamples() })
 
   it('renders pending and settled rows with the identical process card and trailing answer', () => {
     const pending = render(
@@ -119,9 +121,10 @@ describe('MessageRow flow body (layout stability)', () => {
       const group = container.querySelector('.chat-proc') as HTMLElement
       expect(group).not.toBeNull()
       expect(Number(group.getAttribute('data-proc-rows'))).toBeGreaterThanOrEqual(1)
-      // 工具行默认可见：不再藏在折叠体里。
-      expect(container.querySelector('.chat-proc-tools')).not.toBeNull()
-      expect(container.querySelectorAll('.chat-step')).toHaveLength(1)
+      // 2026-11-10：折叠态只显示一条固定的「当前命令」（pending 与 settled 同构，
+      // 回合结束也不会从一行跳成多行）；完整工具行清单在展开体里。
+      expect(container.querySelectorAll('.chat-cmdline')).toHaveLength(1)
+      expect(container.querySelectorAll('.chat-step')).toHaveLength(0)
       expect(container.querySelector('.chat-proc-body')).toBeNull()
       expect(container.querySelectorAll('.chat-artifact')).toHaveLength(0)
       expect(container.querySelector('.chat-proc-head')!.getAttribute('aria-expanded')).toBe('false')
@@ -148,6 +151,7 @@ describe('MessageRow flow body (layout stability)', () => {
   it('工具行：彩色状态点 + 动作 · 对象 + 右侧状态词（状态只认宿主真报过的）', () => {
     const withState = baseMessage(false, null, [{ ...tool, state: 'ok' }])
     const ok = render(<MessageRow message={withState} showToolCalls showSystemMessages={false} />)
+    fireEvent.click(ok.container.querySelector('.chat-proc-head')!)
     const row = ok.container.querySelector('.chat-step') as HTMLElement
     expect(row.getAttribute('data-state')).toBe('ok')
     expect(row.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('ok')
@@ -158,20 +162,24 @@ describe('MessageRow flow body (layout stability)', () => {
 
     const runningRow = baseMessage(false, null, [{ ...tool, state: 'running' }])
     const running = render(<MessageRow message={runningRow} showToolCalls showSystemMessages={false} />)
+    // 折叠态只显示一条「当前命令」；完整工具行要展开后才出现。
+    fireEvent.click(running.container.querySelector('.chat-proc-head')!)
     const live = running.container.querySelector('.chat-step') as HTMLElement
     expect(live.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('running')
     expect(live.querySelector('.chat-step-state')!.textContent).toBe('运行中')
 
     // 宿主没报状态 ⇒ 灰点、不写状态词，不冒充成功也不冒充运行中。
     const unknown = render(<MessageRow message={baseMessage(false, null, [tool])} showToolCalls showSystemMessages={false} />)
+    fireEvent.click(unknown.container.querySelector('.chat-proc-head')!)
     const grey = unknown.container.querySelector('.chat-step') as HTMLElement
     expect(grey.getAttribute('data-state')).toBe('unknown')
     expect(grey.querySelector('.chat-step-state')).toBeNull()
   })
 
   it('merges consecutive tool parts into one artifact card inside the expanded group', () => {
+    // 收工态才画交付卡（2026-11-11：「运行过程中会弹出来」已修）；运行中由工具行表达进度。
     const message = baseMessage(
-      true,
+      false,
       [
         { kind: 'text', text: '开始' },
         { kind: 'tool', callId: 'c1' },
@@ -186,12 +194,12 @@ describe('MessageRow flow body (layout stability)', () => {
     const { container } = render(
       <MessageRow message={message} showToolCalls showSystemMessages={false} />,
     )
-    // 两张工具行始终可见；diff 卡在展开体里。
-    expect(container.querySelectorAll('.chat-step')).toHaveLength(2)
-    expect(container.querySelector('.chat-artifact')).toBeNull()
-
+    // 折叠态一条命令；展开后是完整工具行（diff 卡在展开体里）。
+    expect(container.querySelectorAll('.chat-cmdline')).toHaveLength(1)
+    // 展开：时间轴里两条工具行 + 末尾一张合并卡（同一轮只出一张）。
     fireEvent.click(container.querySelector('.chat-proc-head')!)
     expect(container.querySelector('.chat-proc-body')).not.toBeNull()
+    expect(container.querySelectorAll('.chat-step')).toHaveLength(2)
     expect(container.querySelectorAll('.chat-artifact')).toHaveLength(1)
     // Two files merged into one card: the head reads "编辑了 2 个文件".
     expect(container.querySelector('.chat-artifact-title')!.textContent).toBe('编辑了 2 个文件')
@@ -202,8 +210,8 @@ describe('MessageRow flow body (layout stability)', () => {
     const shown = render(
       <MessageRow message={message} showToolCalls showSystemMessages={false} />,
     )
-    // 工具行默认可见；diff 卡仍要点开展开体。
-    expect(shown.container.querySelectorAll('.chat-step')).toHaveLength(1)
+    // 折叠态一条命令；展开后工具行与 diff 卡都在。
+    expect(shown.container.querySelectorAll('.chat-cmdline')).toHaveLength(1)
     expect(shown.container.querySelector('.chat-artifact')).toBeNull()
     expect(shown.container.querySelector('.chat-md-body')).not.toBeNull()
     fireEvent.click(shown.container.querySelector('.chat-proc-head')!)
@@ -236,26 +244,16 @@ describe('MessageRow flow body (layout stability)', () => {
       seq: 3,
       time: 1_000,
       durationMs: 5_000,
+      // 2026-11-10：收工后的纯问答回合不再画空壳过程头，静态头只留给还在跑的回合。
+      turnStartAt: 1_000,
     }
     const { container } = render(
       <MessageRow message={message} showToolCalls showSystemMessages={false} />,
     )
-    // Zero process rows but a turn clock: the head is a plain status line —
-    // no button, no aria-expanded, no caret, no body.
-    const head = container.querySelector('.chat-proc-head') as HTMLElement
-    expect(head.tagName).toBe('DIV')
-    expect(head.className).toContain('chat-proc-head-static')
-    expect(head.getAttribute('aria-expanded')).toBeNull()
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
-    expect(head.querySelector('.chat-proc-time')).toBeNull()
-    // 纯文本回合没有过程行 ⇒ 第二行不渲染，静态头就只有一行。
-    expect(procLines(head)).toHaveLength(1)
-    expect(head.querySelector('.chat-proc-current')).toBeNull()
-    // 静态头把同一句话挂在 aria-label 上（读屏器读到的和看到的一致）。
-    expect(head.getAttribute('aria-label')).toBe('—')
-    expect(container.querySelector('.chat-proc-caret')).toBeNull()
-    expect(container.querySelector('.chat-proc-body')).toBeNull()
-    expect(structureOf(container)).toEqual(['proc', 'proc-head', 'text'])
+    // 2026-11-10 起：收工后的纯问答回合不再画空壳过程头
+    // （状态词/计时只在任务头状态条）；运行中的纯文本回合仍保留静态头。
+    expect(container.querySelector('.chat-proc')).toBeNull()
+    expect(structureOf(container)).toEqual(['text'])
   })
 
   it('静态头同样只有一行：只剩计数占位「—」（没有可展开的内容）', () => {
@@ -268,6 +266,7 @@ describe('MessageRow flow body (layout stability)', () => {
       seq: 4,
       time: 3_000,
       durationMs: 5_000,
+      turnStartAt: 3_000,
       flow: [{ kind: 'tool', callId: 'c1' }],
       tools: [{ callId: 'c1', name: 'bash', state: 'ok', arguments: '{"cmd":"pytest -q"}' }],
     }
@@ -275,11 +274,8 @@ describe('MessageRow flow body (layout stability)', () => {
       <MessageRow message={message} showToolCalls={false} showSystemMessages={false} />,
     )
 
-    const head = container.querySelector('.chat-proc-head-static') as HTMLElement
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
-    expect(head.querySelector('.chat-proc-time')).toBeNull()
-    expect(container.querySelector('.chat-proc-caret')).toBeNull()
-    expect(container.querySelector('.chat-proc-body')).toBeNull()
+    // 收工 + 工具行被关掉 + 无 diff 卡 ⇒ 没有可展开内容，整组不画（不是空壳静态头）。
+    expect(container.querySelector('.chat-proc')).toBeNull()
     expect(container.querySelectorAll('.chat-step')).toHaveLength(0)
   })
 
@@ -301,6 +297,7 @@ describe('MessageRow flow body (layout stability)', () => {
     const runningHead = running.container.querySelector('.chat-proc-head') as HTMLElement
     expect(runningHead.querySelector('.chat-proc-state')!.textContent).toBe('1 次工具调用')
     expect(runningHead.querySelector('.chat-proc-time')).toBeNull()
+    fireEvent.click(running.container.querySelector('.chat-proc-head')!)
     const runningStep = running.container.querySelector('.chat-step') as HTMLElement
     expect(runningStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('running')
     expect(runningStep.querySelector('.chat-step-state')!.textContent).toBe('运行中')
@@ -309,6 +306,7 @@ describe('MessageRow flow body (layout stability)', () => {
     const finished = render(
       <MessageRow message={{ ...runningRow, id: 'a-run-done', tools: toolsOf('ok') }} showToolCalls showSystemMessages={false} />,
     )
+    fireEvent.click(finished.container.querySelector('.chat-proc-head')!)
     const finishedStep = finished.container.querySelector('.chat-step') as HTMLElement
     expect(finishedStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('ok')
     expect(finishedStep.querySelector('.chat-step-state')!.textContent).toBe('完成')
@@ -317,12 +315,15 @@ describe('MessageRow flow body (layout stability)', () => {
     const failed = render(
       <MessageRow message={{ ...runningRow, id: 'a-run-err', tools: toolsOf('error') }} showToolCalls showSystemMessages={false} />,
     )
+    fireEvent.click(failed.container.querySelector('.chat-proc-head')!)
     const failedStep = failed.container.querySelector('.chat-step') as HTMLElement
     expect(failedStep.querySelector('.chat-step-dot')!.getAttribute('data-state')).toBe('error')
     expect(failedStep.querySelector('.chat-step-state')!.textContent).toBe('失败')
   })
 
   it('同一轮的锚点只能变早：更晚的 turnStartAt 不许把状态条计时打回去', () => {
+    // 这个用例自己造锚点：先把上一组的记忆清干净，否则会读到别人的更早锚点。
+    resetTurnAnchors(); resetElapsedSamples()
     // 真机（2026-11-02）：计时从「5分10秒」突然跳回「1分20秒」，然后从小往大长。
     // 根因是重连/翻页后 turnStartAt 被算成窗口里第一条事件的时间（更晚）——
     // 一轮的起点是既成事实，只能被更准的值纠正，不能变晚。计时现在只剩状态条一处，
@@ -349,8 +350,13 @@ describe('MessageRow flow body (layout stability)', () => {
 
       // 更早的锚点是"更准的纠正"，允许采纳
       const corrected: RenderMessage = { ...early, turnStartAt: t0 - 330_000 }
+      // 2026-11-11 起：更早的锚点是纠正，但**不在同一帧跳过去**（真机反馈「计时跳变」）。
+      // 这一帧先顶住旧读数，随后的心跳按最多 2 倍速追上去。
       view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} hostNowMs={t0} />)
-      expect(stripTime()).toBe('5分30秒')
+      expect(stripTime()).toBe('5分10秒')
+      // 真实时间走 5 秒 ⇒ 最多追 10 秒：还差 20 秒，这一拍追上 10 秒变 5分25秒。
+      view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} hostNowMs={t0 + 5_000} />)
+      expect(stripTime()).toBe('5分25秒')
     } finally {
       vi.useRealTimers()
     }
@@ -556,8 +562,8 @@ describe('MessageRow flow body (layout stability)', () => {
     const img = container.querySelector('.chat-msg-image') as HTMLImageElement
     expect(img.tagName).toBe('IMG')
     fireEvent.error(img)
-    const retry = await screen.findByRole('listitem', { name: 'a.jpg，加载失败，点击重试' })
-    expect(retry.textContent).toContain('图片加载失败，点击重试')
+    const retry = await screen.findByRole('listitem', { name: 'a.jpg，没显示出来，点击重试' })
+    expect(retry.textContent).toContain('这张图没显示出来，点一下重试')
   })
 
   it('treats a zero-sized decode as broken and offers retry', async () => {
@@ -571,8 +577,8 @@ describe('MessageRow flow body (layout stability)', () => {
     const img = container.querySelector('.chat-msg-image') as HTMLImageElement
     // jsdom 从不真正解码，naturalWidth 恒为 0 —— 正好是这张坏图在真机上的样子。
     fireEvent.load(img)
-    const retry = await screen.findByRole('listitem', { name: 'IMG.jpg，加载失败，点击重试' })
-    expect(retry.textContent).toContain('图片加载失败，点击重试')
+    const retry = await screen.findByRole('listitem', { name: 'IMG.jpg，没显示出来，点击重试' })
+    expect(retry.textContent).toContain('这张图没显示出来，点一下重试')
   })
 })
 
@@ -585,11 +591,17 @@ describe('MessageRow 入场动画（2026-10-30 打开会话闪烁）', () => {
     expect(row?.className).toContain('chat-msg-no-enter')
   })
 
-  it('enter 缺省（流式落地）的行不挂该标记，入场动画照旧', () => {
-    const { container } = render(
+  it('enter 缺省（流式落地）的行第一次挂载播动画，同一个 id 重挂不再重播', () => {
+    resetEnteredIds()
+    const first = render(
       <MessageRow message={baseMessage(true)} showToolCalls showSystemMessages={false} />,
     )
-    const row = container.querySelector('.chat-msg')
-    expect(row?.className).not.toContain('chat-msg-no-enter')
+    expect(first.container.querySelector('.chat-msg')?.className).not.toContain('chat-msg-no-enter')
+    first.unmount()
+    // 同一个 id 再来一次（流式期间 key 从 id 变成 t<turn>.<step> 就会重挂）：不再播。
+    const again = render(
+      <MessageRow message={baseMessage(true)} showToolCalls showSystemMessages={false} />,
+    )
+    expect(again.container.querySelector('.chat-msg')?.className).toContain('chat-msg-no-enter')
   })
 })

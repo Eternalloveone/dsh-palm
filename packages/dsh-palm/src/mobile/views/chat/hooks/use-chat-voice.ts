@@ -10,15 +10,17 @@
  * - 60 秒上限由录音器触发 `onTimeout` → 自动收尾，不然面板会一直停在"正在听…"；
  * - 关面板要**换代号**（`voiceRunRef`），迟到的转写结果按代号丢弃，否则关掉之后
  *   还会往输入框里塞字；
- * - 卸载必须 `cancel()` 麦克风，否则浏览器的录音指示一直亮着。
+ * - 卸载必须 `cancel()` 麦克风，否则浏览器的录音指示一直亮着；
+ * - **换会话也算"离开录音"**（P4：聊天页实例跨会话复用，不再靠卸载兜底）。
  */
-import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { transcribeVoice } from '../../../data/voice.ts'
 import { createLiveCaptions, type LiveCaptions } from '../../../platform/live-captions.ts'
 import { toast } from '../../../components/toast.tsx'
 import { startVoiceRecording, type VoiceRecording } from '../../../platform/voice-input.ts'
 import { voiceStatusText, type VoiceStatus } from '../../../platform/voice-status.ts'
 import { getVoiceServices } from '../../../platform/voice-services.ts'
+import { useSessionState } from './use-session-scope.ts'
 
 export interface ChatVoice {
   /** 录音面板是否打开。 */
@@ -44,12 +46,14 @@ export function useChatVoice(options: {
   mountedRef: MutableRefObject<boolean>
   /** 转写结果往输入框里补字。 */
   setInput: Dispatch<SetStateAction<string>>
+  /** 会话作用域：换会话时面板归零、麦克风释放（录音不能跟着人走）。 */
+  sessionId: string
 }): ChatVoice {
-  const { mountedRef, setInput } = options
-  const [voiceOpen, setVoiceOpen] = useState(false)
-  const [voicePartial, setVoicePartial] = useState('')
-  const [voicePhase, setVoicePhase] = useState<'recording' | 'transcribing'>('recording')
-  const [voiceElapsed, setVoiceElapsed] = useState(0)
+  const { mountedRef, setInput, sessionId } = options
+  const [voiceOpen, setVoiceOpen] = useSessionState(sessionId, false)
+  const [voicePartial, setVoicePartial] = useSessionState(sessionId, '')
+  const [voicePhase, setVoicePhase] = useSessionState<'recording' | 'transcribing'>(sessionId, 'recording')
+  const [voiceElapsed, setVoiceElapsed] = useSessionState(sessionId, 0)
   const voiceRef = useRef<VoiceRecording | undefined>(undefined)
   const voiceWaveRef = useRef<HTMLDivElement | null>(null)
   const voiceDoneRef = useRef<HTMLButtonElement | null>(null)
@@ -73,11 +77,10 @@ export function useChatVoice(options: {
     }
   }, [])
 
-  // Release the mic when the chat unmounts (session switch / back): a pending
-  // getUserMedia authorization or a live recorder must never leak the
-  // MediaStream (the browser's recording indicator would stay on). The
-  // mountedRef guard also stops the async openVoice callback from setting
-  // state on an unmounted component.
+  // Release the mic when the chat unmounts (back to the drawer / app teardown): a
+  // pending getUserMedia authorization or a live recorder must never leak the
+  // MediaStream (the browser's recording indicator would stay on). Session
+  // switches are handled right after `closeVoice` (the instance survives them).
   useEffect(() => () => {
     mountedRef.current = false
     stopCaptions()
@@ -126,6 +129,19 @@ export function useChatVoice(options: {
     setVoiceOpen(false)
     setVoicePhase('recording')
   }, [])
+
+  /**
+   * 换会话（2026-11-12 P4）：面板状态由 `useSessionState` 在渲染期归零，但**麦克风
+   * 是外部资源**，只能在这里释放 —— 不释放的话人已切到别的会话、浏览器录制指示灯
+   * 还亮着，回来的转写还会落进新会话的草稿（隐私 + 脏输入）。`closeVoice` 顺带换
+   * 代号，在飞的转写对不上号就被丢掉。
+   */
+  const voiceScopeRef = useRef(sessionId)
+  useEffect(() => {
+    if (voiceScopeRef.current === sessionId) return
+    voiceScopeRef.current = sessionId
+    closeVoice()
+  }, [sessionId, closeVoice])
 
   /** Finish recording → upload the WAV → transcribe → fill the composer. */
   const finishVoice = useCallback((): void => {
@@ -177,6 +193,17 @@ export function useChatVoice(options: {
     voiceRunRef.current += 1
     setVoiceElapsed(0)
     setVoicePhase('recording')
+    /*
+     * **先切界面，再等麦克风**（2026-11-12 用户：「点了语音之后感觉好卡」）。
+     *
+     * 以前是 `startVoiceRecording(...).then(recorder => setVoiceOpen(true))` ——
+     * 界面要等 getUserMedia 拿到流才换，真机上一次 100~500ms，第一次还要弹系统授权，
+     * 用户点下去屏幕一动不动，只能理解成"卡住了"。
+     * 现在点下去立刻进录音态（红色边框 + 波形 + 计时器都已经在了），
+     * 麦克风晚到时波形才开始跳；起不来就退回打字态并说明原因。
+     */
+    const run = voiceRunRef.current
+    setVoiceOpen(true)
     void startVoiceRecording({
       // The 60 s hard cap is reached: auto-finish so the sheet transcribes
       // what was captured instead of sitting on "正在听..." forever.
@@ -191,8 +218,12 @@ export function useChatVoice(options: {
           recorder.cancel()
           return
         }
+        // 这期间用户已经取消/收尾：录音流不要了，别在后台账着。
+        if (run !== voiceRunRef.current) {
+          recorder.cancel()
+          return
+        }
         voiceRef.current = recorder
-        setVoiceOpen(true)
         // 实时字幕：边录边把已录到的音频送去转写。宿主没有流式 ASR，这里是
         // 「滚动整段重转」——节流与并发由 live-captions 把关，失败静默。
         const captions = createLiveCaptions({
@@ -210,7 +241,10 @@ export function useChatVoice(options: {
         }, 700)
       },
       (message: unknown) => {
-        if (mountedRef.current) toast(message instanceof Error ? message.message : String(message))
+        if (!mountedRef.current) return
+        // 麦克风起不来（没授权/被占用）：退回打字态，别留一个没有声音的录音条。
+        if (run === voiceRunRef.current) setVoiceOpen(false)
+        toast(message instanceof Error ? message.message : String(message))
       },
     )
   }, [finishVoice])

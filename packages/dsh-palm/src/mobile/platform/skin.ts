@@ -11,7 +11,7 @@
  * @module dsh-palm/mobile/platform/skin
  */
 
-/** 三套皮肤。 */
+/** 六套皮肤：三套自带 + 三套移植（默认 Claude）。 */
 export type MobileSkin = 'graphite' | 'paper' | 'nocturne' | 'newsprint' | 'endfield' | 'claude'
 
 /** 皮肤的中文名（界面上只说人话）。 */
@@ -26,16 +26,16 @@ export const SKIN_LABEL: Record<MobileSkin, string> = {
 
 /** 皮肤的适用底色说明（避免用户在浅色下选到为深色设计的皮肤）。 */
 export const SKIN_HINT: Record<MobileSkin, string> = {
-  claude: '米白纸面 + 陶土橙，像 Claude 桌面',
+  claude: '米白纸面 + 陶土橙，像 Claude 桌面（默认）',
   endfield: '浅色暖白，全直角工业',
-  graphite: '深色底，默认',
+  graphite: '深色底，冷灰',
   paper: '浅色底，偏暖',
   nocturne: '深色底，偏蓝',
   newsprint: '浅色暖白，衬线正文',
 }
 
 /** 每套皮肤对应的浏览器 chrome 色（iOS 状态栏 / Android 地址栏取这个值）。 */
-const SKIN_CHROME: Record<MobileSkin, string> = {
+export const SKIN_CHROME: Record<MobileSkin, string> = {
   claude: '#ffffff',
   endfield: '#e8e8e2',
   graphite: '#101015',
@@ -45,7 +45,7 @@ const SKIN_CHROME: Record<MobileSkin, string> = {
 }
 
 const STORAGE_KEY = 'dsh.palm.skin'
-const DEFAULT_SKIN: MobileSkin = 'graphite'
+const DEFAULT_SKIN: MobileSkin = 'claude'
 
 const listeners = new Set<() => void>()
 

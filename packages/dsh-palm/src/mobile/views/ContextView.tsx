@@ -71,26 +71,41 @@ export function ContextView({ contextWindow, pressureTokens, projectedTokens, on
                   <p className="context-page-figure">
                     <span className="context-page-figure-value">{formatTokens(used)}</span>
                     <span className="context-page-figure-unit">已占用</span>
+                    {/* 百分比直接写出来（2026-11-10 实拍）：数字和窗口总量分两行摆，
+                        占用条又没有刻度，用户得自己心算；aria-label 里本来就有这个数，
+                        但只有读屏能拿到。aria-hidden 是因为占用条已经报过同一句。 */}
+                    {ratio === undefined ? null : (
+                      <span className="context-page-figure-pct" aria-hidden="true">
+                        {Math.round(ratio * 100)}%
+                      </span>
+                    )}
                   </p>
                 )}
-                {ratio === undefined ? null : (
-                  <div
+                {ratio === undefined || used === undefined || contextWindow === undefined ? null : (
+                  // 2026-11-10 实拍：原来是 4 档宽度的 span（ceil(ratio*4)），26% 会被画成
+                  // 半满、74% 画成 75% —— 条子和数字对不上。换原生 <progress>：值就是真值，
+                  // 宽度由浏览器按比例算，既不用行内样式，也不用 4 档规则，读屏还自动报数。
+                  <progress
                     className="context-bar"
-                    role="img"
+                    value={used}
+                    max={contextWindow}
+                    data-pressure={ratio >= 0.85 ? 'high' : undefined}
                     aria-label={`上下文已用 ${Math.round(ratio * 100)}%`}
-                  >
-                    <span
-                      className="context-bar-fill"
-                      data-level={String(Math.max(1, Math.ceil(ratio * 4)))}
-                      data-pressure={ratio >= 0.85 ? 'high' : undefined}
-                    />
-                  </div>
+                  />
                 )}
                 <dl className="context-facts">
                   {contextWindow === undefined ? null : (
                     <>
                       <dt>窗口总量</dt>
                       <dd>{formatTokens(contextWindow)}</dd>
+                    </>
+                  )}
+                  {/* 2026-11-10 实拍：三个数字并列，"还能装多少"却要自己减。
+                      剩余由前两个算得出，不引入新数据；缺任何一个就不显示。 */}
+                  {contextWindow === undefined || used === undefined ? null : (
+                    <>
+                      <dt>剩余</dt>
+                      <dd>{formatTokens(Math.max(0, contextWindow - used))}</dd>
                     </>
                   )}
                   {projectedTokens === undefined ? null : (

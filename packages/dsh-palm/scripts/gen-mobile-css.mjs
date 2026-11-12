@@ -24,10 +24,19 @@ if (files.length === 0) throw new Error('gen-mobile-css: src/mobile/styles/ 下�
 
 // 统一 LF：Windows 编辑器/工具可能把源文件写成 CRLF，而打包器读模板串时会把
 // CRLF 归一成 LF —— 两边不一致，freshness 测试就会假红。
-const body = files
+const raw = files
   .map(name => readFileSync(join(STYLES_DIR, name), 'utf8'))
   .join('')
   .replace(/\r\n/g, '\n')
+
+// CSS 正文原样塞进模板字符串。正文里只要出现反引号或 `${`，整份
+// mobile-styles.ts 就不再是一个字符串 —— 2026-11-10 就是在 CSS 注释里写了个带
+// 反引号的类名，生成后 mobileCss 变成 number，六个样式测试一起红。统一转义，
+// 让「注释里随手写类名」不再是地雷（转义后运行时的 CSS 字节不变）。
+const body = raw
+  .replace(/\\/g, '\\\\')
+  .replace(/`/g, '\\`')
+  .replace(/\$\{/g, '\\${')
 
 const header = [
   '/**',

@@ -21,8 +21,18 @@ export function offersRegenerate(input: {
   isAssistant: boolean
   pending: boolean
   turnLive: boolean
+  /**
+   * 这一轮的收尾是**失败**（回合尾行的失败卡）。
+   *
+   * 失败的回合本来就没有一条可重生成的 assistant 行 —— 旧判据要求 isAssistant，
+   * 于是失败卡上永远没有"下一步动作"（2026-11-10 审查）。这条分支只认「失败且
+   * 没有在跑」，不看是不是最后一条：失败的那一轮通常就是最后一条。
+   */
+  retryableTurn?: boolean
 }): boolean {
-  return input.isLastMessage && input.isAssistant && !input.pending && !input.turnLive
+  if (input.pending || input.turnLive) return false
+  if (input.retryableTurn === true) return true
+  return input.isLastMessage && input.isAssistant
 }
 
 /** 定位落点：锚点距容器顶的留白（px），量级同桌面的 align(row, 24)。 */

@@ -180,9 +180,10 @@ describe('mobileCss tap-target contract', () => {
     const css = compact(mobileCss)
     // 保留宿主给的换行与空行，否则多段目标会连成一段。
     expect(css).toMatch(/\.chat-goal-body \{[^}]*white-space: pre-wrap/)
-    // 正文级行高与字号：13px 以下 + 单倍行高在手机上读不动。
-    expect(css).toMatch(/\.chat-goal-body \{[^}]*line-height: 1\.65/)
-    expect(css).toMatch(/\.chat-goal-body \{[^}]*font-size: var\(--text-base\)/)
+    // 正文级行高与字号：13px + 1.55 是"条子里的正文"档 —— 比消息正文（15px）小一档，
+    // 因为它的邻居是 11~12px 的相位/摘要；再小到 11~12px 长段落就读不动了。
+    expect(css).toMatch(/\.chat-goal-body \{[^}]*line-height: 1\.55/)
+    expect(css).toMatch(/\.chat-goal-body \{[^}]*font-size: var\(--text-md\)/)
     // 长目标不能把输入框挤出屏幕：限高后自己滚。
     expect(css).toMatch(/\.chat-goal-body \{[^}]*max-height: 38vh/)
   })
@@ -198,8 +199,10 @@ describe('mobileCss tap-target contract', () => {
   })
 
   it("gives the voice sheet's only exit a 44px height", () => {
+    // 2026-11-10：高度改成令牌了（--palm-hit 的值就是 44px）。这里仍然钉住"可点高度够"，
+    // 只是不再要求写死数字 —— 写死数字正是上一次换触控下限时漏掉这颗键的原因。
     const css = compact(mobileCss)
-    expect(css).toMatch(/\.voice-done \{[^}]*height: 44px/)
+    expect(css).toMatch(/\.voice-done \{[^}]*height: var\(--palm-hit\)/)
   })
 })
 

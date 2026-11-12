@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>子代理详情页 · 效果图</title>
+<style>
+  :root {
+    --palm-r-s: 8px; --palm-r-m: 12px; --palm-r-l: 18px;
+    --palm-bg: #ffffff; --palm-sur-1: #fafafa; --palm-sur-2: #ececec;
+    --palm-line: rgba(231, 226, 221, 0.9);
+    --palm-fg: #161616; --palm-fg-2: #5c5c5c; --palm-fg-3: #747474;
+    --palm-accent: #8c4d38;
+    --palm-ok: #1f6f45; --palm-warn: #8a5f10;
+    --palm-tint-ok: rgba(31, 111, 69, 0.1);
+    --palm-tint-warn: rgba(138, 95, 16, 0.1);
+    --palm-s2: 8px; --palm-s3: 12px;
+  }
+  * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0; padding: 34px 30px 30px;
+    background: #ececea; color: var(--palm-fg);
+    font: 14px/1.5 -apple-system, "PingFang SC", "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font: 600 17px/1.3 Georgia, "Songti SC", serif; margin: 0 0 5px; }
+  .lead { margin: 0 0 20px; color: #5c5c5c; font-size: 12.5px; }
+  .stage { display: flex; gap: 28px; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 9px; }
+  .cap { font-size: 12px; color: #747474; padding-left: 3px; }
+  .cap b { color: #8c4d38; font-weight: 600; }
+  .phone {
+    width: 390px; height: 700px; border-radius: 36px; overflow: hidden;
+    background: var(--palm-bg); box-shadow: 0 0 0 1px rgba(22,22,22,.10), 0 14px 36px rgba(22,22,22,.15);
+    display: flex; flex-direction: column; position: relative;
+  }
+  .status { height: 42px; flex: none; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 22px; font-size: 12px; font-weight: 600; }
+  .bar { height: 46px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+         border-bottom: 1px solid var(--palm-line); }
+  .bar .back { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px;
+               background: var(--palm-sur-1); box-shadow: 0 0 0 1px var(--palm-line); font-size: 15px; color: #333; }
+  .bar .title { font: 600 15px/1.2 Georgia, "Songti SC", serif; }
+  .bar .spacer { flex: 1; }
+  .bar .more { color: var(--palm-fg-3); font-size: 16px; letter-spacing: 1px; }
+  .body { flex: 1; overflow: hidden; padding: 13px 14px 0; display: flex; flex-direction: column; gap: 11px; }
+
+  .group-label { font-size: 11.5px; color: var(--palm-fg-3); letter-spacing: .04em; margin: 1px 2px 0; }
+  .card { border-radius: var(--palm-r-m); box-shadow: 0 0 0 1px var(--palm-line); overflow: hidden; }
+  .run-row { display: flex; align-items: center; gap: 10px; padding: 12px; }
+  .run-row + .run-row { border-top: 1px solid var(--palm-line); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--palm-ok); flex: none; }
+  .dot.idle { background: #c3beb9; }
+  .run-main { flex: 1; min-width: 0; }
+  .run-name { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .run-sub { font-size: 11.5px; color: var(--palm-fg-3); margin-top: 2px; }
+  .chev { color: #c3beb9; font-size: 15px; flex: none; }
+  .badge { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: var(--palm-tint-ok); color: var(--palm-ok); flex: none; }
+
+  .hero h2 { font: 600 19px/1.3 Georgia, "Songti SC", serif; margin: 0 0 7px; }
+  .hero .meta { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--palm-fg-2); }
+  .pill { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; background: var(--palm-tint-ok); color: var(--palm-ok); }
+  .pill.warn { background: var(--palm-tint-warn); color: var(--palm-warn); }
+  .tabs { display: flex; gap: 6px; }
+  .tab { flex: 1; text-align: center; font-size: 12.5px; padding: 7px 0; border-radius: 9px;
+         background: var(--palm-sur-1); color: var(--palm-fg-2); box-shadow: 0 0 0 1px var(--palm-line); }
+  .tab.on { background: var(--palm-bg); color: var(--palm-fg); box-shadow: 0 0 0 1px rgba(22,22,22,.18); font-weight: 600; }
+
+  .fold { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: var(--palm-r-m);
+          background: var(--palm-sur-1); box-shadow: 0 0 0 1px var(--palm-line); font-size: 13px; }
+  .fold .caret { color: var(--palm-fg-3); }
+  .fold .count { margin-left: auto; color: var(--palm-fg-3); font-size: 11.5px; }
+
+  .trace { display: flex; flex-direction: column; }
+  .step { display: flex; gap: 10px; padding: 7px 2px; position: relative; }
+  .step:not(:last-child)::after { content: ""; position: absolute; left: 8.5px; top: 25px; bottom: -1px;
+                                  width: 1px; background: var(--palm-line); }
+  .step .ico { width: 18px; height: 18px; border-radius: 6px; background: var(--palm-sur-2); display: grid;
+               place-items: center; font-size: 9.5px; color: var(--palm-fg-2); flex: none; margin-top: 2px; }
+  .step .txt { flex: 1; min-width: 0; }
+  .step .cmd { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px;
+               background: var(--palm-sur-1); border-radius: 7px; padding: 6px 8px; color: #333;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 0 1px var(--palm-line); }
+  .step .when { font-size: 10.5px; color: var(--palm-fg-3); margin-top: 2px; }
+  .step .when b { color: var(--palm-warn); font-weight: 600; }
+
+  .out { padding: 11px 12px; border-radius: var(--palm-r-m); box-shadow: 0 0 0 1px var(--palm-line); font-size: 12.5px; line-height: 1.55; }
+  .out .h { font-size: 11px; color: var(--palm-fg-3); margin-bottom: 5px; letter-spacing: .03em; }
+  .out ul { margin: 0; padding-left: 16px; }
+  .out li { margin: 2px 0; }
+  .sub-note { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--palm-fg-2); padding: 2px; }
+  .sub-note .chev { font-size: 13px; }
+  .hint { font-size: 11.5px; color: var(--palm-fg-3); padding: 0 2px; }
+
+  .foot { position: absolute; left: 0; right: 0; bottom: 0; padding: 9px 14px 22px;
+          background: linear-gradient(to top, var(--palm-bg) 74%, rgba(255,255,255,0)); display: flex; gap: 9px; }
+  .btn { flex: 1; height: 42px; display: grid; place-items: center; border-radius: var(--palm-r-m);
+         font-size: 13.5px; font-weight: 600; }
+  .btn.primary { background: var(--palm-accent); color: #fff; }
+  .btn.ghost { background: var(--palm-sur-1); color: var(--palm-fg); box-shadow: 0 0 0 1px var(--palm-line); }
+</style>
+</head>
+<body>
+  <h1>子代理：列表点进去 → 独立详情页</h1>
+  <p class="lead">Claude 皮肤 · 390×800 · ①今天已有的「运行状态」②点开后默认 ③展开看它每一步</p>
+
+  <div class="stage">
+    <!-- ① 运行状态列表 -->
+    <div class="col">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>􀛨 􀙇 􀋨</span></div>
+        <div class="bar"><div class="back">‹</div><div class="title">运行状态</div><div class="spacer"></div><div class="more">⋯</div></div>
+        <div class="body">
+          <div class="group-label">运行中</div>
+          <div class="card">
+            <div class="run-row">
+              <span class="dot"></span>
+              <div class="run-main">
+                <div class="run-name">调研搜索定位的业界方案</div>
+                <div class="run-sub">已跑 2 分 10 秒 · 12 个工具</div>
+              </div>
+              <span class="badge">运行中</span><span class="chev">›</span>
+            </div>
+            <div class="run-row">
+              <span class="dot"></span>
+              <div class="run-main">
+                <div class="run-name">检查 021prod 的 session 包结构</div>
+                <div class="run-sub">已跑 48 秒 · 5 个工具</div>
+              </div>
+              <span class="chev">›</span>
+            </div>
+          </div>
+          <div class="group-label">已结束</div>
+          <div class="card">
+            <div class="run-row">
+              <span class="dot idle"></span>
+              <div class="run-main">
+                <div class="run-name">把 drawerWhenLabel 挪到 ui 层</div>
+                <div class="run-sub">跑了 1 分 12 秒 · 6 分钟前</div>
+              </div>
+              <span class="chev">›</span>
+            </div>
+            <div class="run-row">
+              <span class="dot idle"></span>
+              <div class="run-main">
+                <div class="run-name">核对 6 套皮肤的对比度</div>
+                <div class="run-sub">跑了 40 秒 · 1 小时前</div>
+              </div>
+              <span class="chev">›</span>
+            </div>
+          </div>
+          <div class="hint">唯一的改动：每行右侧多一个箭头，点得进去</div>
+        </div>
+      </div>
+      <div class="cap"><b>①</b> 现有「运行状态」：加箭头即可</div>
+    </div>
+
+    <!-- ② 详情 · 默认 -->
+    <div class="col">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>􀛨 􀙇 􀋨</span></div>
+        <div class="bar"><div class="back">‹</div><div class="title">子代理</div><div class="spacer"></div><div class="more">⋯</div></div>
+        <div class="body">
+          <div class="hero">
+            <h2>调研搜索定位的业界方案</h2>
+            <div class="meta"><span class="pill">运行中</span><span>2 分 10 秒</span><span>·</span><span>12 个工具</span><span>·</span><span>8 秒前有活动</span></div>
+          </div>
+
+          <div class="out" style="display:flex;align-items:center;gap:9px;padding:10px 12px">
+            <span style="width:7px;height:7px;border-radius:50%;background:var(--palm-ok);flex:none"></span>
+            <div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--palm-fg-3)">最近一步 · 09:14</div>
+              <div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">写对照表：10 个产品 × 6 列</div></div>
+          </div>
+          <div class="fold"><span class="caret">›</span><span>全部过程</span><span class="count">12 步 · 点开</span></div>
+
+          <div class="out">
+            <div class="h">目前的输出</div>
+            <ul>
+              <li>Chrome / Safari 都是「输入即跳 + 计数 n/m」</li>
+              <li>Telegram 的坑：只高亮第一条</li>
+              <li>移动端一律把命中居中，不是贴顶</li>
+              <li>正在整理 10 个产品的对照表…</li>
+            </ul>
+          </div>
+
+          <div class="sub-note"><span class="chev">›</span><span>它自己还派了 1 个子代理</span></div>
+          <div class="hint">还在跑：这一页每 8 秒自己刷新，不用手动下拉</div>
+        </div>
+        <div class="foot">
+          <div class="btn ghost">复制结论</div>
+          <div class="btn primary">在主对话里看</div>
+        </div>
+      </div>
+      <div class="cap"><b>②</b> 点开：任务 + 状态 + 过程（折叠）+ 当前输出</div>
+    </div>
+
+    <!-- ③ 详情 · 展开 -->
+    <div class="col">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>􀛨 􀙇 􀋨</span></div>
+        <div class="bar"><div class="back">‹</div><div class="title">子代理</div><div class="spacer"></div><div class="more">⋯</div></div>
+        <div class="body">
+          <div class="hero">
+            <h2>调研搜索定位的业界方案</h2>
+            <div class="meta"><span class="pill">运行中</span><span>2 分 10 秒</span></div>
+          </div>
+
+          <div class="tabs"><div class="tab on">过程 12</div><div class="tab">输出</div></div>
+
+          <div class="trace">
+            <div class="step">
+              <div class="ico">⌕</div>
+              <div class="txt"><div class="cmd">web_search "find in page UX best practices"</div><div class="when">09:12 · 1.4 秒 · 8 条</div></div>
+            </div>
+            <div class="step">
+              <div class="ico">↧</div>
+              <div class="txt"><div class="cmd">web_fetch textslashplain.com/…find-in-page</div><div class="when">09:12 · 0.9 秒 · 12 KB</div></div>
+            </div>
+            <div class="step">
+              <div class="ico">↧</div>
+              <div class="txt"><div class="cmd">web_fetch wiki.mozilla.org/Improve_find-in-page</div><div class="when">09:13 · 0.7 秒 · 6 KB</div></div>
+            </div>
+            <div class="step">
+              <div class="ico">⌕</div>
+              <div class="txt"><div class="cmd">web_search "Slack jump to message highlight"</div><div class="when">09:13 · <b>4.8 秒（偏慢）</b></div></div>
+            </div>
+            <div class="step">
+              <div class="ico">✎</div>
+              <div class="txt"><div class="cmd">写对照表：10 个产品 × 6 列</div><div class="when">09:14 · 进行中</div></div>
+            </div>
+          </div>
+
+          <div class="hint">一条工具卡就是一个动作；偏慢的会标黄，卡住就能一眼看出来</div>
+        </div>
+        <div class="foot">
+          <div class="btn ghost">复制结论</div>
+          <div class="btn primary">在主对话里看</div>
+        </div>
+      </div>
+      <div class="cap"><b>③</b> 展开：工具时间线，回答「它卡在哪」</div>
+    </div>
+  </div>
+</body>
+</html>

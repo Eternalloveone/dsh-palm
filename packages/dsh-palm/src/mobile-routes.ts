@@ -21,6 +21,45 @@ const MOBILE_WORKER_URL = '/m/service-worker.js'
 const MOBILE_OFFLINE_URL = '/m/offline.html'
 /** 构建期产出的独立样式表（scripts/build-css.mjs）。 */
 const MOBILE_CSS_URL = '/m/assets/app.css'
+/**
+ * 首帧皮肤脚本（2026-11-11，默认改成 Claude 之后加）。
+ *
+ * 为什么需要它：页面 HTML 是**静态**生成的，只能写死默认皮肤；而用户可能选过别的。
+ * 若等 bundle 起来再改 `data-skin`，选了深色皮肤（石墨/夜航）的人每次打开都会先白闪一下。
+ * CSP 是 `script-src 'self'`（不许内联），所以做成一个同源小脚本，放在样式表之前同步执行。
+ *
+ * 名单必须与 `platform/skin.ts` 的 `MobileSkin` 一致——`skin.test.ts` 有断言守着。
+ */
+const MOBILE_SKIN_IDS = ['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude']
+/** 浅色底的三套（极性 = light）；其余是 dark。 */
+const MOBILE_LIGHT_SKIN_IDS = ['paper', 'newsprint', 'endfield', 'claude']
+const MOBILE_BOOT_SKIN_URL = '/m/boot-skin.js'
+const MOBILE_BOOT_SKIN_KEY = 'dsh.palm.skin'
+
+/** 首帧脚本正文：读存下来的皮肤，先写 `<html data-skin/data-theme>`，再让样式表落地。 */
+function bootSkinScript(): string {
+  // 状态栏颜色与 `platform/skin.ts` 的 SKIN_CHROME 必须一致（skin.test.ts 有断言）。
+  const chrome = {
+    claude: '#ffffff',
+    paper: '#faf8f4',
+    newsprint: '#f5f3ed',
+    endfield: '#e8e8e2',
+    nocturne: '#080c14',
+    graphite: '#101015',
+  }
+  return [
+    '(function(){try{',
+    `var s=localStorage.getItem(${JSON.stringify(MOBILE_BOOT_SKIN_KEY)});`,
+    `if(!s||${JSON.stringify(MOBILE_SKIN_IDS)}.indexOf(s)<0)return;`,
+    'var d=document.documentElement;',
+    'd.setAttribute("data-skin",s);',
+    `d.setAttribute("data-theme",${JSON.stringify(MOBILE_LIGHT_SKIN_IDS)}.indexOf(s)>=0?"light":"dark");`,
+    `var c=${JSON.stringify(chrome)};`,
+    'var m=document.querySelector(\'meta[name="theme-color"]\');',
+    'if(m&&c[s])m.setAttribute("content",c[s]);',
+    '}catch(e){}})()',
+  ].join('')
+}
 
 /** The standalone mobile bundle (built artifact, next to this file's own lib output). */
 function mobileBundlePath(): string {
@@ -55,17 +94,18 @@ function mobileAssetPath(name: string): string {
 function pageHtml(bundleUrl: string, cssUrl?: string): string {
   return [
     '<!doctype html>',
-    '<html lang="zh-CN">',
+    '<html lang="zh-CN" data-skin="claude" data-theme="light">',
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">',
-    '<meta name="theme-color" content="#f5f5f7">',
+    '<meta name="theme-color" content="#ffffff">',
     '<meta name="referrer" content="no-referrer">',
     '<meta name="mobile-web-app-capable" content="yes">',
     '<meta name="apple-mobile-web-app-capable" content="yes">',
     '<meta name="apple-mobile-web-app-title" content="Dsh Palm">',
     '<link rel="manifest" href="/m/manifest.webmanifest">',
     '<link rel="apple-touch-icon" href="/m/apple-touch-icon.png">',
+    '<script src="' + MOBILE_BOOT_SKIN_URL + '"></script>',
     ...(cssUrl === undefined ? [] : ['<link rel="stylesheet" href="' + cssUrl + '">']),
     '<title>远程访问</title>',
     '</head>',
@@ -86,8 +126,9 @@ function manifestJson(): string {
     start_url: MOBILE_ROOT,
     scope: MOBILE_ROOT,
     display: 'standalone',
-    background_color: '#151424',
-    theme_color: '#f3f5f9',
+    // 启动画面与状态栏取默认皮肤（Claude）的底色；用户换皮肤后由 boot 脚本改 theme-color。
+    background_color: '#ffffff',
+    theme_color: '#ffffff',
     icons: [
       { src: '/m/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/m/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
@@ -418,6 +459,9 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     const cssUrl = css === undefined ? undefined : MOBILE_CSS_URL + '?v=' + css.hash
     writeStatic(res, 200, 'text/html', pageHtml(MOBILE_BUNDLE_URL + '?v=' + bundle.hash, cssUrl))
   }
+  const handleBootSkin = (_req: IncomingMessage, res: ServerResponse): void => {
+    writeStatic(res, 200, 'text/javascript', bootSkinScript())
+  }
   const handleManifest = (_req: IncomingMessage, res: ServerResponse): void => {
     writeStatic(res, 200, 'application/manifest+json', manifestJson())
   }
@@ -579,6 +623,7 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     { kind: 'exact', path: MOBILE_ROOT, handler: handlePage },
     { kind: 'exact', path: MOBILE_BUNDLE_URL, handler: handleBundle },
     { kind: 'exact', path: MOBILE_CSS_URL, handler: handleCss },
+    { kind: 'exact', path: MOBILE_BOOT_SKIN_URL, handler: handleBootSkin },
     { kind: 'exact', path: MOBILE_MANIFEST_URL, handler: handleManifest },
     { kind: 'exact', path: MOBILE_WORKER_URL, handler: handleWorker },
     { kind: 'exact', path: MOBILE_OFFLINE_URL, handler: handleOffline },

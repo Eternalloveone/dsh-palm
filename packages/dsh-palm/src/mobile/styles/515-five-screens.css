@@ -7,7 +7,7 @@
  * search-page-* / settings-*），同一个"分组卡 + 图标方块行"被抄了四遍，改一处
  * 其余三处就开始漂。这里把**五屏共用的四种形状**收成一层，屏里只留业务差异：
  *
- * 1. 搜索框（32 高、圆角 10、无描边）；
+ * 1. 搜索框（44 高、圆角 10、无描边）；
  * 2. 分组标题（11px 弱化 + 右侧说明）+ 分组卡（圆角 10、行内 18 图标方块）；
  * 3. 列表行（左 16px 线性 SVG + 主文案 + 右侧弱值，行高 ≥44）；
  * 4. 类型标签（交付物绿 / 改动蓝 / 警示琥珀 / 拒绝红）。
@@ -30,7 +30,7 @@
   border-radius: var(--palm-spec-search-r);
   background: var(--palm-sur-1);
   color: var(--palm-fg-3);
-  font-size: var(--palm-t-m);
+  font-size: 16px;
 }
 
 /* 无描边：焦点只用一圈强调色内阴影，不改变盒子尺寸。 */
@@ -53,7 +53,7 @@
   background: transparent;
   color: var(--palm-fg);
   font: inherit;
-  font-size: var(--palm-t-m);
+  font-size: 16px;
   outline: none;
 }
 
@@ -61,26 +61,18 @@
   color: var(--palm-fg-3);
 }
 
-/* 32 高的框里放不下 44 的按钮：脸不变，热区用伪元素补到 44×44。 */
+/* 搜索框与清除操作共用实体 44px 控件高度，避免热区溢入输入区域。 */
 .palm-spec-search-clear {
-  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
   width: var(--palm-spec-search-h);
   height: var(--palm-spec-search-h);
-  margin-right: calc(var(--palm-s3) * -1);
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--palm-fg-3);
-}
-
-.palm-spec-search-clear::after {
-  content: '';
-  position: absolute;
-  inset: calc(var(--palm-s2) * -0.75);
 }
 
 .palm-spec-search-clear > svg {
@@ -104,7 +96,9 @@
   font-size: var(--palm-spec-head-size);
   font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-head);
-  color: var(--palm-fg-3);
+  /* 二级前景色（2026-11-10 设置页实拍）：11px 三级灰在深色皮肤上几乎读不出来，
+     而这是整页唯一的分区线索。与切片 6 的抽屉分组标题保持同一个口径。 */
+  color: var(--palm-fg-2);
   letter-spacing: 0;
 }
 
@@ -299,13 +293,15 @@ button.palm-spec-group-head:focus-visible {
   white-space: nowrap;
 }
 
+/* 2026-11-10：这两条原来用 color-mix 现算淡底，iOS 15 上整条声明被丢弃 → 标签变透明。
+   皮肤里本来就有普通 rgba 的 --palm-tint-ok / --palm-tint-accent，直接用。 */
 .palm-spec-tag[data-kind='ok'] {
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  background: var(--palm-tint-ok);
   color: var(--palm-ok);
 }
 
 .palm-spec-tag[data-kind='edit'] {
-  background: color-mix(in srgb, var(--palm-accent) 18%, transparent);
+  background: var(--palm-tint-accent);
   color: var(--palm-accent);
 }
 
@@ -368,6 +364,8 @@ button.palm-spec-group-head:focus-visible {
   height: var(--palm-spec-swatch);
   border-radius: var(--palm-r-s);
   background: var(--palm-spec-skin-bg);
+  /* 深色皮肤（石墨 / 夜航）的底色和深色页面几乎同色，没有这道内描边就看不出卡片边界。 */
+  box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-line);
 }
 
 .palm-spec-skin-name {
@@ -391,17 +389,26 @@ button.palm-spec-group-head:focus-visible {
   color: var(--palm-accent);
 }
 
-/* 三张卡各自的色板：色值落在令牌层，这里只做映射。 */
+/* 三张卡各自的色板：色值落在令牌层，这里只做映射。
+ * 2026-11-10 外观页截图：原来是「底色 → 强调色」的 140° 对角渐变，石墨（中性灰）
+ * 被画成一块蓝紫，三张卡看着都是"蓝色皮肤"。现在**底色占 64% 为主**，强调色只在
+ * 底边留一条带 —— 一眼能认出是石墨 / 纸 / 夜航，强调色也仍然在。 */
 .palm-spec-skin[data-skin='graphite'] {
-  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-graphite-bg), var(--palm-skin-graphite-ink));
+  --palm-spec-skin-bg:
+    linear-gradient(180deg, transparent 0 82%, var(--palm-skin-graphite-ink) 82%),
+    var(--palm-skin-graphite-bg);
 }
 
 .palm-spec-skin[data-skin='paper'] {
-  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-paper-bg), var(--palm-skin-paper-ink));
+  --palm-spec-skin-bg:
+    linear-gradient(180deg, transparent 0 82%, var(--palm-skin-paper-ink) 82%),
+    var(--palm-skin-paper-bg);
 }
 
 .palm-spec-skin[data-skin='nocturne'] {
-  --palm-spec-skin-bg: linear-gradient(140deg, var(--palm-skin-nocturne-bg), var(--palm-skin-nocturne-ink));
+  --palm-spec-skin-bg:
+    linear-gradient(180deg, transparent 0 82%, var(--palm-skin-nocturne-ink) 82%),
+    var(--palm-skin-nocturne-bg);
 }
 
 /* ── ⑥ 五屏页壳：一列、正文自己滚，页脚说明统一 12px 弱灰 ─────────────── */

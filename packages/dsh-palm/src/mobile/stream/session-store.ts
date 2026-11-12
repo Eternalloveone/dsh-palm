@@ -22,8 +22,6 @@
 
 import type { ChatPage } from '../api.ts'
 import {
-  QUEUE_EMPTY_HOLD_MS as QUEUE_EMPTY_HOLD_MS_FROM_STATUS,
-  QUEUE_HIDDEN_MS,
   visibleQueue,
 } from './session-status.ts'
 import type { QueueItemView } from '../api.ts'
@@ -58,23 +56,12 @@ export interface SessionSnapshot {
    * 谁写的计数器。老宿主没有这个字段时退回 `queueRevision` 判据。
    */
   queueToken?: string
+  /** 队列的单调版本（见 data/impl/session.ts 的同名字段；老宿主缺省）。 */
+  queueVersion?: number
   /** 回合状态（与 `mobile.turnState` 同形）。 */
   turn: { running: boolean; turnStartAt?: number; lastEventAt?: number }
   /** 折叠时的宿主时间。 */
   asOf: number
-}
-
-/** 本地乐观项：写操作发出后、宿主快照回来之前先画在界面上。 */
-export interface OptimisticQueueItem {
-  /** 本地 id（不会与宿主 id 冲突：前缀 `local-`）。 */
-  pendingId: string
-  text: string
-  /** 写操作发生在这个队列版本之上；更新的快照一到就该退场。 */
-  baseRevision: number
-  placement: 'queued' | 'steering'
-  at: number
-  /** 提交那一刻宿主队列里已有的条目 id（用于「多出新条目」退场判据）。 */
-  knownHostIds?: readonly string[]
 }
 
 /** 仓里一个会话的完整状态。 */
@@ -88,19 +75,24 @@ interface Entry {
    * 同一个水位 —— 权威快照回来时反而被它挡住。只有拿不到权威快照时才用它。
    */
   fallbackQueue?: QueueItemView[]
-  optimistic: OptimisticQueueItem[]
-  /** 本地已经删掉/插队掉的队列项：id → 它被隐藏时的队列版本。 */
-  hidden: Map<string, number>
-  /** 同上：id → 隐藏时刻（TTL 兜底，避免宿主永不收敛时永久屏蔽）。 */
-  hiddenAt: Map<string, number>
   /**
-   * 最近一次非空队列，以及「读到空队列」的观察窗截止时刻。
+   * 已经被这一轮认领走（`turn/start`）的队列 id。
    *
-   * 真机：切到后台再回来，排队条没了，重进会话才又出现。宿主投影偶尔会先回一个
-   * 空队列（刷新中的瞬时态），一次就把界面清空；之后版本号没再涨，界面就一直是空的。
-   * 所以读到空时先留一会儿：窗口内还按上一次的非空队列显示，窗口过了才真的清空。
+   * 认领是**确定性事实**：宿主自己说它被取走了，而 id 是唯一的，所以记下来就永不重画。
+   * 旧实现靠隐藏表 + 正文比对，两者都已删除（C1b，2026-11-11）。
    */
-  emptyHold?: { items: QueueItemView[]; until: number }
+  claimed: Set<string>
+  /** 已经应用到仓里的队列版本（版本栅栏：不大于它的快照/帧一律不改队列）。 */
+  queueVersion?: number
+  /**
+   * 重订阅基线（`session/subscribed`）记下的队列版本。
+   *
+   * 新连接是新的起点：之前那份队列可能已经过期，桌面端同样会把镜像清空。
+   * 记下当时的 `queueRevision`，在此之后直到宿主给出**更新的**队列
+   * （`session/queue` 帧或更高 revision 的快照）视图都是空的。
+   * 同 revision 的重放**不算**新数据 —— 否则一重放就画回来，等于没清。
+   */
+  queueRebaselineAt?: number
   /**
    * 「已插入本轮」的补充消息（**唯一写入点**）。
    *
@@ -130,7 +122,6 @@ interface Entry {
  * 取 4 秒：宿主的投影刷新一般在一两次轮询内收敛；再长就会让「消息已经被这一轮认领」
  * 的排队条多挂好几秒。
  */
-export const QUEUE_EMPTY_HOLD_MS = QUEUE_EMPTY_HOLD_MS_FROM_STATUS
 
 /** 仓里最多留几个会话（手机上同时翻的会话不会很多）。 */
 export const SESSION_STORE_MAX = 8
@@ -142,9 +133,7 @@ function entryOf(sessionId: string): Entry {
   let entry = entries.get(sessionId)
   if (entry === undefined) {
     entry = {
-      optimistic: [],
-      hidden: new Map(),
-      hiddenAt: new Map(),
+      claimed: new Set(),
       inserts: [],
       insertShownAt: new Map(),
       insertMissingCount: new Map(),
@@ -166,7 +155,23 @@ function entryOf(sessionId: string): Entry {
   return entry
 }
 
+/**
+ * 每个会话的**变更版本**：只增不减，随每次 `publish` 上涨。
+ *
+ * 用途只有一个：给视图一个**稳定的**订阅快照。`queueView()` 每次调用都新建数组、
+ * 判据里还带 `Date.now()`（乐观项 TTL、空队列观察窗），直接塞进
+ * `useSyncExternalStore` 的 getSnapshot 会无限重渲染；订阅版本号、版本变了才重算
+ * 视图，事实仍然只在仓里。
+ */
+const versions = new Map<string, number>()
+
+/** 当前会话仓的变更版本（没有变化时不涨，可安全用作快照）。 */
+export function sessionStoreVersion(sessionId: string): number {
+  return versions.get(sessionId) ?? 0
+}
+
 function publish(sessionId: string): void {
+  versions.set(sessionId, (versions.get(sessionId) ?? 0) + 1)
   for (const listener of listeners) listener(sessionId)
 }
 
@@ -187,38 +192,23 @@ export function cachedRows(sessionId: string): ChatPage['rows'] {
 }
 
 /**
- * 队列的当前视图：权威队列 + 还没退场的乐观项。
+ * 队列的当前视图：**就是仓里那份权威队列**（按 id 去重）。
  *
- * 乐观项**只**在两种情况下退场：①权威队列里出现了同一条文本（宿主已经排进去了，
- * 真行接上）；②超过 `OPTIMISTIC_TTL_MS`。
-
- * 曾经还按「队列版本变了就退场」来判断 —— 那是错的：宿主读到的是几分钟前的投影
- * 快照，版本先涨、条目后到，中间这段时间界面上什么都没有（真机：点发送后排队条
- * 还是空的）。
+ * C1b（2026-11-11）之后这里没有任何猜测：
+ *  · 不再有乐观项（发送应答直接带回权威队列）；
+ *  · 不再有隐藏表（删除/插队的应答同样带回来）；
+ *  · 不再有空队列观察窗（空就是空，版本栅栏挡住陈旧投影）；
+ *  · 不再按正文比对（身份走 `requestId` / 队列 id）。
  */
 export function queueView(sessionId: string): QueueItemView[] {
   const entry = entries.get(sessionId)
   if (entry === undefined) return []
+  // 重订阅基线生效中：宿主还没给出比基线更新的队列，界面就是空的
+  // （新的连接是新的起点，旧队列可能早就不成立）。
+  if (entry.queueRebaselineAt !== undefined && (entry.snapshot?.queueRevision ?? -1) <= entry.queueRebaselineAt) return []
   const snapshot = entry.snapshot
   const authoritative = snapshot !== undefined ? snapshot.queue : entry.fallbackQueue ?? []
-  // 判据只有一份：在 `session-status.ts` 的 `visibleQueue` 里（隐藏 TTL、乐观 TTL、
-  // 空队列观察窗、正文归一化）。这里只负责把存储层的字段凑成它的输入 ——
-  // 于是「界面上该显示哪几条排队」不会再有两套实现各自漂移。
-  return [...visibleQueue({
-    host: authoritative,
-    optimistic: entry.optimistic,
-    hiddenIds: new Set(entry.hidden.keys()),
-    hiddenAt: entry.hiddenAt,
-    spokenTexts: userTextsOf(entry),
-    // 新宿主（带 queueToken）的队列是活的，不需要「已进对话」兜底；只有老宿主才用。
-    ...(entry.snapshot?.queueToken === undefined && lastUserTextOf(entry) !== undefined
-      ? { lastUserText: lastUserTextOf(entry), legacyQueue: true }
-      : {}),
-    normalize: normalizeQueueText,
-    ...(entry.emptyHold === undefined ? {} : { emptyHold: entry.emptyHold }),
-    // 这一轮还在跑 → 排队项不按时间淘汰（消息要等本轮结束才会被取走，可能好几分钟）。
-    running: entry.snapshot?.turn.running === true,
-  }, Date.now())]
+  return [...visibleQueue({ host: authoritative.filter(item => !entry.claimed.has(item.id)) })]
 }
 
 /* ────────────────────── 插入队列（本轮补充消息） ────────────────────── */
@@ -403,79 +393,144 @@ function insertTextOfContent(content: unknown): string {
 }
 
 /**
- * 本地先隐藏一条真实队列项（删除/插队立刻生效，不等宿主快照）。
+ * 当前会话的队列读数**可不可信**。
  *
- * 隐藏带上当时的队列版本：宿主把这次写处理完、版本跟上之后，`applySnapshot` 会把它
- * 从隐藏表里清掉 —— 于是"宿主的权威队列"重新说了算，不会出现本地永久屏蔽。
+ * `queueView()` 在几种情况下会返回空，但那个空**不是证据**：
+ *  · 重订阅基线生效中（刚从断线恢复，宿主还没给出更新的队列）；
+ *  · 这个会话还没有任何快照。
+ *
+ * 「排队消息对账」必须先用它判一次 —— 否则一次重连就会把还躺在宿主队列里的消息
+ * 判成丢失，塞回输入框（2026-11-10 真机：「排队了却突然回撤到输入框」）。
+ *
+ * @param sessionId - 会话 id
+ * @returns 队列读数是否可信
  */
-export function hideQueueItem(sessionId: string, itemId: string): void {
-  const entry = entryOf(sessionId)
-  entry.hidden.set(itemId, entry.snapshot?.queueRevision ?? -1)
-  entry.hiddenAt.set(itemId, Date.now())
-  publish(sessionId)
+export function queueAuthoritative(sessionId: string): boolean {
+  const entry = entries.get(sessionId)
+  // 还没有这个会话：没有任何「旧读数」可陈旧，不能因此拦下回填 —— 冷启动首帧
+  // 正是「宿主重启把排队吞了、要把原文还给用户」的场景。
+  if (entry === undefined) return true
+  if (entry.queueRebaselineAt === undefined) return true
+  return (entry.snapshot?.queueRevision ?? -1) > entry.queueRebaselineAt
 }
 
-/** 写操作被拒（比如回合已经结束、steer 不被接受）时把隐藏撤掉。 */
-export function unhideQueueItem(sessionId: string, itemId: string): void {
-  const entry = entries.get(sessionId)
-  if (entry === undefined) return
-  const removed = entry.hidden.delete(itemId)
-  entry.hiddenAt.delete(itemId)
-  if (!removed) return
+/**
+ * 重订阅基线：把当前看到的队列清掉，直到宿主给出更新的队列（见 `Entry.queueRebaselineAt`）。
+ *
+ * 调用点是 `session/subscribed` 帧（新一条连接的起点）。手机上原来清的是组件里
+ * 的镜像数组；队列改成仓的只读投影之后，这个"清空"只能由仓来表达。
+ */
+export function rebaselineQueueView(sessionId: string): void {
+  const entry = entryOf(sessionId)
+  entry.queueRebaselineAt = entry.snapshot?.queueRevision ?? -1
+  // 版本基准同样作废：宿主进程重启后计数器从 0 开始，旧基准会让客户端
+  // 永远拒绝新快照（队列冻结）。新连接的下一份快照就是新基准。
+  entry.queueVersion = undefined
   publish(sessionId)
 }
 
 /**
- * 只更新队列（老宿主的 `mobile.inbox` 回退路径用）。
+ * 写操作被宿主**接受**、但应答没带队列（老宿主）时，按动作收敛本地那一条。
  *
- * 没有原子快照时，队列仍然要进仓：否则本地一隐藏某一条（删除/插队），订阅者按仓里
- * 的空快照重算，整条排队条会瞬间清空、再被下一次轮询填回来 —— 正是"闪一下"的来源。
+ * 这不是猜测：RPC 已经 resolve，宿主就是收下了这次改动，队列里那一条的去留是确定的。
+ * 其余条目保持不变，等下一次快照/投影对齐（`refreshInbox` 由调用方触发）。
+ *
+ * @param kind - `remove`/`steer` 表示这一条离开队列；`edit` 表示只换正文
+ * @returns 是否改动了队列
  */
-export function applyQueueItems(sessionId: string, items: QueueItemView[]): void {
-  const entry = entryOf(sessionId)
-  entry.fallbackQueue = items
-  // 隐藏表**不整表清空**：快照可能早于「本地认领那一刻」（弱网/帧乱序），
-  // 一清就会把已经进回合的那条画回来 —— 真机：「发送完，排队条还残留」。
-  // 只丢过期的，剩下的按 HIDDEN_TTL_MS 自然退场。
-  const now = Date.now()
-  for (const [id, at] of entry.hiddenAt) {
-    if (now - at > HIDDEN_TTL_MS) {
-      entry.hiddenAt.delete(id)
-      entry.hidden.delete(id)
+export function applyQueueMutation(
+  sessionId: string,
+  itemId: string,
+  kind: 'remove' | 'steer' | 'edit',
+  text?: string,
+): boolean {
+  const entry = entries.get(sessionId)
+  if (entry === undefined) return false
+  const next = (items: QueueItemView[]): QueueItemView[] => kind === 'edit'
+    ? items.map(item => (item.id === itemId && text !== undefined ? { ...item, text } : item))
+    : items.filter(item => item.id !== itemId)
+  let changed = false
+  if (entry.snapshot !== undefined) {
+    const queue = next(entry.snapshot.queue)
+    if (queue.length !== entry.snapshot.queue.length || kind === 'edit') {
+      entry.snapshot = { ...entry.snapshot, queue }
+      changed = true
     }
   }
+  if (entry.fallbackQueue !== undefined) {
+    const queue = next(entry.fallbackQueue)
+    if (queue.length !== entry.fallbackQueue.length || kind === 'edit') {
+      entry.fallbackQueue = queue
+      changed = true
+    }
+  }
+  // 删掉/插队的这一条宿主已经收下了：之后任何陈旧投影都不许把它画回来。
+  if (kind !== 'edit') entry.claimed.add(itemId)
+  if (changed) publish(sessionId)
+  return changed
+}
+
+/**
+ * 应用写操作应答里的**权威队列**（方案 A：读己之写，2026-11-10）。
+ *
+ * 写操作的 RPC 返回前，插件读了一次活 agent 的内存 inbox 并随应答带回来。
+ * 客户端拿到就当定论：不用乐观项、不用 TTL、不用正文比对。
+ *
+ * @param ack - { queue, queueVersion }；老宿主不带这两个字段时返回 false（保持旧路径）
+ * @returns 是否应用了权威队列
+ */
+export function applyQueueAck(
+  sessionId: string,
+  ack: { queue?: unknown; queueVersion?: unknown } | undefined,
+): boolean {
+  if (ack === undefined || !Array.isArray(ack.queue) || typeof ack.queueVersion !== 'number') return false
+  const items = ack.queue as QueueItemView[]
+  // 版本栅栏拒绝（**严格更旧**的 ack）时不许覆盖快照：否则"先删 v7、后到编辑 v6"
+  // 会把已删项写回，并毒化 queueVersion（2026-11-11 审计 P1）。
+  //
+  // 同版本要收（2026-11-11 真机「点完发送排队条不出现」）：宿主的版本只在**内容变化**
+  // 时推进（见 host/queue-inbox 的 queueVersionForRead），所以"版本相同 + 内容不同"
+  // 说明客户端手上的那个号来自事件帧，而 ack 是刚现读的活队列 —— 它更权威。
+  if (!applyQueueItems(sessionId, items, ack.queueVersion, true)) return false
+  // `queueView()` 在**有快照**时优先读 `snapshot.queue`（历史页带来那一份），
+  // 只写 `fallbackQueue` 会被它挡掉：真机上表现为"写入成功、界面不动"。
+  // 权威应答比手里的任何快照都新，所以这里同时覆盖快照里的队列。
+  const entry = entries.get(sessionId)
+  if (entry?.snapshot !== undefined) {
+    entry.snapshot = { ...entry.snapshot, queue: items }
+    publish(sessionId)
+  }
+  return true
+}
+export function applyQueueItems(
+  sessionId: string,
+  items: QueueItemView[],
+  queueVersion?: number,
+  /**
+   * 允许「同版本」覆盖（只有**写操作应答**这么用：它是刚现读的活队列）。
+   * 投影/轮询快照永远走严格大于，否则隧道降级时陈旧 inbox 会把已删项写回来。
+   */
+  allowEqual = false,
+): boolean {
+  const entry = entryOf(sessionId)
+  // 没有版本号的投影（轮询补发的 inbox）只在"还没见过权威版本"时可用；
+  // 一旦有版本，它就必须让位给 ack / mobile.sessionState —— 否则隧道降级时
+  // 每 1.5–3s 就会用一份陈旧 inbox 把已删除的队列项写回来（2026-11-11 P1）。
+  if (queueVersion === undefined && entry.queueVersion !== undefined) return false
+  // 版本栅栏：比已应用值旧（或同版本）的帧不许改队列 —— 陈旧投影就是这样被挡住的。
+  if (queueVersion !== undefined) {
+    if (entry.queueVersion !== undefined && (allowEqual ? queueVersion < entry.queueVersion : queueVersion <= entry.queueVersion)) return false
+    entry.queueVersion = queueVersion
+  }
+  entry.fallbackQueue = items
+  // 这一帧就是宿主的**新**队列：重订阅基线到此为止。
+  entry.queueRebaselineAt = undefined
   // 这条回退路径也可能带着 steering 行（老宿主的 inbox 投影）：插入队列照样要观察。
+  const now = Date.now()
   applyInsertObservation(entry, insertCandidatesOf(items, entry.insertTurnNo, now), now)
   publish(sessionId)
+  return true
 }
-
-/** 隐藏表的兜底寿命：宿主迟迟不收敛时别永久屏蔽这一条。 */
-export const HIDDEN_TTL_MS = QUEUE_HIDDEN_MS
-
-/** 对话里最新一条用户消息的正文（归一化）；没有就是 undefined。 */
-function lastUserTextOf(entry: Entry): string | undefined {
-  const rows = entry.snapshot?.rows ?? []
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
-    const row = rows[i]
-    if (row?.kind !== 'user') continue
-    const text = normalizeQueueText(row.text ?? '')
-    if (text !== '') return text
-  }
-  return undefined
-}
-
-/** 最近这些行里用户自己说的话（归一化后的文本集合）。 */
-function userTextsOf(entry: Entry): Set<string> {
-  const rows = entry.snapshot?.rows ?? []
-  const texts = new Set<string>()
-  for (const row of rows) {
-    if (row.kind !== 'user') continue
-    if (typeof row.text !== 'string' || row.text === '') continue
-    texts.add(normalizeQueueText(row.text))
-  }
-  return texts
-}
-
 /**
  * `turn/start` 到了：宿主按 FIFO 认领队首那一条。
  *
@@ -491,68 +546,18 @@ export function claimQueueHead(sessionId: string): void {
   let changed = false
   const snapshot = entry.snapshot
   if (snapshot !== undefined && snapshot.queue.length > 0) {
-    const [first, ...rest] = snapshot.queue
-    entry.snapshot = { ...snapshot, queue: rest }
-    if (first !== undefined) {
-      // 已经进了这一轮：标记为「本地已认领」，陈旧快照不许把它画回来。
-      // （以前这里是把 hidden 删掉，等于把唯一的证据扔了。）
-      entry.hidden.set(first.id, entry.snapshot?.queueRevision ?? -1)
-      entry.hiddenAt.set(first.id, Date.now())
-    }
+    // 队首已经被宿主认领进这一轮：从权威队列里移走，并记下 id 永不再画。
+    const claimedId = snapshot.queue[0]?.id
+    if (claimedId !== undefined) entry.claimed.add(claimedId)
+    entry.snapshot = { ...snapshot, queue: snapshot.queue.slice(1) }
     changed = true
   } else if (entry.fallbackQueue !== undefined && entry.fallbackQueue.length > 0) {
-    const [first] = entry.fallbackQueue
+    const claimedId = entry.fallbackQueue[0]?.id
+    if (claimedId !== undefined) entry.claimed.add(claimedId)
     entry.fallbackQueue = entry.fallbackQueue.slice(1)
-    // 只有 inbox 投影时也一样要记「已认领」：否则下一份陈旧投影会把它画回来。
-    if (first !== undefined) {
-      entry.hidden.set(first.id, entry.snapshot?.queueRevision ?? -1)
-      entry.hiddenAt.set(first.id, Date.now())
-    }
-    changed = true
-  }
-  // 乐观项同样按 FIFO 认领：队首那条进这一轮，后面的还排着。
-  if (entry.optimistic.length > 0) {
-    entry.optimistic = entry.optimistic.slice(1)
     changed = true
   }
   if (changed) publish(sessionId)
-}
-
-/** 写操作发出时记一条乐观项（立刻可见）；返回它的 pendingId。 */export function addOptimisticQueueItem(
-  sessionId: string,
-  item: { text: string; placement: 'queued' | 'steering'; requestId?: string },
-): string {
-  const entry = entryOf(sessionId)
-  const pendingId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  // 同一条正文只留一份乐观项：弱网下「排队」被点两次会塞进两条只差本地 id 的记录，
-  // 屏幕上就是「莫名其妙多出来一个一模一样的排队条」。后到的那份替换前一份（时间更新，
-  // TTL 也从它算），pendingId 换成新的，调用方拿到的 id 才是屏幕上那一条。
-  const key = normalizeQueueText(item.text)
-  const kept = entry.optimistic.filter(existing => normalizeQueueText(existing.text) !== key)
-  // 记下提交那一刻宿主队列里已有的条目：之后只要多出新 id，就说明这次投递落地了
-  // （正文可能被宿主改写 —— 图片/引用/折行 —— 只靠正文比对会永远对不上）。
-  const knownHostIds = (entry.snapshot?.queue ?? entry.fallbackQueue ?? []).map(existing => existing.id)
-  entry.optimistic = [...kept, {
-    pendingId,
-    text: item.text,
-    baseRevision: entry.snapshot?.queueRevision ?? -1,
-    placement: item.placement,
-    at: Date.now(),
-    knownHostIds,
-    ...(item.requestId === undefined ? {} : { requestId: item.requestId }),
-  }]
-  publish(sessionId)
-  return pendingId
-}
-
-/** 写操作失败/被拒时把乐观项撤掉（不留假条目）。 */
-export function dropOptimisticQueueItem(sessionId: string, pendingId: string): void {
-  const entry = entries.get(sessionId)
-  if (entry === undefined) return
-  const next = entry.optimistic.filter(item => item.pendingId !== pendingId)
-  if (next.length === entry.optimistic.length) return
-  entry.optimistic = next
-  publish(sessionId)
 }
 
 /**
@@ -567,6 +572,7 @@ export function applySnapshot(snapshot: SessionSnapshot): boolean {
   let changed = false
   if (current === undefined) {
     entry.snapshot = snapshot
+    if (snapshot.queueVersion !== undefined) entry.queueVersion = snapshot.queueVersion
     changed = true
   } else {
     // 行按水位、队列按版本各自单调：允许"行更新但队列更旧"这种部分更新。
@@ -574,16 +580,25 @@ export function applySnapshot(snapshot: SessionSnapshot): boolean {
     // 队列"变了没"看内容指纹优先：桌面端入队不会动 queueRevision，只认计数器就会把
     // 权威队列挡在门外（真机：宿主 queue=1，手机一直没有排队条）。
     const queueTokenChanged = snapshot.queueToken !== undefined && snapshot.queueToken !== current.queueToken
-    const queueNewer = snapshot.queueRevision > current.queueRevision || queueTokenChanged
+    // **版本栅栏**（2026-11-10 架构修法）：宿主给了单调版本时，只认「比已应用值更新」的快照。
+    // 同版本 = 队列自上次事件后没变过，哪怕投影内容不一样（陈旧投影）也不许改队列。
+    const versioned = snapshot.queueVersion !== undefined
+    const versionNewer = versioned && (entry.queueVersion === undefined || snapshot.queueVersion! > entry.queueVersion)
+    const queueNewer = versioned
+      ? versionNewer
+      : (snapshot.queueRevision > current.queueRevision || queueTokenChanged)
     const turnChanged = current.turn.running !== snapshot.turn.running
       || current.turn.turnStartAt !== snapshot.turn.turnStartAt
     if (rowsNewer || queueNewer || turnChanged) {
+      // 更新的一版队列到了：重订阅基线自动失效。
+      if (queueNewer) entry.queueRebaselineAt = undefined
       entry.snapshot = {
         sessionId: snapshot.sessionId,
         rows: rowsNewer ? snapshot.rows : current.rows,
         maxSeq: rowsNewer ? snapshot.maxSeq : current.maxSeq,
         queue: queueNewer ? snapshot.queue : current.queue,
         queueRevision: queueNewer ? snapshot.queueRevision : current.queueRevision,
+        ...(queueNewer && snapshot.queueVersion !== undefined ? { queueVersion: snapshot.queueVersion } : {}),
         ...(queueNewer && snapshot.queueToken !== undefined
           ? { queueToken: snapshot.queueToken }
           : (current.queueToken === undefined ? {} : { queueToken: current.queueToken })),
@@ -592,37 +607,12 @@ export function applySnapshot(snapshot: SessionSnapshot): boolean {
       }
       changed = true
     }
-  }
-  // 空队列观察窗：这次读到空、上次非空 → 先留一会儿再清（见 Entry.emptyHold）。
-  const applied = entry.snapshot?.queue ?? []
-  if (applied.length > 0) {
-    entry.emptyHold = undefined
-  } else if (currentQueueLength > 0) {
-    // 但如果「空」正好是本地刚删掉的（那一条已经进了隐藏表），就别留 —— 用户点了删除，
-    // 界面必须立刻空掉，不能靠观察窗拖 4 秒。
-    const visiblePrevious = previousQueue.filter(item => !entry.hidden.has(item.id))
-    if (visiblePrevious.length > 0) {
-      entry.emptyHold = { items: visiblePrevious, until: Date.now() + QUEUE_EMPTY_HOLD_MS }
-    }
-  }
-  // 隐藏表（本地删除/插队过的条目）：只在「权威队列真的没有这一条」时清掉，
-  // 或者等到 HIDDEN_TTL_MS 兜底。
-  //
-  // 曾经是「版本一变就清」—— 那是错的：宿主队列读的是投影快照，版本先涨、
-  // 快照里那条还在，清掉之后它立刻又被画回来（真机：删了又回来）。
-  const queueNow = entry.snapshot?.queue ?? entry.fallbackQueue ?? []
-  const present = new Set(queueNow.map(item => item.id))
-  const nowMs = Date.now()
-  for (const [id] of entry.hidden) {
-    const stale = nowMs - (entry.hiddenAt.get(id) ?? 0) > HIDDEN_TTL_MS
-    if (!present.has(id) || stale) {
-      entry.hidden.delete(id)
-      entry.hiddenAt.delete(id)
-    }
+    if (versionNewer && snapshot.queueVersion !== undefined) entry.queueVersion = snapshot.queueVersion
   }
   // 插入队列跟着同一份原子快照落地：turnStartAt 推进轮号，steering 行按并集合并。
   const insertIds = entry.inserts.map(item => item.id).join('\u0000')
   advanceInsertTurn(entry, snapshot.turn.turnStartAt)
+  const nowMs = Date.now()
   applyInsertObservation(entry, insertCandidatesOf(entry.snapshot?.queue ?? [], entry.insertTurnNo, nowMs), nowMs)
   if (entry.inserts.map(item => item.id).join('\u0000') !== insertIds) changed = true
   if (changed) publish(snapshot.sessionId)
@@ -637,4 +627,5 @@ export function normalizeQueueText(text: string): string {
 /** 只给测试用：清空仓。 */
 export function resetSessionStoreForTest(): void {
   entries.clear()
+  versions.clear()
 }

@@ -208,15 +208,17 @@ describe('启动落点（直接进会话正文页）', () => {
 })
 
 describe('抽屉是唯一导航', () => {
-  it('抽屉里有身份区、新建、搜索、设置 / 产物 / 用量三入口', async () => {
+  // 2026-11-11 用户要求删掉「产物与文档」入口（右上角「⋯ → 这一轮的产物」是同一个入口），
+  // 抽屉底部只剩「设置 / 用量」两行；用例名跟着改，免得下次又在三入口上打转。
+  it('抽屉里有身份区、新建、搜索、设置 / 用量两入口', async () => {
     render(<App />)
     await waitFor(() => expect(screen.getByText('chat-ready')).toBeDefined())
     fireEvent.click(screen.getByRole('button', { name: 'open-drawer' }))
     expect(screen.getByRole('button', { name: /新建会话/ })).toBeDefined()
     expect(screen.getByRole('button', { name: /搜索会话和消息/ })).toBeDefined()
     expect(screen.getByRole('button', { name: /设置/ })).toBeDefined()
-    expect(screen.getByRole('button', { name: /产物与文档/ })).toBeDefined()
     expect(screen.getByRole('button', { name: /用量/ })).toBeDefined()
+    expect(screen.queryByRole('button', { name: /产物与文档/ })).toBeNull()
     expect(screen.getAllByText('dsh-palm').length).toBeGreaterThan(0)
   })
 

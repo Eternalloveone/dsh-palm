@@ -195,7 +195,7 @@ describe('ChatView image attach', () => {
     fireEvent.paste(textarea, {
       clipboardData: { items: [{ kind: 'file', type: 'image/heic', getAsFile: () => pasted }] },
     })
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('该图片无法解码，已忽略'))
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('这张图读不出来，已跳过'))
     expect(screen.queryByAltText('待发送图片')).toBeNull()
   })
 })

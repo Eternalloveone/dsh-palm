@@ -38,6 +38,32 @@ describe('chatReducer', () => {
     expect(stopping.sending).toBe(false)
   })
 
+  /**
+   * P4：换会话。在途意图属于上一场 —— `sending=true` 留着会让新会话的主键一直是灰的
+   * （用户口径：「换过去发不出消息」），`stopping`/`regenerate` 同理。
+   */
+  it('换会话：在途意图归零，标题/装载阶段不被动', () => {
+    const busy = chatReducer(
+      chatReducer(
+        chatReducer(INITIAL_CHAT_STATE, { type: 'session/titled', title: 'A' }),
+        { type: 'intent/send-start', at: 1000 },
+      ),
+      { type: 'intent/stop-start' },
+    )
+    const withRegenerate = chatReducer(busy, { type: 'intent/regenerate', phase: 'busy' })
+
+    const reset = chatReducer(withRegenerate, { type: 'session/reset', scope: 's-b' })
+
+    expect(reset.sending).toBe(false)
+    expect(reset.stopping).toBe(false)
+    expect(reset.regenerate).toBe('idle')
+    expect(reset.title).toBe('A')
+    expect(reset.scope).toBe('s-b')
+    expect(reset.phase).toBe(withRegenerate.phase)
+    // 已经干净了：不产生新对象（不白唤醒订阅者）
+    expect(chatReducer(reset, { type: 'session/reset', scope: 's-b' })).toBe(reset)
+  })
+
   it('标题只在真的变化时才换对象', () => {
     const titled = chatReducer(INITIAL_CHAT_STATE, { type: 'session/titled', title: '新名字' })
     expect(titled.title).toBe('新名字')

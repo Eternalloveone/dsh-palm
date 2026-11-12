@@ -59,10 +59,22 @@ describe('P3 订阅收口', () => {
 
   it('只有 App 允许创建 host-bridge（全站唯一订阅点）', () => {
     const creators = sources
-      .filter(file => /createHostBridge\s*\(/.test(file.code))
+      .filter(file => /createHostBridge(?:<[^>]+>)? *[(]/.test(file.code))
       .map(file => file.rel)
       .filter(rel => rel !== 'mobile/kernels/host-bridge.ts')
     expect(creators).toEqual(['mobile/views/App.tsx'])
+  })
+
+  it('App 将唯一 bridge 传给 ChatView', () => {
+    const app = sources.find(file => file.rel === 'mobile/views/App.tsx')
+    expect(app).toBeDefined()
+    expect(app!.code).toMatch(/<ChatView[\s\S]*?bridge=\{bridge\}/)
+  })
+
+  it('ChatView 优先经 bridge 订阅帧', () => {
+    const chat = sources.find(file => file.rel === 'mobile/views/ChatView.tsx')
+    expect(chat).toBeDefined()
+    expect(chat!.code).toMatch(/bridge\.onFrame/)
   })
 
   it('bridge 派发必须透传 rpcId（应答关联依赖它）', () => {

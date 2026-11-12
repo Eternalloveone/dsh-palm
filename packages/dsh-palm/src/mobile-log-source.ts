@@ -579,5 +579,7 @@ export async function readChatTailPage(
     ...(turnStartAt === undefined ? {} : { turnStartAt }),
     ...(lastEventAt === undefined ? {} : { lastEventAt }),
     ...(boundary === undefined && externalStart === undefined ? {} : { turnOpen }),
+    // 边界随页带回：调用方（mobile.sessionState）不必再读一遍同一个尾页。
+    ...(boundary === undefined ? {} : { turnBoundary: boundary }),
   }
 }

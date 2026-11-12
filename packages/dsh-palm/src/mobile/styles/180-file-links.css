@@ -1,20 +1,28 @@
 /* ── file-path links (host file opener) ───────────────────────────────── */
 
 .chat-md-body a.file-link {
-  /* 审计实测 189x16：正文里的文件链接太矮，点不中。上下各扩 8px 热区、
-     用负 margin 抵消，行高不变（否则正文会散）。 */
-  display: inline-block;
+  /*
+   * 2026-11-10 实机：链接下那条虚线落在了**下一行文字上**（截图里"不用重新烧录。"
+   * 被一条虚线穿过）。原因不是虚线画错，而是它根本不是下划线 —— 是 inline-block
+   * 的 border-bottom：盒子的底边在 padding 8px 之下，而 -8px 的负 margin 又把整个
+   * 盒子往上提，两边一凑，线就落在行间、压住下面那行字。
+   *
+   * 改法：链接回到 inline（inline 的上下 padding 不撑行高），虚线交给
+   * text-decoration —— 它永远贴着字形基线画，padding 再多也不会跑位；
+   * 上下各 8px 的 padding 仍然保留，触控热区不变。
+   */
+  display: inline;
   padding: 8px 2px;
-  margin: -8px 0;
   color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  text-decoration: underline dashed var(--palm-accent-line);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
   overflow-wrap: anywhere;
 }
 
 @media (hover: hover) {
   .chat-md-body a.file-link:hover {
-    text-decoration: underline;
+    text-decoration: underline solid var(--palm-accent-line);
   }
 }
 

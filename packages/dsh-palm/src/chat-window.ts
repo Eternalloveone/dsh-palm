@@ -122,6 +122,14 @@ export interface ChatPage {
    *  判成已完成：真机实测，一轮进行中的会话 mobile.logTail 只回 rows/maxSeq/hasMore/
    *  lastEventAt，没有 turnStartAt。缺席＝不知道，不能再当"结束了"。 */
   turnOpen?: boolean
+  /**
+   * 这份尾页里摸到的最后一条轮次边界（含 seq）。
+   *
+   * 手机端 `mobile.sessionState` 需要同时要行和回合状态；旧实现让
+   * `computeTurnState` 再读一遍日志尾页，等于同一次请求读两遍同一个文件。
+   * 把边界随页带回，调用方可以把它直接交给 `computeTurnState`（2026-11-11）。
+   */
+  turnBoundary?: { type: 'turn/start' | 'turn/end'; time?: number; seq?: number }
 }
 
 /** The host history read the service pages through (wired by the plugin). */

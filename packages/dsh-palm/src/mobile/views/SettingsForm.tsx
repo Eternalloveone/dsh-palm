@@ -12,7 +12,6 @@ import type { SettingsNamespaceView } from '../../api-proxy-types'
 import type { AgentPresetEntry } from '../../api-proxy-types'
 import { mutateSettings } from '../data/settings.ts'
 import { listAgentPresets } from '../data/workspace.ts'
-import { applyHostThemePreference } from '../mobile-theme.ts'
 import { fieldMeta } from '../platform/settings-meta.ts'
 import { truncate } from '../shared/text.ts'
 import { errorText } from '../shared/error-text.ts'
@@ -437,15 +436,6 @@ export function SettingsForm({ namespaces, allNamespaces, onBack, onOpenMarket }
     )
     return () => { cancelled = true }
   }, [namespaces, allNamespaces])
-
-  // The theme section applies locally the moment it changes (desktop parity).
-  useEffect(() => {
-    const themeValue = values['ui-theme'] as Record<string, unknown> | undefined
-    const preference = themeValue?.preference
-    if (preference === 'light' || preference === 'dark' || preference === 'system') {
-      applyHostThemePreference(preference)
-    }
-  }, [values])
 
   const save = () => {
     if (saving) return

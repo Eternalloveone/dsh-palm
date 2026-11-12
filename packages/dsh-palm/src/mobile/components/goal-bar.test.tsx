@@ -40,14 +40,14 @@ describe('GoalBar', () => {
   it('sends /goal pause while active and /goal resume while paused', () => {
     const onCommand = vi.fn()
     render(<GoalBar {...baseProps({ onCommand })} />)
-    fireEvent.click(screen.getByText('暂停'))
+    fireEvent.click(screen.getByLabelText('暂停目标'))
     expect(onCommand).toHaveBeenCalledWith('/goal pause')
     cleanup()
 
     const resume = vi.fn()
     render(<GoalBar {...baseProps({ goal: goal({ phase: 'paused' }), onCommand: resume })} />)
     expect(screen.getByText('已暂停的目标')).toBeTruthy()
-    fireEvent.click(screen.getByText('继续'))
+    fireEvent.click(screen.getByLabelText('继续目标'))
     expect(resume).toHaveBeenCalledWith('/goal resume')
   })
 
@@ -61,7 +61,7 @@ describe('GoalBar', () => {
   it('edits through /goal edit with the draft text', () => {
     const onCommand = vi.fn()
     render(<GoalBar {...baseProps({ onCommand })} />)
-    fireEvent.click(screen.getByText('编辑'))
+    fireEvent.click(screen.getByLabelText('编辑目标'))
     const input = screen.getByLabelText('目标正文') as HTMLInputElement
     expect(input.value).toBe('把手机端目标条做出来')
     fireEvent.change(input, { target: { value: '换成新的目标' } })
@@ -72,7 +72,7 @@ describe('GoalBar', () => {
   it('does not submit an empty edit', () => {
     const onCommand = vi.fn()
     render(<GoalBar {...baseProps({ onCommand })} />)
-    fireEvent.click(screen.getByText('编辑'))
+    fireEvent.click(screen.getByLabelText('编辑目标'))
     fireEvent.change(screen.getByLabelText('目标正文'), { target: { value: '   ' } })
     const save = screen.getByText('保存') as HTMLButtonElement
     expect(save.disabled).toBe(true)
@@ -151,7 +151,41 @@ describe('GoalBar', () => {
     const onCommand = vi.fn()
     render(<GoalBar {...baseProps({ onCommand, busy: true })} />)
     fireEvent.click(screen.getByLabelText('清除目标'))
-    fireEvent.click(screen.getByText('暂停'))
+    fireEvent.click(screen.getByLabelText('暂停目标'))
     expect(onCommand).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 2026-11-12 真机：展开后「收起」压住了进度摘要（360px 上摘要溢出 18px）。
+   * 结构性护栏：文字只进 `.chat-goal-main`，动作只进 `.chat-goal-tools`，
+   * 两者是不同的盒子 —— 只要这条成立，两者就不可能画在同一个位置。
+   */
+  it('keeps text and action buttons in separate boxes (no shared line)', () => {
+    render(<GoalBar {...baseProps({ meta: '已跑 2分1秒 · 第 1 步' })} />)
+    const info = document.querySelector('.chat-goal-main')
+    const tools = document.querySelector('.chat-goal-tools')
+    expect(info).not.toBeNull()
+    expect(tools).not.toBeNull()
+    // 摘要必须落在信息盒里，动作按钮必须落在工具栏里，互不包含。
+    expect(info!.querySelector('.chat-goal-meta')).not.toBeNull()
+    expect(info!.querySelector('.chat-goal-icon')).toBeNull()
+    expect(tools!.querySelectorAll('.chat-goal-icon')).toHaveLength(4)
+    expect(tools!.querySelector('.chat-goal-meta')).toBeNull()
+
+    // 展开之后工具栏仍是四颗（最后一颗由「展开」变「收起」），信息盒里仍然没有按钮。
+    fireEvent.click(screen.getByLabelText('展开目标全文'))
+    expect(document.querySelectorAll('.chat-goal-tools .chat-goal-icon')).toHaveLength(4)
+    expect(screen.getByLabelText('收起目标全文')).toBeTruthy()
+    expect(document.querySelector('.chat-goal-main .chat-goal-icon')).toBeNull()
+    expect(document.querySelector('.chat-goal-meta')?.closest('.chat-goal-main')).not.toBeNull()
+  })
+
+  it('expands and collapses from the toolbar chevron', () => {
+    render(<GoalBar {...baseProps()} />)
+    expect(screen.queryByRole('region', { name: '目标全文' })).toBeNull()
+    fireEvent.click(screen.getByLabelText('展开目标全文'))
+    expect(screen.getByRole('region', { name: '目标全文' })).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('收起目标全文'))
+    expect(screen.queryByRole('region', { name: '目标全文' })).toBeNull()
   })
 })

@@ -13,6 +13,7 @@ import { createPageStack, currentOf, popPage, pushPage } from '../kernels/page-s
 type Route = Parameters<typeof backTargetOf>[0]
 type Kind = Route['kind']
 
+const WORKSPACE_ID = 'ws-1'
 const workspace = {
   workspaceId: 'ws-1',
   path: '/repo',
@@ -22,19 +23,25 @@ const workspace = {
   updatedAt: 0,
 } as never
 const session = { sessionId: 's-1', title: '会话', updatedAt: 0, running: false, blank: false } as never
-const approvalRow = { approvalId: 'ap-1', callId: 'c-1', tool: 'write_file', risk: 'write' } as never
+/** 审批页只带导航身份（内容归会话账本），所以这里只需要一个 id。 */
+const approvalId = 'ap-1'
 
-const chat: Route = chatRouteOf(session, workspace)
+const chat: Route = chatRouteOf(session, WORKSPACE_ID)
 
 /** 每种路由的"进入它之前在哪一页"（栈模型的答案）。 */
 const PUSHED_FROM: Record<Kind, Route> = {
   chat,
   search: chat,
   settings: chat,
-  appearance: { kind: 'settings', session, workspace },
+  usage: chat,
+  // 子代理详情从「运行状态」里点出来，属于当前会话的子页。
+  subagent: chat,
+  tasks: chat,
+  appearance: { kind: 'settings', session, workspaceId: WORKSPACE_ID },
   artifacts: chat,
-  'artifact-summary': { kind: 'artifacts', session, workspace, turns: [] },
+  'artifact-summary': { kind: 'artifacts', session, workspaceId: WORKSPACE_ID, turns: [] },
   diff: chat,
+  preview: chat,
   delivery: chat,
   approval: chat,
   context: chat,
@@ -45,17 +52,18 @@ const PUSHED_FROM: Record<Kind, Route> = {
 /** 各路由的样本。 */
 const SAMPLES: Route[] = [
   chat,
-  { kind: 'search', session, workspace },
-  { kind: 'settings', session, workspace },
-  { kind: 'appearance', session, workspace },
-  { kind: 'artifacts', session, workspace, turns: [] },
-  { kind: 'artifact-summary', session, workspace, turn: 2, turns: [] },
-  { kind: 'diff', session, workspace, path: 'src/a.ts' },
-  { kind: 'delivery', session, workspace, facts: { turn: 2, deliverables: [], changes: [] } },
-  { kind: 'approval', session, workspace, approval: approvalRow },
-  { kind: 'context', session, workspace, usage: {} },
-  { kind: 'outline', session, workspace, turns: [], currentTurn: 1 },
-  { kind: 'approval-mode', session, workspace, permissions: { currentValue: 'ask', options: [] } },
+  { kind: 'search', session, workspaceId: WORKSPACE_ID },
+  { kind: 'settings', session, workspaceId: WORKSPACE_ID },
+  { kind: 'appearance', session, workspaceId: WORKSPACE_ID },
+  { kind: 'artifacts', session, workspaceId: WORKSPACE_ID, turns: [] },
+  { kind: 'artifact-summary', session, workspaceId: WORKSPACE_ID, turn: 2, turns: [] },
+  { kind: 'diff', session, workspaceId: WORKSPACE_ID, path: 'src/a.ts' },
+  { kind: 'preview', session, workspaceId: WORKSPACE_ID, path: 'README.md' },
+  { kind: 'delivery', session, workspaceId: WORKSPACE_ID, facts: { turn: 2, deliverables: [], changes: [] } },
+  { kind: 'approval', session, workspaceId: WORKSPACE_ID, approvalId },
+  { kind: 'context', session, workspaceId: WORKSPACE_ID, usage: {} },
+  { kind: 'outline', session, workspaceId: WORKSPACE_ID, turns: [], currentTurn: 1 },
+  { kind: 'approval-mode', session, workspaceId: WORKSPACE_ID, permissions: { currentValue: 'ask', options: [] } },
 ]
 
 describe('页面栈 vs backTargetOf（会话页是根）', () => {
@@ -77,13 +85,13 @@ describe('页面栈 vs backTargetOf（会话页是根）', () => {
   })
 
   it('设置/搜索的兜底落点是它们所属的会话', () => {
-    expect(backTargetOf({ kind: 'settings', session, workspace })).toEqual(chat)
-    expect(backTargetOf({ kind: 'search', session, workspace })).toEqual(chat)
+    expect(backTargetOf({ kind: 'settings', session, workspaceId: WORKSPACE_ID })).toEqual(chat)
+    expect(backTargetOf({ kind: 'search', session, workspaceId: WORKSPACE_ID })).toEqual(chat)
   })
 
   it('外观的兜底落点是设置，不是会话', () => {
-    expect(backTargetOf({ kind: 'appearance', session, workspace }))
-      .toEqual({ kind: 'settings', session, workspace })
+    expect(backTargetOf({ kind: 'appearance', session, workspaceId: WORKSPACE_ID }))
+      .toEqual({ kind: 'settings', session, workspaceId: WORKSPACE_ID })
   })
 
   it('深链冷启动：栈里只有会话一页，弹栈是空操作', () => {

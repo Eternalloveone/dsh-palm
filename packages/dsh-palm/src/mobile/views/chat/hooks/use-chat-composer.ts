@@ -1,6 +1,6 @@
 /**
  * 发送 / 队列 / 插话状态机（S8a 从 `ChatView` 搬出）：三种发送模式（普通 queue /
- * 排队 / 插话 steer）、离线入队与补发、命令 chip、`draftEmpty`/`primaryStops` 判据。
+ * 排队 / 插话 steer）、离线入队与补发、命令 chip。
  *
  * **纯搬运**：判定顺序、真机结论注释逐字保留。输入框/附件/命令的当前值与 setter 由
  * 调用方传入（它们同时被作曲区 UI 消费），本 hook 只持有真正属于自己的状态。
@@ -10,13 +10,13 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { MuxClient } from '../../../stream/mux.ts'
 import type { CommandDescriptor } from '../../../api.ts'
 import { logTail } from '../../../data/diag.ts'
-import { cancelSession, inboxOf, newRequestId, prompt } from '../../../data/session.ts'
-import { addOptimisticInsert, addOptimisticQueueItem, dropOptimisticInsert, dropOptimisticQueueItem } from '../../../stream/session-store.ts'
+import { cancelSession, deliveryAccepted, inboxOf, newRequestId, prompt } from '../../../data/session.ts'
+import { addOptimisticInsert, applyQueueAck, dropOptimisticInsert } from '../../../stream/session-store.ts'
 import { createSubmitLedger, SUBMIT_INFLIGHT_MS, type SubmitLedger } from '../../../kernels/intent.ts'
 import { enqueuePrompt, flushOutbox } from '../../../platform/offline.ts'
 import { buildPromptParts, type AttachedImage, type PromptPart } from '../../../platform/image.ts'
 import type { StagedFile } from './use-chat-attachments.ts'
-import { errorText, staleHostHint } from '../../../shared/error-text.ts'
+import { errorText, isConclusiveRejection, staleHostHint } from '../../../shared/error-text.ts'
 import { rememberQueuedEcho } from '../../../session/queued-echo.ts'
 import { toast } from '../../../components/toast.tsx'
 import type { StatusEvent } from '../../../stream/session-status.ts'
@@ -38,47 +38,155 @@ export function textParts(text: string): PromptPart[] {
   return [{ type: 'text', text }]
 }
 
+/** 送达核实的三种结论：确认送到 / 确认没到 / 查不到（网络也在抖，不敢下结论）。 */
+export type DeliveryCheck = 'delivered' | 'absent' | 'unknown'
+
+/** 核实重试的间隔（毫秒）：总共 ~8 秒，足够跨过一次隧道抖动或宿主排队写入延迟。 */
+export const VERIFY_DELIVERY_BACKOFF_MS: readonly number[] = [0, 600, 1_200, 2_400, 4_000]
+
+/** 核实的依赖注入（测试用；生产走真实的 mobile.inbox / 读页）。 */
+export interface DeliveryProbe {
+  inbox?: typeof inboxOf
+  tail?: typeof logTail
+  sleep?: (ms: number) => Promise<void>
+  /** 问宿主"这笔受理过没有"（测试注入）。 */
+  accepted?: (sessionId: string, requestId: string) => Promise<boolean>
+}
+
+const defaultSleep = (ms: number): Promise<void> => new Promise(resolve => { setTimeout(resolve, ms) })
+
 /**
- * 送达核实（send 的失败分支用）：查两条独立证据 —— ① 宿主队列里有这个 requestId；
- * ② 日志尾部已出现这条用户消息。任一成立就算送到，都查不到才叫真失败。
+ * 单次查队列里有没有这个 requestId。
+ *
+ * 队列这一层**只认 requestId**：按文本匹配会把"本地乐观项"算成证据（它就是同一条文本），
+ * 于是真失败也会被误判成送达。requestId 是提交身份，宿主侧只有真收下才会有。
+ *
+ * @param sessionId - 会话
+ * @param requestId - 提交身份
+ * @param inbox - 队列读取（测试注入）
+ * @returns `yes` 在队列里 / `no` 读到了但没有 / `error` 这次没读到
  */
-export async function verifyDelivered(sessionId: string, text: string, requestId: string): Promise<boolean> {
-  const needle = text.trim()
-  if (needle === '') return false
-  const same = (candidate: string): boolean => {
-    const other = candidate.trim()
-    if (other === '') return false
-    if (other === needle) return true
-    const head = needle.slice(0, 40)
-    return other.includes(head) || needle.includes(other.slice(0, 40))
-  }
+export async function probeQueueForRequest(
+  sessionId: string,
+  requestId: string,
+  inbox: typeof inboxOf = inboxOf,
+  /**
+   * 这次投递的正文：身份对不上时的**唯一**旁证。
+   *
+   * 2026-11-11 真机：「经常发送失败，内容又回到输入框」。宿主队列行不回显我们的
+   * `requestId`，只能靠插件侧的投递前后差集去补；那条桥一旦没接上（写队列比读队列慢
+   * 一拍就补不上），核实就永远是"没有"，8 秒后判成失败 —— 而消息其实已经在队列里。
+   * 这里补一层正文比对：读的是**宿主的队列**（不含本地乐观项），同文同行就是送到了。
+   */
+  text?: string,
+): Promise<'yes' | 'no' | 'error'> {
   try {
-    const value = await inboxOf(sessionId, { fresh: true })
-    const queue = (value as unknown as { inbox?: { nextTurn?: readonly { text?: string; requestId?: string }[]; nextStep?: readonly { text?: string; requestId?: string }[] } }).inbox
+    const value = await inbox(sessionId, { fresh: true })
+    const queue = (value as unknown as {
+      inbox?: {
+        nextTurn?: readonly { requestId?: string; text?: string }[]
+        nextStep?: readonly { requestId?: string; text?: string }[]
+      }
+    }).inbox
     const items = [...(queue?.nextTurn ?? []), ...(queue?.nextStep ?? [])]
-    // 队列这一层**只认 requestId**：按文本匹配会把"本地乐观项"算成证据（它就是同一条文本），
-    // 于是真失败也会被误判成送达。requestId 是提交身份，宿主侧只有真收下才会有。
-    for (const item of items) {
-      if (item.requestId !== undefined && item.requestId === requestId) return true
-    }
+    if (items.some(item => item.requestId !== undefined && item.requestId === requestId)) return 'yes'
+    const needle = (text ?? '').replace(/\s+/g, ' ').trim()
+    if (needle === '') return 'no'
+    return items.some(item => (item.text ?? '').replace(/\s+/g, ' ').trim() === needle) ? 'yes' : 'no'
   } catch {
-    // 队列读不到就退到正文证据。
+    return 'error'
+  }
+}
+
+/**
+ * 送达核实（send 的失败分支用）：队列里有这个 requestId，或正文尾部已出现这条消息。
+ *
+ * 2026-11-11 用户：「提示排队发送失败、内容退回输入框，但其实已经排队成功了」。上一版只查
+ * **一次**：宿主写队列比客户端超时慢一拍、或核实请求自己也在抖，就误报失败。现在按
+ * `VERIFY_DELIVERY_BACKOFF_MS` 重试到 ~8 秒，并且**查不到 ≠ 没送到** → 返回 `unknown`。
+ *
+ * @param sessionId - 会话
+ * @param text - 正文（尾部证据比对用）
+ * @param requestId - 这次投递的客户端身份
+ * @param probe - 可注入的探针（测试用）
+ * @returns delivered / absent / unknown
+ */
+export async function verifyDelivered(
+  sessionId: string,
+  text: string,
+  requestId: string,
+  probe: DeliveryProbe = {},
+): Promise<DeliveryCheck> {
+  const readInbox = probe.inbox ?? inboxOf
+  const readTail = probe.tail ?? logTail
+  const sleep = probe.sleep ?? defaultSleep
+  const needle = text.trim()
+  /**
+   * 正文比对前先归一化空白：宿主回显的正文可能被折过行/合并过空格，
+   * 逐字比较会因为一个 `\n` 变成 ` ` 就判"不一样"。
+   */
+  const flatten = (candidate: string): string => candidate.replace(/\s+/g, ' ').trim()
+  const same = (candidate: string): boolean => {
+    const other = flatten(candidate)
+    const target = flatten(needle)
+    if (other === '' || target === '') return false
+    if (other === target) return true
+    const head = target.slice(0, 40)
+    return other.includes(head) || target.includes(other.slice(0, 40))
+  }
+  let readOk = 0
+  /*
+   * **先问账本**（2026-11-12）：宿主在 `session.prompt` 成功返回时记了一笔，
+   * 这里问到就直接 delivered —— 这是全流程唯一一条不是推断的证据，
+   * 不用再去读队列、也不用赌 60 行的窗口。
+   * 没有记录（宿主重启 / 真没送到）就照旧往下走，最终仍然只会返回 unknown。
+   */
+  const readAccepted = probe.accepted ?? deliveryAccepted
+  try {
+    if (await readAccepted(sessionId, requestId)) return 'delivered'
+  } catch {
+    // 账本都读不到：继续用旧判据，别因此下结论。
+  }
+  for (const delay of VERIFY_DELIVERY_BACKOFF_MS) {
+    if (delay > 0) await sleep(delay)
+    const verdict = await probeQueueForRequest(sessionId, requestId, readInbox, needle)
+    if (verdict === 'yes') return 'delivered'
+    if (verdict === 'no') readOk += 1
   }
   try {
-    const page = await logTail(sessionId, 60)
-    return page.rows.some(row => row.kind === 'user' && same(String(row.text ?? '')))
+    const page = await readTail(sessionId, 60)
+    readOk += 1
+    if (page.rows.some(row => row.kind === 'user' && same(String(row.text ?? '')))) return 'delivered'
+    /*
+     * **关键判据**（2026-11-12 用户：「已经发送完了，排队消息还会撤回到发送框」）。
+     *
+     * 上面那页是"最近 60 行"，不是"全部历史"。`hasMore` 为真就说明更早的行没读 ——
+     * 那时"没找到这条消息"只意味着**它不在最近 60 行里**，完全可能已经发出去、
+     * 又被本轮后续的工具调用/子代理输出顶出了窗口。
+     * 原来这里把"没找到"直接当成"没送到"（`absent`），于是繁忙回合里必误判：
+     * 消息早就送达，25 秒后的核实却判失败，正文被放回输入框 —— 用户看到的"回撤"。
+     *
+     * 现在只有**读完整个历史**仍然没有，才算确定的"没送到"；有没读到的部分，
+     * 手里就是没有反证，返回 `unknown`（调用方不会回撤）。
+     */
+    if (page.hasMore === true) return 'unknown'
   } catch {
-    return false
+    // 正文也读不到：仍然可能送到了。
   }
+  // 一次都没读成功 = 手里没有证据，不是"没送到"。
+  return readOk === 0 ? 'unknown' : 'absent'
 }
 
 export interface UseChatComposerOptions {
   sessionId: string
   mux?: MuxClient | undefined
   offline: boolean
-  running: boolean
   runningRef: { current: boolean }
-  input: string
+  /**
+   * 草稿**取值器**而不是字符串：`ChatView` 已经不再订阅草稿（打字时不重渲染），
+   * 传字符串的话 `send` 永远只能看到挂载那一刻的内容。
+   */
+  getInput: () => string
   setInput: Dispatch<SetStateAction<string>>
   attachImages: AttachedImage[]
   setAttachImages: Dispatch<SetStateAction<AttachedImage[]>>
@@ -89,7 +197,8 @@ export interface UseChatComposerOptions {
   setQuoted: Dispatch<SetStateAction<string | undefined>>
   claimedCommand: string | undefined
   setClaimedCommand: Dispatch<SetStateAction<string | undefined>>
-  sending: boolean
+  /** 发送是否在途：**读实时的 store**（闭包里的旧值会漏掉"同一帧连点两下"）。 */
+  getSending: () => boolean
   /** 发送在途开关（W3-2 起由 Chat Store 持有，故只收普通函数形态）。 */
   setSending: (sending: boolean) => void
   commands: CommandDescriptor[] | undefined
@@ -118,8 +227,6 @@ export interface ChatComposer {
   releaseCommand: () => void
   /** 连接恢复后补发离线队列。 */
   flushQueue: () => void
-  draftEmpty: boolean
-  primaryStops: boolean
 }
 
 export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
@@ -127,9 +234,8 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     sessionId,
     mux,
     offline,
-    running,
     runningRef,
-    input,
+    getInput,
     setInput,
     attachImages,
     setAttachImages,
@@ -140,7 +246,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     setQuoted,
     claimedCommand,
     setClaimedCommand,
-    sending,
+    getSending,
     setSending,
     commands,
     shadowEvent,
@@ -194,17 +300,17 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
    */
   useEffect(() => {
     if (claimedCommand !== undefined || commands === undefined) return
-    const typed = /^\/([A-Za-z][\w-]*)[ \u00a0]+([\s\S]*)$/.exec(input)
+    const typed = /^\/([A-Za-z][\w-]*)[ \u00a0]+([\s\S]*)$/.exec(getInput())
     if (typed === null) return
     if (commands.some(command => command.name === typed[1])) claimCommand(typed[1] ?? '', typed[2] ?? '')
-  }, [commands, input, claimedCommand, claimCommand])
+  }, [commands, claimedCommand, claimCommand, getInput])
 
   /** Send the drafted prompt (the echoed user/message arrives over mux).
    * Offline: queue in IndexedDB instead — the reconnect effect drains it.
    * @param intent - queue (default) / steer into the running turn / interrupt-then-queue. */
   const send = useCallback((intent: SendIntent = 'queue') => {
-    const text = input.trim()
-    if ((text === '' && attachImages.length === 0 && attachFiles.length === 0) || sending) return
+    const text = getInput().trim()
+    if ((text === '' && attachImages.length === 0 && attachFiles.length === 0) || getSending()) return
     // 同步互斥（Intent 内核，W3-6）放在**真正要发**那一刻，而不是函数开头：
     // 前面几道闸（附件还在上传 / 有附件失败 / 离线只能存文本）都会 return，
     // 若在那里就记账，一次被拦下的提交会把发送锁死 30 秒。
@@ -285,20 +391,15 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
       : [])
     const body: PromptPart[] = quoted !== undefined && text !== ''
       ? buildPromptParts(`引用消息：\n> ${quoted.replace(/\n+/g, ' ')}\n\n${text}`, attachImages, readyFiles)
-      : buildPromptParts(input, attachImages, readyFiles)
-    // 回合进行中发的消息会成为"排队"：先本地画一条（状态仓的乐观项），不等宿主快照。
-    // 以前这里只有一次 `refreshInbox({fresh:true})`，宿主要现开一帧 follow 再回包，
-    // 弱网下就是"点了发送，排队条半天不出来"。
+      : buildPromptParts(getInput(), attachImages, readyFiles)
+    // 回合进行中发的消息会成为"排队"：**不再本地画乐观项**（C1b，2026-11-10）。
+    // 发送 RPC 的应答已经带着宿主的权威队列（方案 A：读己之写），拿到就是定论；
+    // 乐观项只会多出一条要跟权威结果对齐的假行。
     const queueText = body.find(part => part.type === 'text')?.text ?? ''
     // 到了要发的那一刻才记账（Intent 内核，W3-6）：在途窗口 + 同会话同正文去重
     // 两道判据都在内核里；被拒的尝试也**不会**刷新窗口。
     if (ledger().attempt(sessionId, queueText || text) !== 'accept') return
-    // 这次投递的幂等键：宿主按它去重（同 id 只入队一次），插件侧身份桥把它标回
-    // 队列行 —— 于是乐观项可以「按身份」退场，不再靠正文猜。
     const sendRequestId = newRequestId()
-    const optimisticId = queuedByRunning && queueText !== ''
-      ? addOptimisticQueueItem(sessionId, { text: queueText, placement: 'queued', requestId: sendRequestId })
-      : undefined
     // 插话（steer）不排队，但它同样要「点下去就可见」：写进插入队列的乐观项，
     // 等宿主 user/message 回执或 steering 快照按 id/正文认领。以前这里只弹 toast，
     // 宿主投影慢时输入框上方会空好几秒（真机「已插入本轮」条时而有时而没有）。
@@ -314,7 +415,9 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     void beforeSend
       .then(() => prompt(sessionId, body, sendRequestId, intent === 'steer' ? 'steer' : 'queue'))
       .then(
-      () => {
+      (ack) => {
+        // 方案 A：写操作的应答带权威队列（读己之写）—— 直接当定论，不再等投影。
+        applyQueueAck(sessionId, ack)
         ledger().settle()
         setSending(false)
         setInput('')
@@ -370,44 +473,105 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
         // 互斥也要放开，否则一次失败会把发送按钮永久挡住。
         ledger().settle()
         // 没送出去：本地那条乐观排队项必须撤掉，否则会留一张永远不会发出去的卡。
-        if (optimisticId !== undefined) dropOptimisticQueueItem(sessionId, optimisticId)
         const message = errorText(reason)
         const hint = staleHostHint(message)
         const failText = hint !== undefined ? `${message} ${hint}` : message
         // 先核实再报错：超时/断流并不等于"没送到"。
+        // 先核实再报错：超时/断流并不等于"没送到"。
         //
-        // 真机（2026-10-31）：消息明明已经排队并在跑，界面却弹"发送失败"并把原文退回
-        // 输入框 —— 因为 `session.prompt` 的等待超时了（长回合里宿主很慢），而宿主其实
-        // 早就收下了。这里在报错前查一次证据：队列里有我们这个 requestId，或正文尾部
-        // 已经出现这条用户消息 —— 任一成立就按成功收尾，绝不谎报失败。
-        void verifyDelivered(sessionId, queueText, sendRequestId).then((delivered) => {
-          if (!delivered && optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
-          if (!mountedRef.current) return
-          if (!delivered) {
+        // 真机（2026-10-31）：消息明明已经排队并在跑，界面却弹"发送失败"并把原文退回输入框
+        // —— 因为 `session.prompt` 的等待超时了（长回合里宿主很慢），而宿主其实早就收下了。
+        //
+        // 2026-11-11 用户又复现了一次，原因是核实只查**一次**：宿主写队列比客户端超时慢一拍，
+        // 或核实请求自己也在抖，就误报失败。现在核实会重试到 ~8 秒，并区分三态：
+        //   delivered → 按成功收尾；absent → 才报失败（撤乐观项、留草稿）；
+        //   unknown   → 只说"正在确认"，不谎报失败，并在后台继续确认三次。
+        // 宿主明确回 4xx = 拒收，没有"其实已经排上"的可能：直接报错，省掉 8 秒核实。
+        if (isConclusiveRejection(message)) {
+          if (optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
+          if (mountedRef.current) {
             setError(failText)
             toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
+          }
+          return
+        }
+        void verifyDelivered(sessionId, queueText, sendRequestId).then((check) => {
+          if (check === 'delivered') {
+            if (!mountedRef.current) return
+            // 已经送到：按成功收尾（输入框/附件清空），不弹失败提示。
+            setInput('')
+            removeDraft(sessionId)
+            setAttachImages([])
+            setAttachFiles([])
+            setQuoted(undefined)
+            if (intent === 'steer') toast('已插入当前回合')
+            else if (queuedByRunning) toast(intent === 'interrupt' ? '已停止本轮，消息排队中' : '已排队，本轮结束后自动发送')
+            refreshInbox({ fresh: true })
+            mux?.poke()
             return
           }
-          // 已经送到：按成功收尾（输入框/附件清空），不弹失败提示。
-          if (optimisticId !== undefined) dropOptimisticQueueItem(sessionId, optimisticId)
-          setInput('')
-          removeDraft(sessionId)
-          setAttachImages([])
-          setAttachFiles([])
-          setQuoted(undefined)
-          if (intent === 'steer') toast('已插入当前回合')
-          else if (queuedByRunning) toast(intent === 'interrupt' ? '已停止本轮，消息排队中' : '已排队，本轮结束后自动发送')
-          refreshInbox({ fresh: true })
-          mux?.poke()
-        }).catch(() => {
+          if (check === 'unknown') {
+            // 核实请求本身也读不通（同一条隧道在抖）：**不下"没送到"的结论**。
+            //
+            // 2026-11-12 用户：「明明排队消息已经发送成功了，但还会回撤到发送框」。
+            // 代码事实：这个分支以前**不清输入框**，只 toast「正在确认」，把清空交给后台
+            // `confirmLater`；而 `confirmLater` 的判据是 `probeQueueForRequest === 'yes'`
+            // ——只查**队列**。消息一旦真的发出去（本轮结束、队列被消费掉），队列里就再也
+            // 没有它，三次探测全是 `no`，函数直接结束，输入框从头到尾没被清过 ——
+            // 用户看到的就是「已经发出去了，发送框里还留着一份同样的文字」。
+            //
+            // 现在反过来：这一刻就先清空（正文已经进了 queuedEcho 底稿，不会丢），
+            // 后台再确认；只有**明确 absent** 才把文字放回输入框 —— 那才是唯一该"回撤"的时刻。
+            if (!mountedRef.current) return
+            const echoText = body.find(part => part.type === 'text')?.text ?? ''
+            if (echoText !== '') rememberQueuedEcho({ sessionId, text: echoText, at: Date.now() })
+            setInput('')
+            removeDraft(sessionId)
+            setAttachImages([])
+            setAttachFiles([])
+            setQuoted(undefined)
+            toast('消息已送出，正在确认…')
+            refreshInbox({ fresh: true })
+            mux?.poke()
+            const confirmLater = async (): Promise<void> => {
+              for (const delay of [5_000, 12_000, 25_000]) {
+                await new Promise<void>((resolve) => { setTimeout(resolve, delay) })
+                if (!mountedRef.current) return
+                // 用完整核实（队列 requestId / 同文行 / 会话尾部 user 消息），
+                // 而不是只看队列 —— 发出去的消息已经从队列里消失了。
+                const again = await verifyDelivered(sessionId, queueText, sendRequestId)
+                if (again === 'unknown') continue
+                if (again === 'delivered') {
+                  toast(queuedByRunning ? '已排队，本轮结束后自动发送' : '已送出')
+                  refreshInbox({ fresh: true })
+                  mux?.poke()
+                  return
+                }
+                // 明确没送到：这时才把原文放回输入框（框里已有新内容就不覆盖）。
+                if (getInput().trim() === '') setInput(queueText)
+                toast('未送达，已放回输入框')
+                return
+              }
+            }
+            void confirmLater()
+            return
+          }
           if (optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
           if (!mountedRef.current) return
           setError(failText)
           toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
+        }).catch(() => {
+          // 核实函数本身兜了所有异常，走到这里是意料之外：仍然按"不确定"处理，绝不谎报失败。
+          if (!mountedRef.current) return
+          toast('消息可能已送出，正在确认…')
+          refreshInbox({ fresh: true })
+          mux?.poke()
         })
       },
     )
-  }, [input, attachImages, attachFiles, uploadingFiles, sending, sessionId, mux, quoted, runCommand, refreshInbox, refreshGoal, claimedCommand])
+    // `offline` 必须在依赖里：B3 之前它靠 `input` 每次按键变化顺带刷新闭包，
+    // 拿掉 `input` 之后漏掉它，断网写的字会走联网分支（真机表现：点了发送没反应）。
+  }, [getInput, offline, attachImages, attachFiles, uploadingFiles, getSending, sessionId, mux, quoted, runCommand, refreshInbox, refreshGoal, claimedCommand])
 
   /** Resend an edited user message as a fresh prompt. The agent session is
    *  append-only, so the edited text goes out as a new user message (with a
@@ -431,8 +595,5 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     )
   }, [mux])
 
-  const draftEmpty = input.trim() === '' && attachImages.length === 0 && attachFiles.length === 0 && claimedCommand === undefined
-  const primaryStops = running && draftEmpty
-
-  return { send, sendEditedMessage, claimCommand, releaseCommand, flushQueue, draftEmpty, primaryStops }
+  return { send, sendEditedMessage, claimCommand, releaseCommand, flushQueue }
 }

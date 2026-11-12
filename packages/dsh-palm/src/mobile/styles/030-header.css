@@ -6,7 +6,7 @@
   z-index: var(--z-header);
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
   gap: var(--space-1);
   padding: calc(env(safe-area-inset-top, 0px) + 4px) 4px 4px;
@@ -44,22 +44,67 @@
 
 .mobile-titleWrap {
   min-width: 0;
+  text-align: center;
 }
 
 .mobile-titleInline {
   display: block;
 }
 
-/* 标题下的一行工作区名（10.5px，定版图的副标题）。 */
+/* 标题下的一行次级信息：工作区名 ·(可选) 运行徽标（2026-11-11 起徽标也在这行）。 */
 .mobile-titlePath {
   margin: 1px 0 0;
-  font-size: var(--palm-flow-meta-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--palm-s1);
+  min-inline-size: 0;
+  font-size: var(--text-sm);
   font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-head);
-  color: var(--palm-fg-3);
-  text-align: left;
+  color: var(--text-secondary);
+  text-align: center;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── 顶栏运行徽标（2026-11-10）────────────────────────────────────────────
+   输入框上方那行「任务 3/7 · 子代理 2 个运行中」搬到顶栏，做成一个可点的小徽标：
+   它不跟输入区抢注意力，点开是既有的运行详情面板（计划 / 后台任务 / 子代理）。 */
+.chat-run-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--palm-s1);
+  padding: var(--palm-hair) var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-full);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+}
+
+/* 在跑的记号：一个小圆点，省一个 class（预算只降不升）。 */
+.chat-run-badge::before {
+  content: '';
+  inline-size: var(--palm-s1);
+  block-size: var(--palm-s1);
+  border-radius: 50%;
+  background: var(--palm-accent);
+  flex: none;
+}
+
+/* 徽标搬进第二行后视觉只有 18px 高：用一块不可见的扩展区把点击目标撑到 44px，
+   不动布局（移动端最小触控 44px 是这一版定下的硬规则）。 */
+.chat-run-badge::after {
+  content: '';
+  position: absolute;
+  inset: -13px -10px;
+}
+
+.chat-run-badge:active { opacity: 0.72; }
 

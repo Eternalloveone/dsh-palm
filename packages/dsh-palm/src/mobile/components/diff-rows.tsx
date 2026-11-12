@@ -12,10 +12,12 @@
  * 号，删除行显示它在新文件里的位置（不另占号）。所以整列只会向前走，不会出现
  * "旧文件第 40 行" 接在 "新文件第 10 行" 后面那种跳回。
  *
- * 超长行策略：**截断**（单行、不横向滚动、右侧省略号）。手机上横向滚动的 diff
- * 很难用——滑到一半就看不见行号了。完整文本仍留在 DOM 里（长按可选中复制），
- * 只是视觉上截断；块上标 `data-overflow="truncate"` 把这条口径写死在结构上，
- * 单测据此断言。CSS 侧见 `styles/450-diff-page.css` 的 `.diff-page-text`。
+ * 超长行策略（2026-11-10 改）：**软换行**。原先是截断成一行 + 省略号，理由是横向
+ * 滚动会滑掉行号；但截断等于把后半行藏起来，只读的 diff 页除了长按选中复制没有
+ * 别的办法看全——而这页就是用来"看清改了什么"的。软换行既不横向滚，也不丢内容：
+ * 缩进由 `pre-wrap` 保留，长标识符用 `overflow-wrap: anywhere` 断行。块上标
+ * `data-overflow="wrap"` 把这条口径写死在结构上，单测据此断言。CSS 侧见
+ * `styles/450-diff-page.css` 的 `.diff-page-text`。
  *
  * @module dsh-palm/mobile/components/diff-rows
  */
@@ -117,7 +119,7 @@ export function DiffRows({ text }: DiffRowsProps) {
   const rows = useMemo(() => rowsOf(text), [text])
 
   return (
-    <div className="diff-page-block" data-overflow="truncate">
+    <div className="diff-page-block" data-overflow="wrap">
       <div className="diff-page-lines">
         {rows.map(row => (row.kind === 'hunk' ? (
           <div key={row.key} className="diff-page-hunk" aria-hidden="true">{row.text}</div>

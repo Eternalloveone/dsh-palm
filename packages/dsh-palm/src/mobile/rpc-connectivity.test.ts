@@ -56,6 +56,45 @@ describe('rpc connectivity bus', () => {
     expect(seen).toEqual([false, true])
     vi.unstubAllGlobals()
   })
+  it('treats a caller cancel as a cancel, not as an outage', async () => {
+    // 真机（2026-11-12）：切旧会话必闪「网络慢了一点」。旧页要活 260 ms 才卸载，
+    // 卸载 abort 掉仍在飞的尾页读（宿主侧记 499），这一下被当成断网，横幅正好
+    // 亮在新会话顶部。取消是我们自己不要答案，不是链路没答话。
+    reportConnectivity(true)
+    const seen = watch()
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => { reject(new DOMException('Aborted', 'AbortError')) })
+      controller.abort()
+    })))
+    await expect(callUnary('session.history', {}, controller.signal)).rejects.toThrow('请求已取消')
+    expect(seen).toEqual([])
+    // 取消也不能把「连续没答话」的计数喂给下一次：否则下一次单独一次真超时就会被判断网。
+    const hang = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => { reject(new DOMException('Aborted', 'AbortError')) })
+    }))
+    vi.stubGlobal('fetch', hang)
+    await expect(callUnary('session.list', {}, undefined, 5)).rejects.toThrow()
+    expect(seen).toEqual([])
+    vi.unstubAllGlobals()
+  })
+
+  it('does not call a background teardown an outage', async () => {
+    // 页面在后台时浏览器会掐掉在飞请求（宿主侧同样是 499）：那也不是断网，
+    // 回前台会自己重新探一次。不拦，锁屏回来就是一串「网络慢了一点」。
+    reportConnectivity(true)
+    const seen = watch()
+    // 这个文件跑在 node 环境（没有 document）：只给判据喂一个够用的壳。
+    vi.stubGlobal('document', { visibilityState: 'hidden' })
+    try {
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+      await expect(callUnary('session.list', {})).rejects.toThrow()
+      expect(seen).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('delivers a report to every subscriber and drops unsubscribed ones', () => {
     const seen: boolean[] = []
     const off = onConnectivityChange(online => { seen.push(online) })

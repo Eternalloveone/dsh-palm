@@ -57,17 +57,20 @@ describe('过程条头行：没有 authority 只画「—」', () => {
     expect(head.textContent).not.toContain('深度求索中')
   })
 
-  it('hydrated 缺省 = 已水合：同一行仍只报计数，过程头永远不带计时（计时归状态条）', () => {
+  it('hydrated 缺省 = 已水合：收工后的无过程行回合不再画过程头（计时只归状态条）', () => {
     const message = assistant({ text: '答案', durationMs: 19_000, turnStartAt: 1_000 })
     const { container } = render(
       <MessageRow message={message} showToolCalls={true} showSystemMessages={false} />,
     )
 
-    const head = container.querySelector('.chat-proc-head-static') as HTMLElement
-    expect(head.getAttribute('data-state')).toBe('ok')
-    expect(head.querySelector('.chat-proc-state')!.textContent).toBe('—')
-    expect(head.querySelector('.chat-proc-time')).toBeNull()
-    expect(head.getAttribute('aria-label')).toBe('—')
+    // 收工（`running === false`）且没有过程行：整个过程组不渲染。
+    // 以前这里会留一个 `data-state="ok"`、内容为「—」的静态头。
+    expect(container.querySelector('.chat-proc')).toBeNull()
+    expect(container.textContent).not.toContain('—')
+    // 计时仍在任务头状态条（唯一出处）。
+    const strip = container.querySelector('.palm-strip') as HTMLElement
+    expect(strip).not.toBeNull()
+    expect(strip.textContent).toContain('19s')
   })
 
   it('运行中的行：水合前后都不写「深度求索中」，也不挂秒表', () => {

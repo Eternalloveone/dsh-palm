@@ -15,7 +15,7 @@ import { readFile, type FilePreview } from '../api.ts'
 import { Sheet } from '../ui/sheet.tsx'
 import { copyText } from '../render/code-actions.ts'
 import { highlightCodeSync } from '../render/shiki.ts'
-import { escapeHtml, parseSegments } from '../render/markdown.ts'
+import { parseSegments } from '../render/markdown.ts'
 import { CodeBlock } from '../render/code-block.tsx'
 import { DiffView } from '../render/diff-view.tsx'
 import { CopyIcon } from './icons.tsx'
@@ -30,28 +30,57 @@ const EXT_LANG: Record<string, string> = {
   sql: 'sql', txt: 'text', log: 'text', gitignore: 'text', toml: 'text',
 }
 
-/** Pick a shiki language key from a file path's extension (or plain text). */
+/**
+ * 取扩展名，**先剥掉链接尾巴**再判（2026-11-11 真机：正文里的 md 打开是源码）。
+ *
+ * 聊天里的路径经常带定位尾巴：`docs/x.md#L24`（我按规范给的行号链接）、
+ * `x.md?raw`、`report.ts:24` / `report.ts:24-30`。原来的 `lastIndexOf('.')`
+ * 会把这些尾巴算进扩展名（`md#l24` / `md?raw` / `md:24`），于是
+ * `isMarkdownPath` 判假 → 落到 `<pre>` 源码视图。用户看到的就是「打开是源格式」。
+ *
+ * Windows 盘符里的冒号不能当行号剥：只有「最后一个冒号后面全是数字」才算 `:24`。
+ *
+ * @param path - 作者写的路径（可能带 `#L…`、`?…`、`:行号`）
+ * @returns 小写扩展名（没有就是空串）
+ */
+function extensionOf(path: string): string {
+  const withoutSuffix = path.replace(/[?#].*$/, '').trim()
+  const base = withoutSuffix.split(/[\\/]/).pop() ?? ''
+  const withoutLine = base.replace(/:\d+(-\d+)?$/, '')
+  const dot = withoutLine.lastIndexOf('.')
+  return dot > 0 ? withoutLine.slice(dot + 1).toLowerCase() : ''
+}
+
+/**
+ * 真正交给宿主去读的路径：剥掉 `#L24`、`?raw`、`:24` 这些**定位尾巴**。
+ *
+ * 宿主是按磁盘路径读文件的，带着尾巴只会得到 ENOENT —— 于是点开就是
+ * 「文件不可读」，而不是内容。渲染用哪个视图另说（见 {@link extensionOf}）。
+ *
+ * @param path - 用户点进来的原始路径
+ * @returns 去掉锚点/行号后的路径
+ */
+function readPathOf(path: string): string {
+  return path.replace(/[?#].*$/, '').replace(/:\d+(-\d+)?$/, '')
+}
+
+/** Extension → shiki language key (best effort; unknown → plain text). */
 function languageForPath(path: string): string {
-  const base = path.split(/[\\/]/).pop() ?? ''
-  const dot = base.lastIndexOf('.')
-  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : base.toLowerCase()
+  const ext = extensionOf(path)
+  if (ext === '') return 'text'
   if (ext === 'gitignore' || ext === 'dockerignore') return 'text'
   return EXT_LANG[ext] ?? 'text'
 }
 
 /** True when a file path names a markdown document (rendered, not plain). */
 function isMarkdownPath(path: string): boolean {
-  const base = path.split(/[\\/]/).pop() ?? ''
-  const dot = base.lastIndexOf('.')
-  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : ''
+  const ext = extensionOf(path)
   return ext === 'md' || ext === 'markdown' || ext === 'mdx'
 }
 
 /** True when a file path names an HTML document (rendered in a sandbox). */
 function isHtmlPath(path: string): boolean {
-  const base = path.split(/[\\/]/).pop() ?? ''
-  const dot = base.lastIndexOf('.')
-  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : ''
+  const ext = extensionOf(path)
   return ext === 'html' || ext === 'htm'
 }
 
@@ -70,11 +99,20 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
     | { status: 'error'; message: string }
     | { status: 'ready'; preview: FilePreview }
   >({ status: 'loading' })
+  /**
+   * markdown 的两种看法：渲染稿（默认）与源码。
+   *
+   * 用户 2026-11-11 要的：「打开 md 能切渲染 / 源格式」。默认渲染 —— 手机上读
+   * 一份 markdown 就该像文档；要看原文（比如核对表格源码）再点一下切过去。
+   * 换文件时复位，别让上一次的选择带到下一份文件。
+   */
+  const [sourceView, setSourceView] = useState(false)
 
   useEffect(() => {
     let alive = true
     setState({ status: 'loading' })
-    readFile(path, sessionId).then(
+    setSourceView(false)
+    readFile(readPathOf(path), sessionId).then(
       (preview) => { if (alive) setState({ status: 'ready', preview }) },
       (error: unknown) => {
         if (!alive) return
@@ -87,6 +125,7 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
 
   const ready = state.status === 'ready' ? state.preview : null
   const isImage = ready?.kind === 'image'
+  const markdown = ready !== null && !isImage && isMarkdownPath(ready.path)
   const displayName = ready !== null ? ready.name : (path.split(/[\\/]/).pop() ?? path)
 
   return (
@@ -101,6 +140,17 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
         <>
           <div className="fp-actions">
             <span className="fp-path" title={ready.path}>{ready.path}</span>
+            {markdown && (
+              <Button
+                type="button"
+                className="fp-copy fp-toggle"
+                data-role="md-view-toggle"
+                data-view={sourceView ? 'source' : 'rendered'}
+                onClick={() => { setSourceView(value => !value) }}
+              >
+                {sourceView ? '预览' : '源码'}
+              </Button>
+            )}
             {!isImage && (
               <Button type="button" className="fp-copy" onClick={() => { void copyText(ready.text, '已复制文件原文') }}>
                 <CopyIcon />
@@ -113,7 +163,7 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
               <img className="fp-image" src={ready.dataUrl} alt={ready.name} draggable={false} />
             </div>
           ) : (
-            <TextPreview path={ready.path} text={ready.text} />
+            <TextPreview path={ready.path} text={ready.text} source={sourceView} />
           )}
         </>
       )}
@@ -121,16 +171,22 @@ export function FilePreviewSheet({ path, sessionId, onClose }: FilePreviewSheetP
   )
 }
 
-/** Text preview content: markdown/html/code/plain by extension. */
-function TextPreview({ path, text }: { path: string; text: string }) {
+/**
+ * Text preview content: markdown/html/code/plain by extension.
+ *
+ * @param props.path - 宿主解析后的真实路径（决定按哪种视图渲染）
+ * @param props.text - 文件原文
+ * @param props.source - 强制源码视图（markdown 的「源码」档）
+ */
+function TextPreview({ path, text, source = false }: { path: string; text: string; source?: boolean }) {
   const lang = languageForPath(path)
   const highlighted = highlightCodeSync(text, lang)
   const displayName = path.split(/[\\/]/).pop() ?? path
   const markdown = isMarkdownPath(path)
   const htmlDoc = isHtmlPath(path)
   const segments = useMemo(
-    () => (markdown ? parseSegments(text) : null),
-    [markdown, text],
+    () => (markdown && !source ? parseSegments(text) : null),
+    [markdown, source, text],
   )
 
   if (segments !== null) {
@@ -169,7 +225,7 @@ function TextPreview({ path, text }: { path: string; text: string }) {
   }
   return (
     <FpLongText text={text}>
-      <pre className="fp-body fp-plain">{escapeHtml(text)}</pre>
+      <pre className="fp-body fp-plain">{text}</pre>
     </FpLongText>
   )
 }

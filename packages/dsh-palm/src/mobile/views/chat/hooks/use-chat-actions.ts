@@ -87,7 +87,7 @@ export function useChatActions(deps: ChatActionsDeps): {
       () => {
         regenerateInFlightRef.current = false
         setRegenerateState('failed')
-        toast('重新生成失败，请重试')
+        toast('这次没生成出来，再点一次')
       },
     )
   }, [sessionId, mux, messagesRef, regenerateHintShownRef, regenerateInFlightRef, regenerateWatchdogRef, setRegenerateState, toast])

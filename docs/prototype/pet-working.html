@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>宠物在干活</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#08080c;color:#f2f4fa;font-family:-apple-system,"PingFang SC",system-ui,sans-serif}
+  .wrap{padding:22px 24px;width:max-content}
+  h1{font-size:15px;font-weight:600;margin:0 0 3px}
+  .sub{font-size:11px;color:#666c7a;margin:0 0 16px;line-height:1.6}
+  .card{background:#0e0e14;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px 16px;margin-bottom:13px;width:430px}
+  .ch{font-size:11px;color:#9aa0ae;margin-bottom:9px}
+  .ch b{color:#e3e6ee;font-size:12px}
+  .row{display:flex;align-items:center;gap:8px;height:38px}
+  .row+.row{margin-top:3px}
+  .stage{position:relative;width:34px;height:30px;flex:none}
+  .stage svg{position:absolute;left:0;top:2px;image-rendering:pixelated}
+  .prop{position:absolute;left:17px;top:12px;image-rendering:pixelated}
+  .txt{font-size:11.5px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c9cedb}
+  .txt b{color:#f2f4fa;font-weight:600}
+  .num{font-size:10px;color:#9aa0ae;flex:none;font-variant-numeric:tabular-nums;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.055)}
+  .tm{font-size:10px;color:#666c7a;flex:none;font-variant-numeric:tabular-nums;width:52px;text-align:right}
+  .note{font-size:10px;color:#666c7a;margin:10px 0 0;line-height:1.7}
+  .k{color:#b8c0ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>宠物在干活：没有条，只有动作</h1>
+  <p class="sub">宠物 + 一件道具 = 它现在在做什么。进度只在能算出总数时给一个数字，其它时候不给。</p>
+
+  <div class="card">
+    <div class="ch"><b>运行中</b>　道具随动作换，宠物一直有小动作</div>
+    <div id="run"></div>
+    <p class="note">
+      读文件 → 面前摊一本书 · 改文件 → 敲键盘 · 跑测试 → 举哑铃<br>
+      <span class="k">不画进度条</span>：你不知道还剩多少，它也没假装知道。右侧只有「3 / 7」这种真数。
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="ch"><b>非运行态</b>　同一只宠物，换姿势换颜色</div>
+    <div id="idle"></div>
+    <p class="note">
+      等你确认 → 举手 · 数据未到 → 打盹（灰）· 完成 → 举小旗 · 失败 → 蹲下<br>
+      全程没有条、没有环、没有点阵。
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="ch"><b>紧凑版</b>　抽屉里那种 132px 宽的位置</div>
+    <div id="mini"></div>
+    <p class="note">只剩宠物 + 一个词。放抽屉里不抢空间，也一眼看出在干嘛。</p>
+  </div>
+</div>
+
+<script>
+/* ---------- 宠物：16×16 像素，四套姿势 ---------- */
+const BASE = [
+  [4,2],[5,2],[10,2],[11,2],
+  [4,3],[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],[11,3],
+  [4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+  [4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+  [5,6],[6,6],[7,6],[8,6],[9,6],[10,6],
+  [5,7],[6,7],[7,7],[8,7],[9,7],[10,7],
+  [5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
+]
+const POSES = {
+  sit:   { legs: [[6,9],[6,10],[9,9],[9,10]], tail: [[12,7],[12,8],[13,8]], arm: [] },
+  type:  { legs: [[6,9],[6,10],[9,9],[9,10]], tail: [[12,7],[12,8],[13,8]], arm: [[11,6],[11,7]] },
+  lift:  { legs: [[5,9],[5,10],[10,9],[10,10]], tail: [[12,8],[13,8],[13,9]], arm: [[4,5],[3,4]] },
+  cheer: { legs: [[6,9],[6,10],[9,9],[9,10]], tail: [[13,6],[13,7],[13,8]], arm: [[4,4],[11,4]] },
+  sad:   { legs: [[6,9],[6,10],[9,9],[9,10]], tail: [[12,9],[13,10],[13,11]], arm: [] },
+  sleep: { legs: [[6,9],[9,9]], tail: [[12,8],[13,9],[13,10]], arm: [] },
+}
+
+function px(list, color) {
+  let s = ''
+  for (const p of list) s += '<rect x="' + p[0] + '" y="' + p[1] + '" width="1" height="1" fill="' + color + '"/>'
+  return s
+}
+
+function petSvg(pose, tone, size) {
+  size = size || 26
+  const P = POSES[pose] || POSES.sit
+  const dark = '#0b0b12'
+  let s = px(BASE, tone) + px(P.legs, tone) + px(P.tail, tone) + px(P.arm, tone)
+  if (pose === 'sleep') {
+    s += px([[5,5],[6,5]], dark) + px([[9,5],[10,5]], dark)
+  } else if (pose === 'sad') {
+    s += px([[6,5]], dark) + px([[9,5]], dark)
+    s += '<rect x="5" y="4" width="2" height="1" fill="' + dark + '" opacity=".55"/>'
+    s += '<rect x="9" y="4" width="2" height="1" fill="' + dark + '" opacity=".55"/>'
+  } else {
+    s += px([[6,5],[9,5]], dark)
+  }
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 16 16" shape-rendering="crispEdges" ' +
+    'style="width:' + size + 'px;height:' + size + 'px">' + s + '</svg>'
+}
+
+/* ---------- 道具：8×8 ---------- */
+const PROPS = {
+  book: function (c) { return px([[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],
+                                    [0,2],[1,2],[3,2],[4,2],[5,2],
+                                    [0,3],[1,3],[2,3],[3,3],[4,3],[5,3]], c) },
+  keyboard: function (c) { return px([[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],
+                                       [0,3],[2,3],[4,3],[5,3]], c) },
+  dumbbell: function (c) { return px([[0,1],[1,1],[2,2],[2,3],[2,4],[3,2],[3,3],[3,4]], c) },
+  flag: function (c) { return px([[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[2,0],[3,0],[1,1],[2,1]], c) },
+  question: function (c) { return px([[1,0],[2,0],[3,1],[3,2],[2,3],[2,4]], c) },
+  zzz: function (c) { return px([[0,0],[1,0],[2,0],[2,1],[1,2],[0,2],[3,1]], c) },
+}
+
+function propSvg(name, color, size) {
+  size = size || 14
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 6 6" shape-rendering="crispEdges" ' +
+    'style="width:' + size + 'px;height:' + size + 'px" class="prop">' + PROPS[name](color) + '</svg>'
+}
+
+function row(pose, tone, prop, propColor, verb, detail, num, time) {
+  return '<div class="row">' +
+    '<div class="stage">' + petSvg(pose, tone) + (prop ? propSvg(prop, propColor) : '') + '</div>' +
+    '<div class="txt"><b>' + verb + '</b>' + (detail ? ' · ' + detail : '') + '</div>' +
+    (num ? '<div class="num">' + num + '</div>' : '') +
+    '<div class="tm">' + time + '</div></div>'
+}
+
+const GREEN = '#9ff0c4', AMBER = '#f3d79a', GREY = '#8a9099', RED = '#ff9aa6'
+const INK = '#c6f6dc', WARM = '#f6e2b8', COOL = '#c9cedb'
+
+document.getElementById('run').innerHTML =
+  row('sit', GREEN, 'book', INK, '读文件', '12 个', '3 / 7', '14s') +
+  row('type', GREEN, 'keyboard', INK, '改文件', 'chat-rows.tsx', '4 / 7', '31s') +
+  row('lift', GREEN, 'dumbbell', INK, '跑测试', '移动端 214 条', '', '48s')
+
+document.getElementById('idle').innerHTML =
+  row('cheer', GREEN, 'flag', INK, '完成', '7 步', '', '2分04秒') +
+  row('sit', AMBER, 'question', WARM, '等你确认', '3 个文件要写', '', '等你 2分') +
+  row('sleep', GREY, 'zzz', GREY, '—', '', '', '—') +
+  row('sad', RED, '', '', '失败', '第 5 步', '', '1分12秒')
+
+document.getElementById('mini').innerHTML =
+  '<div class="row" style="gap:6px">' +
+    '<div class="stage" style="width:28px">' + petSvg('type', GREEN, 22) + propSvg('keyboard', INK, 12) + '</div>' +
+    '<div class="txt" style="font-size:11px">改文件</div></div>' +
+  '<div class="row" style="gap:6px">' +
+    '<div class="stage" style="width:28px">' + petSvg('sleep', GREY, 22) + '</div>' +
+    '<div class="txt" style="font-size:11px;color:#70707f">—</div></div>'
+</script>
+</body>
+</html>

@@ -47,6 +47,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--palm-s4);
+  /* 2026-11-10 实机：这一页原来没有任何左右内边距，汇总行和三组清单全都贴着屏幕
+     边缘（x=0），而页头副标题却从 16px 起 —— 整页看着"歪的"。统一到 16px。 */
+  padding: 0 var(--palm-s4) var(--palm-s5);
 }
 
 /* 顶部汇总：N 个文件 / +A −D / N 测试通过（拿不到的项整项不画）。 */
@@ -102,9 +105,15 @@
 .palm-dd-list {
   display: flex;
   flex-direction: column;
-  gap: var(--palm-s2);
+  /* 2026-11-10：三组各自一串"独立卡片"看起来像三堆碎块，行距还被卡片间隙吃掉。
+     现在一组 = 一张卡（圆角 + 细边），行间只用分隔线，信息密度和视觉重量都回来。 */
+  gap: 0;
   margin: 0;
   padding: 0;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  overflow: hidden;
   list-style: none;
 }
 
@@ -116,18 +125,23 @@
   gap: var(--palm-s2);
   min-block-size: var(--palm-hit);
   padding: var(--palm-s2) var(--palm-s3);
-  background: var(--palm-sur-1);
-  border: var(--palm-hair) solid var(--palm-line);
-  border-radius: var(--palm-r-m);
+  background: none;
+  border: 0;
+  border-radius: 0;
   color: var(--palm-fg);
   font: inherit;
+}
+
+/* 行间分隔线挂在 li 上：行本身是按钮，画边框会跟 :active 底色打架。 */
+.palm-dd-list > li + li .palm-dd-row {
+  border-block-start: var(--palm-hair) solid var(--palm-line);
 }
 
 .palm-dd-row:active { background: var(--palm-sur-2); }
 
 .palm-dd-row:focus-visible {
   outline: var(--palm-focus) solid var(--palm-accent);
-  outline-offset: var(--palm-hair);
+  outline-offset: calc(var(--palm-focus) * -1);
 }
 
 .palm-dd-icon {
@@ -140,12 +154,30 @@
   block-size: var(--palm-s4);
 }
 
+/* 文件名两行式：主行是名字/说明，副行是暗一档的路径（各自省略号，互不挤占）。 */
 .palm-dd-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   min-inline-size: 0;
   overflow: hidden;
-  font-size: var(--palm-t-m);
+}
+
+.palm-dd-file,
+.palm-dd-dir {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.palm-dd-file {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
+}
+
+.palm-dd-dir {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
 }
 
 .palm-dd-tally {
@@ -163,7 +195,7 @@
 .palm-dd-badge {
   padding: 0 var(--palm-s1);
   border-radius: var(--palm-r-s);
-  background: color-mix(in srgb, var(--palm-ok) 18%, transparent);
+  background: var(--palm-ok-band);
   color: var(--palm-ok);
   font-size: var(--palm-t-s);
 }

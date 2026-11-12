@@ -17,6 +17,7 @@ export {
   cancelSession,
   createSession,
   createSessionFolder,
+  deliveryAccepted,
   goalAction,
   goalOf,
   history,

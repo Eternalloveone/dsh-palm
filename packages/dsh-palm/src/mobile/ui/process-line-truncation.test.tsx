@@ -64,6 +64,8 @@ describe('工具行：短标题不许被长摘要挤成省略号', () => {
       <MessageRow message={mcpMessage()} showToolCalls showSystemMessages={false} />,
     )
     fireEvent(window, new Event('resize'))
+    // 折叠态只有一行摘要；工具行的标题/摘要要展开后才在时间轴里。
+    fireEvent.click(container.querySelector('.chat-proc-head')!)
 
     const title = container.querySelector('.chat-step-title')!
     // 真机 bug 的形状：'工' + '·'（标题被压缩后用省略号收尾）。

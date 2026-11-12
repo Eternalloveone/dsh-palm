@@ -22,7 +22,6 @@
  */
 import { MessageMenu } from './message-menu.tsx'
 import { SessionSheets } from './session-sheets.tsx'
-import { VoiceSheet } from './voice-sheet.tsx'
 import { FilePreviewSheet } from '../../../components/file-preview-sheet.tsx'
 import { ImageLightbox } from '../../../components/image-lightbox.tsx'
 
@@ -31,19 +30,17 @@ export interface ChatOverlaysProps {
   filePreview: Parameters<typeof FilePreviewSheet>[0] | undefined
   lightbox: Parameters<typeof ImageLightbox>[0] | undefined
   sessionSheets: Parameters<typeof SessionSheets>[0]
-  voice: Parameters<typeof VoiceSheet>[0]
   messageMenu: Parameters<typeof MessageMenu>[0]
 }
 
 /** 渲染当前该出现的浮层。 */
 export function ChatOverlays(props: ChatOverlaysProps): React.ReactElement {
-  const { filePreview, lightbox, sessionSheets, voice, messageMenu } = props
+  const { filePreview, lightbox, sessionSheets, messageMenu } = props
   return (
     <>
       {filePreview !== undefined && <FilePreviewSheet {...filePreview} />}
       {lightbox !== undefined && <ImageLightbox {...lightbox} />}
       <SessionSheets {...sessionSheets} />
-      <VoiceSheet {...voice} />
       <MessageMenu {...messageMenu} />
     </>
   )

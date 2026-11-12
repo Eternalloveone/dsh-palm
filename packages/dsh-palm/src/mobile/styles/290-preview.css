@@ -128,7 +128,7 @@
 }
 
 .fp-error {
-  color: var(--danger, #d5484a);
+  color: var(--danger);
 }
 
 /* Sandboxed HTML preview: a white canvas keeps un-styled documents readable
@@ -140,7 +140,7 @@
   min-height: 240px;
   border: none;
   border-radius: 8px;
-  background: #fff;
+  background: var(--palm-sur-1);
 }
 
 /* Local image preview inside the sheet: fit width, auto height, scrollable. */

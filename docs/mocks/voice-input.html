@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>语音输入入口 · 效果图</title>
+<style>
+  :root {
+    --palm-r-s: 8px; --palm-r-m: 12px; --palm-r-l: 18px;
+    --palm-bg: #ffffff; --palm-sur-1: #fafafa; --palm-sur-2: #ececec;
+    --palm-line: rgba(231, 226, 221, 0.9);
+    --palm-fg: #161616; --palm-fg-2: #5c5c5c; --palm-fg-3: #747474;
+    --palm-accent: #8c4d38; --palm-danger: #b3261e;
+    --palm-tint-accent: rgba(140, 77, 56, 0.1);
+  }
+  * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0; padding: 34px 30px 30px; background: #ececea; color: var(--palm-fg);
+    font: 14px/1.5 -apple-system, "PingFang SC", "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font: 600 17px/1.3 Georgia, "Songti SC", serif; margin: 0 0 5px; }
+  .lead { margin: 0 0 20px; color: #5c5c5c; font-size: 12.5px; }
+  .stage { display: flex; gap: 28px; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 9px; }
+  .cap { font-size: 12px; color: #747474; padding-left: 3px; }
+  .cap b { color: #8c4d38; font-weight: 600; }
+
+  .phone {
+    width: 390px; height: 700px; border-radius: 36px; overflow: hidden; background: var(--palm-bg);
+    box-shadow: 0 0 0 1px rgba(22,22,22,.10), 0 14px 36px rgba(22,22,22,.15);
+    display: flex; flex-direction: column; position: relative;
+  }
+  .status { height: 42px; flex: none; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 22px; font-size: 12px; font-weight: 600; }
+  .bar { height: 46px; flex: none; display: flex; align-items: center; padding: 0 12px;
+         border-bottom: 1px solid var(--palm-line); gap: 10px; }
+  .bar .menu { width: 30px; height: 30px; display: grid; place-items: center; font-size: 15px; color: #333; }
+  .bar .title { flex: 1; text-align: center; font: 600 15px/1.2 Georgia, "Songti SC", serif; }
+  .bar .more { width: 30px; text-align: center; color: var(--palm-fg-3); font-size: 16px; }
+
+  .msgs { flex: 1; overflow: hidden; padding: 12px 14px 0; display: flex; flex-direction: column; gap: 10px; }
+  .bubble { max-width: 82%; padding: 9px 12px; border-radius: 14px; font-size: 13px; line-height: 1.55; }
+  .bubble.me { align-self: flex-end; background: var(--palm-tint-accent); color: #4a2a20; border-bottom-right-radius: 5px; }
+  .bubble.ai { align-self: flex-start; background: var(--palm-sur-1); box-shadow: 0 0 0 1px var(--palm-line); border-bottom-left-radius: 5px; }
+  .bubble .meta-line { font-size: 10.5px; color: var(--palm-fg-3); margin-top: 5px; }
+
+  /* 底部输入区：与真机一致（+ / 胶囊 / 发送） */
+  .dock { flex: none; padding: 8px 16px 18px; background: var(--palm-bg); display: flex; flex-direction: column; gap: 8px; }
+  .live { font-size: 12px; color: var(--palm-fg-3); padding: 0 2px; min-height: 17px; }
+  .live i { font-style: normal; color: var(--palm-fg-2); }
+  .inputrow { display: flex; align-items: center; gap: 9px; }
+  .plus {
+    width: 38px; height: 38px; flex: none; border-radius: 50%; display: grid; place-items: center;
+    background: var(--palm-sur-1); box-shadow: 0 0 0 1px var(--palm-line); color: #333; font-size: 19px;
+  }
+  .field {
+    flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 8px;
+    padding: 0 6px 0 14px; border-radius: 22px; background: var(--palm-bg);
+    box-shadow: 0 0 0 1px var(--palm-line);
+  }
+  .ph { flex: 1; color: var(--palm-fg-3); font-size: 14px; }
+  .typed { flex: 1; color: var(--palm-fg); font-size: 14px; line-height: 1.4; }
+  /* 转写后是多行文本：输入框要跟着长高，别把第二行挤到框外 */
+  .field.multi { height: auto; min-height: 44px; align-items: flex-end; padding: 10px 6px 10px 14px; }
+  .caret { display: inline-block; width: 1.5px; height: 16px; background: var(--palm-accent); vertical-align: -3px; margin-left: 1px; }
+  .mic {
+    width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center;
+    color: var(--palm-fg-2);
+  }
+  .mic.prominent { background: var(--palm-sur-2); color: var(--palm-fg); }
+  .send {
+    width: 38px; height: 38px; flex: none; border-radius: 50%; display: grid; place-items: center;
+    background: var(--palm-sur-2); color: var(--palm-fg-3); font-size: 15px;
+  }
+  .send.on { background: var(--palm-accent); color: #fff; }
+
+  /* 录音态：输入框就地变成录音条，不弹整屏面板 */
+  .field.rec { padding: 0 6px 0 12px; box-shadow: 0 0 0 1.5px rgba(179,38,30,.55); }
+  .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--palm-danger); flex: none; }
+  .wave { display: flex; align-items: center; gap: 3px; height: 22px; }
+  .wave span { width: 3px; border-radius: 2px; background: var(--palm-danger); opacity: .75; }
+  .time { font: 500 12.5px/1 ui-monospace, "SF Mono", Consolas, monospace; color: var(--palm-danger); flex: none; }
+  .stop { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center;
+          background: var(--palm-danger); color: #fff; }
+  .stop i { width: 10px; height: 10px; border-radius: 2px; background: #fff; display: block; }
+  .meta { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--palm-fg-3); padding: 0 2px; }
+  .pill { padding: 2px 9px; border-radius: 999px; background: var(--palm-sur-1); box-shadow: 0 0 0 1px var(--palm-line); color: var(--palm-fg-2); }
+  .meta .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+  .hintcard {
+    display: flex; gap: 8px; padding: 10px 12px; border-radius: var(--palm-r-m);
+    background: var(--palm-sur-1); box-shadow: 0 0 0 1px var(--palm-line); font-size: 12px; color: var(--palm-fg-2);
+  }
+  .hintcard b { color: var(--palm-fg); font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>语音输入：从「+ 里面第四层」提到输入行</h1>
+  <p class="lead">Claude 皮肤 · 390×700 · ①麦克风常驻输入框 ②点一下就地录音 ③转写直接进框可编辑</p>
+
+  <div class="stage">
+    <!-- ① 常态 -->
+    <div class="col">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>􀛨 􀙇 􀋨</span></div>
+        <div class="bar"><div class="menu">☰</div><div class="title">手机实机查看实时效果</div><div class="more">⋯</div></div>
+        <div class="msgs">
+          <div class="bubble me">把抽屉的动效改成 iPhone 那种</div>
+          <div class="bubble ai">
+            现在整块从左边推进来，后面那页会缩小后退，像被推开的卡片。
+            <div class="meta-line">07:52</div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="live"></div>
+          <div class="inputrow">
+            <div class="plus">+</div>
+            <div class="field">
+              <span class="ph">说点什么…</span>
+              <!-- 麦克风常驻：不用进任何面板，拇指一伸就到 -->
+              <span class="mic prominent">
+                <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
+                  <rect x="6" y="1.6" width="4" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M3.6 7.6 A4.4 4.4 0 0 0 12.4 7.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <path d="M8 12 V14.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </span>
+            </div>
+            <div class="send">↑</div>
+          </div>
+          <div class="meta">
+            <span class="pill">v4.1-flash:1017</span>
+            <span class="pill">完全访问</span>
+            <span class="right">空闲 · <b style="color:#1f6f45">◔ 24%</b></span>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>①</b> 麦克风就在输入框里，一眼看得见</div>
+    </div>
+
+    <!-- ② 录音中 -->
+    <div class="col">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>􀛨 􀙇 􀋨</span></div>
+        <div class="bar"><div class="menu">☰</div><div class="title">手机实机查看实时效果</div><div class="more">⋯</div></div>
+        <div class="msgs">
+          <div class="bubble me">把抽屉的动效改成 iPhone 那种</div>
+          <div class="bubble ai">
+            现在整块从左边推进来，后面那页会缩小后退，像被推开的卡片。
+            <div class="meta-line">07:52</div>
+          </div>
+        </div>
+        <div class="dock">
+          <!-- 实时转写：边录边出字，用户知道它听清了没有 -->
+          <div class="live">转写中 · <i>把语音输入挪到输入框，别再藏在加号里</i></div>
+          <div class="inputrow">
+            <div class="plus">+</div>
+            <div class="field rec">
+              <span class="rec-dot"></span>
+              <span class="wave"><span style="height:7px"></span><span style="height:14px"></span><span style="height:20px"></span><span style="height:11px"></span><span style="height:17px"></span><span style="height:8px"></span><span style="height:13px"></span></span>
+              <span class="time">00:12</span>
+              <span style="flex:1"></span>
+              <span class="stop"><i></i></span>
+            </div>
+            <div class="send">↑</div>
+          </div>
+          <div class="meta">
+            <span class="pill">v4.1-flash:1017</span>
+            <span class="pill">完全访问</span>
+            <span class="right">录音中 · <b style="color:#b3261e">◉ 正在听</b></span>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>②</b> 点一下就地录音，不弹整屏面板，不遮对话</div>
+    </div>
+
+    <!-- ③ 完成 -->
+    <div class="col">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>􀛨 􀙇 􀋨</span></div>
+        <div class="bar"><div class="menu">☰</div><div class="title">手机实机查看实时效果</div><div class="more">⋯</div></div>
+        <div class="msgs">
+          <div class="bubble me">把抽屉的动效改成 iPhone 那种</div>
+          <div class="bubble ai">
+            现在整块从左边推进来，后面那页会缩小后退，像被推开的卡片。
+            <div class="meta-line">07:52</div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="live">已转写 · 可以改，改完再发</div>
+          <div class="inputrow">
+            <div class="plus">+</div>
+            <div class="field multi">
+              <span class="typed">把语音输入挪到输入框，别再藏在加号里<span class="caret"></span></span>
+              <span class="mic">
+                <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
+                  <rect x="6" y="1.6" width="4" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M3.6 7.6 A4.4 4.4 0 0 0 12.4 7.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <path d="M8 12 V14.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </span>
+            </div>
+            <div class="send on">↑</div>
+          </div>
+          <div class="meta">
+            <span class="pill">v4.1-flash:1017</span>
+            <span class="pill">完全访问</span>
+            <span class="right">空闲 · <b style="color:#1f6f45">◔ 24%</b></span>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>③</b> 转写完进输入框，能改再发（不自动发）</div>
+    </div>
+  </div>
+</body>
+</html>

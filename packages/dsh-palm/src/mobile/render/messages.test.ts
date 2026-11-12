@@ -191,7 +191,8 @@ describe('foldEvents', () => {
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
     expect(assistant?.toolSummary).toBe('使用 bash / read')
-    expect(assistant?.tools).toEqual([
+    // 工具行多了 startedAt（C1 详情面板算耗时用），这里只比关心的字段。
+    expect(assistant?.tools).toMatchObject([
       { callId: 'c1', name: 'bash', arguments: '{}', state: 'running' },
       { callId: 'c2', name: 'read', arguments: '{"path":"a.txt"}', state: 'running' },
     ])
@@ -253,7 +254,9 @@ describe('foldEvents', () => {
     ]
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
-    expect(assistant?.tools).toEqual([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"a"}', state: 'running' }])
+    // 2026-11-10：工具行多了 startedAt / endedAt / output（C1 详情面板的耗时与输出），
+    // 这条只关心「同 callId 去重」关心的字段。
+    expect(assistant?.tools).toMatchObject([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"a"}', state: 'running' }])
   })
 
   it('attaches the host diff-card view to the tool call it rides beside', () => {
@@ -266,7 +269,8 @@ describe('foldEvents', () => {
     ]
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
-    expect(assistant?.tools).toEqual([
+    // 工具行多了 startedAt（C1 面板算耗时用），这里只断言 diff 视图这件事。
+    expect(assistant?.tools).toMatchObject([
       {
         callId: 'c1',
         name: 'write',
@@ -630,7 +634,7 @@ describe('foldEvents', () => {
     ]
     const result = foldEvents(events)
     const assistant = result.find(message => message.kind === 'assistant')
-    expect(assistant?.tools).toEqual([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"ls"}', state: 'running' }])
+    expect(assistant?.tools).toMatchObject([{ callId: 'c1', name: 'bash', arguments: '{"cmd":"ls"}', state: 'running' }])
   })
 
   it('marks the assistant message failed when turn/end ends in an error', () => {

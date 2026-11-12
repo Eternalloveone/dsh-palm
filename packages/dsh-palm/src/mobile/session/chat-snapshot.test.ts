@@ -36,12 +36,16 @@ describe('chat-snapshot', () => {
   })
 
   it('keeps a handful of sessions, dropping the least recently used', () => {
-    for (const id of ['a', 'b', 'c', 'd', 'e']) rememberChatSnapshot(id, [row(id)], false)
+    // 8 场：和 stream/session-store 的容量对齐，连翻 5 场再回最早那场不该掉快照。
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) rememberChatSnapshot(id, [row(id)], false)
+    expect(recallChatSnapshot('a')).toBeDefined()
+    // 第 9 场进来，最久没摸的 a 才被挤掉。
+    rememberChatSnapshot('i', [row('i')], false)
     expect(recallChatSnapshot('a')).toBeUndefined()
-    expect(recallChatSnapshot('e')).toBeDefined()
+    expect(recallChatSnapshot('i')).toBeDefined()
     // 再摸一下 b：它变成最近使用的，下一个被挤掉的应是 c。
     rememberChatSnapshot('b', [row('b')], false)
-    rememberChatSnapshot('f', [row('f')], false)
+    rememberChatSnapshot('j', [row('j')], false)
     expect(recallChatSnapshot('b')).toBeDefined()
     expect(recallChatSnapshot('c')).toBeUndefined()
   })

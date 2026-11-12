@@ -40,7 +40,7 @@
   border: none;
   border-radius: var(--palm-r-m);
   background: var(--palm-accent);
-  color: var(--accent-contrast);
+  color: var(--palm-on-accent);
   font: inherit;
   font-size: var(--palm-t-l);
   font-weight: var(--palm-w-bold);
@@ -50,12 +50,12 @@
 }
 
 .mobile-new:active {
-  transform: scale(0.98);
-  filter: brightness(1.1);
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
 }
 
 .mobile-new:disabled {
-  opacity: 0.6;
+  opacity: var(--palm-btn-disabled-opacity);
   transform: none;
   box-shadow: none;
 }

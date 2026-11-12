@@ -179,6 +179,36 @@ type ServiceAttempt =
   | { outcome: 'skip'; reason: string }
   | { outcome: 'stop'; reason: string }
 
+/**
+ * 把 HTTP 状态码翻成人话。
+ *
+ * 2026-11-12 实测：硅基流动账户余额为 0 时返回 **402 + `account balance is insufficient`**，
+ * 用户那头只看得到「转写服务不可用」，谁也不知道该去充值还是该换 key。
+ * 状态码本来是**我们自己的判定依据**（第三方响应体一个字节都不回传），把它翻成一句人话
+ * 不违反那条边界，却能让用户当场知道下一步做什么。
+ *
+ * @param status - ASR 端点返回的状态码
+ * @returns 形如 `HTTP 402：账户余额不足，需要充值`
+ */
+export function describeStatus(status: number): string {
+  const hint = status === 401 || status === 403
+    ? '密钥无效或没有这个模型的权限'
+    : status === 402
+      ? '账户余额不足，需要充值'
+      : status === 404
+        ? '地址或模型名不对（检查 baseURL 是否以 /v1 结尾）'
+        : status === 413
+          ? '录音太长，超出服务商上限'
+          : status === 429
+            ? '请求太频繁，被服务商限流'
+            : status >= 500
+              ? '服务商自己出错了，稍后再试'
+              : status === 400
+                ? '录音被拒（常见是太短或格式不对）'
+                : '请求被拒绝'
+  return `HTTP ${status}：${hint}`
+}
+
 /** One shot at the OpenAI-compatible `/audio/transcriptions` endpoint. */
 async function transcribeViaAsr(
   baseURL: string,
@@ -207,7 +237,7 @@ async function transcribeViaAsr(
     // The ASR response body is never echoed back: it is third-party content
     // that could carry anything, and it is not needed to decide the outcome.
     // The status code alone is enough for the (internal) failure reason.
-    return { outcome: 'skip', reason: `ASR 端点（${model}）HTTP ${response.status}` }
+    return { outcome: 'skip', reason: `ASR 端点（${model}）${describeStatus(response.status)}` }
   } catch (error) {
     // The fetch exception message is internal; it is only ever logged by the
     // caller, never returned to the phone.
@@ -321,8 +351,18 @@ export async function transcribeWav(audioBase64: string, services?: unknown): Pr
       failures.push(`${candidate.label}: ${attempt.reason}`)
       console.warn(`transcribe service ${candidate.label} failed: ${attempt.reason}`)
     }
-    // A stable user-facing refusal; the detailed failure list stays in the log.
-    return { error: '转写服务不可用' }
+    // 2026-11-12 用户：「提示『转写服务不可用』，这是什么情况」——
+    // 原来这里只回一句笼统的话，用户和我们都无从判断是密钥失效、模型名不对还是网络不通。
+    // 现在把**我们自己生成的**原因摘要带回去（`ASR 端点（模型）HTTP 401` / `转写失败：fetch failed`）。
+    // 边界没松：第三方响应体仍然一个字节都不回传，`transcribeViaAsr` 只产出状态码和异常类型，
+    // 所以带回去的东西全部来自本进程，不含任何外部内容。
+    if (failures.length === 1) {
+      const only = failures[0] ?? ''
+      // 去掉 `服务名: ` 前缀里的服务名可能带用户自起的名字，保留即可 —— 它本身就是用户填的。
+      return { error: `转写失败：${only}` }
+    }
+    const first = failures[0] ?? ''
+    return { error: `转写失败（${failures.length} 个服务都试过了）：${first}` }
   } finally {
     clearTimeout(timeout)
   }

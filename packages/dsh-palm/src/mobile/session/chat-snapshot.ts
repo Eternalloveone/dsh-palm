@@ -14,8 +14,8 @@
  */
 import type { RenderMessage } from '../render/messages.ts'
 
-/** 最多留几场会话（手机上同时翻的会话不会多）。 */
-const MAX_SESSIONS = 4
+/** 最多留几场会话：与 `stream/session-store.ts` 的 8 对齐（以前只留 4，连翻 5 场以上再回最早那场会掉快照、白冷启动一次）。 */
+const MAX_SESSIONS = 8
 /** 每场最多留多少行：够铺满首屏并留出上翻余量，再多就交给分页。 */
 const MAX_ROWS = 240
 

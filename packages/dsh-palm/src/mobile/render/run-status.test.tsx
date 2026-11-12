@@ -2,7 +2,7 @@
 /** RunStatusBar + RunStatusSheet: combined strip text, live dot, sheet sections. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { RunStatusBar, RunStatusSheet, SUBAGENT_VISIBLE_MAX } from './run-status.tsx'
+import { RunBadge, RunStatusBar, RunStatusSheet, SUBAGENT_VISIBLE_MAX } from './run-status.tsx'
 import type { TodoSnapshot } from './messages.ts'
 
 // No global auto-cleanup (globals: false): unmount between tests so screen
@@ -25,6 +25,33 @@ const job = (id: string, status: string, label = '整理记忆'): never => ({
 const subagent = (id: string, activity: 'running' | 'inactive'): never => ({
   id, label: `${id}-label`, activity,
 }) as never
+
+describe('RunBadge：跑完了入口也不能消失（2026-11-12 用户反馈）', () => {
+  it('全部结束的子代理仍然出徽标，报总个数', () => {
+    render(<RunBadge
+      todo={undefined}
+      jobs={[]}
+      subagents={[subagent('a', 'inactive'), subagent('b', 'inactive')]}
+      onOpen={() => {}}
+    />)
+    expect(screen.getByRole('button').textContent).toBe('代理 2')
+  })
+
+  it('有在跑的报在跑的个数（不是总数）', () => {
+    render(<RunBadge
+      todo={undefined}
+      jobs={[]}
+      subagents={[subagent('a', 'running'), subagent('b', 'inactive')]}
+      onOpen={() => {}}
+    />)
+    expect(screen.getByRole('button').textContent).toBe('代理 1')
+  })
+
+  it('确实没有子代理时依旧不画（不白占顶栏）', () => {
+    const { container } = render(<RunBadge todo={undefined} jobs={[]} subagents={[]} onOpen={() => {}} />)
+    expect(container.firstChild).toBeNull()
+  })
+})
 
 describe('RunStatusBar', () => {
   it('renders nothing when all inputs are empty', () => {

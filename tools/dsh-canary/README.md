@@ -9,8 +9,18 @@ DSH（不是本机 checkout 的那份），专门用来验插件在新 SDK 上�
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\dsh-canary\start.ps1
 ```
 
-脚本做四件事：写金丝雀 profile（只挂 base + web-app + dsh-palm）、预置一台已配对设备、
-`dsh plugin --profile web install`、起宿主并等 `/m/` 返回 200。
+默认只绑定 `127.0.0.1`，适合本机预览。要让同一 Wi-Fi 的手机访问，可传入电脑网卡上
+分配的一个具体 IPv4 地址（脚本会拒绝非本机地址与通配地址）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\dsh-canary\start.ps1 -HostAddress 192.168.4.200
+```
+
+手机打开 `http://<电脑局域网 IP>:3099/m/`。这条链路只适合可信的本地网络；不要把 canary
+端口转发或公开到互联网。改源码后重新构建并刷新页面；当前宿主不是 Vite HMR 模式。
+
+脚本写金丝雀 profile（只挂 base + web-app + dsh-palm）、预置一台已配对设备、安装 profile 插件，
+再绑定指定的本机接口并等 `/m/` 返回 200。默认只对本机开放。
 
 前置（只需一次）：
 

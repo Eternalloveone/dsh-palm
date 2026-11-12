@@ -66,6 +66,32 @@ describe('host-bridge', () => {
     expect(seen).toEqual(['session/jobs'])
   })
 
+  it('preserves rpcId for all-frame and typed consumers', () => {
+    let deliver: ((frame: TestFrame, rpcId?: string) => void) | undefined
+    const source: HostFrameSource<TestFrame> = {
+      start: () => {},
+      stop: () => {},
+      onFrame: listener => {
+        deliver = listener
+        return () => { deliver = undefined }
+      },
+    }
+    const bridge = createHostBridge(source)
+    const all = vi.fn()
+    const typed = vi.fn()
+    bridge.onFrame(all)
+    bridge.onType('session/event', typed)
+    bridge.start()
+    const frame: TestFrame = { type: 'session/event' }
+    expect(deliver).toBeTypeOf('function')
+    deliver!(frame, 'rpc-test-1')
+    deliver!(frame)
+    expect(all.mock.calls).toEqual([[frame, 'rpc-test-1'], [frame, undefined]])
+    expect(typed.mock.calls).toEqual([[frame, 'rpc-test-1'], [frame, undefined]])
+    bridge.stop()
+    expect(deliver).toBeUndefined()
+  })
+
   it('stops delivering after unsubscribe', () => {
     const { source, push } = makeSource()
     const bridge = createHostBridge(source)

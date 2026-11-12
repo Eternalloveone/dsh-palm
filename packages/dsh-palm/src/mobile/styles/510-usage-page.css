@@ -1,0 +1,62 @@
+/* ── 用量页（2026-11-11）──────────────────────────────────────────────
+ * 从设置的「其他」分组里搬出来的独立页：抽屉底部「用量」直接进。
+ * 页面骨架复用 settingsLayout，这里只补三件事：页面滚动区、右上「刷新」、卡片间距。
+ */
+
+.usage-page {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+/* 2026-11-12 用户：「用量这一页好像不能上下滑动查看」。
+ *
+ * 真正的病根在**中间那层**：UsageView 走 SlotLayout，DOM 是
+ *   .usage-page > [data-slot='groups'][data-grow] > .usage-page-body
+ * 而 `[data-grow]`（005-components.css）只给了 `flex: 1 1 auto`，**没有 display: flex**
+ * —— 于是 `.usage-page-body` 不是 flex 子项，它身上的 flex/overflow 全部失效，
+ * 高度按内容（1100px）长出去，整块溢出到 `.page`（overflow: hidden）被裁掉，
+ * 手指划上去一动不动。这里把中间层也变成 flex 列，body 才真正吃剩余空间并滚动。 */
+.usage-page > [data-slot='groups'] {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+.usage-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) var(--palm-s3) var(--palm-s6);
+  /* basis 归零：basis 用 auto 时浏览器先按内容高度定基准，实测不收缩。 */
+  flex: 1 1 0%;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 右上角「刷新」：文字键，命中区仍按 44px 给足（手机上点小字很难）。 */
+.usage-refresh {
+  min-block-size: 32px;
+  padding: 0 var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  white-space: nowrap;
+}
+
+/* 按下态与其余主键同一套令牌（不引入 color-mix：老 Android WebView 不一定支持）。 */
+.usage-refresh:active { filter: brightness(var(--palm-btn-press-dim)); }
+
+.usage-refresh:disabled {
+  color: var(--palm-fg-3);
+  opacity: var(--palm-btn-disabled-opacity);
+}
+
+/* 卡片之间留白：设置页里它们是同一分组内的连排，独立页要多一点呼吸。 */
+.usage-page .usage-provider + .usage-provider { margin-block-start: var(--palm-s2); }

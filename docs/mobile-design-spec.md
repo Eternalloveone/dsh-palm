@@ -139,12 +139,12 @@
 
 | 皮肤 | 底 | 表面 | 强调 | 圆角 | 来源 |
 |---|---|---|---|---|---|
-| 石墨（默认） | `#101015` | `#15151c` | `#7c8cff` | 8/12/18 | 自带 |
+| 石墨 | `#101015` | `#15151c` | `#7c8cff` | 8/12/18 | 自带 |
 | 纸 | `#faf8f4` | `#fff` | `#8a5a2b` | 6/10/14 | 自带 |
 | 夜航 | `#080c14` | `#0f1520` | `#22d3ee` | 10/14/20 | 自带 |
 | 报纸 | `#f5f3ed` | `#fdfdfa` | `#065588` | 4/8/12 | 2754LM/dsh-theme-newsprint · MIT |
 | 终末地 | `#e8e8e2` | `#f5f5f2` | `#5f5b00` | 2/4/6 | ymh0000123/dsh-theme-endfield · MIT |
-| Claude | `#ffffff` | `#fafafa` | `#8c4d38` | 8/12/18 | Nwflower/dsh-claude-style · MIT |
+| **Claude（默认）** | `#ffffff` | `#fafafa` | `#8c4d38` | 8/12/18 | Nwflower/dsh-claude-style · MIT |
 
 **三层结构**（2026-11-11 定型）：
 

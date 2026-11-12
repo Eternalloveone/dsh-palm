@@ -132,12 +132,12 @@ pnpm build
 
 | id | 名字 | 来源 | 特点 |
 |---|---|---|---|
-| `graphite` | 石墨 | 手机端自带 | 深灰底 + 靛蓝，默认 |
+| `graphite` | 石墨 | 手机端自带 | 深灰底 + 靛蓝 |
 | `paper` | 纸 | 手机端自带 | 浅色偏暖 |
 | `nocturne` | 夜航 | 手机端自带 | 深蓝底 + 青色 |
 | `newsprint` | 报纸 | 2754LM/dsh-theme-newsprint · MIT | 暖白纸面 + 衬线正文 + 报头双线 |
 | `endfield` | 终末地 | ymh0000123/dsh-theme-endfield · MIT | 奶油纸底 + 信号黄 + 2px/4px 直角 |
-| `claude` | Claude | Nwflower/dsh-claude-style · MIT | 米白 + 陶土橙 + 衬线标题 |
+| `claude` | Claude（**默认**） | Nwflower/dsh-claude-style · MIT | 米白 + 陶土橙 + 衬线标题 |
 
 ---
 

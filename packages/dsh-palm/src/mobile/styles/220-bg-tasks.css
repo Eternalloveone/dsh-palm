@@ -23,7 +23,7 @@
 }
 
 .chat-task-dot-stopping {
-  background: var(--warning, #d9a13b);
+  background: var(--warning);
 }
 
 .chat-task-dot-completed {
@@ -35,7 +35,7 @@
 }
 
 .chat-task-dot-failed {
-  background: var(--danger, #d9534f);
+  background: var(--danger);
 }
 
 .chat-task-copy {

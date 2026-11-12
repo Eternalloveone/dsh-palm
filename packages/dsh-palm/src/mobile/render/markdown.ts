@@ -62,6 +62,49 @@ export function safeUrl(raw: string): string | null {
   return name === 'http' || name === 'https' || name === 'mailto' ? trimmed : null
 }
 
+/**
+ * 正文里 `[说明](路径)` 指向本机文件时认得出来的扩展名（白名单）。
+ *
+ * 用白名单而不是"看像不像路径"：`/m/chat`、`#anchor`、`docs/` 这些不能吃掉。
+ */
+const LOCAL_FILE_EXT = /\.(md|markdown|mdx|txt|log|ts|tsx|js|jsx|mjs|cjs|json|jsonl|css|scss|less|html?|xml|svg|py|rb|rs|go|java|kt|c|h|cc|cpp|hpp|cs|php|sh|bash|zsh|ps1|bat|yml|yaml|toml|ini|conf|cfg|sql|gradle|lua|swift|dart|vue|svelte|astro|pdf|png|jpe?g|gif|webp|bmp|ico|heic)$/i
+
+/**
+ * 把 markdown 链接目标认成「本机文件路径」，返回可交给宿主读取的干净路径。
+ *
+ * 为什么需要（2026-11-11 真机）：`safeUrl` 只放行 http/https/mailto，于是
+ * - `[说明](C:/x.md)` 被当成非法 scheme `c:` 丢掉 → 正文里只剩一行纯文本、点不动；
+ * - `[说明](docs/x.md)` 被当成站内相对链接 → 点了跳到 `/m/docs/x.md` 404。
+ * 手机端这两种写法其实都该打开文件预览，这里统一改写成 `.file-link`。
+ *
+ * 尾巴（`#L24`、`?raw`、`:24`）在这里剥掉：宿主是按路径读文件的，行号它不认，
+ * 带着尾巴会直接读不到。
+ *
+ * @param raw - markdown 链接括号里的原文（可能带尖括号、行号、锚点）
+ * @returns 干净的本机路径；不是本机文件就返回 null
+ */
+export function localPathOf(raw: string): string | null {
+  const trimmed = raw.trim().replace(/^</, '').replace(/>$/, '')
+  if (trimmed === '') return null
+  if (/^(https?:|mailto:|tel:|data:|javascript:|blob:|#)/i.test(trimmed)) return null
+  if (trimmed.startsWith('//')) return null
+  // `file:///C:/x.md` 剥掉 scheme 后是 `/C:/x.md`：Windows 盘符前那个斜杠要去掉。
+  const withoutScheme = trimmed.replace(/^file:\/\//i, '').replace(/^\/(?=[A-Za-z]:[\\/])/, '')
+  const withoutSuffix = withoutScheme.replace(/[?#].*$/, '')
+  const withoutLine = withoutSuffix.replace(/:\d+(-\d+)?$/, '')
+  let decoded = withoutLine
+  try { decoded = decodeURIComponent(withoutLine) } catch { /* 编码不成样子就按原样 */ }
+  if (decoded === '') return null
+  const windowsAbsolute = /^[A-Za-z]:[\\/]/.test(decoded)
+  const unc = /^\\\\/.test(decoded)
+  const relative = decoded.startsWith('./') || decoded.startsWith('../')
+  if (windowsAbsolute || unc || relative) return LOCAL_FILE_EXT.test(decoded) ? decoded : null
+  // 裸相对路径（`docs/x.md`）、Unix 绝对路径（`/home/me/a.md`）与裸文件名（`a.md`）：
+  // 只要扩展名在白名单里就当文件。站内路由一般不带文件扩展名（`/m/chat`），
+  // 带扩展名的静态资源又一定带分隔符，所以这条不会把站内链接吃掉。
+  return LOCAL_FILE_EXT.test(decoded) ? decoded : null
+}
+
 /* ── local image destinations ─────────────────────────────────────────
    The desktop surface rewrites an authored image path into its
    authenticated `/api/file` URL, so `![](D:\shot.png)` renders on the
@@ -92,6 +135,22 @@ const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/
  * @param raw - the authored destination, still percent-encoded.
  * @returns the decoded path, or null when it does not name a local file.
  */
+/**
+ * 把「前导斜杠 + 盘符」的写法拉回正常：`/C:/x.png` → `C:/x.png`。
+ *
+ * 2026-11-11 真机：正文里的图显示成「未找到 · /C:/Users/…/workspace-picker-a.png」，
+ * 而那个文件明明存在 —— `/C:/…` 在 Windows 上也算绝对路径，宿主 `resolve` 之后变成
+ * `C:\C:\…`，stat 落空。这里先归一化，宿主那边也有同一套兜底（`normalizeAuthoredPath`）。
+ *
+ * 只剥「斜杠 + 盘符」这一种；正常的 POSIX 路径 `/home/me/a.png` 原样保留。
+ *
+ * @param path - 作者写的路径
+ * @returns 归一化后的路径
+ */
+export function stripLeadingSlashDrive(path: string): string {
+  return path.replace(/^[/\\]([A-Za-z]:[/\\])/, '$1')
+}
+
 export function localImagePath(raw: string): string | null {
   const withoutSuffix = raw.trim().replace(/[?#][\s\S]*$/, '')
   if (withoutSuffix === '') return null
@@ -100,7 +159,7 @@ export function localImagePath(raw: string): string | null {
   if (SCHEME_RE.test(withoutSuffix) && !WINDOWS_DRIVE_RE.test(withoutSuffix)) return null
   if (!LOCAL_IMAGE_EXT_RE.test(withoutSuffix)) return null
   try {
-    return decodeURIComponent(withoutSuffix)
+    return stripLeadingSlashDrive(decodeURIComponent(withoutSuffix))
   } catch {
     // Malformed percent escapes do not identify a file.
     return null
@@ -216,11 +275,18 @@ export function renderInline(text: string): string {
         if (parenEnd !== -1) {
           const label = text.slice(i + 1, close)
           const href = text.slice(close + 2, parenEnd)
-          const safe = safeUrl(href)
-          if (safe === null) {
-            out += renderInline(label)
+          // 指向本机文件的链接（`[说明](docs/x.md)`）直接变成文件链接：手机端
+          // 点它应该打开预览，而不是 404 或只剩一行点不动的文本。
+          const localPath = localPathOf(href)
+          if (localPath !== null) {
+            out += '<a class="file-link" data-path="' + escapeHtml(localPath) + '">' + renderInline(label) + '</a>'
           } else {
-            out += '<a href="' + escapeHtml(safe) + '" target="_blank" rel="noopener noreferrer">' + renderInline(label) + '</a>'
+            const safe = safeUrl(href)
+            if (safe === null) {
+              out += renderInline(label)
+            } else {
+              out += '<a href="' + escapeHtml(safe) + '" target="_blank" rel="noopener noreferrer">' + renderInline(label) + '</a>'
+            }
           }
           i = parenEnd + 1
           continue

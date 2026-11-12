@@ -63,8 +63,11 @@ describe('TurnHeader（回合任务头）', () => {
     expect(container.querySelector('.palm-turn-goal')!.textContent).toContain('6/11')
     const strip = container.querySelector('.palm-strip')!
     expect(strip.getAttribute('data-kind')).toBe('done')
-    expect(strip.querySelector('[data-part="label"]')!.textContent).toBe('完成 · 7 步')
-    expect(container.querySelector('.palm-turn-meta')!.textContent).toBe('改 12 个文件 · v4.1-flash')
+    expect(strip.querySelector('[data-part="label"]')!.textContent).toBe('成了 · 7 步')
+    // 2026-11-10 第二轮：完成态的改动数搬进**过程条头**（`改 N 个文件`），状态条不再重复报，
+    // 元信息只剩模型 —— 同一件事全页只出现一次。
+    expect(container.querySelector('.palm-strip [data-part="detail"]')).toBeNull()
+    expect(container.querySelector('.palm-turn-meta')!.textContent).toBe('v4.1-flash')
   })
 
   it('计时只出现在状态条：整头恰好一个计时元素，且带 data-role="strip-time"', () => {
@@ -91,8 +94,8 @@ describe('TurnHeader（回合任务头）', () => {
       expect(head.textContent, word).not.toContain(word)
     }
     // 状态条文案是这一屏唯一的状态词。
-    expect(head.textContent!.match(/完成/g) ?? []).toHaveLength(1)
-    expect(head.querySelector('.palm-strip [data-part="label"]')!.textContent).toContain('完成')
+    expect(head.textContent!.match(/成了/g) ?? []).toHaveLength(1)
+    expect(head.querySelector('.palm-strip [data-part="label"]')!.textContent).toContain('成了')
   })
 
   it('字段缺失不崩：只给状态时只剩状态条（没有目标、时长与元信息）', () => {
@@ -102,23 +105,40 @@ describe('TurnHeader（回合任务头）', () => {
     expect(timerElements(container)).toHaveLength(0)
     // 状态条仍在（它只有 kind + label 也能画）。
     expect(container.querySelector('.palm-strip')!.getAttribute('data-kind')).toBe('think')
-    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('思考')
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('琢磨着')
   })
 
   it('失败/中断各有状态词，data-kind 交给样式表上色；词只在状态条里', () => {
     const failed = render(<TurnHeader kind="failed" />)
     expect(failed.container.querySelector('.palm-turn-head')!.getAttribute('data-kind')).toBe('failed')
-    expect(failed.container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('失败')
-    expect(failed.container.textContent!.match(/失败/g) ?? []).toHaveLength(1)
+    expect(failed.container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('没成')
+    expect(failed.container.textContent!.match(/没成/g) ?? []).toHaveLength(1)
     failed.unmount()
     const stopped = render(<TurnHeader kind="stopped" />)
-    expect(stopped.container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('已中断')
+    expect(stopped.container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('收了')
     expect(stopped.container.querySelector('.palm-turn-state')).toBeNull()
   })
 
   it('计数按千分位格式化，模型缺省不占位', () => {
-    render(<TurnHeader kind="done" changedFiles={12} testsPassed={2923} />)
-    expect(screen.getByText('改 12 个文件 · 2,923 测试通过')).toBeTruthy()
+    const { container } = render(<TurnHeader kind="done" changedFiles={12} testsPassed={2923} />)
+    // 改动数已搬进过程条头（千分位在那里格式化），这里只验测试数在元信息行。
+    expect(container.querySelector('.palm-strip [data-part="detail"]')).toBeNull()
+    expect(screen.getByText('2,923 测试通过')).toBeTruthy()
+  })
+
+  it('空闲：说「闲着 · 等你发话」，右边是上一轮结束多久', () => {
+    const closedAt = Date.now() - 4 * 60_000
+    const { container } = render(<TurnHeader kind="idle" closedAtMs={closedAt} />)
+    expect(container.querySelector('.palm-strip')!.getAttribute('data-kind')).toBe('idle')
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('闲着')
+    expect(container.querySelector('.palm-strip [data-part="detail"]')!.textContent).toBe('等你发话')
+    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('4 分钟前')
+  })
+
+  it('完成但没改动：灰字写「未做改动」，不留空', () => {
+    const { container } = render(<TurnHeader kind="done" steps={{ done: 2, total: 2 }} durationMs={4_000} />)
+    expect(container.querySelector('.palm-strip [data-part="detail"]')!.textContent).toBe('未做改动')
+    expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('4s')
   })
 
   it('点状态条走既有 onOpen（键盘可激活的 ListRow）', () => {
@@ -138,17 +158,26 @@ describe('TurnHeader（回合任务头）', () => {
     expect(formatSeconds(0)).toBe('0s')
   })
 
-  it('随 28px 状态条收窄：行间 6 / 上 2 / 下 10、元信息 10px；目标行 15px 不动', () => {
+  it('随状态条收窄：行间 6 / 上 2 / 下 4（2026-11-10 再收，贴住过程条）；目标行是次级标签，元信息回到可读层', () => {
     expect(pxToken('--palm-turn-gap')).toBe(6)
     expect(pxToken('--palm-turn-pad-t')).toBe(2)
-    expect(pxToken('--palm-turn-pad-b')).toBe(10)
-    expect(pxToken('--palm-turn-meta-size')).toBe(10)
-    // 目标行是这一轮的主信息：字号保持 15px（只钉最小行高给骨架占位共用）。
-    expect(pxToken('--palm-flow-goal-size')).toBe(15)
+    // 2026-11-10：10 → 4，状态条与过程条之间不再留空（用户：这两行靠近一点）。
+    expect(pxToken('--palm-turn-pad-b')).toBe(4)
+    // 目标行降为次级标签（2026-11-10 整屏实拍）：13px、二级前景色、常规字重；
+    // 高度仍由 --palm-turn-goal-h 保证（骨架与真实头同高）。
+    expect(pxToken('--palm-flow-title-size')).toBe(13)
     expect(ruleBody('.palm-turn-head')).toContain('gap: var(--palm-turn-gap)')
     expect(ruleBody('.palm-turn-head')).toContain('padding-block: var(--palm-turn-pad-t) var(--palm-turn-pad-b)')
-    expect(ruleBody('.palm-turn-meta')).toContain('font-size: var(--palm-turn-meta-size)')
-    expect(ruleBody('.palm-turn-goal')).toContain('font-size: var(--palm-flow-goal-size)')
+    expect(ruleBody('.palm-turn-goal')).toContain('font-size: var(--palm-flow-title-size)')
+    // 2026-11-10 重设计改判：目标行曾降成「灰字次级」，结果整屏看不出这段属于哪一轮。
+    // 现在给它左侧强调竖条 + 正文色 + 加粗，但**字号不动**（仍 13px），所以不会变回
+    // 「第二个标题」；高度仍由 --palm-turn-goal-h 保证。
+    expect(ruleBody('.palm-turn-goal')).toContain('border-inline-start: 3px solid var(--palm-accent)')
+    expect(ruleBody('.palm-turn-goal')).toContain('color: var(--palm-fg)')
+    expect(ruleBody('.palm-turn-goal')).toContain('font-weight: var(--palm-w-bold)')
+    // 元信息不再 10px 三级灰（低对比辅助文字），改成辅助层字号 + 二级前景色。
+    expect(ruleBody('.palm-turn-meta')).toContain('font-size: var(--palm-flow-meta-size)')
+    expect(ruleBody('.palm-turn-meta')).toContain('color: var(--palm-fg-2)')
   })
 
   it('删掉状态行后不留死样式：旧类与 --palm-flow-dot 令牌一并下线', () => {

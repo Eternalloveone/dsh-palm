@@ -210,6 +210,24 @@ export interface ToolCallInfo {
    * this file's own mutating-name list does not know.
    */
   readonly metaPaths?: readonly string[]
+  /**
+   * 工具输出的文本（	ool/result 里的文字块拼起来，截断到 200 行 / 20k 字符）。
+   *
+   * 桌面端的详情面板能看到"这条命令印了什么"，手机端以前在 fold 阶段就把这段
+   * 丢掉了 —— 2026-11-10 用户要求补上详情面板，这一项是缺的最后一块数据。
+   */
+  readonly output?: string
+  /** 调用发生的时刻（事件 time，毫秒）；和 endedAt 一起算耗时。 */
+  readonly startedAt?: number
+  /** 结果回来的时刻（事件 time，毫秒）。 */
+  readonly endedAt?: number
+  /**
+   * 工具产出的图片（`tool/result` 里的 `image` 块）。
+   *
+   * 以前 fold 只留文字，过程条里就永远看不到图 —— 用户 2026-11-10 要求「像桌面端
+   * 那样在过程条里直接预览」。附件走内容寻址缓存，重挂不重复请求。
+   */
+  readonly images?: readonly MessageImage[]
 }
 
 /**

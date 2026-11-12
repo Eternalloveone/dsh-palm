@@ -1,0 +1,239 @@
+/**
+ * 抽屉会话行的纯函数（从 App.tsx 抽出来，便于单测）。
+ *
+ * 2026-11-10 的两次实机投诉都落在这里：
+ * - 第一次「切换不了工作区 / 列表显示失效」：宿主按带 TTL 的 `sessionIds` 过滤，
+ *   表落后时会漏发甚至发全量；抽屉又把新页整表覆盖，于是空页直接清空列表。
+ * - 第二次「打开侧边栏只剩当前会话」：按 `sessionIds` 过滤把绝大多数行滤掉了。
+ *
+ * 修法：把 `cwd` 路径当成归属的**事实**（每条会话都有、每个工作区都有），
+ * `sessionIds` 只作兜底；抽屉的行只增不减（并集）。
+ *
+ * 2026-11-11：行右侧「什么时候」的 `drawerWhenLabel` 搬去了 `ui/drawer-when.ts`
+ * —— 它是纯展示格式化却被 ui 的抽屉直接调用，留在 views 会让 ui 反向依赖 views。
+ *
+ * @module dsh-palm/mobile/views/drawer-rows
+ */
+import type { SessionView } from '../shared/session-view.ts'
+
+/**
+ * 路径归一：斜杠统一、去尾斜杠、小写（Windows 路径大小写不敏感）。
+ *
+ * @param path - 原始路径（可能 undefined）
+ * @returns 归一后的路径；空串表示"没有路径可比"
+ */
+export function pathKey(path: string | undefined): string {
+  if (path === undefined) return ''
+  return path.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * 按工作区归属过滤一页会话行。
+ *
+ * 判据顺序：
+ * 1. `cwd` 路径（事实）—— 相等或在本工作区目录之下；
+ * 2. `sessionIds`（索引，可能落后）；
+ * 3. 都没有命中就整页信宿主的（宿主已经过滤过）。
+ *
+ * @param items - 宿主返回的会话行（带 `cwd`）
+ * @param workspace - 当前工作区（带 `path` 与 `sessionIds`）
+ * @returns 过滤后的会话行（不改变顺序）
+ */
+export function scopedToWorkspace<T extends { sessionId: string; cwd?: string }>(
+  items: readonly T[],
+  workspace: { sessionIds?: readonly string[]; path?: string },
+): T[] {
+  const target = pathKey(workspace.path)
+  if (target !== '') {
+    const byPath = items.filter((item) => {
+      const cwd = pathKey(item.cwd)
+      return cwd !== '' && (cwd === target || cwd.startsWith(`${target}/`))
+    })
+    if (byPath.length > 0) return byPath
+  }
+  const owned = workspace.sessionIds ?? []
+  if (owned.length > 0) {
+    const ids = new Set(owned.map(String))
+    const scoped = items.filter(item => ids.has(String(item.sessionId)))
+    if (scoped.length > 0) return scoped
+  }
+  return [...items]
+}
+
+/**
+ * 合并「宿主刚拉的一页」与「抽屉里已经在显示的行」。
+ *
+ * 抽屉原来用新页**整表覆盖**：宿主只回一页、或这一刻回了空页，抽屉立刻空掉
+ * （连当前正在看的会话都不见）。改成并集。
+ *
+ * **顺序冻结在这里**（2026-11-11 第二次投诉「每次打开侧边栏次序就变」）：
+ * 以前这一步会 `orderDrawerRows(merged)` 重排一遍，于是「宿主这一页的 updatedAt」
+ * 成了画面上唯一的排序依据 —— 只要有一个会话在跑，它的 updatedAt 每几秒刷新一次，
+ * 每次打开抽屉都能看到它往上浮一位。现在：
+ *
+ * 1. 已经在显示的行**保持原位**，只把字段（标题 / 运行态 / 时间）换成新值；
+ * 2. 宿主这一页里**还没显示过**的新会话，按 `updatedAt` 插到第一个更旧的行前面；
+ * 3. 当前会话仍然钉第一行。
+ *
+ * 下次重新打开抽屉时走的是 {@link paintDrawerRows}（按最新时间重排），所以
+ * 「打开过程中绝不跳」和「跨次打开跟着最新走」两件事都保住了。
+ *
+ * @param fresh - 宿主这一页（已按工作区过滤）
+ * @param shown - 抽屉当前显示的行（含本地缓存与当前会话）
+ * @param pinnedSessionId - 要钉在第一行的会话
+ * @returns 冻结了顺序的新数组
+ */
+export function mergeDrawerRows(
+  fresh: readonly SessionView[],
+  shown: readonly SessionView[],
+  pinnedSessionId?: string,
+): SessionView[] {
+  const byId = new Map<string, SessionView>()
+  for (const row of fresh) byId.set(String(row.sessionId), row)
+  const seen = new Set<string>()
+  const merged: SessionView[] = []
+  for (const row of shown) {
+    const id = String(row.sessionId)
+    if (seen.has(id)) continue
+    seen.add(id)
+    const latest = byId.get(id)
+    merged.push(latest === undefined ? row : { ...row, ...latest })
+  }
+  // 新会话按时间落到它在列表里该在的位置（不是一律追加到末尾：最新那条应该在顶上）。
+  const freshOnly = fresh
+    .filter((row) => !seen.has(String(row.sessionId)))
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt
+      || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
+  for (const row of freshOnly) {
+    const index = merged.findIndex(other => other.updatedAt < row.updatedAt)
+    if (index < 0) merged.push(row)
+    else merged.splice(index, 0, row)
+  }
+  if (pinnedSessionId === undefined) return merged
+  const index = merged.findIndex(row => String(row.sessionId) === String(pinnedSessionId))
+  if (index <= 0) return merged
+  const [pinned] = merged.splice(index, 1)
+  return pinned === undefined ? merged : [pinned, ...merged]
+}
+
+/**
+ * 抽屉里的**唯一**排序规则：当前会话钉第一行，其余按更新时间从新到旧。
+ *
+ * 2026-11-11 用户：「每次打开侧边栏，会话顺序老是变」。真因是两处各排各的：打开时把当前
+ * 会话 unshift 到最前（不排序），一秒后宿主页到达又整表按 `updatedAt` 重排 —— 当前会话
+ * 只要不是最新的那条，就每次打开都掉回原位。现在两边都走这个函数；同刻按 `sessionId`
+ * 兜底，保证同一份数据永远给出同一个顺序。
+ *
+ * @param rows - 待排序的行
+ * @param pinnedSessionId - 要钉在第一行的会话；不在列表里就按纯时间排
+ * @returns 新数组，不修改入参
+ */
+export function orderDrawerRows<T extends { sessionId: string; updatedAt: number }>(
+  rows: readonly T[],
+  pinnedSessionId?: string,
+): T[] {
+  const sorted = [...rows].sort((a, b) => b.updatedAt - a.updatedAt
+    || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
+  if (pinnedSessionId === undefined) return sorted
+  const index = sorted.findIndex(row => String(row.sessionId) === String(pinnedSessionId))
+  if (index <= 0) return sorted
+  const [pinned] = sorted.splice(index, 1)
+  return pinned === undefined ? sorted : [pinned, ...sorted]
+}
+
+/**
+ * 打开抽屉时要画的第一帧：当前会话钉第一行，其余按时间倒序。
+ *
+ * 抽在这里而不是写在 App.tsx 里，是因为 App 有行数预算（只降不升），
+ * 而这套规则本身属于"抽屉怎么排"的领域知识。
+ *
+ * **当前会话的时间戳要补**（2026-11-11 用户：「一打开侧边栏，会话就从『更早』跳到『今天』」）：
+ * 从 HUD、搜索结果或 URL 直接进会话时，路由里的 `SessionView.updatedAt` 是 `0`
+ * （见 App.tsx 的 `openFinishedChat` 等）。首帧拿 0 去分桶就会落到「更早」，
+ * 后台宿主页一到、换成真实时间又跳回「今天」—— 用户看到的是"什么都没干，分组自己变了"。
+ *
+ * 补的顺序：缓存行里同 id 的时间 → 缓存也没有才用"此刻"（刚打开的这个会话，
+ * 本身就是最近在用的那个；宁可先归「今天」，也不要先归「更早」再跳走）。
+ *
+ * @param current - 当前会话（空会话页时给 undefined）
+ * @param cached - 本地缓存的会话行
+ * @param now - 当前时间（毫秒），注入便于测试
+ * @returns 排好序的新数组
+ */
+export function paintDrawerRows(
+  current: SessionView | undefined,
+  cached: readonly SessionView[],
+  now: number = Date.now(),
+): SessionView[] {
+  if (current === undefined) return orderDrawerRows(cached)
+  const rest = cached.filter(row => row.sessionId !== current.sessionId)
+  const known = cached.find(row => row.sessionId === current.sessionId)
+  const pinned = current.updatedAt > 0
+    ? current
+    : { ...current, updatedAt: known !== undefined && known.updatedAt > 0 ? known.updatedAt : now }
+  return orderDrawerRows([pinned, ...rest], current.sessionId)
+}
+
+/**
+ * 按 `mobile.runningSessions` 的权威集合重设每一行的运行状态。
+ *
+ * 为什么需要（2026-11-12 用户：「运行状态更新太慢，有时从完成跳成运行中，
+ * 有时跑了好久侧边栏才出现运行中」）：
+ *
+ * 抽屉的行来自 `session.list`，它每行自带一个 `running` 字段 —— 而那个字段**会撒谎**。
+ * 本项目自己的 `data/reload-tail.ts` 里早就写过这件事，并且因此改用 `runningSessions`：
+ *
+ *     // 3. 问 `runningSessions` 而不是 `session.list` 行上的 running（实测列表行会撒谎）；
+ *
+ * 抽屉这里没跟上：首屏用本地缓存（上次落盘的 running，可能早就过期）先画一帧，
+ * 然后等那一次 `session.list` 覆盖 —— 于是先显示"完成"、再跳成"运行中"；
+ * 会话刚开跑时列表还没更新，就表现成"跑了好久才出现运行中"。
+ *
+ * 这里把运行状态统一交给 `runningSessions` 的集合来定，列表行只提供标题/时间。
+ *
+ * @param rows - 当前抽屉行
+ * @param runningIds - 权威的在跑会话 id 集合
+ * @returns 新数组；内容没有变化时**返回原数组**（避免无意义的整层重渲染）
+ */
+export function applyRunningState(
+  rows: readonly SessionView[],
+  runningIds: Iterable<string>,
+): SessionView[] {
+  const running = new Set([...runningIds].map(id => String(id)))
+  let changed = false
+  const next = rows.map((row) => {
+    const shouldRun = running.has(String(row.sessionId))
+    if (row.running === shouldRun) return row
+    changed = true
+    return { ...row, running: shouldRun }
+  })
+  return changed ? next : (rows as SessionView[])
+}
+
+/**
+ * 「别的工作区还有几个任务在跑」。
+ *
+ * 抽屉只列**当前工作区**的会话（它按 `cwd` 认领），而 `mobile.runningSessions` 是全局的。
+ * 于是在 A 工作区打开抽屉时，B 工作区里正在跑的回合一条都看不见 —— 用户看到的是
+ * 「明明有两个任务在跑，侧边栏却只显示一个」（2026-11-12 真机反馈）。
+ *
+ * 这里不做工作区映射（会话行不带 workspaceId，只有 cwd）：权威运行集合减去抽屉里
+ * 已经画出来的行，剩下的就是"这一刻你看不见的在跑任务"，正好用来提示"去别处看看"。
+ *
+ * @param rows - 抽屉里已经画出来的行
+ * @param runningIds - 权威的在跑会话 id 集合
+ * @returns 不在抽屉行里的在跑会话数（0 表示都在眼前）
+ */
+export function countRunningElsewhere(
+  rows: readonly SessionView[],
+  runningIds: Iterable<string>,
+): number {
+  const shown = new Set(rows.map(row => String(row.sessionId)))
+  const counted = new Set<string>()
+  for (const id of runningIds) {
+    const key = String(id)
+    if (!shown.has(key)) counted.add(key)
+  }
+  return counted.size
+}

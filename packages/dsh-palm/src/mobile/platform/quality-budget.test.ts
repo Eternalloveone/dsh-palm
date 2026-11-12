@@ -36,8 +36,15 @@ const isKernelFile = (file: string): boolean => relative(MOBILE_ROOT, file).spli
 const TSX_WITHOUT_KERNEL = TSX.filter(file => !isKernelFile(file))
 
 const TOKENS_FILE = '000-tokens.css'
+/**
+ * 装饰层（`6XX-skin-*.css`）**不进组件预算**：
+ * 它是每套皮肤特有的笔画（报头 2px 线、引用 3px 侧条、衬线字族），本来就该写具体值；
+ * 算进"组件样式一致性"只会逼着皮肤层用令牌假装。装饰层另有 `styles/skin-decor.test.ts` 管
+ * （只许令牌、类名必须真实存在、必须限定在自己的皮肤上）。
+ */
+const DECOR_FILES = readdirSync(STYLES_DIR).filter(name => /^6\d{2}-skin-[a-z0-9-]+\.css$/.test(name))
 const CSS = readdirSync(STYLES_DIR)
-  .filter(name => name.endsWith('.css') && name !== TOKENS_FILE)
+  .filter(name => name.endsWith('.css') && name !== TOKENS_FILE && !DECOR_FILES.includes(name))
   .sort()
   .map(name => readFileSync(join(STYLES_DIR, name), 'utf8'))
   .join('\n')

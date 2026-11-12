@@ -253,7 +253,7 @@ export interface FlushResult {
  * NOT auto-resent on restart (the prompt may already have reached the host,
  * which has no idempotency key) — it stays queued as "pending confirmation"
  * for the user to retry or remove. */
-export async function flushOutbox(send: (entry: OutboxEntry) => Promise<void>): Promise<FlushResult> {
+export async function flushOutbox(send: (entry: OutboxEntry) => Promise<unknown>): Promise<FlushResult> {
   if (flushing) return { sent: 0, failed: 0 }
   flushing = true
   try {

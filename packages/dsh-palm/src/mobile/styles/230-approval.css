@@ -10,13 +10,6 @@
  * automatic minimum looks at. The rows carry min-width: 0 so the guard survives
  * a child that resets the property.
  */
-.chat-approval-panel,
-.chat-question-panel {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
 .chat-approval-header,
 .chat-approval-reason,
 .chat-question-option,
@@ -25,7 +18,8 @@
   min-width: 0;
 }
 
-/* 「将要执行什么」：等宽、两行封顶。审批卡片不能因为一条长命令把整页顶宽。 */
+/* 「将要执行什么」：等宽、限高可滚。审批卡片不能因为一条长命令把整页顶宽，
+   但也**不能把命令切掉**——读不完就批等于盲批。 */
 .chat-approval-preview {
   margin: 6px 0 0;
   padding: 8px 10px;
@@ -37,10 +31,11 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* 2026-11-10 双皮肤实拍：原来这里是 -webkit-line-clamp: 2，长命令被硬切在
+     「…&& p」处且没有展开入口。改成"限高 + 内部可滚"：读得完，也不顶宽。 */
+  max-block-size: calc(var(--palm-t-s) * 1.5 * 5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* The header is a row: a long reason drops onto its own line, and a long tool
@@ -58,10 +53,13 @@
 
 .chat-approval-panel {
   margin: 4px 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 12px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border: 1px solid var(--palm-warn);
   border-radius: var(--radius-card);
-  background: var(--card-bg);
+  background: var(--palm-tint-warn);
   box-shadow: var(--card-shadow);
 }
 
@@ -104,7 +102,7 @@
 
 .chat-risk-exec {
   color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  border-color: var(--palm-danger-line);
 }
 
 .chat-risk-install {
@@ -113,6 +111,7 @@
 }
 
 .chat-approval-expand {
+  min-height: var(--palm-hit);
   margin-top: 6px;
   padding: 0;
   border: none;
@@ -148,43 +147,43 @@
 
 .chat-approval-allow {
   flex: 1;
-  height: 44px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  min-height: var(--palm-hit);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
   font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
   cursor: pointer;
   transition: transform 0.1s ease, filter 0.1s ease;
 }
 
+/* 长按确认键：按下时**只**降透明度，不做 scale —— 按下去缩一圈再保持 1.5 秒是错的。
+   也不改 filter：长按过程中的 --holding 用 filter 表达进度，不能被 :active 抢掉。 */
 .chat-approval-allow:active {
-  transform: scale(0.98);
-  filter: brightness(1.08);
+  opacity: var(--palm-btn-press-flat);
 }
 
 .chat-approval-allow:disabled {
-  opacity: 0.6;
+  opacity: var(--palm-btn-disabled-opacity);
   transform: none;
 }
 
 .chat-approval-reject {
   flex: 1;
-  height: 44px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-chip);
+  min-height: var(--palm-hit);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--palm-fg-2);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--palm-t-m);
   cursor: pointer;
   transition: transform 0.1s ease, background-color 0.1s ease;
 }
 
 .chat-approval-reject:active {
-  transform: scale(0.98);
   background: var(--fill);
 }
 
@@ -195,11 +194,14 @@
 
 .chat-question-panel {
   margin: 4px 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 12px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: var(--radius-card);
-  background: var(--card-bg);
-  box-shadow: var(--card-shadow);
+  border: var(--palm-hair) solid var(--palm-accent);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-sh1);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -211,17 +213,19 @@
   gap: 6px;
 }
 
+/* 卡头是"这张卡属于什么"，问句才是"要你回答什么"（2026-11-10 实拍：两行一样重，
+   打开卡片分不清哪句要答）。卡头退成小号二级前景，问句升到正文最亮的一档。 */
 .chat-question-header {
-  font-size: 14px;
+  font-size: var(--palm-t-s);
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--palm-fg-2);
 }
 
 .chat-question-text {
-  font-size: var(--text-md);
-  font-weight: 400;
-  color: var(--text-primary);
-  line-height: 1.5;
+  font-size: var(--palm-t-l);
+  font-weight: 500;
+  color: var(--palm-fg);
+  line-height: 1.45;
 }
 
 .chat-question-detail {
@@ -240,27 +244,28 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
+  min-height: var(--palm-hit);
   padding: 12px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
   cursor: pointer;
-  font-size: var(--text-md);
+  font-size: var(--palm-t-m);
   transition: border-color 0.12s ease, background-color 0.12s ease, transform 0.1s ease;
 }
 
 .chat-question-option:active {
-  transform: scale(0.98);
+  opacity: 0.88;
 }
 
 .chat-question-option input {
   margin: 2px 0 0;
   flex: none;
-  accent-color: var(--accent);
+  accent-color: var(--palm-accent);
 }
 
 .chat-question-option-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--palm-accent);
+  background: var(--palm-tint-accent);
 }
 
 .chat-question-option-label {
@@ -276,14 +281,15 @@
 
 .chat-question-custom {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--palm-hit);
   box-sizing: border-box;
   padding: 8px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  background: var(--bg-input);
-  color: var(--text-primary);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
   font: inherit;
+  font-size: 16px;
   resize: vertical;
   outline: none;
   transition: border-color 0.15s ease;
@@ -294,25 +300,25 @@
 }
 
 .chat-question-submit {
-  height: 44px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  min-height: var(--palm-hit);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
   font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
   cursor: pointer;
   transition: transform 0.1s ease, filter 0.1s ease;
 }
 
+/* 同卡片的提交键：同样不做 scale（卡片里两颗键动作要一致），只降透明度。 */
 .chat-question-submit:active {
-  transform: scale(0.98);
-  filter: brightness(1.08);
+  opacity: var(--palm-btn-press-flat);
 }
 
 .chat-question-submit:disabled {
-  opacity: 0.6;
+  opacity: var(--palm-btn-disabled-opacity);
   transform: none;
 }
 

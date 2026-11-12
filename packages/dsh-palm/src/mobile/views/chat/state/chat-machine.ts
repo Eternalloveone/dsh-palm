@@ -36,6 +36,14 @@ import { useMemo, useReducer, useRef } from 'react'
 type SetAction<S> = { [K in keyof S]: { type: 'set'; key: K; value: S[K] } }[keyof S]
 
 /**
+ * 切片的动作：赋值，或**整体复位**（换会话）。
+ *
+ * 复位是带着目标值来的（`values` 已经把要保留的全局字段合进去了），所以 reducer
+ * 不需要知道哪一片、保留哪些键 —— 判据全在调用点那一行，看得见、改得动。
+ */
+type SliceAction<S> = SetAction<S> | { readonly type: 'reset'; readonly values: S }
+
+/**
  * 纯 reducer：只做赋值，值相等时**返回原引用**（React 会跳过重渲染）。
  *
  * 因为除了赋值什么都不做，所以**不可能出现顺序依赖**——这正是它比 30 个
@@ -56,18 +64,34 @@ export type SliceSetters<S> = {
  *
  * @param initial 初值（同时定义这个切片有哪些键）
  * @param keys 键表（用于生成 setter；键必须与 `initial` 一致）
+ * @param scope 作用域键（会话 id）：一变就整体复位到 `initial`，`keep` 里的键除外
+ * @param keep 复位时**保留**的键：真相源在外部的全局事实（连通性、宿主偏好）
  */
 function useSlice<S extends object>(
   initial: S,
   keys: readonly (keyof S)[],
+  scope?: string,
+  keep: readonly (keyof S)[] = [],
 ): readonly [S, SliceSetters<S>] {
   const [state, dispatch] = useReducer(
-    (current: S, action: SetAction<S>) => sliceReducer(current, action),
+    (current: S, action: SliceAction<S>): S => (
+      action.type === 'reset' ? action.values : sliceReducer(current, action)
+    ),
     initial,
   )
   // 函数式更新要看到**当前**值，闭包里的 state 会过期，所以用 ref 兜住。
   const latest = useRef(state)
   latest.current = state
+  // 换会话：整片复位（渲染期 dispatch，React 会丢弃这一遍输出并重渲染 —— 屏幕上
+  // 看不到「A 的面板开在 B 上」的中间态）。保留 `keep` 里那些外部真相源的字段。
+  const scopeRef = useRef(scope)
+  if (scope !== undefined && scopeRef.current !== scope) {
+    scopeRef.current = scope
+    const values = { ...initial } as Record<string, unknown>
+    const source = latest.current as Record<string, unknown>
+    for (const key of keep) values[String(key)] = source[String(key)]
+    dispatch({ type: 'reset', values: values as S })
+  }
 
   const setters = useMemo(() => {
     const built: Record<string, unknown> = {}
@@ -133,8 +157,8 @@ export const INITIAL_CHAT_UI: ChatUiState = {
 }
 
 /** @returns 浮层开关状态 + setter。 */
-export function useChatUi(): readonly [ChatUiState, SliceSetters<ChatUiState>] {
-  return useSlice(INITIAL_CHAT_UI, CHAT_UI_KEYS)
+export function useChatUi(scope?: string): readonly [ChatUiState, SliceSetters<ChatUiState>] {
+  return useSlice(INITIAL_CHAT_UI, CHAT_UI_KEYS, scope)
 }
 
 /* ── 切片二：会话内搜索（S1-B） ───────────────────────────────────────── */
@@ -184,8 +208,8 @@ export const INITIAL_CHAT_SEARCH: ChatSearchState = {
 }
 
 /** @returns 搜索界面状态 + setter。 */
-export function useChatSearch(): readonly [ChatSearchState, SliceSetters<ChatSearchState>] {
-  return useSlice(INITIAL_CHAT_SEARCH, CHAT_SEARCH_KEYS)
+export function useChatSearch(scope?: string): readonly [ChatSearchState, SliceSetters<ChatSearchState>] {
+  return useSlice(INITIAL_CHAT_SEARCH, CHAT_SEARCH_KEYS, scope)
 }
 
 /* ── 切片三：滚动与阅读位置（S1-C） ──────────────────────────────────── */
@@ -223,8 +247,8 @@ export const INITIAL_CHAT_READING: ChatReadingState = {
 }
 
 /** @returns 阅读位置状态 + setter。 */
-export function useChatReading(): readonly [ChatReadingState, SliceSetters<ChatReadingState>] {
-  return useSlice(INITIAL_CHAT_READING, CHAT_READING_KEYS)
+export function useChatReading(scope?: string): readonly [ChatReadingState, SliceSetters<ChatReadingState>] {
+  return useSlice(INITIAL_CHAT_READING, CHAT_READING_KEYS, scope)
 }
 
 /* ── 切片四：输入区与连接（S1-D） ─────────────────────────────────────── */
@@ -270,7 +294,10 @@ export const INITIAL_CHAT_COMPOSER: ChatComposerState = {
   offline: false,
 }
 
+/** 换会话要保留的键：真相源在外部（连通性探测 / 宿主偏好），与会话无关。 */
+export const CHAT_COMPOSER_SESSION_KEEP = ['mobileEnterToSend', 'offline'] as const satisfies ReadonlyArray<keyof ChatComposerState>
+
 /** @returns 输入区状态 + setter。 */
-export function useChatComposerState(): readonly [ChatComposerState, SliceSetters<ChatComposerState>] {
-  return useSlice(INITIAL_CHAT_COMPOSER, CHAT_COMPOSER_KEYS)
+export function useChatComposerState(scope?: string): readonly [ChatComposerState, SliceSetters<ChatComposerState>] {
+  return useSlice(INITIAL_CHAT_COMPOSER, CHAT_COMPOSER_KEYS, scope, CHAT_COMPOSER_SESSION_KEEP)
 }

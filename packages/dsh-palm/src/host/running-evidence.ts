@@ -438,9 +438,14 @@ export function turnVerdict(input: {
 /** 一轮的实时状态；帧镜像与日志边界按 seq 取较新者，都没有就说没在跑。 */
 export async function computeTurnState(
   sessionId: string,
+  /**
+   * 已经读到的边界（例如 `readChatTailPage` 随页带回的那份）。
+   * 传了就不再读日志：`mobile.sessionState` 因此从"同一请求读两遍尾页"变成一遍。
+   */
+  precomputed?: Awaited<ReturnType<typeof readTurnBoundary>>,
 ): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number; seq: number }> {
   // 日志是记录：它写下的边界谁也改不了；帧镜像只是"更快知道"，所以两者按 seq 比新。
-  const boundary = await readTurnBoundary(sessionId)
+  const boundary = precomputed ?? await readTurnBoundary(sessionId)
   const mirror = turnBoundaryMirror.get(sessionId)
   const asOf = Date.now()
   const boundarySeq = boundary?.seq ?? -1

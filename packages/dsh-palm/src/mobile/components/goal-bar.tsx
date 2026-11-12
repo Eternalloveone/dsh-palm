@@ -6,13 +6,29 @@
  *
  * 行为：
  * - 无目标 / 加载中 / 已完成：整个条不渲染（不占位）；
- * - 目标正文一行省略，点条子本身展开/收起（手机上正文常常比屏幕长）；
+ * - 目标正文一行省略，点状态行或正文都能展开/收起（手机上正文常常比屏幕长）；
  * - 动作只有四个，全部拼成 `/goal …` 命令交给宿主：暂停、恢复、编辑（就地输入）、
- *   清除。桌面端的 `remote.goals.*` 手机端没有通道，也不该为了它再开一条。
+ *   清除；外加一颗展开/收起。
+ *
+ * ## 排版（2026-11-12 重排）
+ *
+ * 两列硬对齐，任何宽度都不换行、不重叠：
+ *
+ * | 行 | 左（同一竖线起） | 右（贴右缘） |
+ * |---|---|---|
+ * | 1 | ◉ 相位 · 进度摘要 | 图标工具栏（30×30，判定区 44） |
+ * | 2 | 目标正文一行省略 | — |
+ * | 3 | 展开后的全文（38vh 内滚动） | — |
+ *
+ * 为什么不用文字按钮：360px 屏上「相位 + 摘要 + 四个文字按钮」要 384px，而内容区
+ * 只有 324px —— 摘要（`flex: none` + `nowrap`）会溢出自己的盒子，被后画的按钮压住，
+ * 真机看到的就是「第 1 步」被「收起」盖掉一截（实测溢出 18px）。图标按钮把右侧
+ * 从 176px 压到 126px，摘要因此完整显示；同时去掉摘要的胶囊底，让相位与摘要落在同
+ * 一条基线上（胶囊内边距原先让它比正文左移 6px，正是"没对齐"的观感来源）。
  *
  * @module dsh-palm/mobile/goal-bar
  */
-import { useState, type JSX } from 'react'
+import { useState, type JSX, type ReactNode } from 'react'
 import {
   GOAL_CLEAR_COMMAND,
   GOAL_PAUSE_COMMAND,
@@ -23,6 +39,14 @@ import {
   type MobileGoal,
 } from '../session/goal-projection.ts'
 import { Button } from '../ui/primitives.tsx'
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CloseIcon,
+  PauseIcon,
+  PencilIcon,
+  PlayIcon,
+} from './icons.tsx'
 
 export interface GoalBarProps {
   /** undefined = 还没拿到；null = 没有目标。两者都不渲染。 */
@@ -49,6 +73,25 @@ function GoalGlyph({ width = 14 }: { width?: number }): JSX.Element {
   )
 }
 
+/** 工具栏里的一颗图标按钮：无障碍名走 `aria-label`（图标本身 aria-hidden）。 */
+function ToolButton({ label, disabled = false, onClick, children }: {
+  label: string
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <Button
+      type="button"
+      className="chat-goal-icon"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >{children}
+    </Button>
+  )
+}
+
 export function GoalBar({ goal, busy = false, onCommand, meta }: GoalBarProps): JSX.Element | null {
   const [expanded, setExpanded] = useState(false)
   /** 阻塞理由单独一个开关：它常常是一整段排查记录，默认只露两行。 */
@@ -61,79 +104,80 @@ export function GoalBar({ goal, busy = false, onCommand, meta }: GoalBarProps): 
 
   const actions = goalActions(goal)
   const label = goalPhaseLabel(goal)
+  const metaText = meta !== undefined && meta !== '' ? meta : undefined
   const run = (line: string): void => {
     if (busy) return
     onCommand(line)
   }
+  const toggle = (): void => {
+    setExpanded(value => !value)
+    setEditing(false)
+  }
 
   return (
-    <div className="chat-goal" data-goal-bar="">
-      <div className="chat-goal-row">
+    <div className="chat-goal" data-goal-bar="" data-expanded={expanded ? 'true' : 'false'}>
+      {/* 状态行：左边只有信息（相位 + 摘要），右边是图标工具栏。两列各自成组，
+          中间的空档属于布局、不属于任何元素 —— 所以不可能互相压字。 */}
+      <div className="chat-goal-head">
         <span className="chat-goal-glyph"><GoalGlyph /></span>
         <Button
           type="button"
           className="chat-goal-main"
           aria-expanded={expanded}
           title={goal.blockedReason ?? goal.objective}
-          onClick={() => { setExpanded(value => !value); setEditing(false) }}
+          onClick={toggle}
         >
           <span className="chat-goal-label">{label}</span>
+          {/* 摘要：已跑多久、走到第几步。长目标光看相位看不出还在不在动。
+              可缩可省略；相位文字在窄屏让位（见 CSS 的 400px 断点）。 */}
+          {metaText !== undefined && <span className="chat-goal-meta">{metaText}</span>}
           {/* 动作刚发出去、回执还没回来：转个圈。只有置灰的话，点了像没反应。 */}
           {busy && <span className="chat-goal-spinner" aria-hidden />}
-          {/* 进度摘要：已跑多久、走到第几步。长目标光看相位看不出还在不在动。 */}
-          {meta !== undefined && meta !== '' && <span className="chat-goal-meta">{meta}</span>}
-          {/* 收起时只留一行省略号；展开的全文放在下面的 .chat-goal-body 里 ——
-              塞在这颗按钮里的话，宽度被右边的四个动作按钮切掉一截，长句会被挤成
-              窄条，读起来比收起还累。 */}
-          {!expanded && <span className="chat-goal-text">{goal.objective}</span>}
         </Button>
-        {/* 展开后必须有一个看得见的「收起」：展开的正文占满整条，只靠点标题收回
-            在真机上等于没有出口（手指落在正文上，那里原先什么都不做）。 */}
-        {expanded && (
-          <Button
-            type="button"
-            className="chat-goal-btn chat-goal-btn-collapse"
-            aria-label="收起目标全文"
-            onClick={() => { setExpanded(false) }}
-          >收起
-          </Button>
-        )}
-        {actions.resume && (
-          <Button
-            type="button"
-            className="chat-goal-btn"
-            disabled={busy}
-            onClick={() => { run(GOAL_RESUME_COMMAND) }}
-          >继续
-          </Button>
-        )}
-        {actions.pause && (
-          <Button
-            type="button"
-            className="chat-goal-btn"
-            disabled={busy}
-            onClick={() => { run(GOAL_PAUSE_COMMAND) }}
-          >暂停
-          </Button>
-        )}
-        <Button
-          type="button"
-          className="chat-goal-btn"
-          disabled={busy}
-          onClick={() => { setEditing(true); setDraft(goal.objective) }}
-        >编辑
-        </Button>
-        <Button
-          type="button"
-          className="chat-goal-btn chat-goal-btn-clear"
-          aria-label="清除目标"
-          disabled={busy}
-          onClick={() => { run(GOAL_CLEAR_COMMAND) }}
-        >×
-        </Button>
+        <div className="chat-goal-tools">
+          {actions.resume && (
+            <ToolButton label="继续目标" disabled={busy} onClick={() => { run(GOAL_RESUME_COMMAND) }}>
+              <PlayIcon />
+            </ToolButton>
+          )}
+          {actions.pause && (
+            <ToolButton label="暂停目标" disabled={busy} onClick={() => { run(GOAL_PAUSE_COMMAND) }}>
+              <PauseIcon />
+            </ToolButton>
+          )}
+          <ToolButton label="编辑目标" disabled={busy} onClick={() => { setEditing(true); setDraft(goal.objective) }}>
+            <PencilIcon />
+          </ToolButton>
+          <ToolButton label="清除目标" disabled={busy} onClick={() => { run(GOAL_CLEAR_COMMAND) }}>
+            <CloseIcon />
+          </ToolButton>
+          {expanded
+            ? (
+              <ToolButton label="收起目标全文" onClick={() => { setExpanded(false) }}>
+                <ChevronUpIcon />
+              </ToolButton>
+            )
+            : (
+              <ToolButton label="展开目标全文" onClick={toggle}>
+                <ChevronDownIcon />
+              </ToolButton>
+            )}
+        </div>
       </div>
+      {/* 目标正文：收起态一行省略、单独占一行（点它也能展开）。以前它挤在状态按钮里，
+          宽度被右边的动作按钮切掉一截，360px 上常常一个字都不剩。 */}
+      {!expanded && (
+        <Button
+          type="button"
+          className="chat-goal-text"
+          aria-expanded={expanded}
+          title={goal.objective}
+          onClick={toggle}
+        >{goal.objective}
+        </Button>
+      )}
       {/* 阻塞理由：宿主会把整段排查记录塞进这里（实测能占掉大半个屏幕），默认只露两行，
-          点文字或右下角那颗小按钮展开。折叠用 max-height 而不是截断字符串 ——
+          点文字或下面那颗小按钮展开。折叠用 max-height 而不是截断字符串 ——
           展开时原文一字不改，复制出来仍是完整的一段。 */}
       {goal.phase === 'blocked' && goal.blockedReason !== undefined && !editing && (
         <div className="chat-goal-reasonWrap">

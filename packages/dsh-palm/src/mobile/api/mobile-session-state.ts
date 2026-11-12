@@ -12,7 +12,7 @@
 import type { ServerResponse } from 'node:http'
 import { RpcId } from '../../api-proxy-types.ts'
 import { goalActivationOf, goalSnapshotOf, preferLiveGoal } from '../../host/commands-goals.ts'
-import { liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf } from '../../host/queue-inbox.ts'
+import { liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf, queueVersionOf } from '../../host/queue-inbox.ts'
 import { computeTurnState } from '../../host/running-evidence.ts'
 import { writeJson } from '../../http.ts'
 import { readChatTailPage } from '../../mobile-log-source.ts'
@@ -61,7 +61,7 @@ export async function mobileSessionState(ctx: SessionStateContext): Promise<void
   const proxy = ctx.apiProxy as {
     sessions: { history: (request: never) => Promise<unknown> }
   }
-  const body = parsed.payload as { sessionId?: unknown; fresh?: unknown } | undefined
+  const body = parsed.payload as { sessionId?: unknown; fresh?: unknown; rows?: unknown } | undefined
   const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : ''
   if (sessionId === '') {
     writeJson(res, 200, {
@@ -72,23 +72,11 @@ export async function mobileSessionState(ctx: SessionStateContext): Promise<void
     return
   }
   const wantsFreshQueue = body?.fresh === true
-  const turnState = async (): Promise<{ running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number }> => {
-    try {
-      return await computeTurnState(sessionId)
-    } catch {
-      return { running: false, asOf: Date.now() }
-    }
-  }
-  const [page, inbox, turn, goalView] = await Promise.all([
-    readChatTailPage(sessionId),
-    (async () => liveInboxOf(deps as never, sessionId)
-      ?? await readInboxProjection(proxy, sessionId, wantsFreshQueue).catch(() => undefined))(),
-    turnState(),
-    // 目标与待办也在这张切面上：客户端不用再单独轮询 mobile.goal，
-    // 目标条与回合状态也就不会出现「一个说进行中、一个说已结束」。
-    readGoalProjection(proxy, deps, sessionId, wantsFreshQueue)
-      .catch((): { goal: unknown; activation?: 'armed' | 'disarmed' } => ({ goal: null })),
-  ])
+  // 回不回行（C2）：整页行是这份快照里最贵的一段（一次 129 KB），回合对账只读 `turn`。
+  const wantsRows = body?.rows !== false
+  // 先读尾页：行、队列投影和轮次边界都在这一份里。旧实现让 `computeTurnState`
+  // 再读一遍同一个尾页（真机一次 sessionState 两次日志读），这里把边界直接传下去。
+  const page = await readChatTailPage(sessionId)
   if (page === undefined) {
     writeJson(res, 200, {
       type: 'server-response',
@@ -97,6 +85,28 @@ export async function mobileSessionState(ctx: SessionStateContext): Promise<void
     })
     return
   }
+  const boundary = page.turnBoundary === undefined
+    ? undefined
+    : {
+        ...page.turnBoundary,
+        ...(page.lastEventAt === undefined ? {} : { lastEventAt: page.lastEventAt }),
+      }
+  type TurnView = { running: boolean; turnStartAt?: number; lastEventAt?: number; asOf: number }
+  const [inbox, turn, goalView] = await Promise.all([
+    (async () => liveInboxOf(deps as never, sessionId)
+      ?? await readInboxProjection(proxy, sessionId, wantsFreshQueue).catch(() => undefined))(),
+    (async (): Promise<TurnView> => {
+      try {
+        return await computeTurnState(sessionId, boundary)
+      } catch {
+        return { running: false, asOf: Date.now() }
+      }
+    })(),
+    // 目标与待办也在这张切面上：客户端不用再单独轮询 mobile.goal，
+    // 目标条与回合状态也就不会出现「一个说进行中、一个说已结束」。
+    readGoalProjection(proxy, deps, sessionId, wantsFreshQueue)
+      .catch((): { goal: unknown; activation?: 'armed' | 'disarmed' } => ({ goal: null })),
+  ])
   const queueItems = queueItemsOf(inbox as never)
   writeJson(res, 200, {
     type: 'server-response',
@@ -105,11 +115,12 @@ export async function mobileSessionState(ctx: SessionStateContext): Promise<void
       ok: true,
       value: {
         sessionId,
-        rows: page.rows,
+        ...(wantsRows ? { rows: page.rows } : {}),
         maxSeq: page.maxSeq,
         queue: queueItems,
         queueRevision: queueRevisionOf(sessionId),
         queueToken: queueTokenOf(queueItems),
+        queueVersion: queueVersionOf(sessionId),
         ...(page.todo === undefined ? {} : { todo: page.todo }),
         goal: goalView.goal,
         ...(goalView.activation === undefined ? {} : { goalActivation: goalView.activation }),

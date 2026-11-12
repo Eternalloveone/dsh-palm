@@ -60,7 +60,7 @@ export const SKIN_LABEL: Record<MobileSkin, string> = {
 }
 
 export const SKIN_HINT: Record<MobileSkin, string> = {
-  graphite: '深色底，默认',
+  graphite: '深色底，冷灰',
   nocturne: '深色底，偏蓝',
 }
 

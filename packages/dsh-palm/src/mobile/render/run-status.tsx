@@ -60,17 +60,34 @@ function TodoRowItem({ item }: { item: TodoItem }) {
 }
 
 /** One flat subagent row: status dot + label + activity wording. Shared with
- *  the global run-overview page, whose session cards reuse this exact row. */
-export function SubagentRow({ node }: { node: SubagentFlatNode }) {
+ *  the global run-overview page, whose session cards reuse this exact row.
+ *
+ *  2026-11-11：给了 `onOpen` 就变成可点的行（进子代理详情页）。不给 onOpen 时
+ *  保持原来的纯展示 div —— 老调用方和既有测试都不受影响。 */
+export function SubagentRow({ node, onOpen }: { node: SubagentFlatNode; onOpen?: (node: SubagentFlatNode) => void }) {
   const running = node.activity === 'running'
-  return (
-    <div className="chat-subagent-row" role="listitem">
+  const body = (
+    <>
       <span className={'chat-subagent-dot' + (running ? ' chat-subagent-dot-running' : '')} aria-hidden />
       <span className="chat-subagent-copy">
         <span className="chat-subagent-label">{node.label}</span>
         <span className="chat-subagent-meta">{running ? '运行中' : '空闲'}</span>
       </span>
-    </div>
+    </>
+  )
+  if (onOpen === undefined) {
+    return <div className="chat-subagent-row" role="listitem">{body}</div>
+  }
+  return (
+    <Button
+      type="button"
+      className="chat-subagent-row chat-subagent-row-open"
+      role="listitem"
+      onClick={() => { onOpen(node) }}
+    >
+      {body}
+      <span className="chat-subagent-chev" aria-hidden>›</span>
+    </Button>
   )
 }
 
@@ -79,7 +96,7 @@ export function SubagentRow({ node }: { node: SubagentFlatNode }) {
  * folds past SUBAGENT_VISIBLE_MAX rows behind an expander (a long delegation
  * chain must not take over the sheet).
  */
-function SubagentSection({ nodes }: { nodes: readonly SubagentFlatNode[] }) {
+function SubagentSection({ nodes, onOpen }: { nodes: readonly SubagentFlatNode[]; onOpen?: (node: SubagentFlatNode) => void }) {
   const [expanded, setExpanded] = useState(false)
   const sorted = useMemo(() => sortSubagentsRunningFirst(nodes), [nodes])
   const hidden = Math.max(0, sorted.length - SUBAGENT_VISIBLE_MAX)
@@ -94,7 +111,7 @@ function SubagentSection({ nodes }: { nodes: readonly SubagentFlatNode[] }) {
         </span>
       </div>
       <div className="chat-subagent-list" role="list" aria-label="子代理列表">
-        {visible.map(node => <SubagentRow key={node.id} node={node} />)}
+        {visible.map(node => <SubagentRow key={node.id} node={node} {...(onOpen === undefined ? {} : { onOpen })} />)}
       </div>
       {hidden > 0 && (
         <Button type="button" className="chat-run-fold" onClick={() => { setExpanded(value => !value) }}>
@@ -102,6 +119,70 @@ function SubagentSection({ nodes }: { nodes: readonly SubagentFlatNode[] }) {
         </Button>
       )}
     </section>
+  )
+}
+
+/** 徽标上会出现的字（空数组 = 顶栏不该画这个徽标）。 */
+export function runBadgeBits(
+  todo: TodoSnapshot | undefined,
+  jobs: readonly JobView[],
+  subagents: readonly SubagentFlatNode[],
+): string[] {
+  const { done, total } = todo === undefined ? { done: 0, total: 0 } : todoCount(todo.items)
+  const bits: string[] = []
+  // 计划：只在「有总数且还没全完」时报，全完了顶栏不需要再挂着。
+  if (total > 0 && done < total) bits.push(`${done}/${total}`)
+  const running = countRunningSubagents(subagents)
+  // 2026-11-12（用户：「入口当任务没在跑的时候就不显示，这不合理」）：
+  // 跑完了不能把入口一起收走 —— 用户回头看「它最后做了什么」时，徽标没了就再也进不去。
+  // 所以只要这个会话有过子代理，徽标就留着；有在跑的才报运行中的个数。
+  if (running > 0) bits.push(`代理 ${running}`)
+  else if (subagents.length > 0) bits.push(`代理 ${subagents.length}`)
+  const live = liveJobCount(jobs)
+  if (live > 0) bits.push(`后台 ${live}`)
+  return bits
+}
+
+/**
+ * 顶栏运行徽标：`3/7 · 1 代理`。
+ *
+ * 2026-11-10：输入框上方那行「已 N 秒没有新输出 / 任务 3/7」整行下线，任务清单与
+ * 子代理情况收进这里 —— 它不占正文、不跟输入框抢位置，点一下打开既有的运行详情面板。
+ * 没有可报的内容（没计划、没后台任务、没子代理）时返回 null，顶栏不多一个空格。
+ *
+ * 2026-11-11：它从顶栏右侧 48px 的槽位搬到了标题下面那一行（见 `ChatHeader`）——
+ * 右槽定宽，徽标比它宽就压到标题上。是否该画这个徽标，用 `runBadgeBits` 判
+ * （`ChatHeader` 只负责摆放，不再猜"有没有内容"）。
+ *
+ * @param props.todo - 计划快照
+ * @param props.jobs - 后台任务
+ * @param props.subagents - 子代理树
+ * @param props.onOpen - 打开详情面板
+ * @returns 徽标按钮，或 null
+ */
+export function RunBadge({ todo, jobs, subagents, onOpen }: {
+  todo: TodoSnapshot | undefined
+  jobs: readonly JobView[]
+  subagents: readonly SubagentFlatNode[]
+  onOpen(): void
+}): JSX.Element | null {
+  const bits = runBadgeBits(todo, jobs, subagents)
+  if (bits.length === 0) return null
+  const { done, total } = todo === undefined ? { done: 0, total: 0 } : todoCount(todo.items)
+  const liveJobs = liveJobCount(jobs)
+  const runningSubagents = countRunningSubagents(subagents)
+  const label = [
+    total > 0 ? `任务 ${done}/${total}` : '',
+    // 读屏也要能听出「是还在跑，还是跑完了但还能点进去看」。
+    runningSubagents > 0
+      ? `子代理 ${runningSubagents} 个运行中`
+      : subagents.length > 0 ? `子代理 ${subagents.length} 个（已结束）` : '',
+    liveJobs > 0 ? `后台任务 ${liveJobs} 个运行中` : '',
+  ].filter(part => part !== '').join('，')
+  return (
+    <Button type="button" className="chat-run-badge" aria-label={`${label}，打开运行详情`} onClick={onOpen}>
+      {bits.join(' · ')}
+    </Button>
   )
 }
 
@@ -226,7 +307,7 @@ export function FinishedElsewhereBar({
   onOpen(): void
   onDismiss(): void
 }) {
-  const label = status === 'error' ? '出错退出' : status === 'stopped' ? '已中断' : '已完成'
+  const label = status === 'error' ? '异常结束' : status === 'stopped' ? '已中断' : '已完成'
   return (
     <div
       className="chat-status-strip chat-finished-strip"
@@ -278,18 +359,21 @@ export function RunStatusSheet({
   jobs,
   subagents,
   onClose,
+  onOpenSubagent,
 }: {
   todo: TodoSnapshot | undefined
   jobs: readonly JobView[]
   subagents: readonly SubagentFlatNode[]
   onClose(): void
+  /** 点一行子代理：交给页面去跳详情（不给就保持纯展示）。 */
+  onOpenSubagent?: (node: SubagentFlatNode) => void
 }) {
   const hasTodos = todo !== undefined && todo.items.length > 0
   if (!hasTodos && jobs.length === 0 && subagents.length === 0) return null
 
   return (
     <Sheet title="运行状态" onClose={onClose}>
-      {subagents.length > 0 && <SubagentSection nodes={subagents} />}
+      {subagents.length > 0 && <SubagentSection nodes={subagents} {...(onOpenSubagent === undefined ? {} : { onOpen: onOpenSubagent })} />}
       {hasTodos && (
         <section className="chat-run-section" aria-label="任务清单">
           <div className="chat-run-section-head">

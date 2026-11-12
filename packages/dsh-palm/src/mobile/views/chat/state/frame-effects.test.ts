@@ -19,7 +19,7 @@ function makeCtx() {
     refreshSubagents: vi.fn(record('refreshSubagents')),
     claimQueueHead: vi.fn(record('claimQueueHead')),
     refreshInbox: vi.fn(record('refreshInbox')),
-    setQueueItems: vi.fn(record('setQueueItems')),
+    rebaselineQueueView: vi.fn(record('rebaselineQueueView')),
     setTodo: vi.fn(record('setTodo')),
     shadowEvent: vi.fn(record('shadowEvent')),
     clearActiveTurn: vi.fn(record('clearActiveTurn')),
@@ -44,8 +44,7 @@ function makeCtx() {
     refreshSubagents: spies.refreshSubagents as never,
     refreshInbox: spies.refreshInbox as never,
     claimQueueHead: spies.claimQueueHead as never,
-    queueView: () => [{ id: 'q-1' } as never],
-    setQueueItems: spies.setQueueItems as never,
+    rebaselineQueueView: spies.rebaselineQueueView as never,
     applyQueueItems: noop,
     setJobs: noop,
     setPermissions: noop,
@@ -87,13 +86,13 @@ describe('onTurnStart（turn/start 边界）', () => {
     expect(spies.claimQueueHead).toHaveBeenCalledWith('s-1')
     expect(spies.refreshInbox).toHaveBeenCalledWith({ fresh: true })
     // 写入顺序与搬走前一致：裁决 → 锚点 → 树 → 计划 → 队列 → 问真值。
+    // W3-6 起"把 queueView 抄进组件"这一步没有了（仓发布即生效）。
     expect(order).toEqual([
       'applyTurnVerdict',
       'beginTurn',
       'refreshSubagents',
       'setTodo',
       'claimQueueHead',
-      'setQueueItems',
       'refreshInbox',
     ])
   })

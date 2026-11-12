@@ -36,3 +36,27 @@ describe('对话页头部三元素', () => {
     expect(onMore).toHaveBeenCalledTimes(1)
   })
 })
+
+  it('运行徽标画在标题下面那一行：右槽只剩 ⋯，标题不再被盖住', () => {
+    // 2026-11-11 用户截图：「代理 4」压在会话标题上。根因是右槽是定宽 48px 的网格列，
+    // 徽标比它宽就被顶到左边、正好落在标题文字上。徽标搬到第二行后，右槽只放 ⋯。
+    const { container } = render(
+      <ChatHeader
+        title="梳理 dsh palm 源码问题评估"
+        workspaceName="dsh-palm"
+        onMore={() => {}}
+        run={<span className="chat-run-badge">代理 4</span>}
+      />,
+    )
+    const subRow = container.querySelector('.mobile-titlePath')
+    expect(subRow).toBeTruthy()
+    expect(subRow!.textContent).toContain('dsh-palm')
+    expect(subRow!.textContent).toContain('代理 4')
+    // 右槽里只有 ⋯：徽标不在里面，就不会再顶到标题上。
+    const rightSlot = container.querySelector('.mobile-headerSlot-right')
+    expect(rightSlot!.querySelector('.chat-run-badge')).toBeNull()
+    expect(rightSlot!.querySelectorAll('button').length).toBe(1)
+    // 标题仍是独立一行，且带截断（长标题不再溢出到徽标下面）。
+    const heading = screen.getByRole('heading', { name: '梳理 dsh palm 源码问题评估' })
+    expect(heading.className).toContain('mobile-title')
+  })

@@ -20,7 +20,6 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { highlightCodeSync, languageInfo } from './shiki.ts'
 import { copyText, insertCode, openCodeInTab, runCode, type RunResult } from './code-actions.ts'
 import { toast } from '../components/toast.tsx'
-import { escapeHtml } from './markdown.ts'
 import { CheckIcon, CopyIcon, EnterIcon, PlayIcon, UpperRightIcon } from '../components/icons.tsx'
 import { Button } from '../ui/primitives.tsx'
 
@@ -58,6 +57,18 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
   const [copied, setCopied] = useState(false)
   /** Copy-feedback timer (cleared on re-copy and unmount). */
   const copyTimerRef = useRef<number | undefined>(undefined)
+  /**
+   * 淡入只播一次。
+   *
+   * 流式输出时代码块每来一个 chunk 就重新高亮一次（html 是新字符串 → 新的
+   * dangerouslySetInnerHTML），`.code-fade` 上那 150ms 的 animation 会跟着重播，
+   * 肉眼就是代码区"闪一下"。第一次拿到高亮结果后才需要这层过渡。
+   */
+  const fadedRef = useRef(false)
+  // 高亮落地这一帧把标记翻过去：之后每次重新高亮都不再重播那 150ms 的淡入。
+  useEffect(() => {
+    if (html !== null) fadedRef.current = true
+  }, [html])
   /** Fold state for long blocks. */
   const [expanded, setExpanded] = useState(false)
   /** Sandbox run state (bash / python only). */
@@ -218,12 +229,12 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
         <div className={'code-body' + (folded ? ' code-body-folded' : '')}>
           {html !== null ? (
             // Shiki's codeToHtml output is already a <pre class="shiki">.
-            <div className="code-fade" dangerouslySetInnerHTML={{ __html: html }} />
+            <div className={fadedRef.current ? undefined : 'code-fade'} dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <pre>
               <code>
                 {lines.slice(0, headLineCount).map((line, index) => (
-                  <span key={index} className="code-line">{line === '' ? ' ' : escapeHtml(line)}</span>
+                  <span key={index} className="code-line">{line === '' ? ' ' : line}</span>
                 ))}
               </code>
             </pre>
@@ -234,7 +245,7 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string;
             <pre className="code-tail-plain">
               <code>
                 {tailLines.map((line, index) => (
-                  <span key={index} className="code-line">{line === '' ? ' ' : escapeHtml(line)}</span>
+                  <span key={index} className="code-line">{line === '' ? ' ' : line}</span>
                 ))}
               </code>
             </pre>

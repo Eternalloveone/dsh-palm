@@ -45,6 +45,14 @@ export interface ChatState {
   readonly regenerate: RegeneratePhase
   /** 最近一次成功发送的时间（单调时钟，用于"刚刚发送"这类判断）。 */
   readonly lastSentAt?: number
+  /**
+   * 这份状态属于哪个会话（`session/reset` 打上的标记）。
+   *
+   * 会话页实例是**跨会话活着**的，所以 store 里随时可能装着上一场的装载阶段与标题。
+   * 读的一方按这个标记判：标记与会话不一致就当"还在装载"，免得新会话第一帧画的是
+   * 上一场的标题/空正文。
+   */
+  readonly scope?: string
 }
 
 export const INITIAL_CHAT_STATE: ChatState = {
@@ -66,6 +74,7 @@ export type ChatAction =
   | { type: 'intent/stop-start' }
   | { type: 'intent/stop-settled' }
   | { type: 'intent/regenerate'; phase: RegeneratePhase }
+  | { type: 'session/reset'; scope: string }
 
 /**
  * 纯 reducer：同输入必同输出，便于回放与测试。
@@ -96,6 +105,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return state.stopping ? { ...state, stopping: false } : state
     case 'intent/regenerate':
       return state.regenerate === action.phase ? state : { ...state, regenerate: action.phase }
+    case 'session/reset':
+      // 换会话：**在途意图属于上一场**，必须归零。`sending=true` 会让新会话的主键
+      // 一直灰着（用户口径：「换过去发不出消息」）；`stopping`/`regenerate` 同理。
+      // `scope` 打上这一场的标记，读的一方据此判"装载阶段/标题是不是这一场的"。
+      // 装载阶段/标题/提示不在这里清 —— 切换处紧接着就按新会话写它们。
+      return !state.sending && !state.stopping && state.regenerate === 'idle' && state.scope === action.scope
+        ? state
+        : { ...state, sending: false, stopping: false, regenerate: 'idle', scope: action.scope }
     default:
       return state
   }

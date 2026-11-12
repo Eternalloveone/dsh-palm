@@ -22,8 +22,8 @@ const toastMock = vi.mocked(toast)
 
 let api: ChatAttachments | undefined
 
-function Harness() {
-  api = useChatAttachments({ sessionId: 's-1' })
+function Harness({ sessionId = 's-1' }: { sessionId?: string }) {
+  api = useChatAttachments({ sessionId })
   const statuses = api.attachFiles.map(item => item.status).join(',')
   return <div data-testid="state">{`${api.attachImages.length}|${api.attachFiles.length}|${api.uploadingFiles}|${statuses}`}</div>
 }
@@ -58,7 +58,7 @@ describe('useChatAttachments', () => {
     compressMock.mockResolvedValue({ image: undefined as never, failed: true })
     render(<Harness />)
     await act(async () => { api?.addImage(file('p.heic')) })
-    await waitFor(() => { expect(toastMock).toHaveBeenCalledWith('该图片无法解码，已忽略') })
+    await waitFor(() => { expect(toastMock).toHaveBeenCalledWith('这张图读不出来，已跳过') })
     expect(api?.attachImages.length).toBe(0)
   })
 
@@ -104,5 +104,25 @@ describe('useChatAttachments', () => {
     await act(async () => { api?.retryStaged(api.attachFiles[0]?.localId ?? '') })
     await waitFor(() => { expect(view.getByTestId('state').textContent).toBe('0|1|0|ready') })
     expect(uploadMock).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * P4：实例跨会话复用后，待发附件必须跟着会话走 —— 留着上一场的 chip，用户在新
+   * 会话一按发送就把别人的图/文件带出去（receiptId 还是上一场的）。
+   */
+  it('换会话：待发附件与在传计数一起归零', async () => {
+    const pending: Array<(value: { receiptId: string; name: string; bytes: number }) => void> = []
+    uploadMock.mockImplementation(() => new Promise((resolve) => { pending.push(resolve) }) as never)
+    const view = render(<Harness sessionId="s-1" />)
+    await act(async () => { api?.addImage(file('p.png')) })
+    await act(async () => { api?.addFiles([file('a.bin')]) })
+    await waitFor(() => { expect(view.getByTestId('state').textContent).toBe('1|1|1|uploading') })
+
+    view.rerender(<Harness sessionId="s-2" />)
+
+    expect(view.getByTestId('state').textContent).toBe('0|0|0|')
+    // 上一场那个上传迟到的回执不许把 chip 塞进新会话。
+    await act(async () => { for (const resolve of pending) resolve({ receiptId: 'rcpt-1', name: 'a.bin', bytes: 3 }) })
+    expect(view.getByTestId('state').textContent).toBe('0|0|0|')
   })
 })

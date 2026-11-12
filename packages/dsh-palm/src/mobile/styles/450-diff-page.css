@@ -48,7 +48,9 @@
 .diff-page-lines {
   font-family: var(--palm-font-mono);
   font-size: var(--palm-t-s);
-  line-height: var(--palm-lh-body);
+  /* 2026-11-10 实机：行高按正文口径（1.5 倍 + 上下内边距）落到代码上太松，一屏只看
+     得到十来行。代码行用紧凑行高（1.45），垂直内边距收成 1px —— 一屏多出近一半。 */
+  line-height: 1.45;
   color: var(--palm-fg);
   user-select: text;
   -webkit-user-select: text;
@@ -56,13 +58,13 @@
 
 /*
  * 一行三列：行号（等宽右对齐）/ 增删符号 / 内容。
- * minmax(0, 1fr) 是窄屏不横向溢出的关键：内容列可被压缩，超长行截断而不是撑破卡片。
+ * minmax(0, 1fr) 是窄屏不横向溢出的关键：内容列可被压缩，超长行折行而不是撑破卡片。
  */
 .diff-page-row {
   display: grid;
   grid-template-columns: max-content var(--palm-s4) minmax(0, 1fr);
   align-items: baseline;
-  padding: var(--palm-s1) var(--palm-s3) var(--palm-s1) var(--palm-s2);
+  padding: 1px var(--palm-s3) 1px var(--palm-s2);
 }
 
 .diff-page-no {
@@ -84,12 +86,13 @@
   -webkit-user-select: none;
 }
 
-/* 超长行在这里截断：pre 保住缩进，overflow+ellipsis 截掉右边。 */
+/* 超长行软换行（2026-11-10）：原来在这里截断（overflow + ellipsis），手机上除了长按
+ * 复制没有别的办法看到后半行。pre-wrap 保住行首缩进，anywhere 让长标识符也能断行；
+ * 行号列按基线对齐，仍和首行对得上，且不出现横向滚动。 */
 .diff-page-text {
   padding-right: var(--palm-s2);
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* 新增行：浅绿底 + 绿色左侧条；行号提亮到正文色，和上下文行区分开。 */

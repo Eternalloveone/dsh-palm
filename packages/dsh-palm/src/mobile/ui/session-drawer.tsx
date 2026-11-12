@@ -9,10 +9,12 @@
  * 运行中（宿主运行集合）、完成（刚结束账本）。普通会话保持干净。
  */
 import type { SessionView } from '../shared/session-view.ts'
-import { ChevronDownIcon, FolderIcon, GaugeIcon, PlusIcon, SearchIcon, SlidersIcon } from '../components/icons.tsx'
+import { ChevronDownIcon, ChevronRightIcon, GaugeIcon, RowsIcon, SearchIcon, SlidersIcon } from '../components/icons.tsx'
 import { Button, ListRow } from './primitives.tsx'
+import { SKIN_LABEL, getSkin } from '../platform/skin.ts'
 import { Overlay } from './overlay.tsx'
 import { StatusStrip, type StatusStripKind } from './status-strip.tsx'
+import { drawerWhenLabel } from './drawer-when.ts'
 
 /** 一天（毫秒）：今天/昨天分界。 */
 const DAY_MS = 86_400_000
@@ -56,8 +58,6 @@ export interface SessionDrawerProps {
   /** 等用户批准的会话 id（mux pending 镜像）：画「等审批」mini 条。 */
   pendingIds?: ReadonlySet<string>
   currentSessionId?: string
-  /** 「产物与文档」右侧小字：当前会话的产物文件数（拿不到就不画）。 */
-  artifactCount?: number
   /** 工作区数量：>1 时身份区画切换箭头（单工作区不画）。 */
   workspaceCount?: number
   onSwitchWorkspace?: (() => void) | undefined
@@ -65,9 +65,13 @@ export interface SessionDrawerProps {
   onNew(): void
   onSearch(): void
   onPick(session: SessionView): void
+  /** 进行中 + 刚完成的条数：>0 才画「任务」入口。 */
+  taskCount?: number
+  onOpenTasks?: (() => void) | undefined
   onOpenSettings(): void
-  onOpenArtifacts(): void
   onOpenUsage(): void
+  /** 正在播退出动画：遮罩与面板一起往左滑，播完由 App 卸载（约 240ms）。 */
+  closing?: boolean
 }
 
 /**
@@ -82,31 +86,68 @@ export function SessionDrawer(props: SessionDrawerProps) {
   const groups = BUCKETS
     .map(title => ({ title, rows: props.rows.filter(row => drawerBucketOf(row.updatedAt, now) === title) }))
     .filter(group => group.rows.length > 0)
-  const name = props.workspace.title === '' ? '本机工作区' : props.workspace.title
+  /**
+   * 工作区名。
+   *
+   * 名字由 `session/workspace-directory.ts` 的 `resolveWorkspace` 统一解析后传进来
+   * （2026-11-12 用户：「怎么有时候显示本机工作区」→「这是补丁吗，要系统解决」）。
+   * 抽屉这里不再自己按路径猜 —— 以前每处各猜一次，三处三种结果。空串只是最后一道防线。
+   */
+  const name = props.workspace.title !== '' ? props.workspace.title : '工作区'
   const showSwitch = (props.workspaceCount ?? 1) > 1 && props.onSwitchWorkspace !== undefined
   return (
-    <Overlay title="会话与工作区" onClose={props.onClose} scrimClassName="palm-drawer-scrim" panelClassName="palm-drawer">
+    <Overlay
+      title="会话与工作区"
+      onClose={props.onClose}
+      scrimClassName={'palm-drawer-scrim' + (props.closing === true ? ' is-closing' : '')}
+      panelClassName={'palm-drawer' + (props.closing === true ? ' is-closing' : '')}
+    >
       <div className="palm-drawer-head">
-        <span className="palm-drawer-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
-        <span className="palm-drawer-ws"><b>{name}</b><small>{props.workspace.path}</small></span>
         {showSwitch ? (
-          <Button type="button" className="mobile-iconbtn" aria-label="切换工作区" onClick={props.onSwitchWorkspace}>
-            <ChevronDownIcon />
+          /*
+           * 整块可点：头像 + 工作区名 + 路径 + 右侧「切换 ⌄」。
+           * 2026-11-11 用户：「切换工作区是纯图标，看不出是在这切」—— 原来只有一枚
+           * 16px 的箭头能点，左边写着工作区名的那块反倒点不动，两个信号都是错的。
+           */
+          <Button
+            type="button"
+            className="palm-drawer-ws-btn"
+            aria-label="切换工作区"
+            onClick={props.onSwitchWorkspace}
+          >
+            <span className="palm-drawer-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
+            <span className="palm-drawer-ws"><b>{name}</b><small>{props.workspace.path}</small></span>
+            <span className="palm-drawer-ws-switch">切换<ChevronDownIcon /></span>
           </Button>
-        ) : null}
+        ) : (
+          <>
+            <span className="palm-drawer-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
+            <span className="palm-drawer-ws"><b>{name}</b><small>{props.workspace.path}</small></span>
+          </>
+        )}
       </div>
       {/* 文案一律包一层 span：图标固定 16px 之后，折行的唯一来源就是文案本身，
           而 text-overflow 只对外层盒子生效 —— 裸文本节点在 flex 行里是匿名项，
           省略号挂不上去（实机就是「新建会话」被压成两行）。 */}
-      <Button type="button" className="palm-drawer-new" onClick={props.onNew}><PlusIcon /><span>新建会话</span></Button>
+      <Button type="button" className="palm-drawer-new" onClick={props.onNew}><span>新建会话</span></Button>
       <Button type="button" className="palm-drawer-search" onClick={props.onSearch}><SearchIcon /><span>搜索会话和消息</span></Button>
       <div className="palm-drawer-list">
+        {groups.length === 0 ? (
+          /* 空列表要说清楚"是真的没有"，而不是留一块空白让人以为界面坏了
+             （2026-11-10「会话列表显示失效」的观感就是从这里来的）。 */
+          <p className="palm-drawer-empty">这个工作区还没有会话</p>
+        ) : null}
         {groups.map(group => (
           <section className="palm-drawer-group" key={group.title}>
-            <h2 className="palm-drawer-bucket">{group.title}</h2>
+            <h2 className="palm-drawer-bucket">
+              {group.title}
+              {/* 条数只做视觉补充；读屏仍读「今天」这一句（aria-hidden）。 */}
+              <span className="palm-drawer-bucket-count" aria-hidden="true">{group.rows.length}</span>
+            </h2>
             <ul className="palm-drawer-rows">
               {group.rows.map((row) => {
                 const status = statusOf(row, props.finishedIds, pending)
+                const when = drawerWhenLabel(row.updatedAt, now)
                 return (
                   <li key={row.sessionId}>
                     <ListRow
@@ -115,6 +156,8 @@ export function SessionDrawer(props: SessionDrawerProps) {
                     >
                       <span className="palm-drawer-title">{row.title}</span>
                       {status === undefined ? null : <StatusStrip kind={status.kind} label={status.label} size="mini" />}
+                      {/* 右侧那句「什么时候」：2026-11-11 用户「侧边栏的右边有点空」。 */}
+                      {when === '' ? null : <small className="palm-drawer-when">{when}</small>}
                     </ListRow>
                   </li>
                 )
@@ -123,14 +166,37 @@ export function SessionDrawer(props: SessionDrawerProps) {
           </section>
         ))}
       </div>
-      {/* 底部三入口：左 16px 图标 + 主文案单行 + 右侧小字（小字永不被挤掉）。 */}
-      <nav className="palm-drawer-foot" aria-label="抽屉入口">
-        <Button type="button" className="palm-drawer-entry" onClick={props.onOpenSettings}><SlidersIcon /><span>设置</span></Button>
-        <Button type="button" className="palm-drawer-entry" onClick={props.onOpenArtifacts}>
-          <FolderIcon /><span>产物与文档</span>{props.artifactCount === undefined ? null : <small>{props.artifactCount}</small>}
-        </Button>
-        <Button type="button" className="palm-drawer-entry" onClick={props.onOpenUsage}><GaugeIcon /><span>用量</span><small>本机</small></Button>
-      </nav>
+      {/* 底部入口（2026-11-11 C 版）：一块带底色的圆角卡片：小标题「工具」+
+          两行 46px（图标 / 文案 / 右侧补充 / 箭头），与上面的列表明确分层。
+          「产物与文档」已从这里删掉（同日用户要求）：右上角「⋯ → 这一轮的产物」就是
+          同一个入口，而且那里带「N 个文件」，比抽屉里再放一条更近。 */}
+      <div className="palm-drawer-foot" aria-label="抽屉入口">
+        <div className="palm-drawer-tools">
+          {/*
+           * 顺序：任务 → 用量 → 设置（2026-11-12 用户：「设置和用量要不要调换」）。
+           *
+           * 理由：任务是"有什么在跑"，用量是"还剩多少钱"，两者都是**看一眼就走的信息**；
+           * 设置是**改东西**，而且是三个里最不常点、改完很久不回来的那种。
+           * 信息类聚在上面、配置沉到最底下，也是大部分 App 的通用心智（设置永远在最后一行）。
+           * 任务行只在有任务时才画（2026-11-11 决定），所以不会白占位置。
+           */}
+          {(props.taskCount ?? 0) > 0 && props.onOpenTasks !== undefined ? (
+            <Button type="button" className="palm-drawer-tool" onClick={props.onOpenTasks}>
+              <RowsIcon /><span>任务</span><small>{props.taskCount} 条</small><ChevronRightIcon />
+            </Button>
+          ) : null}
+          <Button type="button" className="palm-drawer-tool" onClick={props.onOpenUsage}>
+            {/* 2026-11-12 用户：「用量」底下显示「本机」是什么意思？
+                它原来是写死的两个字，本意是"这台机器上配的提供方用量"，但用量页里的数字
+                其实是宿主去各家查回来的余额，标「本机」容易被读成"手机自己的用量"。
+                换成「余额」—— 页面里每一行就是某家的账户余额/累计已花，对得上。 */}
+            <GaugeIcon /><span>用量</span><small>余额</small><ChevronRightIcon />
+          </Button>
+          <Button type="button" className="palm-drawer-tool" onClick={props.onOpenSettings}>
+            <SlidersIcon /><span>设置</span><small>{SKIN_LABEL[getSkin()]}</small><ChevronRightIcon />
+          </Button>
+        </div>
+      </div>
     </Overlay>
   )
 }
