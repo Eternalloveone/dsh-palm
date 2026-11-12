@@ -17,6 +17,9 @@ interface SearchHit {
   seq: number
   messageId?: string
   partId?: string
+  /** 结构坐标：第几轮 / 第几步（图谱寻址用）。 */
+  turn?: number
+  step?: number
   snippet: string
   paragraph?: number
   matchIndex?: number
@@ -57,6 +60,8 @@ export async function mobileSearchMessages(ctx: SearchMessagesContext): Promise<
       seq: hit.seq,
       ...(hit.messageId === undefined ? {} : { messageId: hit.messageId }),
       ...(hit.partId === undefined ? {} : { partId: hit.partId }),
+      ...(hit.turn === undefined ? {} : { turn: hit.turn }),
+      ...(hit.step === undefined ? {} : { step: hit.step }),
       snippet: hit.snippet,
       ...(hit.paragraph === undefined ? {} : { paragraph: hit.paragraph }),
       ...(hit.matchIndex === undefined ? {} : { matchIndex: hit.matchIndex }),

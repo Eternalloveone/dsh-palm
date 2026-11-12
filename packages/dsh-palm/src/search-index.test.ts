@@ -285,6 +285,61 @@ describe('索引口径版本', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('版本升级会重建表结构（新列必须真的加上，不能只是版本号变了）', async () => {
+    // 2026-11-12 真机踩到：v5 给 docs 加了 turn/step，但 ensureVersion 当时只
+    // `DELETE FROM docs`。`CREATE TABLE IF NOT EXISTS` 对已存在的表什么都不做，
+    // 于是 meta 里版本已是 5、PRAGMA 里却没有 turn 列，坐标永远写不进去。
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-index-schema-'))
+    const path = join(dir, 'index.db')
+    try {
+      const first = await SearchIndex.open(path)
+      if (first === undefined) return
+      first.upsertSession(
+        { sessionId: 's1', title: '旧库', updatedAt: 100, complete: true, indexedThroughSeq: 5 },
+        [{ messageId: 'm1', seq: 1, text: '旧口径正文', user: false }],
+        1000,
+      )
+      first.close()
+
+      // 模拟"上一版库"：把 docs 退回没有 turn/step 的形状，版本号也退回去。
+      const { DatabaseSync } = await import('node:sqlite')
+      const raw = new DatabaseSync(path)
+      raw.exec('DROP TABLE IF EXISTS docs_fts; DROP TABLE IF EXISTS docs;')
+      raw.exec(`
+        CREATE TABLE docs (
+          id INTEGER PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          seq INTEGER NOT NULL,
+          part_id TEXT NOT NULL DEFAULT '',
+          role TEXT NOT NULL,
+          text TEXT NOT NULL,
+          ts INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE VIRTUAL TABLE docs_fts USING fts5(tokens, tokenize = 'unicode61');
+      `)
+      raw.exec("UPDATE meta SET value = '4' WHERE key = 'index_version'")
+      const oldCols = (raw.prepare('PRAGMA table_info(docs)').all() as Array<{ name?: string }>).map(c => c.name)
+      raw.close()
+      expect(oldCols).not.toContain('turn')
+
+      const second = await SearchIndex.open(path)
+      if (second === undefined) return
+      second.upsertSession(
+        { sessionId: 's2', title: '新库', updatedAt: 200, complete: true, indexedThroughSeq: 9 },
+        [{ messageId: 'm2', seq: 2, text: '带坐标的正文', user: true, turn: 12, step: 3 }],
+        2000,
+      )
+      const hits = second.query('带坐标', { limit: 5 })
+      expect(hits).toHaveLength(1)
+      expect(hits[0]?.turn).toBe(12)
+      expect(hits[0]?.step).toBe(3)
+      second.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 describe('分组分页与时间衰减', () => {
   it('分组分页：offset 切片、每会话最多 limits 条消息、hasMore 正确', async () => {

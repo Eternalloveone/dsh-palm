@@ -16,7 +16,9 @@
 import { APPROVAL_ARGS_LIMIT, TURN_JUMP_MAX_PAGES, JUMP_PAGE_ROWS, MODELS_EXTRAS_GRACE_MS, MIN_CACHE_TAIL_ROWS, SLOW_NETWORK_CACHE_MS, OFFLINE_PROBE_MS, OFFLINE_PROBE_TIMEOUT_MS, CARD_SYNC_COOLDOWN_MS, TURN_CLOCK_THRESHOLD_MS, FOCUS_MAX_PAGES, LOST_ECHO_QUIET_MS } from './chat/lib/chat-constants.ts'
 import { useChatComposerState, useChatReading, useChatSearch, useChatUi } from './chat/state/chat-machine.ts'
 import { useChatSessionLifecycle } from './chat/hooks/use-chat-session-lifecycle.ts'
-import { useNativeSelection, useQueueStoreSubscription } from './chat/hooks/use-chat-subscriptions.ts'
+import { useNativeSelection } from './chat/hooks/use-chat-subscriptions.ts'
+import { useSessionQueue } from './chat/hooks/use-session-queue.ts'
+import { useSessionRef, useSessionState } from './chat/hooks/use-session-scope.ts'
 import { useChatOutboxFlush } from './chat/hooks/use-chat-outbox-flush.ts'
 import { useChatEscape } from './chat/hooks/use-chat-escape.ts'
 import { useScrollGestures } from './chat/hooks/use-chat-scroll-gestures.ts'
@@ -46,9 +48,15 @@ import { LOCATE_MAX_FIXES, LOCATE_TOLERANCE_PX, LOCATE_TOP_GAP, TURN_SCRUB_MOVE_
 // 这两个原本从这里导出、被测试直接引用；搬走后保持对外形状不变（测试不该被迫改 import）。
 export { offersRegenerate, quotePathForReference } from './chat/state/chat-scroll.ts'
 import { estimateMessageHeight, messageKey } from './chat/lib/chat-layout.ts'
+// 定位决策（2026-11-12）：意图 → 锚点 → 状态机。纯函数，测试在 chat/lib 下。
+// 「数据还没到」不可能被它判成「找不到」，这条由状态机的不变量保证，不靠 if 拦。
+import { judgeLanding } from './chat/lib/locate-landing.ts'
+import { decideMiss } from './chat/lib/locate-machine.ts'
+import { useRowCallbacks } from './chat/hooks/use-row-callbacks.ts'
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react'
 import type { MuxFrame } from '../../api-proxy-types'
-import { useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
+import { useChatSelector, useChatSessionStore } from '../runtime/chat/use-chat-store.ts'
+import { useSessionPending } from '../runtime/chat/use-pending-store.ts'
 import { loadChatPage, type ChatPageResult } from '../data/chat-page.ts'
 import { createStreamState } from './chat/state/stream-state.ts'
 import type { SessionView } from '../shared/session-view.ts'
@@ -62,10 +70,10 @@ import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
 import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../session/chat-snapshot.ts'
 import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../session/history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
-import { cancelSession, history, prompt, readChat, sendCommand } from '../data/session.ts'
+import { cancelSession, history, prompt, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, models, selectModel, listCommands } from '../data/settings.ts'
 import type { SessionModels } from '../../api-proxy-types'
-import type { CommandDescriptor, MobileGoalAction, PendingApproval, PendingQuestionItem, QueueItemView } from '../api.ts'
+import type { CommandDescriptor, MobileGoalAction, PendingApproval } from '../api.ts'
 import { completedTurns, renderRows, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, type RenderMessage, type TodoSnapshot, type WireEvent } from '../render/messages.ts'
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
@@ -88,12 +96,12 @@ import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexO
 import { ChatAttentionPanels } from './chat/components/chat-attention-panels.tsx'
 import { JumpControls } from './chat/components/scroll-controls.tsx'
 import type { ModelPickerCatalog } from './chat/lib/tool-labels.ts'
-import { useChatDraft } from './chat/hooks/use-chat-draft.ts'
+import { subscribeDraft, useChatDraftController } from './chat/hooks/use-chat-draft.ts'
 import { ComposerSection } from './chat/components/composer-section.tsx'
 import { useLongPress } from '../ui/hooks/use-long-press.ts'
 import { useKeyboardInset } from '../ui/hooks/use-keyboard-inset.ts'
 import { adoptOlderPage, prepareOlderPage } from './chat/lib/history-page.ts'
-import { dispatchFrame, parseContextPressure, type ContextPressureData, type FrameContext } from './chat/state/frame-effects.ts'
+import { dispatchFrame, type ContextPressureData, type FrameContext } from './chat/state/frame-effects.ts'
 import { useChatComposer } from './chat/hooks/use-chat-composer.ts'
 import { ChatRows } from './chat/components/chat-rows.tsx'
 
@@ -155,19 +163,19 @@ function newestTurnAnchor(messages: readonly RenderMessage[]): number | undefine
   return own ?? firstSeen ?? lastUser
 }
 
-import { FinishedElsewhereBar, RunStatusBar, RunStatusSheet } from '../render/run-status.tsx'
+import { FinishedElsewhereBar, RunBadge, RunStatusSheet, runBadgeBits } from '../render/run-status.tsx'
 import { copyText, openFilePath, shareText } from '../render/code-actions.ts'
 import { MuxClient } from '../stream/mux.ts'
 import { getAutoScroll, subscribeDisplayPrefs } from '../platform/display-prefs.ts'
 import { timeVisibility } from '../render/ui-text.ts'
-import { QueueDock } from '../components/queue-dock.tsx'
-import { InsertBar } from './chat/components/insert-bar.tsx'
+import { QueueCard } from './chat/components/queue-card.tsx'
+import { queueAuthoritative } from '../stream/session-store.ts'
 import { GoalBar } from '../components/goal-bar.tsx'
 import {
   GOAL_CLEAR_COMMAND, GOAL_EDIT_PREFIX, GOAL_PAUSE_COMMAND, GOAL_RESUME_COMMAND, goalEditCommand,
   parseGoalProjection, type MobileGoal,
 } from '../session/goal-projection.ts'
-import { applyQueueItems, claimQueueHead, queueView } from '../stream/session-store.ts'
+import { applyQueueItems, claimQueueHead, rebaselineQueueView } from '../stream/session-store.ts'
 import { goalAction, goalOf, searchSessions } from '../data/session.ts'
 import { reportConnectivity } from '../platform/rpc.ts'
 import { voiceSupported } from '../platform/voice-input.ts'
@@ -176,7 +184,8 @@ import { useToastLift } from '../components/toast-lift.ts'
 import { forgetQueuedEcho, lostQueuedEchoes, markQueuedEchoSeen, normalizeEchoText, readQueuedEchoes } from '../session/queued-echo.ts'
 import { approvalPreviewText } from '../session/approval-preview.ts'
 import { type TurnDeliveryFacts } from '../render/message-row.tsx'
-import { PermissionConfirmSheet, PlusSheet, parsePermissionSelect, type PermissionSelectValue } from '../components/sheets.tsx'
+import { PermissionConfirmSheet, PlusSheet, type PermissionSelectValue } from '../components/sheets.tsx'
+import { parseProjections, projectionValues, pullProjections } from './chat/state/projections.ts'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { mergeTurnEntries, parseTurnOutline, localTurnEntries, readingTurnAt, scrubTurnIndex, seqRowIndex, turnPromptRowIndex, turnRowIndex, type TurnEntry } from '../session/turn-outline.ts'
 import { collectArtifacts, type ArtifactTurn } from '../session/artifacts.ts'
@@ -199,8 +208,9 @@ export interface ChatViewProps {
   /** 顶栏标题下方的工作区名（10.5px）。 */
   workspaceName?: string
   /** The page-lifetime mux client (undefined before the first effect tick). */
-  mux?: MuxClient | undefined; /** P3：全站唯一订阅点；给了它就不再直接订阅 mux。 */ bridge?: HostBridge | undefined
-  onBack(): void
+  mux?: MuxClient | undefined
+  /** P3 兼容入口：旧测试/宿主可直接注入 mux。*/
+  bridge?: HostBridge<MuxFrame> | undefined
   /** Show tool-call disclosures (owned by the app, persisted via display-prefs). */
   showToolCalls: boolean
   /** Show injected system messages (owned by the app, persisted via display-prefs). */
@@ -211,6 +221,14 @@ export interface ChatViewProps {
   initialFocusMessageId?: string
   /** Stable text-part identity for exact locate. */
   initialFocusPartId?: string
+  /**
+   * 结构坐标（2026-11-12，图谱寻址）：命中在第几轮 / 第几步。
+   *
+   * 它是第三个稳定锚点：`seq` 会被跨页合并打乱，`messageId` 可能不在当前窗口里，
+   * 「第 12 轮第 3 步」却始终指向同一行。
+   */
+  initialFocusTurn?: number
+  initialFocusStep?: number
   /** Query paired with the target: expands and marks the visible prose. */
   initialFocusQuery?: string
   /**
@@ -233,6 +251,15 @@ export interface ChatViewProps {
   }) => void) | undefined
   /** 打开产物列表页（P6 ⑧ 屏）；不给就不显示入口。 */
   onOpenArtifacts?: ((turns: readonly ArtifactTurn[]) => void) | undefined
+  /** 打开「任务」页（进行中 / 刚完成的总览）；不给就不显示入口。*/
+  onOpenTasks?: (() => void) | undefined
+  /**
+   * 左上角画「返回」而不是抽屉。
+   *
+   * 只有「从别的页面点进来的会话」才给（页面栈里还有上一页）；根会话页没有上一页，
+   * App 那边按 `canPop` 判断后再传。
+   */
+  onBack?: (() => void) | undefined
   /** 打开回合大纲独立页（P6 ⑫ 屏）；不给就还开浮层。 */
   onOpenOutline?: ((entries: readonly TurnEntry[], currentTurn: number) => void) | undefined
   /** 打开单文件 diff 独立页（P6 ⑩ 屏）；不给就还走浮层预览。 */
@@ -245,12 +272,14 @@ export interface ChatViewProps {
   onOpenDelivery?: ((facts: TurnDeliveryFacts) => void) | undefined
   /** 顶栏「☰」：打开会话抽屉（带上当前会话的产物轮次，给抽屉底部的产物入口用）。 */
   onOpenDrawer?: ((turns: readonly ArtifactTurn[]) => void) | undefined
-  /** ⋯ 菜单里的「设置」；不给就不画那一项。 */
+  /** 更多菜单里的「设置」；不给就不画那一项。*/
   onOpenSettings?: (() => void) | undefined
   /** 空会话首屏发送第一句：App 建会话、投递并切到真正的话页。 */
   onStartSession?: ((text: string) => Promise<void> | void) | undefined
   /** 打开审批详情独立页（P6 ④ 屏）；不给就不显示入口。 */
   onOpenApproval?: ((approval: PendingApproval, preview?: string, argsText?: string) => void) | undefined
+  /** 点运行状态面板里的一行子代理：打开它的详情页（不给就保持纯展示）。*/
+  onOpenSubagent?: ((node: SubagentFlatNode) => void) | undefined
 }
 
 /* ── long sessions：已载入的行全渲染 ────────────────────────────────────
@@ -287,8 +316,7 @@ export function ChatView(props: ChatViewProps) {
 }
 
 function ChatSessionView({
-  session,
-  workspaceName,
+  session,  workspaceName,
   mux,  bridge,
   onBack,
   showToolCalls,
@@ -296,6 +324,8 @@ function ChatSessionView({
   initialFocusSeq,
   initialFocusMessageId,
   initialFocusPartId,
+  initialFocusTurn,
+  initialFocusStep,
   initialFocusQuery,
   finishedElsewhere,
   onOpenFinished,
@@ -307,10 +337,12 @@ function ChatSessionView({
   onOpenDelivery,
   onOpenDrawer,
   onOpenSettings,
+  onOpenSubagent,
   onOpenOutline,
   pendingTurn,
   onPendingTurnConsumed,
   onOpenArtifacts,
+  onOpenTasks,
 }: ChatViewProps) {
   /**
    * 首页搜索点进来的定位意图：props 丢了也能落准（见 locate-intent.ts）。
@@ -319,7 +351,7 @@ function ChatSessionView({
    * 之后随便一次普通打开都会把它再捡起来，首屏直接取到那条老命中所在的一页 ——
    * 真机表现就是「一进会话自动跳到很老的一轮」。
    */
-  const locateIntentRef = useRef(locateIntentFor(session.sessionId))
+  const locateIntentRef = useSessionRef(session.sessionId, () => locateIntentFor(session.sessionId))
   const locateIntent = locateIntentRef.current
   // 换会话时的三个一次性动作（消费定位意图 / 清「刚结束」/ 持住定位意图）在 S2-A 搬出。
   useChatSessionLifecycle(session.sessionId)
@@ -355,7 +387,7 @@ function ChatSessionView({
    *  行上（真机：跳到一个空白的短行，明明搜索命中的正文就在附近）。
    *  一次点击会连着翻好几页（auto-extend 链），只存最后那一页会漏掉命中所在的页，
    *  所以这里攒住最近几页的行。 */
-  const rawPageRef = useRef<RenderMessage[]>([])
+  const rawPageRef = useSessionRef<RenderMessage[]>(session.sessionId, [])
   const rememberRawPage = (rows: readonly RenderMessage[]): void => {
     const seen = new Set(rows.map(row => row.id))
     const kept = rawPageRef.current.filter(row => !seen.has(row.id))
@@ -363,7 +395,7 @@ function ChatSessionView({
   }
 
   const applyMessages = (rows: RenderMessage[], options: { allowGuessedTails?: boolean } = {}): void => {
-    // 存**宿主那一页原始行**（不是渲染后的行）：两者 id 体系一致，恢复后再合并
+    // 存**宿主那一页原始行**（不是渲染后的行）：两套 id 体系一致，恢复后再合并
     // 不会重复。曾经存渲染行，结果长会话二次进入时同一轮被画两遍（13 处重复 id）。
     saveChatCache(session.sessionId, rows as unknown as CachedRow[])
     // 换列表时把已经画出来的「本轮产出」带走：页自己不带报告行，换一次卡片就闪没
@@ -427,7 +459,7 @@ function ChatSessionView({
     onLoading: (loading) => { setLoading(loading) },
     onError: (reason) => { setError(errorText(reason)) },
   })
-  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, markFollowAfterPrepend, recallSnapshot } = pager
+  const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, captureSessionGuard, markFollowAfterPrepend, recallSnapshot } = pager
   // 每次列表变了就把"这一场当前画的样子"记进内存快照，供下次进会话第一帧直接铺。
   useEffect(() => {
     rememberChatSnapshot(session.sessionId, messages, hasOlder)
@@ -445,9 +477,9 @@ function ChatSessionView({
   // One silent auto-extend chain per session open (see the tail-load effect).
   // 这一轮"进会话铺开"已经补了几页（每开一次会话归零）。
   /** 这一次进会话的时刻：补页链落地后还要再钉底。 */
-  const openedAtRef = useRef(Date.now())
+  const openedAtRef = useSessionRef(session.sessionId, () => Date.now())
   /** 装载态、瞬时提示、标题都在 Chat Store 里（W3-2）；setter 由 store hook 一并给出。 */
-  const chat = useChatSessionStore(session.title)
+  const chat = useChatSessionStore(session.title, session.sessionId)
   const loading = chat.state.phase === 'loading'
   const error = chat.state.notice
   const { setError } = chat
@@ -456,22 +488,22 @@ function ChatSessionView({
   // 否则排队条一出现，固定 104px 的 toast 就会盖住「撤回」（真机截图）。
   useToastLift()
   /** 输入框草稿（状态 + 按会话持久化）归 use-chat-draft（S4c 从本文件搬出）。 */
-  const { input, setInput } = useChatDraft(session.sessionId)
-  /** 发送/停止/重新生成的在途状态也在 store 里（W3-2）。 */
-  const { sending, stopping, regenerate: regenerateState } = chat.state
-  const setSending = chat.setSending
-  const setStopping = chat.setStopping
-  const setRegenerateState = chat.setRegenerate
-  // Live mirror of `sending` for the back handler (a stale closure must not
-  // treat an in-flight send as "nothing sent yet" and revoke the session).
-  const sendingRef = useRef(sending)
-  sendingRef.current = sending
+  /** 草稿**不订阅**（B3）：正文由 `ComposerSection` 自己订阅 store，这里只要取值器/写入器。 */
+  const draftControl = useChatDraftController(session.sessionId)
+  const setInput = draftControl.set
+  /** 发送/停止/重新生成在 store 里（W3-2）。`sending`/`stopping` **不在这里订阅**：一次
+   *  发送翻转两次，整表订阅会让这 4000 行连行列表重建两遍；它们下沉到作曲区自订阅。
+   *  这里只要「重新生成」—— 它是行上的状态，本来变了就该重画行。 */
+  const regenerateState = useChatSelector(chat.store, (state) => state.regenerate)
+  const { setSending, setStopping, setRegenerate: setRegenerateState, resetSession } = chat
+  /** 实时读发送态：回调可能很久之后才跑，闭包里的值会漏掉"同一帧连点两下"。 */
+  const getSending = useCallback((): boolean => chat.store.getState().sending, [chat.store])
   // Live mirror of `messages`：回调可能在很久之后才跑（首帧 rAF 甚至晚于尾页
   // 落地），所以它们必须读当前列表，不是闭包创建时的那一份。
   const messagesRef = useRef(messages)
   // 滚动机制（容器/程序化认领/状态机/补拍/手势/回钉）统一在 ui/hooks/use-stick-to-bottom 里；
   // ChatView 只保留业务判断（未读、翻页、定位）。
-  const scrollHandle = useStickToBottom()
+  const scrollHandle = useStickToBottom(session.sessionId)
   const { scrollRef, scrollTopRef, programmaticScrollRef, programmaticValueRef, programmaticAtRef, lastTouchAtRef, scrollStateRef, scrollEvent, setScrollTopProgrammatically, pinToRealBottom, scrollToBottom, settleBottomRef, settleBottomAfterCommit, lastScrollHeightRef } = scrollHandle
   /**
    * 会话状态机：三根条的**唯一判据**（不再是影子，渲染完全由它决定）。
@@ -479,10 +511,10 @@ function ChatSessionView({
    * 迁移期曾用它做旁路对照（只比较、不改行为）；判据对齐后已接管渲染，
    * 对照代码随之删除 —— 留着两套判据才是新隐患。
    */
-  const shadowStatusRef = useRef<SessionStatus>(createSessionStatus())
+  const shadowStatusRef = useSessionRef<SessionStatus>(session.sessionId, createSessionStatus)
   /** 三根条「该显示什么」的唯一来源（来自 `session-status.ts` 的 `describeBars`）。 */
-  const [bars, setBars] = useState<BarsView>(() => describeBars(createSessionStatus(), Date.now()))
-  const barsSignatureRef = useRef('')
+  const [bars, setBars] = useSessionState<BarsView>(session.sessionId, () => describeBars(createSessionStatus(), Date.now()))
+  const barsSignatureRef = useSessionRef(session.sessionId, '')
   const shadowEvent = useCallback((event: StatusEvent): void => {
     shadowStatusRef.current = sessionStatusReducer(shadowStatusRef.current, event)
   }, [])
@@ -496,25 +528,25 @@ function ChatSessionView({
 
   messagesRef.current = messages
   /** The session's permission select (absent = capability not composed). */
-  const [permissions, setPermissions] = useState<PermissionSelectValue | undefined>(undefined)
+  const [permissions, setPermissions] = useSessionState<PermissionSelectValue | undefined>(session.sessionId, undefined)
   /** Host context-pressure projection (token-meter): the authoritative
    *  per-session occupancy source. Fed by the history baseline and live
    *  session/projection frames; `undefined` until the first data lands. */
-  const [contextPressure, setContextPressure] = useState<ContextPressureData | undefined>(undefined)
+  const [contextPressure, setContextPressure] = useSessionState<ContextPressureData | undefined>(session.sessionId, undefined)
   /** The current model selection for the toolbar chip (best-effort label). */
-  const [currentModel, setCurrentModel] = useState<{ provider: string; model: string; reasoningEffort?: string } | undefined>(undefined)
+  const [currentModel, setCurrentModel] = useSessionState<{ provider: string; model: string; reasoningEffort?: string } | undefined>(session.sessionId, undefined)
   /** Set when the user picked a preset that needs an explicit confirm (full access). */
-  const [pendingPermission, setPendingPermission] = useState<string | undefined>(undefined)
+  const [pendingPermission, setPendingPermission] = useSessionState<string | undefined>(session.sessionId, undefined)
   /** File path awaiting in-chat preview (a .file-link tap without a host opener). */
-  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  const [previewPath, setPreviewPath] = useSessionState<string | null>(session.sessionId, null)
   /** 最新的一级「看 diff」回调：代码块里的文件链也要走同一个入口。 */
   const onOpenDiffRef = useRef(onOpenDiff)
   onOpenDiffRef.current = onOpenDiff
   /** In-chat <img> source opened in the full-screen lightbox (tap-to-view). */
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [lightboxSrc, setLightboxSrc] = useSessionState<string | null>(session.sessionId, null)
   /** Lazily cached model directory backing the quick picker (fresh per open
    *  until it loads once; the full sheet re-fetches on its own). */
-  const [modelCatalog, setModelCatalog] = useState<ModelPickerCatalog>({ status: 'idle' })
+  const [modelCatalog, setModelCatalog] = useSessionState<ModelPickerCatalog>(session.sessionId, { status: 'idle' })
   /**
    * 已认领的命令名（桌面端那颗蓝色 chip）。
    *
@@ -523,7 +555,7 @@ function ChatSessionView({
    * 于是带参数的命令（`/goal`、`/plan`…）根本没机会填参数。这里保存命令名，输入框
    * 只留参数部分，发送时再拼回去。
    */
-  const [claimedCommand, setClaimedCommand] = useState<string | undefined>(undefined)
+  const [claimedCommand, setClaimedCommand] = useSessionState<string | undefined>(session.sessionId, undefined)
   /** 待发附件（图片 + 文件）全部归 use-chat-attachments（S4a 从本文件搬出）。 */
   const attachments = useChatAttachments({ sessionId: session.sessionId })
   const { attachImages, attachFiles, uploadingFiles, setAttachImages, setAttachFiles, addImage, addFiles, retryStaged, openPicker } = attachments
@@ -532,15 +564,15 @@ function ChatSessionView({
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
   /** Host slash-command directory (fetched lazily when the + menu opens). */
-  const [commands, setCommands] = useState<CommandDescriptor[] | undefined>(undefined)
+  const [commands, setCommands] = useSessionState<CommandDescriptor[] | undefined>(session.sessionId, undefined)
   /** 上一次拉命令目录的时刻：失败后 3 秒内不重复打宿主。 */
-  const commandFetchAtRef = useRef(0)
+  const commandFetchAtRef = useSessionRef(session.sessionId, 0)
   /** Quoted message (context bar above the composer; sent as a blockquote preamble). */
-  const [quoted, setQuoted] = useState<string | undefined>(undefined)
+  const [quoted, setQuoted] = useSessionState<string | undefined>(session.sessionId, undefined)
   /** True while the chat is mounted; guards async voice callbacks after unmount. */
   const mountedRef = useRef(true)
   /** 语音输入（录音面板 / 实时字幕 / 转写回填）全部归 use-chat-voice（S4b 从本文件搬出）。 */
-  const { voiceOpen, voicePartial, voicePhase, voiceElapsed, voiceStatus, voiceWaveRef, voiceDoneRef, openVoice, finishVoice, closeVoice } = useChatVoice({ mountedRef, setInput })
+  const { voiceOpen, voicePartial, voicePhase, voiceElapsed, voiceStatus, voiceWaveRef, voiceDoneRef, openVoice, finishVoice, closeVoice } = useChatVoice({ mountedRef, setInput, sessionId: session.sessionId })
   /** Pinch-zoom state for code blocks (one active gesture at a time). */
   const pinchRef = useRef<{ block: HTMLElement; dist0: number; scale0: number } | undefined>(undefined)
 
@@ -560,7 +592,7 @@ function ChatSessionView({
     const timer = setTimeout(() => {
       const maxSeq = messages.reduce((max, row) => (row.seq > max ? row.seq : max), 0)
       // 猜出来的交付卡不进缓存：下次进入先画它、几秒后被真卡替换，
-      // 用户看到的就是"卡片内容又变了一次"。缓存只留真卡（turn/end 或回读写到的）。
+      // 用户看到的就是卡片内容又变了一次。缓存只留真卡（turn/end 或回读写到的）。
       const cacheable = messages.filter(row => row.guessed !== true)
       void saveCachedHistory(session.sessionId, { rows: cacheable, maxSeq, hasOlder })
     }, 400)
@@ -574,14 +606,19 @@ function ChatSessionView({
    * 当前目标（桌面端 composer 上方那条 goal 指示条的复刻）。
    * undefined = 还没读到；null = 没有目标 / 已完成 —— 两种情况都不渲染条子。
    */
-  const [goal, setGoal] = useState<MobileGoal | null | undefined>(undefined)
+  const [goal, setGoal] = useSessionState<MobileGoal | null | undefined>(session.sessionId, undefined)
   /** 目标命令在途中：四个按钮同时置灰，避免连点发出两条 /goal。 */
 
-  const [queueItems, setQueueItems] = useState<QueueItemView[]>(() => {
-    // 先用状态仓里的缓存秒开（重进会话不空白），没有再退回 mux 保留的那份。
-    const cached = queueView(session.sessionId)
-    return cached.length > 0 ? cached : (mux?.cachedQueueFor(session.sessionId) ?? [])
-  })
+  /**
+   * 排队队列（W3-6 第一步）：**唯一所有者是会话状态仓**（stream/session-store.ts）。
+   * 这里只订阅仓的变更版本并投影出当前该画的几条 —— 视图不再持有队列数组。
+   * 也就没有"漏抄一次就删了还在"的第二份副本。冷启动先用 mux 保留的那份顶上。
+   */
+  const queueFallback = useCallback(
+    () => mux?.cachedQueueFor(session.sessionId) ?? [],
+    [mux, session.sessionId],
+  )
+  const queueItems = useSessionQueue(session.sessionId, queueFallback)
   /** 有排队项在屏幕上：轮询要加密（长度而不是数组本身进依赖，免得每次刷新都重建定时器）。 */
   const hasPendingQueue = queueItems.length > 0
 
@@ -589,7 +626,7 @@ function ChatSessionView({
   const adoptTodoRef = useRef<(next: TodoSnapshot) => void>(() => {})
 
   /** 计划条（todo/write 快照）：流 hook 的待办归一化要在构造时就拿到 setter。 */
-  const [todo, setTodo] = useState<TodoSnapshot | undefined>(undefined)
+  const [todo, setTodo] = useSessionState<TodoSnapshot | undefined>(session.sessionId, undefined)
   const { applyGoal, refreshGoal, adoptTodo, adoptTodoLatest } = useChatGoal({
     sessionId: session.sessionId,
     mountedRef,
@@ -612,7 +649,7 @@ function ChatSessionView({
         : item),
     })
   }, [])
-  /** 帧回调/对账要"立刻问一次宿主"：走 ref，免得为它重订阅事件流。 */
+  /** 帧回调要对账时立刻问一次宿主：走 ref，免得为它重订阅事件流。*/
   const refreshInboxRef = useRef<(options?: { fresh?: boolean }) => void>(() => {})
   /**
    * 流式 + 回合状态（S7a-4，从本文件搬出）。
@@ -639,32 +676,24 @@ function ChatSessionView({
   const { applyInbox, refreshInbox } = useChatInbox({
     sessionId: session.sessionId,
     mountedRef,
-    setQueueItems: setQueueItems as never,
     applyTurnVerdict,
     markSnapshotAlive,
     applyGoalRef,
     adoptTodoRef,
     refreshInboxRef,
-    startTransition,
   })
   /** 同值的 ref 镜像：send() 的成功回调要知道"这条消息是排队发出去的"，但它不该
    *  因为每轮 running 翻转就重建（回调里的闭包会过期，而重建会让输入区的 onKeyDown
    *  在回合切换的瞬间拿到旧 send）。 */
   const runningRef = useRef(running)
   runningRef.current = running
-  /** 渲染前给被打断的那一轮盖「已中断」标记（见 abandonedTurn）。 */
-  const rowOfInterrupted = (message: RenderMessage): RenderMessage => (
-    abandonedTurn !== undefined && message.turn === abandonedTurn && message.maxTokens !== true
-      ? { ...message, maxTokens: true }
-      : message
-  )
   refreshInboxRef.current = refreshInbox
   /**
    * 目标 / 待办的落地函数在下面才定义（refreshInbox 要先声明）：用 ref 转一手，
    * 免得为了它们把整个回调挪位置、再牵动依赖数组。
    */
 
-  useQueueStoreSubscription({ sessionId: session.sessionId, mountedRef, setQueueItems })
+  // 队列的订阅已经在 useSessionQueue 里（W3-6）：视图订阅仓的版本号，不再抄一份数组。
   /** 帧回调里要"立刻问一次宿主"（turn/start 清空队列之后）：走 ref，免得为它重订阅事件流。 */
   // 排队消息对账：只有证据毫无歧义时才把原文放回输入框。
   // 「不在队列里」本身不能说明问题 —— 宿主把消息认领成下一轮的那一刻它就离开队列，
@@ -688,6 +717,10 @@ function ChatSessionView({
     // 有回合在跑：认领、送达、对话帧都在路上，任何一条现在都不能判丢失。
     // 用 roster 上的 running 兜底：进会话的第一帧里 running 状态还没建起来，只看本地状态会漏。
     if (running || session.running === true) return
+    // 队列读数此刻可信吗？重连基线生效期间 `queueView()` 会返回空，而那个空不是证据。
+    // 2026-11-10 真机：「消息都排队了，却突然回撤到输入框」——就是重连后这里判丢。
+    // 把原文塞回输入框，等队列快照回来又出现一张排队卡片，同一条消息出现在两个地方。
+    if (!queueAuthoritative(session.sessionId)) return
     const first = lostQueuedEchoes(
       readQueuedEchoes(),
       session.sessionId,
@@ -708,33 +741,40 @@ function ChatSessionView({
   applyGoalRef.current = applyGoal
 
   /** Turn-clock mount fallback (see turnStartAt). */
-  const mountTimeRef = useRef(Date.now())
+  const mountTimeRef = useSessionRef(session.sessionId, () => Date.now())
   /** 宿主时钟（见 chat/host-clock.ts）：读数在宿主时间域里减法，手机墙钟不参与。 */
   const hostClock = useHostClock()
+  /** 传给消息行的宿主时间（10 秒桶）：毫秒值当 prop 会让每行的 memo 永远失效（见 use-row-callbacks）。 */
+  const hostNowIdle = Math.floor(hostClock.hostNow() / 10_000) * 10_000
   /** 权限投影补给进行中（按钮可以连点）。 */
-  const permissionPullRef = useRef(false)
+  const permissionPullRef = useSessionRef(session.sessionId, false)
   /** 本会话最后一次真的送来事件流的时间。只有本会话的 session/event 才算数
    *  （心跳和别的会话的帧不算），所以它不会因为链路空闲就被刷新。 */
-  const lastSessionEventAtRef = useRef(0)
+  const lastSessionEventAtRef = useSessionRef(session.sessionId, 0)
   /** Latest `session/jobs` snapshot for this session (background tasks the
    * parent owns: subagent delegations, bash/pwsh runs, …). The host pushes a
    * full snapshot after every registry commit; empty = no tasks. The initial
    * value replays the mux client's cached snapshot so tasks already running
    * when this chat opens are visible immediately (the mux baseline arrives at
    * app boot, before any chat is mounted). */
-  const [jobs, setJobs] = useState<JobView[]>(() => mux?.cachedJobsFor(session.sessionId) ?? [])
+  const [jobs, setJobs] = useSessionState<JobView[]>(session.sessionId, () => mux?.cachedJobsFor(session.sessionId) ?? [])
   /** Latest `todo/write` snapshot for this session (the plan strip above the
    * newest message). Adoption is last-write-wins by seq: history pages and
    * live frames can race, and an older page must never clobber a newer live
    * snapshot. Cleared on turn/start (the host clears the projection there). */
   /** Foreground subagents for this session (the flat live delegation list).
    * Built from `subagents.list` and overlaid with host/session-status flips. */
-  const [subagents, setSubagents] = useState<SubagentFlatNode[]>([])
+  const [subagents, setSubagents] = useSessionState<SubagentFlatNode[]>(session.sessionId, [])
   /** Whether the run-status bottom sheet (subagents + todo plan + background jobs) is up. */
-  /** Pending tool approvals awaiting user decision (#1025). */
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
-  /** Pending questions awaiting user answer (#1025). */
-  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestionItem[]>([])
+  /**
+   * 待批审批 / 待答问题（W3-2 第二步）：事实在 `runtime/chat/pending-store.ts`。
+   * 按会话分桶、模块作用域。这里只订阅当前会话那一桶——换会话不清空、不串写。
+   * 切回来卡片还在；审批详情页读的也是同一份（不是导航时抄走的快照）。
+   */
+  const pending = useSessionPending(session.sessionId)
+  const { approvals: pendingApprovals, questions: pendingQuestions } = pending
+  const setPendingApprovals = pending.setApprovals
+  const setPendingQuestions = pending.setQuestions
   /** Displayed title (renames apply locally right away) — W3-2 起由 Chat Store 持有。 */
   const title = chat.state.title ?? session.title
   const setTitle = chat.setTitle
@@ -745,25 +785,25 @@ function ChatSessionView({
   // Esc 关弹层：手机上没有这个键，但平板/桌面浏览器/外接键盘上它是第一反应。
   // 实测此前按 Esc 什么都不发生——遮罩拦着，只能去点空白处。
   // 纯界面开关收在一个 reducer 里：11 个 useState → 1 个（S1-A）。
-  const [uiState, uiSetters] = useChatUi()
+  const [uiState, uiSetters] = useChatUi(session.sessionId)
   const { composerPanelOpen, plusOpen, hostFileOpen, commandOpen, moreOpen, exportOpen, runStatusOpen } = uiState
   const { composerPanelOpen: setComposerPanelOpen, plusOpen: setPlusOpen, hostFileOpen: setHostFileOpen, commandOpen: setCommandOpen, moreOpen: setMoreOpen, exportOpen: setExportOpen, runStatusOpen: setRunStatusOpen } = uiSetters
 
   // 滚动与阅读位置收进 reducer（S1-C）：4 个 useState → 1 个。
   // 它们必须同属一个状态机，否则会出现「按钮出现了但未读数没清」这类只在真机复现的错位。
-  const [readingState, readingSetters] = useChatReading()
+  const [readingState, readingSetters] = useChatReading(session.sessionId)
   const { currentTurn, showJumpToLatest, unreadCount, locateTick, cardSyncTick } = readingState
   const { currentTurn: setCurrentTurn, showJumpToLatest: setShowJumpToLatest, unreadCount: setUnreadCount, locateTick: setLocateTick, cardSyncTick: setCardSyncTick } = readingSetters
   // 输入区与连接收进 reducer（S1-D）：6 个 useState → 1 个。
   // 注意 offline / mobileEnterToSend 的**真相源在外部**（连通性探测 / 宿主偏好），
   // 这里只记录最近一次已知值，不做判断。
-  const [composerState, composerSetters] = useChatComposerState()
+  const [composerState, composerSetters] = useChatComposerState(session.sessionId)
   const { pickerBusy, composerFocused, mobileEnterToSend, goalBusy, stopArmed, offline } = composerState
   const { pickerBusy: setPickerBusy, composerFocused: setComposerFocused, mobileEnterToSend: setMobileEnterToSend, goalBusy: setGoalBusy, stopArmed: setStopArmed, offline: setOffline } = composerSetters
   useChatEscape({ ui: uiState, setters: uiSetters })
   /** The host `turnOutline` projection raw value (parsed into the merged
    *  list below). Absent until the tail projection baseline lands. */
-  const [turnOutlineRaw, setTurnOutlineRaw] = useState<unknown>(undefined)
+  const [turnOutlineRaw, setTurnOutlineRaw] = useSessionState<unknown>(session.sessionId, undefined)
   /** Merged host outline + locally-loaded turns, sorted by turn ascending. */
   const turnEntries = useMemo(
     () => mergeTurnEntries(parseTurnOutline(turnOutlineRaw), localTurnEntries(messages)),
@@ -796,38 +836,38 @@ function ChatSessionView({
    *  boundary seq, the turn NUMBER to match once a page lands (the seq alone
    *  cannot match — see locateSeq), and how many follow-up pages this jump has
    *  already spent. */
-  const pendingTurnSeqRef = useRef<number | undefined>(undefined)
-  const pendingTurnNumberRef = useRef<number | undefined>(undefined)
+  const pendingTurnSeqRef = useSessionRef<number | undefined>(session.sessionId, undefined)
+  const pendingTurnNumberRef = useSessionRef<number | undefined>(session.sessionId, undefined)
   /** 搜索命中落在哪一段（一行里多处命中时用来说明是哪一处）。 */
-  const pendingTurnPartIdRef = useRef<string | undefined>(undefined)
+  const pendingTurnPartIdRef = useSessionRef<string | undefined>(session.sessionId, undefined)
   /** 这一条命中是该段里的第几处（同一段里同一个词出现多次时对位）。 */
-  const pendingTurnOccurrenceRef = useRef(0)
+  const pendingTurnOccurrenceRef = useSessionRef(session.sessionId, 0)
   /** 搜索命中的消息 id（两条读取通道里唯一一致的键，定位优先用它）。 */
-  const pendingTurnMessageIdRef = useRef<string | undefined>(undefined)
+  const pendingTurnMessageIdRef = useSessionRef<string | undefined>(session.sessionId, undefined)
   /** 命中的片段：跨通道唯一一致的定位依据（原文本身）。 */
-  const pendingTurnSnippetRef = useRef<string | undefined>(undefined)
+  const pendingTurnSnippetRef = useSessionRef<string | undefined>(session.sessionId, undefined)
   /** 这次跳转要落到第几条命中：落地后才把它写进计数器（没落地不动数字）。 */
-  const pendingTurnAtRef = useRef<number | undefined>(undefined)
-  const pendingTurnPagesRef = useRef(0)
+  const pendingTurnAtRef = useSessionRef<number | undefined>(session.sessionId, undefined)
+  const pendingTurnPagesRef = useSessionRef(session.sessionId, 0)
   /** D1 scrub state: the index into `turnEntries` the finger points at while the
    *  handle is held; undefined means the scrubber is closed. */
-  const [scrubIndex, setScrubIndex] = useState<number | undefined>(undefined)
+  const [scrubIndex, setScrubIndex] = useSessionState<number | undefined>(session.sessionId, undefined)
   /** Live bookkeeping for one handle gesture: where the press landed (the drag
    *  threshold is measured against it) and whether it ever travelled, so the
    *  release can tell a tap (open the list) from a scrub. */
-  const scrubGestureRef = useRef<
+  const scrubGestureRef = useSessionRef<
     { pointerId: number; startX: number; moved: boolean } | undefined
-  >(undefined)
+  >(session.sessionId, undefined)
   /** Rename dialog visibility. */
   /** Delete-session confirm dialog visibility. */
   /** Long-press message menu: viewport position + the bubble's plain text,
    *  plus the message's RAW markdown when it differs (tool-interleaved flow
    *  turns carry their payload in flow runs, invisible in `text`). */
   /** 菜单打开的时刻：长按抬手后浏览器还会补一次 click，它会打在背板上把菜单立刻关掉。 */
-  const ctxMenuOpenedAtRef = useRef(0)
-  const [ctxMenu, setCtxMenu] = useState<MessageCtxMenuState | undefined>(undefined)
+  const ctxMenuOpenedAtRef = useSessionRef(session.sessionId, 0)
+  const [ctxMenu, setCtxMenu] = useSessionState<MessageCtxMenuState | undefined>(session.sessionId, undefined)
   /** The user message being edited-and-resent (回填后重发为新 prompt). */
-  const [editMessage, setEditMessage] = useState<{ messageId: string; text: string } | undefined>(undefined)
+  const [editMessage, setEditMessage] = useSessionState<{ messageId: string; text: string } | undefined>(session.sessionId, undefined)
   /** 自动滚动偏好（设置 → 自动滚动）。订阅而不是只在挂载时读一次：在设置里
       关掉之后，当前这个会话当场就该停滚，不用退出去重进。 */
   const autoScroll = useSyncExternalStore(subscribeDisplayPrefs, getAutoScroll)
@@ -838,7 +878,7 @@ function ChatSessionView({
   /* ── offline mode ──────────────────────────────────────────────────── */
 
   // 断线提示只关心「连没连上」；待发队列的界面已下线（恢复后自动重发，见 use-chat-outbox-flush）。
-  useChatConnectivity({ sessionId: session.sessionId, offline, setOffline })
+  useChatConnectivity({ offline, setOffline })
 
   // 四个排队动作在 use-queue-actions.ts（失败路径的分支比动作本身多）。
 
@@ -849,7 +889,6 @@ function ChatSessionView({
   const { handleQueueEdit, handleQueueRemove, handleQueueSteer, handleQueueWithdraw } = useQueueActions({
     sessionId: session.sessionId,
     queueItems,
-    setQueueItems,
     refreshInbox,
     setInput,
     toast,
@@ -861,20 +900,26 @@ function ChatSessionView({
   // session id resolves the agent's effective command view (per-agent rows
   // like /plan and /compact live in agent presets on the Web deployment).
   useEffect(() => {
-    // 手动敲 / 也要认领成 chip，所以输入框里出现斜杠就开始拉目录。
-    const wantsDirectory = plusOpen || commandOpen || input.startsWith('/')
-    if (!wantsDirectory || commands !== undefined) return
-    // 一次失败不能把整个会话的目录钉死成空：真机上就是这么"有时候"看不见 /goal、
-    // /plan 的（首次拉取撞上宿主忙或弱网）。失败不缓存，1 秒后再试。
-    if (Date.now() - commandFetchAtRef.current < 1000) return
-    commandFetchAtRef.current = Date.now()
     let cancelled = false
-    void listCommands(session.sessionId).then(
-      (items) => { if (!cancelled) setCommands(items) },
-      () => { /* 保持未加载：下一次打开面板或继续输入时重试 */ },
-    )
-    return () => { cancelled = true }
-  }, [plusOpen, commandOpen, commands, session.sessionId, input])
+    const tryFetch = (): void => {
+      if (cancelled) return
+      // 手动敲 / 也要认领成 chip，所以输入框里出现斜杠就开始拉目录。
+      if (!(plusOpen || commandOpen || draftControl.get().startsWith('/'))) return
+      if (commands !== undefined) return
+      // 一次失败不能把整个会话的目录钉死成空：真机上就是这么"有时候"看不见 /goal、
+      // /plan 的（首次拉取撞上宿主忙或弱网）。失败不缓存，1 秒后再试。
+      if (Date.now() - commandFetchAtRef.current < 1000) return
+      commandFetchAtRef.current = Date.now()
+      void listCommands(session.sessionId).then(
+        (items) => { if (!cancelled) setCommands(items) },
+        () => { /* 保持未加载：下一次打开面板或继续输入时重试 */ },
+      )
+    }
+    tryFetch()
+    // 订阅而不是把 `input` 当依赖：本组件已不因打字重渲染，那个依赖永远不会再触发。
+    const unsubscribe = subscribeDraft(session.sessionId, tryFetch)
+    return () => { cancelled = true; unsubscribe() }
+  }, [plusOpen, commandOpen, commands, session.sessionId, draftControl])
 
   // Tail page on open (content loads only when the session is opened).
   useEffect(() => {
@@ -915,24 +960,23 @@ function ChatSessionView({
     // 身份合并，屏幕上就是「同一段内容两份」。
     commitRows(seeded?.rows ?? [])
     setHasOlder(seeded?.hasOlder ?? false)
-    // Pending approvals/questions are per-session state: without this a
-    // switch leaks session A's cards into session B, where the user could
-    // approve a tool call for the wrong chat. The next poll/frame repopulates
-    // the new session's own items.
-    setPendingApprovals([])
-    setPendingQuestions([])
+    // Pending approvals/questions are per-session facts **by construction** now
+    // (runtime/chat/pending-store.ts buckets them by session id): a switch just
+    // reads another bucket, so A's cards can no longer leak into B — and they
+    // are still there when you switch back, instead of waiting for a replay.
     // The answered-item memory is per session and lives at module scope
     // (question-batches.ts / approval-batches.ts): a switch neither leaks it into
     // the next chat nor has to clear it — pending rpcIds are never reused.
-    setContextPressure(undefined)
-    // The plan strip is per-session state too (the loaded tail re-seeds it).
-    setTodo(undefined)
+    // 会话作用域的状态（上下文占用、计划条、面板开关、引用、附件…）不在这里清：
+    // 它们由 `useSessionState`/`useSessionRef` 在**渲染期**就回到新会话的初值
+    // （B 的第一帧也带不上 A 的东西）。这条 effect 只管异步装载。
+    // 但「在途意图」住在 Chat Store 里，是外部真相源，得显式发一条重置。
+    resetSession(session.sessionId)
     // 行里的 running 只是过渡值：进会话后 mobile.turnState 会立刻给出宿主的判决并覆盖它。
     // 这个字段本身不可信（实测刚跑完的会话仍是 true），但**不能**在连不上宿主时把它
     // 收掉 —— 那正是「网络抖一下，秒表被清零」的老毛病；连不上只标链路（连接中断），
     // 回合和时钟都留着。
     // 会话切换：证据水位归零 + 名单播种 + 清活跃轮号/秒表锚点，都在 resetForSession 里。
-    setStopArmed(false)
     // Cache-first: seed the view from the cached tail page immediately so a
     // reopen paints instantly (stale-while-revalidate); the network load
     // below overwrites with fresh data and refreshes the cache. `networkLanded`
@@ -988,12 +1032,11 @@ function ChatSessionView({
       // 更完整的上下文压力。消息本身不换 —— 那份尾部已经渲染好了，换掉只会
       // 让用户看到闪烁。
       if (cancelled) return
-      const values = authority.projections?.values as Record<string, unknown> | undefined
-      if (values === undefined) return
-      if (values['permissions'] !== undefined) setPermissions(parsePermissionSelect(values['permissions']))
-      if (values['contextPressure'] !== undefined) setContextPressure(parseContextPressure(values['contextPressure']))
-      if (values['turnOutline'] !== undefined) setTurnOutlineRaw(values['turnOutline'])
-      if (values['inbox'] !== undefined) applyInbox(values['inbox'])
+      const projections = parseProjections(projectionValues(authority))
+      if (projections.present.has('permissions')) setPermissions(projections.permissions)
+      if (projections.present.has('contextPressure')) setContextPressure(projections.contextPressure)
+      if (projections.present.has('turnOutline')) setTurnOutlineRaw(projections.turnOutline)
+      if (projections.present.has('inbox')) applyInbox(projections.inbox)
     }).then(
       async (page) => {
         stopIntentKeepAlive()
@@ -1033,8 +1076,8 @@ function ChatSessionView({
         }
         if (cancelled) return
         // 进会话**不画猜的交付卡**：猜卡是按工具行重建的，内容可能不全（真机：
-        // 先显示 `·memory`、随后被真卡改成 `PS1restart-dsh`，看着像"卡片被改写"）。
-        // 真卡由 turn/end 或 cardRecovery 从日志读到；没有真卡的回合宁可先不显示卡片，
+        // 先显示 `·memory`、随后被真卡改成 `PS1restart-dsh`，看着像卡片被改来改去）。
+        // 真卡的 turn/end 与 cardRecovery 从日志读到；没有真卡的回合宁可先不显示卡片，
         // 也不要在用户眼前改一次。
         applyMessages(foldedRows, { allowGuessedTails: false })
         // 把**首屏完整这一份**（含交付卡）写进缓存。
@@ -1122,11 +1165,11 @@ function ChatSessionView({
         // permissions" would blank the picker on every chat open. Only a page
         // that actually carries projections may overwrite the baseline.
         if (page.projections !== undefined) {
-          const projections = page.projections.values as Record<string, unknown> | undefined
-          setPermissions(parsePermissionSelect(projections?.['permissions']))
-          setContextPressure(parseContextPressure(projections?.['contextPressure']))
-          setTurnOutlineRaw(projections?.['turnOutline'])
-          if (projections?.['inbox'] !== undefined) applyInbox(projections['inbox'])
+          const seeded = parseProjections(projectionValues(page))
+          setPermissions(seeded.permissions)
+          setContextPressure(seeded.contextPressure)
+          setTurnOutlineRaw(seeded.turnOutline)
+          if (seeded.present.has('inbox')) applyInbox(seeded.inbox)
         }
         // The buffer overflowed while waiting (oldest events were dropped):
         // refill the dropped seq window page by page, from its newest edge
@@ -1197,7 +1240,7 @@ function ChatSessionView({
   // ② 装配一次 ctx 交给 dispatchFrame。ctx 在 effect 里建立，捕获的是订阅那一刻的
   //    写入方 —— 与搬走前的巨型闭包语义一致；依赖数组未变，订阅频率不变。
   useEffect(() => {
-    if (mux === undefined) return
+    if (bridge === undefined && mux === undefined) return
     const ctx: FrameContext = {
       sessionId: session.sessionId,
       // 流 / 回合（use-chat-stream 的语义接口）
@@ -1219,8 +1262,7 @@ function ChatSessionView({
       refreshSubagents: () => { refreshSubagentsRef.current() },
       refreshInbox: (options?: { fresh?: boolean }) => { refreshInboxRef.current(options) },
       claimQueueHead,
-      queueView,
-      setQueueItems,
+      rebaselineQueueView,
       applyQueueItems,
       setJobs,
       setPermissions,
@@ -1235,7 +1277,9 @@ function ChatSessionView({
       liveClosedTurns: liveClosedTurnsRef.current,
       lastSessionEventAt: lastSessionEventAtRef,
     }
-    return mux.onFrame((frame: MuxFrame, frameRpcId?: string) => {
+    const subscribe = bridge === undefined ? mux?.onFrame.bind(mux) : bridge.onFrame
+    if (subscribe === undefined) return
+    return subscribe((frame: MuxFrame, frameRpcId?: string) => {
       reportConnectivity(true)
       dispatchFrame(ctx, frame, frameRpcId)
     })
@@ -1267,13 +1311,13 @@ function ChatSessionView({
 
   /**
    * 一轮的秒表锚点**只许变早**（真机 2026-11-02 / 11-03 反复出现：过程条从「5分10秒」
-   * 跳回「1分20秒」再从小往大长）。
+   * 跳回「0秒」再从小往大长）。
    *
    * 放到 ChatView 而不是行内：行会在 turn/step 到位时卸载重挂（历史遗留的 key 变化），
    * 行内的记忆跟着丢，于是又跳一次 —— 这正是"修了还在跳"的原因。
    * 同一轮里后来的更晚锚点一律不采信：一轮的起点是既成事实，只可能被更准的值纠正。
    */
-  const anchorMemoryRef = useRef<{ turn: number | undefined; at: number } | undefined>(undefined)
+  const anchorMemoryRef = useSessionRef<{ turn: number | undefined; at: number } | undefined>(session.sessionId, undefined)
   const rawClockAnchor = turnStartAt ?? (running ? (newestTurnAnchor(messages) ?? mountTimeRef.current) : null)
   const clockAnchor = (() => {
     if (rawClockAnchor === null || rawClockAnchor === undefined) return rawClockAnchor
@@ -1391,12 +1435,13 @@ function ChatSessionView({
    * "交付卡必须有收工证据"（`closedTurnsRef`）。这份快照只在"宿主结论还没到、
    * 而行又被整份替换"的极短窗口里防止过程条闪断；一旦宿主结论到达，它就不再参与。
    */
-  const liveProcSnapshotRef = useRef<Map<number, {
+  const liveProcSnapshotRef = useSessionRef<Map<number, {
     tools?: RenderMessage['tools']
     flow?: RenderMessage['flow']
     reasoning?: string
-  }>>(new Map())
-  const stickyProcRow = ((): RenderMessage | undefined => {
+  }>>(session.sessionId, () => new Map())
+  /** 粘性过程条：返回新对象，必须 useMemo 固定引用，否则每渲染一次就把列表的 memo 撕掉。 */
+  const stickyProcRow = useMemo((): RenderMessage | undefined => {
     if (liveTurn === undefined) return undefined
     const carries = (row: RenderMessage): boolean => (
       (row.tools?.length ?? 0) > 0 || (row.flow?.length ?? 0) > 0 || (row.reasoning ?? '') !== ''
@@ -1427,7 +1472,7 @@ function ChatSessionView({
       ...(snapshot.flow === undefined ? {} : { flow: snapshot.flow }),
       ...(snapshot.reasoning === undefined ? {} : { reasoning: snapshot.reasoning }),
     } as RenderMessage
-  })()
+  }, [liveTurn, messages])
 
   /**
    * 现场取证：**正在跑的那一轮，过程卡却不在屏幕上**（只剩正文/时间）。
@@ -1479,7 +1524,7 @@ function ChatSessionView({
    * 浏览器冻住没回来，props 变化也照样把它叫醒，读数（渲染时取墙钟）立刻跟上。
    * 不跑的行收不到这个 prop，memo 照旧挡住它们。
    */
-  const liveClockTick = useLiveClock(turnLive && foreground)
+  /** 心跳已下沉到消息行内部（见 MessageRow 的 rowRunning），这里不再起搏。 */
   /**
    * 状态位：空闲写「空闲」，运行中写「运行中」。
    *
@@ -1619,7 +1664,7 @@ function ChatSessionView({
    * 已经收工的卡也顶着「深度求索中」和**同一个秒表**（秒表是会话级的），
    * 屏幕上就是两张长得一样的过程卡（真机 2026-10-29 反复复现）。
    */
-  const settledOf = (message: RenderMessage): boolean => {
+  const settledOf = useCallback((message: RenderMessage): boolean => {
     if (!turnLive) return true
     if (abandonedTurn !== undefined && message.turn === abandonedTurn) return true
     // 取两边更大的那个：runningTurn 可能比屏幕上最新的一轮旧（帧延迟 / 断线重连），
@@ -1630,7 +1675,7 @@ function ChatSessionView({
     // 比「是不是最后一行」稳（最后一行也可能是刚落地的收工行）。
     if (message.turn === undefined) return message.pending !== true
     return message.turn !== newest
-  }
+  }, [turnLive, abandonedTurn, runningTurn, messages])
 
   /** Mark everything seen: advance the seen-turn baseline to the newest
    * turn and clear the unread badge. */
@@ -1691,7 +1736,7 @@ function ChatSessionView({
   // newest message actually changes (seq bump and/or pending flip). Runs
   // after React has committed the render, so scrollHeight reflects the
   // freshly appended content.
-  const lastMessageKeyRef = useRef<string | undefined>(undefined)
+  const lastMessageKeyRef = useSessionRef<string | undefined>(session.sessionId, undefined)
   /**
    * 上一次跟随后的内容高度。
    *
@@ -1710,13 +1755,13 @@ function ChatSessionView({
    * agent reply — however many messages and tool calls it spans — counts as
    * one, so the badge grows at reply pace, not message pace. */
   /** Highest turn the reader has seen; the unread tally counts above it. */
-  const lastSeenTurnRef = useRef(0)
+  const lastSeenTurnRef = useSessionRef(session.sessionId, 0)
 
   /**
    * 回合在跑时每 5 秒重投一次状态。
    *
    * 两个作用：① 租约续期（否则 30 秒没输入就「过期」，状态条会在跑动中消失）；
-   * ② 让「卡住了」的判据有机会被重新算 —— 没有新帧的时候，没人触发重算，
+   * ② 让「卡住了」的判据有机会被重新算——没有新帧的时候，没人触发重算，
    * 那句提示就永远不出现。
    */
   useEffect(() => {
@@ -1764,7 +1809,7 @@ function ChatSessionView({
    * 阶段 0 的影子对照。
    *
    * 每根条的输入一变就投一次事件，然后比较「影子机说该显示什么」与
-   * 「现有 UI 实际显示什么」。差异只记录、不改变任何行为。
+   * 「现在的 UI 实际显示什么」。差异只记录、不改变任何行为。
    */
   useEffect(() => {
     const now = Date.now()
@@ -1779,7 +1824,7 @@ function ChatSessionView({
       }
     }
     let turnStep: number | undefined
-    // 从**未合并**的行里数：合并后的一条过程卡只留第一步的 step（合并的意义就是
+    // 在**未合并**的行里数：合并后的一条过程卡只留第一步的 step（合并的意义就是
     // 把多步并成一条），拿它数步序永远得到 1。folder 快照是原始行。
     const rawRows = stream.folder?.snapshot() ?? messages
     if (activeTurn !== undefined) {
@@ -1858,7 +1903,7 @@ function ChatSessionView({
     setFocusMsgId(focusId)
     // 命中可能落在这一行的某个片段上（一行里多处命中时 focusMsgId 相同）：
     // 记下片段，滚动时优先滚到它，并靠 locateTick 让定位 effect 重新跑一遍。
-    focusPartIdRef.current = partId
+    focusAnchorRef.current.partId = partId
     // 同一段里同一个词可能出现好几次：occurrence 是"这一条命中是该段里的第几处"，
     // 滚动时按它取第 n 个 <mark>，否则永远停在第一个 mark 上（真机"一动不动/停错处"）。
     focusOccurrenceRef.current = occurrence ?? 0
@@ -1910,28 +1955,28 @@ function ChatSessionView({
   //
   // 界面字段收进 reducer（S1-B）：7 个 useState → 1 个。命中数组仍留在这里（它是数据
   // 不是界面态），但"搜到哪一步了"现在是一个可枚举的状态（idle / warming / busy / jumping）。
-  const [searchState, searchSetters] = useChatSearch()
+  const [searchState, searchSetters] = useChatSearch(session.sessionId)
   const { open: chatSearchOpen, term: chatSearchTerm, at: chatSearchAt, busy: chatSearchBusy, jumping: chatSearchJumping, hasMore: chatSearchHasMore, warming: chatSearchWarming, composeTick: chatSearchComposeTick } = searchState
   const { open: setChatSearchOpen, term: setChatSearchTerm, at: setChatSearchAt, busy: setChatSearchBusy, jumping: setChatSearchJumping, hasMore: setChatSearchHasMore, warming: setChatSearchWarming, composeTick: setChatSearchComposeTick } = searchSetters
 
   // 不再把这个会话的历史翻到底。命中按 seq 升序，上一处/下一处就是数组下标。
-  const [chatSearchHits, setChatSearchHits] = useState<SearchHit[]>([])
+  const [chatSearchHits, setChatSearchHits] = useSessionState<SearchHit[]>(session.sessionId, [])
   /**
    * 停止要不要二次确认。
    *
    * 运行中主键是「排队」、紧挨着一个小方块「停止」——两个都点过一次的人知道有多容易
    * 打错。破坏性动作改成两拍：第一拍把按钮变成「确认停止」，2.5 秒不动自动收回。
    */
-  const chatSearchAbortRef = useRef<AbortController | undefined>(undefined)
+  const chatSearchAbortRef = useSessionRef<AbortController | undefined>(session.sessionId, undefined)
   /** 上一次「上一个/下一个」真正落在哪一行、第几处：连着落在同一处时说明画面不会动。 */
-  const lastChatLandingRef = useRef<{ rowId: string; occurrence: number } | undefined>(undefined)
+  const lastChatLandingRef = useSessionRef<{ rowId: string; occurrence: number } | undefined>(session.sessionId, undefined)
   /** 定位复核代次：每次 locateSeq 递增，过期的补救回调直接作废。 */
-  const locateVerifyTokenRef = useRef(0)
+  const locateVerifyTokenRef = useSessionRef(session.sessionId, 0)
   /** 已经为哪条命中强制翻过页（同一条不重复翻，避免来回打转）。 */
-  const forcedPageKeysRef = useRef<Set<string>>(new Set())
+  const forcedPageKeysRef = useSessionRef<Set<string>>(session.sessionId, () => new Set())
   /** 翻页收敛监控：连续几次翻页没带来新行（宿主游标卡住），用来及时认输。 */
-  const pendingTurnStallsRef = useRef(0)
-  const pendingTurnRowCountRef = useRef(-1)
+  const pendingTurnStallsRef = useSessionRef(session.sessionId, 0)
+  const pendingTurnRowCountRef = useSessionRef(session.sessionId, -1)
   const chatSearchComposingRef = useRef(false)
   /** 搜索词的实时镜像：跳转/收尾要在回调里判断"这一行正文里真有这个词"，
    *  读 state 会拿到调用那一刻的闭包值（词换了还在用旧词）。 */
@@ -1949,8 +1994,49 @@ function ChatSessionView({
     messageId?: string,
     snippet?: string,
   ): number => searchRowIndexOfHit(list, { seq, messageId, snippet }, rawPageRef.current, seqRowIndex), [])
+  /**
+   * 在**已经渲染出来的高亮**之间走一步（`gotoChatHit` 的快通道）。
+   *
+   * 判据只用几何：把这一屏的所有 `mark.chat-search-mark` 按文档顺序取出来，
+   * 以「视口上部 35% 处」为当前位置 ——
+   * - `next` 取第一个更靠下的，没有就回绕到第一个；
+   * - `prev` 取最后一个更靠上的，没有就回绕到最后一个。
+   *
+   * 为什么不用「索引里的第几条」：那是推算，窗口外的命中推算不出来；而屏幕上的
+   * 高亮是**事实**。同一屏里有多处也能逐处前进，单命中时会回到它自己（不动）。
+   *
+   * @param direction - 下一个还是上一个
+   * @returns 是否接住了这次跳转（没渲染出任何高亮时返回 false，交给索引翻页分支）
+   */
+  const nudgeToRenderedMark = useCallback((direction: 'next' | 'prev'): boolean => {
+    const scroller = scrollRef.current
+    if (scroller === undefined) return false
+    const marks = [...scroller.querySelectorAll<HTMLElement>('mark.chat-search-mark')]
+    if (marks.length === 0) return false
+    // 无布局环境（jsdom / 还没排版）：所有 rect 都是 0，几何判据不成立，交回索引逻辑。
+    if (scroller.clientHeight <= 0) return false
+    const boxTop = scroller.getBoundingClientRect().top
+    const tops = marks.map(mark => mark.getBoundingClientRect().top - boxTop + scroller.scrollTop)
+    const anchor = scroller.scrollTop + scroller.clientHeight * 0.35
+    let pick = -1
+    if (direction === 'next') {
+      pick = tops.findIndex(top => top > anchor + 8)
+      if (pick < 0) pick = 0
+    } else {
+      for (let i = tops.length - 1; i >= 0; i -= 1) {
+        if ((tops[i] ?? 0) < anchor - 8) { pick = i; break }
+      }
+      if (pick < 0) pick = tops.length - 1
+    }
+    const target = marks[pick]
+    if (target === undefined) return false
+    if (typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+    return true
+  }, [])
   /** 跳到第 n 个命中：在已加载窗口里直接定位，否则先把那一页翻进来。 */
-  const gotoChatHit = useCallback((hits: readonly { seq: number; partId?: string; messageId?: string; snippet?: string; paragraph?: string; matchIndex?: number }[], at: number): void => {
+  const gotoChatHit = useCallback((hits: readonly { seq: number; partId?: string; messageId?: string; snippet?: string; paragraph?: string; matchIndex?: number }[], at: number, direction: 'next' | 'prev' = 'next'): void => {
     const list = messagesRef.current
     // 这一条命中是"同一行里的第几处"：一轮被打包成一张卡片时，卡里好几条消息
     // 都可能命中同一个词（seq 各不相同）。只按 seq 分组会把这些全算成第 0 处，
@@ -1989,6 +2075,23 @@ function ChatSessionView({
     const previous = lastChatLandingRef.current
     const hit = hits[at]
     if (hit === undefined) return
+    /*
+     * DOM 快通道（2026-11-11 真机：「很多情况下自动定位不到正确位置」）。
+     *
+     * 上一层的算法是「索引给一个 seq → 推算它在哪一轮、行内第几处、滚过去」。
+     * 只要有一环认不出来（合并卡、窗口边界、同一行多处命中），它就只能降级：
+     * 要么翻页把视口带走，要么就近亮一个——实测 5 个词 15 次点击里 4 次
+     * 「点了下一个，视口里一个高亮都没有」，单命中词甚至会因为回绕被翻页带到别处。
+     *
+     * 但屏幕上**已经渲染出来的 <mark> 就是用户看到的东西**：只要这一屏里有这个词，
+     * 「下一个/上一个」就该在它们之间走一步，不需要推算。所以先试这里：
+     * 接管成功就直接返回，认不出来（词在更早历史里、或整卡折叠着）才落到下面的索引逻辑。
+     */
+    if (nudgeToRenderedMark(direction)) {
+      setChatSearchAt(at)
+      scrollEvent({ type: 'suppress', until: Date.now() + 800 })
+      return
+    }
     const landed = landingOf(hit, at)
     const hitKey = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}`
     const repeated = landed !== undefined && previous !== undefined &&
@@ -2093,7 +2196,7 @@ function ChatSessionView({
     // 让待收尾 effect 立刻评估一次：它负责「还在翻/翻到了」这两种收尾，也是
     // 一页在飞时唯一能把这次点击接下去的地方（见该 effect 的排队重试）。
     setLocateTick(previous => previous + 1)
-  }, [locateSeq])
+  }, [locateSeq, nudgeToRenderedMark])
 
   // 预取「下一条命中」那一页。
   //
@@ -2108,15 +2211,23 @@ function ChatSessionView({
     const beforeSeq = next.seq + 1
     if (pageCacheRef.current.has(beforeSeq)) return
     if (messagesRef.current.some(row => rowCoversSeq(row, next.seq))) return
+    const isCurrentSession = captureSessionGuard()
+    const cache = pageCacheRef.current
+    const controller = new AbortController()
     const timer = setTimeout(() => {
-      if (pendingRef.current || pageCacheRef.current.has(beforeSeq)) return
-      void loadChatPage(session.sessionId, beforeSeq, undefined, undefined, undefined, JUMP_PAGE_ROWS).then(
-        page => { pageCacheRef.current.set(beforeSeq, page) },
+      if (pendingRef.current || cache.has(beforeSeq)) return
+      void loadChatPage(session.sessionId, beforeSeq, controller.signal, undefined, undefined, JUMP_PAGE_ROWS).then(
+        page => {
+          if (!controller.signal.aborted && isCurrentSession() && cache === pageCacheRef.current) cache.set(beforeSeq, page)
+        },
         () => undefined,
       )
     }, 500)
-    return () => { clearTimeout(timer) }
-  }, [chatSearchAt, chatSearchHits, session.sessionId])
+    return () => {
+      clearTimeout(timer)
+      controller.abort(new DOMException('history prefetch cancelled', 'AbortError'))
+    }
+  }, [chatSearchAt, chatSearchHits, session.sessionId, captureSessionGuard])
 
   useEffect(() => {
     const term = chatSearchTerm.trim()
@@ -2564,11 +2675,11 @@ function ChatSessionView({
   }, [])
 
   /** 发出到轮次开跑之间这段窗口的防连点闸门。 */
-  const regenerateInFlightRef = useRef(false)
+  const regenerateInFlightRef = useSessionRef(session.sessionId, false)
   /** 「会新增一条回答」这句只提示一次，不常驻界面。 */
-  const regenerateHintShownRef = useRef(false)
+  const regenerateHintShownRef = useSessionRef(session.sessionId, false)
   /** 发出去但一轮没起来的兜底复位。 */
-  const regenerateWatchdogRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const regenerateWatchdogRef = useSessionRef<ReturnType<typeof setTimeout> | undefined>(session.sessionId, undefined)
 
   /** Regenerate the last assistant reply: ask the agent to re-answer the user
    *  question that immediately preceded it. The session is append-only, so
@@ -2576,9 +2687,8 @@ function ChatSessionView({
    *  wording tells the model to set it aside and answer anew. */
 
   /**
-   * 发送 / 队列 / 插话状态机（S8a 从本文件搬出，见 views/chat/use-chat-composer.ts）：
-   * 只把作曲区当前的输入/附件/命令状态与视图回调交进去，拿回 send 与派生判据 ——
-   * `primaryStops`（在跑时主键是停止）与 `draftEmpty` 只算一份，不在视图里另算。
+   * 发送 / 队列 / 插话状态机（S8a 搬出到 views/chat/use-composer.ts）：只把作曲区
+   * 当前的输入/附件/命令交进去拿回 send 一族动作；主键判据由 `ComposerSection` 现算。
    */
   const { handleRegenerate, runCommand } = useChatActions({
     sessionId: session.sessionId,
@@ -2595,12 +2705,11 @@ function ChatSessionView({
   })
 
   const {
-    send, sendEditedMessage, claimCommand, releaseCommand,
-    flushQueue, draftEmpty, primaryStops,
+    send, sendEditedMessage, claimCommand, releaseCommand, flushQueue,
   } = useChatComposer({
-    sessionId: session.sessionId, mux, offline, running, runningRef,
-    input, setInput, attachImages, setAttachImages, attachFiles, setAttachFiles,
-    uploadingFiles, quoted, setQuoted, claimedCommand, setClaimedCommand, sending, setSending,
+    sessionId: session.sessionId, mux, offline, runningRef,
+    getInput: draftControl.get, setInput, attachImages, setAttachImages, attachFiles, setAttachFiles,
+    uploadingFiles, quoted, setQuoted, claimedCommand, setClaimedCommand, getSending, setSending,
     commands, shadowEvent, refreshInbox, refreshGoal, runCommand, removeDraft,
     setError, mountedRef,
     focusComposer: () => { requestAnimationFrame(() => { composerRef.current?.focus() }) },
@@ -2691,9 +2800,10 @@ function ChatSessionView({
           title: stepRow.getAttribute('data-step-title') ?? '',
           summary: stepRow.getAttribute('data-step-summary') ?? '',
           state: stepRow.getAttribute('data-step-state') ?? '',
-          ...(stepRow.querySelector('pre.chat-tool-args')?.textContent === undefined
+          // 参数不再展开在行内（详情面板 C1 里才有），长按菜单从 data-step-args 读。
+          ...(stepRow.getAttribute('data-step-args') === null
             ? {}
-            : { command: stepRow.querySelector('pre.chat-tool-args')?.textContent ?? '' }),
+            : { command: stepRow.getAttribute('data-step-args') ?? '' }),
         }
     const bubble = element?.closest('.chat-msg') ?? null
     if (bubble === null) return false
@@ -2847,36 +2957,40 @@ function ChatSessionView({
   // target message seq once it loads, paging back a bounded number of times
   // when the row sits in older history. One highlight per open; a target
   // that never surfaces gives up silently (the chat stays at the tail).
-  const focusPendingRef = useRef<number | undefined>(initialFocusSeq)
-  const focusMessageIdRef = useRef<string | undefined>(initialFocusMessageId)
-  const focusPartIdRef = useRef<string | undefined>(initialFocusPartId)
+  // 一次「带定位打开」的目标：5 个字段同生同灭（重臂一起写、落点一起清），
+  // 合成一个对象后重臂只有一处赋值，不会漏清某个字段。
+  const focusAnchorRef = useSessionRef<{
+    seq?: number
+    messageId?: string
+    partId?: string
+    turn?: number
+    step?: number
+  }>(session.sessionId, {
+    ...(initialFocusSeq === undefined ? {} : { seq: initialFocusSeq }),
+    ...(initialFocusMessageId === undefined ? {} : { messageId: initialFocusMessageId }),
+    ...(initialFocusPartId === undefined ? {} : { partId: initialFocusPartId }),
+    ...(initialFocusTurn === undefined ? {} : { turn: initialFocusTurn }),
+    ...(initialFocusStep === undefined ? {} : { step: initialFocusStep }),
+  })
+
   /** 这一条命中是该片段里的第几处（同一段里同一个词出现多次时对位 <mark>）。 */
-  const focusOccurrenceRef = useRef(0)
-  const focusAttemptsRef = useRef(0)
+  const focusOccurrenceRef = useSessionRef(session.sessionId, 0)
+  const focusAttemptsRef = useSessionRef(session.sessionId, 0)
   /** Whether the deep-history locate already jumped straight to the target's
    *  page (one RPC) instead of paging back one page at a time. */
-  const focusJumpedRef = useRef(false)
-  const [focusMsgId, setFocusMsgId] = useState<string | undefined>(undefined)
+  const focusJumpedRef = useSessionRef(session.sessionId, false)
+  const [focusMsgId, setFocusMsgId] = useSessionState<string | undefined>(session.sessionId, undefined)
   /** The located step seq, paired with focusMsgId for the post-render scroll. */
-  const focusTargetRef = useRef<number | undefined>(undefined)
+  const focusTargetRef = useSessionRef<number | undefined>(session.sessionId, undefined)
   /** True when the locate anchor is the ROW itself, not a step/search mark inside
    *  it (turn jumps): the row `data-message-id` is the prompt row, while the seq
    *  we match by belongs to the answer row below it — resolving `[data-step-seq]`
    *  would scroll to the answer and hide the question again. */
-  const focusRowFirstRef = useRef(false)
+  const focusRowFirstRef = useSessionRef(session.sessionId, false)
   /** One-shot guard: scroll to the located step exactly once per open. */
-  const focusScrolledRef = useRef(false)
+  const focusScrolledRef = useSessionRef(session.sessionId, false)
   /** 收尾校准的令牌：新的定位开始时作废上一次还在排队的校准。 */
-  const locateSettleRef = useRef(0)
-  /** 标题命中只提示一次，别每帧弹。 */
-  const titleOnlyToastRef = useRef(false)
-  /** True while a search-locate has resolved its target row but has not yet
-   *  scrolled the anchor into view. During this window the opening tail-pin /
-   *  windowed re-locate must stand down — otherwise they repurpose the render
-   *  window to the tail and window the located row OUT of the DOM, so the
-   *  anchor never surfaces and the locate silently fails (intermittent
-   *  "search shows it but I can't see it" on long, windowed sessions). */
-  const locatingRef = useRef(false)
+  const locateSettleRef = useSessionRef(session.sessionId, 0)
   /** 这次"带定位打开"已经处理完（落到了行，或确认翻不到）：它是一次性意图，
    *  不能再跟着 `messages` 的每一次变化重跑。
    *
@@ -2884,16 +2998,34 @@ function ChatSessionView({
    *  变化（翻一页、会话内搜索跳一处）都把焦点和落点重新抢回"打开时那一条命中"。
    *  会话内连按「下一个」时真机表现就是：pending 已经把焦点挪到新命中，下一拍又被
    *  拽回开场那条（可视区里一个高亮都没有，focusId 永远是开场那条）。 */
-  const openLocateDoneRef = useRef(false)
-  // App keeps the chat route keyed by session, so locating another hit in the
-  // same session reuses this component. Re-arm the locate state for each new
-  // target instead of treating the first open as the only one.
+  const openLocateDoneRef = useRef(false)  /** 标题命中只提示一次，别每帧弹。 */
+  const titleOnlyToastRef = useSessionRef(session.sessionId, false)
+  /** True while a search-locate has resolved its target row but has not yet
+   *  scrolled the anchor into view. During this window the opening tail-pin /
+   *  windowed re-locate must stand down — otherwise they repurpose the render
+   *  window to the tail and window the located row OUT of the DOM, so the
+   *  anchor never surfaces and the locate silently fails (intermittent
+   *  "search shows it but I can't see it" on long, windowed sessions). */
+  const locatingRef = useRef(false)
+  // 会话页实例跨会话复用（App 的渲染容器不按会话换 key）：定位状态除了随新的
+  // 定位目标重臂，还必须随**会话**重臂 —— 否则 A 的 locating 锁/一次性闸门会挡下
+  // B 的定位。所以会话 id 也在依赖里。
   useEffect(() => {
     // 首页搜索点进来的会话：props 里可能一路丢干净（转场双挂载 / 同一路由重挂载），
     // 意图表里那份是最后一道兜底 —— 少了它就只剩"滚到附近、一个字不高亮"。
-    focusPendingRef.current = initialFocusSeq ?? locateIntent?.seq
-    focusMessageIdRef.current = initialFocusMessageId ?? locateIntent?.messageId
-    focusPartIdRef.current = initialFocusPartId ?? locateIntent?.partId
+    const rearmSeq = initialFocusSeq ?? locateIntent?.seq
+    const rearmMessageId = initialFocusMessageId ?? locateIntent?.messageId
+    const rearmPartId = initialFocusPartId ?? locateIntent?.partId
+    const rearmTurn = initialFocusTurn ?? locateIntent?.turn
+    const rearmStep = initialFocusStep ?? locateIntent?.step
+    // 整体替换（不是逐字段赋值）：上一次目标的残留字段必须一起消失。
+    focusAnchorRef.current = {
+      ...(rearmSeq === undefined ? {} : { seq: rearmSeq }),
+      ...(rearmMessageId === undefined ? {} : { messageId: rearmMessageId }),
+      ...(rearmPartId === undefined ? {} : { partId: rearmPartId }),
+      ...(rearmTurn === undefined ? {} : { turn: rearmTurn }),
+      ...(rearmStep === undefined ? {} : { step: rearmStep }),
+    }
     focusAttemptsRef.current = 0
     focusJumpedRef.current = false
     focusTargetRef.current = undefined
@@ -2902,9 +3034,10 @@ function ChatSessionView({
     openLocateDoneRef.current = false
     scrollEvent({ type: 'locate-end' })
     programmaticScrollRef.current = false
-    locatingRef.current = initialFocusSeq !== undefined || initialFocusMessageId !== undefined || initialFocusPartId !== undefined
+    locatingRef.current = initialFocusSeq !== undefined || initialFocusMessageId !== undefined
+      || initialFocusPartId !== undefined || initialFocusTurn !== undefined
     setFocusMsgId(undefined)
-  }, [initialFocusSeq, initialFocusMessageId, initialFocusPartId, initialFocusQuery])
+  }, [initialFocusSeq, initialFocusMessageId, initialFocusPartId, initialFocusTurn, initialFocusStep, initialFocusQuery, session.sessionId])
   // 从首页搜索点进来：把会话内搜索一起打开并填好词。少了这一步，用户进来只有
   // 一次性的高亮、搜索框是空的 —— 计数不显示，也没法接着按「上一个/下一个」。
   // 只认**意图表**里的那份（props 的 initialFocusQuery 是普通「进入并定位」路径，
@@ -2921,8 +3054,8 @@ function ChatSessionView({
     // 每帧现取：useMemo 一旦在意图写入之前跑过，就永远缓存 undefined（表现为
     // 「第一次进有高亮、之后同样的点击没有」）。
     const liveIntent = locateIntentFor(session.sessionId)
-    const target = focusPendingRef.current ?? liveIntent?.seq
-    const targetMessageId = focusMessageIdRef.current ?? liveIntent?.messageId
+    const target = focusAnchorRef.current.seq ?? liveIntent?.seq
+    const targetMessageId = focusAnchorRef.current.messageId ?? liveIntent?.messageId
     const focusQueryText = initialFocusQuery ?? liveIntent?.query
     const queryText = focusQueryText?.trim() ?? ''
     if ((target === undefined && targetMessageId === undefined) || loading) {
@@ -2951,8 +3084,23 @@ function ChatSessionView({
     const idRowIndex = targetMessageId === undefined ? -1 : messagesNow.findIndex(message => message.id === targetMessageId)
     const partMatches = (message: RenderMessage): boolean => {
       if (targetMessageId !== undefined && message.id !== targetMessageId) return false
-      if (focusPartIdRef.current === undefined) return true
-      return message.flow?.some(part => part.kind === 'text' && part.partId === focusPartIdRef.current) === true
+      const wanted = focusAnchorRef.current.partId
+      if (wanted === undefined) return true
+      /*
+       * **宿主的索引给的是"角色"，不是真实 part id**（`host/search-text.ts`）：
+       * 用户气泡正文标 `body`、助手回答标 `answer`，只有带 answerSeq 的行才会给真正的坐标。
+       *
+       * 2026-11-12 用户：「搜索匹配定位，自动跳转这个问题」。实测搜「排队」点了第一条命中，
+       * 进会话后停在最底部、`.chat-msg-focus` 一个都没有 —— 因为这里拿 `'body'` 去和
+       * `flow[].partId`（真实 id）逐个比，**必然 false**，于是已经精确命中的 messageId
+       * 被自己否掉（stableRowIndex 变 -1），只能退回 seq 匹配；seq 一旦错位就整条放弃，
+       * 放弃后普通跟随逻辑接管，视口沉到底部。
+       *
+       * 现在先把这两个角色词认出来，再退回真实 part id 的比较。
+       */
+      if (wanted === 'body') return message.kind === 'user'
+      if (wanted === 'answer') return message.kind === 'assistant'
+      return message.flow?.some(part => part.kind === 'text' && part.partId === wanted) === true
     }
     // The messageId is the AUTHORITATIVE identity: once it matched a rendered
     // row, do NOT let the text-query veto it. The search index matched the
@@ -2964,6 +3112,15 @@ function ChatSessionView({
     // landing in a row that lacks the text; a resolved messageId needs no such
     // guard.
     const stableRowIndex = idRowIndex >= 0 && partMatches(messagesNow[idRowIndex]) ? idRowIndex : -1
+    // 第三锚点：结构坐标查表（2026-11-12）。messageId 在跨页合并后会与渲染行对不上、
+    // seq 也会漂移，但「第 N 轮第 M 步」始终指向同一行 —— 宿主索引新加的 turn/step
+    // 两列就是为这一格。仍要求含关键词，否则落点行没有高亮。
+    const turnStepRowIndex = focusAnchorRef.current.turn === undefined
+      ? -1
+      : messagesNow.findIndex(message =>
+        message.turn === focusAnchorRef.current.turn
+        && (focusAnchorRef.current.step === undefined || message.step === focusAnchorRef.current.step)
+        && queryMatches(message))
     const firstLoadedSeq = messagesNow[0]?.startSeq ?? messagesNow[0]?.seq
     const targetIsAtOrAfterLoadedStart = target === undefined || firstLoadedSeq === undefined || target >= firstLoadedSeq
     const seqRowIndex = target === undefined || !targetIsAtOrAfterLoadedStart ? -1 : messagesNow.findIndex(message =>
@@ -2986,7 +3143,13 @@ function ChatSessionView({
     const queryFallbackIndex = targetMessageId !== undefined || (hasAuthoritativeTarget && hasOlder)
       ? -1
       : messagesNow.findIndex(queryMatches)
-    const rowIndex = stableRowIndex >= 0 ? stableRowIndex : seqRowIndex >= 0 ? seqRowIndex : queryFallbackIndex
+    const rowIndex = stableRowIndex >= 0
+      ? stableRowIndex
+      : turnStepRowIndex >= 0
+        ? turnStepRowIndex
+        : seqRowIndex >= 0
+          ? seqRowIndex
+          : queryFallbackIndex
     // 命中行还必须真的含关键词。索引的 id/seq 与渲染行的 id/seq 来自两条通道，
     // 逐条并不总对齐：落到一行却不含关键词时，全页一个 mark 都不会出现，用户
     // 看到的就是「跳过去了但没高亮」。这时在本窗口里取离它最近、确实含关键词
@@ -3007,41 +3170,58 @@ function ChatSessionView({
             return best
           })())
     if (markableIndex < 0) {
-      if (hasOlder && focusAttemptsRef.current < FOCUS_MAX_PAGES) {
-        // Don't burn an attempt on a load that is already in flight (the
-        // opening auto-extend): that page still lands and re-triggers this
-        // effect, so counting it would exhaust the page budget early and a
-        // deeper target would give up before it surfaces.
-        if (!pendingRef.current) {
-          focusAttemptsRef.current += 1
-          // First miss with a known target seq: jump straight to the target's
-          // page instead of paging back one page at a time through deep
-          // history (a hit 100 pages back would otherwise take ~100 serial
-          // RPCs and read as a failed locate). Fall back to normal paging
-          // after the jump if the target still has not surfaced.
-          if (!focusJumpedRef.current && target !== undefined) {
-            focusJumpedRef.current = true
-            loadOlderRef.current(true, target + 1)
-          } else {
-            loadOlderRef.current(true)
-          }
+      /*
+       * **一行都没到 ≠ 找不到**（2026-11-12 用户：「搜索匹配定位，自动跳转这个问题」）。
+       *
+       * 真机日志抓到的时序：
+       *   [locate] {rows:0, loading:false, done:false}   ← 首屏数据还没落地
+       *   [locate] {rows:9, loading:false, done:true }   ← 已经放弃，9 行到了也不跳
+       * 第一拍 `markableIndex` 必然是 -1，而 `hasOlder` 也还是 false（连第一页都没有），
+       * 于是直接掉进下面的"放弃"分支：`openLocateDoneRef = true` 把这次定位锁死，
+       * 数据随后到达也不会再定位一次 —— 视口就这么停在普通跟随逻辑钉的底部，
+       * 一个 `.chat-msg-focus` 都没有（实测 focusCount=0、nearBottom=true）。
+       *
+       * 没有一行数据时**保留这次定位意图**直接返回：等首屏到达后本 effect 会再跑一次
+       * （依赖里有 messages），那时才有资格判断"找得到 / 找不到"。
+       */
+      // 目标不在当前窗口：问无状态的 `decideMiss` 要动作。它与原 if 链逐条等价，
+      // 但不持有跨渲染状态（有状态版在这个组件里活不过一次重挂载），且有测试。
+      const action = decideMiss({
+        rows: messagesNow.length,
+        hasOlder,
+        attempts: focusAttemptsRef.current,
+        maxAttempts: FOCUS_MAX_PAGES,
+        pending: pendingRef.current === true,
+        ...(target === undefined ? {} : { jumpSeq: target }),
+        jumped: focusJumpedRef.current,
+      })
+      // 一行都没有 ≠ 找不到：等首屏到达后本 effect 会再跑一次（依赖里有 messages）。
+      if (action.type === 'wait') return
+      if (action.type === 'fetch') {
+        focusAttemptsRef.current += 1
+        // 深历史命中第一次直跳目标页；之后一页页往前翻（反复跳同一页会原地打转）。
+        if (action.jump !== undefined) {
+          focusJumpedRef.current = true
+          loadOlderRef.current(true, action.jump)
+        } else {
+          loadOlderRef.current(true)
         }
-      } else {
-        // Give up on this locate: release the window guard so the normal
-        // follower (locateWindow / pinToRealBottom) is not left permanently
-        // blocked — otherwise every later scroll in this session stops
-        // relocating the window and the chat appears frozen mid-history.
-        // 有明确目标却全篇找不到关键词：不是"跳偏了"，是这条命中不在这段日志里
-        // （会话被编辑/删除，或索引落后）。明说，别让用户以为定位成功了。
-        if (query !== '' && rowIndex >= 0) toast('未能在当前日志定位到这条命中')
-        focusPendingRef.current = undefined
-        openLocateDoneRef.current = true
-        locatingRef.current = false
-        scrollEvent({ type: 'locate-end' })
+        return
       }
+      // Give up on this locate: release the window guard so the normal follower
+      // (locateWindow / pinToRealBottom) is not left permanently blocked —
+      // otherwise every later scroll in this session stops relocating the
+      // window and the chat appears frozen mid-history.
+      // 有明确目标却全篇找不到关键词：不是"跳偏了"，是这条命中不在这段日志里
+      // （会话被编辑/删除，或索引落后）。明说，别让用户以为定位成功了。
+      if (query !== '' && rowIndex >= 0) toast('未能在当前日志定位到这条命中')
+      focusAnchorRef.current.seq = undefined
+      openLocateDoneRef.current = true
+      locatingRef.current = false
+      scrollEvent({ type: 'locate-end' })
       return
     }
-    focusPendingRef.current = undefined
+    focusAnchorRef.current.seq = undefined
     // 一次性：这一条开场的命中已经认到行了，之后列表怎么涨都别再抢焦点。
     openLocateDoneRef.current = true
     const row = messagesNow[markableIndex]
@@ -3089,7 +3269,7 @@ function ChatSessionView({
     const el = scrollRef.current
     if (el === undefined) return
     const scrollTo = (): void => {
-      // 定位是**远离底部**的一次滚动：先把这个意图告诉状态机，免得同一批
+      // 定位是**远离底部**的一次滚动：先把这个意图告诉状态机，免得同一次
       // effect 里读到的还是「贴底」而把画面拽回尾部。
       scrollEvent({ type: 'locate-start', at: Date.now(), holdMs: 2_000 })
       // 定位执行器：照桌面的 use-chat-viewport 做 —— 量一次锚点、写一次 scrollTop、
@@ -3132,7 +3312,7 @@ function ChatSessionView({
         // mark so the keyword is actually reached.
         // 命中落在一个具体片段上时，先滚到那个片段、再滚到它里面的第一个 mark：
         // 一行里多处命中时（focusMsgId 相同）全行第一个 mark 是别处的命中，看着就是"不准"。
-        const wantedPartId = focusPartIdRef.current ?? initialFocusPartId
+        const wantedPartId = focusAnchorRef.current.partId ?? initialFocusPartId
         const partEl = wantedPartId === undefined ? null : messageEl?.querySelector(`[data-part-id="${escapeAttr(wantedPartId)}"]`) ?? null
         const allMarks = Array.from((partEl ?? messageEl)?.querySelectorAll<HTMLElement>('.chat-search-mark') ?? [])
         const wantedOccurrence = focusOccurrenceRef.current
@@ -3236,25 +3416,28 @@ function ChatSessionView({
           const aTop = anchor.getBoundingClientRect().top
           const cTop = el2b.getBoundingClientRect().top
           const cH = el2b.clientHeight
+          // 判定抽到 chat/lib/locate-landing.ts（纯函数、13 条测试）：
+          // containerHeight<=0 的「布局未稳」、正常贴顶、滚到头时放宽，三种情形
+          // 都在那儿钉住了，这里只按结论分派。
+          const verdict = judgeLanding({
+            anchorTop: aTop,
+            anchorHeight: anchor.getBoundingClientRect().height,
+            containerTop: cTop,
+            containerHeight: cH,
+            scrollTop: el2b.scrollTop,
+            scrollHeight: el2b.scrollHeight,
+            topGap: LOCATE_TOP_GAP,
+            tolerancePx: LOCATE_TOLERANCE_PX,
+          })
           // If the container reports no viewport height the layout is still
           // unstable (or jsdom gives 0) — trust the scroll rather than report a
           // false miss and hammer the retry loop.
-          if (cH <= 0) {
+          if (verdict === 'unstable') {
             focusScrolledRef.current = true
             locatingRef.current = false
             return
           }
-          // 判据是"锚点落在视口顶附近"，不是"锚点在屏内"：后者的容差有一整屏
-          // （600px），落点偏半屏也算过，于是偏了也没人重试。
-          const slack = Math.min(48, Math.max(16, cH * 0.25))
-          // 滚不动了（内容还没铺满一屏、或已经到底）时，"锚点在视口顶附近"是
-          // 个不可能达成的判据：scrollTop 被 clamp，补多少次都是同一个数，最后
-          // 白烧 3 次补偿还判失败。这种情况只要锚点整块落在视口里就算到位。
-          const atScrollEnd = el2b.scrollTop + cH >= el2b.scrollHeight - 2
-          const anchorHeight = anchor.getBoundingClientRect().height
-          const inView = (aTop >= cTop - LOCATE_TOLERANCE_PX && aTop <= cTop + slack)
-            || (atScrollEnd && aTop >= cTop - LOCATE_TOLERANCE_PX && aTop + anchorHeight <= cTop + cH)
-          if (inView) {
+          if (verdict === 'landed') {
             // 落点真的在视口里。**不要在这里清意图**：转场里聊天页可能挂两个
             // 实例，先成功的那个把意图清掉，真正显示的那个就再也拿不到关键词，
             // 于是「定位成功、一个字都不高亮」。靠 TTL 自然过期。
@@ -3331,29 +3514,15 @@ function ChatSessionView({
       // frames if a competing effect pushed the row back off-screen.
       run()
     }
-    // Prefer the exact step anchor; fall back to the row itself (non-flow
-    // rows render no per-step anchor, and their seq equals the row seq).
-    const findAnchor = (): Element | null => {
-      // Prefer the RENDERED row (focusMsgId) over the raw target: the locate
-      // effect already resolved focusMsgId to a row that IS in the DOM (its
-      // highlight is showing). When the search hit carried only a seq (no
-      // messageId), the target seq may be a flow-part seq that matches no
-      // data-step-seq/data-row-seq — but the row root always carries
-      // data-message-id=focusMsgId, so scrolling to it is always possible.
-      const messageEl = el.querySelector(`[data-message-id="${escapeAttr(focusMsgId)}"]`)
-      const markEl = messageEl?.querySelector<HTMLElement>('.chat-search-mark')
-      const partEl = initialFocusPartId === undefined ? null : messageEl?.querySelector(`[data-part-id="${escapeAttr(initialFocusPartId)}"]`) ?? null
-      // Prefer the EXACT step anchor over the message root. A search hit
-      // carries a seq that maps to one text part's `data-step-seq`; scrolling
-      // to the root instead lands at the TOP of a long coalesced turn where
-      // the matched keyword (buried mid-bubble) is off-screen — the user then
-      // reports "the keyword isn't in the history". Fall back to the root only
-      // when no precise anchor exists (non-flow rows have only data-row-seq).
-      const stepEl = target === undefined ? null : el.querySelector(`[data-step-seq="${escapeAttr(String(target))}"]`)
-      return stepEl ?? markEl ?? partEl ?? messageEl ?? (target === undefined ? null : el.querySelector(`[data-row-seq="${escapeAttr(String(target))}"]`))
+    // 只判「渲染行在不在」——不再重算一遍锚点（2026-11-12）。原来的 findAnchor()
+    // 把 run() 里的解析又抄了一遍且判据不一致（一个看全行第一个 mark + initialFocusPartId，
+    // 一个看第 N 处 + focusPartIdRef），两套漂移就是「探测说在、执行时找不到」。
+    const rowRendered = (): boolean => {
+      const el2 = scrollRef.current
+      if (el2 === undefined) return false
+      return el2.querySelector(`[data-message-id="${escapeAttr(focusMsgId)}"]`) !== null
     }
-    const anchor = findAnchor()
-    if (anchor !== null) {
+    if (rowRendered()) {
       scrollTo()
       return
     }
@@ -3399,7 +3568,7 @@ function ChatSessionView({
    * error line.
    */
   const stopTurn = useCallback(() => {
-    if (stopping) return
+    if (chat.store.getState().stopping) return
     setStopping(true)
     void cancelSession(session.sessionId).then(
       () => {
@@ -3413,7 +3582,7 @@ function ChatSessionView({
         setError(errorText(reason))
       },
     )
-  }, [stopping, session.sessionId])
+  }, [chat.store, session.sessionId])
 
   // Context usage chip: the host's context-pressure projection (token-meter)
   // is the authoritative per-session occupancy source — it is computed for
@@ -3449,15 +3618,20 @@ function ChatSessionView({
     )
   }, [session.sessionId])
 
-  /** 元信息胶囊：整块可点，打开同一块「模型与权限」面板。 */
-  const toggleComposerPanel = (): void => {
-    if (composerPanelOpen) {
-      setComposerPanelOpen(false)
-      return
-    }
-    setComposerPanelOpen(true)
-    if (permissions === undefined) requestPermissionsOnce()
-    if (modelCatalog.status === 'idle') loadModelCatalog()
+  /**
+   * 元信息胶囊：两颗 chip 各管一摊（2026-11-12 用户要求模型 / 权限分开）。
+   *
+   * 记住"现在开的是哪块"：同一颗再点= 关，换一颗= 切过去（不叠加两块面板）。
+   * 打开时只拉这块面板需要的数据，不为了改权限去拉整个模型目录。
+   */
+  const [composerPanel, setComposerPanel] = useSessionState<'model' | 'permission' | null>(session.sessionId, null)
+  const toggleComposerPanel = (which: 'model' | 'permission'): void => {
+    const same = composerPanelOpen && composerPanel === which
+    setComposerPanel(same ? null : which)
+    setComposerPanelOpen(!same)
+    if (same) return
+    if (which === 'permission' && permissions === undefined) requestPermissionsOnce()
+    if (which === 'model' && modelCatalog.status === 'idle') loadModelCatalog()
   }
 
   /** 拉一次会话投影（权限档位在这里面）。
@@ -3468,15 +3642,13 @@ function ChatSessionView({
   const requestPermissionsOnce = useCallback((): void => {
     if (permissionPullRef.current) return
     permissionPullRef.current = true
-    void readChat(session.sessionId).then(
-      (page) => {
+    void pullProjections(session.sessionId).then(
+      (pulled) => {
         permissionPullRef.current = false
-        const values = page.projections?.values as Record<string, unknown> | undefined
-        if (values !== undefined) {
-          setPermissions(parsePermissionSelect(values['permissions']))
-          setContextPressure(parseContextPressure(values['contextPressure']))
-          setTurnOutlineRaw(values['turnOutline'])
-        }
+        if (pulled.present.size === 0) return
+        setPermissions(pulled.permissions)
+        setContextPressure(pulled.contextPressure)
+        setTurnOutlineRaw(pulled.turnOutline)
       },
       (reason: unknown) => {
         permissionPullRef.current = false
@@ -3512,10 +3684,9 @@ function ChatSessionView({
    *  让宿主的答案覆盖乐观值。
    */
   const syncPermissionsFromHost = useCallback((): void => {
-    void readChat(session.sessionId).then(
-      (page) => {
-        const values = page.projections?.values as Record<string, unknown> | undefined
-        if (values?.['permissions'] !== undefined) setPermissions(parsePermissionSelect(values['permissions']))
+    void pullProjections(session.sessionId).then(
+      (pulled) => {
+        if (pulled.present.has('permissions')) setPermissions(pulled.permissions)
       },
       () => undefined,
     )
@@ -3599,8 +3770,8 @@ function ChatSessionView({
   // reading it synchronously would pin to the PREVIOUS (estimated) height
   // and yank the view away from the real tail.
   /** 上一次补底时的尾行 key 与行数：分辨"列表真的长了"和"只是测量收敛"。 */
-  const lastTailKeyRef = useRef<string | undefined>(undefined)
-  const lastRowCountRef = useRef(0)
+  const lastTailKeyRef = useSessionRef<string | undefined>(session.sessionId, undefined)
+  const lastRowCountRef = useSessionRef(session.sessionId, 0)
   useEffect(() => {
     if (locatingRef.current) return
     if (!scrollStateRef.current.followed) return
@@ -3649,22 +3820,30 @@ function ChatSessionView({
    * 一个小键，运行期间常驻。
    */
   const lastMessageId = messages[messages.length - 1]?.id
-  const regenerateFor = (message: RenderMessage): (() => void) | undefined =>
+  const regenerateFor = useCallback((message: RenderMessage): (() => void) | undefined =>
     offersRegenerate({
       isLastMessage: message.id === lastMessageId,
       isAssistant: message.kind === 'assistant',
       pending: message.pending === true,
       turnLive,
+      // 失败回合的尾行也给下一步动（2026-11-10）：它没有可重生成的 assistant
+      // 行，`handleRegenerate` 会自己往回找到那条提问再重发。
+      retryableTurn: message.kind === 'turn' && message.failed === true,
     })
       ? () => handleRegenerate(message)
-      : undefined
+      : undefined, [lastMessageId, turnLive, handleRegenerate])
+
+  /** 行级回调（引用稳定，契约见 chat-rows 的 memo 与 chat-rows-memo.test.tsx）。 */
+  const { rowOfInterrupted, isRowRunningOf, openFileOf } = useRowCallbacks({
+    abandonedTurn, liveTurn, settledOf, isRowRunning, onOpenDiff, setPreviewPath,
+  })
 
   // 消息区的触摸/右键手势（S3-A 搬出）：四种手势互相抢夺，规则集中在一处。
   const gestures = useScrollGestures({
     pinchRef, pinchDistance, applyPinch, startLongPress, cancelLongPress, openCtxFromTarget,
   })
 
-  // ⋯ 菜单里「这一轮的产物」：只在菜单打开时算（流式时每帧都扫一遍消息不值得）。
+  // 更多菜单里「这一轮的产物」：只在菜单打开时算（流式时每帧都扫一遍消息不值得）。
   const moreTurns = moreOpen ? collectArtifacts(messages) : []
   const moreArtifactCount = moreTurns[0]?.files.length ?? 0
 
@@ -3672,9 +3851,13 @@ function ChatSessionView({
     <div className="chat">
       <ChatHeader
         onOpenDrawer={onOpenDrawer === undefined ? undefined : () => { onOpenDrawer(collectArtifacts(messages)) }}
+        onBack={onBack}
         {...(workspaceName === undefined ? {} : { workspaceName })}
         title={title}
         onMore={() => { setMoreOpen(true) }}
+        {...(runBadgeBits(todo, jobs, subagents).length === 0 ? {} : {
+          run: <RunBadge todo={todo} jobs={jobs} subagents={subagents} onOpen={() => { setRunStatusOpen(true) }} />,
+        })}
       />
       <OfflineBanner offline={offline} />
       <ChatSearchBar
@@ -3689,8 +3872,8 @@ function ChatSessionView({
         at={chatSearchAt}
         hasMore={chatSearchHasMore}
         jumping={chatSearchJumping}
-        onPrev={() => { gotoChatHit(chatSearchHits, (chatSearchAt - 1 + chatSearchHits.length) % chatSearchHits.length) }}
-        onNext={() => { gotoChatHit(chatSearchHits, (chatSearchAt + 1) % chatSearchHits.length) }}
+        onPrev={() => { gotoChatHit(chatSearchHits, (chatSearchAt - 1 + chatSearchHits.length) % chatSearchHits.length, 'prev') }}
+        onNext={() => { gotoChatHit(chatSearchHits, (chatSearchAt + 1) % chatSearchHits.length, 'next') }}
         onClose={() => { setChatSearchOpen(false); setChatSearchTerm('') }}
       />
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
@@ -3713,12 +3896,11 @@ function ChatSessionView({
           sessionId={session.sessionId}
           showToolCalls={showToolCalls}
           showSystemMessages={showSystemMessages}
-          hostNowMs={hostClock.hostNow()} goal={goal?.objective}
+          hostNowMs={hostNowIdle} hostNow={hostClock.hostNow} goal={goal?.objective}
           clockAnchor={clockAnchor ?? undefined}
           liveTurn={liveTurn}
-          liveClockTick={liveClockTick}
           settledOf={settledOf}
-          isRowRunning={(row) => isRowRunning(row, liveTurn, settledOf(row))}
+          isRowRunning={isRowRunningOf}
           timeFlags={timeFlags}
           running={running}
           activeTurn={activeTurn}
@@ -3736,7 +3918,7 @@ function ChatSessionView({
           hasOlder={hasOlder}
           loading={loading}
           loadOlder={loadOlder}
-          onOpenFile={(path) => { if (onOpenDiff === undefined) setPreviewPath(path); else onOpenDiff(path) }}
+          onOpenFile={openFileOf}
           {...(onOpenDelivery === undefined ? {} : { onOpenDelivery })}
         />
         <ChatAttentionPanels
@@ -3779,28 +3961,14 @@ function ChatSessionView({
        */}
       <SessionHud
         goal={<GoalBar goal={bars.goalBar !== undefined ? goal : undefined} busy={goalBusy} onCommand={handleGoalCommand} {...(goalMeta === undefined ? {} : { meta: goalMeta })} />}
-        status={(finishedElsewhere === undefined && bars.statusBar === undefined) ? undefined : (
-          <>
-            {finishedElsewhere !== undefined && (
-              <FinishedElsewhereBar
-                title={finishedElsewhere.title}
-                status={finishedElsewhere.status}
-                durationMs={finishedElsewhere.durationMs}
-                onOpen={() => { onOpenFinished?.(finishedElsewhere.sessionId) }}
-                onDismiss={() => { onDismissFinished?.() }}
-              />
-            )}
-            {bars.statusBar === undefined ? null : (
-          <RunStatusBar
-            todo={todo}
-            jobs={jobs}
-            subagents={subagents}
-            text={bars.statusBar}
-            live={running}
-            onOpen={() => { setRunStatusOpen(true) }}
+        status={finishedElsewhere === undefined ? undefined : (
+          <FinishedElsewhereBar
+            title={finishedElsewhere.title}
+            status={finishedElsewhere.status}
+            durationMs={finishedElsewhere.durationMs}
+            onOpen={() => { onOpenFinished?.(finishedElsewhere.sessionId) }}
+            onDismiss={() => { onDismissFinished?.() }}
           />
-            )}
-          </>
         )}
       />
       {scrubIndex !== undefined && maxTurn >= 2 && (
@@ -3812,13 +3980,14 @@ function ChatSessionView({
           todo={todo}
           jobs={jobs}
           subagents={subagents}
+          {...(onOpenSubagent === undefined ? {} : { onOpenSubagent })}
           onClose={() => { setRunStatusOpen(false) }}
         />
       )}
       {/* C 案底栏：队列条 → 输入行 → 元信息行。模型与权限面板浮在整块底栏之上。 */}
       <div className="chat-dock">
         <ComposerSection
-          draft={{ input, setInput, quoted, setQuoted }}
+          draft={{ sessionId: session.sessionId, quoted, setQuoted }}
           attachments={{
             attachImages,
             setAttachImages,
@@ -3836,21 +4005,36 @@ function ChatSessionView({
           }}
           turn={{
             running,
-            primaryStops,
             stopArmed,
             setStopArmed,
-            stopping,
+            store: chat.store,
             stopTurn,
-            sending,
-            draftEmpty,
             send,
           }}
           inputBox={{ composerRef, mobileEnterToSend }}
+          voice={{
+            open: voiceOpen,
+            phase: voicePhase,
+            partial: voicePartial,
+            elapsed: voiceElapsed,
+            statusText: voiceStatus.text,
+            waveRef: voiceWaveRef,
+            start: openVoice,
+            finish: finishVoice,
+            cancel: closeVoice,
+          }}
           queue={{
-            count: queueItems.filter(item => item.placement === 'queued').length,
             detail: [
-              <InsertBar key="insert" sessionId={session.sessionId} running={running} onWithdraw={handleQueueRemove} />,
-              <QueueDock key="queue" items={queueItems} running={running} onEdit={handleQueueEdit} onRemove={handleQueueRemove} onSteer={handleQueueSteer} onWithdraw={handleQueueWithdraw} />,
+              <QueueCard
+                key="queue"
+                sessionId={session.sessionId}
+                items={queueItems}
+                running={running}
+                onEdit={handleQueueEdit}
+                onRemove={handleQueueRemove}
+                onSteer={handleQueueSteer}
+                onWithdraw={handleQueueWithdraw}
+              />,
             ],
           }}
         />
@@ -3860,16 +4044,17 @@ function ChatSessionView({
           modelCatalog={modelCatalog}
           contextUsage={contextUsage}
           panelOpen={composerPanelOpen}
+          panel={composerPanel}
           statusText={dockStatus}
           pickerBusy={pickerBusy}
           togglePanel={toggleComposerPanel}
-          closePanel={() => { setComposerPanelOpen(false) }}
+          closePanel={() => { setComposerPanelOpen(false); setComposerPanel(null) }}
           loadModelCatalog={loadModelCatalog}
           applyModel={applyModel}
           applyPermission={applyPermission}
           staleHint={staleHostHint}
-          onOpenContext={onOpenContext === undefined || contextUsage === undefined ? undefined : openContextPage}
-          onOpenApprovalMode={onOpenApprovalMode === undefined || permissions === undefined ? undefined : openApprovalPage}
+          /* 「更多」模块已删（2026-11-12 用户要求）；压缩上下文改由圆环弹窗直接发 /compact。*/
+          onCompact={() => { void sendCommand(session.sessionId, '/compact') }}
         />
       </div>
       {plusOpen && (
@@ -3879,7 +4064,6 @@ function ChatSessionView({
           onPickFiles={(picked) => { setPlusOpen(false); addFiles(picked) }}
           onPickHostFile={() => { setPlusOpen(false); setHostFileOpen(true) }}
           onOpenCommands={() => { setPlusOpen(false); setCommandOpen(true) }}
-          onOpenVoice={voiceSupported() ? () => { setPlusOpen(false); openVoice() } : undefined}
           onClose={() => { setPlusOpen(false) }}
         />
       )}
@@ -3927,9 +4111,9 @@ function ChatSessionView({
             setChatSearchTerm('')
           },
           onOpenSettings,
+          onOpenTasks,
           onCopyExport: copyExport, onDownloadExport: downloadExport, onDownloadLongImage: downloadLongImage,
         }}
-        voice={{ open: voiceOpen, phase: voicePhase, status: voiceStatus, waveRef: voiceWaveRef, doneRef: voiceDoneRef, onClose: closeVoice, onFinish: finishVoice }}
         messageMenu={{
           menu: ctxMenu, openedAtRef: ctxMenuOpenedAtRef,
           onClose: () => { setCtxMenu(undefined) },
@@ -3951,4 +4135,4 @@ function ChatSessionView({
 /* ── bottom sheets ───────────────────────────────────────────────────── */
 
 /* Shared sheet chrome lives in ../sheet.tsx; the pickers below compose it. */
-
+

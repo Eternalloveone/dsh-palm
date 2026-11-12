@@ -36,6 +36,9 @@ export interface SearchHit {
   seq?: number
   messageId?: string
   partId?: string
+  /** 结构坐标（图谱寻址）：第几轮 / 第几步 —— 进会话按它查表落点。 */
+  turn?: number
+  step?: number
   /** 命中会话所属工作区（结果行上标注来源）。 */
   workspaceId?: string
   workspaceTitle?: string

@@ -36,6 +36,9 @@ interface SearchHitView {
   seq: number
   messageId: string
   partId?: string
+  /** 结构坐标（图谱寻址）：第几轮 / 第几步。 */
+  turn?: number
+  step?: number
   snippet: string
   paragraph?: number
   matchIndex?: number
@@ -58,6 +61,8 @@ function hitFields(hit: SearchHitView): Record<string, unknown> {
     seq: hit.seq,
     messageId: hit.messageId,
     ...(hit.partId === undefined ? {} : { partId: hit.partId }),
+    ...(hit.turn === undefined ? {} : { turn: hit.turn }),
+    ...(hit.step === undefined ? {} : { step: hit.step }),
     snippet: hit.snippet,
     ...(hit.paragraph === undefined ? {} : { paragraph: hit.paragraph }),
     ...(hit.matchIndex === undefined ? {} : { matchIndex: hit.matchIndex }),

@@ -20,6 +20,13 @@ export interface SearchDocumentRow {
   text: string
   folded: string
   user: boolean
+  /**
+   * 结构坐标（2026-11-12，图谱寻址）：这条正文属于第几轮、第几步。
+   * 手机端拿到它能直接按「轮:步」查行，不必用 seq 猜。
+   * 缺失时为 undefined（未知），调用方不要补 0 冒充已知。
+   */
+  turn?: number
+  step?: number
 }
 
 /**
@@ -127,6 +134,10 @@ export function documentRows(rows: readonly RenderMessage[]): SearchDocumentRow[
       text: corpus.text,
       folded: corpus.text.toLowerCase(),
       user: row.kind === 'user',
+      // 结构坐标原样带上：`RenderMessage` 上就有（projections/types.ts:120,147），
+      // 不补默认值——不知道就留空，让调用方知道"这里没有坐标"。
+      ...(row.turn === undefined ? {} : { turn: row.turn }),
+      ...(row.step === undefined ? {} : { step: row.step }),
     })
   }
   return result

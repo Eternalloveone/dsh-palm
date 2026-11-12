@@ -38,6 +38,9 @@ export interface SearchIndexRow {
   partId?: string
   text: string
   user: boolean
+  /** 结构坐标：第几轮 / 第几步（可选，未知则不入库）。 */
+  turn?: number
+  step?: number
 }
 
 /** One hit, ordered by the query's ranking. */
@@ -47,6 +50,13 @@ export interface SearchIndexHit {
   seq: number
   partId?: string
   user: boolean
+  /**
+   * 结构坐标（2026-11-12，图谱寻址）：这条命中在第几轮、第几步。
+   * 手机端点它进会话时，按「轮:步」查表就能落到那一行 —— 不必等 messageId
+   * 恰好落在当前窗口里，也不受跨页合并影响。缺省表示索引里没有坐标（旧库）。
+   */
+  turn?: number
+  step?: number
   /** Matching window around the first hit, with ellipses. */
   snippet: string
   /** Highlight ranges inside {@link snippet} (start, end), half-open. */
@@ -297,7 +307,12 @@ CREATE TABLE IF NOT EXISTS docs (
   part_id TEXT NOT NULL DEFAULT '',
   role TEXT NOT NULL,
   text TEXT NOT NULL,
-  ts INTEGER NOT NULL DEFAULT 0
+  ts INTEGER NOT NULL DEFAULT 0,
+  -- 结构坐标（2026-11-12，图谱寻址）：这条正文挂在第几轮、第几步。
+  -- 0 = 未知。有了它，手机端点搜索结果就能按「轮/步」直接查表落到那一行，
+  -- 不必再用 seq 猜、也不必等 messageId 恰好落在当前窗口里（跨页合并的行会露馅）。
+  turn INTEGER NOT NULL DEFAULT 0,
+  step INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS docs_key ON docs(session_id, message_id, seq, part_id);
 CREATE INDEX IF NOT EXISTS docs_session ON docs(session_id, seq);
@@ -316,8 +331,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(tokens, tokenize = 'unico
  *
  * v4：翻页的切点改成回合边界（chat-window / 索引器都往前补读到 turn/start），
  * v3 库里那些"按半截回合建出来的文档"必须清掉，否则它们永远点不到高亮。
+ * v5（2026-11-12）：docs 增加 turn/step 两列（图谱寻址）。旧库这两列全是 0，
+ * 等于没有坐标，必须清库重扫一遍。
  */
-export const SEARCH_INDEX_VERSION = 4
+export const SEARCH_INDEX_VERSION = 5
 
 /**
  * bm25 is negative and smaller is better, so amplifying the user score pushes
@@ -407,13 +424,24 @@ export class SearchIndex {
   }
 
   /**
-   * 口径变了就整库作废：清 docs/docs_fts/sessions，写回新版本号。返回是否清过，
+   * 口径变了就整库作废：**连表一起重建**，再写回新版本号。返回是否清过，
    * 方便调用方日志里说明"为什么突然全量重扫"。
+   *
+   * 2026-11-12 修：原来这里只 `DELETE FROM docs`，不动表结构。于是 v5 加了
+   * `turn`/`step` 两列之后，旧库的表还是 v4 的形状 —— `CREATE TABLE IF NOT EXISTS`
+   * 对已存在的表**什么都不做**，新列永远加不上，写进去的坐标全是空。
+   * 真机验证：`meta.index_version` 已经是 5，`PRAGMA table_info(docs)` 里却没有 turn。
+   * 现在先 DROP 再按 SCHEMA 重建。
    */
   private ensureVersion(): boolean {
     const stored = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('index_version') as { value?: unknown } | undefined
     if (stored !== undefined && String(stored.value) === String(SEARCH_INDEX_VERSION)) return false
-    this.db.exec('DELETE FROM docs_fts; DELETE FROM docs; DELETE FROM sessions;')
+    this.db.exec(`
+      DROP TABLE IF EXISTS docs_fts;
+      DROP TABLE IF EXISTS docs;
+      DROP TABLE IF EXISTS sessions;
+    `)
+    this.db.exec(SCHEMA)
     this.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run('index_version', String(SEARCH_INDEX_VERSION))
     return true
@@ -435,8 +463,8 @@ export class SearchIndex {
   ): number {
     let written = 0
     const findId = this.db.prepare('SELECT id FROM docs WHERE session_id = ? AND message_id = ? AND seq = ? AND part_id = ?')
-    const insertDoc = this.db.prepare('INSERT INTO docs (session_id, message_id, seq, part_id, role, text, ts) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    const updateDoc = this.db.prepare('UPDATE docs SET role = ?, text = ?, ts = ? WHERE id = ?')
+    const insertDoc = this.db.prepare('INSERT INTO docs (session_id, message_id, seq, part_id, role, text, ts, turn, step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const updateDoc = this.db.prepare('UPDATE docs SET role = ?, text = ?, ts = ?, turn = ?, step = ? WHERE id = ?')
     const deleteFts = this.db.prepare('DELETE FROM docs_fts WHERE rowid = ?')
     const insertFts = this.db.prepare('INSERT INTO docs_fts (rowid, tokens) VALUES (?, ?)')
     this.db.exec('BEGIN')
@@ -447,13 +475,16 @@ export class SearchIndex {
         if (text.trim() === '') continue
         const existing = findId.get(session.sessionId, row.messageId, row.seq, partId) as { id?: unknown } | undefined
         const role = row.user ? 'user' : 'assistant'
+        // 结构坐标缺失时写 0（= 未知），不猜一个轮/步出来。
+        const turn = row.turn ?? 0
+        const step = row.step ?? 0
         let id: number
         if (existing !== undefined && typeof existing.id === 'number') {
           id = existing.id
-          updateDoc.run(role, text, ts, id)
+          updateDoc.run(role, text, ts, turn, step, id)
           deleteFts.run(id)
         } else {
-          const result = insertDoc.run(session.sessionId, row.messageId, row.seq, partId, role, text, ts)
+          const result = insertDoc.run(session.sessionId, row.messageId, row.seq, partId, role, text, ts, turn, step)
           id = Number(result.lastInsertRowid)
         }
         insertFts.run(id, indexTokens(text))
@@ -605,7 +636,7 @@ export class SearchIndex {
       // 按 ts 倒序走索引、凑够 limit 就停（角色优先级在 JS 里补：SQL 里写表达式排序
       // 会让 SQLite 为了排序把整表 LIKE 扫完，实测单字查询 320ms）。
       rows = this.db.prepare(`
-        SELECT session_id, message_id, seq, part_id, role, text, ts, 0.0 AS score
+        SELECT session_id, message_id, seq, part_id, role, text, ts, turn, step, 0.0 AS score
         FROM docs
         WHERE text LIKE ? ESCAPE '\\' ${sessionId === undefined ? '' : 'AND session_id = ?'}
         ORDER BY ts DESC
@@ -632,7 +663,7 @@ export class SearchIndex {
       // 排序只用 bm25 × 角色权重（SQL 里不碰日期函数：julianday 逐行算会把一次查询从
       // 6ms 拖到 100ms 量级）。时间衰减在 queryGroupsDetailed 里对候选集重排。
       rows = this.db.prepare(`
-        SELECT d.session_id, d.message_id, d.seq, d.part_id, d.role, d.text, d.ts,
+        SELECT d.session_id, d.message_id, d.seq, d.part_id, d.role, d.text, d.ts, d.turn, d.step,
                bm25(docs_fts) AS score
         FROM docs_fts
         JOIN docs d ON d.id = docs_fts.rowid
@@ -660,6 +691,9 @@ export class SearchIndex {
         ranges,
         score: typeof row['score'] === 'number' ? row['score'] : 0,
         ...(typeof row['ts'] === 'number' ? { ts: row['ts'] } : {}),
+        // 0 是「未知」，不当坐标回传（否则客户端会按 turn:0 去查一个不存在的行）。
+        ...(typeof row['turn'] === 'number' && row['turn'] > 0 ? { turn: row['turn'] } : {}),
+        ...(typeof row['step'] === 'number' && row['step'] > 0 ? { step: row['step'] } : {}),
         ...(withSnippets ? {} : { text }),
         ...(anchor === undefined ? {} : { paragraph: anchor.paragraph, matchIndex: anchor.matchIndex }),
       })

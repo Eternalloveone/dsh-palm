@@ -156,8 +156,8 @@ export const mobileCss = `${designTokensCss()}
   /* ── 输入区底栏（C 案：队列条 + 输入行 + 元信息行） ─────────────────────
    * 版式真源：docs/prototype/dock-c.html + overview.html「2 · 会话正文」。
    * 半透明底色只落在这里：240/250/260 组件样式一律引用 palm-dock-* 令牌。 */
-  --palm-dock-pad: 18px;
-  --palm-dock-gap: 10px;
+  --palm-dock-pad: 14px;      /* 2026-11-12：「一行放不了几个字」→ 18→14，一行多约一个字 */
+  --palm-dock-gap: 6px;       /* 2026-11-12：10→8→6（配合 + 缩到 28，一行多约 1 个字） */
   --palm-dock-field-h: 48px;
   --palm-dock-field-r: 20px;
   --palm-dock-input-h: 44px;
@@ -227,7 +227,7 @@ export const mobileCss = `${designTokensCss()}
   --palm-proc-unknown: var(--palm-fg-3);  /* 没有权威结论时的灰态（灰点/「—」）*/
   --palm-drawer-glyph: 16px;      /* 抽屉内所有线性图标：固定 16×16 */
   --palm-drawer-avatar: 36px;     /* 身份区方形头像 */
-  --palm-drawer-w: 308px;         /* 左侧抽屉宽（窄屏取 86vw）*/
+  --palm-drawer-w: 338px;         /* 左侧抽屉宽（窄屏取 86vw）：2026-11-11 先 308→362 嫌空，同日再收回到 338 */
   --palm-drawer-new-h: 44px;      /* 「新建会话」主按钮高 */
   --palm-drawer-search-h: 44px;   /* 「搜索会话和消息」行高 */
   --palm-drawer-strip-w: 88px;    /* 行右侧迷你状态条宽 */
@@ -1122,7 +1122,24 @@ body,
   }
 }
 
-/* ── header: 48px + safe-area, frosted glass ─────────────────────────── */
+
+/* ── 抽屉打开时，后面那一层「后退」（2026-11-12）───────────────────────
+ * 只滑入一块面板，观感还是"安卓抽屉"；iOS 侧边栏的层次感来自**后面那页也动**：
+ * 它轻微缩小 + 右移 + 出圆角，像被推开的卡片，抽屉因此"浮"在上层而不是贴在同一张纸上。
+ * 曲线和时长与 \`.palm-drawer\` 一致（340ms / iOS 那条），两者同步才不会打架。
+ * 注意：抽屉（\`.palm-drawer-scrim\`）在 \`.page-stage\` 之外，不受这个 transform 影响。
+ */
+.page-stage {
+  transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+  transform-origin: 100% 50%;
+}
+
+.page-stage[data-drawer='open'] {
+  /* 3% 右移 + 0.955 缩放：够看出"后退"，又不会让底下的输入框跳出屏幕。 */
+  transform: translateX(3%) scale(0.955);
+  border-radius: var(--palm-r-l);
+  overflow: hidden;
+}/* ── header: 48px + safe-area, frosted glass ─────────────────────────── */
 
 .mobile-header {
   position: sticky;
@@ -5080,6 +5097,12 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   position: relative;
   z-index: var(--z-composer);
   flex: none;
+  /* 2026-11-12 真机：「点模型或权限，底部出现一条灰色长条」。
+     底栏最下面那段（输入行与屏幕底边之间的留白）没有自己的背景：
+     平时透出的是页面底色，和周围一样看不出来；面板一打开，它透出的
+     就是 .chat-picker-scrim 的 12% 黑，于是变成一条灰带。
+     整块底栏给不透明底色，谁来加遮罩都不会再透。 */
+  background: var(--palm-bg);
 }
 
 /* 队列条：只在有排队时出现，输入行上方。琥珀 7% 底 + 9 圆角 + 11px。 */
@@ -5237,6 +5260,19 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   height: var(--palm-dock-meta-h);
   padding: 0 var(--palm-dock-pad);
   background: var(--palm-bg);
+  /*
+   * 2026-11-12 真机：「点模型或权限，底部出现一条灰色长条」。
+   *
+   * 面板的遮罩（.chat-picker-scrim，z=40）盖在这一行上：DOM 里它排在
+   * 元信息行**后面**，又因为元信息行没建层叠上下文，同一层级下"后者压前者"，
+   * 于是整行被压上 12% 黑 —— 看着就是输入框下面一条灰带。
+   *
+   * 连带后果更严重：那一行本来是可点的（模型/权限胶囊、上下文环），
+   * 被遮罩盖住时点它只会关面板，点不到胶囊。
+   * 输入行早就用 z-index: var(--z-composer) 躲开了，元信息行漏了这一步。
+   */
+  position: relative;
+  z-index: var(--z-composer);
 }
 
 .chat-meta-chip {
@@ -5272,12 +5308,6 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   white-space: nowrap;
 }
 
-.chat-meta-div {
-  width: var(--palm-hair);
-  height: var(--palm-dock-chip-div-h);
-  margin: 0 var(--palm-s2);
-  background: var(--palm-dock-chip-div-bg);
-}
 
 .chat-meta-right {
   margin-left: auto;
@@ -5378,6 +5408,146 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 
 .chat-meta-ctx[data-tone='warn'] .chat-meta-ring circle:last-of-type { stroke: var(--palm-warn); }
 .chat-meta-ctx[data-tone='danger'] .chat-meta-ring circle:last-of-type { stroke: var(--palm-danger); }
+
+/*
+ * 上下文明细弹窗（2026-11-12 用户：进度条 + 压缩上下文按钮，放最下面）。
+ * 只放信息：用了多少 / 百分比 / 还剩多少 / 一句话建议。
+ * 唯一的动作放在最底部，不跟上面的模型、权限按钮抢位置，也不加视觉噪音。
+ */
+.chat-meta-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  min-inline-size: 228px;
+  max-inline-size: min(268px, 76vw);
+  padding: var(--palm-s3);
+}
+
+.ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--palm-s2);
+}
+
+.ctx-head-title {
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  letter-spacing: 0.04em;
+}
+
+.ctx-head-pct {
+  color: var(--palm-fg);
+  font-size: var(--palm-t-m);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 进度条用 SVG 而不是带 width 的 div：宽度是动态数据，走 inline style 会被预算门拦住；SVG 的 width 是属性，不算。 */
+.ctx-bar {
+  display: block;
+  inline-size: 100%;
+  block-size: 6px;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.ctx-bar-track {
+  fill: var(--palm-line);
+}
+
+.ctx-bar-fill {
+  fill: var(--palm-accent);
+}
+
+.ctx-line {
+  margin: 0;
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-line-muted {
+  color: var(--palm-fg-3);
+}
+
+.ctx-hint {
+  margin: 0;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  line-height: 1.55;
+}
+
+/* 压缩上下文：弹窗里唯一能动的一颗，必须一眼看出是按钮。
+   2026-11-12 用户真机：「太普通了，第一眼看不出来能点击」——原来是透明底 + 细描边，
+   和上面的只读信息行长得一样。改成实心强调色，令牌和会话页主按钮 .mobile-new 同一套
+   （accent 底 + on-accent 字 + 2px 抬起阴影 + 按下缩放变暗），左边补一个「向内收拢」
+   的图标、右边补 chevron：形状、颜色、指示三样一起说"这里能点"。 */
+.ctx-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  margin-block-start: var(--palm-s1);
+  padding: var(--palm-s2) var(--palm-s3);
+  border: none;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.ctx-compact:active {
+  transform: scale(var(--palm-btn-press-scale));
+  filter: brightness(var(--palm-btn-press-dim));
+}
+
+.ctx-compact-icon {
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ctx-compact-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-inline-size: 0;
+}
+
+.ctx-compact-title {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 主副文案同色：on-accent 在六套皮肤上都过 AA，压透明度就会掉档，
+   层次只靠字号和字重分。 */
+.ctx-compact-sub {
+  color: inherit;
+  font-size: var(--palm-t-s);
+}
+
+.ctx-compact-go {
+  flex: none;
+  margin-inline-start: auto;
+  inline-size: 16px;
+  block-size: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.72;
+}
 /* ── in-place quick picker (model search panel / permission list) ────── */
 
 /* Full-screen transparent scrim above the message list; tapping it (or the
@@ -5433,7 +5603,16 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 
 /* One option row: 44px touch target, leading check column, title + sub. */
 .chat-picker-row {
-  flex: none;
+  /*
+   * 2026-11-12 用户（手机截图）：「点模型或权限，为什么会出现这种矩形长条」。
+   *
+   * 原来是 \`flex: none\` —— 行按钮宽度只跟内容一样长，它的背景（\`:active\` 的 --fill、
+   * 选中态的 --accent-soft）也只有文字那么长，手机上一按就是"文字下面一条浅色矩形"，
+   * 而且触摸高亮会残留，于是一行一条。现在让行铺满面板，背景是整行；顺手关掉点击高亮。
+   */
+  flex: 1 1 auto;
+  align-self: stretch;
+  inline-size: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -5447,6 +5626,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chat-picker-row:active {
@@ -5551,8 +5731,10 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--palm-dock-circle);
-  height: var(--palm-dock-circle);
+  /* 2026-11-12：36 → 28（用户选了「缩小不隐藏」，腾出 8px 给文字）。
+     视觉变小、命中区不变：下面的 ::after 撑到 44px。 */
+  width: 28px;
+  height: 28px;
   border: var(--palm-hair) solid var(--palm-line);
   border-radius: var(--palm-r-full);
   color: var(--palm-fg-2);
@@ -5563,7 +5745,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 .chat-attach-btn::after {
   content: '';
   position: absolute;
-  inset: calc(var(--palm-s2) * -0.75);
+  /* 28px 视觉 + 上下左右各 8px = 44px 命中区（守卫要求）。 */
+  inset: -8px;
   border-radius: inherit;
 }
 
@@ -5869,7 +6052,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   min-height: var(--palm-hit);
   /* 4 行封顶：实测 132px（约 6 行）时草稿把最后一条消息与过程条整块遮住，
      写长文本反而看不见上下文。超出的内容在框内滚动。 */
-  max-height: 104px;
+  max-height: 156px;
   overflow-y: auto;
   /* 2026-11-10 删掉 field-sizing: content：它让 textarea 按内容宽度排版，
      框却只有那么宽 —— 真机表现为「每行左右各掉半个字」。高度改由组件按
@@ -5898,7 +6081,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   min-height: var(--palm-dock-field-h);
   /* 4 行整行高（24px×4）+ 上下各 8px = 112px：切在整行边界上，
      不会出现"最后一行只露出半截"的残缺观感。 */
-  max-height: 112px;
+  max-height: 168px;      /* 2026-11-12：4 行 → 6 行（用户：写长一点就得翻） */
   /* 2026-11-10 三轮实机：外**壳不再留内边距**。
      原因：内边距留在壳上时，textarea 只有壳内那一小块，左右各 16px 的死区
      点不到、也不会出光标 —— 用户说的「输入文字显示区域要跟这个框一样」。
@@ -5935,7 +6118,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
      不再依赖 field-sizing —— iOS 16/17 本来就不支持它。 */
   /* 内边距归 textarea 自己：上下 12 + 行高 22 = 46px，壳再撑到 48px；
      左右 16px 让字形躲开 18px 圆角。盒子覆盖整个壳 → 点框内任何位置都能落光标。 */
-  padding: 12px 16px;
+  padding: 12px 12px;
   /* 2026-11-11 真机第四轮：**圆角必须清零**。
      通用 \`.chat-input\` 上的 \`border-radius: var(--palm-r-full)\`（9999px）在
      textarea 上会变成一个椭圆，\`overflow-y:auto\` 又按这个椭圆裁切 ——
@@ -5945,7 +6128,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   min-height: 46px;
   /* 高度取行高的整数倍（4 行整）：滚动时看到的都是整行，不会上下各露半行；
      上下再留一点余量，首行的字头（丿/一横）不贴边被切（2026-11-10 真机）。 */
-  max-height: 112px;
+  max-height: 168px;      /* 2026-11-12：4 行 → 6 行（用户：写长一点就得翻） */
   line-height: 22px;
   border: none;
   background: transparent;
@@ -6124,7 +6307,212 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   padding: 4px 2px;
 }
 
-/* ── message long-press context menu ─────────────────────────────────── */
+
+/* ── 语音输入：入口在输入框里，点一下就地录音（2026-11-12）──────────────
+ * 原来要「+ → 添加内容 → 滚到第四层 → 语音输入」，然后弹一整块模态面板，
+ * 录音时既看不见对话也看不见草稿。现在麦克风常驻输入框右端，点一下输入框
+ * 就地变成录音条：红点 + 波形 + 计时 + 停止；转写文字实时显示在输入行上方。
+ */
+
+/* 麦克风按钮：空框时带底色（一眼能看见），有字时退成次要灰（不跟发送键抢）。 */
+.chat-mic {
+  /* 2026-11-12 真机：「语音按钮太大了」。它原来按 44px 命中区画，在 48px 高的框里几乎顶满；
+     改成 30px 的视觉圆（命中区靠 padding 撑，仍够手指点）。 */
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 30px;
+  block-size: 30px;
+  padding: 0;
+  /* 2026-11-12 真机：「语音按钮太靠近右边缘，都挨着了」。\`.chat-field\` 的 padding 是 0
+     （让 textarea 铺满整壳好落光标），所以按钮得自己留边距，不能让负值往外顶。 */
+  margin-inline-end: 8px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--palm-fg-3);
+  cursor: pointer;
+}
+
+/* 空框：给一层底色，让它成为「输入区里唯一醒目的次要动作」。 */
+.chat-mic:has(+ .chat-send:disabled),
+.chat-field[data-empty='true'] .chat-mic {
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+}
+
+.chat-mic:active {
+  background: var(--palm-sur-2);
+}
+
+/* 录音态：整条输入框换成录音条，边框变警示红。
+   *
+   * 2026-11-12 用户：「切换过程要丝滑一些」。除了把等待麦克风的时间挪走（见 use-chat-voice），
+   * 边框/内边距这里补一段 140ms 过渡 —— 状态是瞬间切换的，但颜色和留白是滑过去的，
+   * 眼睛看到的是"变过去了"而不是"跳了一下"。 */
+.chat-field[data-voice] {
+  gap: var(--palm-s2);
+  padding-inline: var(--palm-s3) var(--palm-s2);
+  border-color: var(--palm-danger);
+  box-shadow: inset 0 0 0 1px var(--palm-danger);
+}
+
+.chat-field {
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.chat-voice-dot {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--palm-danger);
+  animation: chat-voice-pulse 1.1s ease-in-out infinite;
+}
+
+.chat-voice-dot[data-phase='transcribing'] {
+  animation: none;
+  opacity: 0.45;
+}
+
+@keyframes chat-voice-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* 波形：高度跟录音响度走。变量名是 --voice-level（use-chat-voice 每 85ms 写一次）；
+   五根给**不同乘数** —— 同一乘数静止时就是五根等高竖杠（真机截过，很难看）。
+   *
+   * 2026-11-12 用户：「切到语音状态感觉好卡」。原来这里每根用
+   * \`block-size: calc(4px + level * K)\` 驱动 —— \`block-size\` 是**布局属性**，
+   * 每 85ms 写一次变量就有 7 个盒子重新排版，一秒十二次 reflow，手机直接掉帧。
+   * 现在改成固定高度 + \`transform: scaleY()\`：只走合成层，不再触发布局。
+   * 数值和原来等价（4px + level*K，基准 22px ⇒ scaleY = 0.182 + level * K/22）。 */
+.chat-voice-wave {
+  --voice-level: 0.4;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  block-size: 22px;
+}
+
+.chat-voice-wave > span {
+  inline-size: 3px;
+  block-size: 22px;
+  border-radius: 2px;
+  background: var(--palm-danger);
+  opacity: 0.92;
+  transform: scaleY(calc(0.182 + var(--voice-level) * 0.818));
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* 每根各自的系数直接写进 calc（不用中间变量）：系数是这七根自己的形状，
+   不是全局令牌，没必要为它多定义一层自定义属性。 */
+.chat-voice-wave > span:nth-child(2) { transform: scaleY(calc(0.182 + var(--voice-level) * 0.5)); }
+.chat-voice-wave > span:nth-child(3) { transform: scaleY(calc(0.182 + var(--voice-level) * 0.727)); }
+.chat-voice-wave > span:nth-child(4) { transform: scaleY(calc(0.182 + var(--voice-level) * 0.409)); }
+.chat-voice-wave > span:nth-child(5) { transform: scaleY(calc(0.182 + var(--voice-level) * 0.636)); }
+.chat-voice-wave > span:nth-child(6) { transform: scaleY(calc(0.182 + var(--voice-level) * 0.455)); }
+.chat-voice-wave > span:nth-child(7) { transform: scaleY(calc(0.182 + var(--voice-level) * 0.591)); }
+
+.chat-voice-clock {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--palm-t-s);
+  color: var(--palm-danger);
+}
+
+.chat-voice-status {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-2);
+}
+
+.chat-voice-stop {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 30px;
+  block-size: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--palm-danger);
+  color: var(--palm-on-accent);
+  cursor: pointer;
+}
+
+.chat-voice-stop:disabled {
+  opacity: 0.5;
+}
+
+.chat-voice-stop-square {
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+/* 实时转写行：录音条上方（文字 + 右侧取消）。最多两行，超了省略。 */
+.chat-voice-live {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  margin: 0 var(--palm-dock-pad) var(--palm-s1);
+  /* 录音态进出时淡入 + 轻微上移（160ms）：这一行是后挂上来的，直接出现会"闪一下"。 */
+  animation: chat-voice-live-in 160ms ease-out;
+}
+
+@keyframes chat-voice-live-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.chat-voice-live-text {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  font-size: var(--palm-t-s);
+  line-height: 1.45;
+  color: var(--palm-fg-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 取消：框内、停止键左边的小圆。2026-11-12 用户第二次反馈「点语音后没有取消」——
+   上一版把它挪到框外的灰色文字上，真机看不出来。现在做成实心圆按钮，跟停止键成对。 */
+.chat-voice-cancel {
+  /* 与停止键成对靠右：空白只由取消键吃掉，停止键紧跟其后。 */
+  margin-inline-start: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 30px;
+  block-size: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  cursor: pointer;
+}
+
+.chat-voice-cancel:active {
+  color: var(--palm-fg);
+}/* ── message long-press context menu ─────────────────────────────────── */
 
 .ctx-backdrop {
   position: fixed;
@@ -6233,7 +6621,9 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   flex-direction: column;
   justify-content: flex-end;
   background: var(--backdrop);
-  animation: sheet-fade 0.18s ease;
+  /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
+     （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
+  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes sheet-fade {
@@ -6333,7 +6723,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 }
 
 /* ── 会话抽屉（P6 第 3 步 · overview.html「1 · 会话抽屉」） ────────────
- * 左侧面板 --palm-drawer-w（窄屏 86vw），只有右侧两角是圆的；行 ≥ --palm-hit，
+ * 左侧面板 --palm-drawer-w（窄屏 86vw：比 308px 舒展一点，又不至于像全屏），只有右侧两角是圆的；行 ≥ --palm-hit，
  * 底部三入口带右侧小字。 */
 .palm-drawer-scrim {
   position: fixed;
@@ -6342,7 +6732,9 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   display: flex;
   justify-content: flex-start;
   background: var(--backdrop);
-  animation: sheet-fade 0.18s ease;
+  /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
+     （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
+  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 .palm-drawer {
@@ -6360,12 +6752,37 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
      会跟着手指上下跑，遮罩下看着就是「错位」。 */
   overflow: hidden;
   overscroll-behavior: contain;
-  animation: palm-drawer-in 0.2s ease;
+  /* 整块从左边拉出来（-100% → 0），**不淡入**：侧边栏淡入在真机上就是
+     「先灰一下再出现」。曲线取 iOS 那条（起步利落、落地稳住），340ms。 */
+  animation: palm-drawer-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes palm-drawer-in {
-  from { transform: translateX(-12px); opacity: 0; }
-  to { transform: none; opacity: 1; }
+  from { transform: translate3d(-100%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes drawer-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 退出要走完再卸载（App 里 onClose 会等 240ms）。关闭比打开快：
+   iOS 的默认手感，慢了像拖泥带水。 */
+.palm-drawer.is-closing {
+  animation: palm-drawer-out 240ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.palm-drawer-scrim.is-closing {
+  animation: drawer-scrim-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes palm-drawer-out {
+  to { transform: translate3d(-100%, 0, 0); }
+}
+
+@keyframes drawer-scrim-out {
+  to { opacity: 0; }
 }
 
 /* 工作区身份：方形头像 + 名称 + 路径。 */
@@ -6593,6 +7010,18 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   white-space: nowrap;
 }
 
+/*
+ * 行右侧那句「什么时候」：2026-11-11 用户「侧边栏的右边有点空」—— 一行的标题在左、
+ * 状态条靠右，中间到右边缘一大条空白，什么信息都没有。时间是最省地方又真有用的一种
+ * 填充（今天给时刻、昨天给「昨天」、更早给月-日），宽 5 个字符，不会把标题挤变形。
+ */
+.palm-drawer-when {
+  flex: none;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 底部入口（2026-11-11 C 版）：小标题 + 一块带底色的圆角卡片。
  *
  * 老版是三行等高、只有两行带右小字（\`12\` / \`本机\`），右边缘参差；三条之间只隔
@@ -6605,14 +7034,6 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   gap: var(--palm-s1);
   padding-top: var(--palm-s2);
   border-top: var(--palm-hair) solid var(--palm-line);
-}
-
-.palm-drawer-tools-title {
-  margin: 0;
-  padding-inline-start: var(--palm-s2);
-  font-size: var(--palm-t-s);
-  letter-spacing: 0.08em;
-  color: var(--palm-fg-3);
 }
 
 .palm-drawer-tools {
@@ -6949,6 +7370,139 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   font-size: 13px;
 }
 
+/*
+ * 新建工作区 →「点选电脑上的目录」（2026-11-11）。
+ *
+ * 一层目录一屏：面包屑在顶、列表可滚（44vh 上限，键盘/底部按钮都还够得着）、
+ * 底部两个动作。行高跟抽屉一致用 --palm-hit（44px），手指点得中。
+ */
+.pb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: 4px 6px 0;
+}
+
+.pb-head {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+}
+
+.pb-back {
+  flex: none;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: none;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+}
+
+.pb-label {
+  margin: 0;
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+}
+
+.pb-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  font-size: var(--palm-t-s);
+}
+
+.pb-crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pb-crumb-sep {
+  padding: 0 2px;
+  color: var(--palm-fg-3);
+}
+
+.pb-entry-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--palm-fg-3);
+}
+
+.pb-entry-icon > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.pb-crumb {
+  max-inline-size: 40vw;
+  overflow: hidden;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--palm-accent);
+  font: inherit;
+  font-size: var(--palm-t-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 当前这一层：不再是链接，压暗成普通文字。 */
+.pb-crumb-here {
+  overflow: hidden;
+  padding: 2px 4px;
+  color: var(--palm-fg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pb-list {
+  max-block-size: 44vh;
+  overflow: auto;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+.pb-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 0;
+  background: none;
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  text-align: start;
+}
+
+.pb-entry:active {
+  background: var(--palm-sur-2);
+}
+
+.pb-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pb-note {
+  margin: 0;
+  padding: var(--palm-s3);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  text-align: center;
+}
+
+.pb-hint {
+  margin: 0;
+}
+
 
 
 
@@ -7089,6 +7643,58 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   color: var(--palm-danger);
 }
 
+/*
+ * 新建工作区的两个「点选」入口（2026-11-11 晚）。
+ *
+ * 之前它们是 \`.ws-action\`：透明背景 + 灰色小字，看着就是一句说明文字 —— 用户的原话
+ * 「不然用户可能意识不到这个可以点击」。现在做成整宽的行卡片：边框 + 浅底 + 左侧图标
+ * + 右侧 \`›\`，和抽屉底部的「设置 / 用量」同一种语言，一眼就是能按的东西。
+ */
+.ws-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s2);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  text-align: start;
+}
+
+.ws-pick:active {
+  background: var(--palm-sur-2);
+}
+
+.ws-pick-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--palm-accent);
+}
+
+.ws-pick-icon > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.ws-pick-copy {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-pick-tail {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+}
+
 /* 表单内的排版收紧：.sheet-note 自带 12/16 内边距，在窄抽屉里会把提示顶到中间。 */
 .ws-create .sheet-note {
   margin: var(--palm-s1) 0 0;
@@ -7098,6 +7704,127 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 .ws-create .sheet-confirm-actions {
   justify-content: flex-end;
   gap: var(--palm-s2);
+}
+
+/*
+ * 任务页骨架（2026-11-11 真机：整页一起滚、行高参差）：外层只负责竖向滚动，
+ * 行结构统一 —— 每行至少 --palm-hit 高、右侧时间用 tabular 数字对齐，
+ * 长短标题都单行截断，免得行高跟着标题长度跳、一屏里参差不齐。
+ */
+.tasks-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3) 0 calc(var(--palm-s4) + env(safe-area-inset-bottom, 0px));
+}
+
+.tasks-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.tasks-group-head {
+  margin: 0;
+  padding: var(--palm-s2) var(--palm-s3) var(--palm-s1);
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tasks-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  min-block-size: 52px;
+  padding: 6px var(--palm-s3);
+  border: 0;
+  border-bottom: var(--palm-hair) solid var(--palm-line);
+  background: none;
+  color: var(--palm-fg);
+  font: inherit;
+  text-align: start;
+}
+
+.tasks-row:active {
+  background: var(--palm-sur-2);
+}
+
+.tasks-dot {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--palm-fg-3);
+}
+
+/* 状态点：强调色 = 在跑，灰点 = 没在跑 —— 用户要一眼分出"哪个在动"和"哪个已经停了"。 */
+.tasks-dot-live {
+  background: var(--palm-accent);
+}
+
+.tasks-title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 工作区位：任务页把几个工作区的在跑会话排在一起，标题旁边必须有一格说"这是谁的活"。
+   只做提示，取宽度上限后省略 —— 它不该把标题挤成一条缝。 */
+.tasks-where {
+  flex: none;
+  max-inline-size: 104px;
+  overflow: hidden;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-meta {
+  flex: none;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks-chev {
+  flex: none;
+  color: var(--palm-fg-3);
+}
+
+.tasks-actions {
+  display: flex;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3);
+}
+
+.tasks-clear {
+  flex: 1;
+  min-block-size: var(--palm-hit);
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: none;
+  color: var(--palm-fg-2);
+  font: inherit;
+  font-size: var(--palm-t-m);
+}
+
+.tasks-new {
+  flex: 1;
+  min-block-size: var(--palm-hit);
 }
 /* ── file preview sheet (in-chat .file-link taps) ─────────────────────── */
 
@@ -8129,6 +8856,7 @@ body:has(.lightbox-backdrop) .toast-host {
   .mobile-button,
   .mobile-button-muted,
   .mobile-new,
+  .ctx-compact,
   .palm-drawer-new,
   .mobile-pairSubmit,
   .chat-question-submit,
@@ -8177,6 +8905,15 @@ body:has(.lightbox-backdrop) .toast-host {
   .chat-jump-latest-hot,
   .chat-msg:not(.chat-msg-no-enter),
   .code-fade,
+  /* 2026-11-12 抽屉改成 iOS 那套（整块滑入 + 后面页面后退）：减弱动效时
+     连"后退"的 transition 一起关掉，否则面板瞬间到位、后面的页面还在慢慢缩。 */
+  .palm-drawer.is-closing,
+  .palm-drawer-scrim.is-closing,
+  /* 语音录音的红点脉冲是状态提示（"正在听"），关掉动画后人还是能看到红点本身。 */
+  .chat-voice-dot,
+  .chat-voice-dot[data-phase='transcribing'],
+  .palm-drawer,
+  .page-stage,
   .palm-drawer-scrim,
   .dialog-backdrop,
   .voice-backdrop,
@@ -8219,6 +8956,13 @@ body:has(.lightbox-backdrop) .toast-host {
   [data-locate-id][data-focus] {
     background: var(--palm-tint-accent);
     box-shadow: inset var(--palm-focus) 0 0 var(--palm-accent);
+  }
+
+  /* 语音条与命令条的入场动画是**装饰**（从下往上淡入），不是状态：开了减弱动效
+     就不该再滑。它们不表达「还在跑」，所以不能进 statefulMotion 白名单。 */
+  .chat-voice-live,
+  .chat-command-bar {
+    animation: none;
   }
 
   /* Nothing animates in this branch, so there is no transition to watch: drop
@@ -8536,22 +9280,81 @@ body:has(.lightbox-backdrop) .toast-host {
 .queue-dockBtn:disabled {
   opacity: var(--palm-btn-disabled-opacity);
 }
+/*
+ * 排队条 · 编辑态（2026-11-12 用户：点编辑之后「展示样式太丑」）。
+ *
+ * 旧版两个毛病，都在真机截图里：
+ * ① 输入框写的是 \`--border-default\` / \`--bg-elevated\` 这类旧 token —— 报纸皮肤里没有定义，
+ *    整条 \`border\` 失效，于是落回浏览器默认的粗黑 3D 框，跟整页一点都不搭；
+ * ② 「保存」借了 sheet 里的整行菜单类 \`.sheet-option\`，没有按钮外形，就是两坨裸文字。
+ * 现在：输入框走皮肤令牌（细描边 + 浅底 + 圆角，聚焦时描边换成强调色），
+ * 动作另起一行右对齐：取消是描边、保存是实心，和页面里其他主/次按钮同一套语言。
+ */
 .queue-dockEdit {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  inline-size: 100%;
 }
+
 .queue-dockInput {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: var(--palm-hit);
-  padding: 5px 8px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 8px 12px;
+  border: 1px solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  color: var(--palm-fg);
+  font: inherit;
+  /* 必须 ≥16px：iOS Safari 里输入框字号小于 16px 会在聚焦时自动放大整个页面。
+     \`--palm-t-m\` 是 14px，所以这里写死，别改成令牌。 */
   font-size: 16px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.queue-dockInput:focus {
+  border-color: var(--palm-accent);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.queue-dockEditActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--palm-s2);
+}
+
+.queue-dockEditCancel,
+.queue-dockEditSave {
+  min-inline-size: 76px;
+  min-block-size: calc(var(--palm-hit) - 2px);
+  border-radius: var(--palm-r-m);
+  font: inherit;
+  font-size: var(--palm-t-m);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.queue-dockEditCancel {
+  border: 1px solid var(--palm-line);
+  background: transparent;
+  color: var(--palm-fg-2);
+}
+
+.queue-dockEditSave {
+  border: 0;
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+}
+
+.queue-dockEditCancel:active,
+.queue-dockEditSave:active {
+  opacity: 0.82;
+}
+
+.queue-dockEditSave:disabled {
+  opacity: var(--palm-btn-disabled-opacity);
 }
 
 /* 连接提示：会话页顶部一行（展开 ≤28px），在内容区之上、顶栏之下。
@@ -8614,18 +9417,27 @@ body:has(.lightbox-backdrop) .toast-host {
   }
 }
 
-/* 已认领命令（桌面端 composer 里那颗 chip）：命令词一块蓝色，参数在输入框里。
-   排在与输入框同一行的中心线上，输入框长高时跟着垂直居中。 */
+/* 已认领命令（桌面端 composer 里那颗 chip）：命令词一块醒目底色，参数在输入框里。
+   *
+   * 2026-11-12 用户：「输入框加入斜杠命令之后，排版很奇怪」。之前 chip 和 textarea 在
+   * 同一个 flex 行里并排，chip 占掉宽度 → 输入框只剩几十像素 → 占位符被压成竖排、
+   * 整个框跟着长高。现在 chip 自己占一行（\`.chat-command-bar\`），输入框永远是整行宽。 */
+.chat-command-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  margin: 0 0 6px;
+  padding: 2px 2px;
+  min-height: 32px;
+  animation: quote-in 0.18s ease both;
+}
+
 .chat-command-chip {
-  /* 外壳内边距归零后，chip 自己保证离左边框的距离（2026-11-10）。 */
-  margin-inline-start: var(--palm-s3);
-  flex: 0 1 auto;
-  align-self: center;
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 40%;
-  margin-left: 4px;
+  max-width: 60%;
   padding: 3px 4px 3px 9px;
   border-radius: calc(var(--radius-chip) + 4px);
   background: var(--palm-accent-16);
@@ -8633,6 +9445,16 @@ body:has(.lightbox-backdrop) .toast-host {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.3;
+}
+
+/* chip 右边那句参数提示：轻一点，只是"这里该填什么"，不抢命令本身。 */
+.chat-command-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--palm-fg-3);
 }
 
 .chat-command-chipText {
@@ -9967,24 +10789,31 @@ details.think-block[open] .chat-disclosure-caret {
 
 /* ── 目标条（goal bar）───────────────────────────────────────────────── */
 /* 桌面端 composer 上方那条 goal 指示条的复刻。位置由 DOM 决定（排队卡片与
-   模型/权限行之间），这里只管一条紧凑横条：准星 + 相位 + 目标正文一行省略。
+   模型/权限行之间）—— 一条紧凑横条：准星 + 相位 + 进度摘要 + 目标正文一行省略。
    手机上它上排队卡片、下模型/权限行、再下输入框，三条叠起来已经吃掉正文空间，
-   所以视觉高度压在 28px；按钮的判定区靠 padding 补到 44px 见下方 ::after。 */
+   所以状态行视觉高度压在 28px；判定区靠 ::after 补到 44px。
+ *
+ * 结构（2026-11-12 重排，修真机"展开后动作按钮压住进度摘要"）：
+ *   第 1 行  .chat-goal-head：◉ + 相位 + 摘要 | 右侧 .chat-goal-tools 图标工具栏
+ *   第 2 行  .chat-goal-text：目标正文一行省略（点它展开）
+ *   展开后   .chat-goal-body：全文，工具栏最后一颗变成「收起」
+ * 两列硬对齐：左边只有文字，右边只有图标；中间的空档谁都不占，所以不会互相压字。
+ * （改前是「文字 + 四个文字按钮」挤一行：360px 上摘要溢出容器 18px，被按钮盖住。） */
 .chat-goal {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   margin: 0 10px 6px;
   padding: 4px 6px 4px 10px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-chip);
   background: var(--bg-elevated);
 }
-.chat-goal-row {
+.chat-goal-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
+  gap: 8px;
+  min-height: 30px;
 }
 .chat-goal-glyph {
   display: inline-flex;
@@ -9992,35 +10821,103 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--accent);
 }
 .chat-goal-main {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
-  min-height: var(--palm-hit);
+  /* 摘要再长也只能被省略号吃掉：越界绘制会被右侧工具栏压住（真机重叠的根因）。 */
+  overflow: hidden;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   padding: 0;
   border: 0;
   background: none;
   color: inherit;
   font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+/* 状态行是展开/收起的开关：视觉 30px，判定区补到 44px（与工具栏同一套做法）。 */
+.chat-goal-main::after {
+  content: '';
+  position: absolute;
+  inset-block: -7px;
+  inset-inline: 0;
 }
 .chat-goal-label {
   flex: none;
   font-size: var(--text-xs);
   color: var(--text-tertiary);
 }
+/* 右侧图标工具栏：4~5 颗 30×30，贴右缘成一列，不再与正文抢水平空间。 */
+.chat-goal-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -4px;
+}
+.chat-goal-icon {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+/* 图标与文字按钮同一档颜色：合成一条规则，别为同一档色名多记一次用量
+   （皮肤迁移的"旧色名只许降"计数会把新增的一次算成退化）。 */
+.chat-goal-btn,
+.chat-goal-icon {
+  color: var(--text-secondary);
+}
+.chat-goal-icon svg {
+  width: 16px;
+  height: 16px;
+}
+/* 判定区 40×44：与相邻图标只重叠 0（inset-inline -3 时两者之间仍有 1px 空隙），
+   按到隔壁那颗是最烦的误触。 */
+.chat-goal-icon::after {
+  content: '';
+  position: absolute;
+  inset-block: -7px;
+  inset-inline: -3px;
+}
+.chat-goal-icon:active {
+  background: var(--fill);
+}
+.chat-goal-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 收起的正文：单独一行、整行可点（与状态行同一个开关）。
+   左内边距 = 准星 14 + 间距 8：正文与相位文字落在同一条竖线上。 */
 .chat-goal-text {
-  min-width: 0;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0 2px 0 22px;
+  border: 0;
+  background: none;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font: inherit;
   font-size: var(--text-sm);
+  line-height: 1.5;
   color: var(--text-primary);
+  cursor: pointer;
 }
 /* 展开的全文：目标常是带小标题、空行、编号的多段文本，按普通正文的阅读节奏排
-   —— 保留原始换行（pre-wrap）、行高 1.65、字号提到 15px。此前用 normal +
-  12px 挤在按钮里，一段长目标会被压成没有段落的文字墙。 */
+   —— 保留原始换行（pre-wrap）、行高 1.55、字号 13px（比消息正文那档 15px 小一档：
+   它是"条子里的正文"，邻居全是 11~12px 的相位/摘要，15px 会把自己顶成整屏最大的字）。 */
 .chat-goal-body {
   max-height: 38vh;
   overflow-y: auto;
@@ -10028,8 +10925,8 @@ details.think-block[open] .chat-disclosure-caret {
   padding: 2px 2px 6px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: var(--text-base);
-  line-height: 1.65;
+  font-size: var(--text-md);
+  line-height: 1.55;
   color: var(--text-primary);
   -webkit-overflow-scrolling: touch;
 }
@@ -10042,7 +10939,6 @@ details.think-block[open] .chat-disclosure-caret {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-chip);
   background: var(--bg-surface);
-  color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-xs);
   cursor: pointer;
@@ -10128,7 +11024,11 @@ details.think-block[open] .chat-disclosure-caret {
   font: inherit;
   font-size: 16px;
 }
-@media (max-width: 360px) {
+/* 窄屏（360/375/393 那批）：相位文字让位给进度摘要 —— 摘要是"还在不在动"的唯一
+   文字线索，相位另有图标可读（有「暂停」= 进行中，有「继续」= 已暂停）。
+   为什么是 400：401px 起「相位 + 摘要 + 工具栏」才真的放得下（401 时信息区
+   195px ≥ 相位 40 + 摘要 149）；展开态在 360 上同样放不下，所以不做例外。 */
+@media (max-width: 400px) {
   .chat-goal-label {
     display: none;
   }
@@ -10260,13 +11160,14 @@ details.think-block[open] .chat-disclosure-caret {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 目标条上的进度摘要（已跑多久 · 第几步） */
+/* 目标条上的进度摘要（已跑多久 · 第几步）：纯文字，不做胶囊底 ——
+ * 胶囊的内边距会让它比下面的正文左移 6px，正是"没对齐"的观感来源。
+ * 可以缩、可以省略号；相位文字在窄屏先让位（见下方 400px 断点）。 */
 .chat-goal-meta {
-  flex: none;
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--fill);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
@@ -11477,13 +12378,31 @@ details.think-block[open] .chat-disclosure-caret {
   min-block-size: 0;
 }
 
+/* 2026-11-12 用户：「用量这一页好像不能上下滑动查看」。
+ *
+ * 真正的病根在**中间那层**：UsageView 走 SlotLayout，DOM 是
+ *   .usage-page > [data-slot='groups'][data-grow] > .usage-page-body
+ * 而 \`[data-grow]\`（005-components.css）只给了 \`flex: 1 1 auto\`，**没有 display: flex**
+ * —— 于是 \`.usage-page-body\` 不是 flex 子项，它身上的 flex/overflow 全部失效，
+ * 高度按内容（1100px）长出去，整块溢出到 \`.page\`（overflow: hidden）被裁掉，
+ * 手指划上去一动不动。这里把中间层也变成 flex 列，body 才真正吃剩余空间并滚动。 */
+.usage-page > [data-slot='groups'] {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
 .usage-page-body {
   display: flex;
   flex-direction: column;
   gap: var(--palm-s2);
   padding: var(--palm-s3) var(--palm-s3) var(--palm-s6);
+  /* basis 归零：basis 用 auto 时浏览器先按内容高度定基准，实测不收缩。 */
+  flex: 1 1 0%;
+  min-block-size: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 右上角「刷新」：文字键，命中区仍按 44px 给足（手机上点小字很难）。 */
@@ -12105,6 +13024,256 @@ button.palm-spec-group-head:focus-visible {
 }
 
 .skin-store-foot > .mobile-button { flex: 1 1 0; }
+/* ── 子代理详情页（2026-11-11）────────────────────────────────────────
+ *
+ * 为什么单独一个文件：这一页是新的独立屏（\`views/SubagentView.tsx\`），
+ * 抽屉/会话页那几份样式已经很长，混进去以后没人找得到。
+ * 放在 5xx 段：它是页面级样式，不是装饰层（6xx 才是皮肤装饰）。
+ *
+ * 只准用令牌（\`--palm-*\`）：\`design/no-raw-colors.test.ts\` 会扫这个文件。
+ */
+
+/* 滚动三段式（照 480-outline-page.css 的样板，2026-11-12 修「上下滑不动」）：
+ *   ① 页面根自己是 flex 列、吃满高度；
+ *   ② grow 槽只负责限高（overflow:hidden），不自带滚动；
+ *   ③ 正文 \`flex:1 + min-block-size:0 + overflow-y:auto\` 才是滚动容器。
+ * 少了 ②③ 那两条，内容超出屏幕既不滚、还会被裁掉 —— 用户看到的就是「滑不动」。 */
+.subagent-page {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.subagent-page [data-slot='groups'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.subagent-page-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  gap: var(--palm-s3);
+  padding: var(--palm-s3) var(--palm-s3) calc(var(--palm-s3) * 4);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* 头部：任务名用衬线标题（与设置页同一套层级），状态徽标单独一行。 */
+.subagent-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+}
+
+.subagent-name {
+  margin: 0;
+  font-size: var(--palm-t-l);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--palm-fg);
+}
+
+.subagent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--palm-s2);
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.subagent-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--palm-s2);
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg-2);
+  font-size: var(--palm-t-s);
+}
+
+.subagent-state-live {
+  background: var(--palm-tint-ok);
+  color: var(--palm-ok);
+}
+
+/* 折叠态也要能回答「它现在在干什么」：一行最近一步。 */
+.subagent-last {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--palm-s2);
+  padding: var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+.subagent-last-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--palm-ok);
+  flex: none;
+}
+
+.subagent-last-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.subagent-last-head {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.subagent-last-detail {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
+  overflow-wrap: anywhere;
+}
+
+/* 「前面还有 N 步」：与抽屉里的折叠按钮同一手感。 */
+.subagent-fold {
+  align-self: flex-start;
+  padding: var(--palm-s1) var(--palm-s2);
+  border: 0;
+  border-radius: var(--palm-r-s);
+  background: transparent;
+  color: var(--palm-accent);
+  font-size: var(--palm-t-s);
+}
+
+/* 过程：一条工具 = 一个圆点 + 名字 + 参数摘要 + 时间。 */
+.subagent-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.subagent-step {
+  display: flex;
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) 0;
+  position: relative;
+}
+
+.subagent-step + .subagent-step {
+  border-top: var(--palm-hair) solid var(--palm-line);
+}
+
+.subagent-step-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 2px;
+  background: var(--palm-accent);
+  flex: none;
+}
+
+.subagent-step-dot-text {
+  background: var(--palm-fg-3);
+  border-radius: 50%;
+}
+
+.subagent-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.subagent-step-name {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.subagent-step-detail {
+  font-size: var(--palm-t-m);
+  color: var(--palm-fg);
+  overflow-wrap: anywhere;
+}
+
+.subagent-step-time {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+/* 当前输出：正文用等宽折行，长输出也不横向滚。 */
+.subagent-output {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s1);
+  padding: var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+}
+
+.subagent-output-head {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.subagent-output-body {
+  margin: 0;
+  font-size: var(--palm-t-m);
+  line-height: 1.5;
+  color: var(--palm-fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 外壳：吃满 grow 槽的高度，正文在上、动作条在下（body 自己滚，动作条不动）。 */
+.subagent-page-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  block-size: 100%;
+}
+
+/* 动作条钉在屏幕底部（2026-11-12 用户要求）：不随正文滚；
+   底部留白吃掉安全区，免得按钮压在 home 条上。 */
+.subagent-actions {
+  display: flex;
+  flex: none;
+  gap: var(--palm-s2);
+  padding: var(--palm-s2) var(--palm-s3) calc(var(--palm-s2) + env(safe-area-inset-bottom, 0px));
+  border-top: var(--palm-hair) solid var(--palm-line);
+  background: var(--palm-bg);
+}
+
+.subagent-actions > * {
+  flex: 1;
+}
+
+/* 运行状态面板里可点的子代理行：右侧箭头，告诉用户「这一行点得进去」。 */
+.chat-subagent-row-open {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.chat-subagent-chev {
+  margin-left: auto;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-t-m);
+  flex: none;
+}
 /* ── 组合件样式（2026-11-10 重设计：原语层） ────────────────────────────
    对应 ui/primitives.tsx 里的 SectionHeader / SectionCard / ResultRow / ActionBar。
    规则：这里**只许出现令牌**，不写十六进制、不写 rgb()、不写魔法数字圆角。
@@ -12243,15 +13412,15 @@ html[data-skin='newsprint'] body {
   letter-spacing: 0.01em;
 }
 
-/* 报头：标题用衬线加粗，下面压一条 2px 墨线 —— 报纸的分栏从这里开始。 */
+/* 报头：标题用衬线加粗。
+ * 2026-11-11 用户：「标题栏下方那条黑色横线是什么」—— 那是这里原本画的一条
+ * \`inset 0 -2px 0 var(--palm-fg)\` 墨线（仿报纸页眉）。手机屏上它太重，又和 header
+ * 自带的 1px \`--border-subtle\` 叠在一起，看起来就是一条突兀的黑杠 —— **已删掉**。
+ * 分隔仍然有：\`.mobile-header\` 自己的 1px 底边在。想要回墨线就恢复上面那条规则。 */
 html[data-skin='newsprint'] .mobile-title {
   font-family: var(--palm-font-sans);
   font-weight: var(--palm-w-bold);
   letter-spacing: 0.06em;
-}
-
-html[data-skin='newsprint'] .mobile-header {
-  box-shadow: inset 0 -2px 0 var(--palm-fg);
 }
 
 /* 分组小标题：拉开字距，像报纸的栏目名。 */

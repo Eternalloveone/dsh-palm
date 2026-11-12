@@ -6,7 +6,6 @@
   .page-enter-back,
   .page-exit-back,
   .mobile-back,
-  .mobile-theme-toggle,
   .mobile-iconbtn,
   .mobile-headerAction,
   .mobile-quickchip,
@@ -15,6 +14,11 @@
   .mobile-button,
   .mobile-button-muted,
   .mobile-new,
+  .ctx-compact,
+  .palm-drawer-new,
+  .mobile-pairSubmit,
+  .chat-question-submit,
+  .chat-approval-allow,
   .chat-send,
   .chat-msg,
   .chat-msg-toggle,
@@ -35,10 +39,88 @@
   .insert-bar,
   [data-insert-details],
   [data-insert-summary] > span:last-child,
-  .settings-themeOption,
-  .settings-optionChip {
+  .settings-optionChip,
+  /* 2026-11-10 全量对账补上的 13 个：跳转键、diff 两键、拒绝键、提问选项、
+     停止键、语音服务、设备键、对话框键、市场安装、代码块缩放、语音波形。 */
+  .chat-jump-latest,
+  .chat-jump-turns,
+  .diff-btn,
+  .diff-confirm,
+  .chat-approval-reject,
+  .chat-question-option,
+  .chat-stop-mini,
+  .voice-service-btn,
+  .device-btn,
+  .dialog-btn,
+  .market-install,
+  .code-block pre,
+  .voice-wave[data-live='1'] span,
+  /* 2026-11-10 第二轮对账：animation 驱动的**装饰性**动效（骨架屏闪烁、进/出场、
+     遮罩淡入淡出、定位高亮、轮次拖动条、语音面板滑入、波形）。表达状态的动画
+     （转圈 spinner、运行中呼吸点、不确定进度条）不在这里，见测试里的白名单。 */
+  .page-loading-rows span,
+  .settings-skeleton,
+  .chat-jump-latest-hot,
+  .chat-msg:not(.chat-msg-no-enter),
+  .code-fade,
+  /* 2026-11-12 抽屉改成 iOS 那套（整块滑入 + 后面页面后退）：减弱动效时
+     连"后退"的 transition 一起关掉，否则面板瞬间到位、后面的页面还在慢慢缩。 */
+  .palm-drawer.is-closing,
+  .palm-drawer-scrim.is-closing,
+  /* 语音录音的红点脉冲是状态提示（"正在听"），关掉动画后人还是能看到红点本身。 */
+  .chat-voice-dot,
+  .chat-voice-dot[data-phase='transcribing'],
+  .palm-drawer,
+  .page-stage,
+  .palm-drawer-scrim,
+  .dialog-backdrop,
+  .voice-backdrop,
+  .voice-sheet,
+  .voice-wave span,
+  .voice-done,
+  .toast-out,
+  .finish-toast,
+  .chat-quote-bar,
+  .chat-reasoning-more,
+  .chat-offline-banner,
+  .chat-msg-focus,
+  [data-locate-id][data-focus],
+  .turn-scrub,
+  .chat-status-strip-leaving,
+  /* 2026-11-10 过程条的两处**装饰**动效：环弧慢转、展开逐行滑入。
+     同批的「运行中呼吸点」是状态表达，留在测试白名单里 —— 它停下来，
+     用户反而要靠猜才知道还在跑。 */
+  .chat-proc-open .chat-step,
+  .chat-proc-open .palm-proc-recent,
+  .chat-cmdline-item[data-phase='in'],
+  .chat-cmdline-item[data-phase='out'],
+  /* 2026-11-11 计数滚动（过程条的「N 次工具调用 / 改 N 个文件」）：
+     它是**装饰**，不是状态表达 —— 关掉动画的人应当立刻看到新数字，而不是等 480ms。 */
+  .palm-roll-track,
+  .palm-roll-track.is-gliding {
     animation: none;
     transition: none;
+  }
+
+  /* 定位高亮原来**只有**一段脉冲动画：动画一停，用户按了"跳到这一条"却看不出跳到哪。
+     这不是动画取舍，是功能缺口。减弱动效下改成静态标记。
+     两处**分开写**：聊天消息本身没有边框，整圈描边一眼就能看见；
+     设置页每行本来就有 1px 描边，再套一圈同样的等于没标记（实拍确认），改用左侧竖条。 */
+  .chat-msg-focus {
+    background: var(--palm-tint-accent);
+    box-shadow: inset 0 0 0 var(--palm-focus) var(--palm-accent);
+  }
+
+  [data-locate-id][data-focus] {
+    background: var(--palm-tint-accent);
+    box-shadow: inset var(--palm-focus) 0 0 var(--palm-accent);
+  }
+
+  /* 语音条与命令条的入场动画是**装饰**（从下往上淡入），不是状态：开了减弱动效
+     就不该再滑。它们不表达「还在跑」，所以不能进 statefulMotion 白名单。 */
+  .chat-voice-live,
+  .chat-command-bar {
+    animation: none;
   }
 
   /* Nothing animates in this branch, so there is no transition to watch: drop

@@ -110,7 +110,15 @@ export interface UsageProviderView {
   kind: 'usage' | 'balance'
   status: 'ok' | 'no-key' | 'unsupported' | 'error'
   plan?: string
+  /**
+   * 每周窗口已用比例，**0..1 的分数**（0.459 = 已用 45.9%）。
+   *
+   * 视图侧统一 `* 100` 出百分数，见 `views/settings/usage-section.tsx`；
+   * `SettingsView.test.tsx` 用 0.459 钉住了这条单位。2026-11-10 用整数 62 造样例，
+   * 页面如实画出「6200.0%」—— 契约没有注释，坑就在这儿。
+   */
   usedPercent?: number
+  /** 5 小时窗口已用比例，同样是 0..1 的分数。 */
   sessionUsed?: number
   /** 最近 5 小时窗口的下次重置时刻（epoch millis）。 */
   sessionResetsAt?: number
@@ -508,6 +516,13 @@ export interface IndexedSearchItem {
   seq?: number
   messageId?: string
   partId?: string
+  /**
+   * 结构坐标（2026-11-12，图谱寻址）：这条命中在第几轮、第几步。
+   * 有它就能按「轮:步」查表落到那一行，不必等 messageId 恰好落在当前窗口里，
+   * 也不受跨页合并影响。
+   */
+  turn?: number
+  step?: number
   user?: boolean
   workspaceId?: string
   workspaceTitle?: string

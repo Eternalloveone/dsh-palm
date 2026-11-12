@@ -5,20 +5,21 @@
  * affordance, and every piece of data is fetched on demand.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
+import type { MuxFrame } from '../../api-proxy-types'
 import { logTail, reportError } from '../data/diag.ts'
-import { createSession, listSessions, observeSession, prompt, sendCommand } from '../data/session.ts'
+import { createSession, listSessions, observeSession, prompt, runningSessions, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
 import { handleAppFrame } from '../kernels/app-frame-slice.ts'
-import { createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
+import { canGoBack, createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
 import { transitionOf, TRANSITION_MS } from '../kernels/transition.ts'
 import { createHostBridge } from '../kernels/host-bridge.ts'
+import type { HostBridge } from '../kernels/host-bridge.ts'
 import { MuxClient } from '../stream/mux.ts'
 import { startNotify, stopNotify } from '../platform/notify.ts'
 import { usePageVisible } from '../stream/foreground.ts'
-import { applyHostThemePreference } from '../mobile-theme.ts'
 import { RpcTransportError } from '../platform/rpc.ts'
 import { runPairingTeardown } from '../platform/teardown.ts'
 import { installErrorCapture } from '../platform/errors.ts'
@@ -34,19 +35,34 @@ const loadChatView = async (): Promise<{ default: typeof import('./ChatView.tsx'
   default: (await import('./ChatView.tsx')).ChatView,
 })
 const { View: ChatView, warm: warmChatView } = createLazyView(loadChatView)
+/**
+ * 聊天页的渲染边界。
+ *
+ * 抽屉开关、运行状态轮询、finished-elsewhere 卡这类 App 级状态，都不该让 4000 行的
+ * 聊天页重跑一遍。前提是传给它的 props 引用稳定 —— 见下面 `chatCallbacks`。
+ */
+const ChatViewMemo = memo(ChatView)
 import { durationFromPage, summaryFromPage } from '../session/run-detail.ts'
 import { recordFinishedRun, finishedRuns, shortSessionId, type FinishedRun } from '../session/recent-finished.ts'
 import { PairRequiredView } from '../components/PairRequiredView.tsx'
 import { hasAnyChatCache } from '../session/chat-cache.ts'
 import { loadChatCache } from '../session/chat-cache.ts'
-import { loadPersistedList } from '../session/list-persist.ts'
+import { loadPersistedList, queuePersistedList } from '../session/list-persist.ts'
+
+/** 已经为哪个工作区预取过会话页（模块级：跨页面切换只拉一次）。 */
+const PREFETCHED_WORKSPACES = new Set<string>()
 import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
 import { invalidateSession, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
+import { applyRunningState, countRunningElsewhere, mergeDrawerRows, paintDrawerRows, scopedToWorkspace } from './drawer-rows.ts'
 import { Button } from '../ui/primitives.tsx'
-import { Sheet } from '../ui/sheet.tsx'
-import { ApprovalView } from './ApprovalView.tsx'
+import { WorkspacePicker } from './chat/components/workspace-picker.tsx'
+import { useWorkspaceActions } from './chat/hooks/use-workspace-actions.ts'
+import { ApprovalRoute } from './approval-route.tsx'
+import type { ChatViewProps } from './ChatView.tsx'
 import { DiffView } from './DiffView.tsx'
+import { FilePreviewSheet } from '../components/file-preview-sheet.tsx'
+import { rememberLocateIntent } from '../session/locate-intent.ts'
 import { AppearanceView } from './AppearanceView.tsx'
 import { OutlineView } from './OutlineView.tsx'
 import { ArtifactsView } from './ArtifactsView.tsx'
@@ -56,16 +72,17 @@ import { ContextView } from './ContextView.tsx'
 import { ApprovalModeView } from './ApprovalModeView.tsx'
 import { SearchView, type SearchHit } from './SearchView.tsx'
 import { SettingsView } from './SettingsView.tsx'
+import { UsageView } from './UsageView.tsx'
+import { SubagentView } from './SubagentView.tsx'
+import type { SubagentFlatNode } from '../session/subagent-tree.ts'
+import { TasksView } from './TasksView.tsx'
 import { searchPageFor } from './search-request.ts'
 import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.ts'
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
 import type { TurnDeliveryFacts } from '../render/message-row.tsx'
-
+import { resolveWorkspace } from '../session/workspace-directory.ts'
 
 /** One navigation level. */
-/** 审批载荷类型：从视图组件的 props 推导（视图/路由层都不直接依赖数据层）。 */
-type ApprovalPayload = Parameters<typeof ApprovalView>[0]['approval']
-
 /**
  * 移动端路由：**会话页是唯一的根**（2026-11-08「单一会话页 + 抽屉」）。
  *
@@ -76,45 +93,58 @@ type Route =
   | {
     kind: 'chat'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     /** 空会话首屏：没有会话可开，但页面形状不变。 */
     empty?: boolean
     focusSeq?: number
     focusMessageId?: string
     focusPartId?: string
+    /** 结构坐标（图谱寻址）：命中在第几轮 / 第几步。 */
+    focusTurn?: number
+    focusStep?: number
     focusQuery?: string
   }
   /** ② 搜索：抽屉进来，返回回会话页。 */
-  | { kind: 'search'; session: SessionView; workspace: WorkspaceRow }
-  | { kind: 'settings'; session: SessionView; workspace: WorkspaceRow }
+  | { kind: 'search'; session: SessionView; workspaceId: string }
+  | { kind: 'settings'; session: SessionView; workspaceId: string }
+  | { kind: 'usage'; session: SessionView; workspaceId: string }
+  /** ⑯ 子代理详情：顶栏运行状态 → 子代理列表点一行进来；返回即弹栈回会话。 */
+  | {
+    kind: 'subagent'
+    session: SessionView
+    workspaceId: string
+    node: SubagentFlatNode
+  }
+  /** 任务：进行中 / 刚完成的总览（2026-11-11）。 */
+  | { kind: 'tasks'; session: SessionView; workspaceId: string }
   /** ⑭ 外观：设置页「外观」进去；返回即弹栈回设置。 */
-  | { kind: 'appearance'; session: SessionView; workspace: WorkspaceRow }
+  | { kind: 'appearance'; session: SessionView; workspaceId: string }
   /** ⑥ 批准方式：对话页权限芯片进来，返回即弹栈回对话。 */
   | {
     kind: 'approval-mode'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     permissions: { currentValue: string; options: readonly { value: string; name: string; description?: string }[] }
   }
   /** ⑦ 上下文占用：对话页点占用环进来，返回即弹栈回对话。 */
   | {
     kind: 'context'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     usage: { contextWindow?: number; pressureTokens?: number; projectedTokens?: number }
   }
   /** ⑧ 产物列表：抽屉 / ⋯ 菜单进来，返回即弹栈回对话。 */
   | {
     kind: 'artifacts'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     turns: readonly ArtifactTurnPayload[]
   }
   /** ⑨ 产物摘要：产物页每轮分组标题进来，`turn` 为 undefined 表示缺轮号的「更早」组；返回即弹栈回产物列表。 */
   | {
     kind: 'artifact-summary'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     turn: number | undefined
     turns: readonly ArtifactTurnPayload[]
   }
@@ -122,7 +152,7 @@ type Route =
   | {
     kind: 'outline'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     turns: readonly TurnOutlineEntry[]
     currentTurn: number
   }
@@ -130,22 +160,40 @@ type Route =
   | {
     kind: 'diff'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
+    path: string
+  }
+  /**
+   * ⑩′ 文件预览：正文里的路径、产物列表、交付详情点文件进来。
+   *
+   * 2026-11-11 用户：「正文链接里/交付物里的 markdown 文件打开之后是源格式」。
+   * 原来这些入口全都 `navigate({ kind: 'diff' })` —— 打开的是一个逐行源码页，
+   * 对 markdown 等于把文档当代码看。点文件的本意是"看这个文件"，所以改走预览：
+   * markdown 有渲染/源码两档（`FilePreviewSheet` 里的切换按钮）。
+   */
+  | {
+    kind: 'preview'
+    session: SessionView
+    workspaceId: string
     path: string
   }
   /** ⑮ 交付详情（`/m/s/<sessionId>/delivery/<turn>`）：交付卡「看全部改动」进来，返回即弹栈回对话。 */
   | {
     kind: 'delivery'
     session: SessionView
-    workspace: WorkspaceRow
+    workspaceId: string
     facts: TurnDeliveryFacts
   }
   /** ④ 审批详情：从对话正文的审批面板点"详情"进来，返回即弹栈回对话。 */
   | {
     kind: 'approval'
     session: SessionView
-    workspace: WorkspaceRow
-    approval: ApprovalPayload
+    workspaceId: string
+    /**
+     * 只存**导航身份**。审批内容属于会话账本（runtime/chat/pending-store.ts），
+     * 不在这里抄一份快照：抄一份就会在别处答完之后继续摆着一个不存在的请求。
+     */
+    approvalId: string
     preview?: string
     argsText?: string
   }
@@ -153,7 +201,7 @@ type Route =
 /** 路由的稳定 key：同 key 视为"同一页"（用于页面栈去重）。 */
 export function routeKeyOf(route: Route): string {
   if (route.kind === 'chat') return `chat:${route.session.sessionId}`
-  if (route.kind === 'approval') return `approval:${route.approval.approvalId}`
+  if (route.kind === 'approval') return `approval:${route.approvalId}`
   if (route.kind === 'diff') return `diff:${route.session.sessionId}:${route.path}`
   if (route.kind === 'delivery') return `delivery:${route.session.sessionId}:${route.facts.turn}`
   if (route.kind === 'appearance') return 'appearance'
@@ -164,12 +212,21 @@ export function routeKeyOf(route: Route): string {
   }
   if (route.kind === 'context') return `context:${route.session.sessionId}`
   if (route.kind === 'approval-mode') return `approval-mode:${route.session.sessionId}`
-  if (route.kind === 'search') return `search:${String(route.workspace.workspaceId)}`
-  if (route.kind === 'settings') return `settings:${String(route.workspace.workspaceId)}`
+  if (route.kind === 'search') return `search:${String(route.workspaceId)}`
+  if (route.kind === 'settings') return `settings:${String(route.workspaceId)}`
+  if (route.kind === 'usage') return `usage:${String(route.workspaceId)}`
+  // 每个子代理是不同的一页：key 带上它的会话 id。
+  if (route.kind === 'subagent') return `subagent:${route.node.id}`
+  if (route.kind === 'tasks') return 'tasks'
+  // 同一会话里点不同文件是不同的页面（key 带上路径，别让预览互相顶掉）。
+  if (route.kind === 'preview') return `preview:${route.session.sessionId}:${route.path}`
   // 穷尽检查：新增 kind 而忘了写 key 时，这里会编译失败而不是默默共用 key。
   const exhaustive: never = route
   return String(exhaustive)
 }
+/** 抽屉滑出动画时长（与 280-sheets.css 的 .palm-drawer-out 对齐）。 */
+const DRAWER_OUT_MS = 240
+
 /** Placeholder workspace for standalone search hits (no attach relation). */
 const STANDALONE_WORKSPACE: WorkspaceRow = {
   workspaceId: 'standalone' as never,
@@ -181,7 +238,10 @@ const STANDALONE_WORKSPACE: WorkspaceRow = {
 }
 
 /** 一个会话都没有时的占位：ChatView 只拿它画空态，不跑任何会话逻辑。 */
-export const EMPTY_SESSION: SessionView = {
+export /** 抽屉打开期间对账运行状态的间隔：够快看到"开跑"，又不至于每帧打一次 RPC。 */
+const DRAWER_RUNNING_POLL_MS = 4_000
+
+const EMPTY_SESSION: SessionView = {
   sessionId: '',
   title: '新会话',
   updatedAt: 0,
@@ -200,11 +260,11 @@ export const EMPTY_WORKSPACE: WorkspaceRow = {
 }
 
 /** 根会话页；会话 id 为空时自动带空态标记。 */
-export function chatRouteOf(session: SessionView, workspace: WorkspaceRow): Route {
+export function chatRouteOf(session: SessionView, workspaceId: string): Route {
   return {
     kind: 'chat',
     session,
-    workspace,
+    workspaceId,
     ...(session.sessionId === '' ? { empty: true } : {}),
   }
 }
@@ -228,14 +288,7 @@ export function chatRouteFromUrl(workspaceId: string, sessionId: string, seq?: n
       running: false,
       blank: false,
     },
-    workspace: {
-      workspaceId: workspaceId as never,
-      path: '',
-      title: '',
-      sessionIds: [] as never,
-      createdAt: '',
-      updatedAt: '',
-    },
+    workspaceId,
     ...(seq === undefined ? {} : { focusSeq: seq }),
   }
 }
@@ -252,22 +305,26 @@ export function backTargetOf(route: Route): Route {
       // 根页：没有"上一页"。
       return route
     case 'search':
-    case 'settings':
+    case 'settings': case 'usage': case 'subagent':
       // 兜底（栈里只有它）：抽屉里的入口都属于当前会话。
-      return chatRouteOf(route.session, route.workspace)
+      return chatRouteOf(route.session, route.workspaceId)
     case 'appearance':
-      return { kind: 'settings', session: route.session, workspace: route.workspace }
+      return { kind: 'settings', session: route.session, workspaceId: route.workspaceId }
     case 'approval-mode':
     case 'context':
     case 'artifacts':
     case 'outline':
     case 'diff':
+    case 'preview':
     case 'delivery':
     case 'approval':
-      return chatRouteOf(route.session, route.workspace)
+      return chatRouteOf(route.session, route.workspaceId)
     case 'artifact-summary':
       // 兜底（栈里只有它）：摘要属于产物列表，退回那一页（轮次清单随路由带回去）。
-      return { kind: 'artifacts', session: route.session, workspace: route.workspace, turns: route.turns }
+      return { kind: 'artifacts', session: route.session, workspaceId: route.workspaceId, turns: route.turns }
+    case 'tasks':
+      // 任务页是"总览"，不属于某一轮：退回它的会话页。
+      return { kind: 'chat', session: route.session, workspaceId: route.workspaceId }
   }
 }
 
@@ -303,7 +360,7 @@ export function mobileFocusSeqTarget(search: string): number | undefined {
 export function routeUrlSearch(search: string, route: Route): string {
   const params = new URLSearchParams(search)
   // 离线深链造出来的占位工作区没有 workspaceId：这时不要覆盖 URL 里原有的值。
-  const workspaceId = String(route.workspace.workspaceId ?? '')
+  const workspaceId = String(route.workspaceId ?? '')
   if (workspaceId !== '') params.set('workspace', workspaceId)
   if (route.session.sessionId !== '') params.set('session', route.session.sessionId)
   else params.delete('session')
@@ -318,7 +375,7 @@ export interface AppProps {
 }
 
 /** Navigation depth of each route kind (drives the slide direction). */
-const ROUTE_DEPTH = { chat: 0, search: 1, settings: 1, artifacts: 1, appearance: 2, approval: 2, diff: 2, delivery: 2, outline: 2, 'artifact-summary': 2, context: 2, 'approval-mode': 2 } as const
+const ROUTE_DEPTH = { chat: 0, search: 1, settings: 1, usage: 1, tasks: 1, artifacts: 1, appearance: 2, approval: 2, diff: 2, preview: 2, delivery: 2, outline: 2, 'artifact-summary': 2, subagent: 2, context: 2, 'approval-mode': 2 } as const
 
 /** `turn/end` 帧里我们关心的那点内容。 */
 interface TurnEndEvent {
@@ -537,7 +594,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [transition, setTransition] = useState<TransitionState>({
     current: {
       route: bootedChat === undefined
-        ? { kind: 'chat', session: EMPTY_SESSION, workspace: EMPTY_WORKSPACE, empty: true }
+        ? { kind: 'chat', session: EMPTY_SESSION, workspaceId: '', empty: true }
         : chatRouteFromUrl(bootedChat.workspaceId, bootedChat.sessionId, bootedChat.seq, bootedChat.title),
       forward: true,
     },
@@ -556,10 +613,24 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [bootError, setBootError] = useState<string | undefined>(undefined)
   /** 工作区花名册：抽屉的身份区与切换面板共用。 */
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceRow[]>([])
+  /**
+   * 工作区名字的唯一出口（`session/workspace-directory.ts`）。
+   *
+   * 路由上的 workspace 在首帧 / 深链 / 跨工作区搜索时可能只有 id、标题是空串，
+   * 以前抽屉和会话页顶栏各自兜底（还兜得不一样）。现在两处都调这一个函数，
+   * 列表一到就一起变准 —— 不再有"一处显示路径、一处空白"的情况。
+   */
+  const workspaceView = useCallback(
+    (workspace: string | Parameters<typeof resolveWorkspace>[0]) => resolveWorkspace(
+      typeof workspace === 'string' ? { workspaceId: workspace } : workspace,
+      workspaces,
+    ),
+    [workspaces],
+  )
   /** 切换工作区面板（从抽屉身份区打开）。 */
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const muxRef = useRef<MuxClient | undefined>(undefined)
-  const bridgeRef = useRef<ReturnType<typeof createHostBridge> | undefined>(undefined)
+  const [bridge, setBridge] = useState<HostBridge<MuxFrame> | undefined>(undefined)
 
   /** 大纲页点了哪一轮：回到对话后由 ChatView 消费并落位。 */
   const [pendingTurn, setPendingTurn] = useState<{ turn: number; seq: number } | undefined>(undefined)
@@ -567,10 +638,31 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [chatFinished, setChatFinished] = useState<FinishedRun | undefined>(undefined)
   /** 会话抽屉：打开时把会话行、收工集合与产物轮次一起快照下来（关掉即丢弃）。 */
   const [drawer, setDrawer] = useState<{
-    session: SessionView; workspace: WorkspaceRow; rows: readonly SessionView[]
+    session: SessionView; workspaceId: string; rows: readonly SessionView[]
     finished: ReadonlySet<string>; pending: ReadonlySet<string>; turns: readonly ArtifactTurnPayload[]
+    /** 不在抽屉行里、但正在跑的会话数（别的工作区）：抽屉只列当前工作区，没有这一行就完全看不见。 */
+    runningElsewhere: number
   } | undefined>(undefined)
   const chatFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  /**
+   * 抽屉的退出动画（2026-11-12 用户：「动效不高级，要 iPhone 那种」）。
+   *
+   * 卸载即消失会"啪"地一下没了；这里先挂 `closing` 播 240ms 滑出，再真正卸载。
+   * 只有「关掉抽屉」走这条路 —— 点某一行是页面转场，抽屉该立刻让位。
+   */
+  const [drawerClosing, setDrawerClosing] = useState(false)
+  const drawerCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const closeDrawer = useCallback((): void => {
+    setDrawerClosing(true)
+    if (drawerCloseTimerRef.current !== undefined) clearTimeout(drawerCloseTimerRef.current)
+    drawerCloseTimerRef.current = setTimeout(() => {
+      setDrawerClosing(false)
+      setDrawer(undefined)
+    }, DRAWER_OUT_MS)
+  }, [])
+  useEffect(() => () => {
+    if (drawerCloseTimerRef.current !== undefined) clearTimeout(drawerCloseTimerRef.current)
+  }, [])
   /** 同一会话 10 秒内只记一次：重连重放会重复送同一个 turn/end。 */
   const collectSeenRef = useRef(new Map<string, number>())
   /** 当前正开着的会话：它跑完不用弹 HUD（人就在眼前看着）。 */
@@ -716,17 +808,17 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
         const latest = items.find(item => rows.some(row => row.sessionIds.includes(item.sessionId)))
           ?? items.find(item => item.cwd !== undefined && rows.some(row => row.path === item.cwd))
         if (latest === undefined) {
-          landing = chatRouteOf(EMPTY_SESSION, rows[0] ?? EMPTY_WORKSPACE)
+          landing = chatRouteOf(EMPTY_SESSION, (rows[0] ?? EMPTY_WORKSPACE).workspaceId)
         } else {
           const workspace = rows.find(row => row.sessionIds.includes(latest.sessionId))
             ?? rows.find(row => latest.cwd !== undefined && row.path === latest.cwd)
             ?? STANDALONE_WORKSPACE
-          landing = chatRouteOf(toSessionView(latest), workspace)
+          landing = chatRouteOf(toSessionView(latest), workspace.workspaceId)
         }
       } catch (reason) {
         if (cancelled) return
         setBootError(errorText(reason))
-        landing = chatRouteOf(EMPTY_SESSION, rows[0] ?? EMPTY_WORKSPACE)
+        landing = chatRouteOf(EMPTY_SESSION, (rows[0] ?? EMPTY_WORKSPACE).workspaceId)
         toast(`打开会话失败：${errorText(reason)}`)
       }
       if (cancelled) return
@@ -736,27 +828,55 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     return () => { cancelled = true }
   }, [bootedChat, showRoot])
 
+  /**
+   * 抽屉里的「运行中」徽标随回合边界即时纠正（2026-11-11 用户：「任务都结束了，
+   * 侧边栏还显示进行中」）。花名册是 60 秒快照，行上的 `running` 会滞留一个 TTL；
+   * 手机自己收到了 turn/start / turn/end，就没有理由再等那一次枚举。
+   */
+  const patchDrawerRunning = useCallback((frame: MuxFrame): void => {
+    const typed = frame as { type?: string; sessionId?: unknown; event?: { type?: string } }
+    if (typed.type !== 'session/event') return
+    const eventType = typed.event?.type
+    if (eventType !== 'turn/start' && eventType !== 'turn/end') return
+    const sessionId = String(typed.sessionId ?? '')
+    if (sessionId === '') return
+    const running = eventType === 'turn/start'
+    setDrawer(current => {
+      if (current === undefined) return current
+      if (!current.rows.some(row => String(row.sessionId) === sessionId)) return current
+      return {
+        ...current,
+        rows: current.rows.map(row => (String(row.sessionId) === sessionId ? { ...row, running } : row)),
+      }
+    })
+  }, [])
+
   // The mux stream lives for the page lifetime: session events keep the
   // open chat live, and reconnect is automatic. If the polling fallback hits a
   // terminal (unpaired) error — the device was revoked or remote control
   // stopped — the client stops itself and we drop back to the pairing screen
   // instead of polling forever into a 60 s backoff.
+
   useEffect(() => {
     const mux = new MuxClient(undefined, { onUnpaired })
     muxRef.current = mux
     // P3：全站唯一订阅点。App 持有 mux，其它视图/切片都经 bridge 订阅，
     // 于是同一帧只派发一次，重连（新 generation）也只通知一处。
-    const bridge = createHostBridge(mux)
-    bridgeRef.current = bridge
+    const bridge = createHostBridge<MuxFrame>(mux)
+    setBridge(bridge)
     bridge.start()
-    const unsubscribe = bridge.onFrame(frame => handleAppFrame(frame, {
-      // 运行中徽标随工作区页一起下线；这里保留空实现，收工账本照常写。
-      recomputeActive: () => { /* 单一会话页没有跨页徽标 */ },
-      collectFinished: (sessionId, event) => collectFinished(sessionId, event as TurnEndEvent),
-    }))
+    const unsubscribe = bridge.onFrame(frame => {
+      handleAppFrame(frame, {
+        // 运行中徽标随工作区页一起下线；这里保留空实现，收工账本照常写。
+        recomputeActive: () => { /* 单一会话页没有跨页徽标 */ },
+        collectFinished: (sessionId, event) => collectFinished(sessionId, event as TurnEndEvent),
+      })
+      // 抽屉里那枚「运行中」：收到回合边界就即时改，不等花名册的 60 秒快照。
+      patchDrawerRunning(frame)
+    })
 
     return () => { unsubscribe(); bridge.stop() }
-  }, [onUnpaired])
+  }, [onUnpaired, patchDrawerRunning])
 
   // The L1 completion-notify channel: starts once the page is paired and the
   // browser granted notification permission (the settings page asks). The
@@ -878,28 +998,6 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     return () => { document.removeEventListener('visibilitychange', onVisibilityChange) }
   }, [])
 
-  // The desktop theme preference wins on the phone too (one setting, both
-  // surfaces); the local choice applies first at boot, then this lands.
-  useEffect(() => {
-    let cancelled = false
-    void readSettings().then(
-      (read) => {
-        if (cancelled) return
-        const uiTheme = (read.namespaces ?? []).find(entry => entry.ns === 'ui-theme')?.value
-        const preference = typeof uiTheme === 'object' && uiTheme !== null
-          ? (uiTheme as Record<string, unknown>).preference
-          : undefined
-        if (preference === 'light' || preference === 'dark' || preference === 'system') {
-          applyHostThemePreference(preference)
-        }
-      },
-      () => {
-        // Offline/older-host: the local theme stands.
-      },
-    )
-    return () => { cancelled = true }
-  }, [])
-
   const back = useCallback(() => {
     // P6：页面栈是返回的**唯一真源**——上一页是事实，不是猜的。
     // 只有"栈里就一页"（冷启动 / 深链直达 / 首屏就在会话页）时没有事实可用，
@@ -918,8 +1016,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   }, [scheduleExitCleanup])
 
   /** 打开一个会话（会话页是根：换会话 = 换根，不压栈）。 */
-  const openChat = useCallback((session: SessionView, workspace: WorkspaceRow) => {
-    navigate(chatRouteOf(session, workspace))
+  const openChat = useCallback((session: SessionView, workspaceId: string) => {
+    navigate(chatRouteOf(session, workspaceId))
   }, [navigate])
 
   /**
@@ -948,7 +1046,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       running: false,
       updatedAt: Date.now(),
       blank: false,
-    }, EMPTY_WORKSPACE))
+    }, EMPTY_WORKSPACE.workspaceId))
     setBooted(true)
   }, [offline, showRoot])
 
@@ -958,19 +1056,35 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
    * 命中可能属于别的工作区；抽屉里的搜索是叠在会话页上的子页，所以这里直接
    * 换根到那个会话，返回时系统退出（子页的返回键仍会弹回它自己的上一层）。
    */
-  const openSearchHit = useCallback((hit: SearchHit, term: string, currentWorkspace: WorkspaceRow) => {
+  const openSearchHit = useCallback((hit: SearchHit, term: string, currentWorkspaceId: string) => {
+    /*
+     * 把这次点击记成「一次定位意图」（2026-11-11 真机：搜到点进去，落在会话底部、
+     * 一个字没高亮、搜索框也没开）。
+     *
+     * `session/locate-intent.ts` 那套意图表写得很细（TTL、续命、转场双挂载、消费后再复用），
+     * 但**写入口从来没接上**：`rememberLocateIntent` 只有测试在调。于是
+     * - 聊天页里 `locateIntentFor()` 永远 undefined，`useSearchPrefill` 永远不弹搜索框；
+     * - props 那条路在「同一路由重挂载」时一丢，就只剩"滚到附近、一个字不高亮"。
+     * 在这里写一次：谁挂载谁读到，两条路就都有兜底了。
+     */
+    rememberLocateIntent({
+      sessionId: hit.sessionId,
+      ...(hit.seq === undefined ? {} : { seq: hit.seq }),
+      ...(hit.messageId === undefined ? {} : { messageId: hit.messageId }),
+      ...(hit.partId === undefined ? {} : { partId: hit.partId }),
+      // 结构坐标（图谱寻址）：seq 会被跨页合并打乱、messageId 可能不在窗口里，
+      // 「第几轮第几步」是第三个稳定锚点。
+      ...(hit.turn === undefined ? {} : { turn: hit.turn }),
+      ...(hit.step === undefined ? {} : { step: hit.step }),
+      ...(term.trim() === '' ? {} : { query: term }),
+    })
     const sameWorkspace = hit.workspaceId === undefined
-      || String(hit.workspaceId) === String(currentWorkspace.workspaceId)
-    const workspace: WorkspaceRow = sameWorkspace
-      ? currentWorkspace
-      : {
-        workspaceId: hit.workspaceId as never,
-        path: '',
-        title: hit.workspaceTitle ?? '',
-        sessionIds: [] as never,
-        createdAt: '',
-        updatedAt: '',
-      }
+      || String(hit.workspaceId) === String(currentWorkspaceId)
+    // 只带身份：名字由 `workspaceView`（resolveWorkspace）统一解析，
+    // 搜索结果回执有没有 workspaceTitle 都不影响显示（2026-11-12 结构收敛）。
+    const nextWorkspaceId: string = sameWorkspace
+      ? currentWorkspaceId
+      : String(hit.workspaceId ?? '')
     const session: SessionView = {
       sessionId: hit.sessionId,
       title: hit.title !== undefined && hit.title !== '' ? hit.title : '匹配会话',
@@ -982,10 +1096,12 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     navigate({
       kind: 'chat',
       session,
-      workspace,
+      workspaceId: nextWorkspaceId,
       ...(hit.seq === undefined ? {} : { focusSeq: hit.seq }),
       ...(hit.messageId === undefined ? {} : { focusMessageId: hit.messageId }),
       ...(hit.partId === undefined ? {} : { focusPartId: hit.partId }),
+      ...(hit.turn === undefined ? {} : { focusTurn: hit.turn }),
+      ...(hit.step === undefined ? {} : { focusStep: hit.step }),
       ...(term === '' ? {} : { focusQuery: term }),
     })
   }, [navigate])
@@ -998,7 +1114,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       updatedAt: 0,
       running: false,
       blank: false,
-    }, STANDALONE_WORKSPACE))
+    }, STANDALONE_WORKSPACE.workspaceId))
   }, [navigate])
 
   // 正开着的会话：它收工时不弹 HUD（人已经在看那一页了）。
@@ -1010,8 +1126,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
    */
   const startSession = useCallback(async (text?: string): Promise<void> => {
     const current = routeRef.current
-    const workspace = current.workspace
-    const workspaceId = String(workspace.workspaceId ?? '')
+    const workspaceId = String(current.workspaceId ?? '')
     const created = await createSession(workspaceId === '' ? {} : { workspaceId })
     const session: SessionView = {
       sessionId: created.sessionId,
@@ -1020,7 +1135,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       running: false,
       blank: true,
     }
-    showRoot(chatRouteOf(session, workspace))
+    showRoot(chatRouteOf(session, workspaceId))
     if (text === undefined || text.trim() === '') return
     try {
       await prompt(created.sessionId, [{ type: 'text', text: text.trim() }])
@@ -1030,19 +1145,86 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   }, [showRoot])
 
   /** 抽屉身份区切工作区：落到那个工作区最近的一个会话（没有就空会话）。 */
-  const pickWorkspace = useCallback((workspace: WorkspaceRow) => {
+  const pickWorkspace = useCallback((workspaceId: string) => {
     setWorkspacePickerOpen(false)
-    const workspaceId = String(workspace.workspaceId ?? '')
-    if (workspaceId === '') { showRoot(chatRouteOf(EMPTY_SESSION, workspace)); return }
+    /*
+     * 先切、再查（2026-11-10 实机"点切换工作区也切不动"）：
+     * 原来这里 `await` 一次网络往返才动页面，弱网/隧道慢的时候点下去界面一动不动，
+     * 用户只能理解成"切不动"。现在先用本地缓存（没有就空会话）**立刻**落页 ——
+     * 标题马上变成新工作区；随后拿到宿主最新一页再替换成真正的最近会话。
+     */
+    const cached = workspaceId === '' ? [] : (loadPersistedList(workspaceId)?.rows ?? [])
+    const quick = cached[0]
+    showRoot(chatRouteOf(quick ?? EMPTY_SESSION, workspaceId))
+    /*
+     * 先把"谁在跑"问准：`mobile.runningSessions` 是轻量 RPC，比列表快得多。
+     * 列表行自带的 running 会撒谎（见 drawer-rows 里 applyRunningState 的注释）。
+     */
+    const applyRunning = (): void => {
+      void runningSessions().then(({ sessionIds }) => {
+        setDrawer(previous => previous === undefined || String(previous.workspaceId) !== workspaceId
+          ? previous
+          : { ...previous, rows: applyRunningState(previous.rows, sessionIds) })
+      }).catch(() => undefined)
+    }
+    applyRunning()
+    if (workspaceId === '') return
+    /**
+     * 只在用户**还停在我们刚放的那一页**时才替换：中途自己点去别处了就不能抢回导航。
+     *
+     * @param next - 要落的会话（已按工作区认领）
+     */
+    const refine = (next: SessionView | undefined): void => {
+      const current = routeRef.current
+      if (current.kind !== 'chat') return
+      if (String(current.workspaceId ?? '') !== workspaceId) return
+      if (current.session.sessionId !== (quick?.sessionId ?? EMPTY_SESSION.sessionId)) return
+      if (next === undefined || next.sessionId === quick?.sessionId) return
+      showRoot(chatRouteOf(next, workspaceId))
+    }
+    /**
+     * 兜底：宿主按工作区过滤只回了一条（归属表落后）或直接失败时，翻不带工作区的
+     * 分页列表，由客户端按 `cwd` 认领 —— 否则会把用户丢进一个"最近会话"其实不属于
+     * 这个工作区的会话里。
+     *
+     * @param reason - 首次请求的失败原因（翻页也失败时提示它）
+     */
+    const recover = async (reason?: unknown): Promise<void> => {
+      let cursor: string | undefined
+      for (let round = 0; round < 3; round += 1) {
+        const page = await listSessions(cursor).catch(() => undefined)
+        if (page === undefined) {
+          if (round === 0 && reason !== undefined) toast(`切换工作区失败：${errorText(reason)}`)
+          return
+        }
+        const rows = scopedToWorkspace(page.items ?? [], workspaceView(workspaceId))
+        if (rows.length > 0) {
+          const latest = [...rows].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+          refine(latest === undefined ? undefined : toSessionView(latest))
+          return
+        }
+        if (page.hasMore !== true || page.nextCursor === undefined) break
+        cursor = page.nextCursor
+      }
+    }
     void listSessions(undefined, workspaceId).then(
       (page) => {
-        const latest = page?.items?.[0]
-        showRoot(latest === undefined ? chatRouteOf(EMPTY_SESSION, workspace) : chatRouteOf(toSessionView(latest), workspace))
+        const scoped = scopedToWorkspace(page?.items ?? [], workspaceView(workspaceId))
+        if (scoped.length <= 1) { void recover(); return }
+        const latest = [...scoped].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        refine(latest === undefined ? undefined : toSessionView(latest))
       },
-      (reason: unknown) => { toast(`切换工作区失败：${errorText(reason)}`) },
+      (reason: unknown) => { void recover(reason) },
     )
   }, [showRoot])
 
+  /** 工作区的三个写操作（新建/改名/删除）都在这个 hook 里：写完重新拉列表，需要时落页。 */
+  const workspaceActions = useWorkspaceActions({
+    setWorkspaces,
+    // hook 回传的是解析后的工作区视图；落页只需要身份。
+    pickWorkspace: (workspace: { workspaceId: string }) => { pickWorkspace(workspace.workspaceId) },
+    currentWorkspaceId: routeRef.current.kind === 'chat' ? String(routeRef.current.workspaceId ?? '') : '',
+  })
   /**
    * 打开抽屉：先用本地缓存行立刻画，再后台拉一页宿主列表覆盖。
    * 等审批来自 mux 的 pending 镜像（与聊天页审批面板同一份数据）。
@@ -1050,42 +1232,228 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const openDrawer = useCallback((turns: readonly ArtifactTurnPayload[]) => {
     const current = routeRef.current
     if (current.kind !== 'chat') return
-    const workspaceId = String(current.workspace.workspaceId ?? '')
+    const workspaceId = String(current.workspaceId ?? '')
     const persisted = workspaceId === '' ? undefined : loadPersistedList(workspaceId)
     const cachedRows = persisted?.rows ?? []
-    const rows = current.empty === true
-      ? cachedRows
-      : [current.session, ...cachedRows.filter(row => row.sessionId !== current.session.sessionId)]
+    // 第一帧与刷新后同一个排序（当前会话钉第一行，其余按时间倒序，见 drawer-rows.ts）。
+    const rows = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows)
     const pendingEntries = muxRef.current?.pendingSnapshot() ?? []
     setDrawer({
       session: current.session,
-      workspace: current.workspace,
+      workspaceId: current.workspaceId,
       rows,
       finished: new Set(finishedRuns().map(run => run.sessionId)),
       pending: new Set(pendingEntries.map(entry => entry.sessionId)),
+      /* 首帧还不知道别处在跑什么：下面那次 runningSessions 回来再补。 */
+      runningElsewhere: 0,
       turns,
     })
     if (workspaceId === '') return
+    /* 别处在跑什么：抽屉只列当前工作区，这一问决定要不要画「还有 N 个在跑」那行。 */
+    void runningSessions().then(({ sessionIds }) => {
+      setDrawer(previous => {
+        if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
+        const rows = applyRunningState(previous.rows, sessionIds)
+        const runningElsewhere = countRunningElsewhere(rows, sessionIds)
+        if (rows === previous.rows && runningElsewhere === previous.runningElsewhere) return previous
+        return { ...previous, rows, runningElsewhere }
+      })
+    }).catch(() => undefined)
+    /**
+     * 把一页结果并进抽屉（只认同一个工作区，避免切走后回来的旧页覆盖新抽屉）。
+     *
+     * @param fresh - 已按工作区过滤的行
+     */
+    const applyFresh = (fresh: readonly SessionView[]): void => {
+      setDrawer(currentDrawer => currentDrawer === undefined || String(currentDrawer.workspaceId) !== workspaceId
+        ? currentDrawer
+        : { ...currentDrawer, rows: mergeDrawerRows(fresh, currentDrawer.rows, currentDrawer.session.sessionId) })
+    }
+    /**
+     * 兜底：宿主按工作区过滤只回了「当前这一条」（归属表落后时的样子），或者这次请求
+     * 直接失败 —— 都改走**不带工作区**的分页列表，由客户端按 `cwd` 认领。
+     *
+     * 2026-11-10 实机「打开侧边栏只剩当前会话」就是这一种：按工作区过滤的结果被归属
+     * 表压成了一条。一页 40 条，翻到拿到本工作区的行（最多 3 页）为止；翻不到就保持
+     * 缓存行，抽屉仍然可用，不会变成空白。
+     */
+    const recover = async (): Promise<void> => {
+      let cursor: string | undefined
+      for (let round = 0; round < 3; round += 1) {
+        const page = await listSessions(cursor).catch(() => undefined)
+        if (page === undefined) return
+        const scoped = scopedToWorkspace(page.items ?? [], workspaceView(current.workspaceId)).map(toSessionView)
+        if (scoped.length > 0) applyFresh(scoped)
+        if (scoped.length > 1 || page.hasMore !== true || page.nextCursor === undefined) return
+        cursor = page.nextCursor
+      }
+    }
     void listSessions(undefined, workspaceId).then(
       (page) => {
-        const fresh = (page?.items ?? []).map(toSessionView)
-        setDrawer(currentDrawer => currentDrawer === undefined || String(currentDrawer.workspace.workspaceId) !== workspaceId
-          ? currentDrawer
-          : { ...currentDrawer, rows: fresh })
+        const fresh = scopedToWorkspace(page?.items ?? [], workspaceView(current.workspaceId))
+        applyFresh(fresh.map(toSessionView))
+        // 落盘：这一页就是下次打开抽屉时的首屏（本地读，0 网络等待）。
+        if (fresh.length > 0) {
+          queuePersistedList(workspaceId, { rows: fresh.map(toSessionView), hasMore: page?.hasMore === true })
+        }
+        if (fresh.length <= 1) void recover()
       },
-      () => { /* 保持缓存行：弱网下抽屉仍然可用 */ },
+      () => { void recover() },
     )
   }, [])
+
+  /**
+   * 抽屉开着的时候，定时对一次"谁在跑"。
+   *
+   * 2026-11-12 用户：「运行状态更新太慢，有时从完成跳成运行中，有时跑了好久才出现运行中」。
+   * 抽屉原来只在打开那一刻拉一次列表，之后**再也不刷新** —— 那一帧说什么就是什么。
+   * 现在开着就每 DRAWER_RUNNING_POLL_MS 毫秒问一次 `mobile.runningSessions`（轻量 RPC），
+   * 关掉立刻停；列表行只负责标题和时间，运行状态一律以这个集合为准。
+   */
+  useEffect(() => {
+    if (drawer === undefined) return undefined
+    const workspaceId = drawer.workspaceId
+    const timer = setInterval(() => {
+      void runningSessions().then(({ sessionIds }) => {
+        setDrawer((previous) => {
+          if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
+          const rows = applyRunningState(previous.rows, sessionIds)
+          /* 减去抽屉里画出来的行：剩下的就是"这一刻在别的工作区跑着"的任务。 */
+          const runningElsewhere = countRunningElsewhere(rows, sessionIds)
+          // 运行集合没变就返回**同一个对象**：React 据此直接 bail out，不进重渲染。
+          // 否则每 4 秒一次 setState 会把整个 App 重算一遍 —— 而 `<ChatView>` 没有
+          // 渲染边界，等于抽屉开着时每 4 秒连聊天页那 4000 行函数体一起重跑
+          // （2026-11-12 实测：这就是"点什么都卡一下"的来源之一）。
+          if (rows === previous.rows && runningElsewhere === previous.runningElsewhere) return previous
+          return { ...previous, rows, runningElsewhere }
+        })
+      }).catch(() => undefined)
+    }, DRAWER_RUNNING_POLL_MS)
+    return () => { clearInterval(timer) }
+  }, [drawer === undefined, drawer?.workspaceId])
 
   /** 抽屉 / 空会话菜单里的「设置」：叠在会话页上，返回回会话。 */
   const openSettings = useCallback(() => {
     const current = routeRef.current
-    navigate({ kind: 'settings', session: current.session, workspace: current.workspace })
+    navigate({ kind: 'settings', session: current.session, workspaceId: current.workspaceId })
   }, [navigate])
 
+  /**
+   * 预取当前工作区的会话页（抽屉首屏的数据源）。
+   *
+   * 2026-11-10 实机：第一次点开抽屉要等 6 秒 —— 抽屉先读本地缓存，而缓存从来没写过
+   * （queuePersistedList 没人调），只能干等宿主那一次冷启动的 session.list（约 6.3 s）。
+   * 现在进了会话就后台拉一页并落盘：下次开抽屉直接读本地，0 网络等待。
+   */
+  useEffect(() => {
+    if (route.kind !== 'chat') return
+    const workspaceId = String(route.workspaceId ?? '')
+    if (workspaceId === '' || PREFETCHED_WORKSPACES.has(workspaceId)) return
+    const cached = loadPersistedList(workspaceId)
+    if (cached !== undefined && Date.now() - cached.savedAt < 60_000) return
+    PREFETCHED_WORKSPACES.add(workspaceId)
+    void listSessions(undefined, workspaceId).then(
+      (page) => {
+        const fresh = scopedToWorkspace(page?.items ?? [], workspaceView(route.workspaceId))
+        if (fresh.length === 0) return
+        queuePersistedList(workspaceId, { rows: fresh.map(toSessionView), hasMore: page?.hasMore === true })
+      },
+      () => { PREFETCHED_WORKSPACES.delete(workspaceId) },
+    )
+  }, [route])
+
+  /**
+   * 交给 `<ChatView>` 的回调必须**引用稳定**，否则它连 `memo` 都挂不住。
+   *
+   * 这些原来全是 `case 'chat'` 里现造的箭头函数：App 任何一次状态变化（开关抽屉、
+   * 运行状态轮询、finished-elsewhere 卡冒出来）都会换一批新引用，于是聊天页那
+   * 4000 行函数体跟着重跑 —— 手机上就是"点什么都卡一下"。
+   *
+   * 依赖只放真正会被读到的值：`route` 变了（换会话/换页）才换一批，其余一律沿用。
+   */
+  const chatCallbacks = useMemo((): Partial<Pick<ChatViewProps,
+    'finishedElsewhere' | 'onOpenFinished' | 'onDismissFinished' | 'onOpenSubagent' | 'onOpenDiff'
+    | 'onOpenDelivery' | 'onPendingTurnConsumed' | 'onOpenOutline' | 'onOpenArtifacts'
+    | 'onOpenTasks' | 'onOpenContext' | 'onOpenApprovalMode' | 'onOpenApproval'>> => {
+    if (route.kind !== 'chat') return {}
+    const session = route.session
+    const workspaceId = route.workspaceId
+    return {
+      ...(chatFinished === undefined ? {} : {
+        finishedElsewhere: {
+          sessionId: chatFinished.sessionId,
+          title: chatFinished.title,
+          status: chatFinished.status,
+          ...(chatFinished.durationMs === undefined ? {} : { durationMs: chatFinished.durationMs }),
+        },
+      }),
+      onOpenFinished: () => {
+        const hit = chatFinished
+        setChatFinished(undefined)
+        if (hit !== undefined) openFinishedChat({ sessionId: hit.sessionId, title: hit.title })
+      },
+      onDismissFinished: () => { setChatFinished(undefined) },
+      onOpenSubagent: (node) => { navigate({ kind: 'subagent', session, workspaceId, node }) },
+      onOpenDiff: (path) => { navigate({ kind: 'preview', session, workspaceId, path }) },
+      onOpenDelivery: (facts) => { navigate({ kind: 'delivery', session, workspaceId, facts }) },
+      onPendingTurnConsumed: () => { setPendingTurn(undefined) },
+      onOpenOutline: (turns, currentTurn) => { navigate({ kind: 'outline', session, workspaceId, turns, currentTurn }) },
+      onOpenArtifacts: (turns) => { navigate({ kind: 'artifacts', session, workspaceId, turns }) },
+      onOpenTasks: () => { navigate({ kind: 'tasks', session, workspaceId }) },
+      onOpenContext: (usage) => { navigate({ kind: 'context', session, workspaceId, usage }) },
+      onOpenApprovalMode: (permissions) => { navigate({ kind: 'approval-mode', session, workspaceId, permissions }) },
+      onOpenApproval: (approval, preview, argsText) => {
+        navigate({
+          kind: 'approval',
+          session,
+          workspaceId,
+          approvalId: approval.approvalId,
+          ...(preview === undefined ? {} : { preview }),
+          ...(argsText === undefined ? {} : { argsText }),
+        })
+      },
+    }
+  }, [route, navigate, chatFinished, openFinishedChat, setChatFinished, setPendingTurn])
+
   const routeKey = routeKeyOf(route)
-  const leavingKey = transition.leaving === undefined ? '' : routeKeyOf(transition.leaving.route)
+  /**
+   * 切会话在栈里是换根（`chat:<sid>`），但**渲染容器的 key 不跟着会话走**（恒为 `chat`）：
+   * 换 key 就是整页卸载重挂 —— 22 个 useState、全部消息行、滚动状态一起重建，实测一次
+   * 切换要 190ms 级。会话相关状态由 ChatView 自己按 `sessionId` 重置（见
+   * `use-session-scope.ts`），容器这一层不需要知道会话。
+   *
+   * 离场层用同一个映射：否则旧会话会在离场槽里再挂一个 ChatView（两个实例同时订阅 mux）。
+   */
+  const pageKey = route.kind === 'chat' ? 'chat' : routeKey
+  /** 会话→会话：旧页就是新页，没有"离场"可言，离场层不画（同 key 也会互相顶掉）。 */
+  const chatSwap = route.kind === 'chat' && transition.leaving?.route.kind === 'chat'
+  const leavingKey = transition.leaving === undefined ? ''
+    : (transition.leaving.route.kind === 'chat' ? 'chat' : routeKeyOf(transition.leaving.route))
   const dirClass = forward ? 'fwd' : 'back'
+
+  /**
+   * 会话就地切换时，进场动画得自己再放一次：元素没重挂，CSS 的 `.page-enter-*` 不会重播。
+   *
+   * 用 WAAPI 而不是"删类 → 读 offsetWidth → 加类"：后者会强制一次同步布局，正好把
+   * 这次省下来的钱又花回去（P3 采样里那次 126ms 的 `get offsetHeight` 就是这笔账）。
+   */
+  const pageElRef = useRef<HTMLDivElement | null>(null)
+  const lastChatKeyRef = useRef<string | undefined>(undefined)
+  const chatKind = route.kind
+  useLayoutEffect(() => {
+    if (chatKind !== 'chat') return
+    const previous = lastChatKeyRef.current
+    lastChatKeyRef.current = routeKey
+    const element = pageElRef.current
+    if (element === null || previous === undefined || previous === routeKey) return
+    // 老内核与 jsdom 都没有 WAAPI：没有动画而已，绝不能因此抛在提交阶段（会把整页卸掉）。
+    if (typeof element.animate !== 'function') return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true) return
+    element.animate(
+      [{ transform: 'translateX(100%)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+      { duration: PAGE_TRANSITION_MS, easing: 'ease-out' },
+    )
+  }, [chatKind, routeKey])
 
   const renderRoute = (target: Route): ReactNode => {
     switch (target.kind) {
@@ -1094,14 +1462,23 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           <SearchView
             search={searchPageFor}
             onBack={back}
-            onPick={(hit, term) => { openSearchHit(hit, term, target.workspace) }}
+            onPick={(hit, term) => { openSearchHit(hit, term, target.workspaceId) }}
           />
         )
       case 'settings':
         return (
           <SettingsView
             onBack={back}
-            onOpenAppearance={() => { navigate({ kind: 'appearance', session: target.session, workspace: target.workspace }) }}
+            onOpenAppearance={() => { navigate({ kind: 'appearance', session: target.session, workspaceId: target.workspaceId }) }}
+          />
+        )
+      case 'usage': return <UsageView onBack={back} />
+      case 'subagent': return <SubagentView node={target.node} onBack={back} />
+      case 'tasks':
+        return (
+          <TasksView
+            onBack={back}
+            onOpen={(session) => { openChat(session, target.workspaceId) }}
           />
         )
       case 'appearance':
@@ -1127,8 +1504,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           <ArtifactsView
             turns={target.turns}
             onBack={back}
-            onOpenFile={(path) => { navigate({ kind: 'diff', session: target.session, workspace: target.workspace, path }) }}
-            onOpenTurn={(turn) => { navigate({ kind: 'artifact-summary', session: target.session, workspace: target.workspace, turn, turns: target.turns }) }}
+            onOpenFile={(path) => { navigate({ kind: 'preview', session: target.session, workspaceId: target.workspaceId, path }) }}
+            onOpenTurn={(turn) => { navigate({ kind: 'artifact-summary', session: target.session, workspaceId: target.workspaceId, turn, turns: target.turns }) }}
           />
         )
       case 'artifact-summary':
@@ -1137,7 +1514,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             turns={target.turns}
             turn={target.turn}
             onBack={back}
-            onOpenFile={(path) => { navigate({ kind: 'diff', session: target.session, workspace: target.workspace, path }) }}
+            onOpenFile={(path) => { navigate({ kind: 'preview', session: target.session, workspaceId: target.workspaceId, path }) }}
           />
         )
       case 'outline':
@@ -1154,73 +1531,56 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
         )
       case 'diff':
         return <DiffView path={target.path} sessionId={target.session.sessionId} onBack={back} />
+      case 'preview':
+        // 手机端点文件的落点：渲染稿优先（markdown），sheet 自带「源码」切换。
+        return (
+          <FilePreviewSheet
+            path={target.path}
+            sessionId={target.session.sessionId}
+            onClose={back}
+          />
+        )
       case 'delivery':
         return (
           <DeliveryDetailView
             facts={target.facts}
             onBack={back}
-            onOpenFile={(path) => { navigate({ kind: 'diff', session: target.session, workspace: target.workspace, path }) }}
+            onOpenFile={(path) => { navigate({ kind: 'preview', session: target.session, workspaceId: target.workspaceId, path }) }}
           />
         )
       case 'approval':
         return (
-          <ApprovalView
+          <ApprovalRoute
             sessionId={target.session.sessionId}
             sessionTitle={target.session.title}
-            approval={target.approval}
+            approvalId={target.approvalId}
             {...(target.preview === undefined ? {} : { preview: target.preview })}
             {...(target.argsText === undefined ? {} : { argsText: target.argsText })}
             onBack={back}
-            onResolved={() => { back() }}
           />
         )
       case 'chat':
         return (
-          <ChatView
+          <ChatViewMemo
             session={target.session}
             empty={target.empty === true}
-            workspaceName={target.workspace.title}
+            workspaceName={workspaceView(target.workspaceId).name}
             initialFocusSeq={target.focusSeq}
             initialFocusMessageId={target.focusMessageId}
             initialFocusPartId={target.focusPartId}
+            initialFocusTurn={target.focusTurn}
+            initialFocusStep={target.focusStep}
             initialFocusQuery={target.focusQuery}
             mux={muxRef.current}
-            onBack={back}
+            bridge={bridge}
+            onBack={canGoBack(stackRef.current) ? back : undefined}
             showToolCalls={showToolCalls}
             showSystemMessages={showSystemMessages}
-            finishedElsewhere={chatFinished === undefined ? undefined : {
-              sessionId: chatFinished.sessionId,
-              title: chatFinished.title,
-              status: chatFinished.status,
-              ...(chatFinished.durationMs === undefined ? {} : { durationMs: chatFinished.durationMs }),
-            }}
-            onOpenFinished={() => {
-              const hit = chatFinished
-              setChatFinished(undefined)
-              if (hit !== undefined) openFinishedChat({ sessionId: hit.sessionId, title: hit.title })
-            }}
-            onDismissFinished={() => { setChatFinished(undefined) }}
+            {...chatCallbacks}
             onOpenDrawer={openDrawer}
             onOpenSettings={openSettings}
             onStartSession={startSession}
-            onOpenDiff={(path) => { navigate({ kind: 'diff', session: target.session, workspace: target.workspace, path }) }}
-            onOpenDelivery={(facts) => { navigate({ kind: 'delivery', session: target.session, workspace: target.workspace, facts }) }}
             pendingTurn={pendingTurn}
-            onPendingTurnConsumed={() => { setPendingTurn(undefined) }}
-            onOpenOutline={(turns, currentTurn) => { navigate({ kind: 'outline', session: target.session, workspace: target.workspace, turns, currentTurn }) }}
-            onOpenArtifacts={(turns) => { navigate({ kind: 'artifacts', session: target.session, workspace: target.workspace, turns }) }}
-            onOpenContext={(usage) => { navigate({ kind: 'context', session: target.session, workspace: target.workspace, usage }) }}
-            onOpenApprovalMode={(permissions) => { navigate({ kind: 'approval-mode', session: target.session, workspace: target.workspace, permissions }) }}
-            onOpenApproval={(approval, preview, argsText) => {
-              navigate({
-                kind: 'approval',
-                session: target.session,
-                workspace: target.workspace,
-                approval,
-                ...(preview === undefined ? {} : { preview }),
-                ...(argsText === undefined ? {} : { argsText }),
-              })
-            }}
           />
         )
     }
@@ -1238,7 +1598,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
 
   return (
     <div className="mobile">
-      <div className="page-stage">
+      <div className="page-stage" data-drawer={drawer === undefined ? undefined : (drawerClosing ? undefined : 'open')}>
         {/* Same key as the current slot: React's keyed reconciliation moves the
             existing instance into the leaving slot instead of re-mounting it.
             A remount would re-run ChatView's tail load (a duplicate history
@@ -1247,56 +1607,60 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             和会话列表，这两块（约 150KB 未压缩）不再进入首包。这里不再用
             Suspense：它的 fallback 会把整块舞台换成空背景，切页时闪一下；两个
             懒视图改为"点之前就 warm + 切之前 await"，冷启动才渲染骨架。 */}
-        {transition.leaving !== undefined && (
+        {transition.leaving !== undefined && !chatSwap && (
           <div key={leavingKey} className={`page page-exit-${dirClass}`} aria-hidden="true">
             {renderRoute(transition.leaving.route)}
           </div>
         )}
-        <div key={routeKey} className={`page page-enter-${dirClass}`}>
+        <div key={pageKey} ref={pageElRef} className={`page page-enter-${dirClass}`}>
           {renderRoute(route)}
         </div>
       </div>
       {drawer === undefined ? null : (
         <SessionDrawer
-          workspace={{ title: drawer.workspace.title, path: drawer.workspace.path }}
+          /* 名字走唯一出口 `workspaceView`（与会话页顶栏同一个函数），抽屉不再自己兜底。 */
+          workspace={{
+            title: workspaceView(drawer.workspaceId).name,
+            path: workspaceView(drawer.workspaceId).path,
+          }}
           rows={drawer.rows}
           finishedIds={drawer.finished}
           pendingIds={drawer.pending}
           currentSessionId={drawer.session.sessionId === '' ? undefined : drawer.session.sessionId}
-          artifactCount={drawer.turns.length}
           workspaceCount={workspaces.length}
           onSwitchWorkspace={() => { setDrawer(undefined); setWorkspacePickerOpen(true) }}
-          onClose={() => { setDrawer(undefined) }}
+          /* 只有「关掉抽屉」这一种才播退出动画（240ms 后卸载）：
+             点行/进设置是页面转场，抽屉该立刻让位，不该等它滑完。 */
+          closing={drawerClosing}
+          onClose={closeDrawer}
           onNew={() => {
             setDrawer(undefined)
             void startSession().catch((reason: unknown) => { toast(`新建会话失败：${errorText(reason)}`) })
           }}
-          onSearch={() => { setDrawer(undefined); navigate({ kind: 'search', session: drawer.session, workspace: drawer.workspace }) }}
-          onPick={(session) => { setDrawer(undefined); openChat(session, drawer.workspace) }}
-          onOpenSettings={() => { setDrawer(undefined); navigate({ kind: 'settings', session: drawer.session, workspace: drawer.workspace }) }}
-          onOpenArtifacts={() => { setDrawer(undefined); navigate({ kind: 'artifacts', session: drawer.session, workspace: drawer.workspace, turns: drawer.turns }) }}
-          onOpenUsage={() => { setDrawer(undefined); navigate({ kind: 'settings', session: drawer.session, workspace: drawer.workspace }) }}
+          onSearch={() => { setDrawer(undefined); navigate({ kind: 'search', session: drawer.session, workspaceId: drawer.workspaceId }) }}
+          onPick={(session) => { setDrawer(undefined); openChat(session, drawer.workspaceId) }}
+          onOpenSettings={() => { setDrawer(undefined); navigate({ kind: 'settings', session: drawer.session, workspaceId: drawer.workspaceId }) }}
+          onOpenUsage={() => { setDrawer(undefined); navigate({ kind: 'usage', session: drawer.session, workspaceId: drawer.workspaceId }) }}
+          /* 有任务才画「任务」那一行：在跑的会话（看行的 running，而不是 pending ——
+             那是"排队中的消息"）+ 刚跑完的记录，去重后计数。 */
+          /* 条数是**全局**的：抽屉只画当前工作区，但「任务」页列的是所有工作区
+             正在跑 + 刚跑完的会话。少了 drawer.runningElsewhere，3 个在跑时会写「1 条」，
+             用户点进去看到 3 条 —— 入口与页面自相矛盾（2026-11-12 真机）。 */
+          taskCount={new Set([...drawer.rows.filter(row => row.running).map(row => row.sessionId), ...drawer.finished]).size + drawer.runningElsewhere}
+          onOpenTasks={() => { setDrawer(undefined); navigate({ kind: 'tasks', session: drawer.session, workspaceId: drawer.workspaceId }) }}
         />
       )}
       {workspacePickerOpen ? (
-        <Sheet title="切换工作区" onClose={() => { setWorkspacePickerOpen(false) }}>
-          <div role="menu" aria-label="工作区">
-            {workspaces.map(workspace => (
-              <Button
-                key={String(workspace.workspaceId)}
-                type="button"
-                role="menuitem"
-                className="sheet-option"
-                onClick={() => { pickWorkspace(workspace) }}
-              >
-                <span className="sheet-option-copy">
-                  <span className="sheet-option-title">{workspace.title === '' ? workspace.path : workspace.title}</span>
-                  <span className="sheet-option-desc">{workspace.path}</span>
-                </span>
-              </Button>
-            ))}
-          </div>
-        </Sheet>
+        <WorkspacePicker
+          workspaces={workspaces}
+          currentWorkspaceId={routeRef.current.kind === "chat" ? String(routeRef.current.workspaceId ?? "") : ""}
+          currentPath={routeRef.current.kind === "chat" ? workspaceView(routeRef.current.workspaceId).path : ""}
+          onPick={(workspace) => { pickWorkspace(workspace.workspaceId) }}
+          onClose={() => { setWorkspacePickerOpen(false) }}
+          onCreate={workspaceActions.create}
+          onRename={workspaceActions.rename}
+          onDelete={workspaceActions.remove}
+        />
       ) : null}
       <ToastHost />
     </div>

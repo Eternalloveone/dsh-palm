@@ -24,6 +24,9 @@ type SearchHitPayload = {
   seq?: number
   messageId?: string
   partId?: string
+  /** 结构坐标（图谱寻址）：第几轮 / 第几步。 */
+  turn?: number
+  step?: number
   workspaceId?: string
   workspaceTitle?: string
   hits?: number

@@ -47,7 +47,7 @@ import { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/f
 import type { FinishedRunEntry } from './host/finished-runs.ts'
 export { mergeFinishedRuns, readFinishedRuns, writeFinishedRuns } from './host/finished-runs.ts'
 export type { FinishedRunEntry } from './host/finished-runs.ts'
-import { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf, rememberRequestBody } from './host/queue-inbox.ts'
+import { bumpQueueRevision, bumpQueueVersion, liveInboxOf, queueItemsOf, queueRevisionOf, queueVersionForRead, queueTokenOf, queueVersionOf, rememberRequestBody, stampQueueVersion } from './host/queue-inbox.ts'
 
 export { bumpQueueRevision, liveInboxOf, queueItemsOf, queueRevisionOf, rememberRequestBody, textOfInboxContent } from './host/queue-inbox.ts'
 import { CommandRegistry, AgentLookup, FileUploadsLike, GoalViewLike, GoalLookup, CommandDescriptorView, resetCommandDirectoryCache, resolveCommandDirectory, GoalActivationView, goalActivationOf, goalSnapshotOf, preferLiveGoal, GoalActionResultLike, applyGoalAction } from './host/commands-goals.ts'
@@ -720,6 +720,11 @@ ode:sqlite 时整套索引关闭，搜索退回宿主 FTS + 子串补扫的旧�
    * 生产不设（建库全程后台，首个 pass 延迟 15s）。
    */
   searchIndexEager?: boolean | undefined
+  /**
+   * 插件是否处于启用态。停用时构造期那次「索引立即开跑」必须跳过：
+   * 旧实现 enabled=false 仍会开库、起后台建库线程（Windows 上还会锁住 .db）。
+   */
+  enabled?: (() => boolean) | undefined
 }
 
 /**
@@ -785,7 +790,7 @@ import { settingsRead, settingsMutate } from './mobile/api/settings-handlers.ts'
 import { pushSubscribe, pushUnsubscribe } from './mobile/api/push-handlers.ts'
 import { pairDevices, pairRevoke, pairRename, pairSetPrimary } from './mobile/api/pair-handlers.ts'
 import { agentPresetList, subagentList } from './mobile/api/roster-handlers.ts'
-import { sessionCreate, sessionHistory, sessionSearch, sessionPrompt, sessionModels, sessionSelectModel, sessionRename, sessionCancel, sessionUpdateQueue } from './mobile/api/session-handlers.ts'
+import { sessionCreate, sessionHistory, sessionSearch, sessionPrompt, sessionDeliveryCheck, sessionModels, sessionSelectModel, sessionRename, sessionCancel, sessionUpdateQueue } from './mobile/api/session-handlers.ts'
 import { sessionList as sessionListHandler } from './mobile/api/session-list-handler.ts'
 import { pushConfig } from './mobile/api/push-config.ts'
 import { mobilePending, mobilePreferences, mobileTranscribe } from './mobile/api/mobile-handlers.ts'
@@ -851,6 +856,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
    * 手机照旧用旧路径，索引追上之前不给任何结论。
    */
   async function ensureSearchIndex(): Promise<SearchIndex | undefined> {
+    if (deps.enabled?.() === false) return undefined
     if (ctx.searchIndexPromise !== undefined) return await ctx.searchIndexPromise
     ctx.searchIndexPromise = (async () => {
       const path = deps.searchIndexPath
@@ -909,6 +915,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
             ...(row.partId !== undefined ? { partId: row.partId } : {}),
             text: row.text,
             user: row.user,
+            // 结构坐标（图谱寻址）：原样透传，缺了就不写，让库里保持「未知」。
+            ...(row.turn === undefined ? {} : { turn: row.turn }),
+            ...(row.step === undefined ? {} : { step: row.step }),
           }))
           // 页游标取「这一页所有事件」的最小 seq：一整页工具/推理事件折叠后是 0 条文档，
           // 但索引器仍然得往更早走，否则这个会话永远补不完。
@@ -1003,7 +1012,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         writeJson(res, 200, {
           type: 'server-response',
           rpcId,
-          result: { ok: true, value: { inbox: inbox === undefined ? null : inbox } },
+          // queueVersion：这个会话队列的单调版本，客户端据此拒绝更旧的快照。
+          result: { ok: true, value: { inbox: inbox === undefined ? null : inbox, queueVersion: queueVersionOf(sessionId) } },
         })
       }],
       [MOBILE_SESSION_STATE_METHOD, async (ctx) => mobileSessionState(ctx)],
@@ -1165,7 +1175,20 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // writeJson guard on the closed socket.
       const abort = new AbortController()
       res.on('close', () => { if (!res.writableEnded) abort.abort() })
-      const response = await dispatch(apiProxy, method, parsed?.payload, rpcId, abort.signal)
+      // 读己之写（方案 A）：写操作后读一次活 agent 的内存 inbox，随应答返回权威队列。
+      //
+      // 2026-11-11 修（真机「排队条要退出重进才出现、有时又自己消失」）：
+      //  ① 读不到活 agent（`liveInboxOf` 返回 undefined）时**不再冒充"队列是空的"** ——
+      //     空的"权威"应答会让客户端把排队条清空并锁住版本；这里返回 undefined，
+      //     应答就不挂队列，客户端照旧等下一条快照。
+      //  ② 版本只按**内容变化**推进（`queueVersionForRead`），不是读一次 +1。
+      const readQueue = (sessionId: string): { items: readonly unknown[]; version: number } | undefined => {
+        const inbox = liveInboxOf(deps.agents, sessionId)
+        if (inbox === undefined) return undefined
+        const items = queueItemsOf(inbox)
+        return { items, version: queueVersionForRead(sessionId, items as readonly { id: string; text: string }[]) }
+      }
+      const response = await dispatch(apiProxy, method, parsed?.payload, rpcId, abort.signal, readQueue)
       // Pass the request so large payloads (session.list, history pages) are
       // gzip-compressed for the phone link.
       writeJson(res, 200, response, {}, req)
@@ -1437,7 +1460,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
         // frames made the phone believe SSE was dead and fall back to polling
         // (3s cadence, the "visible lag" vs desktop). Wrap every frame so the
         // live stream actually reaches the client.
-        const wire = { type: 'server-request' as const, rpcId: frame.rpcId, method: 'events.mux', payload: frame.payload }
+        // 队列帧/认领帧出站前打一个**单调版本**（host/queue-inbox 的 stampQueueVersion）：
+        // 手机端据此丢弃「版本不更新」的陈旧投影 —— 排队条那一族 TTL 补丁的替代品。
+        const wire = { type: 'server-request' as const, rpcId: frame.rpcId, method: 'events.mux', payload: stampQueueVersion(frame.payload) }
         // A turn boundary just moved: tell the phone the new verdict instead of
         // letting it infer one. This is the desktop's model — the store's
         // `running` flag IS the answer, nobody re-derives it from log edges.
@@ -1581,7 +1606,19 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
  *  交回调用方（首屏需要那个 envelope），异常静默（后台刷新不该打断请求）。 */
 
 
-async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rpcId: string, signal?: AbortSignal): Promise<unknown> {
+async function dispatch(
+  apiProxy: ApiProxy,
+  method: string,
+  payload: unknown,
+  rpcId: string,
+  signal?: AbortSignal,
+  /**
+   * 写操作后读权威队列（方案 A）；没有就退化成老行为。
+   *
+   * 允许返回 undefined：宿主读不到活 agent 时**不冒充**「队列是空的」（2026-11-11）。
+   */
+  readQueue?: (sessionId: string) => { items: readonly unknown[]; version: number } | undefined,
+): Promise<unknown> {
   const request: RpcRequest<unknown> = { rpcId: RpcId(rpcId), payload }
   const ctx = { apiProxy, payload, rpcId, signal, request }
   type ProxyContext = typeof ctx
@@ -1608,12 +1645,13 @@ async function dispatch(apiProxy: ApiProxy, method: string, payload: unknown, rp
   ['session.create', async (ctx) => sessionCreate({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.history', async (ctx) => sessionHistory({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.search', async (ctx) => sessionSearch({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
-  ['session.prompt', async (ctx) => sessionPrompt({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.prompt', async (ctx) => sessionPrompt({ ...ctx, invalidateRosterCaches, invalidateSessionSearch, ...(readQueue === undefined ? {} : { readQueue }) })],
+  ['session.deliveryCheck', async (ctx) => sessionDeliveryCheck({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.models', async (ctx) => sessionModels({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.selectModel', async (ctx) => sessionSelectModel({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.rename', async (ctx) => sessionRename({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.cancel', async (ctx) => sessionCancel({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
-  ['session.updateQueue', async (ctx) => sessionUpdateQueue({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
+  ['session.updateQueue', async (ctx) => sessionUpdateQueue({ ...ctx, invalidateRosterCaches, invalidateSessionSearch, ...(readQueue === undefined ? {} : { readQueue }) })],
   ['subagent.list', async (ctx) => subagentList(ctx)],
     ['settings.read', async (ctx) => settingsRead(ctx)],
     ['settings.mutate', async (ctx) => settingsMutate(ctx)],

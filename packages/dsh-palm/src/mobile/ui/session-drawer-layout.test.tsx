@@ -17,6 +17,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionDrawer, type SessionDrawerProps } from './session-drawer.tsx'
 import type { SessionView } from '../shared/session-view.ts'
+import { getSkin, SKIN_LABEL } from '../platform/skin.ts'
 
 afterEach(() => { cleanup() })
 
@@ -35,7 +36,6 @@ function renderDrawer(overrides: Partial<SessionDrawerProps> = {}): HTMLElement 
       onSearch={() => {}}
       onPick={() => {}}
       onOpenSettings={() => {}}
-      onOpenArtifacts={() => {}}
       onOpenUsage={() => {}}
       {...overrides}
     />,
@@ -44,35 +44,46 @@ function renderDrawer(overrides: Partial<SessionDrawerProps> = {}): HTMLElement 
 }
 
 describe('抽屉版式：图标不撑满、行不折行', () => {
-  it('新建 / 搜索 / 底部三入口：各自一个图标，文案包在单行 span 里', () => {
+  it('搜索 / 底部两入口：图标 + 文案 + 右侧箭头；「新建会话」按用户要求只留文字', () => {
     const container = renderDrawer()
-    const rows = [...container.querySelectorAll('.palm-drawer-new, .palm-drawer-search, .palm-drawer-entry')]
-    expect(rows).toHaveLength(5)
+    const rows = [...container.querySelectorAll('.palm-drawer-search, .palm-drawer-tool')]
+    // 搜索 1 + 底部两行（设置 / 用量）：2026-11-11 删掉「产物与文档」。
+    expect(rows).toHaveLength(3)
     for (const row of rows) {
-      // 一个入口一个图标 —— 图标不是文案的一部分，也不会多出第二个。
-      expect(row.querySelectorAll('svg'), row.className).toHaveLength(1)
+      // 搜索行只有一个放大镜；底部两行各两个图形（功能图标 + 「能进去」的箭头，2026-11-11 C 版）。
+      const expected = row.classList.contains('palm-drawer-search') ? 1 : 2
+      expect(row.querySelectorAll('svg'), row.className).toHaveLength(expected)
       const label = row.querySelector('span')
       expect(label, row.className).not.toBeNull()
       expect(label!.textContent!.trim()).not.toBe('')
     }
+    // 2026-11-11 用户要求：新建会话按钮去掉「+」号，只剩文字（版式约束不变：文案仍在 span 里）。
+    const create = container.querySelector('.palm-drawer-new')!
+    expect(create.querySelectorAll('svg')).toHaveLength(0)
+    expect(create.querySelector('span')!.textContent!.trim()).toBe('新建会话')
   })
 
-  it('抽屉里一共 5 个图标（多工作区时身份区多一个切换箭头）', () => {
+  it('抽屉里一共 6 个图标（新建会话不带图标；底部两行各 图标+箭头）', () => {
     const single = renderDrawer()
+    // 搜索 1 + 底部两行（2 图标 + 2 箭头）= 5；「切换工作区」在单工作区时不画。
+    // 2026-11-11 删掉「产物与文档」后从 7 变 5。
     expect(single.querySelectorAll('.palm-drawer svg')).toHaveLength(5)
     cleanup()
     const multi = renderDrawer({ workspaceCount: 2, onSwitchWorkspace: () => {} })
+    // 多工作区时身份区多一个切换箭头（16px）。
     expect(multi.querySelectorAll('.palm-drawer svg')).toHaveLength(6)
   })
 
-  it('底部三入口：主文案单行，右侧小字单独成节点且不被挤掉', () => {
-    const container = renderDrawer({ artifactCount: 3 })
-    const entries = [...container.querySelectorAll('.palm-drawer-entry')]
-    expect(entries.map(entry => entry.querySelector('span')!.textContent)).toEqual(['设置', '产物与文档', '用量'])
-    // 有数量才画小字：没有产物数时不留空占位。
-    expect(entries[0]!.querySelector('small')).toBeNull()
-    expect(entries[1]!.querySelector('small')!.textContent).toBe('3')
-    expect(entries[2]!.querySelector('small')!.textContent).toBe('本机')
+  it('底部两入口：主文案单行，右侧小字单独成节点且不被挤掉', () => {
+    const container = renderDrawer()
+    const entries = [...container.querySelectorAll('.palm-drawer-tool')]
+    // 2026-11-11 用户要求删掉「产物与文档」：右上角「⋯ → 这一轮的产物」就是同一个入口。
+    expect(entries.map(entry => entry.querySelector('span')!.textContent)).toEqual(['用量', '设置'])
+    // 顺序是「用量 → 设置」：用量右侧是「余额」（2026-11-12 改的文案，宿主那几张卡
+    // 其实是各家账户余额，写「本机」会被读成手机自己的用量）；设置右侧是当前皮肤名
+    // （2026-11-11：抽屉里一眼看到自己在用什么皮肤）。
+    expect(entries[0]!.querySelector('small')!.textContent).toBe('余额')
+    expect(entries[1]!.querySelector('small')!.textContent).toBe(SKIN_LABEL[getSkin()])
   })
 
   it('会话行：标题是独立的 flex 项，迷你状态条单独成项（各自单行）', () => {
