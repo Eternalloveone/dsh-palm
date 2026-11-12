@@ -44,7 +44,6 @@ function viewOf(over: Partial<ChatRowsView> = {}): ChatRowsView {
     chatHitQuery: '',
     effectiveFocusQuery: undefined,
     regenerateFor: () => undefined,
-    regenerateState: 'idle',
     stickyProcRow: undefined,
     hasOlder: false,
     loading: false,

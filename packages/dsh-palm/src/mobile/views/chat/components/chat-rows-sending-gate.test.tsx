@@ -70,7 +70,6 @@ function viewOf(messages: readonly RenderMessage[]): ChatRowsView {
     chatHitQuery: '',
     effectiveFocusQuery: undefined,
     regenerateFor: () => undefined,
-    regenerateState: 'idle',
     stickyProcRow: undefined,
     hasOlder: false,
     loading: false,

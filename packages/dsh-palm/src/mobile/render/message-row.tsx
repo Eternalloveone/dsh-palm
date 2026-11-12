@@ -24,7 +24,7 @@ export interface TurnDeliveryFacts {
 }
 
 /** / 重生成按钮的三态：待点、已发出、发出失败。 */
-import { forgetTurnAnchor, stableTurnAnchor, type RegenerateState } from '../message-row/anchors.ts'
+import { forgetTurnAnchor, stableTurnAnchor } from '../message-row/anchors.ts'
 import { MessageFiles, MessageImages } from '../message-row/attachments.tsx'
 import { AssistantBody } from '../message-row/artifacts.tsx'
 import { ProcessGroup } from '../message-row/process.tsx'
@@ -48,7 +48,7 @@ export function resetEnteredIds(): void {
   enteredIds.clear()
 }
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, regenerateState = 'idle', onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -118,10 +118,14 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   hostNowMs?: number
   /** 宿主时间取数函数（引用恒定；传数值会让每行 memo 失效）。 */
   hostNow?: () => number
-  /** Regenerate affordance: shown on the last settled assistant reply. */
+  /**
+   * 失败回合的「重试」（交付卡上的按钮，2026-11-10 接入）。
+   *
+   * **曾经也用于右下角的 ↻「重新生成」图标** —— 那个入口 2026-11-12 按用户要求删了
+   * （`chat-msg-regenerate`）：一个只有圆点、没有文字的工具，手机上认不出来是干什么的。
+   * 现在只剩交付卡这一处用途，但参数名沿用旧的有兼容价值（测试与 ChatView 都按它接）。
+   */
   onRegenerate?: () => void
-  /** 它自己的状态：待点、已发出（转圈）、发出失败（可再点）。 */
-  regenerateState?: RegenerateState
   /** 这一轮的目标（用户请求原文，ChatRows 按轮折出来）：任务头第二行。 */
   turnGoal?: string
   /** 模型名：任务头元信息行（拿不到就不显示）。 */
@@ -298,22 +302,9 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       {message.maxTokens === true && <div className="chat-msg-maxtokens">已达到输出 token 上限，回答被截断。发送“继续”可让模型接着输出。</div>}
       <span className="chat-msg-footer">
         {showTime && <span className="chat-msg-time">{formatTime(message.time)}</span>}
-        {/* 一个图标，落在时间行最右端：不占行、不带动词。
-            文字版（↻ 重新生成）在手机上白占 ~48px，而这只是个工具入口；
-            说清楚靠 aria-label / title，视觉上只留一个可点的圆。
-            发出后原地转圈（禁用），失败变红可再点 —— 反馈都在这里，不弹条。 */}
-        {message.kind === 'assistant' && onRegenerate !== undefined && (
-          <Button
-            type="button"
-            className={`chat-msg-regenerate${regenerateState === 'busy' ? ' chat-msg-regenerate-busy' : ''}${regenerateState === 'failed' ? ' chat-msg-regenerate-failed' : ''}`}
-            onClick={onRegenerate}
-            disabled={regenerateState === 'busy'}
-            aria-label={regenerateState === 'busy' ? '正在重新回答' : '重新生成回复'}
-            title={regenerateState === 'failed' ? '上次没发出去，再点一次' : '重新生成'}
-          >
-            <span className="chat-msg-regenerate-icon" aria-hidden>↻</span>
-          </Button>
-        )}
+        {/* 「重新生成」图标已删（2026-11-12 用户要求）。它落在时间行最右端、
+            只有一个 ↻ 圆点，用户看不出那是干什么的 —— 想去掉就整条链路一起去掉，
+            不要留一个没有入口的状态机。 */}
       </span>
     </div>
   )

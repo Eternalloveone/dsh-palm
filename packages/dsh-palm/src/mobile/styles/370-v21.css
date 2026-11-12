@@ -60,58 +60,6 @@
   flex: 1;
 }
 
-/* Regenerate affordance on the last settled assistant reply: ONE icon at the
-   right end of the timestamp line. The verb was dropped on purpose — on a phone
-   "重新生成" costs ~48px of a line that otherwise carries only a time, and this
-   is a utility, not a decision. The meaning lives in aria-label/title. The
-   negative vertical margins keep a 32px finger target from growing the row. */
-.chat-msg-regenerate {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin: -8px 0 -8px 4px;
-  border: none;
-  padding: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.chat-msg-regenerate:active {
-  background: var(--fill);
-  color: var(--accent);
-}
-
-/* 已发出：原地转圈并禁用，直到这一轮真的开跑（按钮随之被收走）。 */
-.chat-msg-regenerate-busy {
-  color: var(--accent);
-  cursor: default;
-}
-
-.chat-msg-regenerate-busy .chat-msg-regenerate-icon {
-  display: inline-block;
-  animation: chat-regenerate-spin 0.9s linear infinite;
-}
-
-/* 没发出去：变红，允许直接再点。 */
-.chat-msg-regenerate-failed {
-  color: var(--danger);
-}
-
-.chat-msg-regenerate-icon {
-  font-size: 16px;
-  line-height: 1;
-}
-
-@keyframes chat-regenerate-spin {
-  to { transform: rotate(360deg); }
-}
-
 /* Pending-message queue dock (desktop QueueDock equivalent): the messages
    queued while the current turn runs, floating above the model/permission row
    — outside the composer box, so it reads as "what goes out next" rather than

@@ -1325,8 +1325,6 @@ describe('减弱动效对账（二）：animation 驱动的动效也要有个说
     '.chat-status-dot-live',
     '.chat-task-dot-running',
     '.chat-subagent-dot-running',
-    '.chat-msg-regenerate-icon',
-    '.chat-msg-regenerate-busy .chat-msg-regenerate-icon',
     '.chat-goal-spinner',
     ".palm-strip-fill[data-fill='unknown']",
     ".palm-strip[data-kind='unknown'] .palm-strip-fill",

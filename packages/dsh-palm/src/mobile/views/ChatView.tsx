@@ -493,8 +493,8 @@ function ChatSessionView({
   const setInput = draftControl.set
   /** 发送/停止/重新生成在 store 里（W3-2）。`sending`/`stopping` **不在这里订阅**：一次
    *  发送翻转两次，整表订阅会让这 4000 行连行列表重建两遍；它们下沉到作曲区自订阅。
-   *  这里只要「重新生成」—— 它是行上的状态，本来变了就该重画行。 */
-  const regenerateState = useChatSelector(chat.store, (state) => state.regenerate)
+   *  行上的「重新生成」图标 2026-11-12 已按用户要求删除，所以这里不再订阅 regenerate 状态
+   *  —— 它现在只服务失败回合的重试（写在 `handleRegenerate` 里，没有读侧）。 */
   const { setSending, setStopping, setRegenerate: setRegenerateState, resetSession } = chat
   /** 实时读发送态：回调可能很久之后才跑，闭包里的值会漏掉"同一帧连点两下"。 */
   const getSending = useCallback((): boolean => chat.store.getState().sending, [chat.store])
@@ -3913,7 +3913,6 @@ function ChatSessionView({
           chatHitQuery={chatHitQuery}
           effectiveFocusQuery={effectiveFocusQuery}
           regenerateFor={regenerateFor}
-          regenerateState={regenerateState}
           stickyProcRow={stickyProcRow}
           hasOlder={hasOlder}
           loading={loading}

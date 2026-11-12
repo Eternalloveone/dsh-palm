@@ -3692,61 +3692,13 @@ describe('ChatView text selection vs custom menu', () => {
   fireEvent.keyDown(window, { key: 'Escape' })
   await waitFor(() => { expect(screen.queryByRole('menu', { name: '消息操作' })).toBeNull() })
 })
-it('regenerates the last assistant reply via its footer button', async () => {
-    await renderOneTurn()
-    promptMock.mockClear()
-    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
-    fireEvent.click(regenerate)
-    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
-  })
-
-  it('keeps the regenerate affordance to one icon: no verb on screen', async () => {
-    // 手机上"重新生成"四个字白占 ~48px，而这一行本来只有时间戳。含义留在
-    // aria-label/title 里，视觉上只有一个可点的 ↻。
-    await renderOneTurn()
-    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
-    expect(regenerate.textContent).toBe('↻')
-    expect(regenerate.textContent).not.toContain('重新生成')
-  })
-
-  it('sends one prompt even when the icon is tapped twice before the turn starts', async () => {
-    // 点下到轮次真的开跑之间有个窗口，这段时间按钮还在屏上。旧实现双击会
-    // 追加两条"请忽略上一条回答"，而这些行删不掉。
-    //
-    // 这里故意在同一帧里派发两次**原生** click：React 还没来得及把 disabled
-    // 刷上去，所以能挡住的只可能是那个 in-flight 闸门（用 fireEvent 是测不到
-    // 它的——第二次点击撞上的已经是禁用按钮）。
-    await renderOneTurn()
-    promptMock.mockClear()
-    promptMock.mockImplementation(() => new Promise(() => {}))
-    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
-    act(() => {
-      regenerate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      regenerate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      regenerate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await waitFor(() => { expect(promptMock).toHaveBeenCalledTimes(1) })
-    // 已发出：原地转圈并禁用，语义也跟着变。
-    const busy = await screen.findByRole('button', { name: '正在重新回答' })
-    expect(busy.className).toContain('chat-msg-regenerate-busy')
-    expect((busy as HTMLButtonElement).disabled).toBe(true)
-  })
-
-  it('turns the icon red and lets it be tapped again when the send fails', async () => {
-    await renderOneTurn()
-    promptMock.mockClear()
-    promptMock.mockRejectedValue(new Error('offline'))
-    const regenerate = await screen.findByRole('button', { name: '重新生成回复' })
-    fireEvent.click(regenerate)
-    await waitFor(() => {
-      const failed = screen.getByRole('button', { name: '重新生成回复' })
-      expect(failed.className).toContain('chat-msg-regenerate-failed')
-      expect((failed as HTMLButtonElement).disabled).toBe(false)
-    })
-    // 失败后闸门放开：还能再点一次。
-    fireEvent.click(screen.getByRole('button', { name: '重新生成回复' }))
-    await waitFor(() => { expect(promptMock).toHaveBeenCalledTimes(2) })
-  })
+  /*
+   * 「重新生成」图标（右下角 ↻）2026-11-12 按用户要求删除了，连同它的四条用例
+   * （只测那一个按钮：点它重发、只有一个图标、双击只发一次、失败变红可再点）。
+   *
+   * 保留的是失败回合的「重试」—— 它在交付卡上，是失败时的下一步动作，
+   * 与本条删除的入口无关。
+   */
 
   it('lets an image through to the native menu: contextmenu on <img> shows no custom menu', async () => {
     const events = [

@@ -105,7 +105,6 @@ export interface ChatRowsView {
   chatHitQuery: string
   effectiveFocusQuery: string | undefined
   regenerateFor: (message: RenderMessage) => (() => void) | undefined
-  regenerateState: 'idle' | 'busy' | 'failed'
   stickyProcRow: RenderMessage | undefined
   hasOlder: boolean
   loading: boolean
@@ -227,7 +226,6 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
             onOpenFile={view.onOpenFile}
             {...(view.onOpenDelivery === undefined ? {} : { onOpenChanges: view.onOpenDelivery })}
             onRegenerate={view.regenerateFor(message)}
-            regenerateState={view.regenerateState}
             {...(view.goal === undefined || view.goal === '' ? {} : { turnGoal: view.goal })}
             {...(turn === undefined || stepsByTurn.get(turn) === undefined ? {} : { turnSteps: stepsByTurn.get(turn) })}
             {...(turn === undefined || message.kind !== 'turn' || changesByTurn.get(turn) === undefined ? {} : { turnChanges: changesByTurn.get(turn) })}
@@ -256,7 +254,6 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
           style={undefined}
           onOpenFile={(path) => { view.onOpenFile(path) }}
           onRegenerate={() => undefined}
-          regenerateState={view.regenerateState}
         />
       )}
       {rows.length === 0 && (view.loading
