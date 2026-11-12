@@ -7007,28 +7007,213 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   color: var(--palm-accent);
 }
 
-/* 抽屉行的动作条（2026-11-12）：长按展开，和工作区选择器的 \`.ws-actions\` 同一套做法。
-   行内展开而不是浮层 —— 手机上没有空间放 popover，滚动手势也会把它抢走。 */
-.palm-drawer-actions {
+/* 长按那一行：面板开着时给它一层「选中」的底色（2026-11-12 精修版）。
+   遮罩会把它压暗，这层底色是后面唯一还能分辨「动的是哪条」的线索。 */
+.palm-drawer-row-held {
+  background: var(--palm-sur-2);
+}
+
+/* ── 会话动作面板（底部 action sheet）──────────────────────────────────
+   2026-11-12 用户：「置顶和删除按钮太丑了」。原先是行内两个等宽按钮，像表单操作区，
+   还把行撑高、列表会跳。换成底部面板：列表纹丝不动、动作能带说明文字、
+   长按→升起和系统相册同一套心智。
+
+   提到 \`--z-ctx\`（70，长按上下文层）：它必须盖在抽屉（60）之上。 */
+/* 遮罩：**不用 backdrop-filter**（全表禁用它，手机 GPU 上开销太高，结构契约会拦下来）。
+   靠压暗而不是模糊把后面的列表压下去 —— 面板本身够亮，层次已经出来了。 */
+.palm-actions-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-ctx);
+  display: flex;
+  align-items: flex-end;
+  background: var(--palm-scrim);
+  animation: drawer-scrim-in 240ms ease-out both;
+}
+
+/* 面板与取消键的容器：两者之间要有 8px 的缝，所以不放进同一个圆角块里。 */
+.palm-actions-layer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s2);
+  inline-size: 100%;
+  padding: 0 var(--palm-s3) var(--palm-s3);
+  animation: sheet-up 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.palm-actions {
+  overflow: hidden;
+  border-radius: var(--palm-r-l, 18px);
+  background: var(--palm-sur-1);
+  box-shadow: var(--palm-shadow);
+}
+
+/* 预览：让用户确认「要动的就是这一条」。只写标题不够 —— 列表里同名会话是可能的。 */
+.palm-actions-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s3);
+  padding: var(--palm-s3);
+  border-block-end: 1px solid var(--palm-line);
+}
+
+.palm-actions-preview-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  inline-size: 38px;
+  block-size: 38px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  color: var(--palm-accent);
+}
+
+.palm-actions-preview-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.palm-actions-preview-title {
+  /* 标题最多两行：再长就是用户在给自己找麻烦，面板不该被一条标题撑成半屏。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--palm-t-m);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--palm-fg);
+}
+
+.palm-actions-preview-meta {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+/* 动作行：图标 + 主文案 + 右侧说明。58px 是「一行放下三个元素还不挤」的下限。 */
+.palm-actions-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s3);
+  inline-size: 100%;
+  min-block-size: 58px;
+  padding: 0 var(--palm-s3);
+  /* \`Button\` 是裸 \`<button>\`：不写这两行，浏览器默认的 buttonface 灰底会透出来，
+     于是一块白面板里漂着三条灰条（真机第一版就是这样）。 */
+  border: 0;
+  background: transparent;
+  font-size: var(--palm-t-l);
+  text-align: start;
+  color: var(--palm-fg);
+}
+
+.palm-actions-item:active {
+  background: var(--palm-sur-2);
+}
+
+/* 分隔线从文字起点开始，不顶到左右边缘 —— 和预览区的内边距对齐。 */
+.palm-actions-item + .palm-actions-item::before {
+  content: '';
+  position: absolute;
+  inset-inline: var(--palm-s3);
+  inset-block-start: 0;
+  block-size: 1px;
+  background: var(--palm-line);
+}
+
+.palm-actions-item-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  inline-size: 22px;
+  color: var(--palm-accent);
+}
+
+.palm-actions-item-label {
+  flex: 1 1 auto;
+}
+
+.palm-actions-item-note {
+  flex: 0 0 auto;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+/* 危险动作只换颜色、不换底色：红底大按钮看着像「推荐操作」，这里正好相反。 */
+.palm-actions-item-danger .palm-actions-item-icon,
+.palm-actions-item-danger .palm-actions-item-label {
+  color: var(--palm-danger);
+}
+
+.palm-actions-item-danger .palm-actions-item-note {
+  color: var(--palm-danger);
+  opacity: 0.62;
+}
+
+/* 取消键与面板分离（iOS 做法）：主操作和「退出」在视觉上是两件事。 */
+.palm-actions-cancel {
+  inline-size: 100%;
+  min-block-size: 56px;
+  border: 0;
+  border-radius: var(--palm-r-l, 18px);
+  background: var(--palm-sur-1);
+  font-size: var(--palm-t-l);
+  font-weight: 600;
+  color: var(--palm-fg);
+  box-shadow: var(--palm-shadow);
+}
+
+.palm-actions-cancel:active {
+  background: var(--palm-sur-2);
+}
+
+/* ── 确认页：同一块面板换了内容，用户不会觉得「又弹了一层」 ──────────── */
+.palm-actions-confirm-title {
+  padding: var(--palm-s4) var(--palm-s4) 0;
+  margin: 0;
+  font-size: var(--palm-t-l);
+  font-weight: 700;
+  text-align: center;
+  color: var(--palm-fg);
+}
+
+.palm-actions-confirm-body {
+  padding: var(--palm-s2) var(--palm-s5) var(--palm-s4);
+  margin: 0;
+  font-size: var(--palm-t-s);
+  line-height: 1.6;
+  text-align: center;
+  color: var(--palm-fg-2);
+}
+
+.palm-actions-confirm-body b {
+  font-weight: 600;
+  color: var(--palm-fg);
+}
+
+.palm-actions-confirm-row {
   display: flex;
   gap: var(--palm-s2);
-  padding: 0 var(--palm-s2) var(--palm-s2);
+  padding: 0 var(--palm-s3) var(--palm-s3);
 }
 
-.palm-drawer-action {
-  flex: 1 1 auto;
-  min-block-size: 36px;
-  border-radius: var(--palm-r-s);
+.palm-actions-btn {
+  flex: 1 1 0;
+  min-block-size: 50px;
+  border: 0;
+  border-radius: var(--palm-r-m);
   background: var(--palm-sur-2);
+  font-size: var(--palm-t-l);
+  font-weight: 600;
   color: var(--palm-fg);
-  font-size: var(--palm-t-s);
 }
 
-/* 二次确认态：同一个按钮再点一次才真的删。做成危险色，避免误触。 */
-.palm-drawer-action-danger {
-  background: var(--palm-danger-band, var(--palm-sur-2));
-  color: var(--palm-danger, var(--palm-fg));
-  font-weight: 600;
+.palm-actions-btn-danger {
+  background: var(--palm-danger);
+  color: var(--palm-on-accent);
 }
 
 .palm-drawer-title {
@@ -8993,6 +9178,13 @@ body:has(.lightbox-backdrop) .toast-host {
      就不该再滑。它们不表达「还在跑」，所以不能进 statefulMotion 白名单。 */
   .chat-voice-live,
   .chat-command-bar {
+    animation: none;
+  }
+
+  /* 会话动作面板的升起与遮罩淡入同样是装饰：减弱动效下直接出现，
+     面板本身的位置和内容不变。 */
+  .palm-actions-scrim,
+  .palm-actions-layer {
     animation: none;
   }
 

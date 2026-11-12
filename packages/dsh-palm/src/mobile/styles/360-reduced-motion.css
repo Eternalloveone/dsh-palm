@@ -123,6 +123,13 @@
     animation: none;
   }
 
+  /* 会话动作面板的升起与遮罩淡入同样是装饰：减弱动效下直接出现，
+     面板本身的位置和内容不变。 */
+  .palm-actions-scrim,
+  .palm-actions-layer {
+    animation: none;
+  }
+
   /* Nothing animates in this branch, so there is no transition to watch: drop
      the stacked leaving page instead of keeping it mounted. It is an opaque,
      absolutely positioned full-stage overlay, so leaving it in the tree hid the

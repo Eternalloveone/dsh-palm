@@ -17,6 +17,7 @@ import { Overlay } from './overlay.tsx'
 import { StatusStrip, type StatusStripKind } from './status-strip.tsx'
 import { drawerWhenLabel } from './drawer-when.ts'
 import { useLongPress } from './use-long-press.ts'
+import { SessionActions } from './session-actions.tsx'
 
 /** 一天（毫秒）：今天/昨天分界。 */
 const DAY_MS = 86_400_000
@@ -95,80 +96,46 @@ export interface SessionDrawerProps {
  * @returns 抽屉（Overlay 自带 Esc / 焦点陷阱 / 遮罩关闭）
  */
 /**
- * 一条可「长按置顶」的抽屉行。
+ * 一条可「长按出动作面板」的抽屉行。
  *
  * 抽成组件而不是内联在 `map` 里的原因：`useLongPress` 是 hook，不能按行调用。
- * 长按切换置顶而不是「点击右侧图标」，是因为右侧已经被「什么时候」占了 ——
- * 再塞一个按钮会把标题挤到更窄（360px 上标题折行是真机问过的问题）。
+ *
+ * 长按只负责**把面板叫出来**：置顶和删除是两个动作，一个长按只能对应一个意图，
+ * 所以落点统一交给底部面板去选（面板见 `ui/session-actions.tsx`）。
  */
 function PinnableRow({
-  sessionId,
   current,
   pinned,
+  held,
   onPick,
-  onTogglePin,
-  menuOpen,
-  confirmingDelete,
   onOpenMenu,
-  onDelete,
   children,
 }: {
-  sessionId: string
   current: boolean
   pinned: boolean
+  /** 这一行的动作面板正开着：行本身给一个「选中了」的底色，并把长按让出去。 */
+  held: boolean
   onPick(): void
-  onTogglePin: ((sessionId: string) => void) | undefined
-  /** 这一行的动作条是否展开（长按打开）。 */
-  menuOpen: boolean
-  /** 动作条里的「删除」是否已进入二次确认。 */
-  confirmingDelete: boolean
   onOpenMenu(): void
-  onDelete: ((sessionId: string) => void) | undefined
   children: React.ReactNode
 }): React.ReactElement {
-  const handlers = useLongPress(menuOpen ? undefined : onOpenMenu)
-  const pinProps = {
-    onPointerDown: handlers.onPointerDown,
-    onPointerMove: handlers.onPointerMove,
-    onPointerUp: handlers.onPointerUp,
-    onPointerLeave: handlers.onPointerLeave,
-    onPointerCancel: handlers.onPointerCancel,
-    onClickCapture: handlers.onClickCapture,
-  }
+  const handlers = useLongPress(held ? undefined : onOpenMenu)
   return (
-    <li {...pinProps}>
+    <li
+      onPointerDown={handlers.onPointerDown}
+      onPointerMove={handlers.onPointerMove}
+      onPointerUp={handlers.onPointerUp}
+      onPointerLeave={handlers.onPointerLeave}
+      onPointerCancel={handlers.onPointerCancel}
+      onClickCapture={handlers.onClickCapture}
+    >
       <ListRow
-        className={`palm-drawer-row${current ? ' palm-drawer-row-current' : ''}${pinned ? ' palm-drawer-row-pinned' : ''}`}
+        className={`palm-drawer-row${current ? ' palm-drawer-row-current' : ''}${pinned ? ' palm-drawer-row-pinned' : ''}${held ? ' palm-drawer-row-held' : ''}`}
         onClick={onPick}
       >
         {pinned ? <PinGlyph /> : null}
         {children}
       </ListRow>
-      {/*
-       * 动作条（2026-11-12）：长按展开，和工作区选择器里的 `ws-actions` 同一套做法 ——
-       * 手机上不弹浮层，行内展开既不遮住下面的行，也不会被滚动手势抢走。
-       *
-       * 删除是**两步**：先点「删除」，按钮变成「确认删除？」再点一次才真的删。
-       * 这一条不可撤销（宿主是归档，手机上没法恢复），一步误触代价太大。
-       */}
-      {menuOpen ? (
-        <div className="palm-drawer-actions">
-          {onTogglePin === undefined ? null : (
-            <Button
-              role="menuitem"
-              className="palm-drawer-action"
-              onClick={() => { onTogglePin(sessionId) }}
-            >{pinned ? '取消置顶' : '置顶'}</Button>
-          )}
-          {onDelete === undefined ? null : (
-            <Button
-              role="menuitem"
-              className={`palm-drawer-action${confirmingDelete ? ' palm-drawer-action-danger' : ''}`}
-              onClick={() => { onDelete(sessionId) }}
-            >{confirmingDelete ? '确认删除？不可恢复' : '删除'}</Button>
-          )}
-        </div>
-      ) : null}
     </li>
   )
 }
@@ -219,17 +186,23 @@ export function SessionDrawer(props: SessionDrawerProps) {
   const name = props.workspace.title !== '' ? props.workspace.title : '工作区'
   const showSwitch = (props.workspaceCount ?? 1) > 1 && props.onSwitchWorkspace !== undefined
   /*
-   * 动作条状态：哪一行展开了（`menuFor`）、其中「删除」是否已进入二次确认（`confirmFor`）。
+   * 动作面板状态：哪一行的面板开着（`menuFor`）、是否已翻到删除确认页（`confirmFor`）。
    *
-   * 放在抽屉这一层而不是每行自己管：同时只该有一行展开（两行都摊着动作条，列表会跳），
-   * 而且点另一行要能关掉上一行。`confirmFor` 与 `menuFor` 分开，是为了「置顶 → 再点删除」
-   * 时不必重新走一遍长按。
+   * 放在抽屉这一层而不是每行自己管：同时只该有一块面板开着，而且关掉时要一起清干净。
+   * `confirmFor` 与 `menuFor` 分开，是因为「确认页」是同一个面板的第二页 ——
+   * 取消时退回第一页而不是整块关掉，用户不用重新长按一次。
    */
   const [menuFor, setMenuFor] = useState<string | undefined>(undefined)
   const [confirmFor, setConfirmFor] = useState<string | undefined>(undefined)
-  const openMenu = (sessionId: string): void => {
-    setMenuFor(previous => (previous === sessionId ? undefined : sessionId))
+  const closeActions = (): void => {
+    setMenuFor(undefined)
     setConfirmFor(undefined)
+  }
+  /** 长按那一行对应的会话行：面板顶部要显示它的标题和时间。 */
+  const actionRow = menuFor === undefined ? undefined : props.rows.find(row => row.sessionId === menuFor)
+  const togglePinFor = (sessionId: string): void => {
+    props.onTogglePin?.(sessionId)
+    closeActions()
   }
   const requestDelete = (sessionId: string): void => {
     if (confirmFor !== sessionId) {
@@ -237,8 +210,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
       return
     }
     props.onDelete?.(sessionId)
-    setMenuFor(undefined)
-    setConfirmFor(undefined)
+    closeActions()
   }
   return (
     <Overlay
@@ -296,15 +268,11 @@ export function SessionDrawer(props: SessionDrawerProps) {
                 return (
                   <PinnableRow
                     key={row.sessionId}
-                    sessionId={row.sessionId}
                     current={row.sessionId === props.currentSessionId}
                     pinned={props.pinnedSessions?.has(row.sessionId) === true}
+                    held={menuFor === row.sessionId}
                     onPick={() => { props.onPick(row) }}
-                    onTogglePin={props.onTogglePin}
-                    menuOpen={menuFor === row.sessionId}
-                    confirmingDelete={confirmFor === row.sessionId}
-                    onOpenMenu={() => { openMenu(row.sessionId) }}
-                    onDelete={props.onDelete === undefined ? undefined : requestDelete}
+                    onOpenMenu={() => { setMenuFor(row.sessionId); setConfirmFor(undefined) }}
                   >
                     <span className="palm-drawer-title">{row.title}</span>
                     {status === undefined ? null : <StatusStrip kind={status.kind} label={status.label} size="mini" />}
@@ -348,6 +316,24 @@ export function SessionDrawer(props: SessionDrawerProps) {
           </Button>
         </div>
       </div>
+      {/*
+       * 动作面板（2026-11-12 用户：「置顶和删除按钮太丑了」）。
+       *
+       * 自己 portal 到 body，所以放在抽屉 JSX 里的任何位置都一样 ——
+       * 放这里是为了不打断上面的列表渲染结构。
+       */}
+      {actionRow === undefined ? null : (
+        <SessionActions
+          title={actionRow.title}
+          meta={`${drawerWhenLabel(actionRow.updatedAt, now)} · ${name}`}
+          pinned={props.pinnedSessions?.has(actionRow.sessionId) === true}
+          confirming={confirmFor === actionRow.sessionId}
+          onTogglePin={() => { togglePinFor(actionRow.sessionId) }}
+          onDelete={() => { requestDelete(actionRow.sessionId) }}
+          onCancelConfirm={() => { setConfirmFor(undefined) }}
+          onClose={closeActions}
+        />
+      )}
     </Overlay>
   )
 }
