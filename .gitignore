@@ -41,3 +41,9 @@ tools/mobile-scenarios/.test-session.json
 # 视觉门禁产物（每次运行都变，CI 用 artifact 收走）
 tools/mobile-visual/reports/
 final-gates.log
+
+# 本地实机截图不入库：README / 文档引用的那批已入库，新增的验证截图只留本地
+docs/screenshots/*.png
+docs/screenshots/*.jpg
+docs/screenshots/*.jpeg
+docs/screenshots/*.webp
