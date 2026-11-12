@@ -16,9 +16,10 @@
  *   node tools/mobile-render-audit/stress-entry.mjs --running  # 只跑在跑会话（自己起一个长回合）
  */
 import pw from 'file:///C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright/index.js'
+import { PAIR_DEVICE_ID } from '../lib/pair-cookie.mjs'
 
 const BASE = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
-const PAIR = process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const WS = process.env.PALM_WORKSPACE ?? '469ac44d-a832-4cae-8511-75796e59852d'
 const RUNNING_SESSION = process.env.PALM_SESSION ?? 'session-3dac00f8-00b1-472f-9820-c1ac96c60c9c'
 const FRAMES = Number(process.env.PALM_STRESS_FRAMES ?? 40)

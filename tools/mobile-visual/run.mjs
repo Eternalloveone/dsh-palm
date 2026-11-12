@@ -13,6 +13,7 @@
  * 阈值按"有明显差异的像素占比"算（默认 1.5%），字体抗锯齿不会被判红。
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { PAIR_DEVICE_ID } from '../lib/pair-cookie.mjs'
 import { BASE, WORKSPACE, chatUrl, pw, pressAndWait, rpc } from '../mobile-scenarios/lib/env.mjs'
 
 const BASELINE_DIR = new URL('./baseline/', import.meta.url)
@@ -214,7 +215,7 @@ const browser = await pw.chromium.launch({ channel: 'chrome', headless: !headed 
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
 await context.addCookies([{
   name: 'dsh_pair',
-  value: process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355',
+  value: PAIR_DEVICE_ID,
   domain: '127.0.0.1',
   path: '/',
 }])

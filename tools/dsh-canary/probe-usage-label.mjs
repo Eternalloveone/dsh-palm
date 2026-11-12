@@ -1,6 +1,7 @@
+import { PAIR_COOKIE } from '../lib/pair-cookie.mjs'
 /** 重启后验证用量标签：应当只有「累计已用」，不再有「（自开户）」。 */
 const BASE = 'http://127.0.0.1:3080'
-const PAIR = 'dsh_pair=edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_COOKIE
 
 async function call(method, payload = {}) {
   const res = await fetch(`${BASE}/m/api/${method}`, {

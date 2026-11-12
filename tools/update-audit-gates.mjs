@@ -26,7 +26,7 @@ text = text.replace(
 | 项 | 值 |
 |---|---|
 | 宿主 | \`http://127.0.0.1:3080\`（\`PALM_BASE\`）|
-| 配对 cookie | \`dsh_pair=edb0f18…\`（登记在 \`~/.dsh/dsh-palm-devices.json\`，标 \`primary\`）|
+| 配对 cookie | \`dsh_pair=<PALM_PAIR>\`（登记在 \`~/.dsh/dsh-palm-devices.json\`，标 \`primary\`）|
 | Playwright | \`C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright\`（\`PALM_PLAYWRIGHT\`）|
 
 没有 cookie 时 \`/m/\` 会停在「设备配对」页——这正是最初误判"环境不可用"的原因：

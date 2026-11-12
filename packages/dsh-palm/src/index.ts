@@ -385,7 +385,7 @@ function applyImpl(ctx: Context, config?: Config): void {
     return { store, engine }
   })()
   const routes = [
-    ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan, update }),
+    ...makeRoutes({ service, lanAddresses, requirePairingForLan: () => resolve().requirePairingForLan, update, onDeviceRevoked: (deviceId) => { notify.store.removeSubscription(deviceId) } }),
     ...makeMobileRoutes(),
     ...(() => {
         const pendingTracker = new PendingTracker((notice) => { notify.engine.notifyDecision(notice) })
@@ -431,6 +431,9 @@ function applyImpl(ctx: Context, config?: Config): void {
               watch.signal,
             )
             for await (const frame of frames) {
+              // 停用后这条后台流不该再产生任何副作用（队列镜像、预览、推送）。
+              // 路由已经撤掉、引擎也 stop 了；这里再守一道，避免停用后仍记账。
+              if (!resolve().enabled) continue
               pendingTracker.onFrame(frame)
               chatWindows.onFrame(frame)
               previews.onFrame(frame)
@@ -446,8 +449,13 @@ function applyImpl(ctx: Context, config?: Config): void {
             // The stream ended or was aborted; the watch is best-effort.
           }
         })()
+        // 插件卸载/重载时停掉后台订阅。旧实现 controller 永不 abort：
+        // 重挂一次就多一路 mux，且 sqlite/预览缓存跟着泄漏。
+        ctx.effect(() => () => watch.abort(), 'dsh-palm: background watch')
         return makeMobileApiRoutes({
           service,
+          // 停用状态直接传给 API 层：构造时那次"索引立即开跑"要能看见它。
+          enabled: () => resolve().enabled,
           apiProxy,
           observers,
           diagnostics,

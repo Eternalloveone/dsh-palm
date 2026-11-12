@@ -12,8 +12,9 @@
  * @module dsh-palm/mobile/api/mobile-file-handlers
  */
 import type { ServerResponse } from 'node:http'
-import { basename } from 'node:path'
-import { readFile as fsReadFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, resolve, sep } from 'node:path'
+import { readFile as fsReadFile, realpath, stat } from 'node:fs/promises'
 import { writeJson } from '../../http.ts'
 import {
   IMAGE_MIME,
@@ -30,6 +31,31 @@ export interface ReadFileContext {
   rpcId: string
   deps: { chatWindows?: unknown }
   apiProxy: unknown
+}
+
+/**
+ * 宿主凭据/私钥的兜底黑名单（纵深防御，不是信任线）。
+ *
+ * 配对设备本来就是"完整宿主信任"，可以读工作区与会话里的任意文件；但
+ * 2026-11-11 的泄露事件说明 cookie 一旦外流，`~/.ssh/id_rsa` 与
+ * `~/.dsh/dsh-palm-notify.json`（VAPID 私钥 + 渠道 token）是最有价值的
+ * 第一批目标。这几类路径直接拒绝，其余照旧。
+ *
+ * @param target - 已解析的绝对路径。
+ * @returns 是否属于宿主私密路径。
+ */
+function isPrivateHostPath(target: string): boolean {
+  const home = resolve(homedir())
+  const abs = resolve(target)
+  if (abs !== home && !abs.startsWith(home + sep)) return false
+  const rel = abs.slice(home.length + 1).split(sep).join('/')
+  if (rel.startsWith('.ssh/') || rel.startsWith('.gnupg/') || rel.startsWith('.aws/')) return true
+  if (rel.startsWith('.config/gcloud/') || rel.startsWith('.config/gh/')) return true
+  if (rel.startsWith('.dsh/')) {
+    const name = rel.slice('.dsh/'.length)
+    return /^dsh-palm-(notify|devices|search|perf|errors)[-.]/.test(name)
+  }
+  return false
 }
 
 /** 读一个文件做预览：图片回 dataUrl，文本回文本，其余一律拒绝。 */
@@ -67,7 +93,18 @@ export async function mobileReadFile(ctx: ReadFileContext): Promise<void> {
       writeJson(res, 200, {
         type: 'server-response',
         rpcId,
-        result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
+        result: { ok: false, error: { code: 'file-unreadable', message: '宿主上找不到这个文件' } },
+      })
+      return
+    }
+    // 符号链接也要按真实路径判：`chat/notes.txt -> ~/.ssh/id_rsa` 不能绕过。
+    let real = target
+    try { real = await realpath(target) } catch { /* 保留原路径，交给下面的读失败 */ }
+    if (isPrivateHostPath(real)) {
+      writeJson(res, 200, {
+        type: 'server-response',
+        rpcId,
+        result: { ok: false, error: { code: 'file-unreadable', message: '这个文件不对手机开放' } },
       })
       return
     }
@@ -118,7 +155,7 @@ export async function mobileReadFile(ctx: ReadFileContext): Promise<void> {
     writeJson(res, 200, {
       type: 'server-response',
       rpcId,
-      result: { ok: false, error: { code: 'file-unreadable', message: '文件不可读' } },
+      result: { ok: false, error: { code: 'file-unreadable', message: '文件读不进来' } },
     })
   }
 }

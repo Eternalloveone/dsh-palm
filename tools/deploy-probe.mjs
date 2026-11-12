@@ -1,8 +1,9 @@
 import { join } from 'node:path'
+import { PAIR_DEVICE_ID } from './lib/pair-cookie.mjs'
 
 const PLAYWRIGHT = process.env['PALM_PLAYWRIGHT'] ?? 'file:///C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright/index.js'
 const BASE = process.env['PALM_BASE'] ?? 'http://127.0.0.1:3080'
-const PAIR = process.env['PALM_PAIR'] ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const OUT = join(import.meta.dirname, '..', '.tmp-visual')
 
 const { chromium } = (await import(PLAYWRIGHT)).default

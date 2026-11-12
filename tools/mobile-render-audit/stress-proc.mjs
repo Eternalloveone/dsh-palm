@@ -12,9 +12,10 @@
  * 用法：node tools/mobile-render-audit/stress-proc.mjs
  */
 import pw from 'file:///C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright/index.js'
+import { PAIR_DEVICE_ID } from '../lib/pair-cookie.mjs'
 
 const BASE = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
-const PAIR = process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const WS = process.env.PALM_WORKSPACE ?? '469ac44d-a832-4cae-8511-75796e59852d'
 const ENTRIES = Number(process.env.PALM_PROC_ENTRIES ?? 10)
 const FRAMES = Number(process.env.PALM_PROC_FRAMES ?? 40)

@@ -82,6 +82,12 @@ function browserSource(url: string): EventSourceLike {
 type SessionEventFrame = Extract<MuxFrame, { type: 'session/event' }>
 
 const DEFAULT_POLL_INTERVAL_MS = 3000
+/**
+ * 单次兜底轮询的超时上限。底层 `session/history` 默认 180s 才放弃；没有这层
+ * 看门狗时，一个半死连接会让 `polling` 一直为 true、下一次轮询永远排不上，
+ * 实时兜底最长冻结 3 分钟（2026-11-11 审计 P1）。
+ */
+const POLL_TIMEOUT_MS = 10_000
 const DEFAULT_STALL_THRESHOLD_MS = 12000
 const LIVE_SSE_STALL_MULTIPLIER = 3
 const MAX_POLL_BACKOFF_MS = 60000
@@ -512,6 +518,26 @@ export class MuxClient {
   }
 
   /**
+   * 单次兜底轮询的看门狗：底层 `session/history` 默认 180s 才放弃，半死连接
+   * 会让下一次轮询永远排不上。超时按失败处理（走退避、下一拍重试），迟到的
+   * 结果由 Promise.race 丢弃，不会覆盖更新的数据。
+   *
+   * @param promise - 一次历史页请求。
+   * @returns 请求结果，或超时抛错。
+   */
+  private async withPollTimeout<T>(promise: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => { reject(new Error('poll timeout')) }, POLL_TIMEOUT_MS)
+    })
+    try {
+      return await Promise.race([promise, timeout])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
+  /**
    * Fetch the latest history page(s) for the observed session and re-emit any
    * event above the per-session watermark as a `session/event` frame.
    * Idempotent by seq: listeners (and the fold) never see a duplicate.
@@ -574,9 +600,11 @@ export class MuxClient {
           pending.length = 0
           break
         }
-        const page: HistoryPage = beforeSeq === undefined
-          ? await this.pollLatest(sessionId)
-          : await this.pollLatest(sessionId, beforeSeq)
+        const page: HistoryPage = await this.withPollTimeout(
+          beforeSeq === undefined
+            ? this.pollLatest(sessionId)
+            : this.pollLatest(sessionId, beforeSeq),
+        )
         const ordered = [...page.events].sort((left, right) => seqOf(left) - seqOf(right))
         let pageEmitted = 0
         for (const entry of ordered) {

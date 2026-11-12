@@ -10,9 +10,10 @@
  * 用法：node tools/mobile-render-audit/run.mjs [--json]
  */
 import pw from 'file:///C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright/index.js'
+import { PAIR_DEVICE_ID } from '../lib/pair-cookie.mjs'
 
 const BASE = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
-const PAIR = process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const WS = process.env.PALM_WORKSPACE ?? '469ac44d-a832-4cae-8511-75796e59852d'
 const SESSION = process.env.PALM_SESSION ?? 'session-628d1093-aa42-4142-bac7-3102e2419ef4'
 const JSON_OUT = process.argv.includes('--json')

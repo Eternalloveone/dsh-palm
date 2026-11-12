@@ -7,12 +7,13 @@
  *   这样 DSH 升级、pnpm 依赖变动都不会弄坏它。
  * - **可分组**：一个用例一个 group，`--groups=entry,scroll` 只跑关心的一部分。
  */
+import { PAIR_DEVICE_ID } from '../../lib/pair-cookie.mjs'
 
 /** 本机宿主的手机端入口。 */
 export const DEFAULT_BASE = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
 
 /** 配对 cookie（手机端用 dsh_pair 认定已配对设备）。 */
-export const DEFAULT_PAIR = process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355'
+export const DEFAULT_PAIR = PAIR_DEVICE_ID
 
 /** Playwright 从技能目录里取（本机已有，不额外装包）。 */
 export const PLAYWRIGHT_ENTRY =

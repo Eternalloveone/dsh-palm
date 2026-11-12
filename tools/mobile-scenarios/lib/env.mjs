@@ -1,9 +1,10 @@
 /**
  * 场景压测的公共环境：宿主地址、配对 cookie、RPC、浏览器启动。
  */
+import { PAIR_DEVICE_ID } from '../../lib/pair-cookie.mjs'
 
 export const BASE = process.env.PALM_BASE ?? 'http://127.0.0.1:3080'
-export const PAIR = process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355'
+export const PAIR = PAIR_DEVICE_ID
 export const WORKSPACE = process.env.PALM_WORKSPACE ?? '469ac44d-a832-4cae-8511-75796e59852d'
 const PLAYWRIGHT = process.env.PALM_PLAYWRIGHT
   ?? 'file:///C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright/index.js'

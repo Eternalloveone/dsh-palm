@@ -18,6 +18,7 @@
  * 注意：这是**开发工具**，不参与打包、不发布、不进 `files`。
  */
 import { createHash } from 'node:crypto'
+import { PAIR_DEVICE_ID } from '../lib/pair-cookie.mjs'
 import { readFileSync, existsSync } from 'node:fs'
 import { createServer, request as httpRequest } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
@@ -30,7 +31,7 @@ const ASSETS = join(PKG, 'assets')
 
 const PORT = Number(process.env.PALM_PREVIEW_PORT ?? 3099)
 const HOST = new URL(process.env.PALM_HOST ?? 'http://127.0.0.1:3080')
-const PAIR = process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 
 /** 与 mobile-routes.ts 保持一致的 CSP（含 W1-8 的收紧）。 */
 const CSP = [

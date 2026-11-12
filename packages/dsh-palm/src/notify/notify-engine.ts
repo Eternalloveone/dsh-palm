@@ -328,6 +328,10 @@ export class NotifyEngine {
 
   /** Fan out to every delivery listener; a failing listener never breaks the engine. */
   private emit(event: NotifyEvent): void {
+    // 停用（enabled=false）或插件卸载后 stop() 已把 controller 清空；此时
+    // pendingTracker 的后台 watch 仍可能在跑，旧实现会把审批/提问继续推到
+    // 已停用的插件（甚至已经撤销配对的手机）。停用就该真停。
+    if (this.controller === undefined) return
     // Lock-screen privacy: one decision, applied before any channel sees the
     // event — L1 (in-app), L2 (Web Push) and L3 (Server酱/Bark/Telegram/
     // WxPusher) all deliver the same redacted copy, and the phone inbox too.

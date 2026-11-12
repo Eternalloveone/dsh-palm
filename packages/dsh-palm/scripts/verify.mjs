@@ -59,13 +59,13 @@ const HYGIENE_EXCLUDES = [
 ]
 
 const PROFILES = {
-  ci: ['install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint'],
-  push: ['hygiene', 'secrets', 'tests', 'commitlint'],
+  ci: ['install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint'],
+  push: ['hygiene', 'secrets', 'budget', 'tests', 'commitlint'],
   // 发版闸门：CI 那套 + 用户旅程级的场景压测。
   // 场景需要一台**正在跑的宿主**（默认 127.0.0.1:3080）；宿主不在时这一步会
   // 自己跳过并说明原因，不会把"没开宿主"误判成"代码坏了"。
   release: [
-    'install', 'build', 'coverage', 'typecheck', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
+    'install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
     // 真机相关的六层（都需要一台在跑的宿主；不在就各自跳过）
     'model', 'scenarios', 'render', 'stress', 'acceptance',
     // 性能预算与视觉回归（2026-11-01 新增：前者管"顺不顺"，后者管"看着对不对"）
@@ -95,6 +95,12 @@ const STEPS = {
   typecheck: {
     title: 'typecheck',
     run: () => run('pnpm typecheck', packageDir),
+  },
+  budget: {
+    // 行数棘轮（tools/budget.json）：2026-11-11 前它只活在一个从不失败的
+    // PowerShell 脚本里，12 项超限没人拦。现在进 ci/push/release 三条链路。
+    title: 'line budgets (tools/budget.json)',
+    run: () => run('node tools/check-budget.mjs', rootDir),
   },
   audit: {
     title: 'audit (production deps)',

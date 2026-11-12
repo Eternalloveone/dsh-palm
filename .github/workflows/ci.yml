@@ -31,14 +31,16 @@ jobs:
         with:
           configFile: commitlint.config.mjs
           failOnErrors: true
-      - name: Build, coverage gate, typecheck, audit
+      - name: Build, coverage gate, typecheck, budgets, audit
         working-directory: packages/dsh-palm
         # One step, one implementation: `pnpm verify` is the same gate the
         # maintainer runs before a commit (packages/dsh-palm/scripts/verify.mjs),
         # so the local check and the runner cannot drift apart. Coverage
         # thresholds live in vitest.config.ts; the audit covers the runtime
-        # tree of the root lockfile (dev tooling excluded).
-        run: pnpm verify --only build,coverage,typecheck,audit
+        # tree of the root lockfile (dev tooling excluded). `budget` is the
+        # line-count ratchet (tools/budget.json) — it used to live only in a
+        # PowerShell script that never failed.
+        run: pnpm verify --only build,coverage,typecheck,budget,audit
       - name: Package content check
         working-directory: packages/dsh-palm
         # Runs here, after the build, because the entry-target assertion needs

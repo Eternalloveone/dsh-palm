@@ -56,10 +56,32 @@ export function hostnameOf(request: IncomingMessage): string | undefined {
   }
 }
 
+/**
+ * Headers a reverse proxy / tunnel adds. Their presence proves the socket peer
+ * is a proxy (or an upstream client), not the desktop browser itself.
+ *
+ * 2026-11-11：同机反代（nginx `proxy_set_header Host 127.0.0.1`）或 TCP 隧道
+ * （frp）都会让 `socket.remoteAddress` 变成 127.0.0.1；只看 Host+socket 会把
+ * 公网请求误判成桌面，从而免掉 cookie。看到转发头就回落到配对校验。
+ */
+const FORWARDING_HEADERS = [
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-real-ip',
+  'forwarded',
+  'cf-connecting-ip',
+  'true-client-ip',
+  'x-client-ip',
+] as const
+
 /** Whether a request comes from the desktop loopback client (loopback socket AND loopback Host). */
 export function isLoopbackClient(request: IncomingMessage): boolean {
   const hostname = hostnameOf(request)
   if (hostname === undefined || !isLoopbackHostname(hostname)) return false
+  for (const name of FORWARDING_HEADERS) {
+    if (request.headers[name] !== undefined) return false
+  }
   const socket = request.socket as { remoteAddress?: string } | undefined
   return isLoopbackAddress(socket?.remoteAddress)
 }

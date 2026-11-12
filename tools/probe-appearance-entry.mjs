@@ -1,8 +1,9 @@
 import { join } from 'node:path'
+import { PAIR_DEVICE_ID } from './lib/pair-cookie.mjs'
 import { listUrl, pw } from './mobile-scenarios/lib/env.mjs'
 
 const BASE = 'http://127.0.0.1:3080'
-const PAIR = process.env['PALM_PAIR'] ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const OUT = join(import.meta.dirname, '..', '.tmp-visual')
 
 const browser = await pw.chromium.launch({ channel: 'chrome', headless: true })

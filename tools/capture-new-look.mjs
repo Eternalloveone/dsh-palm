@@ -1,8 +1,9 @@
 import { mkdir } from 'node:fs/promises'
+import { PAIR_DEVICE_ID } from './lib/pair-cookie.mjs'
 import { join } from 'node:path'
 import { chatUrl, listUrl, pw, rpc, WORKSPACE } from './mobile-scenarios/lib/env.mjs'
 
-const PAIR = process.env['PALM_PAIR'] ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const OUT = join(import.meta.dirname, '..', 'docs', 'screenshots', 'new-look')
 await mkdir(OUT, { recursive: true })
 

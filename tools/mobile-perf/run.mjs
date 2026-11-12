@@ -17,6 +17,7 @@
  * 预算是**上限**，超了算不合格；预算写在 tools/mobile-perf/budget.json。
  */
 import { readFile, writeFile } from 'node:fs/promises'
+import { PAIR_DEVICE_ID } from '../lib/pair-cookie.mjs'
 import { BASE, WORKSPACE, chatUrl, pw, rpc } from '../mobile-scenarios/lib/env.mjs'
 
 const BUDGET_FILE = new URL('./budget.json', import.meta.url)
@@ -62,7 +63,7 @@ const cookies = process.env.PALM_PAIR === undefined ? [] : []
 void cookies
 await context.addCookies([{
   name: 'dsh_pair',
-  value: process.env.PALM_PAIR ?? 'edb0f18289ef966fa2c1bad84cfed355',
+  value: PAIR_DEVICE_ID,
   domain: '127.0.0.1',
   path: '/',
 }])

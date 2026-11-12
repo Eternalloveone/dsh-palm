@@ -228,6 +228,11 @@ export interface PairRoutesDeps {
    * then answer 503 instead of pretending the feature exists.
    */
   update?: UpdateCoordinator
+  /**
+   * 设备被撤销后的清理钩子。2026-11-11：撤销配对必须同时删掉这台设备的
+   * Web Push 订阅，否则被撤销/丢失的手机仍会收到审批卡与会话标题。
+   */
+  onDeviceRevoked?: (deviceId: string) => void
 }
 
 /**
@@ -436,6 +441,8 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       writeJson(res, 404, { ok: false, code: 'unknown-device' })
       return
     }
+    // 订阅跟着设备一起走：撤销后还继续推送 = 把审批内容发给已失去权限的手机。
+    deps.onDeviceRevoked?.(payload.deviceId)
     writeJson(res, 200, { ok: true })
   }
 

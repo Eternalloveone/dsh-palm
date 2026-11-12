@@ -3,8 +3,9 @@
  * 只读，不改任何状态（不点任何会写的东西）。
  */
 import { chatUrl, listUrl, pw, rpc } from './mobile-scenarios/lib/env.mjs'
+import { PAIR_DEVICE_ID } from './lib/pair-cookie.mjs'
 
-const PAIR = process.env['PALM_PAIR'] ?? 'edb0f18289ef966fa2c1bad84cfed355'
+const PAIR = PAIR_DEVICE_ID
 const WORKSPACE = process.env['PALM_WORKSPACE'] ?? '469ac44d-a832-4cae-8511-75796e59852d'
 
 const list = (await rpc('session.list', { workspaceId: WORKSPACE }))?.value?.items ?? []
