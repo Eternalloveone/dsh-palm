@@ -120,6 +120,7 @@ import {
 import { perfMark } from '../platform/perf.ts'
 import { answeredQuestionsFor, noteAnsweredQuestion } from '../session/question-batches.ts'
 import { answeredApprovalsFor, noteAnsweredApproval } from '../session/approval-batches.ts'
+import { collectDeliveries, latestDeliveryOf, mergeDeliveries, type DeliveryRecord } from '../session/deliveries.ts'
 
 /**
  * 最新一轮的起点，按可信度从高到低取：
@@ -366,6 +367,79 @@ function ChatSessionView({
   })
   const messages = chatSession.rows
   /**
+   * 交付账本（见 `session/deliveries.ts`）：以 **turn 号**为身份、**只追加不回退**。
+   *
+   * 卡以前是每次渲染从 rows 现折的（chat-rows 里的 `changesByTurn`）—— 行被合并、
+   * 重排、整份替换时那份折叠结果跟着变，于是卡一闪一闪、有时候干脆消失。现在账本
+   * 独立于行：新轮次追加，同一轮只在"新的更全"时替换，旧值永不回退。
+   *
+   * 渲染期就地合并（不是 state + effect）：卡必须和正文同一次提交落地，否则又留下
+   * 一帧「先正文、后卡片」的闪；也免得为一份派生数据把 4000 行的组件体再跑一遍。
+   */
+  const deliveriesRef = useSessionRef<DeliveryRecord[]>(session.sessionId, [])
+  const deliveries = useMemo(() => {
+    if (messages.length === 0) return deliveriesRef.current
+    const merged = mergeDeliveries(deliveriesRef.current, collectDeliveries(messages))
+    deliveriesRef.current = merged
+    return merged
+  }, [messages, deliveriesRef])
+  /** 账本里最新一条"值得看"的交付；卡只认它，行怎么重排都不影响。 */
+  const delivery = latestDeliveryOf(deliveries)
+  /**
+   * 实机逐帧诊断（2026-11-13 第二版）：150ms 一帧，10 秒一次上传。
+   *
+   * 带上 bundle 文件名（证明手机上跑的是哪一版）+ 骨架/空态标记 + 视口高度；
+   * 用来回答"进入会话的头两秒屏幕上到底是什么"，而不是靠桌面浏览器推演。
+   */
+  useEffect(() => {
+    const frames: Array<Record<string, unknown>> = []
+    const started = performance.now()
+    // ChatView 是动态 import 的 chunk，不在 <script src> 里：改查 resource timing。
+    const bundle = (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
+      .map(entry => entry.name)
+      .find(name => name.includes('ChatView-')) ?? ''
+    const timer = window.setInterval(() => {
+      const scroll = document.querySelector('.chat-scroll')
+      frames.push({
+        t: Math.round(performance.now() - started),
+        rows: document.querySelectorAll('.chat-scroll > *').length,
+        cards: document.querySelectorAll('.chat-turn-tail').length,
+        bodies: document.querySelectorAll('.chat-md-body').length,
+        skeleton: document.querySelector('[data-skeleton]') !== null,
+        typing: document.querySelector('.chat-typing') !== null,
+        h: scroll === null ? 0 : scroll.scrollHeight,
+        top: scroll === null ? 0 : Math.round(scroll.scrollTop),
+        vh: scroll === null ? 0 : scroll.clientHeight,
+      })
+    }, 150)
+    const stop = window.setTimeout(() => {
+      window.clearInterval(timer)
+      if (frames.length === 0) return
+      void reportPerf({
+        stamps: [{ at: Date.now(), label: 'entry-trace-v2' }],
+        diagnostic: 'entry-trace-v2',
+        sessionId: session.sessionId,
+        bundle,
+        frames,
+      }, 'entry-trace-v2').catch(() => undefined)
+    }, 10_000)
+    return () => { window.clearInterval(timer); window.clearTimeout(stop) }
+  }, [session.sessionId])
+
+
+  /**
+   * 这个会话"有没有消息"的证据。
+   *
+   * 只有**提交过行**（或宿主明确答"0 行"）之后才有资格下"空会话"的结论；
+   * 在那之前 rows 为空只说明"还没到"，不是"没有"。
+   *
+   * 为什么不用 loading：实测 phase 比 rows 早 200~480ms 落定，用它当判据就会
+   * 在那个窗口画出「还没有消息」。为什么不用 blank/turns：真机上不可靠
+   * （session.turns 实测是 0，新建会话与"刚打开还没读"分不开）。
+   */
+  const [entryAnswered, setEntryAnswered] = useSessionState(session.sessionId, false)
+
+  /**
    * 流式路径的 9 个字段收成一个对象（S7a-3a/3b）：换会话时整体 reset，
    * 不再逐字段手工清 —— 漏一个就是跨会话串帧。
    */
@@ -395,6 +469,9 @@ function ChatSessionView({
   }
 
   const applyMessages = (rows: RenderMessage[], options: { allowGuessedTails?: boolean } = {}): void => {
+    // 有行就置位：断言"提交过行"与"这些行"在同一次 React 更新里，
+    // 所以不会出现"已判空、行还在路上"的中间帧。
+    if (rows.length > 0) setEntryAnswered(true)
     // 存**宿主那一页原始行**（不是渲染后的行）：两套 id 体系一致，恢复后再合并
     // 不会重复。曾经存渲染行，结果长会话二次进入时同一轮被画两遍（13 处重复 id）。
     saveChatCache(session.sessionId, rows as unknown as CachedRow[])
@@ -456,10 +533,21 @@ function ChatSessionView({
       commitRows,
       applyRows: applyMessages,
     }),
-    onLoading: (loading) => { setLoading(loading) },
+    // `olderLoading` 只驱动"加载更早"的按钮文案。
+    // `setLoading` 是"整页装载"的既有信号，hydrated（状态条/交付卡的结论资格）依赖它 ——
+    // 但**只在屏幕上已经有行时**才让它落定：首屏为了"一次成型"会等铺开链，
+    // 这期间翻页收尾若把 phase 判成 ready，就会画一帧「还没有消息」。
+    // 真机探针实证：phase=ready 且 rows=0 的那一帧（1919ms）就是它。
+    onLoading: (loading) => {
+      setOlderLoading(loading)
+      if (!loading && messagesRef.current.length === 0) return
+      setLoading(loading)
+    },
     onError: (reason) => { setError(errorText(reason)) },
   })
   const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, captureSessionGuard, markFollowAfterPrepend, recallSnapshot } = pager
+  /** 正在翻更早的页：只驱动按钮文案，不参与"整页装没装完"的判断。 */
+  const [olderLoading, setOlderLoading] = useState(false)
   // 每次列表变了就把"这一场当前画的样子"记进内存快照，供下次进会话第一帧直接铺。
   useEffect(() => {
     rememberChatSnapshot(session.sessionId, messages, hasOlder)
@@ -484,6 +572,7 @@ function ChatSessionView({
   const error = chat.state.notice
   const { setError } = chat
   const setLoading = chat.setLoading
+
   // Toast 的站位：输入栏 + HUD + 键盘的实际高度写进 --toast-lift，
   // 否则排队条一出现，固定 104px 的 toast 就会盖住「撤回」（真机截图）。
   useToastLift()
@@ -513,7 +602,7 @@ function ChatSessionView({
    */
   const shadowStatusRef = useSessionRef<SessionStatus>(session.sessionId, createSessionStatus)
   /** 三根条「该显示什么」的唯一来源（来自 `session-status.ts` 的 `describeBars`）。 */
-  const [bars, setBars] = useSessionState<BarsView>(session.sessionId, () => describeBars(createSessionStatus(), Date.now()))
+  const [bars, setBars] = useSessionState<BarsView>(session.sessionId, () => describeBars(createSessionStatus(), Date.now()), { snapshotKey: 'bars' })
   const barsSignatureRef = useSessionRef(session.sessionId, '')
   const shadowEvent = useCallback((event: StatusEvent): void => {
     shadowStatusRef.current = sessionStatusReducer(shadowStatusRef.current, event)
@@ -528,7 +617,7 @@ function ChatSessionView({
 
   messagesRef.current = messages
   /** The session's permission select (absent = capability not composed). */
-  const [permissions, setPermissions] = useSessionState<PermissionSelectValue | undefined>(session.sessionId, undefined)
+  const [permissions, setPermissions] = useSessionState<PermissionSelectValue | undefined>(session.sessionId, undefined, { snapshotKey: 'permissions' })
   /** Host context-pressure projection (token-meter): the authoritative
    *  per-session occupancy source. Fed by the history baseline and live
    *  session/projection frames; `undefined` until the first data lands. */
@@ -606,7 +695,7 @@ function ChatSessionView({
    * 当前目标（桌面端 composer 上方那条 goal 指示条的复刻）。
    * undefined = 还没读到；null = 没有目标 / 已完成 —— 两种情况都不渲染条子。
    */
-  const [goal, setGoal] = useSessionState<MobileGoal | null | undefined>(session.sessionId, undefined)
+  const [goal, setGoal] = useSessionState<MobileGoal | null | undefined>(session.sessionId, undefined, { snapshotKey: 'goal' })
   /** 目标命令在途中：四个按钮同时置灰，避免连点发出两条 /goal。 */
 
   /**
@@ -626,7 +715,7 @@ function ChatSessionView({
   const adoptTodoRef = useRef<(next: TodoSnapshot) => void>(() => {})
 
   /** 计划条（todo/write 快照）：流 hook 的待办归一化要在构造时就拿到 setter。 */
-  const [todo, setTodo] = useSessionState<TodoSnapshot | undefined>(session.sessionId, undefined)
+  const [todo, setTodo] = useSessionState<TodoSnapshot | undefined>(session.sessionId, undefined, { snapshotKey: 'todo' })
   const { applyGoal, refreshGoal, adoptTodo, adoptTodoLatest } = useChatGoal({
     sessionId: session.sessionId,
     mountedRef,
@@ -764,7 +853,7 @@ function ChatSessionView({
    * snapshot. Cleared on turn/start (the host clears the projection there). */
   /** Foreground subagents for this session (the flat live delegation list).
    * Built from `subagents.list` and overlaid with host/session-status flips. */
-  const [subagents, setSubagents] = useSessionState<SubagentFlatNode[]>(session.sessionId, [])
+  const [subagents, setSubagents] = useSessionState<SubagentFlatNode[]>(session.sessionId, [], { snapshotKey: 'subagents' })
   /** Whether the run-status bottom sheet (subagents + todo plan + background jobs) is up. */
   /**
    * 待批审批 / 待答问题（W3-2 第二步）：事实在 `runtime/chat/pending-store.ts`。
@@ -803,7 +892,7 @@ function ChatSessionView({
   useChatEscape({ ui: uiState, setters: uiSetters })
   /** The host `turnOutline` projection raw value (parsed into the merged
    *  list below). Absent until the tail projection baseline lands. */
-  const [turnOutlineRaw, setTurnOutlineRaw] = useSessionState<unknown>(session.sessionId, undefined)
+  const [turnOutlineRaw, setTurnOutlineRaw] = useSessionState<unknown>(session.sessionId, undefined, { snapshotKey: 'turnOutline' })
   /** Merged host outline + locally-loaded turns, sorted by turn ascending. */
   const turnEntries = useMemo(
     () => mergeTurnEntries(parseTurnOutline(turnOutlineRaw), localTurnEntries(messages)),
@@ -1020,6 +1109,11 @@ function ChatSessionView({
       // （可用性优先）。网络页到了照旧合并，不会更差。
       window.setTimeout(() => {
         if (cancelled || networkLanded) return
+        // 半页里只有交付卡、没有一行正文时不画：那是"先说结果、正文随后才来"的
+        // 最刺眼形态，宁可多转一会儿骨架（网络页带着正文一起到）。
+        // 正文不到 3 行就当它是"半页"：画出来就是"先一张交付卡、正文随后才到"
+        // （手机 PWA 上的原话）。网络页会一次给全，这 1 秒里没必要先画半份。
+        if (cached.rows.filter(row => row.kind !== 'turn').length < 3) return
         paintCache(cached)
       }, SLOW_NETWORK_CACHE_MS)
     })
@@ -1079,7 +1173,20 @@ function ChatSessionView({
         // 先显示 `·memory`、随后被真卡改成 `PS1restart-dsh`，看着像卡片被改来改去）。
         // 真卡的 turn/end 与 cardRecovery 从日志读到；没有真卡的回合宁可先不显示卡片，
         // 也不要在用户眼前改一次。
-        applyMessages(foldedRows, { allowGuessedTails: false })
+        // 首屏快照带着目标一起回来：与正文同一 tick 落地，不用等 mobile.goal 那一次。
+        // 老宿主没有这份字段（undefined），交给 use-chat-goal 的开场刷新兜底。
+        if (page.goal !== undefined) applyGoal(page.goal, page.goalActivation)
+        // 还有更早的页要铺开时**先不提交**：尾页常常只有一两轮（一张卡 + 几行正文），
+        // 先画它再一页页补满，用户看到的就是「先进来一张交付卡，正文随后长出来」。
+        // 条件与下面的 auto-extend 完全一致：要么一次画满，要么立刻画尾页，不留半屏。
+        const locatePending = initialFocusSeq !== undefined || initialFocusMessageId !== undefined
+        // 宿主答了但一行都没有：这才是"真空会话"的证据。
+        if (page.rows.length === 0) setEntryAnswered(true)
+        const willAutoExtend = page.hasMore && !stream.autoExtended && !locatePending
+        if (!willAutoExtend) {
+          applyMessages(foldedRows, { allowGuessedTails: false })
+          setLoading(false)
+        }
         // 把**首屏完整这一份**（含交付卡）写进缓存。
         //
         // 以前缓存里存的是 host 尾页那一小份（29 行、3 张卡），于是再次进入先画 29 行、
@@ -1106,8 +1213,7 @@ function ChatSessionView({
         // 一次），进会话连着跳好几下 —— 真机「一进会话就闪烁几下」。现在先把页
         // 拉完，攒成一份再画一次；中途失败就停在已经拿到的那部分。
         // 带搜索定位打开时不铺开：定位自己会一跳到位（beforeSeq 直指目标页）。
-        const locatePending = initialFocusSeq !== undefined || initialFocusMessageId !== undefined
-        if (page.hasMore && !stream.autoExtended && !locatePending) {
+        if (willAutoExtend) {
           stream.autoExtended = true
           void (async (): Promise<void> => {
             const holder = stream.folder
@@ -1137,7 +1243,9 @@ function ChatSessionView({
               loaded = holder.snapshot().length + older.length
               hasMore = olderPage.hasMore
             }
-            if (cancelled || older.length === 0) {
+            if (older.length === 0) {
+              // 一页都没补到（弱网 / 本来就没有更早的）：把尾页交出去，别让骨架一直转。
+              if (!cancelled) applyMessages(holder.snapshot())
               setLoading(false)
               return
             }
@@ -1146,9 +1254,11 @@ function ChatSessionView({
             markFollowAfterPrepend()
             applyMessages(holder.snapshot())
             setHasOlder(hasMore)
+            setLoading(false)
           })()
         }
-        setLoading(false)
+        // loading 的落定交给真正提交行的那一方（上面两个分支），这里只管非铺开路径。
+        if (!willAutoExtend) setLoading(false)
         // 回合锚点与「被打断」判定归 use-chat-stream（S7a-4）：它只写回合状态，
         // 不碰这一页的视图状态。
         noteTailPageAnchor({
@@ -1197,6 +1307,9 @@ function ChatSessionView({
           applyMessages(folder === undefined ? foldEvents(buffered) : folder.fold(buffered))
         }
         setError(errorText(reason))
+        // "宿主答不了"也是一种回答：置位后让空态/错误文案能显示出来，
+        // 否则会话打不开的用户会永远看骨架（既有的明确要求）。
+        setEntryAnswered(true)
         setLoading(false)
       },
     )
@@ -3893,6 +4006,7 @@ function ChatSessionView({
       >
         <ChatRows
           messages={messages}
+          {...(delivery === undefined ? {} : { delivery })}
           sessionId={session.sessionId}
           showToolCalls={showToolCalls}
           showSystemMessages={showSystemMessages}
@@ -3916,6 +4030,8 @@ function ChatSessionView({
           stickyProcRow={stickyProcRow}
           hasOlder={hasOlder}
           loading={loading}
+          olderLoading={olderLoading}
+          entryAnswered={entryAnswered}
           loadOlder={loadOlder}
           onOpenFile={openFileOf}
           {...(onOpenDelivery === undefined ? {} : { onOpenDelivery })}

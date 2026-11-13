@@ -2607,6 +2607,15 @@ button.settings-row:focus-visible {
   background: var(--fill);
   border-color: transparent;
 }
+
+/* 骨架卡头不要画成"一张卡"（2026-11-13 真机反馈：首屏慢时被看成"已经出了好几张
+ * 交付结果卡"）。DOM 必须保留 —— 它与真实回合头同高，落地时不会跳；
+ * 但外观上去掉背景 / 描边 / 阴影，只留里面的灰色占位条。 */
+.palm-turn-head[data-skeleton='true'] {
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
 /* ── buttons ─────────────────────────────────────────────────────────── */
 
 .mobile-button {
@@ -7336,6 +7345,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   flex: none;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+  /* 「3 在跑 · 1 刚完成」比原来的「4 条」长：不换行，宁可压主文案也不让这一行长高。 */
+  white-space: nowrap;
 }
 
 /* 箭头弱化：它是「这里能进去」的提示，不该和主文案抢注意力。 */
@@ -9979,7 +9990,6 @@ button.settings-row:active {
   padding-inline: var(--palm-strip-pad);
 }
 
-
 .palm-strip [data-part='main'] {
   display: flex;
   flex: 1 1 auto;
@@ -10276,7 +10286,6 @@ button.palm-proc:focus-visible {
   line-height: var(--palm-roll-h);
   font-variant-numeric: tabular-nums;
 }
-
 
 /*
  * 折叠态「当前命令」：**固定高度的一行**，位置与高度都不随内容变化。
@@ -10590,7 +10599,6 @@ button.palm-delivery-row:focus-visible {
   box-shadow: 0 0 0 var(--palm-focus) var(--palm-accent);
 }
 
-
 /* ── 过程条动效（2026-11-10 方案 A + B + D） ────────────────────────────────
    三条自我约束：
    1. 只动 transform / opacity，不动宽高 → 不触发重排；
@@ -10626,8 +10634,6 @@ button.palm-delivery-row:focus-visible {
   50% { opacity: 0.6; box-shadow: 0 0 0 5px transparent; }
 
 }
-
-
 
 @keyframes palm-proc-row-in {
   0% { opacity: 0; transform: translateY(4px); }
@@ -10685,6 +10691,17 @@ button.palm-delivery-row:focus-visible {
 .palm-strip-mark[data-kind='stuck'],
 .palm-strip-mark[data-kind='stopped'],
 .palm-strip-mark[data-kind='queued'] { background: var(--palm-tint-warn); }
+
+.palm-proc-files-open:hover,
+.palm-proc-files-open:focus-visible {
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+}
+
+.palm-proc-files-open::after {
+  content: ' ›';
+  color: var(--palm-fg-3);
+}
 /* ── reduced motion additions ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {

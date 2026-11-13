@@ -18,6 +18,7 @@
  */
 import type { ReactElement } from 'react'
 import { Button } from './primitives.tsx'
+import { hasMeaningfulDelivery, isNoiseArtifact } from './delivery-noise.ts'
 
 /** 一条改动：路径 + 可选增删行数（拿不到行数时行内不显示 tally）。 */
 export interface DeliveryFileChange {
@@ -122,22 +123,30 @@ export function DeliveryCard({
   onOpenChanges,
 }: DeliveryCardProps) {
   const face = STATE_FACE[state]
+  // 判据（2026-11-13）：噪声产物（日志/缓存/工具脚本）不进明细 —— 一场会话 106 行里
+  // 30 张卡就是被这类文件撑出来的（手机一屏只有 589px）。
+  const usableDeliverables = deliverables.filter(file => !isNoiseArtifact(file.path))
+  const usableChanges = changes.filter(change => !isNoiseArtifact(change.path))
   const declared = new Set(deliverables.map(file => file.path))
   // 卡片明细：交付物去掉已经声明过的路径，再按增删总量从大到小取前 2 条。
-  const changed = changes
+  const changed = usableChanges
     .filter(change => !declared.has(change.path))
     .slice()
     .sort((left, right) => weightOf(right) - weightOf(left) || left.path.localeCompare(right.path))
     .slice(0, DETAIL_MAX)
-  const shownDeliverables = deliverables.slice(0, DETAIL_MAX)
+  const shownDeliverables = usableDeliverables.slice(0, DETAIL_MAX)
   // 汇总口径与明细同源：文件数 = 交付物 ∪ 改动；增删只累加拿得到 tally 的那些。
-  const files = new Set<string>([...declared, ...changes.map(change => change.path)]).size
-  const adds = changes.reduce((sum, change) => sum + (change.adds ?? 0), 0)
-  const dels = changes.reduce((sum, change) => sum + (change.dels ?? 0), 0)
-  const hasTallyTotals = changes.some(change => hasTally(change))
+  const files = new Set<string>([...declared, ...usableChanges.map(change => change.path)]).size
+  const adds = usableChanges.reduce((sum, change) => sum + (change.adds ?? 0), 0)
+  const dels = usableChanges.reduce((sum, change) => sum + (change.dels ?? 0), 0)
+  const hasTallyTotals = usableChanges.some(change => hasTally(change))
 
   // 只有"正常收工且什么都没交回"才不画卡；失败/未知即使没有文件也是这一轮的结论。
-  if (state === 'success' && files === 0 && shownDeliverables.length === 0 && changed.length === 0) return null
+  // 判据：成功收尾时，只有**还有真实产出**才出卡（全是日志/缓存/补丁脚本就不画）。
+  if (state === 'success' && !hasMeaningfulDelivery([
+    ...deliverables.map(file => file.path),
+    ...changes.map(change => change.path),
+  ])) return null
 
   // 卡头只报「N 步」：这一轮用了多久只在任务头状态条里说一次（卡面再报一遍就是两只表）。
   const headMeta: string[] = []
@@ -195,57 +204,57 @@ export function DeliveryCard({
           </Button>
         )}
       </div>
-      {reason === undefined || reason === '' ? null : (
-        <p className="palm-delivery-reason">{reason}</p>
-      )}
-      {shownDeliverables.map(file => row(
-        `deliver:${file.path}`,
-        '▤',
-        file.description ?? baseName(file.path),
-        undefined,
-        { text: '交付物' },
-        file.path,
-        file.description === undefined ? file.path : `${file.description} · ${file.path}`,
-      ))}
-      {changed.map(change => row(
-        `change:${change.path}`,
-        '✎',
-        /* 卡只有 288px：显示文件名就够认，完整路径在交付详情页（两行式）看。 */
-        baseName(change.path),
-        change,
-        hasTally(change) && change.dels === 0 && change.adds !== undefined
-          ? { text: '新增' }
-          : { text: '修改', kind: 'edit' },
-        change.path,
-      ))}
-      {/*
-        卡尾一行：左边「N 个文件 +A −D」汇总，右边「看全部改动 ›」。
-        2026-11-10 实机：这一块原来先占一行汇总、再占一行文字按钮，按钮还顶到卡片
-        最右边（等于用整行宽度强调卡有多宽）。现在合成一行、按钮只占文字宽度。
-      */}
-      <div className="palm-delivery-foot">
-        <span className="palm-delivery-sum">
-          <span className="palm-delivery-count"><b>{countText(files)}</b> 个文件</span>
-          {hasTallyTotals ? (
-            <span className="palm-delivery-count">
-              <b className="palm-delivery-add">+{countText(adds)}</b>
-              {' '}
-              <b className="palm-delivery-del">−{countText(dels)}</b>
-            </span>
-          ) : null}
-          {testsPassed === undefined || testsPassed <= 0 ? null : (
-            <span className="palm-delivery-count"><b>{countText(testsPassed)}</b> 测试通过</span>
-          )}
-          {commit === undefined ? null : (
-            <span className="palm-delivery-commit">提交 {commit}{pushed === true ? ' · 已推送' : ''}</span>
-          )}
-        </span>
-        {onOpenChanges === undefined ? null : (
-          <Button type="button" className="palm-delivery-more" onClick={onOpenChanges}>
-            看全部改动 ›
-          </Button>
+        {reason === undefined || reason === '' ? null : (
+          <p className="palm-delivery-reason">{reason}</p>
         )}
-      </div>
+        {shownDeliverables.map(file => row(
+          `deliver:${file.path}`,
+          '▤',
+          file.description ?? baseName(file.path),
+          undefined,
+          { text: '交付物' },
+          file.path,
+          file.description === undefined ? file.path : `${file.description} · ${file.path}`,
+        ))}
+        {changed.map(change => row(
+          `change:${change.path}`,
+          '✎',
+          /* 卡只有 288px：显示文件名就够认，完整路径在交付详情页（两行式）看。 */
+          baseName(change.path),
+          change,
+          hasTally(change) && change.dels === 0 && change.adds !== undefined
+            ? { text: '新增' }
+            : { text: '修改', kind: 'edit' },
+          change.path,
+        ))}
+        {/*
+          卡尾一行：左边「N 个文件 +A −D」汇总，右边「看全部改动 ›」。
+          2026-11-10 实机：这一块原来先占一行汇总、再占一行文字按钮，按钮还顶到卡片
+          最右边（等于用整行宽度强调卡有多宽）。现在合成一行、按钮只占文字宽度。
+        */}
+        <div className="palm-delivery-foot">
+          <span className="palm-delivery-sum">
+            <span className="palm-delivery-count"><b>{countText(files)}</b> 个文件</span>
+            {hasTallyTotals ? (
+              <span className="palm-delivery-count">
+                <b className="palm-delivery-add">+{countText(adds)}</b>
+                {' '}
+                <b className="palm-delivery-del">−{countText(dels)}</b>
+              </span>
+            ) : null}
+            {testsPassed === undefined || testsPassed <= 0 ? null : (
+              <span className="palm-delivery-count"><b>{countText(testsPassed)}</b> 测试通过</span>
+            )}
+            {commit === undefined ? null : (
+              <span className="palm-delivery-commit">提交 {commit}{pushed === true ? ' · 已推送' : ''}</span>
+            )}
+          </span>
+          {onOpenChanges === undefined ? null : (
+            <Button type="button" className="palm-delivery-more" onClick={onOpenChanges}>
+              看全部改动 ›
+            </Button>
+          )}
+        </div>
     </div>
   )
 }

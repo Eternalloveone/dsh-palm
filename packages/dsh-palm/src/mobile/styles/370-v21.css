@@ -732,7 +732,6 @@ button.settings-row:active {
   padding-inline: var(--palm-strip-pad);
 }
 
-
 .palm-strip [data-part='main'] {
   display: flex;
   flex: 1 1 auto;
@@ -1029,7 +1028,6 @@ button.palm-proc:focus-visible {
   line-height: var(--palm-roll-h);
   font-variant-numeric: tabular-nums;
 }
-
 
 /*
  * 折叠态「当前命令」：**固定高度的一行**，位置与高度都不随内容变化。
@@ -1343,7 +1341,6 @@ button.palm-delivery-row:focus-visible {
   box-shadow: 0 0 0 var(--palm-focus) var(--palm-accent);
 }
 
-
 /* ── 过程条动效（2026-11-10 方案 A + B + D） ────────────────────────────────
    三条自我约束：
    1. 只动 transform / opacity，不动宽高 → 不触发重排；
@@ -1379,8 +1376,6 @@ button.palm-delivery-row:focus-visible {
   50% { opacity: 0.6; box-shadow: 0 0 0 5px transparent; }
 
 }
-
-
 
 @keyframes palm-proc-row-in {
   0% { opacity: 0; transform: translateY(4px); }
@@ -1438,3 +1433,14 @@ button.palm-delivery-row:focus-visible {
 .palm-strip-mark[data-kind='stuck'],
 .palm-strip-mark[data-kind='stopped'],
 .palm-strip-mark[data-kind='queued'] { background: var(--palm-tint-warn); }
+
+.palm-proc-files-open:hover,
+.palm-proc-files-open:focus-visible {
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+}
+
+.palm-proc-files-open::after {
+  content: ' ›';
+  color: var(--palm-fg-3);
+}

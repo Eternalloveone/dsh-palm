@@ -7,9 +7,9 @@
  */
 import { memo, type CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
-import { toolDiffLines } from '../../../render/process-rows.ts'
 import { MessageRow, type TurnDeliveryFacts } from '../../../render/message-row.tsx'
-import { planStepsOf, type TaskSteps } from '../../../session/task-status.ts'
+import type { DeliveryRecord } from '../../../session/deliveries.ts'
+import { DeliveryCard } from '../../../ui/delivery-card.tsx'
 import { TurnHeadSkeleton } from '../../../ui/turn-header.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 import { useRowHydrated } from '../hooks/use-row-hydrated.ts'
@@ -108,10 +108,26 @@ export interface ChatRowsView {
   stickyProcRow: RenderMessage | undefined
   hasOlder: boolean
   loading: boolean
+  /** 正在翻更早的页（只驱动"加载更早"那颗按钮，不参与骨架判断）。 */
+  olderLoading?: boolean
+  /**
+   * 这个会话"有没有消息"的证据：提交过行（或宿主答过 0 行）才为 true。
+   * 传 false：还没提交过行 → rows 为空只画骨架，不下"空会话"的结论。
+   * 不传（组件单独测试/其它场景）：退回按 loading 判，保持既有契约。
+   */
+  entryAnswered?: boolean
+  /** 打开"本轮改动"详情页（卡尾「看全部改动」）。 */
+  onOpenDelivery?: (facts: TurnDeliveryFacts) => void
+  /**
+   * 交付账本里**最新一条值得看**的交付（由 ChatView 持有、只追加不回退）。
+   *
+   * 卡只读它，不再从消息行里临时折（旧的 `changesByTurn`）—— 那是"每次渲染重算"的病根：
+   * 行被合并/重排/整份替换时那份折叠结果跟着变，卡就一闪一闪、有时候干脆消失。
+   */
+  delivery?: DeliveryRecord
+
   loadOlder: () => void | Promise<void>
   onOpenFile: (path: string) => void
-  /** 交付卡「看全部改动 ›」：交给 App 打开交付详情页（不给就不画入口）。 */
-  onOpenDelivery?: (facts: TurnDeliveryFacts) => void
 }
 
 /**
@@ -137,50 +153,49 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
    * 就是真机那条首帧跳变。
    */
   const hydrated = useRowHydrated(view.sessionId, view.loading, view.hostNowMs)
-  // ── 按轮折叠的「任务头 / 交付卡」数据 ──────────────────────────────────
-  // 一个回合的数据散在多行上（每步一条 assistant + 一条 turn 收尾行），视图层只在
-  // 这里折一次；MessageRow 只负责画，不自己猜数字（拿不到的字段留 undefined）。
-  /** 这一轮的计划步数：计划快照只挂在 turn 收尾行上，回填给同一轮的所有行。 */
-  const stepsByTurn = new Map<number, TaskSteps>()
-  /** 这一轮改过哪些文件 + 增删行数（diff 视图里读，按路径合并）。 */
-  const changesByTurn = new Map<number, { path: string; adds: number; dels: number }[]>()
-  /** 失败 / 截断的回合：交付卡不画，终态交给状态条。 */
-  const brokenTurns = new Set<number>()
-  for (const row of rows) {
-    const turn = row.turn
-    if (turn === undefined) continue
-    if (row.kind === 'turn') {
-      if (row.plan !== undefined) stepsByTurn.set(turn, planStepsOf(row.plan) ?? { done: 0, total: row.plan.items.length })
-      continue
-    }
-    if (row.kind !== 'assistant') continue
-    // 只认宿主明说过的失败/截断（turn/end 的 error / max-tokens）：
-    // `stopped` 工具有两种来路（真中断 / 结果帧没折进来），不能拿来判「这一轮没成」。
-    if (row.failed === true || row.maxTokens === true) brokenTurns.add(turn)
-    const changes = changesByTurn.get(turn) ?? []
-    for (const tool of row.tools ?? []) {
-      for (const diff of tool.view?.diffs ?? []) {
-        const adds = toolDiffLines(diff.newText).length
-        const dels = diff.oldText === null || diff.oldText === undefined ? 0 : toolDiffLines(diff.oldText).length
-        const hit = changes.find(change => change.path === diff.path)
-        // 同一文件可能被写好几次：取最大的一次（最终文件形态），不累加中间态。
-        if (hit === undefined) changes.push({ path: diff.path, adds, dels })
-        else {
-          hit.adds = Math.max(hit.adds, adds)
-          hit.dels = Math.max(hit.dels, dels)
-        }
-      }
-    }
-    changesByTurn.set(turn, changes)
+  const delivery = view.delivery
+  /**
+   * 末尾槽位那张卡可不可见：仍是同一条「已收工证据」链（在跑的那一轮绝不画）。
+   *
+   * 判据按 **turn 号**走，只是身份从"某一行"换成了账本记录 —— 行怎么重排都不影响它。
+   */
+  const deliveryVisible = delivery !== undefined
+    && shouldRenderCard(
+      { kind: 'turn', id: `turn-tail:${delivery.turn}`, turn: delivery.turn } as unknown as RenderMessage,
+      view,
+    )
+  /**
+   * 账本 → 卡面。
+   *
+   * `presented` 里带 `description` 的是 `present` 声明过的交付物（卡上打「交付物」）；
+   * 其余是工具产出、没有声明，按「改动」行显示 —— 与旧行内卡的标签语义一致，不把
+   * 产出偷偷升格成交付物。已有 diff 统计的路径以账本的 `changes` 为准（带 +A −D）。
+   */
+  const declaredFiles = delivery === undefined
+    ? []
+    : delivery.presented.filter(file => file.description !== undefined)
+  const deliveryChanges = [...(delivery?.changes ?? [])]
+  for (const file of delivery?.presented ?? []) {
+    if (file.description !== undefined) continue
+    if (deliveryChanges.some(change => change.path === file.path)) continue
+    deliveryChanges.push({ path: file.path })
   }
+  const openDeliveryOf = view.onOpenDelivery
   return (
     <>
       {view.hasOlder && (
-        <Button type="button" className="chat-load-older" disabled={view.loading} onClick={() => { void view.loadOlder() }}>
-          {view.loading ? '加载中…' : '加载更早的消息'}
+        <Button type="button" className="chat-load-older" disabled={view.olderLoading === true} onClick={() => { void view.loadOlder() }}>
+          {view.olderLoading === true ? '加载中…' : '加载更早的消息'}
         </Button>
       )}
       {rows.map((message, index) => {
+        // 收尾行（kind === 'turn'）在这里**一行都不画**：交付卡由列表末尾的固定槽位渲染
+        // （见下面的 `deliveryVisible`）。卡挂在行上时，行一被合并/重排/整份替换，
+        // 卡就跟着重挂或消失 —— 真机反复出现过「一闪一闪」「点进来又没了」。
+        //
+        // `as string` 是故意的：阻止 TS 把 kind 收窄成"不是 turn"，后面还要按 kind
+        // 分支取时间/动画等字段（收窄后那些比较会被判成 never）。
+        if ((message.kind as string) === 'turn') return null
         // 只在「正在流式落地」的行上播入场动画：历史行不播。
         //
         // 原来动画无条件挂在每一行上，而打开会话是"先粗后细"两轮提交（第一轮的行还
@@ -194,13 +209,12 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
         //
         // 在跑的时候，**本轮**的交付卡一律不显示（判据见 shouldRenderCard）：
         // 以前只藏"不带过程信息的卡"，于是带过程的卡照样把"本轮产出"显示出来
-        // （真机 2026-10-31）。现在一律藏；过程条由粘性快照保证不丢。
+        // （真机 2026-10-31）。现在交给末尾槽位那张卡自己过同一条链。
         if (!shouldRenderCard(message, view)) return null
         const cv: CSSProperties | undefined = index < view.messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
           ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${view.estimateHeight(message)}px` }
           : undefined
         const interrupted = view.rowOfInterrupted(message)
-        const turn = message.turn
         /** 只算一次：它同时决定秒表粒度（用哪个时间桶）和要不要带心跳。 */
         const rowRunning = view.isRowRunning(interrupted)
         return (
@@ -224,12 +238,8 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
             focusExpand={message.id === view.focusMsgId && view.chatHitQuery !== ''}
             style={cv}
             onOpenFile={view.onOpenFile}
-            {...(view.onOpenDelivery === undefined ? {} : { onOpenChanges: view.onOpenDelivery })}
             onRegenerate={view.regenerateFor(message)}
             {...(view.goal === undefined || view.goal === '' ? {} : { turnGoal: view.goal })}
-            {...(turn === undefined || stepsByTurn.get(turn) === undefined ? {} : { turnSteps: stepsByTurn.get(turn) })}
-            {...(turn === undefined || message.kind !== 'turn' || changesByTurn.get(turn) === undefined ? {} : { turnChanges: changesByTurn.get(turn) })}
-            {...(message.kind !== 'turn' ? {} : { turnCompleted: turn === undefined || !brokenTurns.has(turn) })}
           />
         )
       })}
@@ -256,7 +266,47 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
           onRegenerate={() => undefined}
         />
       )}
-      {rows.length === 0 && (view.loading
+      {/*
+       * 交付卡：列表**末尾的固定槽位**。一页只此一张，数据来自账本（`view.delivery`），
+       * 不是某一行。
+       *
+       * 为什么不挂在收尾行里：行会被合并/重排/整份替换（缓存页 → 网络页 → 补页），
+       * 卡于是跟着重挂或消失 —— 真机反复出现的「卡一闪一闪」「点进会话卡又没了」。
+       * 槽位只认 turn 号，行怎么抖都不动它。
+       */}
+      {deliveryVisible && delivery !== undefined && (
+        <div
+          className="chat-turn-tail-row"
+          data-turn={delivery.turn}
+          data-message-id={`turn-tail:${delivery.turn}`}
+        >
+          <DeliveryCard
+            deliverables={declaredFiles}
+            changes={deliveryChanges}
+            onOpenFile={view.onOpenFile}
+            {...(openDeliveryOf === undefined
+              ? {}
+              : {
+                  onOpenChanges: () => {
+                    openDeliveryOf({
+                      turn: delivery.turn,
+                      deliverables: declaredFiles,
+                      changes: deliveryChanges,
+                    })
+                  },
+                })}
+          />
+        </div>
+      )}
+      {/*
+       * 三态**只认 `loading`**，不要加 `!hydrated`。
+       *
+       * 试过"没水合也画骨架"：会话读不出来时 `loading` 会落、快照却永远到不了，
+       * 于是骨架一直转 —— 正好违反「会话打不开时明确说一句，而不是永远加载中」。
+       * "ready 之后、快照还没到"那几十毫秒的窗口交给第 1 层的会话快照去填，
+       * 空态判据保持单一来源。
+       */}
+      {rows.length === 0 && (view.entryAnswered === false || (view.entryAnswered === undefined && view.loading)
         ? <TurnHeadSkeleton />
         : <p className="chat-typing">还没有消息，发一句话开始吧</p>)}
     </>

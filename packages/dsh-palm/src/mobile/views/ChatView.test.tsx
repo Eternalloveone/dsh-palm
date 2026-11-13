@@ -26,6 +26,7 @@ import { resetSessionPendingStores } from '../runtime/chat/pending-store.ts'
 import { RpcCallError } from '../platform/rpc.ts'
 import { readQueuedEchoes, rememberQueuedEcho } from '../session/queued-echo.ts'
 import { clearChatSnapshots, clearTurnReportCache, recallChatSnapshot } from '../session/chat-snapshot.ts'
+import { clearViewSnapshots } from './chat/state/session-view-snapshot.ts'
 import { invalidateSession } from '../page-cache.ts'
 import { loadCachedHistory } from '../session/history-cache.ts'
 import { clearLocateIntent, rememberLocateIntent, resetLocateIntentsForTest } from '../session/locate-intent.ts'
@@ -280,6 +281,25 @@ function stripSeconds(): number {
   return match === null ? Number.NaN : Number(match[1])
 }
 
+/**
+ * 交付卡节点。
+ *
+ * 卡现在渲染在列表**末尾的固定槽位**里（`.chat-turn-tail`），不再挂在收尾行下面 ——
+ * 所以断言不能再用「先找到正文/标题文本、再 closest 上去」的写法（卡的落地时机与
+ * 正文不同步，文本先到、卡后到的那一拍会让 closest 得到 null）。先 waitFor 槽位
+ * 本身，再在节点里断言。
+ *
+ * @param scope - 查询范围（默认整个 document）
+ * @returns 卡根节点
+ */
+async function findDeliveryTail(scope: ParentNode = document): Promise<HTMLElement> {
+  return waitFor(() => {
+    const node = scope.querySelector('.chat-turn-tail')
+    if (node === null) throw new Error('交付卡（列表末尾槽位）还没画出来')
+    return node as HTMLElement
+  })
+}
+
 /** One history entry with a host presentation view riding beside the event. */
 function makeEntryWithView(type: string, data: unknown, seq: number, view: unknown): { event: WireEvent; view: unknown } {
   return { event: { type, seq, time: seq * 1_000, data }, view }
@@ -409,6 +429,9 @@ beforeEach(() => {
   resetLocateIntentsForTest()
   // 内存快照是模块级状态：每条用例都从'没打开过这场'开始。
   clearChatSnapshots()
+  // 会话视图快照（goal / todo / bars / permissions / 大纲 / 子代理）同样是模块级：
+  // 本文件到处复用同一个 sessionId，不清就会「单跑绿、全量红」。
+  clearViewSnapshots()
   // 交付卡记忆也是模块级：不清会让下一条用例带着上一条的卡，误判"已有真卡"。
   clearTurnReportCache()
   // 秒表锚点记忆落在 sessionStorage（跨重挂/跨刷新用）：用例之间必须清，
@@ -689,11 +712,11 @@ describe('ChatView message folds', () => {
     expect(container.querySelector('.chat-proc')).toBeNull()
 
     // The tail reports only what the turn handed back（交付卡：卡头 + 明细 + 汇总）。
-    const tail = await screen.findByText('交付完成')
-    expect(tail.closest('.chat-turn-tail')).not.toBeNull()
+    const tail = await findDeliveryTail(container)
+    expect(tail.textContent).toContain('交付完成')
     expect(container.querySelector('.palm-delivery-sum')!.textContent).toContain('1 个文件')
     // 用时不再在尾巴里重复报（它只在任务头状态条，见上）。
-    expect(tail.closest('.chat-turn-tail')!.textContent).not.toContain('用时')
+    expect(tail.textContent).not.toContain('用时')
     // 明细行自带类型标签；旧的「本轮产出文件」分组标题已经随折叠卡一起删掉。
     expect(screen.queryByText('本轮产出文件')).toBeNull()
     // A declared deliverable carries the 交付物 tag on its file row.
@@ -720,7 +743,7 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
       makeEntry('turn/end', { turn: 1, reason: { kind: 'done' } }, 6),
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
-    await screen.findByText('交付完成')
+    await findDeliveryTail()
     expect(screen.getByText('交付物')).toBeTruthy()
     expect(screen.getByText('out.txt')).toBeTruthy()
   })
@@ -750,7 +773,7 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
 
     // 先等这一页真的落地（正文出现），再看有没有卡片。
     await screen.findByText('好了')
-    expect(container.querySelector('.chat-turn-tail')).toBeNull()
+    expect(document.querySelector('.chat-turn-tail')).toBeNull()
   })
 
   it('reads the log for the card when the page kept only tool names (no arguments)', async () => {
@@ -780,8 +803,8 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('交付完成')
-    expect(title.closest('.chat-turn-tail')).not.toBeNull()
+    const tail = await findDeliveryTail()
+    expect(tail.textContent).toContain('report.md')
     expect(historyMock).toHaveBeenCalledTimes(1)
   })
   it('reads the log when the page kept only shell calls, so no write name is left', async () => {
@@ -807,8 +830,8 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('交付完成')
-    expect(title.closest('.chat-turn-tail')?.textContent).toContain('a.ts')
+    const tail = await findDeliveryTail()
+    expect(tail.textContent).toContain('a.ts')
     expect(historyMock).toHaveBeenCalledTimes(1)
   })
 
@@ -903,10 +926,12 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
     ]))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    // 补进来的那一轮也要有卡。
+    // 一页一张卡（2026-11-13）：补进来的那一轮是历史轮次，**不再画卡**；
+    // 这里验证的是"补页之后列表里恰好只剩最新一轮的那张卡"。
     await waitFor(() => {
-      const text = Array.from(document.querySelectorAll('.chat-turn-tail')).map(node => node.textContent ?? '').join(' | ')
-      expect(text).toContain('older.ts')
+      const cards = Array.from(document.querySelectorAll('.chat-turn-tail'))
+      // 补页跑完后仍只有最新一轮的卡；历史轮的明细走交付详情页。
+      expect(cards.length).toBeLessThanOrEqual(1)
     })
     expect(await screen.findByText('第一问')).toBeTruthy()
   })
@@ -943,8 +968,7 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
     ], { hasMore: true }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('交付完成')
-    const tail = title.closest('.chat-turn-tail') as HTMLElement
+    const tail = await findDeliveryTail()
     expect(tail.textContent).toContain('2 个文件')
     expect(tail.textContent).toContain('a.md')
     expect(tail.textContent).toContain('b.md')
@@ -986,8 +1010,7 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
     ], { hasMore: true }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
 
-    const title = await screen.findByText('交付完成')
-    const tail = title.closest('.chat-turn-tail') as HTMLElement
+    const tail = await findDeliveryTail()
     expect(tail.textContent).toContain('2 个文件')
     expect(tail.textContent).toContain('a.md')
     expect(tail.textContent).toContain('b.md')
@@ -1017,11 +1040,11 @@ it('交付卡同时有交付物与产出文件时，两行各带类型标签', a
       emitSessionFrame(mux, 'tool/result', 82, t0, { turn: 2, step: 0, message: { source: { callId: 'c1' } } })
       await settleLiveFold()
       // 工具都结束了，但这一轮还没收尾：不许出卡。
-      expect(container.querySelector('.chat-turn-tail')).toBeNull()
+      expect(document.querySelector('.chat-turn-tail')).toBeNull()
 
       emitSessionFrame(mux, 'turn/end', 83, t0, { turn: 2 })
       await settleLiveFold()
-      const tail = container.querySelector('.chat-turn-tail') as HTMLElement | null
+      const tail = document.querySelector('.chat-turn-tail') as HTMLElement | null
       expect(tail).not.toBeNull()
       expect(tail?.textContent).toContain('mid.md')
     } finally {
@@ -1844,8 +1867,11 @@ describe('ChatView scrolling', () => {
     let release!: (page: ChatPageResult) => void
     loadChatPageMock.mockReturnValueOnce(new Promise<ChatPageResult>(resolve => { release = resolve }))
     render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    // 首屏一次成型后，铺开链的页与尾页合成同一次提交：先放行挂起的那一页再断言落点。
+    scrollHeightMock = 2000
+    await act(async () => { release?.(rowPage(turnEvents(), { hasMore: false })) })
     await screen.findByText('已完成修改')
-    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(400) })
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(2000) })
     // The older page resolves as one commit that grows the real height far
     // beyond the stale tail (12 heavy rows → 2000px). The re-follow must
     // observe the committed height, never the pre-commit one.

@@ -13,3 +13,12 @@
   background: var(--fill);
   border-color: transparent;
 }
+
+/* 骨架卡头不要画成"一张卡"（2026-11-13 真机反馈：首屏慢时被看成"已经出了好几张
+ * 交付结果卡"）。DOM 必须保留 —— 它与真实回合头同高，落地时不会跳；
+ * 但外观上去掉背景 / 描边 / 阴影，只留里面的灰色占位条。 */
+.palm-turn-head[data-skeleton='true'] {
+  background: none;
+  border: 0;
+  box-shadow: none;
+}

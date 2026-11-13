@@ -724,6 +724,8 @@
   flex: none;
   font-size: var(--palm-t-s);
   color: var(--palm-fg-3);
+  /* 「3 在跑 · 1 刚完成」比原来的「4 条」长：不换行，宁可压主文案也不让这一行长高。 */
+  white-space: nowrap;
 }
 
 /* 箭头弱化：它是「这里能进去」的提示，不该和主文案抢注意力。 */
