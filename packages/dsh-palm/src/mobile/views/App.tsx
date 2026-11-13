@@ -9,7 +9,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { WorkspaceView as WorkspaceRow } from '../../api-proxy-types'
 import type { MuxFrame } from '../../api-proxy-types'
 import { logTail, reportError } from '../data/diag.ts'
-import { archiveSession, createSession, listSessions, observeSession, prompt, runningSessions, sendCommand } from '../data/session.ts'
+import { archiveSession, createSession, listSessions, observeSession, prompt, renameSession, runningSessions, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
 import { handleAppFrame } from '../kernels/app-frame-slice.ts'
@@ -52,7 +52,7 @@ import { loadPersistedList, queuePersistedList } from '../session/list-persist.t
 /** 已经为哪个工作区预取过会话页（模块级：跨页面切换只拉一次）。 */
 const PREFETCHED_WORKSPACES = new Set<string>()
 import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
-import { invalidateSession, refreshPage } from '../page-cache.ts'
+import { markSessionStale, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
 import { applyRunningState, countRunningElsewhere, mergeDrawerRows, orderDrawerRows, paintDrawerRows, scopedToWorkspace } from './drawer-rows.ts'
 import { loadPinnedSessions, loadPinnedWorkspaces, togglePinnedSession, togglePinnedWorkspace } from '../session/pins.ts'
@@ -651,6 +651,28 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
    * 就不在列表里了。硬跳转（回空会话/回工作区）会打断用户正在看的内容，而这条操作
    * 本来就不高频 —— 宁可少做一步，也别把人正在读的东西抽走。
    */
+  /**
+   * 重命名一条会话（2026-11-13 用户：「会话需要增加重命名的功能」）。
+   *
+   * 底层是宿主的 `session.rename`（插件侧 `renameSession` 早已封装并放行，一直没有入口）。
+   * 成功后**只改抽屉里这一行的标题**，不重新拉列表：宿主那边改名可能有延迟，
+   * 重拉会让旧名字短暂"跳回来"。
+   *
+   * 当前正打开的那场改了名，顶栏标题不会立刻跟着变 —— 那条走的是路由里的会话快照。
+   * 为这一下改名去重建路由会触发一次转场动画（applyRoute 会重置页面栈），
+   * 比标题晚一会儿更难看，所以宁可留给下次进入时刷新。
+   */
+  const renameSessionTitle = useCallback((sessionId: string, title: string) => {
+    void renameSession(sessionId, title).then(
+      () => {
+        setDrawer(previous => previous === undefined
+          ? previous
+          : { ...previous, rows: previous.rows.map(row => (row.sessionId === sessionId ? { ...row, title } : row)) })
+        toast('已重命名')
+      },
+      (reason: unknown) => { toast(`重命名失败：${errorText(reason)}`) },
+    )
+  }, [])
   const deleteSession = useCallback((sessionId: string) => {
     void archiveSession(sessionId).then(
       () => {
@@ -693,6 +715,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     finished: ReadonlySet<string>; pending: ReadonlySet<string>; turns: readonly ArtifactTurnPayload[]
     /** 不在抽屉行里、但正在跑的会话数（别的工作区）：抽屉只列当前工作区，没有这一行就完全看不见。 */
     runningElsewhere: number
+    /** 会话列表还在路上（本地没有缓存时首帧为 true）：抽屉据此画"正在读取"而不是"还没有会话"。 */
+    listing: boolean
   } | undefined>(undefined)
   const chatFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /**
@@ -801,7 +825,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const applyRoute = useCallback((next: Route) => {
     // 会话切换：上一会话的页面快照立即失效（换回来必须重新拉，不拿旧数据充数）。
     const previousRoute = currentOf(stackRef.current)?.value
-    if (previousRoute !== undefined && previousRoute.session.sessionId !== next.session.sessionId) invalidateSession(previousRoute.session.sessionId)
+    if (previousRoute !== undefined && previousRoute.session.sessionId !== next.session.sessionId) markSessionStale(previousRoute.session.sessionId)
     // 会话页是**根**：换会话 = 换根，不压栈（否则栈里会堆一串再也退不回去的会话）。
     // 子页照旧压栈：返回 = 弹栈，"从哪进来的"不需要任何标记去猜。
     if (next.kind === 'chat') {
@@ -1297,6 +1321,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       pending: new Set(pendingEntries.map(entry => entry.sessionId)),
       /* 首帧还不知道别处在跑什么：下面那次 runningSessions 回来再补。 */
       runningElsewhere: 0,
+      // 有本地缓存就直接画；没有才需要等宿主那一页（等的时候不画"还没有会话"）。
+      listing: cachedRows.length === 0,
       turns,
     })
     if (workspaceId === '') return
@@ -1326,6 +1352,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             currentDrawer.session.sessionId,
             loadPinnedSessions(),
           ),
+          listing: false,
         })
     }
     /**
@@ -1683,11 +1710,13 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
             path: workspaceView(drawer.workspaceId).path,
           }}
           rows={drawer.rows}
+          listing={drawer.listing}
           finishedIds={drawer.finished}
           pendingIds={drawer.pending}
           pinnedSessions={pinnedSessions}
           onTogglePin={toggleSessionPin}
           onDelete={deleteSession}
+          onRename={renameSessionTitle}
           currentSessionId={drawer.session.sessionId === '' ? undefined : drawer.session.sessionId}
           workspaceCount={workspaces.length}
           onSwitchWorkspace={() => { setDrawer(undefined); setWorkspacePickerOpen(true) }}

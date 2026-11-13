@@ -23,8 +23,11 @@ function renderActions(overrides: Partial<SessionActionsProps> = {}): {
     meta: '今天 21:25 · dsh-palm',
     pinned: false,
     confirming: false,
+    renaming: false,
     onTogglePin: vi.fn(),
     onDelete: vi.fn(),
+    onStartRename: vi.fn(),
+    onRename: vi.fn(),
     onCancelConfirm: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
@@ -40,10 +43,10 @@ describe('动作页', () => {
     expect(screen.getByText('今天 21:25 · dsh-palm')).toBeTruthy()
   })
 
-  it('两项动作都带说明文字', () => {
+  it('三项动作都带说明文字', () => {
     renderActions()
     const notes = [...document.querySelectorAll('.palm-actions-item-note')].map(node => node.textContent)
-    expect(notes).toEqual(['固定在列表最前', '不可恢复'])
+    expect(notes).toEqual(['固定在列表最前', '只改显示名', '不可恢复'])
   })
 
   it('未置顶时第一项是「置顶」', () => {
@@ -102,8 +105,62 @@ describe('确认页', () => {
   })
 })
 
-describe('浮层行为', () => {
-  it('点遮罩关闭面板', () => {
+describe('重命名页', () => {
+  it('动作页里有「重命名」，点它进入输入页', () => {
+    const { props } = renderActions()
+    fireEvent.click(screen.getByText('重命名'))
+    expect(props.onStartRename).toHaveBeenCalledTimes(1)
+  })
+
+  it('输入框预填当前标题', () => {
+    renderActions({ renaming: true })
+    const input = screen.getByLabelText('新的会话名') as HTMLInputElement
+    expect(input.value).toBe('梳理 dsh palm 源码问题评估')
+  })
+
+  it('名字没改时「保存」不可点（免得发出一次无意义的改名）', () => {
+    renderActions({ renaming: true })
+    const save = screen.getByText('保存').closest('button') as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+  })
+
+  it('清空名字也不可点（空名字会让列表出现一条点不到的行）', () => {
+    renderActions({ renaming: true })
+    fireEvent.change(screen.getByLabelText('新的会话名'), { target: { value: '   ' } })
+    const save = screen.getByText('保存').closest('button') as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+  })
+
+  it('改了名字就能保存，回调拿到的是 trim 过的值', () => {
+    const { props } = renderActions({ renaming: true })
+    fireEvent.change(screen.getByLabelText('新的会话名'), { target: { value: '  新的名字  ' } })
+    fireEvent.click(screen.getByText('保存'))
+    expect(props.onRename).toHaveBeenCalledWith('新的名字')
+  })
+
+  it('回车（表单提交）等于保存', () => {
+    const { props } = renderActions({ renaming: true })
+    fireEvent.change(screen.getByLabelText('新的会话名'), { target: { value: '回车提交' } })
+    fireEvent.submit(screen.getByLabelText('新的会话名').closest('form') as HTMLFormElement)
+    expect(props.onRename).toHaveBeenCalledWith('回车提交')
+  })
+
+  it('「取消」退回动作页，不发请求', () => {
+    const { props } = renderActions({ renaming: true })
+    fireEvent.click(screen.getByText('取消'))
+    expect(props.onCancelConfirm).toHaveBeenCalledTimes(1)
+    expect(props.onRename).not.toHaveBeenCalled()
+    expect(props.onClose).not.toHaveBeenCalled()
+  })
+
+  it('重命名页不出现置顶/删除（一次只做一件事）', () => {
+    renderActions({ renaming: true })
+    expect(screen.queryByText('置顶')).toBeNull()
+    expect(screen.queryByText('删除')).toBeNull()
+  })
+})
+
+describe('浮层行为', () => {  it('点遮罩关闭面板', () => {
     const { props } = renderActions()
     const scrim = document.querySelector('.palm-actions-scrim')
     expect(scrim).not.toBeNull()

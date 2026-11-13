@@ -18,6 +18,7 @@
  * @module dsh-palm/mobile/ui/session-actions
  */
 
+import { useEffect, useState } from 'react'
 import { Button } from './primitives.tsx'
 import { Overlay } from './overlay.tsx'
 import { SheetPortal } from './sheet.tsx'
@@ -31,11 +32,17 @@ export interface SessionActionsProps {
   pinned: boolean
   /** 已进入删除二次确认。 */
   confirming: boolean
+  /** 已进入重命名页（输入框）。 */
+  renaming: boolean
   /** 第一项：切换置顶（调用方负责关面板）。 */
   onTogglePin(): void
   /** 第二项：未确认时进入确认页；确认页里才真的删。 */
   onDelete(): void
-  /** 确认页的「取消」：回到动作页（不关面板）。 */
+  /** 第三项：进入重命名页。 */
+  onStartRename(): void
+  /** 重命名页的「保存」：带上用户敲的新名字（已 trim，且非空、与原值不同）。 */
+  onRename(next: string): void
+  /** 确认页 / 重命名页的「取消」：回到动作页（不关面板）。 */
   onCancelConfirm(): void
   /** 关掉面板：遮罩、Esc、取消键都走这里。 */
   onClose(): void
@@ -43,75 +50,136 @@ export interface SessionActionsProps {
 
 export function SessionActions(props: SessionActionsProps): React.ReactElement {
   /*
+   * 重命名页的草稿。
+   *
+   * 只有这一页需要自己存状态（另外两页完全是 props 驱动的展示）。每次翻进来都从
+   * 当前标题重新起稿 —— 否则上一次改了一半又取消的内容，下次长按会跳出来。
+   */
+  const [draft, setDraft] = useState(props.title)
+  useEffect(() => {
+    if (props.renaming) setDraft(props.title)
+  }, [props.renaming, props.title])
+  const trimmed = draft.trim()
+  /** 空名字和「没改」都不让提交：空名字会让列表出现一条点不到的行。 */
+  const canSave = trimmed !== '' && trimmed !== props.title
+
+  /*
    * 提到 body 上：抽屉面板是 `position: fixed` + 可能带 transform 的容器，
    * 直接嵌在里面时这层遮罩只会盖住抽屉自己，而不是整屏。
    */
   return (
     <SheetPortal>
       <Overlay
-        title={props.confirming ? '确认删除会话' : '会话操作'}
+        title={props.renaming ? '重命名会话' : props.confirming ? '确认删除会话' : '会话操作'}
         onClose={props.onClose}
         scrimClassName="palm-actions-scrim"
         panelClassName="palm-actions-layer"
       >
-        {props.confirming
+        {props.renaming
           ? (
-            <div className="palm-actions" role="group" aria-label="确认删除会话">
-              <p className="palm-actions-confirm-title">删除这条会话？</p>
-              <p className="palm-actions-confirm-body">
-                <b>{props.title}</b>
-                <br />
-                删除后不会出现在会话列表里，手机端无法恢复。
-              </p>
+            <form
+              className="palm-actions"
+              aria-label="重命名会话"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (canSave) props.onRename(trimmed)
+              }}
+            >
+              <p className="palm-actions-confirm-title">重命名这条会话</p>
+              <div className="palm-actions-rename-field">
+                <input
+                  className="palm-actions-input"
+                  value={draft}
+                  onChange={(event) => { setDraft(event.target.value) }}
+                  placeholder="新的名字"
+                  aria-label="新的会话名"
+                  autoFocus
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  /* 手机上打开面板就该能直接打字：不弹键盘的话这一步要多点一次。 */
+                  enterKeyHint="done"
+                  maxLength={120}
+                />
+                <p className="palm-actions-rename-note">只改这一条在列表里显示的名字，不影响会话内容。</p>
+              </div>
               <div className="palm-actions-confirm-row">
                 <Button type="button" className="palm-actions-btn" onClick={props.onCancelConfirm}>
                   <span>取消</span>
                 </Button>
-                <Button type="button" className="palm-actions-btn palm-actions-btn-danger" onClick={props.onDelete}>
-                  <span>删除</span>
+                <Button type="submit" className="palm-actions-btn palm-actions-btn-primary" disabled={!canSave}>
+                  <span>保存</span>
                 </Button>
               </div>
-            </div>
+            </form>
             )
-          : (
-            <>
-              <div className="palm-actions" role="group" aria-label="会话操作">
-                {/* 预览：让用户确认「要动的就是这一条」。只写标题不行 —— 列表里同名的会话是有可能的。 */}
-                <div className="palm-actions-preview">
-                  <span className="palm-actions-preview-icon" aria-hidden>
-                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M2 3.5h12v9H2zM2 6.5h12" />
-                    </svg>
-                  </span>
-                  <span className="palm-actions-preview-copy">
-                    <span className="palm-actions-preview-title">{props.title}</span>
-                    <span className="palm-actions-preview-meta">{props.meta}</span>
-                  </span>
+          : props.confirming
+            ? (
+              <div className="palm-actions" role="group" aria-label="确认删除会话">
+                <p className="palm-actions-confirm-title">删除这条会话？</p>
+                <p className="palm-actions-confirm-body">
+                  <b>{props.title}</b>
+                  <br />
+                  删除后不会出现在会话列表里，手机端无法恢复。
+                </p>
+                <div className="palm-actions-confirm-row">
+                  <Button type="button" className="palm-actions-btn" onClick={props.onCancelConfirm}>
+                    <span>取消</span>
+                  </Button>
+                  <Button type="button" className="palm-actions-btn palm-actions-btn-danger" onClick={props.onDelete}>
+                    <span>删除</span>
+                  </Button>
                 </div>
-                <Button type="button" className="palm-actions-item" onClick={props.onTogglePin}>
-                  <span className="palm-actions-item-icon" aria-hidden>
-                    <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M6 1.5h4l-.6 3.2 2.1 2.1-1 1-2.1-2.1H7.6L5.5 7.8l-1-1 2.1-2.1L6 1.5Zm2 7.2v5.8" />
-                    </svg>
-                  </span>
-                  <span className="palm-actions-item-label">{props.pinned ? '取消置顶' : '置顶'}</span>
-                  <span className="palm-actions-item-note">{props.pinned ? '回到原来的时间组' : '固定在列表最前'}</span>
-                </Button>
-                <Button type="button" className="palm-actions-item palm-actions-item-danger" onClick={props.onDelete}>
-                  <span className="palm-actions-item-icon" aria-hidden>
-                    <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9M6.5 7.2v4M9.5 7.2v4" />
-                    </svg>
-                  </span>
-                  <span className="palm-actions-item-label">删除</span>
-                  <span className="palm-actions-item-note">不可恢复</span>
-                </Button>
               </div>
-              <Button type="button" className="palm-actions-cancel" onClick={props.onClose}>
-                <span>取消</span>
-              </Button>
-            </>
-            )}
+              )
+            : (
+              <>
+                <div className="palm-actions" role="group" aria-label="会话操作">
+                  {/* 预览：让用户确认「要动的就是这一条」。只写标题不行 —— 列表里同名的会话是有可能的。 */}
+                  <div className="palm-actions-preview">
+                    <span className="palm-actions-preview-icon" aria-hidden>
+                      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 3.5h12v9H2zM2 6.5h12" />
+                      </svg>
+                    </span>
+                    <span className="palm-actions-preview-copy">
+                      <span className="palm-actions-preview-title">{props.title}</span>
+                      <span className="palm-actions-preview-meta">{props.meta}</span>
+                    </span>
+                  </div>
+                  <Button type="button" className="palm-actions-item" onClick={props.onTogglePin}>
+                    <span className="palm-actions-item-icon" aria-hidden>
+                      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M6 1.5h4l-.6 3.2 2.1 2.1-1 1-2.1-2.1H7.6L5.5 7.8l-1-1 2.1-2.1L6 1.5Zm2 7.2v5.8" />
+                      </svg>
+                    </span>
+                    <span className="palm-actions-item-label">{props.pinned ? '取消置顶' : '置顶'}</span>
+                    <span className="palm-actions-item-note">{props.pinned ? '回到原来的时间组' : '固定在列表最前'}</span>
+                  </Button>
+                  <Button type="button" className="palm-actions-item" onClick={props.onStartRename}>
+                    <span className="palm-actions-item-icon" aria-hidden>
+                      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10.5 2.5 13.5 5.5 6 13H3v-3z" />
+                      </svg>
+                    </span>
+                    <span className="palm-actions-item-label">重命名</span>
+                    <span className="palm-actions-item-note">只改显示名</span>
+                  </Button>
+                  <Button type="button" className="palm-actions-item palm-actions-item-danger" onClick={props.onDelete}>
+                    <span className="palm-actions-item-icon" aria-hidden>
+                      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9M6.5 7.2v4M9.5 7.2v4" />
+                      </svg>
+                    </span>
+                    <span className="palm-actions-item-label">删除</span>
+                    <span className="palm-actions-item-note">不可恢复</span>
+                  </Button>
+                </div>
+                <Button type="button" className="palm-actions-cancel" onClick={props.onClose}>
+                  <span>取消</span>
+                </Button>
+              </>
+              )}
       </Overlay>
     </SheetPortal>
   )

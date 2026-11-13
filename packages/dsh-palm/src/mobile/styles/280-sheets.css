@@ -612,6 +612,45 @@
   color: var(--palm-on-accent);
 }
 
+.palm-actions-btn-primary {
+  background: var(--palm-accent);
+  color: var(--palm-on-accent);
+}
+
+/* 名字没改或清空时按钮不可点：灰掉是唯一能让用户知道「现在按了没用」的信号。 */
+.palm-actions-btn:disabled {
+  opacity: 0.45;
+}
+
+/* ── 重命名页（2026-11-13）─────────────────────────────────────────────
+   字号走 `--palm-t-l`（17px）而不是常规的 14px：iOS Safari 里输入框字号小于 16px，
+   聚焦时会把整页放大 —— 和 `.queue-dockInput` 那个坑是同一个，别再踩一次。 */
+.palm-actions-rename-field {
+  padding: var(--palm-s3) var(--palm-s3) var(--palm-s2);
+}
+
+.palm-actions-input {
+  inline-size: 100%;
+  min-block-size: var(--palm-hit);
+  padding: 0 var(--palm-s3);
+  border: var(--palm-hair) solid var(--palm-line);
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-2);
+  color: var(--palm-fg);
+  font-size: var(--palm-t-l);
+}
+
+.palm-actions-input:focus-visible {
+  outline: var(--palm-focus) solid var(--palm-accent);
+  outline-offset: var(--palm-hair);
+}
+
+.palm-actions-rename-note {
+  margin: var(--palm-s2) 0 0;
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
 .palm-drawer-title {
   flex: 1 1 auto;
   min-inline-size: 0;

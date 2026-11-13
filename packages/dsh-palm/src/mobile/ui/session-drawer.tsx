@@ -72,9 +72,23 @@ export interface SessionDrawerProps {
    * 会话，所以动作条里要连点两次（「删除」→「确认删除？不可恢复」）。
    */
   onDelete?: ((sessionId: string) => void) | undefined
+  /**
+   * 重命名一条会话（2026-11-13 用户：「会话需要增加重命名的功能」）。
+   *
+   * 底层是宿主的 `session.rename`（插件侧 `renameSession(sessionId, title)` 早就封装好
+   * 并放行了，和删除一样一直没有入口）。只改显示名，不动会话内容与宿主的磁盘文件。
+   */
+  onRename?: ((sessionId: string, title: string) => void) | undefined
   currentSessionId?: string
   /** 工作区数量：>1 时身份区画切换箭头（单工作区不画）。 */
   workspaceCount?: number
+  /**
+   * 会话列表还在路上（本地没缓存时首帧为 true）。
+   *
+   * 为 true 且一行都没有时画「正在读取会话…」—— 直接画「这个工作区还没有会话」
+   * 会让用户在列表到达前先看到一句假话（2026-11-13 的三态收尾）。
+   */
+  listing?: boolean
   onSwitchWorkspace?: (() => void) | undefined
   onClose(): void
   onNew(): void
@@ -194,9 +208,12 @@ export function SessionDrawer(props: SessionDrawerProps) {
    */
   const [menuFor, setMenuFor] = useState<string | undefined>(undefined)
   const [confirmFor, setConfirmFor] = useState<string | undefined>(undefined)
+  /** 正在重命名的那一条：与 `confirmFor` 一样是「面板的第二页」，互斥，翻页时清掉对方。 */
+  const [renameFor, setRenameFor] = useState<string | undefined>(undefined)
   const closeActions = (): void => {
     setMenuFor(undefined)
     setConfirmFor(undefined)
+    setRenameFor(undefined)
   }
   /** 长按那一行对应的会话行：面板顶部要显示它的标题和时间。 */
   const actionRow = menuFor === undefined ? undefined : props.rows.find(row => row.sessionId === menuFor)
@@ -210,6 +227,14 @@ export function SessionDrawer(props: SessionDrawerProps) {
       return
     }
     props.onDelete?.(sessionId)
+    closeActions()
+  }
+  const startRename = (sessionId: string): void => {
+    setRenameFor(sessionId)
+    setConfirmFor(undefined)
+  }
+  const submitRename = (sessionId: string, title: string): void => {
+    props.onRename?.(sessionId, title)
     closeActions()
   }
   return (
@@ -252,7 +277,9 @@ export function SessionDrawer(props: SessionDrawerProps) {
         {groups.length === 0 ? (
           /* 空列表要说清楚"是真的没有"，而不是留一块空白让人以为界面坏了
              （2026-11-10「会话列表显示失效」的观感就是从这里来的）。 */
-          <p className="palm-drawer-empty">这个工作区还没有会话</p>
+          <p className="palm-drawer-empty">
+            {props.listing === true ? '正在读取会话…' : '这个工作区还没有会话'}
+          </p>
         ) : null}
         {groups.map(group => (
           <section className="palm-drawer-group" key={group.title}>
@@ -328,9 +355,12 @@ export function SessionDrawer(props: SessionDrawerProps) {
           meta={`${drawerWhenLabel(actionRow.updatedAt, now)} · ${name}`}
           pinned={props.pinnedSessions?.has(actionRow.sessionId) === true}
           confirming={confirmFor === actionRow.sessionId}
+          renaming={renameFor === actionRow.sessionId}
           onTogglePin={() => { togglePinFor(actionRow.sessionId) }}
           onDelete={() => { requestDelete(actionRow.sessionId) }}
-          onCancelConfirm={() => { setConfirmFor(undefined) }}
+          onStartRename={() => { startRename(actionRow.sessionId) }}
+          onRename={(next) => { submitRename(actionRow.sessionId, next) }}
+          onCancelConfirm={() => { setConfirmFor(undefined); setRenameFor(undefined) }}
           onClose={closeActions}
         />
       )}
