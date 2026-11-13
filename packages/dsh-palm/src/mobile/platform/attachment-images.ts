@@ -10,6 +10,7 @@
  */
 
 import { readAttachment } from '../api.ts'
+import type { AttachmentRef } from '../mobile-types.ts'
 
 /** 缓存的图片张数上限。 */
 const MAX_CACHED_IMAGES = 16
@@ -75,14 +76,16 @@ export function forgetAttachmentUrl(attachmentId: string): void {
 /**
  * 取一张图的 URL；失败返回 undefined（只影响这一张图的显示）。
  * @param sessionId - 授权与校验引用关系的会话。
- * @param attachmentId - 事件里折出来的附件 id。
+ * @param attachment - 事件里折出来的**完整**图片引用（新宿主按它校验字节）。
  */
-export async function loadAttachmentUrl(sessionId: string, attachmentId: string): Promise<string | undefined> {
+export async function loadAttachmentUrl(sessionId: string, attachment: AttachmentRef): Promise<string | undefined> {
+  // 缓存与并发合并都按内容寻址的 id 走：同一张图只问一次宿主。
+  const attachmentId = attachment.attachmentId
   const cached = cachedAttachmentUrl(attachmentId)
   if (cached !== undefined) return cached
   const pending = inFlight.get(attachmentId)
   if (pending !== undefined) return await pending
-  const request = readAttachment(sessionId, attachmentId)
+  const request = readAttachment(sessionId, attachment)
     .then((result) => {
       const url = toBlobUrl(result.dataUrl)
       cache.set(attachmentId, url)

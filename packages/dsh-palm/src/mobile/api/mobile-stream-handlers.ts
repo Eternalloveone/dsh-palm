@@ -11,6 +11,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxyAdapter } from '../../api-proxy-adapter.ts'
+import type { AttachmentRef } from '../mobile-types.ts'
 import { readCookie } from '../../gate.ts'
 import { writeJson } from '../../http.ts'
 import {
@@ -155,10 +156,11 @@ export interface ReadAttachmentContext {
  */
 export async function mobileReadAttachment(ctx: ReadAttachmentContext): Promise<void> {
   const { res, parsed, rpcId } = ctx
-  const body = parsed.payload as { sessionId?: unknown; attachmentId?: unknown } | undefined
+  const body = parsed.payload as { sessionId?: unknown; attachment?: unknown } | undefined
   const sessionId = typeof body?.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined
-  const attachmentId = typeof body?.attachmentId === 'string' && body.attachmentId !== '' ? body.attachmentId : undefined
-  if (sessionId === undefined || attachmentId === undefined) {
+  // 2026-11-13 起宿主 `session.attachment` 要整份引用（ID/格式/字节/尺寸逐项校验），只给 id 会被判无效。
+  const attachment = body?.attachment as AttachmentRef | undefined
+  if (sessionId === undefined || attachment === undefined || typeof attachment !== 'object' || attachment.attachmentId === '') {
     writeJson(res, 200, {
       type: 'server-response',
       rpcId,
@@ -167,7 +169,7 @@ export async function mobileReadAttachment(ctx: ReadAttachmentContext): Promise<
     return
   }
   try {
-    const value = await (ctx.apiProxy as ApiProxyAdapter).readAttachment(sessionId, attachmentId)
+    const value = await (ctx.apiProxy as ApiProxyAdapter).readAttachment(sessionId, attachment)
     writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value } })
   } catch (error) {
     // 稳定文案，不外泄宿主细节（图片读不到只影响这一张图的显示）。

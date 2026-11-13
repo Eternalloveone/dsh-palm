@@ -1608,18 +1608,19 @@ describe('mobile.readAttachment (chat images)', () => {
   it('returns the data URL from the adapter for a session-authorized attachment', async () => {
     const readAttachment = vi.fn(async () => ({ mediaType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,QUFB' }))
     const imageProxy = { ...apiProxy, readAttachment } as unknown as ApiProxy
+    const attachment = { attachmentId: 'sha256:abc', mediaType: 'image/jpeg', width: 100, height: 100 }
     const server = await serve(makeMobileApiRoutes({ service, apiProxy: imageProxy, mobileEnterToSend }))
     try {
       const { status, body } = await callWith(server.port, 'mobile.readAttachment', {
         sessionId: 's-1',
-        attachmentId: 'sha256:abc',
+        attachment,
       })
       expect(status).toBe(200)
       const envelope = JSON.parse(body) as { result: { ok: boolean; value?: { mediaType: string; dataUrl: string } } }
       expect(envelope.result.ok).toBe(true)
       expect(envelope.result.value).toEqual({ mediaType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,QUFB' })
-      // 宿主按会话校验"这张图确实被该会话引用过"，所以会话 id 必须原样传下去。
-      expect(readAttachment).toHaveBeenCalledWith('s-1', 'sha256:abc')
+      // 宿主按会话校验"这张图确实被该会话引用过"，且要**整份引用**（逐项校验字节），所以都要原样传下去。
+      expect(readAttachment).toHaveBeenCalledWith('s-1', attachment)
     } finally {
       await server.close()
     }
@@ -1636,7 +1637,7 @@ describe('mobile.readAttachment (chat images)', () => {
 
       const failed = JSON.parse((await callWith(server.port, 'mobile.readAttachment', {
         sessionId: 's-1',
-        attachmentId: 'sha256:abc',
+        attachment: { attachmentId: 'sha256:abc', mediaType: 'image/jpeg', width: 100, height: 100 },
       })).body) as { result: { ok: boolean; error: { code: string; message: string } } }
       expect(failed.result.ok).toBe(false)
       expect(failed.result.error.code).toBe('internal')

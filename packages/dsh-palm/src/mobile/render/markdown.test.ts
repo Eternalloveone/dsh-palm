@@ -46,6 +46,15 @@ describe('localImagePath', () => {
     expect(localImagePath('/home/u/a.jpg')).toBe('/home/u/a.jpg')
   })
 
+  it('剥掉 CommonMark 的 `<...>` destination（真机：正文图片整张不显示）', () => {
+    // agent 写含空格/反斜杠的 Windows 路径时用 `<D:\...>` —— 不剥的话以 '>' 结尾，
+    // 判不出本地图，还会被当成相对 URL 生成一个坏 src（真机就是一个裂图 + alt）。
+    expect(localImagePath('<D:\\work\\dsh-palm\\delivery-entry-schemes.png>')).toBe('D:\\work\\dsh-palm\\delivery-entry-schemes.png')
+    const html = renderMarkdown('![效果图](<D:\\work\\dsh-palm\\a.png>)')
+    expect(html).toContain('data-local-src="D:\\work\\dsh-palm\\a.png"')
+    expect(html).not.toContain('src="<')
+  })
+
   it('decodes percent escapes and drops query/fragment suffixes', () => {
     expect(localImagePath('D:/my%20shots/a.png')).toBe('D:/my shots/a.png')
     expect(localImagePath('D:/shots/a.png?v=2')).toBe('D:/shots/a.png')

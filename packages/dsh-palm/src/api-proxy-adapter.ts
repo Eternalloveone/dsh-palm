@@ -43,6 +43,7 @@ import type {
   ApprovalOutcome,
 } from './api-proxy-types.ts'
 import { RpcId } from './api-proxy-types.ts'
+import type { AttachmentRef } from './mobile/mobile-types.ts'
 import { toolRiskOf } from './tool-risk.ts'
 import { HistoryAdapter } from './api-proxy-history.ts'
 import { permissionOptionsSource } from './permission-options.ts'
@@ -143,15 +144,14 @@ export interface ApiProxyAdapter extends ApiProxy {
   /**
    * 读一张会话里引用过的图片，返回可直接放进 `<img src>` 的 data URL。
    *
-   * 0.1.5 起图片字节不在会话事件里（事件只带 `attachmentId` 引用），宿主按
-   * "该会话确实引用过这张图"授权后才给字节（session-controller commands.ts:383
-   * 的 `attachment()`）。attachmentId 是内容寻址的 sha256，同一张图永远同一 id，
-   * 所以这里按 id 长期缓存——重进会话不必再过一次隧道。
+   * 0.1.5 起图片字节不在会话事件里（事件只带引用），宿主按"该会话确实引用过
+   * 这张图"授权后才给字节（session-controller 的 `attachment()`）。attachmentId
+   * 是内容寻址的 sha256，同一张图永远同一 id，所以这里按 id 长期缓存。
    * @param sessionId - 授权与校验引用关系的会话。
-   * @param attachmentId - 事件里折出来的附件 id。
+   * @param attachment - 事件里折出来的完整图片引用（新宿主逐项校验字节）。
    * @returns 媒体类型与 data URL。
    */
-  readAttachment(sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }>
+  readAttachment(sessionId: string, attachment: AttachmentRef): Promise<{ mediaType: string; dataUrl: string }>
   /** 插件 dispose 时清理 follow 流、mux 源、事件监听。 */
   dispose(): void
 }
@@ -346,14 +346,20 @@ export function makeApiProxyAdapter(
   // 同一 id，所以按 id 长期缓存；上限之外的按插入顺序淘汰（LRU 足够，图的复用是
   // 局部的：同一屏来回滚动）。
   const attachmentCache = new Map<string, { mediaType: string; dataUrl: string }>()
-  const readAttachment = async (sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }> => {
+  const readAttachment = async (sessionId: string, attachment: AttachmentRef): Promise<{ mediaType: string; dataUrl: string }> => {
+    const attachmentId = attachment.attachmentId
     const cached = attachmentCache.get(attachmentId)
     if (cached !== undefined) return cached
     const call = (session as unknown as {
-      attachment?: (request: { sessionId: string; attachmentId: string }) => Promise<{ attachment: { mediaType?: unknown }; data: unknown }>
+      attachment?: (request: Record<string, unknown>) => Promise<{ attachment?: { mediaType?: unknown }; data: unknown }>
     }).attachment
     if (typeof call !== 'function') throw new Error('宿主未提供 session.attachment')
-    const result = await call.call(session, { sessionId, attachmentId })
+    // 2026-11-13 的宿主把 `attachment()` 收紧成 `{ sessionId, attachment: ImageAttachmentRef }`
+    // 并按 ID / 格式 / 字节 / 尺寸校验整份引用：只给 attachmentId 会直接失败（真机上
+    // 表现为每张历史图片都显示「这张图没显示出来」）。旧宿主只认平铺的 attachmentId，
+    // 所以新形状失败一次后回退旧形状——插件要能同时跑在新旧 DSH 上。
+    const result = await call.call(session, { sessionId, attachment })
+      .catch(() => call.call(session, { sessionId, attachmentId }))
     const mediaType = typeof result?.attachment?.mediaType === 'string' ? result.attachment.mediaType : 'image/jpeg'
     if (typeof result?.data !== 'string' || result.data === '') throw new Error('附件内容为空')
     const value = { mediaType, dataUrl: `data:${mediaType};base64,${result.data}` }

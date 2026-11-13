@@ -9,7 +9,7 @@
 import { callUnary } from '../../platform/rpc.ts'
 import { coalescedRead } from '../read-coalescing.ts'
 import { SESSION_PREVIEW_BATCH_LIMIT } from '../limits.ts'
-import type { DirectoryListing, FilePreview, SessionPreview } from '../../mobile-types.ts'
+import type { AttachmentRef, DirectoryListing, FilePreview, SessionPreview } from '../../mobile-types.ts'
 
 /** Read one host file (text/image) for preview. A relative path resolves
  * against the owning session's cwd when `sessionId` is given. */
@@ -20,15 +20,15 @@ export async function readFile(path: string, sessionId?: string): Promise<FilePr
 /**
  * 读一张会话里引用过的图片，返回可直接放进 `<img src>` 的 data URL。
  *
- * 0.1.5 起图片字节不在会话事件里（事件只带 `attachmentId` 引用），宿主按
- * "该会话确实引用过这张图"授权后才给字节；attachmentId 是内容寻址的 sha256，
- * 宿主侧按 id 长期缓存，所以重复调用很便宜。
+ * 整份引用都要带上：2026-11-13 的宿主把 `session.attachment` 收紧成
+ * `{ sessionId, attachment: ImageAttachmentRef }` 并逐项校验字节，只传 attachmentId 会被判无效。
  * @param sessionId - 授权与校验引用关系的会话。
- * @param attachmentId - 事件里折出来的附件 id。
- * @returns 媒体类型与 data URL。
- */
-export async function readAttachment(sessionId: string, attachmentId: string): Promise<{ mediaType: string; dataUrl: string }> {
-  return await callUnary<{ mediaType: string; dataUrl: string }>('mobile.readAttachment', { sessionId, attachmentId })
+ * @param attachment - 事件里折出来的完整图片引用。
+ */export async function readAttachment(
+  sessionId: string,
+  attachment: AttachmentRef,
+): Promise<{ mediaType: string; dataUrl: string }> {
+  return await callUnary<{ mediaType: string; dataUrl: string }>('mobile.readAttachment', { sessionId, attachment })
 }
 
 /** Browse one directory level on the host (defaults to home directory). */

@@ -49,7 +49,8 @@ describe('ToolImages', () => {
     })
     expect(image.getAttribute('src')).toBe('data:image/png;base64,AAAA')
     expect(image.getAttribute('alt')).toBe('shot.png')
-    expect(loadAttachmentUrl).toHaveBeenCalledWith('s1', 'a1')
+    // 整份引用交给加载器（新宿主按 ID / 格式 / 字节 / 尺寸校验，只给 id 会被拒）。
+    expect(loadAttachmentUrl).toHaveBeenCalledWith('s1', expect.objectContaining({ attachmentId: 'a1' }))
   })
 
   it('S4：只有路径的 png 也能画（readFile 返回 kind=image）', async () => {

@@ -232,28 +232,26 @@ export function applyRunningState(
 }
 
 /**
- * 「别的工作区还有几个任务在跑」。
+ * 抽屉「任务」入口的小字：「3 在跑 · 1 刚完成」。
  *
- * 抽屉只列**当前工作区**的会话（它按 `cwd` 认领），而 `mobile.runningSessions` 是全局的。
- * 于是在 A 工作区打开抽屉时，B 工作区里正在跑的回合一条都看不见 —— 用户看到的是
- * 「明明有两个任务在跑，侧边栏却只显示一个」（2026-11-12 真机反馈）。
+ * 两个数都与「任务」页同口径：在跑数取 `mobile.runningSessions` 的全局集合（抽屉只画
+ * 当前工作区，不能再从行里数）；刚完成数取宿主收工账本，只留 24 小时内、且此刻不在跑的。
+ * 以前入口写「N 条」= 在跑 + 手机本地账本（7 天、跨工作区），与任务页对不上 ——
+ * 真机现象就是「3 个在跑，入口却写 4 条」。
  *
- * 这里不做工作区映射（会话行不带 workspaceId，只有 cwd）：权威运行集合减去抽屉里
- * 已经画出来的行，剩下的就是"这一刻你看不见的在跑任务"，正好用来提示"去别处看看"。
- *
- * @param rows - 抽屉里已经画出来的行
- * @param runningIds - 权威的在跑会话 id 集合
- * @returns 不在抽屉行里的在跑会话数（0 表示都在眼前）
+ * @param sessionIds - 权威的在跑会话 id 集合
+ * @param finished - 宿主的收工账本（累积文件）
+ * @param now - 当前时间（毫秒），注入便于测试
+ * @returns 入口小字；两个数都是 0 时 undefined（整行不画）
  */
-export function countRunningElsewhere(
-  rows: readonly SessionView[],
-  runningIds: Iterable<string>,
-): number {
-  const shown = new Set(rows.map(row => String(row.sessionId)))
-  const counted = new Set<string>()
-  for (const id of runningIds) {
-    const key = String(id)
-    if (!shown.has(key)) counted.add(key)
-  }
-  return counted.size
+export function taskLabelOf(
+  sessionIds: Iterable<string>,
+  finished: readonly { sessionId: string; finishedAt: number }[],
+  now: number = Date.now(),
+): string | undefined {
+  const live = new Set([...sessionIds].map(String))
+  const done = new Set(finished
+    .filter(run => !live.has(String(run.sessionId)) && now - run.finishedAt < 86_400_000)
+    .map(run => String(run.sessionId))).size
+  return live.size + done === 0 ? undefined : [live.size === 0 ? '' : `${live.size} 在跑`, done === 0 ? '' : `${done} 刚完成`].filter(Boolean).join(' · ')
 }

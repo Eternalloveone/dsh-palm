@@ -151,8 +151,19 @@ export function stripLeadingSlashDrive(path: string): string {
   return path.replace(/^[/\\]([A-Za-z]:[/\\])/, '$1')
 }
 
+/**
+ * CommonMark 允许用 `<...>` 包裹 destination（含空格/反斜杠的路径必须这么写）。
+ * 不剥掉外层尖括号，路径会以 `>` 结尾：既判不出本地图，又会当成普通 URL 生成一个坏 src。
+ * @param raw - 作者写的 destination
+ * @returns 去掉外层尖括号（没有则原样）
+ */
+export function unbracket(raw: string): string {
+  const trimmed = raw.trim()
+  return trimmed.startsWith('<') && trimmed.endsWith('>') ? trimmed.slice(1, -1).trim() : trimmed
+}
+
 export function localImagePath(raw: string): string | null {
-  const withoutSuffix = raw.trim().replace(/[?#][\s\S]*$/, '')
+  const withoutSuffix = unbracket(raw).replace(/[?#][\s\S]*$/, '')
   if (withoutSuffix === '') return null
   // Protocol-relative (`//host/x.png`) reaches an arbitrary origin: never local.
   if (withoutSuffix.startsWith('//')) return null
@@ -245,7 +256,8 @@ export function renderInline(text: string): string {
         const parenEnd = findCloseParen(text, close + 2)
         if (parenEnd !== -1) {
           const alt = text.slice(i + 2, close)
-          const src = text.slice(close + 2, parenEnd)
+          // `<...>` 是 CommonMark 里含空格路径的标准写法（真机：agent 写的就是这种）。
+          const src = unbracket(text.slice(close + 2, parenEnd))
           const local = localImagePath(src)
           if (local !== null) {
             // No `src` yet: the body hydrates it through mobile.readFile.
@@ -274,7 +286,7 @@ export function renderInline(text: string): string {
         const parenEnd = findCloseParen(text, close + 2)
         if (parenEnd !== -1) {
           const label = text.slice(i + 1, close)
-          const href = text.slice(close + 2, parenEnd)
+          const href = unbracket(text.slice(close + 2, parenEnd))
           // 指向本机文件的链接（`[说明](docs/x.md)`）直接变成文件链接：手机端
           // 点它应该打开预览，而不是 404 或只剩一行点不动的文本。
           const localPath = localPathOf(href)

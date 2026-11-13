@@ -12,6 +12,7 @@ import { logTail, reportError } from '../data/diag.ts'
 import { archiveSession, createSession, listSessions, observeSession, prompt, renameSession, runningSessions, sendCommand } from '../data/session.ts'
 import { fetchMobilePreferences, readSettings } from '../data/settings.ts'
 import { listWorkspaces } from '../data/workspace.ts'
+import { fetchFinishedRuns } from '../data/usage.ts'
 import { handleAppFrame } from '../kernels/app-frame-slice.ts'
 import { canGoBack, createPageStack, currentOf, popPage, pushPage } from '../kernels/page-stack.ts'
 import { transitionOf, TRANSITION_MS } from '../kernels/transition.ts'
@@ -54,7 +55,7 @@ const PREFETCHED_WORKSPACES = new Set<string>()
 import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
 import { markSessionStale, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
-import { applyRunningState, countRunningElsewhere, mergeDrawerRows, orderDrawerRows, paintDrawerRows, scopedToWorkspace } from './drawer-rows.ts'
+import { applyRunningState, mergeDrawerRows, orderDrawerRows, paintDrawerRows, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
 import { loadPinnedSessions, loadPinnedWorkspaces, togglePinnedSession, togglePinnedWorkspace } from '../session/pins.ts'
 import { Button } from '../ui/primitives.tsx'
 import { WorkspacePicker } from './chat/components/workspace-picker.tsx'
@@ -276,15 +277,15 @@ export function chatRouteOf(session: SessionView, workspaceId: string): Route {
  * 以前刷新要先走 首页 →（拉工作区列表）→ 会话列表 →（拉第一页）→ 会话，两跳
  * 网络之后才挂上聊天页 —— 本地缓存住的行根本没机会出现在首帧里（渲染审计的
  * 「聊天 warm 0/0」）。URL 里已经指名了会话，就直接开这一页：ChatView 自己会
- * 先画缓存、再向宿主校准；标题优先取会话列表的本地缓存，工作区信息由后台那条
- * 补数据的效果填回来。
+ * 先画缓存、再向宿主校准；标题优先取会话列表的本地缓存，取不到就写「新会话」
+ * （以前是 `会话 + id 后 6 位`，冷启动时一直挂着假标题）；工作区信息由后台补数据填回来。
  */
 export function chatRouteFromUrl(workspaceId: string, sessionId: string, seq?: number, title?: string): Route {
   return {
     kind: 'chat',
     session: {
       sessionId,
-      title: title !== undefined && title !== '' ? title : `会话 ${sessionId.slice(-6)}`,
+      title: title !== undefined && title !== '' ? title : '新会话',
       updatedAt: 0,
       running: false,
       blank: false,
@@ -713,8 +714,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [drawer, setDrawer] = useState<{
     session: SessionView; workspaceId: string; rows: readonly SessionView[]
     finished: ReadonlySet<string>; pending: ReadonlySet<string>; turns: readonly ArtifactTurnPayload[]
-    /** 不在抽屉行里、但正在跑的会话数（别的工作区）：抽屉只列当前工作区，没有这一行就完全看不见。 */
-    runningElsewhere: number
+    /** 「任务」入口的小字（「3 在跑 · 1 刚完成」）：与任务页同口径，undefined 表示整行不画。 */
+    taskLabel?: string
     /** 会话列表还在路上（本地没有缓存时首帧为 true）：抽屉据此画"正在读取"而不是"还没有会话"。 */
     listing: boolean
   } | undefined>(undefined)
@@ -1319,21 +1320,19 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       rows,
       finished: new Set(finishedRuns().map(run => run.sessionId)),
       pending: new Set(pendingEntries.map(entry => entry.sessionId)),
-      /* 首帧还不知道别处在跑什么：下面那次 runningSessions 回来再补。 */
-      runningElsewhere: 0,
       // 有本地缓存就直接画；没有才需要等宿主那一页（等的时候不画"还没有会话"）。
       listing: cachedRows.length === 0,
       turns,
     })
     if (workspaceId === '') return
-    /* 别处在跑什么：抽屉只列当前工作区，这一问决定要不要画「还有 N 个在跑」那行。 */
-    void runningSessions().then(({ sessionIds }) => {
+    /* 谁在跑 + 刚跑完多少（与「任务」页同一口径）：入口小字「N 在跑 · M 刚完成」靠这一问。 */
+    void Promise.all([runningSessions(), fetchFinishedRuns().catch(() => [] as Awaited<ReturnType<typeof fetchFinishedRuns>>)]).then(([{ sessionIds }, finished]) => {
       setDrawer(previous => {
         if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
         const rows = applyRunningState(previous.rows, sessionIds)
-        const runningElsewhere = countRunningElsewhere(rows, sessionIds)
-        if (rows === previous.rows && runningElsewhere === previous.runningElsewhere) return previous
-        return { ...previous, rows, runningElsewhere }
+        const taskLabel = taskLabelOf(sessionIds, finished)
+        if (rows === previous.rows && taskLabel === previous.taskLabel) return previous
+        return { ...previous, rows, taskLabel }
       })
     }).catch(() => undefined)
     /**
@@ -1392,26 +1391,24 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
    * 抽屉开着的时候，定时对一次"谁在跑"。
    *
    * 2026-11-12 用户：「运行状态更新太慢，有时从完成跳成运行中，有时跑了好久才出现运行中」。
-   * 抽屉原来只在打开那一刻拉一次列表，之后**再也不刷新** —— 那一帧说什么就是什么。
-   * 现在开着就每 DRAWER_RUNNING_POLL_MS 毫秒问一次 `mobile.runningSessions`（轻量 RPC），
-   * 关掉立刻停；列表行只负责标题和时间，运行状态一律以这个集合为准。
+   * 原来只在打开那一刻拉一次列表，之后**再也不刷新** —— 那一帧说什么就是什么。现在开着就每
+   * DRAWER_RUNNING_POLL_MS 毫秒问一次（轻量 RPC，顺带刷新入口小字），关掉立刻停；列表行只负责标题和时间，运行状态以这个集合为准。
    */
   useEffect(() => {
     if (drawer === undefined) return undefined
     const workspaceId = drawer.workspaceId
     const timer = setInterval(() => {
-      void runningSessions().then(({ sessionIds }) => {
+      void Promise.all([runningSessions(), fetchFinishedRuns().catch(() => [] as Awaited<ReturnType<typeof fetchFinishedRuns>>)]).then(([{ sessionIds }, finished]) => {
         setDrawer((previous) => {
           if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
           const rows = applyRunningState(previous.rows, sessionIds)
-          /* 减去抽屉里画出来的行：剩下的就是"这一刻在别的工作区跑着"的任务。 */
-          const runningElsewhere = countRunningElsewhere(rows, sessionIds)
+          const taskLabel = taskLabelOf(sessionIds, finished)
           // 运行集合没变就返回**同一个对象**：React 据此直接 bail out，不进重渲染。
           // 否则每 4 秒一次 setState 会把整个 App 重算一遍 —— 而 `<ChatView>` 没有
           // 渲染边界，等于抽屉开着时每 4 秒连聊天页那 4000 行函数体一起重跑
           // （2026-11-12 实测：这就是"点什么都卡一下"的来源之一）。
-          if (rows === previous.rows && runningElsewhere === previous.runningElsewhere) return previous
-          return { ...previous, rows, runningElsewhere }
+          if (rows === previous.rows && taskLabel === previous.taskLabel) return previous
+          return { ...previous, rows, taskLabel }
         })
       }).catch(() => undefined)
     }, DRAWER_RUNNING_POLL_MS)
@@ -1732,12 +1729,9 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           onPick={(session) => { setDrawer(undefined); openChat(session, drawer.workspaceId) }}
           onOpenSettings={() => { setDrawer(undefined); navigate({ kind: 'settings', session: drawer.session, workspaceId: drawer.workspaceId }) }}
           onOpenUsage={() => { setDrawer(undefined); navigate({ kind: 'usage', session: drawer.session, workspaceId: drawer.workspaceId }) }}
-          /* 有任务才画「任务」那一行：在跑的会话（看行的 running，而不是 pending ——
-             那是"排队中的消息"）+ 刚跑完的记录，去重后计数。 */
-          /* 条数是**全局**的：抽屉只画当前工作区，但「任务」页列的是所有工作区
-             正在跑 + 刚跑完的会话。少了 drawer.runningElsewhere，3 个在跑时会写「1 条」，
-             用户点进去看到 3 条 —— 入口与页面自相矛盾（2026-11-12 真机）。 */
-          taskCount={new Set([...drawer.rows.filter(row => row.running).map(row => row.sessionId), ...drawer.finished]).size + drawer.runningElsewhere}
+          /* 入口小字 =「N 在跑 · M 刚完成」，与「任务」页同一口径（在跑取全局权威集合、
+             刚完成取宿主 24 小时账本且不含仍在跑的）；都没有时整行不画。 */
+          taskLabel={drawer.taskLabel}
           onOpenTasks={() => { setDrawer(undefined); navigate({ kind: 'tasks', session: drawer.session, workspaceId: drawer.workspaceId }) }}
         />
       )}

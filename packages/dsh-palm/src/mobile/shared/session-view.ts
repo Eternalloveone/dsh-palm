@@ -48,13 +48,9 @@ export function toSessionView(item: {
 }): SessionView {
   const values = item.projections?.values
   const titleValue = values?.title
-  // Windows cwd is a backslash path, so splitting on '/' alone would return the
-  // whole `D:\dev\app` as a "title" — every session of one directory then
-  // showed the same truncated path.
-  const tail = cwdTail(item.cwd)
-  const title = typeof titleValue === 'string' && titleValue !== ''
-    ? titleValue
-    : tail ?? '新会话'
+  // 没有标题就用「新会话」，不再兜底成目录名：同一个工作区里每条无标题会话的目录名
+  // 都一样，排在一起既没有区分度，又会让用户以为标题被改成了项目名。
+  const title = typeof titleValue === 'string' && titleValue !== '' ? titleValue : '新会话'
   const previewValue = values?.preview
   const stats = values?.sessionStats
   const turns = typeof stats === 'object' && stats !== null

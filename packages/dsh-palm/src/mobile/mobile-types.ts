@@ -75,6 +75,19 @@ export interface HostFinishedRun {
   summary?: string
 }
 
+/**
+ * 一张图片附件的完整引用。读字节时要**原样**交给宿主：新的 `session.attachment`
+ * 按 ID / 格式 / 字节 / 尺寸逐项校验，只给 attachmentId 会被判无效请求。
+ */
+export interface AttachmentRef {
+  attachmentId: string
+  mediaType: string
+  width: number
+  height: number
+  bytes?: number
+  name?: string
+}
+
 /** The full usage surface, synced from the desktop's configured providers. */
 export interface UsageView {
   providers: UsageProviderView[]

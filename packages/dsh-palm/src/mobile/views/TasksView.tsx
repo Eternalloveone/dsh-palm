@@ -119,15 +119,15 @@ export function TasksView(props: TasksViewProps) {
       const page = feed.sessions
       const runningIds = feed.running
       // 宿主的 `session.list` 回分页对象（items 是 SessionSummary），标题藏在 projections 里：
-      // 用 toSessionView 统一转成前端那套（标题优先 projections.title，退回 cwd 尾巴）。
+      // 用 toSessionView 统一转成前端那套（标题优先 projections.title，没有就「新会话」）。
       const sessionRows: SessionView[] = Array.isArray(page)
         ? page
         : (page.items ?? []).map(item => toSessionView(item as Parameters<typeof toSessionView>[0]))
       const byId = new Map(sessionRows.map(session => [session.sessionId, session]))
       const ids = new Set(runningIds.sessionIds)
-      // 运行中的会话可能还没进 session.list（刚新建）：标题退回 id，至少能点进去。
+      // 还没进 session.list（刚新建 / 不在这一页）就拿不到标题：写「新会话」，不拿会话 id 顶。
       const live = runningIds.sessionIds.map(id => byId.get(id) ?? {
-        sessionId: id, title: id, updatedAt: 0, running: true, blank: false,
+        sessionId: id, title: '新会话', updatedAt: 0, running: true, blank: false,
       })
       // 首页带 cwd 的行直接进缓存；账本里那些不在首页的 id 补一次翻页索引（只补缺的）。
       for (const session of sessionRows) {

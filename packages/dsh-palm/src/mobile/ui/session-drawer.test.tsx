@@ -42,6 +42,14 @@ function renderDrawer(overrides: Partial<SessionDrawerProps> = {}): {
 }
 
 describe('会话抽屉', () => {
+  it('列表还在路上时画「正在读取会话…」，不抢先说没有会话', () => {
+    // 三态：listing=true 表示宿主那一页还没回来，此时说"这个工作区还没有会话"是假话。
+    renderDrawer({ rows: [], listing: true })
+    expect(document.querySelector('.palm-drawer-empty')!.textContent).toBe('正在读取会话…')
+    cleanup()
+    renderDrawer({ rows: [], listing: false })
+    expect(document.querySelector('.palm-drawer-empty')!.textContent).toBe('这个工作区还没有会话')
+  })
   it('一条会话都没有时画一行说明，而不是留一块空白', () => {
     // 2026-11-10「会话列表显示失效」：空列表原来什么都不画，看起来就是界面坏了。
     renderDrawer({ rows: [] })
@@ -136,18 +144,18 @@ describe('会话抽屉', () => {
     const { actions } = renderDrawer()
     expect(screen.queryByRole('button', { name: /^任务/ })).toBeNull()
     cleanup()
-    renderDrawer({ taskCount: 2, onOpenTasks: () => { actions.push('tasks') } })
+    renderDrawer({ taskLabel: '3 在跑 · 1 刚完成', onOpenTasks: () => { actions.push('tasks') } })
     const tools = [...document.querySelectorAll('.palm-drawer-tool')]
     expect(tools).toHaveLength(3)
     expect(tools[0]!.querySelector('span')!.textContent).toBe('任务')
-    expect(tools[0]!.querySelector('small')!.textContent).toBe('2 条')
+    expect(tools[0]!.querySelector('small')!.textContent).toBe('3 在跑 · 1 刚完成')
     fireEvent.click(tools[0]!)
     expect(actions).toEqual(['tasks'])
   })
 
   it('工具卡片顺序：任务 → 用量 → 设置（信息在上、配置沉底）', () => {
     // 2026-11-12 用户：「设置和用量要不要调换」——换成信息类在前、配置最后一行。
-    renderDrawer({ taskCount: 1, onOpenTasks: () => {} })
+    renderDrawer({ taskLabel: '1 在跑', onOpenTasks: () => {} })
     const labels = [...document.querySelectorAll('.palm-drawer-tool')]
       .map(tool => tool.querySelector('span')?.textContent)
     expect(labels).toEqual(['任务', '用量', '设置'])

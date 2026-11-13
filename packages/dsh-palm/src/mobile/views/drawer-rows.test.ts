@@ -7,7 +7,7 @@
  * 行右侧「什么时候」的文案已搬到 `ui/drawer-when.test.ts`（函数也住 ui 层了）。
  */
 import { describe, expect, it } from 'vitest'
-import { countRunningElsewhere, mergeDrawerRows, orderDrawerRows, paintDrawerRows, pathKey, scopedToWorkspace } from './drawer-rows.ts'
+import { mergeDrawerRows, orderDrawerRows, paintDrawerRows, pathKey, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
 import { drawerBucketOf } from '../ui/session-drawer.tsx'
 import type { SessionView } from '../shared/session-view.ts'
 
@@ -197,27 +197,33 @@ describe('mergeDrawerRows', () => {
 })
 
 /**
- * 「别的工作区还有几个任务在跑」（2026-11-12 真机）。
- *
- * 抽屉只列当前工作区的会话，权威运行集合却是全局的 —— 两者一减就是用户"看不见"
- * 的那部分。这里钉住三件事：算的是差集、重复 id 只算一次、全是眼前的行时给 0。
+ * 「任务」入口小字（2026-11-13 改口径）：在跑数取全局权威集合、刚完成数取宿主 24h 账本，
+ * 与「任务」页一致。真机现象是入口写「4 条」、任务页只有 3 个在跑 —— 本地账本（7 天、
+ * 跨工作区）撑出来的那一条就是这么来的。
  */
-describe('countRunningElsewhere', () => {
-  const row = (sessionId: string): SessionView => ({ sessionId, title: sessionId, updatedAt: 1, running: false, blank: false })
+describe('taskLabelOf', () => {
+  const NOW = 1_700_000_000_000
+  const done = (sessionId: string, ageMs = 60_000): { sessionId: string; finishedAt: number } =>
+    ({ sessionId, finishedAt: NOW - ageMs })
 
-  it('只数抽屉里没画出来的那些会话', () => {
-    expect(countRunningElsewhere([row('a'), row('b')], ['a', 'x', 'y'])).toBe(2)
+  it('在跑 + 刚完成两段都写出来', () => {
+    expect(taskLabelOf(['a', 'b', 'c'], [done('z')], NOW)).toBe('3 在跑 · 1 刚完成')
   })
 
-  it('都在抽屉里时是 0（没有别处在跑）', () => {
-    expect(countRunningElsewhere([row('a'), row('b')], ['b', 'a'])).toBe(0)
+  it('只有一种时只写那一段', () => {
+    expect(taskLabelOf(['a'], [], NOW)).toBe('1 在跑')
+    expect(taskLabelOf([], [done('z')], NOW)).toBe('1 刚完成')
   })
 
-  it('集合里重复出现的同一个 id 只算一次', () => {
-    expect(countRunningElsewhere([], ['x', 'x', 'x'])).toBe(1)
+  it('都没有时给 undefined（入口整行不画）', () => {
+    expect(taskLabelOf([], [], NOW)).toBeUndefined()
   })
 
-  it('抽屉为空时等于整个运行集合的大小（首帧就是这个形态）', () => {
-    expect(countRunningElsewhere([], ['a', 'b'])).toBe(2)
+  it('超过 24 小时的不算刚完成；仍在跑的不重复计', () => {
+    expect(taskLabelOf(['a'], [done('z', 25 * 60 * 60_000), done('a')], NOW)).toBe('1 在跑')
+  })
+
+  it('集合里重复的同一 id 只算一次', () => {
+    expect(taskLabelOf(['x', 'x'], [done('z'), done('z')], NOW)).toBe('1 在跑 · 1 刚完成')
   })
 })

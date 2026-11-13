@@ -73,7 +73,7 @@ export function MessageImageTile({ sessionId, image }: { sessionId: string; imag
     // 解码失败后停在失败态：字节没变，再读一次还是同一个坏 data URL。
     if (failed) return
     let cancelled = false
-    void loadAttachmentUrl(sessionId, image.attachmentId).then((loaded) => {
+    void loadAttachmentUrl(sessionId, image).then((loaded) => {
       if (cancelled) return
       if (loaded === undefined) setFailed(true)
       else {

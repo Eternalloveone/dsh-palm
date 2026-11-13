@@ -94,8 +94,8 @@ export interface SessionDrawerProps {
   onNew(): void
   onSearch(): void
   onPick(session: SessionView): void
-  /** 进行中 + 刚完成的条数：>0 才画「任务」入口。 */
-  taskCount?: number
+  /** 入口小字（「3 在跑 · 1 刚完成」）：undefined 时整行不画。 */
+  taskLabel?: string
   onOpenTasks?: (() => void) | undefined
   onOpenSettings(): void
   onOpenUsage(): void
@@ -326,9 +326,9 @@ export function SessionDrawer(props: SessionDrawerProps) {
            * 信息类聚在上面、配置沉到最底下，也是大部分 App 的通用心智（设置永远在最后一行）。
            * 任务行只在有任务时才画（2026-11-11 决定），所以不会白占位置。
            */}
-          {(props.taskCount ?? 0) > 0 && props.onOpenTasks !== undefined ? (
+          {props.taskLabel !== undefined && props.onOpenTasks !== undefined ? (
             <Button type="button" className="palm-drawer-tool" onClick={props.onOpenTasks}>
-              <RowsIcon /><span>任务</span><small>{props.taskCount} 条</small><ChevronRightIcon />
+              <RowsIcon /><span>任务</span><small>{props.taskLabel}</small><ChevronRightIcon />
             </Button>
           ) : null}
           <Button type="button" className="palm-drawer-tool" onClick={props.onOpenUsage}>
