@@ -7,7 +7,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/Eternalloveone/dsh-palm/ci.yml)](https://github.com/Eternalloveone/dsh-palm/actions)
 [![License](https://img.shields.io/github/license/Eternalloveone/dsh-palm)](https://github.com/Eternalloveone/dsh-palm/blob/main/LICENSE)
 
-**Status: 1.0.0 stable** — the `/m/api` method surface and frame formats are backward compatible (additive only). Feedback welcome.
+**Status: 2.0.0 stable** — the `/m/api` method surface and frame formats are backward compatible (additive only). Feedback welcome.
 
 ![dsh-palm demo](docs/screenshots/demo.gif)
 

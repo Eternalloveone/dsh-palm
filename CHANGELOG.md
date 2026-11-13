@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-11-13
+
+v2 界面重构定版：搜索定位重写、v21 视觉系统、语音输入、子代理详情与抽屉动效。
+
+### Added
+
+- 会话内搜索与结构坐标定位；语音输入；子代理详情页与运行总览。
+- 皮肤商店六套皮肤（石墨 / 纸 / 夜航 / 报纸 / 终末地 / Claude）。
+
+### Changed
+
+- v21 样式系统全量落地；会话列表与运行态合并为一次尾页读。
+- 首屏一次成型：行、目标、队列、回合、投影同一次快照到达。
+- 交付卡改读交付账本、渲染在列表末尾槽位；日志/缓存/补丁脚本不再出卡。
+- 抽屉「任务」入口改为「N 在跑 · M 刚完成」，与任务页同口径。
+
+### Fixed
+
+- 配对凭据泄露：撤销设备，工具改为必填 `PALM_PAIR`。
+- 宿主边界加固；弱网轮询加 10 秒看门狗。
+- 附件按完整引用读取；`<...>` 包裹的图片路径可正常显示。
+
 ## [1.7.1] - 2026-11-02
 
 手机端交互缺陷集中修整，并把"状态同步"从轮询改成帧驱动。
