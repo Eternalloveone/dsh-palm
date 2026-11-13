@@ -90,6 +90,13 @@ export interface SessionLogTailPage {
   frames: number
   /** 尾部是否有一帧写了一半（并发 append），已被丢弃。 */
   tornTail: boolean
+  /**
+   * 这个尾部窗口在日志文件里的起始偏移（字节）。
+   *
+   * `0` 表示已经读到文件开头 —— 再放宽窗口也不会多出行；大于 0 说明还有更早的内容。
+   * 首屏"要 120 行却只折出几行"时，就靠它决定要不要把尾窗放宽重读。
+   */
+  readFrom: number
 }
 
 /** sessionId 直接当目录名用：只接受它本来就允许的字符集，别的一律不认。 */
@@ -234,7 +241,7 @@ export async function readSessionLogTailPage(
     if (typeof event.seq === 'number' && Number.isFinite(event.seq) && event.seq > maxSeq) maxSeq = event.seq
     lines.push({ event })
   }
-  return { lines, maxSeq, sizeBytes: tail.size, frames: tail.frames, tornTail: tail.tornTail }
+  return { lines, maxSeq, sizeBytes: tail.size, frames: tail.frames, tornTail: tail.tornTail, readFrom: tail.from }
 }
 
 /** 一屏折叠结果的默认消息条数（与 mobile.readChat 的默认页大小一致）。 */
@@ -400,12 +407,51 @@ function lastTurnBoundaryOf(events: readonly WireEvent[]): { type: 'turn/start' 
   return undefined
 }
 
+/**
+ * 首屏尾窗的放大上限。
+ *
+ * 客户端按自己实测的进会话耗时在 512 KB / 2 MB 之间选窗口，那是"先快出内容"的取舍；
+ * 但**行数目标**是宿主这边的责任：不够就得补，否则手机要在首屏之后再补几页。
+ * 上限压在 1 MB：实测 512 KB 就够折 120 行，而 2 MB 窗口在本机 63.8 MB 的会话上直接
+ * Allocation error（zstd 解压超大帧）。扩窗是"行数不够"的兜底，不该成为新的风险源。
+ */
+export const MAX_ENTRY_WINDOW_BYTES = 1024 * 1024
+
+/**
+ * 这一屏还差多少行、要不要把尾窗放宽重读。
+ *
+ * 三条边界都要守住：
+ * 1. 行数已经够了 —— 不读；
+ * 2. 日志已经从头读起（`atFileStart`）—— 再宽也没有更早的内容，不读；
+ * 3. 已经到窗口上限 —— 不读（宁可让客户端补页，也不在一次首屏里解 8 MB）。
+ *
+ * @param input.rows - 当前窗口折出来的行数
+ * @param input.maxRows - 客户端要的行数
+ * @param input.windowBytes - 本次用的尾窗字节
+ * @param input.atFileStart - 本次窗口是否已经读到文件开头（`tail.from <= 0`）
+ * @returns 下一次该用的窗口字节；不需要重读时为 undefined
+ */
+export function nextEntryWindowBytes(input: {
+  rows: number
+  maxRows: number
+  windowBytes: number
+  atFileStart: boolean
+}): number | undefined {
+  if (input.rows >= input.maxRows) return undefined
+  if (input.atFileStart) return undefined
+  if (input.windowBytes >= MAX_ENTRY_WINDOW_BYTES) return undefined
+  // 翻四倍：512 KB → 2 MB → 4 MB，两步就到顶，不会来回磨。
+  return Math.min(MAX_ENTRY_WINDOW_BYTES, input.windowBytes * 4)
+}
+
 export async function readChatTailPage(
   sessionId: string,
   maxRows: number = DEFAULT_TAIL_ROWS,
   /** 尾部字节窗口。客户端会按自己实测的进会话耗时在 512 KB / 2 MB 之间选。 */
   windowBytes: number = TURN_START_WINDOW_BYTES,
 ): Promise<ChatPage | undefined> {
+  /** 扩窗后实际用的窗口字节（下一轮从这里继续放大）。 */
+  let lastWindow: number | undefined
   // 帧窗口必须跟着「要多少行」走。
   //
   // 以前这里固定读默认帧数（48），再把折出来的行截到 maxRows —— 于是**请求 120 行也
@@ -443,6 +489,33 @@ export async function readChatTailPage(
   if (externalStart !== undefined) folder.noteTurnStart(newestTurn as number, externalStart)
   let rows = folder.fold(events)
   let todo = foldTodoSnapshot(events)
+  /**
+   * 首屏一次取够（2026-11-13）：行数不够就放宽尾窗重读。
+   *
+   * 客户端要 `maxRows` 行，而窗口字节是由它自己按"先快出内容"选的（512 KB）；
+   * 长会话里 512 KB 常常只装得下个位数个渲染行，剩下的交给客户端补页 —— 用户看到
+   * 的就是「先进来一张交付卡、正文随后长出来」。这里由宿主把行数补齐，
+   * 一次请求就够，客户端那条补页链退化成老宿主的兜底。
+   */
+  for (let round = 0; round < 2; round += 1) {
+    const nextWindow = nextEntryWindowBytes({
+      rows: rows.length,
+      maxRows,
+      windowBytes: round === 0 ? windowBytes : (lastWindow ?? windowBytes),
+      atFileStart: tail.readFrom <= 0,
+    })
+    if (nextWindow === undefined) break
+    const wider = await readSessionLogTailPage(sessionId, { maxFrames: frameBudget, windowBytes: nextWindow })
+    lastWindow = nextWindow
+    if (wider === undefined) break
+    const widerEvents = wider.lines.map(line => line.event) as unknown as WireEvent[]
+    const widerRows = new EventFolder().fold(widerEvents)
+    // 更宽的那份必须真的多了行才替换：否则是白读一次，还可能把边界/锚点的窗口换掉。
+    if (widerRows.length <= rows.length) break
+    events = widerEvents
+    rows = widerRows
+    todo = foldTodoSnapshot(widerEvents)
+  }
 
   // 首屏就把「已收工回合的 turn/end」一起带回来。
   //

@@ -16,6 +16,8 @@ import { createCache } from './kernels/cache.ts'
 interface PageEntry {
   value?: unknown
   error?: string
+  /** 值还是上次那份，但这一年（会话）刚被切回来：后台正在刷新（`markSessionStale`）。 */
+  stale?: boolean
 }
 
 const entries = createCache<PageEntry>({ maxEntries: 32 })
@@ -61,7 +63,14 @@ export function refreshPage<T>(key: string, load: () => Promise<T>): Promise<voi
   const next = load().then(
     (value) => {
       const current = entries.get(key)
-      if (current?.value !== undefined && JSON.stringify(current.value) === JSON.stringify(value)) return
+      if (current?.value !== undefined && JSON.stringify(current.value) === JSON.stringify(value)) {
+        // 值没变，但可能刚被标脏（切回会话）：清掉标记，否则下一次还没刷新就再也触发不了。
+        if (current.stale === true) {
+          entries.set(key, { value: current.value })
+          emit(key)
+        }
+        return
+      }
       entries.set(key, { value })
       emit(key)
     },
@@ -86,6 +95,32 @@ export function invalidateSession(sessionId: string): void {
   }
 }
 
+/**
+ * 会话切走了：**保留**它的快照，只标脏。
+ *
+ * 与 {@link invalidateSession} 的区别是语义：那里是"这份数据确定不成立了"（会话被删、
+ * 写完要重取），这里是"你只是离开了一会儿"。删掉快照的代价是切回来又要白一帧 —— 而那
+ * 正是 2026-11-13 用户报的"内容消失然后加载出来"。标脏之后视图照旧渲染旧值，后台刷新
+ * 回来再替换，看得见的只有"内容更新了"，没有"空了一下"。
+ *
+ * @param sessionId - 刚离开的会话 id
+ */
+export function markSessionStale(sessionId: string): void {
+  if (sessionId === '') return
+  for (const key of [...entries.keys()]) {
+    if (!key.split('|').includes(sessionId)) continue
+    const entry = entries.get(key)
+    if (entry?.value === undefined) {
+      // 本来就没内容：没有"保留旧样子"可言，直接丢，让下次进入走骨架。
+      entries.delete(key)
+      emit(key)
+      continue
+    }
+    entries.set(key, { ...entry, stale: true })
+    emit(key)
+  }
+}
+
 /** 读快照 + 进页面后台刷新；key 变了（换会话 / 换文件）自动换快照。 */
 export function usePage<T>(key: string, load: () => Promise<T>): { value: T | undefined; error: string | undefined } {
   const entry = useSyncExternalStore(
@@ -93,7 +128,9 @@ export function usePage<T>(key: string, load: () => Promise<T>): { value: T | un
     () => entries.get(key),
   )
   // load 每次渲染都是新闭包：只认 key，避免每帧重复刷新。
-  useEffect(() => { void refreshPage(key, load) }, [key])
+  // stale 也要进依赖：切回会话时快照被标脏，得靠这一位把"再刷新一次"叫起来。
+  const stale = entry?.stale === true
+  useEffect(() => { void refreshPage(key, load) }, [key, stale])
   return { value: entry?.value as T | undefined, error: entry?.error }
 }
 

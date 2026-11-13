@@ -12,7 +12,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
-import { readChatTailPage, readSessionLogTailPage, resetLogPathCache } from './mobile-log-source.ts'
+import { MAX_ENTRY_WINDOW_BYTES, nextEntryWindowBytes, readChatTailPage, readSessionLogTailPage, resetLogPathCache } from './mobile-log-source.ts'
 
 let root = ''
 let sessionDir = ''
@@ -164,5 +164,74 @@ describe('尾页折叠：turn/start 被挤出窗口时，收工用时按日志�
     writeEvents(events)
     const page = await readChatTailPage('s-1')
     expect(page?.turnOpen).toBe(false)
+  })
+})
+
+/**
+ * 首屏一次取够：折出来的行数不够目标时，宿主把尾窗翻四倍重读。
+ *
+ * 真实数字（2026-11-13）：客户端要 120 行，保守设备的窗口是 512 KB，长会话里
+ * 512 KB 只折得出个位数行 —— 剩下的交给客户端补页，屏幕上就是"先一张交付卡、
+ * 正文随后长出来"。扩窗之后一次请求就够，客户端那条补页链退化成老宿主的兜底。
+ */
+describe('nextEntryWindowBytes（首屏扩窗判据）', () => {
+  it('行数够：不重读（多数会话走这一条，不能每次都多解一次文件）', () => {
+    expect(nextEntryWindowBytes({ rows: 120, maxRows: 120, windowBytes: 512 * 1024, atFileStart: false })).toBeUndefined()
+  })
+
+  it('行数不够且日志还有更早的内容：翻四倍', () => {
+    expect(nextEntryWindowBytes({ rows: 4, maxRows: 120, windowBytes: 512 * 1024, atFileStart: false })).toBe(MAX_ENTRY_WINDOW_BYTES)
+  })
+
+  it('已经读到文件开头：再宽也不会多出行，不重读', () => {
+    expect(nextEntryWindowBytes({ rows: 4, maxRows: 120, windowBytes: 512 * 1024, atFileStart: true })).toBeUndefined()
+  })
+
+  it('已到上限：不重读（宁可让客户端补页，也不在一次首屏里解 8 MB）', () => {
+    expect(nextEntryWindowBytes({ rows: 4, maxRows: 120, windowBytes: MAX_ENTRY_WINDOW_BYTES, atFileStart: false })).toBeUndefined()
+    expect(nextEntryWindowBytes({ rows: 4, maxRows: 120, windowBytes: MAX_ENTRY_WINDOW_BYTES / 2, atFileStart: false })).toBe(MAX_ENTRY_WINDOW_BYTES)
+  })
+})
+
+/** 写一份"多行"日志：header + 每条一个 zstd 帧（模拟真实写盘格式）。 */
+function writeManyRows(name: string, rows: number): void {
+  const path = join(sessionDir, name)
+  const lines: string[] = [JSON.stringify({ type: 'session', seq: 0, data: { id: 's-1' } })]
+  for (let index = 1; index <= rows; index += 1) {
+    lines.push(JSON.stringify({
+      type: 'user/message',
+      seq: index,
+      time: index * 1_000,
+      data: { text: '第' + index + '条消息：' + '内容'.repeat(8) },
+    }))
+  }
+  const frames = lines.map(line => zstdCompressSync(Buffer.from(`${line}\n`, 'utf8')))
+  writeFileSync(path, Buffer.concat(frames))
+}
+
+/**
+ * 首屏扩窗端到端（2026-11-13）：窗口字节不够时，宿主按"要多少行"自己补。
+ *
+ * 客户端要 120 行，而它按"先快出内容"只给 512 KB 的窗口；长会话里这点窗口只装得下
+ * 个位数行，剩下的交给客户端补页 → 用户看到"先一张交付卡、正文随后长出来"。
+ * 修法在宿主：折出来的行数不够就翻四倍重读，一次请求就把行数给够。
+ */
+describe('首屏扩窗端到端', () => {
+  it('窗口只够几行时，仍然按 maxRows 返回足够的行', async () => {
+    writeManyRows('session.v1.jsonl.zstd', 80)
+    // 4 KB 的窗口只装得下十来帧：这是"客户端保守窗口"的极端形态。
+    const narrow = await readChatTailPage('s-1', 60, 4 * 1024)
+    expect(narrow).toBeDefined()
+    // 扩窗之后必须够（80 行里最多给 60 行，由 maxRows 截断）。
+    expect((narrow?.rows.length ?? 0) >= 60).toBe(true)
+  })
+
+  it('行数本来就够时不多读：窗口足够大就直接返回', async () => {
+    writeManyRows('session.v1.jsonl.zstd', 12)
+    const page = await readChatTailPage('s-1', 12, 1024 * 1024)
+    expect(page?.rows.length).toBeGreaterThan(0)
+    // 整个文件才 12 行，读到底就该停（readFrom = 0，不再扩窗）。
+    const raw = await readSessionLogTailPage('s-1', { windowBytes: 1024 * 1024 })
+    expect(raw?.readFrom ?? -1).toBe(0)
   })
 })

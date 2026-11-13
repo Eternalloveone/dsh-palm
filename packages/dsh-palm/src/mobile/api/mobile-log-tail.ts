@@ -14,12 +14,11 @@ import { READ_CHAT_MAX_ROWS } from '../../chat-window.ts'
 import { writeJson } from '../../http.ts'
 import { rowSearchableText } from '../../host/search-text.ts'
 import { readChatTailPage } from '../../mobile-log-source.ts'
+import { liveProjections } from '../../host/live-projections.ts'
 import { processState } from './process-state.ts'
 
 /**
- * 尾页只带首屏要用的投影键。
- *
- * 整块里 turnOutline 一个就 87 KB（尾页消息自己才 99 KB），那部分留给稍后的宿主权威页。
+ * 尾页只带首屏要用的投影键（turnOutline 一个就 87 KB，留给稍后的宿主权威页）。
  */
 const TAIL_PAGE_PROJECTION_KEYS = ['permissions', 'contextPressure'] as const
 
@@ -66,19 +65,19 @@ export async function mobileLogTail(ctx: LogTailContext): Promise<void> {
       })
       return
     }
-    // 权限、上下文压力这些投影**不在日志里**：手机的权限选择器以尾页投影为基线，
-    // 缺了它整块就不渲染（实测就是"权限面板消失"）。投影来自宿主会话枚举——
-    // 那次枚举很贵（六到三十秒），但列表页本来就在跑，所以只查它留下的快照；
-    // 查不到就不带，手机端会保留已有基线。
+    // 权限、上下文压力这些投影**不在日志里**：手机的权限选择器以尾页投影为基线，缺了它
+    // 整块就不渲染；投影来自宿主会话枚举（很贵），所以只查它留下的快照，查不到就不带。
     if (page.projections === undefined) {
-      const snapshot = processState.sessionProjectionSnapshots.get(sessionId)
-      if (snapshot !== undefined) {
+      // 摘要里没有的键（contextPressure 已被宿主声明成 summary:false）回落到宿主投影服务。
+      const block = liveProjections(sessionId, TAIL_PAGE_PROJECTION_KEYS)
+        ?? processState.sessionProjectionSnapshots.get(sessionId)?.block
+      if (block !== undefined) {
         const values: Record<string, unknown> = {}
         for (const key of TAIL_PAGE_PROJECTION_KEYS) {
-          if (snapshot.block.values?.[key] !== undefined) values[key] = snapshot.block.values[key]
+          if (block.values?.[key] !== undefined) values[key] = block.values[key]
         }
         ;(page as { projections?: { asOfSeq?: number; values?: Record<string, unknown> } }).projections = {
-          ...(snapshot.block.asOfSeq === undefined ? {} : { asOfSeq: snapshot.block.asOfSeq }),
+          ...(block.asOfSeq === undefined ? {} : { asOfSeq: block.asOfSeq }),
           values,
         }
       }

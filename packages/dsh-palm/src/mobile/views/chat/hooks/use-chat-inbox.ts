@@ -72,7 +72,9 @@ export function useChatInbox(deps: ChatInboxDeps): {
     }
     const ask = (retry: boolean): void => {
       if (typeof sessionState !== 'function') { fallback(retry); return }
-      void sessionState(sessionId, options).then(
+      // 这里只读队列 / 回合 / 目标：**不要行**。整页行是这份快照最贵的一段，
+      // 而冷启动时这个轮询会与首屏并发，各让宿主解一遍日志（实测 5 次并发 → 首屏等 2 秒）。
+      void sessionState(sessionId, { ...options, rows: false }).then(
         (snapshot) => {
           if (!mountedRef.current) return
           applySnapshot(snapshot)

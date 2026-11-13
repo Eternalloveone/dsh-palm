@@ -29,6 +29,7 @@
  * @module dsh-palm/mobile/views/chat/use-session-scope
  */
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { readViewSnapshot, writeViewSnapshot } from '../state/session-view-snapshot.ts'
 
 /** 把初值（或惰性初值函数）解析成值，同时避免把函数本身当成值。 */
 function resolve<T>(initial: T | (() => T)): T {
@@ -53,16 +54,39 @@ interface Boxed<T> {
  * @param initial 初值或惰性初值（每次重置时重新求值）
  * @returns 与 `useState` 同签名的 `[value, setValue]`
  */
+/** `useSessionState` 的可选行为。 */
+export interface SessionStateOptions {
+  /**
+   * 会话视图快照的键（`goal` / `todo` / `bars` …）。给了它就"快照优先"：
+   * 换回这一场时用上一帧画过的值当本场初值，而不是回到空值。
+   *
+   * 只给"看得见的内容"配这个键；瞬时 UI（灯箱、右键菜单、编辑草稿）不要给 ——
+   * 切回来还开着灯箱是 bug，不是稳定。
+   */
+  snapshotKey?: string
+}
+
+/** 本场初值：快照优先，没有快照才用声明的初值。 */
+function seedFor<T>(scope: string, snapshotKey: string | undefined, initial: T | (() => T)): T {
+  if (snapshotKey !== undefined) {
+    const cached = readViewSnapshot<T>(scope, snapshotKey)
+    if (cached !== undefined) return cached
+  }
+  return resolve(initial)
+}
+
 export function useSessionState<T>(
   scope: string,
   initial: T | (() => T),
+  options: SessionStateOptions = {},
 ): readonly [T, Dispatch<SetStateAction<T>>] {
+  const { snapshotKey } = options
   /** 本次作用域的初值与本代次：初值只求一次（滚动/渲染期都不重复算）。 */
   const scoped = useRef<{ epoch: number; scope: string; value: T } | undefined>(undefined)
   if (scoped.current === undefined) {
-    scoped.current = { epoch: 0, scope, value: resolve(initial) }
+    scoped.current = { epoch: 0, scope, value: seedFor(scope, snapshotKey, initial) }
   } else if (scoped.current.scope !== scope) {
-    scoped.current = { epoch: scoped.current.epoch + 1, scope, value: resolve(initial) }
+    scoped.current = { epoch: scoped.current.epoch + 1, scope, value: seedFor(scope, snapshotKey, initial) }
   }
   const current = scoped.current
   const [box, setBox] = useState<Boxed<T>>(() => ({ epoch: current.epoch, value: current.value }))
@@ -72,12 +96,12 @@ export function useSessionState<T>(
     setBox((previous) => {
       // 函数式更新要从**本场**的当前值算起，不能拿上一场的 box 当底。
       const base = previous.epoch === scoped.current!.epoch ? previous.value : scoped.current!.value
-      return {
-        epoch: scoped.current!.epoch,
-        value: typeof next === 'function' ? (next as (current: T) => T)(base) : next,
-      }
+      const value = typeof next === 'function' ? (next as (current: T) => T)(base) : next
+      // 顺手记一份：下次切回这一场，第一帧就是现在这个样子（而不是空值）。
+      if (snapshotKey !== undefined) writeViewSnapshot(scoped.current!.scope, snapshotKey, value)
+      return { epoch: scoped.current!.epoch, value }
     })
-  }, [])
+  }, [snapshotKey])
   return [value, setValue] as const
 }
 

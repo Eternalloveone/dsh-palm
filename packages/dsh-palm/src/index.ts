@@ -40,6 +40,7 @@ import { NotifyStore } from './notify/notify-store.ts'
 import { deliverL2, deliverL3 } from './notify/notify-deliver.ts'
 import { PendingTracker } from './mobile-pending.ts'
 import { defaultFoldersFile, SessionFolders } from './folders.ts'
+import { installProjectionHost } from './host/live-projections.ts'
 import { RpcId } from './api-proxy-types'
 import { noteRunningFrame } from './mobile-api.ts'
 import { mountOnce } from './mount-once.ts'
@@ -262,6 +263,15 @@ const DEFAULTS: ResolvedConfig = {
 export const apply = mountOnce('@eternalloveone/dsh-palm', applyImpl)
 
 function applyImpl(ctx: Context, config?: Config): void {
+  // 宿主投影服务按 key 直接读（contextPressure 不进摘要，见 host/live-projections.ts）。
+  //
+  // 用 `ctx.inject` 等这两个服务就绪、再用**那个**子上下文去读：cordis 的 ctx 是
+  // 服务解析代理，没声明依赖就访问服务会拿不到（真机表现：圆环一直 `--`）。
+  // 不写进顶层 inject 数组是故意的——服务名在别的 DSH 版本里可能不在，顶层的
+  // 等待会让整个插件永远不加载。
+  ctx.inject(['sessionProjections', 'sessions'], (services) => {
+    installProjectionHost(services)
+  })
   // Whatever the host hands over (plain value, `Volatile` reference, or a
   // wrapper around either) becomes a checked primitive here. A wrapper that
   // slipped through used to reach readFileSync as a path and silently leave

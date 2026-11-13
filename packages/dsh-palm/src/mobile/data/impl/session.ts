@@ -36,7 +36,20 @@ export async function turnOutlineOf(sessionId: string): Promise<{ turns: unknown
  *  （一次 129 KB），回合对账只读 `turn`；老宿主忽略该字段、照旧回行，两端都不破。 */
 export async function sessionState(
   sessionId: string,
-  options: { fresh?: boolean; rows?: boolean } = {},
+  options: {
+    fresh?: boolean
+    rows?: boolean
+    /**
+     * 首屏要多少行。
+     *
+     * 不传就是宿主默认的尾页大小（25 行）—— 那不够铺满一屏，客户端只能再走 logTail。
+     * 传了之后这一份快照就能直接当首屏：行、队列、回合、目标同一次到达。
+     * 老宿主忽略该字段，照旧回小页（两端都不破）。
+     */
+    maxRows?: number
+    /** 尾部字节窗口（宿主夹在 128 KB ~ 4 MB）。 */
+    windowBytes?: number
+  } = {},
 ): Promise<{
   sessionId: string
   rows: RenderMessage[]
@@ -51,6 +64,10 @@ export async function sessionState(
    * 这是排队条 TTL / 观察窗 / 隐藏表那一族补丁的替代品。老宿主缺省。
    */
   queueVersion?: number
+  /** 还有更早的行（客户端据此决定要不要补页；老宿主缺省）。 */
+  hasMore?: boolean
+  /** 首屏投影基线（权限 / 上下文压力；老宿主缺省）。 */
+  projections?: { asOfSeq?: number; values?: Record<string, unknown> }
   turn: { running: boolean; turnStartAt?: number; lastEventAt?: number }
   /** 目标投影（与 mobile.goal 同一个形状），同一切面下发。 */
   goal?: unknown
@@ -63,6 +80,8 @@ export async function sessionState(
     sessionId,
     ...(options.fresh === true ? { fresh: true } : {}),
     ...(options.rows === false ? { rows: false } : {}),
+    ...(options.maxRows === undefined ? {} : { maxRows: options.maxRows }),
+    ...(options.windowBytes === undefined ? {} : { windowBytes: options.windowBytes }),
   })
 }
 

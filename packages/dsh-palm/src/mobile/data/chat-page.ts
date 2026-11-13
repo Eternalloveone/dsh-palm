@@ -6,7 +6,7 @@
  * 十一文件大环的最后一段。这里只依赖 api / messages / 缓存，不依赖任何视图。
  */
 
-import { history as fetchHistory, logTail, readChat, turnOutlineOf, type ChatOpenExtras, type ChatOpenInclude, type ChatPage } from '../api.ts'
+import { history as fetchHistory, logTail, readChat, sessionState, turnOutlineOf, type ChatOpenExtras, type ChatOpenInclude, type ChatPage } from '../api.ts'
 import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../render/messages.ts'
 import type { SessionProjectionsBlock } from '../../api-proxy-types'
 import { saveCachedHistory } from '../session/history-cache.ts'
@@ -28,6 +28,17 @@ export interface ChatPageResult {
   turnStartAt?: number
   /** 同一次读取顺带回来的小目录（A）：只有请求了 include 的尾部读才会有。 */
   extras?: ChatOpenExtras
+  /**
+   * 首屏快照一起带回的目标投影（与行同一个切面）。
+   *
+   * 有它就不用再单独问 `mobile.goal` —— 目标条与正文同一帧到位，
+   * 不会出现"正文已经在、目标条晚一步"的中间态。`null` 也是有效值（确认没有目标）。
+   */
+  goal?: unknown
+  /** 目标的授权相位（armed / disarmed），与 goal 一起回来才有意义。 */
+  goalActivation?: 'armed' | 'disarmed'
+  /** 这份是原子快照（mobile.sessionState）给的，不是 logTail 单独取的。 */
+  entrySnapshot?: boolean
   /** 日志里最后一条事件的宿主时间（尾页直读才有）。判「这一轮是不是被打断」要多一条
    *  静默证据：名单说不跑 + 日志彻底静默，才算死掉；只有名单说不跑可能只是名单滞后。 */
   lastEventAt?: number
@@ -88,6 +99,79 @@ const HOST_REFRESH_DELAY_MS = 1_500
  */
 export const ENTRY_TAIL_ROWS = 120
 
+/**
+ * 首屏取数：**一个请求**拿齐行 + 目标 + 队列 + 回合。
+ *
+ * 为什么要它：以前首屏要 logTail（行）、mobile.goal（目标）、队列/回合另外两条，
+ * 三四个请求落在不同时刻，屏幕就是被"逐次拼装"出来的 —— 任何两方时序不同都能看见中间态。
+ * `mobile.sessionState` 本来就是为这件事设计的原子快照（行 + 队列 + 回合 + 目标同一个切面），
+ * 只是行数写死在 25 行、当不了首屏；宿主侧已支持 `maxRows`，这里改成走它。
+ *
+ * 回退：老宿主忽略 `maxRows`（只回 25 行）或这条通道报错时，走原来的 logTail。
+ *
+ * @param sessionId - 会话 id
+ * @param rows - 首屏要多少行
+ * @param signal - 取消信号
+ * @param windowBytes - 尾部字节窗口
+ * @returns 可直接当首屏的页（含目标；失败时是 logTail 的结果）
+ */
+/**
+ * 宿主是否支持"首屏快照带够行数"。
+ *
+ * `unknown` 时试一次，按结果定成 yes/no 并**记住**：老宿主忽略 `maxRows` 只回一页，
+ * 不记住的话每次进会话都白打一个请求（实测那会让首屏反而更慢）。
+ * 只在模块生命周期内记住：宿主升级后刷新页面就会重新试。
+ */
+let entrySupport: 'unknown' | 'yes' | 'no' = 'unknown'
+
+/** 测试用：忘掉支持度结论。 */
+export function resetEntrySupportForTest(): void {
+  entrySupport = 'unknown'
+}
+
+async function entryOrTail(
+  sessionId: string,
+  rows: number,
+  signal: AbortSignal | undefined,
+  windowBytes: number,
+): Promise<ChatPageResult> {
+  if (entrySupport === 'no') {
+    const tail = await logTail(sessionId, rows, signal, windowBytes)
+    return foldChatPage(tail, true)
+  }
+  try {
+    const entry = await sessionState(sessionId, { maxRows: rows, windowBytes })
+    const entryRows = entry.rows
+    // 老宿主会忽略 maxRows 只回一页（25 行）：那不算"取够"，直接走 logTail 的完整路径。
+    if (Array.isArray(entryRows) && entryRows.length > 0) {
+      // 行数确实被撑开了才算"宿主支持"：只回一页（老宿主）时仍然走 logTail 的完整路径。
+      entrySupport = entryRows.length >= Math.min(rows, 40) ? 'yes' : 'no'
+      if (entrySupport === 'no') {
+        const tail = await logTail(sessionId, rows, signal, windowBytes)
+        return foldChatPage(tail, true)
+      }
+      return {
+        rows: entryRows,
+        maxSeq: entry.maxSeq,
+        hasMore: entry.hasMore === true,
+        ...(entry.todo === undefined ? {} : { todo: entry.todo as TodoSnapshot }),
+        ...(entry.projections === undefined
+          ? {}
+          : { projections: entry.projections as SessionProjectionsBlock }),
+        ...(entry.turn?.turnStartAt === undefined ? {} : { turnStartAt: entry.turn.turnStartAt }),
+        ...(entry.turn?.lastEventAt === undefined ? {} : { lastEventAt: entry.turn.lastEventAt }),
+        goal: entry.goal,
+        ...(entry.goalActivation === undefined ? {} : { goalActivation: entry.goalActivation }),
+        entrySnapshot: true,
+      }
+    }
+  } catch {
+    // 老宿主没有这条通道 / 参数不被识别：静默回退，不让首屏失败。
+  }
+  const tail = await logTail(sessionId, rows, signal, windowBytes)
+  return foldChatPage(tail, true)
+}
+
 export async function loadChatPage(
   sessionId: string,
   beforeSeq?: number,
@@ -106,8 +190,7 @@ export async function loadChatPage(
       // 首屏一次取够：以前尾页只给 25 行，进会话后再补 2~4 页「更早」，
       // 每补一页都把列表往上一顶 —— 真机上就是「一进会话闪一下 / 跳到前面某轮」。
       // 宿主这条路本来就能到 200 行，一次取回就没有中途插入这回事了。
-      const tail = await logTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal, preferredTailWindowBytes())
-      const fast = foldChatPage(tail, true)
+      const fast = await entryOrTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal, preferredTailWindowBytes())
       // 快路径的结果先落缓存：下一次打开直接命中，不必再解日志。
       void saveCachedHistory(sessionId, fast)
       // 宿主的权威页只在首屏还缺东西时才补。一次 readChat 在大会话上要

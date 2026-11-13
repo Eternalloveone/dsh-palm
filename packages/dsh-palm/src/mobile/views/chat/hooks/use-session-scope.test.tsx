@@ -9,6 +9,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import { useSessionRef, useSessionState } from './use-session-scope.ts'
+import { clearViewSnapshots } from '../state/session-view-snapshot.ts'
 
 interface StateHandle {
   value: number
@@ -32,9 +33,18 @@ function Harness({ scope, initial = 0 }: { scope: string; initial?: number }) {
 
 afterEach(() => {
   cleanup()
+  // 模块级快照会跨用例存活，不清会让下一条用例读到上一条写进去的值。
+  clearViewSnapshots()
   stateHandle = undefined
   refHandle = undefined
 })
+
+/** 带快照键的 harness：验证"切回来还是上次的样子"。 */
+function SnapshotHarness({ scope, initial = 0 }: { scope: string; initial?: number }) {
+  const [value, set] = useSessionState(scope, initial, { snapshotKey: 'probe' })
+  stateHandle = { value, set, renders: (stateHandle?.renders ?? 0) + 1 }
+  return <div data-testid="state">{String(value)}</div>
+}
 
 describe('useSessionState', () => {
   it('同作用域内与 useState 一样：值保留，函数式更新拿到最新值', () => {
@@ -111,4 +121,26 @@ describe('与会话无关的状态不要用作用域 hook', () => {
     view.rerender(<Plain scope="s-2" />)
     expect(read).toBe(3)
   })
+  it('给了 snapshotKey：切回原来那场，第一帧就是上次的值（不再回到初值）', () => {
+    const view = render(<SnapshotHarness scope="s-a" initial={0} />)
+    act(() => { stateHandle!.set(42) })
+    expect(view.getByTestId('state').textContent).toBe('42')
+
+    // 切到没打开过的 s-b：那边没有快照，仍然是初值。
+    view.rerender(<SnapshotHarness scope="s-b" initial={0} />)
+    expect(view.getByTestId('state').textContent).toBe('0')
+
+    // 切回 s-a：快照优先，直接是 42 —— 这就是"目标条/待办条不再消失一帧"的底座。
+    view.rerender(<SnapshotHarness scope="s-a" initial={0} />)
+    expect(view.getByTestId('state').textContent).toBe('42')
+  })
+
+  it('没给 snapshotKey 的 state 不受影响：切回来仍是初值（记账类不该被快照复活）', () => {
+    const view = render(<Harness scope="s-a" initial={7} />)
+    act(() => { stateHandle!.set(99) })
+    view.rerender(<Harness scope="s-b" initial={7} />)
+    view.rerender(<Harness scope="s-a" initial={7} />)
+    expect(view.getByTestId('state').textContent).toBe('7')
+  })
+
 })

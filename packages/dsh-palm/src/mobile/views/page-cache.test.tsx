@@ -12,7 +12,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { SettingsView } from './SettingsView.tsx'
 import { DiffView } from './DiffView.tsx'
 import {
-  invalidateSession, pageKey, refreshPage, resetPageCache, seedPage, subscribePage,
+  invalidateSession, markSessionStale, pageKey, refreshPage, resetPageCache, seedPage, subscribePage,
 } from '../page-cache.ts'
 
 vi.mock('../api.ts', () => ({
@@ -224,4 +224,21 @@ describe('页面级 cache-first', () => {
     expect(pageKey('diff', 's-1', 'a.ts')).toBe('diff|s-1|a.ts')
     expect(pageKey('settings')).toBe('settings')
   })
+  it('切会话只标脏不删快照：内容一直在，后台刷新换成新值', async () => {
+    // 2026-11-13 用户：「切换会话时内容经常消失然后加载出来」。真因之一是
+    // 离开会话就把 page-cache 删了，切回来又得白一帧。标脏之后旧内容继续渲染。
+    readFileMock.mockResolvedValue({ kind: 'text', path: 'a.ts', name: 'a.ts', text: 'const a = 1\n' })
+    const first = render(<DiffView path="a.ts" sessionId="s-1" onBack={() => {}} />)
+    await screen.findByText('const a = 1')
+    first.unmount()
+
+    // 下一轮返回新内容；标脏时不该丢掉旧快照。
+    readFileMock.mockResolvedValue({ kind: 'text', path: 'a.ts', name: 'a.ts', text: 'const a = 2\n' })
+    markSessionStale('s-1')
+    render(<DiffView path="a.ts" sessionId="s-1" onBack={() => {}} />)
+    // 首帧仍是旧内容（不是骨架），随后被刷新成新内容。
+    expect(screen.queryByText('正在读取文件…')).toBeNull()
+    await screen.findByText('const a = 2')
+  })
+
 })
