@@ -82,6 +82,7 @@ export const mobileCss = `${designTokensCss()}
   --palm-on-scrim: rgba(255, 255, 255, 0.96);
   /* 整屏压暗（灯箱、预览）：比角标的 55% 更狠，保证图片之外的地方不抢戏。 */
   --palm-scrim-strong: rgba(0, 0, 0, 0.86);
+  --palm-scrim-sheet: rgba(0, 0, 0, 0.72);
   /* 轻遮罩：选择器背景这种「只压暗一点」的场景，0.55 的 scrim 太重。 */
   --palm-scrim-soft: rgba(0, 0, 0, 0.2);
   /* 遮罩上的次要文字（灯箱说明）：on-scrim 给正文，这一档弱一些。 */
@@ -366,6 +367,7 @@ html[data-skin='paper'] {
   --palm-scrim: rgba(28, 26, 23, 0.42);
   --palm-on-scrim: #faf8f4;
   --palm-scrim-strong: rgba(28, 26, 23, 0.8);
+  --palm-scrim-sheet: rgba(28, 26, 23, 0.68);
   --palm-scrim-soft: rgba(28, 26, 23, 0.12);
   --palm-on-scrim-soft: rgba(250, 248, 244, 0.7);
   --palm-strip-fg: #1c1a17;
@@ -426,6 +428,7 @@ html[data-skin='endfield'] {
   --palm-scrim: rgba(16, 17, 16, 0.42);
   --palm-on-scrim: #e8e8e2;
   --palm-scrim-strong: rgba(16, 17, 16, 0.8);
+  --palm-scrim-sheet: rgba(16, 17, 16, 0.68);
   --palm-scrim-soft: rgba(16, 17, 16, 0.12);
   --palm-on-scrim-soft: rgba(232, 232, 226, 0.7);
   --palm-strip-fg: #101110;
@@ -495,6 +498,7 @@ html[data-skin='claude'] {
   --palm-scrim: rgba(22, 22, 22, 0.42);
   --palm-on-scrim: #ffffff;
   --palm-scrim-strong: rgba(22, 22, 22, 0.8);
+  --palm-scrim-sheet: rgba(22, 22, 22, 0.68);
   --palm-scrim-soft: rgba(22, 22, 22, 0.12);
   --palm-on-scrim-soft: rgba(255, 255, 255, 0.7);
   --palm-strip-fg: #161616;
@@ -580,6 +584,7 @@ html[data-skin='nocturne'] {
   --palm-scrim: rgba(3, 6, 12, 0.6);
   --palm-on-scrim: #e8f1ff;
   --palm-scrim-strong: rgba(3, 6, 12, 0.88);
+  --palm-scrim-sheet: rgba(3, 6, 12, 0.72);
   --palm-scrim-soft: rgba(3, 6, 12, 0.25);
   --palm-on-scrim-soft: rgba(232, 241, 255, 0.64);
   --palm-strip-fg: #e8f1ff;
@@ -644,6 +649,7 @@ html[data-skin='newsprint'] {
   --palm-scrim: rgba(31, 9, 9, 0.42);
   --palm-on-scrim: #f5f3ed;
   --palm-scrim-strong: rgba(31, 9, 9, 0.8);
+  --palm-scrim-sheet: rgba(31, 9, 9, 0.68);
   --palm-scrim-soft: rgba(31, 9, 9, 0.12);
   --palm-on-scrim-soft: rgba(245, 243, 237, 0.7);
   --palm-strip-fg: #1f0909;
@@ -7020,14 +7026,16 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 
    提到 \`--z-ctx\`（70，长按上下文层）：它必须盖在抽屉（60）之上。 */
 /* 遮罩：**不用 backdrop-filter**（全表禁用它，手机 GPU 上开销太高，结构契约会拦下来）。
-   靠压暗而不是模糊把后面的列表压下去 —— 面板本身够亮，层次已经出来了。 */
+   用 \`--palm-scrim-sheet\` 而不是通用 \`--palm-scrim\`：动作面板要的是「注意力只剩这块面板」，
+   常规遮罩（浅色主题 42%）背后还看得太清楚，灯箱级的 80% 又太重。这一档是两者之间
+   （浅色 60% / 深色 66%），2026-11-13 用户：「遮罩更深点」。 */
 .palm-actions-scrim {
   position: fixed;
   inset: 0;
   z-index: var(--z-ctx);
   display: flex;
   align-items: flex-end;
-  background: var(--palm-scrim);
+  background: var(--palm-scrim-sheet, var(--palm-scrim));
   animation: drawer-scrim-in 240ms ease-out both;
 }
 

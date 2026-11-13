@@ -414,14 +414,16 @@
 
    提到 `--z-ctx`（70，长按上下文层）：它必须盖在抽屉（60）之上。 */
 /* 遮罩：**不用 backdrop-filter**（全表禁用它，手机 GPU 上开销太高，结构契约会拦下来）。
-   靠压暗而不是模糊把后面的列表压下去 —— 面板本身够亮，层次已经出来了。 */
+   用 `--palm-scrim-sheet` 而不是通用 `--palm-scrim`：动作面板要的是「注意力只剩这块面板」，
+   常规遮罩（浅色主题 42%）背后还看得太清楚，灯箱级的 80% 又太重。这一档是两者之间
+   （浅色 60% / 深色 66%），2026-11-13 用户：「遮罩更深点」。 */
 .palm-actions-scrim {
   position: fixed;
   inset: 0;
   z-index: var(--z-ctx);
   display: flex;
   align-items: flex-end;
-  background: var(--palm-scrim);
+  background: var(--palm-scrim-sheet, var(--palm-scrim));
   animation: drawer-scrim-in 240ms ease-out both;
 }
 
