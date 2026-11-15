@@ -1,105 +1,74 @@
-# v3.2 订正（相对 v3.1 的四处硬拦）
+# 移动端架构（现状）
 
-> v3.1 方案成立，可执行。本文只写**必须改的四处**与工期订正，其余不动。
+> 这份文档描述**现在代码长什么样**，用来回答"改一个东西该动哪、什么会被门禁拦"。
+> 历史方案稿（v3.2 四处订正、L2 组件层计划）已归档到 [archive/2026-11](archive/2026-11/)，
+> 那两份**没有实施**（`features/`、`PButton`、`p-` 前缀在代码里都不存在），别按它们理解现状。
 
----
+## 一、目录与职责（20 个）
 
-## 订正 1：FOUC 引导不能用内联脚本（CSP 硬拦）
+| 目录 | 管什么 | 不许做什么 |
+|---|---|---|
+| `views/` | 页面：props → DOM | 取数、算派生、碰网络 |
+| `components/` | 可复用组件：dialog / sheets / toast / icons / queue-dock / goal-bar / 灯箱 / 文件预览 / 工具详情 / 回合擦除 / 会话 HUD | 直接 import `api.ts` |
+| `ui/` | 浮层与交互 hook：抽屉、焦点陷阱、窗口化、交付噪声判据 | 写业务规则 |
+| `message-row/` | 一轮消息的结构化渲染：过程组、交付卡、轮次锚点、思考块 | 取数 |
+| `render/` | 渲染原语：markdown、代码高亮、差异、消息行 | 取数 |
+| `projections/` | 宿主投影 → 界面形状（消息正文、会话视图） | 发请求 |
+| `data/` | 取数与缓存门面，按域分：session / workspace / settings / notify / fs / voice / usage / diag | 直接解帧 |
+| `api/` | 手机端 RPC 方法白名单与调用 | 页面布局 |
+| `stream/` | SSE mux、帧分发、会话状态机、前台与可见性 | 渲染 |
+| `runtime/` | 运行态镜像：谁在跑、第几步、跑多久 | DOM |
+| `session/` | 会话缓存：历史分页、交付账本、已答项、置顶 | 渲染 |
+| `history/` | 滚动锚点与历史窗口 | 网络 |
+| `kernels/` | 纯逻辑单元：帧切片、身份合并、缓存策略 | React / DOM |
+| `platform/` | 运行时能力：rpc、perf、skin、pwa、offline、wallpaper | 页面结构 |
+| `design/` | 设计令牌（明暗两套调色板 + 字阶/圆角/间距） | 组件实现 |
+| `styles/` | CSS 真源，按序号拼接成 `mobile-styles.ts` | JS |
+| `layouts/` | 9 个核心屏的默认布局契约 | 取数 |
+| `dev/` | 调试工具 | 生产路径 |
+| `shared/` | 前后端共用纯函数（错误文案、时间、剥离工具块） | 依赖任一侧 |
+| `api-proxy-*` | 宿主侧 `/api` 代理与工作区发现 | 手机端逻辑 |
 
-**事实**：`src/mobile-routes.ts:137` 的 CSP 是 `default-src 'self'; script-src 'self'`，**无 `unsafe-inline`、无 nonce**。
-v3.1 §3 给内联引导脚本「绿灯」，但它在 `/m/` 上不会执行。
+## 二、数据流
 
-**改为**：外部小文件 `/m/skin-boot.js`（同步、`<script src>`、缓存永久），首帧前读存储写 `data-skin`。
+```
+宿主 SSE ──→ stream/mux ──→ 帧 ──→ runtime 镜像 + session 状态
+                                      │
+                              data 门面（按域缓存）
+                                      │
+                                  views 渲染
 
-| 项 | 值 |
-|---|---|
-| 体积 | ~0.3 KB（gzip 后 <0.2 KB） |
-| CSP | `script-src 'self'` 天然放行，**不加 nonce、不放宽策略** |
-| 例外登记 | **取消**（v3.1 §3 的"唯一登记例外"不再需要） |
-| 断言 | 新增：`/m/` 下不得出现内联 `<script>` 与 `on*=` 属性 |
-
-**撤销** v3.1 决策记录第 4 条（FOUC 内联脚本绿灯）。
-
----
-
-## 订正 2：manifest 登记「加载器」而不是「组件」
-
-**事实**：`App.tsx` 现在用 `await import('./ChatView.tsx')` / `import('./SettingsView.tsx')` 把两屏拆成独立 chunk（代码注释：「聊天页/设置页是动态 import 的独立 chunk，落在 lib/mobile/」）。
-v3.1 §3 写 manifest「不动态 import」且每条登记 `component` → 9 屏静态进主包，**现有分 chunk 失效**。
-
-**改为**：
-
-```ts
-// presentation/manifest.ts（≤80 行）
-export const PRESENTATION = [
-  { id: 'settings', load: () => import('../features/settings/index.tsx'), sliceSchema, actions },
-  { id: 'chat',     load: () => import('../features/chat/index.tsx'),     sliceSchema, actions },
-] as const
+写操作：views → data/impl → RPC → 宿主 → 帧回来（读己之写）
 ```
 
-| 条款 | v3.1 | v3.2 |
+判断一段代码该放哪：**变成 DOM** → `views`；**判"这一行归哪一轮"这类规则** → `kernels` 纯函数；**调 RPC 并缓存** → `data/impl/<域>.ts`；**解帧** → `stream`。
+
+## 三、五个关键机制（2.0 定型）
+
+| 机制 | 在哪 | 一句话 |
 |---|---|---|
-| manifest 内容 | `component` | **`load`（加载器）** |
-| 动态 import | 禁止 | **允许，且仅限 manifest 内的 `load`** |
-| 分 chunk | 未提 | **保持现状，9 屏全部独立 chunk** |
-| 断言 | — | 新增：`manifest` 外出现 `import()` 动态加载屏幕 → 红 |
+| **首屏一次成型** | `data/impl/session.ts`（`entryLoads` 闸门） | 同会话的行、目标、队列、回合、投影在同一次快照里到达，不再"先出壳再长" |
+| **消息虚拟窗口** | `views/chat/hooks/use-row-window.ts` | 只把最近一屏挂进 DOM，往上滑再补；窗口 `[anchor-6, anchor+24]`，上下用等高占位撑住 |
+| **抽屉窗口化** | `ui/use-drawer-window.ts` | 首屏画 20 行，滑到近底每次补 20；滑入期 `content-visibility: hidden` |
+| **队列版本栅栏** | `stream/session-store.ts` | 陈旧快照不能复活已删的排队消息；`applyQueueAck` 被栅栏拒绝时不写快照 |
+| **皮肤层** | `styles/6XX-*.css` + `platform/skin.ts` + `assets/skins/` | `html[data-skin]` 切令牌 + 装饰层，素材按套存放（manifest 驱动） |
 
-**新增验收**：构建后 9 屏各自存在独立 chunk，主包体积不因迁移上升。
+## 四、门禁
 
----
-
-## 订正 3：zod schema 必须隔离出生产模块图
-
-**事实**：`zod ^4.6.7` 在 dependencies。若 9 屏 schema 写进 manifest 或屏幕文件，zod 会进主包（约 12 KB gzip），而它**只在断言/测试里用**。
-
-**改为**：
-- schema 放 `features/<screen>/<screen>.schema.ts`，**只被测试与断言 import**
-- 生产代码（含 manifest）零 zod 引用
-- 新增断言：`zod` 不得出现在生产模块图中（AST 判 import 来源）
-
----
-
-## 订正 4：CSS 生成器要支持多皮肤（v3.1 漏项）
-
-**事实**：`pnpm gen:css` 把 42 个 CSS 合成**一个** `mobile-styles.ts`，`mobile-styles.freshness.test.ts` 守着"生成物 = 源文件"。
-
-**改为**：
-- 生成器产出 `tokens.<skin>.ts` + `overrides.<skin>.ts` 两组（或一个按 skin 分键的产物）
-- `build-css.mjs` 输出 `app.<skin>.css`，`/m/` 按候选集注入
-- `freshness` 断言从"单产物"改成"**每个 skin 恰好一对、且与源文件一致**"
-
-**归属**：这条落在 P1′ 内，但**必须先于皮肤契约落地**，否则 P1′ 当天返工。
-
----
-
-## 工期订正（v3.1 → v3.2）
-
-| 期 | v3.1 | v3.2 | 依据 |
-|---|---|---|---|
-| P0a 断言引擎 | 1.0 | **2.0** | 等价性比对 + 别名/barrel/动态 import/`import type`/环 |
-| P1′ 设计系统 + 皮肤契约 | 3.0 | **4.0** | 含订正 4 的生成器改造 + 视觉矩阵 |
-| P2a shell + 三屏 | 2.0 | **2.5** | shell/bridge 新建 |
-| P2b ChatView | 2.0 | **2.5** | 4,138 → 2,500 + 45 hook 归位 |
-| 其余 | — | 不变 | — |
-| **合计** | 16.5 | **≈22** | — |
-
----
-
-## 决策记录（增补）
-
-7. **FOUC 用外部 `skin-boot.js`**，不改 CSP、不设例外（撤销 v3.1 第 4 条）。
-8. **manifest 登记加载器**，9 屏保持独立 chunk。
-9. **zod 只进测试**，生产模块图零引用。
-10. **CSS 生成器支持多皮肤**，freshness 断言按 skin 校验。
-
----
-
-## 起步（不变）
-
-**P0a + P-1 + P3-lite（≈3 天，不动 UI）**，三件决定后面是否返工：
-
-| 步 | 第一件事 |
+| 门禁 | 拦什么 |
 |---|---|
-| P0a | 先写**等价性比对脚本**（同代码跑新旧引擎，14 条判定逐条对比），再动引擎 |
-| P-1 | 9 处 token 不一致逐条给结论（一致 / 登记理由），零悬空 |
-| P3-lite | 只写接口 + 假实现，实现体零改动 |
+| `pnpm typecheck` | 类型（含测试文件） |
+| `pnpm build` | 打包；`.test.ts` 的类型错只有这步能发现 |
+| `pnpm test` | 4,100+ 用例 + 架构断言、质量预算、缓存采纳 |
+| 架构断言 | `platform/architecture.test.ts`：依赖方向、新环、行数预算、单一实现 |
+| 行数/样式预算 | `tools/check-budget.mjs`（**只降不升**；上调须写 reason + expires） |
+| 视觉门禁 | `tools/mobile-visual/run.mjs`（需预览服务器） |
+
+**顺序必须串行**：`typecheck → build → test`。build 与 test 并发时，测试读 chunk 清单会撞上构建的 clean 步骤。
+
+## 五、四条不变量
+
+1. `views/` 不取数、不算派生——派生进 `kernels/` 纯函数。
+2. `data/` 门面按名字转出，**不许 `export *`**（依赖不可追）。
+3. 皮肤只改令牌与装饰层，**不动结构**；新增一套 = 一个 `6XX-skin-*.css` + `assets/skins/<id>/` + `skin-catalog.ts` 一条。
+4. 行数预算只降不升；上调必须在 `tools/budget.json` 的 `dirsRaised` 写清原因与到期日。

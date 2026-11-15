@@ -19,11 +19,10 @@
 
 | 文档 | 讲什么 |
 |---|---|
-| [architecture](architecture.md) | 目标架构：宿主/手机边界、mux 桥、状态机 |
+| [architecture](architecture.md) | 现状架构：20 个目录职责、数据流、五个关键机制、门禁 |
 | [MOBILE-RENDERING](MOBILE-RENDERING.md) | 渲染模型：一条消息怎么变成一屏 |
 | [layout-contract](layout-contract.md) | 布局规则（滚动区唯一、必填槽恰好一次） |
-| [design-system](design-system.md) | 设计令牌与组件基线 |
-| [UI](UI.md) | 界面规格与状态矩阵 |
+| [UI](UI.md) | 怎么改：分层、加功能的路径、门禁清单、欠账 |
 | [mobile-picture-coherence](mobile-picture-coherence.md) | 画面一致性判定（什么时候算"看着对"） |
 
 ## 三、验证与真机
