@@ -60,10 +60,6 @@ dsh-palm 把这几件事搬到手机上：
 | 午休 | 想到一句要补充 | 打字发出去，这一轮自动带上；发错了还能撤回 |
 | 下班路上 | 到底跑完没有 | 微信收到「任务完成 · 3 个交付物」，点开就是那份报告 |
 
-![界面示意图](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/showcase.webp)
-
-> 上图是按真实界面绘制的示意图，内容是演示数据，不含任何真实会话与路径。
-
 ## 功能总览
 
 ### 一、看它在忙什么
@@ -147,6 +143,14 @@ dsh-palm 把这几件事搬到手机上：
 - **检查更新**：关于页会告诉你有没有新版本
 
 ## 界面一览
+
+| 会话抽屉 | 任务 / 运行总览 |
+|---|---|
+| ![会话抽屉](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/drawer.webp) | ![任务与运行总览](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/tasks.webp) |
+| **设置** | **皮肤商店** |
+| ![设置页](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/settings.webp) | ![皮肤商店](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/skins.webp) |
+
+> 真机截图，已脱敏：本机路径、项目名、会话标题和金额都换成了演示值，界面本身是真实运行的手机端。
 
 | 页面 | 你能看到什么 |
 |---|---|
