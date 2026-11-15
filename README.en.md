@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-**2.0.0** — the [dsh](https://github.com/deepseek-ai/deepseek-harness) desktop surface, on your phone. Same sessions, same progress: check status, reply, approve, tidy up. Complex configuration stays on the desktop.
+The [dsh](https://github.com/deepseek-ai/deepseek-harness) desktop surface, on your phone. Same sessions, same progress: check status, reply, approve, tidy up. Complex configuration stays on the desktop.
 
 ## Quick start
 
@@ -26,15 +26,6 @@ Then open the phone icon in the sidebar, and either scan the QR code or type the
 
 Full list: [capabilities](docs/capabilities.md).
 
-## What is new in 2.0
-
-1. **Content on arrival** — a session opens complete, instead of an empty shell that grows
-2. **Smooth scrolling** — long sessions no longer put every message in the page at once
-3. **19 skins** — each with its own icons and backgrounds, not a recolour
-4. **Handles a dropped link** — falls back and switches back by itself instead of freezing
-
-Upgrade notes: [UPGRADING.md](UPGRADING.md).
-
 ## Requirements
 
 | Item | Value |
@@ -43,7 +34,7 @@ Upgrade notes: [UPGRADING.md](UPGRADING.md).
 | Node | `^22.19.0` or `>=24.0.0` |
 | Phone | Android Chrome/Edge/Firefox; iOS Safari installed to the home screen |
 
-Phone and host upgrade independently — neither side breaks the other. Version matrix: [COMPATIBILITY.md](COMPATIBILITY.md).
+Phone and host upgrade independently — neither side breaks the other. Version matrix: [COMPATIBILITY.md](COMPATIBILITY.md). Upgrade notes: [UPGRADING.md](UPGRADING.md).
 
 ## More
 
