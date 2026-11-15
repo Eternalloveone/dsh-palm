@@ -266,6 +266,7 @@ const easeIn = (t: number): number => t ** 1.4
  * @param u - 消散进度 0→1
  * @param v - 聚拢进度 0→1
  * @param dpr - 设备像素比（位移量按它换算）
+ * @param ink - 粒子颜色：**必须是当前文字色**，否则浅色皮肤（纸色）上是白底白点，整段看不见
  */
 function drawStars(
   ctx: CanvasRenderingContext2D,
@@ -274,10 +275,11 @@ function drawStars(
   u: number,
   v: number,
   dpr: number,
+  ink: string,
 ): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
-  ctx.fillStyle = '#ffffff'
+  ctx.fillStyle = ink
 
   // 旧词：向后上方飘散，alpha 掉得比位移快（否则像"拉着尾巴跑"）。
   if (u > 0) {
@@ -390,13 +392,15 @@ function StripWord({ word }: { word: string }): ReactNode {
     }
     const oldStars = starsFor(leaving)
     const newStars = starsFor(word)
+    // 粒子墨色 = 当前文字色（深色皮肤近白、纸色近黑），换皮肤自动跟随；不写死颜色。
+    const ink = style.color
     const start = performance.now()
 
     const tick = (now: number): void => {
       const t = now - start
       if (t >= WORD_WIND_MS) { raf.current = undefined; return }
       drawStars(ctx, oldStars, newStars,
-        clamp01(t / AWAY_MS), clamp01((t - GATHER_START) / GATHER_MS), dpr)
+        clamp01(t / AWAY_MS), clamp01((t - GATHER_START) / GATHER_MS), dpr, ink)
       raf.current = requestAnimationFrame(tick)
     }
     raf.current = requestAnimationFrame(tick)
