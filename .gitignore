@@ -61,3 +61,6 @@ docs/mocks/readme-showcase.html
 
 # README 截图流水线（本机 Chrome 驱动，产物不入库）
 /tools/readme-live/
+
+# README 展示图的本地预览（从 webp 转出的 PNG，仅用于对话里查看）
+/docs/readme/preview/
