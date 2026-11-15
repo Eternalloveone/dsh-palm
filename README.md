@@ -144,6 +144,10 @@ dsh-palm 把这几件事搬到手机上：
 
 ## 界面一览
 
+**会话正文**：一轮对话折叠成过程卡，表格 / 代码块 / 行内命令照常渲染，交付物收进卡片，底部是输入与状态条。
+
+![会话正文](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/chat.webp)
+
 | 会话抽屉 | 任务 / 运行总览 |
 |---|---|
 | ![会话抽屉](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/drawer.webp) | ![任务与运行总览](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/tasks.webp) |
