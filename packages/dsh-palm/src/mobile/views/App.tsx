@@ -56,7 +56,7 @@ import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
 import { markSessionStale, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
 import { AppearanceSheet } from './settings/AppearanceSheet.tsx'
-import { applyRunningState, mergeDrawerRows, orderDrawerRows, paintDrawerRows, sameDrawerRows, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
+import { applyRunningState, mergeDrawerRows, orderDrawerRows, paintDrawerRows, promoteRunning, sameDrawerRows, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
 import { loadPinnedSessions, loadPinnedWorkspaces, togglePinnedSession, togglePinnedWorkspace } from '../session/pins.ts'
 import { Button } from '../ui/primitives.tsx'
 import { WorkspacePicker } from './chat/components/workspace-picker.tsx'
@@ -924,6 +924,22 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   }, [bootedChat, showRoot])
 
   /**
+   * 宿主运行集合 → **镜像口径**的集合（抽屉的运行状态只认这一个）。
+   *
+   * 宿主 `mobile.runningSessions` 背后是帧镜像：漏一条 turn/end 要等五分钟静默上限
+   * 才会掉；直接拿它覆盖界面，就会把已经收工的会话重新点亮（真机：侧边栏从「完成」
+   * 跳回「运行中」，每 4 秒跳一次）。这里先交给 mux 的镜像（与聊天页同一个
+   * `turnState` 复核、turn/end 帧即时删除），再读它的快照。
+   */
+  const verifiedRunning = useCallback(async (sessionIds: readonly string[]): Promise<readonly string[]> => {
+    const client = muxRef.current
+    // 可选调用：测试/降级形态的 mux 替身没有这两个方法，缺了就当"没有更准的答案"。
+    if (client?.syncRunningFromProbe === undefined) return sessionIds
+    await client.syncRunningFromProbe(sessionIds).catch(() => undefined)
+    return client.runningSnapshot?.() ?? sessionIds
+  }, [])
+
+  /**
    * 抽屉里的「运行中」徽标随回合边界即时纠正（2026-11-11 用户：「任务都结束了，
    * 侧边栏还显示进行中」）。花名册是 60 秒快照，行上的 `running` 会滞留一个 TTL；
    * 手机自己收到了 turn/start / turn/end，就没有理由再等那一次枚举。
@@ -1269,10 +1285,12 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
      * 列表行自带的 running 会撒谎（见 drawer-rows 里 applyRunningState 的注释）。
      */
     const applyRunning = (): void => {
-      void runningSessions().then(({ sessionIds }) => {
+      void runningSessions().then(async ({ sessionIds }) => {
+        // 与抽屉同一口径：先复核再入镜像，避免"宿主说在跑"被直接当真。
+        const running = await verifiedRunning(sessionIds)
         setDrawer(previous => previous === undefined || String(previous.workspaceId) !== workspaceId
           ? previous
-          : { ...previous, rows: applyRunningState(previous.rows, sessionIds) })
+          : { ...previous, rows: applyRunningState(previous.rows, running) })
       }).catch(() => undefined)
     }
     applyRunning()
@@ -1344,9 +1362,15 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     const persisted = workspaceId === '' ? undefined : loadPersistedList(workspaceId)
     const cachedRows = persisted?.rows ?? []
     // 第一帧与刷新后同一个排序（用户置顶的在前，其后当前会话，其余按时间倒序）。
-    const rows = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows, Date.now(), loadPinnedSessions())
+    const painted = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows, Date.now(), loadPinnedSessions())
       // 落盘行可能还留着别人已删的会话：首帧就别画（否则要闪一下才被宿主那页挡掉）。
       .filter(row => !isArchivedSessionId(row.sessionId))
+    /*
+     * 首帧就把镜像里"确实在跑"的行点亮：缓存行带的是上次落盘时的旧状态，它可能把
+     * 正在跑的会话画成「已完成」，而等一次往返再改就是一次可见的跳变。
+     * 只升不降：撤销交给 turn/end 帧与复核后的集合。
+     */
+    const rows = promoteRunning(painted, muxRef.current?.runningSnapshot?.() ?? [])
     const pendingEntries = muxRef.current?.pendingSnapshot() ?? []
     setDrawer({
       session: current.session,
@@ -1360,11 +1384,14 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     })
     if (workspaceId === '') return
     /* 谁在跑 + 刚跑完多少（与「任务」页同一口径）：入口小字「N 在跑 · M 刚完成」靠这一问。 */
-    void Promise.all([runningSessions(), fetchFinishedRuns().catch(() => [] as Awaited<ReturnType<typeof fetchFinishedRuns>>)]).then(([{ sessionIds }, finished]) => {
+    void Promise.all([runningSessions(), fetchFinishedRuns().catch(() => [] as Awaited<ReturnType<typeof fetchFinishedRuns>>)]).then(async ([{ sessionIds }, finished]) => {
+      // 走镜像：宿主那份集合会为漏掉的 turn/end 继续挂满五分钟，原样覆盖就是
+      // 「完成 → 运行中」的跳变来源。
+      const running = await verifiedRunning(sessionIds)
       setDrawer(previous => {
         if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
-        const rows = applyRunningState(previous.rows, sessionIds)
-        const taskLabel = taskLabelOf(sessionIds, finished)
+        const rows = applyRunningState(previous.rows, running)
+        const taskLabel = taskLabelOf(running, finished)
         if (rows === previous.rows && taskLabel === previous.taskLabel) return previous
         return { ...previous, rows, taskLabel }
       })
@@ -1434,11 +1461,14 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     if (drawer === undefined) return undefined
     const workspaceId = drawer.workspaceId
     const timer = setInterval(() => {
-      void Promise.all([runningSessions(), fetchFinishedRuns().catch(() => [] as Awaited<ReturnType<typeof fetchFinishedRuns>>)]).then(([{ sessionIds }, finished]) => {
+      void Promise.all([runningSessions(), fetchFinishedRuns().catch(() => [] as Awaited<ReturnType<typeof fetchFinishedRuns>>)]).then(async ([{ sessionIds }, finished]) => {
+        // 走镜像：4 秒缓存 + 未复核的宿主集合会和客户端轮询同频，把已收工的会话
+        // 反复点亮（真机 2026-11-15「完成 → 运行中」每 4 秒跳一次）。
+        const running = await verifiedRunning(sessionIds)
         setDrawer((previous) => {
           if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
-          const rows = applyRunningState(previous.rows, sessionIds)
-          const taskLabel = taskLabelOf(sessionIds, finished)
+          const rows = applyRunningState(previous.rows, running)
+          const taskLabel = taskLabelOf(running, finished)
           // 运行集合没变就返回**同一个对象**：React 据此直接 bail out，不进重渲染。
           // 否则每 4 秒一次 setState 会把整个 App 重算一遍 —— 而 `<ChatView>` 没有
           // 渲染边界，等于抽屉开着时每 4 秒连聊天页那 4000 行函数体一起重跑

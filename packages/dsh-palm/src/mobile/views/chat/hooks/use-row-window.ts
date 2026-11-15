@@ -113,19 +113,41 @@ export function useRowWindow(input: RowWindowInput): RowWindow {
   offsets[0] = 0
   for (let index = 0; index < total; index += 1) offsets[index + 1] = offsets[index] + estimate(index)
 
+  /*
+   * 定锚用的两个入参走 ref：它们**每个渲染都是新值**（`estimate` 是调用点的内联箭头）。
+   * 放进依赖里会让这个 effect 每帧重建、而 cleanup 会顺手清掉计时器 —— 流式期间
+   * 每 16ms 一次渲染，80ms 的定锚就永远等不到空闲，锚点冻在某一帧上，之后新增的行
+   * 全部落到窗口外、DOM 里干脆没有它们（真机：正文不再出现，只能关掉 PWA 重进）。
+   * 所以依赖只留 `scroller`：容器不换，监听与计时器就一直活着。
+   */
+  const estimateRef = useRef(estimate)
+  estimateRef.current = estimate
+  const totalRef = useRef(total)
+  totalRef.current = total
+
   /** 手停下来之后，按 scrollTop 反推视口顶部落在第几行。 */
   useEffect(() => {
-    if (scroller === null || total < WINDOW_MIN_ROWS) return
+    if (scroller === null) return
     let timer: ReturnType<typeof setTimeout> | undefined
     const sync = (): void => {
       timer = undefined
-      const top = scroller.scrollTop
+      const count = totalRef.current
+      if (count < WINDOW_MIN_ROWS) {
+        setAnchor(null)
+        return
+      }
+      const estimateRow = estimateRef.current
       // 前缀和在这一刻重新算一次：它只依赖 estimate，不依赖 scrollTop。
-      const sums = new Array<number>(total + 1)
+      const sums = new Array<number>(count + 1)
       sums[0] = 0
-      for (let index = 0; index < total; index += 1) sums[index + 1] = sums[index] + estimate(index)
-      const next = rowAt(sums, top + 1)
-      setAnchor((current) => (current === next ? current : next))
+      for (let index = 0; index < count; index += 1) sums[index + 1] = sums[index] + estimateRow(index)
+      const next = rowAt(sums, scroller.scrollTop + 1)
+      // 贴着底就读作「跟随尾部」(`null`)：只有跟随态才会自动长出新行。锚死在一个
+      // 数字上时，后面新增的行落在窗口外 —— 用户看到的是下面一大片空白。
+      setAnchor((current) => {
+        const value = next >= count - WINDOW_RENDER_ROWS ? null : next
+        return current === value ? current : value
+      })
     }
     const onScroll = (): void => {
       if (timer !== undefined) clearTimeout(timer)
@@ -136,7 +158,7 @@ export function useRowWindow(input: RowWindowInput): RowWindow {
       scroller.removeEventListener('scroll', onScroll)
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [scroller, total, estimate])
+  }, [scroller])
 
   if (total < WINDOW_MIN_ROWS) {
     return { start: 0, end: total, topSpacer: 0, bottomSpacer: 0 }

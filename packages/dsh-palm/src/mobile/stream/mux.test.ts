@@ -953,6 +953,39 @@ describe('MuxClient running mirror', () => {
     mux.stop()
   })
 
+  it('外部探针（抽屉的 4 秒轮询）也要复核：宿主说在跑、turnState 说空闲 → 不进镜像', async () => {
+    // 真机 2026-11-15：侧边栏绿点由这份集合决定。宿主集合会为漏掉的 turn/end 继续挂
+    // 满五分钟，以前抽屉直接拿它覆盖行状态 —— 手机已经收到 turn/end 写了「完成」，
+    // 下一拍轮询又把它点亮回「运行中」。
+    const { factory } = makeSources()
+    const verify = vi.fn(async () => false)
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 1_000,
+      verifyRunning: verify,
+    })
+    mux.start()
+    await mux.syncRunningFromProbe(['s-1'])
+    expect(verify).toHaveBeenCalledWith('s-1')
+    expect(mux.runningSnapshot()).toEqual([])
+    mux.stop()
+  })
+
+  it('复核通过的探针结果进镜像；随后 turn/end 立刻把它摘掉', async () => {
+    const { factory, sources } = makeSources()
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 1_000,
+      verifyRunning: vi.fn(async () => true),
+    })
+    mux.start()
+    await mux.syncRunningFromProbe(['s-1'])
+    expect(mux.runningSnapshot()).toEqual(['s-1'])
+    sources[0]!.onmessage?.({ data: envelopeWith({ type: 'session/event', sessionId: 's-1', event: { type: 'turn/end' } }) })
+    expect(mux.runningSnapshot()).toEqual([])
+    mux.stop()
+  })
+
   it('SSE 连接把当前会话钉进 URL：宿主据此过滤，不再依赖登记表', async () => {
     // 2026-11-15 受控实验：登记缺失时对话帧 0 条、ping 照常，界面完全不动。
     // 把会话写进地址之后，"连接活着但登记没了"这个状态不存在。

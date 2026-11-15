@@ -931,10 +931,7 @@ export class MuxClient {
   private async resyncRunning(): Promise<void> {
     try {
       const sessionIds = await this.runningProbe()
-      const at = this.now()
-      const confirmed = await this.confirmRunning(sessionIds, at)
-      this.running.observeRoster(confirmed, at)
-      this.running.prune(at)
+      await this.syncRunningFromProbe(sessionIds)
       this.runningResyncBackoffMs = this.runningResyncMs
     } catch {
       // 读不到就把现有集合留着：宁可多显示一个运行中，也不要悄悄吞掉。
@@ -944,6 +941,29 @@ export class MuxClient {
         this.runningResyncBackoffMs * 2,
       )
     }
+  }
+
+  /** 当前「在跑」的会话集合（镜像口径：帧即时、探针经复核、缺席有宽限）。 */
+  runningSnapshot(): string[] {
+    return this.running.snapshot()
+  }
+
+  /**
+   * 用**一份外部拿到的**宿主运行集合校正镜像（抽屉那 4 秒一次的轮询走这里）。
+   *
+   * 为什么不让调用方直接用 `mobile.runningSessions` 的返回值：那份集合背后是宿主的
+   * 帧镜像，漏一条 turn/end 要等五分钟静默上限才会掉；直接拿它覆盖界面，就会把已经
+   * 收工的会话重新点亮（真机：侧边栏从「完成」跳回「运行中」）。这里先逐条
+   * `turnState` 复核，再入镜像 —— 和聊天页判「还在跑吗」是同一个接口。
+   *
+   * @param sessionIds - 宿主报告的运行集合
+   */
+  async syncRunningFromProbe(sessionIds: readonly string[]): Promise<void> {
+    if (this.stopped) return
+    const at = this.now()
+    const confirmed = await this.confirmRunning(sessionIds, at)
+    this.running.observeRoster(confirmed, at)
+    this.running.prune(at)
   }
 
   /**

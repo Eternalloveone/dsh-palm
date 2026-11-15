@@ -97,7 +97,10 @@ export function mergeDrawerRows(
     if (seen.has(id)) continue
     seen.add(id)
     const latest = byId.get(id)
-    merged.push(latest === undefined ? row : { ...row, ...latest })
+    // `running` **不从这一页取**：列表行那个字段会撒谎（见本文件 applyRunningState 的
+    // 注释），而它是这里最后写入者 —— 一次覆盖就把「运行中」抹掉，等下一拍轮询再补回来，
+    // 用户看到的就是徽标自己闪。运行状态只由镜像（帧 + 复核过的探针）写。
+    merged.push(latest === undefined ? row : { ...row, ...latest, running: row.running })
   }
   // 新会话按时间落到它在列表里该在的位置（不是一律追加到末尾：最新那条应该在顶上）。
   const freshOnly = fresh
@@ -227,6 +230,33 @@ export function applyRunningState(
     if (row.running === shouldRun) return row
     changed = true
     return { ...row, running: shouldRun }
+  })
+  return changed ? next : (rows as SessionView[])
+}
+
+/**
+ * 只把集合里的行置成「在跑」，**不撤销**别的行。
+ *
+ * 用于打开抽屉的第一帧：这时手里只有本地缓存行（running 是上次落盘的旧值）和一份
+ * 内存镜像（帧即时、探针经复核）。用 {@link applyRunningState} 那种"全量重设"会在
+ * 镜像还冷的时候把所有行一次性判成收工 —— 又是一次可见跳变；只升不降则只补上已知
+ * 在跑的，撤销交给 turn/end 帧与复核后的集合。
+ *
+ * @param rows - 当前抽屉行
+ * @param runningIds - 镜像里在跑的会话 id
+ * @returns 新数组；没有行被点亮时返回原数组
+ */
+export function promoteRunning(
+  rows: readonly SessionView[],
+  runningIds: Iterable<string>,
+): SessionView[] {
+  const running = new Set([...runningIds].map(id => String(id)))
+  if (running.size === 0) return rows as SessionView[]
+  let changed = false
+  const next = rows.map((row) => {
+    if (row.running || !running.has(String(row.sessionId))) return row
+    changed = true
+    return { ...row, running: true }
   })
   return changed ? next : (rows as SessionView[])
 }
