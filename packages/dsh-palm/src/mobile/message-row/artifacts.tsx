@@ -31,11 +31,13 @@ import { ProcessGroup } from './process.tsx'
  * Consecutive tool parts merge into one artifact card (multi-file edits
  * stay a single card); tool parts without a diff view render nothing.
  */
-export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, focusExpand, sessionId, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, turnGoal, modelName, turnSteps }: {
+export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery, anchorQuery, focusExpand, sessionId, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, turnGoal, modelName, turnSteps }: {
   message: RenderMessage
   showToolCalls: boolean
   forceOpen: boolean
   focusedQuery?: string
+  /** 定位高亮词（可以落在折叠的过程步骤里，并自动展开那一步）。 */
+  anchorQuery?: string
   /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
   focusExpand?: boolean
   sessionId?: string
@@ -90,17 +92,24 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
     && (hasProcessRows || (message.turnStartAt !== undefined && running !== false))
   // 锚点**只许变早**（真机 2026-11-02 / 11-03：重载后计时从 5分10秒 跳回 1分20秒，
   // 再从小往大长）。秒表现在只剩状态条一处，锚点一抖就是屏幕上的计时一抖。
-  const rawAnchor = message.turnStartAt ?? liveTurnStartAt
+  //
+  // 反过来也成立：行上的 `turnStartAt` 若**早于**页级锚点（页级已经按"不早于本轮用户消息"
+  // 夹过），那它就是上一轮的残留 —— 真机 2026-11-14 新轮首帧显示「43分34秒」（实际 8 分钟）
+  // 就是这一条：新轮还没有自己的行，锚点顺着上一轮的值走。
+  const rawAnchor = liveTurnStartAt !== undefined
+    && (message.turnStartAt === undefined || message.turnStartAt < liveTurnStartAt)
+    ? liveTurnStartAt
+    : message.turnStartAt
   const anchorKey = `${sessionId ?? ''}:${message.turn ?? message.id}`
   const anchor = running === true
-    ? stableTurnAnchor(anchorKey, rawAnchor)
+    ? stableTurnAnchor(anchorKey, rawAnchor, liveTurnStartAt)
     : (forgetTurnAnchor(anchorKey), rawAnchor)
   /**
    * 数据层读数 → 屏幕上的读数（`turn-clock.ts`）：锚点修正与时钟收敛都在这里被抹平，
    * 数字只进不退、追涨按倍速。收工时用 settleElapsed 定格，行卸载才清记录。
    */
   const liveElapsed = running === true && anchor !== undefined
-    ? shownElapsed(anchorKey, Math.max(0, now - anchor), now)
+    ? shownElapsed(anchorKey, Math.max(0, now - anchor), now, message.turnStartAt !== undefined || liveTurnStartAt !== undefined, anchor)
     : undefined
   // 行卸载时清掉这一轮的显示记录（回合结束的定格还要用它，不能在这里提前清）。
   useEffect(() => () => { forgetElapsed(anchorKey) }, [anchorKey])
@@ -129,7 +138,7 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
     ? liveElapsed
     : (message.durationMs === undefined
       // 没有权威时长（老数据/快照没到）：继续按锚点走，但同样走"只进不退"那一层。
-      ? (authority === false && anchor !== undefined ? shownElapsed(anchorKey, Math.max(0, now - anchor), now, message.turnStartAt === undefined) : undefined)
+      ? (authority === false && anchor !== undefined ? shownElapsed(anchorKey, Math.max(0, now - anchor), now, message.turnStartAt !== undefined || liveTurnStartAt !== undefined, anchor) : undefined)
       // 收工定格：与屏幕上的最后值对齐，差 5 秒以内不往回缩（`settleElapsed`）。
       : settleElapsed(anchorKey, message.durationMs))
   const answer = model.answer
@@ -147,12 +156,16 @@ export function AssistantBody({ message, showToolCalls, forceOpen, focusedQuery,
           {...(status.closedAt === undefined ? {} : { closedAtMs: status.closedAt })}
         />
       )}
-      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusExpand={focusExpand} sessionId={sessionId} authority={authority} />}
+      {/* 过程条（工具/推理/中间步骤的正文）**永远不接**搜索/定位高亮。
+          用户规则：只有「用户消息 + 正文」参与匹配 —— 思考链、工具参数与结果、
+          中间步骤的叙述一律不参与。曾经给它传过定位词，结果首页搜索点进来时
+          过程条里的同词被点亮，计数和自动跳转又把它算了进去。 */}
+      {showGroup && <ProcessGroup message={message} model={model} showToolCalls={showToolCalls} sessionId={sessionId} authority={authority} />}
       {answer !== undefined && answer !== '' && (model.answerSeq === undefined ? (
-        <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />
+        <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery || anchorQuery} sessionId={sessionId} />
       ) : (
         <div className="chat-flow-text chat-flow-answer" data-step-seq={model.answerSeq} data-part-id="answer">
-          <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery} sessionId={sessionId} />
+          <MarkdownText text={answer} pending={message.pending === true} forceOpen={forceOpen} highlightQuery={focusedQuery || anchorQuery} sessionId={sessionId} />
         </div>
       ))}
     </>

@@ -120,5 +120,7 @@ describe('首屏一次拿全（真实日志）', () => {
     expect(value['turn']).toBeDefined()
     expect('goal' in value).toBe(true)
     expect(typeof value['asOf']).toBe('number')
-  })
+    // 这条用例读的是本机**最大的**那份真实会话日志（biggestSession 会随本机会话增长变大），
+    // 5s 默认超时在整仓并行跑时会正好卡线（实测 5014/5148ms），给足余量。
+  }, 30_000)
 })

@@ -526,72 +526,13 @@ describe('交付卡：运行中不弹，收工才出现', () => {
     expect(container.querySelectorAll('.chat-artifact')).toHaveLength(1)
   })
 })
-describe('交付卡：全页唯一的一张卡', () => {
-  it('卡头 + 交付物 + 产出文件常显；只剩数量口径（时长归状态条）', () => {
-    const { container } = renderRow({
-      id: 'turn-tail:0',
-      kind: 'turn',
-      text: '',
-      seq: 19,
-      time: 200_000,
-      turn: 1,
-      durationMs: 384_000,
-      deliverables: [{ path: 'report.md', description: '交付报告' }],
-      produced: ['src/a.ts'],
-    })
+/**
+ * 2026-11-14 单一真源：行内不再画交付卡。
+ *
+ * 这里原有的三条「交付卡：全页唯一的一张卡」断言（卡头/标签/汇总/失败态/空壳卡）随渲染
+ * 入口一起迁走，现在由三处分别守：
+ * - `session/card-visible.test.ts`：**该不该画**（相位 × 账本 × 行数的穷举矩阵）；
+ * - `ui/delivery-card.test.tsx`：**画出来长什么样**（四态、明细、汇总、空壳卡）；
+ * - `render/turn-verdict-row.test.tsx`：**尾行不上屏**（卡只在 ChatRows 末尾槽位）。
+ */
 
-    expect(container.querySelector('.palm-delivery')).not.toBeNull()
-    // 卡头：✓ 交付完成（不再默认折叠，也不再写「本轮产出」）；时长只在任务头状态条，
-    // 卡面没有第二只表 —— 没有步数时 meta 整块不渲染。
-    expect(container.querySelector('.palm-delivery-title')!.textContent).toBe('交付完成')
-    expect(container.querySelector('.palm-delivery-meta')).toBeNull()
-    expect(container.textContent).not.toMatch(/\d+分\d+秒|\d+(\.\d+)?s\b/)
-    // 明细：交付物 + 产出文件各一行，带各自的类型标签。
-    expect(container.textContent).toContain('交付报告')
-    // 2026-11-10 起文件行只显示文件名（完整路径在交付详情页的第二行/row.path）。
-    expect(container.textContent).toContain('a.ts')
-    expect(container.querySelector('.palm-delivery-tag')!.textContent).toBe('交付物')
-    // 汇总行给真实文件数；卡里不写「用时」二字（过程头也不报了，计时只在状态条）。
-    expect(container.querySelector('.palm-delivery-sum')!.textContent).toContain('2 个文件')
-    expect(container.textContent).not.toContain('用时')
-  })
-
-  it('失败/中断的回合画「没做成/结局未知」，不再静默消失（P4 四态）', () => {
-    const { container } = render(
-      <MessageRow
-        message={{
-          id: 'turn-tail:1',
-          kind: 'turn',
-          text: '',
-          seq: 20,
-          time: 200_000,
-          turn: 1,
-          durationMs: 19_000,
-          produced: ['src/a.ts'],
-          failed: true,
-        }}
-        showToolCalls
-        showSystemMessages={false}
-        turnCompleted={false}
-      />,
-    )
-    const card = container.querySelector('.palm-delivery')
-    expect(card).not.toBeNull()
-    expect(card!.getAttribute('data-state')).toBe('failure')
-    expect(container.textContent).toContain('没做成')
-    expect(container.textContent).not.toContain('交付完成')
-  })
-
-  it('只有用时、什么都没交回的尾巴不再渲染（没有空壳卡）', () => {
-    const { container } = renderRow({
-      id: 'turn-tail:2',
-      kind: 'turn',
-      text: '',
-      seq: 21,
-      time: 200_000,
-      turn: 2,
-      durationMs: 19_000,
-    })
-    expect(container.querySelector('.chat-turn-tail')).toBeNull()
-  })
-})

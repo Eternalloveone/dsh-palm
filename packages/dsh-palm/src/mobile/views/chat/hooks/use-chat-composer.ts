@@ -12,7 +12,7 @@ import type { CommandDescriptor } from '../../../api.ts'
 import { logTail } from '../../../data/diag.ts'
 import { cancelSession, deliveryAccepted, inboxOf, newRequestId, prompt } from '../../../data/session.ts'
 import { addOptimisticInsert, applyQueueAck, dropOptimisticInsert } from '../../../stream/session-store.ts'
-import { createSubmitLedger, SUBMIT_INFLIGHT_MS, type SubmitLedger } from '../../../kernels/intent.ts'
+import { createSubmitLedger, SUBMIT_INFLIGHT_MS, type SubmitLedger, type SubmitVerdict } from '../../../kernels/intent.ts'
 import { enqueuePrompt, flushOutbox } from '../../../platform/offline.ts'
 import { buildPromptParts, type AttachedImage, type PromptPart } from '../../../platform/image.ts'
 import type { StagedFile } from './use-chat-attachments.ts'
@@ -43,6 +43,19 @@ export type DeliveryCheck = 'delivered' | 'absent' | 'unknown'
 
 /** 核实重试的间隔（毫秒）：总共 ~8 秒，足够跨过一次隧道抖动或宿主排队写入延迟。 */
 export const VERIFY_DELIVERY_BACKOFF_MS: readonly number[] = [0, 600, 1_200, 2_400, 4_000]
+
+/**
+ * 提交闸门拒掉时给用户的一句话（真机：静默 return 等于"点了没反应"）。
+ *
+ * 两种拒绝都**不是失败**，只是"别再发一次"：in-flight = 上一条还在等回执，
+ * duplicate = 同一段正文 1.5 秒内又点了一下。所以只提示，不报错、不撤草稿。
+ *
+ * @param verdict - 闸门结论（不会传 `accept`）
+ * @returns 一句提示文案
+ */
+export function sendGateHint(verdict: SubmitVerdict): string {
+  return verdict === 'duplicate' ? '刚刚已经发出去了，稍等' : '上一条还在发送中…'
+}
 
 /** 核实的依赖注入（测试用；生产走真实的 mobile.inbox / 读页）。 */
 export interface DeliveryProbe {
@@ -217,6 +230,16 @@ export interface UseChatComposerOptions {
   mountedRef: { current: boolean }
   focusComposer: () => void
   clearEditMessage: () => void
+  /**
+   * 「点下去就看得见」的幽灵用户行（2026-11-14）。
+   *
+   * 传 `undefined` = 撤掉。约定：
+   * - 点发送、意图闸门通过之后立刻报一次（正文非空才报，纯附件沿用旧行为）；
+   * - **送出成功不解**：宿主 `user/message` 帧落地后由 ChatView 认领（同文比对）或 8 秒
+   *   兜底撤掉 —— 否则弱网下"点了一下、屏幕什么都没有"（真机反复反馈）。
+   * - 明确失败（拒收 / 核实 absent）要立刻报 `undefined`，别留一条假的用户消息。
+   */
+  onOutgoing?: (flight: { id: string; text: string; at: number; acceptedAt?: number } | undefined) => void
 }
 
 /** 作曲区的对外句柄（ChatView 只消费这一个对象）。 */
@@ -258,6 +281,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     mountedRef,
     focusComposer,
     clearEditMessage,
+    onOutgoing,
   } = options
 
   // 提交闸门（W3-6）：在途窗口 + 同正文去重由 Intent 内核记账，这里只持有实例。
@@ -398,8 +422,16 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     const queueText = body.find(part => part.type === 'text')?.text ?? ''
     // 到了要发的那一刻才记账（Intent 内核，W3-6）：在途窗口 + 同会话同正文去重
     // 两道判据都在内核里；被拒的尝试也**不会**刷新窗口。
-    if (ledger().attempt(sessionId, queueText || text) !== 'accept') return
+    const verdict = ledger().attempt(sessionId, queueText || text)
+    if (verdict !== 'accept') {
+      // 静默 return 是这一层最差的反馈：用户只看到"点了、没反应"（真机）。
+      toast(sendGateHint(verdict))
+      return
+    }
     const sendRequestId = newRequestId()
+    // 幽灵用户行：点下去立刻在列表末尾画一条（不进 rows，也就不进账本/搜索）。
+    const outgoingFlight = queueText === '' ? undefined : { id: sendRequestId, text: queueText, at: Date.now() }
+    if (outgoingFlight !== undefined) onOutgoing?.(outgoingFlight)
     // 插话（steer）不排队，但它同样要「点下去就可见」：写进插入队列的乐观项，
     // 等宿主 user/message 回执或 steering 快照按 id/正文认领。以前这里只弹 toast，
     // 宿主投影慢时输入框上方会空好几秒（真机「已插入本轮」条时而有时而没有）。
@@ -418,6 +450,11 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
       (ack) => {
         // 方案 A：写操作的应答带权威队列（读己之写）—— 直接当定论，不再等投影。
         applyQueueAck(sessionId, ack)
+        // 回执 = 宿主**已接单**的权威事实（与模型何时开始无关）。带上这个时刻，
+        // 客户端才能在"已送达、还没有任何输出"的长窗口里给出确定的等待态。
+        if (outgoingFlight !== undefined) {
+          onOutgoing?.({ ...outgoingFlight, acceptedAt: Date.now() })
+        }
         ledger().settle()
         setSending(false)
         setInput('')
@@ -489,6 +526,8 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
         // 宿主明确回 4xx = 拒收，没有"其实已经排上"的可能：直接报错，省掉 8 秒核实。
         if (isConclusiveRejection(message)) {
           if (optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
+          // 明确拒收：撤回幽灵行，别在列表末尾留一条永远不会被认领的假用户消息。
+          onOutgoing?.(undefined)
           if (mountedRef.current) {
             setError(failText)
             toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
@@ -557,6 +596,8 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
             return
           }
           if (optimisticInsertId !== undefined) dropOptimisticInsert(sessionId, optimisticInsertId)
+          // 核实结论是"没送到"：幽灵行同样要撤（原文已经放回输入框了）。
+          onOutgoing?.(undefined)
           if (!mountedRef.current) return
           setError(failText)
           toast(hint !== undefined ? '发送失败，请重启 dsh web 后再试' : `发送失败：${message}`)
@@ -571,7 +612,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposer {
     )
     // `offline` 必须在依赖里：B3 之前它靠 `input` 每次按键变化顺带刷新闭包，
     // 拿掉 `input` 之后漏掉它，断网写的字会走联网分支（真机表现：点了发送没反应）。
-  }, [getInput, offline, attachImages, attachFiles, uploadingFiles, getSending, sessionId, mux, quoted, runCommand, refreshInbox, refreshGoal, claimedCommand])
+  }, [getInput, offline, attachImages, attachFiles, uploadingFiles, getSending, sessionId, mux, quoted, runCommand, refreshInbox, refreshGoal, claimedCommand, onOutgoing])
 
   /** Resend an edited user message as a fresh prompt. The agent session is
    *  append-only, so the edited text goes out as a new user message (with a

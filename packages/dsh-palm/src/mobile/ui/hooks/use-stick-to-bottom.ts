@@ -207,18 +207,34 @@ export function useStickToBottom(scope?: string): ChatScrollHandle {
     const el = scrollRef.current
     if (el === undefined) return
     if (typeof ResizeObserver === 'undefined') return
+    /**
+     * ResizeObserver 一次布局会**连发很多条**（进会话时 40 行逐行上屏、图片解码、
+     * 卡片展开都算一次），而 `pin` 每次都读 `scrollHeight` —— 那是强制回流。
+     *
+     * 2026-11-14 真机采样（4x CPU）：切一次会话主线程在 `get scrollHeight` 上
+     * 花掉 213~470ms（同类问题里的第二个热点，第一个是 markdown 的 offsetHeight）。
+     * 合并到每帧一次：同一帧里十几次尺寸变化只算一次差值、最多写一次 scrollTop。
+     */
+    let scheduled = 0
     const pin = (): void => {
-      if (!mayAutoPin(scrollStateRef.current, Date.now())) return
-      const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (gap <= 2) return
-      setScrollTopProgrammatically(el, el.scrollHeight)
-      lastScrollHeightRef.current = el.scrollHeight
+      if (scheduled !== 0) return
+      scheduled = requestAnimationFrame(() => {
+        scheduled = 0
+        if (!mayAutoPin(scrollStateRef.current, Date.now())) return
+        const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+        if (gap <= 2) return
+        setScrollTopProgrammatically(el, el.scrollHeight)
+        lastScrollHeightRef.current = el.scrollHeight
+      })
     }
     const observer = new ResizeObserver(pin)
     observer.observe(el)
     const content = el.firstElementChild
     if (content !== null) observer.observe(content)
-    return () => { observer.disconnect() }
+    return () => {
+      if (scheduled !== 0) cancelAnimationFrame(scheduled)
+      observer.disconnect()
+    }
   }, [setScrollTopProgrammatically])
 
   settleBottomRef.current = settleBottomAfterCommit

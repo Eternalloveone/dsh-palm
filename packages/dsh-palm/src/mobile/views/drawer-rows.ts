@@ -242,7 +242,8 @@ export function applyRunningState(
  * @param sessionIds - 权威的在跑会话 id 集合
  * @param finished - 宿主的收工账本（累积文件）
  * @param now - 当前时间（毫秒），注入便于测试
- * @returns 入口小字；两个数都是 0 时 undefined（整行不画）
+ * @returns 入口小字；两个数都是 0 时 undefined（行照画 —— 抽屉把它兜底成「空闲」，
+ *          2026-11-14 用户：任务入口要固定显示，不能"有任务才出现"）
  */
 export function taskLabelOf(
   sessionIds: Iterable<string>,
@@ -254,4 +255,35 @@ export function taskLabelOf(
     .filter(run => !live.has(String(run.sessionId)) && now - run.finishedAt < 86_400_000)
     .map(run => String(run.sessionId))).size
   return live.size + done === 0 ? undefined : [live.size === 0 ? '' : `${live.size} 在跑`, done === 0 ? '' : `${done} 刚完成`].filter(Boolean).join(' · ')
+}
+
+/**
+ * 两批会话行是不是"画出来一样"。
+ *
+ * 2026-11-15：打开抽屉是"先画本地缓存行、再让 session.list 的一页覆盖"。覆盖那步以前
+ * 无条件造新数组，于是抽屉刚滑上来就**又整块重渲染一次**，手机上就是"点一下卡两下"。
+ * 内容没变时保持原引用，React 连 diff 都不用做。
+ *
+ * @param a - 现在画着的行
+ * @param b - 即将画的行
+ * @returns 逐行逐字段都相同则为 true
+ */
+export function sameDrawerRows(a: readonly SessionView[], b: readonly SessionView[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index]
+    const right = b[index]
+    if (left === right) continue
+    if (left === undefined || right === undefined) return false
+    if (left.sessionId !== right.sessionId) return false
+    if (left.title !== right.title) return false
+    if (left.updatedAt !== right.updatedAt) return false
+    if (left.running !== right.running) return false
+    if (left.blank !== right.blank) return false
+    if (left.preview !== right.preview) return false
+    if (left.turns !== right.turns) return false
+    if (left.error !== right.error) return false
+  }
+  return true
 }

@@ -13,22 +13,38 @@
 
 import type { SessionView } from '../shared/session-view.ts'
 
-/**
- * Cross-mount list cache (v3.2): returning from a chat remounts the list
- * view, and the roster must render INSTANTLY from the previous visit's rows
- * while the background refresh re-validates. Keyed by workspace id; bounded
- * by time, not size. Lives here (not in the view) so the chat view's
- * blank-session revocation can drop rows without a view-module import cycle.
- * Exported for test isolation.
- */
+/** Cross-mount list cache (v3.2): returning from a chat remounts the list view,
+ *  which must render INSTANTLY from the previous visit's rows while the
+ *  background refresh re-validates. Keyed by workspace id; bounded by time. */
 export const sessionListCache = new Map<string, { rows: SessionView[]; cursor?: string; hasMore: boolean; at: number }>()
 
+let archivedIds = new Set<string>()
+
+export function applyArchivedSessionIds(ids: readonly string[]): void {
+  archivedIds = new Set(ids.map(String))
+}
+
 /**
- * Drop one session row from every cached roster (memory + persisted): the
- * blank-session revocation path calls this BEFORE navigating back, so the
- * returning list never flashes the revoked row while the host archive
- * settles.
+ * 清空「已知归档集」。
+ *
+ * 这是模块级状态，同一个测试进程里跨文件共享：前一个文件删过会话，后一个文件
+ * 就会把那些 id 当成已归档，于是「枚举与归档的竞态」那组用例在整目录一起跑时红、
+ * 单独跑却绿。测试在每个用例前调它；生产不需要（进程内本来就该记住）。
  */
+export function resetArchivedSessionIdsForTest(): void {
+  archivedIds = new Set<string>()
+}
+
+/**
+ * 这条会话此刻是不是已被归档：抽屉合并是**并集**（宿主没回的行不清空，见
+ * mergeDrawerRows），别人删掉的会话会一直画着 —— 合并前先挡掉它即可。
+ */
+export function isArchivedSessionId(sessionId: string): boolean {
+  return archivedIds.has(String(sessionId))
+}
+
+/** Drop one session row from every cached roster (memory + persisted), before
+ *  navigating back, so the returning list never flashes the revoked row. */
 export function dropSessionFromCaches(sessionId: string): void {
   for (const [key, entry] of sessionListCache) {
     const rows = entry.rows.filter(row => row.sessionId !== sessionId)
@@ -38,6 +54,25 @@ export function dropSessionFromCaches(sessionId: string): void {
       // workspace could otherwise land after this drop and resurrect the row.
       queuePersistedList(key, { rows, cursor: entry.cursor, hasMore: entry.hasMore })
     }
+  }
+  /**
+   * 落盘页同样要扫（2026-11-15 真机：已删除的会话又出现在列表里）：抽屉首帧画的
+   * 就是落盘行，而宿主那页走并集合并，不清落盘的话它下次打开还会画回来。
+   */
+  if (hasStorage()) {
+    for (const key of indexedKeys()) {
+      if (!key.startsWith(LIST_PREFIX)) continue
+      const entry = readJson<PersistedList>(readRaw(key))
+      if (entry === undefined || !Array.isArray(entry.rows)) continue
+      if (!entry.rows.some(row => String(row?.sessionId) === sessionId)) continue
+      queuePersistedList(key.slice(LIST_PREFIX.length), {
+        rows: entry.rows.filter(row => String(row?.sessionId) !== sessionId),
+        cursor: entry.cursor,
+        hasMore: entry.hasMore,
+      })
+    }
+    // 立即落盘：手机随时可能被切到后台（page-hide 才会 flush），而删掉的行不能等。
+    flushPersistedWrites()
   }
   // A revoked blank session's draft is meaningless — drop it too.
   removeDraft(sessionId)
@@ -286,6 +321,7 @@ function trimDrafts(): void {
 
 /** Drop every persisted cache (pairing eviction / re-pair on this device). */
 export function clearPairingCaches(): void {
+  archivedIds = new Set() // 吊销的设备不该继续知道别人的归档
   if (!hasStorage()) return
   // Anything queued was armed before the eviction, so it must not run after it.
   cancelPersistedWrites()

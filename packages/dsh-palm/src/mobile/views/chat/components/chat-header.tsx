@@ -128,9 +128,10 @@ export function ChatSearchBar(props: ChatSearchBarProps) {
         }}
       />
       <span className="chat-search-count" role="status">
-        {busy
+        {/* 本地已经有命中时，数字立刻可见（屏幕优先）；"搜索中"只留给屏幕上一处都没有的阶段。 */}
+        {busy && hits === 0
           ? '搜索中…'
-          : warming
+          : warming && hits === 0
             ? '索引建立中'
             : hits === 0
               ? '无命中'

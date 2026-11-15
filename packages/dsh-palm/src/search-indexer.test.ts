@@ -194,31 +194,31 @@ describeIndex('SearchIndexer：回填 / 增量 / 续跑 / 清理', () => {
     expect(index.query('支付').length).toBe(3)
     index.close()
   })
-  it('连续整页空事件达到上限就收手，并标记 complete（不再每趟重走）', async () => {
-    // 实测：59 个会话的历史尾部是一长串工具事件，每次 history 读取约 10s，
-    // 不加上限的话每 5 分钟一趟全部耗在重读同一段上，索引永远建不完。
+  it('中间整页空事件不会让索引收手：继续往前推，直到真正到头', async () => {
+    // 实测：一场会话中间可以连着几十页只有工具/推理事件。以前连续 8 页就置 complete，
+    // 水位跳到末尾，中间的正文永远不会再进索引（1838 个事件只入了 11 条文档）。
     const index = await openIndex()
     const calls: Array<number | undefined> = []
     const readRows = async (_sessionId: string, beforeSeq: number | undefined): Promise<SyncPage> => {
       calls.push(beforeSeq)
       if (beforeSeq === undefined) return { rows: [{ messageId: 'm10', seq: 10, text: '支付专项结论', user: true }], hasMore: true, nextBeforeSeq: 10 }
-      return { rows: [], hasMore: true, nextBeforeSeq: beforeSeq - 1 }
+      if (beforeSeq > 1) return { rows: [], hasMore: true, nextBeforeSeq: beforeSeq - 1 }
+      return { rows: [{ messageId: 'm1', seq: 1, text: '更早的支付记录', user: true }], hasMore: false }
     }
     const indexer = new SearchIndexer({
       index,
       listSessions: async () => [{ sessionId: 's1', updatedAt: 500 }],
       readRows,
-      maxEmptyPagesPerSession: 2,
       throttleMs: 0,
       log: () => {},
     })
     const run = await indexer.runOnce()
-    expect(calls).toEqual([undefined, 10, 9])
-    expect(run.truncated).toBe(1)
-    expect(index.sessionState('s1')).toMatchObject({ complete: true, indexedThroughSeq: 10 })
-    // 第二趟直接跳过：不再白读
-    const callsAfter = calls.length
-    await indexer.runOnce()
-    expect(calls.length).toBe(callsAfter)
+    // 空页一路推进到 1，最后一页带正文且 hasMore=false 才算到头。
+    expect(calls).toEqual([undefined, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+    expect(run.docs).toBe(2)
+    expect(run.truncated).toBe(0)
+    expect(index.sessionState('s1')).toMatchObject({ complete: true, oldestSeq: 1 })
+    // 两段正文都进了索引：这才是"覆盖完整"。
+    expect(index.query('支付').length).toBe(2)
     index.close()
   })

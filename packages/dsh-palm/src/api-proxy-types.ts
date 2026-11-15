@@ -431,7 +431,8 @@ export interface ApiProxy {
     updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: MessageId; action: unknown }>): Promise<RpcResponse<{ accepted: true }>>
   }
   workspace: {
-    list(request: RpcRequest<Record<string, never>>): Promise<RpcResponse<{ items: WorkspaceView[]; archivedSessionIds: SessionId[] }>>
+    /** `archivedChangedAt` = 归档集最后一次变化的时刻（0/缺省 = 还没有可信的 baseline）。 */
+    list(request: RpcRequest<Record<string, never>>): Promise<RpcResponse<{ items: WorkspaceView[]; archivedSessionIds: SessionId[]; archivedChangedAt?: number }>>
     create(request: RpcRequest<{ path: string }>): Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>>
     rename(request: RpcRequest<{ workspaceId: string; title: string }>): Promise<RpcResponse<{ workspace: WorkspaceView }>>
     delete(request: RpcRequest<{ workspaceId: string }>): Promise<RpcResponse<{ deleted: true }>>

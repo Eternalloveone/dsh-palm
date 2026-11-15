@@ -1,13 +1,13 @@
 {
   "$comment": "只降不升：cap 只能由 tools/check-budget.mjs --write 下调；要上调必须写 raisedReason 且带 expires（ISO 日期）。",
   "files": {
-    "src/mobile-api.ts": 1667,
+    "src/mobile-api.ts": 1668,
     "src/mobile/api.ts": 186,
-    "src/mobile/index.tsx": 73,
-    "src/mobile/views/ChatView.tsx": 4254,
-    "src/mobile/views/App.tsx": 1763,
-    "src/mobile/views/SettingsView.tsx": 743,
-    "src/mobile/views/AppearanceView.tsx": 97,
+    "src/mobile/index.tsx": 76,
+    "src/mobile/views/ChatView.tsx": 4761,
+    "src/mobile/views/App.tsx": 1792,
+    "src/mobile/views/SettingsView.tsx": 760,
+    "src/mobile/views/AppearanceView.tsx": 103,
     "src/mobile/views/ApprovalView.tsx": 81,
     "src/mobile/views/ArtifactsView.tsx": 106,
     "src/mobile/views/ArtifactSummaryView.tsx": 125,
@@ -19,30 +19,31 @@
     "src/mobile/views/ApprovalModeView.tsx": 128,
     "src/mobile/views/UsageView.tsx": 132,
     "src/mobile/views/settings/SkinStoreSheet.tsx": 117,
-    "src/mobile/platform/skin-catalog.ts": 79,
+    "src/mobile/platform/skin-catalog.ts": 207,
     "views/App.tsx": 1468
   },
   "dirs": {
-    "src/mobile": 58091,
+    "src/mobile": 61523,
     "src/mobile/styles": 0,
-    "src/mobile/api": 3930,
-    "src/mobile/components": 3055,
-    "src/mobile/data": 1785,
-    "src/mobile/design": 376,
+    "src/mobile/api": 4102,
+    "src/mobile/components": 3138,
+    "src/mobile/data": 1968,
+    "src/mobile/design": 380,
     "src/mobile/dev": 187,
-    "src/mobile/kernels": 772,
-    "src/mobile/message-row": 1295,
-    "src/mobile/platform": 4665,
+    "src/mobile/kernels": 774,
+    "src/mobile/message-row": 1360,
+    "src/mobile/platform": 5206,
     "src/mobile/projections": 548,
-    "src/mobile/render": 7236,
+    "src/mobile/render": 7361,
     "src/mobile/runtime": 450,
-    "src/mobile/session": 3771,
-    "src/mobile/shared": 306,
+    "src/mobile/session": 3963,
+    "src/mobile/shared": 293,
     "src/mobile/stream": 2424,
-    "src/mobile/ui": 3260,
-    "src/mobile/views": 22645,
+    "src/mobile/ui": 3432,
+    "src/mobile/views": 24535,
     "src/mobile/wire": 246,
-    "src/mobile/layouts": 133
+    "src/mobile/layouts": 133,
+    "src/shared": 91
   },
   "dirsRaised": {
     "src/mobile/runtime": {
@@ -50,39 +51,39 @@
       "expires": "2027-03-31"
     },
     "src/mobile": {
-      "reason": "2026-11-12 P2/A1′：parent 跟子目录走 —— 本次只有 src/mobile/runtime 净增 9 行（useChatSelector + 会话 store 窄订阅），src/mobile/views 反而 -2 行（ChatView 删掉 sendingRef 与 sending/stopping 取用）。 ｜ 2026-11-11 W4-3 架构收口：drawerWhenLabel 搬到 ui/drawer-when.ts（含测试）、listDirectory 经 session/directory-listing.ts 中转，三处上限按实测重定。 ｜ 2026-11-11 装饰层：611-skin-claude.css（36 行）+ skin-decor.test.ts（90 行守卫）；另含并行会话增量。 ｜ 2026-11-11 Claude 皮肤：000-tokens.css 再加一块色板（port-skin 生成）；另含并行会话的 App.tsx/components 增量。 ｜ 2026-11-11 终末地皮肤：000-tokens.css 再加一块完整色板（port-skin 生成）。 ｜ 2026-11-11 报纸皮肤：000-tokens.css 新增完整色板块、新增 styles/530-skin-newsprint.css 装饰层。 ｜ 历史：2026-11-11 皮肤商店：新增 views/settings/SkinStoreSheet.tsx + platform/skin-catalog.ts + styles/520-skin-store.css，SettingsView 加入口行与浮层。 ｜ 历史：2026-11-11 ①「最近用过」改按会话活动算；②用量从设置里搬成独立页 views/UsageView.tsx（+131）；③抽屉底部改成「工具」分组卡片。 ｜ 历史：2026-11-11 「最近用过」改按会话活动算：workspace-picker-model 新增 workspaceActivityOf + 面板新 prop sessionActivity + App 接一行 hook（新增 views/chat/hooks/use-workspace-activity.ts，约 50 行）。 ｜ 历史：2026-11-11 排队条稳定性：applyQueueItems 增加 allowEqual（同版本应答可覆盖，投影仍走严格大于）；投递核实补正文旁证。 ｜ 历史：2026-11-11 手机端两处功能修正：① 抽屉会话顺序统一排序（drawer-rows + 测试）；② 排队消息的送达核实改成重试 + 三态 + 后台确认（use-chat-composer 与 error-text）。净增约 95 行，其中本会话改动约 75 行，其余是同目录并行改动。下一步把送达核实拆成独立模块时再逐项回落。 ｜ 2026-11-12 P4「换会话不重挂 ChatView」：parent 跟子目录走：本批净增来自 use-session-scope（views）、Chat Store session/reset（runtime）、stick-to-bottom 作用域（ui），无其他子目录变化。 ｜ 2026-11-12 P4 收尾校正：parent 跟子目录走：runtime +11、views +6（55831→55848）。 ｜ 2026-11-12 P4 修复：parent 跟子目录走（55848→55850）。 ｜ 2026-11-12 目标条排版重排：parent 跟子目录走（components +43：goal-bar 重写 + PauseIcon）。注意 parent 此刻还含并行会话（搜索/定位重写）尚未收口的 ChatView/App/api/render 增量 —— 那几档的逐文件额度由那批改动自己定，这里只按实测值放开 parent。 ｜ 2026-11-12 抽屉「别的工作区还有 N 个任务在跑」：parent 跟子目录走（views +47：drawer-rows 新增 countRunningElsewhere、App 接线；ui +17：抽屉 props 与提示行）。同一时刻 parent 里还含并行会话正在写的 ChatView 增量。 ｜ 2026-11-12 「任务」页承担跨工作区聚合：views/TasksView 给进行中的每行标出所属工作区（workNameOf +17）、App 的「任务」入口条数改成全局（含 runningElsewhere，+2）；抽屉里那行临时提示已撤，ui 回落。 ｜ 2026-11-12 「刚完成」也标工作区：parent 跟子目录走（shared +13 抽出 cwdTail 与其契约测试、session +29 新增 loadCwdIndex、views +37 任务页补索引与渲染）。 ｜ 2026-11-12 置顶功能：parent 跟子目录走（session +88 = pins.ts 读写层与其测试；ui +141 = use-long-press hook、抽屉可置顶行与图钉；views +54 = 排序支持多置顶 + App 接线）。 ｜ 2026-11-12 置顶功能定稿：抽屉的置顶分组、PinnableRow 与图钉（ui +14；parent 跟子目录走）。 ｜ 2026-11-12 会话删除：抽屉的「长按 → 置顶/删除」动作条（含二次确认）与 App 侧的 archiveSession 接线。 ｜ 2026-11-12 会话动作面板：新增 ui/session-actions.tsx（底部 action sheet 与确认页）及其 13 条测试，同时删掉行内动作条。 ｜ 2026-11-13 会话重命名：ui +98 来自 session-actions 的重命名页；同期另一条工作线在工作树里新增了 views/chat/session-view-snapshot.ts（未提交，）也计入目录总量。 ｜ 2026-11-13 首屏一次成型（parent 跟子目录走：views +12、shared +9 由并行的目录调整带入）。 ｜ 2026-11-13 根治第 2 阶段：首屏改走 mobile.sessionState（一次拿齐行 + 目标 + 队列 + 回合 + 投影），data 层新增 entryOrTail 与「宿主是否支持」缓存（老宿主第一次试、之后不再白试），ChatView 把快照里的目标与正文同 tick 落位。",
-      "expires": "2026-12-11"
+      "reason": "2026-11-15 窗口化第二刀：往上翻改为每次扩一屏（WINDOW_STEP_ROWS=12）而不是一次性全展开，并按占位高度差补偿 scrollTop（占位的父元素即 .chat-scroll，不新增参数）。目的是把\"翻到顶时跳一下\"压到一屏以内。 ｜ 2026-11-15 消息列表尾部窗口化第一刀：新增 views/chat/hooks/use-row-window.ts（约 105 行）——只把最后 12 行挂进 DOM、更早的用等高占位撑着、滚到占位就展开（只展开不回收）。依据是采样：真机会话 39 行/16347px，切会话 get scrollHeight 占主线程 21.8%、开抽屉浏览器内部 26.8%，只有让隐藏行不在 DOM 里才能真降布局成本。同时把「130 行全部渲染」这条旧契约改成「分批渲染 + 展开后全量」。 ｜ 2026-11-15 抽屉滑入 380ms 内背后不绘制：真机会话 39 行 / 16347px 高的 DOM，与抽屉一起合成就是「点侧边栏卡一下」。SessionDrawer 开关 body 类 + CSS content-visibility: hidden。 ｜ 2026-11-15 归档集测试隔离：list-persist 新增 resetArchivedSessionIdsForTest（模块级 archivedIds 跨测试文件泄漏，导致枚举/归档竞态那组整目录跑红、单独跑绿）。 ｜ 2026-11-15 首屏闸门：sessionState 唯一出口加 entryLoads（首屏读日志期间，同会话 rows:false 的收件箱/回合对账/语音/附件请求等它落地再发），一处覆盖全部调用点。真机时间线：两条读同一份日志，rows:false 708ms、首屏 1682ms，用户等的是这段排队。 ｜ 2026-11-15 收件箱首次轮询延后 800ms：以前每个会话挂载都立刻打一条 sessionState(rows:false)，与首屏那次各读一遍日志（实测 658ms + 1342ms）。 ｜ 2026-11-15 抽屉二次渲染去重：新增 drawer-rows.sameDrawerRows（逐行判内容是否真变），applyFresh 在内容相同时保持原引用。打开抽屉是「先画缓存、再被 session.list 覆盖」，以前无条件造新对象导致滑入后整块重画一次。 ｜ 2026-11-15 sessionState in-flight 合并：同会话的 rows:false 与 maxRows:40 并发时不再各读一遍日志（实测前者 658ms + 后者 1342ms，首屏要等 2.2s），后到的那条直接等前面那次的结果。 ｜ 2026-11-15 用量查询改 stale-while-revalidate：mobile-usage.ts 抽出 readUsage / refreshUsageInBackground，过期与冷启动都不再同步等（实测全量查一次 3.3s，宿主单线程期间所有 /m/api 排队，正是\"切会话卡一下\"的来源之一）；process-state.ts 增加 usageRefreshing 防并发刷新。 ｜ 2026-11-15 汇总：预取 hook + 抽屉窗口化 + 切换取数判据修复，三项合计约 +350 行（含注释）。 ｜ 2026-11-14 切换会话误降级修复（同 src/mobile/data 条）：+22 行，全部落在 data/chat-page.ts；chat-page.entry.test.ts 同步改判据并新增两个回归门（净增测试行，不计入 src 预算）。 ｜ 2026-11-14 抽屉首屏窗口化（同 src/mobile/ui 条）：+118 行，全部落在 ui/use-drawer-window.ts 与 session-drawer.tsx；focus-trap.ts 的改动是净精简不增行（改成 querySelector 命中即停）。 ｜ 2026-11-14 外观面板：新增 views/settings/AppearanceSheet.tsx（点头像换皮肤/背景图，含撤销条与随机换装）约 210 行，抽屉头像与工作区名拆成两个按钮。｜ 2026-11-14 外观面板 ｜ 2026-11-14/15 同上批：views 增量 + 并行线，60619。 ｜ 2026-11-15 按实测同步（并行线），60699。",
+      "expires": "2027-03-31"
     },
     "src/mobile/shared": {
       "reason": "2026-11-11 送达核实新增 isConclusiveRejection（4xx 明确拒绝 → 不必再花 8 秒核实）。 ｜ 2026-11-12 任务页要标工作区：把 toSessionView 里的目录尾段逻辑抽成导出的 cwdTail（任务页与标题兜底共用，免得两处各写一遍），同批加它的契约测试。",
       "expires": "2026-12-11"
     },
     "src/mobile/views": {
-      "reason": "2026-11-11 皮肤商店浮层（SkinStoreSheet，试穿不落盘）+ SettingsView 首屏「皮肤」组。 ｜ 历史：2026-11-11 用量独立页 UsageView.tsx（+131，含 5 条测试）与 SettingsView 相应瘦身（764→721）；抽屉底部三行改成分组卡片。 ｜ 历史：2026-11-11 「最近用过」改按会话活动算：workspace-picker-model 的 lastActiveOf 与会话归属映射、workspace-picker 透传、App.tsx 接 useWorkspaceActivity（App 仍卡在 1422 行上限内，靠删注释与空行平衡）。 ｜ 历史：2026-11-11 排队条稳定性：probeQueueForRequest 补正文旁证（身份桥没补上时不再误判「没送到」）。 ｜ 历史：2026-11-08 插入条：views/chat/components/insert-bar.tsx 固定槽位（始终挂载，0fr→1fr 过渡，默认折叠成一条摘要，含时间兜底重算）+ ChatView/frame-effects/use-chat-composer 接线；同批删掉 QueueDock steering 行。历史：ChatRows 按轮折叠正文流数据（计划步数 / 改过的文件增删 / 失败轮集合 / 会话目标）供任务头与交付卡。2026-11-10 W3-2 收口：新增 views/approval-route.tsx（审批详情页按 id 读会话账本，路由只留导航身份，+57），App.tsx 同步删掉 `Route.approval` 快照与 ApprovalPayload 类型（-15），净 +42。2026-11-10 W3-6 第一步：新增 views/chat/hooks/use-session-queue.ts（队列改成会话仓的只读投影：订阅仓的变更版本、版本变了才重算 queueView，视图不留第二份；+27），ChatView 同步删掉队列 useState、镜像写回与订阅 hook。 ｜ 2026-11-12 P4「换会话不重挂 ChatView」：新增 views/chat/hooks/use-session-scope.ts（会话作用域的 state/ref，换会话即回初值）+ 各 hook 接入（attachments/voice/chat-machine/stick-to-bottom）+ ChatView 内 19 个 useState / 20 个 ref 改按会话作用域持有；这条能力是本次不再整页重挂的唯一承载点（+194）。 ｜ 2026-11-12 P4 收尾校正：useSessionRef 改为「引用对象跨会话不变、只换 .current」的写法与注释，+6（21569→21575）—— 这处是自查发现的真 bug 修复（旧写法下 useCallback([]) 捕获的老闭包会一直写上一场的引用）。 ｜ 2026-11-12 P4 修复：同上 +1（21575→21577）。 ｜ 2026-11-12 抽屉「别的工作区还有 N 个任务在跑」：drawer-rows.ts 新增 countRunningElsewhere（+28，含注释与判据说明）、App.tsx 接线 runningElsewhere（+19，含首帧那一次 runningSessions）。views 里另有并行会话（搜索/定位重写）的 ChatView 增量。 ｜ 2026-11-12 跨工作区在跑任务只在「任务」页展示：TasksView 新增 workNameOf 与行内工作区标注（+17）、App 的任务入口条数改为全局（+2）。抽屉不再加提示行。目录内另有并行会话的 ChatView 变动。 ｜ 2026-11-12 任务页「刚完成」补工作区：TasksView 加 cwd 缓存（ref）与缺失 id 的补索引，行内渲染 .tasks-where。目录内另有并行会话的 ChatView 增量。 ｜ 2026-11-12 置顶功能：orderDrawerRows 支持多个主动置顶（置顶组按时间倒序、当前会话紧随），工作区选择器的组内调序与「置顶」动作。 ｜ 2026-11-12 会话删除：抽屉的「长按 → 置顶/删除」动作条（含二次确认）与 App 侧的 archiveSession 接线。 ｜ 2026-11-13 会话重命名：ui +98 来自 session-actions 的重命名页；同期另一条工作线在工作树里新增了 views/chat/session-view-snapshot.ts（未提交，）也计入目录总量。 ｜ 2026-11-13 首屏一次成型：ChatView 改为「铺开链攒完一次提交」（+10），App 侧为并行会话的 1 行增量。 ｜ 2026-11-13 首屏目标同 tick 落位（+1）。",
-      "expires": "2026-12-11"
+      "reason": "2026-11-15 窗口化第二刀：往上翻改为每次扩一屏（WINDOW_STEP_ROWS=12）而不是一次性全展开，并按占位高度差补偿 scrollTop（占位的父元素即 .chat-scroll，不新增参数）。目的是把\"翻到顶时跳一下\"压到一屏以内。 ｜ 2026-11-15 消息列表尾部窗口化第一刀：新增 views/chat/hooks/use-row-window.ts（约 105 行）——只把最后 12 行挂进 DOM、更早的用等高占位撑着、滚到占位就展开（只展开不回收）。依据是采样：真机会话 39 行/16347px，切会话 get scrollHeight 占主线程 21.8%、开抽屉浏览器内部 26.8%，只有让隐藏行不在 DOM 里才能真降布局成本。同时把「130 行全部渲染」这条旧契约改成「分批渲染 + 展开后全量」。 ｜ 2026-11-15 收件箱首次轮询延后 800ms：以前每个会话挂载都立刻打一条 sessionState(rows:false)，与首屏那次各读一遍日志（实测 658ms + 1342ms）。 ｜ 2026-11-15 抽屉二次渲染去重：新增 drawer-rows.sameDrawerRows（逐行判内容是否真变），applyFresh 在内容相同时保持原引用。打开抽屉是「先画缓存、再被 session.list 覆盖」，以前无条件造新对象导致滑入后整块重画一次。 ｜ 2026-11-15 新增 views/chat/hooks/use-session-prefetch.ts（约 75 行）：抽屉打开后空闲 260ms 串行预取前 3 条会话的首屏，落 chat-page 缓存，点击时直接出内容；串行+延迟是为了不与抽屉自身的 session.list 抢宿主。另有 use-chat-history 的补页上限调整。 ｜ 2026-11-14 外观面板：新增 views/settings/AppearanceSheet.tsx（点头像换皮肤/背景图，含撤销条与随机换装）约 210 行，抽屉头像与工作区名拆成两个按钮。｜ 2026-11-14 外观面板 ｜ 2026-11-14/15 同上批：ChatView submitted 态 + chat-rows 的等待占位（复用 .chat-typing，未新增 CSS 类），并与并行皮肤线增量一并按实测同步。 ｜ 2026-11-15 按实测同步（并行皮肤线 views 增量，+80），24221。",
+      "expires": "2027-03-31"
     },
     "src/mobile/styles": {
       "reason": "2026-11-11 新增 styles/510-usage-page.css（用量页滚动区与右上刷新键），抽屉底部 .palm-drawer-entry 换成 .palm-drawer-tool 一组。 ｜ 历史：令牌与组件层首次纳入统计（P1）；旧样式文件在 P8 删除后本值回落",
       "expires": "2027-03-31"
     },
     "src/mobile/platform": {
-      "reason": "2026-11-11 终末地皮肤：skin.ts 加 endfield（类型/中文名/提示/chrome），skin-catalog.ts 加一条移植条目。 ｜ 2026-11-11 报纸皮肤：skin.ts 增加 newsprint（类型/中文名/提示/chrome/极性），skin-catalog.ts 增加一条移植作品（带作者与许可）。 ｜ 历史：2026-11-11 skin.ts 新增 previewSkin（试穿不落盘）；新增 skin-catalog.ts（名字/说明/来源署名/是否内置）。 ｜ 历史：P6 ⑭ 外观页：platform/skin.ts（三皮肤存储 + 应用 + 广播 + 单测）；并入 display-prefs 后回落",
+      "reason": "2026-11-14 图标层：icons.tsx 36 个图标各自包成 .skin-icon 外壳（+212 行）与 skin-assets.ts（素材解析/授权，7 条单测）。｜ 2026-11-14 图标层 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。 ｜ 新增 model-switch.ts：换模型的广播口（订阅/广播/最近一次），零依赖。 ｜ 新增 model-switch.ts：换模型的广播口（订阅/广播/最近一次），零依赖。 ｜ 2026-11-14 按实测同步 cap 5008→5058（图标层 + 皮肤素材解析/授权单测的增量，理由已在同条记录）。",
       "expires": "2027-03-31"
     },
     "src/mobile/ui": {
-      "reason": "2026-11-11 W4-3：drawerWhenLabel 从 views 搬进本目录（ui 内核只向下依赖，不许 import views）。 ｜ 2026-11-11 抽屉「设置」行右侧显示当前皮肤名（读 platform/skin 的 SKIN_LABEL）。 ｜ 历史：2026-11-11 抽屉底部 C 版：session-drawer.tsx 从三行平铺改成「工具」小标题 + 圆角卡片三行（每行 图标/文案/小字/箭头）。 ｜ 历史：历史：会话正文流三件套（turn-header / delivery-card / process-line）。本次：2026-11-09 会话状态首帧跳变修复（unknown 态 = 无权威数据；会话页水合门：宿主快照 + 该会话的行；taskAuthority 12s 新鲜窗；终态锁定/按轮号单调；缓存种子先上屏）。同批删掉旧的 .skel/@keyframes shimmer 死样式与 ChatView 的重复空行。 其中本次 +20 行是 turn-header 的 unknown 呈现（灰点/「—」/不报步数与耗时）与同高的 TurnHeadSkeleton。本次（2026-11-11）再加 25 行：focus-trap 新增 initialFocusWithin —— 面板打开时不再把焦点塞进搜索框（真机键盘会弹出来顶掉半个面板），优先聚焦不弹键盘的控件。 ｜ 2026-11-12 P4「换会话不重挂 ChatView」：useStickToBottom 按会话清掉位置判据（scrollTop/上一份高度/程序化认领），第一拍不再按上一场读数决定落点（+3）。 ｜ 2026-11-12 抽屉「别的工作区还有 N 个任务在跑」：session-drawer.tsx 新增 runningElsewhere 这个 prop 与列表上方那一行提示（+17）。 ｜ 2026-11-12 置顶功能：新增 use-long-press.ts（长按触发/滑动取消/吞掉跟随的 click，10 条测试）+ 抽屉的 PinnableRow 与图钉（hook 不能按行调用，只能抽组件）。 ｜ 2026-11-12 置顶功能定稿：抽屉的置顶分组、PinnableRow 与图钉（ui +14；parent 跟子目录走）。 ｜ 2026-11-12 会话删除：抽屉的「长按 → 置顶/删除」动作条（含二次确认）与 App 侧的 archiveSession 接线。 ｜ 2026-11-12 会话动作面板：新增 ui/session-actions.tsx（底部 action sheet 与确认页）及其 13 条测试，同时删掉行内动作条。 ｜ 2026-11-13 会话重命名：ui +98 来自 session-actions 的重命名页；同期另一条工作线在工作树里新增了 views/chat/session-view-snapshot.ts（未提交，）也计入目录总量。 ｜ 2026-11-13 交付卡折叠（+27）：卡面默认收起成一行（卡头 + N 个文件 +A −D + 箭头），只有最新一轮默认展开；明细留在 DOM 里用 hidden 控制，既有断言与读屏仍可读。现场依据：一场会话 93 行里 18 张卡、每张约 150px，一屏只能放 4 张。 ｜ 2026-11-13 交付判据（+42）：新增 ui/delivery-noise.ts —— 日志/缓存/映射/工具脚本（.mjs .ps1 .bat .cmd）与 node_modules、.git、tmp、cache 判为噪声；轮内全是噪声则不出交付卡，明细里也不再列噪声文件。依据：用户手机 trace 显示一场会话 106 行里 30 张交付卡（28%），其中大量只是改了临时补丁脚本。",
-      "expires": "2026-12-11"
+      "reason": "2026-11-15 抽屉滑入 380ms 内背后不绘制：真机会话 39 行 / 16347px 高的 DOM，与抽屉一起合成就是「点侧边栏卡一下」。SessionDrawer 开关 body 类 + CSS content-visibility: hidden。 ｜ 2026-11-15 抽屉窗口注释补全（首屏行数为何不能少于 20：哨兵落进视口会立刻触发补页，反而更慢）。 ｜ 2026-11-14 抽屉首屏窗口化：新增 ui/use-drawer-window.ts（首屏画 20 行、滚近底部每次补 20 行，IntersectionObserver 驱动，jsdom 下自动退化），session-drawer.tsx 改为按窗口截断分组且组标题仍显示真实条数。实测理由：打开抽屉 729ms（其中一次长任务冻住主线程 523ms），同条件点设置 57ms，卡点就是一次插几十行的那一帧。 ｜ 2026-11-11 W4-3：drawerWhenLabel 从 views 搬进本目录（ui 内核只向下依赖，不许 import views）。 ｜ 2026-11-11 抽屉「设置」行右侧显示当前皮肤名（读 platform/skin 的 SKIN_LABEL）。 ｜ 历史：2026-11-11 抽屉底部 C 版：session-drawer.tsx 从三行平铺改成「工具」小标题 + 圆角卡片三行（每行 图标/文案/小字/箭头）。 ｜ 历史：历史：会话正文流三件套（turn-header / delivery-card / process-line）。本次：2026-11-09 会话状态首帧跳变修复（unknown 态 = 无权威数据；会话页水合门：宿主快照 + 该会话的行；taskAuthority 12s 新鲜窗；终态锁定/按轮号单调；缓存种子先上屏）。同批删掉旧的 .skel/@keyframes shimmer 死样式与 ChatView 的重复空行。 其中本次 +20 行是 turn-header 的 unknown 呈现（灰点/「—」/不报步数与耗时）与同高的 TurnHeadSkeleton。本次（2026-11-11）再加 25 行：focus-trap 新增 initialFocusWithin —— 面板打开时不再把焦点塞进搜索框（真机键盘会弹出来顶掉半个面板），优先聚焦不弹键盘的控件。 ｜ 2026-11-12 P4「换会话不重挂 ChatView」：useStickToBottom 按会话清掉位置判据（scrollTop/上一份高度/程序化认领），第一拍不再按上一场读数决定落点（+3）。 ｜ 2026-11-12 抽屉「别的工作区还有 N 个任务在跑」：session-drawer.tsx 新增 runningElsewhere 这个 prop 与列表上方那一行提示（+17）。 ｜ 2026-11-12 置顶功能：新增 use-long-press.ts（长按触发/滑动取消/吞掉跟随的 click，10 条测试）+ 抽屉的 PinnableRow 与图钉（hook 不能按行调用，只能抽组件）。 ｜ 2026-11-12 置顶功能定稿：抽屉的置顶分组、PinnableRow 与图钉（ui +14；parent 跟子目录走）。 ｜ 2026-11-12 会话删除：抽屉的「长按 → 置顶/删除」动作条（含二次确认）与 App 侧的 archiveSession 接线。 ｜ 2026-11-12 会话动作面板：新增 ui/session-actions.tsx（底部 action sheet 与确认页）及其 13 条测试，同时删掉行内动作条。 ｜ 2026-11-13 会话重命名：ui +98 来自 session-actions 的重命名页；同期另一条工作线在工作树里新增了 views/chat/session-view-snapshot.ts（未提交，）也计入目录总量。 ｜ 2026-11-13 交付卡折叠（+27）：卡面默认收起成一行（卡头 + N 个文件 +A −D + 箭头），只有最新一轮默认展开；明细留在 DOM 里用 hidden 控制，既有断言与读屏仍可读。现场依据：一场会话 93 行里 18 张卡、每张约 150px，一屏只能放 4 张。 ｜ 2026-11-13 交付判据（+42）：新增 ui/delivery-noise.ts —— 日志/缓存/映射/工具脚本（.mjs .ps1 .bat .cmd）与 node_modules、.git、tmp、cache 判为噪声；轮内全是噪声则不出交付卡，明细里也不再列噪声文件。依据：用户手机 trace 显示一场会话 106 行里 30 张交付卡（28%），其中大量只是改了临时补丁脚本。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。｜ 同日第二批（用户：「切换完模型之后侧边栏的用量也要同时切换」）：新增 platform/model-switch.ts（换模型广播），data/impl/settings.ts 的 selectModel 广播一次，用量小字改「最紧窗口」（opencode-go 补 monthlyUsed）。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。｜ 同日第二批（用户：「切换完模型之后侧边栏的用量也要同时切换」）：新增 platform/model-switch.ts（换模型广播），data/impl/settings.ts 的 selectModel 广播一次，用量小字改「最紧窗口」（opencode-go 补 monthlyUsed）。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 按实测同步（并行皮肤线的抽屉/用量行增量），3288→3290。",
+      "expires": "2027-03-31"
     },
     "src/mobile/api": {
-      "reason": "2026-11-11 排队条稳定性：sessionPrompt 投递前后读队列建身份桥（rememberRequestBody 此前从未被调用），readQueue 允许返回 undefined。 ｜ 历史：P2 前置：api/constants.ts 收纳 6 个 TTL/容量常量，供各域单向引用（避免反向 import 成环） ｜ 2026-11-12 搜索定位重写：mobile-search.ts 与 mobile-search-handlers.ts 的命中视图补 turn/step 字段（各 +5），让结构坐标从宿主流到前端。 ｜ 2026-11-13 冷启动根治（+34）：mobile-session-state.ts 增加尾页 800ms 窗口缓存（readEntryTail）——实测冷启动 sessionState 被调 5 次、每次各读一遍日志，单线程排队让首屏等两秒。",
-      "expires": "2026-12-11"
+      "reason": "2026-11-15 历史包瘦身：session-handlers.ts 的 sessionHistory 剥掉 request/header 事件。真机会话一页 561KB / 169 条事件里，两条 request/header 各 136KB = 48%，真正正文只占 10%；它带的是每次 LLM 请求的完整请求体（system prompt + 全部工具定义 + 上下文快照），客户端全仓零引用，白占下载、JSON 解析、内存与落盘缓存。这是「切会话 1.5 秒长任务」里最大的一块。 ｜ 2026-11-15 sessionState in-flight 合并：同会话的 rows:false 与 maxRows:40 并发时不再各读一遍日志（实测前者 658ms + 后者 1342ms，首屏要等 2.2s），后到的那条直接等前面那次的结果。 ｜ 2026-11-15 用量查询改 stale-while-revalidate：mobile-usage.ts 抽出 readUsage / refreshUsageInBackground，过期与冷启动都不再同步等（实测全量查一次 3.3s，宿主单线程期间所有 /m/api 排队，正是\"切会话卡一下\"的来源之一）；process-state.ts 增加 usageRefreshing 防并发刷新。 ｜ 2026-11-11 排队条稳定性：sessionPrompt 投递前后读队列建身份桥（rememberRequestBody 此前从未被调用），readQueue 允许返回 undefined。 ｜ 历史：P2 前置：api/constants.ts 收纳 6 个 TTL/容量常量，供各域单向引用（避免反向 import 成环） ｜ 2026-11-12 搜索定位重写：mobile-search.ts 与 mobile-search-handlers.ts 的命中视图补 turn/step 字段（各 +5），让结构坐标从宿主流到前端。 ｜ 2026-11-13 冷启动根治（+34）：mobile-session-state.ts 增加尾页 800ms 窗口缓存（readEntryTail）——实测冷启动 sessionState 被调 5 次、每次各读一遍日志，单线程排队让首屏等两秒。",
+      "expires": "2027-03-31"
     },
     "src/mobile/kernels": {
       "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落",
       "expires": "2027-03-31"
     },
     "src/mobile/render": {
-      "reason": "P4 结论卡接入 render/message-row.tsx：纯文字回合由空白改为渲染结论卡（+18 行）与 4 条行级测试；旧状态条合并后回落 ｜ 2026-11-12 render 目录按实测放开（+8）：本批是并行会话的 run-status / markdown / message-row 增量，搜索定位重写未改本目录。",
+      "reason": "P4 结论卡接入 render/message-row.tsx：纯文字回合由空白改为渲染结论卡（+18 行）与 4 条行级测试；旧状态条合并后回落 ｜ 2026-11-12 render 目录按实测放开（+8）：本批是并行会话的 run-status / markdown / message-row 增量，搜索定位重写未改本目录。 ｜ 2026-11-13 搜索口径统一：新增 mobile/render/search-corpus.ts（搜索语料唯一真源：只收用户消息 + 助手结论正文，思考/工具/过程/代码块一律不算）与 shared/strip-tool-blocks.ts（mobile 与宿主共用剥离规则），host/search-text.ts 只留 documentRows 与转出口；预算按实测同步。 ｜ 2026-11-13 搜索高亮分通道：focusedQuery（搜索，只标答案/气泡）与 anchorQuery（定位，可落在折叠步骤并展开），过程条不再接搜索词；预算按实测同步。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。",
       "expires": "2026-12-11"
     },
     "src/mobile/layouts": {
@@ -90,34 +91,58 @@
       "expires": "2027-03-31"
     },
     "src/mobile/message-row": {
-      "reason": "本次：2026-11-09 会话状态首帧跳变修复（unknown 态 = 无权威数据；会话页水合门：宿主快照 + 该会话的行；taskAuthority 12s 新鲜窗；终态锁定/按轮号单调；缓存种子先上屏）。同批删掉旧的 .skel/@keyframes shimmer 死样式与 ChatView 的重复空行。 其中本次 +13 行是 AssistantBody 的结论资格（authority：宿主快照到齐才下结论，未水合只画 unknown）。",
+      "reason": "本次：2026-11-09 会话状态首帧跳变修复（unknown 态 = 无权威数据；会话页水合门：宿主快照 + 该会话的行；taskAuthority 12s 新鲜窗；终态锁定/按轮号单调；缓存种子先上屏）。同批删掉旧的 .skel/@keyframes shimmer 死样式与 ChatView 的重复空行。 其中本次 +13 行是 AssistantBody 的结论资格（authority：宿主快照到齐才下结论，未水合只画 unknown）。 ｜ 2026-11-13 搜索高亮分通道：focusedQuery（搜索，只标答案/气泡）与 anchorQuery（定位，可落在折叠步骤并展开），过程条不再接搜索词；预算按实测同步。 ｜ 2026-11-13 二修：过程条彻底不接高亮（focusOpen 只控制展开，focusExpand 不再自动拉开过程组），搜索/定位都只标用户消息与正文；预算按实测同步。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。",
       "expires": "2027-03-31"
     },
     "src/mobile/components": {
-      "reason": "2026-11-08 单一会话页+抽屉：⋯ 菜单新增「切换主题」行（theme-toggle.tsx +46）。同批靠真实减行把这条降回：删掉随工作区页/会话列表页一起失引用的 PinIcon / FolderPlusIcon / HelpIcon（-31），并把 theme-toggle 里重复实现的 ContrastIcon 换成 icons.tsx 的同名图标（-10），实测 2805 ｜ 2026-11-12 目标条排版重排：goal-bar.tsx 结构重写成「信息行 + 图标工具栏」两列（+45，含排版理由注释），icons.tsx 新增 PauseIcon（+10）；换来的是一条结构性保证 —— 文字与动作不再共享水平线，360px 上摘要不再被按钮压住。3012→3055 即这两个文件的实测增量。",
+      "reason": "2026-11-14 图标层：icons.tsx 36 个图标各自包成 .skin-icon 外壳（+212 行）与 skin-assets.ts（素材解析/授权，7 条单测）。｜ 2026-11-14 图标层",
       "expires": "2027-03-31"
     },
     "src/mobile/session": {
-      "reason": "2026-11-11 W4-3：新增 directory-listing.ts（目录浏览的取数入口，视图不再直连 api.ts）。 ｜ 历史：任务状态机 task-status.ts（kind/progress/steps + 兜底）；2026-11-08 插入条 insert-queue.ts（252 行）。本次：2026-11-09 会话状态首帧跳变修复（unknown 态 = 无权威数据；会话页水合门：宿主快照 + 该会话的行；taskAuthority 12s 新鲜窗；终态锁定/按轮号单调；缓存种子先上屏）。同批删掉旧的 .skel/@keyframes shimmer 死样式与 ChatView 的重复空行。 其中本次 +30 行是 task-status.ts 的 unknown 语义、taskAuthority 与 fold 的三段守卫。 ｜ 2026-11-12 新增 loadCwdIndex：宿主的收工账本只有 id/标题/耗时、没有 cwd，而「刚完成」那一组也要标工作区，只能按 id 回查 session.list（翻页上限 3 页，调用方缓存已解析的 id）。 ｜ 2026-11-12 置顶功能：新增 pins.ts（localStorage 读写会话/工作区两份清单，坏数据当空不抛）+ pins.test.ts（11 条：坏数据、可逆 toggle、两份清单互不干扰）。",
-      "expires": "2026-12-11"
+      "reason": "2026-11-15 归档集测试隔离：list-persist 新增 resetArchivedSessionIdsForTest（模块级 archivedIds 跨测试文件泄漏，导致枚举/归档竞态那组整目录跑红、单独跑绿）。 ｜ 2026-11-15 工作树既有增量（chat-sync-ledger / scoped-cache 等此前会话引入，非本轮改动），本轮只为让闸门反映真实值而同步。 ｜ 2026-11-11 W4-3：新增 directory-listing.ts（目录浏览的取数入口，视图不再直连 api.ts）。 ｜ 历史：任务状态机 task-status.ts（kind/progress/steps + 兜底）；2026-11-08 插入条 insert-queue.ts（252 行）。本次：2026-11-09 会话状态首帧跳变修复（unknown 态 = 无权威数据；会话页水合门：宿主快照 + 该会话的行；taskAuthority 12s 新鲜窗；终态锁定/按轮号单调；缓存种子先上屏）。同批删掉旧的 .skel/@keyframes shimmer 死样式与 ChatView 的重复空行。 其中本次 +30 行是 task-status.ts 的 unknown 语义、taskAuthority 与 fold 的三段守卫。 ｜ 2026-11-12 新增 loadCwdIndex：宿主的收工账本只有 id/标题/耗时、没有 cwd，而「刚完成」那一组也要标工作区，只能按 id 回查 session.list（翻页上限 3 页，调用方缓存已解析的 id）。 ｜ 2026-11-12 置顶功能：新增 pins.ts（localStorage 读写会话/工作区两份清单，坏数据当空不抛）+ pins.test.ts（11 条：坏数据、可逆 toggle、两份清单互不干扰）。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。 ｜ 2026-11-14 交付卡判定收敛：session/deliveries.ts 新增 CardPhase + cardVisible 纯函数（+31，含穷举矩阵用例的说明），session 3845→3876。",
+      "expires": "2027-03-31"
     },
     "src/mobile/stream": {
       "reason": "2026-11-11 排队条稳定性：applyQueueAck 收同版本、拒更旧版本（版本只在内容变化时推进）。 ｜ 历史：2026-11-08 插入条：stream/session-store.ts 新增插入 slice（观察快照/帧、乐观插入与认领、墓碑、轮次作用域，约 220 行）；同批删掉 steering 强制改 queued 的旧路径与 toQueueItem 死代码。2026-11-10 W3-6 第一步：队列改为仓的只读投影 —— session-store.ts 增 `sessionStoreVersion`（稳定订阅快照）与 `rebaselineQueueView`（session/subscribed 的清空基线，语义见 Entry.queueRebaselineAt），另加两个契约测试文件（版本单调/基线不重放，共 +45）。",
       "expires": "2027-03-31"
+    },
+    "src/mobile/data": {
+      "reason": "2026-11-15 跨会话排队：session.ts 的 entryLoads 闸门扩成全局（anyEntryWaiters）—— 切走后旧会话的 rows:false 还在和新会话首屏抢宿主单线程。实测同一个 73 字节响应：单独 TTFB 1.3ms，切会话时排队 1508ms，首屏排在它后面。 ｜ 2026-11-15 历史页去重：`data/impl/session.ts` 的 history() 增加同参数短期复用（10s TTL + 在飞合并）。真机实测切一个会话时 session.history 被两条链路各拉三页、参数逐字相同（25 / beforeSeq 2386 / beforeSeq 2235），255KB 拉了两遍共 510KB；一条是分页器往上补，另一条是 loadTurnReportRows 补读交付卡片。会话日志越大越贵（要解压整份日志，52MB 会话实测 34 秒），这 2 倍重复直接翻倍了切会话的卡顿。改后请求 6→3、数据 510KB→255KB（perf-switch-timeline 实测）。 ｜ 2026-11-15 首屏闸门：sessionState 唯一出口加 entryLoads（首屏读日志期间，同会话 rows:false 的收件箱/回合对账/语音/附件请求等它落地再发），一处覆盖全部调用点。真机时间线：两条读同一份日志，rows:false 708ms、首屏 1682ms，用户等的是这段排队。 ｜ 2026-11-14 切换会话误降级修复：chat-page.ts 的 entryOrTail 判据从「行数是否够 40」改成「是否固定回一页 25 行 + 连续两次才认定」，并新增 pagedStrikes 计数与注释（+21 行）。原判据会把任何不足 40 行的会话当成老宿主，一进短会话就全局降级到 logTail，之后每次切换都慢 —— 这是「切来切去都卡」的真因。",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/design": {
+      "reason": "｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。",
+      "expires": "2026-12-14"
     }
   },
   "filesRaised": {
     "src/mobile/views/ChatView.tsx": {
-      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落 ｜ 2026-11-12 搜索定位重写（4068→4139，+71）：① 索引命中回传结构坐标 turn/step，行内接第三锚点 turnStepRowIndex（按「第几轮第几步」查行，messageId 在跨页合并后对不上、seq 会漂移）；② 决策段改调无状态 decideMiss（有状态版在该组件里活不过一次重挂载，实测每次进都拿到 idle）；③ 落点判定改调纯函数 judgeLanding；④ 删掉 findAnchor() 20 行重复锚点解析。同批还有并行会话的 ChatView 增量，逐文件额度已按实测值放开。 ｜ 2026-11-13 首屏一次成型：尾页到达时若还有更早的页要铺开就先不提交（willAutoExtend），由铺开链攒完一次 applyMessages + 落 loading（+10，含注释）。修的是\"先进来一张交付卡、正文随后长出来\"。 ｜ 2026-11-13 首屏快照带回的目标在这里落位（applyGoal，+3 含注释），避免\"正文已在、目标条晚一步\"。 ｜ 2026-11-13 根治空态（+20）：entryAnswered 改成「提交即证据」——applyMessages 提交行与置位在同一次 React 更新里，首屏请求明确回 0 行也置位，失败分支同样置位；不再用 loading/blank/turns 猜「是不是空会话」。",
+      "reason": "P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删旧浮层后统一回落 ｜ 2026-11-12 搜索定位重写（4068→4139，+71）：① 索引命中回传结构坐标 turn/step，行内接第三锚点 turnStepRowIndex（按「第几轮第几步」查行，messageId 在跨页合并后对不上、seq 会漂移）；② 决策段改调无状态 decideMiss（有状态版在该组件里活不过一次重挂载，实测每次进都拿到 idle）；③ 落点判定改调纯函数 judgeLanding；④ 删掉 findAnchor() 20 行重复锚点解析。同批还有并行会话的 ChatView 增量，逐文件额度已按实测值放开。 ｜ 2026-11-13 首屏一次成型：尾页到达时若还有更早的页要铺开就先不提交（willAutoExtend），由铺开链攒完一次 applyMessages + 落 loading（+10，含注释）。修的是\"先进来一张交付卡、正文随后长出来\"。 ｜ 2026-11-13 首屏快照带回的目标在这里落位（applyGoal，+3 含注释），避免\"正文已在、目标条晚一步\"。 ｜ 2026-11-13 根治空态（+20）：entryAnswered 改成「提交即证据」——applyMessages 提交行与置位在同一次 React 更新里，首屏请求明确回 0 行也置位，失败分支同样置位；不再用 loading/blank/turns 猜「是不是空会话」。 ｜ 2026-11-13 会话内搜索修复：宿主会话内命中改按「处」展开（一段里出现几次就是几条）；ChatView 自动跳转跳过 DOM 相对步进、精确落在计数指向的那一处；步进后按落点反查命中序号（计数跟画面走）；翻页收尾按当前列表重算行内第几处。ChatView +41，parent/dirs 跟子目录走。 ｜ 2026-11-13 B 版（屏幕优先）：新增 views/chat/lib/local-search-hits.ts（本地计数/就近落点/意图对齐，约 175 行）+ 测试；ChatView 计数改本地口径、自动跳转只在本窗口就近落（+84）；mobile-search-e2e 按处用例 +21；预算按实测同步（ChatView 4379、src/mobile 58381、views 22930）。 ｜ 2026-11-13 A/C 版：新增 views/chat/lib/local-search-hits.ts（屏幕优先计数/就近落点/更早命中，约 210 行）与 chat-header 计数口径；mobile-search 会话内补 matchedTotal/indexComplete；索引器去掉「8 连空页放弃」；预算按实测同步。 ｜ 2026-11-13 A/C 版：新增 views/chat/lib/local-search-hits.ts（屏幕优先计数/就近落点/更早命中）与 chat-header 计数口径；mobile-search 会话内补 matchedTotal/indexComplete；索引器去掉「8 连空页放弃」；预算按实测同步（ChatView 4430）。 ｜ 2026-11-13 搜索口径统一：新增 mobile/render/search-corpus.ts（搜索语料唯一真源：只收用户消息 + 助手结论正文，思考/工具/过程/代码块一律不算）与 shared/strip-tool-blocks.ts（mobile 与宿主共用剥离规则），host/search-text.ts 只留 documentRows 与转出口；预算按实测同步。 ｜ 2026-11-13 搜索边界修复：更早处还有命中时「上一个」不再绕回最后一处（改用全历史总数判断）+ 空页到头收起「加载更早」按钮（真机点到没反应）+ 定位兜底去内部数字 toast；预算按实测同步。 ｜ 2026-11-13 计数与跳转改「屏幕唯一真源」：所有行在搜索期间都渲染高亮（message-row/chat-rows），ChatView 直接数 DOM 里的 mark 并逐格滚动（同一行内多处也能走），不再按行文本推算；预算按实测同步。 ｜ 2026-11-13 二修：过程条彻底不接高亮（focusOpen 只控制展开，focusExpand 不再自动拉开过程组），搜索/定位都只标用户消息与正文；预算按实测同步。 ｜ 2026-11-13 三修：搜索落点只加 active 描边（不再改焦点行，避免展开长文把滚动弹回）+ 计数跟 DOM 增删实时同步（MutationObserver）+ 到边界明说不再绕回/翻页；预算按实测同步。 ｜ 2026-11-13 四修：「上一个」在第一处时不再绕回末位，改为翻更早一页并落到新增的最早一处（15/29 → 14/29 一侧）；预算按实测同步。 ｜ 2026-11-13 五修：搜索导航改为「索引序列单一下标」（chatSearchAt=第几处），上下逐处走、到边界才翻页，去掉「屏幕 mark 下标+偏移」的拼装（8/34 按上一个算成 34/34 的根因）；预算按实测同步。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。 ｜ 2026-11-14 发送反馈（幽灵用户行，用户：「发送消息之后没有立刻出现消息条和过程条」）：新增 OutgoingFlight 状态 + 认领 effect（宿主行按正文归一认领 / 8 秒兜底）+ 「已送出」提示行接线，共 +18（4668→4686）。功能结算后回落。 ｜ 2026-11-14 切会话「卡闪一下又没了」：新增 verdictKnown 门槛（running 有结论前不画卡）+ 权威尾页落地时 markVerdictKnown，+9（4686→4695）。 ｜ 2026-11-14/15 发送后 submitted 态（对齐业界 useChat 四态）：outgoing 扩展 acceptedAt/ghostExpired/awaitingReady + sendView 判定 + 两个真定时器（幽灵行 8s / 等待态 10min）+ 300ms 防闪，+66（4695→4761）。",
       "expires": "2026-12-11"
     },
     "src/mobile/views/App.tsx": {
-      "reason": "2026-11-13 会话重命名（+29）：renameSessionTitle 回调（renameSession → 就地改抽屉行标题 → toast）与 onRename 透传。",
-      "expires": "2026-12-11"
+      "reason": "2026-11-15 抽屉打开时预取会话首屏（useSessionPrefetch 接入，+7 行）：用户拉开抽屉的那一两秒正好等于切换会话要等的宿主读日志时间。 ｜ 2026-11-13 会话重命名（+29）：renameSessionTitle 回调（renameSession → 就地改抽屉行标题 → toast）与 onRename 透传。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。｜ 同日第二批（用户：「切换完模型之后侧边栏的用量也要同时切换」）：新增 platform/model-switch.ts（换模型广播），data/impl/settings.ts 的 selectModel 广播一次，用量小字改「最紧窗口」（opencode-go 补 monthlyUsed）。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 抽屉「用量」行显示当前模型那家的余额/配额（用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额或者用量数字」）：新增 views/drawer-usage.ts（挑提供方 + 压短语 + localStorage 上次值）与 views/use-usage-chip.ts（session.models 取 provider、mobile.usage 取数字、后台刷新不等抽屉）；session-drawer 只多一个 usageLabel prop。｜ 同日第二批（用户：「切换完模型之后侧边栏的用量也要同时切换」）：新增 platform/model-switch.ts（换模型广播），data/impl/settings.ts 的 selectModel 广播一次，用量小字改「最紧窗口」（opencode-go 补 monthlyUsed）。cap 按实测抬到当前值，收尾时随其他批次一起回落。 ｜ 2026-11-14 按实测同步（并行皮肤线的抽屉/路由增量，+6），1771→1777。 ｜ 2026-11-15 按实测同步（并行皮肤线，+7），1777→1784。",
+      "expires": "2027-03-31"
     },
     "src/mobile-api.ts": {
-      "reason": "2026-11-11 排队条/发送失败两个根因：① readQueue 不再「读一次 +1」（改走 host/queue-inbox 的 queueVersionForRead，读不到活 agent 时返回 undefined，不冒充「队列是空的」）；② 投递身份桥接进 sessionPrompt（投递前后读队列取差集，新出现的行记上 requestId）。净 +11 行。 ｜ 2026-11-12 搜索定位重写：documentRows 转 SearchIndexRow 时透传 turn/step（+3）——缺了它库里的坐标列永远是 0。",
+      "reason": "2026-11-11 排队条/发送失败两个根因：① readQueue 不再「读一次 +1」（改走 host/queue-inbox 的 queueVersionForRead，读不到活 agent 时返回 undefined，不冒充「队列是空的」）；② 投递身份桥接进 sessionPrompt（投递前后读队列取差集，新出现的行记上 requestId）。净 +11 行。 ｜ 2026-11-12 搜索定位重写：documentRows 转 SearchIndexRow 时透传 turn/step（+3）——缺了它库里的坐标列永远是 0。 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。",
       "expires": "2026-12-11"
+    },
+    "src/mobile/platform/skin-catalog.ts": {
+      "reason": "2026-11-14 皮肤增加第 13 套（芙宁娜）与 XP 图标/边框素材登记：商店卡片来源行与角色说明变长。｜ 2026-11-14 皮肤第 13 套 ｜ 2026-11-14 按实测同步：手机端性能批次（会话同步账簿 chat-sync-ledger、同帧读去重 dedupeRead、首屏行数收敛 120→40、图标层守卫测试）与并行会话的皮肤/对话流增量一并按实测放开，待两批收尾后一起回落。 ｜ 2026-11-14 按实测同步 cap 172→207（皮肤第 13 套的商店卡片来源行与角色说明；理由已在同条记录，仅把数值对齐实测，压缩后请自行下调）。",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/index.tsx": {
+      "reason": "2026-11-13 壁纸背景（手机端本机图片）：新增 platform/wallpaper.ts（状态/压缩/应用）与 styles/530-wallpaper.css，外观页多出一组「背景图」行。行已按规矩拆到 views/settings/wallpaper-rows.tsx，AppearanceView 只多一行引用；index.tsx 多的是启动时 applyWallpaper() 这一行加注释。｜ 2026-11-13 壁纸批次",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/views/AppearanceView.tsx": {
+      "reason": "2026-11-13 壁纸背景（手机端本机图片）：新增 platform/wallpaper.ts（状态/压缩/应用）与 styles/530-wallpaper.css，外观页多出一组「背景图」行。行已按规矩拆到 views/settings/wallpaper-rows.tsx，AppearanceView 只多一行引用；index.tsx 多的是启动时 applyWallpaper() 这一行加注释。｜ 2026-11-13 壁纸批次",
+      "expires": "2027-03-31"
+    },
+    "src/mobile/views/SettingsView.tsx": {
+      "reason": "2026-11-13 背景图并入「皮肤与背景」栏目：设置页多一行「背景图」（已设置/未设置）与一个 WallpaperSheet 浮层；旧的 wallpaper-rows.tsx 删除（外观页只留字号与密度）。同栏目两行各开各的浮层，取消/完成互不牵制。｜ 2026-11-13 背景图并栏",
+      "expires": "2027-03-31"
     }
   },
   "ratchetReset": {

@@ -350,13 +350,11 @@ describe('MessageRow flow body (layout stability)', () => {
 
       // 更早的锚点是"更准的纠正"，允许采纳
       const corrected: RenderMessage = { ...early, turnStartAt: t0 - 330_000 }
-      // 2026-11-11 起：更早的锚点是纠正，但**不在同一帧跳过去**（真机反馈「计时跳变」）。
-      // 这一帧先顶住旧读数，随后的心跳按最多 2 倍速追上去。
+      // 2026-11-14 用户第四次反馈「计时不是真正的时间」：起点被纠正成更早之后，屏幕上
+      // 必须显示**真实经过时间**（5分30秒），而不是继续冻在错值 5分10秒上。
+      // 旧行为是"不许追涨"，代价就是错值永久留在屏幕上 —— 计时一直偏小，和桌面端对不上。
       view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} hostNowMs={t0} />)
-      expect(stripTime()).toBe('5分10秒')
-      // 真实时间走 5 秒 ⇒ 最多追 10 秒：还差 20 秒，这一拍追上 10 秒变 5分25秒。
-      view.rerender(<MessageRow message={corrected} showToolCalls showSystemMessages={false} hostNowMs={t0 + 5_000} />)
-      expect(stripTime()).toBe('5分25秒')
+      expect(stripTime()).toBe('5分30秒')
     } finally {
       vi.useRealTimers()
     }
@@ -386,6 +384,9 @@ describe('MessageRow flow body (layout stability)', () => {
       view.rerender(
         <MessageRow message={message} showToolCalls showSystemMessages={false} hostNowMs={t0 + 5_000} />,
       )
+      // 宿主时间又走了 3 秒 ⇒ 真实经过时间 15 秒，屏幕上就该是 15s。
+      // （2026-11-14：这里一度被改成 13s，但 13 秒不是"真正的时间" —— 显示的必须是
+      //  now − 起点，而不是"上一次读数 + 本地走过的秒数"。用户要的就是这个真值。）
       expect(stripTime()).toBe('15s')
 
       // 校准被重新算小（这里变小）：读数跟着真值回落。以前这里有一层"只增不减"

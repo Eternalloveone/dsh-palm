@@ -48,7 +48,7 @@ export function resetEnteredIds(): void {
   enteredIds.clear()
 }
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, focusExpand = false, style, onRegenerate, onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
+export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, anchorQuery, focusExpand = false, style, onRegenerate, onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
   message: RenderMessage
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
@@ -65,7 +65,13 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   showTime?: boolean
   /** Search-hit locate highlight (one-shot CSS animation). */
   focused?: boolean
+  /** 搜索高亮词（只作用于**答案正文**与用户气泡；过程/思考不标）。 */
   focusedQuery?: string
+  /**
+   * 定位高亮词（旧式"定位到这一处"，允许落在折叠的过程步骤里并自动展开）。
+   * 与 `focusedQuery` 分开：搜索命中只认结论正文，定位可以落在任意一步。
+   */
+  anchorQuery?: string
   /** 从会话内搜索跳过来：折叠的工具步骤自动展开，命中正文才看得见。 */
   focusExpand?: boolean
   /** Optional inline style on the row's root element (e.g. content-visibility). */
@@ -202,58 +208,13 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       </div>
     )
   }
-  // Turn tail（收尾行）：新「会话正文流」里这里只画**一张结论卡**——全页唯一的一张卡。
-  // P4 四态：正常收工 = success；失败 = failure；中断但没标记失败 = unknown
-  // —— 后两种以前直接不画，等于把"这一轮到底怎么了"从界面上抹掉。
-  // 计划不再单独出胶囊：步数已经进任务头（ChatRows 按轮回填）。
-  if (message.kind === 'turn') {
-    const state: DeliveryState = turnCompleted !== false
-      ? 'success'
-      : (message.failed === true ? 'failure' : 'unknown')
-    const deliverables = message.deliverables ?? []
-    // 收尾行自带的「产出文件」没有增删行数；ChatRows 的 diff 统计优先，缺的按路径补上。
-    const changes: DeliveryFileChange[] = turnChanges === undefined ? [] : [...turnChanges]
-    for (const path of message.produced ?? []) {
-      if (!changes.some(change => change.path === path)) changes.push({ path })
-    }
-    // 正常收工又什么都没交回：不画空壳卡。失败/未知即使没有文件也要画。
-    if (state === 'success' && deliverables.length === 0 && changes.length === 0) return null
-    // 「看全部改动」的入口只在有路由回调时出现：没有回执的路由会变成死按钮。
-    const turn = message.turn
-    const openChanges = onOpenChanges === undefined || turn === undefined
-      ? undefined
-      : () => {
-        onOpenChanges({
-          turn,
-          deliverables,
-          changes,
-          ...(message.durationMs === undefined ? {} : { durationMs: message.durationMs }),
-          ...(message.plan === undefined ? {} : { steps: message.plan.items.length }),
-        })
-      }
-    return (
-      <div
-        data-mid={message.id}
-        data-message-id={message.id}
-        data-row-seq={focusSeqAttr}
-        className="chat-turn-tail-row"
-        style={style}
-      >
-        {/* 失败态的「重试」走调用方给的重生成（2026-11-10）：卡片本来就有这个入口，
-            但 MessageRow 一直没接进来，失败回合只写「没做成」、没有下一步动作。
-            没给回调就不画按钮 —— 不放假入口。 */}
-        <DeliveryCard
-          state={state}
-          {...(message.plan === undefined ? {} : { steps: message.plan.items.length })}
-          deliverables={deliverables}
-          changes={changes}
-          {...(onOpenFile === undefined ? {} : { onOpenFile })}
-          {...(openChanges === undefined ? {} : { onOpenChanges: openChanges })}
-          {...(state === 'failure' && onRegenerate !== undefined ? { onRetry: onRegenerate } : {})}
-        />
-      </div>
-    )
-  }
+  // Turn tail（收尾行）：**行内不再画卡**（2026-11-14 单一真源）。
+  //
+  // 以前这里和 ChatRows 的末尾槽位各画一张：两套判定、两个渲染点，任何一次判定分叉
+  // 都会出现"一张卡在、另一张卡不在"或"先画后撤"。现在卡的可见性只有一个纯函数
+  // （`session/deliveries.ts` 的 `cardVisible`）、只有一个渲染点（ChatRows 末尾槽位），
+  // 收尾行只作为数据存在，不上屏。
+  if (message.kind === 'turn') return null
   const hasReasoning = message.kind === 'assistant' && message.reasoning !== undefined && message.reasoning !== ''
   const hasTools = showToolCalls && message.kind === 'assistant' && message.tools !== undefined && message.tools.length > 0
   const hasText = message.text !== ''
@@ -288,10 +249,10 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       style={style}
     >
       {message.kind === 'assistant' ? (
-        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focused ? focusedQuery : undefined} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNow={hostNow} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
+        <AssistantBody message={message} showToolCalls={showToolCalls} forceOpen={focused} focusedQuery={focusedQuery} anchorQuery={anchorQuery} focusExpand={focused && focusExpand === true} sessionId={sessionId} hostNow={hostNow} hostNowMs={hostNowMs} liveTurnStartAt={liveTurnStartAt} liveTurn={liveTurn} settled={settled} hydrated={hydrated} {...(turnGoal === undefined ? {} : { turnGoal })} {...(modelName === undefined ? {} : { modelName })} {...(turnSteps === undefined ? {} : { turnSteps })} />
       ) : (
         <>
-          <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focused ? focusedQuery : undefined} />
+          <CollapsibleText text={message.text} forceOpen={focused} highlightQuery={focusedQuery} />
           {images !== undefined && sessionId !== undefined && (
             <MessageImages sessionId={sessionId} images={images} />
           )}

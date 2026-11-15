@@ -7,6 +7,8 @@
  * reimplemented here over plain fetch.
  */
 
+import { beginSpan } from './perf.ts'
+
 /** Transport-level failure (network, HTTP status, malformed envelope). */
 export class RpcTransportError extends Error {
   constructor(message: string) {
@@ -203,8 +205,16 @@ export async function callUnary<T>(
       throw new RpcTransportError(detail !== undefined ? detail : `HTTP ${String(response.status)}`)
     }
     let envelope: unknown
+    /*
+     * 读 body 和解析 body 必须分开计时（2026-11-15）：
+     * `response.json()` 里混着「等网络/排队」和「JSON.parse」两段，前者不占主线程、后者才占。
+     * 上一版把它俩埋成一个 `json:` 区间，结果 `json:mobile.observe:2070` 这种数字分不清
+     * 是宿主排队两秒还是解析两秒 —— 那正是这次要回答的问题。
+     */
+    const endNet = beginSpan(`net:${method}`)
+    let bodyText: string
     try {
-      envelope = await response.json()
+      bodyText = await response.text()
     } catch (error) {
       // A body read that fails because the caller aborted (history-load timeout)
       // is a cancellation, not a malformed payload — surface it as such.
@@ -212,6 +222,16 @@ export async function callUnary<T>(
         throw new RpcTransportError(timedOut ? '请求超时，请重试' : '请求超时或已取消，请重试')
       }
       throw new RpcTransportError('malformed response body')
+    } finally {
+      endNet()
+    }
+    const endParse = beginSpan(`parse:${method}`)
+    try {
+      envelope = JSON.parse(bodyText) as unknown
+    } catch {
+      throw new RpcTransportError('malformed response body')
+    } finally {
+      endParse()
     }
     const parsed = envelope as { type?: unknown; rpcId?: unknown; result?: unknown }
     if (parsed?.type !== 'server-response' || parsed.rpcId !== rpcId) {

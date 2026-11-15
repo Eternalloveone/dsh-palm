@@ -17,7 +17,7 @@
  *
  * @module dsh-palm/mobile/views/chat/use-chat-scroll-follow
  */
-import { useCallback, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { ScrollEvent } from '../../../stream/scroll-machine.ts'
 
 /** 离底多少算"贴底"（自动跟随与「回到最新」按钮共用同一个阈值）。 */
@@ -33,6 +33,19 @@ const PROGRAMMATIC_WINDOW_MS = 250
 const PROGRAMMATIC_TOLERANCE_PX = 2
 /** 判定"往上滑"的最小位移：小于它视为抖动。 */
 const MOVE_UP_THRESHOLD_PX = 1
+
+/**
+ * 「正在读第几轮」滚动静默多久之后才算一次。
+ *
+ * 2026-11-15 实测（4× 降频、真触摸手势）：一次滚动 193 个事件，
+ * `deriveCurrentTurn` 每次都跑 —— `querySelectorAll('[data-mid]')` 193 次、
+ * `getBoundingClientRect` 1635 次（每行一次，都是强制布局）。这是滚动帧
+ * 从 16.7ms 掉到 30~63ms 的原因。
+ *
+ * 这个值只用来显示「读到第几轮」，滚动静止 100ms 再算完全看不出来，
+ * 却把热路径上的几何读取全部清零。
+ */
+const TURN_SETTLE_MS = 100
 
 /** 依赖（都是组件里的 ref 与回调）。 */
 export interface ScrollFollowDeps {
@@ -61,6 +74,12 @@ export function useScrollFollow(deps: ScrollFollowDeps): { handleScroll: () => v
     setShowJumpToLatest, setCurrentTurn, deriveCurrentTurn, markSeen, hasOlder,
   } = deps
 
+  /** 「读到第几轮」的延迟计算定时器（见 TURN_SETTLE_MS）。 */
+  const turnTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => {
+    if (turnTimerRef.current !== undefined) clearTimeout(turnTimerRef.current)
+  }, [])
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (el === null || el === undefined) return
@@ -84,8 +103,12 @@ export function useScrollFollow(deps: ScrollFollowDeps): { handleScroll: () => v
     }
     setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
     if (!programmatic) {
-      const readPosition = deriveCurrentTurn(el.scrollTop) ?? 0
-      setCurrentTurn(readPosition)
+      // 不在这一帧里算：它要逐行读几何，是滚动卡顿的主因。等滚动静止再算一次。
+      if (turnTimerRef.current !== undefined) clearTimeout(turnTimerRef.current)
+      turnTimerRef.current = setTimeout(() => {
+        turnTimerRef.current = undefined
+        setCurrentTurn(deriveCurrentTurn(scrollTopRef.current) ?? 0)
+      }, TURN_SETTLE_MS)
     }
     // 滚回底部算"已读"：清未读徽标、推进已见基线。
     if (gap <= BOTTOM_FOLLOW_THRESHOLD_PX) markSeen()

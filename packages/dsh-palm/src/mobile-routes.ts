@@ -6,13 +6,14 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { brotliCompress, brotliCompressSync, constants as zlibConstants, gzip, gzipSync } from 'node:zlib'
 import { createHash } from 'node:crypto'
 import { stat as statFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { SKIN_ASSET_ROUTE, resolveSkinAsset } from './skin-assets.ts'
 
 const MOBILE_ROOT = '/m/'
 const MOBILE_BUNDLE_URL = '/m/mobile.js'
@@ -30,9 +31,9 @@ const MOBILE_CSS_URL = '/m/assets/app.css'
  *
  * 名单必须与 `platform/skin.ts` 的 `MobileSkin` 一致——`skin.test.ts` 有断言守着。
  */
-const MOBILE_SKIN_IDS = ['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude']
-/** 浅色底的三套（极性 = light）；其余是 dark。 */
-const MOBILE_LIGHT_SKIN_IDS = ['paper', 'newsprint', 'endfield', 'claude']
+const MOBILE_SKIN_IDS = ['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy']
+/** 浅色底的那几套（极性 = light）；其余是 dark。 */
+const MOBILE_LIGHT_SKIN_IDS = ['paper', 'newsprint', 'endfield', 'claude', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'trading', 'wallpaper-exclusive', 'dragon-heir', 'maid-atelier', 'whale-mom']
 const MOBILE_BOOT_SKIN_URL = '/m/boot-skin.js'
 const MOBILE_BOOT_SKIN_KEY = 'dsh.palm.skin'
 
@@ -46,6 +47,24 @@ function bootSkinScript(): string {
     endfield: '#e8e8e2',
     nocturne: '#080c14',
     graphite: '#101015',
+    matrix: '#040805',
+    xp: '#ffffff',
+    'deep-current': '#f4f8f7',
+    mint: '#f4faf7',
+    'pink-sakura': '#fff1f6',
+    'summer-liquid-glass': '#eaf6fa',
+    furina: '#ffffe1',
+    minecraft: '#18221b',
+    trading: '#ffffff',
+    'cyber-night': '#03050b',
+    'wallpaper-exclusive': '#eef4f9',
+    'dragon-heir': '#f7f0ec',
+    'whale-song': '#061024',
+    harbor: '#333c63',
+    'war-thunder': '#14170f',
+    'maid-atelier': '#fdf3f5',
+    'whale-mom': '#eef6fb',
+    'blue-fantasy': '#0d1b3d',
   }
   return [
     '(function(){try{',
@@ -57,6 +76,12 @@ function bootSkinScript(): string {
     `var c=${JSON.stringify(chrome)};`,
     'var m=document.querySelector(\'meta[name="theme-color"]\');',
     'if(m&&c[s])m.setAttribute("content",c[s]);',
+    // 壁纸同一条纪律：首帧就把图垫上，否则每开一次先闪一下纯底色（2026-11-13）。
+    'var w=localStorage.getItem("dsh.palm.wallpaper");',
+    'if(w){var o=JSON.parse(w);if(o&&o.image){d.setAttribute("data-wall","on");',
+    'd.style.setProperty("--palm-wall-img",\'url("\'+o.image+\'")\');',
+    'd.style.setProperty("--palm-wall-mask",String(o.mask));',
+    'd.style.setProperty("--palm-wall-blur",String(o.blur));}}',
     '}catch(e){}})()',
   ].join('')
 }
@@ -269,12 +294,41 @@ function acceptsEncoding(header: string, coding: string): boolean {
 
 /** Send a PNG body without decoding it to UTF-8. */
 function writePng(res: ServerResponse, status: number, body: Buffer): void {
+  writeAsset(res, status, 'image/png', body)
+}
+
+/** Send one skin-asset body with the content type its extension implies. */
+function writeAsset(res: ServerResponse, status: number, type: string, body: Buffer): void {
   res.writeHead(status, {
-    'content-type': 'image/png',
+    'content-type': type,
     'cache-control': 'public, max-age=31536000, immutable',
     'referrer-policy': 'no-referrer',
   })
   res.end(body)
+}
+
+/**
+ * 皮肤素材路由（L2 素材转接层）：一条**前缀路由**，素材清单在请求时现读。
+ *
+ * 为什么不按清单铺精确路由：那样每加一套带图的皮肤都得重启宿主（2026-11-14 实测：
+ * 图片从 404 变 200 要等重启）。改成请求时查清单后，加皮肤只需要构建 + 刷新页面。
+ *
+ * 安全边界全在 `resolveSkinAsset` 里，fail-closed：路径两段、文件名白名单、id 必须在
+ * 清单里且 license + source 都有、file 必须列在该皮肤的 art[] 中；不满足直接 404。
+ * 清单按 mtime 缓存，所以改 manifest.json 也不用重启。
+ */
+async function handleSkinAsset(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const url = new URL(req.url ?? '/', 'http://x')
+  const resolved = resolveSkinAsset(url.pathname)
+  if (resolved === null || !existsSync(resolved.path)) {
+    writeStatic(res, 404, 'text/plain', 'asset not found')
+    return
+  }
+  try {
+    writeAsset(res, 200, resolved.type, await readFile(resolved.path))
+  } catch {
+    writeStatic(res, 500, 'text/plain', 'failed to read the asset')
+  }
 }
 
 /** Canonicalize the old /m route while retaining pair and workspace query parameters. */
@@ -522,8 +576,7 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     writeServiceWorker(res, serviceWorkerSource(workerTemplate, buildHash))
   }
 
-  const makeIconHandler = (asset: string): WebRoute['handler'] => async (_req, res) => {
-    const path = mobileAssetPath(asset)
+  const makeIconHandler = (asset: string): WebRoute['handler'] => async (_req, res) => {    const path = mobileAssetPath(asset)
     if (!existsSync(path)) {
       writeStatic(res, 404, 'text/plain', asset + ' not found')
       return
@@ -631,6 +684,7 @@ export function makeMobileRoutes(options: MobileRoutesOptions = {}): WebRoute[] 
     { kind: 'exact', path: '/m/icon-192.png', handler: makeIconHandler('mobile-icon-192.png') },
     { kind: 'exact', path: '/m/icon-512.png', handler: makeIconHandler('mobile-icon-512.png') },
     { kind: 'exact', path: '/m/running-whale.png', handler: makeIconHandler('running-whale.png') },
+    { kind: 'prefix', path: SKIN_ASSET_ROUTE, handler: handleSkinAsset },
     { kind: 'prefix', path: MOBILE_CHUNK_ROUTE, handler: handleChunk },
   ]
 }

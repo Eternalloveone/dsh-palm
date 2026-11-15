@@ -58,6 +58,35 @@ export async function coalescedRead<T>(method: string, payload: unknown, ttlMs =
 }
 
 /**
+ * **同一帧里的重复读只发一次**（2026-11-14）。
+ *
+ * 与 {@link coalescedRead} 的区别：这里只合并**在飞**的调用，完成后不留结果 ——
+ * 会话快照这种"权威状态"不能拿旧值复用（回合在跑没在跑、队列几条，读错就是错的界面），
+ * 但**同时**被几个 hook 各要一次是纯浪费。
+ *
+ * 真机实测（4x CPU + 4G）：切一次会话，`mobile.sessionState` 在 118ms 与 123ms
+ * 各发一次、payload 完全一致，两次都在宿主单线程里读同一份日志（各 750ms），
+ * 后面的请求全排在它们后面。
+ *
+ * @param method - RPC 方法名
+ * @param payload - 业务载荷（参与去重键）
+ * @returns 这一次调用的结果（多个调用方共享同一个 Promise）
+ */
+export async function dedupeRead<T>(method: string, payload: unknown): Promise<T> {
+  const key = method + ' ' + JSON.stringify(payload ?? {})
+  const flight = readFlights.get(key)
+  if (flight !== undefined) return await (flight as Promise<T>)
+  const run = callUnary<T>(method, payload)
+  readFlights.set(key, run as Promise<unknown>)
+  try {
+    return await run
+  } finally {
+    // 只删自己：期间若有 coalescedRead 用同一个键登记了新的飞行，不能把它的删掉。
+    if (readFlights.get(key) === run as unknown) readFlights.delete(key)
+  }
+}
+
+/**
  * Drop the coalescing window (call after any successful mutation).
  *
  * 连在飞的读一起作废：只清窗口的话，那些请求回来仍会写进去，界面上就出现「改完又被旧值盖回去」。

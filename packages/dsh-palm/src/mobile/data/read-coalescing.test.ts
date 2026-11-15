@@ -8,7 +8,7 @@
  * - 写操作后失效，**在飞的读也不许再写回窗口**（否则"改完又被旧值盖回去"）。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { coalescedRead, invalidateReadCoalescing } from './read-coalescing.ts'
+import { coalescedRead, dedupeRead, invalidateReadCoalescing } from './read-coalescing.ts'
 import { resetRpcIO, setRpcIO } from '../platform/rpc.ts'
 
 let calls: string[] = []
@@ -23,6 +23,8 @@ function installFakeIO(): void {
       return {
         ok: true,
         status: 200,
+        // rpc 层现在先 text() 再 JSON.parse（读网络与解析分开计时），mock 两个都要给。
+        text: async () => JSON.stringify({ type: 'server-response', rpcId, result: { ok: true, value: calls.length } }),
         json: async () => ({ type: 'server-response', rpcId, result: { ok: true, value: calls.length } }),
       } as unknown as Response
     },
@@ -81,5 +83,49 @@ describe('coalescedRead', () => {
     const fresh = coalescedRead<number>('session.list', {}, 60_000)
     await Promise.all([stale, fresh])
     expect(calls.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * dedupeRead：只合并"同时飞"的调用，**不留结果**。
+ *
+ * 会话快照这类权威状态不能拿旧值复用（回合在跑没在跑、队列几条，读错就是错的界面），
+ * 但同一帧被几个 hook 各要一次是纯浪费 —— 真机实测两个同参 750ms 请求并排飞。
+ */
+describe('dedupeRead', () => {
+  it('并发的相同读只发一次', async () => {
+    const [a, b, c] = await Promise.all([
+      dedupeRead<number>('mobile.sessionState', { sessionId: 's1' }),
+      dedupeRead<number>('mobile.sessionState', { sessionId: 's1' }),
+      dedupeRead<number>('mobile.sessionState', { sessionId: 's1' }),
+    ])
+    expect(calls).toHaveLength(1)
+    expect([a, b, c]).toEqual([1, 1, 1])
+  })
+
+  it('完成之后不缓存：下一次必须重新问宿主', async () => {
+    await dedupeRead<number>('mobile.sessionState', { sessionId: 's1' })
+    await dedupeRead<number>('mobile.sessionState', { sessionId: 's1' })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('payload 不同就是不同的 key', async () => {
+    await Promise.all([
+      dedupeRead<number>('mobile.sessionState', { sessionId: 's1', rows: false }),
+      dedupeRead<number>('mobile.sessionState', { sessionId: 's1', maxRows: 40 }),
+    ])
+    expect(calls).toHaveLength(2)
+  })
+
+  it('失败也把飞行清掉：不会让后续调用永远拿到同一个 rejected promise', async () => {
+    setRpcIO({
+      fetch: async () => {
+        calls.push('boom')
+        throw new Error('offline')
+      },
+    })
+    await expect(dedupeRead<number>('mobile.turnState', { sessionId: 's1' })).rejects.toThrow()
+    await expect(dedupeRead<number>('mobile.turnState', { sessionId: 's1' })).rejects.toThrow()
+    expect(calls).toHaveLength(2)
   })
 })

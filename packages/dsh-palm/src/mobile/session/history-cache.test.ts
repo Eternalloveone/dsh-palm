@@ -181,10 +181,12 @@ describe('缓存合并只许变多（I3 单调）', () => {
     expect(merged).toEqual({ hello: 'world' })
   })
 
-  it('行数有上限：合并后保留尾部 400 行', () => {
+  it('行数有上限：合并后保留尾部 120 行', () => {
+    // 2026-11-15 真机 LoAF：400 行的 IndexedDB 反序列化在主线程要 1~2 秒，
+    // 而它只是为了"进会话少发一次网络请求" —— 上限降到 120（约 2~3 屏）。
     const big = page(Array.from({ length: 500 }, (_, i) => i + 1))
     const merged = mergeCachedPage(undefined, big)
-    expect(merged.rows).toHaveLength(400)
+    expect(merged.rows).toHaveLength(120)
     expect((merged.rows.at(-1) as { seq?: number }).seq).toBe(500)
   })
 

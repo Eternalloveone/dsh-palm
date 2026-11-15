@@ -42,6 +42,12 @@ vi.mock('../data/settings.ts', () => ({
   fetchMobilePreferences: api.fetchMobilePreferences,
   readSettings: api.readSettings,
   mutateSettings: vi.fn(),
+  // 抽屉「用量」行的小字会去问当前模型的 provider（views/use-usage-chip.ts）：
+  // 这一屏的测试不关心用量，给一个「查不到」的空实现即可（抽屉退回「余额」）。
+  models: vi.fn().mockResolvedValue({ current: { provider: 'test', model: 'test' }, routable: true, groups: [], failures: [] }),
+}))
+vi.mock('../data/usage.ts', () => ({
+  fetchUsage: vi.fn().mockResolvedValue({ providers: [], fetchedAt: 0 }),
 }))
 vi.mock('../data/diag.ts', () => ({
   logTail: vi.fn().mockResolvedValue({ rows: [] }),

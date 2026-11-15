@@ -38,6 +38,15 @@ export interface UsageModelRow {
 export interface UsageProviderView {
   /** Route key (preferred) or displayName from the desktop config. */
   name: string
+  /**
+   * 设置里的**路由键**（`llm-pi-ai.providers.<route>`，或 `llm-deepseek` 归一成的
+   * `deepseek`）。
+   *
+   * `name` 可能是 displayName（「DeepSeek 官方」），和会话模型目录里的 provider id
+   * 对不上；抽屉要在「用量」那一行显示**当前模型**那家的小字，唯一能用来对齐的就是
+   * 这个键。2026-11-14 加。
+   */
+  route: string
   /** baseURL host, for a label under the name. */
   baseURL?: string
   /** 'usage' = consumed quota report; 'balance' = account balance. */
@@ -53,8 +62,16 @@ export interface UsageProviderView {
   plan?: string
   /** Weekly consumed quota, 0..1 (usage adapters). */
   usedPercent?: number
-  /** Current session consumed quota, 0..1 (usage adapters). */
+  /** 当前 session consumed quota, 0..1 (usage adapters). */
   sessionUsed?: number
+  /**
+   * 每月窗口已用比例，0..1（usage adapters 里真的按月结算的那几家）。
+   *
+   * OpenCode Go 的用量接口同时给 rolling / weekly / monthly 三段，过去只把 monthly
+   * 拼进 `summary` 的一句话里。抽屉要在「本周」和「本月」之间挑**更紧的那个**显示
+   * （2026-11-14 用户：「当前模型的本周或者本月已用用量值」），所以它得是独立字段。
+   */
+  monthlyUsed?: number
   /** 最近 5 小时窗口的下次重置时刻（epoch millis），提供方给出时才有。 */
   sessionResetsAt?: number
   /** 每周窗口的下次重置时刻（epoch millis），提供方给出时才有。 */
@@ -131,6 +148,8 @@ interface ProviderUsage {
   plan?: string
   usedPercent?: number
   sessionUsed?: number
+  /** 每月窗口已用比例，0..1（见 UsageProviderView.monthlyUsed）。 */
+  monthlyUsed?: number
   sessionResetsAt?: number
   weeklyResetsAt?: number
   balance?: string
@@ -468,9 +487,12 @@ const opencodeGoAdapter: UsageAdapter = {
       // 主进度条用「每周」，会话条用「5 小时窗口」，与桌面端两个窗口的语义对齐。
       usedPercent: weekly,
       sessionUsed: rolling,
+      // 每月也单独给出去：本月 96% 而本周 32% 时，抽屉小字要挑更紧的那个报
+      // （2026-11-14 用户：「本周或者本月已用用量值」）。
+      monthlyUsed: monthly,
       sessionResetsAt: epochOf(data.usage?.rolling?.resetsAt),
       weeklyResetsAt: epochOf(data.usage?.weekly?.resetsAt),
-      // 每月额度没有独立字段，放进摘要里（重置时刻一并给出）。
+      // 一句人话版本留在摘要里（用量页那一行照旧），重置时刻一并给出。
       summary: `5 小时 ${pct(rolling)} · 本周 ${pct(weekly)} · 本月 ${pct(monthly)}`,
     }
   },
@@ -674,6 +696,8 @@ export async function buildUsageView(
   const rows = await Promise.all(providers.map(async (provider) => {
     const base: Omit<UsageProviderView, 'status'> = {
       name: provider.displayName ?? provider.route,
+      // 路由键原样带走：手机端靠它把「当前模型那一家的用量」挑出来（见上方接口注释）。
+      route: provider.route,
       baseURL: provider.baseURL,
       kind: 'usage',
       fetchedAt,
@@ -701,6 +725,7 @@ export async function buildUsageView(
         plan: measured.plan,
         usedPercent: measured.usedPercent,
         sessionUsed: measured.sessionUsed,
+        monthlyUsed: measured.monthlyUsed,
         sessionResetsAt: measured.sessionResetsAt,
         weeklyResetsAt: measured.weeklyResetsAt,
         summary: measured.summary,

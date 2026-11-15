@@ -144,6 +144,66 @@ describeIndex('索引库：写入 / 查询 / 排序 / 删除', () => {
     index.close()
   })
 
+  it('会话内命中按「处」展开：一段里出现 3 次就是 3 条，段内序号从 0 递增', async () => {
+    const index = await open()
+    index.upsertSession(
+      { sessionId: 's1', updatedAt: 100, complete: true, indexedThroughSeq: 3 },
+      [
+        { messageId: 'm1', seq: 1, text: '支付 先看支付流程，再看支付回执', user: true },
+        { messageId: 'm2', seq: 2, text: '这条没有那个词', user: false },
+      ],
+      1000,
+    )
+    const { hits, hasMore } = index.querySessionOccurrences('支付', 's1', 10)
+    expect(hits.map(hit => hit.seq)).toEqual([1, 1, 1])
+    expect(hits.map(hit => hit.matchIndex)).toEqual([0, 1, 2])
+    expect(hits.every(hit => hit.messageId === 'm1')).toBe(true)
+    // 每一处的摘要都指向自己那一处（不是永远抄第一处的窗口）。
+    expect(hits.every(hit => hit.snippet.includes('支付'))).toBe(true)
+    expect(hasMore).toBe(false)
+    index.close()
+  })
+
+  it('会话内命中的上限按「处」算，超了如实标 hasMore', async () => {
+    const index = await open()
+    index.upsertSession(
+      { sessionId: 's1', updatedAt: 100, complete: true, indexedThroughSeq: 1 },
+      [{ messageId: 'm1', seq: 1, text: '支付'.repeat(20), user: true }],
+      1000,
+    )
+    const limited = index.querySessionOccurrences('支付', 's1', 5)
+    expect(limited.hits).toHaveLength(5)
+    expect(limited.hits.map(hit => hit.matchIndex)).toEqual([0, 1, 2, 3, 4])
+    expect(limited.hasMore).toBe(true)
+    index.close()
+  })
+
+  it('全历史计数不受 200 条上限，并如实报告索引是否覆盖整个会话', async () => {
+    const index = await open()
+    index.upsertSession(
+      { sessionId: 's1', updatedAt: 100, complete: true, indexedThroughSeq: 3, oldestSeq: 1 },
+      [
+        { messageId: 'm1', seq: 1, text: '支付 支付 支付', user: true },
+        { messageId: 'm2', seq: 2, text: '支付回执', user: false },
+      ],
+      1000,
+    )
+    // 4 处：3 + 1（上限 200 与它无关）。
+    expect(index.countSessionOccurrences('支付', 's1')).toEqual({ total: 4, complete: true })
+    index.close()
+  })
+
+  it('索引只覆盖到会话中段时，全历史计数标 complete=false（客户端显示 +）', async () => {
+    const index = await open()
+    index.upsertSession(
+      { sessionId: 's2', updatedAt: 100, complete: false, indexedThroughSeq: 900, oldestSeq: 700 },
+      [{ messageId: 'm1', seq: 900, text: '支付 支付', user: true }],
+      1000,
+    )
+    expect(index.countSessionOccurrences('支付', 's2')).toEqual({ total: 2, complete: false })
+    index.close()
+  })
+
   it('单个汉字走 LIKE 兜底，仍然搜得到', async () => {
     const index = await open()
     index.upsertSession(

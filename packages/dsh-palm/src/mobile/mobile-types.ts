@@ -119,6 +119,14 @@ export interface DependencyCheckView {
 /** One provider's displayed usage/balance row (display facts only, no keys). */
 export interface UsageProviderView {
   name: string
+  /**
+   * 设置里的路由键（`llm-pi-ai.providers.<route>` / `llm-deepseek` → `deepseek`）。
+   *
+   * `name` 可能是 displayName（「DeepSeek 官方」），对不上会话模型目录里的 provider
+   * id；抽屉「用量」行要显示**当前模型**那家的数字，只能按这个键对齐。
+   * 老宿主不一定有：缺省时调用方按 `name` 兜底匹配。
+   */
+  route?: string
   baseURL?: string
   kind: 'usage' | 'balance'
   status: 'ok' | 'no-key' | 'unsupported' | 'error'
@@ -133,6 +141,13 @@ export interface UsageProviderView {
   usedPercent?: number
   /** 5 小时窗口已用比例，同样是 0..1 的分数。 */
   sessionUsed?: number
+  /**
+   * 每月窗口已用比例，0..1 的分数（只有按月结算的提供方给）。
+   *
+   * 抽屉小字在「5 小时 / 本周 / 本月」里挑**更紧的那个**报（2026-11-14 用户：
+   * 「当前模型的本周或者本月已用用量值」）；老宿主没有这个字段，就只在两个窗口里挑。
+   */
+  monthlyUsed?: number
   /** 最近 5 小时窗口的下次重置时刻（epoch millis）。 */
   sessionResetsAt?: number
   /** 每周窗口的下次重置时刻（epoch millis）。 */
@@ -375,6 +390,13 @@ export interface IndexedSearchResult {
   nextOffset?: number
   /** 宿主侧索引耗时（不含网络）。 */
   tookMs: number
+  /**
+   * 会话内搜索：这个词在**全历史**里一共出现几处（不受 items 的 200 条上限）。
+   * 屏幕上的精确计数由客户端本地扫描给出，这个数用来显示"未加载区还有多少"。
+   */
+  matchedTotal?: number
+  /** 索引是否覆盖了整个会话；false 表示 matchedTotal 只能当"至少这么多"（显示 +）。 */
+  indexComplete?: boolean
   /** true = 索引还没建好（或宿主没有 node:sqlite），调用方应退回 searchAll。 */
   fallback?: boolean
   source?: 'index'
@@ -452,6 +474,8 @@ export interface SessionPage {
   /** Continuation cursor; undefined once the tail is reached. */
   nextCursor?: string
   hasMore: boolean
+  /** 宿主此刻的归档集：抽屉合并时用它挡掉"别的设备删掉、却还画在行里"的会话。 */
+  archivedSessionIds?: string[]
 }
 
 /** One host-side full-roster search hit (message content across sessions). */

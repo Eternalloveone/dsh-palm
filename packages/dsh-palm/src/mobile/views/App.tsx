@@ -48,18 +48,20 @@ import { recordFinishedRun, finishedRuns, shortSessionId, type FinishedRun } fro
 import { PairRequiredView } from '../components/PairRequiredView.tsx'
 import { hasAnyChatCache } from '../session/chat-cache.ts'
 import { loadChatCache } from '../session/chat-cache.ts'
-import { loadPersistedList, queuePersistedList } from '../session/list-persist.ts'
+import { dropSessionFromCaches, isArchivedSessionId, loadPersistedList, queuePersistedList } from '../session/list-persist.ts'
 
 /** 已经为哪个工作区预取过会话页（模块级：跨页面切换只拉一次）。 */
 const PREFETCHED_WORKSPACES = new Set<string>()
 import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
 import { markSessionStale, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
-import { applyRunningState, mergeDrawerRows, orderDrawerRows, paintDrawerRows, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
+import { AppearanceSheet } from './settings/AppearanceSheet.tsx'
+import { applyRunningState, mergeDrawerRows, orderDrawerRows, paintDrawerRows, sameDrawerRows, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
 import { loadPinnedSessions, loadPinnedWorkspaces, togglePinnedSession, togglePinnedWorkspace } from '../session/pins.ts'
 import { Button } from '../ui/primitives.tsx'
 import { WorkspacePicker } from './chat/components/workspace-picker.tsx'
 import { useWorkspaceActions } from './chat/hooks/use-workspace-actions.ts'
+import { useSessionPrefetch } from './chat/hooks/use-session-prefetch.ts'
 import { ApprovalRoute } from './approval-route.tsx'
 import type { ChatViewProps } from './ChatView.tsx'
 import { DiffView } from './DiffView.tsx'
@@ -83,6 +85,7 @@ import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.t
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
 import type { TurnDeliveryFacts } from '../render/message-row.tsx'
 import { resolveWorkspace } from '../session/workspace-directory.ts'
+import { useUsageChip } from './use-usage-chip.ts'
 
 /** One navigation level. */
 /**
@@ -227,7 +230,7 @@ export function routeKeyOf(route: Route): string {
   return String(exhaustive)
 }
 /** 抽屉滑出动画时长（与 280-sheets.css 的 .palm-drawer-out 对齐）。 */
-const DRAWER_OUT_MS = 240
+const DRAWER_OUT_MS = 160
 
 /** Placeholder workspace for standalone search hits (no attach relation). */
 const STANDALONE_WORKSPACE: WorkspaceRow = {
@@ -677,6 +680,10 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const deleteSession = useCallback((sessionId: string) => {
     void archiveSession(sessionId).then(
       () => {
+        // 落盘页 + 跨挂载缓存也要摘掉这一行（2026-11-15 真机：「已删除的会话还会
+        // 在列表里出现」）：抽屉下次打开是**先画落盘行**、宿主那一页再走并集合并，
+        // 只在内存里滤掉这一行，下一帧就会被缓存原样画回来。
+        dropSessionFromCaches(sessionId)
         setDrawer(previous => previous === undefined
           ? previous
           : { ...previous, rows: previous.rows.filter(row => row.sessionId !== sessionId) })
@@ -703,6 +710,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   )
   /** 切换工作区面板（从抽屉身份区打开）。 */
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const muxRef = useRef<MuxClient | undefined>(undefined)
   const [bridge, setBridge] = useState<HostBridge<MuxFrame> | undefined>(undefined)
 
@@ -714,11 +722,22 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [drawer, setDrawer] = useState<{
     session: SessionView; workspaceId: string; rows: readonly SessionView[]
     finished: ReadonlySet<string>; pending: ReadonlySet<string>; turns: readonly ArtifactTurnPayload[]
-    /** 「任务」入口的小字（「3 在跑 · 1 刚完成」）：与任务页同口径，undefined 表示整行不画。 */
+    /** 「任务」入口的小字（「3 在跑 · 1 刚完成」）：与任务页同口径；undefined = 空闲（行照画）。 */
     taskLabel?: string
     /** 会话列表还在路上（本地没有缓存时首帧为 true）：抽屉据此画"正在读取"而不是"还没有会话"。 */
     listing: boolean
   } | undefined>(undefined)
+  /**
+   * 「用量」行的小字：当前模型那家的余额/配额数字（`本周 32%` / `¥23.05`）。
+   *
+   * 抽屉关着时不做正事查询，只允许**预热**那一次（挂载后 3 秒，用当前会话当上下文）；
+   * 打开时按抽屉里那个会话再查一次 —— 抽屉是导航，不能为这个字干等宿主的 3.8 秒，
+   * 所以内部先用上次存下的、后台再刷新。
+   */
+  const usageChip = useUsageChip(
+    drawer === undefined ? undefined : drawer.session.sessionId,
+    route.session.sessionId === '' ? undefined : route.session.sessionId,
+  )
   const chatFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /**
    * 抽屉的退出动画（2026-11-12 用户：「动效不高级，要 iPhone 那种」）。
@@ -1096,6 +1115,12 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     navigate(chatRouteOf(session, workspaceId))
   }, [navigate])
 
+  /*
+   * 抽屉打开时先取回列表前几条的首屏：用户拉开抽屉找会话的那一两秒，就是切会话时要等的
+   * 那 500~900ms。取回来的落在 chat-page 的本地缓存里，点下去直接出内容。
+   */
+  useSessionPrefetch(drawer?.rows, drawer?.session.sessionId, drawer !== undefined)
+
   /**
    * 离线深链：`?session=` 指向的会话在本机有正文缓存时，**直接进聊天页**。
    *
@@ -1313,6 +1338,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     const cachedRows = persisted?.rows ?? []
     // 第一帧与刷新后同一个排序（用户置顶的在前，其后当前会话，其余按时间倒序）。
     const rows = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows, Date.now(), loadPinnedSessions())
+      // 落盘行可能还留着别人已删的会话：首帧就别画（否则要闪一下才被宿主那页挡掉）。
+      .filter(row => !isArchivedSessionId(row.sessionId))
     const pendingEntries = muxRef.current?.pendingSnapshot() ?? []
     setDrawer({
       session: current.session,
@@ -1341,18 +1368,20 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
      * @param fresh - 已按工作区过滤的行
      */
     const applyFresh = (fresh: readonly SessionView[]): void => {
-      setDrawer(currentDrawer => currentDrawer === undefined || String(currentDrawer.workspaceId) !== workspaceId
-        ? currentDrawer
-        : {
-          ...currentDrawer,
-          // 合并之后再按置顶权重排一次：新到的那页里可能有用户钉过的会话。
-          rows: orderDrawerRows(
-            mergeDrawerRows(fresh, currentDrawer.rows, currentDrawer.session.sessionId),
-            currentDrawer.session.sessionId,
-            loadPinnedSessions(),
-          ),
-          listing: false,
-        })
+      setDrawer(currentDrawer => {
+        if (currentDrawer === undefined || String(currentDrawer.workspaceId) !== workspaceId) return currentDrawer
+        // 合并是并集（宿主没翻到的行保留）；宿主明确说已归档的直接挡掉（别的设备删的）。
+        const rows = orderDrawerRows(
+          mergeDrawerRows(fresh, currentDrawer.rows, currentDrawer.session.sessionId)
+            .filter(row => !isArchivedSessionId(row.sessionId)),
+          currentDrawer.session.sessionId,
+          loadPinnedSessions(),
+        )
+        /* 内容没变就别造新对象。抽屉是「先用本地缓存画、再被这一页覆盖」，以前无条件
+           {...} 会让它滑上来之后再整块重渲染一次 —— 真机上就是"点一下卡两下"。 */
+        if (currentDrawer.listing === false && sameDrawerRows(rows, currentDrawer.rows)) return currentDrawer
+        return { ...currentDrawer, rows, listing: false }
+      })
     }
     /**
      * 兜底：宿主按工作区过滤只回了「当前这一条」（归属表落后时的样子），或者这次请求
@@ -1717,6 +1746,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           currentSessionId={drawer.session.sessionId === '' ? undefined : drawer.session.sessionId}
           workspaceCount={workspaces.length}
           onSwitchWorkspace={() => { setDrawer(undefined); setWorkspacePickerOpen(true) }}
+          onOpenAppearance={() => { setAppearanceOpen(true) }}
           /* 只有「关掉抽屉」这一种才播退出动画（240ms 后卸载）：
              点行/进设置是页面转场，抽屉该立刻让位，不该等它滑完。 */
           closing={drawerClosing}
@@ -1730,11 +1760,17 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
           onOpenSettings={() => { setDrawer(undefined); navigate({ kind: 'settings', session: drawer.session, workspaceId: drawer.workspaceId }) }}
           onOpenUsage={() => { setDrawer(undefined); navigate({ kind: 'usage', session: drawer.session, workspaceId: drawer.workspaceId }) }}
           /* 入口小字 =「N 在跑 · M 刚完成」，与「任务」页同一口径（在跑取全局权威集合、
-             刚完成取宿主 24 小时账本且不含仍在跑的）；都没有时整行不画。 */
+             刚完成取宿主 24 小时账本且不含仍在跑的）；都没有时入口仍在、小字写「空闲」
+             （2026-11-14 用户：任务这一栏要固定显示）。 */
           taskLabel={drawer.taskLabel}
+          /* 当前模型那家的余额/配额（undefined = 查不到，抽屉退回「余额」两个字）。 */
+          usageLabel={usageChip}
           onOpenTasks={() => { setDrawer(undefined); navigate({ kind: 'tasks', session: drawer.session, workspaceId: drawer.workspaceId }) }}
         />
       )}
+      {appearanceOpen ? (
+        <AppearanceSheet onClose={() => { setAppearanceOpen(false) }} />
+      ) : null}
       {workspacePickerOpen ? (
         <WorkspacePicker
           workspaces={workspaces}

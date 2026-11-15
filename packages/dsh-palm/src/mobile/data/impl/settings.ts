@@ -7,6 +7,7 @@
  * @module dsh-palm/mobile/data/impl/settings
  */
 import { callUnary } from '../../platform/rpc.ts'
+import { announceModelSwitch } from '../../platform/model-switch.ts'
 import { coalescedRead, invalidateReadCoalescing } from '../read-coalescing.ts'
 import { MODELS_TTL_MS, PREFERENCES_TTL_MS } from '../limits.ts'
 import type { CommandDescriptor, MobilePreferences, MobileSettingsRead, PairedDevicesView } from '../../mobile-types.ts'
@@ -51,6 +52,12 @@ export async function selectModel(
   })
   // 换了模型就必须让缓存里的目录（current 字段）失效，否则选择器会显示旧选中项。
   invalidateReadCoalescing()
+  // 广播出去：抽屉「用量」那行小字要立刻换成**新模型那家**的余额/配额
+  // （2026-11-14 用户：「切换完模型之后，侧边栏的『用量』也要同时切换」）。
+  // 挂在这里而不是 ChatView：手机端换模型只有这一条路，所有入口自动算数。
+  // 宿主回包缺 `selected` 时宁可只少一次刷新，也不让换模型本身失败。
+  const selected = result?.selected
+  if (selected !== undefined) announceModelSwitch({ sessionId, provider: selected.provider, model: selected.model })
   return result
 }
 

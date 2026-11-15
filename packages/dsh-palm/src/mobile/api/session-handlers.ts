@@ -57,9 +57,23 @@ export async function sessionCreate(ctx: SessionHandlerContext): Promise<unknown
   return wrap(ctx.rpcId, await ctx.apiProxy.sessions.create(ctx.request as never))
 }
 
+/**
+ * 历史包里手机**永不显示**的 request/header（2026-11-15 实测：一页 561KB / 169 条事件，
+ * 两条各 136KB = 48%，真正正文只占 10%）。它带的是每次 LLM 请求的完整请求体
+ * （system prompt + 全部工具定义 + 上下文快照），客户端全仓零引用。
+ */
+function slimHistory<T extends { result?: unknown }>(reply: T): T {
+  const result = reply.result as { value?: { events?: unknown } } | undefined
+  const events = result?.value?.events
+  if (!Array.isArray(events)) return reply
+  const kept = events.filter((entry) => (entry as { event?: { type?: unknown } } | null)?.event?.type !== 'request/header')
+  if (kept.length === events.length) return reply
+  return { ...reply, result: { ...(result ?? {}), value: { ...result?.value, events: kept } } } as T
+}
+
 /** 会话历史。 */
 export async function sessionHistory(ctx: SessionHandlerContext): Promise<unknown> {
-  return wrap(ctx.rpcId, await ctx.apiProxy.sessions.history(ctx.request as never))
+  return wrap(ctx.rpcId, slimHistory(await ctx.apiProxy.sessions.history(ctx.request as never)))
 }
 
 /** 会话内搜索（可被客户端中断）。 */

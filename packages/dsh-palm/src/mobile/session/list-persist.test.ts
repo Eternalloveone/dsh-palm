@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   cancelPersistedWrites,
   clearPairingCaches,
+  dropSessionFromCaches,
   flushPersistedWrites,
   loadDraft,
   loadPersistedList,
@@ -45,6 +46,23 @@ describe('list-persist', () => {
     expect(loaded?.hasMore).toBe(true)
     // Other workspaces stay independent.
     expect(loadPersistedList('w-2')).toBeUndefined()
+  })
+
+  /**
+   * 真机 2026-11-15：「手机端已删除的会话，还会在会话列表里出现」。
+   *
+   * 抽屉首帧画的是**落盘行**，宿主那一页随后走并集合并（宿主没回的行不清空），
+   * 所以删除必须把这一行从落盘页里摘掉 —— 否则下一次打开抽屉它又画回来，
+   * 而且这一整次抽屉会话都去不掉它（并集保留宿主没回的行）。
+   */
+  it('dropSessionFromCaches 把删掉的行从每个落盘页里摘掉', () => {
+    savePersistedList('w-1', { rows: [row('s-1'), row('s-2')], hasMore: false })
+    savePersistedList('w-2', { rows: [row('s-3'), row('s-1')], cursor: 'c9', hasMore: true })
+    dropSessionFromCaches('s-1')
+    expect(loadPersistedList('w-1')?.rows.map(item => item.sessionId)).toEqual(['s-2'])
+    // 别的行与分页位置不动，只是这一行没了。
+    expect(loadPersistedList('w-2')?.rows.map(item => item.sessionId)).toEqual(['s-3'])
+    expect(loadPersistedList('w-2')?.cursor).toBe('c9')
   })
 
   it('rejects expired lists (TTL) and corrupt payloads', () => {

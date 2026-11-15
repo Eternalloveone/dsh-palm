@@ -501,7 +501,15 @@ export default [
     title: '会话内搜索打开/关闭后输入区恢复可点',
     async run(ctx, { page }) {
       await ctx.waitForChatRows(page)
-      await page.locator('[aria-label="搜索本会话"]').first().click()
+      // 搜索入口已收进「更多」菜单（顶栏收敛）；先从菜单打开，再验证关闭后输入区可点。
+      const more = page.locator('[aria-label*="更多"], [title*="更多"]').first()
+      if ((await more.count()) > 0) {
+        await more.click()
+        await page.waitForTimeout(400)
+        await page.getByRole('menuitem', { name: /在本会话内搜索/ }).first().click({ timeout: 5_000 })
+      } else {
+        await page.locator('[aria-label="搜索本会话"]').first().click()
+      }
       await page.waitForTimeout(400)
       const opened = await page.evaluate(() => {
         const input = document.querySelector('input[placeholder*="搜索本会话"]')

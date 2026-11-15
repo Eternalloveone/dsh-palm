@@ -845,6 +845,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
     searchIndexPromise: undefined,
     searchIndexer: undefined,
     ensureSearchIndex,
+    kickSearchIndex: () => { processState.activeSearchIndexer?.kick() },
     touchDeviceFor,
     gateOk,
     activeEvents: 0,
@@ -1640,7 +1641,7 @@ async function dispatch(
   // on disk (restorable from the desktop). Without this the phone's delete
   // was a local-only removal and the session resurrected on the next roster
   // fetch. Idempotent, reversible, single-id scoped — safe to expose here.
-    ['workspace.archiveSession', async (ctx) => workspaceArchiveSession({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches })],
+    ['workspace.archiveSession', async (ctx) => workspaceArchiveSession({ apiProxy: ctx.apiProxy, rpcId: ctx.rpcId, request: ctx.request, invalidateRosterCaches, invalidateSessionSearch })],
   ['agentPreset.list', async (ctx) => agentPresetList(ctx)],
   ['session.create', async (ctx) => sessionCreate({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],
   ['session.history', async (ctx) => sessionHistory({ ...ctx, invalidateRosterCaches, invalidateSessionSearch })],

@@ -1981,6 +1981,8 @@ describe('mobile.usage (per-provider usage/balance)', () => {
       expect(envelope.result.value.providers).toEqual([
         {
           name: 'DeepSeek 官方',
+          // 路由键随行下发（2026-11-14）：手机端要按它认出「当前模型那家」。
+          route: 'deepseek',
           baseURL: 'https://api.deepseek.com',
           kind: 'balance',
           status: 'ok',

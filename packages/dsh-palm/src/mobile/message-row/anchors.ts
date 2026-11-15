@@ -35,10 +35,13 @@ function anchorStorage(): Storage | undefined {
 
 /**
  * 取这一轮**见过的最早**锚点，并把更早的值记下来。
+ *
  * @param key - `${sessionId}:${turn}`。
  * @param candidate - 本次渲染拿到的宿主锚点。
+ * @param floor - 本轮起点下界（页级已按「不早于本轮用户消息」夹过）。记忆里比它还早的值
+ *   一律当跨轮污染丢弃 —— 只许变早的规则遇到"早就是错的"会把错值永久锁死（真机 2026-11-14）。
  */
-export function stableTurnAnchor(key: string, candidate: number | undefined): number | undefined {
+export function stableTurnAnchor(key: string, candidate: number | undefined, floor?: number): number | undefined {
   if (candidate === undefined) return undefined
   const store = anchorStorage()
   if (store === undefined) return candidate
@@ -54,10 +57,11 @@ export function stableTurnAnchor(key: string, candidate: number | undefined): nu
     previous = undefined
   }
   const kept = previous === undefined ? candidate : Math.min(previous, candidate)
-  if (kept !== previous) {
-    try { store.setItem(storageKey, String(kept)) } catch { /* 配额满：退回不记忆 */ }
+  const floored = floor !== undefined && Number.isFinite(floor) ? Math.max(kept, floor) : kept
+  if (floored !== previous) {
+    try { store.setItem(storageKey, String(floored)) } catch { /* 配额满：退回不记忆 */ }
   }
-  return kept
+  return floored
 }
 
 /** 测试用：清掉所有锚点记忆。 */

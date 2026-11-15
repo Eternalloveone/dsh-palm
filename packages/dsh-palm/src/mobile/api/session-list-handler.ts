@@ -15,6 +15,8 @@ import {
   hydrateSessionRoster,
   markRosterRefreshed,
   persistSessionRoster,
+  preferArchivedIds,
+  readLiveArchivedIds,
   rosterLastRefreshAt,
   rosterOwnedCache,
   rosterTtlCache,
@@ -47,12 +49,31 @@ export interface SessionListContext {
 function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ failure?: unknown }> {
   const existing = processState.sessionRosterInFlight
   if (existing !== undefined) return existing
-  markRosterRefreshed()
+  /**
+   * 枚举开始那一刻。
+   *
+   * `sessions.list` 全量枚举要 6~23 秒；这期间手机删一条会话完全来得及。删完
+   * `invalidateRosterCaches()` 会清掉 TTL 缓存，但**这次已在飞的枚举**还会把结果
+   * 装回去，而它拿到的 `archivedSessionIds` 是删之前的 —— 刚删掉的会话就又进了
+   * 快照（还会落盘），手机随后最多 90 秒都能看到。装快照时按时间戳比一下：
+   * 归档应答比这次枚举新就用应答的那份（见 `preferArchivedIds`）。
+   */
+  const startedAt = Date.now()
+  markRosterRefreshed(startedAt)
   const run = (async (): Promise<{ failure?: unknown }> => {
     try {
+      /** `workspace.list` **自己**落地时刻才是归档集的新旧分界：`sessions.list` 慢，
+       *  等它回来时这份归档集早过时了；记成"枚举结束"会把途中那次归档判丢。 */
+      let wsSeenAt: number | undefined
+      const workspaceList = apiProxy.workspace.list(request as never)
+        .then((response) => {
+          if ((response as { result?: { ok?: boolean } } | undefined)?.result?.ok === true) wsSeenAt = Date.now()
+          return response
+        })
+        .catch(() => undefined)
       const [full, wsList] = await Promise.all([
         apiProxy.sessions.list(request as never),
-        apiProxy.workspace.list(request as never).catch(() => undefined),
+        workspaceList,
       ])
       if (!full.result.ok) return { failure: full.result }
       const wsValue = (wsList?.result.ok === true ? wsList.result.value : undefined) as
@@ -79,7 +100,9 @@ function refreshSessionRoster(apiProxy: ApiProxy, request: unknown): Promise<{ f
         at: Date.now(),
         proxy: apiProxy,
         rawItems: toRosterItems(full.result.value.items as RosterItem[]),
-        archivedIds: new Set((wsValue?.archivedSessionIds ?? []).map(id => String(id))),
+        // 枚举途中发生过归档 ⇒ 用归档应答那份（它比这次枚举新），否则用枚举读到的。
+        // 工作区列表这次没拿到时退回最近一次可信值，绝不退回空集。判据见 preferArchivedIds。
+        archivedIds: preferArchivedIds(wsSeenAt, new Set((wsValue?.archivedSessionIds ?? []).map(id => String(id)))),
       })
       setRosterOwnedCache(ownedByWorkspaces(
         wsValue?.items ?? [],
@@ -137,6 +160,9 @@ export async function sessionList(ctx: SessionListContext): Promise<unknown> {
     rawItems = snapshot.rawItems
     archivedIds = snapshot.archivedIds
   }
+  // 归档集取**活值**（比快照新就用它）：治"桌面删的会话在手机上挂一分钟"。
+  const liveArchived = await readLiveArchivedIds(apiProxy, rosterTtlCache()?.at)
+  if (liveArchived !== undefined) archivedIds = liveArchived
   const mainItems = visibleSessionRows(rawItems, archivedIds)
   const ownedCache = rosterOwnedCache()
   const ownedIds = workspaceId === undefined ? undefined : ownedCache?.get(workspaceId)
@@ -221,6 +247,8 @@ export async function sessionList(ctx: SessionListContext): Promise<unknown> {
       value: {
         items: checkedPage,
         hasMore: nextCursor !== undefined,
+        // 归档集随页下发：抽屉合并是并集，客户端据此区分"别的设备删了"和"这页没翻到"。
+        archivedSessionIds: [...archivedIds],
         ...(nextCursor !== undefined ? { nextCursor } : {}),
       },
     },

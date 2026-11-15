@@ -18,6 +18,7 @@ import { StatusStrip, type StatusStripKind } from './status-strip.tsx'
 import { drawerWhenLabel } from './drawer-when.ts'
 import { useLongPress } from './use-long-press.ts'
 import { SessionActions } from './session-actions.tsx'
+import { useDrawerWindow } from './use-drawer-window.ts'
 
 /** 一天（毫秒）：今天/昨天分界。 */
 const DAY_MS = 86_400_000
@@ -90,15 +91,25 @@ export interface SessionDrawerProps {
    */
   listing?: boolean
   onSwitchWorkspace?: (() => void) | undefined
+  /** 打开「外观」面板（点头像）：换皮肤与背景图。 */
+  onOpenAppearance?(): void
   onClose(): void
   onNew(): void
   onSearch(): void
   onPick(session: SessionView): void
   /** 入口小字（「3 在跑 · 1 刚完成」）：undefined 时整行不画。 */
+  /** 「N 在跑 · M 刚完成」；undefined = 此刻空闲（行照画，小字兜底「空闲」）。 */
   taskLabel?: string
   onOpenTasks?: (() => void) | undefined
   onOpenSettings(): void
   onOpenUsage(): void
+  /**
+   * 「用量」行右侧的小字：当前模型那家的余额/用量短语（`本周 32%` / `¥23.05`）。
+   *
+   * undefined = 还没查到（或查不了）：保持原来的「余额」两个字，不做占位闪烁。
+   * 由 App 侧的 `views/use-usage-chip.ts` 负责查与缓存，抽屉只管画。
+   */
+  usageLabel?: string
   /** 正在播退出动画：遮罩与面板一起往左滑，播完由 App 卸载（约 240ms）。 */
   closing?: boolean
 }
@@ -191,6 +202,33 @@ export function SessionDrawer(props: SessionDrawerProps) {
       .filter(group => group.rows.length > 0),
   ]
   /**
+   * 首屏只画看得见的那些（2026-11-14）。
+   *
+   * 实测（CDP，4× 降频）：打开抽屉 729ms，其中一次长任务冻住主线程 523ms；同条件点
+   * 「设置」只有 57ms。差别就在这一下要往 DOM 里插几十行、每行还带状态条和时间小字 ——
+   * 样式计算和布局是全量重算的，跟行数成正比。窗口化之后首帧只插 20 行，往下滚再补，
+   * 单帧成本被摊平；已经画出来的行不回收，所以长按面板和滚动位置都不受影响。
+   *
+   * 当前正在看的那个会话必须落在窗口内：否则用户打开抽屉找不到"我在哪"，
+   * 会当成会话丢了（比慢更糟），所以 `keepIndex` 会把窗口撑到它为止。
+   */
+  const flatRows = groups.flatMap(group => group.rows)
+  const currentIndex = props.currentSessionId === undefined
+    ? -1
+    : flatRows.findIndex(row => row.sessionId === props.currentSessionId)
+  const { limit: drawerLimit, listRef: drawerListRef, sentinelRef: drawerSentinelRef } =
+    useDrawerWindow(currentIndex)
+  /** 截断后的分组；`total` 是真实条数 —— 组标题上的数字不能因为窗口化而变小。 */
+  let remaining = drawerLimit
+  const shownGroups = groups
+    .map((group) => {
+      const take = Math.max(0, Math.min(group.rows.length, remaining))
+      remaining -= take
+      return { title: group.title, rows: group.rows.slice(0, take), total: group.rows.length }
+    })
+    .filter(group => group.rows.length > 0)
+  const hasMore = drawerLimit < flatRows.length
+  /**
    * 工作区名。
    *
    * 名字由 `session/workspace-directory.ts` 的 `resolveWorkspace` 统一解析后传进来
@@ -245,27 +283,27 @@ export function SessionDrawer(props: SessionDrawerProps) {
       panelClassName={'palm-drawer' + (props.closing === true ? ' is-closing' : '')}
     >
       <div className="palm-drawer-head">
+        {/* 头像 = 外观入口（2026-11-14 用户选定）：换皮肤/壁纸不该藏在设置里 */}
+        <Button
+          type="button"
+          className="palm-drawer-avatar-btn"
+          aria-label="外观：换皮肤和背景图"
+          onClick={props.onOpenAppearance}
+        >
+          <span className="palm-drawer-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
+        </Button>
         {showSwitch ? (
-          /*
-           * 整块可点：头像 + 工作区名 + 路径 + 右侧「切换 ⌄」。
-           * 2026-11-11 用户：「切换工作区是纯图标，看不出是在这切」—— 原来只有一枚
-           * 16px 的箭头能点，左边写着工作区名的那块反倒点不动，两个信号都是错的。
-           */
+          /* 工作区语义收回到文字上：点名字/路径 = 切换工作区（原来头像也走这里，容易误触） */
           <Button
             type="button"
             className="palm-drawer-ws-btn"
             aria-label="切换工作区"
             onClick={props.onSwitchWorkspace}
           >
-            <span className="palm-drawer-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
-            <span className="palm-drawer-ws"><b>{name}</b><small>{props.workspace.path}</small></span>
-            <span className="palm-drawer-ws-switch">切换<ChevronDownIcon /></span>
+            <span className="palm-drawer-ws"><b>{name}<ChevronDownIcon /></b><small>{props.workspace.path}</small></span>
           </Button>
         ) : (
-          <>
-            <span className="palm-drawer-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
-            <span className="palm-drawer-ws"><b>{name}</b><small>{props.workspace.path}</small></span>
-          </>
+          <span className="palm-drawer-ws"><b>{name}</b><small>{props.workspace.path}</small></span>
         )}
       </div>
       {/* 文案一律包一层 span：图标固定 16px 之后，折行的唯一来源就是文案本身，
@@ -273,7 +311,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
           省略号挂不上去（实机就是「新建会话」被压成两行）。 */}
       <Button type="button" className="palm-drawer-new" onClick={props.onNew}><span>新建会话</span></Button>
       <Button type="button" className="palm-drawer-search" onClick={props.onSearch}><SearchIcon /><span>搜索会话和消息</span></Button>
-      <div className="palm-drawer-list">
+      <div className="palm-drawer-list" ref={drawerListRef}>
         {groups.length === 0 ? (
           /* 空列表要说清楚"是真的没有"，而不是留一块空白让人以为界面坏了
              （2026-11-10「会话列表显示失效」的观感就是从这里来的）。 */
@@ -281,12 +319,12 @@ export function SessionDrawer(props: SessionDrawerProps) {
             {props.listing === true ? '正在读取会话…' : '这个工作区还没有会话'}
           </p>
         ) : null}
-        {groups.map(group => (
+        {shownGroups.map(group => (
           <section className="palm-drawer-group" key={group.title}>
             <h2 className="palm-drawer-bucket">
               {group.title}
               {/* 条数只做视觉补充；读屏仍读「今天」这一句（aria-hidden）。 */}
-              <span className="palm-drawer-bucket-count" aria-hidden="true">{group.rows.length}</span>
+              <span className="palm-drawer-bucket-count" aria-hidden="true">{group.total}</span>
             </h2>
             <ul className="palm-drawer-rows">
               {group.rows.map((row) => {
@@ -311,6 +349,10 @@ export function SessionDrawer(props: SessionDrawerProps) {
             </ul>
           </section>
         ))}
+        {/* 哨兵：滚到它附近就补一页（见 use-drawer-window）。1px 高、读屏不念、不占视觉。 */}
+        {hasMore ? (
+          <div className="palm-drawer-sentinel" ref={drawerSentinelRef} aria-hidden="true" style={{ blockSize: 1 }} />
+        ) : null}
       </div>
       {/* 底部入口（2026-11-11 C 版）：一块带底色的圆角卡片：小标题「工具」+
           两行 46px（图标 / 文案 / 右侧补充 / 箭头），与上面的列表明确分层。
@@ -324,19 +366,25 @@ export function SessionDrawer(props: SessionDrawerProps) {
            * 理由：任务是"有什么在跑"，用量是"还剩多少钱"，两者都是**看一眼就走的信息**；
            * 设置是**改东西**，而且是三个里最不常点、改完很久不回来的那种。
            * 信息类聚在上面、配置沉到最底下，也是大部分 App 的通用心智（设置永远在最后一行）。
-           * 任务行只在有任务时才画（2026-11-11 决定），所以不会白占位置。
+           *
+           * 2026-11-14 用户：「任务这一栏要固定显示出来，而不是有任务跑才显示」——
+           * 2026-11-11 是"没有任务整行不画，不白占 46px"，代价是入口时有时无：用户想回看
+           * 刚完成的活时，连点进去的地方都没有。现在只要有入口回调就画（入口是导航，
+           * 不该由数据决定存亡），空闲时小字写「空闲」——与「N 在跑」同一句式，一眼可读。
            */}
-          {props.taskLabel !== undefined && props.onOpenTasks !== undefined ? (
+          {props.onOpenTasks === undefined ? null : (
             <Button type="button" className="palm-drawer-tool" onClick={props.onOpenTasks}>
-              <RowsIcon /><span>任务</span><small>{props.taskLabel}</small><ChevronRightIcon />
+              <RowsIcon /><span>任务</span><small>{props.taskLabel ?? '空闲'}</small><ChevronRightIcon />
             </Button>
-          ) : null}
+          )}
           <Button type="button" className="palm-drawer-tool" onClick={props.onOpenUsage}>
             {/* 2026-11-12 用户：「用量」底下显示「本机」是什么意思？
                 它原来是写死的两个字，本意是"这台机器上配的提供方用量"，但用量页里的数字
                 其实是宿主去各家查回来的余额，标「本机」容易被读成"手机自己的用量"。
-                换成「余额」—— 页面里每一行就是某家的账户余额/累计已花，对得上。 */}
-            <GaugeIcon /><span>用量</span><small>余额</small><ChevronRightIcon />
+                换成「余额」—— 页面里每一行就是某家的账户余额/累计已花，对得上。
+                2026-11-14 用户：这里要显示**当前模型那家**的具体数字（`本周 32%` /
+                `¥23.05`），别只写「余额」；查不到时才退回原来那两个字。 */}
+            <GaugeIcon /><span>用量</span><small>{props.usageLabel ?? '余额'}</small><ChevronRightIcon />
           </Button>
           <Button type="button" className="palm-drawer-tool" onClick={props.onOpenSettings}>
             <SlidersIcon /><span>设置</span><small>{SKIN_LABEL[getSkin()]}</small><ChevronRightIcon />

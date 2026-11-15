@@ -27,6 +27,8 @@ function installFetch(
     return {
       ok: true,
       status: 200,
+      // rpc 层现在先 text() 再 JSON.parse（读网络与解析分开计时），mock 两个都要给。
+      text: async () => JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value: resolved } }),
       json: async () => ({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value: resolved } }),
     } as unknown as Response
   })
@@ -158,6 +160,20 @@ describe('read coalescing', () => {
     expect(calls.filter((call) => call.method === 'session.models')).toHaveLength(2)
   })
 
+  it('换模型后广播一次：抽屉「用量」靠它同时切到新模型那家', async () => {
+    // 2026-11-14 用户：「切换完模型之后，侧边栏的『用量』也要同时切换」。
+    // 广播点只能有一个（data 层），漏了这条连线功能就是静默失效 —— 钉住它。
+    installFetch(() => ({ selected: { provider: 'opencode-go', model: 'deepseek-v4.1-flash' } }))
+    const api = await loadApi()
+    // 与 api 同一份模块实例（loadApi 刚 resetModules 过）。
+    const signal = await import('./platform/model-switch.ts')
+    const seen: unknown[] = []
+    const off = signal.subscribeModelSwitch(change => { seen.push(change) })
+    await api.selectModel('s-1', { provider: 'opencode-go', model: 'deepseek-v4.1-flash' })
+    off()
+    expect(seen).toEqual([{ sessionId: 's-1', provider: 'opencode-go', model: 'deepseek-v4.1-flash' }])
+  })
+
   it('does not let a read that was already flying overwrite the post-mutation window', async () => {
     // 失效只清窗口的话有两个坑：① 失效后的读会继续共享那次在飞的旧读；
     // ② 旧读回来把结果写回窗口，界面又显示成改之前的旧值。
@@ -178,6 +194,8 @@ describe('read coalescing', () => {
       return {
         ok: true,
         status: 200,
+        // rpc 层现在先 text() 再 JSON.parse（读网络与解析分开计时），mock 两个都要给。
+        text: async () => JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value } }),
         json: async () => ({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value } }),
       } as unknown as Response
     }))

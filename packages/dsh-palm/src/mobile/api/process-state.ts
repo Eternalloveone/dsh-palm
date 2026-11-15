@@ -42,6 +42,14 @@ export const processState: {
   finishedRunsFile: string | undefined
   /** 用量视图缓存（进程内共享，避免每次请求都重新算）。 */
   usageCache: { at: number; view: UsageView } | undefined
+  /**
+   * 用量正在后台刷新。
+   *
+   * 宿主是单线程：全量查一次用量实测 3.3 s，那段时间所有 `/m/api` 都在排队
+   * （用户点会话就"卡一下"）。所以过期后走 stale-while-revalidate —— 先回旧值，
+   * 后台刷；这个标记防同一时刻起多个刷新。
+   */
+  usageRefreshing: boolean
   /** 会话投影快照（seq → 视图块）。 */
   sessionProjectionSnapshots: Map<
     string,
@@ -95,6 +103,7 @@ export const processState: {
 } = {
   finishedRunsFile: undefined,
   usageCache: undefined,
+  usageRefreshing: false,
   sessionProjectionSnapshots: new Map(),
   locateSessionCache: undefined,
   ordinarySearchSnapshotCache: undefined,

@@ -92,6 +92,8 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
       if (seq < verdictSeqRef.current) return
       if (seq > verdictSeqRef.current) verdictSeqRef.current = seq
     }
+    // 名册播种（seed）不算结论：它滞后，真机就是"切进去先画一张卡再撤"。
+    if (verdict.seed !== true) setVerdictKnown(true)
     if (verdict.running) {
       // 终态锁定：**能证明是同一轮**才丢（轮号相同/更旧、或压根没有新一轮的证据）。
       // 时间一律在宿主时钟里比：`closed.at` 是 turn/end 的宿主时间，`startAt` 也是
@@ -121,6 +123,15 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
     setRunningTurn(undefined)
     setTurnStartAt(null)
   }, [])
+
+  /**
+   * 这一场的 `running` 有没有**结论**（宿主/帧/快照说过话）。
+   *
+   * 换会话时它先是 false：名单上的 `session.running` 会滞后，把它当成"收工"就会先画出
+   * 一张交付卡、等权威结论到了再撤 —— 真机 2026-11-14 切会话时那张一闪就没的卡。
+   * 交付卡只在有结论之后才允许出现。
+   */
+  const [verdictKnown, setVerdictKnown] = useState(false)
 
   /**
    * 当前活跃轮次的**轮号**（turn/start 帧里带回来的那一个）。它与 {@link running}
@@ -398,12 +409,16 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
     setAbandonedTurn(undefined)
     setHostLost(false)
     reconcileFailureRef.current = 0
-    applyTurnVerdict({ running: seedRunning })
+    setVerdictKnown(seedRunning)
+    applyTurnVerdict({ running: seedRunning, seed: true })
     // 会话切换：上一轮的轮号绝不能留给下一场（名单恢复的 running 会把它当成
     // 活跃轮次，把上一场那一轮的卡片误判成运行中）。
     setRunningTurn(undefined)
     setTurnStartAt(null)
   }, [applyTurnVerdict])
+
+  /** 标记"这一场 running 有结论了"（权威尾页落地时调用；历史会话也靠它放开卡）。 */
+  const markVerdictKnown = useCallback((): void => { setVerdictKnown(true) }, [])
 
   /** 交付卡判据：这一轮是否亲眼看到过收工。 */
   const hasClosedTurn = useCallback((turn: number): boolean => closedTurnsRef.current.has(turn), [])
@@ -422,6 +437,7 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
 
   return {
     running,
+    verdictKnown,
     runningTurn,
     turnStartAt,
     abandonedTurn,
@@ -434,6 +450,7 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
     clearActiveTurn,
     beginTurn,
     hasClosedTurn,
+    markVerdictKnown,
     markSnapshotAlive,
     isRunning,
     getRunningTurn,

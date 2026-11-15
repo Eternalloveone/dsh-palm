@@ -9,7 +9,8 @@
 import { history as fetchHistory, logTail, readChat, sessionState, turnOutlineOf, type ChatOpenExtras, type ChatOpenInclude, type ChatPage } from '../api.ts'
 import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../render/messages.ts'
 import type { SessionProjectionsBlock } from '../../api-proxy-types'
-import { saveCachedHistory } from '../session/history-cache.ts'
+import { saveCachedHistory, loadCachedHistory } from '../session/history-cache.ts'
+import { canSkipEntryRead, noteChatSynced } from '../session/chat-sync-ledger.ts'
 import { preferredTailWindowBytes } from '../platform/entry-perf.ts'
 import { getCachedOutline, setCachedOutline } from '../session/outline-cache.ts'
 
@@ -96,8 +97,13 @@ const HOST_REFRESH_DELAY_MS = 1_500
  * 以前是 25 行，进会话之后再补 2~4 页「更早」并把列表往上一顶 —— 每补一页都要重排、
  * 重钉底，真机上就是「一进会话闪一下」或者「跳到前面某轮」。宿主这条路本来能到 200 行，
  * 一次取够就没有中途插入这回事：**一次请求、一次提交、一次钉底**。
+ *
+ * **2026-11-14：120 → 40。** 120 行是"一次取够"的理想值，但尾窗（512 KB / 2 MB）
+ * 在长会话里装不下 120 行，客户端于是链式补 4 页才提交 —— 5 个串行来回、~570 KB，
+ * 首屏 3.1~3.5 s（真机 4x CPU + 4G 实测）。而一屏只放得下 5~8 条消息：
+ * 40 行已经覆盖 2~3 屏，再多只是省一次"往上滑"的请求。取 40 行 → 一个请求进会话。
  */
-export const ENTRY_TAIL_ROWS = 120
+export const ENTRY_TAIL_ROWS = 16
 
 /**
  * 首屏取数：**一个请求**拿齐行 + 目标 + 队列 + 回合。
@@ -124,9 +130,23 @@ export const ENTRY_TAIL_ROWS = 120
  */
 let entrySupport: 'unknown' | 'yes' | 'no' = 'unknown'
 
+/**
+ * 连续几次「请求 40 行却只回 25 行」：老宿主的特征就是这个固定一页。
+ *
+ * 2026-11-14 修（「切来切去都卡」的真因）：原判据是 `entryRows.length >= Math.min(rows, 40)`，
+ * 把**任何本身不足 40 行的会话**都当成「老宿主不支持 maxRows」—— 而手机上大量会话就几十条
+ * 消息，于是切到第一个短会话就把 `entrySupport` 钉成 `'no'`，本次页面生命周期剩下的每一次
+ * 切换都改走 logTail（再整份拉一遍 `session.history`，几十 KB），跟会话大小彻底无关地一直慢。
+ *
+ * 现在只认老宿主那一个特征（忽略 `maxRows`、固定回 25 行），而且要连续两次才永久降级 ——
+ * 会话本身正好 25 行时不至于被冤枉。命中的那一次仍然补一次 logTail，老宿主行为不变（多打一次）。
+ */
+let pagedStrikes = 0
+
 /** 测试用：忘掉支持度结论。 */
 export function resetEntrySupportForTest(): void {
   entrySupport = 'unknown'
+  pagedStrikes = 0
 }
 
 async function entryOrTail(
@@ -142,14 +162,21 @@ async function entryOrTail(
   try {
     const entry = await sessionState(sessionId, { maxRows: rows, windowBytes })
     const entryRows = entry.rows
-    // 老宿主会忽略 maxRows 只回一页（25 行）：那不算"取够"，直接走 logTail 的完整路径。
+    // 老宿主会忽略 maxRows 只回一页（25 行）：那不算"取够"，补一次 logTail 把行数拉回来。
     if (Array.isArray(entryRows) && entryRows.length > 0) {
-      // 行数确实被撑开了才算"宿主支持"：只回一页（老宿主）时仍然走 logTail 的完整路径。
-      entrySupport = entryRows.length >= Math.min(rows, 40) ? 'yes' : 'no'
-      if (entrySupport === 'no') {
+      /*
+       * 判「宿主支不支持 maxRows」：只看它是不是**固定回一页 25 行**。判据用「要的不是 25 行
+       * 却回 25 行」，别写「要的行数 > 25」—— 首屏行数会随视觉预算调整（2026-11-15 40→16），
+       * 写死大小关系会让老宿主检测静默失效，那是全局降级、每次切换都慢。
+       */
+      const looksPaged = rows !== 25 && entryRows.length === 25
+      pagedStrikes = looksPaged ? pagedStrikes + 1 : 0
+      if (looksPaged) {
+        if (pagedStrikes >= 2) entrySupport = 'no'
         const tail = await logTail(sessionId, rows, signal, windowBytes)
         return foldChatPage(tail, true)
       }
+      entrySupport = 'yes'
       return {
         rows: entryRows,
         maxSeq: entry.maxSeq,
@@ -186,6 +213,18 @@ export async function loadChatPage(
   // C：尾部直读优先。宿主冷读要整文件解压一个 zstd 帧序列（大会话 4 s 起），
   // 而尾部几十帧只要几十毫秒，折叠也在宿主侧做好了。
   if (isTail) {
+    /**
+     * **切回来就是立刻**（2026-11-14）：这一场在本次页面生命周期里刚同步过、
+     * 之后一条帧都没来过 —— 本地那份就是当前状态，不必再问宿主（那次读取
+     * 在宿主单线程里要 500~900ms，正好是用户点完会话等的那段）。
+     * 判据与三条保守约束见 `session/chat-sync-ledger.ts`。
+     */
+    if (canSkipEntryRead(sessionId)) {
+      const cached = await loadCachedHistory<ChatPageResult>(sessionId)
+      if (cached !== undefined && Array.isArray(cached.rows) && cached.rows.length > 0) {
+        return cached
+      }
+    }
     try {
       // 首屏一次取够：以前尾页只给 25 行，进会话后再补 2~4 页「更早」，
       // 每补一页都把列表往上一顶 —— 真机上就是「一进会话闪一下 / 跳到前面某轮」。
@@ -193,6 +232,8 @@ export async function loadChatPage(
       const fast = await entryOrTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal, preferredTailWindowBytes())
       // 快路径的结果先落缓存：下一次打开直接命中，不必再解日志。
       void saveCachedHistory(sessionId, fast)
+      // 账本：这一场从网络同步过了（之后有没有新帧由 ChatView 的帧订阅记账）。
+      noteChatSynced(sessionId)
       // 宿主的权威页只在首屏还缺东西时才补。一次 readChat 在大会话上要
       // 14~15 秒，而宿主解压是单线程的：那段时间手机端所有请求都在排队
       // （实测 session.list 从 5 ms 涨到 500 ms、日志尾读从 20 ms 涨到 1.7 秒），

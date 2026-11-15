@@ -21,13 +21,12 @@ import { errorText } from '../shared/error-text.ts'
 import { notificationPermission, notificationSupported, requestNotificationPermission, startNotify, webPushState, enableWebPush, disableWebPush } from '../platform/notify.ts'
 import { toast } from '../components/toast.tsx'
 import {
-  getAutoScroll, getDensity, getFontScale, getHaptics, getLineNumbers,
-  type Density, type FontScale,
+  getAutoScroll, getHaptics, getLineNumbers,
 } from '../platform/display-prefs.ts'
 import {
   getVoiceServices, subscribeVoiceServices, syncHostVoiceServices, type VoiceService,
 } from '../platform/voice-services.ts'
-import { ContrastIcon, SlidersIcon } from '../components/icons.tsx'
+import { ContrastIcon, ImageIcon, SlidersIcon } from '../components/icons.tsx'
 import { MarketView } from './MarketView.tsx'
 import { parseNotifyTriggerInputs } from '../platform/notify-triggers.ts'
 import { refreshPage, usePage } from '../page-cache.ts'
@@ -41,6 +40,8 @@ import { NotifySection } from './settings/notify-section.tsx'
 import { OtherSection, SETTINGS_FOOTNOTE } from './settings/other-section.tsx'
 import { SettingsOverlays } from './settings/settings-overlays.tsx'
 import { SkinStoreSheet } from './settings/SkinStoreSheet.tsx'
+import { WallpaperSheet } from './settings/WallpaperSheet.tsx'
+import { getWallpaper } from '../platform/wallpaper.ts'
 import { SKIN_LABEL, getSkin, type MobileSkin } from '../platform/skin.ts'
 import { RowChevron, SettingsGroup, SettingsRow } from './settings/settings-shared.tsx'
 import { VoicePage, VoiceSection } from './settings/voice-section.tsx'
@@ -69,12 +70,10 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [marketOpen, setMarketOpen] = useState(false)
   // Local preference state (mirrors display-prefs + theme stores).
-  const [fontScale, setFontScaleState] = useState<FontScale>(() => getFontScale())
-  const [density, setDensityState] = useState<Density>(() => getDensity())
   const [lineNumbers, setLineNumbersState] = useState(() => getLineNumbers())
   const [autoScroll, setAutoScrollState] = useState(() => getAutoScroll())
   const [haptics, setHapticsState] = useState(() => getHaptics())
-  const [sheet, setSheet] = useState<'font' | 'density' | 'about' | null>(null)
+  const [sheet, setSheet] = useState<'about' | null>(null)
   // Health report for the About sheet. Fetched on open (never cached): a stale
   // report would show a broken contract as healthy, which is the one thing this
   // block exists to prevent.
@@ -214,6 +213,8 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
   // Hooks stay above every early return — query state is unconditional.
   /** 皮肤商店浮层（2026-11-11：入口在设置首屏第一组）。 */
   const [skinStoreOpen, setSkinStoreOpen] = useState(false)
+  const [wallSheetOpen, setWallSheetOpen] = useState(false)
+  const [wallSet, setWallSet] = useState(() => getWallpaper().image !== null)
   const [currentSkin, setCurrentSkin] = useState<MobileSkin>(() => getSkin())
   const [query, setQuery] = useState('')
   const term = query.trim().toLowerCase()
@@ -582,8 +583,8 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
 
   // 搜索命中在主渲染里按原顺序求值：hit() 的命中计数语义与拆分前一致。
   const show = {
-    font: hit('字体大小', 'font'),
-    density: hit('消息密度', 'density', '紧凑', '舒适'),
+    // 2026-11-13：字号、密度不再各占一行，全部收进「外观」页；搜索这些词走外观入口。
+    appearance: hit('外观', '字号', '字体大小', '密度', '行号', 'appearance'),
     lineNumbers: hit('代码块行号', '行号', 'line'),
     autoScroll: hit('自动滚动', 'scroll'),
     haptics: hit('震动', 'vibrate', '通知震动'),
@@ -644,7 +645,7 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
         )}
 
         {/* 定版图口径：整页只有三张卡——外观 / 对话 / 其他；每张卡里是行，不再套卡。 */}
-        <SettingsGroup title="皮肤" note="换一套配色与气质">
+        <SettingsGroup title="皮肤与背景" note="配色、气质与本机背景图">
           <SettingsRow
             icon={<ContrastIcon />}
             title="皮肤商店"
@@ -652,19 +653,22 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
             action={<RowChevron />}
             onClick={() => { setSkinStoreOpen(true) }}
           />
+          <SettingsRow
+            icon={<ImageIcon />}
+            title="背景图"
+            desc="本机图片，垫在页面底色下面"
+            action={<><span className="settings-rowValue">{wallSet ? '已设置' : '未设置'}</span><RowChevron /></>}
+            onClick={() => { setWallSheetOpen(true) }}
+          />
         </SettingsGroup>
 
 
         <SettingsGroup title="外观" note="显示效果">
           <AppearanceSection
             onOpenAppearance={onOpenAppearance}
-            showFont={show.font}
-            showDensity={show.density}
+            showAppearance={show.appearance}
             showLineNumbers={show.lineNumbers}
-            fontScale={fontScale}
-            density={density}
             lineNumbers={lineNumbers}
-            setSheet={setSheet}
             setLineNumbersState={setLineNumbersState}
           />
         </SettingsGroup>
@@ -721,13 +725,15 @@ export function SettingsView({ onBack, onOpenAppearance }: SettingsViewProps) {
         />
       ) : null}
 
+      {wallSheetOpen ? (
+        <WallpaperSheet
+          onClose={() => { setWallSheetOpen(false); setWallSet(getWallpaper().image !== null) }}
+        />
+      ) : null}
+
       <SettingsOverlays
         sheet={sheet}
         setSheet={setSheet}
-        fontScale={fontScale}
-        density={density}
-        setFontScaleState={setFontScaleState}
-        setDensityState={setDensityState}
         versionBusy={versionBusy}
         versionStatus={versionStatus}
         handleVersionCheck={handleVersionCheck}

@@ -319,9 +319,17 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
    * 内容变短时通知聊天页（收尾折叠到 45vh、流式块被更短的 settled parse 替换）。
    * 这里只报事实（多高 → 多高、少了多少），是否回钉由 ChatView 判断：
    * 只有「缩之前就贴底」的读者才该被拉回底部，读历史的人不能被拽走。
+   *
+   * **2026-11-14 改成 ResizeObserver**：原来是 `useLayoutEffect` 里读 `offsetHeight`，
+   * 每个 markdown 块提交后各读一次 —— 读之前 DOM 刚被改过，于是每一块都触发一次
+   * **同步回流**（整个文档重新布局）。真机 4x CPU 采样：切一次会话主线程卡 611ms，
+   * 其中 743ms 采样落在 `get offsetHeight` 上（一次会话上百块正文，就是上百次回流）。
+   * ResizeObserver 由浏览器在布局结束后**批量**回调，不再有强制回流，语义不变。
+   * 老 WebView 没有 RO 时仍回退到原来的同步量法（宁可慢，也不能丢掉这条通知）。
    */
   const lastBodyHeightRef = useRef(0)
   useLayoutEffect(() => {
+    if (typeof ResizeObserver !== 'undefined') return
     const el = bodyRef.current
     if (el === null) return
     const height = el.offsetHeight
@@ -333,6 +341,25 @@ export function MarkdownText({ text, pending, forceOpen = false, highlightQuery,
       }))
     }
   }, [segments, collapsed])
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return
+    const el = bodyRef.current
+    if (el === null) return
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1]
+      if (entry === undefined) return
+      const height = Math.round(entry.contentRect.height)
+      const previous = lastBodyHeightRef.current
+      lastBodyHeightRef.current = height
+      if (previous > 0 && height < previous - 24) {
+        window.dispatchEvent(new CustomEvent('palm:content-shrunk', {
+          detail: { delta: previous - height },
+        }))
+      }
+    })
+    observer.observe(el)
+    return () => { observer.disconnect() }
+  }, [])
   /**
    * 本地 markdown 图片的**重试脉冲**。
    *
@@ -485,7 +512,13 @@ export function CollapsibleText({ text, forceOpen = false, highlightQuery }: { t
   )
 }
 
-function escapedPattern(query: string | undefined): RegExp | undefined {
+/**
+ * 搜索高亮的匹配规则（大小写不敏感、按空白拆词、长的先试）。
+ *
+ * 导出给「本地计数」用：计数和高亮必须是同一份规则，否则一个标 4 处、一个数 2 处
+ * —— 手机端「1/2 却有 4 个高亮」就是这么来的。
+ */
+export function searchTermPattern(query: string | undefined): RegExp | undefined {
   const value = query?.trim()
   if (value === undefined || value === '') return undefined
   const terms = value.split(/\s+/).filter(Boolean)
@@ -495,7 +528,7 @@ function escapedPattern(query: string | undefined): RegExp | undefined {
 
 /** Highlight only text between markup tags; fenced code/diff segments never enter here. */
 function highlightHtml(html: string, query: string | undefined): string {
-  const pattern = escapedPattern(query)
+  const pattern = searchTermPattern(query)
   if (pattern === undefined) return html
   return html.split(/(<[^>]+>)/g).map(part => part.startsWith('<')
     ? part
@@ -503,7 +536,7 @@ function highlightHtml(html: string, query: string | undefined): string {
 }
 
 export function highlightPlain(text: string, query: string | undefined): ReactNode {
-  const pattern = escapedPattern(query)
+  const pattern = searchTermPattern(query)
   if (pattern === undefined) return text
   const parts: ReactNode[] = []
   let from = 0

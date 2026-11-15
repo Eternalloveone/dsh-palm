@@ -69,8 +69,6 @@ export interface SearchIndexerDeps {
   pageSize?: number
   /** Cap on pages per session per run (a huge session resumes on the next run). */
   maxPagesPerSession?: number
-  /** Consecutive empty pages after which the older history is skipped for good. */
-  maxEmptyPagesPerSession?: number
   /** Pause between pages so the host event loop stays responsive. */
   throttleMs?: number
   /** Sessions walked concurrently. */
@@ -105,13 +103,6 @@ const DEFAULT_PAGE_SIZE = 60
 const DEFAULT_MAX_PAGES = 240
 const DEFAULT_THROTTLE_MS = 60
 const DEFAULT_CONCURRENCY = 4
-/**
- * Consecutive empty pages tolerated before a session's backward walk is declared
- * done. Tool/reasoning-only stretches are common and each history read costs ~10s
- * on big logs, so walking them to the very beginning is not worth it: the newest
- * pages are already indexed, older messages in those particular sessions are not.
- */
-const DEFAULT_MAX_EMPTY_PAGES = 8
 /** Delay before the very first background walk (let the host finish booting). */
 export const DEFAULT_START_DELAY_MS = 15_000
 /** Re-check cadence once the first pass finished. */
@@ -132,7 +123,6 @@ export class SearchIndexer {
   private readonly maxPages: number
   private readonly throttleMs: number
   private readonly concurrency: number
-  private readonly maxEmptyPages: number
   private timer: ReturnType<typeof setTimeout> | undefined
   private running = false
   private stopped = false
@@ -147,12 +137,27 @@ export class SearchIndexer {
     this.maxPages = deps.maxPagesPerSession ?? DEFAULT_MAX_PAGES
     this.throttleMs = deps.throttleMs ?? DEFAULT_THROTTLE_MS
     this.concurrency = Math.max(1, deps.concurrency ?? DEFAULT_CONCURRENCY)
-    this.maxEmptyPages = Math.max(1, deps.maxEmptyPagesPerSession ?? DEFAULT_MAX_EMPTY_PAGES)
+  }
+
+  /**
+   * 手机端按需催一轮（搜索发现索引没覆盖全时）。
+   *
+   * 不重入：一轮没跑完就不再排新一轮（否则每 2 秒一次搜索会堆出几十个并发 pass）。
+   * 每轮仍然受 `maxPages` 预算约束，所以"扫完一个长会话"是分多轮推进的 —— 客户端
+   * 在 `indexComplete=false` 期间轮询，推进到最后 `+` 会自己消失。
+   */
+  private kicking = false
+
+  kick(): void {
+    if (this.kicking) return
+    this.kicking = true
+    void this.runOnce()
+      .catch(() => undefined)
+      .finally(() => { this.kicking = false })
   }
 
   /** One full pass over the roster: prune, then sync every session that needs it. */
-  async runOnce(): Promise<SyncRunResult> {
-    const started = this.now()
+  async runOnce(): Promise<SyncRunResult> {    const started = this.now()
     const roster = await this.deps.listSessions()
     this.sessionsTotal = roster.length
     const rosterIds = new Set(roster.map(item => item.sessionId))
@@ -209,7 +214,6 @@ export class SearchIndexer {
     let beforeSeq: number | undefined = full && state !== undefined && state.oldestSeq >= 0 ? state.oldestSeq : undefined
     let complete = state?.complete === true
     let pages = 0
-    let emptyRun = 0
     let maxSeq = state?.indexedThroughSeq ?? -1
     let oldestSeq = state?.oldestSeq ?? -1
     for (; pages < this.maxPages; pages++) {
@@ -224,14 +228,10 @@ export class SearchIndexer {
         }
         const next = page.nextBeforeSeq
         if (next === undefined || (beforeSeq !== undefined && next >= beforeSeq)) break
-        emptyRun += 1
-        if (emptyRun >= this.maxEmptyPages) {
-          // 连续这么多页都没有正文：认了（更早的消息不进索引），
-          // 否则每一趟都要把它们重读一遍，永远建不完。
-          totals.truncated += 1
-          complete = true
-          break
-        }
+        // 连续空页**不是**到头：一场长会话中间可以有几十页只有工具调用/推理的事件。
+        // 之前这里连续 8 页就置 complete，水位跳到末尾、中间正文永远不会再进索引
+        // （实测 1838 个事件的会话只入了 11 条文档，搜「版本」只找到 2 条）。
+        // 现在只受页预算和 hasMore 约束：空页继续往前推，complete 只由"真正到头"置真。
         beforeSeq = next
         await sleep(this.throttleMs)
         continue
@@ -242,7 +242,6 @@ export class SearchIndexer {
         if (row.seq > maxSeq) maxSeq = row.seq
         if (row.seq < minSeq) minSeq = row.seq
       }
-      emptyRun = 0
       if (oldestSeq < 0 || minSeq < oldestSeq) oldestSeq = minSeq
       if (!page.hasMore) {
         complete = true
@@ -256,6 +255,9 @@ export class SearchIndexer {
       if (beforeSeq === undefined) break
       await sleep(this.throttleMs)
     }
+    // 页预算用尽还没走到头：如实记 truncated，complete 保持 false，
+    // 下一趟从 oldestSeq 继续往更早补（而不是把"没读完"当成"读完了"）。
+    if (pages >= this.maxPages && !complete) totals.truncated += 1
     return this.deps.index.upsertSession(
       {
         sessionId: meta.sessionId,

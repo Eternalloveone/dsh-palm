@@ -106,6 +106,8 @@ export interface TurnVerdict {
   seq?: number | undefined
   turn?: number | undefined
   startAt?: number | undefined
+  /** 换会话时用名册播种：**不算**"这一场有结论"（名单滞后，会把正在跑的会话判成收工）。 */
+  seed?: boolean | undefined
   /** 收工事件的**宿主时间**（`turn/end.time`）：判断"起点更晚才算新一轮"时用它，别拿本机时钟比。 */
   at?: number | undefined
   /**
@@ -157,6 +159,13 @@ export interface UseTurnStateOptions {
 export interface TurnStateHandle {
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   running: boolean
+  /**
+   * 这一场的 `running` 是否已有结论（宿主/帧/快照说过话）。
+   *
+   * false 时不许画交付卡：换会话首帧 running 默认 false，而账本按会话分槽、切回去就有
+   * 上一轮的卡 —— 两件事凑在一起就是"卡先出现、权威结论到了再撤"的闪现（真机 2026-11-14）。
+   */
+  verdictKnown: boolean
   /** 当前活跃轮次的轮号（turn/start 帧带回来的那一个）。 */
   runningTurn: number | undefined
   /** The running turn's logged `turn/start` event time (epoch ms), the clock anchor. */
@@ -186,6 +195,8 @@ export interface TurnStateHandle {
   hasClosedTurn: (turn: number) => boolean
   /** 原子快照通道可用（读到过至少一次带 turn 的 `mobile.sessionState`）。 */
   markSnapshotAlive: () => void
+  /** 权威尾页落地：这一场 running 有结论了（`verdictKnown` 从此为真）。 */
+  markVerdictKnown: () => void
   /** 裁决门用的即时值（回调闭包里读不到渲染期的 running）。 */
   isRunning: () => boolean
   /** 当前活跃轮号的即时值（长寿命回调里读不到渲染期的 runningTurn）。 */

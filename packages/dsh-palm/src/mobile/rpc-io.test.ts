@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 传输层 IO 注入的契约（W4-2）：**假 IO 全绿**。
  *
  * 这些用例以前只能靠 mock 全局 `fetch` 来写，每条都得记得还原；现在给一个假 IO
@@ -22,7 +22,8 @@ function hostReply(init: RequestInit, result: unknown): Promise<Response> {
   return Promise.resolve({
     ok: true,
     status: 200,
-    json: async () => ({ type: 'server-response', rpcId: rpcIdOf(init), result }),
+    text: async () => JSON.stringify({ type: 'server-response', rpcId: rpcIdOf(init), result }),
+      json: async () => ({ type: 'server-response', rpcId: rpcIdOf(init), result }),
   } as unknown as Response)
 }
 
@@ -59,7 +60,8 @@ describe('callUnary · 假 IO', () => {
       fetch: async () => ({
         ok: false,
         status: 413,
-        json: async () => ({ error: { message: 'payload exceeds 64 KiB' } }),
+        text: async () => JSON.stringify({ error: { message: 'payload exceeds 64 KiB' } }),
+          json: async () => ({ error: { message: 'payload exceeds 64 KiB' } }),
       } as unknown as Response),
     })
     await expect(callUnary('mobile.prompt', {})).rejects.toThrow('payload exceeds 64 KiB')
@@ -72,7 +74,7 @@ describe('callUnary · 假 IO', () => {
 
   it('信封不匹配（回包缺 type / rpcId 对不上）：也算传输层错误', async () => {
     setRpcIO({
-      fetch: async () => ({ ok: true, status: 200, json: async () => ({ type: 'server-response', rpcId: 'nope', result: { ok: true, value: 1 } }) } as unknown as Response),
+      fetch: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ type: 'server-response', rpcId: 'nope', result: { ok: true, value: 1 } }), json: async () => ({ type: 'server-response', rpcId: 'nope', result: { ok: true, value: 1 } }) } as unknown as Response),
     })
     await expect(callUnary('mobile.listSessions', {})).rejects.toBeInstanceOf(RpcTransportError)
   })

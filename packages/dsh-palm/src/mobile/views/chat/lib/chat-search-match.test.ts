@@ -150,6 +150,16 @@ describe('normalizeSearchHits', () => {
     expect(hits.map(hit => hit.snippet)).toEqual(['第一处', '另一段'])
   })
 
+  it('同一段里的多处命中各算一条（段内第几处进去重键，不能折成一条）', () => {
+    const hits = normalizeSearchHits([
+      { seq: 3, messageId: 'm1', partId: 'p1', snippet: '第 1 处', matchIndex: 0 },
+      { seq: 3, messageId: 'm1', partId: 'p1', snippet: '第 2 处', matchIndex: 1 },
+      { seq: 3, messageId: 'm1', partId: 'p1', snippet: '重复报回来的第 2 处', matchIndex: 1 },
+    ])
+    expect(hits.map(hit => hit.snippet)).toEqual(['第 1 处', '第 2 处'])
+    expect(hits.map(hit => hit.matchIndex)).toEqual([0, 1])
+  })
+
   it('没有 messageId 时按 seq 认同一处', () => {
     const hits = normalizeSearchHits([{ seq: 7, snippet: 'a' }, { seq: 7, snippet: 'b' }])
     expect(hits).toHaveLength(1)

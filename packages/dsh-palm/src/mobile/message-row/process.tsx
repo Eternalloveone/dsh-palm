@@ -50,11 +50,14 @@ import type { MessageBlock } from './types.ts'
  * 没有可展开的内容（没有思考、没有叙述、没有 diff 卡）时头是静态的，
  * 不假装能点开。
  */
-export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusExpand, sessionId, authority }: {
+export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focusOpen, focusExpand, sessionId, authority }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
+  /** 高亮词。过程条**永远不接**（只有用户消息与正文参与匹配），保留字段仅为兼容调用方。 */
   focusedQuery?: string
+  /** 定位到这一步：把它里面的长文展开（只影响展开，不影响高亮）。 */
+  focusOpen?: boolean
   /** 从会话内搜索跳过来：折叠的工具步骤要自动展开，命中正文才看得见。 */
   focusExpand?: boolean
   sessionId?: string
@@ -138,7 +141,7 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
         <div className="chat-proc-body">
           {stepsText !== '' && <div className="chat-proc-steps">{stepsText}</div>}
           {/* 展开体 = 单一时间轴：工具行也在里面（按事件顺序与思考/正文交错）。 */}
-          <ProcessRows message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} sessionId={sessionId} />
+          <ProcessRows message={message} model={model} showToolCalls={showToolCalls} focusedQuery={focusedQuery} focusOpen={focusOpen} sessionId={sessionId} />
         </div>
       )}
     </div>
@@ -150,6 +153,8 @@ export function ProcessGroup({ message, model, showToolCalls, focusedQuery, focu
 interface ProcessBlocksContext {
   message: RenderMessage
   focusedQuery?: string
+  /** 定位到这一步：长文自动展开（与高亮无关——过程正文永不标亮）。 */
+  focusOpen?: boolean
   sessionId?: string
 }
 
@@ -171,17 +176,18 @@ const PROCESS_BLOCK_REGISTRY: BlockRegistry<ProcessBlocksContext> = {
 /** 正文块：有步骤号的包一层 data-step-seq，会话内搜索才能滚到这一步。 */
 function renderTextBlock(block: Extract<MessageBlock, { kind: 'text' }>, ctx: ProcessBlocksContext): ReactNode {
   const body = (
-    <MarkdownText text={block.text} pending={ctx.message.pending === true} forceOpen={ctx.focusedQuery !== undefined}
+    <MarkdownText text={block.text} pending={ctx.message.pending === true} forceOpen={ctx.focusOpen === true || ctx.focusedQuery !== undefined}
       highlightQuery={ctx.focusedQuery} sessionId={ctx.sessionId} />
   )
   if (block.seq === undefined) return body
   return <div className="chat-flow-text" data-step-seq={block.seq} data-part-id={`text-${block.index}`}>{body}</div>
 }
-function ProcessRows({ message, model, showToolCalls, focusedQuery, sessionId }: {
+function ProcessRows({ message, model, showToolCalls, focusedQuery, focusOpen, sessionId }: {
   message: RenderMessage
   model: ProcessModel
   showToolCalls: boolean
   focusedQuery?: string
+  focusOpen?: boolean
   sessionId?: string
 }) {
   /** 这一轮还在跑：交付卡是收工物，运行中不画（2026-11-11 用户「运行过程中会弹出来」）。 */
@@ -200,7 +206,7 @@ function ProcessRows({ message, model, showToolCalls, focusedQuery, sessionId }:
     if (cards.length === 0 || running) return flow
     return [...flow, { kind: 'tool-group' as const, key: 'group-turn', tools: cards }]
   }, [model, showToolCalls, message.pending, message.stepSeqs, running])
-  return <BlockList blocks={blocks} registry={PROCESS_BLOCK_REGISTRY} ctx={{ message, focusedQuery, sessionId }} />
+  return <BlockList blocks={blocks} registry={PROCESS_BLOCK_REGISTRY} ctx={{ message, focusedQuery, focusOpen, sessionId }} />
 }
 
 /**

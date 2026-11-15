@@ -18,7 +18,8 @@ import { ordinarySearchSnapshot } from './search-snapshot.ts'
 /** 索引里本域用到的最小面。 */
 interface SearchIndexView {
   stats: () => { docs: number }
-  querySessionHits: (query: string, sessionId: string, limit: number) => SearchHitView[]
+  querySessionOccurrences: (query: string, sessionId: string, limit: number) => { hits: SearchHitView[]; hasMore: boolean }
+  countSessionOccurrences: (query: string, sessionId: string) => { total: number; complete: boolean }
   queryGroupsDetailed: (
     query: string,
     options: { limits: number; sessions: number; offset: number },
@@ -53,6 +54,8 @@ export interface SearchContext {
   rpcId: string
   apiProxy: unknown
   ensureSearchIndex: () => Promise<unknown>
+  /** 索引没覆盖全时催后台补扫一轮（搜索"D 版"：完整后分母去 `+`）。 */
+  kickSearchIndex?: () => void
 }
 
 /** 把一条命中展开成手机端的行字段（最佳一条与逐条命中共用）。 */
@@ -121,15 +124,20 @@ export async function mobileSearch(ctx: SearchContext): Promise<void> {
     const items: Array<Record<string, unknown>> = []
 
     if (sessionId !== undefined) {
-      // 会话内搜索：不分组，按命中顺序给位置列表（上一处/下一处靠它）。
+      // 会话内搜索：不分组，按出现位置给列表（上一处/下一处靠它）。
+      // 一个消息段里同一个词出现 8 次就是 8 处 —— 客户端按"屏幕上的高亮"导航，
+      // 按消息段计数会让计数器停在消息数上、段内其余高亮永远点不到。
       // 以前这里写死 50 条、hasMore 恒为 false：常用字在长会话里能有两三百处，
       // 客户端只看到 1/50，后面的一律点不到（真机实测某会话「的」722 处）。
-      // 现在按 CHAT_SEARCH_HITS 取、多取一条判 hasMore，如实告诉客户端「还有」。
-      const hits = index.querySessionHits(query, sessionId, CHAT_SEARCH_HITS + 1)
-      const truncated = hits.length > CHAT_SEARCH_HITS
-      const visible = truncated ? hits.slice(0, CHAT_SEARCH_HITS) : hits
+      const { hits, hasMore: truncated } = index.querySessionOccurrences(query, sessionId, CHAT_SEARCH_HITS)
+      // 全历史一共多少处 + 索引是否覆盖整个会话：客户端拿它做分层计数
+      // （屏幕上的精确数 + 未加载区"还有多少"），不再把 200 条上限当成总数。
+      const { total: matchedTotal, complete: indexComplete } = index.countSessionOccurrences(query, sessionId)
+      // D：索引没覆盖全（分母要带 +）就催一轮后台补扫。手机端在 + 期间每 2 秒重查一次，
+      // 每轮推进 maxPages 页，补到最后 complete=true，客户端把 + 去掉。
+      if (!indexComplete) ctx.kickSearchIndex?.()
       const tookMs = Math.round((performance.now() - started) * 10) / 10
-      for (const hit of visible) {
+      for (const hit of hits) {
         items.push({
           kind: 'message',
           sessionId: hit.sessionId,
@@ -139,7 +147,7 @@ export async function mobileSearch(ctx: SearchContext): Promise<void> {
       writeJson(res, 200, {
         type: 'server-response',
         rpcId,
-        result: { ok: true, value: { items, total: items.length, hasMore: truncated, tookMs, source: 'index' } },
+        result: { ok: true, value: { items, total: items.length, hasMore: truncated, matchedTotal, indexComplete, tookMs, source: 'index' } },
       })
       return
     }

@@ -114,8 +114,16 @@ describe('long tasks, suspension and the capture envelope', () => {
     let deliver: ((list: { getEntries: () => PerformanceEntry[] }) => void) | undefined
     const observe = vi.fn()
     class FakeObserver {
-      constructor(callback: (list: { getEntries: () => PerformanceEntry[] }) => void) { deliver = callback }
-      observe(init: unknown): void { observe(init) }
+      constructor(callback: (list: { getEntries: () => PerformanceEntry[] }) => void) { this.callback = callback }
+      private readonly callback: (list: { getEntries: () => PerformanceEntry[] }) => void
+      observe(init: unknown): void {
+        observe(init)
+        // 现在装了两种观察者（longtask + long-animation-frame）：只有 longtask 那份
+        // 才是这个用例要喂数据的，别被后装的覆盖掉（2026-11-15 加 LoAF 时踩过）。
+        const record = init as { entryTypes?: unknown; type?: unknown }
+        const kinds = Array.isArray(record.entryTypes) ? record.entryTypes : [record.type]
+        if (kinds.includes('longtask')) deliver = this.callback
+      }
     }
     vi.stubGlobal('PerformanceObserver', FakeObserver)
     localStorage.setItem(KEY, '1')

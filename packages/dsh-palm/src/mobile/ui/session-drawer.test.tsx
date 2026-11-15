@@ -139,25 +139,43 @@ describe('会话抽屉', () => {
     expect(screen.queryByText('本机工作区')).toBeNull()
   })
 
-  it('「任务」行只在有任务时画，且在工具卡片最前面', () => {
-    // 2026-11-11 用户：任务和设置对调；没有任务时整行不出现，不白占 46px。
-    const { actions } = renderDrawer()
-    expect(screen.queryByRole('button', { name: /^任务/ })).toBeNull()
-    cleanup()
-    renderDrawer({ taskLabel: '3 在跑 · 1 刚完成', onOpenTasks: () => { actions.push('tasks') } })
+  it('「任务」行固定在最前面：空闲也画，小字兜底「空闲」', () => {
+    // 2026-11-14 用户：「任务这一栏要固定显示出来，而不是有任务跑才显示」。
+    // 以前空闲时整行不画，入口时有时无 —— 想回看刚完成的活时连点进去的地方都没有。
+    const { actions } = renderDrawer({ onOpenTasks: () => { actions.push('tasks') } })
     const tools = [...document.querySelectorAll('.palm-drawer-tool')]
     expect(tools).toHaveLength(3)
-    expect(tools[0]!.querySelector('span')!.textContent).toBe('任务')
-    expect(tools[0]!.querySelector('small')!.textContent).toBe('3 在跑 · 1 刚完成')
+    // 图标外面多包了一层 `span.skin-icon`（2026-11-14 皮肤换图标），取文案要跳过外壳。
+    expect(tools[0]!.querySelector('span:not(.skin-icon)')!.textContent).toBe('任务')
+    expect(tools[0]!.querySelector('small')!.textContent).toBe('空闲')
     fireEvent.click(tools[0]!)
     expect(actions).toEqual(['tasks'])
+    cleanup()
+    // 有任务时小字换成计数，行仍在同一位置（不因有无任务改变版式）。
+    renderDrawer({ taskLabel: '3 在跑 · 1 刚完成', onOpenTasks: () => {} })
+    const again = [...document.querySelectorAll('.palm-drawer-tool')]
+    expect(again).toHaveLength(3)
+    expect(again[0]!.querySelector('small')!.textContent).toBe('3 在跑 · 1 刚完成')
+  })
+
+  it('「用量」行的小字显示当前模型那家的数字，查不到才退回「余额」', () => {
+    // 2026-11-14 用户：「显示当前模型所在的 coding plan 或者 api 接口的具体余额/用量数字」。
+    // 按文案找那一行（「任务」行有没有画要看 onOpenTasks），别按下标赌顺序。
+    const usageTool = (): Element => [...document.querySelectorAll('.palm-drawer-tool')]
+      .find(tool => tool.querySelector('span:not(.skin-icon)')?.textContent === '用量')!
+    renderDrawer({ usageLabel: '本周已用 32%' })
+    expect(usageTool().querySelector('small')!.textContent).toBe('本周已用 32%')
+    cleanup()
+    // undefined = 还没查到 / 查不了：保持原来那两个字，不做占位闪烁。
+    renderDrawer({})
+    expect(usageTool().querySelector('small')!.textContent).toBe('余额')
   })
 
   it('工具卡片顺序：任务 → 用量 → 设置（信息在上、配置沉底）', () => {
     // 2026-11-12 用户：「设置和用量要不要调换」——换成信息类在前、配置最后一行。
     renderDrawer({ taskLabel: '1 在跑', onOpenTasks: () => {} })
     const labels = [...document.querySelectorAll('.palm-drawer-tool')]
-      .map(tool => tool.querySelector('span')?.textContent)
+      .map(tool => tool.querySelector('span:not(.skin-icon)')?.textContent)
     expect(labels).toEqual(['任务', '用量', '设置'])
   })
 
@@ -196,6 +214,15 @@ describe('会话抽屉', () => {
     expect(second.actions).toEqual(['switch'])
   })
 
+  it('点头像开外观面板；点工作区名才切工作区（2026-11-14 拆分）', () => {
+    const first = renderDrawer({ workspaceCount: 2, onOpenAppearance: () => { first.actions.push('appearance') } })
+    fireEvent.click(screen.getByRole('button', { name: '外观：换皮肤和背景图' }))
+    expect(first.actions).toEqual(['appearance'])
+    cleanup()
+    const second = renderDrawer({ workspaceCount: 2, onSwitchWorkspace: () => { second.actions.push('switch') } })
+    fireEvent.click(screen.getByRole('button', { name: '切换工作区' }))
+    expect(second.actions).toEqual(['switch'])
+  })
   it('搜索入口的文案是「搜索会话和消息」：抽屉是唯一导航', () => {
     renderDrawer()
     expect(screen.getByRole('button', { name: /搜索会话和消息/ })).toBeTruthy()

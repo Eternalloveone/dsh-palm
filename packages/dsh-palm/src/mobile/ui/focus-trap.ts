@@ -66,6 +66,21 @@ const TEXTUAL_SELECTOR = [
  * @returns 要聚焦的元素（没有可聚焦控件时返回 undefined）
  */
 export function initialFocusWithin(container: HTMLElement): HTMLElement | undefined {
+  /*
+   * 先只问「第一个可聚焦元素是谁」（`querySelector` 命中即停），**不要**一上来就
+   * `querySelectorAll` 全扫再逐项 `matches()`。
+   *
+   * 2026-11-14 实测（会话抽屉，30+ 行、每行 li + button）：全扫加逐项 `matches()` 在
+   * 降频到 4 倍的机器上要几十毫秒，而它正好发生在「抽屉刚插进 DOM 的那一帧」——那一帧
+   * 本来就在做样式计算和布局，再叠一次全树查询，打开抽屉就成了 0.5 秒的冻屏
+   * （CDP 采样：`focus` 32ms + `querySelectorAll` 连带的重排）。手机上只会更贵。
+   *
+   * 语义与原来完全一致：第一个不弹键盘的直接用；第一个就是输入框时才退回全扫（得看
+   * 后面有没有按钮可选）；面板里全是输入框时仍然聚焦第一个。
+   */
+  const first = container.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+  if (first === null) return undefined
+  if (!first.matches(TEXTUAL_SELECTOR)) return first
   const items = focusableWithin(container)
   return items.find(item => !item.matches(TEXTUAL_SELECTOR)) ?? items[0]
 }
@@ -85,13 +100,17 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>): void 
     if (container === null) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
 
-    const first = initialFocusWithin(container)
-    if (first !== undefined) {
-      focusWithoutScroll(first)
-    } else {
+    /*
+     * 聚焦放到下一帧。2026-11-15 端到端采样（开抽屉，4× 降频）：`focus` 单次 self time
+     * 42~52ms，同步跑在「抽屉刚插进 DOM」那一帧里（那帧本来就在算样式和布局），
+     * 把「手指按下 → 界面有反应」拖到 215~253ms。挪一帧语义不变，但不再挡首帧。
+     */
+    const frame = requestAnimationFrame(() => {
+      const first = initialFocusWithin(container)
+      if (first !== undefined) { focusWithoutScroll(first); return }
       container.setAttribute('tabindex', '-1')
       focusWithoutScroll(container)
-    }
+    })
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Tab') return
@@ -111,6 +130,7 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>): void 
 
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
+      cancelAnimationFrame(frame)
       document.removeEventListener('keydown', onKeyDown, true)
       // 归还焦点同样不要滚动：浮层关掉时把焦点还给触发按钮，若它此刻在视口外，
       // 浏览器又会替我们滚一次，效果和打开时一样糟。

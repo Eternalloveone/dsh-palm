@@ -124,6 +124,111 @@ export interface LongTaskRecord {
   ms: number
   /** True when the task BEGAN inside a hidden window — see isSuspended(). */
   suspended: boolean
+  /** 这个长任务期间正在跑的重活（`name:ms`）。真机上报里最长那个 1905ms 就是靠它定位。 */
+  during?: string[]
+}
+
+/**
+ * 「重活区间环」：给长任务做归因。
+ *
+ * 2026-11-15 真机：11~12 个长任务、最长 1905ms，而同一段 `marks` 只有 1 条 commit ——
+ * 说明那 1.9 秒不是渲染，是别的东西在主线程上跑。光有时长没法定位，所以让重活入口
+ * 自己报区间，长任务发生时把落在它时间窗里的条目一起带上。
+ */
+const spanRing: Array<{ name: string; from: number; to: number }> = []
+const SPAN_RING_CAP = 96
+
+/** 长动画帧（LoAF）环形记录：把一帧拆成脚本 / 样式布局 / 渲染。 */
+interface LongFrameRecord {
+  /** 帧开始的 performance.now()。 */
+  at: number
+  /** 帧总时长。 */
+  ms: number
+  /** 脚本执行部分（毫秒）。 */
+  script: number
+  /** 样式计算 + 布局部分（毫秒）。 */
+  style: number
+  /** 绘制 + 合成部分（毫秒）。 */
+  render: number
+  /** 触发本帧的脚本（url 文件名|函数名|耗时），最多 4 条。 */
+  sources: string[]
+}
+const loafFrames: LongFrameRecord[] = []
+const LONG_FRAME_RING_CAP = 32
+let longFrameObserver: PerformanceObserver | undefined
+
+/**
+ * 观察长动画帧（Chrome 123+ 的 LoAF）。
+ *
+ * 浏览器不给这条 API 时静默跳过 —— 老内核上 `longFrames` 保持空数组，
+ * 其余插桩照常工作。
+ */
+function installLongFrameObserver(): void {
+  if (longFrameObserver !== undefined) return
+  const Observer = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
+  if (Observer === undefined) return
+  try {
+    const observer = new Observer((list) => {
+      for (const entry of list.getEntries()) {
+        const frame = entry as PerformanceEntry & {
+          renderStart?: number
+          styleAndLayoutStart?: number
+          scripts?: Array<{ invoker?: string; sourceURL?: string; functionName?: string; duration?: number }>
+        }
+        const start = entry.startTime
+        const end = start + entry.duration
+        const styleStart = frame.styleAndLayoutStart ?? end
+        const renderStart = frame.renderStart ?? styleStart
+        loafFrames.unshift({
+          at: Math.round(start),
+          ms: Math.round(entry.duration),
+          script: Math.round(renderStart - start),
+          style: Math.round(styleStart - renderStart),
+          render: Math.round(end - styleStart),
+          sources: (frame.scripts ?? []).slice(0, 4).map((s) => {
+            const file = (s.sourceURL ?? '').split('/').pop() ?? ''
+            return `${s.functionName !== undefined && s.functionName !== '' ? s.functionName : (s.invoker ?? '?')}@${file}:${Math.round(s.duration ?? 0)}`
+          }),
+        })
+      }
+      if (loafFrames.length > LONG_FRAME_RING_CAP) loafFrames.length = LONG_FRAME_RING_CAP
+    })
+    observer.observe({ type: 'long-animation-frame', buffered: true } as PerformanceObserverInit)
+    longFrameObserver = observer
+  } catch {
+    // 老内核不认这个 entryType：保持空数组，不影响其他插桩。
+    longFrameObserver = undefined
+  }
+}
+
+/**
+ * 标记一段重活的开始；返回的函数用于收尾。
+ *
+ * 未启用插桩时是空操作（返回一个空函数），所以调用点可以无条件包一层。
+ *
+ * @param name - 区间名（会原样出现在真机上报里，写成能直接读懂的样子）
+ * @returns 收尾函数
+ */
+export function beginSpan(name: string): () => void {
+  if (!armed()) return () => {}
+  const from = performance.now()
+  return () => {
+    spanRing.push({ name, from, to: performance.now() })
+    if (spanRing.length > SPAN_RING_CAP) spanRing.shift()
+  }
+}
+
+/**
+ * 记录一段**已经知道耗时**的重活（例如 React `Profiler` 的 `actualDuration`）。
+ *
+ * @param name - 区间名
+ * @param ms - 耗时（毫秒）
+ */
+export function recordSpan(name: string, ms: number): void {
+  if (!armed()) return
+  const now = performance.now()
+  spanRing.push({ name, from: now - ms, to: now })
+  if (spanRing.length > SPAN_RING_CAP) spanRing.shift()
 }
 
 const longTasks: LongTaskRecord[] = []
@@ -180,7 +285,18 @@ function installLongTaskObserver(): void {
   try {
     const observer = new Observer((list) => {
       for (const entry of list.getEntries()) {
-        longTasks.unshift({ at: entry.startTime, ms: entry.duration, suspended: isSuspended(entry.startTime) })
+        const from = entry.startTime
+        const to = from + entry.duration
+        // 时间窗相交即算「这段时间在跑」：长任务期间的重活就是它的嫌疑人。
+        const during = spanRing
+          .filter((s) => s.to > from && s.from < to)
+          .map((s) => `${s.name}:${Math.round(s.to - s.from)}`)
+        longTasks.unshift({
+          at: entry.startTime,
+          ms: entry.duration,
+          suspended: isSuspended(entry.startTime),
+          ...(during.length === 0 ? {} : { during }),
+        })
       }
       if (longTasks.length > LONG_TASK_RING_CAP) longTasks.length = LONG_TASK_RING_CAP
     })
@@ -205,6 +321,7 @@ export function startPerfSampler(): void {
   samplerRunning = true
   installVisibilityTracking()
   installLongTaskObserver()
+  installLongFrameObserver()
   const tick = (now: number): void => {
     if (!armed()) { samplerRunning = false; return }
     if (lastRaf !== 0) {
@@ -230,6 +347,8 @@ export interface PerfSnapshot {
   spansMs: { state: number[]; commit: number[] }
   /** Long tasks (>50ms), newest first, hidden-window artifacts flagged. */
   longTasks: LongTaskRecord[]
+  /** 长动画帧（LoAF）：把一帧拆成脚本 / 样式布局 / 绘制三段，Chrome 123+ 才有。 */
+  longFrames: LongFrameRecord[]
   /** Wall time spent hidden — the interval rAF sampling cannot see. */
   suspension: { hiddenMs: number; hiddenCount: number }
   /** The always-on error ring: errors.ts is NOT gated by this switch. */
@@ -280,6 +399,15 @@ export function perfSnapshot(): PerfSnapshot {
       commit: spansFor('commit'),
     },
     longTasks: [...longTasks],
+    /**
+     * 长**动画帧**（Chrome LoAF，123+）。这是唯一能把「那 1.3 秒」拆开的信号：
+     * `script` = 脚本耗时、`style` = 样式+布局耗时、`render` = 绘制+合成耗时，
+     * 并且自带触发脚本的 URL / 函数名。
+     *
+     * 2026-11-15 真机上 longtask 只给了时长，RPC 解析(2ms)、渲染(0ms)、缓存(20ms) 全排除后，
+     * 剩下的只能靠这个 API 分辨「是脚本还是浏览器排版」。
+     */
+    longFrames: [...loafFrames],
     suspension: { hiddenMs: Math.round(hiddenMs), hiddenCount },
     errors: errorStats(),
     storage: storageInfo(),

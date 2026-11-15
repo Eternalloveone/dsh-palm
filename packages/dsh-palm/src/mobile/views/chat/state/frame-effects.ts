@@ -14,6 +14,7 @@ import { parsePermissionSelect, type PermissionSelectValue } from '../../../comp
 import type { MobileGoal } from '../../../session/goal-projection.ts'
 import type { StatusEvent } from '../../../stream/session-status.ts'
 import { toast } from '../../../components/toast.tsx'
+import { beginSpan } from '../../../platform/perf.ts'
 import { consumeInsertMessage, noteInsertTurnStart } from '../../../stream/session-store.ts'
 import type { TurnVerdict } from './stream-state.ts'
 
@@ -104,8 +105,21 @@ export interface FrameContext {
 /**
  * 帧入口：与帧类型无关的几件事先做（慢消费者兜底、宿主时钟校准、链路恢复），再分派。
  * 顺序敏感：slow-consumer 在时钟校准与 `clearHostLost` **之前**（原实现如此）。
+ *
+ * 外面包一层区间记账：真机上那批 1.5~2.2 秒的长任务既不在 RPC 解析也不在缓存写里
+ * （`during` 为空），而同一段时间 `marks` 里成簇出现 `recv`（session/projection）——
+ * 帧处理是下一个该被点名的地方。
  */
 export function dispatchFrame(ctx: FrameContext, frame: MuxFrame, frameRpcId?: string): void {
+  const endSpan = beginSpan(`frame:${frame.type}`)
+  try {
+    dispatchFrameInner(ctx, frame, frameRpcId)
+  } finally {
+    endSpan()
+  }
+}
+
+function dispatchFrameInner(ctx: FrameContext, frame: MuxFrame, frameRpcId?: string): void {
   // The host dropped frames for this subscriber (its queue hit the byte
   // cap on a slow tunnel). One synthetic frame per drop window; the only
   // recovery is a fresh tail read — the dropped frames are gone.

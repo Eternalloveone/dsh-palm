@@ -204,6 +204,8 @@ interface SearchResponse {
       hasMore: boolean
       nextOffset?: number
       tookMs: number
+      matchedTotal?: number
+      indexComplete?: boolean
       fallback?: boolean
       source?: string
     }
@@ -322,6 +324,30 @@ describe('端到端：手机搜索（真 HTTP + 真门禁 + 自建索引）', ()
     // 用户消息（seq 1）排在助手消息（seq 2）前面；seq 就是客户端定位用的锚。
     expect(value.items.map(item => item.seq)).toEqual([1, 2])
     expect(value.hasMore).toBe(false)
+  })
+
+  it('会话内同一段出现多次时，按「处」回（计数与屏幕上的高亮一一对应）', async () => {
+    const multi: SeedSession[] = [{
+      sessionId: 's-multi',
+      title: '多处命中',
+      updatedAt: 1_700_000_500_000,
+      messages: [
+        { role: 'user', text: '支付 先看支付流程' },
+        { role: 'assistant', text: '再看支付回执' },
+      ],
+    }]
+    harness = await startHarness(multi)
+    const value = await search({ query: '支付', sessionId: 's-multi' })
+    const items = value.items as Array<Record<string, unknown>>
+    expect(items).toHaveLength(3)
+    // 同一段的 3 处各占一条，seq 相同、段内序号 0→2；客户端的"上一处/下一处"才有得走。
+    expect(items.map(item => item.seq)).toEqual([1, 1, 2])
+    expect(items.map(item => item.matchIndex)).toEqual([0, 1, 0])
+    expect(items.every(item => item.sessionId === 's-multi')).toBe(true)
+    expect(value.hasMore).toBe(false)
+    // C 版：全历史一共 3 处（与命中列表一一对应），会话已索引到头 → 客户端可显示精确分母。
+    expect(value.matchedTotal).toBe(3)
+    expect(value.indexComplete).toBe(true)
   })
 
   it('标题命中排前，且不会把会话的每条消息都带出来', async () => {

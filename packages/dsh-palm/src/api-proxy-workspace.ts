@@ -18,6 +18,15 @@ import type { WorkspaceView as OldWorkspaceView, SessionId } from './api-proxy-t
 export interface WorkspaceListValue {
   items: OldWorkspaceView[]
   archivedSessionIds: SessionId[]
+  /**
+   * 归档集**最后一次变化**的时刻（0 = 还没收到 baseline，此刻的值不可信）。
+   *
+   * 存在的理由：这份归档集是**活的**（`workspace.follow` 一路增量维护），而手机端
+   * 的花名册快照只在下一次全量枚举时才抄一份。带上变化时刻，读列表的人就能判断
+   * "活值比快照新"，不必再等那一分钟（见 `host/session-roster.ts` 的
+   * `readLiveArchivedIds`）。
+   */
+  archivedChangedAt: number
 }
 
 /**
@@ -26,6 +35,8 @@ export interface WorkspaceListValue {
 export class WorkspaceListAdapter {
   private items: OldWorkspaceView[] = []
   private archivedSessionIds: SessionId[] = []
+  /** 归档集最后一次变化的时刻（0 = 还没 baseline）。 */
+  private archivedChangedAt = 0
   private started = false
   private controller: AbortController | undefined
 
@@ -39,7 +50,11 @@ export class WorkspaceListAdapter {
       void this.watch(this.controller.signal)
     }
     signal?.throwIfAborted()
-    return { items: this.items, archivedSessionIds: this.archivedSessionIds }
+    return {
+      items: this.items,
+      archivedSessionIds: this.archivedSessionIds,
+      archivedChangedAt: this.archivedChangedAt,
+    }
   }
 
   /** 后台消费 follow 流，更新缓存。 */
@@ -50,6 +65,8 @@ export class WorkspaceListAdapter {
         if (frame.type === 'baseline') {
           this.items = frame.value.items.map(toOldWorkspaceView)
           this.archivedSessionIds = [...frame.value.archivedSessionIds]
+          // 严格递增：同一毫秒内又来一帧，时间戳若相等，读方会以为「活值没比快照新」而继续用旧快照。
+          this.archivedChangedAt = Math.max(Date.now(), this.archivedChangedAt + 1)
         } else if (frame.type === 'upsert') {
           const view = toOldWorkspaceView(frame.workspace)
           const index = this.items.findIndex(item => item.workspaceId === view.workspaceId)
@@ -64,6 +81,7 @@ export class WorkspaceListAdapter {
             .filter((item): item is OldWorkspaceView => item !== undefined)
         } else if (frame.type === 'archived') {
           this.archivedSessionIds = [...frame.archivedSessionIds]
+          this.archivedChangedAt = Math.max(Date.now(), this.archivedChangedAt + 1)
         }
       }
     } catch {

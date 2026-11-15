@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 聊天页正文的**本地缓存**：刷新/重进时先画上次看到的内容。
  *
  * 为什么需要（用户原话，2026-11-01）："我的核心原则之一是让用户所见即所得，
@@ -25,6 +25,7 @@ export interface CachedRow {
 
 // 字节裁剪的算法在 Cache 内核里（W4）——这条只是借用它的"丢头保尾 + 下限"。
 import { fitByteBudget } from '../kernels/cache.ts'
+import { beginSpan } from '../platform/perf.ts'
 
 const PREFIX = 'dsh-palm.chat-cache.v1.'
 const INDEX_KEY = 'dsh-palm.chat-cache.v1.index'
@@ -96,6 +97,17 @@ function touchIndex(sessionId: string, at: number): void {
 
 /** 存一页渲染行（调用方给的就是屏幕上正在显示的行）。 */
 export function saveChatCache(sessionId: string, rows: readonly CachedRow[], now: number = Date.now()): void {
+  // 同步 localStorage + 最多 10 次序列化（fitByteBudget 反复 encode）：给它一个区间，
+  // 好让真机上的长任务能归因到「缓存写」而不是继续当黑盒。
+  const endSpan = beginSpan('cache:save')
+  try {
+    saveChatCacheInner(sessionId, rows, now)
+  } finally {
+    endSpan()
+  }
+}
+
+function saveChatCacheInner(sessionId: string, rows: readonly CachedRow[], now: number): void {
   const store = storage()
   if (sessionId === '' || store === undefined) return
   // 猜出来的卡不存：内容可能不全，存了下次会"对不上"

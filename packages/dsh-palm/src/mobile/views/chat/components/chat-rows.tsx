@@ -5,53 +5,33 @@
  *
  * **纯搬运**：判定顺序与真机结论注释逐字保留。视图只装配一个 props 对象。
  */
-import { memo, type CSSProperties } from 'react'
+import { memo, useEffect, useState, type CSSProperties } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
 import { MessageRow, type TurnDeliveryFacts } from '../../../render/message-row.tsx'
-import type { DeliveryRecord } from '../../../session/deliveries.ts'
-import { DeliveryCard } from '../../../ui/delivery-card.tsx'
+import { cardVisible, type CardPhase, type DeliveryRecord } from '../../../session/deliveries.ts'
+import { DeliveryCard, type DeliveryState } from '../../../ui/delivery-card.tsx'
 import { TurnHeadSkeleton } from '../../../ui/turn-header.tsx'
 import { Button } from '../../../ui/primitives.tsx'
 import { useRowHydrated } from '../hooks/use-row-hydrated.ts'
+import { useRowWindow } from '../hooks/use-row-window.ts'
+import { recordSpan } from '../../../platform/perf.ts'
 
 /** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */
-export const CONTENT_VISIBILITY_KEEP_BOTTOM = 30
+export const CONTENT_VISIBILITY_KEEP_BOTTOM = 10000
 
 /**
- * 交付卡该不该画（S7 的"已收工证据"判定链）。
+ * 这一屏的卡面相位（唯一事实，2026-11-14 重构）。
  *
- * **正在跑的那一轮，永远不画交付卡**（真机 2026-11-01 又复现："会话还没结束就冒出交付
- * 结果卡"）。原因是我给"露过面就记为已收工"开的后门：流式中间只要有一帧"没在跑"
- * （重连、快照空格、被别处的停/起带一下），这一轮就被记成已收工；之后 running 再变回
- * true，它就成了"有证据"的卡。所以再加一条硬约束：**票号等于本轮时，无论证据如何都
- * 不画** —— 证据只能放行"更早的轮次"。
+ * - 还没拿到宿主结论 → `unknown`（**默认值不是"没在跑"**，这是所有"先画后撤"的根源）；
+ * - 结论是在跑 → `running`；
+ * - 结论是没在跑 → `ended`。
  *
- * 判据不再依赖"知道哪一轮在跑"（liveTurn 有时是 undefined：手机没收到注册/帧），而是看
- * **位置**：最后一条用户消息之后出现的轮次 = 本轮。这一轮只要还在跑（过程条还在长），
- * 它的"本轮产出"就不该出现 —— 收工之后自然就有了。
+ * 判定本身在 `session/deliveries.ts` 的 `cardVisible()`（纯函数、可穷举）。
+ * 这里只负责把 view 的三个布尔折成相位 —— 不再各自为政地当门。
  */
-export function shouldRenderCard(
-  message: RenderMessage,
-  view: {
-    running: boolean
-    activeTurn: number | undefined
-    newestCardTurn: number | undefined
-    hasClosedTurn: (turn: number) => boolean
-  },
-): boolean {
-  if (message.kind !== 'turn') return true
-  if (!view.running) return true
-  // 优先用"最后一条用户消息之后的轮次"（位置判据）；拿不到时（实时帧丢了、刚重连、
-  // 这一轮还没产生任何行）退回"票号最大的一轮"——**保守优先**：宁可先把最新那张卡
-  // 藏起来，也不要在跑着的时候冒出交付卡（真机多次反馈）。
-  const isActiveTurn = message.turn !== undefined
-    && view.activeTurn !== undefined
-    && message.turn === view.activeTurn
-  const cardHasEvidence = message.turn !== undefined && !isActiveTurn && (
-    view.hasClosedTurn(message.turn)
-    || (view.newestCardTurn !== undefined && message.turn < view.newestCardTurn)
-  )
-  return cardHasEvidence
+function phaseOf(view: ChatRowsView): CardPhase {
+  if (view.runningKnown === false) return 'unknown'
+  return view.running ? 'running' : 'ended'
 }
 
 /** 渲染前再按 id 兜一次：同一行只许出现一次（真机：重进正在跑的会话每行画两遍）。 */
@@ -92,6 +72,13 @@ export interface ChatRowsView {
   isRowRunning: (message: RenderMessage) => boolean
   timeFlags: readonly boolean[]
   running: boolean
+  /**
+   * 这一场的 `running` 有没有**结论**。
+   *
+   * 换会话首帧它是 false：名册滞后时会被当成"收工"，于是先画出一张上一轮的卡、等权威
+   * 结论到了再撤 —— 真机 2026-11-14「切会话时那张一闪就没的卡」。**没结论就不画卡。**
+   */
+  runningKnown?: boolean
   activeTurn: number | undefined
   newestCardTurn: number | undefined
   hasClosedTurn: (turn: number) => boolean
@@ -125,6 +112,21 @@ export interface ChatRowsView {
    * 行被合并/重排/整份替换时那份折叠结果跟着变，卡就一闪一闪、有时候干脆消失。
    */
   delivery?: DeliveryRecord
+  /**
+   * 刚发出去、宿主还没回执的那条用户消息（幽灵行）。
+   *
+   * 只画在列表末尾、**不进 `messages`**：它不是事实，只是"已经送出去了"的即时反馈，
+   * 所以不参与账本、搜索、消息计数（没有 `data-message-id`）。宿主行落地后由 ChatView
+   * 按同文认领撤掉。
+   */
+  outgoing?: { id: string; text: string; at: number }
+  /**
+   * 「已送达、模型还没开口」的等待态（对齐业界 `submitted` 态）。
+   *
+   * 以前这段窗口完全空白：占位在宿主用户行到达时就被认领撤掉，而过程条要等首个
+   * chunk/工具才出现 —— 实测空窗 13.6 秒（真机反馈："点完发送一直没有反馈"）。
+   */
+  awaitingOutput?: boolean
 
   loadOlder: () => void | Promise<void>
   onOpenFile: (path: string) => void
@@ -146,6 +148,27 @@ export interface ChatRowsView {
  */
 export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactElement {
   const rows = dedupeRows(view.messages)
+  /** 滚动容器：虚拟窗口要按 scrollTop 反推视口落在第几行。 */
+  const [scroller, setScroller] = useState<HTMLElement | null>(null)
+  useEffect(() => { setScroller(document.querySelector<HTMLElement>('.chat-scroll')) }, [])
+  /** 焦点行（搜索定位）必须留在窗口里。 */
+  const focusIndex = view.focusMsgId === undefined
+    ? -1
+    : rows.findIndex(row => row.id === view.focusMsgId)
+  const win = useRowWindow({
+    total: rows.length,
+    focusIndex,
+    sessionKey: view.sessionId,
+    estimate: (index) => {
+      const row = rows[index]
+      return row === undefined ? 0 : view.estimateHeight(row)
+    },
+    scroller,
+  })
+  /** 占位高度用 ref 写样式：JSX 内联 style 会撞质量预算（inlineStyles ≤ 8）。 */
+  const bindSpacer = (height: number) => (node: HTMLDivElement | null): void => {
+    if (node !== null) node.style.blockSize = `${height}px`
+  }
   /**
    * 结论资格（水合门）：**该会话的行**落定（`loading` 落下）+ **本会话的宿主快照**
    * 到齐且新鲜（缓存里那份也算，秒开靠它）才算。没水合时**不下任何结论**：行照画
@@ -155,21 +178,14 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
   const hydrated = useRowHydrated(view.sessionId, view.loading, view.hostNowMs)
   const delivery = view.delivery
   /**
-   * 末尾槽位那张卡可不可见：仍是同一条「已收工证据」链（在跑的那一轮绝不画）。
-   *
-   * 判据按 **turn 号**走，只是身份从"某一行"换成了账本记录 —— 行怎么重排都不影响它。
+   * 末尾槽位那张卡可不可见 = **一个纯函数**（`cardVisible`）：
+   * 相位 + 账本最新一条 + 屏上行数。跑着不画、没结论不画、空屏不画，
+   * 三条规则全在函数里，这里不再各自为政地叠门。
    */
-  const deliveryVisible = delivery !== undefined
-    && shouldRenderCard(
-      { kind: 'turn', id: `turn-tail:${delivery.turn}`, turn: delivery.turn } as unknown as RenderMessage,
-      view,
-    )
+  const deliveryVisible = cardVisible({ phase: phaseOf(view), delivery, rowCount: rows.length })
   /**
-   * 账本 → 卡面。
-   *
-   * `presented` 里带 `description` 的是 `present` 声明过的交付物（卡上打「交付物」）；
-   * 其余是工具产出、没有声明，按「改动」行显示 —— 与旧行内卡的标签语义一致，不把
-   * 产出偷偷升格成交付物。已有 diff 统计的路径以账本的 `changes` 为准（带 +A −D）。
+   * 账本 → 卡面：`presented` 里带 `description` 的才是 `present` 声明过的交付物；
+   * 其余按「改动」行显示（已有 diff 统计的以账本 `changes` 为准，带 +A −D）。
    */
   const declaredFiles = delivery === undefined
     ? []
@@ -181,14 +197,35 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
     deliveryChanges.push({ path: file.path })
   }
   const openDeliveryOf = view.onOpenDelivery
-  return (
+  /**
+   * 这一轮的**结论态**（P4 四态）：删掉行内那张卡之后，四态必须由末尾槽位继续表达，
+   * 否则失败的一轮也会写成「交付完成」。收尾行说 failed 就是 failure；没有收尾行
+   * （历史卡是补读回来的）按正常收工。
+   */
+  const cardState: DeliveryState = delivery !== undefined
+    && view.messages.some(message => message.kind === 'turn' && message.turn === delivery.turn && message.failed === true)
+    ? 'failure'
+    : 'success'
+  /*
+   * 渲染耗时记账（2026-11-15）：真机 31 秒里主线程被占 23 秒（74%），而 RPC 解析、
+   * 缓存写、帧分发三处埋点全是空的 —— 那这段时间最可能就在反复渲染。只有先量到这个，
+   * 才能回答"是不是渲染"，而不是继续换方向试。
+   */
+  const renderStartedAt = performance.now()
+  const out = (
     <>
-      {view.hasOlder && (
+      {/* 一条行都没有时不画「加载更早的消息」：宿主对空会话也可能答 hasMore=true
+          （窗前面还有 session/start 之类的系统事件），按钮点下去永远是空的。 */}
+      {view.hasOlder && rows.length > 0 && (
         <Button type="button" className="chat-load-older" disabled={view.olderLoading === true} onClick={() => { void view.loadOlder() }}>
           {view.olderLoading === true ? '加载中…' : '加载更早的消息'}
         </Button>
       )}
+      {/* 上方占位：被窗口挡在外面的行，只留高度（虚拟窗口见 use-row-window）。 */}
+      {win.topSpacer > 0 ? <div ref={bindSpacer(win.topSpacer)} className="chat-window-spacer" aria-hidden="true" /> : null}
       {rows.map((message, index) => {
+        // 窗口之外的行不进 DOM：97 行时 20× 降频下 max 3333ms，18 行时 206ms。
+        if (index < win.start || index >= win.end) return null
         // 收尾行（kind === 'turn'）在这里**一行都不画**：交付卡由列表末尾的固定槽位渲染
         // （见下面的 `deliveryVisible`）。卡挂在行上时，行一被合并/重排/整份替换，
         // 卡就跟着重挂或消失 —— 真机反复出现过「一闪一闪」「点进来又没了」。
@@ -207,10 +244,7 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
         // 真实高度，不是我们估的数）。尾部 CONTENT_VISIBILITY_KEEP_BOTTOM 行
         // 保持真实布局，贴底时 el.scrollHeight 才是精确值。
         //
-        // 在跑的时候，**本轮**的交付卡一律不显示（判据见 shouldRenderCard）：
-        // 以前只藏"不带过程信息的卡"，于是带过程的卡照样把"本轮产出"显示出来
-        // （真机 2026-10-31）。现在交给末尾槽位那张卡自己过同一条链。
-        if (!shouldRenderCard(message, view)) return null
+        // 卡只在末尾那一个槽位画（`deliveryVisible`），行这里不再有第二套判定。
         const cv: CSSProperties | undefined = index < view.messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
           ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${view.estimateHeight(message)}px` }
           : undefined
@@ -234,8 +268,17 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
             rowRunning={rowRunning}
             showTime={view.timeFlags[index] === true}
             focused={message.id === view.focusMsgId}
-            focusedQuery={message.id === view.focusMsgId && view.chatHitQuery !== '' ? view.chatHitQuery : view.effectiveFocusQuery}
-            focusExpand={message.id === view.focusMsgId && view.chatHitQuery !== ''}
+            // 会话内搜索期间**所有行**都渲染高亮：计数直接数屏幕上的 <mark>，
+            // 不再"一行一处地推算"。只给焦点行高亮时，别的命中在屏幕上根本不存在，
+            // 数字和画面永远对不上（真机「7/17+ 但屏幕上一个高亮都没有」）。
+            focusedQuery={view.chatHitQuery}
+            // 过程组只接**纯定位**（没有任何搜索词）时的 anchorQuery。搜索一旦有词，
+            // 过程/工具/思考就一律不接高亮 —— 首页搜索结果点进来也带 focusQuery，
+            // 那条路径同样是"搜索"，不能让它把过程条点亮。
+            anchorQuery={view.chatHitQuery === '' && message.id === view.focusMsgId ? view.effectiveFocusQuery : undefined}
+            // 只对"进入并定位"（没有搜索词）展开过程条；搜索跳转不该把过程拉开
+            // （过程不参与匹配，展开只会挡住正文）。
+            focusExpand={message.id === view.focusMsgId && view.effectiveFocusQuery !== undefined}
             style={cv}
             onOpenFile={view.onOpenFile}
             onRegenerate={view.regenerateFor(message)}
@@ -243,6 +286,8 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
           />
         )
       })}
+      {/* 下方占位：往上翻时窗口后面那些行只留高度。 */}
+      {win.bottomSpacer > 0 ? <div ref={bindSpacer(win.bottomSpacer)} className="chat-window-spacer" aria-hidden="true" /> : null}
       {view.stickyProcRow !== undefined && (
         <MessageRow
           key={view.stickyProcRow.id}
@@ -267,6 +312,16 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
         />
       )}
       {/*
+       * 幽灵用户行：点发送后宿主回执/首帧之前，先让用户看见自己那句话。
+       * 不设 `data-message-id`（它不算消息行），只带 `data-outgoing-id` 便于探针识别。
+       */}
+      {view.outgoing !== undefined && (
+        <div className="chat-msg chat-msg-user chat-msg-outgoing" data-outgoing-id={view.outgoing.id}>
+          <p className="chat-msg-text">{view.outgoing.text}</p>
+          <p className="chat-outgoing-wait mobile-muted">已送出 · 等待输出…</p>
+        </div>
+      )}
+      {/*
        * 交付卡：列表**末尾的固定槽位**。一页只此一张，数据来自账本（`view.delivery`），
        * 不是某一行。
        *
@@ -279,8 +334,12 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
           className="chat-turn-tail-row"
           data-turn={delivery.turn}
           data-message-id={`turn-tail:${delivery.turn}`}
+          /* 归属戳：这条卡的账本属于**哪一场**。跨会话串味时它能在 DOM 里一眼看出来
+             （自洽用例和真机探针都认这个属性）。 */
+          data-owner={view.sessionId}
         >
           <DeliveryCard
+            state={cardState}
             deliverables={declaredFiles}
             changes={deliveryChanges}
             onOpenFile={view.onOpenFile}
@@ -299,6 +358,13 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
         </div>
       )}
       {/*
+       * 等待态：宿主已接单（用户行到了或回了执），模型还没开口。
+       * 复用 `.chat-typing` 的样式（一行浅色提示），不新增 CSS 类。
+       */}
+      {view.awaitingOutput === true && (
+        <p className="chat-typing chat-awaiting" role="status">已送达 · 等待模型响应…</p>
+      )}
+      {/*
        * 三态**只认 `loading`**，不要加 `!hydrated`。
        *
        * 试过"没水合也画骨架"：会话读不出来时 `loading` 会落、快照却永远到不了，
@@ -306,9 +372,13 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
        * "ready 之后、快照还没到"那几十毫秒的窗口交给第 1 层的会话快照去填，
        * 空态判据保持单一来源。
        */}
-      {rows.length === 0 && (view.entryAnswered === false || (view.entryAnswered === undefined && view.loading)
-        ? <TurnHeadSkeleton />
-        : <p className="chat-typing">还没有消息，发一句话开始吧</p>)}
+      {/* 幽灵行 / 等待态在时也不许画空态：用户刚发过话，屏幕上却有"还没有消息"。 */}
+      {rows.length === 0 && view.outgoing === undefined && view.awaitingOutput !== true
+        && (view.entryAnswered === false || (view.entryAnswered === undefined && view.loading)
+          ? <TurnHeadSkeleton />
+          : <p className="chat-typing">还没有消息，发一句话开始吧</p>)}
     </>
   )
+  recordSpan('render:rows', performance.now() - renderStartedAt)
+  return out
 })

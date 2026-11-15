@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Paginated history loading for one chat.
  *
  * Owns the bookkeeping (in-flight latch, coalesced queue, page cache, timeout,
@@ -31,10 +31,26 @@ import { capturePrependAnchor, restorePrependScrollTop, type PrependAnchor } fro
 
 /** Abort an older-page request that never answers (weak links hang, not fail). */
 export const LOAD_OLDER_TIMEOUT_MS = 90_000
-/** How many silent pages the open-time auto-extend may load. */
+/**
+ * How many silent pages the open-time auto-extend may load.
+ *
+ * 2026-11-15 恢复为 4：曾试过降到 2（想少拉点历史），但补页都发生在**首屏落地之后**，
+ * 对"点下去多久看到内容"没有帮助，反而让"进会话一次铺开"的既有契约（ChatView 里
+ * 「一次提交而不是一页页长出来」那组用例）失败。真正治首屏的是尾读合并与首屏闸门。
+ */
 export const OPEN_HISTORY_MAX_PAGES = 4
-/** Target row count for the open-time auto-extend. */
-export const OPEN_HISTORY_TARGET_ROWS = 120
+/**
+ * Target row count for the open-time auto-extend.
+ *
+ * **2026-11-14：120 → 40。** 真机（4x CPU + 4G 仿真）实测一次进会话是
+ * `1 次 sessionState + 4 次 session.history` **串行**：先要 120 行，而尾窗只装得下
+ * 三四十行，于是链式往上补到 120 行才提交 —— 5 个来回、约 570 KB，首屏 3.1~3.5 s。
+ * 但一屏只放得下 5~8 条消息，多出来的 80 行只是"往上滑时省一次请求"。
+ * 改成 40 行（≈ 2~3 屏）后进会话只剩 1 个请求；更多的历史仍由原有的
+ * hasOlder / 近顶自动补页负责，行为不变。单条特别高的会话不够 40 行时，
+ * 下面的链仍会照旧补页（`loaded < OPEN_HISTORY_TARGET_ROWS`）。
+ */
+export const OPEN_HISTORY_TARGET_ROWS = 16
 
 /** Context handed to `adoptPage` for one fetched page. */
 export interface OlderPageContext {
@@ -124,6 +140,8 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
   // 留最近几页足够。
   const pageCacheRef = useRef<PagePrefetchCache>(createPagePrefetchCache())
   const chainPagesRef = useRef(0)
+  /** 链上一次看到的行数：没长就说明这段历史已经拉过（见 loadOlder 里的说明）。 */
+  const chainRowMarkRef = useRef(0)
   const followAfterPrependRef = useRef(false)
   const prependAnchorRef = useRef<PrependAnchor | undefined>(undefined)
   const epochRef = useRef(0)
@@ -188,6 +206,17 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
     }
     pendingRef.current = true
     if (!silent) onLoading(true)
+
+    /*
+     * 链的第一步：记下「现在屏幕上有多少行」。链唯一还该继续的理由是**真的补进了新行**；
+     * 行数不动说明这段历史早就拉过了。
+     *
+     * 2026-11-15 真机实测：切一个会话，`session.history` 被两条链路各拉三页，
+     * 参数逐字相同（25 / beforeSeq 2386 / beforeSeq 2235），255KB 拉了两遍、共 510KB；
+     * 会话日志越大越贵（`session.history` 要解压整份日志，52MB 会话实测 34 秒）。
+     * 第二条链之所以不停，就是因为它只看「行数 < 40」这个条件，而行数根本没变。
+     */
+    if (chain && chainPagesRef.current === 0) chainRowMarkRef.current = loadedRowCount()
 
     const first = getFirstRow()
     if (first === undefined) {
@@ -264,17 +293,22 @@ export function useChatHistory(options: ChatHistoryOptions): ChatHistoryHandle {
 
           // An empty page must not write `hasOlder`: a skewed cursor also
           // returns empty, and treating it as "the end" freezes history forever.
+          // 但「空页 + 宿主明确说没有更早的了」是真的到头：必须收起按钮，否则用户
+          // 一直点「加载更早的消息」屏幕上什么都不发生（真机「加载不出来」）。
           if (older.length > 0) setHasOlder(page.hasMore)
+          else if (page.hasMore !== true) setHasOlder(false)
 
           releaseRequest()
           pendingRef.current = false
           if (!silent) onLoading(false)
 
           // Silent auto-extend chain: stop at the page cap, history end, or the
-          // target row count. Release the current request first so this next
-          // page starts immediately instead of being coalesced into the queue.
+          // target row count. 行数没长也停（这一页的历史早就拉过了，再拉一模一样）。
           if (chain && page.hasMore && chainPagesRef.current < OPEN_HISTORY_MAX_PAGES) {
-            if (loadedRowCount() < OPEN_HISTORY_TARGET_ROWS) {
+            const now = loadedRowCount()
+            const grew = now > chainRowMarkRef.current
+            chainRowMarkRef.current = now
+            if (grew && now < OPEN_HISTORY_TARGET_ROWS) {
               chainPagesRef.current += 1
               loadOlderRef.current(true, undefined, true)
             }

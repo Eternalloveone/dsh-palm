@@ -437,7 +437,10 @@ export class ChatWindowService {
     return {
       rows,
       maxSeq: folder.lastSeq,
-      hasMore: page.hasMore,
+      // 空页永远没有"更早"：宿主对刚建出来的空会话也可能答 hasMore=true（窗口前面还有
+      // session/start 之类的系统事件，却一行正文都没有），照抄出去就是手机上那个
+      // 永远点不出东西的「加载更早的消息」（真机 2026-11-14）。
+      hasMore: rows.length > 0 && page.hasMore,
     }
   }
 
@@ -608,10 +611,13 @@ export class ChatWindowService {
 /** Serve at most `maxRows` rows of a window's snapshot (rows are seq-sorted). */
 function pageOf(window: Window, maxRows: number): ChatPage {
   const rows = window.folder.snapshot()
+  const page = maxRows >= rows.length ? rows : rows.slice(-maxRows)
   return {
-    rows: maxRows >= rows.length ? rows : rows.slice(-maxRows),
+    rows: page,
     maxSeq: window.maxSeq,
-    hasMore: window.hasMore,
+    // 契约：**空页不答「还有更早」**。零行的页上那个「加载更早」按钮点下去永远没东西，
+    // 客户端只能靠这个字段判断（真机 2026-11-14：新建会话里顶着一个死按钮）。
+    hasMore: page.length > 0 && window.hasMore,
     ...(window.todo === undefined ? {} : { todo: window.todo }),
     ...(window.projections === undefined ? {} : { projections: window.projections }),
     ...(window.turnStartAt !== undefined ? { turnStartAt: window.turnStartAt } : {}),

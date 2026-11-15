@@ -9,7 +9,7 @@
  *
  * @module dsh-palm/mobile/api/mobile-session-state
  */
-import type { ServerResponse } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { RpcId } from '../../api-proxy-types.ts'
 import { goalActivationOf, goalSnapshotOf, preferLiveGoal } from '../../host/commands-goals.ts'
 import { liveInboxOf, queueItemsOf, queueRevisionOf, queueTokenOf, queueVersionOf } from '../../host/queue-inbox.ts'
@@ -130,6 +130,22 @@ interface EntryTailCacheEntry {
 }
 const entryTailCache = new Map<string, EntryTailCacheEntry>()
 
+/**
+ * 同一会话正在读的那一次（in-flight 合并）。
+ *
+ * 2026-11-15 真机时间线：进一个没缓存过的会话，客户端会**同时**打
+ * `sessionState(maxRows:40)` 和 `sessionState(rows:false)`（后者要队列/回合/目标）。
+ * 两个键不同，800ms 缓存各自失效 —— 宿主单线程把**同一段日志读了两遍**：
+ * `rows:false` 那条自己就花了 658ms，首屏那条排到 1342ms 才返回，用户看到 2.2 秒。
+ *
+ * 现在后到的那条直接等前面的结果：`rows:false` 本来就不要行，任何一次读都够用。
+ */
+const entryTailInFlight = new Map<string, {
+  maxRows: number | undefined
+  windowBytes: number | undefined
+  promise: Promise<Awaited<ReturnType<typeof readChatTailPage>>>
+}>()
+
 /** 读尾页，命中 800ms 缓存就不重复读文件。 */
 async function readEntryTail(
   sessionId: string,
@@ -142,14 +158,48 @@ async function readEntryTail(
     && hit.maxRows === maxRows && hit.windowBytes === windowBytes) {
     return hit.page
   }
-  const page = await readChatTailPage(sessionId, maxRows, windowBytes)
-  if (entryTailCache.size >= 8) entryTailCache.clear()
-  entryTailCache.set(sessionId, { at: now, page, maxRows, windowBytes })
-  return page
+  /**
+   * 只要回合边界/队列的调用（`rows: false`，不带 maxRows/windowBytes）不必重读：
+   *
+   * 真机 2026-11-14 实测：进一次会话，首屏那次带 `maxRows:40` 要 827ms，同时另有一条
+   * `rows:false` 的同会话请求因为键不同**重读一遍整段日志**（901ms）—— 宿主单线程，
+   * 后面所有请求排在它们后面。反正这条不要行，任何一次 800ms 内的尾页读都够用。
+   * 反向不行：首屏要行时仍按自己的参数单独读，避免拿到只装了 25 行的那一份。
+   */
+  if (hit !== undefined && now - hit.at < ENTRY_TAIL_TTL_MS
+    && maxRows === undefined && windowBytes === undefined) {
+    return hit.page
+  }
+  /*
+   * 同一个会话已经在读了：别再读第二遍。
+   * - `rows: false`（只要队列/回合/目标）→ 任何一次读都够，直接等前面的；
+   * - 参数完全相同 → 本来就是同一件事，等它。
+   * 反向（要 40 行却只有一份 25 行的）不复用，否则首屏会缺行。
+   */
+  const pending = entryTailInFlight.get(sessionId)
+  if (pending !== undefined) {
+    const wantsMetaOnly = maxRows === undefined && windowBytes === undefined
+    const sameRead = pending.maxRows === maxRows && pending.windowBytes === windowBytes
+    if (wantsMetaOnly || sameRead) return pending.promise
+  }
+  const promise = readChatTailPage(sessionId, maxRows, windowBytes)
+  entryTailInFlight.set(sessionId, { maxRows, windowBytes, promise })
+  try {
+    const page = await promise
+    if (entryTailCache.size >= 8) entryTailCache.clear()
+    entryTailCache.set(sessionId, { at: now, page, maxRows, windowBytes })
+    return page
+  } finally {
+    // 只清掉「还是自己那一份」的登记：后面的请求可能已经覆盖成更新的一次。
+    const current = entryTailInFlight.get(sessionId)
+    if (current !== undefined && current.promise === promise) entryTailInFlight.delete(sessionId)
+  }
 }
 
 export interface SessionStateContext {
   res: ServerResponse
+  /** 用来判 Accept-Encoding：首屏这份快照带整页行，几百 KB 不走 gzip 是白等。 */
+  req?: IncomingMessage
   parsed: { payload?: unknown }
   rpcId: string
   deps: unknown
@@ -219,6 +269,9 @@ export async function mobileSessionState(ctx: SessionStateContext): Promise<void
       .catch((): { goal: unknown; activation?: 'armed' | 'disarmed' } => ({ goal: null })),
   ])
   const queueItems = queueItemsOf(inbox as never)
+  // 传 req：这份快照是首屏最大的一笔（实测 120 行 ≈ 560 KB 原文），
+  // 以前只有走代理通道的方法才压缩，这条本地通道一直裸发 —— 手机上一次进会话
+  // 就要多等 ~1 秒。gzip 后 ~50 KB 以内。
   writeJson(res, 200, {
     type: 'server-response',
     rpcId,
@@ -247,5 +300,5 @@ export async function mobileSessionState(ctx: SessionStateContext): Promise<void
         asOf: turn.asOf ?? Date.now(),
       },
     },
-  })
+  }, {}, ctx.req)
 }

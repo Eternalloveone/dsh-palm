@@ -113,7 +113,14 @@ export function reportCardDiagnostic(
  */
 export const REPORT_FALLBACK_PAGE_MESSAGES = 25
 
-export const REPORT_FALLBACK_MAX_PAGES = 6
+/**
+ * 最多翻几页（2026-11-14：6 → 3）。
+ *
+ * 每页 25 条在真机上约 90 KB（gzip），6 页就是 540 KB、6 个串行来回。补不到就按
+ * 「确实没有」处理（那条诊断照旧上报），而翻到的概率集中在最近一两页 ——
+ * 剩下的预算不值得用"切一次会话多等半秒"来换。
+ */
+export const REPORT_FALLBACK_MAX_PAGES = 3
 
 /** 交付卡补读只覆盖最近几轮：再往前的历史轮次不该在翻页时「长出来」。 */
 export const REPORT_RECOVERY_WINDOW_TURNS = 2

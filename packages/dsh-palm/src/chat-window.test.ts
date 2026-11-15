@@ -212,8 +212,17 @@ describe('ChatWindowService', () => {
     expect(calls[0]).toEqual({ sessionId: 's-1', beforeSeq: undefined, maxMessages: 25 })
   })
 
-  it('serves a window hit from memory — zero fetcher calls on repeat tails', async () => {
-    const { fetcher, calls } = fakeFetcher()
+  it('空页不答 hasMore：没有行就没有"更早"（否则手机端顶一个点不出东西的按钮）', async () => {
+    // 真机 2026-11-14：刚建出来的空会话顶上「加载更早的消息」。窗口前面确实还有
+    // session/start 这类系统事件（历史页照实答 hasMore=true），但折完一行正文都没有。
+    const { fetcher } = fakeFetcher([{ hasMore: true, events: [entry('session/start', {}, 1)] }])
+    const service = new ChatWindowService(fetcher)
+    const page = await service.tail('s-empty', 25)
+    expect(page.rows).toHaveLength(0)
+    expect(page.hasMore).toBe(false)
+  })
+
+  it('serves a window hit from memory — zero fetcher calls on repeat tails', async () => {    const { fetcher, calls } = fakeFetcher()
     const service = new ChatWindowService(fetcher)
     await service.tail('s-1', 25)
     const again = await service.tail('s-1', 25)

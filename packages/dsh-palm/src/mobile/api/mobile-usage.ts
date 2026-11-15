@@ -77,46 +77,76 @@ export interface UsageContext {
   apiProxy: unknown
 }
 
-/** 查各提供方的用量/余额（带 60 秒短缓存）。 */
+/** 全量查一次并落缓存（会让宿主忙三秒左右，只能在必要时同步做）。 */
+async function readUsage(ctx: UsageContext): Promise<UsageView> {
+  const providers = await discoverUsageProviders(ctx.apiProxy as never)
+  const view = await buildUsageView(providers, refName =>
+    ctx.deps.resolveKey === undefined ? Promise.resolve(undefined) : ctx.deps.resolveKey(refName))
+  processState.usageCache = { at: Date.now(), view }
+  return view
+}
+
+/** 后台刷新：不挡任何请求；失败了下次还会再试。 */
+function refreshUsageInBackground(ctx: UsageContext): void {
+  if (processState.usageRefreshing) return
+  processState.usageRefreshing = true
+  void readUsage(ctx)
+    .catch((error: unknown) => {
+      console.error('mobile.usage background refresh failed', error)
+    })
+    .finally(() => {
+      processState.usageRefreshing = false
+    })
+}
+
+/**
+ * 查各提供方的用量/余额。
+ *
+ * **2026-11-15：过期不再同步等。** 全量查一次实测 3.3 s，而宿主单线程 —— 那 3.3 s 里
+ * 所有 `/m/api` 都在排队，用户切会话/开抽屉就是"卡一下"。改成 stale-while-revalidate：
+ * 手上有旧值就先答旧的、后台再刷；只有一次都没查过（冷启动）或用户点刷新才真等。
+ * 抽屉上那行余额晚一分钟更新，远比整个界面停一下值得。
+ */
 export async function mobileUsage(ctx: UsageContext): Promise<void> {
-  const { res, parsed, rpcId, deps } = ctx
+  const { res, parsed, rpcId } = ctx
   const body = parsed.payload as { refresh?: unknown } | undefined
   const force = body?.refresh === true
-  const cached = processState.usageCache !== undefined
-    && !force
-    && Date.now() - processState.usageCache.at < USAGE_CACHE_TTL_MS
-  let fresh: UsageView | undefined
-  if (!cached) {
-    try {
-      const providers = await discoverUsageProviders(ctx.apiProxy as never)
-      const view = await buildUsageView(providers, refName =>
-        deps.resolveKey === undefined ? Promise.resolve(undefined) : deps.resolveKey(refName))
-      processState.usageCache = { at: Date.now(), view }
-      fresh = view
-    } catch (error) {
-      // 内部失败（设置读取抖动、某个 provider 适配器抛错）只回稳定拒绝，
-      // 绝不外泄宿主细节。
-      console.error('mobile.usage failed', error)
-      writeJson(res, 200, {
-        type: 'server-response',
-        rpcId,
-        result: { ok: false, error: { code: 'internal', message: '用量查询失败，请稍后重试' } },
-      })
-      return
-    }
+  const serve = (view: UsageView): void => {
+    writeJson(res, 200, { type: 'server-response', rpcId, result: { ok: true, value: view } })
   }
-  const served: UsageView | undefined = fresh ?? processState.usageCache?.view
-  if (served === undefined) {
+  const fail = (): void => {
     writeJson(res, 200, {
       type: 'server-response',
       rpcId,
       result: { ok: false, error: { code: 'internal', message: '用量查询失败，请稍后重试' } },
     })
+  }
+
+  const cache = processState.usageCache
+  if (cache !== undefined && !force && Date.now() - cache.at < USAGE_CACHE_TTL_MS) {
+    serve(cache.view)
     return
   }
-  writeJson(res, 200, {
-    type: 'server-response',
-    rpcId,
-    result: { ok: true, value: served },
-  })
+  if (cache !== undefined && !force) {
+    serve(cache.view)
+    refreshUsageInBackground(ctx)
+    return
+  }
+  /*
+   * 冷启动（一次都没查过）也不等：后台去查，这一页先按"查不到"答。
+   * 客户端拿到失败就是保持抽屉上原来的「余额」两个字，本来就有这条降级路径；
+   * 而等它 3.3 s 换来的是整个手机端所有请求排队。
+   */
+  if (!force) {
+    refreshUsageInBackground(ctx)
+    fail()
+    return
+  }
+  try {
+    serve(await readUsage(ctx))
+  } catch (error) {
+    // 内部失败（设置读取抖动、某个 provider 适配器抛错）只回稳定拒绝，绝不外泄宿主细节。
+    console.error('mobile.usage failed', error)
+    fail()
+  }
 }

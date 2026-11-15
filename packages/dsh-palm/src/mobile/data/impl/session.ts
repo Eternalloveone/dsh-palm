@@ -7,11 +7,12 @@
  * @module dsh-palm/mobile/data/impl/session
  */
 import { callUnary } from '../../platform/rpc.ts'
-import { coalescedRead, invalidateReadCoalescing } from '../read-coalescing.ts'
+import { coalescedRead, dedupeRead, invalidateReadCoalescing } from '../read-coalescing.ts'
 import { READ_CHAT_TIMEOUT_MS, queueBlockLabel } from '../chat-helpers.ts'
 import { OBSERVE_ASSERT_MIN_MS } from '../limits.ts'
 import { lastObserveAt, setLastObserveAt } from '../observe-latch.ts'
 import { invalidateWorkspaceRoster } from '../invalidate-roster.ts'
+import { applyArchivedSessionIds } from '../../session/list-persist.ts'
 import type { ChatOpenInclude, ChatPage, CommandExecOutcome, CreatedSession, HistoryPage, IndexedSearchResult, MobileGoalAction, PromptMode, QueueAction, QueueItemView, SessionFoldersView, SessionFolderView, SessionMessageHit, SessionPage, SessionSearchHit, TurnState } from '../../mobile-types.ts'
 import type { RenderMessage } from '../../render/messages.ts'
 import type { SubagentCatalog } from '../../../api-proxy-types'
@@ -22,6 +23,7 @@ import type { PromptPart } from '../../platform/image.ts'
  * 宿主查的是花名册枚举留下的投影快照，查不到就回 `turns: null`。
  */
 export async function turnOutlineOf(sessionId: string): Promise<{ turns: unknown }> {
+  // 进会话那一波里，大纲会被导航/仪表两处各要一次：同一帧只发一次。
   return await callUnary<{ turns: unknown }>('mobile.turnOutline', { sessionId })
 }
 
@@ -32,6 +34,22 @@ export async function turnOutlineOf(sessionId: string): Promise<{ turns: unknown
  * 于是"队列说还有一条、回合说已经开始了"这类矛盾随时可见。这条通道把三者收成一份，
  * 由 `session-store.ts` 按 seq / revision 单调合并（低水位的一律丢弃）。
  */
+/**
+ * 正在读首屏行的会话 → 到达时要放行的等待者。
+ *
+ * 只在这个模块里用：`sessionState` 是所有快照请求的唯一出口，闸门放这里才能覆盖
+ * 收件箱、回合对账、语音、附件等全部调用点（它们各自都不知道别人在问）。
+ */
+const entryLoads = new Map<string, Array<() => void>>()
+/**
+ * 别的会话正在读首屏时，非首屏请求排在这里等。
+ *
+ * 2026-11-15 真机/20× 实测：切走一个会话后，**旧会话**的 `rows:false` 还在飞，
+ * 和新会话的首屏一起挤进宿主单线程 —— 同一个 73 字节的响应，单独跑 TTFB 1.3ms，
+ * 切会话时排队 1508ms，而首屏排在它后面。原来的闸门只挡「同会话」，挡不住这种。
+ */
+const anyEntryWaiters: Array<() => void> = []
+
 /** @param options.rows - 传 `false` 就**不要行**（C2）：整页行是这份快照里最贵的一段
  *  （一次 129 KB），回合对账只读 `turn`；老宿主忽略该字段、照旧回行，两端都不破。 */
 export async function sessionState(
@@ -76,13 +94,56 @@ export async function sessionState(
   todo?: { seq: number; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> }
   asOf: number
 }> {
-  return await callUnary('mobile.sessionState', {
-    sessionId,
-    ...(options.fresh === true ? { fresh: true } : {}),
-    ...(options.rows === false ? { rows: false } : {}),
-    ...(options.maxRows === undefined ? {} : { maxRows: options.maxRows }),
-    ...(options.windowBytes === undefined ? {} : { windowBytes: options.windowBytes }),
-  })
+  /*
+   * 首屏闸门（2026-11-15）：首屏那条还在读日志时，让「只要回合/队列」的那些请求等一下。
+   *
+   * 真机时间线（冷会话）：点下去同一毫秒发六条，其中 `rows:false`（收件箱/回合对账）
+   * 和 `maxRows:40`（首屏）读的是**同一份日志**。宿主单线程只能排队，首屏排在后面 ——
+   * 实测 `rows:false` 708ms 完成后首屏才 1682ms 返回，用户在等的是这段排队。
+   * 队列状态晚几百毫秒到不影响任何操作（写操作本身是乐观的），但首屏能少排一次队。
+   *
+   * 用「等首屏落地」而不是定时轮询：首屏成功/失败/超时都会把等待者放出去。
+   */
+  const isEntryRead = options.maxRows !== undefined
+  let entryWaiters: Array<() => void> | undefined
+  if (isEntryRead) {
+    entryWaiters = entryLoads.get(sessionId) ?? []
+    entryLoads.set(sessionId, entryWaiters)
+  } else if (options.rows === false && entryLoads.has(sessionId)) {
+    await new Promise<void>((resolve) => {
+      const list = entryLoads.get(sessionId) ?? []
+      list.push(resolve)
+      entryLoads.set(sessionId, list)
+      // 兜底：首屏那条万一卡住/抛错，也不能把对账永久挂在这里。
+      setTimeout(resolve, 3_000)
+    })
+  } else if (options.rows === false && entryLoads.size > 0) {
+    // 别的会话正在读首屏：让一下，别和它抢宿主单线程。
+    await new Promise<void>((resolve) => {
+      anyEntryWaiters.push(resolve)
+      setTimeout(resolve, 3_000)
+    })
+  }
+  try {
+    // 同一帧里首屏、回合对账、队列三条链路都会问一次；合并成一个请求
+    // （真机：两个 750ms 的同参请求并排飞，宿主单线程里读两遍同一份日志）。
+    return await dedupeRead('mobile.sessionState', {
+      sessionId,
+      ...(options.fresh === true ? { fresh: true } : {}),
+      ...(options.rows === false ? { rows: false } : {}),
+      ...(options.maxRows === undefined ? {} : { maxRows: options.maxRows }),
+      ...(options.windowBytes === undefined ? {} : { windowBytes: options.windowBytes }),
+    })
+  } finally {
+    if (entryWaiters !== undefined) {
+      entryLoads.delete(sessionId)
+      for (const release of entryWaiters) release()
+      // 首屏都结束了，让排在后面的（含别的会话）继续。
+      if (entryLoads.size === 0) {
+        for (const release of anyEntryWaiters.splice(0)) release()
+      }
+    }
+  }
 }
 
 export async function inboxOf(sessionId: string, options: { fresh?: boolean } = {}): Promise<{ inbox: unknown; queueVersion?: number }> {
@@ -157,10 +218,13 @@ export async function listSessions(cursor?: string, workspaceId?: string): Promi
   // workspaceId 让宿主在切片前就按工作区过滤：每页返回的都是本工作区的会话，
   // 客户端不再需要"连拉多页再丢弃"（那正是"点很多次"与"往深处拉超时"的共同来源）。
   // 同一 (cursor, workspaceId) 的重复调用合并：真机实测首屏同 payload 发 3 次。
-  return await coalescedRead<SessionPage>('session.list', {
+  const page = await coalescedRead<SessionPage>('session.list', {
     ...(cursor === undefined ? {} : { cursor }),
     ...(workspaceId === undefined ? {} : { workspaceId }),
   })
+  // 宿主每页都带归档集：抽屉合并时用它挡掉"别的设备删掉、却还画在行里"的会话。
+  if (page.archivedSessionIds !== undefined) applyArchivedSessionIds(page.archivedSessionIds)
+  return page
 }
 
 /** Search every session's messages across the whole host (with attribution). */
@@ -206,6 +270,26 @@ export async function createSession(
 }
 
 /**
+ * 最近读过的历史页（2026-11-15）。
+ *
+ * 真机实测：切一个会话，`session.history` 被**两条链路各拉三页**、参数逐字相同，
+ * 255KB 拉了两遍。一条是分页器往上补，另一条是 `loadTurnReportRows` 补读交付卡片。
+ * 会话日志越大越贵（要解压整份日志，52MB 会话实测 34 秒），这 2 倍重复直接翻倍了卡顿。
+ * 历史页是过去的记录，十秒内不会变。
+ */
+const RECENT_HISTORY_TTL_MS = 10_000
+const RECENT_HISTORY_MAX_ENTRIES = 40
+const recentHistory = new Map<string, { at: number; page: HistoryPage }>()
+/** 同参数正在飞的请求：两条链路几乎同时要同一页时合并成一次（缓存来不及写入）。 */
+const inFlightHistory = new Map<string, Promise<HistoryPage>>()
+
+/** 清掉短期历史缓存（测试用：同一个进程里多次调用不该互相喂数据）。 */
+export function resetRecentHistoryForTest(): void {
+  recentHistory.clear()
+  inFlightHistory.clear()
+}
+
+/**
  * One history window; omit beforeSeq for the tail page, pass a signal to abort.
  * The mobile page size is 25 (the desktop uses 30): a page of 30 messages
  * can exceed 1 MB of JSON for tool-heavy sessions, which over a slow phone
@@ -222,11 +306,30 @@ export async function history(
   // 冷宿主/大会话的首页与锚定页实测 17~109 s，默认 60 s 会先掐断（见 READ_CHAT_TIMEOUT_MS）。
   timeoutMs: number = READ_CHAT_TIMEOUT_MS,
 ): Promise<HistoryPage> {
-  return await callUnary<HistoryPage>('session.history', {
+  const key = `${sessionId}|${beforeSeq ?? 'tail'}|${maxMessages}`
+  const cached = recentHistory.get(key)
+  // 浅拷贝：调用方偶尔会挂字段，别让后来者读到被改过的版本。
+  if (cached !== undefined && Date.now() - cached.at < RECENT_HISTORY_TTL_MS) return { ...cached.page }
+  const running = inFlightHistory.get(key)
+  if (running !== undefined) return { ...(await running) }
+  const task = callUnary<HistoryPage>('session.history', {
     sessionId,
     maxMessages,
     ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-  }, signal, timeoutMs)
+  }, signal, timeoutMs).then((page) => {
+    if (recentHistory.size >= RECENT_HISTORY_MAX_ENTRIES) {
+      const oldest = recentHistory.keys().next()
+      if (oldest.done !== true) recentHistory.delete(oldest.value)
+    }
+    recentHistory.set(key, { at: Date.now(), page })
+    return page
+  })
+  inFlightHistory.set(key, task)
+  try {
+    return { ...(await task) }
+  } finally {
+    inFlightHistory.delete(key)
+  }
 }
 
 export async function readChat(
@@ -411,6 +514,9 @@ export async function respondQuestion(
  */
 export async function archiveSession(sessionId: string): Promise<{ archivedSessionIds: string[] }> {
   const archived = await callUnary<{ archivedSessionIds: string[] }>('workspace.archiveSession', { sessionId })
+  // 应答就是删完之后的归档集：直接当客户端已知的归档集用（抽屉里立刻挡掉这一行）。
+  // 老宿主/异常应答可能不带这个字段：没有就跳过，别让一次删除把整个调用打崩。
+  if (Array.isArray(archived.archivedSessionIds)) applyArchivedSessionIds(archived.archivedSessionIds)
   invalidateReadCoalescing()
   // 会话从工作区下消失，花名册里的 sessionIds 也变了。
   invalidateWorkspaceRoster()

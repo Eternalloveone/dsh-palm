@@ -629,7 +629,7 @@ describe('SettingsView sub-config search', () => {
   // 设置中开启」（15 字）塞进去，标题列被挤成一个字，用户看到的是「通…」。
   it('keeps every row value to a short state word', async () => {
     render(<SettingsView onBack={() => {}} />)
-    // 2026-11-10 起没有「主题」行；「字号与密度」入口要调用方传 onOpenAppearance 才画，
+    // 2026-11-10 起没有「主题」行；「外观」入口要调用方传 onOpenAppearance 才画，
     // 这里改用常驻的「通知」行做 hydration 锚点（下面紧接着就断言它的值）。
     await screen.findByText('通知', { selector: '.palm-spec-row-text' })
     const values = Array.from(document.querySelectorAll('.palm-spec-row .settings-rowValue'))
@@ -643,10 +643,10 @@ describe('SettingsView sub-config search', () => {
     expect(row.querySelector('.settings-rowValue')!.textContent).toBe('不支持')
   })
 
-  it('设置页给出「字号与密度」入口，点了真能进外观页', () => {
+  it('设置页给出「外观」入口，点了真能进外观页', () => {
     const onOpenAppearance = vi.fn()
     render(<SettingsView onBack={() => {}} onOpenAppearance={onOpenAppearance} />)
-    const row = screen.getByText('字号与密度').closest('button')
+    const row = screen.getByText('外观', { selector: '.palm-spec-row-text' }).closest('button')
     expect(row).not.toBeNull()
     row!.click()
     expect(onOpenAppearance).toHaveBeenCalledTimes(1)
@@ -654,6 +654,6 @@ describe('SettingsView sub-config search', () => {
 
   it('不给回调时不渲染这一行（老页面行为不变）', () => {
     render(<SettingsView onBack={() => {}} />)
-    expect(screen.queryByText('字号与密度')).toBeNull()
+    expect(screen.queryByText('外观', { selector: '.palm-spec-row-text' })).toBeNull()
   })
 })

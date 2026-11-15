@@ -10,7 +10,7 @@
  * 5. bare 模式（灯箱）aria 挂在最外层，不多包一层 div。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { Overlay } from './overlay.tsx'
 
@@ -70,7 +70,7 @@ describe('Overlay', () => {
     expect(screen.queryByRole('dialog', { name: '底层' })).toBeNull()
   })
 
-  it('打开时焦点进入面板，关闭时归还给触发元素', () => {
+  it('打开时焦点进入面板，关闭时归还给触发元素', async () => {
     const trigger = document.createElement('button')
     trigger.textContent = '打开'
     document.body.appendChild(trigger)
@@ -78,7 +78,8 @@ describe('Overlay', () => {
     expect(document.activeElement).toBe(trigger)
 
     const { unmount } = render(<Demo label="面板" onClose={() => {}} />)
-    expect(document.activeElement).not.toBe(trigger)
+    // 焦点在下一帧才进入面板（见 focus-trap.ts：focus() 不放在提交那一帧里）。
+    await waitFor(() => { expect(document.activeElement).not.toBe(trigger) })
     expect((document.activeElement as HTMLElement).closest('.demo-panel')).toBeTruthy()
 
     unmount()

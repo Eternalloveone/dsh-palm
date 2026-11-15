@@ -15,6 +15,15 @@ export interface SearchHit {
   snippet?: string
   messageId?: string
   partId?: string
+  /** 命中所在的整段正文（宿主给的窗口，用于展示）。 */
+  paragraph?: string
+  /**
+   * 这一条命中是**所在消息段里的第几处**（0 起）。
+   *
+   * 宿主按"处"回命中（一段里同一个词出现 8 次就是 8 条），它把同一段里的多处分开；
+   * 去重键必须带上它，否则这 8 条会被折成 1 条 —— 计数少一截、按「下一个」也跳不过去。
+   */
+  matchIndex?: number
 }
 
 /** 宿主 `mobile.search` 回来的原始条目（字段几乎都是可选的）。 */
@@ -31,7 +40,8 @@ export interface RawSearchItem {
  * 把宿主回来的条目整理成可用的命中列表：丢掉没有 seq 的、去重、按 seq 升序。
  *
  * 去重不是洁癖：旧库里的重复行会让计数器从 4/50 走到 5/50，而目标还是同一行同一处
- * —— 用户看到的就是「数字在变，位置一直不动」。按「消息 + 片段」认同一处。
+ * —— 用户看到的就是「数字在变，位置一直不动」。按「消息 + 片段 + 段内第几处」认同
+ * 一处：同一段里的多处必须各算一条，否则计数少一截、段内其余高亮永远点不到。
  */
 export function normalizeSearchHits(items: readonly RawSearchItem[]): SearchHit[] {
   const seen = new Set<string>()
@@ -46,7 +56,7 @@ export function normalizeSearchHits(items: readonly RawSearchItem[]): SearchHit[
       ...(item.paragraph === undefined ? {} : { paragraph: item.paragraph }),
       ...(item.matchIndex === undefined ? {} : { matchIndex: item.matchIndex }),
     }
-    const key = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}`
+    const key = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}#${hit.matchIndex ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
     hits.push(hit)

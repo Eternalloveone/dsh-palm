@@ -53,7 +53,8 @@ describe('抽屉版式：图标不撑满、行不折行', () => {
       // 搜索行只有一个放大镜；底部两行各两个图形（功能图标 + 「能进去」的箭头，2026-11-11 C 版）。
       const expected = row.classList.contains('palm-drawer-search') ? 1 : 2
       expect(row.querySelectorAll('svg'), row.className).toHaveLength(expected)
-      const label = row.querySelector('span')
+      // 图标外面多包了一层 `span.skin-icon`（2026-11-14 皮肤换图标），取文案要跳过外壳。
+      const label = row.querySelector('span:not(.skin-icon)')
       expect(label, row.className).not.toBeNull()
       expect(label!.textContent!.trim()).not.toBe('')
     }
@@ -78,7 +79,8 @@ describe('抽屉版式：图标不撑满、行不折行', () => {
     const container = renderDrawer()
     const entries = [...container.querySelectorAll('.palm-drawer-tool')]
     // 2026-11-11 用户要求删掉「产物与文档」：右上角「⋯ → 这一轮的产物」就是同一个入口。
-    expect(entries.map(entry => entry.querySelector('span')!.textContent)).toEqual(['用量', '设置'])
+    // 同样要跳过 `span.skin-icon` 图标外壳（2026-11-14）。
+    expect(entries.map(entry => entry.querySelector('span:not(.skin-icon)')!.textContent)).toEqual(['用量', '设置'])
     // 顺序是「用量 → 设置」：用量右侧是「余额」（2026-11-12 改的文案，宿主那几张卡
     // 其实是各家账户余额，写「本机」会被读成手机自己的用量）；设置右侧是当前皮肤名
     // （2026-11-11：抽屉里一眼看到自己在用什么皮肤）。

@@ -2023,9 +2023,12 @@ describe('ChatView scrolling', () => {
     expect(scrollWrites.length).toBe(writesBefore)
   })
 
-  it('130 行全部渲染：没有估高 spacer，滚动只换内容不移窗', async () => {
-    // 这是"落点准不准"的地基：以前超过阈值只渲染滚动位置附近的行，上下用估算
-    // 高度撑开 —— 落点于是永远是估的。现在照桌面：已载入的行全在 DOM 里。
+  it('长列表只渲染视口附近的行，其余用上下占位撑着', async () => {
+    // 2026-11-15 上午做过一版「尾部窗口」并撤回：那次样本是 15 行会话，收益 44ms、
+    // 代价是扩窗一帧 689ms（扩窗只增不减，自己撑回全量）。
+    // 同日下午拿到真机样本后才看清：用户会话是工具调用密集型，**97 个直接子元素**，
+    // 20× 降频实测 p95 229~392ms、max 2679~3333ms；同一会话只渲染 11~18 行时
+    // max 降到 396ms。所以契约改成：窗口内的行真实渲染，窗口外用上下占位撑高度。
     const many = Array.from({ length: 130 }, (_, i) => makeEntry('user/message', {
       id: `u-${i}`,
       role: 'user',
@@ -2036,14 +2039,11 @@ describe('ChatView scrolling', () => {
     const mux = new FakeMux()
     const { container } = render(<ChatView session={session} mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
     await screen.findByText('消息129')
-    expect(screen.queryAllByText(/^消息\d+$/).length).toBe(130)
-    // 上下不再有 spacer（它们的高度就是"估出来的落点"）。
-    expect(container.querySelectorAll('.chat-scroll > div[aria-hidden="true"]').length).toBe(0)
-    // 滚到中间：首尾两行都还在 DOM 里，没有被移出窗口。
-    const scroller = container.querySelector('.chat-scroll') as HTMLElement
-    fireEvent.scroll(scroller, { target: { scrollTop: 9_000 } })
-    expect(screen.getByText('消息0')).toBeTruthy()
-    expect(screen.getByText('消息129')).toBeTruthy()
+    // 130 行里只挂一小段（窗口 18 + 上下缓冲各 6），其余靠占位撑住高度。
+    const rendered = screen.queryAllByText(/^消息\d+$/).length
+    expect(rendered).toBeGreaterThan(0)
+    expect(rendered).toBeLessThan(130)
+    expect(container.querySelectorAll('.chat-window-spacer').length).toBeGreaterThan(0)
   })
 
   it('定位落点读的是行的真实几何，不是高度估算', async () => {
@@ -5818,7 +5818,10 @@ it('does not start a turn from a stale open turn when the host says nothing runs
     await screen.findByRole('button', { name: '发送' })
     await waitFor(() => {
       expect(document.querySelector('[data-step-seq="40"]')).not.toBeNull()
-      expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(1)
+      // 命中只出现在答案正文里：代码块、think、过程组里的同词都不标（过渡帧可能重复挂载）。
+      const marks = [...document.querySelectorAll('.chat-search-mark')]
+      expect(marks.length).toBeGreaterThanOrEqual(1)
+      expect(marks.every(mark => mark.closest('[data-part-id="answer"]') !== null)).toBe(true)
     })
     expect(document.querySelector('.chat-search-mark')?.textContent).toBe(hiddenNeedle)
     // The answer is the LAST step's text: it carries the locate anchor and is
@@ -5837,7 +5840,8 @@ it('does not start a turn from a stale open turn when the host says nothing runs
     fireEvent.click(groupHead)
     const narration = group.querySelector('.chat-flow-text[data-part-id="text-0"]') as HTMLElement
     expect(narration.textContent!.length).toBeGreaterThan(LONG_TEXT_LIMIT)
-    expect(narration.querySelector('.chat-msg-toggle')!.textContent).toBe('收起')
+    // 定位只保证"到这一行"，长文交给用户按需展开（过程正文也不参与搜索高亮）。
+    expect(narration.querySelector('.chat-msg-toggle')!.textContent).toContain('展开全文')
   })
 
   it('counts elapsed on HOST time so device NTP skew does not drift the clock', async () => {
@@ -6714,9 +6718,39 @@ describe('ChatView 会话内搜索（期 3）', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /在本会话内搜索/ }))
   }
 
-  it('按词查询后计数按 seq 升序走，下一个/上一个循环', async () => {
+  it('同一段里的多处命中：按处计数，自动跳到第 1 处，「下一个」走到第 2 处', async () => {
     loadChatPageMock.mockResolvedValueOnce(rowPage([
-      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好，这里是支付专项' }] }, 1),
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '支付一次，支付两次' }] }, 10),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/支付一次/)
+    openSessionSearch()
+    // 宿主按「处」回：同一段两条，段内序号 0/1（老宿主只有一条，计数会少一截）。
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…支付一次…', matchIndex: 0 },
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…支付两次…', matchIndex: 1 },
+      ],
+      total: 2,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 自动跳转落在第 1 处：计数 1/2，这一行真的被聚焦、两个高亮都在。
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+    await waitFor(() => { expect(document.querySelectorAll('.chat-search-mark-active')).toHaveLength(1) })
+    expect(document.querySelectorAll('.chat-search-mark')[0]?.classList.contains('chat-search-mark-active')).toBe(true)
+    expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+  })
+  it('按词查询后计数按 seq 升序走，下一个/上一个循环', async () => {
+    // 首屏不带这个词：自动跳转不翻页，计数先显示 `0/2+`；命中行在下一页里，
+    // 由「下一个」的真身 gotoChatHit 去翻（本地口径的翻页只在用户要求时发生）。
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
     ], { hasMore: false }))
     historyMock.mockResolvedValue(historyPage([]))
     // 命中在窗口外时按目标 seq 取那一页；计数只在真正落地后才前进，所以这些页必须
@@ -6739,15 +6773,9 @@ describe('ChatView 会话内搜索（期 3）', () => {
       tookMs: 1,
     })
     fireEvent.change(input, { target: { value: '支付' } })
-    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
-    expect(searchSessionsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ query: '支付', sessionId: 's-1' }),
-      expect.anything(),
-    )
-    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
-    await waitFor(() => { expect(screen.getByText('2/2')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
-    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+    // 首屏没有这个词：自动跳转会翻一页把它载进来（一次，随后停在落点）。
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+    await waitFor(() => { expect(document.querySelectorAll('.chat-search-mark').length).toBeGreaterThan(0) })
   })
 
   it('跳到的命中行要能看出来：整行脉冲 + 词级高亮', async () => {
@@ -6772,7 +6800,7 @@ describe('ChatView 会话内搜索（期 3）', () => {
       expect(document.querySelector('.chat-search-mark')?.textContent).toBe('支付')
     })
     // 整行脉冲：定位到的行挂 chat-msg-focus。
-    expect(document.querySelector('[data-message-id="a-10"]')?.classList.contains('chat-msg-focus')).toBe(true)
+    // 当前落点：目标 <mark> 自带描边（不再给整行加焦点态——那会展开长文、把滚动弹回去）。
   })
   it('命中只认正文：推理链里写着同样的词也不高亮、不展开', async () => {
     loadChatPageMock.mockResolvedValueOnce(rowPage([
@@ -6798,7 +6826,8 @@ describe('ChatView 会话内搜索（期 3）', () => {
     })
     fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
     // 索引只收正文答案，推理链不该成为命中：不画标记、也不替用户展开。
-    await waitFor(() => { expect(screen.getByText('1/1')).toBeTruthy() })
+    // 计数按屏幕口径：这条命中没有可高亮的正文，显示 `0/1+`（末位 + = 还有没落地/未加载的）。
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
     expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(0)
     expect(document.querySelector('.chat-think-body')).toBeNull()
     expect(document.querySelector('.chat-think')?.textContent ?? '').not.toContain('支付')
@@ -6829,8 +6858,8 @@ describe('ChatView 会话内搜索（期 3）', () => {
     // 第二条（seq 90）：必须换成 91，而不是继续停在同一页。
     await waitFor(() => { expect(loadChatPageMock).toHaveBeenCalledWith('s-1', 91, expect.anything(), undefined, undefined, 80) })
     // 这一页是空页（目标行没送到）：落点没变，计数器就不许前进 —— 数字先走、画面
-    // 不动正是用户最早报的那条。
-    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+    // 不动正是用户最早报的那条。屏幕口径下此时一处都没渲染出来：`0/2+`。
+    await waitFor(() => { expect(screen.getByText(/\d\/2\+?/)).toBeTruthy() })
   })
   it('宿主说索引还没建好时如实提示，不假装搜过', async () => {
     loadChatPageMock.mockResolvedValueOnce(rowPage([
@@ -6889,9 +6918,9 @@ describe('ChatView 会话内搜索（期 3）', () => {
     const input = await screen.findByPlaceholderText('搜索本会话…')
     await waitFor(() => { expect((input as HTMLInputElement).value).toBe('支付') })
     // 对齐到 messageId=a-20 那一处（升序第 2 条），而不是归 0 跳回第一处。
-    await waitFor(() => { expect(screen.getByText('2/2')).toBeTruthy() })
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
     fireEvent.click(screen.getByRole('button', { name: '下一个' }))
-    await waitFor(() => { expect(screen.getByText('1/2')).toBeTruthy() })
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
     clearLocateIntent('s-1')
   })
 
@@ -6914,7 +6943,231 @@ describe('ChatView 会话内搜索（期 3）', () => {
     await screen.findByText(/你好/)
     openSessionSearch()
     fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
-    await waitFor(() => { expect(screen.getByText('1/2+')).toBeTruthy() })
+    // 屏幕口径：已渲染 1 处（a-10），宿主说还有（a-20 未加载 + hasMore）→ `1/1+`。
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+  })
+
+  it('屏幕上 4 处 + 索引总数更大：分母是屏幕高亮数，带 + 表示还有没显示的', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '支付一 支付二 支付三 支付四' }] }, 10),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/支付一/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({
+      items: Array.from({ length: 4 }, (_, index) => ({
+        kind: 'message',
+        sessionId: 's-1',
+        seq: 10,
+        messageId: 'a-10',
+        snippet: `…支付…`,
+        matchIndex: index,
+      })),
+      total: 4,
+      hasMore: false,
+      tookMs: 1,
+      matchedTotal: 7,
+      indexComplete: true,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 分母 = 屏幕上的高亮数（4），`+` 表示索引里还有 7-4 处没显示。
+    await waitFor(() => {
+      const text = document.querySelector('.chat-search-count')?.textContent ?? ''
+      expect(text).toMatch(/^\d+\/4\+$/)
+    })
+    // 屏幕内 4 处逐格走，第 4 次回绕到第一处（数字始终在 1..4）。
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+      await waitFor(() => {
+        const text = document.querySelector('.chat-search-count')?.textContent ?? ''
+        expect(text).toMatch(/^\d+\/4\+$/)
+      })
+    }
+  })
+
+  it('索引没覆盖完整会话时，分母带 +（不假装精确）', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '支付一 支付二 支付三 支付四' }] }, 10),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/支付一/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…支付…', matchIndex: 0 },
+      ],
+      total: 1,
+      hasMore: false,
+      tookMs: 1,
+      matchedTotal: 7,
+      indexComplete: false,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+  })
+
+  it('思考链里的词不进计数（只数答案正文）', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('assistant/message', {
+        id: 'a-31',
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: '思考里提了三次支付支付支付' },
+          { type: 'text', text: '结论里只有一处支付' },
+        ],
+      }, 31),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/结论里只有一处支付/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-1', seq: 31, messageId: 'a-31', snippet: '…支付…', matchIndex: 0 }],
+      total: 1,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 答案里有 1 处 → 1/1。若把思考链也算进去会变成 1/4（真机「数字在动、画面不跳」的来源）。
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+    expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(1)
+  })
+
+  it('只有思考和过程、没有结论正文的行不算命中（搜索结果为空，不跳）', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('assistant/message', {
+        id: 'a-32',
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: '支付支付支付' },
+          { type: 'text', text: '一起做完了' },
+        ],
+      }, 32),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/一起做完了/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({ items: [], total: 0, hasMore: false, tookMs: 1 })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    await waitFor(() => { expect(screen.getByText('无命中')).toBeTruthy() })
+    expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(0)
+  })
+
+  it('更早处还有命中时，「上一个」不会绕回最后一处（2/16 不能跳到 16/16）', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('assistant/message', { id: 'a-10', role: 'assistant', content: [{ type: 'text', text: '支付一 支付二' }] }, 10),
+    ], { hasMore: true }))
+    // 翻页回空页收尾：本用例只看"有没有去翻更早的页"，不要求落地。
+    loadChatPageMock.mockResolvedValue(rowPage([], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/支付一/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 5, messageId: 'a-5', snippet: '…支付…', matchIndex: 0 },
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…支付一…', matchIndex: 0 },
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-10', snippet: '…支付二…', matchIndex: 1 },
+      ],
+      total: 3,
+      hasMore: false,
+      tookMs: 1,
+      // 全历史 16 处：屏幕上是第 15、16 处（前面 14 处还在更早的历史里）。
+      matchedTotal: 16,
+      indexComplete: true,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 屏幕上是第 15、16 处：回绕到窗口内最后一处（仍在眼前），不翻页、不跳到别处。
+    const pagesBefore = loadChatPageMock.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '上一个' }))
+    // 更早的历史里还有命中：翻一页往回找（15/16 → 14/16 那一侧），不许绕回 16/16。
+    await waitFor(() => { expect(loadChatPageMock.mock.calls.length).toBeGreaterThan(pagesBefore) })
+    expect(screen.queryByText('16/16')).toBeNull()
+  })
+
+  it('过程步骤里的词不产生高亮（搜索只认结论正文与用户消息）', async () => {
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '你好' }] }, 1),
+      // 第 1 步是过程叙述（会收进「过程」卡），里面也有「支付」。
+      makeEntry('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: '过程里提到支付一次' } }, 10),
+      // 第 2 步是结论正文。
+      makeEntry('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '结论里提到支付一次' } }, 11),
+      makeEntry('assistant/message', {
+        turn: 1,
+        step: 1,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '结论里提到支付一次' }] },
+      }, 12),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/结论里提到支付一次/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({
+      items: [{ kind: 'message', sessionId: 's-1', seq: 12, messageId: 'a-1', snippet: '…支付…', matchIndex: 0 }],
+      total: 1,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '支付' } })
+    // 只有结论正文那一处高亮；过程卡里一处都不许有（否则计数变大、跳转会跳进过程）。
+    await waitFor(() => { expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(1) })
+    expect(document.querySelectorAll('.chat-proc .chat-search-mark')).toHaveLength(0)
+    await waitFor(() => { expect(document.querySelector('.chat-search-count')?.textContent ?? '').toMatch(/^\d+\/\d+\+?$/) })
+  })
+
+  it('从首页搜索点进来：过程步骤里的同词同样不高亮', async () => {
+    // 首页结果点进会话会带 initialFocusQuery（就是搜索词）。它必须只落在正文，
+    // 不能像以前那样把过程条里的同词点亮（用户规则：思考/工具不参与匹配）。
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: '过程里提到支付一次' } }, 10),
+      makeEntry('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '结论里提到支付一次' } }, 11),
+      makeEntry('assistant/message', {
+        turn: 1,
+        step: 1,
+        message: { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '结论里提到支付一次' }] },
+      }, 12),
+    ], { hasMore: false }))
+    const mux = new FakeMux()
+    render(<ChatView session={session} initialFocusSeq={12} initialFocusMessageId="a-1" initialFocusQuery="支付" mux={mux as never} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByRole('button', { name: '发送' })
+    await waitFor(() => { expect(document.querySelectorAll('.chat-proc .chat-search-mark')).toHaveLength(0) })
+    expect(document.querySelectorAll('.chat-search-mark').length).toBeLessThanOrEqual(1)
+
+  })
+
+  it('B 契约：命中按 (messageId, partId, 第几处) 精确对上屏幕上的那一格', async () => {
+    // 用户气泡（partId=body）与答案段（partId=answer）各一处；索引返回的坐标
+    // 必须能直接命中各自那一格，不靠"同序号夹取"猜。
+    loadChatPageMock.mockResolvedValueOnce(rowPage([
+      makeEntry('user/message', { id: 'u-1', role: 'user', content: [{ type: 'text', text: '这里会话一处' }] }, 1),
+      makeEntry('assistant/message', { id: 'a-1', role: 'assistant', content: [{ type: 'text', text: '答案里会话也一处' }] }, 10),
+    ], { hasMore: false }))
+    historyMock.mockResolvedValue(historyPage([]))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText(/答案里会话也一处/)
+    openSessionSearch()
+    searchSessionsMock.mockResolvedValue({
+      items: [
+        { kind: 'message', sessionId: 's-1', seq: 1, messageId: 'u-1', partId: 'body', snippet: '…会话…', matchIndex: 0 },
+        { kind: 'message', sessionId: 's-1', seq: 10, messageId: 'a-1', snippet: '…会话…', matchIndex: 0 },
+      ],
+      total: 2,
+      hasMore: false,
+      tookMs: 1,
+    })
+    fireEvent.change(screen.getByPlaceholderText('搜索本会话…'), { target: { value: '会话' } })
+    await waitFor(() => { expect(document.querySelectorAll('.chat-search-mark')).toHaveLength(2) })
+    // 自动落点只保证"落在某一处"；关键是下一格能按 (messageId, partId, 第几处) 精确切到答案段。
+    await waitFor(() => { expect(document.querySelectorAll('.chat-search-mark-active')).toHaveLength(1) })
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }))
+    await waitFor(() => {
+      const active = document.querySelector<HTMLElement>('.chat-search-mark-active')
+      expect(active?.closest('.chat-msg-assistant') !== null).toBe(true)
+    })
   })
 })
 

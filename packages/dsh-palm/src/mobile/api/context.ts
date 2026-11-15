@@ -37,6 +37,8 @@ export interface MobileApiCtx<Deps extends MobileApiDepsShape = MobileApiDepsSha
   searchIndexer: SearchIndexer | undefined
   /** 第一次手机请求时才起索引；幂等。 */
   ensureSearchIndex: () => Promise<SearchIndex | undefined>
+  /** 搜索发现索引没覆盖全时催一轮补扫（D：完整后分母去 +）。 */
+  kickSearchIndex?: () => void
 
   // ---- 手机门禁 ----
   /** 刷新配对设备在线状态并报告它是否活着（手机端没有 heartbeat 发送方）。 */

@@ -18,6 +18,13 @@
  * 与查。期 1 只写影子日志，不改变任何现有 API 的返回。
  */
 
+/**
+ * 工具/技能原始块的剥离逻辑在 `shared/strip-tool-blocks.ts`：手机端的「本地搜索口径」
+ * 也要用它，两边各写一份就会一边剥一边不剥（搜得到、点进去没高亮）。
+ */
+import { stripToolBlocks } from './shared/strip-tool-blocks.ts'
+export { stripToolBlocks }
+
 /** Minimal structural view of `node:sqlite` — keeps this module independent of the installed @types/node. */
 interface SqliteStatement {
   run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint }
@@ -168,6 +175,49 @@ function literalNeedles(query: string): string[] {
   return [...new Set(needles)].sort((a, b) => b.length - a.length)
 }
 
+/** 一处字面命中在正文里的位置（`at` 是字符偏移，`length` 是词长）。 */
+export interface TextAnchor {
+  at: number
+  length: number
+}
+
+/** 查询词在正文里的**第一处**字面命中（摘要/锚点共用同一个选择口径）。 */
+export function firstTextAnchor(text: string, query: string): TextAnchor | undefined {
+  const folded = text.toLowerCase()
+  for (const needle of literalNeedles(query)) {
+    const found = folded.indexOf(needle.toLowerCase())
+    if (found >= 0) return { at: found, length: needle.length }
+  }
+  return undefined
+}
+
+/**
+ * 查询词在正文里的**全部**出现位置（同一个词、不重叠、升序）。
+ *
+ * 会话内搜索是按"处"导航的：一段正文里同一个词出现 8 次，就该有 8 个能点的高亮。
+ * 以前宿主一段正文只回一条命中，客户端再怎么算都对不上屏幕上的高亮个数。
+ *
+ * @param text - 已入库的正文
+ * @param query - 用户查询词
+ * @returns 出现位置（没有命中时为空数组）
+ */
+export function occurrenceAnchors(text: string, query: string): TextAnchor[] {
+  const anchor = firstTextAnchor(text, query)
+  if (anchor === undefined) return []
+  const folded = text.toLowerCase()
+  const needle = folded.slice(anchor.at, anchor.at + anchor.length)
+  if (needle === '') return []
+  const out: TextAnchor[] = []
+  let cursor = 0
+  while (out.length < SESSION_HIT_LIMIT) {
+    const at = folded.indexOf(needle, cursor)
+    if (at < 0) break
+    out.push({ at, length: needle.length })
+    cursor = at + needle.length
+  }
+  return out
+}
+
 const SNIPPET_LEAD = 24
 const SNIPPET_TAIL = 64
 
@@ -183,17 +233,14 @@ export const PARAGRAPH_MAX_CHARS = 320
  * 摆出这段（C），点开时按「段落 + 段内第几处」跳（A）。
  */
 export function buildParagraphAnchor(text: string, query: string): { paragraph: string; matchIndex: number } {
+  return paragraphAnchorAt(text, firstTextAnchor(text, query))
+}
+
+/** {@link buildParagraphAnchor} 的定点版本：锚点由调用方指定（按处展开时每一处各算一份）。 */
+function paragraphAnchorAt(text: string, anchor: TextAnchor | undefined): { paragraph: string; matchIndex: number } {
   const folded = text.toLowerCase()
-  let at = -1
-  let length = 0
-  for (const needle of literalNeedles(query)) {
-    const found = folded.indexOf(needle.toLowerCase())
-    if (found >= 0) {
-      at = found
-      length = needle.length
-      break
-    }
-  }
+  const at = anchor?.at ?? -1
+  const length = anchor?.length ?? 0
   if (at < 0) {
     const head = text.slice(0, PARAGRAPH_MAX_CHARS)
     return { paragraph: text.length > head.length ? `${head}…` : head, matchIndex: 0 }
@@ -244,17 +291,14 @@ export function buildParagraphAnchor(text: string, query: string): { paragraph: 
  * the head of the text is shown without ranges instead of a broken window.
  */
 export function buildSnippet(text: string, query: string): { snippet: string; ranges: Array<[number, number]> } {
+  return snippetAt(text, query, firstTextAnchor(text, query))
+}
+
+/** {@link buildSnippet} 的定点版本（按处展开时每一处各算一份摘要）。 */
+function snippetAt(text: string, query: string, anchor: TextAnchor | undefined): { snippet: string; ranges: Array<[number, number]> } {
   const folded = text.toLowerCase()
-  let at = -1
-  let length = 0
-  for (const needle of literalNeedles(query)) {
-    const found = folded.indexOf(needle.toLowerCase())
-    if (found >= 0) {
-      at = found
-      length = needle.length
-      break
-    }
-  }
+  const at = anchor?.at ?? -1
+  const length = anchor?.length ?? 0
   if (at < 0) {
     const head = text.slice(0, SNIPPET_LEAD + SNIPPET_TAIL)
     return { snippet: text.length > head.length ? `${head}…` : head, ranges: [] }
@@ -343,36 +387,11 @@ export const SEARCH_INDEX_VERSION = 5
 const USER_PRIORITY_FACTOR = 1.8
 const DEFAULT_LIMIT = 20
 
-/**
- * 索引文本里夹带的工具/技能原始块。渲染端把它们折进「工具」「思考」里，手机
- * 正文区一个字都看不到；留在索引里就会变成「搜得到、点进去没有」，甚至把整段
- * 工具输出当成正文命中（实测有一条 149 KB 的 `<tool_result><skill_content>` 原文
- * 被当成答案入库，搜 archify 直接命中它）。
- *
- * 两个地方都要用：入库时剥一次（`stripHiddenAssistantText`），查询时再兜一层
- * ——旧库里已经写进去的脏文档不会因为改了代码自动变干净。
- */
-const TOOL_BLOCK_PATTERNS: readonly RegExp[] = [
-  /<tool_result(?:\s[^>]*)?>[\s\S]*?(?:<\/tool_result>|$)/gi,
-  /<tool_use(?:\s[^>]*)?>[\s\S]*?(?:<\/tool_use>|$)/gi,
-  /<tool_calls(?:\s[^>]*)?>[\s\S]*?(?:<\/tool_calls>|$)/gi,
-  /<skill_content(?:\s[^>]*)?>[\s\S]*?(?:<\/skill_content>|$)/gi,
-  /<skill_resources(?:\s[^>]*)?>[\s\S]*?(?:<\/skill_resources>|$)/gi,
-  /<available_skills(?:\s[^>]*)?>[\s\S]*?(?:<\/available_skills>|$)/gi,
-  /<system-reminder(?:\s[^>]*)?>[\s\S]*?(?:<\/system-reminder>|$)/gi,
-]
-
-/** 把工具/技能原始块从要索引、要展示的文本里剥掉（未闭合的按到结尾处理）。 */
-export function stripToolBlocks(text: string): string {
-  let out = text
-  for (const pattern of TOOL_BLOCK_PATTERNS) out = out.replace(pattern, ' ')
-  return out
-}
 const MAX_LIMIT = 60
 /** 分页分组的候选池（条命中）。必须和页偏移无关，页与页才是同一份排序的连续切片：
  *  取 400 条对 bm25 单次查询是毫秒级，而手机端翻到 10 页以后本来也没人用。 */
 const SEARCH_POOL_HITS = 400
-/** 会话内命中的硬上限（querySessionHits）：防止极端常用字把一次查询拉成几十毫秒。 */
+/** 会话内命中的硬上限（querySessionOccurrences）：防止极端常用字把一次查询拉成几十毫秒。 */
 const SESSION_HIT_LIMIT = 500
 /** 相关度的时间衰减尺度（天）：180 天前的会话，权重按 1/(1+age/180) 打折。 */
 const RECENCY_HALF_LIFE_DAYS = 180
@@ -604,15 +623,87 @@ export class SearchIndex {
   }
 
   /**
-   * 会话内命中（「上一处 / 下一处」的水位表）。
+   * 会话内命中（「上一处 / 下一处」的水位表），**按出现位置展开**。
    *
    * 和 query() 分开：会话内不分页、要的是**这个会话里所有的命中**，而 query() 封顶
    * 60 条是给分组展示用的。常用字（「的」）在一个长会话里能有几百处，按 60 条截断
    * 就是「计数器停在 50/50、后面还有几百处永远点不到」——真机实测某会话「的」有 722 处。
+   *
+   * 一个消息段里同一个词出现几次就是几条：客户端按「处」导航（屏幕上一个高亮算一处），
+   * 宿主一段一回一处的旧口径会让计数停在消息数上、按「下一个」跳过段内其余高亮。
    * 上限 500 条是给极端情况兜底，调用方拿到「够数」就自己标 hasMore。
+   *
+   * @param query - 查询词
+   * @param sessionId - 只在这个会话里查
+   * @param limit - 最多回几处
+   * @returns 按文档顺序（seq/ts 升序）展开的命中与"还有更多"
    */
-  querySessionHits(query: string, sessionId: string, limit: number): SearchIndexHit[] {
-    return this.runQuery(query, { limit: Math.min(Math.max(limit, 1), SESSION_HIT_LIMIT), sessionId })
+  querySessionOccurrences(query: string, sessionId: string, limit: number): { hits: SearchIndexHit[]; hasMore: boolean } {
+    const cap = Math.min(Math.max(limit, 1), SESSION_HIT_LIMIT)
+    // 多取一条文档用于判 hasMore（一处文档至少贡献一处命中，所以够）。
+    const docs = this.runQuery(query, { limit: cap + 1, sessionId, withSnippets: false, documentOrder: true })
+    const hits: SearchIndexHit[] = []
+    for (const doc of docs) {
+      const text = doc.text ?? ''
+      const anchors = occurrenceAnchors(text, query)
+      // 字面锚点一个都找不到（FTS 靠分词相邻命中，正文里拼不出原词）：保留一条，
+      // 让用户至少能点进这条消息，而不是凭空少一条命中。
+      const points: Array<TextAnchor | undefined> = anchors.length === 0 ? [undefined] : anchors
+      for (let index = 0; index < points.length; index += 1) {
+        if (hits.length > cap) break
+        hits.push(this.occurrenceHit(doc, text, query, points[index], index))
+      }
+      if (hits.length > cap) break
+    }
+    const hasMore = hits.length > cap
+    return { hits: hasMore ? hits.slice(0, cap) : hits, hasMore }
+  }
+
+  /** 把一条文档命中展开成"第 index 处"的命中（摘要与段落锚点都按这一处算）。 */
+  private occurrenceHit(doc: SearchIndexHit, text: string, query: string, anchor: TextAnchor | undefined, index: number): SearchIndexHit {
+    const { snippet, ranges } = snippetAt(text, query, anchor)
+    const paragraph = paragraphAnchorAt(text, anchor)
+    const base: SearchIndexHit = { ...doc }
+    delete base.text
+    return { ...base, snippet, ranges, paragraph: paragraph.paragraph, matchIndex: index }
+  }
+
+  /**
+   * 会话内这个查询词**一共出现几处**（全历史，不受 200 条返回上限）。
+   *
+   * 计数与 {@link querySessionOccurrences} 用同一把尺子（字面锚点、不重叠），
+   * 所以能和命中列表对齐。`complete` 表示索引是否覆盖了整个会话：不完整时
+   * 调用方只能把它当"至少这么多"（显示 `+`）。
+   */
+  countSessionOccurrences(query: string, sessionId: string): { total: number; complete: boolean } {
+    const trimmed = normalizeQueryText(query).trim()
+    const state = this.sessionState(sessionId)
+    // complete 由索引器在「真的走到历史开头」（那一页 !hasMore）时置真。
+    // 旧判据还要求 oldestSeq <= 1 —— 那是「最早一条**可索引**文档的 seq」，而会话开头
+    // 往往是工具/推理事件（实测最早正文在 seq 16），于是真完整的会话也永远显示 +
+    // （真机 16/39+ 的加号就是这么来的）。oldestSeq 只表示"最早正文在哪"，不是完整性。
+    const complete = state?.complete === true
+    if (trimmed === '') return { total: 0, complete }
+    const expression = matchExpression(trimmed)
+    let rows: Array<Record<string, unknown>>
+    if (expression === undefined) {
+      const like = `%${trimmed.replace(/[%_]/g, match => `\\${match}`)}%`
+      rows = this.db.prepare(`SELECT text FROM docs WHERE session_id = ? AND text LIKE ? ESCAPE '\\'`)
+        .all(sessionId, like) as Array<Record<string, unknown>>
+    } else {
+      rows = this.db.prepare(`
+        SELECT d.text FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid
+        WHERE docs_fts MATCH ? AND d.session_id = ?
+      `).all(expression, sessionId) as Array<Record<string, unknown>>
+    }
+    let total = 0
+    for (const row of rows) {
+      const raw = typeof row['text'] === 'string' ? row['text'] : ''
+      const text = stripToolBlocks(raw)
+      if (text !== raw && !text.toLowerCase().includes(trimmed.toLowerCase())) continue
+      total += occurrenceAnchors(text, trimmed).length
+    }
+    return { total, complete }
   }
 
   /**
@@ -623,11 +714,14 @@ export class SearchIndex {
    * 分页要超取上百条候选，逐条算摘要会把一次查询拖到 100ms 量级，而真正展示的
    * 只有一两屏。
    */
-  private runQuery(query: string, options: { limit: number; sessionId?: string; withSnippets?: boolean }): SearchIndexHit[] {
+  private runQuery(query: string, options: { limit: number; sessionId?: string; withSnippets?: boolean; documentOrder?: boolean }): SearchIndexHit[] {
     const trimmed = normalizeQueryText(query).trim()
     if (trimmed === '') return []
     const limit = Math.max(options.limit, 1)
     const withSnippets = options.withSnippets !== false
+    // 会话内导航按**文档顺序**（seq/ts 升序）走：上一处/下一处要跟屏幕上的先后一致，
+    // 相关度排序会把同一轮的命中打乱。列表搜索仍用相关度排序。
+    const documentOrder = options.documentOrder === true
     const expression = matchExpression(trimmed)
     const sessionId = options.sessionId
     let rows: Array<Record<string, unknown>>
@@ -639,19 +733,21 @@ export class SearchIndex {
         SELECT session_id, message_id, seq, part_id, role, text, ts, turn, step, 0.0 AS score
         FROM docs
         WHERE text LIKE ? ESCAPE '\\' ${sessionId === undefined ? '' : 'AND session_id = ?'}
-        ORDER BY ts DESC
+        ORDER BY ${documentOrder ? 'seq ASC, ts ASC' : 'ts DESC'}
         LIMIT ?
       `).all(...(sessionId === undefined ? [like, limit] : [like, sessionId, limit])) as Array<Record<string, unknown>>
       // 用户消息排在助手前面（与 FTS 路径的角色权重同一个意图），同角色内保持 ts 倒序。
-      rows = rows
-        .map((row, index) => ({ row, index }))
-        .sort((left, right) => {
-          const leftUser = left.row['role'] === 'user'
-          const rightUser = right.row['role'] === 'user'
-          if (leftUser !== rightUser) return leftUser ? -1 : 1
-          return left.index - right.index
-        })
-        .map(entry => entry.row)
+      if (!documentOrder) {
+        rows = rows
+          .map((row, index) => ({ row, index }))
+          .sort((left, right) => {
+            const leftUser = left.row['role'] === 'user'
+            const rightUser = right.row['role'] === 'user'
+            if (leftUser !== rightUser) return leftUser ? -1 : 1
+            return left.index - right.index
+          })
+          .map(entry => entry.row)
+      }
     } else {
       const params: unknown[] = [expression]
       let filter = ''
@@ -668,7 +764,9 @@ export class SearchIndex {
         FROM docs_fts
         JOIN docs d ON d.id = docs_fts.rowid
         WHERE docs_fts MATCH ? ${filter}
-        ORDER BY bm25(docs_fts) * (CASE d.role WHEN 'user' THEN ${USER_PRIORITY_FACTOR} ELSE 1.0 END) ASC, d.ts DESC
+        ORDER BY ${documentOrder
+          ? 'd.seq ASC, d.ts ASC'
+          : `bm25(docs_fts) * (CASE d.role WHEN 'user' THEN ${USER_PRIORITY_FACTOR} ELSE 1.0 END) ASC, d.ts DESC`}
         LIMIT ?
       `).all(...params) as Array<Record<string, unknown>>
     }

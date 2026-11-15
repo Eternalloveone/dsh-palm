@@ -23,6 +23,49 @@ import type { ChatPage } from './chat-window.ts'
 /** 日志文件名：v0 是 session.jsonl（无后缀），之后是 session.v<N>.jsonl[.zstd]。 */
 const LOG_FILE_PATTERN = /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/
 
+/**
+ * 尾读计数（性能验收用，不参与业务）。
+ *
+ * 一次首屏取数过去会重复读同一份日志：主读一次，然后「找 turn/start」「补交付卡」
+ * 「摸回合边界」「扩窗」各自再读 —— 参数全是 2048 帧 / 2MB，纯属重复劳动。
+ * 这个计数器让「一次切换读了几遍日志」变成可验收的数字，而不是靠毫秒猜。
+ */
+let tailReadCount = 0
+/** 归零（测试与性能探针用）。 */
+export function resetTailReadCount(): void { tailReadCount = 0 }
+/** 从上次归零起，真正发生过多少次日志尾读。 */
+export function currentTailReadCount(): number { return tailReadCount }
+
+/**
+ * 一次首屏取数内的「读一次就够」读取器。
+ *
+ * 为什么要复用：`readChatTailPage` 里除了主读，还会为「找 turn/start」「补交付卡」
+ * 「摸回合边界」「扩窗」各读一遍，参数全是 2048 帧 / 2MB —— 同一份日志被定位、读取、
+ * 解压、解析七遍。实测这些读累计占掉一次首屏的大半时间。
+ *
+ * **作用域是「一次调用」而不是「全局带 TTL」**：全局缓存会把上一个请求的结果串给
+ * 下一个（日志在写、同一会话内容会变），这种陈旧没有任何收益支撑。
+ */
+type TailReader = (options: { maxFrames: number; windowBytes: number }) => Promise<SessionLogTailPage | undefined>
+
+/** 为一次取数造一个「更宽的结果可以答更窄请求」的读取器。 */
+function makeTailReader(sessionId: string): TailReader {
+  /** 已读过的：越宽越能顶替。 */
+  let best: { maxFrames: number; windowBytes: number; page: SessionLogTailPage } | undefined
+  return async (options) => {
+    if (best !== undefined && best.maxFrames >= options.maxFrames && best.windowBytes >= options.windowBytes) {
+      return best.page
+    }
+    const page = await readSessionLogTailPage(sessionId, options)
+    if (page !== undefined
+      && (best === undefined || (options.maxFrames >= best.maxFrames && options.windowBytes >= best.windowBytes))) {
+      best = { maxFrames: options.maxFrames, windowBytes: options.windowBytes, page }
+    }
+    return page
+  }
+}
+
+
 /** 一次尾部读取的默认帧数上限：约 40~80 行事件，够铺满手机首屏。 */
 const DEFAULT_TAIL_FRAMES = 48
 /** 找不到边界时往回读的帧数上限：一次工具密集的行，边界可能在几十帧之外。 */
@@ -202,6 +245,7 @@ export async function readSessionLogTailPage(
   options: { maxFrames?: number; windowBytes?: number; now?: number } = {},
 ): Promise<SessionLogTailPage | undefined> {
   const now = options.now ?? Date.now()
+  tailReadCount += 1
   const cached = locatedPaths.get(sessionId)
   let path = cached !== undefined && now - cached.at < LOG_RELOCATE_MS ? cached.path : undefined
   if (path !== undefined) {
@@ -282,10 +326,10 @@ function newestTurnOf(events: readonly WireEvent[]): number | undefined {
  * "窗口最早一行"，真机上一轮 8分40秒 的活显示成 3分22秒。往回读最多
  * {@link BOUNDARY_TAIL_FRAMES} 帧，摸到更早一轮的边界就停（再往前不会有它）。
  */
-async function turnStartFromLog(sessionId: string, turn: number): Promise<number | undefined> {
+async function turnStartFromLog(sessionId: string, turn: number, readTail: TailReader = makeTailReader(sessionId)): Promise<number | undefined> {
   // 只放宽帧数不够：尾读还有字节窗口（默认 256KB），一条工具事件就有几 KB，
   // 二十几步的一轮加起来就能把 turn/start 顶到窗口之外。这里同时放宽字节窗口。
-  const wider = await readSessionLogTailPage(sessionId, { maxFrames: BOUNDARY_TAIL_FRAMES, windowBytes: TURN_START_WINDOW_BYTES })
+  const wider = await readTail({ maxFrames: BOUNDARY_TAIL_FRAMES, windowBytes: TURN_START_WINDOW_BYTES })
   if (wider === undefined) return undefined
   const events = wider.lines.map(line => line.event) as unknown as WireEvent[]
   let found: number | undefined
@@ -461,6 +505,15 @@ export async function readChatTailPage(
   // 实测比例（2026-10-30，628d 会话）：360 帧 → 29 个可见行，约 **12 帧/行**
   // （一个助手行会把整轮的思考+工具+正文合成一行）。所以按 12 倍取预算；
   // 3 倍那次只折出 29 行，首屏还是不够。
+  /*
+   * 这一次取数内的所有尾读都走同一个读取器：越宽的结果可以直接答更窄的请求。
+   *
+   * 2026-11-15：原先主读 480 帧 / 512KB，而「找 turn/start」「补交付卡」「摸回合边界」
+   * 「扩窗」各自再读一遍 2048 帧 / 2MB —— 同一份日志被定位、读取、解压、解析**七遍**。
+   * 现在主读按客户端给的窗口照旧（它的口径由客户端按首屏耗时挑），补读全部经 `readTail`，
+   * 参数相同就直接复用，一次取数的尾读从七遍落到一两遍。
+   */
+  const readTail = makeTailReader(sessionId)
   const frameBudget = Math.min(
     TAIL_FRAME_CAP,
     Math.max(DEFAULT_TAIL_FRAMES, maxRows * FRAMES_PER_ROW),
@@ -468,7 +521,7 @@ export async function readChatTailPage(
   // 帧预算之外还要放开**字节窗口**：默认窗口很小，只够读几十帧，
   // 于是「要 120 行」实际只能折出 29 行，剩下 85 行要靠进会话后再补几页 ——
   // 真机表现就是「进去先短后长」。这里按 2 MB 的尾部窗口读，一次取够。
-  const tail = await readSessionLogTailPage(sessionId, {
+  const tail = await readTail({
     maxFrames: frameBudget,
     windowBytes,
   })
@@ -483,7 +536,7 @@ export async function readChatTailPage(
   const newestTurn = newestTurnOf(events)
   const missingStart = newestTurn !== undefined
     && !events.some(event => event?.type === 'turn/start' && turnOfEvent(event) === newestTurn)
-  const externalStart = missingStart ? await turnStartFromLog(sessionId, newestTurn) : undefined
+  const externalStart = missingStart ? await turnStartFromLog(sessionId, newestTurn, readTail) : undefined
   const folder = new EventFolder()
   // 按轮号种进去：一次折叠里可能先后收工好几轮，单值的"当前轮锚点"会被早收工的那轮吃掉。
   if (externalStart !== undefined) folder.noteTurnStart(newestTurn as number, externalStart)
@@ -505,7 +558,7 @@ export async function readChatTailPage(
       atFileStart: tail.readFrom <= 0,
     })
     if (nextWindow === undefined) break
-    const wider = await readSessionLogTailPage(sessionId, { maxFrames: frameBudget, windowBytes: nextWindow })
+    const wider = await readTail({ maxFrames: frameBudget, windowBytes: nextWindow })
     lastWindow = nextWindow
     if (wider === undefined) break
     const widerEvents = wider.lines.map(line => line.event) as unknown as WireEvent[]
@@ -544,7 +597,7 @@ export async function readChatTailPage(
   }
   if (!widened && lackingCardTurns(rows).length > 0) {
     widened = true
-    const wide = await readSessionLogTailPage(sessionId, {
+    const wide = await readTail({
       maxFrames: BOUNDARY_TAIL_FRAMES,
       windowBytes: TURN_START_WINDOW_BYTES,
     })
@@ -553,7 +606,7 @@ export async function readChatTailPage(
       const wideFolder = new EventFolder()
       const wideNewest = newestTurnOf(wideEvents)
       if (wideNewest !== undefined) {
-        const startAnchor = await turnStartFromLog(sessionId, wideNewest)
+        const startAnchor = await turnStartFromLog(sessionId, wideNewest, readTail)
         if (startAnchor !== undefined) wideFolder.noteTurnStart(wideNewest, startAnchor)
       }
       const wideRows = wideFolder.fold(wideEvents)
@@ -573,7 +626,7 @@ export async function readChatTailPage(
   // 边界为止；连边界都没有（极短的会话）才说"不知道"。
   let boundary = liveBoundaryOf(events)
   if (boundary === undefined) {
-    const wider = await readSessionLogTailPage(sessionId, {
+    const wider = await readTail({
       maxFrames: BOUNDARY_TAIL_FRAMES,
       windowBytes: TURN_START_WINDOW_BYTES,
     })
@@ -620,7 +673,7 @@ export async function readChatTailPage(
     {
       injectedReportCache.set(sessionId, { turn: newestTurn, at: Date.now() })
       try {
-        const wider = await readSessionLogTailPage(sessionId, {
+        const wider = await readTail({
           maxFrames: REPORT_TAIL_FRAMES,
           windowBytes: TURN_START_WINDOW_BYTES,
         })

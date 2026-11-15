@@ -19,6 +19,7 @@ import { useChatSessionLifecycle } from './chat/hooks/use-chat-session-lifecycle
 import { useNativeSelection } from './chat/hooks/use-chat-subscriptions.ts'
 import { useSessionQueue } from './chat/hooks/use-session-queue.ts'
 import { useSessionRef, useSessionState } from './chat/hooks/use-session-scope.ts'
+import { resetElapsedSamples } from '../message-row/turn-clock.ts'
 import { useChatOutboxFlush } from './chat/hooks/use-chat-outbox-flush.ts'
 import { useChatEscape } from './chat/hooks/use-chat-escape.ts'
 import { useScrollGestures } from './chat/hooks/use-chat-scroll-gestures.ts'
@@ -67,7 +68,9 @@ import { useLiveClock } from '../platform/live-clock.ts'
 import { useHostClock } from './chat/hooks/use-host-clock.ts'
 import { formatDuration, isRowRunning } from '../render/process-rows.ts'
 import { CTX_MENU_WIDTH, placeCtxMenu } from '../ctx-menu.ts'
-import { recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../session/chat-snapshot.ts'
+import { createScopedStore, recallTurnReports, rememberChatSnapshot, rememberTurnReports } from '../session/chat-snapshot.ts'
+import { noteChatFrame } from '../session/chat-sync-ledger.ts'
+import { normalizeInsertText } from '../session/insert-queue.ts'
 import { isUsableCachedPage, loadCachedHistory, saveCachedHistory } from '../session/history-cache.ts'
 import { errorText, staleHostHint } from '../shared/error-text.ts'
 import { cancelSession, history, prompt, sendCommand } from '../data/session.ts'
@@ -93,6 +96,7 @@ import { OfflineBanner } from './chat/components/offline-banner.tsx'
 import { ChatHeader, ChatSearchBar } from './chat/components/chat-header.tsx'
 import { ChatEmptyView } from './chat/components/chat-empty.tsx'
 import { alignHitIndex, normalizeSearchHits, rowCoversSeq, rowHasTerm, rowIndexOfHit as searchRowIndexOfHit, rowRendersAnyText, type SearchHit } from './chat/lib/chat-search-match.ts'
+import { localSearchHits, olderHitIndex } from './chat/lib/local-search-hits.ts'
 import { ChatAttentionPanels } from './chat/components/chat-attention-panels.tsx'
 import { JumpControls } from './chat/components/scroll-controls.tsx'
 import type { ModelPickerCatalog } from './chat/lib/tool-labels.ts'
@@ -162,6 +166,48 @@ function newestTurnAnchor(messages: readonly RenderMessage[]): number | undefine
     if (seenAt !== undefined && (firstSeen === undefined || seenAt < firstSeen)) firstSeen = seenAt
   }
   return own ?? firstSeen ?? lastUser
+}
+
+/**
+ * 最后一条用户消息的宿主时间（毫秒）—— 一轮秒表的**硬下界**。
+ *
+ * 真机 2026-11-14（用户第四次报计时不准，截图「等回话 43分34秒」，实际只跑了 8 分钟）：
+ * 新一轮刚发出去时，宿主快照还停在上一轮、折叠里也还没有本轮的 assistant 行，
+ * 于是 {@link newestTurnAnchor} 顺着 `own` 把**上一轮**的 turnStartAt 当成了本轮起点。
+ * 上面那层「只许变早」的 min 记忆又把这个错值锁死 —— 早的永远赢，错得越早越稳。
+ *
+ * 所以锚点必须先过一道物理约束：**本轮不可能在本轮用户开口之前开始**。
+ *
+ * @param messages - 当前窗口里的渲染行
+ * @returns 最后一条用户消息的时间；没有用户行时 undefined
+ */
+export function lastUserMessageAt(messages: readonly RenderMessage[]): number | undefined {
+  let at: number | undefined
+  for (const message of messages) {
+    if (message.kind !== 'user') continue
+    if (typeof message.time !== 'number' || !Number.isFinite(message.time)) continue
+    if (at === undefined || message.time > at) at = message.time
+  }
+  return at
+}
+
+/**
+ * 把锚点夹到「不早于最后一条用户消息」。
+ *
+ * 只抬下界、不压上界：晚于用户消息的候选原样返回（行上更精确的 turn/start 不该被打扰），
+ * 早于它的一律视为上一轮的残留。
+ *
+ * @param anchor - 候选锚点（`null` = 没有开着的轮）
+ * @param floor - 下界（见 {@link lastUserMessageAt}）
+ * @returns 夹过的锚点
+ */
+export function clampAnchorToOwnTurn(
+  anchor: number | null | undefined,
+  floor: number | undefined,
+): number | null | undefined {
+  if (anchor === null || anchor === undefined) return anchor
+  if (floor === undefined || !Number.isFinite(floor) || !Number.isFinite(anchor)) return anchor
+  return Math.max(anchor, floor)
 }
 
 import { FinishedElsewhereBar, RunBadge, RunStatusSheet, runBadgeBits } from '../render/run-status.tsx'
@@ -296,6 +342,40 @@ export interface ChatViewProps {
 // Search can scan deep history (mobile-api SEARCH_MESSAGES_PAGES). Keep locate
 // paging bounded, but large enough to reach any result that search can return.
 
+/** 刚发出去、还没被宿主回执认领的那条用户消息（幽灵行）。 */
+export interface OutgoingFlight {
+  id: string
+  text: string
+  at: number
+  /** 宿主回执（`session.prompt` ack）的时刻：它是"已接单"的权威事实，与模型何时开始无关。 */
+  acceptedAt?: number
+  /** 幽灵行本身超时（宿主那条用户行迟迟不来）：停画它，但等待态还要继续。 */
+  ghostExpired?: boolean
+  /** 等待态已过防闪阈值（回执后 300ms）——短于它的等待不显示，避免一闪而过。 */
+  awaitingReady?: boolean
+}
+
+/** 幽灵行最长挂 8 秒：弱网回执 2~5 秒是常态，再久说明这一拍读不回来（宿主行迟早自己到）。 */
+const OUTGOING_TTL_MS = 8_000
+/**
+ * 等待态最长挂 10 分钟：这是"已送达但还没有任何输出"的兜底（模型排队/长上下文）。
+ * 正常情况下首个过程内容一到就撤（见认领 effect），这个值只是别让占位永久赖着。
+ */
+const AWAITING_TTL_MS = 600_000
+
+/**
+ * 这一行是否是"模型已经开始输出"的证据（工具/流程/推理/正文任一）。
+ *
+ * 等待态（`submitted`）只在它出现之前显示 —— 它是"宿主已接单、模型还没开口"的唯一可见信号。
+ */
+function hasModelOutput(row: RenderMessage): boolean {
+  if (row.kind !== 'assistant') return false
+  return (row.tools?.length ?? 0) > 0
+    || (row.flow?.length ?? 0) > 0
+    || (row.reasoning ?? '') !== ''
+    || row.text !== ''
+}
+
 /**
  * Render one session's chat.
  * @param props - the session, the mux client, and the back action.
@@ -357,7 +437,10 @@ function ChatSessionView({
   // 换会话时的三个一次性动作（消费定位意图 / 清「刚结束」/ 持住定位意图）在 S2-A 搬出。
   useChatSessionLifecycle(session.sessionId)
   /** 高亮用的关键词：props 丢了就用意图里那份（否则只会滚、不会涂黄）。 */
-  const effectiveFocusQuery = initialFocusQuery ?? locateIntent?.query
+  // 只用 props 的定位词（外部"进入并定位"）。`locateIntent?.query` 是**搜索词**
+  // （首页搜索结果点进来时带的），它走搜索通道（chatHitQuery），绝不能当定位词
+  // 传给过程组 —— 否则思考/工具里的同词会被点亮，计数和跳转又会把过程算进去。
+  const effectiveFocusQuery = initialFocusQuery
   // 第一帧就用上一场的内存快照：进会话不再“空一帧、再内容”（真机：进会话闪一下）。
   // 行模型（折叠/合并）由 use-chat-session 持有；这里只拿 rows 与唯一提交点。
   const chatSession = useChatSession({
@@ -368,28 +451,28 @@ function ChatSessionView({
   const messages = chatSession.rows
   /**
    * 交付账本（见 `session/deliveries.ts`）：以 **turn 号**为身份、**只追加不回退**。
+   * 渲染期就地合并（不是 state + effect）：卡必须和正文同一次提交落地，否则又是一帧
+   * 「先正文、后卡片」的闪。
    *
-   * 卡以前是每次渲染从 rows 现折的（chat-rows 里的 `changesByTurn`）—— 行被合并、
-   * 重排、整份替换时那份折叠结果跟着变，于是卡一闪一闪、有时候干脆消失。现在账本
-   * 独立于行：新轮次追加，同一轮只在"新的更全"时替换，旧值永不回退。
-   *
-   * 渲染期就地合并（不是 state + effect）：卡必须和正文同一次提交落地，否则又留下
-   * 一帧「先正文、后卡片」的闪；也免得为一份派生数据把 4000 行的组件体再跑一遍。
+   * **按会话分槽**（真机 2026-11-14 19:52，新建会话里挂着上一场的卡）：这里是渲染期写
+   * ref，而 React 允许丢掉一次渲染的结果、ref 的写入却留下来 —— 单槽账本于是可能被
+   * "别人的那一场"污染。分槽之后，写入只落在它自己那一场，跨会话串味结构上不成立。
    */
-  const deliveriesRef = useSessionRef<DeliveryRecord[]>(session.sessionId, [])
+  const [ledgers] = useState(() => createScopedStore<DeliveryRecord[]>(8))
   const deliveries = useMemo(() => {
-    if (messages.length === 0) return deliveriesRef.current
-    const merged = mergeDeliveries(deliveriesRef.current, collectDeliveries(messages))
-    deliveriesRef.current = merged
+    const previous = ledgers.get(session.sessionId) ?? []
+    if (messages.length === 0) return previous
+    const merged = mergeDeliveries(previous, collectDeliveries(session.sessionId, messages))
+    ledgers.set(session.sessionId, merged)
     return merged
-  }, [messages, deliveriesRef])
-  /** 账本里最新一条"值得看"的交付；卡只认它，行怎么重排都不影响。 */
-  const delivery = latestDeliveryOf(deliveries)
+  }, [messages, session.sessionId, ledgers])
+  /** 账本里最新一条"值得看"的交付（只认本场）；卡只认它，行怎么重排都不影响。 */
+  const delivery = latestDeliveryOf(deliveries, session.sessionId)
   /**
    * 实机逐帧诊断（2026-11-13 第二版）：150ms 一帧，10 秒一次上传。
    *
-   * 带上 bundle 文件名（证明手机上跑的是哪一版）+ 骨架/空态标记 + 视口高度；
-   * 用来回答"进入会话的头两秒屏幕上到底是什么"，而不是靠桌面浏览器推演。
+   * 带上 bundle 文件名 + 骨架/空态标记 + 视口高度；用来回答"进入会话的头两秒屏幕上
+   * 到底是什么"，而不是靠桌面浏览器推演。
    */
   useEffect(() => {
     const frames: Array<Record<string, unknown>> = []
@@ -439,10 +522,7 @@ function ChatSessionView({
    */
   const [entryAnswered, setEntryAnswered] = useSessionState(session.sessionId, false)
 
-  /**
-   * 流式路径的 9 个字段收成一个对象（S7a-3a/3b）：换会话时整体 reset，
-   * 不再逐字段手工清 —— 漏一个就是跨会话串帧。
-   */
+  /** 流式路径的 9 个字段收一个对象（S7a-3a/3b）：换会话整体 reset，漏一个就是跨会话串帧。 */
   const streamRef = useRef(createStreamState())
   const stream = streamRef.current
   // Foreground gate for every poll on this view: a frozen background PWA must
@@ -450,12 +530,6 @@ function ChatSessionView({
   // App's observe effect; returning resyncs them).
   const foreground = usePageVisible()
 
-  /**
-   * Surface-state wrapper for setMessages: coalesce consecutive same-turn
-   * assistant step rows (each model step emits its own assistant/message —
-   * a busy turn would otherwise fill a history tail page with step rows and
-   * push the real prior conversation, code fences included, out of view).
-   */
   /** 宿主最近返回的那一页原始行：定位要用它比对，不要用屏幕上合并过的列表。
    *  合并过的列表把相邻几页的行混在一起，文本匹配会先撞到一段只有几十字的相邻
    *  行上（真机：跳到一个空白的短行，明明搜索命中的正文就在附近）。
@@ -497,12 +571,7 @@ function ChatSessionView({
    * @param options.merge - 与当前列表做并集（默认 true）；false 表示整份替换。
    * @param options.allowGuessedTails - 允许按工具行「猜」交付卡（历史页传 false）。
    */
-  /**
-   * 现场调试钩子：地址带 `?debug=1` 时，把当前渲染的行挂到 window 上。
-   *
-   * 「卡里有重复过程项」这种问题，只看 DOM 分不清是工具条目重复还是 flow 部件重复，
-   * 得把合并后的 rows 原样取出来看。没有这个参数时只多一次空判断，不产生副作用。
-   */
+  /** 现场调试钩子：地址带 `?debug=1` 时把当前渲染的行挂到 window 上（卡/过程条重复时取原始 rows 看）。 */
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!new URLSearchParams(window.location.search).has('debug')) return
@@ -545,6 +614,9 @@ function ChatSessionView({
     },
     onError: (reason) => { setError(errorText(reason)) },
   })
+  /** 「上一个」翻页后的落点：翻到更早一页，落地后落到**新增区域的最早一处**。 */
+  const pendingPrevPageRef = useRef(false)
+
   const { hasOlder, setHasOlder, pendingRef, pageCacheRef, loadOlder, captureSessionGuard, markFollowAfterPrepend, recallSnapshot } = pager
   /** 正在翻更早的页：只驱动按钮文案，不参与"整页装没装完"的判断。 */
   const [olderLoading, setOlderLoading] = useState(false)
@@ -761,7 +833,7 @@ function ChatSessionView({
     foreground,
   })
   // hostLost 仍由 stream 层维护（对账循环用它续命），但页面不再渲染"连接中断"这几个字。
-  const { running, runningTurn, turnStartAt, abandonedTurn, applyTurnVerdict, reconcileRunning, refillGap, reloadTail, resetForSession, clearHostLost, clearActiveTurn, beginTurn, enqueueLiveEvent, noteTailPageAnchor, hasClosedTurn, markSnapshotAlive, isRunning, getRunningTurn } = chatStream
+  const { running, verdictKnown, runningTurn, turnStartAt, abandonedTurn, applyTurnVerdict, reconcileRunning, refillGap, reloadTail, resetForSession, clearHostLost, clearActiveTurn, beginTurn, enqueueLiveEvent, noteTailPageAnchor, hasClosedTurn, markVerdictKnown, markSnapshotAlive, isRunning, getRunningTurn } = chatStream
   const { applyInbox, refreshInbox } = useChatInbox({
     sessionId: session.sessionId,
     mountedRef,
@@ -830,7 +902,6 @@ function ChatSessionView({
   applyGoalRef.current = applyGoal
 
   /** Turn-clock mount fallback (see turnStartAt). */
-  const mountTimeRef = useSessionRef(session.sessionId, () => Date.now())
   /** 宿主时钟（见 chat/host-clock.ts）：读数在宿主时间域里减法，手机墙钟不参与。 */
   const hostClock = useHostClock()
   /** 传给消息行的宿主时间（10 秒桶）：毫秒值当 prop 会让每行的 memo 永远失效（见 use-row-callbacks）。 */
@@ -1034,6 +1105,9 @@ function ChatSessionView({
     // 直接套到这一场的秒表上（锚点是宿主时间，偏移偏多少秒表就偏多少）。
     // 换会话：时钟基准重置（锚点是宿主时间，基准错了秒表就错；重进会话能修好正是因为它重置）。
     hostClock.reset()
+  // 秒表的定锚记录也是**本会话**的：不清的话，切过去的会话（或切回来）会沿用
+  // 上一场留下的锚点，读数就变成上一场的时间（真机：不同会话计时一样）。
+  resetElapsedSamples()
     setTitle(session.title)
     // A session switch starts a fresh read position: the next fold key change
     // (the new tail page) must follow to the bottom unconditionally.
@@ -1136,6 +1210,14 @@ function ChatSessionView({
         stopIntentKeepAlive()
         if (cancelled) return
         networkLanded = true
+        /**
+         * 权威尾页到了 = 这一场"在不在跑"有据可依了（页里带 turnOpen/锚点）。
+         *
+         * 交付卡在这之前一律不画：换会话首帧画的是内存快照（有卡），`running` 却还是
+         * 默认 false —— 先画、权威结论到了再撤，就是真机看到的"卡闪一下又没了"。
+         * 历史会话（纯静态）也在这一拍放开，所以不误伤"一进就有卡"。
+         */
+        markVerdictKnown()
         // Buffered live events re-fold on top of the snapshot; the watermark
         // (page.maxSeq — the host window's event floor) drops any the
         // snapshot already includes, so nothing is lost or doubled.
@@ -1194,7 +1276,11 @@ function ChatSessionView({
         // 这里把最终上屏的这一份存起来：下一次进入首帧就是完整画面。
         // 缓存不在这里写：这一刻只有 host 尾页那一小份（29 行），
         // 真正上屏的完整画面是自动补页之后的 114 行 —— 见下面的 debounce 写入。
-        setHasOlder(page.hasMore)
+        // 空页**不写** hasOlder：宿主对"刚建出来的空会话"也可能答 `hasMore=true`
+        // （窗口前面还有 session/start 之类的系统事件，但一行正文都没有），
+        // 写下去就是空会话里顶着一个永远点不出东西的「加载更早的消息」（真机 2026-11-14）。
+        // 首屏那条空态由 `entryAnswered` 管，这里只管"更早还有没有内容"。
+        if (page.rows.length > 0) setHasOlder(page.hasMore)
         // Seed the plan strip from the page's todo snapshot (newest
         // todo/write in the window; live frames adopt above it by seq).
         // Buffered live events already adopted on arrival.
@@ -1394,6 +1480,10 @@ function ChatSessionView({
     if (subscribe === undefined) return
     return subscribe((frame: MuxFrame, frameRpcId?: string) => {
       reportConnectivity(true)
+      // 记账按**帧自己的会话**归属，且只认会改行的那种帧（`session/event` 是日志事件：
+      // 消息、工具、轮次边界都在这里）。投影/队列/子任务/状态这类帧不改行 ——
+      // 拿它们作废账本只会让"切回来立刻"失效，白白再读一次日志。
+      if (frame.type === 'session/event') noteChatFrame(frame.sessionId)
       dispatchFrame(ctx, frame, frameRpcId)
     })
   }, [mux, bridge, session.sessionId, reconcileRunning, applyInbox])
@@ -1431,7 +1521,13 @@ function ChatSessionView({
    * 同一轮里后来的更晚锚点一律不采信：一轮的起点是既成事实，只可能被更准的值纠正。
    */
   const anchorMemoryRef = useSessionRef<{ turn: number | undefined; at: number } | undefined>(session.sessionId, undefined)
-  const rawClockAnchor = turnStartAt ?? (running ? (newestTurnAnchor(messages) ?? mountTimeRef.current) : null)
+  // 本轮不可能早于「最后一条用户消息」：跨轮残留（上一轮的 turnStartAt / 折叠里上一轮的
+  // assistant 行）在这里被一次性挡掉，之后的 min 记忆再早也早不过这个下界。
+  const anchorFloor = lastUserMessageAt(messages)
+  const rawClockAnchor = clampAnchorToOwnTurn(
+    turnStartAt ?? (running ? newestTurnAnchor(messages) : null),
+    anchorFloor,
+  )
   const clockAnchor = (() => {
     if (rawClockAnchor === null || rawClockAnchor === undefined) return rawClockAnchor
     if (!running) {
@@ -1443,7 +1539,8 @@ function ChatSessionView({
       anchorMemoryRef.current = { turn: runningTurn, at: rawClockAnchor }
       return rawClockAnchor
     }
-    const kept = Math.min(memory.at, rawClockAnchor)
+    // 上面已经排掉了 null/undefined，这里再 ?? 一次只是为了让类型收窄（夹下界不会把值变成空）。
+    const kept = clampAnchorToOwnTurn(Math.min(memory.at, rawClockAnchor), anchorFloor) ?? rawClockAnchor
     anchorMemoryRef.current = { turn: runningTurn, at: kept }
     return kept
   })()
@@ -2074,6 +2171,13 @@ function ChatSessionView({
 
   // 不再把这个会话的历史翻到底。命中按 seq 升序，上一处/下一处就是数组下标。
   const [chatSearchHits, setChatSearchHits] = useSessionState<SearchHit[]>(session.sessionId, [])
+  /** 命中数组的 ref：定位收尾 effect 里要读**最新**那一份（闭包里的是旧值）。 */
+  const chatSearchHitsRef = useSessionRef<SearchHit[]>(session.sessionId, [])
+  chatSearchHitsRef.current = chatSearchHits
+  /** 全历史一共多少处（宿主按块/处全量计数；旧宿主没有这个字段 → undefined）。 */
+  const [chatSearchMatched, setChatSearchMatched] = useSessionState<number | undefined>(session.sessionId, undefined)
+  /** 索引是否覆盖整个会话：false 时上面的总数只能当"至少这么多"（显示 +）。 */
+  const [chatSearchComplete, setChatSearchComplete] = useSessionState<boolean>(session.sessionId, false)
   /**
    * 停止要不要二次确认。
    *
@@ -2096,8 +2200,296 @@ function ChatSessionView({
   const chatSearchTermRef = useRef('')
   chatSearchTermRef.current = chatSearchTerm.trim()
 
+  /** D：索引补扫期间的轮询（同一个词 2 秒一查，最多 6 次）。 */
+  const [chatSearchReload, setChatSearchReload] = useState(0)
+  const indexPollCountRef = useRef(0)
+  const indexPollTermRef = useRef('')
+
   /** 会话内搜索的当前词：跳过去的那一行按它做词级高亮，并把被折叠的长段展开。 */
   const chatHitQuery = chatSearchOpen ? chatSearchTerm.trim() : ''
+
+  // 会话内搜索的**唯一坐标系**：屏幕上的高亮节点。
+  //
+  // 每一处命中的身份 = (messageId, partId, offsetInPart)，与宿主索引返回的
+  // (messageId, partId, matchIndex) **同构**；本地匹配、索引、DOM 定位三处说的是
+  // 同一件事，不再有"整行第 N 处"这种二次推算（历次错位都来自它）。
+  // 计数 = matches.length；跳转 = 直接滚那一格；过程/思考不产生 mark，所以也不会被算计。
+  const [chatMarkTotal, setChatMarkTotal] = useState(0)
+
+  interface RenderedMatch { mark: HTMLElement; messageId: string; partId: string; offset: number }
+
+  /** 这一屏渲染出来的全部高亮，按文档顺序（part 内按出现顺序编号）。 */
+  const renderedMatches = useCallback((): RenderedMatch[] => {
+    if (typeof document === 'undefined') return []
+    const scroller = scrollRef.current
+    if (scroller === undefined) return []
+    const out: RenderedMatch[] = []
+    const seen = new Map<Element, number>()
+    for (const mark of scroller.querySelectorAll<HTMLElement>('.chat-search-mark')) {
+      const row = mark.closest<HTMLElement>('[data-message-id]')
+      const messageId = row?.getAttribute('data-message-id') ?? ''
+      if (messageId === '' || row === null) continue
+      const part = mark.closest<HTMLElement>('[data-part-id]')
+      // B（2026-11-14）：与索引的 partId 严格同构 —— 索引里用户消息是 'body'、
+      // 助手答案是 'answer'。用户气泡没有 data-part-id 节点，这里默认成 'body'，
+      // 两端口径就完全一致，定位不再靠"同序号夹取"猜。
+      const partId = part?.getAttribute('data-part-id') ?? 'body'
+      const scope: Element = part ?? row
+      const offset = seen.get(scope) ?? 0
+      seen.set(scope, offset + 1)
+      out.push({ mark, messageId, partId, offset })
+    }
+    return out
+  }, [])
+
+  /** 落到某一处：只给这一格加"当前"描边并滚过去。
+   *
+   * **不再 setFocusMsgId**：那会给整行加焦点态 → 长文自动展开/收起、交付卡重排，
+   * 布局一变，刚滚过去的位置又被弹回去（真机「点上一个不动」就是这个）。
+   * 搜索落点和"进入并定位"的焦点是两件事：后者才需要展开。 */
+  const gotoRenderedMatch = useCallback((match: RenderedMatch | undefined, index: number): boolean => {
+    if (match === undefined) return false
+    setChatSearchAt(index)
+    const scroll = (): void => {
+      // setChatSearchAt 会重渲染（计数随状态更新），旧节点可能已被替换：这里按
+      // 坐标重新找一次，再滚。找不到才退回传入的那个节点。
+      const box = scrollRef.current
+      if (box === undefined) return
+      const again = renderedMatches().find(item =>
+        item.messageId === match.messageId && item.partId === match.partId && item.offset === match.offset)
+      const node = again?.mark ?? match.mark
+      for (const stale of box.querySelectorAll<HTMLElement>('.chat-search-mark-active')) {
+        stale.classList.remove('chat-search-mark-active')
+      }
+      // 同一节点连续两次命中时动画不会重播：强制回流一次再挂 class。
+      // 目标本来就在视口内时没有位移，脉冲是「确实跳到了」的唯一反馈。
+      void node.offsetWidth
+      node.classList.add('chat-search-mark-active')
+      // 不用 element.scrollIntoView：真机上它经常滚的是**外层文档**（或 smooth 被忽略），
+      // 容器纹丝不动 —— 实测「点下一个高亮坐标一个像素都没变」。直接写容器的 scrollTop。
+      const delta = node.getBoundingClientRect().top - box.getBoundingClientRect().top
+        - box.clientHeight / 2 + node.offsetHeight / 2
+      const target = Math.max(0, box.scrollTop + delta)
+      if (typeof box.scrollTo === 'function') box.scrollTo({ top: target, behavior: 'smooth' })
+      else box.scrollTop = target
+    }
+    // 双 rAF：翻页 prepend 后布局要下一帧才稳定；只等一帧会拿旧坐标算 delta，
+    // 结果是"往回点却向下滚了几千像素"（真机 prev-scrolls 实测过）。
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(scroll))
+    else scroll()
+    return true
+  }, [renderedMatches])
+
+  /** 自动落点：就近（视口 35% 之后第一处，没有则取最后一处）。 */
+  /**
+   * 把一条命中（索引口径：messageId + 该处的 matchIndex）对到屏幕上的那一格。
+   * 对不上返回 undefined —— 说明它还在未加载的历史里，交给翻页定位。
+   *
+   * 同一行有多处时**按序号对**：索引的 matchIndex 与渲染的 offset 口径不完全一致
+   * （一个按文本段、一个按 part），完全相等匹配不到就夹到范围内取第 N 处，
+   * 而不是一律退到该行第一处（那样连续按「下一个」会停在同一处不动）。
+   *
+   * C（2026-11-14）：合并行（一轮多步打包成一张卡）或 pending→final 换了 id 时，
+   * messageId 对不上任何渲染行 —— 这时用 **seq 覆盖**回退找行，再把序号夹到行内范围。
+   * 这是最后一道身份兜底：seq 在合并前后是稳定的。
+   */
+  const markOfHit = useCallback((hit: { seq?: number; messageId?: string; matchIndex?: number } | undefined): RenderedMatch | undefined => {
+    if (hit === undefined) return undefined
+    const wanted = hit.matchIndex ?? 0
+    const fromRow = (rowId: string): RenderedMatch | undefined => {
+      const inRow = renderedMatches().filter(item => item.messageId === rowId)
+      if (inRow.length === 0) return undefined
+      return inRow.find(item => item.offset === wanted) ?? inRow[Math.min(wanted, inRow.length - 1)]
+    }
+    if (hit.messageId !== undefined && hit.messageId !== '') {
+      const byId = fromRow(hit.messageId)
+      if (byId !== undefined) return byId
+    }
+    if (hit.seq !== undefined) {
+      const cover = messagesRef.current.find(row => rowCoversSeq(row, hit.seq!))
+      if (cover !== undefined) return fromRow(cover.id)
+    }
+    return undefined
+  }, [renderedMatches])
+
+  /**
+   * 自动落点：在**屏幕上已经渲染**的命中里就近选一条，index 取它在 hits 里的下标。
+   *
+   * 以前是"先挑屏幕上的 mark，再反查它是 hits 第几条"。matchIndex（索引口径）与
+   * offset（渲染口径）一旦对不上，反查就失败、退成屏幕序号 —— 于是计数显示 9/39，
+   * 按「上一个」却去翻全历史第 8 处（在很早的历史里），真机就是"点了没反应"。
+   * 反过来查（hits → mark）就不会错位：index 与 hits 永远同一套。
+   */
+  const jumpToRenderedMark = useCallback((): boolean => {
+    const hits = chatSearchHits
+    const scroller = scrollRef.current
+    const anchor = scroller !== undefined && scroller.clientHeight > 0
+      ? scroller.getBoundingClientRect().top + scroller.clientHeight * 0.35
+      : undefined
+    if (hits.length > 0) {
+      const candidates = hits
+        .map((hit, index) => ({ index, mark: markOfHit(hit) }))
+        .filter((item): item is { index: number; mark: RenderedMatch } => item.mark !== undefined)
+      // 一条都对不上（索引没给 messageId/seq 覆盖不到）：退回屏幕序，至少能落在一处。
+      let pick = candidates[0]
+      if (pick !== undefined && anchor !== undefined) {
+        const tops = candidates.map(item => Math.round(item.mark.mark.getBoundingClientRect().top))
+        // 几何退化（jsdom / 还没排版）：所有高亮同一纵坐标，硬挑只会落到最后一处。
+        if (new Set(tops).size > 1) {
+          const found = candidates.find(item => item.mark.mark.getBoundingClientRect().top >= anchor)
+          pick = found ?? candidates[candidates.length - 1]!
+        }
+      }
+      if (pick !== undefined) return gotoRenderedMatch(pick.mark, pick.index)
+    }
+    // 旧宿主没有逐处数据：退回屏幕序。
+    const matches = renderedMatches()
+    if (matches.length === 0) return false
+    let index = 0
+    if (anchor !== undefined) {
+      const tops = matches.map(match => Math.round(match.mark.getBoundingClientRect().top))
+      if (new Set(tops).size > 1) {
+        const first = tops.findIndex(top => top >= anchor)
+        index = first >= 0 ? first : matches.length - 1
+      }
+    }
+    return gotoRenderedMatch(matches[index], index)
+  }, [chatSearchHits, gotoRenderedMatch, markOfHit, renderedMatches])
+
+  /** 「上一个/下一个」：在屏幕上真实存在的高亮之间走一格（同一行内也逐格走）。 */
+  const stepRenderedMark = useCallback((direction: 'next' | 'prev'): boolean => {
+    const matches = renderedMatches()
+    if (matches.length === 0) return false
+    const current = Math.min(Math.max(chatSearchAt, 0), matches.length - 1)
+    const index = direction === 'next'
+      ? (current + 1) % matches.length
+      : (current - 1 + matches.length) % matches.length
+    return gotoRenderedMatch(matches[index], index)
+  }, [chatSearchAt, gotoRenderedMatch, renderedMatches])
+
+  /**
+   * 搜索条上的计数：**屏幕上渲染出来的高亮**当分子主体。
+   * - 分母：宿主给了全历史总数（C 版）就用它，否则用屏幕高亮数；
+   * - `+`：索引覆盖不完整（数不全）时才有，表示"还有没数到的"。
+   */
+  const searchView = useMemo(() => {
+    const rendered = chatMarkTotal
+    // 计数口径 = **屏幕上的高亮**（分母也是它）：屏幕上有几处就显示几处，
+    // 与画面一一对应、绝不含过程/思考/工具（那些不产生 mark）。
+    // 屏幕之外还有命中（索引总数更大）时，分母带 `+` 说明"还有没显示出来的"。
+    const external = Math.max(
+      typeof chatSearchMatched === 'number' ? chatSearchMatched : 0,
+      chatSearchHits.length,
+    )
+    if (rendered === 0) {
+      return { hits: external, at: -1, more: external > 0 && chatSearchComplete !== true }
+    }
+    return {
+      hits: rendered,
+      at: Math.min(Math.max(chatSearchAt, 0), rendered - 1),
+      more: external > rendered || chatSearchComplete !== true,
+    }
+  }, [chatMarkTotal, chatSearchAt, chatSearchMatched, chatSearchComplete, chatSearchHits.length])
+
+  /** 首页点进来时，把落点对齐到用户点的那一处（按渲染出来的坐标找）。 */
+  const markIndexForIntent = useCallback((matches: readonly RenderedMatch[], intent: { messageId?: string; seq?: number }): number => {
+    if (intent.messageId !== undefined && intent.messageId !== '') {
+      const byId = matches.findIndex(match => match.messageId === intent.messageId)
+      if (byId >= 0) return byId
+    }
+    if (intent.seq !== undefined) {
+      const bySeq = matches.findIndex(match => {
+        const row = match.mark.closest<HTMLElement>('[data-message-id]')
+        const seq = Number(row?.getAttribute('data-row-seq') ?? Number.NaN)
+        return Number.isFinite(seq) && seq >= (intent.seq ?? 0)
+      })
+      if (bySeq >= 0) return bySeq
+    }
+    return 0
+  }, [])
+
+  /** 高亮渲染出来之后：同步计数，并按意图对齐或就近自动跳一次（每个词只跳一次）。 */
+  const autoJumpedTermRef = useRef('')
+  useEffect(() => {
+    const term = chatHitQuery
+    if (term === '') {
+      autoJumpedTermRef.current = ''
+      setChatMarkTotal(0)
+      return
+    }
+    const matches = renderedMatches()
+    setChatMarkTotal(matches.length)
+    if (matches.length === 0) return
+    if (autoJumpedTermRef.current === term) {
+      // 翻页/展开让总数变了：只修正越界下标，不再抢焦点。
+      // 上界必须是**索引处数**（hits），不是屏幕 mark 数：窗口只渲染了部分消息时
+      // （屏幕 10 处、索引 14 处），拿 matches.length 夹会把 index 从 10 压到 9，
+      // 点一次「上一个」看起来退了两格（真机 12/14 → 10/14）。
+      const total = Math.max(chatSearchHits.length, matches.length)
+      if (chatSearchAt > total - 1) setChatSearchAt(total - 1)
+      return
+    }
+    autoJumpedTermRef.current = term
+    const intent = locateIntentFor(session.sessionId)
+    if (intent !== undefined && (intent.query ?? '').trim() === term) {
+      const aligned = markIndexForIntent(matches, intent)
+      gotoRenderedMatch(matches[aligned], aligned)
+      return
+    }
+    jumpToRenderedMark()
+  }, [chatHitQuery, chatSearchAt, chatSearchHits.length, messages, renderedMatches, gotoRenderedMatch, jumpToRenderedMark, markIndexForIntent, session.sessionId])
+
+  /**
+   * 计数跟着 DOM 变：渲染是分批的（先一行、再整段、再展开），只靠"词变了"那一次
+   * effect 记总数会停在中间某个数（真机 4 处却被显示成 1 处）。这里直接盯
+   * `.chat-search-mark` 的增删，DOM 里几个就记几个 —— 与屏幕永远同源。
+   */
+  useEffect(() => {
+    if (chatHitQuery === '') {
+      setChatMarkTotal(0)
+      return
+    }
+    const sync = (): void => {
+      setChatMarkTotal(previous => {
+        const next = renderedMatches().length
+        return previous === next ? previous : next
+      })
+    }
+    sync()
+    const scroller = scrollRef.current
+    if (scroller === undefined || typeof MutationObserver === 'undefined') return
+    // 性能：不要监听 characterData（流式输出时每个 delta 都会触发），
+    // 也不要每次变化都 setState —— 用一帧合并一次，且数值没变就不写状态。
+    // 之前是「任何 DOM 变化 → 重算 + setState → ChatView 重渲染」，
+    // 搜索面板开着滑动时就是满屏重渲染（真机「上下滑动很卡」）。
+    let scheduled = false
+    const schedule = (): void => {
+      if (scheduled) return
+      scheduled = true
+      requestAnimationFrame(() => {
+        scheduled = false
+        sync()
+      })
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(scroller, { childList: true, subtree: true })
+    return () => { observer.disconnect() }
+  }, [chatHitQuery, renderedMatches])
+
+  /**
+   * 「上一个」在边界触发的那次翻页落地了：落到**新增区域的最早一处**。
+   * （翻页把更早的行 prepend 进来，matches[0] 就是那条更早的命中 —— 15/29 点上一个
+   * 应该是 14/29 这一侧，而不是绕回 29/29。）
+   */
+  useEffect(() => {
+    if (!pendingPrevPageRef.current) return
+    const matches = renderedMatches()
+    if (matches.length === 0) return
+    pendingPrevPageRef.current = false
+    // 让"每个词自动跳一次"的记账保持，避免自动落点再抢一次焦点。
+    autoJumpedTermRef.current = chatHitQuery
+    gotoRenderedMatch(matches[0], 0)
+  }, [messages, chatHitQuery, renderedMatches, gotoRenderedMatch])
 
   // 行匹配判据搬进 `chat-search-match.ts`（W3-3）：这里只保留一个把「宿主原始页」
   // 绑上去的包装，调用点的签名保持不变。
@@ -2107,49 +2499,8 @@ function ChatSessionView({
     messageId?: string,
     snippet?: string,
   ): number => searchRowIndexOfHit(list, { seq, messageId, snippet }, rawPageRef.current, seqRowIndex), [])
-  /**
-   * 在**已经渲染出来的高亮**之间走一步（`gotoChatHit` 的快通道）。
-   *
-   * 判据只用几何：把这一屏的所有 `mark.chat-search-mark` 按文档顺序取出来，
-   * 以「视口上部 35% 处」为当前位置 ——
-   * - `next` 取第一个更靠下的，没有就回绕到第一个；
-   * - `prev` 取最后一个更靠上的，没有就回绕到最后一个。
-   *
-   * 为什么不用「索引里的第几条」：那是推算，窗口外的命中推算不出来；而屏幕上的
-   * 高亮是**事实**。同一屏里有多处也能逐处前进，单命中时会回到它自己（不动）。
-   *
-   * @param direction - 下一个还是上一个
-   * @returns 是否接住了这次跳转（没渲染出任何高亮时返回 false，交给索引翻页分支）
-   */
-  const nudgeToRenderedMark = useCallback((direction: 'next' | 'prev'): boolean => {
-    const scroller = scrollRef.current
-    if (scroller === undefined) return false
-    const marks = [...scroller.querySelectorAll<HTMLElement>('mark.chat-search-mark')]
-    if (marks.length === 0) return false
-    // 无布局环境（jsdom / 还没排版）：所有 rect 都是 0，几何判据不成立，交回索引逻辑。
-    if (scroller.clientHeight <= 0) return false
-    const boxTop = scroller.getBoundingClientRect().top
-    const tops = marks.map(mark => mark.getBoundingClientRect().top - boxTop + scroller.scrollTop)
-    const anchor = scroller.scrollTop + scroller.clientHeight * 0.35
-    let pick = -1
-    if (direction === 'next') {
-      pick = tops.findIndex(top => top > anchor + 8)
-      if (pick < 0) pick = 0
-    } else {
-      for (let i = tops.length - 1; i >= 0; i -= 1) {
-        if ((tops[i] ?? 0) < anchor - 8) { pick = i; break }
-      }
-      if (pick < 0) pick = tops.length - 1
-    }
-    const target = marks[pick]
-    if (target === undefined) return false
-    if (typeof target.scrollIntoView === 'function') {
-      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    }
-    return true
-  }, [])
   /** 跳到第 n 个命中：在已加载窗口里直接定位，否则先把那一页翻进来。 */
-  const gotoChatHit = useCallback((hits: readonly { seq: number; partId?: string; messageId?: string; snippet?: string; paragraph?: string; matchIndex?: number }[], at: number, direction: 'next' | 'prev' = 'next'): void => {
+  const gotoChatHit = useCallback((hits: readonly { seq: number; partId?: string; messageId?: string; snippet?: string; paragraph?: string; matchIndex?: number }[], at: number, direction: 'next' | 'prev' | 'jump' = 'next'): void => {
     const list = messagesRef.current
     // 这一条命中是"同一行里的第几处"：一轮被打包成一张卡片时，卡里好几条消息
     // 都可能命中同一个词（seq 各不相同）。只按 seq 分组会把这些全算成第 0 处，
@@ -2200,13 +2551,11 @@ function ChatSessionView({
      * 「下一个/上一个」就该在它们之间走一步，不需要推算。所以先试这里：
      * 接管成功就直接返回，认不出来（词在更早历史里、或整卡折叠着）才落到下面的索引逻辑。
      */
-    if (nudgeToRenderedMark(direction)) {
-      setChatSearchAt(at)
-      scrollEvent({ type: 'suppress', until: Date.now() + 800 })
-      return
-    }
+    // 2026-11-13 系统性收口：**屏幕上的高亮只由 gotoRenderedMatch 处理**
+    // （坐标 = messageId/partId/partOffset，直接滚那一格）。这里只剩"屏幕上找不到
+    // 这一处 → 翻页把它载进来"这一条路，不再有第三套"按几何挑下一个 mark"的机制。
     const landed = landingOf(hit, at)
-    const hitKey = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}`
+    const hitKey = `${hit.messageId ?? `seq:${hit.seq}`}#${hit.partId ?? ''}#${hit.matchIndex ?? ''}`
     const repeated = landed !== undefined && previous !== undefined &&
       landed.rowId === previous.rowId && landed.occurrence === previous.occurrence &&
       !forcedPageKeysRef.current.has(hitKey)
@@ -2221,6 +2570,15 @@ function ChatSessionView({
     // 补一次定位。**不要**为了这一拍退回翻页分支 —— 那是白白多读一页历史，用户看到
     // 的就是「点一下要等半秒」。
     if (landed !== undefined && !repeated) {
+      // A（2026-11-14）：落地行已经确定，先按**身份**（messageId + 第几处）在屏幕
+      // 上找那一格；找到就直接滚它，不再走 locateSeq 的"整行第 N 处"。
+      // 跨"已加载 / 未加载"边界时，老坐标会差一处 —— 这就是"跳了但落偏"的残留。
+      const identityMark = markOfHit(hit)
+      if (identityMark !== undefined) {
+        setChatSearchAt(at)
+        gotoRenderedMatch(identityMark, at)
+        return
+      }
       // 这一行在屏幕上根本没有正文（宿主把这条消息的正文投在别处，或这一格只剩工具
       // 和推理）：索引能搜到它，屏幕上却没有任何可以高亮的文字。别在这里空转、也别
       // 翻页等一份永远不来的正文 —— 就近亮一处含词的行，让用户看得见、点得动。
@@ -2238,14 +2596,11 @@ function ChatSessionView({
           }
         }
       }
-      // 方案 A：优先用索引给的「这一段里第几处」。在 DOM 里数第 N 个标记，在折叠
-      // 卡片上数不准（一张卡只渲染一个标记），索引的 matchIndex 才是和段落绑定的数。
-      // 但一张卡里落进好几条索引文档时，matchIndex 全是"各自文档里的第 0 处"：
-      // 这时只有行内的第 N 处（landed.occurrence）能把它们分开 —— 否则两条命中
-      // 取到同一个 <mark>，滚到同一格，计数在走、画面不动（真机 编译 3/11→4/11）。
-      const occurrence = landed.occurrence > 0
-        ? landed.occurrence
-        : typeof hit.matchIndex === 'number' ? hit.matchIndex : landed.occurrence
+      // 行内第几处 = 这一行里**比它更早的命中**有几条（landingOf 数的就是这个）。
+      // 宿主现在按"处"回命中（一段里同一个词出现几次就是几条），所以这个数就是屏幕
+      // 上第几个 <mark>；以前按索引的 matchIndex（段内第几处）取，合并卡里会串到别处
+      // —— 真机「点了下一个，高亮跳到同一格」。
+      const occurrence = landed.occurrence
       // 真落地了才动计数器：落点没变时数字先走，就是「数字在变、画面不动」。
       setChatSearchAt(at)
     scrollEvent({ type: 'suppress', until: Date.now() + 1_500 })
@@ -2309,7 +2664,56 @@ function ChatSessionView({
     // 让待收尾 effect 立刻评估一次：它负责「还在翻/翻到了」这两种收尾，也是
     // 一页在飞时唯一能把这次点击接下去的地方（见该 effect 的排队重试）。
     setLocateTick(previous => previous + 1)
-  }, [locateSeq, nudgeToRenderedMark])
+  }, [locateSeq])
+
+  /**
+   * 「下一个」：屏幕上的命中之间逐格走，走到末位回绕到第一处。
+   * （末位之外没有"更新的"内容，回绕只在眼前循环，不会跳到别处。）
+   */
+  /**
+   * 「下一个/上一个」：沿**索引序列**（全历史逐处）走一格。
+   *
+   * chatSearchAt 是唯一状态：= 第几处命中（0 起）。计数与跳转都用它，
+   * 不再用「屏幕 mark 下标 + 偏移」拼数字（那套在边界上必然错位：8/34 按上一个会算出 34/34）。
+   * 目标在屏幕上就直接滚，没加载就交给翻页，落地后按身份对齐。
+   */
+  const stepSearchHit = useCallback((direction: 'next' | 'prev'): void => {
+    // 导航口径与计数同源：只在**屏幕上的高亮**之间走（一定动、一定一格）。
+    // 屏幕外的命中不参与上下步进 —— 那要靠翻页把那一页载进来（用户按到边界时）。
+    const matches = renderedMatches()
+    if (matches.length === 0) return
+    const current = Math.min(Math.max(chatSearchAt, 0), matches.length - 1)
+    const next = direction === 'next'
+      ? (current + 1) % matches.length
+      : (current - 1 + matches.length) % matches.length
+    gotoRenderedMatch(matches[next], next)
+  }, [chatSearchAt, gotoRenderedMatch, renderedMatches])
+
+  const stepSearchNext = useCallback((): void => {
+    stepSearchHit('next')
+  }, [stepSearchHit])
+
+  /**
+   * 「上一个」：第 1 处再按一次 = 更早还有历史就翻页（8/34 → 7/34 那一侧）；
+   * 真的到头才回绕到最后一处。
+   */
+  const stepSearchPrev = useCallback((): void => {
+    const matches = renderedMatches()
+    if (matches.length === 0) return
+    const current = Math.min(Math.max(chatSearchAt, 0), matches.length - 1)
+    if (current === 0) {
+      // 屏幕第一处再往回：还有更早的历史就翻一页（有"载入中…"），否则回绕到末处。
+      if (hasOlder) {
+        pendingPrevPageRef.current = true
+        loadOlderRef.current(false)
+        window.setTimeout(() => { pendingPrevPageRef.current = false }, 4_000)
+        return
+      }
+      stepSearchHit('prev')
+      return
+    }
+    stepSearchHit('prev')
+  }, [chatSearchAt, hasOlder, renderedMatches, stepSearchHit])
 
   // 预取「下一条命中」那一页。
   //
@@ -2318,8 +2722,10 @@ function ChatSessionView({
   // "这一下卡住了"（实测一处 1.2s，手机上更久）。落地之后闲着的时候把下一页取回来
   // 放着，用户真按「下一个」时直接命中缓存，只花折叠 + 滚动的钱。
   useEffect(() => {
+    // 屏幕上有高亮时"下一个"走的是它们，`chatSearchAt` 不是宿主下标，预取无从谈起。
+    if (chatMarkTotal > 0) return
     if (chatSearchHits.length === 0) return
-    const next = chatSearchHits[chatSearchAt + 1]
+    const next = chatSearchHits[Math.max(chatSearchAt, 0) + 1]
     if (next === undefined || next.seq < 0) return
     const beforeSeq = next.seq + 1
     if (pageCacheRef.current.has(beforeSeq)) return
@@ -2340,7 +2746,7 @@ function ChatSessionView({
       clearTimeout(timer)
       controller.abort(new DOMException('history prefetch cancelled', 'AbortError'))
     }
-  }, [chatSearchAt, chatSearchHits, session.sessionId, captureSessionGuard])
+  }, [chatSearchAt, chatSearchHits, chatMarkTotal, session.sessionId, captureSessionGuard])
 
   useEffect(() => {
     const term = chatSearchTerm.trim()
@@ -2352,10 +2758,14 @@ function ChatSessionView({
       setChatSearchBusy(false)
       setChatSearchWarming(false)
       setChatSearchHasMore(false)
+      setChatSearchMatched(undefined)
+      setChatSearchComplete(false)
       return
     }
     if (chatSearchComposingRef.current) return
     setChatSearchBusy(true)
+    // 自动落点不在这里做：高亮要等下一次渲染（chat-rows 收到词）才出现在 DOM 里，
+    // 由上面那个「高亮渲染出来之后」的 effect 统一落点（含首页意图对齐）。
     const controller = new AbortController()
     chatSearchAbortRef.current = controller
     const timer = setTimeout(() => {
@@ -2371,25 +2781,38 @@ function ChatSessionView({
           const hits = normalizeSearchHits(result.items ?? [])
           setChatSearchHits(hits)
           setChatSearchHasMore(result.hasMore === true)
-          // 从首页搜索点进来时，定位意图里带着「用户点的是哪一处」：按意图对齐计数，
-          // 而不是把用户从他点的那处拽到第一处。
-          const intent = locateIntentFor(session.sessionId)
-          const alignedAt = alignHitIndex(hits, intent, term)
-          if (alignedAt >= 0) {
-            setChatSearchAt(alignedAt)
-            return
+          // 全历史计数（C 版）：索引覆盖不完整时只能当"至少这么多"，客户端显示 +。
+          setChatSearchMatched(typeof result.matchedTotal === 'number' ? result.matchedTotal : undefined)
+          setChatSearchComplete(result.indexComplete === true)
+          // D：索引还在补扫（分母带 +）时，过 2 秒带着同一个词再查一次，最多 6 次；
+          // 每轮宿主会推进一批页，补完 complete=true，`+` 自己就消失了。
+          if (result.indexComplete !== true) {
+            if (indexPollTermRef.current !== term) {
+              indexPollTermRef.current = term
+              indexPollCountRef.current = 0
+            }
+            if (indexPollCountRef.current < 6) {
+              indexPollCountRef.current += 1
+              window.setTimeout(() => { setChatSearchReload(previous => previous + 1) }, 2_000)
+            }
           }
-          setChatSearchAt(0)
-          if (hits.length > 0) gotoChatHit(hits, 0)
+          // 屏幕上已经有高亮：计数与跳转都由 DOM 负责，这里只补"还有多少"。
+          if (renderedMatches().length > 0) return
+          // 屏幕上一处都没有（词只在更早的历史里）：才需要去未加载区翻页找。
+          if (hits.length > 0) {
+            const intent = locateIntentFor(session.sessionId)
+            const alignedHost = alignHitIndex(hits, intent, term)
+            gotoChatHit(hits, alignedHost >= 0 ? alignedHost : 0, 'jump')
+          }
         },
         () => {
           if (!controller.signal.aborted) setChatSearchBusy(false)
-    setChatSearchJumping(false)
+          setChatSearchJumping(false)
         },
       )
     }, 250)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [chatSearchTerm, chatSearchComposeTick, session.sessionId, gotoChatHit])
+  }, [chatSearchTerm, chatSearchComposeTick, chatSearchReload, session.sessionId, gotoChatHit, renderedMatches])
   /** Jump to a turn from the outline sheet or the scrubber: in-window turns
    *  scroll in place; turns outside the loaded window page the target's rows in
    *  first, then the pending effect below finishes the locate.
@@ -2554,7 +2977,21 @@ function ChatSessionView({
       // seq = -1 是"只知道轮次号"的跳转：这一轮自己的锚点就是它的行。
       const found = messagesRef.current[index]
       const wantedPartId = pendingTurnPartIdRef.current
-      const wantedOccurrence = pendingTurnOccurrenceRef.current
+      // 行内第几处要按**当前列表**重算：翻页那一刻只知道"这条命中在它自己那段里第几处"，
+      // 落到合并卡上要数这一行里比它更早的命中才等于屏幕上的第几个高亮。
+      const pendingAt = pendingTurnAtRef.current
+      const searchHits = chatSearchHitsRef.current
+      let wantedOccurrence = pendingTurnOccurrenceRef.current
+      if (pendingAt !== undefined && searchHits.length > 0) {
+        let occurrence = 0
+        for (let i = 0; i < pendingAt; i += 1) {
+          const candidate = searchHits[i]
+          if (candidate === undefined) continue
+          const rowIndex = rowIndexOfHit(messagesRef.current, candidate.seq, candidate.messageId, candidate.snippet)
+          if (rowIndex === index) occurrence += 1
+        }
+        wantedOccurrence = occurrence
+      }
       pendingTurnSeqRef.current = undefined
       pendingTurnNumberRef.current = undefined
       pendingTurnPartIdRef.current = undefined
@@ -2817,6 +3254,9 @@ function ChatSessionView({
     regenerateWatchdogRef,
   })
 
+  /** 幽灵用户行（2026-11-14）：点发送后、宿主回执前先画"我说的那句话"，且**不进 rows**。 */
+  const [outgoing, setOutgoing] = useSessionState<OutgoingFlight | undefined>(session.sessionId, undefined)
+
   const {
     send, sendEditedMessage, claimCommand, releaseCommand, flushQueue,
   } = useChatComposer({
@@ -2827,7 +3267,61 @@ function ChatSessionView({
     setError, mountedRef,
     focusComposer: () => { requestAnimationFrame(() => { composerRef.current?.focus() }) },
     clearEditMessage: () => { setEditMessage(undefined) },
+    onOutgoing: flight => { setOutgoing(flight) },
   })
+
+  /**
+   * 发送后的三态（2026-11-14，对齐业界 `submitted` 态）：
+   *
+   * | 态 | 判据 | UI |
+   * |---|---|---|
+   * | 幽灵行 | 已点发送、宿主那条用户行还没到（8 秒内） | 自己那句话 + 「已送出」 |
+   * | **等待输出** | 宿主用户行已到（或已回执），本轮还没有任何输出 | **「已送达 · 等待模型响应…」** |
+   * | 正常 | 本轮出现过程内容/正文 | 过程条接管，占位消失 |
+   *
+   * 第二态就是以前完全空着的那段（实测 13.6 秒）：旧实现的占位在宿主行到达时就被认领撤掉。
+   */
+  const sendView = useMemo((): { ghost?: OutgoingFlight; awaiting?: true } => {
+    if (outgoing === undefined) return {}
+    const wanted = normalizeInsertText(outgoing.text)
+    const landed = messages.slice(-40).some(row => row.kind === 'user' && normalizeInsertText(row.text) === wanted)
+    if (messages.some(hasModelOutput)) return {}
+    const ghost = landed || outgoing.ghostExpired === true ? undefined : outgoing
+    const accepted = landed || outgoing.acceptedAt !== undefined
+    // 防闪：回执后 300ms 内开始的输出不该让占位闪一下（短于感知阈值的等待不值得画）。
+    const ready = landed || outgoing.awaitingReady === true
+    return {
+      ...(ghost === undefined ? {} : { ghost }),
+      ...(accepted && ready ? { awaiting: true as const } : {}),
+    }
+  }, [outgoing, messages])
+
+  /** 等待态的防闪阈值：回执后 300ms 才允许显示。 */
+  useEffect(() => {
+    if (outgoing === undefined || outgoing.acceptedAt === undefined || outgoing.awaitingReady === true) return
+    const wait = Math.max(0, 300 - (Date.now() - outgoing.acceptedAt))
+    const timer = window.setTimeout(() => {
+      setOutgoing(previous => (previous === undefined ? undefined : { ...previous, awaitingReady: true }))
+    }, wait)
+    return () => { window.clearTimeout(timer) }
+  }, [outgoing?.id, outgoing?.acceptedAt, outgoing?.awaitingReady, setOutgoing])
+
+  /** 幽灵行 8 秒兜底（**真定时器**：旧实现只依赖 messages 变化，宿主不发帧时永远不到期）。 */
+  useEffect(() => {
+    if (outgoing === undefined || outgoing.acceptedAt !== undefined) return
+    const timer = window.setTimeout(() => {
+      setOutgoing(previous => (previous === undefined ? undefined : { ...previous, ghostExpired: true }))
+    }, OUTGOING_TTL_MS)
+    return () => { window.clearTimeout(timer) }
+  }, [outgoing?.id, outgoing?.acceptedAt, setOutgoing])
+
+  /** 等待态兜底：模型排队/长上下文也不能让占位永久赖在屏幕上。 */
+  useEffect(() => {
+    if (outgoing === undefined) return
+    const deadline = (outgoing.acceptedAt ?? outgoing.at) + AWAITING_TTL_MS
+    const timer = window.setTimeout(() => { setOutgoing(undefined) }, Math.max(1_000, deadline - Date.now()))
+    return () => { window.clearTimeout(timer) }
+  }, [outgoing?.id, outgoing?.acceptedAt, setOutgoing])
 
   useChatOutboxFlush(offline, flushQueue)
 
@@ -3615,9 +4109,19 @@ function ChatSessionView({
             requestAnimationFrame(run)
             return
           }
-          // Diagnose: report the numbers on-screen so the user can send the
-          // screenshot and we can see WHY the scroll never lands.
-          toast(`定位未成功(共${messages.length}条, 目标≈${Math.round(landed)}, 当前${Math.round(el2b.scrollTop)}/${Math.round(el2b.scrollHeight)})`)
+          // 补偿失败时的兜底：先把目标行本身滚进视口（至少让用户看到那一行），
+          // 诊断只进控制台 —— 正式界面不弹内部数字（真机截图里那行「定位未成功(共…条…)"
+          // 就是它，用户只会以为出错了）。
+          const fallbackRow = el2b.querySelector<HTMLElement>(`[data-message-id="${escapeAttr(focusMsgId)}"]`)
+          if (fallbackRow !== null && typeof fallbackRow.scrollIntoView === 'function') {
+            fallbackRow.scrollIntoView({ block: 'center' })
+          }
+          console.warn('[locate] settle failed', {
+            rows: messages.length,
+            landed,
+            scrollTop: el2b.scrollTop,
+            scrollHeight: el2b.scrollHeight,
+          })
           focusScrolledRef.current = true
           locatingRef.current = false
         })
@@ -3981,12 +4485,12 @@ function ChatSessionView({
         onCompositionEnded={() => { setChatSearchComposeTick(tick => tick + 1) }}
         busy={chatSearchBusy}
         warming={chatSearchWarming}
-        hits={chatSearchHits.length}
-        at={chatSearchAt}
-        hasMore={chatSearchHasMore}
+        hits={searchView.hits}
+        at={searchView.at}
+        hasMore={searchView.more}
         jumping={chatSearchJumping}
-        onPrev={() => { gotoChatHit(chatSearchHits, (chatSearchAt - 1 + chatSearchHits.length) % chatSearchHits.length, 'prev') }}
-        onNext={() => { gotoChatHit(chatSearchHits, (chatSearchAt + 1) % chatSearchHits.length, 'next') }}
+        onPrev={() => { stepSearchPrev() }}
+        onNext={() => { stepSearchNext() }}
         onClose={() => { setChatSearchOpen(false); setChatSearchTerm('') }}
       />
       {error !== undefined && <p className="mobile-error mobile-pad">{error}</p>}
@@ -4007,6 +4511,8 @@ function ChatSessionView({
         <ChatRows
           messages={messages}
           {...(delivery === undefined ? {} : { delivery })}
+          {...(sendView.ghost === undefined ? {} : { outgoing: sendView.ghost })}
+          {...(sendView.awaiting === true ? { awaitingOutput: true } : {})}
           sessionId={session.sessionId}
           showToolCalls={showToolCalls}
           showSystemMessages={showSystemMessages}
@@ -4017,6 +4523,7 @@ function ChatSessionView({
           isRowRunning={isRowRunningOf}
           timeFlags={timeFlags}
           running={running}
+          runningKnown={verdictKnown}
           activeTurn={activeTurn}
           newestCardTurn={newestCardTurn}
           hasClosedTurn={hasClosedTurn}

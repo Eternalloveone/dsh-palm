@@ -104,6 +104,41 @@ export async function loadCachedHistory<T>(sessionId: string): Promise<T | undef
 }
 
 /** Persist one session's tail page (best-effort; LRU-trimmed past the cap). */
+/**
+ * 工具参数/推理文本在缓存里的上限（字符）。
+ *
+ * 2026-11-15 真机 LoAF：进会话时 `IDBRequest.onsuccess` 在主线程要 300~2137ms，
+ * `script` 吃满整帧。体积大头是每个工具调用的原始参数和推理全文 —— 而这两样
+ * 在界面上**默认都是折叠的**。缓存只为「秒开第一屏」，不需要它们完整；
+ * 网络页到达后会覆盖成完整版。
+ */
+const CACHE_TOOL_ARGUMENT_CAP = 400
+const CACHE_REASONING_CAP = 2_000
+
+/** 写盘前裁剪：正文 `text` 不动（那是用户要看的东西），只压折叠区的内容。 */
+function slimForCache<T>(page: T): T {
+  const rows = (page as { rows?: unknown }).rows
+  if (!Array.isArray(rows)) return page
+  const slimmed = rows.map((row) => {
+    if (typeof row !== 'object' || row === null) return row
+    const record = row as { tools?: unknown; reasoning?: unknown }
+    const patch: Record<string, unknown> = {}
+    if (Array.isArray(record.tools)) {
+      patch['tools'] = record.tools.map((tool) => {
+        if (typeof tool !== 'object' || tool === null) return tool
+        const args = (tool as { arguments?: unknown }).arguments
+        if (typeof args !== 'string' || args.length <= CACHE_TOOL_ARGUMENT_CAP) return tool
+        return { ...(tool as object), arguments: args.slice(0, CACHE_TOOL_ARGUMENT_CAP) }
+      })
+    }
+    if (typeof record.reasoning === 'string' && record.reasoning.length > CACHE_REASONING_CAP) {
+      patch['reasoning'] = record.reasoning.slice(0, CACHE_REASONING_CAP)
+    }
+    return Object.keys(patch).length === 0 ? row : { ...(row as object), ...patch }
+  })
+  return { ...(page as object), rows: slimmed } as T
+}
+
 export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<void> {
   let saved = false
   try {
@@ -117,13 +152,13 @@ export async function saveCachedHistory<T>(sessionId: string, page: T): Promise<
       // 这里按行合并：同一 seq 以新到的为准，其余保留，然后按 seq 排序截断。
       // 读旧值（同一连接）再决定写什么：缓存只增不减，见 mergeCachedPage。
       const previous = await readEntry<T>(db, sessionId)
-      const merged = ((): T => {
+      const merged = slimForCache(((): T => {
         try {
           return mergeCachedPage(previous?.page, page)
         } catch {
           return page
         }
-      })()
+      })())
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE, 'readwrite')
         const store = tx.objectStore(STORE)
@@ -178,11 +213,15 @@ async function readEntry<T>(db: IDBDatabase, sessionId: string): Promise<History
 /**
  * 缓存里留多少行。
  *
- * 桌面端进会话就是"历史全在"，手机端以前只留一屏多一点，于是进会话先看到尾部、
- * 再等补页。这里放宽到 400 行：绝大多数会话一次就够，进入即"全都在"，
- * 网络页到达时只做增量追加（位置身份 + 对象复用），屏幕上不会再变一次。
+ * 2026-11-15 真机（安卓 Chrome，LoAF 数据）：`CACHE_MAX_ROWS = 400` 时，
+ * 每次从 IndexedDB 取历史档案的 `IDBRequest.onsuccess` 在主线程上要
+ * **300~2137ms**，32 个长帧几乎全是它 —— `script` 占满、`style`/`render` 都是 0。
+ * 也就是说：为了让"进会话即全都在"少发一次网络请求，付出的代价是进来先冻一两秒。
+ *
+ * 400 → 120（约 2~3 屏）：首屏照样秒开，索引反序列化的量降到三分之一以下；
+ * 更早的历史照旧由 hasOlder / 「加载更早」补齐。
  */
-const CACHE_MAX_ROWS = 400
+const CACHE_MAX_ROWS = 120
 
 /**
  * 把「旧缓存」和「这次要写的页」合成一份**只增不减**的页。

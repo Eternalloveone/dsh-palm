@@ -160,14 +160,26 @@ describe('useChatHistory', () => {
     expect(handle.hasOlder).toBe(true)
   })
 
-  it('keeps hasOlder unchanged for an empty page (skewed cursor is not the end)', async () => {
-    loadChatPageMock.mockResolvedValue(page([], false))
+  it('keeps hasOlder for an empty page when the host still has more (skewed cursor is not the end)', async () => {
+    loadChatPageMock.mockResolvedValue(page([], true))
     render(<Harness />)
     if (handle === undefined) throw new Error('hook did not run')
     handle.setHasOlder(true)
     handle.loadOlder()
     await vi.waitFor(() => { expect(prepared).toHaveLength(1) })
     expect(handle.hasOlder).toBe(true)
+  })
+
+  it('clears hasOlder when the empty page is also the end of history', async () => {
+    // 真机：到头之后按钮还挂着，用户一直点「加载更早的消息」屏幕上什么都不发生
+    // （看起来就是"加载不出来"）。空页 + 宿主明确说没更多 = 真的到头，收起按钮。
+    loadChatPageMock.mockResolvedValue(page([], false))
+    render(<Harness />)
+    if (handle === undefined) throw new Error('hook did not run')
+    handle.setHasOlder(true)
+    handle.loadOlder()
+    await vi.waitFor(() => { expect(prepared).toHaveLength(1) })
+    expect(handle.hasOlder).toBe(false)
   })
 
   it('coalesces a request that arrives while a page is in flight', async () => {
