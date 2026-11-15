@@ -111,13 +111,13 @@ describe('StatusStrip（状态栏 · 平铺一行）', () => {
   })
 })
 
-describe('词槽：星尘聚形（2026-11-15）', () => {
+describe('词槽：化灰（2026-11-15）', () => {
   /** jsdom 没有 matchMedia：组件据此走静止路径。这条本身就是被测前提。 */
   it('jsdom 环境没有 matchMedia（测试因此永远走静止路径）', () => {
     expect(typeof window.matchMedia).not.toBe('function')
   })
 
-  it('静止时只有一份文本：不挂 canvas、不留碎块', () => {
+  it('静止时只有一份文本：不挂 canvas、不留灰粒', () => {
     const { container } = render(<StatusStrip kind="think" label="琢磨着" wind />)
     expect(container.querySelector('canvas')).toBeNull()
     expect(container.querySelector('.palm-word-slot')?.textContent).toBe('琢磨着')
@@ -144,7 +144,7 @@ describe('词槽：星尘聚形（2026-11-15）', () => {
    * jsdom 没有 canvas 实现，像素采样与推帧靠 preview 页的真机图验证，
    * 这里断言渲染时机，避免"星尘不消失、一直盖着字"或"动画没开始就被摘"。
    */
-  it('浏览器允许动画：换词挂上星尘 canvas，WORD_WIND_MS 后收回一份文本', () => {
+  it('浏览器允许动画：换词挂上灰 canvas，WORD_WIND_MS 后收回一份文本', () => {
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: (query: string) => ({
@@ -170,7 +170,7 @@ describe('词槽：星尘聚形（2026-11-15）', () => {
   })
 })
 
-describe('词槽样式契约（星尘聚形）', () => {
+describe('词槽样式契约（化灰）', () => {
   it('词槽锁 3em（灰字与计时不跳），canvas 比词槽四周各大一圈', () => {
     expect(ruleBody('.palm-word-slot')).toContain('inline-size: 3em')
     const canvas = ruleBody('.palm-word-canvas')
@@ -178,8 +178,8 @@ describe('词槽样式契约（星尘聚形）', () => {
     expect(canvas).toContain('pointer-events: none')
   })
 
-  it('字号 14px：1px 粒子才有可见空隙（11px 上必然糊成一团）', () => {
-    expect(pxToken('--palm-strip-size')).toBe(14)
+  it('字号 13px：1px 粒子才有可见空隙（11px 上必然糊成一团）', () => {
+    expect(pxToken('--palm-strip-size')).toBe(13)
   })
 
   it('上一版碎块方案彻底下线，不留死样式', () => {
@@ -193,7 +193,7 @@ describe('词槽样式契约（星尘聚形）', () => {
 describe('状态栏样式契约（平铺一行）', () => {
   it('平铺：主条不写死高度、没有底色与描边，靠留白与正文分开', () => {
     const main = ruleBody('.palm-strip')
-    expect(pxToken('--palm-strip-size')).toBe(14)
+    expect(pxToken('--palm-strip-size')).toBe(13)
     expect(pxToken('--palm-strip-pad')).toBe(7)
     expect(main).toContain('border: 0')
     expect(main).toContain('background: none')

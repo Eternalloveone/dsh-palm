@@ -740,11 +740,15 @@ button.settings-row:active {
   min-inline-size: 0;
 }
 
+/* 2026-11-15：字重 600 → 400。用户反馈「字体颜色太黑、有点违和」——
+   根因不是色值，是「加粗」和「最重前景色」两个强调叠在一行只报状态的小字上。
+   去掉加粗、字号收到 13 后，层级回到「正文 > 目标 > 状态」，读得清但不压。
+   注：中文不能用 500 字重（会被合成加粗），令牌里只有 400 / 600 两档。 */
 .palm-strip [data-part='label'] {
   overflow: hidden;
   color: var(--palm-strip-fg);
   font-size: var(--palm-strip-size);
-  font-weight: var(--palm-w-bold);
+  font-weight: var(--palm-w-normal);
   line-height: var(--palm-lh-head);
   text-overflow: ellipsis;
   text-shadow: var(--palm-strip-text-shadow);

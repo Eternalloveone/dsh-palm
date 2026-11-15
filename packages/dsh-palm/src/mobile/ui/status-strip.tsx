@@ -112,7 +112,7 @@ function WhaleMark({ kind }: { kind: StatusStripKind }) {
 }
 
 /**
- * 星尘引擎的时间轴（毫秒）。全部由 canvas 自己推帧，与样式表无关。
+ * 化灰引擎的时间轴（毫秒）。全部由 canvas 自己推帧，与样式表无关。
  *
  * - 0–240ms：旧词向后上方飘散（每颗自己的错峰）；
  * - 110–510ms：新词从四周环带径向收拢（外圈先动、越近越亮）。
@@ -124,7 +124,7 @@ const GATHER_START = 110
 const GATHER_MS = 400
 
 /**
- * 换词过程的存活时长（毫秒）：星尘层从开始到被摘掉。
+ * 换词过程的存活时长（毫秒）：灰层从开始到被摘掉。
  * = 聚拢收尾 510ms + 50ms 余量。**改上面三个常量要同步改这里**，
  * 否则新词会在聚合到一半时被摘掉（看见"字突然整块出现"）。
  */
@@ -137,7 +137,7 @@ export const WORD_WIND_MS = 560
 const STAR_PAD_X = 48
 const STAR_PAD_Y = 34
 
-/** 一颗星尘：目标像素 + 它自己的风场与环带参数（采样后固定不变）。 */
+/** 一粒灰：目标像素 + 它自己的风场参数（采样后固定不变）。 */
 interface Star {
   /** 目标位置（canvas 内物理像素坐标）。 */
   readonly tx: number
@@ -146,23 +146,17 @@ interface Star {
   readonly r1: number
   readonly r2: number
   readonly r3: number
-  /** 相位：弧线摇摆与落定微颤。 */
+  /** 相位：飘散时的左右摇摆。 */
   readonly ph: number
-  /** 相对字心的方位角（已铺开抖动）。 */
-  readonly angle: number
-  /** 初始收拢半径（物理像素）。 */
-  readonly radius: number
-  /** 收拢时的切向旋转。 */
-  readonly spin: number
 }
 
 /**
- * 允许播放星尘吗？
+ * 允许播放化灰吗？
  *
  * jsdom 没有 `matchMedia` —— 测试与快照一律走静止路径（DOM 与改前逐字节一致）；
  * 用户开了「减弱动态效果」、或环境没有 canvas，也直接换词。与鲸尾动画同一个尊重。
  */
-function stardustAllowed(): boolean {
+function ashAllowed(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false
   if (typeof window.matchMedia !== 'function') return false
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
@@ -170,7 +164,7 @@ function stardustAllowed(): boolean {
 }
 
 /**
- * 把词画到离屏 canvas，按 alpha 采样成星尘：1 颗 / 墨迹像素。
+ * 把词画到离屏 canvas，按 alpha 采样成灰粒：1 颗 / 墨迹像素。
  *
  * 字号、字重、字体族全从元素上读（`getComputedStyle`），不写死 ——
  * 将来再调 tokens 或换皮肤，采样会跟着变。
@@ -183,7 +177,7 @@ function stardustAllowed(): boolean {
  * @param padX - 文字在 canvas 内的 x 起点（CSS px）
  * @param padY - 槽顶在 canvas 内的 y 起点（CSS px）
  * @param dpr - 设备像素比
- * @returns 星尘数组（坐标是物理像素）
+ * @returns 灰粒数组（坐标是物理像素）
  */
 function sampleStars(
   word: string,
@@ -211,19 +205,13 @@ function sampleStars(
 
   const data = ctx.getImageData(0, 0, w, h).data
   const points: Array<{ x: number; y: number }> = []
-  let cx = 0
-  let cy = 0
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
       if (data[(y * w + x) * 4 + 3] <= 128) continue
       points.push({ x: x + 0.5, y: y + 0.5 })
-      cx += x + 0.5
-      cy += y + 0.5
     }
   }
   if (points.length === 0) return []
-  cx /= points.length
-  cy /= points.length
 
   // 确定性伪随机：同一颗每帧走同一条路 —— 可截图对比，也能写进测试。
   let seed = (word.length * 7919 + 13) >>> 0
@@ -232,25 +220,14 @@ function sampleStars(
     return seed / 0x7fffffff
   }
 
-  return points.map((point) => {
-    const r1 = rand()
-    const r2 = rand()
-    const r3 = rand()
-    const far = rand() < 0.12
-    const base = Math.atan2(point.y - cy, point.x - cx) + (rand() - 0.5) * 3.4
-    const radius = (9 + rand() * 37) * dpr * (far ? 1.7 : 1)
-    return {
-      tx: point.x,
-      ty: point.y,
-      r1,
-      r2,
-      r3,
-      ph: rand() * Math.PI * 2,
-      angle: base,
-      radius,
-      spin: (rand() - 0.5) * 1.6,
-    }
-  })
+  return points.map((point) => ({
+    tx: point.x,
+    ty: point.y,
+    r1: rand(),
+    r2: rand(),
+    r3: rand(),
+    ph: rand() * Math.PI * 2,
+  }))
 }
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
@@ -258,11 +235,11 @@ const easeOut = (t: number): number => 1 - (1 - t) ** 1.9
 const easeIn = (t: number): number => t ** 1.4
 
 /**
- * 画一帧星尘。
+ * 画一帧化灰。
  *
  * @param ctx - 2D 上下文（**物理像素坐标，不做 scale**）
- * @param oldStars - 旧词的星尘
- * @param newStars - 新词的星尘
+ * @param oldStars - 旧词的灰粒
+ * @param newStars - 新词的灰粒
  * @param u - 消散进度 0→1
  * @param v - 聚拢进度 0→1
  * @param dpr - 设备像素比（位移量按它换算）
@@ -280,48 +257,45 @@ function drawStars(
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
   ctx.fillStyle = ink
+  const height = Math.max(1, ctx.canvas.height)
 
-  // 旧词：向后上方飘散，alpha 掉得比位移快（否则像"拉着尾巴跑"）。
+  // 散（化灰）：最下面一行先碎，整块自下而上剥落；所有粒子被同一股风带向右上。
   if (u > 0) {
     for (const star of oldStars) {
-      const delay = 0.02 + star.r1 * 0.3
+      const fromBottom = 1 - star.ty / height          // 1 = 最底，0 = 最顶
+      const delay = 0.04 + (1 - fromBottom) * 0.5      // 底先走、顶后走
       const e = clamp01((u - delay) / (1 - delay))
       if (e >= 1) continue
       const k = easeIn(e)
-      ctx.globalAlpha = Math.max(0, (1 - e) ** 1.6)
+      const sway = Math.sin(star.ph + k * Math.PI) * 2.2 * dpr * k
+      ctx.globalAlpha = Math.max(0, (1 - e) ** 1.3)
       ctx.fillRect(
-        star.tx + (2 + star.r1 * 12) * dpr * k,
-        star.ty - (8 + star.r2 * 16) * dpr * k,
+        star.tx + (2 + star.r1 * 16) * dpr * k + sway,
+        star.ty - (6 + star.r2 * 14) * dpr * k,
         1, 1,
       )
     }
   }
 
-  // 新词：星尘径向收拢 —— 外圈先动、越近越亮、落定后微颤。
+  // 聚：灰从上落下、按行的顺序补回去（顶先落），所以字是从上往下"长"出来的。
   if (v > 0) {
     for (const star of newStars) {
-      const delay = Math.min(0.5, Math.max(0, 0.55 - star.radius / (52 * dpr)) + star.r3 * 0.12)
+      const fromTop = star.ty / height                  // 0 = 最顶，1 = 最底
+      const delay = Math.min(0.5, 0.02 + fromTop * 0.35 + star.r3 * 0.12)
       const e = clamp01((v - delay) / (1 - delay))
       if (e <= 0) continue
       const g = easeOut(e)
-      const back = 1 - g
-      const r = star.radius * back
-      const angle = star.angle + star.spin * back
-      const settle = Math.max(0, 1 - back * 8)
-      const tremble = settle === 0 ? 0 : Math.sin(star.ph + v * 40) * 0.35 * settle
-      ctx.globalAlpha = Math.max(0, Math.min(1, (star.radius > 40 * dpr ? 0.05 : 0.12) + 0.88 * g))
-      ctx.fillRect(
-        star.tx + Math.cos(angle) * r + tremble,
-        star.ty + Math.sin(angle) * r * 0.85 + tremble * 0.6,
-        1, 1,
-      )
+      const drop = (10 + star.r2 * 12) * dpr * (1 - g)
+      const sway = Math.sin(star.ph + g * 2.4) * 1.4 * dpr * (1 - g)
+      ctx.globalAlpha = Math.max(0, Math.min(1, 0.1 + 0.9 * g))
+      ctx.fillRect(star.tx + sway, star.ty - drop, 1, 1)
     }
   }
   ctx.globalAlpha = 1
 }
 
 /**
- * 词槽：换词时旧词向后飘散、新词「星尘聚形」（canvas 逐像素粒子）。
+ * 词槽：换词时旧词「化灰」（canvas 逐像素粒子），自下而上剥落、被风带向右上。
  *
  * 四条约束（2026-11-15 定版，依据四轮效果图）：
  * 1. **静止时只有一份文本**：不挂 canvas、不建离屏画布 —— 读屏、快照、`textContent`
@@ -346,7 +320,7 @@ function StripWord({ word }: { word: string }): ReactNode {
     const previous = shown.current
     if (previous === word) return
     shown.current = word
-    if (!stardustAllowed()) return
+    if (!ashAllowed()) return
     setLeaving(previous)
     if (timer.current !== undefined) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
@@ -361,7 +335,7 @@ function StripWord({ word }: { word: string }): ReactNode {
     if (raf.current !== undefined) cancelAnimationFrame(raf.current)
   }, [])
 
-  // 消散期间驱动 canvas。
+  // 消散期间驱动 canvas（化灰）。
   useEffect(() => {
     if (leaving === undefined) return undefined
     const slot = slotRef.current
@@ -416,7 +390,7 @@ function StripWord({ word }: { word: string }): ReactNode {
   }
   return (
     <span className="palm-word-slot" ref={slotRef}>
-      {/* 换词期间文本让位给 canvas：星尘画完（560ms）后 leaving 归零，这里回到纯文本。 */}
+      {/* 换词期间文本让位给 canvas：灰画完（560ms）后 leaving 归零，这里回到纯文本。 */}
       <canvas className="palm-word-canvas" ref={canvasRef} aria-hidden="true" />
     </span>
   )
