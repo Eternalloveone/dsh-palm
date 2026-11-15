@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **抽屉「用量」行显示真数字。** 原来是写死的「余额」两个字；现在按当前模型所在的提供方显示一个短语，并且**把方向写出来**（用户：「本周 32% 不够明显，我还以为是还剩这么多」）：coding plan 报「本周已用 33%」，API 余额报「余额 ¥23.05」，中转站的累计已花报「已用 $0.49」。查不到（不支持 / 未配置 / key 失效）就退回「余额」，不编数。宿主侧 `mobile.usage` 每条提供方多带一个 `route` 键，手机端靠它对上会话模型目录里的 provider（`deepseek-official` → `deepseek` 等别名也认）。查询沿用用量页那条链路与 60 秒缓存，抽屉不等它：先给上次存下的数字（key 带 `.v2`，旧格式不回落），后台补新的。
+
 ## [2.0.0] - 2026-11-13
 
 v2 界面重构定版：搜索定位重写、v21 视觉系统、语音输入、子代理详情与抽屉动效。
@@ -23,6 +29,7 @@ v2 界面重构定版：搜索定位重写、v21 视觉系统、语音输入、�
 - 配对凭据泄露：撤销设备，工具改为必填 `PALM_PAIR`。
 - 宿主边界加固；弱网轮询加 10 秒看门狗。
 - 附件按完整引用读取；`<...>` 包裹的图片路径可正常显示。
+- 会话内搜索：计数与屏幕高亮同源（一段出现几次就是几处）、自动跳转就近且即时（不再翻页找最早一处）、未加载区如实显示 `+`；索引补齐「中间整段空页」导致的漏索引。
 
 ## [1.7.1] - 2026-11-02
 
