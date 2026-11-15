@@ -146,9 +146,9 @@ dsh-palm 把这几件事搬到手机上：
 
 | 会话抽屉 | 任务 / 运行总览 |
 |---|---|
-| ![会话抽屉](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/drawer.webp) | ![任务与运行总览](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/tasks.webp) |
+| ![会话抽屉](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/drawer.webp) | ![任务与运行总览](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/tasks.webp) |
 | **设置** | **皮肤商店** |
-| ![设置页](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/settings.webp) | ![皮肤商店](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots/skins.webp) |
+| ![设置页](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/settings.webp) | ![皮肤商店](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/skins.webp) |
 
 > 真机截图，已脱敏：本机路径、项目名、会话标题和金额都换成了演示值，界面本身是真实运行的手机端。
 
