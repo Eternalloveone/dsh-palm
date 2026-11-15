@@ -1,329 +1,115 @@
 # dsh-palm
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[简体中文](README.md) | [English](README.en.md)
 
 [![npm version](https://img.shields.io/npm/v/@eternalloveone/dsh-palm)](https://www.npmjs.com/package/@eternalloveone/dsh-palm)
-[![npm downloads](https://img.shields.io/npm/dm/@eternalloveone/dsh-palm)](https://www.npmjs.com/package/@eternalloveone/dsh-palm)
 [![CI](https://img.shields.io/github/actions/workflow/status/Eternalloveone/dsh-palm/ci.yml)](https://github.com/Eternalloveone/dsh-palm/actions)
 [![License](https://img.shields.io/github/license/Eternalloveone/dsh-palm)](https://github.com/Eternalloveone/dsh-palm/blob/main/LICENSE)
 
-**Status: 2.0.0 stable** — the `/m/api` method surface and frame formats are backward compatible (additive only). Feedback welcome.
+**2.0.0** · 把 [dsh](https://github.com/deepseek-ai/deepseek-harness) 桌面端搬到手机上：同一个会话、同一份进度，手机只做手机该做的事——看进度、回消息、点审批、管会话。
 
-![dsh-palm demo](docs/screenshots/demo.gif)
+> 手机不是第二个工作台。复杂配置（装插件、改权限预设）还是回桌面做。
 
-The standalone mobile surface for the [dsh](https://github.com/deepseek-ai/deepseek-harness) web GUI: scan-or-code device trust, the `/m/` phone UI, the `/m/api` RPC channel with a realtime SSE mux bridge, and a desktop pairing panel.
-
-## Attribution
-
-dsh-palm is a **derivative work** of [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web) (`@linxin666/dsh-remote-web-ui`, Apache-2.0, by zhu1090093659). See [NOTICE](packages/dsh-palm/NOTICE) for details.
-
-**Inherited:** the pairing protocol, the original device-store format, and the desktop panel skeleton. **Independent:** the entire `/m/` UI, the render stack, the `/m/api` whitelist and SSE mux, and the offline layer. Since **v1.3.0** all runtime contracts carry dsh-palm's own names — the device store moved to `$DSH_HOME/dsh-palm-devices.json` and the settings namespace, cordis pairing service and settings-bridge path no longer follow dsh-remote-web-ui's naming.
-
-## Product positioning
-
-dsh-palm is a **narrow-screen-first, lightweight command deck**: the phone is for checking progress, acting on notifications, quick operations and light management — not a deep-work terminal. Complex configuration (installing plugins, editing permission presets) is best done on the desktop; the phone keeps the high-frequency path (open a session, read, reply) one or two taps away. Every component earns its place by **phone-scene frequency**: model switching, task and background-job status, session management are first-class; desktop-scene conveniences (card dashboards, multi-tab navigation, tree sidebars) are deliberately out of scope. The surface stays a single-page state machine (workspaces → sessions → chat) with bottom-sheet extensions — no tab architecture.
-
-## Quick start
-
-Your phone needs to reach this machine. Three ways:
-
-- **Same Wi-Fi** (30 seconds, good enough) — open the pairing panel from the sidebar phone icon and use the LAN address it suggests.
-- **Tailscale** (5 minutes, recommended) — install Tailscale on both devices; the panel detects your tailnet domain and applies it in one click.
-- **frp or Cloudflare Tunnel** (1 minute if you already run one) — paste your tunneled address into the panel; it probes reachability before saving.
-
-The panel auto-detects tunnels on your machine (Tailscale tailnet domain, `frpc.toml` entries, Cloudflare Tunnel clients) and gives first-time users with no tunnel a LAN / create-a-tunnel fork instead of a blank wall.
-
-Then: `dsh plugin --profile web add @eternalloveone/dsh-palm` → open the pairing panel → scan the QR or type the six-digit code on the phone.
-
-New here? The [30-second quickstart tutorial](packages/dsh-palm/docs/quickstart-tutorial.md) walks from install to a working phone conversation, and configures the completion notifications that make the phone surface worth having.
-
-## Screenshots
-
-| | |
-|---|---|
-| ![Chat](docs/screenshots/chat.png) | **Chat** — streaming markdown, one process card per turn, interactive diff cards and syntax-highlighted code blocks |
-| ![Diff cards](docs/screenshots/diff.png) | **Diff cards** — `diff` fences render as interactive cards with accept / reject actions |
-| ![Run status](docs/screenshots/run-status.png) | **Run status** — the todo plan and background jobs share a live strip above the toolbar |
-| ![Pairing](docs/screenshots/pair.png) | **Pairing** — paste the desktop link or type the six-digit code |
-| ![Usage](docs/screenshots/usage-card.png) | **Usage** — one settings card per provider configured on the desktop: consumed-quota meters, account balances and OpenRouter's spent-vs-limit, refreshed on demand |
-| ![Process card](docs/screenshots/process-card.png) | **Process card** — one collapsed group per turn: thinking, tool rows and diffs in event order, headed by the status word, the elapsed time and what the turn is doing right now |
-| ![Turn report](docs/screenshots/report-card.png) | **Turn report** — what the turn handed back: the deliverables it declared, each with its path, plus the files it produced |
-| ![Wake message](docs/screenshots/wake-card.png) | **Wake messages** — a subagent settlement, task, schedule or team event that triggered a reply gets its own collapsed card |
-
-More screenshots (workspace, sessions, image attach, settings, task sheet, pairing panel, process card, turn report, wake message): [docs/screenshots](docs/screenshots/). All captures are rendered by the real `/m/` UI against **fictional demo data** (workspace names, session titles and chat content are made up), so nothing private leaks into the repository.
-
-## Core capabilities
-
-- **Scan-to-pair device trust** — pair a phone by scanning a QR code or typing a six-digit code; devices persist in `$DSH_HOME/dsh-palm-devices.json`
-- **Native phone UI (`/m/`)** — a standalone mobile bundle designed for narrow screens from the ground up, not a CSS adaptation of the desktop GUI: touch-first interactions, safe-area and dynamic-viewport handling, thumb-sized touch targets, zero horizontal scrolling
-- **Realtime desktop-phone sync** — both surfaces share one host event stream over an SSE mux bridge with polling fallback; end-to-end latency (desktop trigger → phone mux frame, median): loopback 4 ms, public tunnel 9 ms, Tailscale 13 ms, weak network 246 ms (Chrome DevTools throttling, 200 ms simulated latency, N=5–8 rounds per scenario, 2026-08)
-- **IME-safe composer** — Chinese input-method composition never sends half-typed text
-- **Diff cards & code actions** — tolerant unified-diff parsing with accept / reject / review actions; copy, insert into editor, open, download, sandbox run
-- **Run-status strip & task sheet** — the todo plan and background jobs collapse into one live strip above the toolbar
-- **Offline outbox & PWA** — prompts queue in IndexedDB and flush automatically on reconnect; installable, versioned service worker
-- **Completion notifications** — task-finished and long-reply alerts through three layers: in-app system notifications (SSE), Web Push (VAPID), and third-party channels (WxPusher, Server酱 / Bark / Telegram, plus a demoted legacy PushPlus) for when the app is closed; thresholds and cooldowns are configurable from the phone. Per-kind gates (plan-complete / background-task / long-reply) toggle each event type independently, defaulting to quiet for background tasks and long replies
-- **Per-provider usage & balances** — one settings card for every provider configured on the desktop: consumed-quota meters (Ollama Cloud), account balances (DeepSeek, Moonshot/Kimi) and OpenRouter's spent-vs-limit, refreshed on demand; providers without a public endpoint are not shown
-- **Global search with message-level locate** — search the workspace and every session from the home page, or the current workspace from the session list; hits group by workspace with real session titles, and tapping one opens the chat and scrolls to the matched message with a one-shot highlight. Chinese short words are covered by a bounded substring backfill (SQLite FTS tokenizes contiguous CJK as one token)
-- **Turn navigation for long sessions** — a floating handle in the bottom-right reads 当前 / 总轮 once you scroll away from the newest message: tap it for the turn list (each turn with its prompt and reply preview; unloaded turns are paged in first), or press and drag it sideways to scrub, releasing on the turn you want. The list spans the whole session — a 172-turn session still reaches turn 1
-- **Pending-message queue dock** — messages sent while a turn is running enter the host queue and show as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header, each editable (plain text), removable, or steered in as an interrupt; the dock mirrors the host snapshot and clears on session stop
-- **Global run overview** — a full-screen view of everything the host is doing right now: running sessions across every workspace, each card naming the current action, the step and the elapsed time (`运行命令 pnpm test · 第 7 步 · 已跑 12分04秒`) plus workspace and last-activity, with background jobs folded to one line; the home page's quick chip shows a live badge, and tapping a card opens that session. Sessions that finish move to 「刚结束」with outcome, duration and a one-line summary instead of disappearing, and a tappable capsule announces a finished turn on any page
-- **In-chat file & image preview** — file-path links in messages (bare or backtick-wrapped) open a bottom sheet: markdown renders formatted, HTML renders in a sandboxed iframe, code highlights, images display inline; message `<img>`s open a full-screen lightbox with double-tap zoom
-- **Clean streaming output** — windowed prefix rendering keeps long replies smooth; collapsible reasoning blocks fold in-body thinking into a disclosure
-
-## Full capability list
-
-<details>
-<summary>Architecture, realtime, interaction, offline, resilience, experience, pairing — the complete list</summary>
-
-**Architecture**
-
-- **Method-level whitelisted RPC** — `/m/api` exposes an explicit allow-list plus phone-local methods; errors never leak host paths or method names (covered by `tests/mobile-api.spec.ts`)
-- **Hand-rolled render stack** — GFM-subset markdown renderer (escape-first, protocol allow-list), lightweight syntax highlighter, unified-diff parser — no third-party rendering dependencies; bundle under 1 MB (226 KB gzip)
-
-**Realtime**
-
-- **SSE mux bridge with polling fallback** — stall detection (36 s for a live stream) arms adaptive history polling; events are never lost and the stream switches back the moment SSE delivers again; a revoked device stops polling and returns to the pairing page instead of polling forever
-- **Incremental streaming preview** — the open tail renders as escaped text grown per chunk, with inline markdown promoted on short blocks
-- **Collapsible reasoning blocks** — in-body thinking folds into a disclosure
-
-**Interaction**
-
-- **Approval & question panels** — tool approvals stream in realtime and resolve in place; answers are bound to the owning device session (no cross-device stealing)
-- **Command cards** — slash-command discovery and execution with running / success / error lifecycle
-- **Slash-command chips** — picking a command from the `/` sheet inserts a blue chip holding only the command word, so parameters stay editable; sending assembles the full line, and removing the chip cancels the command
-- **Image attach** — paste or pick; canvas compression keeps payloads under a fixed budget; over-limit and decode failures surface as toasts instead of silent drops
-- **File attach** — the `+` menu takes arbitrary files (documents, sheets, archives, code): up to 5 at a time, 20 MB each, staged through the host attachment service so the message itself only carries a receipt, with a pending-attachment bar (name, size, remove) above the composer. When the phone's own picker offers nothing but camera and gallery (some Android builds register no file handler at all), **Host file** browses this computer's directories instead and writes `@absolute-path` into the composer.
-- **Voice input & transcription** — in-browser WAV recording (auto-finishes at 60 s, cleans up on leave), OpenAI-compatible multi-service fallback (SenseVoiceSmall first), phone-managed service list; host-configured services are shown as display facts only — host API keys never leave the host; live captions stream while recording.
-- **Session management** — delete sessions from the chat menu or a long-press on the roster; the offline outbox is cleared with the session
-- **Global search** — the home-page search is a global search over workspaces and every session's content, grouped by workspace with real session titles; the session-list search narrows to the current workspace. Hits open the chat and scroll to the matched message (deep-link `?session=&seq=`), with a one-shot highlight; CJK short words are covered by a bounded substring backfill
-- **Turn navigation** — a floating handle in the bottom-right shows 当前 / 总轮 and appears as soon as you leave the newest message: tap it for the turn list (prompt + reply preview per turn, unloaded turns are paged in first) or press and drag it sideways to scrub, releasing on the turn under your finger. The list merges the host's `turnOutline` projection with the locally loaded turns (deduplicated, ascending), so the whole session is reachable; the scrubber maps the finger's absolute x onto that list, and a deep jump pages to the NEXT turn's boundary under a page budget — saying so when it cannot get there instead of hanging on a loading state
-- **Pending-message queue dock** — messages sent while a turn is running queue in the host and render as a dock above the composer (desktop QueueDock parity): single rows or a collapsible `N queued` header; each row is editable (plain text only), removable, or steered in as an interrupt while the agent is running; the dock mirrors the host snapshot and clears on session stop
-- **Goal bar** — the desktop goal strip on the phone, between the queue dock and the model / permission row: pause / resume follows the host's activate state, and expanding gives body-length wrapping with a visible collapse control
-- **In-chat file preview** — file-path links (bare or backtick-wrapped) open a bottom sheet instead of the desktop-only opener: markdown renders formatted (interactive code fences / diff cards), HTML renders in a sandboxed iframe (scripts inert), other code highlights, and image paths display inline; relative paths resolve against the session's cwd, the host process cwd, every workspace, or absolute mentions already in the chat
-- **In-chat image lightbox** — message `<img>`s (remote URLs or attached data URLs) open full-screen with a double-tap fit/1:1 zoom toggle
-- **Global run overview** — a full-screen cross-session view (running sessions + live background jobs + the subagents a session is waiting for, running children first and folded past three) reachable from the home quick chip; each card opens its session. Every card says what is happening — `运行命令 pnpm test · 第 7 步 · 已跑 12分04秒` — with the workspace and "active N seconds ago" underneath (amber past 90 s, so a stuck turn is visible at a glance)
-- **Subagents you can open** — each card lists the subagents that turn delegated (running ones with their elapsed time, finished ones with "N minutes ago"); tapping a row opens that child's **read-only transcript**: the task it was given, every tool step and its answer, with a footer stating that a subagent cannot receive messages from here
-- **Finished runs stay put** — a session that finishes does not just vanish: it lands under 「刚结束」with its outcome (done / failed / stopped), duration, "N minutes ago" and a one-line summary for 30 minutes (max 8, persisted in localStorage); a tappable capsule also pops up on any page when a turn ends and jumps straight to that session
-- **Plugin market** — browse, search and install plugins from the phone (best done on the desktop)
-- **Desktop-parity settings** — phone settings sync with the desktop (schema forms, cascading model picker, permission presets; complex presets are best edited on the desktop)
-- **Settings search** — the settings page search also indexes sub-configuration entries (notification gates, push channels, Web Push, voice services), opening the owning sub-page and scrolling to the match
-
-**Offline & weak networks**
-
-- **PWA** — installable, versioned service worker, offline-capable bundle
-- **gzip-compressed API responses** — weak-link friendly
-- **On-demand loading** — thin roster fetch; sessions load only when opened
-- **Instant navigation** — folded-view chat reads, batch previews and cross-mount caches make list/chat switching feel immediate, even over weak links
-
-**Resilience & diagnosis**
-
-- **Errors never leave a white screen** — a React error boundary renders a readable error page with retry / reload; window errors, unhandled rejections and failed resource loads go into a bounded ring kept host-side, and the host can forward a report to your configured channel — a phone that crashed cannot report itself
-- **Storage that survives eviction** — after the first cache write the app requests persistent storage, so a long-backgrounded PWA does not silently lose its history cache
-- **Jank and process suspension are separable** — a Long Task observer plus hidden-window bookkeeping flags any task that *began* while the page was hidden and reports `suspension.hiddenMs`: "the app stuttered" and "the phone froze us" stop producing the same number
-
-**Notifications**
-
-- **One trigger, three channels** — the host watches the shared event stream and decides once (task terminal states + turns longer than a configurable threshold, with a per-session cooldown); every channel delivers the same decision
-- **Per-kind notification gates** — plan-complete / background-task / long-reply each have an independent toggle in the settings page; existing configs default to quiet for background tasks and long replies (breaking change)
-- **In-app system notifications (SSE)** — the phone shows a system notification while the app is open; clicking it deep-links to the session
-- **Notification inbox** — the notifications page lists the host engine's recent decisions (last 50), so a missed notification can be reviewed and tapped through to its session
-- **Lock-screen privacy** — a toggle downgrades every channel's notification to a generic message (no session title or task name) when the phone is locked
-- **Web Push (VAPID)** — the service worker receives pushes when the app is closed (Android Chrome/Edge/Firefox; iOS Safari 16.4+ for installed PWAs; mainland-China networks may not reach the FCM backend — the third-party channels cover that)
-- **Third-party channels** — WxPusher (WeChat, recommended for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed (PushPlus is kept as a demoted legacy channel — it now requires paid verification); credentials are stored host-side and never ride the settings surface
-- **Notification settings** — permission, duration threshold, cooldown, Web Push toggle and channel credentials all live in the phone settings page, with a test button that pushes one synthetic event end to end; each channel shows its credential state (configured / not) so a restart never looks like a lost key
-
-**Experience**
-
-- **Display preferences** — font scale, density, line numbers, auto-scroll
-- **Theme sync** — the desktop theme preference applies on the phone
-- **Session roster** — full project names, cwd-filtered, full timestamps
-- **Update check** — the about sheet checks the npm registry for a newer version (host-side, since the phone's CSP blocks direct registry access) and reports "new version available" or "up to date"
-
-**Pairing & onboarding**
-
-- **Six-digit pairing code** — the desktop panel shows a human-readable code beside the QR; the phone can type it instead of scanning. Codes are one-time, expire with the token (10 minutes by default), and die on re-issue or stop; `/api/pair/accept` is rate-limited (30 s window: 40 attempts per source IP, 10 per XFF hop) and answers a uniform `invalid` for unknown or used secrets so probing cannot distinguish them
-- **In-panel public-address editor** — configure your tunneled address (frp / Cloudflare Tunnel / Tailscale) right in the pairing panel; saving probes reachability first, so a dead tunnel is caught before it is persisted
-- **Three-step wizard** — the panel is a configure → pair → use wizard; the step indicator doubles as navigation (completed steps are clickable), and paired users land directly on a clean device-management view
-- **Tunnel detection** — the host probes for Tailscale (tailnet domain, one-click apply), parses `frpc.toml` for the concrete frp entry, and spots Cloudflare Tunnel clients; a first-time user with no tunnel gets a LAN / create-a-tunnel fork instead of a blank wall
-- **First-run guidance** — a dismissible welcome banner, an unconfigured dot on the sidebar trigger, and plain-language copy ("Your phone cannot reach this computer") with the action right below it
-- **First-run welcome card** — after pairing, the workspace home shows a one-time three-step onboarding card (start a chat / configure notifications / view usage), dismissible and shown only once
-- **Workspace-native theming** — the panel follows the system light/dark scheme via `prefers-color-scheme` (no manual toggle), with a 0.2s ease transition on every color
-- **Phone-side server switch** — the mobile pairing gate shows the server address and deep-links a code/token to a switched tunneled origin via `?code=` / `?pair=`; the code is consumed immediately and the URL is replaced with a clean path, and every response carries `Referrer-Policy: no-referrer`
-- **Desktop-parity command menu** — the phone's `+` menu resolves the session's agent view, so per-agent commands (`/plan`, `/compact`) match the desktop `/` popup
-
-</details>
-
-## Notifications
-
-dsh-palm alerts the phone when a task finishes or a long reply completes. One host-side decision engine (`NotifyEngine`) watches the shared event stream and fans each decision out to three delivery layers, so the same event reaches the phone whether the app is open, closed, or the browser is gone entirely.
-
-### How it works
-
-**One trigger, three channels.** The host watches the mux stream and decides once:
-
-- **Task terminal states** — a background job (bash, pwsh, …) transitioning `running → completed/failed` emits a notification immediately
-- **Long turns** — a completed turn (agent reply) longer than the configurable threshold (default 30 s) emits a notification; the same session is throttled by a cooldown (default 2 min) so a burst of long replies does not spam the phone. Aborted and error turns never notify
-
-The decision is delivered through three independent layers:
-
-| Layer | Channel | Works when | Notes |
-|---|---|---|---|
-| L1 | SSE → Notification API | app open (foreground or background) | clicking deep-links to the session; suppressed while the page is visible |
-| L2 | Web Push (VAPID) | app closed, browser running | Android Chrome/Edge/Firefox; iOS Safari 16.4+ installed PWA only; FCM may be unreachable from mainland-China networks |
-| L3 | WxPusher / Server酱 / Bark / Telegram / PushPlus (demoted) webhooks | app closed, browser gone | credentials stored host-side only |
-
-**L1 (in-app).** The phone keeps one SSE connection to `/m/api/events.notify` — deliberately separate from the chat mux stream, whose schema drops unknown frames. A notify frame shows a system notification; clicking it deep-links to `/m/?workspace=…&session=…`. Notifications are suppressed while the page is visible: you are already looking at the app.
-
-**L2 (Web Push).** The service worker (v4) receives pushes and shows the notification even when the app is closed, as long as the browser is running. VAPID keys are generated on first use and stored in `$DSH_HOME/dsh-palm-notify.json`; the phone subscribes through `pushManager` with the paired-device cookie as the subscription identity. Dead subscriptions (410/404 from the push service) are cleaned up automatically. Outbound delivery honors `DSH_PALM_PUSH_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY` — FCM is unreachable from some networks (mainland China) without a proxy.
-
-**L3 (third-party).** WxPusher (WeChat, the recommended channel for mainland users), Server酱 (WeChat), Bark (iOS) and Telegram webhooks reach the phone with the app fully closed and the browser gone; PushPlus is kept as a demoted legacy channel — it now requires paid verification, and a config that already carries a token keeps delivering. Credentials are stored host-side and never ride the settings surface — the phone only sees whether each channel is configured.
-
-### Usage
-
-1. Open the phone settings page → **Notifications** card
-2. Allow the notification permission when prompted
-3. Tune the **duration threshold** (long-reply trigger) and **cooldown** (per-session throttle)
-4. Toggle **Web Push** to subscribe the current browser (L2)
-5. Optionally configure **L3 channels** (settings → 通知 leads with the WxPusher card):
-   - **WxPusher** — scan the QR in the [WxPusher docs](https://wxpusher.zjiecode.com/docs/#/?id=spt) for a simple-push `SPT…` token and paste it in; free, no app registration, reachable from mainland networks
-   - **Server酱** — register at [sct.ftqq.com](https://sct.ftqq.com) (WeChat scan), copy the SendKey (`SCT…`) into the settings page
-   - **Bark** — install the Bark app (iOS), copy its device key
-   - **Telegram** — create a bot via @BotFather, get the bot token and your chat id
-   - **PushPlus** — legacy, requires paid verification now; a config that already carries a token keeps delivering
-6. Press **发送测试** to push one synthetic event through the configured L3 channels end to end
-
-### Notes
-
-- L1 needs the app alive (the SSE connection); lock-screen or OS-killed browsers drop it
-- L2 needs the browser running; some Android ROMs (OPPO/vivo, Xiaomi, Huawei) block the FCM channel even with Google services installed — use L3 there
-- iOS Safari Web Push requires the PWA installed to the home screen (16.4+)
-- The settings test button exercises L3 only; L2 is verified by completing a real task
-
-## Install
-
-Tested against **dsh 0.1.5-rc.2**, **0.1.5-rc.3** and **0.1.7-rc.1** (peer range `cordis >=4.0.1 <5`, `dsh-client-ui-slots`/`dsh-settings >=0.1.5-rc.1 <0.1.8-0`). DSH 0.1.6 added a version gate that silently drops a plugin whose `peerDependencies` do not cover the running dsh, so the declared range must stay wide; if you run a different dsh version, verify the pairing panel and the `/m/` surface after installing. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full version matrix.
-
-From npm:
+## 三条命令开始
 
 ```sh
+# 1. 装插件
 dsh plugin --profile web add @eternalloveone/dsh-palm
+
+# 2. 重启 dsh，让它加载（按你平时的方式，例如）
+dsh web
 ```
 
-From source:
+```text
+# 3. 桌面侧边栏点「手机」图标 → 手机扫码，或手输面板上的 6 位码
+```
+
+就这样。手机能打开 `/m/` 就算装好了。
+
+> 手机和电脑不在同一个网络？看 [手机怎么访问到这台机器](docs/remote-access.md)。
+
+## 它能干什么
+
+| 场景 | 手机上能做 |
+|---|---|
+| **看它在忙什么** | 一屏看清所有工作区正在跑什么、第几步、跑了多久；点进去直接到那个会话 |
+| **回消息** | 打字、拍照、发文件、语音输入；一轮没跑完还能排队、改、撤回 |
+| **点审批** | 工具审批和提问实时推到手机，就地同意或拒绝，不会被别的设备抢答 |
+| **管会话** | 长按重命名 / 删除 / 置顶；全局搜索一句话定位到某个会话的某条消息 |
+| **等结果** | 跑完或长回复写完，手机会响——微信（WxPusher / 服务器酱）、iOS（Bark）、Telegram 都行 |
+| **换个样子** | 19 套皮肤 + 换壁纸，点头像就换 |
+
+完整清单（约 50 项）见 [能力清单](docs/capabilities.md)。
+
+## 2.0 有什么不一样
+
+1. **首屏一次成型**：以前进会话先出一张空壳、再长出来，现在一屏直接是完整内容。切会话不再重复读同一份日志（请求 6→3、数据 510KB→255KB）
+2. **消息列表不再堆 DOM**：只挂最近 12 行，往上滑再补。97 行 → 13 行，滚动卡顿 p95 从 229~392ms 降到 81ms
+3. **19 套皮肤**：不是换色，每套带自己的笔画、图标和背景（液态玻璃、赛博夜、龙裔、初音、我的世界、XP、深海流淌……）
+4. **不丢消息、不装死**：实时流断了自动退轮询，恢复自动切回；发现落后一屏就补拉；界面卡住有人兜底。规则见 [实时自愈](docs/plan-live-render-self-heal.md)
+
+升级注意（要重新扫码、缓存会重拉等）见 [UPGRADING](UPGRADING.md)。
+
+## 装在哪、怎么连
+
+| 你想要的 | 怎么做 |
+|---|---|
+| 同一个家里/办公室用 | 手机连同一 Wi-Fi，面板给出建议地址，点一下就用 |
+| 在外面也能用 | 两台设备装 Tailscale，面板一键认出你的域名 |
+| 已经有隧道 | frp / Cloudflare Tunnel 地址填进面板，保存前先探测通不通 |
+
+三种方式的配法、延迟对比和排错见 [远程接入](docs/remote-access.md)。
+
+## 常见问题
+
+**手机打开是白屏 / 打不开**
+先确认手机和电脑在同一网络、路由器没开"客户端隔离"、防火墙放行了端口。地址建议直接用面板给的那个。
+
+**收不到通知**
+先点设置页的"发送测试"。测试成功但任务不响 → 是时长阈值或冷却挡了；测试也失败 → 那个渠道的 token 无效。完整排错见 [通知](docs/notifications.md)。
+
+**能不能连多台手机**
+可以。每台是一个独立设备条目，可以单独撤销；撤销后那台立刻失效。
+
+**换了电脑 / 重装了 dsh**
+重新扫码配对一次。设备表在 `$DSH_HOME/dsh-palm-devices.json`，跟着这个目录走。
+
+**用久了变卡 / 界面卡住**
+先下拉重进（缓存会自动校正）；仍不行，错误记录在 `~/.dsh/dsh-palm-errors`，可以直接发我。
+
+## 版本与兼容
+
+| 项 | 要求 |
+|---|---|
+| dsh-palm | 2.0.0 |
+| dsh | `>=0.2.1-rc.2 <0.3.0-0` |
+| Node | `^22.19.0` 或 `>=24.0.0` |
+| 手机 | Android Chrome/Edge/Firefox；iOS 需 Safari 且"添加到主屏幕"才能装 PWA |
+
+`/m/api` 的方法面和帧格式**只增不改**，旧的手机端不会因为升级宿主而挂。逐版本矩阵见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+
+## 更多文档
+
+[文档索引](docs/README.md)：设计契约、渲染模型、真机验证 SOP、皮肤移植手册。
+
+## 开发
 
 ```sh
-git clone https://github.com/Eternalloveone/dsh-palm.git
-dsh plugin --profile web add link:/path/to/dsh-palm/packages/dsh-palm
+pnpm install
+pnpm test        # 4074 例
+pnpm typecheck
+pnpm build
 ```
 
-> **v1.3.0 note:** devices paired by older dsh-palm / dsh-remote-web-ui versions do **not** carry over (the store moved to `dsh-palm-devices.json` and the settings namespace was renamed) — re-pair phones once after upgrading.
+发版前四道门禁：`pnpm verify:mobile`、`verify:secrets`、`verify:adapt`，以及 `node tools/check-budget.mjs`。流程见 [RELEASING.md](RELEASING.md)。
 
-### PWA platform support (device-tested)
+## 来源声明
 
-| Platform | Install PWA | Notes |
-|---|---|---|
-| Android | ✅ Chrome / Edge / Firefox | install from the browser menu (受信 HTTPS 入口 required) |
-| iOS | ✅ Safari only | **添加至主屏幕** (Add to Home Screen); Chrome and other iOS browsers cannot install a full PWA — open `/m/` in Safari |
+dsh-palm 是 [dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web)（`@linxin666/dsh-remote-web-ui`，Apache-2.0）的衍生作品，细节见 [NOTICE](packages/dsh-palm/NOTICE)。
 
-iOS Web Push (16.4+) likewise requires the Safari-installed PWA; on Android the browser's push backend (FCM) may be unreachable from mainland-China networks — use the third-party channels (L3) there.
-
-## Remote access setup
-
-Open the pairing panel from the sidebar phone icon. It walks you through three steps: **configure → pair → use**.
-
-1. **Configure** — enter a public address the phone can reach (frp / Cloudflare Tunnel / Tailscale). The panel detects tunnels on your machine and suggests concrete entries; saving verifies reachability first.
-2. **Pair** — scan the QR or type the six-digit pairing code on the phone.
-3. **Use** — paired devices are managed from a clean status view.
-
-A full walkthrough with a worked frp topology (server frps + nginx TLS, client frpc, panel configuration, verification, FAQ) lives in the [remote access guide](packages/dsh-palm/docs/remote-access-guide.md).
-
-## Performance
-
-End-to-end latency of the `/m/` shell over each access path, measured from a
-domestic client (20 sequential requests per path, Node HTTP client, 2026-09):
-
-| Access path | min | P50 | P95 | max |
-|---|---|---|---|---|
-| Local loopback | 1 ms | 2 ms | 4 ms | 9 ms |
-| frp direct (HTTP) | 10 ms | 14 ms | 27 ms | 35 ms |
-| nginx TLS (trusted certificate) | 13 ms | 15 ms | 24 ms | 57 ms |
-| Cloudflare Tunnel | 405 ms | 413 ms | 463 ms | 1209 ms |
-
-The **nginx TLS path is the recommended public entry**: a trusted certificate
-(PWA-installable) at near-direct latency. The Cloudflare Tunnel is a fallback
-only — its edge detour costs roughly 20-30x latency on domestic networks.
-Reproduce with `scripts/measure-paths.mjs` (URLs passed as arguments or via
-`DSH_PALM_PATHS`).
-
-## Development
-
-```sh
-pnpm install        # in packages/dsh-palm
-pnpm test           # vitest full suite
-pnpm typecheck      # tsc -b
-pnpm build          # tsc -b && tsdown -> lib/index.js + lib/mobile.js
-```
-
-Verification gates (all four must be green before a release; see [RELEASING.md](RELEASING.md)):
-
-```sh
-pnpm verify:mobile        # 41 end-to-end phone cases against the real host + a real browser
-pnpm verify:secrets       # secret scan (gitleaks when installed, builtin rules otherwise)
-pnpm verify:adapt         # reinstall the DSH SDK per version in Docker, then tsc + full tests
-pnpm verify:mobile:fast   # the four fastest groups, for iterating
-node ../../tools/dsh-canary/start.ps1   # boot a canary host on the newest DSH (isolated HOME, port 3099)
-```
-
-Local push gate (repo hygiene + tests + commitlint before every push):
-
-```sh
-git config core.hooksPath scripts/hooks
-```
-
-## Architecture
-
-- **Host half** (`src/`): pairing (`pairing.ts`), `/api/pair` routes (`routes.ts`), `api/gate` listener (`gate.ts`), `/m/` page routes (`mobile-routes.ts`), `/m/api` RPC channel with the `events.mux` SSE bridge (`mobile-api.ts`), method whitelist and channel rules (`remote-methods.ts`)
-- **Mobile half** (`src/mobile/`): a standalone phone bundle — ChatView, workspace, approvals, image upload, mux, rpc, styles
-- **Tests**: `tests/` + `src/**/*.test.*` (vitest)
-
-## Security
-
-Device trust is established by scanning the desktop QR or typing the six-digit code; every `/m/api` call is gated by the pairing cookie and the method whitelist. The `/m/` surface serves this Content-Security-Policy as the last line of defense behind the renderer:
-
-```
-default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self'; font-src 'self' data:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
-```
-
-- **Unknown methods are refused and host error details are never echoed to the phone** — covered by `tests/mobile-api.spec.ts` (e.g. "does not leak the host command error message to the phone")
-- **Revocation is server-side and immediate** — a revoked device's next gated request 403s at the `api/gate` listener; the phone stops polling and returns to the pairing page
-- **Pairing codes are brute-force resistant** — `/api/pair/accept` is rate-limited (30 s window: 40 attempts per source IP, 10 per XFF hop), tokens expire after 10 minutes by default, and unknown or used secrets get one uniform `invalid` response (no validity oracle); covered by `tests/routes.spec.ts`
-- **Host voice-transcription API keys never leave the host** — the phone sees display facts only
-- **Approval answers are bound to the owning device session** — no cross-device stealing
-- **Not audited** — this project has not undergone a third-party security audit, and the upstream dsh project is itself a developer preview. Review the pairing and gate sources before exposing a deployment beyond your trusted network
-
-See [SECURITY.md](SECURITY.md) for the vulnerability reporting process and deployment notes.
-
-## API stability
-
-Starting with **1.0.0**, dsh-palm's own protocol is backward compatible:
-
-- The `/m/api` method surface and the mux/queue/jobs frame formats only ever **add** methods and frames — existing ones keep their semantics (a breaking change would require a new major version)
-- dsh-palm runs against the DSH host API (currently the `0.1.5-rc` line). Adaptation to host API changes ships through the pre-verified upgrade flow and is **not** treated as a breaking change of dsh-palm's own protocol — the host's `rc` line does not promise stability itself
-
-## Project docs
-
-- [CHANGELOG.md](CHANGELOG.md) — release history
-- [COMPATIBILITY.md](COMPATIBILITY.md) — DSH version compatibility matrix
-- [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and contribution guide
-- [SECURITY.md](SECURITY.md) — vulnerability reporting
-- [packages/dsh-palm/docs/quickstart-tutorial.md](packages/dsh-palm/docs/quickstart-tutorial.md) — three-step getting started
-- [packages/dsh-palm/docs/remote-access-guide.md](packages/dsh-palm/docs/remote-access-guide.md) — reaching the host from a phone (worked frp topology end to end)
-- [perf/PERFORMANCE-REPORT.md](perf/PERFORMANCE-REPORT.md) — device-measured latency, baselines and how to capture
-- [docs/lifecycle](docs/lifecycle) — dated design notes and release retrospectives
+继承：配对协议、原始设备表格式、桌面面板骨架。
+独立：整个 `/m/` 界面、渲染栈、`/m/api` 白名单与 SSE mux、离线层。自 v1.3.0 起运行时契约全部改用 dsh-palm 自己的名字。
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE). This is a derivative work of
-[dsh-remote-web-ui](https://github.com/zhu1090093659/dsh-web); see
-[NOTICE](packages/dsh-palm/NOTICE). English is the source of truth for this
-README; the Chinese version follows it.
+[Apache-2.0](LICENSE)
