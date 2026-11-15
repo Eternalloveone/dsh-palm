@@ -60,7 +60,7 @@ dsh-palm 把这几件事搬到手机上：
 | 午休 | 想到一句要补充 | 打字发出去，这一轮自动带上；发错了还能撤回 |
 | 下班路上 | 到底跑完没有 | 微信收到「任务完成 · 3 个交付物」，点开就是那份报告 |
 
-![界面示意图](docs/readme/showcase.webp)
+![界面示意图](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/showcase.webp)
 
 > 上图是按真实界面绘制的示意图，内容是演示数据，不含任何真实会话与路径。
 
