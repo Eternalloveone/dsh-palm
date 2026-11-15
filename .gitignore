@@ -47,3 +47,17 @@ docs/screenshots/*.png
 docs/screenshots/*.jpg
 docs/screenshots/*.jpeg
 docs/screenshots/*.webp
+
+# docs/mocks 里的 HTML 草稿入库，但实机/合成截图与展示页产物只留本地
+docs/mocks/*.png
+docs/mocks/readme-showcase.html
+
+# 皮肤移植中间草稿：真源是 src/mobile/styles/*.css（含 612~631 装饰层），
+# 包根这几份是手工对照稿，改了就重生成，不入库
+/packages/dsh-palm/skin-*.css
+
+# 一次性性能探针（跑完即弃，结论落在 perf/ 与 docs/*.md）
+/perf-*.cjs
+
+# README 截图流水线（本机 Chrome 驱动，产物不入库）
+/tools/readme-live/
