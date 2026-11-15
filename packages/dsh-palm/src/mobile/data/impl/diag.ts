@@ -57,6 +57,37 @@ export async function reportError(report: unknown, label: string): Promise<{ fil
 }
 
 /**
+ * 探针上报（现场取证）。
+ *
+ * **形态坑（2026-11-15 查明）**：宿主的错误上报入口要求
+ * `kind ∈ {error, rejection, resource}` + 非空 `message`（≤240 字）+ `count` 是 ≥1 的整数，
+ * 其余字段原样落盘。以前探针直接送 `kind: 'proc-vanish'` / `'flush-stall'` 这类自定义
+ * kind，被 `validateErrorReport` 整条拒掉 —— 落盘目录里一条都没有，看起来像"没发生"，
+ * 其实是"报了但被吃掉"，白丢了两轮真机复现证据。
+ *
+ * 现在把探针名与关键读数折进 `message`（人能直接读），detail 仍作为独立字段落盘。
+ *
+ * @param kind - 探针名（例如 `send-no-echo`）
+ * @param detail - 现场读数（原样落盘）
+ * @returns 宿主的写入回执
+ */
+export async function reportProbe(
+  kind: string,
+  detail: Record<string, unknown>,
+): Promise<{ file: string; bytes: number; pushed: boolean }> {
+  const summary = Object.entries(detail)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(' ')
+  const message = `${kind}${summary === '' ? '' : ` ${summary}`}`.slice(0, 240)
+  return await callUnary<{ file: string; bytes: number; pushed: boolean }>('mobile.error', {
+    // count 必须 ≥1 的整数（宿主的形状闸门会查），探针固定记一次。
+    report: { kind: 'error', message, count: 1, probe: kind, at: Date.now(), ...detail },
+    label: kind,
+  })
+}
+
+/**
  * Hand one perf capture to the host (`mobile.perf`), which writes it beside its
  * own state and answers with the file name. Write-only and host-named: the phone
  * never chooses a path, and the host validates the shape and prunes old captures

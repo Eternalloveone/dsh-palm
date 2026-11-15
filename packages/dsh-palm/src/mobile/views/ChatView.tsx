@@ -80,7 +80,8 @@ import type { CommandDescriptor, MobileGoalAction, PendingApproval } from '../ap
 import { completedTurns, renderRows, missingTurnReports, EventFolder, foldEvents, mergeTurnReports, type RenderMessage, type TodoSnapshot, type WireEvent } from '../render/messages.ts'
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
-import { reportError, reportPerf } from '../data/diag.ts'
+import { reportError, reportPerf, reportProbe } from '../data/diag.ts'
+import { ledgerSnapshot, recordFrame, resetFrameLedger } from './chat/state/frame-ledger.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../stream/scroll-machine.ts'
 import { useStickToBottom } from '../ui/hooks/use-stick-to-bottom.ts'
 import { usePendingPoll } from './chat/hooks/use-pending-poll.ts'
@@ -357,6 +358,14 @@ export interface OutgoingFlight {
 
 /** 幽灵行最长挂 8 秒：弱网回执 2~5 秒是常态，再久说明这一拍读不回来（宿主行迟早自己到）。 */
 const OUTGOING_TTL_MS = 8_000
+/**
+ * 「发出去了却没回音」的判定线：宿主那条用户行 6 秒还没落地 = 实时帧没进来。
+ *
+ * 幽灵行是本地状态，8 秒到期就撤；如果 `user/message` 帧始终不到（宿主按设备过滤的
+ * 登记丢了、断流、闸门），屏幕上会**什么都没有**，而本地折叠永远不会自己长出这条 ——
+ * 真机表现就是「发出去不回显、正文也不渲染，重开 PWA 才显示」。
+ */
+const SEND_ECHO_GRACE_MS = 6_000
 /**
  * 等待态最长挂 10 分钟：这是"已送达但还没有任何输出"的兜底（模型排队/长上下文）。
  * 正常情况下首个过程内容一到就撤（见认领 effect），这个值只是别让占位永久赖着。
@@ -1099,6 +1108,8 @@ function ChatSessionView({
     // 换会话：流状态整体归零 + 取消待折的 rAF 帧 + 用名单的 running 播种回合状态
     // （逐字段手工清是这套状态历史上唯一反复出问题的地方，见 resetForSession）。
     resetForSession(session.running === true)
+    // 帧台账也是本会话的：不清上一次会话的帧，因果链会被污染。
+    resetFrameLedger()
     // 页还没到：实时帧先入缓冲（resetStreamState 把它清成 false，这里重新拉起）。
     stream.tailLoading = true
     // 时钟校准是**本会话**的：换会话就从零开始攒样本，否则上一场的偏移会
@@ -1480,6 +1491,9 @@ function ChatSessionView({
     if (subscribe === undefined) return
     return subscribe((frame: MuxFrame, frameRpcId?: string) => {
       reportConnectivity(true)
+      // 台账先记事实（这一段时间到底收到了哪些帧），再分发。出问题时它回答
+      // "断在链路还是断在渲染"，而不是再猜一次（见 frame-ledger / send-no-echo）。
+      recordFrame(frame)
       // 记账按**帧自己的会话**归属，且只认会改行的那种帧（`session/event` 是日志事件：
       // 消息、工具、轮次边界都在这里）。投影/队列/子任务/状态这类帧不改行 ——
       // 拿它们作废账本只会让"切回来立刻"失效，白白再读一次日志。
@@ -3314,6 +3328,49 @@ function ChatSessionView({
     }, OUTGOING_TTL_MS)
     return () => { window.clearTimeout(timer) }
   }, [outgoing?.id, outgoing?.acceptedAt, setOutgoing])
+
+  /**
+   * 「发出去了却没回音」看门狗（2026-11-15 受控实验之后加的）。
+   *
+   * 判据只有一件事：6 秒内宿主那条用户行没有落地。到点就记现场（`send-no-echo`，
+   * 内容是整份帧台账 → 一眼看出帧到没到）并 `reloadTail()`：尾页走普通 HTTP，不受
+   * 实时链路（宿主按设备过滤 / 断流 / 闸门）影响，内容当场回来，不用重开 PWA。
+   * 18 秒再补一次（宿主可能刚把这条写进日志）。
+   */
+  useEffect(() => {
+    if (outgoing === undefined) return
+    const sent = outgoing
+    let reported = false
+    const check = (): void => {
+      const wanted = normalizeInsertText(sent.text)
+      if (messagesRef.current.slice(-40).some(row => row.kind === 'user' && normalizeInsertText(row.text) === wanted)) return
+      if (!reported) {
+        reported = true
+        const ledger = ledgerSnapshot()
+        void reportProbe?.('send-no-echo', {
+          sessionId: session.sessionId,
+          textLength: sent.text.length,
+          rows: messagesRef.current.length,
+          localSeq: chatStream.stream.folder?.lastSeq ?? -1,
+          batched: chatStream.stream.eventBatch.length,
+          sseLive: mux?.isSseLive?.() === true,
+          accepted: sent.acceptedAt !== undefined,
+          tailLoading: chatStream.stream.tailLoading,
+          visible: typeof document === 'undefined' || document.visibilityState === 'visible',
+          // 判据：这里有 user/message → 帧到了、问题在渲染；没有 → 帧没到、问题在链路。
+          frames: ledger.frames,
+          framesRotated: ledger.rotated,
+        }).catch(() => { /* 上报尽力而为 */ })
+      }
+      reloadTail()
+    }
+    const first = window.setTimeout(check, SEND_ECHO_GRACE_MS)
+    const second = window.setTimeout(check, SEND_ECHO_GRACE_MS * 3)
+    return () => {
+      window.clearTimeout(first)
+      window.clearTimeout(second)
+    }
+  }, [outgoing?.id, reloadTail])
 
   /** 等待态兜底：模型排队/长上下文也不能让占位永久赖在屏幕上。 */
   useEffect(() => {

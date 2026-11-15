@@ -4,7 +4,7 @@
     "src/mobile-api.ts": 1668,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 76,
-    "src/mobile/views/ChatView.tsx": 4761,
+    "src/mobile/views/ChatView.tsx": 4818,
     "src/mobile/views/App.tsx": 1799,
     "src/mobile/views/SettingsView.tsx": 760,
     "src/mobile/views/AppearanceView.tsx": 103,
@@ -23,11 +23,11 @@
     "views/App.tsx": 1468
   },
   "dirs": {
-    "src/mobile": 61748,
+    "src/mobile": 61837,
     "src/mobile/styles": 0,
     "src/mobile/api": 4102,
     "src/mobile/components": 3138,
-    "src/mobile/data": 1968,
+    "src/mobile/data": 2000,
     "src/mobile/design": 380,
     "src/mobile/dev": 187,
     "src/mobile/kernels": 774,
@@ -40,7 +40,7 @@
     "src/mobile/shared": 293,
     "src/mobile/stream": 2457,
     "src/mobile/ui": 3534,
-    "src/mobile/views": 24622,
+    "src/mobile/views": 24679,
     "src/mobile/wire": 246,
     "src/mobile/layouts": 133,
     "src/shared": 91

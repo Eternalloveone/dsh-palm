@@ -9,4 +9,5 @@ export {
   readDiagnostics,
   reportError,
   reportPerf,
+  reportProbe,
 } from '../api.ts'

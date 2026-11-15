@@ -150,7 +150,7 @@ export async function fetchGitSummary(cwd: string): Promise<GitSummary> {
 /* ── session folders (F1) ────────────────────────────────────────────── */
 
 // diag 域的实现已搬到 data/impl/diag.ts（W4-4）；这里只转出，对外 API 不变。
-export { latestVersion, logTail, readDiagnostics, reportError, reportPerf } from './data/impl/diag.ts'
+export { latestVersion, logTail, readDiagnostics, reportError, reportPerf, reportProbe } from './data/impl/diag.ts'
 
 
 // usage 域的实现已搬到 data/impl/usage.ts（W4-4）；这里只转出，对外 API 不变。
