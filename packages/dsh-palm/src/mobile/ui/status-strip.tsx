@@ -114,21 +114,21 @@ function WhaleMark({ kind }: { kind: StatusStripKind }) {
 /**
  * 化灰引擎的时间轴（毫秒）。全部由 canvas 自己推帧，与样式表无关。
  *
- * - 0–240ms：旧词向后上方飘散（每颗自己的错峰）；
- * - 110–510ms：新词从四周环带径向收拢（外圈先动、越近越亮）。
+ * - 0–220ms：旧词按 y 自下而上剥落（底先碎、顶后走），被风带向画面右后方；
+ * - 120–420ms：灰从右后方飘回来补成形（顶先落、由虚变实）。
  *
  * 两段刻意重叠 130ms：先散后聚若完全不重叠，中间会空掉一百多毫秒，看着像卡住。
  */
-const AWAY_MS = 240
-const GATHER_START = 110
-const GATHER_MS = 400
+const AWAY_MS = 220
+const GATHER_START = 120
+const GATHER_MS = 300
 
 /**
  * 换词过程的存活时长（毫秒）：灰层从开始到被摘掉。
- * = 聚拢收尾 510ms + 50ms 余量。**改上面三个常量要同步改这里**，
+ * = 收尾 420ms + 40ms 余量。**改上面三个常量要同步改这里**，
  * 否则新词会在聚合到一半时被摘掉（看见"字突然整块出现"）。
  */
-export const WORD_WIND_MS = 560
+export const WORD_WIND_MS = 460
 
 /**
  * 星尘可以飞出词槽多远（CSS px）。
@@ -259,7 +259,17 @@ function drawStars(
   ctx.fillStyle = ink
   const height = Math.max(1, ctx.canvas.height)
 
-  // 散（化灰）：最下面一行先碎，整块自下而上剥落；所有粒子被同一股风带向右上。
+  /*
+   * 散（化灰 · 向右后方）：仍是自下而上剥落，但轨迹改成「被风带向画面右后方」。
+   *
+   * 「后方」不是多飘几个像素，是三件事一起衰减才读得出纵深：
+   *   ① 位置向右侧的消失点轻度收拢（perspective）——只收 22%，收多了像被吸进去；
+   *   ② 越远越淡：alpha 按 e 的 1.4 次方掉；
+   *   ③ 越远越虚：粒子尺寸从 1 物理像素收到 0.45 —— 1px 的点缩不了"形状"，
+   *      但亚像素尺寸的覆盖率会掉，视觉上就是变虚变远（这一步最关键）。
+   */
+  const vanishX = ctx.canvas.width * 0.96
+  const vanishY = ctx.canvas.height * 0.46
   if (u > 0) {
     for (const star of oldStars) {
       const fromBottom = 1 - star.ty / height          // 1 = 最底，0 = 最顶
@@ -267,28 +277,35 @@ function drawStars(
       const e = clamp01((u - delay) / (1 - delay))
       if (e >= 1) continue
       const k = easeIn(e)
-      const sway = Math.sin(star.ph + k * Math.PI) * 2.2 * dpr * k
-      ctx.globalAlpha = Math.max(0, (1 - e) ** 1.3)
+      const sway = Math.sin(star.ph + k * Math.PI) * 1.2 * dpr * k
+      const pull = 0.22 * k                             // 向消失点收拢的轻度透视
+      const size = Math.max(0.45, 1 - 0.55 * k)         // 越远越虚
+      ctx.globalAlpha = Math.max(0, (1 - e) ** 1.4)
       ctx.fillRect(
-        star.tx + (2 + star.r1 * 16) * dpr * k + sway,
-        star.ty - (6 + star.r2 * 14) * dpr * k,
-        1, 1,
+        star.tx + (6 + star.r1 * 14) * dpr * k + (vanishX - star.tx) * pull + sway,
+        star.ty - (1.5 + star.r2 * 4.5) * dpr * k + (vanishY - star.ty) * pull,
+        size, size,
       )
     }
   }
 
-  // 聚：灰从上落下、按行的顺序补回去（顶先落），所以字是从上往下"长"出来的。
+  // 聚：灰从右后方（消失点方向）飘回来，同时由虚变实、由淡变浓。
   if (v > 0) {
     for (const star of newStars) {
       const fromTop = star.ty / height                  // 0 = 最顶，1 = 最底
-      const delay = Math.min(0.5, 0.02 + fromTop * 0.35 + star.r3 * 0.12)
+      const delay = Math.min(0.5, 0.02 + fromTop * 0.32 + star.r3 * 0.12)
       const e = clamp01((v - delay) / (1 - delay))
       if (e <= 0) continue
       const g = easeOut(e)
-      const drop = (10 + star.r2 * 12) * dpr * (1 - g)
-      const sway = Math.sin(star.ph + g * 2.4) * 1.4 * dpr * (1 - g)
-      ctx.globalAlpha = Math.max(0, Math.min(1, 0.1 + 0.9 * g))
-      ctx.fillRect(star.tx + sway, star.ty - drop, 1, 1)
+      const back = 1 - g
+      const sway = Math.sin(star.ph + g * 2.2) * 1.1 * dpr * back
+      const size = Math.max(0.5, 1 - 0.5 * back)
+      ctx.globalAlpha = Math.max(0, Math.min(0.96, 0.06 + 0.9 * g))
+      ctx.fillRect(
+        star.tx + (4 + star.r1 * 9) * dpr * back + (vanishX - star.tx) * 0.2 * back + sway,
+        star.ty - (1 + star.r2 * 3.5) * dpr * back + (vanishY - star.ty) * 0.2 * back,
+        size, size,
+      )
     }
   }
   ctx.globalAlpha = 1

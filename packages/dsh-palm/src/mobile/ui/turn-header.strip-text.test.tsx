@@ -35,7 +35,7 @@ describe('鲸尾后面的文案：逐状态清点', () => {
       view.unmount()
     }
     // 这里刻意写成"现状快照"：改文案时它必须跟着改，避免悄悄漂移。
-    // 2026-11-11 起「进行中」四族是词池（每 4 秒/每步轮播），快照固定第 0 个词。
+    // 2026-11-11 起「进行中」四族是词池；2026-11-16 起只按 8 秒轮播（不再每步换词），快照固定第 0 个词。
     expect(shown).toEqual({
       think: '琢磨着 | 1分15秒',
       read: '翻着 | 1分15秒',
@@ -94,7 +94,7 @@ describe('鲸尾后面的文案：逐状态清点', () => {
  * 这里只盯两件事：**会动的那几族真的在动**、**不该动的那几档一动不动**。
  */
 describe('状态词池：轮播与稳定档', () => {
-  it('进行中每 4 秒换一个词（同族内前进一格）', () => {
+  it('进行中每 8 秒换一个词（同族内前进一格）', () => {
     vi.useFakeTimers()
     try {
       const view = render(<TurnHeader kind="think" steps={{ done: 0, total: 5 }} />)
@@ -122,22 +122,32 @@ describe('状态词池：轮播与稳定档', () => {
     }
   })
 
-  it('步数前进也换词（不必等满 4 秒）', () => {
+  /**
+   * 2026-11-16 用户：「不同词切得太快」。
+   * 原来每完成一步就推进一次词池（跑任务时一两秒跳一个词），现在只有时间驱动（8s）。
+   */
+  it('步数前进不再换词（只有时间驱动）', () => {
     const view = render(<TurnHeader kind="edit" steps={{ done: 1, total: 5 }} />)
     expect(visibleText(view.container)).toBe('落笔')
     view.rerender(<TurnHeader kind="edit" steps={{ done: 2, total: 5 }} />)
-    expect(visibleText(view.container)).toBe('动刀')
+    // 步数变了，词不动 —— 换词只由 STRIP_ROTATE_MS 决定。
+    expect(visibleText(view.container)).toBe('落笔')
   })
 
   it('换一种动作就回到本族第一个词（不在族尾兜底词上开局）', () => {
-    const view = render(<TurnHeader kind="think" />)
-    // 先把 think 的索引推两格：盘算着 → 捋一捋
-    act(() => { view.rerender(<TurnHeader kind="think" steps={{ done: 1, total: 9 }} />) })
-    act(() => { view.rerender(<TurnHeader kind="think" steps={{ done: 2, total: 9 }} />) })
-    expect(visibleText(view.container)).toContain('捋一捋')
-    // 换动作 → 回到 edit 的首词「落笔」，而不是接着走成「改文件」
-    act(() => { view.rerender(<TurnHeader kind="edit" steps={{ done: 2, total: 9 }} />) })
-    expect(visibleText(view.container)).toContain('落笔')
+    vi.useFakeTimers()
+    try {
+      const view = render(<TurnHeader kind="think" steps={{ done: 0, total: 9 }} />)
+      // 用时间把 think 的索引推两格：琢磨着 → 盘算着 → 捋一捋
+      act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
+      act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
+      expect(visibleText(view.container)).toContain('捋一捋')
+      // 换动作 → 回到 edit 的首词「落笔」，而不是接着走成「改文件」
+      act(() => { view.rerender(<TurnHeader kind="edit" steps={{ done: 2, total: 9 }} />) })
+      expect(visibleText(view.container)).toContain('落笔')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stripWordOf 取模不越界，单字档恒定', () => {

@@ -90,8 +90,14 @@ const STRIP_POOL: Record<StatusStripKind, readonly string[]> = {
   queued: ['排着'],
 }
 
-/** 进行中词池的轮播周期（毫秒）：4 秒够看清楚换了一次，又不至于晃眼。 */
-export const STRIP_ROTATE_MS = 4_000
+/**
+ * 进行中词池的轮播周期（毫秒）。
+ *
+ * 2026-11-16 用户反馈「不同词切得太快、有点抢」：4s → 8s。
+ * 这一行的作用是"让界面看起来在干活"，不是播报进度 —— 8 秒一次足够表达，
+ * 也让换词的粒子动效（约 460ms）在一屏里只占 5% 的时间。
+ */
+export const STRIP_ROTATE_MS = 8_000
 
 /**
  * 取这一帧该显示的状态词（纯函数，测试与快照都按它走）。
@@ -192,12 +198,11 @@ export function TurnHeader({
     const timer = setInterval(() => { setRotateTick(value => value + 1) }, STRIP_ROTATE_MS)
     return () => { clearInterval(timer) }
   }, [pool])
-  const lastStepsRef = useRef<StatusStripSteps | undefined>(steps)
-  useEffect(() => {
-    if (lastStepsRef.current === steps) return
-    lastStepsRef.current = steps
-    if (pool.length > 1) setRotateTick(value => value + 1)
-  }, [steps, pool])
+  /*
+   * 2026-11-16 删掉「每完成一步就换词」：跑任务时 steps 每次变化都推进一次索引，
+   * 真机上会出现"一两秒跳一个词"，正是用户说的「切得太快」。现在只有时间驱动（8s）。
+   * steps 仍然参与 rotateTick 之外的一切（进度点阵、过程条），只是不再当成换词信号。
+   */
   /*
    * 换了一种动作（think → edit）就回到本族第一个词。
    *
