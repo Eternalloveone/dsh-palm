@@ -35,7 +35,13 @@ const REASON = 'P6 18 屏迁移：逐屏新增页面/数据层与测试；P8 删
 
 /* ── 与 check-budget.mjs 完全一致的行数口径 ────────────────────────── */
 
-const isSource = name => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && !name.endsWith('.d.ts')
+/** 生成物不计：与 check-budget.mjs 的 GENERATED 保持一致。
+ *  `mobile-styles.ts` 由 `scripts/gen-mobile-css.mjs` 从 `src/mobile/styles/*.css` 拼出
+ *  （实测 16,456 行），CSS 本身已单独计入；把它算进 src/mobile 会让本脚本报一个+1.6 万行的
+ *  假增量——若误跑非 --check 版，会把上限抬高 26% 写死，反向棘轮（只降不升）就此失效。 */
+const GENERATED = new Set(['mobile-styles.ts'])
+const isSource = name =>
+  /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && !name.endsWith('.d.ts') && !GENERATED.has(name)
 const lines = file => {
   const text = readFileSync(file, 'utf8')
   return text.length === 0 ? 0 : text.split('\n').length
@@ -79,8 +85,13 @@ for (const [rel, cap] of Object.entries(budget.dirs)) {
 
 /* ── 质量预算（与 quality-budget.test.ts 同口径） ──────────────────── */
 
+/* 装饰层（`6XX-skin-*.css`）不进组件预算——与 quality-budget.test.ts 的 DECOR_FILES
+ * 完全一致：那是每套皮肤特有的笔画（报头 2px 线、引用 3px 侧条、衬线字族），本来就该写
+ * 具体值；另有 styles/skin-decor.test.ts 单独管。不排除会把皮肤线的字面 px 记成组件超限
+ * （2026-11-15 实测差 94 处，全部来自 612~631 新皮肤）。 */
+const DECOR = new Set(readdirSync(STYLES).filter(name => /^6\d{2}-skin-[a-z0-9-]+\.css$/.test(name)))
 const CSS = readdirSync(STYLES)
-  .filter(name => name.endsWith('.css') && name !== '000-tokens.css')
+  .filter(name => name.endsWith('.css') && name !== '000-tokens.css' && !DECOR.has(name))
   .sort()
   .map(name => readFileSync(join(STYLES, name), 'utf8'))
   .join('\n')
