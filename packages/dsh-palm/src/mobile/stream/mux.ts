@@ -62,12 +62,30 @@ export interface MuxClientOptions {
    * stopped itself; the UI uses this to enter the unpaired state.
    */
   onUnpaired?: () => void
+  /**
+   * 每次 SSE **连上**时回调（首次、我们主动重建、以及 EventSource 自己的重连）。
+   *
+   * 用途：重申"这台设备在看哪个会话"。宿主按设备过滤 `session/event`，那份登记在
+   * 宿主进程内存里 —— 宿主重启或流被释放后，新连接上没有任何登记，对话帧**一条都
+   * 不到**，而 `mux/ping`、投影帧照常来（2026-11-15 受控实验 P2 实证）。手机侧还有
+   * 一条 30 秒的重申节拍，但那个窗口里发生的整轮对话永远不会重放。
+   */
+  onConnect?: () => void
 }
 
 /** The EventSource subset this client uses (browser EventSource fits). */
 export interface EventSourceLike {
   onmessage: ((event: { data: string }) => void) | null
   onerror: ((event: unknown) => void) | null
+  /**
+   * 连接建立（含 **EventSource 自己的重连**）。
+   *
+   * 这一条是不可省的：宿主重启后是浏览器在自动重连，走的不是我们的 `connect()`，
+   * 所以只挂在 `connect()` 里的"重申 observe"永远等不到。2026-11-15 实测：
+   * 宿主侧没有这条登记时，`session/event` **一条都不到**（对话完全不出现），
+   * 而 `mux/ping`、`session/projection` 照常来——流看起来是活的。
+   */
+  onopen?: (() => void) | null
   close(): void
 }
 
@@ -204,6 +222,7 @@ export class MuxClient {
   private readonly stallThresholdMs: number
   private readonly now: () => number
   private readonly onUnpaired: (() => void) | undefined
+  private readonly onConnect: (() => void) | undefined
   private readonly listeners = new Set<(frame: MuxFrame, rpcId?: string) => void>()
   /**
    * Latest `session/jobs` snapshot per session, retained regardless of whether
@@ -300,6 +319,7 @@ export class MuxClient {
     this.runningResyncMs = options.runningResyncMs ?? RUNNING_RESYNC_INTERVAL_MS
     this.runningResyncBackoffMs = this.runningResyncMs
     this.onUnpaired = options.onUnpaired
+    this.onConnect = options.onConnect
   }
 
   /** Open the stream (idempotent; EventSource reconnects until {@link stop}). */
@@ -447,6 +467,18 @@ export class MuxClient {
     this.source = source
     source.onmessage = (event) => {
       this.handleMessage(event.data)
+    }
+    // **每一次连上都要重申"这台设备在看哪个会话"，包括浏览器自己重连的那一次。**
+    // 宿主侧那份登记在内存里（重启即空），没有它就一条 `session/event` 都不到，
+    // 而 `mux/ping` 照常来让客户端以为流是活的（2026-11-15 受控实验 P2 实证）。
+    // 挂 onopen 才覆盖得到原生重连；只挂在 connect() 里只能覆盖我们主动重建那条路。
+    source.onopen = () => {
+      this.sseAlive = true
+      try {
+        this.onConnect?.()
+      } catch {
+        // 订阅者自己的事：一次回调失败不该影响建流。
+      }
     }
     source.onerror = () => {
       // EventSource reconnects by itself; when we are closing, detach first
@@ -967,6 +999,7 @@ export class MuxClient {
     if (source !== undefined) {
       source.onmessage = null
       source.onerror = null
+      source.onopen = null
       try {
         source.close()
       } catch {

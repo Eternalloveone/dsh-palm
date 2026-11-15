@@ -953,7 +953,14 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   // instead of polling forever into a 60 s backoff.
 
   useEffect(() => {
-    const mux = new MuxClient(undefined, { onUnpaired })
+    const mux = new MuxClient(undefined, {
+      onUnpaired,
+      // 每次 SSE 连上（**含浏览器自己的重连**）都重申"手机在看哪个会话"：宿主那份
+      // 按设备过滤的登记在内存里，宿主重启/流被释放后新连接上没有任何登记，于是
+      // `session/event` 一条都不到、界面完全不动，而 `mux/ping` 照常来让客户端以为
+      // 流是活的（2026-11-15 受控实验 P2：0 条对话帧；P3：补登记当场恢复）。
+      onConnect: () => { assertObserveRef.current() },
+    })
     muxRef.current = mux
     // P3：全站唯一订阅点。App 持有 mux，其它视图/切片都经 bridge 订阅，
     // 于是同一帧只派发一次，重连（新 generation）也只通知一处。

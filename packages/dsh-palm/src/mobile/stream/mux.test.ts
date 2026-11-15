@@ -953,6 +953,26 @@ describe('MuxClient running mirror', () => {
     mux.stop()
   })
 
+  it('连上即重申 observe：onopen 覆盖 EventSource 自己的重连', async () => {
+    // 2026-11-15 受控实验：宿主侧没有"这台设备在看哪个会话"的登记时，`session/event`
+    // **一条都不到**（对话完全不出现），而 ping/投影照常来。而宿主重启后是浏览器在
+    // 自己重连——不走我们的 connect()，所以只能挂在 onopen 上。
+    const { factory, sources } = makeSources()
+    const onConnect = vi.fn()
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 0,
+      onConnect,
+    })
+    mux.start()
+    sources[0]!.onopen?.()
+    expect(onConnect).toHaveBeenCalledTimes(1)
+    // 原生重连：同一个 source 再次 open，我们不重建它。
+    sources[0]!.onopen?.()
+    expect(onConnect).toHaveBeenCalledTimes(2)
+    mux.stop()
+  })
+
   it('backs off when the probe keeps failing', async () => {
     const { factory } = makeSources()
     let calls = 0
