@@ -953,6 +953,22 @@ describe('MuxClient running mirror', () => {
     mux.stop()
   })
 
+  it('SSE 连接把当前会话钉进 URL：宿主据此过滤，不再依赖登记表', async () => {
+    // 2026-11-15 受控实验：登记缺失时对话帧 0 条、ping 照常，界面完全不动。
+    // 把会话写进地址之后，"连接活着但登记没了"这个状态不存在。
+    const { factory, sources } = makeSources()
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 0,
+    })
+    mux.start()
+    mux.observe('s-1')
+    mux.pause()
+    mux.resync()
+    expect(sources.at(-1)!.url).toContain('session=s-1')
+    mux.stop()
+  })
+
   it('连上即重申 observe：onopen 覆盖 EventSource 自己的重连', async () => {
     // 2026-11-15 受控实验：宿主侧没有"这台设备在看哪个会话"的登记时，`session/event`
     // **一条都不到**（对话完全不出现），而 ping/投影照常来。而宿主重启后是浏览器在

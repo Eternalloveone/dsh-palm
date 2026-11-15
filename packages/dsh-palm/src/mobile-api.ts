@@ -1378,16 +1378,50 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
     // stream stays unfiltered — exactly the previous behavior.
     const observers = deps.observers
     const deviceId = readCookie(req.headers.cookie, service.config.cookieName)
-    let observed = new Set(observers === undefined || deviceId === undefined ? [] : observers.sessionsFor(deviceId))
-    const disposeObserved = observers?.onChange(() => {
-      observed = new Set(deviceId === undefined ? [] : observers.sessionsFor(deviceId))
-    })
-    const acceptFrame = observers === undefined
+    /*
+     * **过滤依据第一优先：连接自己说明在看哪个会话**（`?session=<id>`）。
+     *
+     * 以前只认设备登记表（`mobile.observe` 那张 RPC），而它是独立于连接的一条链路：
+     * 会失败、会被同一设备的另一个页面覆盖、宿主重启后要等客户端那 30 秒节拍才补回来。
+     * 这段时间里该设备的 `session/event` 被整段丢掉，而 `mux/ping`、投影帧照常来 ——
+     * 手机上就是"对话完全不出现、流却像活着"，只能重开页面（2026-11-15 受控实验 P2：
+     * 0 条对话帧；P3：补登记当场恢复）。
+     *
+     * 把会话写进 URL 之后，"登记"成了连接的一部分：不存在"连接活着但登记没了"这个状态，
+     * 也就没有窗口、没有覆盖、没有可失败的那次 RPC。老客户端不带参数，仍走登记表。
+     */
+    const pinnedSession = new URL(req.url ?? '/', 'http://localhost').searchParams.get('session') ?? ''
+    const pinned = pinnedSession === '' ? undefined : pinnedSession
+    /** 设备登记表那一份（老客户端还在用；同设备多页面时也会变）。 */
+    const registryObserved = (): Set<string> => new Set(
+      observers === undefined || deviceId === undefined ? [] : observers.sessionsFor(deviceId),
+    )
+    let fromRegistry = pinned === undefined ? registryObserved() : new Set<string>()
+    /**
+     * 生效集合 = **URL 钉的会话 ∪ 登记表**。
+     *
+     * 并集而不是二选一：钉住的那个保证"连接断过一次后重新连上时一定有唯一正确的会话"
+     * （宿主重启后登记还没补、observe 那次 RPC 失败、被同设备另一个页面覆盖 —— 这三种
+     * 情况下 URL 依然是对的）；登记表那份负责"页面切换会话但连接没重连"的那段时间。
+     */
+    const observed = (): Set<string> => {
+      if (pinned === undefined) return fromRegistry
+      if (fromRegistry.size === 0) return new Set([pinned])
+      const merged = new Set(fromRegistry)
+      merged.add(pinned)
+      return merged
+    }
+    const disposeObserved = pinned !== undefined && observers === undefined
+      ? undefined
+      : observers?.onChange(() => {
+        fromRegistry = registryObserved()
+      })
+    const acceptFrame = observers === undefined && pinned === undefined
       ? undefined
       : (frame: MuxFrame): boolean => {
         if (MUX_ALWAYS_FORWARDED.has(frame.type)) return true
         const sessionId = (frame as { sessionId?: unknown }).sessionId
-        return typeof sessionId === 'string' && observed.has(sessionId)
+        return typeof sessionId === 'string' && observed().has(sessionId)
       }
     const endStream = (): void => {
       if (closed) return
@@ -1400,7 +1434,9 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // must not stay registered. A second tab on the same device re-asserts
       // through `mobile.observe` within its refresh cadence, so this cannot
       // leave a live chat without streaming.
-      if (deviceId !== undefined) observers?.release(deviceId)
+      // 会话钉在 URL 上的连接**不释放**登记：它可能压根没登记过（那正是改造目的），
+      // 释放会顺手清掉同设备别的页面（仍在用登记表的老客户端）的条目。
+      if (pinned === undefined && deviceId !== undefined) observers?.release(deviceId)
       disposeObserved?.()
       res.end()
     }

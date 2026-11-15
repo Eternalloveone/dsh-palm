@@ -388,6 +388,12 @@ export class MuxClient {
    * Point the fallback at one open session (or `undefined` to stop it).
    * While the SSE channel is stalled this client polls that session's
    * history and re-emits new events as `session/event` frames.
+   *
+   * **同时把会话钉进 SSE 的 URL**（`?session=<id>`）：宿主按它过滤对话帧，
+   * 于是"这台手机在看哪个会话"变成连接的一部分 —— 不再依赖一条可能失败、可能被
+   * 同设备另一个页面覆盖、宿主重启后还要等 30 秒才补的 `mobile.observe` 登记
+   * （2026-11-15 受控实验：登记缺失时对话帧 0 条而 ping 照常，界面完全不动）。
+   * 会话变了就重连一次，让新 URL 立刻生效。
    */
   observe(sessionId: string | undefined): void {
     const changed = this.observeSessionId !== sessionId
@@ -460,10 +466,20 @@ export class MuxClient {
     this.poke()
   }
 
+  /**
+   * 实际去连的 URL：把当前观察的会话钉进去（宿主按它过滤对话帧）。
+   * @returns 带 `?session=` 的地址；没有观察会话时就是基础地址
+   */
+  private sourceUrl(): string {
+    const sessionId = this.observeSessionId
+    if (sessionId === undefined) return this.url
+    return `${this.url}${this.url.includes('?') ? '&' : '?'}session=${encodeURIComponent(sessionId)}`
+  }
+
   private connect(): void {
     // A fresh stream starts unknown; only a delivered frame proves it works.
     this.sseAlive = false
-    const source = this.sourceFactory(this.url)
+    const source = this.sourceFactory(this.sourceUrl())
     this.source = source
     source.onmessage = (event) => {
       this.handleMessage(event.data)

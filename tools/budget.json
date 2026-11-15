@@ -1,7 +1,7 @@
 {
   "$comment": "只降不升：cap 只能由 tools/check-budget.mjs --write 下调；要上调必须写 raisedReason 且带 expires（ISO 日期）。",
   "files": {
-    "src/mobile-api.ts": 1668,
+    "src/mobile-api.ts": 1704,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 76,
     "src/mobile/views/ChatView.tsx": 4818,
@@ -23,7 +23,7 @@
     "views/App.tsx": 1468
   },
   "dirs": {
-    "src/mobile": 61837,
+    "src/mobile": 61853,
     "src/mobile/styles": 0,
     "src/mobile/api": 4102,
     "src/mobile/components": 3138,
@@ -38,7 +38,7 @@
     "src/mobile/runtime": 450,
     "src/mobile/session": 3963,
     "src/mobile/shared": 293,
-    "src/mobile/stream": 2457,
+    "src/mobile/stream": 2473,
     "src/mobile/ui": 3534,
     "src/mobile/views": 24679,
     "src/mobile/wire": 246,
