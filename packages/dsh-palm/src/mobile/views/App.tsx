@@ -56,7 +56,7 @@ import { createLazyView, prefetchOnIdle } from '../lazy-view.tsx'
 import { markSessionStale, refreshPage } from '../page-cache.ts'
 import { SessionDrawer } from '../ui/session-drawer.tsx'
 import { AppearanceSheet } from './settings/AppearanceSheet.tsx'
-import { applyRunningState, mergeDrawerRows, orderDrawerRows, paintDrawerRows, promoteRunning, sameDrawerRows, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
+import { applyRunningState, finishedIdSet, mergeDrawerRows, orderDrawerRows, paintDrawerRows, promoteRunning, sameDrawerRows, sameIdSet, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
 import { loadPinnedSessions, loadPinnedWorkspaces, togglePinnedSession, togglePinnedWorkspace } from '../session/pins.ts'
 import { Button } from '../ui/primitives.tsx'
 import { WorkspacePicker } from './chat/components/workspace-picker.tsx'
@@ -957,9 +957,19 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     setDrawer(current => {
       if (current === undefined) return current
       if (!current.rows.some(row => String(row.sessionId) === sessionId)) return current
+      /*
+       * 收工那一帧顺手把「完成」也点亮（2026-11-16 真机：「会话结束了，侧边栏没显示
+       * 完成」）。以前这里只把 running 置 false，而「完成」集合是**打开抽屉那一刻**
+       * 从账本拷的一份快照 —— 抽屉正开着时结束的那一轮，永远等不到自己进集合：
+       * 运行中消失、完成也不出现，徽标整块空白，得关掉重开。
+       */
+      const finished = new Set(current.finished)
+      if (running) finished.delete(sessionId)
+      else finished.add(sessionId)
       return {
         ...current,
         rows: current.rows.map(row => (String(row.sessionId) === sessionId ? { ...row, running } : row)),
+        finished,
       }
     })
   }, [])
@@ -1401,9 +1411,11 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       setDrawer(previous => {
         if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
         const rows = applyRunningState(previous.rows, running)
+        // 「完成」集合同样要刷新：抽屉开着时结束的那一轮不会自己进集合（见 patchDrawerRunning）。
+        const finishedIds = finishedIdSet([...finishedRuns(), ...finished])
         const taskLabel = taskLabelOf(running, finished)
-        if (rows === previous.rows && taskLabel === previous.taskLabel) return previous
-        return { ...previous, rows, taskLabel }
+        if (rows === previous.rows && taskLabel === previous.taskLabel && sameIdSet(finishedIds, previous.finished)) return previous
+        return { ...previous, rows, taskLabel, finished: finishedIds }
       })
     }).catch(() => undefined)
     /**
@@ -1478,13 +1490,16 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
         setDrawer((previous) => {
           if (previous === undefined || String(previous.workspaceId) !== workspaceId) return previous
           const rows = applyRunningState(previous.rows, running)
+          // 「完成」集合每次轮询都刷新（本地账本 ∪ 宿主账本）：抽屉开着的这段时间里
+          // 结束的会话也能亮起「完成」，不用关掉重开（2026-11-16 真机反馈）。
+          const finishedIds = finishedIdSet([...finishedRuns(), ...finished])
           const taskLabel = taskLabelOf(running, finished)
           // 运行集合没变就返回**同一个对象**：React 据此直接 bail out，不进重渲染。
           // 否则每 4 秒一次 setState 会把整个 App 重算一遍 —— 而 `<ChatView>` 没有
           // 渲染边界，等于抽屉开着时每 4 秒连聊天页那 4000 行函数体一起重跑
           // （2026-11-12 实测：这就是"点什么都卡一下"的来源之一）。
-          if (rows === previous.rows && taskLabel === previous.taskLabel) return previous
-          return { ...previous, rows, taskLabel }
+          if (rows === previous.rows && taskLabel === previous.taskLabel && sameIdSet(finishedIds, previous.finished)) return previous
+          return { ...previous, rows, taskLabel, finished: finishedIds }
         })
       }).catch(() => undefined)
     }, DRAWER_RUNNING_POLL_MS)

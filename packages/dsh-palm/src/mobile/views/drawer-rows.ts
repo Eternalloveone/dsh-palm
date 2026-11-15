@@ -262,6 +262,40 @@ export function promoteRunning(
 }
 
 /**
+ * 行徽标的「完成」集合：本地收工账本 ∪ 宿主收工账本，只留最近的。
+ *
+ * 为什么要合并两份（2026-11-16 真机：「会话结束了，侧边栏没显示完成」）：
+ * - 本地账本由 `turn/end` **帧**喂（`collectFinished`），帧丢一条就永远缺这一条；
+ * - 宿主账本是宿主机自己记的，不依赖帧到达。
+ * 两份并集才能同时覆盖"帧到了"和"帧丢了但宿主知道"。
+ *
+ * @param runs - 两份账本的条目（会话 + 收工时刻）
+ * @param now - 当前时刻（毫秒），注入便于测试
+ * @returns 需要画「完成」的会话 id 集合
+ */
+export function finishedIdSet(
+  runs: Iterable<{ sessionId: string; finishedAt: number }>,
+  now: number = Date.now(),
+): Set<string> {
+  const ids = new Set<string>()
+  for (const run of runs) {
+    if (now - run.finishedAt <= FINISHED_BADGE_TTL_MS) ids.add(String(run.sessionId))
+  }
+  return ids
+}
+
+/** 两个 id 集合内容是否相同（用于"没变就别重渲染"）。 */
+export function sameIdSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a === b) return true
+  if (a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+
+/** 「完成」徽标的有效期：刚跑完才值得标，一天的窗口足够覆盖"回头看一眼"。 */
+export const FINISHED_BADGE_TTL_MS = 24 * 60 * 60_000
+
+/**
  * 抽屉「任务」入口的小字：「3 在跑 · 1 刚完成」。
  *
  * 两个数都与「任务」页同口径：在跑数取 `mobile.runningSessions` 的全局集合（抽屉只画

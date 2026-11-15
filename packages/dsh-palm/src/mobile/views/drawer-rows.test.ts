@@ -7,7 +7,7 @@
  * 行右侧「什么时候」的文案已搬到 `ui/drawer-when.test.ts`（函数也住 ui 层了）。
  */
 import { describe, expect, it } from 'vitest'
-import { mergeDrawerRows, orderDrawerRows, paintDrawerRows, pathKey, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
+import { finishedIdSet, mergeDrawerRows, orderDrawerRows, paintDrawerRows, pathKey, sameIdSet, scopedToWorkspace, taskLabelOf } from './drawer-rows.ts'
 import { drawerBucketOf } from '../ui/session-drawer.tsx'
 import type { SessionView } from '../shared/session-view.ts'
 
@@ -225,5 +225,26 @@ describe('taskLabelOf', () => {
 
   it('集合里重复的同一 id 只算一次', () => {
     expect(taskLabelOf(['x', 'x'], [done('z'), done('z')], NOW)).toBe('1 在跑 · 1 刚完成')
+  })
+})
+
+describe('finishedIdSet：「完成」集合取本地账本 ∪ 宿主账本', () => {
+  const NOW = 1_790_000_000_000
+  const run = (id: string, ago: number) => ({ sessionId: id, finishedAt: NOW - ago })
+
+  it('两份账本取并集：本地漏帧也能亮「完成」', () => {
+    const ids = finishedIdSet([run('a', 60_000), run('b', 120_000)], NOW)
+    expect([...ids].sort()).toEqual(['a', 'b'])
+  })
+
+  it('超过 24 小时的不算「刚完成」', () => {
+    const ids = finishedIdSet([run('old', 25 * 3_600_000), run('fresh', 3_600_000)], NOW)
+    expect([...ids]).toEqual(['fresh'])
+  })
+
+  it('sameIdSet 相比内容而不是引用（避免每拍重渲染）', () => {
+    expect(sameIdSet(new Set(['a', 'b']), new Set(['b', 'a']))).toBe(true)
+    expect(sameIdSet(new Set(['a']), new Set(['a', 'b']))).toBe(false)
+    expect(sameIdSet(new Set(), new Set())).toBe(true)
   })
 })
