@@ -19,7 +19,7 @@
  *
  * @module dsh-palm/mobile/ui/status-strip
  */
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ListRow } from './primitives.tsx'
 
 /**
@@ -68,6 +68,14 @@ export interface StatusStripProps {
   size?: 'main' | 'mini'
   /** 有它整行才可点：外层撑到 44px 触控区并带键盘激活。 */
   onOpen?: () => void
+  /**
+   * 换词时是否播放「随风飘散」（2026-11-15）。
+   *
+   * 只有**会轮播的词池**才该开：单字档（等你放行 / 静着 / 成了…）的词永不变化，
+   * 开词槽只会把 4 个字的「等你放行」按 3em 裁掉一个字。
+   * 默认关 —— 关掉时组件与改前逐字节一致（没有词槽、没有碎块）。
+   */
+  wind?: boolean
 }
 
 /**
@@ -104,12 +112,319 @@ function WhaleMark({ kind }: { kind: StatusStripKind }) {
 }
 
 /**
+ * 星尘引擎的时间轴（毫秒）。全部由 canvas 自己推帧，与样式表无关。
+ *
+ * - 0–240ms：旧词向后上方飘散（每颗自己的错峰）；
+ * - 110–510ms：新词从四周环带径向收拢（外圈先动、越近越亮）。
+ *
+ * 两段刻意重叠 130ms：先散后聚若完全不重叠，中间会空掉一百多毫秒，看着像卡住。
+ */
+const AWAY_MS = 240
+const GATHER_START = 110
+const GATHER_MS = 400
+
+/**
+ * 换词过程的存活时长（毫秒）：星尘层从开始到被摘掉。
+ * = 聚拢收尾 510ms + 50ms 余量。**改上面三个常量要同步改这里**，
+ * 否则新词会在聚合到一半时被摘掉（看见"字突然整块出现"）。
+ */
+export const WORD_WIND_MS = 560
+
+/**
+ * 星尘可以飞出词槽多远（CSS px）。
+ * canvas 必须比词槽大一圈，否则飞出去的粒子被 canvas 自己的边界裁掉。
+ */
+const STAR_PAD_X = 48
+const STAR_PAD_Y = 34
+
+/** 一颗星尘：目标像素 + 它自己的风场与环带参数（采样后固定不变）。 */
+interface Star {
+  /** 目标位置（canvas 内物理像素坐标）。 */
+  readonly tx: number
+  readonly ty: number
+  /** 确定性伪随机的三个通道，两种运动共用。 */
+  readonly r1: number
+  readonly r2: number
+  readonly r3: number
+  /** 相位：弧线摇摆与落定微颤。 */
+  readonly ph: number
+  /** 相对字心的方位角（已铺开抖动）。 */
+  readonly angle: number
+  /** 初始收拢半径（物理像素）。 */
+  readonly radius: number
+  /** 收拢时的切向旋转。 */
+  readonly spin: number
+}
+
+/**
+ * 允许播放星尘吗？
+ *
+ * jsdom 没有 `matchMedia` —— 测试与快照一律走静止路径（DOM 与改前逐字节一致）；
+ * 用户开了「减弱动态效果」、或环境没有 canvas，也直接换词。与鲸尾动画同一个尊重。
+ */
+function stardustAllowed(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false
+  if (typeof window.matchMedia !== 'function') return false
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+  return typeof HTMLCanvasElement !== 'undefined'
+}
+
+/**
+ * 把词画到离屏 canvas，按 alpha 采样成星尘：1 颗 / 墨迹像素。
+ *
+ * 字号、字重、字体族全从元素上读（`getComputedStyle`），不写死 ——
+ * 将来再调 tokens 或换皮肤，采样会跟着变。
+ *
+ * @param word - 要采样的词
+ * @param font - canvas font 简写（与 DOM 完全一致）
+ * @param fontSize - 字号（px），用来复刻行框的半行距
+ * @param cssW - canvas 的 CSS 宽（含留白）
+ * @param cssH - canvas 的 CSS 高
+ * @param padX - 文字在 canvas 内的 x 起点（CSS px）
+ * @param padY - 槽顶在 canvas 内的 y 起点（CSS px）
+ * @param dpr - 设备像素比
+ * @returns 星尘数组（坐标是物理像素）
+ */
+function sampleStars(
+  word: string,
+  font: string,
+  fontSize: number,
+  cssW: number,
+  cssH: number,
+  padX: number,
+  padY: number,
+  dpr: number,
+): Star[] {
+  const w = Math.max(1, Math.round(cssW * dpr))
+  const h = Math.max(1, Math.round(cssH * dpr))
+  const off = document.createElement('canvas')
+  off.width = w
+  off.height = h
+  const ctx = off.getContext('2d')
+  if (ctx === null) return []
+  ctx.scale(dpr, dpr)
+  ctx.fillStyle = '#fff'
+  ctx.font = font
+  ctx.textBaseline = 'top'
+  // DOM 的字在 line-height 1.3 的行框里垂直居中 → 半行距 = (1.3 - 1) / 2 em。
+  ctx.fillText(word, padX, padY + fontSize * 0.15)
+
+  const data = ctx.getImageData(0, 0, w, h).data
+  const points: Array<{ x: number; y: number }> = []
+  let cx = 0
+  let cy = 0
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (data[(y * w + x) * 4 + 3] <= 128) continue
+      points.push({ x: x + 0.5, y: y + 0.5 })
+      cx += x + 0.5
+      cy += y + 0.5
+    }
+  }
+  if (points.length === 0) return []
+  cx /= points.length
+  cy /= points.length
+
+  // 确定性伪随机：同一颗每帧走同一条路 —— 可截图对比，也能写进测试。
+  let seed = (word.length * 7919 + 13) >>> 0
+  const rand = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return seed / 0x7fffffff
+  }
+
+  return points.map((point) => {
+    const r1 = rand()
+    const r2 = rand()
+    const r3 = rand()
+    const far = rand() < 0.12
+    const base = Math.atan2(point.y - cy, point.x - cx) + (rand() - 0.5) * 3.4
+    const radius = (9 + rand() * 37) * dpr * (far ? 1.7 : 1)
+    return {
+      tx: point.x,
+      ty: point.y,
+      r1,
+      r2,
+      r3,
+      ph: rand() * Math.PI * 2,
+      angle: base,
+      radius,
+      spin: (rand() - 0.5) * 1.6,
+    }
+  })
+}
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
+const easeOut = (t: number): number => 1 - (1 - t) ** 1.9
+const easeIn = (t: number): number => t ** 1.4
+
+/**
+ * 画一帧星尘。
+ *
+ * @param ctx - 2D 上下文（**物理像素坐标，不做 scale**）
+ * @param oldStars - 旧词的星尘
+ * @param newStars - 新词的星尘
+ * @param u - 消散进度 0→1
+ * @param v - 聚拢进度 0→1
+ * @param dpr - 设备像素比（位移量按它换算）
+ */
+function drawStars(
+  ctx: CanvasRenderingContext2D,
+  oldStars: readonly Star[],
+  newStars: readonly Star[],
+  u: number,
+  v: number,
+  dpr: number,
+): void {
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  ctx.fillStyle = '#ffffff'
+
+  // 旧词：向后上方飘散，alpha 掉得比位移快（否则像"拉着尾巴跑"）。
+  if (u > 0) {
+    for (const star of oldStars) {
+      const delay = 0.02 + star.r1 * 0.3
+      const e = clamp01((u - delay) / (1 - delay))
+      if (e >= 1) continue
+      const k = easeIn(e)
+      ctx.globalAlpha = Math.max(0, (1 - e) ** 1.6)
+      ctx.fillRect(
+        star.tx + (2 + star.r1 * 12) * dpr * k,
+        star.ty - (8 + star.r2 * 16) * dpr * k,
+        1, 1,
+      )
+    }
+  }
+
+  // 新词：星尘径向收拢 —— 外圈先动、越近越亮、落定后微颤。
+  if (v > 0) {
+    for (const star of newStars) {
+      const delay = Math.min(0.5, Math.max(0, 0.55 - star.radius / (52 * dpr)) + star.r3 * 0.12)
+      const e = clamp01((v - delay) / (1 - delay))
+      if (e <= 0) continue
+      const g = easeOut(e)
+      const back = 1 - g
+      const r = star.radius * back
+      const angle = star.angle + star.spin * back
+      const settle = Math.max(0, 1 - back * 8)
+      const tremble = settle === 0 ? 0 : Math.sin(star.ph + v * 40) * 0.35 * settle
+      ctx.globalAlpha = Math.max(0, Math.min(1, (star.radius > 40 * dpr ? 0.05 : 0.12) + 0.88 * g))
+      ctx.fillRect(
+        star.tx + Math.cos(angle) * r + tremble,
+        star.ty + Math.sin(angle) * r * 0.85 + tremble * 0.6,
+        1, 1,
+      )
+    }
+  }
+  ctx.globalAlpha = 1
+}
+
+/**
+ * 词槽：换词时旧词向后飘散、新词「星尘聚形」（canvas 逐像素粒子）。
+ *
+ * 四条约束（2026-11-15 定版，依据四轮效果图）：
+ * 1. **静止时只有一份文本**：不挂 canvas、不建离屏画布 —— 读屏、快照、`textContent`
+ *    与改前一致，星尘只在换词的那 {@link WORD_WIND_MS} 毫秒里存在；
+ * 2. 槽宽锁 3em（词池最长 3 字），后面的灰字与右侧计时在换词时一格都不动；
+ * 3. 环境不允许动画（jsdom / 减弱动效 / 无 canvas）时直接换词，不产生任何节点；
+ * 4. 粒子按 DPR 采样、1 物理像素一颗 —— 换手机不糊。
+ *
+ * @param props.word - 当前要显示的词（`STRIP_POOL` 里那一个）
+ */
+function StripWord({ word }: { word: string }): ReactNode {
+  const slotRef = useRef<HTMLSpanElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [leaving, setLeaving] = useState<string | undefined>(undefined)
+  const shown = useRef(word)
+  const cache = useRef(new Map<string, Star[]>())
+  const raf = useRef<number | undefined>(undefined)
+  const timer = useRef<number | undefined>(undefined)
+
+  // 换词：把上一个词留成「正在消散的旧词」。
+  useEffect(() => {
+    const previous = shown.current
+    if (previous === word) return
+    shown.current = word
+    if (!stardustAllowed()) return
+    setLeaving(previous)
+    if (timer.current !== undefined) window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      timer.current = undefined
+      setLeaving(undefined)
+    }, WORD_WIND_MS)
+  }, [word])
+
+  // 卸载：定时器与 rAF 都要收掉（否则会在已卸载的组件上继续画）。
+  useEffect(() => () => {
+    if (timer.current !== undefined) window.clearTimeout(timer.current)
+    if (raf.current !== undefined) cancelAnimationFrame(raf.current)
+  }, [])
+
+  // 消散期间驱动 canvas。
+  useEffect(() => {
+    if (leaving === undefined) return undefined
+    const slot = slotRef.current
+    const canvas = canvasRef.current
+    if (slot === null || canvas === null) return undefined
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return undefined
+
+    const slotRect = slot.getBoundingClientRect()
+    const canvasRect = canvas.getBoundingClientRect()
+    if (canvasRect.width <= 0 || canvasRect.height <= 0) return undefined
+    const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1))
+    canvas.width = Math.round(canvasRect.width * dpr)
+    canvas.height = Math.round(canvasRect.height * dpr)
+
+    const style = getComputedStyle(slot)
+    const fontSize = Number.parseFloat(style.fontSize)
+    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+    const padX = slotRect.left - canvasRect.left
+    const padY = slotRect.top - canvasRect.top
+    const starsFor = (text: string): Star[] => {
+      const cached = cache.current.get(text)
+      if (cached !== undefined) return cached
+      const made = sampleStars(text, font, Number.isFinite(fontSize) ? fontSize : 14,
+        canvasRect.width, canvasRect.height, padX, padY, dpr)
+      cache.current.set(text, made)
+      return made
+    }
+    const oldStars = starsFor(leaving)
+    const newStars = starsFor(word)
+    const start = performance.now()
+
+    const tick = (now: number): void => {
+      const t = now - start
+      if (t >= WORD_WIND_MS) { raf.current = undefined; return }
+      drawStars(ctx, oldStars, newStars,
+        clamp01(t / AWAY_MS), clamp01((t - GATHER_START) / GATHER_MS), dpr)
+      raf.current = requestAnimationFrame(tick)
+    }
+    raf.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (raf.current !== undefined) cancelAnimationFrame(raf.current)
+      raf.current = undefined
+    }
+  }, [leaving, word])
+
+  if (leaving === undefined) {
+    return <span className="palm-word-slot" ref={slotRef}><span className="palm-word">{word}</span></span>
+  }
+  return (
+    <span className="palm-word-slot" ref={slotRef}>
+      {/* 换词期间文本让位给 canvas：星尘画完（560ms）后 leaving 归零，这里回到纯文本。 */}
+      <canvas className="palm-word-canvas" ref={canvasRef} aria-hidden="true" />
+    </span>
+  )
+}
+
+/**
  * 渲染一行状态栏。
  *
  * @param props - 状态、文案与尺寸
  * @returns 一行平铺的状态（`main`）或抽屉里的小胶囊（`mini`）；给了 `onOpen` 时可点
  */
-export function StatusStrip({ kind, label, detail, right, size = 'main', onOpen }: StatusStripProps): ReactNode {
+export function StatusStrip({ kind, label, detail, right, size = 'main', onOpen, wind = false }: StatusStripProps): ReactNode {
   const mini = size === 'mini'
   // 读屏念一条完整的话：只念画出来的部分（迷你版没有副文案/右侧）。
   const spoken = [label, mini ? undefined : detail, mini ? undefined : right]
@@ -127,7 +442,7 @@ export function StatusStrip({ kind, label, detail, right, size = 'main', onOpen 
       <span className="palm-strip-body">
         <WhaleMark kind={kind} />
         <span data-part="main">
-          {label === '' ? null : <b data-part="label">{label}</b>}
+          {label === '' ? null : <b data-part="label">{wind ? <StripWord word={label} /> : label}</b>}
           {mini || detail === undefined ? null : <span data-part="detail">{detail}</span>}
         </span>
         {mini || right === undefined ? null : <span data-part="right" data-role="strip-time">{right}</span>}

@@ -37,18 +37,18 @@ describe('鲸尾后面的文案：逐状态清点', () => {
     // 这里刻意写成"现状快照"：改文案时它必须跟着改，避免悄悄漂移。
     // 2026-11-11 起「进行中」四族是词池（每 4 秒/每步轮播），快照固定第 0 个词。
     expect(shown).toEqual({
-      think: '琢磨着 · 3 步 | 1分15秒',
-      read: '翻着 · 3 步 | 1分15秒',
-      edit: '落笔 · 3 步 | 1分15秒',
-      test: '跑着 · 3 步 | 1分15秒',
-      approve: '等你放行 · 3 步 | 1分15秒',
-      stuck: '静着 · 3 步 | 比平时慢一点 · 也可以停止后重发 | 1分15秒',
-      idle: '闲着 · 3 步 | 等你发话',
+      think: '琢磨着 | 1分15秒',
+      read: '翻着 | 1分15秒',
+      edit: '落笔 | 1分15秒',
+      test: '跑着 | 1分15秒',
+      approve: '等你放行 | 1分15秒',
+      stuck: '静着 | 比平时慢一点 · 也可以停止后重发 | 1分15秒',
+      idle: '闲着 | 等你发话',
       unknown: '等回话 | 1分15秒',
-      done: '成了 · 3 步 | 未做改动 | 1分15秒',
-      failed: '没成 · 3 步 | 1分15秒',
-      stopped: '收了 · 3 步 | 1分15秒',
-      queued: '排着 · 3 步 | 1分15秒',
+      done: '成了 | 未做改动 | 1分15秒',
+      failed: '没成 | 1分15秒',
+      stopped: '收了 | 1分15秒',
+      queued: '排着 | 1分15秒',
     })
   })
 
@@ -59,7 +59,7 @@ describe('鲸尾后面的文案：逐状态清点', () => {
 
   it('完成但没改动时补一句灰字', () => {
     const view = render(<TurnHeader kind="done" steps={{ done: 7, total: 7 }} changedFiles={0} durationMs={12_000} />)
-    expect(visibleText(view.container)).toBe('成了 · 7 步 | 未做改动 | 12s')
+    expect(visibleText(view.container)).toBe('成了 | 未做改动 | 12s')
   })
 
   /**
@@ -98,11 +98,11 @@ describe('状态词池：轮播与稳定档', () => {
     vi.useFakeTimers()
     try {
       const view = render(<TurnHeader kind="think" steps={{ done: 0, total: 5 }} />)
-      expect(visibleText(view.container)).toBe('琢磨着 · 0 步')
+      expect(visibleText(view.container)).toBe('琢磨着')
       act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
-      expect(visibleText(view.container)).toBe('盘算着 · 0 步')
+      expect(visibleText(view.container)).toBe('盘算着')
       act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
-      expect(visibleText(view.container)).toBe('捋一捋 · 0 步')
+      expect(visibleText(view.container)).toBe('捋一捋')
     } finally {
       vi.useRealTimers()
     }
@@ -124,9 +124,9 @@ describe('状态词池：轮播与稳定档', () => {
 
   it('步数前进也换词（不必等满 4 秒）', () => {
     const view = render(<TurnHeader kind="edit" steps={{ done: 1, total: 5 }} />)
-    expect(visibleText(view.container)).toBe('落笔 · 1 步')
+    expect(visibleText(view.container)).toBe('落笔')
     view.rerender(<TurnHeader kind="edit" steps={{ done: 2, total: 5 }} />)
-    expect(visibleText(view.container)).toBe('动刀 · 2 步')
+    expect(visibleText(view.container)).toBe('动刀')
   })
 
   it('换一种动作就回到本族第一个词（不在族尾兜底词上开局）', () => {

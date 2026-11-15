@@ -63,7 +63,7 @@ describe('TurnHeader（回合任务头）', () => {
     expect(container.querySelector('.palm-turn-goal')!.textContent).toContain('6/11')
     const strip = container.querySelector('.palm-strip')!
     expect(strip.getAttribute('data-kind')).toBe('done')
-    expect(strip.querySelector('[data-part="label"]')!.textContent).toBe('成了 · 7 步')
+    expect(strip.querySelector('[data-part="label"]')!.textContent).toBe('成了')
     // 2026-11-10 第二轮：完成态的改动数搬进**过程条头**（`改 N 个文件`），状态条不再重复报，
     // 元信息只剩模型 —— 同一件事全页只出现一次。
     expect(container.querySelector('.palm-strip [data-part="detail"]')).toBeNull()

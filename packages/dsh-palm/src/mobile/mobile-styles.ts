@@ -92,12 +92,14 @@ export const mobileCss = `${designTokensCss()}
 
   /* ── 状态条（28px 主条 + 22px 迷你条 + 方案 A 刻度轨） ───────────────
    * 版式真源：docs/prototype/pet-strip-v5.html ① / overview.html「2 · 会话正文」。
-   * 2026-11-09 真机偏大：主条 32 → 28、圆角 11 → 10、宠物 20 → 18、主文案 11px、
+   * 2026-11-09 真机偏大：主条 32 → 28、圆角 11 → 10、宠物 20 → 18、主文案 11px
+ * 2026-11-15 主文案 11 → 14：换词改成「星尘聚形」（canvas 逐像素粒子）。
+ *   1px 的粒子在 11px 字上间距不足 1px，必然并成一团雾；14px 才有看得见的颗粒与空隙。、
    * 刻度轨 5 → 4。迷你条（132×22）保持原尺寸，是抽屉行里的第二类用法。
    * 渐变与宠物墨色按 11 种任务状态各一份：组件样式里不再出现裸色值。 */
   --palm-strip-h: 28px;
   --palm-strip-r: 10px;
-  --palm-strip-size: 11px;
+  --palm-strip-size: 14px;
   --palm-strip-detail-size: 10.5px;
   --palm-strip-right-size: 10px;
   --palm-strip-pad: 7px;
@@ -10772,6 +10774,7 @@ body:has(.lightbox-backdrop) .toast-host {
   .page-exit-back {
     display: none;
   }
+
 }
 /* ── v2.1 increments: workspace tints / search morph / status semantics ──
    / previews / reasoning clamp / quote bar / quick commands /
@@ -11584,6 +11587,49 @@ button.settings-row:active {
 /* 迷你条不跟着主条缩字：132×22 是抽屉行里的第二类用法，12px 是它可读的下限。 */
 .palm-strip[data-size='mini'] [data-part='label'] {
   font-size: var(--palm-t-s);
+}
+
+/* ── 词槽：星尘聚形（2026-11-15）────────────────────────────────
+ *
+ * 用户口径（参考业界做法后选定）：「先一团星点，再聚成字」—— 重量在「聚」。
+ * 粒子不在 CSS 里：换词时由 status-strip.tsx 在 <canvas> 上按 DPR 逐像素推
+ * （离屏采样 1 颗/墨迹像素、径向环带收拢、越近越亮、落定微颤）。这里只管两件事：
+ *
+ * 1. 词槽给一个**固定宽度**（3em = 词池最长词）：换词时后面的灰字与右侧计时一格不动；
+ * 2. canvas 的盒子比词槽四周各大一截 —— 星尘要飞出字外，canvas 小了会把粒子裁掉。
+ *
+ * 静止时 DOM 里只有一份文本、没有 canvas（组件按环境判断），所以读屏与快照不受影响。
+ * 字号 11 → 14px 是为了让 1px 粒子之间有可见空隙，理由见 000-tokens.css 同条注释。
+ */
+.palm-word-slot {
+  --palm-star-pad-x: 3.4em;
+  --palm-star-pad-y: 2.4em;
+  position: relative;
+  display: inline-block;
+  flex: none;
+  inline-size: 3em;
+  block-size: 1.3em;
+  vertical-align: baseline;
+}
+
+/* 零宽空格撑一个 line box：否则 inline-block 的基线落在底边，整行文字会下沉半行。 */
+.palm-word-slot::before { content: '\\200B'; }
+
+.palm-word {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  white-space: nowrap;
+}
+
+/* 星尘画布：四周各留一圈给飞出去的粒子（尺寸随字号走，与组件读到的 rect 一致）。 */
+.palm-word-canvas {
+  position: absolute;
+  inset-block-start: calc(var(--palm-star-pad-y) * -1);
+  inset-inline-start: calc(var(--palm-star-pad-x) * -1);
+  inline-size: calc(3em + var(--palm-star-pad-x) * 2);
+  block-size: calc(1.3em + var(--palm-star-pad-y) * 2);
+  pointer-events: none;
 }
 
 /* 尾鳍：16×16 的盒子，里面两层（动画 PNG / 静止 SVG）。 */

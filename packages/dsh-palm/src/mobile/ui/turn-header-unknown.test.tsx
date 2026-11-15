@@ -46,10 +46,10 @@ describe('TurnHeader：unknown 只陈述事实', () => {
     expect(container.querySelector('.palm-strip-rail')).toBeNull()
   })
 
-  it('终态照旧报步数与耗时（unknown 的规则不外溢），且耗时只在状态条', () => {
+  it('终态照旧报耗时（unknown 的规则不外溢），且耗时只在状态条', () => {
     const { container } = render(<TurnHeader kind="done" steps={{ done: 7, total: 7 }} durationMs={12_400} />)
-    const label = container.querySelector('.palm-strip [data-part="label"]')!
-    expect(label.textContent).toContain('7 步')
+    // 2026-11-15 用户：「后面步数显示这个不要加」——状态条只留词，步数交给过程条。
+    expect(container.querySelector('.palm-strip [data-part="label"]')!.textContent).toBe('成了')
     expect(container.querySelector('[data-role="strip-time"]')!.textContent).toBe('12s')
     expect(container.querySelector('.palm-turn-time')).toBeNull()
     expect(container.querySelector('.palm-turn-state')).toBeNull()

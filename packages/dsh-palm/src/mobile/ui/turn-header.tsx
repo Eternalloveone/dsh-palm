@@ -175,7 +175,6 @@ export function TurnHeader({
   const time = durationMs === undefined || !Number.isFinite(durationMs)
     ? ''
     : formatSeconds(durationMs)
-  const stepsDone = steps === undefined ? 0 : Math.max(0, Math.round(steps.done))
   /*
    * 轮播脉冲：「每 4 秒」或「每完成一步」各前进一步（见 STRIP_POOL 的说明）。
    * 状态一换（think → edit）词池跟着换，索引继续走 —— 不重置，省一次渲染；
@@ -213,8 +212,11 @@ export function TurnHeader({
     setRotateTick(0)
   }, [kind])
 
+  /*
+   * 2026-11-15 用户：「后面步数显示这个不要加」。状态条上只留词本身 ——
+   * 「这一轮几步」由过程条的点阵与「改 N 个文件」承担，不在这行重复。
+   */
   const stripWord = stripWordOf(kind, rotateTick)
-  const stripLabel = !known || steps === undefined ? stripWord : `${stripWord} · ${stepsDone} 步`
 
   // 灰字（detail）三个终态各说一句事实：完成说做了什么，空闲说可以发话，
   // 未知说在等谁。其余状态（进行中）不塞灰字 —— 那里已经有工具名/命令了。
@@ -251,7 +253,10 @@ export function TurnHeader({
       {goal === undefined || goal.trim() === '' ? null : <p className="palm-turn-goal">{goal}</p>}
       <StatusStrip
         kind={kind}
-        label={stripLabel}
+        label={stripWord}
+        /* 只有会轮播的族才开词槽与飘散：单字档（等你放行 / 静着 / 成了…）的词永不变，
+           开槽只会把 4 个字的「等你放行」裁成 3 个。 */
+        {...(pool.length > 1 ? { wind: true } : {})}
         {...(progress === undefined || !known ? {} : { progress })}
         {...(!known || steps === undefined ? {} : { steps })}
         {...(stripDetail === undefined ? {} : { detail: stripDetail })}
