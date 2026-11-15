@@ -11608,8 +11608,8 @@ button.settings-row:active {
  * 字号 11 → 14px 是为了让 1px 粒子之间有可见空隙，理由见 000-tokens.css 同条注释。
  */
 .palm-word-slot {
-  --palm-star-pad-x: 3.4em;
-  --palm-star-pad-y: 2.4em;
+  --palm-star-pad-x: 8em;
+  --palm-star-pad-y: 5em;
   position: relative;
   display: inline-block;
   flex: none;
@@ -11628,7 +11628,10 @@ button.settings-row:active {
   white-space: nowrap;
 }
 
-/* 星尘画布：四周各留一圈给飞出去的粒子（尺寸随字号走，与组件读到的 rect 一致）。 */
+/* 粒子画布：四周各留一大圈给飞出去的粒子（8em / 5em，13 号字下约一百出头像素）。
+   2026-11-16 用户要「扩散到更大范围」：从 3.4em / 2.4em 放大约 2.3 倍；
+   换流场引擎后拖尾要飞出更远，这圈留白是硬前提。
+   范围变大必然更显眼，所以同期把粒子做淡做虚（见 status-strip.tsx 的 alpha 上限与尺寸下限）。 */
 .palm-word-canvas {
   position: absolute;
   inset-block-start: calc(var(--palm-star-pad-y) * -1);

@@ -119,16 +119,15 @@ function WhaleMark({ kind }: { kind: StatusStripKind }) {
  *
  * 两段刻意重叠 130ms：先散后聚若完全不重叠，中间会空掉一百多毫秒，看着像卡住。
  */
-const AWAY_MS = 220
-const GATHER_START = 120
-const GATHER_MS = 300
+const AWAY_MS = 600
+const GATHER_START = 60
 
 /**
  * 换词过程的存活时长（毫秒）：灰层从开始到被摘掉。
  * = 收尾 420ms + 40ms 余量。**改上面三个常量要同步改这里**，
  * 否则新词会在聚合到一半时被摘掉（看见"字突然整块出现"）。
  */
-export const WORD_WIND_MS = 460
+export const WORD_WIND_MS = 660
 
 /**
  * 星尘可以飞出词槽多远（CSS px）。
@@ -137,26 +136,39 @@ export const WORD_WIND_MS = 460
 const STAR_PAD_X = 48
 const STAR_PAD_Y = 34
 
-/** 一粒灰：目标像素 + 它自己的风场参数（采样后固定不变）。 */
-interface Star {
-  /** 目标位置（canvas 内物理像素坐标）。 */
-  readonly tx: number
-  readonly ty: number
-  /** 确定性伪随机的三个通道，两种运动共用。 */
-  readonly r1: number
-  readonly r2: number
-  readonly r3: number
-  /** 相位：飘散时的左右摇摆。 */
-  readonly ph: number
+/** 粒子：位置 + 速度 + 寿命 + 自己的噪声参数（确定性伪随机，可复现）。 */
+interface Dot {
+  x: number
+  y: number
+  /** 出生点（聚回时朝它收敛）。 */
+  hx: number
+  hy: number
+  vx: number
+  vy: number
+  /** 1 → 0：同时控亮度与尺寸。 */
+  life: number
+  /** 速度倍率 0.6–1.6：同速同向像一堵墙，有快有慢才会互相超越。 */
+  speed: number
+  phase: number
+  /** 两个噪声频率（Hz 量级）：决定这颗粒子的"脾气"。 */
+  f1: number
+  f2: number
+  jitter: number
+}
+
+/** 采样得到的墨迹点（物理像素）。 */
+interface SamplePoint {
+  x: number
+  y: number
 }
 
 /**
- * 允许播放化灰吗？
+ * 允许播放流场粒子吗？
  *
  * jsdom 没有 `matchMedia` —— 测试与快照一律走静止路径（DOM 与改前逐字节一致）；
- * 用户开了「减弱动态效果」、或环境没有 canvas，也直接换词。与鲸尾动画同一个尊重。
+ * 用户开了「减弱动态效果」、或环境没有 canvas，也直接换词。
  */
-function ashAllowed(): boolean {
+function flowAllowed(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false
   if (typeof window.matchMedia !== 'function') return false
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
@@ -164,10 +176,9 @@ function ashAllowed(): boolean {
 }
 
 /**
- * 把词画到离屏 canvas，按 alpha 采样成灰粒：1 颗 / 墨迹像素。
+ * 把词画到离屏 canvas，按 alpha 采样成墨迹点：1 颗 / 墨迹像素。
  *
- * 字号、字重、字体族全从元素上读（`getComputedStyle`），不写死 ——
- * 将来再调 tokens 或换皮肤，采样会跟着变。
+ * 字号、字重、字体族全从元素上读（`getComputedStyle`），不写死。
  *
  * @param word - 要采样的词
  * @param font - canvas font 简写（与 DOM 完全一致）
@@ -177,9 +188,9 @@ function ashAllowed(): boolean {
  * @param padX - 文字在 canvas 内的 x 起点（CSS px）
  * @param padY - 槽顶在 canvas 内的 y 起点（CSS px）
  * @param dpr - 设备像素比
- * @returns 灰粒数组（坐标是物理像素）
+ * @returns 墨迹点（物理像素坐标）
  */
-function sampleStars(
+function samplePoints(
   word: string,
   font: string,
   fontSize: number,
@@ -188,7 +199,7 @@ function sampleStars(
   padX: number,
   padY: number,
   dpr: number,
-): Star[] {
+): SamplePoint[] {
   const w = Math.max(1, Math.round(cssW * dpr))
   const h = Math.max(1, Math.round(cssH * dpr))
   const off = document.createElement('canvas')
@@ -204,110 +215,115 @@ function sampleStars(
   ctx.fillText(word, padX, padY + fontSize * 0.15)
 
   const data = ctx.getImageData(0, 0, w, h).data
-  const points: Array<{ x: number; y: number }> = []
+  const points: SamplePoint[] = []
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
       if (data[(y * w + x) * 4 + 3] <= 128) continue
       points.push({ x: x + 0.5, y: y + 0.5 })
     }
   }
-  if (points.length === 0) return []
+  return points
+}
 
-  // 确定性伪随机：同一颗每帧走同一条路 —— 可截图对比，也能写进测试。
-  let seed = (word.length * 7919 + 13) >>> 0
+/**
+ * 由墨迹点生成粒子：位置 + 速度 + 寿命 + 噪声参数。
+ *
+ * @param points - 采样点
+ * @param seed - 确定性种子（同一个词每次走同一条路，可截图对比）
+ * @param dpr - 设备像素比
+ * @returns 可变的粒子数组（动画期间就地更新）
+ */
+function makeDots(points: readonly SamplePoint[], seed: number, dpr: number): Dot[] {
+  let s = seed >>> 0
   const rand = (): number => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff
-    return seed / 0x7fffffff
+    s = (s * 1103515245 + 12345) & 0x7fffffff
+    return s / 0x7fffffff
   }
-
   return points.map((point) => ({
-    tx: point.x,
-    ty: point.y,
-    r1: rand(),
-    r2: rand(),
-    r3: rand(),
-    ph: rand() * Math.PI * 2,
+    x: point.x,
+    y: point.y,
+    hx: point.x,
+    hy: point.y,
+    vx: 0,
+    vy: 0,
+    life: 1,
+    speed: 0.6 + rand() * 1.0,
+    phase: rand() * Math.PI * 2,
+    f1: 0.6 + rand() * 1.6,
+    f2: 0.4 + rand() * 1.2,
+    jitter: (rand() - 0.5) * 2,
   }))
 }
 
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
-const easeOut = (t: number): number => 1 - (1 - t) ** 1.9
-const easeIn = (t: number): number => t ** 1.4
+/** 拖尾衰减：每帧按比例擦掉旧像素（不清屏）。away 擦得快、gather 稍慢。 */
+const TRAIL_ERASE = { away: 0.16, gather: 0.2 }
 
 /**
- * 画一帧化灰。
+ * 推一帧：先衰减旧像素留拖尾，再对两组粒子做一次速度积分并落点。
  *
- * @param ctx - 2D 上下文（**物理像素坐标，不做 scale**）
- * @param oldStars - 旧词的灰粒
- * @param newStars - 新词的灰粒
- * @param u - 消散进度 0→1
- * @param v - 聚拢进度 0→1
- * @param dpr - 设备像素比（位移量按它换算）
- * @param ink - 粒子颜色：**必须是当前文字色**，否则浅色皮肤（纸色）上是白底白点，整段看不见
+ * @param ctx - 2D 上下文（物理像素坐标，不做 scale）
+ * @param awayDots - 正在散开的旧词粒子
+ * @param gatherDots - 正在聚回的新词粒子
+ * @param awayLife - 是否还在散（false 时不再更新写散开的粒子）
+ * @param dt - 帧间隔（秒，上限已在调用侧钳过）
+ * @param t - 距开始经过的毫秒
+ * @param ink - 粒子墨色（跟随当前文字色）
+ * @param dpr - 设备像素比
  */
-function drawStars(
+function stepDots(
   ctx: CanvasRenderingContext2D,
-  oldStars: readonly Star[],
-  newStars: readonly Star[],
-  u: number,
-  v: number,
-  dpr: number,
+  awayDots: readonly Dot[],
+  gatherDots: readonly Dot[],
+  awayLife: boolean,
+  gatherLive: boolean,
+  dt: number,
+  t: number,
   ink: string,
+  dpr: number,
 ): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  // 拖尾：按比例擦掉旧像素，粒子飞过的地方留下会自己褪掉的流线。
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.fillStyle = 'rgba(0,0,0,' + String(gatherLive ? TRAIL_ERASE.gather : TRAIL_ERASE.away) + ')'
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  ctx.globalCompositeOperation = 'source-over'
   ctx.fillStyle = ink
-  const height = Math.max(1, ctx.canvas.height)
 
-  /*
-   * 散（化灰 · 向右后方）：仍是自下而上剥落，但轨迹改成「被风带向画面右后方」。
-   *
-   * 「后方」不是多飘几个像素，是三件事一起衰减才读得出纵深：
-   *   ① 位置向右侧的消失点轻度收拢（perspective）——只收 22%，收多了像被吸进去；
-   *   ② 越远越淡：alpha 按 e 的 1.4 次方掉；
-   *   ③ 越远越虚：粒子尺寸从 1 物理像素收到 0.45 —— 1px 的点缩不了"形状"，
-   *      但亚像素尺寸的覆盖率会掉，视觉上就是变虚变远（这一步最关键）。
-   */
-  const vanishX = ctx.canvas.width * 0.96
-  const vanishY = ctx.canvas.height * 0.46
-  if (u > 0) {
-    for (const star of oldStars) {
-      const fromBottom = 1 - star.ty / height          // 1 = 最底，0 = 最顶
-      const delay = 0.04 + (1 - fromBottom) * 0.5      // 底先走、顶后走
-      const e = clamp01((u - delay) / (1 - delay))
-      if (e >= 1) continue
-      const k = easeIn(e)
-      const sway = Math.sin(star.ph + k * Math.PI) * 1.2 * dpr * k
-      const pull = 0.22 * k                             // 向消失点收拢的轻度透视
-      const size = Math.max(0.45, 1 - 0.55 * k)         // 越远越虚
-      ctx.globalAlpha = Math.max(0, (1 - e) ** 1.4)
-      ctx.fillRect(
-        star.tx + (6 + star.r1 * 14) * dpr * k + (vanishX - star.tx) * pull + sway,
-        star.ty - (1.5 + star.r2 * 4.5) * dpr * k + (vanishY - star.ty) * pull,
-        size, size,
-      )
+  if (awayLife) {
+    for (const dot of awayDots) {
+      // 风向右后方：横向主推力 + 低频弯曲；纵向带一点上扬，飞出文字行。
+      const bend = Math.sin(t * 0.0011 * dot.f1 + dot.phase) * 0.9
+      const ax = 300 * dot.speed + Math.cos(t * 0.0016 * dot.f2 + dot.phase * 1.7) * 240
+      const ay = -190 * dot.speed * (0.5 + 0.5 * dot.jitter)
+        + Math.sin(t * 0.0013 * dot.f1 + dot.phase) * 230 * bend
+      dot.vx = (dot.vx + ax * dt) * 0.985
+      dot.vy = (dot.vy + ay * dt) * 0.985
+      dot.x += dot.vx * dt
+      dot.y += dot.vy * dt
+      dot.life = Math.max(0, dot.life - dt / 0.7)
+      if (dot.life <= 0.01) continue
+      ctx.globalAlpha = dot.life ** 1.1
+      const size = Math.max(0.6, 1 + 0.9 * dot.life) * (dpr > 1 ? 1 : 1)
+      ctx.fillRect(dot.x, dot.y, size, size)
     }
   }
 
-  // 聚：灰从右后方（消失点方向）飘回来，同时由虚变实、由淡变浓。
-  if (v > 0) {
-    for (const star of newStars) {
-      const fromTop = star.ty / height                  // 0 = 最顶，1 = 最底
-      const delay = Math.min(0.5, 0.02 + fromTop * 0.32 + star.r3 * 0.12)
-      const e = clamp01((v - delay) / (1 - delay))
-      if (e <= 0) continue
-      const g = easeOut(e)
-      const back = 1 - g
-      const sway = Math.sin(star.ph + g * 2.2) * 1.1 * dpr * back
-      const size = Math.max(0.5, 1 - 0.5 * back)
-      ctx.globalAlpha = Math.max(0, Math.min(0.96, 0.06 + 0.9 * g))
-      ctx.fillRect(
-        star.tx + (4 + star.r1 * 9) * dpr * back + (vanishX - star.tx) * 0.2 * back + sway,
-        star.ty - (1 + star.r2 * 3.5) * dpr * back + (vanishY - star.ty) * 0.2 * back,
-        size, size,
-      )
+  if (gatherLive) {
+    for (const dot of gatherDots) {
+      // 聚回：朝出生点收敛（k 越大越快），叠一点噪声摆动让落位不是死板直线。
+      const wobble = Math.cos(t * 0.0022 * dot.f2 + dot.phase) * 130
+      dot.vx = (dot.vx + ((dot.hx - dot.x) * 6 + wobble) * dt) * 0.93
+      dot.vy = (dot.vy + ((dot.hy - dot.y) * 6 + Math.sin(t * 0.002 + dot.phase) * 100) * dt) * 0.93
+      dot.x += dot.vx * dt
+      dot.y += dot.vy * dt
+      dot.life = Math.min(1, dot.life + dt / 0.5)
+      if (dot.life <= 0.02) continue
+      ctx.globalAlpha = dot.life ** 1.1
+      const size = Math.max(0.6, 1 + 0.9 * dot.life)
+      ctx.fillRect(dot.x, dot.y, size, size)
     }
   }
+
   ctx.globalAlpha = 1
 }
 
@@ -328,16 +344,17 @@ function StripWord({ word }: { word: string }): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [leaving, setLeaving] = useState<string | undefined>(undefined)
   const shown = useRef(word)
-  const cache = useRef(new Map<string, Star[]>())
+  /** 采样点缓存：同一个词在同一个字体/尺寸下只采一次。 */
+  const pointCache = useRef(new Map<string, SamplePoint[]>())
   const raf = useRef<number | undefined>(undefined)
   const timer = useRef<number | undefined>(undefined)
 
-  // 换词：把上一个词留成「正在消散的旧词」。
+  // 换词：把上一个词留成「正在散开的旧词」。
   useEffect(() => {
     const previous = shown.current
     if (previous === word) return
     shown.current = word
-    if (!ashAllowed()) return
+    if (!flowAllowed()) return
     setLeaving(previous)
     if (timer.current !== undefined) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
@@ -352,7 +369,7 @@ function StripWord({ word }: { word: string }): ReactNode {
     if (raf.current !== undefined) cancelAnimationFrame(raf.current)
   }, [])
 
-  // 消散期间驱动 canvas（化灰）。
+  // 消散期间驱动 canvas。
   useEffect(() => {
     if (leaving === undefined) return undefined
     const slot = slotRef.current
@@ -370,28 +387,40 @@ function StripWord({ word }: { word: string }): ReactNode {
 
     const style = getComputedStyle(slot)
     const fontSize = Number.parseFloat(style.fontSize)
-    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+    const font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily
     const padX = slotRect.left - canvasRect.left
     const padY = slotRect.top - canvasRect.top
-    const starsFor = (text: string): Star[] => {
-      const cached = cache.current.get(text)
+    const ink = style.color
+
+    const pointsFor = (text: string): SamplePoint[] => {
+      const key = text + '|' + font
+      const cached = pointCache.current.get(key)
       if (cached !== undefined) return cached
-      const made = sampleStars(text, font, Number.isFinite(fontSize) ? fontSize : 14,
+      const made = samplePoints(text, font, Number.isFinite(fontSize) ? fontSize : 13,
         canvasRect.width, canvasRect.height, padX, padY, dpr)
-      cache.current.set(text, made)
+      pointCache.current.set(key, made)
       return made
     }
-    const oldStars = starsFor(leaving)
-    const newStars = starsFor(word)
-    // 粒子墨色 = 当前文字色（深色皮肤近白、纸色近黑），换皮肤自动跟随；不写死颜色。
-    const ink = style.color
-    const start = performance.now()
 
+    // 每次换词都重建粒子数组（速度与寿命必须从零开始，不能沿用上一轮）。
+    const awayDots = makeDots(pointsFor(leaving), leaving.length * 7919 + 3, dpr)
+    const gatherDots = makeDots(pointsFor(word), word.length * 7919 + 17, dpr)
+    for (const dot of gatherDots) {
+      // 新词从右侧远处飘回：起点在出生点右边一截，寿命从 0 长起来。
+      dot.x = dot.hx + (40 + dot.jitter * 26) * dpr
+      dot.y = dot.hy - (14 + dot.jitter * 16) * dpr
+      dot.life = 0
+    }
+
+    const start = performance.now()
+    let last = start
     const tick = (now: number): void => {
+      const dt = Math.min(0.032, (now - last) / 1000)
+      last = now
       const t = now - start
       if (t >= WORD_WIND_MS) { raf.current = undefined; return }
-      drawStars(ctx, oldStars, newStars,
-        clamp01(t / AWAY_MS), clamp01((t - GATHER_START) / GATHER_MS), dpr, ink)
+      const gatherLive = t > GATHER_START
+      stepDots(ctx, awayDots, gatherDots, t < AWAY_MS, gatherLive, dt, t, ink, dpr)
       raf.current = requestAnimationFrame(tick)
     }
     raf.current = requestAnimationFrame(tick)
@@ -407,7 +436,7 @@ function StripWord({ word }: { word: string }): ReactNode {
   }
   return (
     <span className="palm-word-slot" ref={slotRef}>
-      {/* 换词期间文本让位给 canvas：灰画完（560ms）后 leaving 归零，这里回到纯文本。 */}
+      {/* 换词期间文本让位给 canvas；粒子散尽（WORD_WIND_MS）后 leaving 归零，这里回到纯文本。 */}
       <canvas className="palm-word-canvas" ref={canvasRef} aria-hidden="true" />
     </span>
   )
