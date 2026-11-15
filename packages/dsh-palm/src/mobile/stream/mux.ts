@@ -510,6 +510,24 @@ export class MuxClient {
   }
 
   /**
+   * 立刻用**当前**观察会话重建 SSE 连接（`?session=` 随之更新）。
+   *
+   * 为什么需要单独一个方法：`observe()` 只是记下"在看哪个会话"，真正让宿主按新会话
+   * 过滤的是连接的地址。而切会话时如果不重连，就只剩设备登记表那条路 ——
+   * `mobile.observe` 是一次独立 RPC，落地前的几十~几百毫秒里宿主按**旧**会话过滤，
+   * 新会话正在生成的帧被整段丢掉；这一轮若刚好结束，就再没有帧把它们补回来：
+   * 界面显示"已完成"、正文缺一块（真机 2026-11-15 23:40
+   * `stream-lag lag=30 batched=0 frames=[]` 正是这个形态）。
+   *
+   * 连接是本地对象，重建的代价是一百多毫秒的一次握手；换来的是"过滤依据与画面同源"。
+   */
+  reconnect(): void {
+    if (this.stopped || this.paused || this.source === undefined) return
+    this.closeSource()
+    this.connect()
+  }
+
+  /**
    * The single scheduler tick is the only interval this client owns. One
    * timer (at the finer of the stall-check and poll cadences) both arms the
    * polling fallback once the stall threshold passes and drives each poll at

@@ -712,6 +712,8 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const muxRef = useRef<MuxClient | undefined>(undefined)
+  /** 上一次已"钉"进 SSE 地址的会话（切会话要重建连接，见 observe effect）。 */
+  const observedSessionRef = useRef<string | undefined>(undefined)
   const [bridge, setBridge] = useState<HostBridge<MuxFrame> | undefined>(undefined)
 
   /** 大纲页点了哪一轮：回到对话后由 ChatView 消费并落位。 */
@@ -1012,7 +1014,15 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
   // its polling fallback can keep that chat fresh over SSE-impairing tunnels
   // (quick tunnel / Tailscale Serve do not forward Server-Sent Events).
   useEffect(() => {
-    muxRef.current?.observe(route.kind === 'chat' && route.session.sessionId !== '' ? route.session.sessionId : undefined)
+    const sessionId = route.kind === 'chat' && route.session.sessionId !== '' ? route.session.sessionId : undefined
+    muxRef.current?.observe(sessionId)
+    // 切会话要重建连接：宿主的过滤依据是地址里的 `?session=`。不重连就只剩登记表那条
+    // 路，而 `mobile.observe` 落地前的几十~几百毫秒里新会话的帧会被整段丢掉（真机：
+    // 切进一个正在跑的会话，界面显示已完成、正文缺一块）。
+    if (observedSessionRef.current !== sessionId) {
+      observedSessionRef.current = sessionId
+      muxRef.current?.reconnect?.()
+    }
   }, [route])
 
   /**

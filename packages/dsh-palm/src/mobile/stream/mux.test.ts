@@ -986,6 +986,26 @@ describe('MuxClient running mirror', () => {
     mux.stop()
   })
 
+  it('切会话后 reconnect() 用新会话重建地址（宿主按地址过滤）', async () => {
+    // 切会话只调 observe() 的话，连接地址还钉着旧会话；新会话的帧只能靠登记表那条
+    // 会迟到的 RPC，落地前的那几十~几百毫秒整段丢失（真机：切进正在跑的会话，
+    // 界面显示已完成、正文缺一块）。所以切会话必须重连。
+    const { factory, sources } = makeSources()
+    const mux = new MuxClient(undefined, {
+      ...baseOptions(async () => pageOf([]), factory),
+      now: () => 0,
+    })
+    mux.start()
+    mux.observe('s-1')
+    mux.reconnect()
+    expect(sources.at(-1)!.url).toContain('session=s-1')
+    mux.observe('s-2')
+    mux.reconnect()
+    expect(sources.at(-1)!.url).toContain('session=s-2')
+    expect(sources[0]!.closed).toBe(true)
+    mux.stop()
+  })
+
   it('SSE 连接把当前会话钉进 URL：宿主据此过滤，不再依赖登记表', async () => {
     // 2026-11-15 受控实验：登记缺失时对话帧 0 条、ping 照常，界面完全不动。
     // 把会话写进地址之后，"连接活着但登记没了"这个状态不存在。
