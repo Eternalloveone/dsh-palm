@@ -1,0 +1,18 @@
+/* ── matrix · 背景层（628）──────────────────────────────────────
+ * 素材：数字雨（绿色竖列、低对比）
+ *   assets/skins/matrix/matrix-rain.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 82%→62% 的表面色。
+ * 深色底：遮罩从 82%（顶部/正文区更实）过渡到 62%（底部让画面透出来）。
+ */
+
+html[data-skin='matrix'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 82%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 62%, transparent)
+    ),
+    url('/m/skin-assets/matrix/matrix-rain.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}

@@ -70,6 +70,7 @@ describe('皮肤商店', () => {
   it('预览块带着自己那套皮肤的标识（颜色走令牌，不在组件里写色值）', () => {
     const { container } = render(<SkinStoreSheet onClose={() => {}} />)
     const shots = [...container.querySelectorAll('.skin-card-shot')]
-    expect(shots.map(shot => shot.getAttribute('data-skin'))).toEqual(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'])
+    // 顺序跟皮肤目录（platform/skin-catalog.ts）一致，2026-11-14 末两位换过次序。
+    expect(shots.map(shot => shot.getAttribute('data-skin'))).toEqual(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'whale-song', 'harbor', 'war-thunder', 'blue-fantasy', 'dragon-heir', 'maid-atelier', 'whale-mom'])
   })
 })

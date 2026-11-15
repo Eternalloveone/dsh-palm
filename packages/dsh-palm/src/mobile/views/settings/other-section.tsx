@@ -17,7 +17,7 @@ export interface OtherSectionProps {
   showFeedback: boolean
   showAbout: boolean
   setConfirmClear: (value: boolean) => void
-  setSheet: (sheet: 'font' | 'density' | 'about' | null) => void
+  setSheet: (sheet: 'about' | null) => void
 }
 
 export function OtherSection({

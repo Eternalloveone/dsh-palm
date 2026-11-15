@@ -1,0 +1,27 @@
+/* ── Minecraft 方块世界 · 装饰层（616）──────────────────────────────────
+ * 像素感靠两件事，都不需要素材：
+ *   1. 直角 + 1px 方块边框（本皮肤的 --palm-r-* 已是 2/4/6，这里给卡片补一圈"砖缝"）；
+ *   2. 页面上铺一层 16px 的栅格线（用渐变画，零图片、零额外请求）。
+ *
+ * 颜色全部走令牌（`--palm-line`），所以暗色底也成立。
+ */
+
+html[data-skin='minecraft'] body {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--palm-fg) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--palm-fg) 12%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
+
+/* 卡片/输入区补一圈 1px 砖缝，直角感更硬。 */
+html[data-skin='minecraft'] .chat-composer,
+html[data-skin='minecraft'] .palm-spec-row {
+  border: 1px solid var(--palm-line);
+}
+
+/* 代码块按方块处理：直角、无圆角。 */
+html[data-skin='minecraft'] pre,
+html[data-skin='minecraft'] code {
+  border-radius: 0;
+}

@@ -1,0 +1,28 @@
+/* ── 交易终端 · 装饰层（617）────────────────────────────────────────────
+ * 行情终端的观感只靠两条，都不加图：
+ *   1. 数字一律等宽 + 表格数字对齐（tabular-nums）——数字不跳，才像终端；
+ *   2. 卡片左侧一条 2px "涨跌条"：正常用强调色（红涨），危险态用 ok（绿跌）。
+ *      这是"用已有的语义色画装饰"，不引入新的色值。
+ */
+
+/* 等宽数字：时间、计数、百分比都不再左右横跳。 */
+html[data-skin='trading'] body {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* 左侧涨跌条：用内阴影画，不占布局、不加边框宽度。 */
+html[data-skin='trading'] .chat-composer,
+html[data-skin='trading'] .palm-spec-row {
+  box-shadow: inset 3px 0 0 var(--palm-accent);
+}
+
+html[data-skin='trading'] .chat-dock {
+  border-block-start: 2px solid var(--palm-accent);
+}
+
+/* 代码块也走等宽数字，和正文一致。 */
+html[data-skin='trading'] pre,
+html[data-skin='trading'] code {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,59 @@
+/* ── 夏沫琉璃 · 装饰层（612）───────────────────────────────────────────────
+ * 液态玻璃：背景模糊 + 内缘高光 + 极淡光晕。
+ *
+ * 透明度写在皮肤的令牌里（000-tokens.css 的 --palm-sur-1/2 用 rgba），所以每个用
+ * 表面的组件都自动变透，不用逐个挑类名；这一层只补「模糊」和「厚度」——它们必须
+ * 落在具体元素上，而且只给真正的面板容器加（给按钮/小 chips 加 blur 会糊成一片）。
+ *
+ * 没设壁纸时玻璃下面是空的，会像一块脏色，所以再垫一层极淡的冰蓝+琥珀光晕；
+ * 设了壁纸就让位给壁纸层（:not([data-wall='on'])）。
+ */
+
+/* 页面底色让位给光晕：玻璃必须有「后面的东西」才有意义。
+ * 令牌里的 --palm-bg 是实色（对比度守卫要它），这里只在渲染时透掉。 */
+html[data-skin='summer-liquid-glass'] {
+  --palm-bg: transparent;
+}
+
+html[data-skin='summer-liquid-glass']:not([data-wall='on']) body {
+  background-image:
+    radial-gradient(120% 70% at 12% -8%, color-mix(in srgb, var(--palm-accent) 46%, transparent) 0%, transparent 58%),
+    radial-gradient(96% 64% at 96% 6%, color-mix(in srgb, var(--palm-warn) 38%, transparent) 0%, transparent 56%),
+    radial-gradient(120% 60% at 50% 104%, color-mix(in srgb, var(--palm-accent) 26%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--palm-sur-2) 46%, var(--palm-bg)) 0%, var(--palm-bg) 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+html[data-skin='summer-liquid-glass'] .chat-scroll,
+html[data-skin='summer-liquid-glass'] .chat-composer,
+html[data-skin='summer-liquid-glass'] .mobile-header,
+html[data-skin='summer-liquid-glass'] .palm-spec-row {
+  /* 透明度只在这一层做：令牌保持不透明（对比度守卫量的是真实可读性，
+   * 半透明令牌会让守卫算出的数字失真），玻璃靠背景半透明 + 模糊。 */
+  background: color-mix(in srgb, var(--palm-sur-1) 62%, transparent);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+}
+
+/* 底栏（输入行 + 元信息行）单独一道：它平时靠 --palm-bg 实色挡住身后的
+ * picker 遮罩，而这套皮肤的 --palm-bg 是透明的，于是那条 12% 黑会漏成一条
+ * 灰带（2026-11-13 用户反馈）。
+ *
+ * 比例比输入框高、另加一点 brightness：底栏永远压在壁纸最下方那块最暗的区域上，
+ * 用同一档 62% 会「上浅下深」，看着像一条压暗的横带（2026-11-14 用户反馈
+ * 「输入框下方颜色太深」）。抬到 84% + 提亮，玻璃还在，颜色跟上面齐平。 */
+html[data-skin='summer-liquid-glass'] .chat-dock {
+  background: color-mix(in srgb, var(--palm-sur-1) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--palm-sur-1) 92%, var(--palm-fg));
+}
+
+/* 内缘高光：玻璃的「厚度」全靠这一圈，缺了就是一层淡色纸。 */
+html[data-skin='summer-liquid-glass'] .chat-composer,
+html[data-skin='summer-liquid-glass'] .mobile-header {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--palm-sur-1) 92%, var(--palm-fg)),
+    0 6px 18px color-mix(in srgb, var(--palm-fg) 8%, transparent);
+}

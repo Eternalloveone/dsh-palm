@@ -1,0 +1,40 @@
+/* ── 赛博夜城 · 霓虹层（619）────────────────────────────────────────────
+ * 暗底霓虹的观感全靠"发光边界"，不加图：
+ *   1. 顶栏下沿一条强调色细线（把界面切成上下两块）；
+ *   2. 输入区一圈 1px 强调描边 + 外发光，像屏幕上的霓虹灯管；
+ *   3. 选中态的行用强调色描边。
+ *
+ * 全部走 color-mix(令牌)，所以换明暗档不会翻车。
+ */
+
+html[data-skin='cyber-night'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 55%, transparent);
+}
+
+html[data-skin='cyber-night'] .chat-composer {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 45%, transparent),
+    0 0 18px color-mix(in srgb, var(--palm-accent) 22%, transparent);
+}
+
+html[data-skin='cyber-night'] .palm-spec-row[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--palm-accent) 60%, transparent);
+}
+
+html[data-skin='cyber-night'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-accent) 35%, transparent);
+}
+
+/* 页面背景：生成的霓虹街景（673×1200 / 103 KB，CC0），压一层 80%→62% 的表面色，
+ * 保证正文读得清、霓虹还看得见。 */
+html[data-skin='cyber-night'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 80%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 62%, transparent)
+    ),
+    url('/m/skin-assets/cyber-night/cyber-city.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}

@@ -45,13 +45,31 @@ function defsOf(selectorNeedle: string): Map<string, string> {
  */
 const SKIN_SWATCH = /^--palm-skin-/
 
-describe('皮肤契约：三套皮肤必须各自定义完整颜色令牌', () => {
+describe('皮肤契约：每套皮肤必须各自定义完整颜色令牌', () => {
   const dark = defsOf(":root,\nhtml[data-skin='graphite']")
   const paper = defsOf("html[data-skin='paper']")
   const nocturne = defsOf("html[data-skin='nocturne']")
   const newsprint = defsOf("html[data-skin='newsprint']")
   const endfield = defsOf("html[data-skin='endfield']")
   const claude = defsOf("html[data-skin='claude']")
+  const matrix = defsOf("html[data-skin='matrix']")
+  const xp = defsOf("html[data-skin='xp']")
+  const deepCurrent = defsOf("html[data-skin='deep-current']")
+  const mint = defsOf("html[data-skin='mint']")
+  const pinkSakura = defsOf("html[data-skin='pink-sakura']")
+  const summerGlass = defsOf("html[data-skin='summer-liquid-glass']")
+  const furina = defsOf("html[data-skin='furina']")
+  const minecraft = defsOf("html[data-skin='minecraft']")
+  const trading = defsOf("html[data-skin='trading']")
+  const cyberNight = defsOf("html[data-skin='cyber-night']")
+  const wallpaperExclusive = defsOf("html[data-skin='wallpaper-exclusive']")
+  const dragonHeir = defsOf("html[data-skin='dragon-heir']")
+  const whaleSong = defsOf("html[data-skin='whale-song']")
+  const harbor = defsOf("html[data-skin='harbor']")
+  const warThunder = defsOf("html[data-skin='war-thunder']")
+  const maidAtelier = defsOf("html[data-skin='maid-atelier']")
+  const whaleMom = defsOf("html[data-skin='whale-mom']")
+  const blueFantasy = defsOf("html[data-skin='blue-fantasy']")
   const colorKeys = [...dark.entries()].filter(([, v]) => COLOR_RX.test(v)).map(([k]) => k)
 
   it('基础色板确实解析到了（防止选择器改名后断言静默失效）', () => {
@@ -64,6 +82,24 @@ describe('皮肤契约：三套皮肤必须各自定义完整颜色令牌', () =
     ['newsprint', newsprint],
     ['endfield', endfield],
     ['claude', claude],
+    ['matrix', matrix],
+    ['xp', xp],
+    ['deep-current', deepCurrent],
+    ['mint', mint],
+    ['pink-sakura', pinkSakura],
+    ['summer-liquid-glass', summerGlass],
+    ['furina', furina],
+    ['minecraft', minecraft],
+    ['trading', trading],
+    ['cyber-night', cyberNight],
+    ['wallpaper-exclusive', wallpaperExclusive],
+    ['dragon-heir', dragonHeir],
+    ['whale-song', whaleSong],
+    ['harbor', harbor],
+    ['war-thunder', warThunder],
+    ['maid-atelier', maidAtelier],
+    ['whale-mom', whaleMom],
+    ['blue-fantasy', blueFantasy],
   ])('%s 覆盖了基础色板的每一个颜色令牌', (name, skin) => {
     const missing = colorKeys.filter((key) => !SKIN_SWATCH.test(key) && !skin.has(key))
     expect({ skin: name, missing }).toEqual({ skin: name, missing: [] })

@@ -66,6 +66,24 @@ const current = {
   'newsprint': snapshot("html[data-skin='newsprint']"),
   'endfield': snapshot("html[data-skin='endfield']"),
   'claude': snapshot("html[data-skin='claude']"),
+  'matrix': snapshot("html[data-skin='matrix']"),
+  'xp': snapshot("html[data-skin='xp']"),
+  'deep-current': snapshot("html[data-skin='deep-current']"),
+  'mint': snapshot("html[data-skin='mint']"),
+  'pink-sakura': snapshot("html[data-skin='pink-sakura']"),
+  'summer-liquid-glass': snapshot("html[data-skin='summer-liquid-glass']"),
+  'furina': snapshot("html[data-skin='furina']"),
+  minecraft: snapshot("html[data-skin='minecraft']"),
+  trading: snapshot("html[data-skin='trading']"),
+  'cyber-night': snapshot("html[data-skin='cyber-night']"),
+  'wallpaper-exclusive': snapshot("html[data-skin='wallpaper-exclusive']"),
+  'dragon-heir': snapshot("html[data-skin='dragon-heir']"),
+  'whale-song': snapshot("html[data-skin='whale-song']"),
+  'harbor': snapshot("html[data-skin='harbor']"),
+  'war-thunder': snapshot("html[data-skin='war-thunder']"),
+  'maid-atelier': snapshot("html[data-skin='maid-atelier']"),
+  'whale-mom': snapshot("html[data-skin='whale-mom']"),
+  'blue-fantasy': snapshot("html[data-skin='blue-fantasy']"),
 }
 
 describe('视觉基线：令牌表（golden）', () => {
@@ -75,13 +93,31 @@ describe('视觉基线：令牌表（golden）', () => {
     }
   })
 
-  it('三套皮肤的令牌集合一致（皮肤只换值，不换键）', () => {
+  it('每套皮肤的令牌集合一致（皮肤只换值，不换键）', () => {
     const keys = Object.keys(current.graphite).sort()
     expect(Object.keys(current.paper).sort()).toEqual(keys)
     expect(Object.keys(current.nocturne).sort()).toEqual(keys)
     expect(Object.keys(current.newsprint).sort()).toEqual(keys)
     expect(Object.keys(current.endfield).sort()).toEqual(keys)
     expect(Object.keys(current.claude).sort()).toEqual(keys)
+    expect(Object.keys(current.matrix).sort()).toEqual(keys)
+    expect(Object.keys(current.xp).sort()).toEqual(keys)
+    expect(Object.keys(current['deep-current']).sort()).toEqual(keys)
+    expect(Object.keys(current.mint).sort()).toEqual(keys)
+    expect(Object.keys(current['pink-sakura']).sort()).toEqual(keys)
+    expect(Object.keys(current['summer-liquid-glass']).sort()).toEqual(keys)
+    expect(Object.keys(current.furina).sort()).toEqual(keys)
+    expect(Object.keys(current.minecraft).sort()).toEqual(keys)
+    expect(Object.keys(current.trading).sort()).toEqual(keys)
+    expect(Object.keys(current['cyber-night']).sort()).toEqual(keys)
+    expect(Object.keys(current['wallpaper-exclusive']).sort()).toEqual(keys)
+    expect(Object.keys(current['dragon-heir']).sort()).toEqual(keys)
+    expect(Object.keys(current['whale-song']).sort()).toEqual(keys)
+    expect(Object.keys(current['harbor']).sort()).toEqual(keys)
+    expect(Object.keys(current['war-thunder']).sort()).toEqual(keys)
+    expect(Object.keys(current['maid-atelier']).sort()).toEqual(keys)
+    expect(Object.keys(current['whale-mom']).sort()).toEqual(keys)
+    expect(Object.keys(current['blue-fantasy']).sort()).toEqual(keys)
   })
 
   it('与基线一致（改色/改间距必须显式更新基线）', () => {

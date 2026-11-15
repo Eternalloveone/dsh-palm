@@ -1,0 +1,37 @@
+/* ── 蓝色幻想 · 冰光层（623）────────────────────────────────────────────
+ * 深蓝梦境：靠"顶部冷光 + 边界冰蓝"表达，不加图、不加新色值。
+ *   1. 页面上半部一层极淡的冰蓝径向光（模拟月光从上方打下来）；
+ *   2. 输入区一圈冰蓝描边 + 外侧柔光；
+ *   3. 底栏顶沿一条冷色细线，把输入区托起来。
+ */
+
+html[data-skin='blue-fantasy'] body {
+  background-image:
+    radial-gradient(
+      120% 70% at 50% 0%,
+      color-mix(in srgb, var(--palm-accent) 20%, transparent) 0%,
+      transparent 55%
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 90%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 62%, transparent)
+    ),
+    url('/m/skin-assets/blue-fantasy/blue-islands.jpg');
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-size: auto, cover, cover;
+  background-position: center, center, center top;
+}
+
+html[data-skin='blue-fantasy'] .chat-composer {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 40%, transparent),
+    0 6px 24px color-mix(in srgb, var(--palm-accent) 18%, transparent);
+}
+
+html[data-skin='blue-fantasy'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-accent) 30%, transparent);
+}
+
+html[data-skin='blue-fantasy'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 24%, transparent);
+}

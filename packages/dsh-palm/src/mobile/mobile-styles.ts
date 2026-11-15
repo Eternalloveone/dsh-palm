@@ -242,6 +242,42 @@ export const mobileCss = `${designTokensCss()}
   --palm-skin-paper-ink: #8a5a2b;
   --palm-skin-nocturne-bg: #0f1520;
   --palm-skin-nocturne-ink: #22d3ee;
+  --palm-skin-blue-fantasy-bg: #0d1b3d;
+  --palm-skin-blue-fantasy-ink: #88a2f3;
+  --palm-skin-whale-mom-bg: #eef6fb;
+  --palm-skin-whale-mom-ink: #2e6081;
+  --palm-skin-maid-atelier-bg: #fdf3f5;
+  --palm-skin-maid-atelier-ink: #943e5c;
+  --palm-skin-war-thunder-bg: #14170f;
+  --palm-skin-war-thunder-ink: #d9b13b;
+  --palm-skin-harbor-bg: #333c63;
+  --palm-skin-harbor-ink: #ffd1b2;
+  --palm-skin-whale-song-bg: #061024;
+  --palm-skin-whale-song-ink: #5896d7;
+  --palm-skin-dragon-heir-bg: #f7f0ec;
+  --palm-skin-dragon-heir-ink: #ac2326;
+  --palm-skin-wallpaper-exclusive-bg: #eef4f9;
+  --palm-skin-wallpaper-exclusive-ink: #16233a;
+  --palm-skin-cyber-night-bg: #fff7cf;
+  --palm-skin-cyber-night-ink: #006979;
+  --palm-skin-trading-bg: #ffffff;
+  --palm-skin-trading-ink: #af2430;
+  --palm-skin-minecraft-bg: #18221b;
+  --palm-skin-minecraft-ink: #83c94e;
+  --palm-skin-furina-bg: #ffffe1;
+  --palm-skin-furina-ink: #46599e;
+  --palm-skin-summer-liquid-glass-bg: #eaf6fa;
+  --palm-skin-summer-liquid-glass-ink: #346f75;
+  --palm-skin-pink-sakura-bg: #fff1f6;
+  --palm-skin-pink-sakura-ink: #973b5e;
+  --palm-skin-mint-bg: #f4faf7;
+  --palm-skin-mint-ink: #1b6e51;
+  --palm-skin-deep-current-bg: #f4f8f7;
+  --palm-skin-deep-current-ink: #255ab9;
+  --palm-skin-xp-bg: #ffffff;
+  --palm-skin-xp-ink: #2858a4;
+  --palm-skin-matrix-bg: #040805;
+  --palm-skin-matrix-ink: #00e676;
   --palm-skin-claude-bg: #ffffff;
   --palm-skin-claude-ink: #8c4d38;
   --palm-skin-endfield-bg: #e8e8e2;
@@ -520,6 +556,1266 @@ html[data-skin='claude'] {
   --palm-font-sans: var(--font-sans);
   color-scheme: light;
 }
+/* ═══════════ 皮肤：matrix ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\matrix\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='matrix'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #040805;
+  --palm-sur-1: #071009;
+  --palm-sur-2: #0e1d12;
+  --palm-line: rgba(26, 51, 35, 0.5);
+  --palm-fg: #7dffb3;
+  --palm-fg-2: #45e087;
+  --palm-fg-3: #2ba45f;
+  --palm-accent: #00e676;
+  --palm-whale: #00e676;
+  --palm-accent-2: #26ea8b;
+  --palm-on-accent: #101015;
+  --palm-ok: #00e676;
+  --palm-warn: #ffc400;
+  --palm-danger: #ff5252;
+  --palm-tint-warn: rgba(255, 196, 0, 0.1);
+  --palm-warn-band: rgba(255, 196, 0, 0.24);
+  --palm-search-mark: #054825;
+  --palm-press-bg: #09120c;
+  --palm-danger-band: #22110e;
+  --palm-danger-line: #4a1d1b;
+  --palm-ok-band: #042313;
+  --palm-accent-line: #03562d;
+  --palm-accent-16: #06321a;
+  --palm-tint-ok: rgba(0, 230, 118, 0.1);
+  --palm-tint-danger: rgba(255, 82, 82, 0.1);
+  --palm-tint-accent: rgba(0, 230, 118, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(125, 255, 179, 0.08);
+  --palm-sh2: 0 6px 20px rgba(125, 255, 179, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(125, 255, 179, 0.1), 0 10px 30px rgba(125, 255, 179, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(0, 230, 118, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(125, 255, 179, 0.08);
+  --palm-flow-card-line: rgba(0, 230, 118, 0.28);
+  --palm-flow-tag-ok: rgba(0, 230, 118, 0.12);
+  --palm-flow-tag-edit: rgba(0, 230, 118, 0.12);
+  --palm-scrim: rgba(125, 255, 179, 0.42);
+  --palm-on-scrim: #040805;
+  --palm-scrim-strong: rgba(125, 255, 179, 0.8);
+  --palm-scrim-soft: rgba(125, 255, 179, 0.12);
+  --palm-on-scrim-soft: rgba(4, 8, 5, 0.7);
+  --palm-strip-fg: #7dffb3;
+  --palm-strip-detail-fg: #45e087;
+  --palm-strip-right-fg: #2ba45f;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(125, 255, 179, 0.05);
+  --palm-dock-chip-div-bg: rgba(125, 255, 179, 0.16);
+  --palm-dock-ring-track: rgba(0, 230, 118, 0.3);
+  --palm-dock-queue-bg: rgba(255, 196, 0, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #bf5ddf;
+  --tok-string: #15d134;
+  --tok-comment: #1f7d4f;
+  --tok-number: #d18315;
+  --tok-type: #dd5e53;
+  --tok-func: #00e676;
+  --tok-prop: #15d1c2;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: dark;
+}
+/* ═══════════ 皮肤：xp ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\xp\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='xp'] {
+  --palm-r-s: 2px;
+  --palm-r-m: 4px;
+  --palm-r-l: 6px;
+  --palm-bg: #ffffff;
+  --palm-sur-1: #f6f4ec;
+  --palm-sur-2: #e2dfcb;
+  --palm-line: rgba(179, 173, 149, 0.5);
+  --palm-fg: #000000;
+  --palm-fg-2: #3d4a5c;
+  --palm-fg-3: #5d6b7e;
+  --palm-accent: #2858a4;
+  --palm-whale: #2858a4;
+  --palm-accent-2: #4871b2;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #286a2c;
+  --palm-warn: #855900;
+  --palm-danger: #a83b34;
+  --palm-tint-warn: rgba(146, 98, 0, 0.1);
+  --palm-warn-band: rgba(133, 89, 0, 0.24);
+  --palm-search-mark: #c0cbd9;
+  --palm-press-bg: #f5f5f5;
+  --palm-danger-band: #f6e8e7;
+  --palm-danger-line: #eacac8;
+  --palm-ok-band: #e6efe7;
+  --palm-accent-line: #b4c5df;
+  --palm-accent-16: #d5dbe0;
+  --palm-tint-ok: rgba(48, 124, 52, 0.1);
+  --palm-tint-danger: rgba(180, 66, 58, 0.1);
+  --palm-tint-accent: rgba(40, 88, 164, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --palm-sh2: 0 6px 20px rgba(0, 0, 0, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 10px 30px rgba(0, 0, 0, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(48, 124, 52, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(0, 0, 0, 0.08);
+  --palm-flow-card-line: rgba(48, 124, 52, 0.28);
+  --palm-flow-tag-ok: rgba(48, 124, 52, 0.12);
+  --palm-flow-tag-edit: rgba(40, 88, 164, 0.12);
+  --palm-scrim: rgba(0, 0, 0, 0.42);
+  --palm-on-scrim: #ffffff;
+  --palm-scrim-strong: rgba(0, 0, 0, 0.8);
+  --palm-scrim-soft: rgba(0, 0, 0, 0.12);
+  --palm-on-scrim-soft: rgba(255, 255, 255, 0.7);
+  --palm-strip-fg: #000000;
+  --palm-strip-detail-fg: #3d4a5c;
+  --palm-strip-right-fg: #5d6b7e;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(0, 0, 0, 0.05);
+  --palm-dock-chip-div-bg: rgba(0, 0, 0, 0.16);
+  --palm-dock-ring-track: rgba(40, 88, 164, 0.3);
+  --palm-dock-queue-bg: rgba(146, 98, 0, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #822e9e;
+  --tok-string: #206e2d;
+  --tok-comment: #67758b;
+  --tok-number: #7c5624;
+  --tok-type: #9e372e;
+  --tok-func: #2858a4;
+  --tok-prop: #1e6761;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：deep-current ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\deep-current\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='deep-current'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #f4f8f7;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #ddece9;
+  --palm-line: rgba(207, 214, 215, 0.5);
+  --palm-fg: #12262c;
+  --palm-fg-2: #3e5b61;
+  --palm-fg-3: #677472;
+  --palm-accent: #255ab9;
+  --palm-whale: #255ab9;
+  --palm-accent-2: #4673c4;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1b7257;
+  --palm-warn: #8a5f10;
+  --palm-danger: #b44139;
+  --palm-tint-warn: rgba(138, 95, 16, 0.1);
+  --palm-warn-band: rgba(138, 95, 16, 0.24);
+  --palm-search-mark: #c6d4ed;
+  --palm-press-bg: #ecf2f5;
+  --palm-danger-band: #ece2e0;
+  --palm-danger-line: #e2c5c2;
+  --palm-ok-band: #dae8e4;
+  --palm-accent-line: #acc1e1;
+  --palm-accent-16: #dce5f4;
+  --palm-tint-ok: rgba(27, 114, 87, 0.1);
+  --palm-tint-danger: rgba(180, 65, 57, 0.1);
+  --palm-tint-accent: rgba(37, 90, 185, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(32, 88, 189, 0.08);
+  --palm-sh2: 0 6px 20px rgba(32, 88, 189, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(32, 88, 189, 0.1), 0 10px 30px rgba(32, 88, 189, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(27, 114, 87, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(32, 88, 189, 0.08);
+  --palm-flow-card-line: rgba(27, 114, 87, 0.28);
+  --palm-flow-tag-ok: rgba(27, 114, 87, 0.12);
+  --palm-flow-tag-edit: rgba(37, 90, 185, 0.12);
+  --palm-scrim: rgba(32, 88, 189, 0.42);
+  --palm-on-scrim: #f4f8f7;
+  --palm-scrim-strong: rgba(32, 88, 189, 0.8);
+  --palm-scrim-soft: rgba(32, 88, 189, 0.12);
+  --palm-on-scrim-soft: rgba(244, 248, 247, 0.7);
+  --palm-strip-fg: #2058bd;
+  --palm-strip-detail-fg: #3e5b61;
+  --palm-strip-right-fg: #677472;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(32, 88, 189, 0.05);
+  --palm-dock-chip-div-bg: rgba(32, 88, 189, 0.16);
+  --palm-dock-ring-track: rgba(37, 90, 185, 0.3);
+  --palm-dock-queue-bg: rgba(138, 95, 16, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #902cb2;
+  --tok-string: #1d742b;
+  --tok-comment: #6f82a1;
+  --tok-number: #8b6023;
+  --tok-type: #b2372c;
+  --tok-func: #255ab9;
+  --tok-prop: #1d746d;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：mint ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\mint\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='mint'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #f4faf7;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #e4efe9;
+  --palm-line: rgba(201, 216, 208, 0.5);
+  --palm-fg: #10362a;
+  --palm-fg-2: #3c5a4d;
+  --palm-fg-3: #607068;
+  --palm-accent: #1b6e51;
+  --palm-whale: #1b6e51;
+  --palm-accent-2: #3d846b;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #237551;
+  --palm-warn: #8a5f10;
+  --palm-danger: #b23939;
+  --palm-tint-warn: rgba(138, 95, 16, 0.1);
+  --palm-warn-band: rgba(138, 95, 16, 0.24);
+  --palm-search-mark: #c4d9d2;
+  --palm-press-bg: #f3faf7;
+  --palm-danger-band: #ece3e0;
+  --palm-danger-line: #e2c4c2;
+  --palm-ok-band: #dbeae3;
+  --palm-accent-line: #a8c9bd;
+  --palm-accent-16: #dbe8e3;
+  --palm-tint-ok: rgba(35, 117, 81, 0.1);
+  --palm-tint-danger: rgba(178, 57, 57, 0.1);
+  --palm-tint-accent: rgba(27, 110, 81, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(227, 244, 236, 0.08);
+  --palm-sh2: 0 6px 20px rgba(227, 244, 236, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(227, 244, 236, 0.1), 0 10px 30px rgba(227, 244, 236, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(35, 117, 81, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(227, 244, 236, 0.08);
+  --palm-flow-card-line: rgba(35, 117, 81, 0.28);
+  --palm-flow-tag-ok: rgba(35, 117, 81, 0.12);
+  --palm-flow-tag-edit: rgba(27, 110, 81, 0.12);
+  --palm-scrim: rgba(227, 244, 236, 0.42);
+  --palm-on-scrim: #f4faf7;
+  --palm-scrim-strong: rgba(227, 244, 236, 0.8);
+  --palm-scrim-soft: rgba(227, 244, 236, 0.12);
+  --palm-on-scrim-soft: rgba(244, 250, 247, 0.7);
+  --palm-strip-fg: #e3f4ec;
+  --palm-strip-detail-fg: #3c5a4d;
+  --palm-strip-right-fg: #607068;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(227, 244, 236, 0.05);
+  --palm-dock-chip-div-bg: rgba(227, 244, 236, 0.16);
+  --palm-dock-ring-track: rgba(27, 110, 81, 0.3);
+  --palm-dock-queue-bg: rgba(138, 95, 16, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #5b206e;
+  --tok-string: #206e2d;
+  --tok-comment: #6b897e;
+  --tok-number: #6e4e20;
+  --tok-type: #6e2720;
+  --tok-func: #1b6e51;
+  --tok-prop: #206e68;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：pink-sakura ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\pink-sakura\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='pink-sakura'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #fff1f6;
+  --palm-sur-1: #fff8fb;
+  --palm-sur-2: #f6dfe9;
+  --palm-line: rgba(239, 217, 227, 0.5);
+  --palm-fg: #4a2333;
+  --palm-fg-2: #6e5b65;
+  --palm-fg-3: #7a6871;
+  --palm-accent: #973b5e;
+  --palm-whale: #973b5e;
+  --palm-accent-2: #a75876;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #14734d;
+  --palm-warn: #82590f;
+  --palm-danger: #bd2727;
+  --palm-tint-warn: rgba(130, 89, 15, 0.1);
+  --palm-warn-band: rgba(130, 89, 15, 0.24);
+  --palm-search-mark: #e4c7d2;
+  --palm-press-bg: #fdeaf1;
+  --palm-danger-band: #f7d9dd;
+  --palm-danger-line: #edb8bc;
+  --palm-ok-band: #e3e2e2;
+  --palm-accent-line: #dbb1c1;
+  --palm-accent-16: #eedae2;
+  --palm-tint-ok: rgba(20, 115, 77, 0.1);
+  --palm-tint-danger: rgba(189, 39, 39, 0.1);
+  --palm-tint-accent: rgba(151, 59, 94, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(194, 62, 111, 0.08);
+  --palm-sh2: 0 6px 20px rgba(194, 62, 111, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(194, 62, 111, 0.1), 0 10px 30px rgba(194, 62, 111, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(20, 115, 77, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(194, 62, 111, 0.08);
+  --palm-flow-card-line: rgba(20, 115, 77, 0.28);
+  --palm-flow-tag-ok: rgba(20, 115, 77, 0.12);
+  --palm-flow-tag-edit: rgba(151, 59, 94, 0.12);
+  --palm-scrim: rgba(194, 62, 111, 0.42);
+  --palm-on-scrim: #fff1f6;
+  --palm-scrim-strong: rgba(194, 62, 111, 0.8);
+  --palm-scrim-soft: rgba(194, 62, 111, 0.12);
+  --palm-on-scrim-soft: rgba(255, 241, 246, 0.7);
+  --palm-strip-fg: #c23e6f;
+  --palm-strip-detail-fg: #6e5b65;
+  --palm-strip-right-fg: #7a6871;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(194, 62, 111, 0.05);
+  --palm-dock-chip-div-bg: rgba(194, 62, 111, 0.16);
+  --palm-dock-ring-track: rgba(151, 59, 94, 0.3);
+  --palm-dock-queue-bg: rgba(130, 89, 15, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #7e4092;
+  --tok-string: #32723c;
+  --tok-comment: #906e7b;
+  --tok-number: #795d35;
+  --tok-type: #924640;
+  --tok-func: #973b5e;
+  --tok-prop: #2f6b67;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：summer-liquid-glass ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\summer-liquid-glass\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='summer-liquid-glass'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #eaf6fa;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #d6eef6;
+  --palm-line: rgba(207, 227, 234, 0.5);
+  --palm-fg: #12303a;
+  --palm-fg-2: #545b5f;
+  --palm-fg-3: #5d666d;
+  --palm-accent: #346f75;
+  --palm-whale: #346f75;
+  --palm-accent-2: #52858a;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #55622f;
+  --palm-warn: #6f4f26;
+  --palm-danger: #7f333c;
+  --palm-tint-warn: rgba(111, 79, 38, 0.1);
+  --palm-warn-band: rgba(111, 79, 38, 0.24);
+  --palm-search-mark: #cadadb;
+  --palm-press-bg: #ebf6fa;
+  --palm-danger-band: #e2e2e6;
+  --palm-danger-line: #d7c7cc;
+  --palm-ok-band: #dae6e3;
+  --palm-accent-line: #aac7cb;
+  --palm-accent-16: #dfe8e9;
+  --palm-tint-ok: rgba(97, 110, 59, 0.1);
+  --palm-tint-danger: rgba(166, 78, 87, 0.1);
+  --palm-tint-accent: rgba(52, 111, 117, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(248, 243, 245, 0.08);
+  --palm-sh2: 0 6px 20px rgba(248, 243, 245, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(248, 243, 245, 0.1), 0 10px 30px rgba(248, 243, 245, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(97, 110, 59, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(248, 243, 245, 0.08);
+  --palm-flow-card-line: rgba(97, 110, 59, 0.28);
+  --palm-flow-tag-ok: rgba(97, 110, 59, 0.12);
+  --palm-flow-tag-edit: rgba(52, 111, 117, 0.12);
+  --palm-scrim: rgba(248, 243, 245, 0.42);
+  --palm-on-scrim: #eaf6fa;
+  --palm-scrim-strong: rgba(248, 243, 245, 0.8);
+  --palm-scrim-soft: rgba(248, 243, 245, 0.12);
+  --palm-on-scrim-soft: rgba(234, 246, 250, 0.7);
+  --palm-strip-fg: #f8f3f5;
+  --palm-strip-detail-fg: #676e73;
+  --palm-strip-right-fg: #656f7b;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(248, 243, 245, 0.05);
+  --palm-dock-chip-div-bg: rgba(248, 243, 245, 0.16);
+  --palm-dock-ring-track: rgba(52, 111, 117, 0.3);
+  --palm-dock-queue-bg: rgba(131, 98, 52, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #633772;
+  --tok-string: #377241;
+  --tok-comment: #6f888c;
+  --tok-number: #725937;
+  --tok-type: #723c37;
+  --tok-func: #346f75;
+  --tok-prop: #37726d;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：furina ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\furina\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='furina'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #ffffe1;
+  --palm-sur-1: #fdfcff;
+  --palm-sur-2: #dce3f7;
+  --palm-line: rgba(215, 227, 242, 0.5);
+  --palm-fg: #1d2539;
+  --palm-fg-2: #3e4b6d;
+  --palm-fg-3: #5f6e93;
+  --palm-accent: #46599e;
+  --palm-whale: #46599e;
+  --palm-accent-2: #6272ad;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #2f6330;
+  --palm-warn: #77541c;
+  --palm-danger: #c00000;
+  --palm-tint-warn: rgba(140, 102, 37, 0.1);
+  --palm-warn-band: rgba(140, 102, 37, 0.24);
+  --palm-search-mark: #cdd2e6;
+  --palm-press-bg: #f6f6da;
+  --palm-danger-band: #f7e0c6;
+  --palm-danger-line: #edb8a2;
+  --palm-ok-band: #e8efcd;
+  --palm-accent-line: #bec5ca;
+  --palm-accent-16: #e0e2ef;
+  --palm-tint-ok: rgba(61, 121, 61, 0.1);
+  --palm-tint-danger: rgba(192, 0, 0, 0.1);
+  --palm-tint-accent: rgba(70, 89, 158, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(29, 37, 57, 0.08);
+  --palm-sh2: 0 6px 20px rgba(29, 37, 57, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(29, 37, 57, 0.1), 0 10px 30px rgba(29, 37, 57, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(61, 121, 61, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(29, 37, 57, 0.08);
+  --palm-flow-card-line: rgba(61, 121, 61, 0.28);
+  --palm-flow-tag-ok: rgba(61, 121, 61, 0.12);
+  --palm-flow-tag-edit: rgba(70, 89, 158, 0.12);
+  --palm-scrim: rgba(29, 37, 57, 0.42);
+  --palm-on-scrim: #ffffe1;
+  --palm-scrim-strong: rgba(29, 37, 57, 0.8);
+  --palm-scrim-soft: rgba(29, 37, 57, 0.12);
+  --palm-on-scrim-soft: rgba(255, 255, 225, 0.7);
+  --palm-strip-fg: #1d2539;
+  --palm-strip-detail-fg: #3e4b6d;
+  --palm-strip-right-fg: #5f6e93;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(29, 37, 57, 0.05);
+  --palm-dock-chip-div-bg: rgba(29, 37, 57, 0.16);
+  --palm-dock-ring-track: rgba(70, 89, 158, 0.3);
+  --palm-dock-queue-bg: rgba(140, 102, 37, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #864a9a;
+  --tok-string: #377141;
+  --tok-comment: #767c86;
+  --tok-number: #785f3a;
+  --tok-type: #914c46;
+  --tok-func: #46599e;
+  --tok-prop: #346a66;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：minecraft ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\minecraft\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='minecraft'] {
+  --palm-r-s: 2px;
+  --palm-r-m: 4px;
+  --palm-r-l: 6px;
+  --palm-bg: #18221b;
+  --palm-sur-1: #1a251d;
+  --palm-sur-2: #212e24;
+  --palm-line: rgba(25, 34, 28, 0.5);
+  --palm-fg: #e8f3e4;
+  --palm-fg-2: #8f968f;
+  --palm-fg-3: #848c7b;
+  --palm-accent: #83c94e;
+  --palm-whale: #83c94e;
+  --palm-accent-2: #96d169;
+  --palm-on-accent: #101015;
+  --palm-ok: #6d9e56;
+  --palm-warn: #d9a53c;
+  --palm-danger: #db7676;
+  --palm-tint-warn: rgba(217, 165, 60, 0.1);
+  --palm-warn-band: rgba(217, 165, 60, 0.24);
+  --palm-search-mark: #35502a;
+  --palm-press-bg: #18221b;
+  --palm-danger-band: #2f2c26;
+  --palm-danger-line: #4f3a34;
+  --palm-ok-band: #223122;
+  --palm-accent-line: #3d5c2d;
+  --palm-accent-16: #2b3f25;
+  --palm-tint-ok: rgba(109, 158, 86, 0.1);
+  --palm-tint-danger: rgba(219, 118, 118, 0.1);
+  --palm-tint-accent: rgba(131, 201, 78, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(29, 37, 33, 0.08);
+  --palm-sh2: 0 6px 20px rgba(29, 37, 33, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(29, 37, 33, 0.1), 0 10px 30px rgba(29, 37, 33, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(109, 158, 86, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(29, 37, 33, 0.08);
+  --palm-flow-card-line: rgba(109, 158, 86, 0.28);
+  --palm-flow-tag-ok: rgba(109, 158, 86, 0.12);
+  --palm-flow-tag-edit: rgba(131, 201, 78, 0.12);
+  --palm-scrim: rgba(29, 37, 33, 0.42);
+  --palm-on-scrim: #18221b;
+  --palm-scrim-strong: rgba(29, 37, 33, 0.8);
+  --palm-scrim-soft: rgba(29, 37, 33, 0.12);
+  --palm-on-scrim-soft: rgba(24, 34, 27, 0.7);
+  --palm-strip-fg: #1d2521;
+  --palm-strip-detail-fg: #838a85;
+  --palm-strip-right-fg: #848c7b;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(29, 37, 33, 0.05);
+  --palm-dock-chip-div-bg: rgba(29, 37, 33, 0.16);
+  --palm-dock-ring-track: rgba(131, 201, 78, 0.3);
+  --palm-dock-queue-bg: rgba(217, 165, 60, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #ba7ad0;
+  --tok-string: #54c367;
+  --tok-comment: #678655;
+  --tok-number: #c39554;
+  --tok-type: #d0817a;
+  --tok-func: #83c94e;
+  --tok-prop: #54c3ba;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: dark;
+}
+/* ═══════════ 皮肤：trading ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\trading\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='trading'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #ffffff;
+  --palm-sur-1: #f5f7fa;
+  --palm-sur-2: #e7ebf0;
+  --palm-line: rgba(212, 220, 229, 0.5);
+  --palm-fg: #1b2430;
+  --palm-fg-2: #445160;
+  --palm-fg-3: #6c7682;
+  --palm-accent: #af2430;
+  --palm-whale: #af2430;
+  --palm-accent-2: #bb454f;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #087765;
+  --palm-warn: #7a561f;
+  --palm-danger: #c62836;
+  --palm-tint-warn: rgba(140, 102, 39, 0.1);
+  --palm-warn-band: rgba(140, 102, 39, 0.24);
+  --palm-search-mark: #e3c0c5;
+  --palm-press-bg: #fefefe;
+  --palm-danger-band: #f8e5e7;
+  --palm-danger-line: #efc3c7;
+  --palm-ok-band: #e1efed;
+  --palm-accent-line: #e3b2b7;
+  --palm-accent-16: #ead5da;
+  --palm-tint-ok: rgba(8, 119, 101, 0.1);
+  --palm-tint-danger: rgba(198, 40, 54, 0.1);
+  --palm-tint-accent: rgba(175, 36, 48, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(219, 226, 236, 0.08);
+  --palm-sh2: 0 6px 20px rgba(219, 226, 236, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(219, 226, 236, 0.1), 0 10px 30px rgba(219, 226, 236, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(8, 119, 101, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(219, 226, 236, 0.08);
+  --palm-flow-card-line: rgba(8, 119, 101, 0.28);
+  --palm-flow-tag-ok: rgba(8, 119, 101, 0.12);
+  --palm-flow-tag-edit: rgba(175, 36, 48, 0.12);
+  --palm-scrim: rgba(219, 226, 236, 0.42);
+  --palm-on-scrim: #ffffff;
+  --palm-scrim-strong: rgba(219, 226, 236, 0.8);
+  --palm-scrim-soft: rgba(219, 226, 236, 0.12);
+  --palm-on-scrim-soft: rgba(255, 255, 255, 0.7);
+  --palm-strip-fg: #dbe2ec;
+  --palm-strip-detail-fg: #445160;
+  --palm-strip-right-fg: #6c7682;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(219, 226, 236, 0.05);
+  --palm-dock-chip-div-bg: rgba(219, 226, 236, 0.16);
+  --palm-dock-ring-track: rgba(175, 36, 48, 0.3);
+  --palm-dock-queue-bg: rgba(140, 102, 39, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #892ba8;
+  --tok-string: #1e752c;
+  --tok-comment: #a17376;
+  --tok-number: #8c6024;
+  --tok-type: #a8352b;
+  --tok-func: #af2430;
+  --tok-prop: #1e756e;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：cyber-night ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\cyber-night\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='cyber-night'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #03050b;
+  --palm-sur-1: #070b16;
+  --palm-sur-2: #111a2c;
+  --palm-line: rgba(42, 58, 92, 0.6);
+  --palm-fg: #e6fbff;
+  --palm-fg-2: #9fd8e6;
+  --palm-fg-3: #7fbfd0;
+  --palm-accent: #00b8d4;
+  --palm-whale: #006979;
+  --palm-accent-2: #26808d;
+  --palm-on-accent: #04121a;
+  --palm-ok: #4ade80;
+  --palm-warn: #ffc400;
+  --palm-danger: #ff7a8a;
+  --palm-tint-warn: rgba(255, 196, 0, 0.12);
+  --palm-warn-band: rgba(255, 196, 0, 0.26);
+  --palm-search-mark: #bdd5cc;
+  --palm-press-bg: #f6f1cc;
+  --palm-danger-band: #f6e1c1;
+  --palm-danger-line: #e9c3ae;
+  --palm-ok-band: #e0e7bf;
+  --palm-accent-line: #a6c5b1;
+  --palm-accent-16: #d6e4d7;
+  --palm-tint-ok: rgba(0, 117, 74, 0.1);
+  --palm-tint-danger: rgba(176, 63, 90, 0.1);
+  --palm-tint-accent: rgba(0, 105, 121, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(26, 109, 136, 0.08);
+  --palm-sh2: 0 6px 20px rgba(26, 109, 136, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(26, 109, 136, 0.1), 0 10px 30px rgba(26, 109, 136, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(0, 117, 74, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(26, 109, 136, 0.08);
+  --palm-flow-card-line: rgba(0, 117, 74, 0.28);
+  --palm-flow-tag-ok: rgba(0, 117, 74, 0.12);
+  --palm-flow-tag-edit: rgba(0, 105, 121, 0.12);
+  --palm-scrim: rgba(26, 109, 136, 0.42);
+  --palm-on-scrim: #fff7cf;
+  --palm-scrim-strong: rgba(26, 109, 136, 0.8);
+  --palm-scrim-soft: rgba(26, 109, 136, 0.12);
+  --palm-on-scrim-soft: rgba(255, 247, 207, 0.7);
+  --palm-strip-fg: #1a6d88;
+  --palm-strip-detail-fg: #1c7488;
+  --palm-strip-right-fg: #1c768b;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(26, 109, 136, 0.05);
+  --palm-dock-chip-div-bg: rgba(26, 109, 136, 0.16);
+  --palm-dock-ring-track: rgba(0, 105, 121, 0.3);
+  --palm-dock-queue-bg: rgba(132, 105, 0, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #650d82;
+  --tok-string: #0c7a1e;
+  --tok-comment: #67867c;
+  --tok-number: #82510d;
+  --tok-type: #82170d;
+  --tok-func: #006979;
+  --tok-prop: #0c7a71;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：wallpaper-exclusive ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\wallpaper-exclusive\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='wallpaper-exclusive'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #eef4f9;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #e3ecf4;
+  --palm-line: rgba(207, 221, 232, 0.5);
+  --palm-fg: #16233a;
+  --palm-fg-2: #3d4c63;
+  --palm-fg-3: #676f7a;
+  --palm-accent: #16233a;
+  --palm-whale: #16233a;
+  --palm-accent-2: #394458;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1f6f45;
+  --palm-warn: #82590f;
+  --palm-danger: #a63b4f;
+  --palm-tint-warn: rgba(130, 89, 15, 0.1);
+  --palm-warn-band: rgba(130, 89, 15, 0.24);
+  --palm-search-mark: #c2c6cc;
+  --palm-press-bg: #e5ecf1;
+  --palm-danger-band: #e5dee5;
+  --palm-danger-line: #dac0c9;
+  --palm-ok-band: #d5e4e3;
+  --palm-accent-line: #a2abb6;
+  --palm-accent-16: #dadcdf;
+  --palm-tint-ok: rgba(31, 111, 69, 0.1);
+  --palm-tint-danger: rgba(166, 59, 79, 0.1);
+  --palm-tint-accent: rgba(22, 35, 58, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(22, 35, 58, 0.08);
+  --palm-sh2: 0 6px 20px rgba(22, 35, 58, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(22, 35, 58, 0.1), 0 10px 30px rgba(22, 35, 58, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(31, 111, 69, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(22, 35, 58, 0.08);
+  --palm-flow-card-line: rgba(31, 111, 69, 0.28);
+  --palm-flow-tag-ok: rgba(31, 111, 69, 0.12);
+  --palm-flow-tag-edit: rgba(22, 35, 58, 0.12);
+  --palm-scrim: rgba(22, 35, 58, 0.42);
+  --palm-on-scrim: #eef4f9;
+  --palm-scrim-strong: rgba(22, 35, 58, 0.8);
+  --palm-scrim-soft: rgba(22, 35, 58, 0.12);
+  --palm-on-scrim-soft: rgba(238, 244, 249, 0.7);
+  --palm-strip-fg: #16233a;
+  --palm-strip-detail-fg: #3d4c63;
+  --palm-strip-right-fg: #676f7a;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(22, 35, 58, 0.05);
+  --palm-dock-chip-div-bg: rgba(22, 35, 58, 0.16);
+  --palm-dock-ring-track: rgba(22, 35, 58, 0.3);
+  --palm-dock-queue-bg: rgba(130, 89, 15, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #562a64;
+  --tok-string: #2a6434;
+  --tok-comment: #767d87;
+  --tok-number: #644c2a;
+  --tok-type: #642f2a;
+  --tok-func: #16233a;
+  --tok-prop: #2a645f;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：dragon-heir ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\dragon-heir\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='dragon-heir'] {
+  --palm-r-s: 8px;
+  --palm-r-m: 12px;
+  --palm-r-l: 18px;
+  --palm-bg: #f7f0ec;
+  --palm-sur-1: #fffaf6;
+  --palm-sur-2: #efe2d8;
+  --palm-line: rgba(224, 205, 192, 0.5);
+  --palm-fg: #2a2220;
+  --palm-fg-2: #544c3c;
+  --palm-fg-3: #6b624e;
+  --palm-accent: #ac2326;
+  --palm-whale: #ac2326;
+  --palm-accent-2: #b84447;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #376f37;
+  --palm-warn: #825e1f;
+  --palm-danger: #c00000;
+  --palm-tint-warn: rgba(130, 94, 31, 0.1);
+  --palm-warn-band: rgba(130, 94, 31, 0.24);
+  --palm-search-mark: #e9c2c0;
+  --palm-press-bg: #efe8e4;
+  --palm-danger-band: #f0d3d0;
+  --palm-danger-line: #e8adaa;
+  --palm-ok-band: #e0e1d7;
+  --palm-accent-line: #dda8a7;
+  --palm-accent-16: #f2d8d5;
+  --palm-tint-ok: rgba(55, 111, 55, 0.1);
+  --palm-tint-danger: rgba(192, 0, 0, 0.1);
+  --palm-tint-accent: rgba(172, 35, 38, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(42, 34, 32, 0.08);
+  --palm-sh2: 0 6px 20px rgba(42, 34, 32, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(42, 34, 32, 0.1), 0 10px 30px rgba(42, 34, 32, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(57, 114, 57, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(42, 34, 32, 0.08);
+  --palm-flow-card-line: rgba(57, 114, 57, 0.28);
+  --palm-flow-tag-ok: rgba(57, 114, 57, 0.12);
+  --palm-flow-tag-edit: rgba(172, 35, 38, 0.12);
+  --palm-scrim: rgba(42, 34, 32, 0.42);
+  --palm-on-scrim: #f7f0ec;
+  --palm-scrim-strong: rgba(42, 34, 32, 0.8);
+  --palm-scrim-soft: rgba(42, 34, 32, 0.12);
+  --palm-on-scrim-soft: rgba(247, 240, 236, 0.7);
+  --palm-strip-fg: #2a2220;
+  --palm-strip-detail-fg: #544c3c;
+  --palm-strip-right-fg: #6b624e;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(42, 34, 32, 0.05);
+  --palm-dock-chip-div-bg: rgba(42, 34, 32, 0.16);
+  --palm-dock-ring-track: rgba(172, 35, 38, 0.3);
+  --palm-dock-queue-bg: rgba(130, 94, 31, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #862aa5;
+  --tok-string: #1d722b;
+  --tok-comment: #9c6d6c;
+  --tok-number: #815921;
+  --tok-type: #a5342a;
+  --tok-func: #ac2326;
+  --tok-prop: #1d726b;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：whale-song ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\whale-song\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='whale-song'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #061024;
+  --palm-sur-1: #0a1730;
+  --palm-sur-2: #0e1e3c;
+  --palm-line: rgba(29, 48, 85, 0.5);
+  --palm-fg: #dce8f7;
+  --palm-fg-2: #7a8aa4;
+  --palm-fg-3: #5680b5;
+  --palm-accent: #5896d7;
+  --palm-whale: #5896d7;
+  --palm-accent-2: #71a6dd;
+  --palm-on-accent: #101015;
+  --palm-ok: #58b058;
+  --palm-warn: #d9b45b;
+  --palm-danger: #d96262;
+  --palm-tint-warn: rgba(217, 180, 91, 0.1);
+  --palm-warn-band: rgba(217, 180, 91, 0.24);
+  --palm-search-mark: #1e385b;
+  --palm-press-bg: #0f192c;
+  --palm-danger-band: #1f192a;
+  --palm-danger-line: #412533;
+  --palm-ok-band: #10232a;
+  --palm-accent-line: #233f63;
+  --palm-accent-16: #162b4b;
+  --palm-tint-ok: rgba(88, 176, 88, 0.1);
+  --palm-tint-danger: rgba(217, 98, 98, 0.1);
+  --palm-tint-accent: rgba(88, 150, 215, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(220, 232, 247, 0.08);
+  --palm-sh2: 0 6px 20px rgba(220, 232, 247, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(220, 232, 247, 0.1), 0 10px 30px rgba(220, 232, 247, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(88, 176, 88, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(220, 232, 247, 0.08);
+  --palm-flow-card-line: rgba(88, 176, 88, 0.28);
+  --palm-flow-tag-ok: rgba(88, 176, 88, 0.12);
+  --palm-flow-tag-edit: rgba(88, 150, 215, 0.12);
+  --palm-scrim: rgba(220, 232, 247, 0.42);
+  --palm-on-scrim: #061024;
+  --palm-scrim-strong: rgba(220, 232, 247, 0.8);
+  --palm-scrim-soft: rgba(220, 232, 247, 0.12);
+  --palm-on-scrim-soft: rgba(6, 16, 36, 0.7);
+  --palm-strip-fg: #dce8f7;
+  --palm-strip-detail-fg: #71829e;
+  --palm-strip-right-fg: #5680b5;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(220, 232, 247, 0.05);
+  --palm-dock-chip-div-bg: rgba(220, 232, 247, 0.16);
+  --palm-dock-ring-track: rgba(88, 150, 215, 0.3);
+  --palm-dock-queue-bg: rgba(217, 180, 91, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #b968d4;
+  --tok-string: #5ed171;
+  --tok-comment: #5a7393;
+  --tok-number: #d1a15e;
+  --tok-type: #d1685e;
+  --tok-func: #5896d7;
+  --tok-prop: #5ed1c7;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: dark;
+}
+/* ═══════════ 皮肤：harbor ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\harbor\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='harbor'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #333c63;
+  --palm-sur-1: #3f486c;
+  --palm-sur-2: #495174;
+  --palm-line: rgba(77, 85, 120, 0.5);
+  --palm-fg: #fff3e6;
+  --palm-fg-2: #e2d6c8;
+  --palm-fg-3: #aea9b3;
+  --palm-accent: #ffd1b2;
+  --palm-whale: #ffd1b2;
+  --palm-accent-2: #ffd8be;
+  --palm-on-accent: #101015;
+  --palm-ok: #9fe6b8;
+  --palm-warn: #ffcf8f;
+  --palm-danger: #ffb3b8;
+  --palm-tint-warn: rgba(255, 207, 143, 0.1);
+  --palm-warn-band: rgba(90, 66, 34, 0.42);
+  --palm-search-mark: #716c7e;
+  --palm-press-bg: #3b4368;
+  --palm-danger-band: #4b476b;
+  --palm-danger-line: #6c5675;
+  --palm-ok-band: #3c4e6b;
+  --palm-accent-line: #7a707f;
+  --palm-accent-16: #5e5e77;
+  --palm-tint-ok: rgba(127, 214, 164, 0.1);
+  --palm-tint-danger: rgba(255, 152, 164, 0.1);
+  --palm-tint-accent: rgba(255, 209, 178, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(255, 243, 230, 0.08);
+  --palm-sh2: 0 6px 20px rgba(255, 243, 230, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(255, 243, 230, 0.1), 0 10px 30px rgba(255, 243, 230, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(127, 214, 164, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(255, 243, 230, 0.08);
+  --palm-flow-card-line: rgba(127, 214, 164, 0.28);
+  --palm-flow-tag-ok: rgba(127, 214, 164, 0.12);
+  --palm-flow-tag-edit: rgba(255, 209, 178, 0.12);
+  --palm-scrim: rgba(255, 243, 230, 0.42);
+  --palm-on-scrim: #333c63;
+  --palm-scrim-strong: rgba(255, 243, 230, 0.8);
+  --palm-scrim-soft: rgba(255, 243, 230, 0.12);
+  --palm-on-scrim-soft: rgba(51, 60, 99, 0.7);
+  --palm-strip-fg: #fff3e6;
+  --palm-strip-detail-fg: #d6c7b8;
+  --palm-strip-right-fg: #aea9b3;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(255, 243, 230, 0.05);
+  --palm-dock-chip-div-bg: rgba(255, 243, 230, 0.16);
+  --palm-dock-ring-track: rgba(255, 209, 178, 0.3);
+  --palm-dock-queue-bg: rgba(234, 168, 97, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #e8b5f7;
+  --tok-string: #4fee69;
+  --tok-comment: #b2a7ac;
+  --tok-number: #f2bd76;
+  --tok-type: #f7b7b0;
+  --tok-func: #ffd1b2;
+  --tok-prop: #4feee0;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: dark;
+}
+/* ═══════════ 皮肤：war-thunder ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\war-thunder\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='war-thunder'] {
+  --palm-r-s: 2px;
+  --palm-r-m: 4px;
+  --palm-r-l: 6px;
+  --palm-bg: #14170f;
+  --palm-sur-1: #1c2117;
+  --palm-sur-2: #242a1d;
+  --palm-line: rgba(58, 66, 49, 0.5);
+  --palm-fg: #eef0dc;
+  --palm-fg-2: #b9b4a4;
+  --palm-fg-3: #8b8168;
+  --palm-accent: #d9b13b;
+  --palm-whale: #d9b13b;
+  --palm-accent-2: #dfbd58;
+  --palm-on-accent: #101015;
+  --palm-ok: #9fe0a0;
+  --palm-warn: #ffcf7a;
+  --palm-danger: #ffb0a8;
+  --palm-tint-warn: rgba(255, 207, 122, 0.1);
+  --palm-warn-band: rgba(84, 66, 26, 0.42);
+  --palm-search-mark: #4d4620;
+  --palm-press-bg: #1d2017;
+  --palm-danger-band: #2b1f18;
+  --palm-danger-line: #4b2a24;
+  --palm-ok-band: #1c2918;
+  --palm-accent-line: #594d1e;
+  --palm-accent-16: #3a381d;
+  --palm-tint-ok: rgba(88, 176, 88, 0.1);
+  --palm-tint-danger: rgba(215, 90, 90, 0.1);
+  --palm-tint-accent: rgba(217, 177, 59, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(238, 240, 220, 0.08);
+  --palm-sh2: 0 6px 20px rgba(238, 240, 220, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(238, 240, 220, 0.1), 0 10px 30px rgba(238, 240, 220, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(88, 176, 88, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(238, 240, 220, 0.08);
+  --palm-flow-card-line: rgba(88, 176, 88, 0.28);
+  --palm-flow-tag-ok: rgba(88, 176, 88, 0.12);
+  --palm-flow-tag-edit: rgba(217, 177, 59, 0.12);
+  --palm-scrim: rgba(238, 240, 220, 0.42);
+  --palm-on-scrim: #14170f;
+  --palm-scrim-strong: rgba(238, 240, 220, 0.8);
+  --palm-scrim-soft: rgba(238, 240, 220, 0.12);
+  --palm-on-scrim-soft: rgba(20, 23, 15, 0.7);
+  --palm-strip-fg: #eef0dc;
+  --palm-strip-detail-fg: #8a857a;
+  --palm-strip-right-fg: #8b8168;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(238, 240, 220, 0.05);
+  --palm-dock-chip-div-bg: rgba(238, 240, 220, 0.16);
+  --palm-dock-ring-track: rgba(217, 177, 59, 0.3);
+  --palm-dock-queue-bg: rgba(230, 150, 65, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #c06cdb;
+  --tok-string: #43d15b;
+  --tok-comment: #867848;
+  --tok-number: #d19643;
+  --tok-type: #db766c;
+  --tok-func: #d9b13b;
+  --tok-prop: #43d1c5;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: dark;
+}
+/* ═══════════ 皮肤：maid-atelier ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\maid-atelier\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='maid-atelier'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #fdf3f5;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #f7e4ea;
+  --palm-line: rgba(236, 205, 216, 0.5);
+  --palm-fg: #3d2a31;
+  --palm-fg-2: #4d5d7f;
+  --palm-fg-3: #666d7d;
+  --palm-accent: #943e5c;
+  --palm-whale: #943e5c;
+  --palm-accent-2: #a45b74;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #1f6f45;
+  --palm-warn: #8a5f10;
+  --palm-danger: #a63b4f;
+  --palm-tint-warn: rgba(138, 95, 16, 0.1);
+  --palm-warn-band: rgba(138, 95, 16, 0.24);
+  --palm-search-mark: #e3cdd5;
+  --palm-press-bg: #f5ebed;
+  --palm-danger-band: #f3dde1;
+  --palm-danger-line: #e5bfc7;
+  --palm-ok-band: #e2e3e0;
+  --palm-accent-line: #d8b4bf;
+  --palm-accent-16: #eee0e5;
+  --palm-tint-ok: rgba(31, 111, 69, 0.1);
+  --palm-tint-danger: rgba(166, 59, 79, 0.1);
+  --palm-tint-accent: rgba(148, 62, 92, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(61, 42, 49, 0.08);
+  --palm-sh2: 0 6px 20px rgba(61, 42, 49, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(61, 42, 49, 0.1), 0 10px 30px rgba(61, 42, 49, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(31, 111, 69, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(61, 42, 49, 0.08);
+  --palm-flow-card-line: rgba(31, 111, 69, 0.28);
+  --palm-flow-tag-ok: rgba(31, 111, 69, 0.12);
+  --palm-flow-tag-edit: rgba(148, 62, 92, 0.12);
+  --palm-scrim: rgba(61, 42, 49, 0.42);
+  --palm-on-scrim: #fdf3f5;
+  --palm-scrim-strong: rgba(61, 42, 49, 0.8);
+  --palm-scrim-soft: rgba(61, 42, 49, 0.12);
+  --palm-on-scrim-soft: rgba(253, 243, 245, 0.7);
+  --palm-strip-fg: #3d2a31;
+  --palm-strip-detail-fg: #4d5d7f;
+  --palm-strip-right-fg: #666d7d;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(61, 42, 49, 0.05);
+  --palm-dock-chip-div-bg: rgba(61, 42, 49, 0.16);
+  --palm-dock-ring-track: rgba(148, 62, 92, 0.3);
+  --palm-dock-queue-bg: rgba(138, 95, 16, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #7c4290;
+  --tok-string: #34703e;
+  --tok-comment: #977681;
+  --tok-number: #7f623a;
+  --tok-type: #904942;
+  --tok-func: #943e5c;
+  --tok-prop: #34706b;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：whale-mom ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\whale-mom\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='whale-mom'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #eef6fb;
+  --palm-sur-1: #ffffff;
+  --palm-sur-2: #dceaf5;
+  --palm-line: rgba(198, 220, 234, 0.5);
+  --palm-fg: #123144;
+  --palm-fg-2: #1e2f51;
+  --palm-fg-3: #36548d;
+  --palm-accent: #2e6081;
+  --palm-whale: #2e6081;
+  --palm-accent-2: #4d7894;
+  --palm-on-accent: #ffffff;
+  --palm-ok: #31724c;
+  --palm-warn: #855c16;
+  --palm-danger: #ab4242;
+  --palm-tint-warn: rgba(133, 92, 22, 0.1);
+  --palm-warn-band: rgba(133, 92, 22, 0.24);
+  --palm-search-mark: #c9d6de;
+  --palm-press-bg: #e5eef4;
+  --palm-danger-band: #e6e0e5;
+  --palm-danger-line: #dbc4c7;
+  --palm-ok-band: #d7e6e6;
+  --palm-accent-line: #abc2d0;
+  --palm-accent-16: #dee6eb;
+  --palm-tint-ok: rgba(49, 114, 76, 0.1);
+  --palm-tint-danger: rgba(171, 66, 66, 0.1);
+  --palm-tint-accent: rgba(46, 96, 129, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(18, 49, 68, 0.08);
+  --palm-sh2: 0 6px 20px rgba(18, 49, 68, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(18, 49, 68, 0.1), 0 10px 30px rgba(18, 49, 68, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(49, 114, 76, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(18, 49, 68, 0.08);
+  --palm-flow-card-line: rgba(49, 114, 76, 0.28);
+  --palm-flow-tag-ok: rgba(49, 114, 76, 0.12);
+  --palm-flow-tag-edit: rgba(46, 96, 129, 0.12);
+  --palm-scrim: rgba(18, 49, 68, 0.42);
+  --palm-on-scrim: #eef6fb;
+  --palm-scrim-strong: rgba(18, 49, 68, 0.8);
+  --palm-scrim-soft: rgba(18, 49, 68, 0.12);
+  --palm-on-scrim-soft: rgba(238, 246, 251, 0.7);
+  --palm-strip-fg: #123144;
+  --palm-strip-detail-fg: #1e2f51;
+  --palm-strip-right-fg: #36548d;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(18, 49, 68, 0.05);
+  --palm-dock-chip-div-bg: rgba(18, 49, 68, 0.16);
+  --palm-dock-ring-track: rgba(46, 96, 129, 0.3);
+  --palm-dock-queue-bg: rgba(133, 92, 22, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #6a327d;
+  --tok-string: #2f763b;
+  --tok-comment: #687c87;
+  --tok-number: #7d5e32;
+  --tok-type: #7d3832;
+  --tok-func: #2e6081;
+  --tok-prop: #2c6f69;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: light;
+}
+/* ═══════════ 皮肤：blue-fantasy ══════════════════════════════════════════════════
+ * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\blue-fantasy\\skin.css（本地）
+ * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
+ * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
+ * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
+ */
+html[data-skin='blue-fantasy'] {
+  --palm-r-s: 12px;
+  --palm-r-m: 18px;
+  --palm-r-l: 26px;
+  --palm-bg: #0d1b3d;
+  --palm-sur-1: #122449;
+  --palm-sur-2: #172d59;
+  --palm-line: rgba(36, 64, 111, 0.5);
+  --palm-fg: #e6efff;
+  --palm-fg-2: #b8c4e0;
+  --palm-fg-3: #7a87a5;
+  --palm-accent: #88a2f3;
+  --palm-whale: #88a2f3;
+  --palm-accent-2: #9ab0f5;
+  --palm-on-accent: #101015;
+  --palm-ok: #9fe0a0;
+  --palm-warn: #ffd25e;
+  --palm-danger: #ffadb4;
+  --palm-tint-warn: rgba(255, 210, 94, 0.1);
+  --palm-warn-band: rgba(46, 44, 78, 0.5);
+  --palm-search-mark: #314575;
+  --palm-press-bg: #162345;
+  --palm-danger-band: #252442;
+  --palm-danger-line: #462f48;
+  --palm-ok-band: #162d40;
+  --palm-accent-line: #384a7d;
+  --palm-accent-16: #253864;
+  --palm-tint-ok: rgba(88, 176, 88, 0.1);
+  --palm-tint-danger: rgba(217, 100, 100, 0.1);
+  --palm-tint-accent: rgba(136, 162, 243, 0.1);
+  --palm-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --palm-sh1: 0 1px 2px rgba(230, 239, 255, 0.08);
+  --palm-sh2: 0 6px 20px rgba(230, 239, 255, 0.12);
+  --palm-shadow: 0 0 0 1px rgba(230, 239, 255, 0.1), 0 10px 30px rgba(230, 239, 255, 0.14);
+  --palm-flow-card-bg: linear-gradient(180deg, rgba(88, 176, 88, 0.05), rgba(255, 255, 255, 0.96));
+  --palm-flow-rule: rgba(230, 239, 255, 0.08);
+  --palm-flow-card-line: rgba(88, 176, 88, 0.28);
+  --palm-flow-tag-ok: rgba(88, 176, 88, 0.12);
+  --palm-flow-tag-edit: rgba(136, 162, 243, 0.12);
+  --palm-scrim: rgba(230, 239, 255, 0.42);
+  --palm-on-scrim: #0d1b3d;
+  --palm-scrim-strong: rgba(230, 239, 255, 0.8);
+  --palm-scrim-soft: rgba(230, 239, 255, 0.12);
+  --palm-on-scrim-soft: rgba(13, 27, 61, 0.7);
+  --palm-strip-fg: #e6efff;
+  --palm-strip-detail-fg: #828aa0;
+  --palm-strip-right-fg: #7a87a5;
+  --palm-strip-text-shadow: none;
+  --palm-dock-chip-bg: rgba(230, 239, 255, 0.05);
+  --palm-dock-chip-div-bg: rgba(230, 239, 255, 0.16);
+  --palm-dock-ring-track: rgba(136, 162, 243, 0.3);
+  --palm-dock-queue-bg: rgba(192, 138, 51, 0.09);
+  /* 语法高亮：从这套皮肤的强调色派生，否则代码块会沿用通用两套色板、和周围格格不入。 */
+  --tok-keyword: #cc73e9;
+  --tok-string: #57e56f;
+  --tok-comment: #6d7ca8;
+  --tok-number: #e5aa57;
+  --tok-type: #e8756a;
+  --tok-func: #88a2f3;
+  --tok-prop: #57e5d9;
+  --palm-font-sans: var(--font-sans);
+  color-scheme: dark;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1388,7 +2684,8 @@ body,
   color: var(--palm-fg-2);
 }
 
-.empty-state-icon > svg {
+.empty-state-icon > svg,
+.empty-state-icon > .skin-icon > svg {
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
 }
@@ -1450,9 +2747,211 @@ body,
   color: var(--palm-danger);
 }
 
-.error-note-icon > svg {
+.error-note-icon > svg,
+.error-note-icon > .skin-icon > svg {
   width: 16px;
   height: 16px;
+}
+/* ── 可换图标（058）───────────────────────────────────────────────────────
+ * 底座：\`icons.tsx\` 里 36 个图标组件现在各自渲染成
+ *   <span class="skin-icon" data-icon="send"><svg …/></span>
+ * （2026-11-14 统一包好，代码里不用再手动套壳）。皮肤在装饰层用三行换掉任意一个：
+ *
+ *   .skin-icon[data-icon='send'] { --palm-icon-art: url('/m/skin-assets/xp/send.svg'); inline-size:16px; block-size:16px }
+ *   .skin-icon[data-icon='send']::before { display: block }
+ *   .skin-icon[data-icon='send'] > svg { display: none }
+ *
+ * 默认状态什么都不变：::before 是 display:none，内联 SVG 照旧显示。
+ *
+ * ⚠ 包一层 span 会让「直接子代」选择器全部失效（2026-11-14 实机：设置页每行图标
+ * 变成空白方块、抽屉里图标被挤到文案中间）。两条硬规矩：
+ *   1. 任何给图标定尺寸的规则必须写成 \`X > svg, X > .skin-icon > svg\` 两个选择器；
+ *   2. 任何 \`X > span\` / \`X > :first-child\` 这种泛结构选择器要把外壳排除掉
+ *      （\`:not(.skin-icon)\`），否则外壳会被当成文案被拉宽。
+ * 规矩 1 有静态测试守着：styles/skin-icon-wrap.test.ts。
+ */
+
+.skin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  /* flex 父容器里绝不能被拉伸：图标外壳只跟着里面的 glyph 走 */
+  flex: none;
+  max-inline-size: none;
+  /* 盒子尺寸由里面的内联 SVG 决定；::before 铺满它，不需要另设宽高 */
+}
+
+.skin-icon > svg {
+  display: block;
+  /* 线条性格由皮肤决定（059 给值，默认 1.8 圆头平线，与改动前一致）。
+   * 这三个是 SVG 的**呈现属性**，CSS 优先级高于组件里写的 strokeWidth={1.8} 属性，
+   * 所以不用改 icons.tsx 里的 36 个组件就能整体换性格。 */
+  stroke-width: var(--palm-icon-stroke, 1.8);
+  stroke-linejoin: var(--palm-icon-join, round);
+  stroke-linecap: var(--palm-icon-cap, round);
+  shape-rendering: var(--palm-icon-render, auto);
+}
+
+.skin-icon::before {
+  content: '';
+  /* inset:0 —— 皮肤换图标时会在元素上给出 --palm-icon-size（默认 18px），
+   * 外壳因此有实际宽高；不依赖"0×0 盒子 + 绝对定位溢出"，那条在某些按钮
+   * 容器里会被裁掉（2026-11-14 踩过：mask 一切正常但什么都看不见）。 */
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: currentColor;
+  -webkit-mask: var(--palm-icon-art) center / contain no-repeat;
+  mask: var(--palm-icon-art) center / contain no-repeat;
+}
+/* ── 图标风格随皮肤走（059）───────────────────────────────────────────────
+ * 为什么单开一层：图标层（058）已经能让皮肤把某个图标换成**贴图**，但线条
+ * 性格仍是全站统一的「1.8 圆头细线」—— 二十套皮肤里，设置页那一列图标长得
+ * 一模一样（2026-11-14 用户：「设置页每个栏目的图标不同皮肤都没有区别，
+ * 能不能各自不同样式」）。
+ *
+ * 这里只给四个旋钮，全站图标一次消费（058 的 \`.skin-icon > svg\`）：
+ *
+ *   --palm-icon-stroke  描边粗细（无单位数字，SVG 的 stroke-width 认它）
+ *   --palm-icon-join    转折：round 圆润 / miter 见棱角
+ *   --palm-icon-cap     线头：round 圆头 / butt 平头
+ *   --palm-icon-render  渲染：auto / crispEdges（像素皮肤要那点锯齿）/ geometricPrecision
+ *   --palm-spec-ico-r   图标方块的圆角（0 = 方块，var(--palm-r-m) = 跟着皮肤圆润）
+ *
+ * 三条边界，别越界：
+ *   1. 颜色不在这里 —— 仍是 --palm-fg-2（图标）/ --palm-sur-2（方块底），
+ *      这套文件只改"线条与形状"，所以不能出现任何色值（设计门禁也拦）。
+ *   2. 单位只许无单位数字、关键字与圆角令牌（\`--palm-r-s\` / \`-m\` / \`-l\`）；写字面 px
+ *      会顶到预算闸门。
+ *   3. 每条皮肤覆盖都必须挂在 \`html[data-skin='x']\` 下 —— 漏了前缀会污染全部皮肤
+ *      （报头衬线跑进石墨皮肤那次就是这么坏的，见 skin-decor.test.ts）。
+ *
+ * 新增皮肤时：想让它跟默认不同就来这里加一段；不加就是默认的圆头细线。
+ */
+
+/* 默认：圆头细线（与 2026-11-14 之前的内联 SVG 视觉一致，不是新设计）。 */
+:root {
+  --palm-icon-stroke: 1.8;
+  --palm-icon-join: round;
+  --palm-icon-cap: round;
+  --palm-icon-render: auto;
+}
+
+/* 纸质/印刷：线细一档、转角改平头，像钢笔描出来的。 */
+html[data-skin='paper'] {
+  --palm-icon-stroke: 1.6;
+}
+
+html[data-skin='nocturne'] {
+  --palm-icon-stroke: 1.6;
+}
+
+/* 报纸：最细 + 平头平角 + 方块直角，版式语言是「铅字与栏线」。 */
+html[data-skin='newsprint'] {
+  --palm-icon-stroke: 1.5;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-spec-ico-r: 0;
+}
+
+/* 终末地：工程感，见棱角但不做像素化。 */
+html[data-skin='endfield'] {
+  --palm-icon-stroke: 1.5;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-spec-ico-r: var(--palm-r-s);
+}
+
+html[data-skin='claude'] {
+  --palm-icon-stroke: 1.7;
+}
+
+/* 矩阵：数字屏，开 crispEdges 让斜线带锯齿。 */
+html[data-skin='matrix'] {
+  --palm-icon-stroke: 1.6;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+/* XP：系统图标，粗一档 + 方头 + 锯齿 + 方块直角。 */
+html[data-skin='xp'] {
+  --palm-icon-stroke: 2.1;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+html[data-skin='deep-current'] {
+  --palm-icon-stroke: 1.6;
+}
+
+html[data-skin='mint'] {
+  --palm-icon-stroke: 1.7;
+}
+
+html[data-skin='pink-sakura'] {
+  --palm-icon-stroke: 1.6;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+/* 液态玻璃：最细的一档，细线才透得住玻璃。 */
+html[data-skin='summer-liquid-glass'] {
+  --palm-icon-stroke: 1.4;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+html[data-skin='furina'] {
+  --palm-icon-stroke: 1.6;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+/* 我的世界：最粗 + 锯齿 + 直角方块，近像素画。 */
+html[data-skin='minecraft'] {
+  --palm-icon-stroke: 2.2;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+/* 交易终端：锐角平头（不做锯齿——行情页的图标要看着精密）。 */
+html[data-skin='trading'] {
+  --palm-icon-stroke: 1.7;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: geometricPrecision;
+  --palm-spec-ico-r: 0;
+}
+
+/* 赛博夜城：霓虹细线 + 锯齿 + 直角。 */
+html[data-skin='cyber-night'] {
+  --palm-icon-stroke: 1.4;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+html[data-skin='wallpaper-exclusive'] {
+  --palm-icon-stroke: 1.4;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+/* 龙的传人：厚重一档（朱砂印、砖墙，线细了撑不住这个调子）。 */
+html[data-skin='dragon-heir'] {
+  --palm-icon-stroke: 1.9;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-spec-ico-r: var(--palm-r-s);
+}
+
+html[data-skin='whale-song'] {
+  --palm-icon-stroke: 1.6;
+  --palm-spec-ico-r: var(--palm-r-m);
 }
 /* ── grouped lists + group titles ────────────────────────────────────── */
 
@@ -2839,6 +4338,9 @@ button.settings-row:focus-visible {
   line-height: var(--palm-lh-body);
   overflow-wrap: break-word;
   white-space: pre-wrap;
+  /* 滚动性能：每行是独立的布局/样式边界，长会话上下滑时不必为整个消息列重排。
+     不裁剪绘制（不用 paint），否则描边/脉冲动画会被切掉。 */
+  contain: layout style;
 }
 
 /* 入场动画只给「第一次出现的行」。
@@ -6638,7 +8140,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   background: var(--backdrop);
   /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
      （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
-  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: drawer-scrim-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes sheet-fade {
@@ -6749,7 +8251,7 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   background: var(--backdrop);
   /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
      （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
-  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: drawer-scrim-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 .palm-drawer {
@@ -6768,8 +8270,11 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   overflow: hidden;
   overscroll-behavior: contain;
   /* 整块从左边拉出来（-100% → 0），**不淡入**：侧边栏淡入在真机上就是
-     「先灰一下再出现」。曲线取 iOS 那条（起步利落、落地稳住），340ms。 */
-  animation: palm-drawer-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+     「先灰一下再出现」。曲线取 iOS 那条（起步利落、落地稳住）。
+     2026-11-15：340ms → **180ms**。端到端实测开抽屉「完全稳定」509ms，
+     其中 340ms 只是动画在走、CPU 全程空闲 —— 用户说的「点下去半天没反应」
+     有一大半是这个。180ms 仍在常见手感区间（200ms 上下）内。 */
+  animation: palm-drawer-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes palm-drawer-in {
@@ -6782,14 +8287,14 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   to { opacity: 1; }
 }
 
-/* 退出要走完再卸载（App 里 onClose 会等 240ms）。关闭比打开快：
-   iOS 的默认手感，慢了像拖泥带水。 */
+/* 退出要走完再卸载（App 里 onClose 会等 \`DRAWER_OUT_MS\`，2026-11-15 起 160ms）。
+   关闭比打开快：iOS 的默认手感，慢了像拖泥带水。 */
 .palm-drawer.is-closing {
-  animation: palm-drawer-out 240ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: palm-drawer-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 .palm-drawer-scrim.is-closing {
-  animation: drawer-scrim-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: drawer-scrim-out 150ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 @keyframes palm-drawer-out {
@@ -6888,7 +8393,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 }
 
 /* 抽屉里的图标一律 16×16（项目规则：图标固定尺寸、不参与 flex 拉伸）。 */
-.palm-drawer-ws-switch > svg {
+.palm-drawer-ws-switch > svg,
+.palm-drawer-ws-switch > .skin-icon > svg {
   inline-size: 16px;
   block-size: 16px;
 }
@@ -7338,8 +8844,10 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 
 .palm-drawer-tool:active { background: var(--palm-sur-1); }
 
-/* 主文案吃掉剩余宽度：右侧小字与箭头永远不被挤掉。 */
-.palm-drawer-tool > span { flex: 1 1 auto; min-inline-size: 0; }
+/* 主文案吃掉剩余宽度：右侧小字与箭头永远不被挤掉。
+ * \`:not(.skin-icon)\`：图标现在包在 <span class="skin-icon"> 里（058），不排除掉就会
+ * 把图标外壳也当成文案拉宽，图标于是浮在行中间、跟文案对不齐（2026-11-14 实机）。 */
+.palm-drawer-tool > span:not(.skin-icon) { flex: 1 1 auto; min-inline-size: 0; }
 
 .palm-drawer-tool > small {
   flex: none;
@@ -7350,7 +8858,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 }
 
 /* 箭头弱化：它是「这里能进去」的提示，不该和主文案抢注意力。 */
-.palm-drawer-tool > svg:last-child {
+.palm-drawer-tool > svg:last-child,
+.palm-drawer-tool > .skin-icon:last-child > svg {
   flex: none;
   color: var(--palm-fg-3);
   opacity: 0.7;
@@ -7380,11 +8889,12 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   block-size: var(--palm-drawer-glyph);
 }
 
-/* 行内文案：单行 + 省略号。图标固定之后，折行的唯一来源就是文案本身。 */
+/* 行内文案：单行 + 省略号。图标固定之后，折行的唯一来源就是文案本身。
+ * 三处都要 \`:not(.skin-icon)\`：图标外壳也是直接子 span，不能吃省略号那套。 */
 .palm-drawer-ws > b,
 .palm-drawer-new > span,
-.palm-drawer-search > span,
-.palm-drawer-tool > span {
+.palm-drawer-search > span:not(.skin-icon),
+.palm-drawer-tool > span:not(.skin-icon) {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7704,7 +9214,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   color: var(--palm-fg-3);
 }
 
-.pb-entry-icon > svg {
+.pb-entry-icon > svg,
+.pb-entry-icon > .skin-icon > svg {
   inline-size: 16px;
   block-size: 16px;
 }
@@ -7950,7 +9461,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
   color: var(--palm-accent);
 }
 
-.ws-pick-icon > svg {
+.ws-pick-icon > svg,
+.ws-pick-icon > .skin-icon > svg {
   inline-size: 16px;
   block-size: 16px;
 }
@@ -8749,7 +10261,8 @@ button.chat-tool-diff-path:active { opacity: 0.72; }
 
 /* ⋯ 菜单行左侧图标：跟标题同高、让出一点呼吸感，颜色压到次要灰 ——
    图标是路标，不是装饰，别和标题抢亮度。 */
-.sheet-option > svg {
+.sheet-option > svg,
+.sheet-option > .skin-icon > svg {
   flex: none;
   inline-size: 18px;
   block-size: 18px;
@@ -9213,7 +10726,11 @@ body:has(.lightbox-backdrop) .toast-host {
   /* 2026-11-11 计数滚动（过程条的「N 次工具调用 / 改 N 个文件」）：
      它是**装饰**，不是状态表达 —— 关掉动画的人应当立刻看到新数字，而不是等 480ms。 */
   .palm-roll-track,
-  .palm-roll-track.is-gliding {
+  .palm-roll-track.is-gliding,
+  /* 2026-11-14 会话内搜索的「命中行脉冲」是**装饰**：脉冲停了，那一行的描边还在，
+     用户照样知道命中的是哪一行。同批的 .chat-search-mark（淡底）本来就不动画。
+     选择器要跟 390 里逐字一致（那边带 .mobile 作用域），否则这条登记不认。 */
+  .mobile .chat-search-mark-active {
     animation: none;
     transition: none;
   }
@@ -10859,6 +12376,24 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--text-primary) !important;
 }
 
+/* 当前落点：搜索"上一个/下一个"走到哪一处。只是一个描边标记，**不改变布局**
+   （不再靠给整行加焦点态来强调 —— 那会展开/收起长文，滚完又被弹回去，
+   真机表现就是「点上一个不动」）。同时放一次脉冲：目标本来就在视口内时
+   没有位移，没有脉冲用户就以为"没跳"。 */
+@keyframes palm-search-hit-pulse {
+  0% { box-shadow: 0 0 0 0 var(--palm-accent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.mobile .chat-search-mark-active {
+  outline: 2px solid var(--palm-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+  font-weight: 800;
+  animation: palm-search-hit-pulse 700ms ease-out 1;
+}
+
 /* Settings-search locate: the anchored sub-page entry pulses once on
    arrival, so the user sees which control the search found. */
 [data-locate-id][data-focus] {
@@ -12152,7 +13687,8 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg-3);
 }
 
-.outline-node-meta > svg {
+.outline-node-meta > svg,
+.outline-node-meta > .skin-icon > svg {
   flex: none;
   inline-size: var(--palm-s4);
   block-size: var(--palm-s4);
@@ -12338,7 +13874,8 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg-2);
 }
 
-.palm-dd-icon > svg {
+.palm-dd-icon > svg,
+.palm-dd-icon > .skin-icon > svg {
   inline-size: var(--palm-s4);
   block-size: var(--palm-s4);
 }
@@ -12702,7 +14239,8 @@ details.think-block[open] .chat-disclosure-caret {
   box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-accent);
 }
 
-.palm-spec-search > svg {
+.palm-spec-search > svg,
+.palm-spec-search > .skin-icon > svg {
   flex: none;
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
@@ -12739,7 +14277,8 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--palm-fg-3);
 }
 
-.palm-spec-search-clear > svg {
+.palm-spec-search-clear > svg,
+.palm-spec-search-clear > .skin-icon > svg {
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
 }
@@ -12789,7 +14328,8 @@ button.palm-spec-group-head {
   text-align: start;
 }
 
-button.palm-spec-group-head > svg {
+button.palm-spec-group-head > svg,
+button.palm-spec-group-head > .skin-icon > svg {
   flex: none;
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
@@ -12867,7 +14407,8 @@ button.palm-spec-group-head:focus-visible {
   color: var(--palm-fg-2);
 }
 
-.palm-spec-row-ico > svg {
+.palm-spec-row-ico > svg,
+.palm-spec-row-ico > .skin-icon > svg {
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
 }
@@ -12937,7 +14478,8 @@ button.palm-spec-group-head:focus-visible {
   white-space: nowrap;
 }
 
-.palm-spec-row-value > svg {
+.palm-spec-row-value > svg,
+.palm-spec-row-value > .skin-icon > svg {
   flex: none;
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
@@ -13192,6 +14734,51 @@ button.palm-spec-group-head:focus-visible {
   --palm-skin-shot-ink: var(--palm-skin-claude-ink);
 }
 
+.skin-card-shot[data-skin='matrix'] {
+  --palm-skin-shot-bg: var(--palm-skin-matrix-bg);
+  --palm-skin-shot-ink: var(--palm-skin-matrix-ink);
+}
+
+.skin-card-shot[data-skin='xp'] {
+  --palm-skin-shot-bg: var(--palm-skin-xp-bg);
+  --palm-skin-shot-ink: var(--palm-skin-xp-ink);
+}
+
+.skin-card-shot[data-skin='deep-current'] {
+  --palm-skin-shot-bg: var(--palm-skin-deep-current-bg);
+  --palm-skin-shot-ink: var(--palm-skin-deep-current-ink);
+}
+
+.skin-card-shot[data-skin='mint'] {
+  --palm-skin-shot-bg: var(--palm-skin-mint-bg);
+  --palm-skin-shot-ink: var(--palm-skin-mint-ink);
+}
+
+.skin-card-shot[data-skin='pink-sakura'] {
+  --palm-skin-shot-bg: var(--palm-skin-pink-sakura-bg);
+  --palm-skin-shot-ink: var(--palm-skin-pink-sakura-ink);
+}
+
+.skin-card-shot[data-skin='summer-liquid-glass'] {
+  --palm-skin-shot-bg: var(--palm-skin-summer-liquid-glass-bg);
+  --palm-skin-shot-ink: var(--palm-skin-summer-liquid-glass-ink);
+}
+
+.skin-card-shot[data-skin='furina'] {
+  --palm-skin-shot-bg: var(--palm-skin-furina-bg);
+  --palm-skin-shot-ink: var(--palm-skin-furina-ink);
+}
+
+.skin-card-shot[data-skin='minecraft'] {
+  --palm-skin-shot-bg: var(--palm-skin-minecraft-bg);
+  --palm-skin-shot-ink: var(--palm-skin-minecraft-ink);
+}
+
+.skin-card-shot[data-skin='trading'] {
+  --palm-skin-shot-bg: var(--palm-skin-trading-bg);
+  --palm-skin-shot-ink: var(--palm-skin-trading-ink);
+}
+
 .skin-card-shot-bar {
   inline-size: 46px;
   block-size: var(--palm-s1);
@@ -13258,6 +14845,51 @@ button.palm-spec-group-head:focus-visible {
 }
 
 .skin-store-foot > .mobile-button { flex: 1 1 0; }
+
+.skin-card-shot[data-skin='cyber-night'] {
+  --palm-skin-shot-bg: var(--palm-skin-cyber-night-bg);
+  --palm-skin-shot-ink: var(--palm-skin-cyber-night-ink);
+}
+
+.skin-card-shot[data-skin='wallpaper-exclusive'] {
+  --palm-skin-shot-bg: var(--palm-skin-wallpaper-exclusive-bg);
+  --palm-skin-shot-ink: var(--palm-skin-wallpaper-exclusive-ink);
+}
+
+.skin-card-shot[data-skin='dragon-heir'] {
+  --palm-skin-shot-bg: var(--palm-skin-dragon-heir-bg);
+  --palm-skin-shot-ink: var(--palm-skin-dragon-heir-ink);
+}
+
+.skin-card-shot[data-skin='whale-song'] {
+  --palm-skin-shot-bg: var(--palm-skin-whale-song-bg);
+  --palm-skin-shot-ink: var(--palm-skin-whale-song-ink);
+}
+
+.skin-card-shot[data-skin='harbor'] {
+  --palm-skin-shot-bg: var(--palm-skin-harbor-bg);
+  --palm-skin-shot-ink: var(--palm-skin-harbor-ink);
+}
+
+.skin-card-shot[data-skin='war-thunder'] {
+  --palm-skin-shot-bg: var(--palm-skin-war-thunder-bg);
+  --palm-skin-shot-ink: var(--palm-skin-war-thunder-ink);
+}
+
+.skin-card-shot[data-skin='maid-atelier'] {
+  --palm-skin-shot-bg: var(--palm-skin-maid-atelier-bg);
+  --palm-skin-shot-ink: var(--palm-skin-maid-atelier-ink);
+}
+
+.skin-card-shot[data-skin='whale-mom'] {
+  --palm-skin-shot-bg: var(--palm-skin-whale-mom-bg);
+  --palm-skin-shot-ink: var(--palm-skin-whale-mom-ink);
+}
+
+.skin-card-shot[data-skin='blue-fantasy'] {
+  --palm-skin-shot-bg: var(--palm-skin-blue-fantasy-bg);
+  --palm-skin-shot-ink: var(--palm-skin-blue-fantasy-ink);
+}
 /* ── 子代理详情页（2026-11-11）────────────────────────────────────────
  *
  * 为什么单独一个文件：这一页是新的独立屏（\`views/SubagentView.tsx\`），
@@ -13508,6 +15140,289 @@ button.palm-spec-group-head:focus-visible {
   font-size: var(--palm-t-m);
   flex: none;
 }
+/* ── 外观面板（524）───────────────────────────────────────────────────────
+ * 头像点开的那块底部弹层：横向皮肤画廊 + 背景图一行 + 撤销条。
+ *
+ * 缩略图直接复用商店卡的 \`.skin-card-shot[data-skin]\`（配色变量来自 000-tokens.css），
+ * 所以这里只负责尺寸与排布，不写任何色值 —— 换皮肤时它自己会跟着变。
+ */
+
+.appearance-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s3);
+  padding: 0 0 var(--palm-s3);
+}
+
+.appearance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--palm-s4);
+}
+
+.appearance-sub {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.appearance-dice {
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* 横向画廊：一屏露 4 套半，暗示可以滑 */
+.appearance-strip {
+  display: flex;
+  gap: var(--palm-s2);
+  overflow-x: auto;
+  padding: 2px var(--palm-s4) 4px;
+  scrollbar-width: none;
+}
+
+.appearance-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.appearance-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  inline-size: 62px;
+  flex: none;
+}
+
+.appearance-chip .skin-card-shot {
+  inline-size: 62px;
+  block-size: 78px;
+  border-radius: var(--palm-r-m);
+  overflow: hidden;
+}
+
+.appearance-chip-on .skin-card-shot {
+  /* 第二层投影原来写 color-mix(in srgb, var(--palm-accent) 26%, transparent)，
+     按「样式债务清零」规则换成不透明度令牌（同色系淡投影，视觉等价）。 */
+  box-shadow:
+    0 0 0 2px var(--palm-accent),
+    0 6px 14px var(--palm-scrim-soft);
+}
+
+.appearance-chip-name {
+  font-size: 10px;
+  color: var(--palm-fg-2);
+  max-inline-size: 62px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appearance-chip-on .appearance-chip-name {
+  color: var(--palm-accent);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 背景图一行 */
+.appearance-wall {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  margin: 0 var(--palm-s4);
+  padding: 9px 11px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: inset 0 0 0 1px var(--palm-line);
+}
+
+.appearance-wall-thumb {
+  inline-size: 44px;
+  block-size: 30px;
+  flex: none;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2) center / cover no-repeat;
+}
+
+.appearance-wall-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-inline-size: 0;
+  flex: 1;
+}
+
+.appearance-wall-text b {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.appearance-wall-text small {
+  font-size: var(--palm-strip-right-size);
+  color: var(--palm-fg-3);
+}
+
+.appearance-wall-act {
+  flex: none;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+  padding: 5px 9px;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-tint-accent);
+}
+
+.appearance-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--palm-s4);
+}
+
+.appearance-link {
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+/* 撤销条：浮在面板上方 8px，3 秒后自己消失 */
+.appearance-undo {
+  position: fixed;
+  inset-inline: 0;
+  bottom: calc(52vh + 10px);
+  margin-inline: auto;
+  inline-size: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  /* 深底胶囊 + 反色字。原来写的是 color-mix(in srgb, var(--palm-fg) 88%, transparent)，
+     按「样式债务清零」规则（2026-11-10 起不许出现 color-mix，装饰层除外）改用不透明度
+     令牌：视觉等价（浅色主题下 --palm-scrim-strong = rgba(28,26,23,.8)，原来是 .88）。 */
+  background: var(--palm-scrim-strong);
+  color: var(--palm-bg);
+  font-size: var(--palm-t-s);
+  box-shadow: var(--palm-sh2);
+  z-index: 2;
+}
+
+.appearance-undo b {
+  font-weight: var(--palm-w-bold);
+}
+
+.appearance-undo-act {
+  color: var(--palm-bg);
+  text-decoration: underline;
+  font-size: var(--palm-t-s);
+}
+/* ── 壁纸背景（530）───────────────────────────────────────────────────────
+ * 手机端本机壁纸：页面底色让位给一张压在后面的图，卡片仍是不透明表面。
+ * 三个变量由 platform/wallpaper.ts 写在 <html> 上：
+ *   --palm-wall-img    url("<dataURL>")
+ *   --palm-wall-mask   遮罩浓度 0–100
+ *   --palm-wall-blur   模糊半径 0–20（px）
+ *
+ * 为什么让 --palm-bg 变透明而不是给 body 上 background-image：
+ * 页面底色是所有视图（落地页/会话/设置）的统一底板，它一透，壁纸就自动出现在
+ * 每一屏的空白处，组件一行都不用改；而 --palm-sur-1/2 不动，卡片、输入条、
+ * 气泡仍是实色 —— 正文的对比度由皮肤守卫兜底，壁纸不参与。
+ */
+
+html[data-wall='on'] {
+  --palm-bg: transparent;
+}
+
+/* 三个变量的默认值：JS 会以行内样式覆盖它们（platform/wallpaper.ts）。
+ * 写在这里是为了「样式引用的每个自定义属性都有人定义」那条守卫 —— 没设壁纸时
+ * --palm-wall-img 是 none，背景层画出来也是空的。 */
+:root {
+  --palm-wall-img: none;
+  --palm-wall-mask: 70;
+  --palm-wall-blur: 0;
+}
+
+html[data-wall='on'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-wallpaper-bg);
+  background-image: var(--palm-wall-img);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: blur(calc(var(--palm-wall-blur, 0) * 1px));
+  /* 模糊会把边缘吸进来一圈，放大 4% 盖住白边 */
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+/* 遮罩：用皮肤的第一层表面色压在图上面。浓度越高越像皮肤底色，正文越稳。 */
+html[data-wall='on'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-wallpaper-art);
+  background: var(--palm-sur-1);
+  opacity: calc(var(--palm-wall-mask, 70) / 100);
+  pointer-events: none;
+}
+
+/* 壁纸开启时，顶部栏跟着页面底色透出去（否则一条实色横条压在图中间）。 */
+html[data-wall='on'] .mobile-header {
+  background: transparent;
+}
+
+/* ── 外观页的控件 ─────────────────────────────────────────────────────── */
+
+/* 选图用的文件输入：藏起来，由「选一张图」那一行触发。 */
+.wall-file {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wall-slider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s3);
+  padding: var(--palm-s3) var(--palm-s4);
+  border-block-start: var(--palm-hair) solid var(--palm-line);
+}
+
+/* 浮层里的两行滑杆：第一行不要上边框（浮层顶部就是提示文字）。 */
+.wall-sheet-rows .wall-slider-row:first-child {
+  border-block-start: 0;
+}
+
+.wall-slider-label {
+  flex: 0 0 3em;
+  color: var(--palm-fg);
+  font-size: var(--palm-flow-row-size);
+}
+
+.wall-slider {
+  flex: 1;
+  min-inline-size: 0;
+  accent-color: var(--palm-accent);
+}
+
+.wall-slider-value {
+  flex: 0 0 3.5em;
+  text-align: end;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.wall-error {
+  margin: var(--palm-s2) var(--palm-s4) 0;
+  color: var(--palm-danger);
+  font-size: var(--palm-flow-meta-size);
+}
 /* ── 组合件样式（2026-11-10 重设计：原语层） ────────────────────────────
    对应 ui/primitives.tsx 里的 SectionHeader / SectionCard / ResultRow / ActionBar。
    规则：这里**只许出现令牌**，不写十六进制、不写 rgb()、不写魔法数字圆角。
@@ -13632,6 +15547,94 @@ button.palm-spec-group-head:focus-visible {
 
 .palm-action-primary:disabled,
 .palm-action-secondary:disabled { opacity: var(--palm-btn-disabled-opacity); }
+/* ── 皮肤图标贴图层（597）─────────────────────────────────────────────────
+ * B 方案：令牌（059）只能改线条性格，改不了「字形」。这一层把设置页/抽屉里那批
+ * 字形换成各皮肤自己的贴图 —— 剪影 SVG 经 mask 上色，跟着 currentColor 走，
+ * 换肤、深浅、按下态都不用另写颜色。
+ *
+ * 三套皮肤三种风格（同一张点阵，三个渲染器，见 scripts/gen-skin-icons.mjs）：
+ *   xp           实心像素块（Luna 工具条）
+ *   minecraft    膨胀一格的方块面，直角
+ *   cyber-night  只留轮廓像素（霓虹线框）
+ *
+ * 规矩（每条都是踩过的坑）：
+ *   1. 贴图必须在 assets/skins/manifest.json 里登记，否则皮肤素材守卫会红；
+ *   2. 外壳要有**实际尺寸**（内联 SVG 被藏掉后盒子会塌成 0×0），统一用 \`--palm-spec-glyph\`；
+ *   3. 只换设置页/抽屉用到的 15 个字形；没登记的字形照旧走内联 SVG，不要一刀切
+ *      \`[data-icon]\` —— 那样没贴图的图标会变成空白方块（2026-11-14 已踩过同款）。
+ */
+
+/* 15 个字形：设置页每一行 + 抽屉底部入口 + 主机分组 */
+html[data-skin='xp'] .skin-icon[data-icon='bell'] { --palm-icon-art: url('/m/skin-assets/xp/bell.svg') }
+
+html[data-skin='xp'] .skin-icon[data-icon='contrast'] { --palm-icon-art: url('/m/skin-assets/xp/contrast.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='gauge'] { --palm-icon-art: url('/m/skin-assets/xp/gauge.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='hash'] { --palm-icon-art: url('/m/skin-assets/xp/hash.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='image'] { --palm-icon-art: url('/m/skin-assets/xp/image.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='info'] { --palm-icon-art: url('/m/skin-assets/xp/info.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='mic'] { --palm-icon-art: url('/m/skin-assets/xp/mic.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='rows'] { --palm-icon-art: url('/m/skin-assets/xp/rows.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='scroll-down'] { --palm-icon-art: url('/m/skin-assets/xp/scroll-down.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='shield'] { --palm-icon-art: url('/m/skin-assets/xp/shield.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='sliders'] { --palm-icon-art: url('/m/skin-assets/xp/sliders.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='trash'] { --palm-icon-art: url('/m/skin-assets/xp/trash.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='type'] { --palm-icon-art: url('/m/skin-assets/xp/type.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='upper-right'] { --palm-icon-art: url('/m/skin-assets/xp/upper-right.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='vibrate'] { --palm-icon-art: url('/m/skin-assets/xp/vibrate.svg') }
+
+html[data-skin='minecraft'] .skin-icon[data-icon='bell'] { --palm-icon-art: url('/m/skin-assets/minecraft/bell.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='contrast'] { --palm-icon-art: url('/m/skin-assets/minecraft/contrast.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='gauge'] { --palm-icon-art: url('/m/skin-assets/minecraft/gauge.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='hash'] { --palm-icon-art: url('/m/skin-assets/minecraft/hash.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='image'] { --palm-icon-art: url('/m/skin-assets/minecraft/image.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='info'] { --palm-icon-art: url('/m/skin-assets/minecraft/info.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='mic'] { --palm-icon-art: url('/m/skin-assets/minecraft/mic.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='rows'] { --palm-icon-art: url('/m/skin-assets/minecraft/rows.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='scroll-down'] { --palm-icon-art: url('/m/skin-assets/minecraft/scroll-down.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='shield'] { --palm-icon-art: url('/m/skin-assets/minecraft/shield.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='sliders'] { --palm-icon-art: url('/m/skin-assets/minecraft/sliders.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='trash'] { --palm-icon-art: url('/m/skin-assets/minecraft/trash.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='type'] { --palm-icon-art: url('/m/skin-assets/minecraft/type.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='upper-right'] { --palm-icon-art: url('/m/skin-assets/minecraft/upper-right.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='vibrate'] { --palm-icon-art: url('/m/skin-assets/minecraft/vibrate.svg') }
+
+html[data-skin='cyber-night'] .skin-icon[data-icon='bell'] { --palm-icon-art: url('/m/skin-assets/cyber-night/bell.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='contrast'] { --palm-icon-art: url('/m/skin-assets/cyber-night/contrast.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='gauge'] { --palm-icon-art: url('/m/skin-assets/cyber-night/gauge.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='hash'] { --palm-icon-art: url('/m/skin-assets/cyber-night/hash.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='image'] { --palm-icon-art: url('/m/skin-assets/cyber-night/image.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='info'] { --palm-icon-art: url('/m/skin-assets/cyber-night/info.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='mic'] { --palm-icon-art: url('/m/skin-assets/cyber-night/mic.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='rows'] { --palm-icon-art: url('/m/skin-assets/cyber-night/rows.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='scroll-down'] { --palm-icon-art: url('/m/skin-assets/cyber-night/scroll-down.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='shield'] { --palm-icon-art: url('/m/skin-assets/cyber-night/shield.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='sliders'] { --palm-icon-art: url('/m/skin-assets/cyber-night/sliders.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='trash'] { --palm-icon-art: url('/m/skin-assets/cyber-night/trash.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='type'] { --palm-icon-art: url('/m/skin-assets/cyber-night/type.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='upper-right'] { --palm-icon-art: url('/m/skin-assets/cyber-night/upper-right.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='vibrate'] { --palm-icon-art: url('/m/skin-assets/cyber-night/vibrate.svg') }
+
+/* 外壳尺寸：贴图接管后内联 SVG 被藏掉，盒子没有内在尺寸会塌成 0×0。
+   尺寸取上下文共用的 glyph 令牌（设置行与抽屉都是 16px），不写死数字。 */
+html[data-skin='xp'] :is(.skin-icon[data-icon='bell'], .skin-icon[data-icon='contrast'], .skin-icon[data-icon='gauge'], .skin-icon[data-icon='hash'], .skin-icon[data-icon='image'], .skin-icon[data-icon='info'], .skin-icon[data-icon='mic'], .skin-icon[data-icon='rows'], .skin-icon[data-icon='scroll-down'], .skin-icon[data-icon='shield'], .skin-icon[data-icon='sliders'], .skin-icon[data-icon='trash'], .skin-icon[data-icon='type'], .skin-icon[data-icon='upper-right'], .skin-icon[data-icon='vibrate']),
+html[data-skin='minecraft'] :is(.skin-icon[data-icon='bell'], .skin-icon[data-icon='contrast'], .skin-icon[data-icon='gauge'], .skin-icon[data-icon='hash'], .skin-icon[data-icon='image'], .skin-icon[data-icon='info'], .skin-icon[data-icon='mic'], .skin-icon[data-icon='rows'], .skin-icon[data-icon='scroll-down'], .skin-icon[data-icon='shield'], .skin-icon[data-icon='sliders'], .skin-icon[data-icon='trash'], .skin-icon[data-icon='type'], .skin-icon[data-icon='upper-right'], .skin-icon[data-icon='vibrate']),
+html[data-skin='cyber-night'] :is(.skin-icon[data-icon='bell'], .skin-icon[data-icon='contrast'], .skin-icon[data-icon='gauge'], .skin-icon[data-icon='hash'], .skin-icon[data-icon='image'], .skin-icon[data-icon='info'], .skin-icon[data-icon='mic'], .skin-icon[data-icon='rows'], .skin-icon[data-icon='scroll-down'], .skin-icon[data-icon='shield'], .skin-icon[data-icon='sliders'], .skin-icon[data-icon='trash'], .skin-icon[data-icon='type'], .skin-icon[data-icon='upper-right'], .skin-icon[data-icon='vibrate']) {
+  inline-size: var(--palm-spec-glyph);
+  block-size: var(--palm-spec-glyph);
+}
+
+/* 打开 ::before（贴图）并藏掉内联 SVG */
+html[data-skin='xp'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate'])::before,
+html[data-skin='minecraft'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate'])::before,
+html[data-skin='cyber-night'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate'])::before {
+  display: block;
+}
+
+html[data-skin='xp'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate']) > svg,
+html[data-skin='minecraft'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate']) > svg,
+html[data-skin='cyber-night'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate']) > svg {
+  display: none;
+}
 /* ── 报纸皮肤（newsprint）的装饰层（2026-11-11）────────────────────────────
  * 移植自 2754LM/dsh-theme-newsprint（MIT）。底色与墨色在 000-tokens.css 的
  * \`html[data-skin='newsprint']\` 块里；这里只放**颜色令牌表达不了**的部分：
@@ -13707,5 +15710,746 @@ html[data-skin='claude'] .code-block {
 
 html[data-skin='claude'] .code-head {
   background: var(--palm-sur-2);
+}
+/* ── 夏沫琉璃 · 装饰层（612）───────────────────────────────────────────────
+ * 液态玻璃：背景模糊 + 内缘高光 + 极淡光晕。
+ *
+ * 透明度写在皮肤的令牌里（000-tokens.css 的 --palm-sur-1/2 用 rgba），所以每个用
+ * 表面的组件都自动变透，不用逐个挑类名；这一层只补「模糊」和「厚度」——它们必须
+ * 落在具体元素上，而且只给真正的面板容器加（给按钮/小 chips 加 blur 会糊成一片）。
+ *
+ * 没设壁纸时玻璃下面是空的，会像一块脏色，所以再垫一层极淡的冰蓝+琥珀光晕；
+ * 设了壁纸就让位给壁纸层（:not([data-wall='on'])）。
+ */
+
+/* 页面底色让位给光晕：玻璃必须有「后面的东西」才有意义。
+ * 令牌里的 --palm-bg 是实色（对比度守卫要它），这里只在渲染时透掉。 */
+html[data-skin='summer-liquid-glass'] {
+  --palm-bg: transparent;
+}
+
+html[data-skin='summer-liquid-glass']:not([data-wall='on']) body {
+  background-image:
+    radial-gradient(120% 70% at 12% -8%, color-mix(in srgb, var(--palm-accent) 46%, transparent) 0%, transparent 58%),
+    radial-gradient(96% 64% at 96% 6%, color-mix(in srgb, var(--palm-warn) 38%, transparent) 0%, transparent 56%),
+    radial-gradient(120% 60% at 50% 104%, color-mix(in srgb, var(--palm-accent) 26%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--palm-sur-2) 46%, var(--palm-bg)) 0%, var(--palm-bg) 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+html[data-skin='summer-liquid-glass'] .chat-scroll,
+html[data-skin='summer-liquid-glass'] .chat-composer,
+html[data-skin='summer-liquid-glass'] .mobile-header,
+html[data-skin='summer-liquid-glass'] .palm-spec-row {
+  /* 透明度只在这一层做：令牌保持不透明（对比度守卫量的是真实可读性，
+   * 半透明令牌会让守卫算出的数字失真），玻璃靠背景半透明 + 模糊。 */
+  background: color-mix(in srgb, var(--palm-sur-1) 62%, transparent);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+}
+
+/* 底栏（输入行 + 元信息行）单独一道：它平时靠 --palm-bg 实色挡住身后的
+ * picker 遮罩，而这套皮肤的 --palm-bg 是透明的，于是那条 12% 黑会漏成一条
+ * 灰带（2026-11-13 用户反馈）。
+ *
+ * 比例比输入框高、另加一点 brightness：底栏永远压在壁纸最下方那块最暗的区域上，
+ * 用同一档 62% 会「上浅下深」，看着像一条压暗的横带（2026-11-14 用户反馈
+ * 「输入框下方颜色太深」）。抬到 84% + 提亮，玻璃还在，颜色跟上面齐平。 */
+html[data-skin='summer-liquid-glass'] .chat-dock {
+  background: color-mix(in srgb, var(--palm-sur-1) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--palm-sur-1) 92%, var(--palm-fg));
+}
+
+/* 内缘高光：玻璃的「厚度」全靠这一圈，缺了就是一层淡色纸。 */
+html[data-skin='summer-liquid-glass'] .chat-composer,
+html[data-skin='summer-liquid-glass'] .mobile-header {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--palm-sur-1) 92%, var(--palm-fg)),
+    0 6px 18px color-mix(in srgb, var(--palm-fg) 8%, transparent);
+}
+/* ── 粉樱 · 素材层（613）─────────────────────────────────────────────────
+ * 桌面皮肤自带一张爪印底纹（assets/paw.png）。这里把它平铺到页面底色上，
+ * 再用一层 72% 的表面色压住——图案看得见，但不跟正文抢对比度。
+ *
+ * 为什么不做成「页面底色透掉 + 图当背景」：那会让 --palm-bg 变透明，
+ * 底栏 / 顶栏那些靠它当实色遮挡的地方会把 picker 遮罩漏成灰带（夏沫琉璃踩过）。
+ * 素材层只叠 background-image，令牌一个都不动，风险最小。
+ *
+ * 素材只在本机打包、经 /m/skin-assets/ 同源提供；清单里登记了 license + source
+ * 才对外服务（见 assets/skins/manifest.json 与 src/mobile/skin-assets.test.ts）。
+ */
+
+html[data-skin='pink-sakura'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 84%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 84%, transparent)
+    ),
+    url('/m/skin-assets/pink-sakura/paw.png');
+  background-repeat: repeat;
+  background-size: auto, 84px auto;
+  background-position: center, center;
+}
+/* ── 芙宁娜 · 素材层（614）────────────────────────────────────────────────
+ * 桌面的插画是横版 5664×2976。手机竖屏铺 cover 时只保留一张窄条，\`center\` 裁到天空、
+ * \`right\` 裁到手臂 —— 人脸怎么都进不来（2026-11-14 用户反馈）。
+ *
+ * 所以素材在入库时先裁成**竖版 900×1600**（assets/skins/furina/furina-portrait.jpg，
+ * 105 KB，BSD-3-Clause，见 manifest.json），页面里直接 cover + center top：
+ * 任何手机宽高比都是"人脸在上三分之一、身体向下延伸"的构图，不用再猜百分比。
+ *
+ * 令牌不动（--palm-bg 保持不透明），底栏/顶栏的实色遮挡逻辑照旧。
+ */
+
+html[data-skin='furina'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 58%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 82%, transparent)
+    ),
+    url('/m/skin-assets/furina/furina-portrait.jpg');
+  /* 不写 background-attachment: fixed —— 页面本身不滚（滚动发生在 .chat-scroll 里），
+   * 固定背景在这里既没视觉收益，又会让每次滚动都重绘整张图（手机上是实打实的卡顿源）。 */
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── Windows XP · 图标层（615）─────────────────────────────────────────────
+ * 用图标层换掉三个最常见的内联 SVG：抽屉（menu）/ 添加（plus）/ 发送（send）。
+ *
+ * 每换一个图标四件事：给出 --palm-icon-art、给外壳一个尺寸（内联 SVG 被藏掉后
+ * 盒子会塌成 0×0）、打开 ::before、藏掉内联 SVG。贴图是纯黑剪影 SVG，经 mask
+ * 上色 → 跟着 currentColor 走，hover 与明暗都不用另写。
+ * 素材：assets/skins/xp/*.svg（本项目自绘，Apache-2.0，见 manifest.json）。
+ */
+
+html[data-skin='xp'] .skin-icon[data-icon='menu'] {
+  --palm-icon-art: url('/m/skin-assets/xp/menu.svg');
+  --palm-icon-size: 20px;
+  inline-size: 20px;
+  block-size: 20px;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='menu']::before {
+  display: block;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='menu'] > svg {
+  display: none;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='plus'] {
+  --palm-icon-art: url('/m/skin-assets/xp/plus.svg');
+  --palm-icon-size: 16px;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='plus']::before {
+  display: block;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='plus'] > svg {
+  display: none;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='send'] {
+  --palm-icon-art: url('/m/skin-assets/xp/send.svg');
+  --palm-icon-size: 16px;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='send']::before {
+  display: block;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='send'] > svg {
+  display: none;
+}
+
+/* ── 九宫格边框 + 状态栏（阶段 3：组件级观感）────────────────────────────
+ * 边框用 48×48 的九宫格贴图（slice 12）——这是把"窗口有厚度"画出来的最低成本方式：
+ * 不改结构、不动令牌，只换边。输入区与设置卡片各套一层，像 Luna 的窗口。
+ */
+html[data-skin='xp'] .chat-composer,
+html[data-skin='xp'] .palm-spec-row {
+  border: 4px solid transparent;
+  border-image: url('/m/skin-assets/xp/frame.svg') 12 / 4px / 0 stretch;
+}
+
+/* 底栏像 Luna 的状态栏：顶部一条高光 + 极淡的竖向渐变。 */
+html[data-skin='xp'] .chat-dock {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--palm-sur-1) 70%, var(--palm-accent)) 0,
+    var(--palm-sur-1) 18px,
+    var(--palm-sur-1) 100%
+  );
+  box-shadow: inset 0 1px 0 var(--palm-sur-1);
+}
+/* ── Minecraft 方块世界 · 装饰层（616）──────────────────────────────────
+ * 像素感靠两件事，都不需要素材：
+ *   1. 直角 + 1px 方块边框（本皮肤的 --palm-r-* 已是 2/4/6，这里给卡片补一圈"砖缝"）；
+ *   2. 页面上铺一层 16px 的栅格线（用渐变画，零图片、零额外请求）。
+ *
+ * 颜色全部走令牌（\`--palm-line\`），所以暗色底也成立。
+ */
+
+html[data-skin='minecraft'] body {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--palm-fg) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--palm-fg) 12%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
+
+/* 卡片/输入区补一圈 1px 砖缝，直角感更硬。 */
+html[data-skin='minecraft'] .chat-composer,
+html[data-skin='minecraft'] .palm-spec-row {
+  border: 1px solid var(--palm-line);
+}
+
+/* 代码块按方块处理：直角、无圆角。 */
+html[data-skin='minecraft'] pre,
+html[data-skin='minecraft'] code {
+  border-radius: 0;
+}
+/* ── 交易终端 · 装饰层（617）────────────────────────────────────────────
+ * 行情终端的观感只靠两条，都不加图：
+ *   1. 数字一律等宽 + 表格数字对齐（tabular-nums）——数字不跳，才像终端；
+ *   2. 卡片左侧一条 2px "涨跌条"：正常用强调色（红涨），危险态用 ok（绿跌）。
+ *      这是"用已有的语义色画装饰"，不引入新的色值。
+ */
+
+/* 等宽数字：时间、计数、百分比都不再左右横跳。 */
+html[data-skin='trading'] body {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* 左侧涨跌条：用内阴影画，不占布局、不加边框宽度。 */
+html[data-skin='trading'] .chat-composer,
+html[data-skin='trading'] .palm-spec-row {
+  box-shadow: inset 3px 0 0 var(--palm-accent);
+}
+
+html[data-skin='trading'] .chat-dock {
+  border-block-start: 2px solid var(--palm-accent);
+}
+
+/* 代码块也走等宽数字，和正文一致。 */
+html[data-skin='trading'] pre,
+html[data-skin='trading'] code {
+  font-variant-numeric: tabular-nums;
+}
+/* ── 壁纸专属 · 玻璃层（618）─────────────────────────────────────────────
+ * 这套皮肤的身份就是"壁纸优先"：页面底色透掉，面板做成磨砂玻璃，让用户自己的
+ * 背景图当主角。做法与夏沫琉璃同一套（令牌保持不透明 → 透明度只在装饰层做，
+ * 对比度守卫量的仍是真实可读性）。
+ *
+ * 没设壁纸时不能让页面变成白板：给 body 一个柔和的表面色兜底。
+ */
+
+html[data-skin='wallpaper-exclusive'] {
+  --palm-bg: transparent;
+}
+
+html[data-skin='wallpaper-exclusive']:not([data-wall='on']) body {
+  background-color: var(--palm-sur-2);
+}
+
+html[data-skin='wallpaper-exclusive'] .chat-scroll,
+html[data-skin='wallpaper-exclusive'] .chat-composer,
+html[data-skin='wallpaper-exclusive'] .mobile-header,
+html[data-skin='wallpaper-exclusive'] .palm-spec-row {
+  background: color-mix(in srgb, var(--palm-sur-1) 62%, transparent);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+}
+
+/* 底栏比输入框淡一档：它压在壁纸最暗处，同档会显成一条深带。 */
+html[data-skin='wallpaper-exclusive'] .chat-dock {
+  background: color-mix(in srgb, var(--palm-sur-1) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  box-shadow: inset 0 1px 0 var(--palm-sur-1);
+}
+/* ── 赛博夜城 · 霓虹层（619）────────────────────────────────────────────
+ * 暗底霓虹的观感全靠"发光边界"，不加图：
+ *   1. 顶栏下沿一条强调色细线（把界面切成上下两块）；
+ *   2. 输入区一圈 1px 强调描边 + 外发光，像屏幕上的霓虹灯管；
+ *   3. 选中态的行用强调色描边。
+ *
+ * 全部走 color-mix(令牌)，所以换明暗档不会翻车。
+ */
+
+html[data-skin='cyber-night'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 55%, transparent);
+}
+
+html[data-skin='cyber-night'] .chat-composer {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 45%, transparent),
+    0 0 18px color-mix(in srgb, var(--palm-accent) 22%, transparent);
+}
+
+html[data-skin='cyber-night'] .palm-spec-row[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--palm-accent) 60%, transparent);
+}
+
+html[data-skin='cyber-night'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-accent) 35%, transparent);
+}
+
+/* 页面背景：生成的霓虹街景（673×1200 / 103 KB，CC0），压一层 80%→62% 的表面色，
+ * 保证正文读得清、霓虹还看得见。 */
+html[data-skin='cyber-night'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 80%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 62%, transparent)
+    ),
+    url('/m/skin-assets/cyber-night/cyber-city.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── 龙的传人 · 砖纹层（620）────────────────────────────────────────────
+ * 长城砖：用错缝的重复渐变画出砖块（零图片），再让强调色（朱砂）只出现在
+ * 输入区的一道细边和底栏一条线上，避免整屏发红。
+ *
+ * 颜色全走令牌（\`--palm-line\` / \`--palm-accent\`）。
+ */
+
+html[data-skin='dragon-heir'] body {
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 27px, var(--palm-line) 27px 28px),
+    repeating-linear-gradient(90deg, transparent 0 55px, var(--palm-line) 55px 56px);
+  background-size: 56px 28px;
+}
+
+html[data-skin='dragon-heir'] .chat-composer {
+  box-shadow: inset 0 0 0 1px var(--palm-accent);
+}
+
+html[data-skin='dragon-heir'] .chat-dock {
+  border-block-start: 2px solid var(--palm-accent);
+}
+/* ── 鲸吟 · 金线层（621）────────────────────────────────────────────────
+ * 深海鲸语的观感来自"极暗底 + 极细金线"：
+ *   1. 顶栏下沿与底栏上沿各一条 1px 金线（用强调色的暖化混色代替第二组色）；
+ *   2. 页面底部一层极淡的洋流渐变，让大片深蓝不死板。
+ *
+ * 全部走 color-mix(令牌)，不写裸色。
+ */
+
+html[data-skin='whale-song'] body {
+  background-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 62%,
+    color-mix(in srgb, var(--palm-accent) 10%, transparent) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+html[data-skin='whale-song'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-warn) 45%, transparent);
+}
+
+html[data-skin='whale-song'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-warn) 40%, transparent);
+}
+
+html[data-skin='whale-song'] .chat-composer {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--palm-accent) 35%, transparent);
+}
+/* ── 女仆工坊 · 蕾丝 + 立绘层（622）──────────────────────────────────────
+ * 桌面这套的素材是 **CC BY-NC-SA 4.0**（NOTICE 里写明还是"三级衍生"），而 dsh-palm
+ * 本体是 Apache-2.0 的 npm 包 —— 把 NC/SA 素材打进包会污染整包许可，所以一张都不用它。
+ *
+ * 页面背景与空状态徽章改用**生成图**（Agnes image 2.1，2026-11-14，CC0）：
+ *   assets/skins/maid-atelier/maid-stand.jpg  673×1200 / 65 KB  全身立绘（右站、左留白）
+ *   assets/skins/maid-atelier/maid-chibi.jpg  256×256   / 21 KB  Q 版头像（空状态徽章）
+ * 合计 86 KB，远低于每套 300 KB 的上限。
+ *
+ * 蕾丝边用 repeating radial 画扇贝，颜色全走令牌。
+ */
+
+/* 立绘铺页面背景：人物在画面右侧，左半边留白正好放正文；
+ * 压一层 55%→78% 的表面色，文字读得清、人还认得出。 */
+html[data-skin='maid-atelier'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 78%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 52%, transparent)
+    ),
+    url('/m/skin-assets/maid-atelier/maid-stand.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+
+/* 抽屉身份区：把工作区首字母方块换成 36px 方形头像（完整显示、不裁切）。
+ * 之前把半身像铺在 .palm-drawer-head 背景上，被抽屉圆角切掉一角、又压到「切换」按钮，
+ * 用户反馈"没显示完整、位置怪"——改成占用既有头像位，天然对齐、不遮挡任何控件。 */
+/* 空状态：Q 版头像圆形徽章，叠在提示语上方当"工坊看板娘"。 */
+html[data-skin='maid-atelier'] .empty-state {
+  position: relative;
+  padding-block-start: 96px;
+}
+
+html[data-skin='maid-atelier'] .empty-state::before {
+  content: '';
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  inline-size: 72px;
+  block-size: 72px;
+  border-radius: 50%;
+  background: url('/m/skin-assets/maid-atelier/maid-chibi.jpg') center / cover no-repeat;
+  box-shadow:
+    0 0 0 2px var(--palm-sur-1),
+    0 0 0 3px color-mix(in srgb, var(--palm-accent) 45%, transparent);
+  pointer-events: none;
+}
+
+html[data-skin='maid-atelier'] .chat-dock {
+  border-block-start: 1px solid var(--palm-line);
+}
+
+/* 底栏顶沿一排扇贝（蕾丝花边）：直接画在底栏自己的背景层上，不依赖定位伪元素
+ * （伪元素在个别容器里会被裁掉/被背景盖住，2026-11-14 踩过一次）。 */
+html[data-skin='maid-atelier'] .chat-dock {
+  background-image: radial-gradient(
+    circle at 7px 0,
+    color-mix(in srgb, var(--palm-accent) 78%, var(--palm-sur-1)) 6.5px,
+    transparent 7px
+  );
+  background-size: 14px 14px;
+  background-repeat: repeat-x;
+  background-position: top left;
+}
+
+/* 输入区：内外双线，像包了缎带 */
+html[data-skin='maid-atelier'] .chat-composer {
+  box-shadow:
+    inset 0 0 0 1px var(--palm-line),
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 35%, transparent);
+}
+
+/* 顶栏下方一条更淡的同色细线，收住画面上沿 */
+html[data-skin='maid-atelier'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 28%, transparent);
+}
+/* ── 蓝色幻想 · 冰光层（623）────────────────────────────────────────────
+ * 深蓝梦境：靠"顶部冷光 + 边界冰蓝"表达，不加图、不加新色值。
+ *   1. 页面上半部一层极淡的冰蓝径向光（模拟月光从上方打下来）；
+ *   2. 输入区一圈冰蓝描边 + 外侧柔光；
+ *   3. 底栏顶沿一条冷色细线，把输入区托起来。
+ */
+
+html[data-skin='blue-fantasy'] body {
+  background-image:
+    radial-gradient(
+      120% 70% at 50% 0%,
+      color-mix(in srgb, var(--palm-accent) 20%, transparent) 0%,
+      transparent 55%
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 90%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 62%, transparent)
+    ),
+    url('/m/skin-assets/blue-fantasy/blue-islands.jpg');
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-size: auto, cover, cover;
+  background-position: center, center, center top;
+}
+
+html[data-skin='blue-fantasy'] .chat-composer {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 40%, transparent),
+    0 6px 24px color-mix(in srgb, var(--palm-accent) 18%, transparent);
+}
+
+html[data-skin='blue-fantasy'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-accent) 30%, transparent);
+}
+
+html[data-skin='blue-fantasy'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 24%, transparent);
+}
+/* ── 夕港 · 海面层（624）────────────────────────────────────────────────
+ * 黄昏港湾的感觉来自"上方天色压下来、下方水面反上来"：
+ *   1. 页面底部一层暖橘反光（渐变压到透明），像水面接住落日；
+ *   2. 输入区一圈暖色描边；
+ *   3. 底栏顶沿一条暖线，与底部反光呼应。
+ *
+ * 全部 color-mix(令牌)，不写裸色。
+ */
+
+html[data-skin='harbor'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 85%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 66%, transparent)
+    ),
+    url('/m/skin-assets/harbor/harbor-dusk.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+
+html[data-skin='harbor'] .chat-composer {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 38%, transparent),
+    0 -2px 18px color-mix(in srgb, var(--palm-accent) 12%, transparent);
+}
+
+html[data-skin='harbor'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-accent) 32%, transparent);
+}
+
+html[data-skin='harbor'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 22%, transparent);
+}
+/* ── war-thunder · 背景层（625）──────────────────────────────────────
+ * 素材：军械钢板纹理（铆钉、划痕、远处炮塔剪影）
+ *   assets/skins/war-thunder/war-plate.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 78%→60% 的表面色。
+ * 深色底：遮罩从 78%（顶部/正文区更实）过渡到 60%（底部让画面透出来）。
+ */
+
+html[data-skin='war-thunder'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 88%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 70%, transparent)
+    ),
+    url('/m/skin-assets/war-thunder/war-plate.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── whale-mom · 背景层（626）──────────────────────────────────────
+ * 素材：浅海光柱 + 鲸鱼母子剪影
+ *   assets/skins/whale-mom/whale-sea.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 88%→70% 的表面色。
+ * 浅色底：遮罩从 88%（顶部/正文区更实）过渡到 70%（底部让画面透出来）。
+ */
+
+html[data-skin='whale-mom'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 88%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 70%, transparent)
+    ),
+    url('/m/skin-assets/whale-mom/whale-sea.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── nocturne · 背景层（627）──────────────────────────────────────
+ * 素材：近黑夜空 + 稀疏星点
+ *   assets/skins/nocturne/nocturne-sky.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 86%→70% 的表面色。
+ * 深色底：遮罩从 86%（顶部/正文区更实）过渡到 70%（底部让画面透出来）。
+ */
+
+html[data-skin='nocturne'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 86%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 70%, transparent)
+    ),
+    url('/m/skin-assets/nocturne/nocturne-sky.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── matrix · 背景层（628）──────────────────────────────────────
+ * 素材：数字雨（绿色竖列、低对比）
+ *   assets/skins/matrix/matrix-rain.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 82%→62% 的表面色。
+ * 深色底：遮罩从 82%（顶部/正文区更实）过渡到 62%（底部让画面透出来）。
+ */
+
+html[data-skin='matrix'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 82%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 62%, transparent)
+    ),
+    url('/m/skin-assets/matrix/matrix-rain.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── deep-current · 背景层（629）──────────────────────────────────────
+ * 素材：深海光柱与暗流，远处剪影
+ *   assets/skins/deep-current/deep-abyss.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 90%→72% 的表面色。
+ * 浅色底：遮罩从 90%（顶部/正文区更实）过渡到 72%（底部让画面透出来）。
+ */
+
+html[data-skin='deep-current'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 90%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 72%, transparent)
+    ),
+    url('/m/skin-assets/deep-current/deep-abyss.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── endfield · 背景层（630）──────────────────────────────────────
+ * 素材：工业荒原与巨型结构，尘雾
+ *   assets/skins/endfield/endfield-waste.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 90%→74% 的表面色。
+ * 浅色底：遮罩从 90%（顶部/正文区更实）过渡到 74%（底部让画面透出来）。
+ */
+
+html[data-skin='endfield'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 90%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 74%, transparent)
+    ),
+    url('/m/skin-assets/endfield/endfield-waste.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+/* ── 抽屉头像（631）───────────────────────────────────────────────────────
+ * 每条规则只做一件事：把 36px 头像位换成这套皮肤自己的「脸」。
+ *
+ * 两种来源，都是现成素材、零新增生成：
+ *   ① 有背景图的皮肤 → 直接拿那张图当头像，靠 background-position 把脸/主体框进方块
+ *      （比单独裁一张更省：不增加体积，风格天然一致）；
+ *   ② 没有图的皮肤 → 用项目自绘的 SVG 符号（xp 四色方块 / minecraft 草方块 /
+ *      交易终端双蜡烛 / 龙印）+ 粉樱的爪印。
+ *
+ * 仍保留字母方块的 7 套（graphite / paper / newsprint / claude / mint /
+ * summer-liquid-glass / whale-song）是刻意的：它们本身就是"无装饰"风格，
+ * 加图案反而破坏气质。
+ */
+
+/* ① 有背景图的皮肤：整图当头像，position 是"框住主体"的那一档 */
+html[data-skin='maid-atelier'] .palm-drawer-avatar,
+html[data-skin='furina'] .palm-drawer-avatar,
+html[data-skin='cyber-night'] .palm-drawer-avatar,
+html[data-skin='blue-fantasy'] .palm-drawer-avatar,
+html[data-skin='harbor'] .palm-drawer-avatar,
+html[data-skin='war-thunder'] .palm-drawer-avatar,
+html[data-skin='whale-mom'] .palm-drawer-avatar,
+html[data-skin='nocturne'] .palm-drawer-avatar,
+html[data-skin='matrix'] .palm-drawer-avatar,
+html[data-skin='deep-current'] .palm-drawer-avatar,
+html[data-skin='endfield'] .palm-drawer-avatar {
+  background-size: cover;
+  background-repeat: no-repeat;
+  color: transparent;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--palm-accent) 45%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--palm-sur-1) 70%, transparent);
+}
+
+html[data-skin='maid-atelier'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/maid-atelier/maid-portrait.jpg');
+  background-position: center 14%;
+}
+
+html[data-skin='furina'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/furina/furina-portrait.jpg');
+  background-position: center 10%;
+}
+
+html[data-skin='cyber-night'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/cyber-night/cyber-city.jpg');
+  background-position: center 42%;
+}
+
+html[data-skin='blue-fantasy'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/blue-fantasy/blue-islands.jpg');
+  background-position: center 34%;
+}
+
+html[data-skin='harbor'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/harbor/harbor-dusk.jpg');
+  background-position: center 58%;
+}
+
+html[data-skin='war-thunder'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/war-thunder/war-plate.jpg');
+  background-position: center 45%;
+}
+
+html[data-skin='whale-mom'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/whale-mom/whale-sea.jpg');
+  background-position: center 72%;
+}
+
+html[data-skin='nocturne'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/nocturne/nocturne-sky.jpg');
+  background-position: center 30%;
+}
+
+html[data-skin='matrix'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/matrix/matrix-rain.jpg');
+  background-position: center 40%;
+}
+
+html[data-skin='deep-current'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/deep-current/deep-abyss.jpg');
+  background-position: center 52%;
+}
+
+html[data-skin='endfield'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/endfield/endfield-waste.jpg');
+  background-position: center 44%;
+}
+
+/* ② 符号头像：SVG 居中缩放到 72%，底色仍是皮肤的强调淡色 */
+html[data-skin='xp'] .palm-drawer-avatar,
+html[data-skin='minecraft'] .palm-drawer-avatar,
+html[data-skin='trading'] .palm-drawer-avatar,
+html[data-skin='dragon-heir'] .palm-drawer-avatar,
+html[data-skin='pink-sakura'] .palm-drawer-avatar {
+  background-size: 72% auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: transparent;
+}
+
+html[data-skin='xp'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/xp/avatar.svg');
+  background-color: var(--palm-sur-2);
+}
+
+html[data-skin='minecraft'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/minecraft/avatar.svg');
+  background-size: 84% auto;
+}
+
+html[data-skin='trading'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/trading/avatar.svg');
+  background-color: var(--palm-sur-2);
+}
+
+html[data-skin='dragon-heir'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/dragon-heir/avatar.svg');
+  background-size: 80% auto;
+}
+
+html[data-skin='pink-sakura'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/pink-sakura/paw.png');
+  background-size: 62% auto;
 }
 `;

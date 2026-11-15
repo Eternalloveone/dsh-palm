@@ -140,6 +140,24 @@ details.think-block[open] .chat-disclosure-caret {
   color: var(--text-primary) !important;
 }
 
+/* 当前落点：搜索"上一个/下一个"走到哪一处。只是一个描边标记，**不改变布局**
+   （不再靠给整行加焦点态来强调 —— 那会展开/收起长文，滚完又被弹回去，
+   真机表现就是「点上一个不动」）。同时放一次脉冲：目标本来就在视口内时
+   没有位移，没有脉冲用户就以为"没跳"。 */
+@keyframes palm-search-hit-pulse {
+  0% { box-shadow: 0 0 0 0 var(--palm-accent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.mobile .chat-search-mark-active {
+  outline: 2px solid var(--palm-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+  font-weight: 800;
+  animation: palm-search-hit-pulse 700ms ease-out 1;
+}
+
 /* Settings-search locate: the anchored sub-page entry pulses once on
    arrival, so the user sees which control the search found. */
 [data-locate-id][data-focus] {

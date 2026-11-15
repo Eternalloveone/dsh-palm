@@ -1,0 +1,53 @@
+/* ── 可换图标（058）───────────────────────────────────────────────────────
+ * 底座：`icons.tsx` 里 36 个图标组件现在各自渲染成
+ *   <span class="skin-icon" data-icon="send"><svg …/></span>
+ * （2026-11-14 统一包好，代码里不用再手动套壳）。皮肤在装饰层用三行换掉任意一个：
+ *
+ *   .skin-icon[data-icon='send'] { --palm-icon-art: url('/m/skin-assets/xp/send.svg'); inline-size:16px; block-size:16px }
+ *   .skin-icon[data-icon='send']::before { display: block }
+ *   .skin-icon[data-icon='send'] > svg { display: none }
+ *
+ * 默认状态什么都不变：::before 是 display:none，内联 SVG 照旧显示。
+ *
+ * ⚠ 包一层 span 会让「直接子代」选择器全部失效（2026-11-14 实机：设置页每行图标
+ * 变成空白方块、抽屉里图标被挤到文案中间）。两条硬规矩：
+ *   1. 任何给图标定尺寸的规则必须写成 `X > svg, X > .skin-icon > svg` 两个选择器；
+ *   2. 任何 `X > span` / `X > :first-child` 这种泛结构选择器要把外壳排除掉
+ *      （`:not(.skin-icon)`），否则外壳会被当成文案被拉宽。
+ * 规矩 1 有静态测试守着：styles/skin-icon-wrap.test.ts。
+ */
+
+.skin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  /* flex 父容器里绝不能被拉伸：图标外壳只跟着里面的 glyph 走 */
+  flex: none;
+  max-inline-size: none;
+  /* 盒子尺寸由里面的内联 SVG 决定；::before 铺满它，不需要另设宽高 */
+}
+
+.skin-icon > svg {
+  display: block;
+  /* 线条性格由皮肤决定（059 给值，默认 1.8 圆头平线，与改动前一致）。
+   * 这三个是 SVG 的**呈现属性**，CSS 优先级高于组件里写的 strokeWidth={1.8} 属性，
+   * 所以不用改 icons.tsx 里的 36 个组件就能整体换性格。 */
+  stroke-width: var(--palm-icon-stroke, 1.8);
+  stroke-linejoin: var(--palm-icon-join, round);
+  stroke-linecap: var(--palm-icon-cap, round);
+  shape-rendering: var(--palm-icon-render, auto);
+}
+
+.skin-icon::before {
+  content: '';
+  /* inset:0 —— 皮肤换图标时会在元素上给出 --palm-icon-size（默认 18px），
+   * 外壳因此有实际宽高；不依赖"0×0 盒子 + 绝对定位溢出"，那条在某些按钮
+   * 容器里会被裁掉（2026-11-14 踩过：mask 一切正常但什么都看不见）。 */
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: currentColor;
+  -webkit-mask: var(--palm-icon-art) center / contain no-repeat;
+  mask: var(--palm-icon-art) center / contain no-repeat;
+}

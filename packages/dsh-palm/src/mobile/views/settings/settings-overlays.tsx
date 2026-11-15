@@ -1,11 +1,14 @@
 /**
- * 设置页的浮层：主题 / 字号 / 密度单选面板、关于面板（版本 / 更新检查 / 健康），
+ * 设置页的浮层：密度单选面板、关于面板（版本 / 更新检查 / 健康），
  * 以及清除缓存确认。它们与 .mobile-scroll 同级，DOM 顺序与拆分前一致。
+ *
+ * 2026-11-13：字号面板删掉了——「外观」页里已经能调字号，两处入口重复；
+ * 浮层里只剩密度（外观页也调密度，但这条是给了更快的一次点开，先留着）。
  */
 import pkg from '../../../../package.json'
 import { mutateSettings } from '../../data/settings.ts'
 import type { MobileHealthView } from '../../api.ts'
-import { applyDisplayPrefs, setDensity, setFontScale, type Density, type FontScale } from '../../platform/display-prefs.ts'
+import { applyDisplayPrefs } from '../../platform/display-prefs.ts'
 import { BUILD_HASH } from '../../platform/build-info.ts'
 import { Sheet } from '../../ui/sheet.tsx'
 import { ConfirmDialog } from '../../components/dialog.tsx'
@@ -14,12 +17,8 @@ import { OptionSheet, clearAppCaches } from './settings-shared.tsx'
 import { Button } from '../../ui/primitives.tsx'
 
 export interface SettingsOverlaysProps {
-  sheet: 'font' | 'density' | 'about' | null
-  setSheet: (sheet: 'font' | 'density' | 'about' | null) => void
-  fontScale: FontScale
-  density: Density
-  setFontScaleState: (value: FontScale) => void
-  setDensityState: (value: Density) => void
+  sheet: 'about' | null
+  setSheet: (sheet: 'about' | null) => void
   versionBusy: boolean
   versionStatus: string | undefined
   handleVersionCheck: () => Promise<void>
@@ -31,37 +30,12 @@ export interface SettingsOverlaysProps {
 }
 
 export function SettingsOverlays({
-  sheet, setSheet, fontScale, density, setFontScaleState, setDensityState,
+  sheet, setSheet,
   versionBusy, versionStatus, handleVersionCheck, health, swControlled, healthFailing,
   confirmClear, setConfirmClear,
 }: SettingsOverlaysProps) {
   return (
     <>
-      {sheet === 'font' && (
-        <OptionSheet
-          title="字体大小"
-          value={fontScale}
-          options={[
-            { value: 'small', label: '小' },
-            { value: 'standard', label: '标准' },
-            { value: 'large', label: '大' },
-          ]}
-          onPick={(value: FontScale) => { setFontScale(value); setFontScaleState(value); applyDisplayPrefs() }}
-          onClose={() => { setSheet(null) }}
-        />
-      )}
-      {sheet === 'density' && (
-        <OptionSheet
-          title="消息密度"
-          value={density}
-          options={[
-            { value: 'compact', label: '紧凑' },
-            { value: 'cozy', label: '舒适' },
-          ]}
-          onPick={(value: Density) => { setDensity(value); setDensityState(value); applyDisplayPrefs() }}
-          onClose={() => { setSheet(null) }}
-        />
-      )}
       {sheet === 'about' && (
         <Sheet title="关于" onClose={() => { setSheet(null) }}>
           <p className="sheet-confirm-desc">

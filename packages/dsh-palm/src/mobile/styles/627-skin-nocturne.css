@@ -1,0 +1,18 @@
+/* ── nocturne · 背景层（627）──────────────────────────────────────
+ * 素材：近黑夜空 + 稀疏星点
+ *   assets/skins/nocturne/nocturne-sky.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 86%→70% 的表面色。
+ * 深色底：遮罩从 86%（顶部/正文区更实）过渡到 70%（底部让画面透出来）。
+ */
+
+html[data-skin='nocturne'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 86%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 70%, transparent)
+    ),
+    url('/m/skin-assets/nocturne/nocturne-sky.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}

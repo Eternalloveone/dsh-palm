@@ -1,0 +1,148 @@
+/* ── 图标风格随皮肤走（059）───────────────────────────────────────────────
+ * 为什么单开一层：图标层（058）已经能让皮肤把某个图标换成**贴图**，但线条
+ * 性格仍是全站统一的「1.8 圆头细线」—— 二十套皮肤里，设置页那一列图标长得
+ * 一模一样（2026-11-14 用户：「设置页每个栏目的图标不同皮肤都没有区别，
+ * 能不能各自不同样式」）。
+ *
+ * 这里只给四个旋钮，全站图标一次消费（058 的 `.skin-icon > svg`）：
+ *
+ *   --palm-icon-stroke  描边粗细（无单位数字，SVG 的 stroke-width 认它）
+ *   --palm-icon-join    转折：round 圆润 / miter 见棱角
+ *   --palm-icon-cap     线头：round 圆头 / butt 平头
+ *   --palm-icon-render  渲染：auto / crispEdges（像素皮肤要那点锯齿）/ geometricPrecision
+ *   --palm-spec-ico-r   图标方块的圆角（0 = 方块，var(--palm-r-m) = 跟着皮肤圆润）
+ *
+ * 三条边界，别越界：
+ *   1. 颜色不在这里 —— 仍是 --palm-fg-2（图标）/ --palm-sur-2（方块底），
+ *      这套文件只改"线条与形状"，所以不能出现任何色值（设计门禁也拦）。
+ *   2. 单位只许无单位数字、关键字与圆角令牌（`--palm-r-s` / `-m` / `-l`）；写字面 px
+ *      会顶到预算闸门。
+ *   3. 每条皮肤覆盖都必须挂在 `html[data-skin='x']` 下 —— 漏了前缀会污染全部皮肤
+ *      （报头衬线跑进石墨皮肤那次就是这么坏的，见 skin-decor.test.ts）。
+ *
+ * 新增皮肤时：想让它跟默认不同就来这里加一段；不加就是默认的圆头细线。
+ */
+
+/* 默认：圆头细线（与 2026-11-14 之前的内联 SVG 视觉一致，不是新设计）。 */
+:root {
+  --palm-icon-stroke: 1.8;
+  --palm-icon-join: round;
+  --palm-icon-cap: round;
+  --palm-icon-render: auto;
+}
+
+/* 纸质/印刷：线细一档、转角改平头，像钢笔描出来的。 */
+html[data-skin='paper'] {
+  --palm-icon-stroke: 1.6;
+}
+
+html[data-skin='nocturne'] {
+  --palm-icon-stroke: 1.6;
+}
+
+/* 报纸：最细 + 平头平角 + 方块直角，版式语言是「铅字与栏线」。 */
+html[data-skin='newsprint'] {
+  --palm-icon-stroke: 1.5;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-spec-ico-r: 0;
+}
+
+/* 终末地：工程感，见棱角但不做像素化。 */
+html[data-skin='endfield'] {
+  --palm-icon-stroke: 1.5;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-spec-ico-r: var(--palm-r-s);
+}
+
+html[data-skin='claude'] {
+  --palm-icon-stroke: 1.7;
+}
+
+/* 矩阵：数字屏，开 crispEdges 让斜线带锯齿。 */
+html[data-skin='matrix'] {
+  --palm-icon-stroke: 1.6;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+/* XP：系统图标，粗一档 + 方头 + 锯齿 + 方块直角。 */
+html[data-skin='xp'] {
+  --palm-icon-stroke: 2.1;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+html[data-skin='deep-current'] {
+  --palm-icon-stroke: 1.6;
+}
+
+html[data-skin='mint'] {
+  --palm-icon-stroke: 1.7;
+}
+
+html[data-skin='pink-sakura'] {
+  --palm-icon-stroke: 1.6;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+/* 液态玻璃：最细的一档，细线才透得住玻璃。 */
+html[data-skin='summer-liquid-glass'] {
+  --palm-icon-stroke: 1.4;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+html[data-skin='furina'] {
+  --palm-icon-stroke: 1.6;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+/* 我的世界：最粗 + 锯齿 + 直角方块，近像素画。 */
+html[data-skin='minecraft'] {
+  --palm-icon-stroke: 2.2;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+/* 交易终端：锐角平头（不做锯齿——行情页的图标要看着精密）。 */
+html[data-skin='trading'] {
+  --palm-icon-stroke: 1.7;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: geometricPrecision;
+  --palm-spec-ico-r: 0;
+}
+
+/* 赛博夜城：霓虹细线 + 锯齿 + 直角。 */
+html[data-skin='cyber-night'] {
+  --palm-icon-stroke: 1.4;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-icon-render: crispEdges;
+  --palm-spec-ico-r: 0;
+}
+
+html[data-skin='wallpaper-exclusive'] {
+  --palm-icon-stroke: 1.4;
+  --palm-spec-ico-r: var(--palm-r-m);
+}
+
+/* 龙的传人：厚重一档（朱砂印、砖墙，线细了撑不住这个调子）。 */
+html[data-skin='dragon-heir'] {
+  --palm-icon-stroke: 1.9;
+  --palm-icon-join: miter;
+  --palm-icon-cap: butt;
+  --palm-spec-ico-r: var(--palm-r-s);
+}
+
+html[data-skin='whale-song'] {
+  --palm-icon-stroke: 1.6;
+  --palm-spec-ico-r: var(--palm-r-m);
+}

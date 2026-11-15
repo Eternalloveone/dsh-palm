@@ -1,0 +1,88 @@
+/* ── 皮肤图标贴图层（597）─────────────────────────────────────────────────
+ * B 方案：令牌（059）只能改线条性格，改不了「字形」。这一层把设置页/抽屉里那批
+ * 字形换成各皮肤自己的贴图 —— 剪影 SVG 经 mask 上色，跟着 currentColor 走，
+ * 换肤、深浅、按下态都不用另写颜色。
+ *
+ * 三套皮肤三种风格（同一张点阵，三个渲染器，见 scripts/gen-skin-icons.mjs）：
+ *   xp           实心像素块（Luna 工具条）
+ *   minecraft    膨胀一格的方块面，直角
+ *   cyber-night  只留轮廓像素（霓虹线框）
+ *
+ * 规矩（每条都是踩过的坑）：
+ *   1. 贴图必须在 assets/skins/manifest.json 里登记，否则皮肤素材守卫会红；
+ *   2. 外壳要有**实际尺寸**（内联 SVG 被藏掉后盒子会塌成 0×0），统一用 `--palm-spec-glyph`；
+ *   3. 只换设置页/抽屉用到的 15 个字形；没登记的字形照旧走内联 SVG，不要一刀切
+ *      `[data-icon]` —— 那样没贴图的图标会变成空白方块（2026-11-14 已踩过同款）。
+ */
+
+/* 15 个字形：设置页每一行 + 抽屉底部入口 + 主机分组 */
+html[data-skin='xp'] .skin-icon[data-icon='bell'] { --palm-icon-art: url('/m/skin-assets/xp/bell.svg') }
+
+html[data-skin='xp'] .skin-icon[data-icon='contrast'] { --palm-icon-art: url('/m/skin-assets/xp/contrast.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='gauge'] { --palm-icon-art: url('/m/skin-assets/xp/gauge.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='hash'] { --palm-icon-art: url('/m/skin-assets/xp/hash.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='image'] { --palm-icon-art: url('/m/skin-assets/xp/image.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='info'] { --palm-icon-art: url('/m/skin-assets/xp/info.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='mic'] { --palm-icon-art: url('/m/skin-assets/xp/mic.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='rows'] { --palm-icon-art: url('/m/skin-assets/xp/rows.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='scroll-down'] { --palm-icon-art: url('/m/skin-assets/xp/scroll-down.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='shield'] { --palm-icon-art: url('/m/skin-assets/xp/shield.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='sliders'] { --palm-icon-art: url('/m/skin-assets/xp/sliders.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='trash'] { --palm-icon-art: url('/m/skin-assets/xp/trash.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='type'] { --palm-icon-art: url('/m/skin-assets/xp/type.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='upper-right'] { --palm-icon-art: url('/m/skin-assets/xp/upper-right.svg') }
+html[data-skin='xp'] .skin-icon[data-icon='vibrate'] { --palm-icon-art: url('/m/skin-assets/xp/vibrate.svg') }
+
+html[data-skin='minecraft'] .skin-icon[data-icon='bell'] { --palm-icon-art: url('/m/skin-assets/minecraft/bell.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='contrast'] { --palm-icon-art: url('/m/skin-assets/minecraft/contrast.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='gauge'] { --palm-icon-art: url('/m/skin-assets/minecraft/gauge.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='hash'] { --palm-icon-art: url('/m/skin-assets/minecraft/hash.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='image'] { --palm-icon-art: url('/m/skin-assets/minecraft/image.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='info'] { --palm-icon-art: url('/m/skin-assets/minecraft/info.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='mic'] { --palm-icon-art: url('/m/skin-assets/minecraft/mic.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='rows'] { --palm-icon-art: url('/m/skin-assets/minecraft/rows.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='scroll-down'] { --palm-icon-art: url('/m/skin-assets/minecraft/scroll-down.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='shield'] { --palm-icon-art: url('/m/skin-assets/minecraft/shield.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='sliders'] { --palm-icon-art: url('/m/skin-assets/minecraft/sliders.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='trash'] { --palm-icon-art: url('/m/skin-assets/minecraft/trash.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='type'] { --palm-icon-art: url('/m/skin-assets/minecraft/type.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='upper-right'] { --palm-icon-art: url('/m/skin-assets/minecraft/upper-right.svg') }
+html[data-skin='minecraft'] .skin-icon[data-icon='vibrate'] { --palm-icon-art: url('/m/skin-assets/minecraft/vibrate.svg') }
+
+html[data-skin='cyber-night'] .skin-icon[data-icon='bell'] { --palm-icon-art: url('/m/skin-assets/cyber-night/bell.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='contrast'] { --palm-icon-art: url('/m/skin-assets/cyber-night/contrast.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='gauge'] { --palm-icon-art: url('/m/skin-assets/cyber-night/gauge.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='hash'] { --palm-icon-art: url('/m/skin-assets/cyber-night/hash.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='image'] { --palm-icon-art: url('/m/skin-assets/cyber-night/image.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='info'] { --palm-icon-art: url('/m/skin-assets/cyber-night/info.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='mic'] { --palm-icon-art: url('/m/skin-assets/cyber-night/mic.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='rows'] { --palm-icon-art: url('/m/skin-assets/cyber-night/rows.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='scroll-down'] { --palm-icon-art: url('/m/skin-assets/cyber-night/scroll-down.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='shield'] { --palm-icon-art: url('/m/skin-assets/cyber-night/shield.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='sliders'] { --palm-icon-art: url('/m/skin-assets/cyber-night/sliders.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='trash'] { --palm-icon-art: url('/m/skin-assets/cyber-night/trash.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='type'] { --palm-icon-art: url('/m/skin-assets/cyber-night/type.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='upper-right'] { --palm-icon-art: url('/m/skin-assets/cyber-night/upper-right.svg') }
+html[data-skin='cyber-night'] .skin-icon[data-icon='vibrate'] { --palm-icon-art: url('/m/skin-assets/cyber-night/vibrate.svg') }
+
+/* 外壳尺寸：贴图接管后内联 SVG 被藏掉，盒子没有内在尺寸会塌成 0×0。
+   尺寸取上下文共用的 glyph 令牌（设置行与抽屉都是 16px），不写死数字。 */
+html[data-skin='xp'] :is(.skin-icon[data-icon='bell'], .skin-icon[data-icon='contrast'], .skin-icon[data-icon='gauge'], .skin-icon[data-icon='hash'], .skin-icon[data-icon='image'], .skin-icon[data-icon='info'], .skin-icon[data-icon='mic'], .skin-icon[data-icon='rows'], .skin-icon[data-icon='scroll-down'], .skin-icon[data-icon='shield'], .skin-icon[data-icon='sliders'], .skin-icon[data-icon='trash'], .skin-icon[data-icon='type'], .skin-icon[data-icon='upper-right'], .skin-icon[data-icon='vibrate']),
+html[data-skin='minecraft'] :is(.skin-icon[data-icon='bell'], .skin-icon[data-icon='contrast'], .skin-icon[data-icon='gauge'], .skin-icon[data-icon='hash'], .skin-icon[data-icon='image'], .skin-icon[data-icon='info'], .skin-icon[data-icon='mic'], .skin-icon[data-icon='rows'], .skin-icon[data-icon='scroll-down'], .skin-icon[data-icon='shield'], .skin-icon[data-icon='sliders'], .skin-icon[data-icon='trash'], .skin-icon[data-icon='type'], .skin-icon[data-icon='upper-right'], .skin-icon[data-icon='vibrate']),
+html[data-skin='cyber-night'] :is(.skin-icon[data-icon='bell'], .skin-icon[data-icon='contrast'], .skin-icon[data-icon='gauge'], .skin-icon[data-icon='hash'], .skin-icon[data-icon='image'], .skin-icon[data-icon='info'], .skin-icon[data-icon='mic'], .skin-icon[data-icon='rows'], .skin-icon[data-icon='scroll-down'], .skin-icon[data-icon='shield'], .skin-icon[data-icon='sliders'], .skin-icon[data-icon='trash'], .skin-icon[data-icon='type'], .skin-icon[data-icon='upper-right'], .skin-icon[data-icon='vibrate']) {
+  inline-size: var(--palm-spec-glyph);
+  block-size: var(--palm-spec-glyph);
+}
+
+/* 打开 ::before（贴图）并藏掉内联 SVG */
+html[data-skin='xp'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate'])::before,
+html[data-skin='minecraft'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate'])::before,
+html[data-skin='cyber-night'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate'])::before {
+  display: block;
+}
+
+html[data-skin='xp'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate']) > svg,
+html[data-skin='minecraft'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate']) > svg,
+html[data-skin='cyber-night'] :is([data-icon='bell'], [data-icon='contrast'], [data-icon='gauge'], [data-icon='hash'], [data-icon='image'], [data-icon='info'], [data-icon='mic'], [data-icon='rows'], [data-icon='scroll-down'], [data-icon='shield'], [data-icon='sliders'], [data-icon='trash'], [data-icon='type'], [data-icon='upper-right'], [data-icon='vibrate']) > svg {
+  display: none;
+}

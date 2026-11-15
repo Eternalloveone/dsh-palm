@@ -56,7 +56,8 @@
   color: var(--palm-danger);
 }
 
-.error-note-icon > svg {
+.error-note-icon > svg,
+.error-note-icon > .skin-icon > svg {
   width: 16px;
   height: 16px;
 }

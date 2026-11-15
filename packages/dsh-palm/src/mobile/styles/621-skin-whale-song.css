@@ -1,0 +1,30 @@
+/* ── 鲸吟 · 金线层（621）────────────────────────────────────────────────
+ * 深海鲸语的观感来自"极暗底 + 极细金线"：
+ *   1. 顶栏下沿与底栏上沿各一条 1px 金线（用强调色的暖化混色代替第二组色）；
+ *   2. 页面底部一层极淡的洋流渐变，让大片深蓝不死板。
+ *
+ * 全部走 color-mix(令牌)，不写裸色。
+ */
+
+html[data-skin='whale-song'] body {
+  background-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 62%,
+    color-mix(in srgb, var(--palm-accent) 10%, transparent) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+html[data-skin='whale-song'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-warn) 45%, transparent);
+}
+
+html[data-skin='whale-song'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-warn) 40%, transparent);
+}
+
+html[data-skin='whale-song'] .chat-composer {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--palm-accent) 35%, transparent);
+}

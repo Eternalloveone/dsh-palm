@@ -5,20 +5,17 @@
  * 分组卡与小标题由 SettingsView 的 `SettingsGroup` 提供：本文件只出行，
  * 这样「外观 / 对话 / 其他」三组才能各是一张卡（不再一组一张卡）。
  */
-import { ContrastIcon, HashIcon, RowsIcon, ScrollDownIcon, TypeIcon, VibrateIcon } from '../../components/icons.tsx'
-import { DENSITY_LABEL, FONT_SCALE_LABEL, setAutoScroll, setHaptics, setLineNumbers, type Density, type FontScale } from '../../platform/display-prefs.ts'
+import { HashIcon, ScrollDownIcon, SlidersIcon, VibrateIcon } from '../../components/icons.tsx'
+import { setAutoScroll, setHaptics, setLineNumbers } from '../../platform/display-prefs.ts'
 import { RowChevron, SettingsRow, ToggleRow } from './settings-shared.tsx'
 
 export interface AppearanceSectionProps {
   /** 打开「外观」独立页；不给就不显示这一行（老版设置页行为不变）。 */
   onOpenAppearance?: (() => void) | undefined
-  showFont: boolean
-  showDensity: boolean
+  /** 搜索命中：字号/密度/行号都在外观页里，命中就走这一行。 */
+  showAppearance: boolean
   showLineNumbers: boolean
-  fontScale: FontScale
-  density: Density
   lineNumbers: boolean
-  setSheet: (sheet: 'font' | 'density' | 'about' | null) => void
   setLineNumbersState: (value: boolean) => void
 }
 
@@ -32,38 +29,19 @@ export interface ChatSectionProps {
   setHapticsState: (value: boolean) => void
 }
 
-/** 「外观」组的行：显示效果（皮肤入口 / 主题 / 字号 / 密度 / 代码行号）。 */
+/** 「外观」组的行：外观入口（字号、密度）+ 代码块行号开关。 */
 export function AppearanceSection({
-  showFont, showDensity, showLineNumbers, onOpenAppearance,
-  fontScale, density, lineNumbers, setSheet, setLineNumbersState,
+  showAppearance, showLineNumbers, onOpenAppearance, lineNumbers, setLineNumbersState,
 }: AppearanceSectionProps) {
   return (
     <>
-      {onOpenAppearance === undefined ? null : (
+      {onOpenAppearance === undefined || !showAppearance ? null : (
         <SettingsRow
-          icon={<ContrastIcon />}
-          title="字号与密度"
-          desc="字号、密度、明暗在一页里调（皮肤在上一组）"
+          icon={<SlidersIcon />}
+          title="外观"
+          desc="字号、密度（明暗跟皮肤走）"
           action={<RowChevron />}
           onClick={onOpenAppearance}
-        />
-      )}
-      {showFont && (
-        <SettingsRow
-          icon={<TypeIcon />}
-          title="字体大小"
-          desc="聊天文本的字号"
-          action={<><span className="settings-rowValue">{FONT_SCALE_LABEL[fontScale]}</span><RowChevron /></>}
-          onClick={() => { setSheet('font') }}
-        />
-      )}
-      {showDensity && (
-        <SettingsRow
-          icon={<RowsIcon />}
-          title="消息密度"
-          desc="消息之间的间距"
-          action={<><span className="settings-rowValue">{DENSITY_LABEL[density]}</span><RowChevron /></>}
-          onClick={() => { setSheet('density') }}
         />
       )}
       {showLineNumbers && (

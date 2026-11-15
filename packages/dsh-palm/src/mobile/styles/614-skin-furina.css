@@ -1,0 +1,24 @@
+/* ── 芙宁娜 · 素材层（614）────────────────────────────────────────────────
+ * 桌面的插画是横版 5664×2976。手机竖屏铺 cover 时只保留一张窄条，`center` 裁到天空、
+ * `right` 裁到手臂 —— 人脸怎么都进不来（2026-11-14 用户反馈）。
+ *
+ * 所以素材在入库时先裁成**竖版 900×1600**（assets/skins/furina/furina-portrait.jpg，
+ * 105 KB，BSD-3-Clause，见 manifest.json），页面里直接 cover + center top：
+ * 任何手机宽高比都是"人脸在上三分之一、身体向下延伸"的构图，不用再猜百分比。
+ *
+ * 令牌不动（--palm-bg 保持不透明），底栏/顶栏的实色遮挡逻辑照旧。
+ */
+
+html[data-skin='furina'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 58%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 82%, transparent)
+    ),
+    url('/m/skin-assets/furina/furina-portrait.jpg');
+  /* 不写 background-attachment: fixed —— 页面本身不滚（滚动发生在 .chat-scroll 里），
+   * 固定背景在这里既没视觉收益，又会让每次滚动都重绘整张图（手机上是实打实的卡顿源）。 */
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}

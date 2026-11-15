@@ -487,7 +487,8 @@
 
 /* ⋯ 菜单行左侧图标：跟标题同高、让出一点呼吸感，颜色压到次要灰 ——
    图标是路标，不是装饰，别和标题抢亮度。 */
-.sheet-option > svg {
+.sheet-option > svg,
+.sheet-option > .skin-icon > svg {
   flex: none;
   inline-size: 18px;
   block-size: 18px;

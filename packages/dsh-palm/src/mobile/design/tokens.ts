@@ -150,6 +150,10 @@ const STRUCTURAL_CSS = `
      mobile-layers.test.ts 会拦任何裸 z-index（页面转场 1/2 与局部 1 除外）。
      顺序即语义：header < scrim < popover < composer = picker < voice < sheet <
      ctx = offline < toast < lightbox。同值两项表示互斥（不会同时出现）。 */
+  /* 2026-11-14 壁纸层：本机背景图垫在**所有内容之下**，所以是负值。
+     负值也进层级表 —— 裸写 -2/-1 同样是"魔法数字"，改一次要全表对一遍。 */
+  --z-wallpaper-bg: -2;
+  --z-wallpaper-art: -1;
   --z-header: 10;
   --z-scrim: 40;
   --z-popover: 45;

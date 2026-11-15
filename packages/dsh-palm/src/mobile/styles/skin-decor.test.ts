@@ -44,7 +44,10 @@ const tsxSources = readdirSync(SRC_DIR, { recursive: true, withFileTypes: true }
 const classExists = (name: string) => tsxSources.includes(name)
 
 /** 装饰层允许出现的「结构性」伪类/标签，其余一律要求是存在的类。 */
-const KNOWN_TAGS = new Set(['html', 'body', 'blockquote', 'pre', 'code', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h1', 'h2', 'h3', 'hr', 'a', 'img', 'ul', 'ol', 'li', 'p', 'span'])
+const KNOWN_TAGS = new Set(['html', 'body', 'blockquote', 'pre', 'code', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h1', 'h2', 'h3', 'hr', 'a', 'img', 'ul', 'ol', 'li', 'p', 'span',
+  // 2026-11-14 图标层：换图标要藏掉外壳里的内联 SVG（`.skin-icon[data-icon='x'] > svg { display:none }`），
+  // svg 是结构标签不是类名，按标签放行。
+  'svg'])
 
 describe('皮肤装饰层', () => {
   // 「不许写裸色」这条不在本文件：`design/no-raw-colors.test.ts` 扫的是 styles/ 全目录

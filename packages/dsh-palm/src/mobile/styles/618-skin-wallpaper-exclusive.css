@@ -1,0 +1,32 @@
+/* ── 壁纸专属 · 玻璃层（618）─────────────────────────────────────────────
+ * 这套皮肤的身份就是"壁纸优先"：页面底色透掉，面板做成磨砂玻璃，让用户自己的
+ * 背景图当主角。做法与夏沫琉璃同一套（令牌保持不透明 → 透明度只在装饰层做，
+ * 对比度守卫量的仍是真实可读性）。
+ *
+ * 没设壁纸时不能让页面变成白板：给 body 一个柔和的表面色兜底。
+ */
+
+html[data-skin='wallpaper-exclusive'] {
+  --palm-bg: transparent;
+}
+
+html[data-skin='wallpaper-exclusive']:not([data-wall='on']) body {
+  background-color: var(--palm-sur-2);
+}
+
+html[data-skin='wallpaper-exclusive'] .chat-scroll,
+html[data-skin='wallpaper-exclusive'] .chat-composer,
+html[data-skin='wallpaper-exclusive'] .mobile-header,
+html[data-skin='wallpaper-exclusive'] .palm-spec-row {
+  background: color-mix(in srgb, var(--palm-sur-1) 62%, transparent);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+}
+
+/* 底栏比输入框淡一档：它压在壁纸最暗处，同档会显成一条深带。 */
+html[data-skin='wallpaper-exclusive'] .chat-dock {
+  background: color-mix(in srgb, var(--palm-sur-1) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1) brightness(1.06);
+  box-shadow: inset 0 1px 0 var(--palm-sur-1);
+}

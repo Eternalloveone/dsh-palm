@@ -1,0 +1,18 @@
+/* ── war-thunder · 背景层（625）──────────────────────────────────────
+ * 素材：军械钢板纹理（铆钉、划痕、远处炮塔剪影）
+ *   assets/skins/war-thunder/war-plate.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 78%→60% 的表面色。
+ * 深色底：遮罩从 78%（顶部/正文区更实）过渡到 60%（底部让画面透出来）。
+ */
+
+html[data-skin='war-thunder'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 88%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 70%, transparent)
+    ),
+    url('/m/skin-assets/war-thunder/war-plate.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}

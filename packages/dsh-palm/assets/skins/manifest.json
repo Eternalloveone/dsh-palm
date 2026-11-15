@@ -1,0 +1,507 @@
+{
+  "$comment": "手机端皮肤的素材清单。三层闸门：①皮肤级 license + source 必须有；②每条素材必须有 role + credit（图标/徽章常来自字体图标或游戏原素材，许可和代码不是一回事）；③每套素材总量 ≤ 300 KB。由 src/mobile/skin-assets.test.ts 守卫；素材在请求时按本清单现读（改完不用重启宿主）。",
+  "skins": {
+    "pink-sakura": {
+      "source": "dsh-web 皮肤包（guomengjia618-dot）",
+      "license": "Apache-2.0",
+      "art": [
+        {
+          "file": "paw.png",
+          "role": "texture",
+          "note": "爪印底纹，平铺在页面底色上",
+          "credit": "dsh-web 皮肤包 / guomengjia618-dot · Apache-2.0"
+        }
+      ]
+    },
+    "furina": {
+      "source": "dsh-web 皮肤包（zhu1090093659）",
+      "license": "BSD-3-Clause",
+      "art": [
+        {
+          "file": "furina-portrait.jpg",
+          "role": "illustration",
+          "note": "从 5664×2976 原图裁出竖版 900×1600（框住人脸），105 KB",
+          "credit": "dsh-web 皮肤包 / zhu1090093659 · BSD-3-Clause"
+        }
+      ]
+    },
+    "xp": {
+      "source": "dsh-palm 项目自绘",
+      "license": "Apache-2.0",
+      "art": [
+        {
+          "file": "menu.svg",
+          "role": "icon",
+          "note": "抽屉图标：三横条（Luna 工具栏风格）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "plus.svg",
+          "role": "icon",
+          "note": "添加内容图标：粗十字",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "send.svg",
+          "role": "icon",
+          "note": "发送图标：纸飞机剪影",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "frame.svg",
+          "role": "border",
+          "note": "Luna 窗口边框的九宫格贴图（48×48）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0",
+          "frame": {
+            "slice": 12,
+            "width": 4
+          }
+        },
+        {
+          "file": "bell.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "contrast.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "gauge.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "hash.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "image.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "info.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "mic.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "rows.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "scroll-down.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "shield.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "sliders.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "trash.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "type.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "upper-right.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "vibrate.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "avatar.svg",
+          "role": "badge",
+          "note": "抽屉头像：四色窗口方块（Luna 标志）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        }
+      ]
+    },
+    "maid-atelier": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "maid-stand.jpg",
+          "role": "illustration",
+          "note": "全身立绘，673×1200 / 65 KB，作页面背景（右侧站姿、左侧留白）",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        },
+        {
+          "file": "maid-chibi.jpg",
+          "role": "badge",
+          "note": "Q 版头像方形裁切 256×256 / 21 KB，作空状态徽章",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        },
+        {
+          "file": "maid-portrait.jpg",
+          "role": "illustration",
+          "note": "半身特写 505×900 / 70 KB，作抽屉头部装饰（右上角探出、向左淡出）",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "cyber-night": {
+      "source": "dsh-palm 项目自绘（scripts/gen-skin-icons.mjs 生成）",
+      "license": "Apache-2.0",
+      "art": [
+        {
+          "file": "bell.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "contrast.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "gauge.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "hash.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "image.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "info.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "mic.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "rows.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "scroll-down.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "shield.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "sliders.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "trash.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "type.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "upper-right.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "vibrate.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "cyber-city.jpg",
+          "role": "illustration",
+          "note": "赛博霓虹街景 673×1200，作页面背景（冷调，压暗后可读）",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "minecraft": {
+      "source": "dsh-palm 项目自绘（scripts/gen-skin-icons.mjs 生成）",
+      "license": "Apache-2.0",
+      "art": [
+        {
+          "file": "bell.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "contrast.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "gauge.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "hash.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "image.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "info.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "mic.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "rows.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "scroll-down.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "shield.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "sliders.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "trash.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "type.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "upper-right.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "vibrate.svg",
+          "role": "icon",
+          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "avatar.svg",
+          "role": "badge",
+          "note": "抽屉头像：草方块像素头像",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        }
+      ]
+    },
+    "blue-fantasy": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "blue-islands.jpg",
+          "role": "illustration",
+          "note": "幻想浮岛夜空 673×1200，作页面背景（冰蓝冷调）",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "war-thunder": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "war-plate.jpg",
+          "role": "illustration",
+          "note": "军械钢板纹理 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "whale-mom": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "whale-sea.jpg",
+          "role": "illustration",
+          "note": "浅海光柱 + 鲸鱼母子 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "nocturne": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "nocturne-sky.jpg",
+          "role": "illustration",
+          "note": "近黑夜空星点 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "matrix": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "matrix-rain.jpg",
+          "role": "illustration",
+          "note": "数字雨 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "deep-current": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "deep-abyss.jpg",
+          "role": "illustration",
+          "note": "深海光柱 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "harbor": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "harbor-dusk.jpg",
+          "role": "illustration",
+          "note": "黄昏港湾 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "endfield": {
+      "source": "AI 生成（Agnes image 2.1），2026-11-14",
+      "license": "CC0-1.0",
+      "art": [
+        {
+          "file": "endfield-waste.jpg",
+          "role": "illustration",
+          "note": "工业荒原 673×1200",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        }
+      ]
+    },
+    "trading": {
+      "source": "dsh-palm 项目自绘",
+      "license": "Apache-2.0",
+      "art": [
+        {
+          "file": "avatar.svg",
+          "role": "badge",
+          "note": "抽屉头像：红涨绿跌双蜡烛",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        }
+      ]
+    },
+    "dragon-heir": {
+      "source": "dsh-palm 项目自绘",
+      "license": "Apache-2.0",
+      "art": [
+        {
+          "file": "avatar.svg",
+          "role": "badge",
+          "note": "抽屉头像：朱砂龙印（篆刻风方印）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        }
+      ]
+    }
+  }
+}

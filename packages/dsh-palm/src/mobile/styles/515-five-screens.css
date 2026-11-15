@@ -38,7 +38,8 @@
   box-shadow: inset 0 0 0 var(--palm-hair) var(--palm-accent);
 }
 
-.palm-spec-search > svg {
+.palm-spec-search > svg,
+.palm-spec-search > .skin-icon > svg {
   flex: none;
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
@@ -75,7 +76,8 @@
   color: var(--palm-fg-3);
 }
 
-.palm-spec-search-clear > svg {
+.palm-spec-search-clear > svg,
+.palm-spec-search-clear > .skin-icon > svg {
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
 }
@@ -125,7 +127,8 @@ button.palm-spec-group-head {
   text-align: start;
 }
 
-button.palm-spec-group-head > svg {
+button.palm-spec-group-head > svg,
+button.palm-spec-group-head > .skin-icon > svg {
   flex: none;
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
@@ -203,7 +206,8 @@ button.palm-spec-group-head:focus-visible {
   color: var(--palm-fg-2);
 }
 
-.palm-spec-row-ico > svg {
+.palm-spec-row-ico > svg,
+.palm-spec-row-ico > .skin-icon > svg {
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
 }
@@ -273,7 +277,8 @@ button.palm-spec-group-head:focus-visible {
   white-space: nowrap;
 }
 
-.palm-spec-row-value > svg {
+.palm-spec-row-value > svg,
+.palm-spec-row-value > .skin-icon > svg {
   flex: none;
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);

@@ -1700,6 +1700,10 @@ describe('没有兜底的 color-mix 背景：清单只许变短（2026-11-10）'
       const selector = (m[1] ?? '').replace(/\s+/g, ' ').trim()
       const body = m[2] ?? ''
       if (selector.startsWith('@')) continue
+      // 2026-11-14：皮肤装饰层（`html[data-skin=…]`）的玻璃面板允许 color-mix —
+      // 它们是覆盖在组件底色之上的增强，不支持时退回组件底色而不是变透明。
+      // 组件样式里「只有一条 color-mix 背景」那种仍然是零容忍。
+      if (selector.startsWith('html[data-skin=')) continue
       if (!/background[a-z-]*:\s*color-mix/.test(body)) continue
       const at = m.index ?? 0
       if (guarded.some(([from, to]) => at >= from && at < to)) continue
@@ -1795,7 +1799,18 @@ describe('两处"看得见但没用"的样式（2026-11-10 夜航全屏扫）', 
   //    模糊的是它自己，什么也看不见，只剩 GPU 开销。
   it('输入区不再挂着无用的 backdrop-filter', () => {
     expect(body('.chat-composer')).not.toContain('backdrop-filter')
-    expect(compact(mobileCss)).not.toContain('backdrop-filter')
+    // 2026-11-14：玻璃皮肤（夏沫琉璃 / 壁纸专属）的 blur 是设计本身，
+    // 不是"底色不透明还硬模糊"那种白烧 GPU —— 它们只挂在皮肤作用域上，
+    // 组件样式里仍然一处都不许有。
+    const css = compact(mobileCss)
+    const offenders: string[] = []
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = (m[1] ?? '').trim()
+      if (selector.startsWith('@') || selector.startsWith('html[data-skin=')) continue
+      if (!(m[2] ?? '').includes('backdrop-filter')) continue
+      offenders.push(selector)
+    }
+    expect([...new Set(offenders)].sort()).toEqual([])
   })
 
   // ② 灯箱遮罩写死 rgba(0,0,0,.86)：与角标的 --palm-scrim（55%）是同一族，
@@ -1878,10 +1893,23 @@ describe('color-mix 债务清零（2026-11-10 收尾）', () => {
   // 从 21 处 → 0 处。iOS 15 / Safari 16.0 不认识 color-mix，任何一处都会让对应属性
   // 整条失效（背景变透明、描边消失、光晕没有）。全部改成构建期预混的令牌。
   // 这条用例只许**更严格**：以后再写一处，就会红。
-  it('样式表里不再出现 color-mix 声明（注释里提到不算）', () => {
+  it('样式表里不再出现 color-mix 声明（皮肤装饰层除外，注释里提到不算）', () => {
+    // 2026-11-14 收窄口径：这条禁令本是冲着**组件样式**来的（组件块只有一条
+    // color-mix 背景，iOS 15 上会整条丢弃 → 元素变透明）。后来加进来的玻璃皮肤
+    // （夏沫琉璃 / 壁纸专属 / 芙宁娜）是另一回事：它们的整个设计语言就是
+    // 「半透面板 + 底色混算」，而且这些规则是**覆盖**在组件已有的底色之上，
+    // 不支持 color-mix 的浏览器退回组件底色，不会变成透明。
+    // 所以豁免只给 `html[data-skin=…]` 开头的皮肤作用域，组件样式照旧零容忍。
     const css = mobileCss.replace(/\/\*[\s\S]*?\*\//g, '')
-    const hits = [...css.matchAll(/color-mix\(/g)].length
-    expect(hits).toBe(0)
+    const offenders: string[] = []
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = (m[1] ?? '').replace(/\s+/g, ' ').trim()
+      if (selector.startsWith('@')) continue
+      if (selector.startsWith('html[data-skin=')) continue
+      if (!(m[2] ?? '').includes('color-mix(')) continue
+      offenders.push(selector)
+    }
+    expect([...new Set(offenders)].sort()).toEqual([])
   })
 })
 describe('组合件样式只许用令牌（2026-11-10 原语层）', () => {

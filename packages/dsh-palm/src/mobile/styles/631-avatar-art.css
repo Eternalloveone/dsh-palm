@@ -1,0 +1,125 @@
+/* ── 抽屉头像（631）───────────────────────────────────────────────────────
+ * 每条规则只做一件事：把 36px 头像位换成这套皮肤自己的「脸」。
+ *
+ * 两种来源，都是现成素材、零新增生成：
+ *   ① 有背景图的皮肤 → 直接拿那张图当头像，靠 background-position 把脸/主体框进方块
+ *      （比单独裁一张更省：不增加体积，风格天然一致）；
+ *   ② 没有图的皮肤 → 用项目自绘的 SVG 符号（xp 四色方块 / minecraft 草方块 /
+ *      交易终端双蜡烛 / 龙印）+ 粉樱的爪印。
+ *
+ * 仍保留字母方块的 7 套（graphite / paper / newsprint / claude / mint /
+ * summer-liquid-glass / whale-song）是刻意的：它们本身就是"无装饰"风格，
+ * 加图案反而破坏气质。
+ */
+
+/* ① 有背景图的皮肤：整图当头像，position 是"框住主体"的那一档 */
+html[data-skin='maid-atelier'] .palm-drawer-avatar,
+html[data-skin='furina'] .palm-drawer-avatar,
+html[data-skin='cyber-night'] .palm-drawer-avatar,
+html[data-skin='blue-fantasy'] .palm-drawer-avatar,
+html[data-skin='harbor'] .palm-drawer-avatar,
+html[data-skin='war-thunder'] .palm-drawer-avatar,
+html[data-skin='whale-mom'] .palm-drawer-avatar,
+html[data-skin='nocturne'] .palm-drawer-avatar,
+html[data-skin='matrix'] .palm-drawer-avatar,
+html[data-skin='deep-current'] .palm-drawer-avatar,
+html[data-skin='endfield'] .palm-drawer-avatar {
+  background-size: cover;
+  background-repeat: no-repeat;
+  color: transparent;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--palm-accent) 45%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--palm-sur-1) 70%, transparent);
+}
+
+html[data-skin='maid-atelier'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/maid-atelier/maid-portrait.jpg');
+  background-position: center 14%;
+}
+
+html[data-skin='furina'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/furina/furina-portrait.jpg');
+  background-position: center 10%;
+}
+
+html[data-skin='cyber-night'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/cyber-night/cyber-city.jpg');
+  background-position: center 42%;
+}
+
+html[data-skin='blue-fantasy'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/blue-fantasy/blue-islands.jpg');
+  background-position: center 34%;
+}
+
+html[data-skin='harbor'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/harbor/harbor-dusk.jpg');
+  background-position: center 58%;
+}
+
+html[data-skin='war-thunder'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/war-thunder/war-plate.jpg');
+  background-position: center 45%;
+}
+
+html[data-skin='whale-mom'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/whale-mom/whale-sea.jpg');
+  background-position: center 72%;
+}
+
+html[data-skin='nocturne'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/nocturne/nocturne-sky.jpg');
+  background-position: center 30%;
+}
+
+html[data-skin='matrix'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/matrix/matrix-rain.jpg');
+  background-position: center 40%;
+}
+
+html[data-skin='deep-current'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/deep-current/deep-abyss.jpg');
+  background-position: center 52%;
+}
+
+html[data-skin='endfield'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/endfield/endfield-waste.jpg');
+  background-position: center 44%;
+}
+
+/* ② 符号头像：SVG 居中缩放到 72%，底色仍是皮肤的强调淡色 */
+html[data-skin='xp'] .palm-drawer-avatar,
+html[data-skin='minecraft'] .palm-drawer-avatar,
+html[data-skin='trading'] .palm-drawer-avatar,
+html[data-skin='dragon-heir'] .palm-drawer-avatar,
+html[data-skin='pink-sakura'] .palm-drawer-avatar {
+  background-size: 72% auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: transparent;
+}
+
+html[data-skin='xp'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/xp/avatar.svg');
+  background-color: var(--palm-sur-2);
+}
+
+html[data-skin='minecraft'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/minecraft/avatar.svg');
+  background-size: 84% auto;
+}
+
+html[data-skin='trading'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/trading/avatar.svg');
+  background-color: var(--palm-sur-2);
+}
+
+html[data-skin='dragon-heir'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/dragon-heir/avatar.svg');
+  background-size: 80% auto;
+}
+
+html[data-skin='pink-sakura'] .palm-drawer-avatar {
+  background-image: url('/m/skin-assets/pink-sakura/paw.png');
+  background-size: 62% auto;
+}

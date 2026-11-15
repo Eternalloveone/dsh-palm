@@ -17,7 +17,7 @@
   background: var(--backdrop);
   /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
      （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
-  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: drawer-scrim-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes sheet-fade {
@@ -128,7 +128,7 @@
   background: var(--backdrop);
   /* iOS 侧边栏那套：遮罩只做透明度，收尾比抽屉慢一拍，两层才有前后关系
      （原来和抽屉一起 ease 淡入，真机上像整屏闪一下）。 */
-  animation: drawer-scrim-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: drawer-scrim-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 .palm-drawer {
@@ -147,8 +147,11 @@
   overflow: hidden;
   overscroll-behavior: contain;
   /* 整块从左边拉出来（-100% → 0），**不淡入**：侧边栏淡入在真机上就是
-     「先灰一下再出现」。曲线取 iOS 那条（起步利落、落地稳住），340ms。 */
-  animation: palm-drawer-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+     「先灰一下再出现」。曲线取 iOS 那条（起步利落、落地稳住）。
+     2026-11-15：340ms → **180ms**。端到端实测开抽屉「完全稳定」509ms，
+     其中 340ms 只是动画在走、CPU 全程空闲 —— 用户说的「点下去半天没反应」
+     有一大半是这个。180ms 仍在常见手感区间（200ms 上下）内。 */
+  animation: palm-drawer-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes palm-drawer-in {
@@ -161,14 +164,14 @@
   to { opacity: 1; }
 }
 
-/* 退出要走完再卸载（App 里 onClose 会等 240ms）。关闭比打开快：
-   iOS 的默认手感，慢了像拖泥带水。 */
+/* 退出要走完再卸载（App 里 onClose 会等 `DRAWER_OUT_MS`，2026-11-15 起 160ms）。
+   关闭比打开快：iOS 的默认手感，慢了像拖泥带水。 */
 .palm-drawer.is-closing {
-  animation: palm-drawer-out 240ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: palm-drawer-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 .palm-drawer-scrim.is-closing {
-  animation: drawer-scrim-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: drawer-scrim-out 150ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 @keyframes palm-drawer-out {
@@ -267,7 +270,8 @@
 }
 
 /* 抽屉里的图标一律 16×16（项目规则：图标固定尺寸、不参与 flex 拉伸）。 */
-.palm-drawer-ws-switch > svg {
+.palm-drawer-ws-switch > svg,
+.palm-drawer-ws-switch > .skin-icon > svg {
   inline-size: 16px;
   block-size: 16px;
 }
@@ -717,8 +721,10 @@
 
 .palm-drawer-tool:active { background: var(--palm-sur-1); }
 
-/* 主文案吃掉剩余宽度：右侧小字与箭头永远不被挤掉。 */
-.palm-drawer-tool > span { flex: 1 1 auto; min-inline-size: 0; }
+/* 主文案吃掉剩余宽度：右侧小字与箭头永远不被挤掉。
+ * `:not(.skin-icon)`：图标现在包在 <span class="skin-icon"> 里（058），不排除掉就会
+ * 把图标外壳也当成文案拉宽，图标于是浮在行中间、跟文案对不齐（2026-11-14 实机）。 */
+.palm-drawer-tool > span:not(.skin-icon) { flex: 1 1 auto; min-inline-size: 0; }
 
 .palm-drawer-tool > small {
   flex: none;
@@ -729,7 +735,8 @@
 }
 
 /* 箭头弱化：它是「这里能进去」的提示，不该和主文案抢注意力。 */
-.palm-drawer-tool > svg:last-child {
+.palm-drawer-tool > svg:last-child,
+.palm-drawer-tool > .skin-icon:last-child > svg {
   flex: none;
   color: var(--palm-fg-3);
   opacity: 0.7;
@@ -759,11 +766,12 @@
   block-size: var(--palm-drawer-glyph);
 }
 
-/* 行内文案：单行 + 省略号。图标固定之后，折行的唯一来源就是文案本身。 */
+/* 行内文案：单行 + 省略号。图标固定之后，折行的唯一来源就是文案本身。
+ * 三处都要 `:not(.skin-icon)`：图标外壳也是直接子 span，不能吃省略号那套。 */
 .palm-drawer-ws > b,
 .palm-drawer-new > span,
-.palm-drawer-search > span,
-.palm-drawer-tool > span {
+.palm-drawer-search > span:not(.skin-icon),
+.palm-drawer-tool > span:not(.skin-icon) {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1083,7 +1091,8 @@
   color: var(--palm-fg-3);
 }
 
-.pb-entry-icon > svg {
+.pb-entry-icon > svg,
+.pb-entry-icon > .skin-icon > svg {
   inline-size: 16px;
   block-size: 16px;
 }
@@ -1329,7 +1338,8 @@
   color: var(--palm-accent);
 }
 
-.ws-pick-icon > svg {
+.ws-pick-icon > svg,
+.ws-pick-icon > .skin-icon > svg {
   inline-size: 16px;
   block-size: 16px;
 }

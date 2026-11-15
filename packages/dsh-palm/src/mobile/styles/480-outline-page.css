@@ -168,7 +168,8 @@
   color: var(--palm-fg-3);
 }
 
-.outline-node-meta > svg {
+.outline-node-meta > svg,
+.outline-node-meta > .skin-icon > svg {
   flex: none;
   inline-size: var(--palm-s4);
   block-size: var(--palm-s4);

@@ -97,7 +97,11 @@
   /* 2026-11-11 计数滚动（过程条的「N 次工具调用 / 改 N 个文件」）：
      它是**装饰**，不是状态表达 —— 关掉动画的人应当立刻看到新数字，而不是等 480ms。 */
   .palm-roll-track,
-  .palm-roll-track.is-gliding {
+  .palm-roll-track.is-gliding,
+  /* 2026-11-14 会话内搜索的「命中行脉冲」是**装饰**：脉冲停了，那一行的描边还在，
+     用户照样知道命中的是哪一行。同批的 .chat-search-mark（淡底）本来就不动画。
+     选择器要跟 390 里逐字一致（那边带 .mobile 作用域），否则这条登记不认。 */
+  .mobile .chat-search-mark-active {
     animation: none;
     transition: none;
   }

@@ -1,0 +1,23 @@
+/* ── 粉樱 · 素材层（613）─────────────────────────────────────────────────
+ * 桌面皮肤自带一张爪印底纹（assets/paw.png）。这里把它平铺到页面底色上，
+ * 再用一层 72% 的表面色压住——图案看得见，但不跟正文抢对比度。
+ *
+ * 为什么不做成「页面底色透掉 + 图当背景」：那会让 --palm-bg 变透明，
+ * 底栏 / 顶栏那些靠它当实色遮挡的地方会把 picker 遮罩漏成灰带（夏沫琉璃踩过）。
+ * 素材层只叠 background-image，令牌一个都不动，风险最小。
+ *
+ * 素材只在本机打包、经 /m/skin-assets/ 同源提供；清单里登记了 license + source
+ * 才对外服务（见 assets/skins/manifest.json 与 src/mobile/skin-assets.test.ts）。
+ */
+
+html[data-skin='pink-sakura'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 84%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 84%, transparent)
+    ),
+    url('/m/skin-assets/pink-sakura/paw.png');
+  background-repeat: repeat;
+  background-size: auto, 84px auto;
+  background-position: center, center;
+}

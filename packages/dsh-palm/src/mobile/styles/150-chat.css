@@ -147,6 +147,9 @@
   line-height: var(--palm-lh-body);
   overflow-wrap: break-word;
   white-space: pre-wrap;
+  /* 滚动性能：每行是独立的布局/样式边界，长会话上下滑时不必为整个消息列重排。
+     不裁剪绘制（不用 paint），否则描边/脉冲动画会被切掉。 */
+  contain: layout style;
 }
 
 /* 入场动画只给「第一次出现的行」。

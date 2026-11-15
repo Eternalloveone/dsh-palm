@@ -1,0 +1,34 @@
+/* ── 夕港 · 海面层（624）────────────────────────────────────────────────
+ * 黄昏港湾的感觉来自"上方天色压下来、下方水面反上来"：
+ *   1. 页面底部一层暖橘反光（渐变压到透明），像水面接住落日；
+ *   2. 输入区一圈暖色描边；
+ *   3. 底栏顶沿一条暖线，与底部反光呼应。
+ *
+ * 全部 color-mix(令牌)，不写裸色。
+ */
+
+html[data-skin='harbor'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 85%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 66%, transparent)
+    ),
+    url('/m/skin-assets/harbor/harbor-dusk.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+
+html[data-skin='harbor'] .chat-composer {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 38%, transparent),
+    0 -2px 18px color-mix(in srgb, var(--palm-accent) 12%, transparent);
+}
+
+html[data-skin='harbor'] .chat-dock {
+  border-block-start: 1px solid color-mix(in srgb, var(--palm-accent) 32%, transparent);
+}
+
+html[data-skin='harbor'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 22%, transparent);
+}

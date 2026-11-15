@@ -12,6 +12,7 @@ import { App } from './views/App.tsx'
 import { ErrorBoundary } from './components/error-boundary.tsx'
 import { applySkin } from './platform/skin.ts'
 import { applyDisplayPrefs } from './platform/display-prefs.ts'
+import { applyWallpaper } from './platform/wallpaper.ts'
 import { registerMobilePwa } from '../mobile-pwa.ts'
 import { watchBuildRefresh } from './platform/build-refresh.ts'
 import { consumeMobilePairUrl } from './platform/pairing.ts'
@@ -22,6 +23,8 @@ import { watchPushResubscribe } from './platform/notify.ts'
 // display preferences before first paint, so the page never flashes the wrong look.
 applySkin()
 applyDisplayPrefs()
+// 壁纸（本机图片）也必须在首帧前应用，否则每开一次都先闪一下纯底色。
+applyWallpaper()
 // A phone keeps the PWA page alive for hours: after a host rebuild it would keep
 // running the old bundle (and the old UI) until the user clears the cache by hand.
 // This compares the loaded bundle hash with the served one and reloads once.

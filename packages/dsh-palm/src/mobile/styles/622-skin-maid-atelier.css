@@ -1,0 +1,79 @@
+/* ── 女仆工坊 · 蕾丝 + 立绘层（622）──────────────────────────────────────
+ * 桌面这套的素材是 **CC BY-NC-SA 4.0**（NOTICE 里写明还是"三级衍生"），而 dsh-palm
+ * 本体是 Apache-2.0 的 npm 包 —— 把 NC/SA 素材打进包会污染整包许可，所以一张都不用它。
+ *
+ * 页面背景与空状态徽章改用**生成图**（Agnes image 2.1，2026-11-14，CC0）：
+ *   assets/skins/maid-atelier/maid-stand.jpg  673×1200 / 65 KB  全身立绘（右站、左留白）
+ *   assets/skins/maid-atelier/maid-chibi.jpg  256×256   / 21 KB  Q 版头像（空状态徽章）
+ * 合计 86 KB，远低于每套 300 KB 的上限。
+ *
+ * 蕾丝边用 repeating radial 画扇贝，颜色全走令牌。
+ */
+
+/* 立绘铺页面背景：人物在画面右侧，左半边留白正好放正文；
+ * 压一层 55%→78% 的表面色，文字读得清、人还认得出。 */
+html[data-skin='maid-atelier'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 78%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 52%, transparent)
+    ),
+    url('/m/skin-assets/maid-atelier/maid-stand.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
+
+/* 抽屉身份区：把工作区首字母方块换成 36px 方形头像（完整显示、不裁切）。
+ * 之前把半身像铺在 .palm-drawer-head 背景上，被抽屉圆角切掉一角、又压到「切换」按钮，
+ * 用户反馈"没显示完整、位置怪"——改成占用既有头像位，天然对齐、不遮挡任何控件。 */
+/* 空状态：Q 版头像圆形徽章，叠在提示语上方当"工坊看板娘"。 */
+html[data-skin='maid-atelier'] .empty-state {
+  position: relative;
+  padding-block-start: 96px;
+}
+
+html[data-skin='maid-atelier'] .empty-state::before {
+  content: '';
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  inline-size: 72px;
+  block-size: 72px;
+  border-radius: 50%;
+  background: url('/m/skin-assets/maid-atelier/maid-chibi.jpg') center / cover no-repeat;
+  box-shadow:
+    0 0 0 2px var(--palm-sur-1),
+    0 0 0 3px color-mix(in srgb, var(--palm-accent) 45%, transparent);
+  pointer-events: none;
+}
+
+html[data-skin='maid-atelier'] .chat-dock {
+  border-block-start: 1px solid var(--palm-line);
+}
+
+/* 底栏顶沿一排扇贝（蕾丝花边）：直接画在底栏自己的背景层上，不依赖定位伪元素
+ * （伪元素在个别容器里会被裁掉/被背景盖住，2026-11-14 踩过一次）。 */
+html[data-skin='maid-atelier'] .chat-dock {
+  background-image: radial-gradient(
+    circle at 7px 0,
+    color-mix(in srgb, var(--palm-accent) 78%, var(--palm-sur-1)) 6.5px,
+    transparent 7px
+  );
+  background-size: 14px 14px;
+  background-repeat: repeat-x;
+  background-position: top left;
+}
+
+/* 输入区：内外双线，像包了缎带 */
+html[data-skin='maid-atelier'] .chat-composer {
+  box-shadow:
+    inset 0 0 0 1px var(--palm-line),
+    0 0 0 1px color-mix(in srgb, var(--palm-accent) 35%, transparent);
+}
+
+/* 顶栏下方一条更淡的同色细线，收住画面上沿 */
+html[data-skin='maid-atelier'] .mobile-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--palm-accent) 28%, transparent);
+}

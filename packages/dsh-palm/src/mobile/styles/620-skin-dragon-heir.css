@@ -1,0 +1,21 @@
+/* ── 龙的传人 · 砖纹层（620）────────────────────────────────────────────
+ * 长城砖：用错缝的重复渐变画出砖块（零图片），再让强调色（朱砂）只出现在
+ * 输入区的一道细边和底栏一条线上，避免整屏发红。
+ *
+ * 颜色全走令牌（`--palm-line` / `--palm-accent`）。
+ */
+
+html[data-skin='dragon-heir'] body {
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 27px, var(--palm-line) 27px 28px),
+    repeating-linear-gradient(90deg, transparent 0 55px, var(--palm-line) 55px 56px);
+  background-size: 56px 28px;
+}
+
+html[data-skin='dragon-heir'] .chat-composer {
+  box-shadow: inset 0 0 0 1px var(--palm-accent);
+}
+
+html[data-skin='dragon-heir'] .chat-dock {
+  border-block-start: 2px solid var(--palm-accent);
+}

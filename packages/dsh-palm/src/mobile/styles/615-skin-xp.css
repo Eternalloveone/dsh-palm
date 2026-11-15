@@ -1,0 +1,74 @@
+/* ── Windows XP · 图标层（615）─────────────────────────────────────────────
+ * 用图标层换掉三个最常见的内联 SVG：抽屉（menu）/ 添加（plus）/ 发送（send）。
+ *
+ * 每换一个图标四件事：给出 --palm-icon-art、给外壳一个尺寸（内联 SVG 被藏掉后
+ * 盒子会塌成 0×0）、打开 ::before、藏掉内联 SVG。贴图是纯黑剪影 SVG，经 mask
+ * 上色 → 跟着 currentColor 走，hover 与明暗都不用另写。
+ * 素材：assets/skins/xp/*.svg（本项目自绘，Apache-2.0，见 manifest.json）。
+ */
+
+html[data-skin='xp'] .skin-icon[data-icon='menu'] {
+  --palm-icon-art: url('/m/skin-assets/xp/menu.svg');
+  --palm-icon-size: 20px;
+  inline-size: 20px;
+  block-size: 20px;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='menu']::before {
+  display: block;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='menu'] > svg {
+  display: none;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='plus'] {
+  --palm-icon-art: url('/m/skin-assets/xp/plus.svg');
+  --palm-icon-size: 16px;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='plus']::before {
+  display: block;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='plus'] > svg {
+  display: none;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='send'] {
+  --palm-icon-art: url('/m/skin-assets/xp/send.svg');
+  --palm-icon-size: 16px;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='send']::before {
+  display: block;
+}
+
+html[data-skin='xp'] .skin-icon[data-icon='send'] > svg {
+  display: none;
+}
+
+/* ── 九宫格边框 + 状态栏（阶段 3：组件级观感）────────────────────────────
+ * 边框用 48×48 的九宫格贴图（slice 12）——这是把"窗口有厚度"画出来的最低成本方式：
+ * 不改结构、不动令牌，只换边。输入区与设置卡片各套一层，像 Luna 的窗口。
+ */
+html[data-skin='xp'] .chat-composer,
+html[data-skin='xp'] .palm-spec-row {
+  border: 4px solid transparent;
+  border-image: url('/m/skin-assets/xp/frame.svg') 12 / 4px / 0 stretch;
+}
+
+/* 底栏像 Luna 的状态栏：顶部一条高光 + 极淡的竖向渐变。 */
+html[data-skin='xp'] .chat-dock {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--palm-sur-1) 70%, var(--palm-accent)) 0,
+    var(--palm-sur-1) 18px,
+    var(--palm-sur-1) 100%
+  );
+  box-shadow: inset 0 1px 0 var(--palm-sur-1);
+}

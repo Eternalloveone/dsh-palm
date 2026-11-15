@@ -81,6 +81,51 @@
   --palm-skin-shot-ink: var(--palm-skin-claude-ink);
 }
 
+.skin-card-shot[data-skin='matrix'] {
+  --palm-skin-shot-bg: var(--palm-skin-matrix-bg);
+  --palm-skin-shot-ink: var(--palm-skin-matrix-ink);
+}
+
+.skin-card-shot[data-skin='xp'] {
+  --palm-skin-shot-bg: var(--palm-skin-xp-bg);
+  --palm-skin-shot-ink: var(--palm-skin-xp-ink);
+}
+
+.skin-card-shot[data-skin='deep-current'] {
+  --palm-skin-shot-bg: var(--palm-skin-deep-current-bg);
+  --palm-skin-shot-ink: var(--palm-skin-deep-current-ink);
+}
+
+.skin-card-shot[data-skin='mint'] {
+  --palm-skin-shot-bg: var(--palm-skin-mint-bg);
+  --palm-skin-shot-ink: var(--palm-skin-mint-ink);
+}
+
+.skin-card-shot[data-skin='pink-sakura'] {
+  --palm-skin-shot-bg: var(--palm-skin-pink-sakura-bg);
+  --palm-skin-shot-ink: var(--palm-skin-pink-sakura-ink);
+}
+
+.skin-card-shot[data-skin='summer-liquid-glass'] {
+  --palm-skin-shot-bg: var(--palm-skin-summer-liquid-glass-bg);
+  --palm-skin-shot-ink: var(--palm-skin-summer-liquid-glass-ink);
+}
+
+.skin-card-shot[data-skin='furina'] {
+  --palm-skin-shot-bg: var(--palm-skin-furina-bg);
+  --palm-skin-shot-ink: var(--palm-skin-furina-ink);
+}
+
+.skin-card-shot[data-skin='minecraft'] {
+  --palm-skin-shot-bg: var(--palm-skin-minecraft-bg);
+  --palm-skin-shot-ink: var(--palm-skin-minecraft-ink);
+}
+
+.skin-card-shot[data-skin='trading'] {
+  --palm-skin-shot-bg: var(--palm-skin-trading-bg);
+  --palm-skin-shot-ink: var(--palm-skin-trading-ink);
+}
+
 .skin-card-shot-bar {
   inline-size: 46px;
   block-size: var(--palm-s1);
@@ -147,3 +192,48 @@
 }
 
 .skin-store-foot > .mobile-button { flex: 1 1 0; }
+
+.skin-card-shot[data-skin='cyber-night'] {
+  --palm-skin-shot-bg: var(--palm-skin-cyber-night-bg);
+  --palm-skin-shot-ink: var(--palm-skin-cyber-night-ink);
+}
+
+.skin-card-shot[data-skin='wallpaper-exclusive'] {
+  --palm-skin-shot-bg: var(--palm-skin-wallpaper-exclusive-bg);
+  --palm-skin-shot-ink: var(--palm-skin-wallpaper-exclusive-ink);
+}
+
+.skin-card-shot[data-skin='dragon-heir'] {
+  --palm-skin-shot-bg: var(--palm-skin-dragon-heir-bg);
+  --palm-skin-shot-ink: var(--palm-skin-dragon-heir-ink);
+}
+
+.skin-card-shot[data-skin='whale-song'] {
+  --palm-skin-shot-bg: var(--palm-skin-whale-song-bg);
+  --palm-skin-shot-ink: var(--palm-skin-whale-song-ink);
+}
+
+.skin-card-shot[data-skin='harbor'] {
+  --palm-skin-shot-bg: var(--palm-skin-harbor-bg);
+  --palm-skin-shot-ink: var(--palm-skin-harbor-ink);
+}
+
+.skin-card-shot[data-skin='war-thunder'] {
+  --palm-skin-shot-bg: var(--palm-skin-war-thunder-bg);
+  --palm-skin-shot-ink: var(--palm-skin-war-thunder-ink);
+}
+
+.skin-card-shot[data-skin='maid-atelier'] {
+  --palm-skin-shot-bg: var(--palm-skin-maid-atelier-bg);
+  --palm-skin-shot-ink: var(--palm-skin-maid-atelier-ink);
+}
+
+.skin-card-shot[data-skin='whale-mom'] {
+  --palm-skin-shot-bg: var(--palm-skin-whale-mom-bg);
+  --palm-skin-shot-ink: var(--palm-skin-whale-mom-ink);
+}
+
+.skin-card-shot[data-skin='blue-fantasy'] {
+  --palm-skin-shot-bg: var(--palm-skin-blue-fantasy-bg);
+  --palm-skin-shot-ink: var(--palm-skin-blue-fantasy-ink);
+}

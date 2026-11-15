@@ -4,15 +4,18 @@
  * 以前外观是设置页里的几个浮层（主题/字号/密度各一个）：改一项要开一次浮层，
  * 改完看不到"现在整体长什么样"。这一屏把它们放在一起，改完立刻生效。
  * 版式：
- * 字号 / 密度 / 明暗三组行（行内右侧是当前值）。尺寸走 --palm-spec-* 令牌，
+ * 字号 / 密度两组（行内右侧是当前值）。尺寸走 --palm-spec-* 令牌，
  * 复用的是 `ui/screen-spec.tsx` 那一层（分组卡 + 行）。
+ *
+ * 2026-11-13：「背景图」挪到设置页「皮肤与背景」栏目（和皮肤商店并排），这一页
+ * 只留字号与密度——同栏目里两件事各开各的浮层，取消/完成不会互相牵制。
  *
  * @module dsh-palm/mobile/views/AppearanceView
  */
 import { useState } from 'react'
 import { settingsLayout } from '../layouts/screens.ts'
 import { SlotLayout } from '../ui/slot-layout.tsx'
-import { IconButton, Button } from '../ui/primitives.tsx'
+import { IconButton } from '../ui/primitives.tsx'
 import { SpecGroup, SpecGroupHead, SpecRow } from './screen-spec.tsx'
 import {
   DENSITY_LABEL,

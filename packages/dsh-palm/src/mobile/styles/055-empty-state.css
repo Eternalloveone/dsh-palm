@@ -55,7 +55,8 @@
   color: var(--palm-fg-2);
 }
 
-.empty-state-icon > svg {
+.empty-state-icon > svg,
+.empty-state-icon > .skin-icon > svg {
   width: var(--palm-spec-glyph);
   height: var(--palm-spec-glyph);
 }

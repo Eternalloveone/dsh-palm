@@ -149,7 +149,8 @@
   color: var(--palm-fg-2);
 }
 
-.palm-dd-icon > svg {
+.palm-dd-icon > svg,
+.palm-dd-icon > .skin-icon > svg {
   inline-size: var(--palm-s4);
   block-size: var(--palm-s4);
 }

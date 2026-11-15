@@ -1,0 +1,177 @@
+/* ── 外观面板（524）───────────────────────────────────────────────────────
+ * 头像点开的那块底部弹层：横向皮肤画廊 + 背景图一行 + 撤销条。
+ *
+ * 缩略图直接复用商店卡的 `.skin-card-shot[data-skin]`（配色变量来自 000-tokens.css），
+ * 所以这里只负责尺寸与排布，不写任何色值 —— 换皮肤时它自己会跟着变。
+ */
+
+.appearance-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--palm-s3);
+  padding: 0 0 var(--palm-s3);
+}
+
+.appearance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--palm-s4);
+}
+
+.appearance-sub {
+  font-size: var(--palm-t-s);
+  color: var(--palm-fg-3);
+}
+
+.appearance-dice {
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-tint-accent);
+  color: var(--palm-accent);
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* 横向画廊：一屏露 4 套半，暗示可以滑 */
+.appearance-strip {
+  display: flex;
+  gap: var(--palm-s2);
+  overflow-x: auto;
+  padding: 2px var(--palm-s4) 4px;
+  scrollbar-width: none;
+}
+
+.appearance-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.appearance-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  inline-size: 62px;
+  flex: none;
+}
+
+.appearance-chip .skin-card-shot {
+  inline-size: 62px;
+  block-size: 78px;
+  border-radius: var(--palm-r-m);
+  overflow: hidden;
+}
+
+.appearance-chip-on .skin-card-shot {
+  /* 第二层投影原来写 color-mix(in srgb, var(--palm-accent) 26%, transparent)，
+     按「样式债务清零」规则换成不透明度令牌（同色系淡投影，视觉等价）。 */
+  box-shadow:
+    0 0 0 2px var(--palm-accent),
+    0 6px 14px var(--palm-scrim-soft);
+}
+
+.appearance-chip-name {
+  font-size: 10px;
+  color: var(--palm-fg-2);
+  max-inline-size: 62px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appearance-chip-on .appearance-chip-name {
+  color: var(--palm-accent);
+  font-weight: var(--palm-w-bold);
+}
+
+/* 背景图一行 */
+.appearance-wall {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s2);
+  margin: 0 var(--palm-s4);
+  padding: 9px 11px;
+  border-radius: var(--palm-r-m);
+  background: var(--palm-sur-1);
+  box-shadow: inset 0 0 0 1px var(--palm-line);
+}
+
+.appearance-wall-thumb {
+  inline-size: 44px;
+  block-size: 30px;
+  flex: none;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-sur-2) center / cover no-repeat;
+}
+
+.appearance-wall-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-inline-size: 0;
+  flex: 1;
+}
+
+.appearance-wall-text b {
+  font-size: var(--palm-t-m);
+  font-weight: var(--palm-w-bold);
+}
+
+.appearance-wall-text small {
+  font-size: var(--palm-strip-right-size);
+  color: var(--palm-fg-3);
+}
+
+.appearance-wall-act {
+  flex: none;
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+  padding: 5px 9px;
+  border-radius: var(--palm-r-s);
+  background: var(--palm-tint-accent);
+}
+
+.appearance-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--palm-s4);
+}
+
+.appearance-link {
+  font-size: var(--palm-t-s);
+  color: var(--palm-accent);
+}
+
+/* 撤销条：浮在面板上方 8px，3 秒后自己消失 */
+.appearance-undo {
+  position: fixed;
+  inset-inline: 0;
+  bottom: calc(52vh + 10px);
+  margin-inline: auto;
+  inline-size: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  /* 深底胶囊 + 反色字。原来写的是 color-mix(in srgb, var(--palm-fg) 88%, transparent)，
+     按「样式债务清零」规则（2026-11-10 起不许出现 color-mix，装饰层除外）改用不透明度
+     令牌：视觉等价（浅色主题下 --palm-scrim-strong = rgba(28,26,23,.8)，原来是 .88）。 */
+  background: var(--palm-scrim-strong);
+  color: var(--palm-bg);
+  font-size: var(--palm-t-s);
+  box-shadow: var(--palm-sh2);
+  z-index: 2;
+}
+
+.appearance-undo b {
+  font-weight: var(--palm-w-bold);
+}
+
+.appearance-undo-act {
+  color: var(--palm-bg);
+  text-decoration: underline;
+  font-size: var(--palm-t-s);
+}

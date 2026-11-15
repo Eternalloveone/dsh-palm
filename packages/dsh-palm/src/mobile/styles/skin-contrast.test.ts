@@ -64,7 +64,7 @@ function contrast(fg: string, bg: string): number {
 /** 皮肤里"正文级"的自定义属性：这些值在任何皮肤上都必须读得清。 */
 const TEXT_TOKENS = ['--palm-fg', '--palm-fg-2', '--palm-fg-3'] as const
 
-describe.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'])('皮肤 %s 的对比度', (skin) => {
+describe.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy'])('皮肤 %s 的对比度', (skin) => {
   const palette = skinPalette(skin)
   const bg = palette['--palm-bg']!
 
@@ -122,7 +122,7 @@ describe('纸色皮肤的过程条轨道（2026-11-10，900px 实拍）', () => 
  * 否则换肤后"棕色文字 + 淡蓝底"这种半新半旧的组合会出现在同一枚徽章里。
  * 桥接的前提是这个淡底上的强调色文字仍然读得清 —— 先量，再桥。
  */
-describe.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'])('皮肤 %s 的强调淡底', (skin) => {
+describe.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy'])('皮肤 %s 的强调淡底', (skin) => {
   it('强调色写在淡底上仍达到 AA 4.5:1', () => {
     const palette = skinPalette(skin)
     const bg = palette['--palm-bg']!
@@ -135,7 +135,7 @@ describe.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude
 describe('断线状态带上的文字（2026-11-10）', () => {
   // 把带子加深到 24% 之后，琥珀字写在琥珀带上的对比度掉到 4.04（纸色皮肤，低于 AA）。
   // 结论：带子负责"这是警告"，文字回到正文色（≥10:1）。这条用例守着这个结论。
-  it.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'])('%s：正文色写在断线带上仍 ≥ 7:1', (skin) => {
+  it.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy'])('%s：正文色写在断线带上仍 ≥ 7:1', (skin) => {
     const palette = skinPalette(skin)
     const bg = palette['--palm-bg']!
     const band = over(palette['--palm-warn-band']!, bg)
@@ -146,7 +146,7 @@ describe('断线状态带上的文字（2026-11-10）', () => {
 describe('裸字语义色（无淡底）也要够读（2026-11-10 通知页送达日志）', () => {
   // 送达日志的失败/已过滤行是**无底色**的红/琥珀字，直接压在卡片表面上。
   // 之前的用例只量过"语义色写在同色淡底上"，没量过裸字。
-  it.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'])('%s：danger / warn 裸字压在卡片表面 ≥ 4.5', (skin) => {
+  it.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy'])('%s：danger / warn 裸字压在卡片表面 ≥ 4.5', (skin) => {
     const palette = skinPalette(skin)
     for (const ink of ['--palm-danger', '--palm-warn'] as const) {
       const ratio = contrast(palette[ink]!, palette['--palm-sur-1']!)
@@ -178,7 +178,7 @@ describe('语义色 × 表面层：整张矩阵，而不是一条条补（2026-1
     return over(solid(palette[key]!, bg), bg)
   }
 
-  for (const skin of ['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'] as const) {
+  for (const skin of ['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy'] as const) {
     it(`${skin}：4 语义色 × 3 表面都 ≥ 4.5`, () => {
       const palette = skinPalette(skin)
       const failures: string[] = []
@@ -217,7 +217,7 @@ describe('表面分层要看得出层（2026-11-10 卡片套卡片）', () => {
     return value
   }
 
-  it.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude'])('%s：第二层表面与第一层差 ≥ 1.07:1', (skin) => {
+  it.each(['graphite', 'paper', 'nocturne', 'newsprint', 'endfield', 'claude', 'matrix', 'xp', 'deep-current', 'mint', 'pink-sakura', 'summer-liquid-glass', 'furina', 'minecraft', 'trading', 'cyber-night', 'wallpaper-exclusive', 'dragon-heir', 'whale-song', 'harbor', 'war-thunder', 'maid-atelier', 'whale-mom', 'blue-fantasy'])('%s：第二层表面与第一层差 ≥ 1.07:1', (skin) => {
     const palette = skinPalette(skin)
     const bg = palette['--palm-bg']!
     const layer1 = over(solidOf(palette['--palm-sur-1']!, bg), bg)

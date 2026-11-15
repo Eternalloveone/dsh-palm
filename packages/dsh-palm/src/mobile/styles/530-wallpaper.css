@@ -1,0 +1,106 @@
+/* ── 壁纸背景（530）───────────────────────────────────────────────────────
+ * 手机端本机壁纸：页面底色让位给一张压在后面的图，卡片仍是不透明表面。
+ * 三个变量由 platform/wallpaper.ts 写在 <html> 上：
+ *   --palm-wall-img    url("<dataURL>")
+ *   --palm-wall-mask   遮罩浓度 0–100
+ *   --palm-wall-blur   模糊半径 0–20（px）
+ *
+ * 为什么让 --palm-bg 变透明而不是给 body 上 background-image：
+ * 页面底色是所有视图（落地页/会话/设置）的统一底板，它一透，壁纸就自动出现在
+ * 每一屏的空白处，组件一行都不用改；而 --palm-sur-1/2 不动，卡片、输入条、
+ * 气泡仍是实色 —— 正文的对比度由皮肤守卫兜底，壁纸不参与。
+ */
+
+html[data-wall='on'] {
+  --palm-bg: transparent;
+}
+
+/* 三个变量的默认值：JS 会以行内样式覆盖它们（platform/wallpaper.ts）。
+ * 写在这里是为了「样式引用的每个自定义属性都有人定义」那条守卫 —— 没设壁纸时
+ * --palm-wall-img 是 none，背景层画出来也是空的。 */
+:root {
+  --palm-wall-img: none;
+  --palm-wall-mask: 70;
+  --palm-wall-blur: 0;
+}
+
+html[data-wall='on'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-wallpaper-bg);
+  background-image: var(--palm-wall-img);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: blur(calc(var(--palm-wall-blur, 0) * 1px));
+  /* 模糊会把边缘吸进来一圈，放大 4% 盖住白边 */
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+/* 遮罩：用皮肤的第一层表面色压在图上面。浓度越高越像皮肤底色，正文越稳。 */
+html[data-wall='on'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-wallpaper-art);
+  background: var(--palm-sur-1);
+  opacity: calc(var(--palm-wall-mask, 70) / 100);
+  pointer-events: none;
+}
+
+/* 壁纸开启时，顶部栏跟着页面底色透出去（否则一条实色横条压在图中间）。 */
+html[data-wall='on'] .mobile-header {
+  background: transparent;
+}
+
+/* ── 外观页的控件 ─────────────────────────────────────────────────────── */
+
+/* 选图用的文件输入：藏起来，由「选一张图」那一行触发。 */
+.wall-file {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wall-slider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--palm-s3);
+  padding: var(--palm-s3) var(--palm-s4);
+  border-block-start: var(--palm-hair) solid var(--palm-line);
+}
+
+/* 浮层里的两行滑杆：第一行不要上边框（浮层顶部就是提示文字）。 */
+.wall-sheet-rows .wall-slider-row:first-child {
+  border-block-start: 0;
+}
+
+.wall-slider-label {
+  flex: 0 0 3em;
+  color: var(--palm-fg);
+  font-size: var(--palm-flow-row-size);
+}
+
+.wall-slider {
+  flex: 1;
+  min-inline-size: 0;
+  accent-color: var(--palm-accent);
+}
+
+.wall-slider-value {
+  flex: 0 0 3.5em;
+  text-align: end;
+  color: var(--palm-fg-3);
+  font-size: var(--palm-flow-meta-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.wall-error {
+  margin: var(--palm-s2) var(--palm-s4) 0;
+  color: var(--palm-danger);
+  font-size: var(--palm-flow-meta-size);
+}

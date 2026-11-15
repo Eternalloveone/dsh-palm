@@ -1,0 +1,18 @@
+/* ── whale-mom · 背景层（626）──────────────────────────────────────
+ * 素材：浅海光柱 + 鲸鱼母子剪影
+ *   assets/skins/whale-mom/whale-sea.jpg（Agnes 生成，CC0）
+ * 铺法：cover + center top，压一层 88%→70% 的表面色。
+ * 浅色底：遮罩从 88%（顶部/正文区更实）过渡到 70%（底部让画面透出来）。
+ */
+
+html[data-skin='whale-mom'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--palm-sur-1) 88%, transparent),
+      color-mix(in srgb, var(--palm-sur-1) 70%, transparent)
+    ),
+    url('/m/skin-assets/whale-mom/whale-sea.jpg');
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-position: center, center top;
+}
