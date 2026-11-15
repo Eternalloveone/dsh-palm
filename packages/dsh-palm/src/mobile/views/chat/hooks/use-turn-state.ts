@@ -12,15 +12,20 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RenderMessage } from '../../../render/messages.ts'
+import { reportProbe } from '../../../data/diag.ts'
 import { sessionState } from '../../../data/session.ts'
 import { cachedSnapshot } from '../../../stream/session-store.ts'
 import { probeTurnAtTail } from '../../../data/reload-tail.ts'
+import { ledgerSnapshot } from '../state/frame-ledger.ts'
 import {
   INITIAL_RECONCILE_MS,
+  LAG_RELOAD_MIN_MS,
+  LAG_RELOAD_RETRY_MS,
   RECONCILE_FAILURE_LIMIT,
   RUNNING_RECONCILE_MS,
   SNAPSHOT_STALE_MS,
   TURN_SILENCE_MS,
+  WATERMARK_LAG_EVENTS,
   newestFoldTurn,
   type TailPageAnchor,
   type TurnVerdict,
@@ -35,7 +40,7 @@ import {
  * @returns the five React states plus the turn-verdict / reconciliation actions.
  */
 export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
-  const { sessionId, mux, stream, messages, refreshInboxRef, normalizeTurnEndTodo, foreground } = options
+  const { sessionId, mux, stream, messages, refreshInboxRef, normalizeTurnEndTodo, foreground, reloadTailRef } = options
 
   /** Whether the assistant is currently generating (turn/start..turn/end). */
   const [running, setRunning] = useState(false)
@@ -196,6 +201,46 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
   const reconcileFailureRef = useRef(0)
   /** 组件是否还挂着：核对是异步的，回来时可能已经换页。 */
   const aliveRef = useRef(true)
+  /** 链路活性的即时读数（对账回调是长寿命闭包，读不到渲染期的 mux）。 */
+  const muxRef = useRef(mux)
+  muxRef.current = mux
+  /** 上一次"水位失配"自愈的时刻与当时的宿主水位。 */
+  const lagReloadRef = useRef({ at: 0, host: -1 })
+
+  /**
+   * 本地折叠水位落后宿主太多 → 重读尾页，把没到的那些事件一次捞回来。
+   *
+   * 判据只有一条：宿主已经折到 `host` 的事件，本地还停在 `folder.lastSeq`。健康路径上
+   * 一帧一批、rAF 就折了，落后量只会在几十毫秒内出现个位数；差到
+   * {@link WATERMARK_LAG_EVENTS} 就是"这些事件永远不会到了"——SSE 不重放，轮询兜底
+   * 也只补水位之上的那段。这是所有"帧没进来"形态的共同出口：不管哪一处坏了，内容
+   * 都能在十几秒内自己回来，不用重开页面。
+   *
+   * 同一宿主水位只打一次（重读没对齐就别接着打），水位不动时退到更长的重试间隔。
+   */
+  const checkStreamLag = (host: number): void => {
+    const folder = stream.folder
+    if (folder === undefined) return
+    const local = folder.lastSeq
+    const lag = host - local
+    if (lag < WATERMARK_LAG_EVENTS) return
+    const now = Date.now()
+    const last = lagReloadRef.current
+    if (now - last.at < LAG_RELOAD_MIN_MS) return
+    if (host <= last.host && now - last.at < LAG_RELOAD_RETRY_MS) return
+    lagReloadRef.current = { at: now, host }
+    void reportProbe?.('stream-lag', {
+      sessionId,
+      lag,
+      localSeq: local,
+      hostSeq: host,
+      batched: stream.eventBatch.length,
+      tailLoading: stream.tailLoading,
+      sseLive: muxRef.current?.isSseLive?.() === true,
+      frames: ledgerSnapshot().frames,
+    }).catch(() => { /* 上报是尽力而为 */ })
+    reloadTailRef.current()
+  }
 
   /** 校正"这一轮到底还在不在跑"。
    *
@@ -227,6 +272,10 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
               stream.folder?.clearOpenTurnStart()
             }
           }
+          // 水位对账（I2）：这一读是刚拿到的宿主切面，它的水位领先本地折叠就说明
+          // 实时帧没进来；丢掉的帧不会重放，只能靠重读尾页补。
+          const hostWatermark = (snapshot as { maxSeq?: unknown }).maxSeq
+          if (typeof hostWatermark === 'number') checkStreamLag(hostWatermark)
         },
         () => {
           // 这一条读失败不代表链路断了（其它通道还在），但连续失败要能标"连接中断"。

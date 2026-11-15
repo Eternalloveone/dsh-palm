@@ -35,6 +35,7 @@ const options: UseTurnStateOptions = {
   refreshInboxRef: { current: () => undefined },
   normalizeTurnEndTodo: () => undefined,
   foreground: true,
+  reloadTailRef: { current: () => undefined },
 }
 
 const run = () => renderHook(() => useTurnState(options))

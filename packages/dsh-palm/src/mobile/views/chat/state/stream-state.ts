@@ -93,6 +93,22 @@ export const SNAPSHOT_STALE_MS = 12_000
 
 /** 打开会话/回到前台后的一次性核对延迟：先让宿主推的 status 帧落地，再兜一次。 */
 export const INITIAL_RECONCILE_MS = 2_500
+
+/**
+ * 水位对账的触发门槛：宿主快照的水位比本地折叠领先这么多条事件，说明实时帧
+ * 没进来（闸门卡住、宿主过滤、断流），而且**丢掉的帧不会重放**。
+ *
+ * 为什么是 24：健康路径上一帧一批、rAF 就折了，落后量只能在几十毫秒内出现个位数；
+ * 一次工具密集的爆发也远在这条线以下。真落后的形态是「一条都进不来」，差值一分钟
+ * 就能到几百。
+ */
+export const WATERMARK_LAG_EVENTS = 24
+/** 两次自愈重读之间的最小间隔（重读尾页是宿主一次日志尾切，别抖）。 */
+export const LAG_RELOAD_MIN_MS = 15_000
+/** 宿主水位没有前进时的重试间隔：重读没让水位对齐就别接着打。 */
+export const LAG_RELOAD_RETRY_MS = 60_000
+/** 闸门兜底上报的同一会话节流。 */
+export const FLUSH_STALL_REPORT_MS = 60_000
 /** Consecutive listSessions failures (each RUNNING_RECONCILE_MS apart) that
  * prove the host is unreachable - the process stopped or the link is down.
  * The reconciliation can only self-heal a lost turn/end while the host answers;
@@ -153,6 +169,13 @@ export interface UseTurnStateOptions {
   normalizeTurnEndTodo: () => void
   /** 页面是否在前台（兜底对账只在看得见时跑）。 */
   foreground: boolean
+  /**
+   * 重载尾页（水位对不上时的自愈出口）。
+   *
+   * 走 ref 转一手：它建在 `use-chat-stream` 里、需要本 hook 的 `resetTurnState` 之后
+   * 才能创建，直接以函数入参会形成「谁先定义」的环；ref 也让对账的依赖保持原样。
+   */
+  reloadTailRef: { current: () => void }
 }
 
 /** 回合状态 + 裁决/对账的对外句柄（帧分发器与对账轮询用）。 */
