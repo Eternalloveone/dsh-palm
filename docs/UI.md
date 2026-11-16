@@ -47,7 +47,7 @@ api/         RPC 白名单 → 宿主
 | `pnpm typecheck` | 类型；**也检查测试文件**（vitest 本身不做类型检查） | 包根 |
 | `pnpm build` | 打包；`.test.ts` 的类型错只有这一步能发现 | 包根 |
 | `pnpm test` | 全量 vitest + **12 条架构断言** | 包根 |
-| 架构断言 | 依赖方向、新环、行数预算、单一实现 | `src/mobile/platform/architecture.test.ts` |
+| 架构断言 | 依赖方向、新环、行数预算、单一实现 | `src/mobile/architecture.test.ts` |
 | 质量预算 | `viewDataImports` 等计数指标，**只降不升** | `src/mobile/quality-budget.ts` |
 | 缓存采纳 | 每个 `*cache*.ts` 要么用内核、要么登记例外 | `src/mobile/cache-adoption.test.ts` |
 | 视觉门禁 | 四屏像素差阈值 | `tools/mobile-visual/run.mjs`（需预览服务器） |

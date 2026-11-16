@@ -60,7 +60,7 @@
 | `pnpm typecheck` | 类型（含测试文件） |
 | `pnpm build` | 打包；`.test.ts` 的类型错只有这步能发现 |
 | `pnpm test` | 4,100+ 用例 + 架构断言、质量预算、缓存采纳 |
-| 架构断言 | `platform/architecture.test.ts`：依赖方向、新环、行数预算、单一实现 |
+| 架构断言 | `src/mobile/architecture.test.ts`：依赖方向、新环、行数预算、单一实现 |
 | 行数/样式预算 | `tools/check-budget.mjs`（**只降不升**；上调须写 reason + expires） |
 | 视觉门禁 | `tools/mobile-visual/run.mjs`（需预览服务器） |
 
