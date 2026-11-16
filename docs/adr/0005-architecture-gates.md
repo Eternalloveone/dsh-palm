@@ -26,7 +26,7 @@
 2. **预算只降不升**：改代码让文件变短了，就**顺手把预算调低**；永远不许为了过关把预算调高。
 3. **质量预算**（`quality-budget.ts`）：`viewDataImports` 这类计数指标同样只降不升，且
    **预算不许虚高**——测试会断言"实测值 + 5% ≥ 预算"，防止预算写大了形同虚设。
-4. **一键体检**：`node tools/health-check.mjs` 串起 typecheck → build → test → 视觉门禁。
+4. **一键体检**：`pnpm verify` 串起 typecheck → build → coverage → test → 预算 → ADR（原为 `tools/health-check.mjs`，2026-11-16 已并入 verify）。
 
 ## 代价
 

@@ -21,7 +21,7 @@
 - **frp + nginx TLS**：推荐。有受信证书，PWA 能装，延迟接近直连
 - **Cloudflare Tunnel**：兜底。国内绕道，延迟约 20–30 倍
 
-详细步骤（含 frps/nginx/frpc 完整拓扑、验证、FAQ）见 [remote-access-guide](../../packages/dsh-palm/docs/remote-access-guide.md)。
+详细步骤（含 frps/nginx/frpc 完整拓扑、验证、FAQ）见 [remote-access-guide](../packages/dsh-palm/docs/remote-access-guide.md)。
 
 ## 配完怎么配对
 
