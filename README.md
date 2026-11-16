@@ -65,6 +65,10 @@ dsh-palm 把这几件事搬到手机上：
 
 ## 界面一览
 
+![交互演示](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/demo.gif)
+
+> 42 秒录屏（循环播放）：配对 → 会话列表 → 过程卡展开 → 流式回答与差异卡 → 交付卡 → 唤醒消息。数据全是虚构的。
+
 | 会话抽屉 | 任务 / 运行总览 |
 |---|---|
 | ![会话抽屉](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/drawer.webp) | ![任务与运行总览](https://raw.githubusercontent.com/Eternalloveone/dsh-palm/main/docs/readme/shots-maid/tasks.webp) |

@@ -220,13 +220,13 @@ const WAKE = {
 // being driven by an in-page element that could drift. The ids double as the
 // `window.__seg` labels the overflow sampler groups its measurements by.
 const CAPTIONS = [
-  { id: 'pair', from: 0, to: 4.4, text: 'Pair the phone with a code from the desktop' },
-  { id: 'list', from: 4.4, to: 8.0, text: 'The session list paints from the last snapshot' },
-  { id: 'process', from: 8.0, to: 20.0, text: 'One process card per turn: thinking and tools in order' },
-  { id: 'stream', from: 20.0, to: 27.0, text: 'Streamed answer, diff card, highlighted code' },
-  { id: 'report', from: 27.0, to: 33.2, text: 'Turn report: deliverables and files produced' },
-  { id: 'wake', from: 33.2, to: 37.2, text: 'Wake messages get their own card' },
-  { id: 'theme', from: 37.2, to: DURATION_S, text: 'Settings, then the dark theme' },
+  { id: 'pair', from: 0, to: 4.4, text: '手机扫码，和桌面配对' },
+  { id: 'list', from: 4.4, to: 8.0, text: '会话列表：上次的快照直接画出来' },
+  { id: 'process', from: 8.0, to: 20.0, text: '一轮一张过程卡：思考与工具按顺序排' },
+  { id: 'stream', from: 20.0, to: 27.0, text: '流式回答、差异卡、语法高亮' },
+  { id: 'report', from: 27.0, to: 33.2, text: '交付卡：这一轮交回了什么' },
+  { id: 'wake', from: 33.2, to: 37.2, text: '唤醒消息有自己的卡' },
+  { id: 'theme', from: 37.2, to: DURATION_S, text: '设置页，然后切深色皮肤' },
 ]
 
 // Selectors the end-of-run horizontal overflow report measures. `.code-body`
@@ -348,6 +348,25 @@ const MOCK_SOURCE = `(() => {
   // endpoint on a timer and reads .approvals off it immediately).
   const EMPTY = {
     'mobile.observe': {},
+    // 2026-11-16 补齐 2.0 新增的六个读：它们的形状必须照 session.ts 的返回类型写。
+    // 少了 turn 会让 ChatView 每帧抛一次 reading 'running'，首屏直接空白
+    // （正是这次重录前半段变空的原因）。
+    'mobile.sessionState': {
+      sessionId: 's-1',
+      rows: ${JSON.stringify(CHAT_ROWS)},
+      maxSeq: 3,
+      queue: [],
+      queueRevision: 0,
+      queueVersion: 1,
+      hasMore: false,
+      turn: { running: false },
+      asOf: 0,
+    },
+    'mobile.logTail': { rows: ${JSON.stringify(CHAT_ROWS)}, maxSeq: 3, hasMore: false },
+    'mobile.turnOutline': { turns: [] },
+    'mobile.goal': { goal: null, activation: 'disarmed' },
+    'mobile.error': { file: '', bytes: 0, pushed: false },
+    'mobile.perf': { file: '', bytes: 0 },
     'mobile.pending': { approvals: [], questions: [] },
     'mobile.readChat': { rows: ${JSON.stringify(CHAT_ROWS)}, maxSeq: 3, hasMore: false },
     'mobile.commands': { items: [] },
