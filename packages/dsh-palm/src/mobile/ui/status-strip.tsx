@@ -134,10 +134,10 @@ const TURBULENCE = 300
 /** 每帧擦除比例（越大拖尾越短）。 */
 const TRAIL_ERASE = 0.25
 /** 粒子从 1 走到 0 的时长（毫秒）。 */
-const LIFESPAN_MS = 1100
+const LIFESPAN_MS = 1400
 /** 粒子基础尺寸（物理像素）与亮度上限。 */
 const DOT_SIZE = 0.8
-const OPACITY = 0.6
+const OPACITY = 0.5
 /** 聚回收敛系数（越大越快落定）与起点距离。 */
 const GATHER_K = 12
 const SPREAD = 85
@@ -152,7 +152,7 @@ const GATHER_START = 230
  * = 收尾 420ms + 40ms 余量。**改上面三个常量要同步改这里**，
  * 否则新词会在聚合到一半时被摘掉（看见"字突然整块出现"）。
  */
-export const WORD_WIND_MS = 1240
+export const WORD_WIND_MS = 1600
 
 /**
  * 星尘可以飞出词槽多远（CSS px）。
@@ -414,7 +414,10 @@ function StripWord({ word }: { word: string }): ReactNode {
     const font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily
     const padX = slotRect.left - canvasRect.left
     const padY = slotRect.top - canvasRect.top
-    const ink = style.color
+    // 粒子墨色用「次级前景」而不是正文色：粒子是余像，和正文同重会显得脏。
+    // --palm-strip-detail-fg 在 .palm-strip 上定义（= --palm-fg-2），这里取不到就退回正文色。
+    const detailInk = getComputedStyle(slot).getPropertyValue('--palm-strip-detail-fg').trim()
+    const ink = detailInk === '' ? style.color : detailInk
 
     const pointsFor = (text: string): SamplePoint[] => {
       const key = text + '|' + font
