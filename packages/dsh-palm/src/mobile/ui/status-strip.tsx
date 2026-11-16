@@ -119,15 +119,40 @@ function WhaleMark({ kind }: { kind: StatusStripKind }) {
  *
  * 两段刻意重叠 130ms：先散后聚若完全不重叠，中间会空掉一百多毫秒，看着像卡住。
  */
-const AWAY_MS = 600
-const GATHER_START = 60
+/*
+ * 粒子物理参数 —— 用户在调速面板上定稿的 A 组（2026-11-16）。
+ * 面板与源码是同一套积分，所以这里的数值就是面板里那一组，改任何一个都等于重调观感。
+ */
+/** 风速（px/s²）。 */
+const WIND = 470
+/** 风向（度，相对水平向右；负数=略向上）→ 拆成 x/y 两个分力。 */
+const WIND_RAD = (-12 * Math.PI) / 180
+const WIND_X = Math.cos(WIND_RAD) * WIND
+const WIND_Y = Math.sin(WIND_RAD) * WIND
+/** 噪声扰动强度：决定轨迹弯不弯。 */
+const TURBULENCE = 300
+/** 每帧擦除比例（越大拖尾越短）。 */
+const TRAIL_ERASE = 0.25
+/** 粒子从 1 走到 0 的时长（毫秒）。 */
+const LIFESPAN_MS = 1100
+/** 粒子基础尺寸（物理像素）与亮度上限。 */
+const DOT_SIZE = 0.8
+const OPACITY = 0.6
+/** 聚回收敛系数（越大越快落定）与起点距离。 */
+const GATHER_K = 12
+const SPREAD = 85
+
+/** 散开粒子寿命走完的时刻（= LIFESPAN_MS × 1.1）。 */
+const AWAY_MS = Math.round(LIFESPAN_MS * 1.1)
+/** 新词开始聚回的时刻。 */
+const GATHER_START = 230
 
 /**
  * 换词过程的存活时长（毫秒）：灰层从开始到被摘掉。
  * = 收尾 420ms + 40ms 余量。**改上面三个常量要同步改这里**，
  * 否则新词会在聚合到一半时被摘掉（看见"字突然整块出现"）。
  */
-export const WORD_WIND_MS = 660
+export const WORD_WIND_MS = 1240
 
 /**
  * 星尘可以飞出词槽多远（CSS px）。
@@ -256,7 +281,6 @@ function makeDots(points: readonly SamplePoint[], seed: number, dpr: number): Do
 }
 
 /** 拖尾衰减：每帧按比例擦掉旧像素（不清屏）。away 擦得快、gather 稍慢。 */
-const TRAIL_ERASE = { away: 0.16, gather: 0.2 }
 
 /**
  * 推一帧：先衰减旧像素留拖尾，再对两组粒子做一次速度积分并落点。
@@ -284,7 +308,7 @@ function stepDots(
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   // 拖尾：按比例擦掉旧像素，粒子飞过的地方留下会自己褪掉的流线。
   ctx.globalCompositeOperation = 'destination-out'
-  ctx.fillStyle = 'rgba(0,0,0,' + String(gatherLive ? TRAIL_ERASE.gather : TRAIL_ERASE.away) + ')'
+  ctx.fillStyle = 'rgba(0,0,0,' + String(TRAIL_ERASE) + ')'
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
   ctx.globalCompositeOperation = 'source-over'
   ctx.fillStyle = ink
@@ -293,17 +317,16 @@ function stepDots(
     for (const dot of awayDots) {
       // 风向右后方：横向主推力 + 低频弯曲；纵向带一点上扬，飞出文字行。
       const bend = Math.sin(t * 0.0011 * dot.f1 + dot.phase) * 0.9
-      const ax = 300 * dot.speed + Math.cos(t * 0.0016 * dot.f2 + dot.phase * 1.7) * 240
-      const ay = -190 * dot.speed * (0.5 + 0.5 * dot.jitter)
-        + Math.sin(t * 0.0013 * dot.f1 + dot.phase) * 230 * bend
+      const ax = WIND_X * dot.speed + Math.cos(t * 0.0016 * dot.f2 + dot.phase * 1.7) * TURBULENCE
+      const ay = WIND_Y * dot.speed + Math.sin(t * 0.0013 * dot.f1 + dot.phase) * TURBULENCE * bend
       dot.vx = (dot.vx + ax * dt) * 0.985
       dot.vy = (dot.vy + ay * dt) * 0.985
       dot.x += dot.vx * dt
       dot.y += dot.vy * dt
-      dot.life = Math.max(0, dot.life - dt / 0.7)
+      dot.life = Math.max(0, dot.life - dt / (LIFESPAN_MS / 1000))
       if (dot.life <= 0.01) continue
-      ctx.globalAlpha = dot.life ** 1.1
-      const size = Math.max(0.6, 1 + 0.9 * dot.life) * (dpr > 1 ? 1 : 1)
+      ctx.globalAlpha = Math.min(1, dot.life ** 1.1) * OPACITY
+      const size = Math.max(0.5, DOT_SIZE * (0.6 + 0.9 * dot.life))
       ctx.fillRect(dot.x, dot.y, size, size)
     }
   }
@@ -311,9 +334,10 @@ function stepDots(
   if (gatherLive) {
     for (const dot of gatherDots) {
       // 聚回：朝出生点收敛（k 越大越快），叠一点噪声摆动让落位不是死板直线。
-      const wobble = Math.cos(t * 0.0022 * dot.f2 + dot.phase) * 130
-      dot.vx = (dot.vx + ((dot.hx - dot.x) * 6 + wobble) * dt) * 0.93
-      dot.vy = (dot.vy + ((dot.hy - dot.y) * 6 + Math.sin(t * 0.002 + dot.phase) * 100) * dt) * 0.93
+      const wobble = Math.cos(t * 0.0022 * dot.f2 + dot.phase) * (TURBULENCE * 0.55)
+      dot.vx = (dot.vx + ((dot.hx - dot.x) * GATHER_K + wobble) * dt) * 0.93
+      dot.vy = (dot.vy + ((dot.hy - dot.y) * GATHER_K
+        + Math.sin(t * 0.002 + dot.phase) * (TURBULENCE * 0.4)) * dt) * 0.93
       dot.x += dot.vx * dt
       dot.y += dot.vy * dt
       dot.life = Math.min(1, dot.life + dt / 0.5)
@@ -406,9 +430,9 @@ function StripWord({ word }: { word: string }): ReactNode {
     const awayDots = makeDots(pointsFor(leaving), leaving.length * 7919 + 3, dpr)
     const gatherDots = makeDots(pointsFor(word), word.length * 7919 + 17, dpr)
     for (const dot of gatherDots) {
-      // 新词从右侧远处飘回：起点在出生点右边一截，寿命从 0 长起来。
-      dot.x = dot.hx + (40 + dot.jitter * 26) * dpr
-      dot.y = dot.hy - (14 + dot.jitter * 16) * dpr
+      // 新词从右侧远处飘回：起点在出生点右边 SPREAD，寿命从 0 长起来。
+      dot.x = dot.hx + (SPREAD + dot.jitter * 20) * dpr
+      dot.y = dot.hy - (SPREAD * 0.35 + dot.jitter * 12) * dpr
       dot.life = 0
     }
 
