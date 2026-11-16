@@ -60,7 +60,7 @@ const FRAMES_DIR = join(process.cwd(), '.gif-frames')
 // repository instead of quietly overwriting the committed screenshots.
 const SHOT_DIR = dirname(OUT)
 const TARGET = 'http://127.0.0.1:3080/m/'
-const FPS = 10
+const FPS = 6
 const DURATION_S = 42
 const TOTAL_FRAMES = FPS * DURATION_S
 const WIDTH = 390
@@ -226,7 +226,7 @@ const CAPTIONS = [
   { id: 'stream', from: 20.0, to: 27.0, text: '流式回答、差异卡、语法高亮' },
   { id: 'report', from: 27.0, to: 33.2, text: '交付卡：这一轮交回了什么' },
   { id: 'wake', from: 33.2, to: 37.2, text: '唤醒消息有自己的卡' },
-  { id: 'theme', from: 37.2, to: DURATION_S, text: '设置页，然后切深色皮肤' },
+  { id: 'theme', from: 37.2, to: DURATION_S, text: '过程、差异、交付都留在同一屏' },
 ]
 
 // Selectors the end-of-run horizontal overflow report measures. `.code-body`
@@ -364,6 +364,8 @@ const MOCK_SOURCE = `(() => {
     },
     'mobile.logTail': { rows: ${JSON.stringify(CHAT_ROWS)}, maxSeq: 3, hasMore: false },
     'mobile.turnOutline': { turns: [] },
+    'mobile.turnState': { sessionId: 's-1', running: false, steps: [] },
+    'mobile.finishedRuns': { entries: [] },
     'mobile.goal': { goal: null, activation: 'disarmed' },
     'mobile.error': { file: '', bytes: 0, pushed: false },
     'mobile.perf': { file: '', bytes: 0 },
@@ -572,7 +574,7 @@ try {
   })
   // Idempotence: wipe the pairing cookie, the demo diagnostics and the stored
   // theme, so a re-run starts unpaired on the light palette like the first run.
-  await send('Runtime.evaluate', { expression: '(() => { try { localStorage.clear() } catch {} try { sessionStorage.clear() } catch {} return true })()' })
+  await send('Runtime.evaluate', { expression: '(() => { try { localStorage.clear(); localStorage.setItem("dsh.palm.skin", "maid-atelier") } catch {} try { sessionStorage.clear() } catch {} return true })()' })
   await send('Page.addScriptToEvaluateOnNewDocument', { source: MOCK_SOURCE })
   await send('Page.reload', { ignoreCache: true })
   await sleep(2500)
@@ -634,6 +636,15 @@ try {
     el.click()
     return true
   })()`
+  // 按叶子文本点：抽屉行、设置行、浮层选项的 label 都是叶子文本节点。
+  const clickText = (text) => `(() => {
+    const hits = [...document.querySelectorAll('*')].filter(e => e.children.length === 0 && e.textContent.trim() === ${JSON.stringify(text)})
+    const el = hits[hits.length - 1]
+    if (el === undefined) return false
+    el.click()
+    return true
+  })()`
+  const goHome = `(() => { location.href = '/m/'; return true })()`
   // Marks the timeline segment that is on screen from here on. This drives the
   // overflow report grouping only - the caption bar itself is composited by
   // ffmpeg from CAPTIONS[], never drawn inside the page.
@@ -686,13 +697,13 @@ try {
 
     // 2. Workspace -> session list (4-8s).
     { at: 4.4, label: 'segment:list', run: () => evalJs(setSeg('list')) },
-    { at: 5.2, label: 'open workspace', run: () => evalJs(`(() => {
+    { at: 6.0, label: 'open workspace', run: () => evalJs(`(() => {
       const card = document.querySelector('.mobile-list .card-title')
       if (card === null) return false
       card.closest('button')?.click()
       return true
     })()`) },
-    { at: 6.4, label: 'confirm session list', run: () => evalJs(`(() => {
+    { at: 7.0, label: 'confirm session list', run: () => evalJs(`(() => {
       const row = document.querySelector('.mobile-list .mobile-row')
       if (row === null) return false
       row.scrollIntoView({ block: 'start' })
@@ -762,9 +773,12 @@ try {
       }
       return false
     })()`) },
-    { at: 40.2, label: 'open theme sheet', run: () => evalJs(clickSettingsRow('主题')) },
-    { at: 41.0, label: 'pick dark theme', run: () => evalJs(clickSheetOption('深色')) },
-    { at: 41.6, label: 'hold dark theme', run: () => evalJs('(() => { try { window.__markSeen() } catch {} ; return true })()') },
+    // 8. 设置页（37.2-42s）。原来这里是「切深色主题」，改成只展示设置页：
+    // 深色会把女仆立绘压掉，而抽屉那一帧会让 ffmpeg 的滤镜链崩（Internal bug）。
+    { at: 37.4, label: 'segment:theme', run: () => evalJs(setSeg('theme')) },
+    { at: 37.8, label: 'back to home', waitAfter: 2400, run: () => evalJs(goHome) },
+    { at: 40.4, label: 'open settings', waitAfter: 1400, run: () => evalJs(clickSel('.mobile-iconbtn[aria-label="设置"]')) },
+    { at: 41.8, label: 'hold settings page', run: () => evalJs('(() => true)()') },
   ].sort((a, b) => a.at - b.at)
 
   // Record frames: one screenshot per tick, actions fire at their timestamps.
@@ -787,7 +801,10 @@ try {
       }
     }
     const data = PROBE ? undefined : await shot()
-    if (typeof data === 'string') {
+    // 导航瞬间的截图可能是不完整的 PNG（是 string 但头不完整），
+    // 直接写进 frames 会让 ffmpeg 在那帧报 Conversion failed。
+    const validShot = typeof data === 'string' && data.startsWith('iVBORw0KGgo') && data.length > 4000
+    if (validShot) {
       lastFrame = data
       writeFileSync(join(FRAMES_DIR, `frame-${String(i).padStart(4, '0')}.png`), Buffer.from(data, 'base64'))
     } else if (!PROBE && lastFrame !== undefined) {
@@ -949,7 +966,15 @@ try {
     let bytes = 0
     let canvas = { width: 0, height: 0 }
     for (const attempt of attempts) {
-      await encode(attempt.colours, attempt.dither, attempt.gifflags)
+      // 编码器自己也可能崩（ffmpeg 报 "Internal bug, should not have happened"，
+      // 实测 45 秒附近的某一帧触发）。原来的阶梯只在「canvas 不对 / 超预算」时
+      // 才换档，编码抛异常会直接跳出整次录制；这里把异常也纳入阶梯。
+      try {
+        await encode(attempt.colours, attempt.dither, attempt.gifflags)
+      } catch (error) {
+        console.log(`encoded (${attempt.note}): encoder failed - ${String(error?.message ?? error).slice(0, 120)}`)
+        continue
+      }
       bytes = statSync(OUT).size
       canvas = gifCanvas(OUT)
       const shaped = canvas.width === WIDTH && canvas.height === CANVAS_H
