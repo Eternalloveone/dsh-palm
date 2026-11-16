@@ -19,6 +19,17 @@
 export class SessionObserverRegistry {
   /** deviceId → 该设备正在看的会话。 */
   private readonly byDevice = new Map<string, string>()
+  /**
+   * 连接 id → 这条 SSE 连接自述的会话（来自 `?session=`）。
+   *
+   * 为什么要单独一张表（2026-11-16 真机：「消息发出去了、状态显示运行中，但回复正文
+   * 一直不出现」）：宿主有两个消费者读这张登记 —— ①`handleEvents` 的帧过滤（已改成
+   * 优先用连接 URL 里的会话）；②`api-proxy-stream` 的助手流翻译（**仍只读登记表**）。
+   * 两边依据不同源就会出现"你的消息到了、回复的逐字流没到"：过滤放行了 `user/message`，
+   * 翻译器却因为没人登记而把 `assistant/chunk` 扔了。把连接自述的会话也登记进同一张表，
+   * 两个消费者就重新同源。
+   */
+  private readonly byConnection = new Map<string, string>()
   private readonly listeners = new Set<(sessionIds: readonly string[]) => void>()
 
   /**
@@ -45,9 +56,30 @@ export class SessionObserverRegistry {
     this.notify()
   }
 
-  /** 当前被观察的会话（去重）。 */
+  /**
+   * 登记一条 SSE 连接自述的会话（`?session=`）。
+   *
+   * 与 `observe` 一样进同一个全局集合，助手流翻译因此也认得它。
+   *
+   * @param connectionId - 这条连接的唯一 id
+   * @param sessionId - 地址里带的会话
+   */
+  pin(connectionId: string, sessionId: string): void {
+    if (connectionId === '' || sessionId === '') return
+    if (this.byConnection.get(connectionId) === sessionId) return
+    this.byConnection.set(connectionId, sessionId)
+    this.notify()
+  }
+
+  /** 连接关闭时释放它的登记。 */
+  unpin(connectionId: string): void {
+    if (!this.byConnection.delete(connectionId)) return
+    this.notify()
+  }
+
+  /** 当前被观察的会话（去重：设备登记 ∪ 连接自述）。 */
   sessions(): string[] {
-    return [...new Set(this.byDevice.values())]
+    return [...new Set([...this.byDevice.values(), ...this.byConnection.values()])]
   }
 
   /** 某台设备正在看的会话（0 或 1 个）；SSE 按设备过滤帧时用。 */

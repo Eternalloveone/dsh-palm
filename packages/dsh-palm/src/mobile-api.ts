@@ -1392,6 +1392,14 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
      */
     const pinnedSession = new URL(req.url ?? '/', 'http://localhost').searchParams.get('session') ?? ''
     const pinned = pinnedSession === '' ? undefined : pinnedSession
+    /*
+     * 连接自述的会话**同时**登记进观察表：`api-proxy-stream` 的助手流翻译只读这张表。
+     * 不登记就会出现"你的消息到了、回复的逐字流没到"——过滤按 URL 放行了 `user/message`，
+     * 翻译器却因为没人登记把 `assistant/chunk` 全扔了（真机 2026-11-16 截图：状态运行中，
+     * 回复正文一直空着）。
+     */
+    const connectionId = pinned === undefined ? '' : `mux-conn-${RpcId(String(Date.now()))}`
+    if (pinned !== undefined && observers !== undefined && connectionId !== '') observers.pin(connectionId, pinned)
     /** 设备登记表那一份（老客户端还在用；同设备多页面时也会变）。 */
     const registryObserved = (): Set<string> => new Set(
       observers === undefined || deviceId === undefined ? [] : observers.sessionsFor(deviceId),
@@ -1437,6 +1445,8 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // 会话钉在 URL 上的连接**不释放**登记：它可能压根没登记过（那正是改造目的），
       // 释放会顺手清掉同设备别的页面（仍在用登记表的老客户端）的条目。
       if (pinned === undefined && deviceId !== undefined) observers?.release(deviceId)
+      // 连接自述的登记随连接一起释放（助手流翻译据此停止这个会话的逐字翻译）。
+      if (connectionId !== '') observers?.unpin(connectionId)
       disposeObserved?.()
       res.end()
     }
@@ -1475,6 +1485,7 @@ export function makeMobileApiRoutes(deps: MobileApiDeps): WebRoute[] {
       // desktop's own panel is what answers in that state (dual-answer race in
       // api-proxy-adapter.ts), so the flag must track the live subscriptions.
       ;(apiProxy as ApiProxyAdapter).setPhoneConnected(ctx.activeEvents > 0)
+      if (connectionId !== '') observers?.unpin(connectionId)
       disposeObserved?.()
     }
     res.on('close', onClose)

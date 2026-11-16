@@ -56,3 +56,38 @@ describe('SessionObserverRegistry', () => {
     expect(registry.sessions()).toEqual([])
   })
 })
+
+describe('SessionObserverRegistry 的连接自述登记', () => {
+  it('连接 URL 里的会话与设备登记取并集（助手流翻译只读这张表）', () => {
+    // 2026-11-16 真机：状态显示运行中、回复正文一直空着。原因是帧过滤按 URL 的
+    // ?session= 放行了 user/message，而助手流翻译只读设备登记表，assistant/chunk
+    // 全被扔掉。连接自述的会话必须进同一张表。
+    const registry = new SessionObserverRegistry()
+    registry.observe('dev-a', 's-1')
+    registry.pin('conn-1', 's-2')
+    expect([...registry.sessions()].sort()).toEqual(['s-1', 's-2'])
+    // 两条连接看同一个会话：去重。
+    registry.pin('conn-2', 's-2')
+    expect([...registry.sessions()].sort()).toEqual(['s-1', 's-2'])
+    // 连接关闭只摘掉自己那一条。
+    registry.unpin('conn-1')
+    expect([...registry.sessions()].sort()).toEqual(['s-1', 's-2'])
+    registry.unpin('conn-2')
+    expect([...registry.sessions()]).toEqual(['s-1'])
+  })
+
+  it('重复 pin 同一连接不发通知（避免翻译器无谓重建）', () => {
+    const registry = new SessionObserverRegistry()
+    let calls = 0
+    registry.onChange(() => { calls += 1 })
+    expect(calls).toBe(1) // 订阅即回调一次
+    registry.pin('conn-1', 's-1')
+    expect(calls).toBe(2)
+    registry.pin('conn-1', 's-1')
+    expect(calls).toBe(2)
+    registry.unpin('conn-unknown')
+    expect(calls).toBe(2)
+    registry.unpin('conn-1')
+    expect(calls).toBe(3)
+  })
+})
