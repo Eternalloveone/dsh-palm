@@ -36,27 +36,15 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/**/*.js",
-    "lib/**/*.js.map",
     "lib/**/*.d.ts",
-    "lib/**/*.d.ts.map",
     "!lib/**/*.test.js",
-    "!lib/**/*.test.js.map",
     "!lib/**/*.test.d.ts",
-    "!lib/**/*.test.d.ts.map",
     "!lib/**/*.spec.js",
-    "!lib/**/*.spec.js.map",
     "!lib/**/*.spec.d.ts",
-    "!lib/**/*.spec.d.ts.map",
-    "src",
-    "!src/**/*.test.ts",
-    "!src/**/*.test.tsx",
-    "!src/**/*.spec.ts",
-    "!src/**/*.spec.tsx",
     "assets",
     "NOTICE",
     "cordis.patch.yml"
