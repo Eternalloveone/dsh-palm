@@ -27,7 +27,10 @@ vi.mock('../session/outline-cache.ts', () => ({ getCachedOutline: () => undefine
 
 const { history, logTail, readChat, sessionState } = await import('../api.ts')
 const { loadChatPage, resetEntrySupportForTest } = await import('./chat-page.ts')
-const { resetChatSyncLedger } = await import('../session/chat-sync-ledger.ts')
+const { resetChatSyncLedger, noteChatSynced, canSkipEntryRead } = await import('../session/chat-sync-ledger.ts')
+const { loadCachedHistory } = await import('../session/history-cache.ts')
+
+const loadCachedHistoryMock = vi.mocked(loadCachedHistory)
 
 const stateMock = vi.mocked(sessionState)
 const tailMock = vi.mocked(logTail)
@@ -124,5 +127,38 @@ describe('首屏取数：sessionState 优先', () => {
     const page = await loadChatPage('s-1')
     expect(tailMock).toHaveBeenCalledTimes(1)
     expect(page.rows.length).toBe(120)
+  })
+
+  /**
+   * 水位自愈（2026-11-16 真机）：账本说"刚同步过"、缓存里那份停在水位 100，
+   * 而宿主已经 120 —— 这时吃缓存就是自愈读自己。`bypassEntryCache` 必须让这次
+   * 读取走到宿主，顺手把账本作废掉。
+   */
+  it('bypassEntryCache：账本与缓存都是旧的也不许直通', async () => {
+    noteChatSynced('s-stale')
+    loadCachedHistoryMock.mockResolvedValueOnce({ rows: rows(10), maxSeq: 100, hasMore: true })
+    stateMock.mockResolvedValue(entry(120) as never)
+
+    const page = await loadChatPage(
+      's-stale', undefined, undefined, undefined, undefined, undefined,
+      { bypassEntryCache: true },
+    )
+
+    expect(loadCachedHistoryMock).not.toHaveBeenCalled()
+    expect(stateMock).toHaveBeenCalledTimes(1)
+    expect(page.maxSeq).toBe(120)
+    // 这次读完账本按新那份重新记（本地已经是当前状态），下一次切换照旧可以直通。
+    expect(canSkipEntryRead('s-stale')).toBe(true)
+  })
+
+  it('不传 bypass：账本有效时仍然直通本地那份（切换会话的加速路径不受影响）', async () => {
+    noteChatSynced('s-fast')
+    const cached = { rows: rows(10), maxSeq: 100, hasMore: true }
+    loadCachedHistoryMock.mockResolvedValueOnce(cached)
+
+    const page = await loadChatPage('s-fast')
+
+    expect(stateMock).not.toHaveBeenCalled()
+    expect(page.maxSeq).toBe(100)
   })
 })

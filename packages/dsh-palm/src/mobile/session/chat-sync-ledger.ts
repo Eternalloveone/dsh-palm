@@ -52,6 +52,20 @@ export function noteChatFrame(sessionId: string): void {
 }
 
 /**
+ * 作废这一场的账本条目：下一次进会话**必须**重新问宿主。
+ *
+ * 供"已经知道本地那份是旧的"的路径使用 —— 水位对账（宿主水位领先本地折叠太多，
+ * 说明那段内容永远不会以帧的形式到齐）就是典型。不在这里作废，重读尾页会被
+ * {@link canSkipEntryRead} 判成"刚同步过"而直接吃本地缓存：自愈变成读自己，
+ * 水位永远停在原地（2026-11-16 真机：`localSeq` 连续两次对账都是 2220，
+ * 宿主已走到 3193 / 3424）。
+ */
+export function bustChatSync(sessionId: string): void {
+  if (sessionId === '') return
+  entries.delete(sessionId)
+}
+
+/**
  * 这一次进会话能不能直接用手上那份、跳过网络重取。
  *
  * @param sessionId - 会话 id

@@ -67,6 +67,8 @@ describe('水位对账：落后就重读尾页', () => {
     act(() => { result.current.markSnapshotAlive() })
     await reconcile(result)
     expect(reloadTail).toHaveBeenCalledTimes(1)
+    // 重读必须让水位越过本地这个旧值，否则 `reload-tail` 会报 tail-reload-stall。
+    expect(reloadTail).toHaveBeenCalledWith({ expectSeqAbove: 0 })
     expect(reportProbeMock).toHaveBeenCalledWith(
       'stream-lag',
       expect.objectContaining({ lag: 100, localSeq: 0, hostSeq: 100 }),

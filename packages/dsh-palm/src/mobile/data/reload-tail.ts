@@ -10,6 +10,12 @@
  * 2. **只有最新一次重载算数**（epoch + abort 掉上一次）：两次快速重载时，慢的那次
  *    不能把后一次的行盖掉。
  * 3. **一次都没读成功要明说**：点了一条已删的会话/失效链接，页面不能永远停在"加载中"。
+ *
+ * 第 4 条（2026-11-16 真机补）：**重读不许吃本地缓存**。水位对账发现"本地落后宿主
+ * 一大截"才会走到这里，而那一刻的本地缓存正是要修掉的那份 —— 走
+ * `canSkipEntryRead` 的直通就等于自愈读自己（实测 `localSeq` 卡在 2220，宿主已经
+ * 3193，两次重读水位纹丝不动）。所以这里固定 `bypassEntryCache`，并在水位没前进
+ * 时上报 `tail-reload-stall` / 读失败时上报 `tail-reload-failed`。
  */
 import { loadChatPage } from './chat-page.ts'
 import { history, listSessions, logTail, runningSessions } from '../api.ts'
@@ -28,9 +34,20 @@ export interface ReloadTailDeps {
   setHasOlder: (value: boolean) => void
   setError: (message: string) => void
   refillGap: (gap: { from: number; to: number }, signal: AbortSignal, isCancelled: () => boolean) => void
+  /** 探针上报（尽力而为）：自愈没成功必须留下现场，不能静默。 */
+  reportProbe?: ((probe: string, detail: Record<string, unknown>) => void | Promise<unknown>) | undefined
 }
 
-export function reloadTailPage(deps: ReloadTailDeps): void {
+/** 一次重载的期望值（只有水位自愈那条路会给）。 */
+export interface ReloadTailOptions {
+  /**
+   * 期望重读后的水位**严格高于**这个值 —— 调用方已经知道本地停在这里、且宿主
+   * 水位远在前面。不传就是普通重载（命令改写历史那种），不做水位断言。
+   */
+  expectSeqAbove?: number | undefined
+}
+
+export function reloadTailPage(deps: ReloadTailDeps, options: ReloadTailOptions = {}): void {
   const { sessionId, state, controllerRef, epochRef, applyMessages, setHasOlder, setError, refillGap } = deps
 
   controllerRef.current?.abort()
@@ -40,7 +57,16 @@ export function reloadTailPage(deps: ReloadTailDeps): void {
   epochRef.current = epoch
   state.tailLoading = true
 
-  void loadChatPage(sessionId, undefined, controller.signal).then(
+  // 重读之前的水位：重读完没前进时，它是"卡住的是哪一份"的唯一证据。
+  const previousSeq = state.folder?.lastSeq ?? -1
+
+  /**
+   * 这条重读一定走宿主：`bypassEntryCache` 让它跳过"刚同步过就用本地那份"的
+   * 直通。水位对账正是因为**本地那份是旧的**才来这里的，吃缓存就等于自愈读自己。
+   */
+  void loadChatPage(sessionId, undefined, controller.signal, undefined, undefined, undefined, {
+    bypassEntryCache: true,
+  }).then(
     (page) => {
       if (epoch !== epochRef.current) return
       const buffered = state.liveBuffer
@@ -51,6 +77,19 @@ export function reloadTailPage(deps: ReloadTailDeps): void {
       state.folder = folder
       applyMessages(folder.fold(buffered))
       setHasOlder(page.hasMore)
+      // 水位断言：宿主给的页面还是老的那一份（或者窗口比本地还短），重读就是白跑。
+      // 以前这里什么都不说，磁盘上只留一条 lag，看不出"读了但没进展"。
+      const expected = options.expectSeqAbove
+      if (expected !== undefined && folder.lastSeq <= expected) {
+        void deps.reportProbe?.('tail-reload-stall', {
+          sessionId,
+          expectedAbove: expected,
+          got: folder.lastSeq,
+          previous: previousSeq,
+          rows: page.rows.length,
+          entrySnapshot: page.entrySnapshot === true,
+        })
+      }
       // 重载窗口也溢出了：和首次加载一样把丢掉的那段补回来。
       const gap = state.dropWindow
       if (gap !== undefined) {
@@ -59,7 +98,7 @@ export function reloadTailPage(deps: ReloadTailDeps): void {
         refillGap(gap, controller.signal, () => epoch !== epochRef.current)
       }
     },
-    () => {
+    (error: unknown) => {
       if (epoch !== epochRef.current) return
       state.tailLoading = false
       // 失败也要把缓冲倒进旧折叠器，否则这些帧永远留在缓冲里看不见。
@@ -68,6 +107,16 @@ export function reloadTailPage(deps: ReloadTailDeps): void {
       if (buffered.length > 0) {
         const folder = state.folder
         applyMessages(folder === undefined ? foldEvents(buffered) : folder.fold(buffered))
+      }
+      // 有水位期望时，失败必须留现场：这条路径以前完全无声（`loadedPage` 已经是
+      // true，连"打不开这个会话"都不会弹），用户看到的就是内容永远停在旧的。
+      if (options.expectSeqAbove !== undefined) {
+        void deps.reportProbe?.('tail-reload-failed', {
+          sessionId,
+          expectedAbove: options.expectSeqAbove,
+          stillAt: state.folder?.lastSeq ?? -1,
+          reason: error instanceof Error ? error.message : String(error),
+        })
       }
       if (!state.loadedPage) {
         setError('打不开这个会话：它可能已被删除，或链接已失效')

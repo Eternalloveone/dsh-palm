@@ -174,8 +174,11 @@ export interface UseTurnStateOptions {
    *
    * 走 ref 转一手：它建在 `use-chat-stream` 里、需要本 hook 的 `resetTurnState` 之后
    * 才能创建，直接以函数入参会形成「谁先定义」的环；ref 也让对账的依赖保持原样。
+   *
+   * 入参 `expectSeqAbove`：调用方已知本地停在哪条水位之上是旧的，重读后必须越过它，
+   * 否则算自愈失败（`reload-tail` 据此上报，不再静默）。
    */
-  reloadTailRef: { current: () => void }
+  reloadTailRef: { current: (options?: { expectSeqAbove?: number }) => void }
 }
 
 /** 回合状态 + 裁决/对账的对外句柄（帧分发器与对账轮询用）。 */

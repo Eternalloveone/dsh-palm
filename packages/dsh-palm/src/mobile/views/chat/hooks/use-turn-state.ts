@@ -239,7 +239,9 @@ export function useTurnState(options: UseTurnStateOptions): TurnStateHandle {
       sseLive: muxRef.current?.isSseLive?.() === true,
       frames: ledgerSnapshot().frames,
     }).catch(() => { /* 上报是尽力而为 */ })
-    reloadTailRef.current()
+    // 重读必须让水位**越过**本地这个旧值：重读没进展时，`reload-tail` 会上报
+    // `tail-reload-stall`（以前这条失败完全静默，磁盘上只剩一条 lag）。
+    reloadTailRef.current({ expectSeqAbove: local })
   }
 
   /** 校正"这一轮到底还在不在跑"。

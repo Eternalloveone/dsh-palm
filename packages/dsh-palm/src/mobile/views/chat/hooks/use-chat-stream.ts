@@ -67,7 +67,7 @@ export function useChatStream(options: UseChatStreamOptions): ChatStreamHandle {
    * 重载尾页的即时句柄：对账层（`useTurnState`）要靠它做"水位失配"的自愈，
    * 而它建在本层、依赖对账层的 `resetTurnState` —— 直接以函数入参会成环。
    */
-  const reloadTailRef = useRef<() => void>(() => {})
+  const reloadTailRef = useRef<(options?: { expectSeqAbove?: number }) => void>(() => {})
 
   // 回合状态机是独立的一层：本层只透传，不反向依赖（见文件头）。
   const turn = useTurnState({
@@ -247,7 +247,7 @@ export function useChatStream(options: UseChatStreamOptions): ChatStreamHandle {
    * 重载尾页：实现已搬到 data/reload-tail.ts（纯逻辑 + 显式注入），这里只把当前会话的
    * 各个 ref / 写入方打进去。
    */
-  const reloadTail = useCallback((): void => {
+  const reloadTail = useCallback((options?: { expectSeqAbove?: number }): void => {
     reloadTailPage({
       sessionId,
       state: stream,
@@ -257,7 +257,8 @@ export function useChatStream(options: UseChatStreamOptions): ChatStreamHandle {
       setHasOlder,
       setError,
       refillGap,
-    })
+      reportProbe: (probe, detail) => reportProbe(probe, detail),
+    }, options)
   }, [sessionId, refillGap, applyMessages, setHasOlder])
 
   /**

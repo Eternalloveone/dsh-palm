@@ -10,7 +10,7 @@ import { history as fetchHistory, logTail, readChat, sessionState, turnOutlineOf
 import { EventFolder, foldEvents, foldTodoSnapshot, lastOpenTurnStartTime, type RenderMessage, type TodoSnapshot } from '../render/messages.ts'
 import type { SessionProjectionsBlock } from '../../api-proxy-types'
 import { saveCachedHistory, loadCachedHistory } from '../session/history-cache.ts'
-import { canSkipEntryRead, noteChatSynced } from '../session/chat-sync-ledger.ts'
+import { canSkipEntryRead, noteChatSynced, bustChatSync } from '../session/chat-sync-ledger.ts'
 import { preferredTailWindowBytes } from '../platform/entry-perf.ts'
 import { getCachedOutline, setCachedOutline } from '../session/outline-cache.ts'
 
@@ -208,6 +208,14 @@ export async function loadChatPage(
   // 锚定页的行数：搜索跳到深历史时，默认 25 行（原始事件）折叠后只剩七八行，
   // 目标行常常正好落在窗口外，于是「翻了一页却没到那条命中」。
   maxRows?: number,
+  /**
+   * 绕过"刚同步过就用本地那份"的直通（{@link canSkipEntryRead}）。
+   *
+   * 给**已知本地是旧的**路径用：水位对账发现宿主水位领先太多时，本地缓存就是
+   * 要修的那个旧值，读它 = 自愈读自己。这条开关让自愈一定走到宿主
+   * （2026-11-16 真机：`localSeq` 卡在 2220，连读两次尾页都没动）。
+   */
+  opts?: { bypassEntryCache?: boolean },
 ): Promise<ChatPageResult> {
   const isTail = beforeSeq === undefined
   // C：尾部直读优先。宿主冷读要整文件解压一个 zstd 帧序列（大会话 4 s 起），
@@ -219,7 +227,12 @@ export async function loadChatPage(
      * 在宿主单线程里要 500~900ms，正好是用户点完会话等的那段）。
      * 判据与三条保守约束见 `session/chat-sync-ledger.ts`。
      */
-    if (canSkipEntryRead(sessionId)) {
+    if (opts?.bypassEntryCache === true) {
+      // 自愈路径：本地那份已知落后，"刚同步过"这个判据在这里恰好是错的
+      // （落后期间一条帧都没来，账本反而最干净）。顺手作废，免得下一次切换
+      // 又拿它直通。
+      bustChatSync(sessionId)
+    } else if (canSkipEntryRead(sessionId)) {
       const cached = await loadCachedHistory<ChatPageResult>(sessionId)
       if (cached !== undefined && Array.isArray(cached.rows) && cached.rows.length > 0) {
         return cached
