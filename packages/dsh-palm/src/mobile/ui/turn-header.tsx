@@ -103,7 +103,7 @@ export const STRIP_ROTATE_MS = 16_000
  * 取这一帧该显示的状态词（纯函数，测试与快照都按它走）。
  *
  * @param kind - 状态种类
- * @param rotateTick - 轮播脉冲（时间每 4 秒 +1，步数变化也 +1）
+ * @param rotateTick - 轮播脉冲（只有时间驱动：每 STRIP_ROTATE_MS +1）
  * @returns 该族的第 `rotateTick % 池长` 个词
  */
 export function stripWordOf(kind: StatusStripKind, rotateTick: number): string {
@@ -182,46 +182,62 @@ export function TurnHeader({
     ? ''
     : formatSeconds(durationMs)
   /*
-   * 轮播脉冲：「每 4 秒」或「每完成一步」各前进一步（见 STRIP_POOL 的说明）。
-   * 状态一换（think → edit）词池跟着换，索引继续走 —— 不重置，省一次渲染；
-   * 池长为 1 的关键档根本不起定时器，永远显示同一个词。
+   * 轮播：词**只由时间驱动**，每 STRIP_ROTATE_MS 前进一格。
+   *
+   * 2026-11-16 第三次反馈「还是很快就切不同文案词」的根因就在这里，但不是周期不够长 ——
+   * 是**换动作会换词**。kind 由 deriveTaskStatus 从当前活动推导：模型流式输出/思考时是 think，
+   * 调工具变 read/edit/test，工具结束又回 think。一个回合里 kind 翻转几十次，
+   * 每翻一次都把索引清回 0 并重播一遍粒子动画，定时器根本没机会跑满。
+   * 所以引入 shownKind：显示的族**滞后**于真实 kind，只在轮播脉冲或进出单字档时才跟上。
    */
-  const pool = STRIP_POOL[kind]
+  const [shownKind, setShownKind] = useState<StatusStripKind>(kind)
   const [rotateTick, setRotateTick] = useState(0)
+  const kindRef = useRef(kind)
+  kindRef.current = kind
+  const shownKindRef = useRef<StatusStripKind>(kind)
+  const shownPool = STRIP_POOL[shownKind]
+
+  /** 只有进行中四族（各 6 词）需要轮播，其余都是单字档。 */
+  const rotating = (value: StatusStripKind): boolean => STRIP_POOL[value].length > 1
+
+  /*
+   * 进出单字档立刻跟随：完成/空闲/待放行/待定这些词绝不能还挂着上一族的「琢磨着」。
+   * 多词档之间（think ↔ read ↔ edit ↔ test）**不跟随** —— 那正是刷新太频繁的来源。
+   */
   useEffect(() => {
-    if (pool.length < 2) return
+    if (shownKindRef.current === kind) return
+    if (rotating(kind) && rotating(shownKindRef.current)) return
+    shownKindRef.current = kind
+    setShownKind(kind)
+    setRotateTick(0)
+  }, [kind])
+
+  useEffect(() => {
     // 开了「减弱动态效果」的用户不换词 —— 与鲸鱼动画同一个尊重。
     const media = typeof window === 'undefined' || typeof window.matchMedia !== 'function'
       ? undefined
       : window.matchMedia('(prefers-reduced-motion: reduce)')
     if (media?.matches === true) return
-    const timer = setInterval(() => { setRotateTick(value => value + 1) }, STRIP_ROTATE_MS)
+    const timer = setInterval(() => {
+      const next = kindRef.current
+      if (!rotating(next)) return
+      // 族变了：这一拍切到新族的首词（"每次动手都从最生动那个词说起"）。
+      if (shownKindRef.current !== next) {
+        shownKindRef.current = next
+        setShownKind(next)
+        setRotateTick(0)
+        return
+      }
+      setRotateTick(value => value + 1)
+    }, STRIP_ROTATE_MS)
     return () => { clearInterval(timer) }
-  }, [pool])
-  /*
-   * 2026-11-16 删掉「每完成一步就换词」：跑任务时 steps 每次变化都推进一次索引，
-   * 真机上会出现"一两秒跳一个词"，正是用户说的「切得太快」。现在只有时间驱动（8s）。
-   * steps 仍然参与 rotateTick 之外的一切（进度点阵、过程条），只是不再当成换词信号。
-   */
-  /*
-   * 换了一种动作（think → edit）就回到本族第一个词。
-   *
-   * 不重置的话，索引会顺着上一个族的进度往下走，经常一换动作就落在族尾那个
-   * 最保守的兜底词上（真机实测：切到 edit 首帧是「改文件」）—— 看着像没生效。
-   * 重置一次只多一帧渲染，换来"每次动手都从最生动那个词说起"。
-   */
-  const lastKindRef = useRef<StatusStripKind>(kind)
-  useEffect(() => {
-    if (lastKindRef.current === kind) return
-    lastKindRef.current = kind
-    setRotateTick(0)
-  }, [kind])
+  }, [])
 
   /*
    * 2026-11-15 用户：「后面步数显示这个不要加」。状态条上只留词本身 ——
    * 「这一轮几步」由过程条的点阵与「改 N 个文件」承担，不在这行重复。
    */
-  const stripWord = stripWordOf(kind, rotateTick)
+  const stripWord = stripWordOf(shownKind, rotateTick)
 
   // 灰字（detail）三个终态各说一句事实：完成说做了什么，空闲说可以发话，
   // 未知说在等谁。其余状态（进行中）不塞灰字 —— 那里已经有工具名/命令了。
@@ -261,7 +277,7 @@ export function TurnHeader({
         label={stripWord}
         /* 只有会轮播的族才开词槽与飘散：单字档（等你放行 / 静着 / 成了…）的词永不变，
            开槽只会把 4 个字的「等你放行」裁成 3 个。 */
-        {...(pool.length > 1 ? { wind: true } : {})}
+        {...(shownPool.length > 1 ? { wind: true } : {})}
         {...(progress === undefined || !known ? {} : { progress })}
         {...(!known || steps === undefined ? {} : { steps })}
         {...(stripDetail === undefined ? {} : { detail: stripDetail })}

@@ -35,7 +35,7 @@ describe('鲸尾后面的文案：逐状态清点', () => {
       view.unmount()
     }
     // 这里刻意写成"现状快照"：改文案时它必须跟着改，避免悄悄漂移。
-    // 2026-11-11 起「进行中」四族是词池；2026-11-16 起只按 8 秒轮播（不再每步换词），快照固定第 0 个词。
+    // 2026-11-11 起「进行中」四族是词池；2026-11-16 起只按 16 秒轮播（不再每步换词、也不按动作换词），快照固定第 0 个词。
     expect(shown).toEqual({
       think: '琢磨着 | 1分15秒',
       read: '翻着 | 1分15秒',
@@ -124,7 +124,7 @@ describe('状态词池：轮播与稳定档', () => {
 
   /**
    * 2026-11-16 用户：「不同词切得太快」。
-   * 原来每完成一步就推进一次词池（跑任务时一两秒跳一个词），现在只有时间驱动（8s）。
+   * 原来每完成一步就推进一次词池（跑任务时一两秒跳一个词），现在只有时间驱动（16s）。
    */
   it('步数前进不再换词（只有时间驱动）', () => {
     const view = render(<TurnHeader kind="edit" steps={{ done: 1, total: 5 }} />)
@@ -134,7 +134,16 @@ describe('状态词池：轮播与稳定档', () => {
     expect(visibleText(view.container)).toBe('落笔')
   })
 
-  it('换一种动作就回到本族第一个词（不在族尾兜底词上开局）', () => {
+  /**
+   * 2026-11-16 第三次反馈「还是很快就切不同文案词」的真因就在这里。
+   *
+   * kind 由 deriveTaskStatus 从当前活动推导：模型流式输出时 think、调工具变 read/edit、
+   * 工具结束又回 think —— 一个回合翻转几十次。旧实现每次翻转都 setRotateTick(0)，
+   * 等于每几秒换一个词，16 秒的定时器形同虚设。
+   *
+   * 现在：多词档之间翻转**词不动**，要等下一拍轮播才切到新族首词。
+   */
+  it('换动作不立刻换词，要等下一拍才切到新族首词', () => {
     vi.useFakeTimers()
     try {
       const view = render(<TurnHeader kind="think" steps={{ done: 0, total: 9 }} />)
@@ -142,12 +151,41 @@ describe('状态词池：轮播与稳定档', () => {
       act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
       act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
       expect(visibleText(view.container)).toContain('捋一捋')
-      // 换动作 → 回到 edit 的首词「落笔」，而不是接着走成「改文件」
+      // 换成 edit：词**不动**（真机上这正是"闪个不停"的来源）
       act(() => { view.rerender(<TurnHeader kind="edit" steps={{ done: 2, total: 9 }} />) })
+      expect(visibleText(view.container)).toContain('捋一捋')
+      // 到下一拍才切到 edit 族首词「落笔」，而不是顺着索引走成「改文件」
+      act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
       expect(visibleText(view.container)).toContain('落笔')
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('进行中四族互相翻转不换词（模拟真机 think↔read↔edit↔test 反复切）', () => {
+    vi.useFakeTimers()
+    try {
+      const view = render(<TurnHeader kind="think" steps={{ done: 0, total: 9 }} />)
+      act(() => { vi.advanceTimersByTime(STRIP_ROTATE_MS) })
+      expect(visibleText(view.container)).toContain('盘算着')
+      for (const kind of ['read', 'edit', 'think', 'test', 'read', 'edit'] as const) {
+        act(() => { view.rerender(<TurnHeader kind={kind} steps={{ done: 1, total: 9 }} />) })
+        expect(visibleText(view.container), kind).toContain('盘算着')
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('进出单字档立刻跟随：完成当场就是「成了」，不挂上一族的词', () => {
+    const view = render(<TurnHeader kind="think" steps={{ done: 2, total: 9 }} />)
+    expect(visibleText(view.container)).toContain('琢磨着')
+    // 跑到终态：立即换（终态词不允许滞后）
+    view.rerender(<TurnHeader kind="done" steps={{ done: 9, total: 9 }} />)
+    expect(visibleText(view.container)).toContain('成了')
+    // 又从终态开始新一轮：立即回到 think 族首词
+    view.rerender(<TurnHeader kind="think" steps={{ done: 0, total: 9 }} />)
+    expect(visibleText(view.container)).toContain('琢磨着')
   })
 
   it('stripWordOf 取模不越界，单字档恒定', () => {
