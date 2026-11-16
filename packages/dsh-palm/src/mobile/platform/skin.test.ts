@@ -8,8 +8,8 @@ afterEach(() => {
 })
 
 describe('皮肤（六套 + 落盘 + 广播）', () => {
-  it('默认是 Claude（2026-11-11 起，用户指定）', () => {
-    expect(getSkin()).toBe('claude')
+  it('默认是女仆工坊（2026-11-17 起，用户指定）', () => {
+    expect(getSkin()).toBe('maid-atelier')
   })
 
   it('六套皮肤都有中文名与说明（界面上不出现枚举名）', () => {
@@ -27,7 +27,7 @@ describe('皮肤（六套 + 落盘 + 广播）', () => {
 
   it('脏数据回退到默认，不让界面被搞花', () => {
     localStorage.setItem('dsh.palm.skin', 'neon-404')
-    expect(getSkin()).toBe('claude')
+    expect(getSkin()).toBe('maid-atelier')
   })
 
   it('applySkin 用当前值（启动时调用一次即可）', () => {

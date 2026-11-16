@@ -99,7 +99,7 @@ export const SKIN_CHROME: Record<MobileSkin, string> = {
 }
 
 const STORAGE_KEY = 'dsh.palm.skin'
-const DEFAULT_SKIN: MobileSkin = 'claude'
+const DEFAULT_SKIN: MobileSkin = 'maid-atelier'
 
 const listeners = new Set<() => void>()
 
