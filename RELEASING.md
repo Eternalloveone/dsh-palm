@@ -44,7 +44,7 @@ node tools\dsh-canary\probe-session.mjs
 # 跑完把金丝雀进程停掉，别长期占端口
 
 # ⑤ 官方门禁（install/build/coverage/typecheck/audit/hygiene/secrets/pack/commitlint）
-pnpm verify --ci
+pnpm verify
 
 # ⑥ 密钥扫描（已并入 ⑤，单独跑一次也是一行）
 pnpm verify:secrets
@@ -111,7 +111,7 @@ npm view @eternalloveone/dsh-palm peerDependencies # 应是新版声明
 | 宿主编译产物不重载 | 改了 host 侧代码但手机行为没变 | 宿主侧改动必须重启 dsh；手机侧改动刷新页面即可 |
 | 本地门禁全绿、CI 却红 | `pnpm verify` 原来**不含** gitleaks，而 CI 的 `release-preflight` 会用
 它扫密钥；一个「名字带 `_KEY` 的 localStorage 常量」被判成泄露的密钥，本地 8/8 全绿，
-push 之后 CI 直接红（2026-10-29 实测） | 现在 `pnpm verify --ci` 第 7 步就是
+push 之后 CI 直接红（2026-10-29 实测） | 现在 `pnpm verify` 第 7 步就是
 `secret scan (gitleaks / builtin)`：有 gitleaks 就用它，没有就内置规则兜底
 （高置信度凭据判失败；「名字像密钥」只提醒）。误报在该行加 `//gitleaks:allow` |
 | 重启脚本会把验证脚本一起杀掉 | `restart-dsh.ps1` 结束整棵进程树，挂在它下面的

@@ -40,7 +40,7 @@ jobs:
         # tree of the root lockfile (dev tooling excluded). `budget` is the
         # line-count ratchet (tools/budget.json) — it used to live only in a
         # PowerShell script that never failed.
-        run: pnpm verify --only build,coverage,typecheck,budget,audit
+        run: pnpm verify --only build,coverage,typecheck,budget,audit,secrets,adr,commitlint
       - name: Package content check
         working-directory: packages/dsh-palm
         # Runs here, after the build, because the entry-target assertion needs

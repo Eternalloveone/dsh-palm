@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-11-07
 - **影响范围**：`src/mobile/architecture.test.ts`、`src/mobile/quality-budget.ts`、CI
-- **相关**：`tools/health-check.mjs`、`docs/MOBILE-VISUAL-GATE.md`
+- **相关**：`pnpm verify`（原 `tools/health-check.mjs`）、`docs/MOBILE-VISUAL-GATE.md`
 
 ## 背景
 

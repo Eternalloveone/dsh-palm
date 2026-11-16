@@ -136,8 +136,8 @@ if (allPassed()) {
 
 // -------------------------------------------------------------- CI mirror
 if (allPassed() && !options.skipVerify) {
-  step('local CI mirror (pnpm verify)')
-  record('pnpm verify', run('pnpm verify', packageDir), 'the CI mirror failed - fix it before releasing')
+  step('release gate (pnpm verify --profile release)')
+  record('pnpm verify --profile release', run('pnpm verify --profile release', packageDir), 'the release gate failed - fix it before releasing')
 }
 
 // -------------------------------------------------------------------- plan

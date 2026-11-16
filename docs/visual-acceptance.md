@@ -76,7 +76,7 @@
 | 鈶?鈶?鍏朵綑鍏ュ彛椤?| 鉁?| 澶嶇敤鍚屼竴濂椾护鐗屼笌缁勪欢 |
 
 ### 楠岃瘉
-- 鍏ㄩ噺娴嬭瘯 2920 閫氳繃 / 1 expected fail / 11 skipped锛?55 涓祴璇曟枃浠?- gen:css / typecheck / build / test / sync-budgets / check-budget / health-check 鍏ㄧ豢
+- 鍏ㄩ噺娴嬭瘯 2920 閫氳繃 / 1 expected fail / 11 skipped锛?55 涓祴璇曟枃浠?- gen:css / typecheck / build / test / sync-budgets / check-budget / verify 鍏ㄧ豢
 - 瑙嗚闂ㄧ鎸夎姹備繚鎸佸叧闂紙--visual 鍙紑锛?
 ### 鏄庣‘鐨勫彛寰勮竟鐣岋紙涓嶆槸鍋锋噿锛?1. 浜х墿銆屽凡鏀?/ 鏂板銆嶇敤銆屼氦浠樼墿 / 浜х墿銆嶆浛浠ｂ€斺€旀暟鎹眰鍙湁杩欎袱绫伙紝娌℃湁 diff 鎬ц川銆?2. diff 椤靛彧鏈夋枃浠跺唴瀹规湰韬槸 unified diff 鏃舵墠鏄剧ず澧炲垹鑹诧紱瀹夸富 readFile 鍙粰褰撳墠鏂囨湰銆?3. 妯″瀷椤点€屽彇娑?/ 纭畾銆嶄笌銆屽缓璁己搴︺€嶆湭鐢烩€斺€旀病鏈夋殏瀛樻祦绋嬩笌瀹夸富寤鸿鍊笺€?4. 澶х翰椤靛涓荤嫭鏈夎疆娆℃樉绀恒€屾湭鍔犺浇銆嶈€屼笉鏄紪鏃堕棿銆?
 
@@ -103,7 +103,7 @@
 
 ### 验证
 - 全量测试 2920 通过 / 1 expected fail / 11 skipped，255 个测试文件
-- gen:css / typecheck / build / test / sync-budgets / check-budget / health-check 全绿
+- gen:css / typecheck / build / test / sync-budgets / check-budget / verify 全绿
 - 视觉门禁按要求保持关闭（--visual 可开）
 
 ### 明确的口径边界（不是偷懒）

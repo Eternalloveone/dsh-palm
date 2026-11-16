@@ -38,7 +38,7 @@ api/         RPC 白名单 → 宿主
 3. **视图**：`views/list/` 里消费。**不许直接 `import` `api.ts` 的取数函数**
    （架构断言会拦；`import type` 允许）。
 4. **样式**：跟随现有令牌/变量，不新增裸色值。
-5. **跑门禁**：`node tools/health-check.mjs`（或至少 `pnpm typecheck && pnpm build && pnpm test`）。
+5. **跑门禁**：`pnpm verify`（typecheck → build → coverage → test 一次串完）。
 
 ## 三、门禁清单（被拦了看这里）
 
@@ -54,7 +54,7 @@ api/         RPC 白名单 → 宿主
 
 **顺序要求（会咬人）**：`typecheck → build → test` 必须**串行**。`build` 与 `test` 并发时，
 测试读 chunk 清单会撞上构建的 clean 步骤，`tests/mobile-routes.spec.ts` 偶发 404。
-`tools/health-check.mjs` 已经把顺序写死，别自己拼。
+`pnpm verify` 已经把顺序写死，别自己拼。
 
 ## 四、常见改动的落点
 
@@ -75,7 +75,7 @@ api/         RPC 白名单 → 宿主
 | 进页面先空壳再长出来 | 有没有走缓存/占位；`run-overview-cache` 这类首屏快照是否命中 |
 | 内容跳一下又回来 | `focus({ preventScroll })`；`body` 行内样式改动 |
 | 某个页面白屏 | wire 版本握手是不是降级了（`planHandshake` 的返回） |
-| 偶发测试失败 | 是不是 build/test 并发跑了；确认用 `tools/health-check.mjs` |
+| 偶发测试失败 | 是不是 build/test 并发跑了；确认用 `pnpm verify` |
 
 ## 六、还欠着什么（诚实列表）
 

@@ -31,7 +31,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -59,13 +59,13 @@ const HYGIENE_EXCLUDES = [
 ]
 
 const PROFILES = {
-  ci: ['install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint'],
-  push: ['hygiene', 'secrets', 'budget', 'tests', 'commitlint'],
+  ci: ['install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'adr', 'secrets', 'pack', 'commitlint'],
+  push: ['hygiene', 'adr', 'secrets', 'budget', 'tests', 'commitlint'],
   // 发版闸门：CI 那套 + 用户旅程级的场景压测。
   // 场景需要一台**正在跑的宿主**（默认 127.0.0.1:3080）；宿主不在时这一步会
   // 自己跳过并说明原因，不会把"没开宿主"误判成"代码坏了"。
   release: [
-    'install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'secrets', 'pack', 'commitlint',
+    'install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'adr', 'secrets', 'pack', 'commitlint',
     // 真机相关的六层（都需要一台在跑的宿主；不在就各自跳过）
     'model', 'scenarios', 'render', 'stress', 'acceptance',
     // 性能预算与视觉回归（2026-11-01 新增：前者管"顺不顺"，后者管"看着对不对"）
@@ -109,6 +109,13 @@ const STEPS = {
   hygiene: {
     title: 'repo hygiene scan',
     run: hygieneScan,
+  },
+  adr: {
+    // ADR 三段式与索引一致性。原来只活在 tools/health-check.mjs 里，而那个
+    // 脚本没有任何调用方（verify / CI / npm scripts 都不跑），等于没这道门。
+    // 2026-11-16 收编进来，health-check 同时删除。
+    title: 'ADR format + index',
+    run: adrScan,
   },
   secrets: {
     // CI 的 release-preflight 用 gitleaks 扫密钥，本地原来没有这一步 ——
@@ -508,6 +515,34 @@ function git(args, { cwd = rootDir } = {}) {
  * pre-push hook this is strict by default: a missing pattern list is a
  * release-blocking gap, not a warning.
  */
+/** ADR 三段式 + 索引一致性（从 tools/health-check.mjs 收编，那个脚本没人调用）。 */
+function adrScan() {
+  const dir = join(rootDir, 'docs', 'adr')
+  if (!existsSync(dir)) return true
+  const files = readdirSync(dir).filter(name => /^\d{4}-.*\.md$/.test(name))
+  if (files.length === 0) return true
+  for (const file of files) {
+    const text = readFileSync(join(dir, file), 'utf8')
+    for (const section of ['## 背景', '## 决定', '## 代价']) {
+      if (!text.includes(section)) {
+        process.stderr.write(`[verify] ${file} 缺 ${section} 段（只写好处的不叫决策）\n`)
+        return false
+      }
+    }
+    if (!/状态\*\*：(提议|已接受|已废弃|被 \d{4} 取代)/.test(text)) {
+      process.stderr.write(`[verify] ${file} 的状态行不合规\n`)
+      return false
+    }
+  }
+  const index = readFileSync(join(dir, 'README.md'), 'utf8')
+  const missing = files.map(name => name.slice(0, 4)).filter(prefix => !index.includes(prefix))
+  if (missing.length > 0) {
+    process.stderr.write(`[verify] ADR README 索引缺：${missing.join(', ')}\n`)
+    return false
+  }
+  return true
+}
+
 function hygieneScan() {
   const pattern = guardPattern()
   if (pattern === null) {

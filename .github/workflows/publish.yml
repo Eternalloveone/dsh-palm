@@ -58,7 +58,9 @@ jobs:
       - name: Quality gate
         working-directory: packages/dsh-palm
         # Build first: mobile-routes tests serve the real lib/mobile.js bundle.
-        run: pnpm build && pnpm test && pnpm typecheck
+        # 走 verify 而不是手拼命令：手拼的 build+test+typecheck 少了 coverage /
+        # audit / secrets / pack 四道门，等于发布前只验了三样。
+        run: pnpm verify --only build,coverage,typecheck,budget,audit,secrets,pack
       - name: Resolve dist-tag
         # Prerelease tags (v0.2.0-beta.1) publish to the beta channel so the
         # stable latest tag never points at a prerelease; normal tags -> latest.
