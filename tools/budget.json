@@ -19,8 +19,7 @@
     "src/mobile/views/ApprovalModeView.tsx": 128,
     "src/mobile/views/UsageView.tsx": 132,
     "src/mobile/views/settings/SkinStoreSheet.tsx": 117,
-    "src/mobile/platform/skin-catalog.ts": 207,
-    "views/App.tsx": 1468
+    "src/mobile/platform/skin-catalog.ts": 207
   },
   "dirs": {
     "src/mobile": 62450,
@@ -41,7 +40,6 @@
     "src/mobile/stream": 2511,
     "src/mobile/ui": 3807,
     "src/mobile/views": 24965,
-    "src/mobile/wire": 246,
     "src/mobile/layouts": 133,
     "src/shared": 91
   },
