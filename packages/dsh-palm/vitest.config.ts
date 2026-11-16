@@ -33,14 +33,15 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      // Thresholds sit ~3 points under the measured baseline (2026-08-31:
-      // stmts 70.7 / branch 65.4 / funcs 66.5 / lines 73.8) so the gate
-      // catches regressions without blocking normal progress.
+      // 阈值按 2026-11-16 实测收紧（stmts 79.09 / branch 72.63 / funcs 76.47 /
+      // lines 82.27），统一留 2 点余量：正常改动掉不了 2 点，掉了就是真退步。
+      // 上一版是 68/62/63/70 —— 那是 2026-08-31 基线（70.7/65.4/66.5/73.8）−3 点，
+      // 之后覆盖率涨了近 9 点而阈值没跟，等于掉 10 点都不会红。
       thresholds: {
-        statements: 68,
-        branches: 62,
-        functions: 63,
-        lines: 70,
+        statements: 77,
+        branches: 70,
+        functions: 74,
+        lines: 80,
       },
       include: ['src/**/*.{ts,tsx}'],
     },
