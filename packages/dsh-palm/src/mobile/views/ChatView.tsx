@@ -3294,13 +3294,10 @@ function ChatSessionView({
     clearEditMessage: () => { setEditMessage(undefined) },
     onOutgoing: flight => {
       setOutgoing(flight)
-      // 发送 = 明确的「跟最新」意图（2026-11-17）：把跟随锁存打开。
-      //
-      // 不打开的话 `mayAutoPin`（stream/scroll-machine.ts:175）会一直返回 false，
-      // 新回合的行按读者上一处历史位置落进行窗口之外 —— 窗口只画
-      // `.chat-window-spacer`（纯高度、无内容），真机看到的就是「正文没显示 +
-      // 下方一大段空白」，同时右侧还挂着 5/6（gap>160 才显示）。
-      // 只在**新 flight**上报，回执（acceptedAt 已带）与撤销（undefined）都不再触发。
+      // 发送 = 明确的「跟最新」意图（2026-11-17）：把跟随锁存打开。不开的话
+      // `mayAutoPin`（stream/scroll-machine.ts:175）一直返回 false，新回合的行按读者
+      // 上一处历史位置落进行窗口之外，窗口只画 spacer —— 真机表现是「正文没显示 +
+      // 下方一大段空白」。回执（acceptedAt 已带）与撤销（undefined）不触发。
       if (flight === undefined || flight.acceptedAt !== undefined) return
       scrollEvent({ type: 'stick-on', at: Date.now() })
       // scrollToBottom 内部已经发 `pin`，这里再发一次反而让状态与真实 gap 短暂不一致。
