@@ -19,7 +19,7 @@
  *
  * @module dsh-palm/mobile/ui/status-strip
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ListRow } from './primitives.tsx'
 
 /**
@@ -366,35 +366,51 @@ function stepDots(
 function StripWord({ word }: { word: string }): ReactNode {
   const slotRef = useRef<HTMLSpanElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  /**
+   * 换词判定在**渲染期**完成（React 的 adjusting state during render）。
+   *
+   * 2026-11-17 用户：「有时候直接切换，没有粒子特效」。根因是这里原来用 useEffect
+   * 设置 leaving —— useEffect 跑在绘制之后，换词那一帧 DOM 里画的是新词，
+   * 手机掉帧时这一帧会被真的画出来，看起来就是「一闪就换完了」。
+   * 在渲染期 setState，React 会丢弃这次提交并立刻重渲染，新词一帧都不会进 DOM。
+   */
+  const [prevWord, setPrevWord] = useState(word)
   const [leaving, setLeaving] = useState<string | undefined>(undefined)
-  const shown = useRef(word)
+  if (prevWord !== word) {
+    setPrevWord(word)
+    setLeaving(flowAllowed() ? prevWord : undefined)
+  }
   /** 采样点缓存：同一个词在同一个字体/尺寸下只采一次。 */
   const pointCache = useRef(new Map<string, SamplePoint[]>())
   const raf = useRef<number | undefined>(undefined)
   const timer = useRef<number | undefined>(undefined)
 
-  // 换词：把上一个词留成「正在散开的旧词」。
+  // 粒子散尽后回到纯文本。
   useEffect(() => {
-    const previous = shown.current
-    if (previous === word) return
-    shown.current = word
-    if (!flowAllowed()) return
-    setLeaving(previous)
+    if (leaving === undefined) return undefined
     if (timer.current !== undefined) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
       timer.current = undefined
       setLeaving(undefined)
     }, WORD_WIND_MS)
-  }, [word])
+    return () => {
+      if (timer.current !== undefined) {
+        window.clearTimeout(timer.current)
+        timer.current = undefined
+      }
+    }
+  }, [leaving])
 
-  // 卸载：定时器与 rAF 都要收掉（否则会在已卸载的组件上继续画）。
+  // 卸载：rAF 要收掉（否则会在已卸载的组件上继续画）。
   useEffect(() => () => {
-    if (timer.current !== undefined) window.clearTimeout(timer.current)
     if (raf.current !== undefined) cancelAnimationFrame(raf.current)
   }, [])
 
-  // 消散期间驱动 canvas。
-  useEffect(() => {
+  /*
+   * 消散期间驱动 canvas。必须是 useLayoutEffect：useEffect 在 paint 之后才跑，
+   * 那会让换词的瞬间画布是空的（白闪）。layout effect 保证第一帧粒子在 paint 前就画好。
+   */
+  useLayoutEffect(() => {
     if (leaving === undefined) return undefined
     const slot = slotRef.current
     const canvas = canvasRef.current

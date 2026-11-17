@@ -11,6 +11,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { StatusStrip, WORD_WIND_MS, type StatusStripKind } from './status-strip.tsx'
 import { mobileCss } from '../mobile-styles.ts'
 
@@ -166,6 +168,46 @@ describe('词槽：化灰（2026-11-15）', () => {
       vi.useRealTimers()
       Reflect.deleteProperty(window, 'matchMedia')
       getContext.mockRestore()
+    }
+  })
+
+  /**
+   * 2026-11-17 用户：「有时候直接切换，没有粒子特效」。
+   *
+   * 根因：leaving 原来由 `useEffect` 设置，而 passive effect 跑在**浏览器绘制之后** ——
+   * 换词那一帧提交里 DOM 画的是**新词**，等 effect 跑完才换成 canvas。手机掉帧时
+   * 这一帧会被真实画出来，观感就是"一闪就换完了，没有粒子"。
+   *
+   * 这条用例用 `flushSync` 精确卡在「commit 已完成、passive effect 还没跑」的那一帧：
+   *   - 旧实现（useEffect 设置 leaving）→ 此时 DOM 里是新词 → 失败
+   *   - 现实现（渲染期调整 state）→ 此时 DOM 里已经是 canvas → 通过
+   * jsdom 无 canvas 实现（getContext 返回 null），所以只断言 DOM 形状，不涉及像素。
+   */
+  it('换词那一刻 DOM 里不能出现新词（只在 canvas 上画）', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({
+        matches: false, media: query, onchange: null,
+        addEventListener: () => {}, removeEventListener: () => {},
+        addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+      }),
+    })
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      flushSync(() => { root.render(<StatusStrip kind="think" label="琢磨着" wind />) })
+      expect(host.querySelector('.palm-word')?.textContent).toBe('琢磨着')
+
+      // 换词：flushSync 只保证 layout effect 同步，passive effect 仍留在之后 —— 正是用户看到的那一帧
+      flushSync(() => { root.render(<StatusStrip kind="think" label="盘算着" wind />) })
+      expect(host.querySelector('.palm-word')).toBeNull()
+      expect((host.querySelector('.palm-word-slot')?.textContent ?? '')).toBe('')
+      expect(host.querySelector('canvas.palm-word-canvas')).not.toBeNull()
+    } finally {
+      flushSync(() => { root.unmount() })
+      getContext.mockRestore()
+      Reflect.deleteProperty(window, 'matchMedia')
     }
   })
 })
