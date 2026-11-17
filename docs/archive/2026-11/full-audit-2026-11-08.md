@@ -1,6 +1,6 @@
 # 全量审核 · dsh-palm（2026-11-08）
 
-审核范围：`C:\Users\Administrator\dsh-source\dsh-palm`，分支 `refactor/v2`，HEAD `001696b`。
+审核范围：`~\dsh-source\dsh-palm`，分支 `refactor/v2`，HEAD `001696b`。
 方法：读代码 + 跑门禁 + 真机探针（带配对 cookie 的浏览器）。**只信工具输出，不引用上一轮的自我描述。**
 
 ## 一、结论

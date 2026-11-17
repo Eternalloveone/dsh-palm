@@ -1,6 +1,6 @@
 # dsh-palm 最新源码全量审计（2026-11-11）
 
-> 审计对象：`C:\Users\Administrator\dsh-source\dsh-palm`，HEAD `1e117cb`（v1.7.1），**工作树未提交改动**（168 个已跟踪文件改动 + 大量未跟踪原型/截图）。
+> 审计对象：`~\dsh-source\dsh-palm`，HEAD `1e117cb`（v1.7.1），**工作树未提交改动**（168 个已跟踪文件改动 + 大量未跟踪原型/截图）。
 > 审计时间：2026-11-11 08:05–08:45。期间 `docs/refactor-progress.md` 被另一进程改写（08:33），源码文件未变（最后一次改代码 07:46 `message-row/process.tsx`）。
 > 方法：读源码 + 实跑门禁 + 公网/本机探针。**只信工具输出**；每个结论都带 file:line 或命令证据。
 
@@ -8,7 +8,7 @@
 
 ## 0. 结论速览
 
-1. **P0（安全）**：公开仓库里有 **20 个文件硬编码同一枚仍有效的 primary 设备配对 cookie**。该仓库是 public，公网入口 `https://123.56.228.146:7001/m/api/*` 用这枚 cookie 实测返回 200（设备表、当前设备 `primary:true, online:true`）。等价于把宿主全权钥匙公开挂网。
+1. **P0（安全）**：公开仓库里有 **20 个文件硬编码同一枚仍有效的 primary 设备配对 cookie**。该仓库是 public，公网入口 `https://123.56.***.***:7001/m/api/*` 用这枚 cookie 实测返回 200（设备表、当前设备 `primary:true, online:true`）。等价于把宿主全权钥匙公开挂网。
 2. **门禁是红的**：`typecheck` 绿；全量 `pnpm test` **26 红 / 3222 绿**（三次运行 26、32、29，存在 flaky）；`check-budget` **12 项超限**。文档里“全绿”的结论停留在 2026-11-08。
 3. **“25 条基线红”不是机制，是口头契约**：进度文档连续多轮把 25 红写成“与基线一致”，现在已漂到 26（coverage 下 32）。
 4. 架构核心（mux 版本栅栏、读己之写、租约、SWR 花名册、PWA 缓存）方向是对的；**剩下的是边界问题**：生命周期、弱网降级、版本栅栏的两个绕过口、宿主路径/错误外泄。
@@ -23,7 +23,7 @@
 | 仓库公开 | `api.github.com/repos/Eternalloveone/dsh-palm` → `private:false, visibility:public` |
 | 硬编码 cookie | `git grep edb0f18 HEAD` → **20 个文件**（`tools/mobile-visual/run.mjs:217`、`tools/mobile-scenarios/lib/env.mjs:6`、`tools/mobile-verify/lib/config.mjs:15`、`tools/mobile-perf/run.mjs:65` 等；docs 也引用了前缀） |
 | 设备仍有效 | `~/.dsh/dsh-palm-devices.json` 中该 id `primary:true`，`lastSeenAt` 2026-11-11 08:39（在线） |
-| 公网可用 | `POST https://123.56.228.146:7001/m/api/pair.devices` + `Cookie: dsh_pair=edb0f18…` → **HTTP 200**，返回 4 台设备（含 `primary:true, current:true`）；同请求不带 cookie → 403 |
+| 公网可用 | `POST https://123.56.***.***:7001/m/api/pair.devices` + `Cookie: dsh_pair=<已撤销>` → **HTTP 200**，返回 4 台设备（含 `primary:true, current:true`）；同请求不带 cookie → 403 |
 | 权限范围 | 该 cookie 通过 `/m/api` 的 `gateOk`（`mobile-api.ts:958`）后可用全部手机端方法：`mobile.readFile`（任意绝对路径，`host/directory.ts:180`）、`session.prompt`（等于让 agent 在宿主执行）、`settings.mutate`、`workspace.delete` 等 |
 | 不会自然过期 | primary 设备豁免空闲回收（`pairing.ts:341-346`）；cookie Max-Age 90 天且随每次请求滑动（`routes.ts:94,402`） |
 
@@ -223,7 +223,7 @@
 ## 6. 复核命令
 
 ```powershell
-cd C:\Users\Administrator\dsh-source\dsh-palm
+cd ~\dsh-source\dsh-palm
 git log -1 --format='%h %ci %s'
 cd packages/dsh-palm
 pnpm typecheck
@@ -238,7 +238,7 @@ git grep -l 'edb0f18' HEAD -- tools   # 20 个文件（P0 证据）
 
 ```powershell
 $b='{"rpcId":"audit","payload":{}}' | Set-Content -Encoding ascii $env:TEMP\p.json
-curl.exe -k -s -o NUL -w '%{http_code}\n' -X POST 'https://123.56.228.146:7001/m/api/pair.devices' `
+curl.exe -k -s -o NUL -w '%{http_code}\n' -X POST 'https://123.56.***.***:7001/m/api/pair.devices' `
   -H 'Cookie: dsh_pair=<该 id>' -H 'Content-Type: application/json' --data-binary "@$env:TEMP\p.json"
 ```
 

@@ -38,7 +38,7 @@
 ## 3. 环境与命令（照抄，别自己摸）
 
 ```powershell
-cd C:\Users\Administrator\dsh-source\dsh-palm\packages\dsh-palm
+cd ~\dsh-source\dsh-palm\packages\dsh-palm
 npx tsc -b --pretty false                       # 干净时无输出
 node ../../tools/check-budget.mjs               # 通过 = 预算通过：files=20 dirs=20
 .\node_modules\.bin\vitest.CMD run <相对路径>    # 绝不要用 npx vitest
@@ -90,4 +90,4 @@ pnpm build                                      # 改完必须重建才会生效
 
 ## 7. 开工提示语（新会话第一句直接粘）
 
-> 接 dsh-palm 移动端性能下一轮：先读 `docs/perf-next-session.md` 与 `docs/perf-p4-report.md` §6（剩余项与存疑），从「行级虚拟化 / 增量 DOM」和「`session-store` 的 turn 水位」里选一个做。仓库 `C:\Users\Administrator\dsh-source\dsh-palm`，包目录 `packages/dsh-palm`，分支 `refactor/v2`。
+> 接 dsh-palm 移动端性能下一轮：先读 `docs/perf-next-session.md` 与 `docs/perf-p4-report.md` §6（剩余项与存疑），从「行级虚拟化 / 增量 DOM」和「`session-store` 的 turn 水位」里选一个做。仓库 `~\dsh-source\dsh-palm`，包目录 `packages/dsh-palm`，分支 `refactor/v2`。

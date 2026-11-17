@@ -579,7 +579,7 @@ composer/dock 窄屏折叠（入口收进「⋯」、dock 最大高度 + 内部�
 
 只改映射，不动色值：三套皮肤的颜色仍在 `000-tokens.css` 的 `--palm-skin-*-bg/-ink`，本片只是在 515 层把"底色 + 强调线"重新组合。
 
-![外观页（石墨深色）：三张皮肤卡可以分辨](C:\Users\Administrator\.dsh\screenshots\appearance-graphite.png)
+![外观页（石墨深色）：三张皮肤卡可以分辨](~/.dsh/screenshots\appearance-graphite.png)
 
 ### 改动文件
 
@@ -630,7 +630,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 条数用 `aria-hidden`（读屏仍只读「今天」这一句），不影响可用性语义；会话标题、迷你状态条（运行中/完成/等审批）、行高、单行省略契约全部不动。
 
-![会话抽屉：分组带条数，当前会话有强调轨](C:\Users\Administrator\.dsh\screenshots\drawer-graphite.png)
+![会话抽屉：分组带条数，当前会话有强调轨](~/.dsh/screenshots\drawer-graphite.png)
 
 ### 改动文件
 
@@ -732,9 +732,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 | 横向滚动 | 无 | 仍无（正文容器只有纵向滚动） |
 | 结构标记 | `data-overflow="truncate"` | `data-overflow="wrap"` |
 
-![diff 页（石墨深色）：长行折行显示完整内容](C:\Users\Administrator\.dsh\screenshots\diff-graphite.png)
+![diff 页（石墨深色）：长行折行显示完整内容](~/.dsh/screenshots\diff-graphite.png)
 
-![diff 页（paper 浅色）：浅色底上增删底色与折行都正常](C:\Users\Administrator\.dsh\screenshots\diff-paper.png)
+![diff 页（paper 浅色）：浅色底上增删底色与折行都正常](~/.dsh/screenshots\diff-paper.png)
 
 ### 保留的能力
 
@@ -800,9 +800,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 范围限定在会话首屏（`.chat >`），不影响设置页、产物页里用的同一个 `EmptyState` 组件。
 
-![空会话（石墨深色）：空态居中，composer 贴底](C:\Users\Administrator\.dsh\screenshots\empty-real-after.png)
+![空会话（石墨深色）：空态居中，composer 贴底](~/.dsh/screenshots\empty-real-after.png)
 
-![同一份 markup 把规则改回去：composer 浮在中间、图标贴左](C:\Users\Administrator\.dsh\screenshots\empty-real-before.png)
+![同一份 markup 把规则改回去：composer 浮在中间、图标贴左](~/.dsh/screenshots\empty-real-before.png)
 
 ### 保留的能力
 
@@ -867,7 +867,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 只改标题的"压成一句"，不动解析、不动时间轴、不动跳转。
 
-![回合大纲（石墨深色）：标题已是纯文本，不再带反引号与星号](C:\Users\Administrator\.dsh\screenshots\outline-graphite.png)
+![回合大纲（石墨深色）：标题已是纯文本，不再带反引号与星号](~/.dsh/screenshots\outline-graphite.png)
 
 ### 保留的能力
 
@@ -925,7 +925,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 - `aria-hidden`：占用条自己的 `aria-label` 已经报过同一句，避免读屏念两遍；
 - 不引入行内样式、不新造组件，只加一个 span 和一条 token 规则。
 
-![上下文页（石墨深色）：74% 直接写在数字旁](C:\Users\Administrator\.dsh\screenshots\context-graphite.png)
+![上下文页（石墨深色）：74% 直接写在数字旁](~/.dsh/screenshots\context-graphite.png)
 
 ### 保留的能力
 
@@ -988,7 +988,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 这条规则是共享的：设置、外观、产物、上下文等页的分组标题一起变亮，口径与抽屉一致。
 
-![设置页（石墨深色）：外观 / 对话 / 其他 三组标题可读，行标题仍是最亮的一级](C:\Users\Administrator\.dsh\screenshots\settings-graphite.png)
+![设置页（石墨深色）：外观 / 对话 / 其他 三组标题可读，行标题仍是最亮的一级](~/.dsh/screenshots\settings-graphite.png)
 
 ### 保留的能力
 
@@ -1044,9 +1044,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 | 高度 | `--palm-strip-h` | 不变（类名与行序仍与真实头同构） |
 | 填充 | 状态条自己的 track | 骨骼色 `--fill`、描边透明 |
 
-![加载态（石墨深色）：目标行、状态条、正文行都是同一套占位条](C:\Users\Administrator\.dsh\screenshots\skeleton-graphite.png)
+![加载态（石墨深色）：目标行、状态条、正文行都是同一套占位条](~/.dsh/screenshots\skeleton-graphite.png)
 
-![加载态（paper 浅色）：同一结构，占位块与底色区分得开](C:\Users\Administrator\.dsh\screenshots\skeleton-paper.png)
+![加载态（paper 浅色）：同一结构，占位块与底色区分得开](~/.dsh/screenshots\skeleton-paper.png)
 
 ### 保留的能力
 
@@ -1106,9 +1106,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 - `ApprovalModeView`：点击需要确认的档位先展开一段**内联确认**（警示色描边 + 后果说明 + 取消/确认放开）；确认后才调 `onApply`，提交路径仍然只有一条。
 - 样式复用语义色：`--palm-warn` / `--palm-tint-warn`，取消按钮保持安静，确认按钮用警示色描边 + 加粗。
 
-![批准方式页（石墨深色）：点「完全权限」后展开确认，取消保持安静](C:\Users\Administrator\.dsh\screenshots\approval-mode-graphite.png)
+![批准方式页（石墨深色）：点「完全权限」后展开确认，取消保持安静](~/.dsh/screenshots\approval-mode-graphite.png)
 
-![批准方式页（paper 浅色）：同一结构，警示块与底色区分得开](C:\Users\Administrator\.dsh\screenshots\approval-mode-paper.png)
+![批准方式页（paper 浅色）：同一结构，警示块与底色区分得开](~/.dsh/screenshots\approval-mode-paper.png)
 
 ### 保留的能力
 
@@ -1169,9 +1169,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 重试本身复用既有 `handleRegenerate`：它会从这一行往回找最近一条提问再重发，不新增发送路径。`unknown`（中断未标记失败）**不给**重试 —— 那是"拿不到结论"，不是"确定失败"。
 
-![失败回合卡（石墨深色）：右上角出现「重试」，与「没做成」同一行](C:\Users\Administrator\.dsh\screenshots\fail-card-graphite.png)
+![失败回合卡（石墨深色）：右上角出现「重试」，与「没做成」同一行](~/.dsh/screenshots\fail-card-graphite.png)
 
-![失败回合卡（paper 浅色）：重试用强调色，不与红色失败语义抢](C:\Users\Administrator\.dsh\screenshots\fail-card-paper.png)
+![失败回合卡（paper 浅色）：重试用强调色，不与红色失败语义抢](~/.dsh/screenshots\fail-card-paper.png)
 
 ### 保留的能力
 
@@ -1213,9 +1213,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
    - 设置页：行标题/说明/右侧值/开关全部对齐，说明单行省略（设计如此），无横向溢出。
 2. 新增 `docs/ui-state-matrix.md`：逐屏记录**实际看过的状态**（深/浅、390/320）、对应截图、以及**明确没验的项**（键盘弹出、真机热区、弱网真实时序、无权限首屏）和已知未做的设计项（纯问答回合任务头，代价是 8 条用例）。
 
-![上下文页 320px：数字行不换行，切片 11 的风险关闭](C:\Users\Administrator\.dsh\screenshots\context-320.png)
+![上下文页 320px：数字行不换行，切片 11 的风险关闭](~/.dsh/screenshots\context-320.png)
 
-![设置页 320px：行布局不塌，说明单行省略](C:\Users\Administrator\.dsh\screenshots\settings-320.png)
+![设置页 320px：行布局不塌，说明单行省略](~/.dsh/screenshots\settings-320.png)
 
 ### 未测 / 风险
 
@@ -1268,9 +1268,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 `styles/055-empty-state.css` 给 `.chat > .empty-state` 补 `min-block-size: 0` 与 `overflow-y: auto`：flex 子项默认最小高度是内容高度，草稿变高时它不肯让位，composer 就有被顶出视口的机会。这一条**没有复现出确定的溢出**（见下），按"防御性约束"记账，不当成已修 bug。
 
-![空会话首屏 320px：图标、标题、三枚胶囊两行居中、composer 贴底](C:\Users\Administrator\.dsh\screenshots\empty-320.png)
+![空会话首屏 320px：图标、标题、三枚胶囊两行居中、composer 贴底](~/.dsh/screenshots\empty-320.png)
 
-![320px 长草稿：输入框自滚，发送键仍在](C:\Users\Administrator\.dsh\screenshots\empty-320-draft.png)
+![320px 长草稿：输入框自滚，发送键仍在](~/.dsh/screenshots\empty-320-draft.png)
 
 ### 为什么标"防御性"而不是"修复"
 
@@ -1322,7 +1322,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 本轮**无源码净改动**（改→验证→回退，构建哈希回到 1c0eae37）。要把切口彻底处理掉，只有两条路：给父容器加内边距（会缩窄命令可视宽度），或给右侧加渐变遮罩（要按是否溢出条件渲染，需 JS 量宽）。两者都超出"一个可审切片"，先记账。
 
-![审批详情 320px：命令块横滚、两颗按钮常驻](C:\Users\Administrator\.dsh\screenshots\approval-320.png)
+![审批详情 320px：命令块横滚、两颗按钮常驻](~/.dsh/screenshots\approval-320.png)
 
 ### 未测 / 风险
 
@@ -1347,7 +1347,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 2. `ApprovalPanel` 的命令块接上它：`ref` + `data-fade`。
 3. 样式：`.approval-detail-code[data-fade='end']` 用 `mask-image` 在右缘画渐隐，遮罩取 `currentColor`（**不引入任何新颜色值**）；带 `-webkit-` 前缀。
 
-![审批面板 320px：命令右缘渐隐，看得出后面还有内容](C:\Users\Administrator\.dsh\screenshots\approval-fade-320.png)
+![审批面板 320px：命令右缘渐隐，看得出后面还有内容](~/.dsh/screenshots\approval-fade-320.png)
 
 ### 保留的能力
 
@@ -1400,7 +1400,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 - `.queue-dockRow` 加 `flex-wrap: wrap`：宽度不够时**动作行整体落到下一行**，正文先占满第一行。
 - `.queue-dockText` 改成 `flex: 1 1 12ch` + `min-inline-size: 9ch`：给正文一个下限，宁可换行也不压成两个字。
 
-![待发队列行 320px：正文占满第一行，四个动作换到第二行右对齐](C:\Users\Administrator\.dsh\screenshots\composer-320.png)
+![待发队列行 320px：正文占满第一行，四个动作换到第二行右对齐](~/.dsh/screenshots\composer-320.png)
 
 ### 保留的能力
 
@@ -1439,7 +1439,7 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 
 `.queue-dockList` 加 `max-block-size: 32vh` + `overflow-y: auto`：条目多时**列表内部滚动**，「N 条排队 / 收起」表头与输入行都不动。
 
-![4 条排队的 dock 320px：表头固定、列表在 32vh 内滚动](C:\Users\Administrator\.dsh\screenshots\queue-dock-320.png)
+![4 条排队的 dock 320px：表头固定、列表在 32vh 内滚动](~/.dsh/screenshots\queue-dock-320.png)
 
 ### 保留的能力
 
@@ -1544,9 +1544,9 @@ SessionDrawer 分组细化（今天/昨天/更早 + 计数），随后纯问答�
 | paper | `#746e67` | 4.76:1 | 6.6:1 |
 | nocturne | `#6d82a5` | 5.03:1 | 9.1:1 |
 
-![paper 皮肤新会话首屏：说明行明显更实，标题仍是最重的一档](C:\Users\Administrator\.dsh\screenshots\empty-paper-contrast.png)
+![paper 皮肤新会话首屏：说明行明显更实，标题仍是最重的一档](~/.dsh/screenshots\empty-paper-contrast.png)
 
-![nocturne 皮肤（此前从未截过图）：说明行在深蓝底上读得清](C:\Users\Administrator\.dsh\screenshots\empty-nocturne.png)
+![nocturne 皮肤（此前从未截过图）：说明行在深蓝底上读得清](~/.dsh/screenshots\empty-nocturne.png)
 
 ### 保留的能力
 
@@ -1605,11 +1605,11 @@ nocturne 皮肤在聊天正文/审批/diff 的复核；键盘弹出继续等真�
 
 graphite / nocturne 三条本来就过（≥4.5），未动。
 
-![纸色审批页：警示条、拒绝、批准三处文字都变实](C:\Users\Administrator\.dsh\screenshots\approval-paper-contrast.png)
+![纸色审批页：警示条、拒绝、批准三处文字都变实](~/.dsh/screenshots\approval-paper-contrast.png)
 
-![nocturne 消息流（新皮肤首次复验）：正文与时间戳读得清](C:\Users\Administrator\.dsh\screenshots\chat-nocturne.png)
+![nocturne 消息流（新皮肤首次复验）：正文与时间戳读得清](~/.dsh/screenshots\chat-nocturne.png)
 
-![nocturne diff 页：增删行的底色与行号都读得出](C:\Users\Administrator\.dsh\screenshots\diff-nocturne.png)
+![nocturne diff 页：增删行的底色与行号都读得出](~/.dsh/screenshots\diff-nocturne.png)
 
 ### 保留的能力
 
@@ -1659,7 +1659,7 @@ nocturne 的四张截图是**审查**，不是改动 —— 结论是"没有缺�
 1. `ComposerSection` 给附件条挂 `ref` 与 `data-fade`，真溢出时才标 `end`，滚到最右自动撤；
 2. `.chat-file-bar[data-fade='end']` 用 `mask-image` 画右缘渐隐，遮罩取 `currentColor`（不引入颜色值），带 `-webkit-` 前缀。
 
-![附件条溢出：右缘渐隐，看得出后面还有一件](C:\Users\Administrator\.dsh\screenshots\composer-crowded.png)
+![附件条溢出：右缘渐隐，看得出后面还有一件](~/.dsh/screenshots\composer-crowded.png)
 
 ### 保留的能力
 
@@ -1750,7 +1750,7 @@ nocturne 的四张截图是**审查**，不是改动 —— 结论是"没有缺�
 
 这条值得记：**单位只活在一处测试里，类型上没有一句话**。任何人（包括我）第一次造样例都会踩。
 
-![使用量 390px：用量 / 余额 / 未配置 / 失败 四种状态](C:\Users\Administrator\.dsh\screenshots\usage-graphite.png)
+![使用量 390px：用量 / 余额 / 未配置 / 失败 四种状态](~/.dsh/screenshots\usage-graphite.png)
 
 ### 改了什么（只补契约，不动渲染）
 
@@ -1804,7 +1804,7 @@ nocturne 的四张截图是**审查**，不是改动 —— 结论是"没有缺�
 
 `views/settings/notify-page.tsx`：把三元链换成直表 `INBOX_KIND_LABEL`（完成 / 失败 / 规划 / 回复 / **审批** / **提问**），认不出来的才退回「回复」。
 
-![通知页 390px：审批、提问、回复、失败四种徽章各归各位](C:\Users\Administrator\.dsh\screenshots\notify-graphite.png)
+![通知页 390px：审批、提问、回复、失败四种徽章各归各位](~/.dsh/screenshots\notify-graphite.png)
 
 ### 保留的能力
 
@@ -1849,9 +1849,9 @@ nocturne 的四张截图是**审查**，不是改动 —— 结论是"没有缺�
 | `100-settings.css` | 新增 `.settings-inboxKind-approval` / `-question`：警示色（`--tone-warning-soft` / `--tone-warning-ink`），与绿（完成）/ 红（失败）/ 蓝（规划）/ 靛（回复）区分 |
 | `100-settings.css` | `.settings-switch-on::before` 改走 `var(--palm-accent)`，开关跟随皮肤 |
 
-![纸色通知页：审批/提问琥珀徽章、开关变棕](C:\Users\Administrator\.dsh\screenshots\notify-paper.png)
+![纸色通知页：审批/提问琥珀徽章、开关变棕](~/.dsh/screenshots\notify-paper.png)
 
-![夜航通知页：开关变青，徽章同上](C:\Users\Administrator\.dsh\screenshots\notify-nocturne.png)
+![夜航通知页：开关变青，徽章同上](~/.dsh/screenshots\notify-nocturne.png)
 
 ### 保留的能力
 
@@ -1901,7 +1901,7 @@ nocturne 的四张截图是**审查**，不是改动 —— 结论是"没有缺�
 
 「完成」= 墨绿（`--palm-ok` 已是 4.6:1 的那档），「进行中」= 纸色的棕强调色。基础值（深色皮肤）不动。
 
-![纸色聊天：过程条轨道改成墨绿，不再荧光](C:\Users\Administrator\.dsh\screenshots\strip-paper-zoom.png)
+![纸色聊天：过程条轨道改成墨绿，不再荧光](~/.dsh/screenshots\strip-paper-zoom.png)
 
 ### 保留的能力
 
@@ -1954,7 +1954,7 @@ nocturne 的四张截图是**审查**，不是改动 —— 结论是"没有缺�
 
 `--accent` 与 `--accent-soft` 都来自 `design/tokens.ts`，两套主题同一个值、换肤不变 —— 与开关那次同源。
 
-![纸色用量页：进度条与徽章变棕](C:\Users\Administrator\.dsh\screenshots\usage-paper.png)
+![纸色用量页：进度条与徽章变棕](~/.dsh/screenshots\usage-paper.png)
 
 ### 保留的能力
 
@@ -2006,7 +2006,7 @@ color: var(--palm-on-accent);
 
 `:active` 那条也跟着换（否则按下瞬间又变蓝）。
 
-![纸色主按钮：改后棕（上）vs 旧值蓝（下）](C:\Users\Administrator\.dsh\screenshots\button-paper.png)
+![纸色主按钮：改后棕（上）vs 旧值蓝（下）](~/.dsh/screenshots\button-paper.png)
 
 ### 保留的能力
 
@@ -2055,7 +2055,7 @@ color: var(--palm-on-accent);
 
 `.chat-send`（发送键图标）与 `.mobile-new`（新建会话）的 `color` 从 `--accent-contrast` 换成皮肤给的 `--palm-on-accent`：
 
-![夜航 composer：发送键是青底深箭头](C:\Users\Administrator\.dsh\screenshots\composer-nocturne-send.png)
+![夜航 composer：发送键是青底深箭头](~/.dsh/screenshots\composer-nocturne-send.png)
 
 ### 保留的能力
 
@@ -2108,9 +2108,9 @@ color: var(--palm-on-accent);
 
 **先量后桥**：桥接 `--accent-soft` 之前，先给三套皮肤各量一次"强调色写在淡底上"的对比度（`skin-contrast.test.ts` 新增 3 条，实测全部 ≥4.5:1），确认不会把 100 余处引用一起拖进不可读。
 
-![纸色聊天：行内代码、链接、按钮全部跟随皮肤](C:\Users\Administrator\.dsh\screenshots\chat-paper-bridged.png)
+![纸色聊天：行内代码、链接、按钮全部跟随皮肤](~/.dsh/screenshots\chat-paper-bridged.png)
 
-![纸色设置页：无蓝色残留](C:\Users\Administrator\.dsh\screenshots\settings-paper-bridged.png)
+![纸色设置页：无蓝色残留](~/.dsh/screenshots\settings-paper-bridged.png)
 
 ### 保留的能力（这次最容易出事的地方）
 
@@ -2157,11 +2157,11 @@ color: var(--palm-on-accent);
 | 抽屉（夜航） | 「新建会话」变青底**深字**（上一片的前景色修复），比原来的蓝底白字清楚；迷你过程条仍是深色小胶囊 |
 | 审批（夜航） | 「按 1.5 秒批准」仍是绿、「拒绝」红、警示条琥珀 —— **都没被强调色桥接影响**；「原始参数」链接转青 |
 
-![夜航聊天：强调色转青，层次未塌](C:\Users\Administrator\.dsh\screenshots\chat-nocturne-bridged.png)
+![夜航聊天：强调色转青，层次未塌](~/.dsh/screenshots\chat-nocturne-bridged.png)
 
-![夜航抽屉：青底深字的新建键](C:\Users\Administrator\.dsh\screenshots\drawer-nocturne-bridged.png)
+![夜航抽屉：青底深字的新建键](~/.dsh/screenshots\drawer-nocturne-bridged.png)
 
-![夜航审批：绿批准 / 红拒绝 / 琥珀警示都不动](C:\Users\Administrator\.dsh\screenshots\approval-nocturne-bridged.png)
+![夜航审批：绿批准 / 红拒绝 / 琥珀警示都不动](~/.dsh/screenshots\approval-nocturne-bridged.png)
 
 ### 记一笔"不是缺陷"
 
@@ -2207,7 +2207,7 @@ color: var(--palm-on-accent);
 - 由已有两个数字算出，**不引入新数据、不编造构成**；
 - 缺任一个（宿主没报窗口或没报用量）就整行不画 —— "算不出来就不猜"。
 
-![上下文页：窗口总量 / 剩余 / 压缩前预计 三个数字自洽](C:\Users\Administrator\.dsh\screenshots\context-graphite.png)
+![上下文页：窗口总量 / 剩余 / 压缩前预计 三个数字自洽](~/.dsh/screenshots\context-graphite.png)
 
 ### 保留的能力
 
@@ -2261,7 +2261,7 @@ color: var(--palm-on-accent);
 
 卡片读起来变成：小字灰标签 → 大号亮问句 → 灰色补充说明 → 选项。
 
-![提问卡：卡头退成标签，问句成为唯一重点](C:\Users\Administrator\.dsh\screenshots\question-graphite.png)
+![提问卡：卡头退成标签，问句成为唯一重点](~/.dsh/screenshots\question-graphite.png)
 
 ### 保留的能力
 
@@ -2298,7 +2298,7 @@ color: var(--palm-on-accent);
 
 结果：卡片长到约 640px，**内容全部完整**——问句没有截断、五个选项都在、描述行都读得清、提交键在卡片底部。卡片本身不滚动，交给聊天流滚（这是对的：卡片内部再套一层滚动区，拇指会在两个滚动容器之间打架）。
 
-![极限提问卡：四行问句 + 五个选项，无截断](C:\Users\Administrator\.dsh\screenshots\question-long.png)
+![极限提问卡：四行问句 + 五个选项，无截断](~/.dsh/screenshots\question-long.png)
 
 ### 改了什么
 
@@ -2352,7 +2352,7 @@ color: var(--palm-on-accent);
 - 成功步骤只靠绿点表达，文字退成静音；
 - 失败（红）/ 中断（琥珀）/ 运行中（强调色）**继续用语义色**，反而更显眼。
 
-![展开态：成功步骤的「完成」退成灰，异常态仍抢眼](C:\Users\Administrator\.dsh\screenshots\proc-expanded.png)
+![展开态：成功步骤的「完成」退成灰，异常态仍抢眼](~/.dsh/screenshots\proc-expanded.png)
 
 ### 保留的能力
 
@@ -2390,7 +2390,7 @@ color: var(--palm-on-accent);
 
 三行成功 + 一行失败：成功的三行只留绿点与灰字「完成」，失败那行是**红点 + 红字「失败」**，一眼就能定位。上一片"把成功的绿字退成灰"的改动在混合形态下达到了目的 —— 异常反而更跳。
 
-![混合状态：只有失败那行是红的](C:\Users\Administrator\.dsh\screenshots\proc-mixed.png)
+![混合状态：只有失败那行是红的](~/.dsh/screenshots\proc-mixed.png)
 
 ### 2. 失败卡带原因
 
@@ -2402,7 +2402,7 @@ color: var(--palm-on-accent);
 
 能力本来就有（`ui/delivery-card.tsx` 的 `reason` 字段，`delivery-card.test.tsx:61` 早有用例钉住），本轮确认的是**排版**：原因在标题与文件清单之间，层级正确。
 
-![失败卡：原因压在标题下、文件清单之上](C:\Users\Administrator\.dsh\screenshots\fail-reason.png)
+![失败卡：原因压在标题下、文件清单之上](~/.dsh/screenshots\fail-reason.png)
 
 ### 3. 离线条的三个状态
 
@@ -2412,7 +2412,7 @@ color: var(--palm-on-accent);
 | `back` | 无底色 + 三级灰「已重新连上」（成功不抢眼） |
 | `gone` | 高度收成 0（节点常驻 DOM，所以恢复时不会把内容顶一下） |
 
-![离线条：断开 / 已重连 / 收起](C:\Users\Administrator\.dsh\screenshots\offline-states.png)
+![离线条：断开 / 已重连 / 收起](~/.dsh/screenshots\offline-states.png)
 
 ### 验证
 
@@ -2448,7 +2448,7 @@ color: var(--palm-on-accent);
 
 保留宿主换行、折叠多余空白；文本长度与结构完全不变（DOM 里仍是同一个 `<p>`）。
 
-![失败卡：四条错误各起一行](C:\Users\Administrator\.dsh\screenshots\fail-stack.png)
+![失败卡：四条错误各起一行](~/.dsh/screenshots\fail-stack.png)
 
 ### 保留的能力
 
@@ -2815,7 +2815,7 @@ color: var(--palm-on-accent);
 
 用 **2px 焦点环**（`--palm-focus`）而不是 1px 发丝：深色屏上一根发丝几乎看不见，而这里是要顶替动画的。
 
-![夜航下被定位到的消息：淡底 + 青色内描边](C:\Users\Administrator\.dsh\screenshots\chat-focus-marker.png)
+![夜航下被定位到的消息：淡底 + 青色内描边](~/.dsh/screenshots\chat-focus-marker.png)
 
 ### 保留的能力
 
@@ -2868,7 +2868,7 @@ color: var(--palm-on-accent);
 
 竖条只有横向偏移，压在行自身的左边框上，形成一条更粗的强调边，不再和整圈描边混淆。
 
-![设置页：被定位到的那一行左侧是一条强调竖条](C:\Users\Administrator\.dsh\screenshots\locate-static-marker.png)
+![设置页：被定位到的那一行左侧是一条强调竖条](~/.dsh/screenshots\locate-static-marker.png)
 
 ### 保留的能力
 
@@ -2905,7 +2905,7 @@ color: var(--palm-on-accent);
 
 这轮改成把真组件渲染进 jsdom 再落盘（`VoiceSheet` + `createRef`），拿到的是**真 DOM**：
 
-![语音面板：波形 + 状态行 + 取消/完成](C:\Users\Administrator\.dsh\screenshots\voice-sheet.png)
+![语音面板：波形 + 状态行 + 取消/完成](~/.dsh/screenshots\voice-sheet.png)
 
 逐项看：
 
@@ -2957,9 +2957,9 @@ color: var(--palm-on-accent);
 1. `.voice-done:disabled`：`opacity: var(--palm-btn-disabled-opacity)` + `cursor: default` + 清掉按下态；同时把它的 `:active` 也换成主键令牌（原来写死 `scale(0.97)` / `brightness(1.08)`）。
 2. `.voice-text.voice-text-warn`：`color: var(--palm-warn)`（**复合选择器**，理由见下）。
 
-![转写中：请稍候明显变灰](C:\Users\Administrator\.dsh\screenshots\voice-transcribing.png)
+![转写中：请稍候明显变灰](~/.dsh/screenshots\voice-transcribing.png)
 
-![最后 10 秒：倒计时转成琥珀色](C:\Users\Administrator\.dsh\screenshots\voice-warn.png)
+![最后 10 秒：倒计时转成琥珀色](~/.dsh/screenshots\voice-warn.png)
 
 ### 踩到的两个坑（都记进注释与用例了）
 
@@ -3012,7 +3012,7 @@ color: var(--palm-on-accent);
 - `.voice-cancel`：`height: var(--palm-hit)`、`border-radius: var(--palm-r-full)`、`border: var(--palm-hair) solid var(--palm-line)`、`background: var(--palm-sur-2)`、`color: var(--palm-fg-2)`、`font-size: var(--palm-t-l)`；
 - `.voice-done`：`height: var(--palm-hit)`、`border-radius: var(--palm-r-full)`、`font-size: var(--palm-t-m)`。
 
-![语音面板：几何换令牌后观感一致](C:\Users\Administrator\.dsh\screenshots\voice-sheet.png)
+![语音面板：几何换令牌后观感一致](~/.dsh/screenshots\voice-sheet.png)
 
 ### 保留的能力
 
@@ -3049,7 +3049,7 @@ color: var(--palm-on-accent);
 
 实拍 320px：两颗键仍并排、各自留白充足、没有换行也没有被裁。**风险解除**。
 
-![320px：取消 / 完成 仍并排](C:\Users\Administrator\.dsh\screenshots\voice-320.png)
+![320px：取消 / 完成 仍并排](~/.dsh/screenshots\voice-320.png)
 
 ### 审查二：全站旧令牌名还有多少
 
@@ -3175,11 +3175,11 @@ color: var(--palm-on-accent);
 | 石墨 | `#101015` | `#15151c` | 层次仍在（卡片比页面亮一档），比之前更柔 |
 | 夜航 | `#080c14` | `#0f1520` | 偏蓝的深底，卡片带蓝调，与强调色同一色温 |
 
-![纸色：底面变暖，卡片仍是白的](C:\Users\Administrator\.dsh\screenshots\surf-chat-paper.png)
+![纸色：底面变暖，卡片仍是白的](~/.dsh/screenshots\surf-chat-paper.png)
 
-![夜航：深蓝底 + 蓝调卡片](C:\Users\Administrator\.dsh\screenshots\surf-chat-nocturne.png)
+![夜航：深蓝底 + 蓝调卡片](~/.dsh/screenshots\surf-chat-nocturne.png)
 
-![石墨：设置页的卡片与页面底仍有层次](C:\Users\Administrator\.dsh\screenshots\surf-settings-graphite.png)
+![石墨：设置页的卡片与页面底仍有层次](~/.dsh/screenshots\surf-settings-graphite.png)
 
 ### 保留的能力
 
@@ -3248,9 +3248,9 @@ color: var(--palm-on-accent);
 | 夜航 | 正文带蓝调（`#e8f1ff`），卡片描边是 14% 蓝色透明线，与底色同色温 |
 | 石墨 | 与改前**逐字节一致**——石墨的令牌本来就取自深色主题，这正好是一次"无回归"的旁证 |
 
-![纸色：暖棕正文](C:\Users\Administrator\.dsh\screenshots\txt-chat-paper.png)
+![纸色：暖棕正文](~/.dsh/screenshots\txt-chat-paper.png)
 
-![夜航：蓝调正文与描边](C:\Users\Administrator\.dsh\screenshots\txt-chat-nocturne.png)
+![夜航：蓝调正文与描边](~/.dsh/screenshots\txt-chat-nocturne.png)
 
 ### 保留的能力
 
@@ -3286,7 +3286,7 @@ color: var(--palm-on-accent);
 
 把两套皮肤并排塞进一次截图（iframe 各 390×780），一次看清对照差异。
 
-![左：石墨抽屉 右：纸色抽屉](C:\Users\Administrator\.dsh\screenshots\matrix-drawer.png)
+![左：石墨抽屉 右：纸色抽屉](~/.dsh/screenshots\matrix-drawer.png)
 
 | 观察点 | 结论 |
 |---|---|
@@ -3299,7 +3299,7 @@ color: var(--palm-on-accent);
 
 ### 产物页（夜航）
 
-![夜航产物页：卡片描边变淡但仍可辨](C:\Users\Administrator\.dsh\screenshots\matrix-approval-artifacts.png)
+![夜航产物页：卡片描边变淡但仍可辨](~/.dsh/screenshots\matrix-approval-artifacts.png)
 
 上一片担心的"描边变淡会不会分不清"在这里得到答案：卡片外框、行分隔线、行内图标都还在，只是从"实色灰线"变成"低透明蓝线"，与底色同色温，观感更整。徽章（交付物绿 / 改动蓝）用的是语义色，不受皮肤影响。
 
@@ -3326,7 +3326,7 @@ color: var(--palm-on-accent);
 
 用真组件落盘（`render(<PairRequiredView initialError="…" …/>)`）拿到真 DOM，再套上 `data-skin="graphite"` 的样式：
 
-![配对页：标题、说明、两个输入、错误行、配对键](C:\Users\Administrator\.dsh\screenshots\pairing-graphite.png)
+![配对页：标题、说明、两个输入、错误行、配对键](~/.dsh/screenshots\pairing-graphite.png)
 
 逐项看：
 
@@ -3386,7 +3386,7 @@ color: var(--palm-on-accent);
 1. 文案缩短为 **「dsh:// 链接，或 6 位配对码」**（20 字以内，两种形式都在）；
 2. 用例里加了**长度上限**（≤ 22 字符），把这个教训钉住 —— 以后谁想写长句，先红。
 
-![配对页：占位提示完整可读](C:\Users\Administrator\.dsh\screenshots\pairing-graphite.png)
+![配对页：占位提示完整可读](~/.dsh/screenshots\pairing-graphite.png)
 
 ### 保留的能力
 
@@ -3424,7 +3424,7 @@ color: var(--palm-on-accent);
 
 要拍到「配对中」，不能靠手搓 HTML —— 得让提交真的挂住。做法是把 `acceptMobilePair` mock 成一个永不 resolve 的 Promise，点「配对」，等按钮文案变化后落盘。
 
-![配对中：按钮变灰、文案变「正在配对」](C:\Users\Administrator\.dsh\screenshots\pairing-submitting.png)
+![配对中：按钮变灰、文案变「正在配对」](~/.dsh/screenshots\pairing-submitting.png)
 
 | 观察点 | 结论 |
 |---|---|
@@ -3470,7 +3470,7 @@ color: var(--palm-on-accent);
 
 与禁用按钮共用同一档透明度令牌 —— "忙、别动"这件事在两处用同一个数值表达。
 
-![提交中：两个输入框与主键一起降级](C:\Users\Administrator\.dsh\screenshots\pairing-submitting.png)
+![提交中：两个输入框与主键一起降级](~/.dsh/screenshots\pairing-submitting.png)
 
 ### 保留的能力
 
@@ -3507,7 +3507,7 @@ color: var(--palm-on-accent);
 
 上一片的风险点：只读态用 60% 透明度，在浅色（纸色）下会不会显得"坏掉了"。
 
-![纸色皮肤：提交中，两框与主键一起降级](C:\Users\Administrator\.dsh\screenshots\pairing-submitting-paper.png)
+![纸色皮肤：提交中，两框与主键一起降级](~/.dsh/screenshots\pairing-submitting-paper.png)
 
 | 观察点 | 结论 |
 |---|---|
@@ -3553,7 +3553,7 @@ color: var(--palm-on-accent);
 
 改成 `Promise.resolve({ ok: false, message })` 才拍到。这条也顺带说明了：错误文案的**唯一来源**是平台层返回的 message，组件不自己编。
 
-![左：石墨 右：纸色，同一条失败文案](C:\Users\Administrator\.dsh\screenshots\pairing-error-matrix.png)
+![左：石墨 右：纸色，同一条失败文案](~/.dsh/screenshots\pairing-error-matrix.png)
 
 | 观察点 | 结论 |
 |---|---|
@@ -3589,7 +3589,7 @@ color: var(--palm-on-accent);
 
 ### 审查（两个最容易互相压住的元素放一屏）
 
-![左：石墨 右：纸色，离线横幅 + 两条待发](C:\Users\Administrator\.dsh\screenshots\offline-queue-matrix.png)
+![左：石墨 右：纸色，离线横幅 + 两条待发](~/.dsh/screenshots\offline-queue-matrix.png)
 
 | 观察点 | 结论 |
 |---|---|
@@ -3658,7 +3658,7 @@ opacity: var(--palm-btn-disabled-opacity);
 
 三个方案并排出图（同一份构建，只看深色皮肤）：
 
-![左：现状 12% 中：加深到 24% 右：16% + 左侧竖条](C:\Users\Administrator\.dsh\screenshots\offline-banner-variants.png)
+![左：现状 12% 中：加深到 24% 右：16% + 左侧竖条](~/.dsh/screenshots\offline-banner-variants.png)
 
 | 方案 | 观感 |
 |---|---|
@@ -3680,7 +3680,7 @@ opacity: var(--palm-btn-disabled-opacity);
 
 用 `color-mix` 从语义色 `--palm-warn` 派生，**不新增令牌**：三套皮肤各自给 warn 色，带子自动跟着变，深浅两套都对。
 
-![深色：琥珀带；纸色：沙色带](C:\Users\Administrator\.dsh\screenshots\offline-banner-final.png)
+![深色：琥珀带；纸色：沙色带](~/.dsh/screenshots\offline-banner-final.png)
 
 ### 保留的能力
 
@@ -3740,7 +3740,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 ### 夜航 + 纸色的终稿
 
-![左：夜航 右：纸色](C:\Users\Administrator\.dsh\screenshots\offline-banner-nocturne.png)
+![左：夜航 右：纸色](~/.dsh/screenshots\offline-banner-nocturne.png)
 
 夜航下暖琥珀带压在冷蓝底上 —— 冷暖对比强，警告意味清楚，但确实是这一屏最"跳"的元素；纸色下是自然的沙色带。
 
@@ -3848,7 +3848,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 全是皮肤里**已存在**的普通 rgba 令牌，不新增任何东西。
 
-![左：石墨 右：纸色，四个元素都有淡底](C:\Users\Administrator\.dsh\screenshots\tints-matrix.png)
+![左：石墨 右：纸色，四个元素都有淡底](~/.dsh/screenshots\tints-matrix.png)
 
 ### 保留的能力
 
@@ -3904,7 +3904,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 两处都用它，`@supports (background: color-mix(...))` 整段删除 —— 普通 rgba 在 iOS 15 上同样有效，不再需要渐进增强分支。
 
-![左：石墨 右：纸色，两条断线带深浅一致](C:\Users\Administrator\.dsh\screenshots\offline-band-unified.png)
+![左：石墨 右：纸色，两条断线带深浅一致](~/.dsh/screenshots\offline-band-unified.png)
 
 ### 保留的能力
 
@@ -3955,7 +3955,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 - 警示语义由**带子**承担（整宽 24% 琥珀），不再靠字色；
 - 全站离线条本来就是正文色 → 两处现在**带子与字色都一致**。
 
-![左：石墨 右：纸色 —— 带子说明"警告"，字回到正文色](C:\Users\Administrator\.dsh\screenshots\offline-band-text.png)
+![左：石墨 右：纸色 —— 带子说明"警告"，字回到正文色](~/.dsh/screenshots\offline-band-text.png)
 
 ### 保留的能力
 
@@ -4014,7 +4014,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 ### 未测 / 风险
 
 - **整屏与真机未测**：文档补的是"已有证据的索引"，不是新证据。
-- 风险：矩阵里 13 行证据大多在 `C:\Users\Administrator\.dsh\screenshots\`，与仓库分离；换机器或清临时目录后会失效。若要长期留档，应把关键几张拷进 `docs/prototype/`。
+- 风险：矩阵里 13 行证据大多在 `~/.dsh/screenshots\`，与仓库分离；换机器或清临时目录后会失效。若要长期留档，应把关键几张拷进 `docs/prototype/`。
 - 回退点：删掉新增两节。
 
 ### 下一步
@@ -4025,7 +4025,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 ### 问题
 
-状态矩阵里 13 行证据几乎全在 `C:\Users\Administrator\.dsh\screenshots\`（临时目录，与仓库分离）。换机器、清临时目录、"换个会话继续干"—— 证据就没了，矩阵变成一串指向空路径的文件名。
+状态矩阵里 13 行证据几乎全在 `~/.dsh/screenshots\`（临时目录，与仓库分离）。换机器、清临时目录、"换个会话继续干"—— 证据就没了，矩阵变成一串指向空路径的文件名。
 
 ### 改了什么
 
@@ -4068,7 +4068,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 ### 审查（截图先暴露了数字对不上）
 
-![上下文占用 + 回合大纲，换肤后](C:\Users\Administrator\.dsh\screenshots\v2-context-outline-dark.png)
+![上下文占用 + 回合大纲，换肤后](~/.dsh/screenshots\v2-context-outline-dark.png)
 
 占用页写着 `148.0k · 已占用 · 74%`，条子却几乎满格 —— 因为宽度是**四档量化**：
 
@@ -4099,7 +4099,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 改成 `--palm-danger`：三套皮肤都与强调色拉得开，且"上下文快满"本来就更接近"要出事"。
 
-![左：石墨 右：纸色 —— 26% 只画 26%，90% 变红](C:\Users\Administrator\.dsh\screenshots\v2-context-progress.png)
+![左：石墨 右：纸色 —— 26% 只画 26%，90% 变红](~/.dsh/screenshots\v2-context-progress.png)
 
 ### 保留的能力
 
@@ -4141,7 +4141,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 | 设置 | 卡片/分区/开关层级清楚；纸色下卡片白于页面，层次正确；加载骨架不抢眼，**不改** |
 | composer（拥挤态） | 缩略图角上的「×」有问题 —— 见下 |
 
-![左：石墨 右：纸色 —— 大纲页当前轮标记](C:\Users\Administrator\.dsh\screenshots\v2-outline-skins.png)
+![左：石墨 右：纸色 —— 大纲页当前轮标记](~/.dsh/screenshots\v2-outline-skins.png)
 
 ### 发现的问题：44px 热区、18px 的叉、还挤在角上
 
@@ -4213,7 +4213,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 角标改成 `background: var(--palm-scrim); color: var(--palm-on-scrim); box-shadow: 0 0 0 1px var(--palm-on-scrim)` —— 压暗层保证任何底图上都有对比，白亮边防止"压在深色照片上只剩一个黑块"。
 
-![三种底图（浅 / 深 / 中灰）下角标都立得住](C:\Users\Administrator\.dsh\screenshots\v2-scrim-badge.png)
+![三种底图（浅 / 深 / 中灰）下角标都立得住](~/.dsh/screenshots\v2-scrim-badge.png)
 
 ### 保留的能力
 
@@ -4259,7 +4259,7 @@ background: color-mix(in srgb, var(--palm-warn) 24%, transparent);
 
 ### 二、通知页：「失败」和中性统计长得一样
 
-![送达情况：失败行与上面两行灰字同款](C:\Users\Administrator\.dsh\screenshots\v2-notify-skins.png)
+![送达情况：失败行与上面两行灰字同款](~/.dsh/screenshots\v2-notify-skins.png)
 
 `03:37:12 · bark · 失败 · HTTP 400 设备 token 已失效` 和 `共 24 次推送尝试 · 成功 22 · 失败 1` 用的都是 `.settings-note`。用户扫这一屏，看不出"这里出过错"。
 
@@ -4276,7 +4276,7 @@ className={`settings-note ${record.status === 'dropped' ? 'notify-delivery-drop'
 .settings-note.notify-delivery-drop { color: var(--palm-warn); }
 ```
 
-![失败行变红，已过滤行变琥珀](C:\Users\Administrator\.dsh\screenshots\v2-notify-fail.png)
+![失败行变红，已过滤行变琥珀](~/.dsh/screenshots\v2-notify-fail.png)
 
 ### 保留的能力
 
@@ -4294,7 +4294,7 @@ className={`settings-note ${record.status === 'dropped' ? 'notify-delivery-drop'
 | 用量 | 三态（正常/余额/未配置/失败）徽章、双进度条、底部「收起 + 刷新」层级都清楚；**不改** |
 | 通知（整体） | 三张卡片结构清楚；只有上面那一处失败行需要标记 |
 
-![用量页双皮肤](C:\Users\Administrator\.dsh\screenshots\v2-usage-skins.png)
+![用量页双皮肤](~/.dsh/screenshots\v2-usage-skins.png)
 
 ### 验证
 
@@ -4336,7 +4336,7 @@ it.each(['graphite', 'paper', 'nocturne'])('%s：danger / warn 裸字压在卡�
 
 之前的窄屏证据都是石墨皮肤，纸色 × 320 这个组合没拍过。
 
-![320 宽 + 纸色：用量 / 通知 / 设置](C:\Users\Administrator\.dsh\screenshots\v2-320-paper.png)
+![320 宽 + 纸色：用量 / 通知 / 设置](~/.dsh/screenshots\v2-320-paper.png)
 
 | 屏 | 320 + 纸色下的表现 |
 |---|---|
@@ -4435,7 +4435,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 1. 半透明表面的实际颜色取决于**底下是什么**（底色、图片、动画），层间距无法保证；
 2. 卡片套卡片时，两层透明度会相互叠加，颜色越叠越偏。
 
-![左：夜航（改后）右：石墨 —— 内层浮层现在看得出来](C:\Users\Administrator\.dsh\screenshots\v2-surface-stack.png)
+![左：夜航（改后）右：石墨 —— 内层浮层现在看得出来](~/.dsh/screenshots\v2-surface-stack.png)
 
 ### 保留的能力
 
@@ -4486,7 +4486,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 --palm-scrim-strong: rgba(0, 0, 0, 0.86);   /* 整屏压暗：灯箱、预览 */
 ```
 
-![夜航 / 纸色：灯箱遮罩观感不变](C:\Users\Administrator\.dsh\screenshots\v2-lightbox-scrim.png)
+![夜航 / 纸色：灯箱遮罩观感不变](~/.dsh/screenshots\v2-lightbox-scrim.png)
 
 遮罩值没变，所以截图与改前**本应一致** —— 这正是"纯重构"该有的样子。
 
@@ -4520,9 +4520,9 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 
 上一片把夜航的 `--palm-sur-2` 从 6% 半透明改成不透明 `#161f2e`，会影响所有用第二层表面的屏。这轮逐屏复看：
 
-![左：聊天消息流 右：会话抽屉（夜航）](C:\Users\Administrator\.dsh\screenshots\v2-nocturne-sweep.png)
+![左：聊天消息流 右：会话抽屉（夜航）](~/.dsh/screenshots\v2-nocturne-sweep.png)
 
-![左：产物列表 右：聊天消息流（夜航）](C:\Users\Administrator\.dsh\screenshots\v2-nocturne-artifacts.png)
+![左：产物列表 右：聊天消息流（夜航）](~/.dsh/screenshots\v2-nocturne-artifacts.png)
 
 | 屏 | 结论 |
 |---|---|
@@ -4556,7 +4556,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 
 ### 审查（先看真页面，再说问题）
 
-![审批页双皮肤（改前）](C:\Users\Administrator\.dsh\screenshots\v2-approval-skins.png)
+![审批页双皮肤（改前）](~/.dsh/screenshots\v2-approval-skins.png)
 
 `cd packages/dsh-palm && pnpm test && pnpm build && p…` —— 命令在「&& p」处被**右边缘切掉**。查样式：
 
@@ -4586,7 +4586,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 
 顺手把聊天卡片里那个"两行硬切"（`-webkit-line-clamp: 2`）也改成同样的"限高 + 竖滚"，两处终于一种读法。
 
-![审批页：命令两行读完，不再被切](C:\Users\Administrator\.dsh\screenshots\v2-approval-wrap.png)
+![审批页：命令两行读完，不再被切](~/.dsh/screenshots\v2-approval-wrap.png)
 
 ### 保留的能力
 
@@ -4637,7 +4637,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 
 三个字说清"看的是参数"，不再暗示"看全命令"。
 
-![双皮肤：「查看参数」按钮 + 命令两行读全](C:\Users\Administrator\.dsh\screenshots\v2-approval-label.png)
+![双皮肤：「查看参数」按钮 + 命令两行读全](~/.dsh/screenshots\v2-approval-label.png)
 
 ### 保留的能力
 
@@ -4671,7 +4671,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 
 上一片那张图是"静态落盘 + 替换文案"，严格说不算渲染验证。这轮用**真组件**重新落盘：临时写一个 dump 用例（跑完即删），`render(<ApprovalView … argsText=… />)` 后把 `container.innerHTML` 写出来，再套三种尺寸。
 
-![真渲染：390 深色 / 390 纸色 / 320 深色](C:\Users\Administrator\.dsh\screenshots\v2-approval-real320.png)
+![真渲染：390 深色 / 390 纸色 / 320 深色](~/.dsh/screenshots\v2-approval-real320.png)
 
 | 位置 | 320 下的表现 |
 |---|---|
@@ -4708,7 +4708,7 @@ const INKS = ['--palm-accent', '--palm-ok', '--palm-warn', '--palm-danger'] as c
 
 ### 顺带补的证据：配对页三配置
 
-![配对页：纸色 / 石墨 / 320 宽](C:\Users\Administrator\.dsh\screenshots\v2-pair-320.png)
+![配对页：纸色 / 石墨 / 320 宽](~/.dsh/screenshots\v2-pair-320.png)
 
 配对页（无权限入口）在纸色、石墨、320 三种配置下都成立：卡片居中、两行标签 + 输入框、错误行变红、按钮 44px 高。**不用改**。
 
@@ -4744,7 +4744,7 @@ $ grep -c '@supports'                            → 0 处
 .mobile .chat-search-mark { background: var(--palm-search-mark); }
 ```
 
-![三皮肤：命中词都有底色](C:\Users\Administrator\.dsh\screenshots\v2-search-mark.png)
+![三皮肤：命中词都有底色](~/.dsh/screenshots\v2-search-mark.png)
 
 ### 保留的能力
 
@@ -4812,7 +4812,7 @@ const KNOWN: string[] = []
 
 清单为空之后，这条用例的意义从"棘轮"变成"**再出现就红**"——新增任何"只有 color-mix 的 background"都会被拦住。
 
-![大纲当前行：深/浅两套都有标记](C:\Users\Administrator\.dsh\screenshots\v2-outline-current.png)
+![大纲当前行：深/浅两套都有标记](~/.dsh/screenshots\v2-outline-current.png)
 
 ### 保留的能力
 
@@ -4864,7 +4864,7 @@ const KNOWN: string[] = []
 
 组合件**不接受 style、不接受颜色参数** —— 要换外观先改令牌。这条写进了注释和用例。
 
-![四个组合件 × 三套皮肤（石墨 / 纸色 / 夜航）](C:\Users\Administrator\.dsh\screenshots\v2-primitives.png)
+![四个组合件 × 三套皮肤（石墨 / 纸色 / 夜航）](~/.dsh/screenshots\v2-primitives.png)
 
 ### 样式：`styles/560-system.css`，只许令牌
 
@@ -4915,9 +4915,9 @@ const KNOWN: string[] = []
      最近：改 b.ts · 跑测试 · 改 c.ts          ▾
 ```
 
-![过程条 · 纸色](C:\Users\Administrator\.dsh\screenshots\v2-proc-strip-paper.png)
+![过程条 · 纸色](~/.dsh/screenshots\v2-proc-strip-paper.png)
 
-![过程条 · 石墨](C:\Users\Administrator\.dsh\screenshots\v2-proc-strip-dark.png)
+![过程条 · 石墨](~/.dsh/screenshots\v2-proc-strip-dark.png)
 
 | 元素 | 规则 |
 |---|---|
@@ -4971,9 +4971,9 @@ const KNOWN: string[] = []
 | B 步骤点阵 | 一格 = 一次工具调用：走完 `--palm-ok`、当前 `--palm-accent` 脉冲、未走 `--palm-line`；超过 12 格收成「+N」 |
 | D 展开逐行滑入 | `.chat-proc-open .chat-step` 每 60ms 一档 `translateY(4px)+opacity` 入场 |
 
-![过程条动效 · 石墨](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v8-proc-abd-dark.png)
+![过程条动效 · 石墨](~\dsh-source\dsh-palm\docs\screenshots\v8-proc-abd-dark.png)
 
-![过程条动效 · 纸色](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v8-proc-abd-paper.png)
+![过程条动效 · 纸色](~\dsh-source\dsh-palm\docs\screenshots\v8-proc-abd-paper.png)
 
 ### 数据从哪来（不许编）
 
@@ -5017,9 +5017,9 @@ const KNOWN: string[] = []
 
 用户给的参照是 DSH 桌面端的鲸尾标识。这一片把状态条从「11 张宠物脸 + 整条深色渐变」换成「一枚鲸尾 + 底边潮汐线」。
 
-![状态条 · 石墨](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v11-whale-strip-dark.png)
+![状态条 · 石墨](~\dsh-source\dsh-palm\docs\screenshots\v11-whale-strip-dark.png)
 
-![状态条 · 纸色](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v11-whale-strip-paper.png)
+![状态条 · 纸色](~\dsh-source\dsh-palm\docs\screenshots\v11-whale-strip-paper.png)
 
 ### 改了什么
 
@@ -5058,9 +5058,9 @@ const KNOWN: string[] = []
 
 用户原话：「做成桌面端 DSH 那种，**不要状态条和滑动条，只有一个状态栏，平铺显示**。」
 
-![平铺状态栏 · 石墨](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v12-flat-dark.png)
+![平铺状态栏 · 石墨](~\dsh-source\dsh-palm\docs\screenshots\v12-flat-dark.png)
 
-![平铺状态栏 · 纸色](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v12-flat-paper.png)
+![平铺状态栏 · 纸色](~\dsh-source\dsh-palm\docs\screenshots\v12-flat-paper.png)
 
 ### 从"胶囊"到"一行"
 
@@ -5099,11 +5099,11 @@ const KNOWN: string[] = []
 
 用户反馈：「交付结果卡片太宽了，视觉上很占地方，改相对窄一点，检查一下各个版面，排版/字体也要对齐。」
 
-![交付卡 · 改前（通栏 + 绿色渐变）](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v13-delivery-before.png)
+![交付卡 · 改前（通栏 + 绿色渐变）](~\dsh-source\dsh-palm\docs\screenshots\v13-delivery-before.png)
 
-![交付卡 · 改后（336px + 中性底）](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v13-delivery-after.png)
+![交付卡 · 改后（336px + 中性底）](~\dsh-source\dsh-palm\docs\screenshots\v13-delivery-after.png)
 
-![交付卡 · 纸色](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v13-delivery-after-paper.png)
+![交付卡 · 纸色](~\dsh-source\dsh-palm\docs\screenshots\v13-delivery-after-paper.png)
 
 ### 交付卡改了什么
 
@@ -5149,9 +5149,9 @@ const KNOWN: string[] = []
 
 用户两句：「用 dsh palm 1.7.1 版本的鲸鱼尾动效」「过程条下方时不时冒出最新的一条处理命令，感觉跳来跳去，改成渐变渲染」。
 
-![鲸尾 + 最新一步（石墨）](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v14-whale-proc-dark.png)
+![鲸尾 + 最新一步（石墨）](~\dsh-source\dsh-palm\docs\screenshots\v14-whale-proc-dark.png)
 
-![鲸尾 + 最新一步（纸色）](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v14-whale-proc-paper.png)
+![鲸尾 + 最新一步（纸色）](~\dsh-source\dsh-palm\docs\screenshots\v14-whale-proc-paper.png)
 
 ### 一、鲸尾：手绘 SVG → 1.7.1 的动画 PNG
 
@@ -5194,9 +5194,9 @@ const KNOWN: string[] = []
 
 用户第二次反馈：「交付物卡片还是依然太宽，尤其是最后『看全部改动』那部分，很宽。」
 
-![卡尾 · 改前（按钮被推到最右）](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v15-dc-foot-before.png)
+![卡尾 · 改前（按钮被推到最右）](~\dsh-source\dsh-palm\docs\screenshots\v15-dc-foot-before.png)
 
-![卡尾 · 改后（连排 + 卡片 300px）](C:\Users\Administrator\dsh-source\dsh-palm\docs\screenshots\v15-dc-foot-after.png)
+![卡尾 · 改后（连排 + 卡片 300px）](~\dsh-source\dsh-palm\docs\screenshots\v15-dc-foot-after.png)
 
 上一刀只收到 336px，问题没解决，因为**宽度感不只来自卡片本身**：
 
@@ -5804,11 +5804,11 @@ texts=测试乙：这条/测试甲：这条   ← 每 1.5–8 秒翻一次，就
 |---|---|
 | 手机渲染器把相对路径判成本地图，走 `mobile.readFile` 水合 | `render/markdown.ts:localImagePath` → `data-local-src` |
 | 宿主能读**绝对**路径 | RPC 实测 `ok:true`，`kind:image`，dataUrl 100,610 字节 |
-| 宿主读**相对**路径失败 | `file-unreadable`；`package.json` 解析到 `C:\Users\Administrator\.dsh\upgrade-adapt\021prod`（宿主进程 cwd） |
+| 宿主读**相对**路径失败 | `file-unreadable`；`package.json` 解析到 `~\.dsh\upgrade-adapt\021prod`（宿主进程 cwd） |
 | 该会话的 cwd 是 `D:\work\dsh-palm` | `session.list` 里这条会话的 `cwd` 字段；该目录下**没有**这些截图 |
 
 结论：相对路径按「会话 cwd → 宿主进程 cwd → 工作区根」依次解析，而这三处都没有文件 ——
-本次会话的 cwd（D 盘）与代码实际所在（`C:\Users\Administrator\dsh-source\dsh-palm`）不是同一个目录。
+本次会话的 cwd（D 盘）与代码实际所在（`~\dsh-source\dsh-palm`）不是同一个目录。
 不是水合逻辑坏了，是**基准目录对不上**。
 
 ### 修法
@@ -5829,7 +5829,7 @@ texts=测试乙：这条/测试甲：这条   ← 每 1.5–8 秒翻一次，就
 
 ### 未做 / 待定
 
-- 是否把 `C:\Users\Administrator\dsh-source\dsh-palm` 注册成 DSH 工作区（注册后相对路径也能解析，一劳永逸）—— 改了用户的配置，需用户点头；
+- 是否把 `~\dsh-source\dsh-palm` 注册成 DSH 工作区（注册后相对路径也能解析，一劳永逸）—— 改了用户的配置，需用户点头；
 - 会话 cwd（D 盘）与代码实际目录不一致这件事在宿主侧，不在本包范围。
 
 ---

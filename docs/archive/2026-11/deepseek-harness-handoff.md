@@ -2,7 +2,7 @@
 
 > 用途：交给 DeepSeek Harness 继续执行。本文以 `refactor/v2` 当前工作区为准，描述已经落地的架构/UI、验证证据、剩余工作、执行顺序和回退规则。
 >
-> 工作区：`C:\Users\Administrator\dsh-source\dsh-palm`  
+> 工作区：`~\dsh-source\dsh-palm`  
 > 分支：`refactor/v2`  
 > 基线提交：`1e117cbe5577804b3f9fe7cedf791dc5523e7514`  
 > 包目录：`packages/dsh-palm`
@@ -26,7 +26,7 @@
 以下命令在本次交接前已按顺序执行：
 
 ```powershell
-cd C:\Users\Administrator\dsh-source\dsh-palm\packages\dsh-palm
+cd ~\dsh-source\dsh-palm\packages\dsh-palm
 pnpm typecheck
 pnpm build
 pnpm guard
@@ -99,7 +99,7 @@ pnpm test
 
 ### 阶段 A：接管工作区并建立可回退点
 
-1. 确认当前目录、分支和未提交改动；只在 `C:\Users\Administrator\dsh-source\dsh-palm` 工作。
+1. 确认当前目录、分支和未提交改动；只在 `~\dsh-source\dsh-palm` 工作。
 2. 阅读本文、`docs/refactor-progress.md`、`docs/refactor-execution-plan.md`、`docs/refactor-capability-matrix.md`。
 3. 运行 `pnpm typecheck`、`pnpm build`、`pnpm guard`、`pnpm test`，记录执行前基线。
 4. 不执行清理工作树、重置分支、重写锁文件或删除 `docs/prototype/`。

@@ -7,7 +7,7 @@
 ## 怎么复现
 
 ```powershell
-cd C:\Users\Administrator\dsh-source\dsh-palm\packages\dsh-palm
+cd ~\dsh-source\dsh-palm\packages\dsh-palm
 pnpm typecheck; pnpm build; pnpm guard; pnpm test     # 必须串行
 
 # 组件截图（临时文件，看完就删）

@@ -47,7 +47,7 @@ ADR 索引与实际文件一致  PASS     0.0s
 | 项 | 值 |
 |---|---|
 | 宿主 | `http://127.0.0.1:3080` 必须在线并已配对 |
-| 配对 cookie | `dsh_pair=edb0f18…`（登记在 `~/.dsh/dsh-palm-devices.json`）|
+| 配对 cookie | `dsh_pair=<已撤销>`（登记在 `~/.dsh/dsh-palm-devices.json`）|
 | Playwright | `C:/Users/Administrator/.dsh/skills/feishu-report/node_modules/playwright` |
 | 顺序 | **build 与 test 不能并行**（chunk-manifest 竞态会让路由测试 404）|
 
