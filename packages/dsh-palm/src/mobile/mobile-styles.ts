@@ -561,7 +561,7 @@ html[data-skin='claude'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：matrix ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\matrix\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\matrix\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -630,7 +630,7 @@ html[data-skin='matrix'] {
   color-scheme: dark;
 }
 /* ═══════════ 皮肤：xp ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\xp\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\xp\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
@@ -699,7 +699,7 @@ html[data-skin='xp'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：deep-current ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\deep-current\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\deep-current\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -768,7 +768,7 @@ html[data-skin='deep-current'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：mint ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\mint\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\mint\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -837,7 +837,7 @@ html[data-skin='mint'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：pink-sakura ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\pink-sakura\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\pink-sakura\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -906,7 +906,7 @@ html[data-skin='pink-sakura'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：summer-liquid-glass ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\summer-liquid-glass\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\summer-liquid-glass\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -975,7 +975,7 @@ html[data-skin='summer-liquid-glass'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：furina ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\furina\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\furina\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -1044,7 +1044,7 @@ html[data-skin='furina'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：minecraft ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\minecraft\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\minecraft\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
@@ -1113,7 +1113,7 @@ html[data-skin='minecraft'] {
   color-scheme: dark;
 }
 /* ═══════════ 皮肤：trading ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\trading\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\trading\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -1182,7 +1182,7 @@ html[data-skin='trading'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：cyber-night ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\cyber-night\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\cyber-night\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -1251,7 +1251,7 @@ html[data-skin='cyber-night'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：wallpaper-exclusive ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\wallpaper-exclusive\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\wallpaper-exclusive\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -1320,7 +1320,7 @@ html[data-skin='wallpaper-exclusive'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：dragon-heir ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\dragon-heir\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\dragon-heir\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：8px / 12px / 18px（--radius 决定"直角还是圆润"）。
@@ -1389,7 +1389,7 @@ html[data-skin='dragon-heir'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：whale-song ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\whale-song\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\whale-song\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -1458,7 +1458,7 @@ html[data-skin='whale-song'] {
   color-scheme: dark;
 }
 /* ═══════════ 皮肤：harbor ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\harbor\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\harbor\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -1527,7 +1527,7 @@ html[data-skin='harbor'] {
   color-scheme: dark;
 }
 /* ═══════════ 皮肤：war-thunder ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\war-thunder\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\war-thunder\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：2px / 4px / 6px（--radius 决定"直角还是圆润"）。
@@ -1596,7 +1596,7 @@ html[data-skin='war-thunder'] {
   color-scheme: dark;
 }
 /* ═══════════ 皮肤：maid-atelier ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\maid-atelier\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\maid-atelier\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -1665,7 +1665,7 @@ html[data-skin='maid-atelier'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：whale-mom ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\whale-mom\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\whale-mom\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。
@@ -1734,7 +1734,7 @@ html[data-skin='whale-mom'] {
   color-scheme: light;
 }
 /* ═══════════ 皮肤：blue-fantasy ══════════════════════════════════════════════════
- * 来自 C:\\Users\\Administrator\\dsh-source\\dsh-web-ui-fork\\node_modules\\.pnpm\\node_modules\\@linxin666\\dsh-client-ui-skin-center\\skins\\blue-fantasy\\skin.css（本地）
+ * 来自 @linxin666\\dsh-client-ui-skin-center\\skins\\blue-fantasy\\skin.css（本地）
  * 由 scripts/port-skin.mjs 从桌面皮肤翻译：桌面令牌 → 手机端令牌，混色提前算成字面量。
  * 对比度已按 WCAG AA 自检并自动压深（含语法高亮，压在自己的代码块底色上）。
  * 圆角档位：12px / 18px / 26px（--radius 决定"直角还是圆润"）。

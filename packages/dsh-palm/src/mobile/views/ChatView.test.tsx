@@ -1910,6 +1910,28 @@ describe('ChatView scrolling', () => {
     expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
   })
 
+  it('在历史里发送时立刻回到跟随态（否则新回合落在行窗口外，屏幕只剩占位空白）', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    // 读者先往上滑进历史：gesture 会把跟随锁存关掉，按钮出现。
+    userScroll(scroller, 5_000)
+    expect(screen.queryByRole('button', { name: '回到最新消息' })).not.toBeNull()
+
+    scrollWrites = []
+    const input = document.querySelector('textarea')!
+    fireEvent.change(input, { target: { value: '再压一轮' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(promptMock).toHaveBeenCalled() })
+
+    // 发送是明确的「跟最新」意图：必须把视口钉回底部，否则宿主的 user/message 帧
+    // 落地时 mayAutoPin 仍返回 false，新回合的行落在行窗口外，只画占位块。
+    await waitFor(() => { expect(scrollWrites.at(-1)).toBe(20_000) })
+  })
+
   it('底部附近抖动时按钮不来回翻（出现 >160px、收起 <60px 的迟滞）', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
