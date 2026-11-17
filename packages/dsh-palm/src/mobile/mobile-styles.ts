@@ -4737,14 +4737,20 @@ button.settings-row:focus-visible {
 .chat-md-body img { max-width: 100%; border-radius: var(--radius-chip); }
 /* 正文里的本地图（agent 引用的工作区文件）：markdown 只带 data-local-src，
    挂载后经 mobile.readFile 取回 data URL 再填 src（见 local-images.ts）。
-   取回前先占住尺寸，避免整段文字在图片到达时跳一下；取不回时给出可见的
-   失败态，而不是让浏览器渲染一个破图图标。 */
+   取不回时给出可见的失败态，而不是让浏览器渲染一个破图图标。
+
+   2026-11-17 真机实测：原来占位是 96×56，真图按 max-height:220 撑开 —— 一条
+   带 3 张图的消息滚入视口时高度 1153 → 1703（**+550px**），下方内容被整体推走，
+   用户看到的就是「一闪一闪」。现在占位与真图**同一个固定框**（260×220、
+   object-fit: contain 不裁内容），加载前后高度完全一致，跳动为 0。 */
 .chat-md-body img.md-local-img {
   display: block;
-  min-width: 96px;
-  min-height: 56px;
+  width: min(100%, 260px);
+  height: 220px;
+  object-fit: contain;
   background: var(--fill);
   border: 1px dashed var(--border-subtle);
+  border-radius: 10px;
 }
 .chat-md-body img.md-local-img[data-local-state='loading'] {
   /* 内容尚未到达：占位框不显示 alt 文字被浏览器裁断的碎片。 */
