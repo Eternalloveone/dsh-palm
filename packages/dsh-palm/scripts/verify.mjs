@@ -333,6 +333,9 @@ if (options.list) {
   process.exit(0)
 }
 
+// release profile 里需要一台配过对的手机的那几层（顺序与 PROFILES.release 一致）。
+const REAL_DEVICE_LAYERS = new Set(['model', 'scenarios', 'render', 'stress', 'acceptance', 'perf', 'visual', 'manual'])
+
 const selected = selectSteps(options)
 const started = Date.now()
 const results = []
@@ -342,6 +345,13 @@ process.stdout.write(`[verify] ${selected.length} steps in ${rootDir}\n`)
 for (const id of selected) {
   const step = STEPS[id]
   const stepStarted = Date.now()
+  // 真机层的前提是"一台配过对的手机"。设备表为空时它们各自抛一段 module 加载栈，
+  // 看起来像门禁坏了，其实是"没设备可测"。统一标 SKIP：不算通过，也不算红。
+  if (REAL_DEVICE_LAYERS.has(id) && !process.env.PALM_PAIR) {
+    process.stdout.write(`\n[verify] ${step.title}\n[verify] SKIP：需要 PALM_PAIR（设备表为空，先在桌面端点「手机」配对一次）\n`)
+    results.push({ id, title: step.title, ok: true, skipped: true, ms: 0 })
+    continue
+  }
   process.stdout.write(`\n[verify] ${step.title}\n`)
   let ok = false
   try {
@@ -363,7 +373,7 @@ if (options.report) writeReport(options.report)
 
 process.stdout.write('\n[verify] summary\n')
 for (const r of results) {
-  process.stdout.write(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.title.padEnd(32)} ${(r.ms / 1000).toFixed(1)}s\n`)
+  process.stdout.write(`  ${r.skipped ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'}  ${r.title.padEnd(32)} ${(r.ms / 1000).toFixed(1)}s\n`)
 }
 if (failed.length > 0) {
   process.stderr.write(`[verify] FAIL - ${results.length - failed.length}/${results.length} steps in ${total}s; failed: ${failed.map((f) => f.title).join(', ')}\n`)

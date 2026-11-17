@@ -21,7 +21,20 @@ const scenarioDir = new URL('./scenarios/', import.meta.url)
 const files = (await readdir(scenarioDir)).filter(name => name.endsWith('.mjs'))
 const realIds = new Set()
 for (const file of files) {
-  const source = await import(new URL(file, scenarioDir))
+  let source
+  try {
+    source = await import(new URL(file, scenarioDir))
+  } catch (error) {
+    // 场景文件在 import 期就要求 PALM_PAIR（真机层的前提）。没有配对设备时整层
+    // 跳过并说明原因，而不是甩一段 module 加载栈 —— release profile 里这几层
+    // 本来就写着"宿主不在就各自跳过"，模型层漏了这个判断。
+    if (String(error?.message ?? '').includes('PALM_PAIR')) {
+      console.log('[mobile test model] SKIP：没有 PALM_PAIR（设备表为空）。')
+      console.log('  先在桌面端点「手机」配对一次，再把 dsh_pair 的值放进 PALM_PAIR 重跑。')
+      process.exit(0)
+    }
+    throw error
+  }
   const id = source.scenario?.id
   if (typeof id === 'string') realIds.add(id)
 }
