@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 暂无。
 
-## [2.0.0] - 2026-11-15
+## [2.0.0] - 2026-11-17
 
 v2 界面重构定版：性能从"先出壳再长出来"改成一次成型，外观从换色升级成独立素材层，运行态从多个写者收敛成单一权威。
 
