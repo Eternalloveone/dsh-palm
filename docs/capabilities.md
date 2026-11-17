@@ -45,7 +45,7 @@ README 只放 6 条。这里是完整的一张表，按"你什么时候会用到
 
 ## 五、通知
 
-三种到达方式：应用内系统通知、Web Push、第三方渠道（WxPusher / 服务器酱 / Bark / Telegram）。详见 [notifications.md](notifications.md)。
+三种到达方式：应用内系统通知、Web Push、第三方渠道（WxPusher / 服务器酱 / Bark / Telegram）。旧配置里的 PushPlus 仍然可用（该渠道现在需付费实名，已不再主推）。详见 [notifications.md](notifications.md)。
 
 ## 六、外观
 

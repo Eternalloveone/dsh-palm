@@ -31,6 +31,7 @@
    - **服务器酱**：在 [sct.ftqq.com](https://sct.ftqq.com) 微信扫码，复制 `SCT…` SendKey
    - **Bark**：装 Bark App（iOS），复制设备 key
    - **Telegram**：找 @BotFather 建机器人，拿 bot token 和你的 chat id
+   - **PushPlus**（旧配置）：通道保留、旧 token 继续生效，但该服务已改为需付费实名，新配建议直接用上面的 WxPusher
 6. 点**发送测试**，会推一条合成事件走通 L3
 
 ## 收不到怎么办

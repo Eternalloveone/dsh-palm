@@ -21,6 +21,7 @@
 |---|---|
 | [architecture](architecture.md) | 现状架构：20 个目录职责、数据流、五个关键机制、门禁 |
 | [MOBILE-RENDERING](MOBILE-RENDERING.md) | 渲染模型：一条消息怎么变成一屏 |
+| [RENDER-ARCHITECTURE](RENDER-ARCHITECTURE.md) | 渲染重构：八类现象 → 四条根因 → 五个所有者，含执行记录与止损结论 |
 | [layout-contract](layout-contract.md) | 布局规则（滚动区唯一、必填槽恰好一次） |
 | [UI](UI.md) | 怎么改：分层、加功能的路径、门禁清单、欠账 |
 | [mobile-picture-coherence](mobile-picture-coherence.md) | 画面一致性判定（什么时候算"看着对"） |
