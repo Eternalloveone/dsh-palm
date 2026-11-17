@@ -25,9 +25,9 @@ import { loadChatPage, type ChatPageResult } from '../../../data/chat-page.ts'
 import type { RenderMessage } from '../../../render/messages.ts'
 import { recallChatSnapshot } from '../../../session/chat-snapshot.ts'
 import { FOLLOW_THRESHOLD_PX } from '../../../stream/scroll-machine.ts'
-import type { ChatScrollHandle } from '../../../ui/hooks/use-stick-to-bottom.ts'
+import { capturePrependAnchor, restorePrependScrollTop, type ChatScrollHandle, type PrependAnchor } from '../../../ui/hooks/use-stick-to-bottom.ts'
 import { createPagePrefetchCache, type PagePrefetchCache } from '../../../history/page-prefetch-cache.ts'
-import { capturePrependAnchor, restorePrependScrollTop, type PrependAnchor } from '../../../history/chat-scroll-anchor.ts'
+
 
 /** Abort an older-page request that never answers (weak links hang, not fail). */
 export const LOAD_OLDER_TIMEOUT_MS = 90_000

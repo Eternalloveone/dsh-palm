@@ -19,6 +19,7 @@
  */
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { ScrollEvent } from '../../../stream/scroll-machine.ts'
+import { isClaimedEcho } from '../../../stream/scroll-claim.ts'
 
 /** 离底多少算"贴底"（自动跟随用）。 */
 export const BOTTOM_FOLLOW_THRESHOLD_PX = 80
@@ -38,9 +39,6 @@ export const NEAR_TOP_LOAD_PX = 240
 
 /** 手指离开后仍算作手势的惯性窗口。 */
 const TOUCH_GRACE_MS = 800
-/** 程序化写入的认领窗口与容差（值必须真的对得上）。 */
-const PROGRAMMATIC_WINDOW_MS = 250
-const PROGRAMMATIC_TOLERANCE_PX = 2
 /** 判定"往上滑"的最小位移：小于它视为抖动。 */
 const MOVE_UP_THRESHOLD_PX = 1
 
@@ -64,6 +62,8 @@ export interface ScrollFollowDeps {
   programmaticScrollRef: MutableRefObject<boolean>
   programmaticValueRef: MutableRefObject<number>
   programmaticAtRef: MutableRefObject<number>
+  /** 区间认领截止时刻（平滑滚动期间）。见 `stream/scroll-claim.ts`。 */
+  programmaticUntilRef: MutableRefObject<number>
   lastTouchAtRef: MutableRefObject<number>
   scrollStateRef: MutableRefObject<{ touching: boolean }>
   pendingRef: MutableRefObject<boolean>
@@ -81,7 +81,7 @@ export interface ScrollFollowDeps {
 export function useScrollFollow(deps: ScrollFollowDeps): { handleScroll: () => void } {
   const {
     scrollRef, scrollTopRef, programmaticScrollRef, programmaticValueRef, programmaticAtRef,
-    lastTouchAtRef, scrollStateRef, pendingRef, loadOlderRef, scrollEvent,
+    programmaticUntilRef, lastTouchAtRef, scrollStateRef, pendingRef, loadOlderRef, scrollEvent,
     setShowJumpToLatest, setCurrentTurn, deriveCurrentTurn, markSeen, hasOlder,
   } = deps
 
@@ -99,10 +99,13 @@ export function useScrollFollow(deps: ScrollFollowDeps): { handleScroll: () => v
     const movingUp = el.scrollTop < previousTop - MOVE_UP_THRESHOLD_PX
     scrollTopRef.current = el.scrollTop
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-    // 程序化写入的判认：标记 + 值对得上 + 在窗口内，三条都要。
-    const claimed = programmaticScrollRef.current
-      && Math.abs(el.scrollTop - programmaticValueRef.current) <= PROGRAMMATIC_TOLERANCE_PX
-      && Date.now() - programmaticAtRef.current < PROGRAMMATIC_WINDOW_MS
+    // 程序化写入的判认：一次写入按「值 + 窗口」认，平滑滚动按「区间」认（见 scroll-claim）。
+    const claimed = isClaimedEcho({
+      armed: programmaticScrollRef.current,
+      value: programmaticValueRef.current,
+      at: programmaticAtRef.current,
+      until: programmaticUntilRef.current,
+    }, el.scrollTop, Date.now())
     programmaticScrollRef.current = false
     const programmatic = claimed
     // 位置永远按量到的写（回声里 scrollTop 已经变了，那就是读者的真实位置）。
@@ -133,7 +136,7 @@ export function useScrollFollow(deps: ScrollFollowDeps): { handleScroll: () => v
       loadOlderRef.current(true)
     }
   }, [hasOlder, markSeen, scrollRef, scrollTopRef, programmaticScrollRef, programmaticValueRef,
-    programmaticAtRef, lastTouchAtRef, scrollStateRef, pendingRef, loadOlderRef, scrollEvent,
+    programmaticAtRef, programmaticUntilRef, lastTouchAtRef, scrollStateRef, pendingRef, loadOlderRef, scrollEvent,
     setShowJumpToLatest, setCurrentTurn, deriveCurrentTurn])
 
   return { handleScroll }

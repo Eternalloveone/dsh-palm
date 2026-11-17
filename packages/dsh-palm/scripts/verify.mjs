@@ -64,13 +64,13 @@ const HYGIENE_EXCLUDES = [
 ]
 
 const PROFILES = {
-  ci: ['install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'adr', 'secrets', 'pack', 'commitlint'],
-  push: ['hygiene', 'adr', 'secrets', 'budget', 'tests', 'commitlint'],
+  ci: ['install', 'build', 'coverage', 'typecheck', 'budget', 'contract', 'audit', 'hygiene', 'adr', 'secrets', 'pack', 'commitlint'],
+  push: ['hygiene', 'adr', 'secrets', 'budget', 'contract', 'tests', 'commitlint'],
   // 发版闸门：CI 那套 + 用户旅程级的场景压测。
   // 场景需要一台**正在跑的宿主**（默认 127.0.0.1:3080）；宿主不在时这一步会
   // 自己跳过并说明原因，不会把"没开宿主"误判成"代码坏了"。
   release: [
-    'install', 'build', 'coverage', 'typecheck', 'budget', 'audit', 'hygiene', 'adr', 'secrets', 'pack', 'commitlint',
+    'install', 'build', 'coverage', 'typecheck', 'budget', 'contract', 'audit', 'hygiene', 'adr', 'secrets', 'pack', 'commitlint',
     // 真机相关的六层（都需要一台在跑的宿主；不在就各自跳过）
     'model', 'scenarios', 'render', 'stress', 'acceptance',
     // 性能预算与视觉回归（2026-11-01 新增：前者管"顺不顺"，后者管"看着对不对"）
@@ -107,11 +107,17 @@ const STEPS = {
     title: 'line budgets (tools/budget.json)',
     run: () => run('node tools/check-budget.mjs', rootDir),
   },
+  contract: {
+    // 渲染契约棘轮（docs/RENDER-ARCHITECTURE.md §4）：几何写点、散落布局读、
+    // CSS 层数与 px 字面量、ChatView 行数/effect 数。只降不升，越界即红。
+    // 纯静态分析，不需要宿主，所以放在 budget 后面（同一条链路）。
+    title: 'render contracts (static)',
+    run: () => run('node tools/render-contract/check.mjs', rootDir),
+  },
   audit: {
     title: 'audit (production deps)',
     run: () => run('pnpm audit --prod', rootDir),
-  },
-  hygiene: {
+  },  hygiene: {
     title: 'repo hygiene scan',
     run: hygieneScan,
   },

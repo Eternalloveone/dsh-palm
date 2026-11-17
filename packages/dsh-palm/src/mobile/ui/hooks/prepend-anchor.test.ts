@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { restorePrependScrollTop, type PrependAnchor } from './chat-scroll-anchor.ts'
+import { restorePrependScrollTop, type PrependAnchor } from './use-stick-to-bottom.ts'
 
 function scroller({
   scrollTop = 200,

@@ -21,9 +21,12 @@
     "verify:render:stress": "node ../../tools/mobile-render-audit/stress-entry.mjs",
     "verify:scenarios": "node ../../tools/mobile-scenarios/run.mjs",
     "verify:render": "node ../../tools/mobile-render-audit/run.mjs",
+    "verify:render-contract": "node ../../tools/render-contract/check.mjs",
+    "verify:render-contract:update": "node ../../tools/render-contract/check.mjs --write",
     "verify:secrets": "node scripts/secrets-scan.mjs",
     "verify:all": "pnpm typecheck && pnpm test && pnpm verify:mobile",
-    "guard": "node ../../tools/check-budget.mjs && vitest run src/mobile/platform/architecture-graph.test.ts src/mobile/platform/budget.test.ts src/mobile/platform/module-graph.test.ts"
+    "guard": "node ../../tools/check-budget.mjs && vitest run src/mobile/platform/architecture-graph.test.ts src/mobile/platform/budget.test.ts src/mobile/platform/module-graph.test.ts",
+    "verify:gate": "pnpm typecheck && node ../../tools/check-budget.mjs && node ../../tools/render-contract/check.mjs && vitest run --reporter=dot"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

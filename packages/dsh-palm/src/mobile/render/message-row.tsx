@@ -48,8 +48,15 @@ export function resetEnteredIds(): void {
   enteredIds.clear()
 }
 
-export const MessageRow = memo(function MessageRow({ message, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, anchorQuery, focusExpand = false, style, onRegenerate, onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
+export const MessageRow = memo(function MessageRow({ message, rowKey, sessionId, showToolCalls, showSystemMessages, showTime = true, focused = false, focusedQuery, anchorQuery, focusExpand = false, style, onRegenerate, onOpenFile, onOpenChanges, hostNow, hostNowMs, liveTurnStartAt, liveTurn, settled, hydrated, enter, turnGoal, modelName, turnSteps, turnChanges, turnCompleted, rowRunning }: {
   message: RenderMessage
+  /**
+   * 行的**位置身份**（`turn.step` 这类，见 ChatRows 的 `rowKeyOf`）。
+   *
+   * 只做一件事：落到 DOM 的 `data-row-key`，给虚拟窗口的实测高度当账本键。
+   * 行在补页/换生产者后整体位移时，按身份记的高度仍然对得上（按 id 记就对不上了）。
+   */
+  rowKey?: string
   /**
    * 会话 id：图片字节按会话授权读取（见 attachment-images.ts）。每个真实调用点
    * （ChatView）都传；缺省时带图片的消息只显示文本——测试里折叠图片需显式传。
@@ -169,7 +176,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
       return (
         <details
           data-mid={message.id}
-          data-message-id={message.id}
+          data-message-id={message.id} data-row-key={rowKey}
           data-row-seq={focusSeqAttr}
           className={'chat-trigger' + (focused ? ' chat-msg-focus' : '')}
           style={style}
@@ -195,7 +202,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
     return (
       <div
         data-mid={message.id}
-        data-message-id={message.id}
+        data-message-id={message.id} data-row-key={rowKey}
         data-row-seq={focusSeqAttr}
         className={'chat-command' + (message.commandPhase === 'error' ? ' chat-command-error' : '') + (focused ? ' chat-msg-focus' : '')}
         style={style}
@@ -243,7 +250,7 @@ export const MessageRow = memo(function MessageRow({ message, sessionId, showToo
   return (
     <div
       data-mid={message.id}
-      data-message-id={message.id}
+      data-message-id={message.id} data-row-key={rowKey}
       data-row-seq={focusSeqAttr}
       className={`chat-msg chat-msg-${message.kind}${showEnter ? '' : ' chat-msg-no-enter'}${message.pending === true ? ' chat-msg-pending' : ''}${message.failed === true ? ' chat-msg-failed' : ''}${focused ? ' chat-msg-focus' : ''}`}
       style={style}

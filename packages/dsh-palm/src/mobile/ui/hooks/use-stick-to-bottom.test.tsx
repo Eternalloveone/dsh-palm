@@ -46,6 +46,106 @@ describe('useStickToBottom', () => {
     expect(handle.programmaticScrollRef.current).toBe(false)
   })
 
+  it('scrollToTarget 走即时写入：只认领这一次、不留区间', () => {
+    render(<Harness />)
+    if (handle === undefined) throw new Error('hook did not run')
+    const el = handle.scrollRef.current
+    if (el === undefined) throw new Error('container missing')
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 500 },
+    })
+    handle.scrollToTarget(200)
+    expect(el.scrollTop).toBe(200)
+    expect(handle.programmaticScrollRef.current).toBe(true)
+    expect(handle.programmaticUntilRef.current).toBe(0)
+    expect(handle.scrollTopRef.current).toBe(200)
+  })
+
+  it('scrollToTarget 平滑动画中途：区间认领在，中途位置也算回声', () => {
+    // rAF 不执行：模拟动画还没走完
+    vi.stubGlobal('requestAnimationFrame', () => 0)
+    render(<Harness />)
+    if (handle === undefined) throw new Error('hook did not run')
+    const el = handle.scrollRef.current
+    if (el === undefined) throw new Error('container missing')
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 4_000 },
+      clientHeight: { configurable: true, value: 500 },
+    })
+    el.scrollTo = ((options: ScrollToOptions) => { el.scrollTop = options.top ?? 0 }) as typeof el.scrollTo
+    handle.scrollToTarget(3_000, { smooth: true })
+    expect(el.scrollTop).toBe(3_000)
+    // 动画期间：区间覆盖任意中间位置
+    expect(handle.programmaticUntilRef.current).toBeGreaterThan(Date.now() - 1)
+  })
+
+  it('scrollToTarget 落点后交回点认领', () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0 })
+    render(<Harness />)
+    if (handle === undefined) throw new Error('hook did not run')
+    const el = handle.scrollRef.current
+    if (el === undefined) throw new Error('container missing')
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 4_000 },
+      clientHeight: { configurable: true, value: 500 },
+    })
+    el.scrollTo = ((options: ScrollToOptions) => { el.scrollTop = options.top ?? 0 }) as typeof el.scrollTo
+    handle.scrollToTarget(3_000, { smooth: true })
+    expect(handle.programmaticUntilRef.current).toBe(0)
+    expect(handle.programmaticScrollRef.current).toBe(true)
+    expect(handle.programmaticValueRef.current).toBe(3_000)
+    expect(handle.scrollTopRef.current).toBe(3_000)
+  })
+
+  it('scrollBy 相对挪动，并把这一写认领成程序化（补偿不会被当成读者手势）', () => {
+    render(<Harness />)
+    if (handle === undefined) throw new Error('hook did not run')
+    const el = handle.scrollRef.current
+    if (el === undefined) throw new Error('container missing')
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 1_000 })
+    el.scrollTop = 100
+    handle.scrollBy(40)
+    expect(el.scrollTop).toBe(140)
+    expect(handle.programmaticScrollRef.current).toBe(true)
+    expect(handle.programmaticValueRef.current).toBe(140)
+    expect(handle.scrollTopRef.current).toBe(140)
+  })
+
+  it('gapPx / noteContentHeight / firstRowIdAbove：几何判据留在所有者里', () => {
+    render(<Harness />)
+    if (handle === undefined) throw new Error('hook did not run')
+    const el = handle.scrollRef.current
+    if (el === undefined) throw new Error('container missing')
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, value: 1_000 },
+    })
+    expect(handle.gapPx()).toBe(500)
+
+    handle.lastScrollHeightRef.current = 0
+    handle.noteContentHeight()
+    expect(handle.lastScrollHeightRef.current).toBe(2_000)
+
+    // 「正在读哪一行」：第一条底边越过视口顶（+inset）的行。
+    const mk = (mid: string, top: number, bottom: number): void => {
+      const row = document.createElement('div')
+      row.setAttribute('data-mid', mid)
+      row.getBoundingClientRect = () => ({ top, bottom, left: 0, right: 0, height: bottom - top }) as DOMRect
+      el.append(row)
+    }
+    Object.defineProperty(el, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 300, bottom: 800, left: 0, right: 0, height: 500 }) as DOMRect,
+    })
+    mk('a', 100, 240)   // 底边 240 < 308：已经滚过去
+    mk('b', 260, 400)   // 底边 400 >= 308：正在读的是这一行
+    mk('c', 420, 560)
+    expect(handle.firstRowIdAbove(8)).toBe('b')
+    expect(handle.firstRowIdAbove(10_000)).toBeUndefined()
+  })
+
   it('cancels the pending settle burst on unmount', () => {
     vi.useFakeTimers()
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0 })

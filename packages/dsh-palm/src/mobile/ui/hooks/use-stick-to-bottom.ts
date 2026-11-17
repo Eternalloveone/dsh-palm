@@ -21,6 +21,11 @@ import { createScrollState, mayAutoPin, maySettlePin, scrollReducer, type Scroll
 import { scheduleSettleBurst } from '../../stream/settle-timers.ts'
 import { shouldRepinAfterShrink } from '../../stream/scroll-shrink.ts'
 
+/** 平滑滚动的认领上界（毫秒）：再久就不再续期，免得一次卡死的动画把读者的手势吃掉。 */
+export const SMOOTH_CLAIM_MS = 800
+/** 区间认领的逐帧续期窗口：比一帧长，比一次惯性滚动短。 */
+const SMOOTH_RENEW_MS = 120
+
 /** Everything ChatView needs from the scroll layer. */
 export interface ChatScrollHandle {
   /** The scroll container (assigned by the JSX `ref`). */
@@ -35,6 +40,13 @@ export interface ChatScrollHandle {
   /** scrollTop we wrote, and when 鈥?used to verify the claim on the echo. */
   programmaticValueRef: MutableRefObject<number>
   programmaticAtRef: MutableRefObject<number>
+  /**
+   * 「区间认领」截止时刻（ms）：平滑滚动期间每帧续期，期间所有回声都算自己人。
+   *
+   * 见 `stream/scroll-claim.ts`：点判据只能认领第一个事件，`scrollTo({behavior:'smooth'})`
+   * 会连发几十个，剩下的被当成读者手势 → `userMoved` 置真 → 本轮补钉永久失效。
+   */
+  programmaticUntilRef: MutableRefObject<number>
   /** Last finger/wheel contact time (decides "was this the reader?"). */
   lastTouchAtRef: MutableRefObject<number>
   /** The scroll state machine ("鍞竴鐪熸簮", see `scroll-machine.ts`). */
@@ -43,6 +55,34 @@ export interface ChatScrollHandle {
   scrollEvent(event: ScrollEvent): void
   /** Write scrollTop and arm the claim (only when it really moves). */
   setScrollTopProgrammatically(el: HTMLDivElement, value: number): void
+  /**
+   * 滚到指定位置（**聊天容器唯一的滚动入口**）。
+   *
+   * @param target - 目标 scrollTop（内部再夹到 [0, scrollHeight-clientHeight]）。
+   * @param options.smooth - 走 `scrollTo({behavior:'smooth'})` 并开区间认领。
+   */
+  scrollToTarget(target: number, options?: { smooth?: boolean }): void
+  /**
+   * 相对当前位置挪 `delta` 像素（**行高账本补偿专用**）。
+   *
+   * 视口上方某行被测出更准的高度时，画面会整体位移；补偿就靠这一条，而不是让
+   * 测量层自己去写 `scrollTop`（K4：写点只有这里）。
+   */
+  scrollBy(delta: number): void
+  /**
+   * 当前离底距离（px）。**实时读**，不用 scroll 事件里那份快照 ——
+   * 贴底补钉要在"这一帧提交完"之后立刻判断，事件快照还停在上一帧。
+   */
+  gapPx(): number
+  /** 记一次内容高度基线（补钉/落底之后调用，避免下次把"已经补过"当成"还没补"）。 */
+  noteContentHeight(): void
+  /**
+   * 视口顶（加 `insetPx` 偏移）往下第一条 `[data-mid]` 行的 id。
+   *
+   * "读者正在看哪一行"的判据：第一个**底边越过**这条线的行。以前每个调用点自己
+   * 拿 `getBoundingClientRect` 循环一遍，读布局的模块就多一个。找不到返回 undefined。
+   */
+  firstRowIdAbove(insetPx: number): string | undefined
   /** Pin to the real bottom (content is fully rendered; scrollHeight is truth). */
   pinToRealBottom(): void
   /** Pin to the bottom and tell the state machine the reader is at the tail. */
@@ -66,6 +106,9 @@ export function useStickToBottom(scope?: string): ChatScrollHandle {
   const lastTouchAtRef = useRef(0)
   const programmaticValueRef = useRef(-1)
   const programmaticAtRef = useRef(0)
+  const programmaticUntilRef = useRef(0)
+  /** 平滑滚动的代次：换会话/再次定位/卸载都会 +1，旧循环看见代次变了就自己退出。 */
+  const smoothSeqRef = useRef(0)
   const scrollStateRef = useRef<ScrollState>(createScrollState())
   const lastScrollHeightRef = useRef(0)
   // 换会话（P4：聊天页实例跨会话复用）：状态机由 `scrollEvent({type:'open'})` 归零，
@@ -79,6 +122,8 @@ export function useStickToBottom(scope?: string): ChatScrollHandle {
     programmaticScrollRef.current = false
     programmaticValueRef.current = -1
     programmaticAtRef.current = 0
+    programmaticUntilRef.current = 0
+    smoothSeqRef.current += 1
   }
 
   const scrollEvent = useCallback((event: ScrollEvent): void => {
@@ -99,6 +144,85 @@ export function useStickToBottom(scope?: string): ChatScrollHandle {
     }
     el.scrollTop = value
     scrollTopRef.current = el.scrollTop
+  }, [])
+
+  /**
+   * 滚到指定位置。**聊天容器只有这一个入口**（K4：锚点单写者）。
+   *
+   * 平滑滚动的回声是一串（实测一次定位几十个事件），点判据只能认领第一个，
+   * 所以这里开**区间认领**并逐帧续期；落点后交回一次点认领，让最后一个回声也算自己的。
+   */
+  const scrollToTarget = useCallback((target: number, options?: { smooth?: boolean }): void => {
+    const el = scrollRef.current
+    if (el === undefined) return
+    const max = Math.max(0, el.scrollHeight - el.clientHeight)
+    const top = Math.min(Math.max(0, Math.round(target)), max)
+    const smooth = options?.smooth === true && typeof el.scrollTo === 'function'
+    if (!smooth) {
+      setScrollTopProgrammatically(el, top)
+      return
+    }
+    const startedAt = Date.now()
+    const seq = (smoothSeqRef.current += 1)
+    programmaticScrollRef.current = true
+    programmaticValueRef.current = el.scrollTop
+    programmaticAtRef.current = startedAt
+    programmaticUntilRef.current = startedAt + SMOOTH_RENEW_MS
+    el.scrollTo({ top, behavior: 'smooth' })
+    const renew = (): void => {
+      // 换会话 / 又一次定位 / 卸载：旧循环立刻退出，别再改别人那一次的认领。
+      if (seq !== smoothSeqRef.current) return
+      const now = Date.now()
+      if (Math.abs(el.scrollTop - top) <= 2 || now - startedAt > SMOOTH_CLAIM_MS) {
+        // 落点：区间收回，改发一次点认领，最后一个回声仍然算程序化。
+        programmaticScrollRef.current = true
+        programmaticValueRef.current = el.scrollTop
+        programmaticAtRef.current = now
+        programmaticUntilRef.current = 0
+        scrollTopRef.current = el.scrollTop
+        return
+      }
+      programmaticUntilRef.current = now + SMOOTH_RENEW_MS
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(renew)
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(renew)
+  }, [setScrollTopProgrammatically])
+
+  /**
+   * 相对当前位置挪 `delta`：行高账本的补偿专用（见 `stream/scroll-claim.ts` 同级的 K4）。
+   *
+   * 走 `setScrollTopProgrammatically`，所以回声照样被认领 —— 补偿不会被误读成读者手势。
+   */
+  const scrollBy = useCallback((delta: number): void => {
+    const el = scrollRef.current
+    if (el === undefined || delta === 0) return
+    setScrollTopProgrammatically(el, el.scrollTop + delta)
+  }, [setScrollTopProgrammatically])
+
+  /** 实时离底距离（见接口注释：不能用 scroll 事件里的快照）。 */
+  const gapPx = useCallback((): number => {
+    const el = scrollRef.current
+    if (el === undefined) return 0
+    return el.scrollHeight - el.scrollTop - el.clientHeight
+  }, [])
+
+  /** 记一次内容高度基线。 */
+  const noteContentHeight = useCallback((): void => {
+    const el = scrollRef.current
+    if (el !== undefined) lastScrollHeightRef.current = el.scrollHeight
+  }, [lastScrollHeightRef])
+
+  /** 视口顶（加偏移）往下第一条 `[data-mid]` 行 —— "读者正在看哪一行"。 */
+  const firstRowIdAbove = useCallback((insetPx: number): string | undefined => {
+    const el = scrollRef.current
+    if (el === undefined || typeof el.querySelectorAll !== 'function') return undefined
+    const anchorTop = el.getBoundingClientRect().top + insetPx
+    for (const row of el.querySelectorAll<HTMLElement>('[data-mid]')) {
+      const mid = row.dataset['mid']
+      if (mid === undefined) continue
+      if (row.getBoundingClientRect().bottom >= anchorTop) return mid
+    }
+    return undefined
   }, [])
 
   const scrollToBottom = useCallback(() => {
@@ -144,6 +268,8 @@ export function useStickToBottom(scope?: string): ChatScrollHandle {
   useEffect(() => () => {
     settleBurstRef.current?.cancel()
     settleBurstRef.current = null
+    // 卸载后 rAF 循环还在读一个脱离文档的节点：代次一改，它下一帧就退出。
+    smoothSeqRef.current += 1
   }, [])
 
   // Content got shorter (collapsed long answer, settled parse smaller): re-pin
@@ -245,14 +371,67 @@ export function useStickToBottom(scope?: string): ChatScrollHandle {
     programmaticScrollRef,
     programmaticValueRef,
     programmaticAtRef,
+    programmaticUntilRef,
     lastTouchAtRef,
     scrollStateRef,
     scrollEvent,
     setScrollTopProgrammatically,
+    scrollToTarget,
+    scrollBy,
+    gapPx,
+    noteContentHeight,
+    firstRowIdAbove,
     pinToRealBottom,
     scrollToBottom,
     settleBottomRef,
     settleBottomAfterCommit,
     lastScrollHeightRef,
+  }
+}
+
+/*
+ * ── 补页锚点（S4-3a：从 history/chat-scroll-anchor.ts 搬进来）─────────────
+ *
+ * 为什么放进这个文件：K4 说"几何只有一个所有者"。补页要按**屏幕位置**校准（不是高度差），
+ * 它读的是同一批几何属性；留在 history/ 里就是第二个读点、第二套锚定口径。
+ * 搬进来之后，整个仓库里读布局的地方只有这里和行高账本两处。
+ */
+
+export interface PrependAnchor {
+  top: number
+  height?: number
+  rowId?: string
+  rowTop?: number
+  rowSeq?: number
+}
+
+export function restorePrependScrollTop(scroller: HTMLElement, anchor: PrependAnchor): number | undefined {
+  if (anchor.rowId === undefined || anchor.rowTop === undefined) {
+    const grown = scroller.scrollHeight - (anchor.height ?? scroller.scrollHeight)
+    return grown > 0 ? Math.max(0, anchor.top + grown) : undefined
+  }
+  const rows = [...scroller.querySelectorAll('[data-message-id]')]
+  const row = rows.find(item => item.getAttribute('data-message-id') === anchor.rowId)
+    ?? (anchor.rowSeq === undefined || anchor.rowSeq <= 0 ? null : [...scroller.querySelectorAll('[data-row-seq]')]
+      .find(item => Number(item.getAttribute('data-row-seq') ?? '0') === anchor.rowSeq) ?? null)
+  if (row === null) return undefined
+  const delta = Math.round(row.getBoundingClientRect().top) - anchor.rowTop
+  if (Math.abs(delta) <= 2 || Math.abs(delta) > scroller.clientHeight * 2) return undefined
+  return Math.max(0, scroller.scrollTop + delta)
+}
+
+export function capturePrependAnchor(scroll: ChatScrollHandle | undefined, silent: boolean): PrependAnchor | undefined {
+  const scroller = scroll?.scrollRef.current
+  if (scroll === undefined || scroller === undefined) return undefined
+  const row = silent ? undefined : [...scroller.querySelectorAll('[data-message-id]')]
+    .find(item => item.getBoundingClientRect().bottom > 80)
+  return {
+    top: scroll.scrollTopRef.current,
+    height: scroller.scrollHeight,
+    ...(row === undefined ? {} : {
+      rowId: row.getAttribute('data-message-id') ?? '',
+      rowTop: Math.round(row.getBoundingClientRect().top),
+      rowSeq: Number(row.getAttribute('data-row-seq') ?? '0'),
+    }),
   }
 }

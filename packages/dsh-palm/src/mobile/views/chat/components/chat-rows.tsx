@@ -1,11 +1,11 @@
 /**
  * 行渲染（S8b 从 `ChatView` 搬出）：把「消息列表 → MessageRow 列表」这一层从视图里
  * 摘出来，连带**行级判定链**（交付卡"已收工证据"、粘性过程条、只给 pending 行播入场
- * 动画、content-visibility）。
+ * 动画）。
  *
  * **纯搬运**：判定顺序与真机结论注释逐字保留。视图只装配一个 props 对象。
  */
-import { memo, useEffect, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { dedupeById, type RenderMessage } from '../../../render/messages.ts'
 import { MessageRow, type TurnDeliveryFacts } from '../../../render/message-row.tsx'
 import { cardVisible, type CardPhase, type DeliveryRecord } from '../../../session/deliveries.ts'
@@ -15,9 +15,6 @@ import { Button } from '../../../ui/primitives.tsx'
 import { useRowHydrated } from '../hooks/use-row-hydrated.ts'
 import { useRowWindow } from '../hooks/use-row-window.ts'
 import { recordSpan } from '../../../platform/perf.ts'
-
-/** 尾部这些行保持真实布局（不套 content-visibility）：贴底时 scrollHeight 才是精确值。 */
-export const CONTENT_VISIBILITY_KEEP_BOTTOM = 10000
 
 /**
  * 这一屏的卡面相位（唯一事实，2026-11-14 重构）。
@@ -106,6 +103,12 @@ export interface ChatRowsView {
   /** 打开"本轮改动"详情页（卡尾「看全部改动」）。 */
   onOpenDelivery?: (facts: TurnDeliveryFacts) => void
   /**
+   * 视口上方某行被测出更准的高度时，把"该补多少"交给滚动层（`scrollHandle.scrollBy`）。
+   *
+   * 不传：实测值只记不用 —— 只走估值路径（单测/其它列表），不会把画面顶走。
+   */
+  onGeometryShift?: (delta: number) => void
+  /**
    * 交付账本里**最新一条值得看**的交付（由 ChatView 持有、只追加不回退）。
    *
    * 卡只读它，不再从消息行里临时折（旧的 `changesByTurn`）—— 那是"每次渲染重算"的病根：
@@ -163,7 +166,13 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
       const row = rows[index]
       return row === undefined ? 0 : view.estimateHeight(row)
     },
+    // 身份键与 React key 同源：量到的高度按它记账，补页位移后仍对得上。
+    keyOf: (index) => {
+      const row = rows[index]
+      return row === undefined ? undefined : view.rowKeyOf(row)
+    },
     scroller,
+    ...(view.onGeometryShift === undefined ? {} : { onGeometryShift: view.onGeometryShift }),
   })
   /** 占位高度用 ref 写样式：JSX 内联 style 会撞质量预算（inlineStyles ≤ 8）。 */
   const bindSpacer = (height: number) => (node: HTMLDivElement | null): void => {
@@ -240,20 +249,20 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
         // React 把整屏行卸了重挂（实测 113/114 行 remount）→ 动画整屏重播一遍，
         // 肉眼就是「一打开会话正文闪一下」（2026-10-30 真机）。
         const animateIn = message.pending === true
-        // 行全渲染：不可见行交给 content-visibility（浏览器自己记住布局过的
-        // 真实高度，不是我们估的数）。尾部 CONTENT_VISIBILITY_KEEP_BOTTOM 行
-        // 保持真实布局，贴底时 el.scrollHeight 才是精确值。
+        // 这里原本还有一条 content-visibility 分支（尾部 1 万行保持真实布局）。
+        // 2026-11-17 删除：门槛是 `length - 10000`，单会话不足一万行时它**一行都不生效**，
+        // 却让"总高到底是谁算的"多出第三个来源。窗口化 + 行高账本已经在管这件事。
         //
         // 卡只在末尾那一个槽位画（`deliveryVisible`），行这里不再有第二套判定。
-        const cv: CSSProperties | undefined = index < view.messages.length - CONTENT_VISIBILITY_KEEP_BOTTOM
-          ? { contentVisibility: 'auto' as const, containIntrinsicSize: `auto ${view.estimateHeight(message)}px` }
-          : undefined
         const interrupted = view.rowOfInterrupted(message)
+        /** 只算一次：React key、`data-row-key`（实测高度账本键）共用。 */
+        const rowKey = view.rowKeyOf(message)
         /** 只算一次：它同时决定秒表粒度（用哪个时间桶）和要不要带心跳。 */
         const rowRunning = view.isRowRunning(interrupted)
         return (
           <MessageRow
-            key={view.rowKeyOf(message)}
+            key={rowKey}
+            rowKey={rowKey}
             enter={animateIn}
             message={interrupted}
             sessionId={view.sessionId}
@@ -279,7 +288,6 @@ export const ChatRows = memo(function ChatRows(view: ChatRowsView): React.ReactE
             // 只对"进入并定位"（没有搜索词）展开过程条；搜索跳转不该把过程拉开
             // （过程不参与匹配，展开只会挡住正文）。
             focusExpand={message.id === view.focusMsgId && view.effectiveFocusQuery !== undefined}
-            style={cv}
             onOpenFile={view.onOpenFile}
             onRegenerate={view.regenerateFor(message)}
             {...(view.goal === undefined || view.goal === '' ? {} : { turnGoal: view.goal })}
