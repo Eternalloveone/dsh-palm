@@ -4,10 +4,10 @@
     "src/mobile-api.ts": 1720,
     "src/mobile/api.ts": 186,
     "src/mobile/index.tsx": 76,
-    "src/mobile/views/ChatView.tsx": 4842,
+    "src/mobile/views/ChatView.tsx": 4839,
     "src/mobile/views/App.tsx": 1854,
-    "src/mobile/views/SettingsView.tsx": 760,
-    "src/mobile/views/AppearanceView.tsx": 103,
+    "src/mobile/views/SettingsView.tsx": 749,
+    "src/mobile/views/AppearanceView.tsx": 100,
     "src/mobile/views/ApprovalView.tsx": 81,
     "src/mobile/views/ArtifactsView.tsx": 106,
     "src/mobile/views/ArtifactSummaryView.tsx": 125,
@@ -22,7 +22,7 @@
     "src/mobile/platform/skin-catalog.ts": 207
   },
   "dirs": {
-    "src/mobile": 63106,
+    "src/mobile": 63104,
     "src/mobile/styles": 0,
     "src/mobile/api": 4103,
     "src/mobile/components": 3138,
@@ -39,7 +39,7 @@
     "src/mobile/shared": 293,
     "src/mobile/stream": 2511,
     "src/mobile/ui": 3823,
-    "src/mobile/views": 25061,
+    "src/mobile/views": 25058,
     "src/mobile/layouts": 133,
     "src/shared": 91
   },
