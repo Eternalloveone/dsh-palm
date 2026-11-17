@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import type { MessageFile, MessageImage } from '../render/messages.ts'
 import { cachedAttachmentUrl, forgetAttachmentUrl, loadAttachmentUrl } from '../platform/attachment-images.ts'
 import { formatFileSize } from '../render/ui-text.ts'
+import { IMAGE_PLACEHOLDER_BOX, imageBox } from './image-box.ts'
 import { Button } from '../ui/primitives.tsx'
 
 /**
@@ -67,6 +68,16 @@ export function MessageImageTile({ sessionId, image }: { sessionId: string; imag
   const [failed, setFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const label = image.name !== undefined && image.name !== '' ? image.name : '图片'
+  /**
+   * 占位与真图共用同一个框（见 image-box.ts）：图片是异步取的，若占位只有 72px、
+   * 加载后撑到 220px，整行会突然长高 550px，把下方内容整体推下去 —— 真机就是
+   * 滚动时「一闪一闪」。固定框让加载前后高度完全一致。
+   */
+  const box = imageBox(image.width, image.height)
+  const placeholderBox = box ?? IMAGE_PLACEHOLDER_BOX
+  const placeholderStyle = { width: placeholderBox.width, height: placeholderBox.height, maxWidth: '100%' }
+  // 拿不到宿主记录的宽高时不给真图定尺寸：让 CSS 自动尺寸，别把图压扁成占位框。
+  const imageStyle = box === undefined ? undefined : { width: box.width, height: box.height, maxWidth: '100%' }
 
   useEffect(() => {
     if (url !== undefined) return
@@ -90,6 +101,7 @@ export function MessageImageTile({ sessionId, image }: { sessionId: string; imag
         type="button"
         role="listitem"
         className={`chat-msg-image chat-msg-image-placeholder${failed ? ' chat-msg-image-failed' : ''}`}
+        style={placeholderStyle}
         aria-label={failed ? `${label}，没显示出来，点击重试` : `${label}，加载中`}
         onClick={() => {
           if (!failed) return
@@ -108,6 +120,7 @@ export function MessageImageTile({ sessionId, image }: { sessionId: string; imag
       src={url}
       alt={label}
       loading="lazy"
+      {...(imageStyle === undefined ? {} : { style: imageStyle })}
       {...(image.width > 0 ? { width: image.width } : {})}
       {...(image.height > 0 ? { height: image.height } : {})}
       onLoad={(event) => {

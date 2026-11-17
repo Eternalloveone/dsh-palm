@@ -275,15 +275,20 @@
   background: var(--fill);
 }
 
+/* 占位：尺寸由 image-box.ts 给（与真图同框，避免加载完成时整行长高把下方内容推走）。
+   这里**不能**再写 min-width/min-height —— min 会盖掉行内固定宽高，小图就会被撑大。 */
 .chat-msg-image-placeholder {
-  min-width: 128px;
-  min-height: 72px;
-  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
   border: 1px dashed var(--border-default);
   border-radius: 10px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
+  text-align: center;
+  overflow: hidden;
 }
 
 .chat-msg-image-failed {
