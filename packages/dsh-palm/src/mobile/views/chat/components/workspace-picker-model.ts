@@ -27,7 +27,7 @@ export interface SessionLike {
  * 从会话列表算「每个工作区最后一次活动」（毫秒）。
  *
  * 为什么需要：`workspace.updatedAt` 只在建工作区/改名时动，**跑会话不刷新它**
- * （实测：`D:\work\dsh_dev` 的字段停在 5 天前，而它今天一直在跑）。真实活动时间在
+ * （实测：`D:\proj\dsh_dev` 的字段停在 5 天前，而它今天一直在跑）。真实活动时间在
  * 会话上，这里把它归到工作区：优先按 `sessionIds` 归属（权威），没有归属关系时按
  * `cwd === 工作区路径` 兜底（子代理/散会话因此不会污染）。
  *
@@ -125,8 +125,8 @@ function joinTail(parts: readonly string[]): string {
 /**
  * 唯一名字的工作区：副标题只保留"能定位它"的那一小段，**不是完整绝对路径**。
  *
- * 例：`D:\steam` → `D:\steam`；`D:\work\dsh-palm` → `D:\work`；
- *     `D:\work\A\B\C\X` → `D:\…\B\C`（中间省略）。
+ * 例：`D:\steam` → `D:\steam`；`D:\proj\dsh-palm` → `D:\proj`；
+ *     `D:\proj\A\B\C\X` → `D:\…\B\C`（中间省略）。
  *
  * @param path - 绝对路径
  * @returns 副标题（路径只有一段时返回空串）
@@ -142,7 +142,7 @@ export function parentTail(path: string): string {
 /**
  * 分组标题：父目录的最后**一级**（够短、够认）。
  *
- * 例：`D:\work\dsh-palm` → `work`；`D:\work\ICNT9388\1.Code\X` → `1.Code`；
+ * 例：`D:\proj\dsh-palm` → `work`；`D:\proj\proj-a\1.Code\X` → `1.Code`；
  *     直接挂在盘符下的（`D:\steam`）没有项目可言 → `其它`。
  *
  * 为什么不是"父目录最后两级"：真机上 `01.Code\00.Master` 这种两段标题又长又技术味，
@@ -160,7 +160,7 @@ export function projectLabel(path: string): string {
 /**
  * 组标题右侧的浅色提示：上一级目录（没有就空串）。
  *
- * 例：`D:\work\ICNT9388\1.Code\X` → `ICNT9388`（组标题是 `1.Code`）。
+ * 例：`D:\proj\proj-a\1.Code\X` → `proj-a`（组标题是 `1.Code`）。
  *
  * @param path - 绝对路径
  * @returns 提示文案
@@ -250,7 +250,7 @@ export function matchesQuery(workspace: WorkspaceLike, query: string): boolean {
  *
  * | 工作区 | workspace.updatedAt | 该工作区最活跃会话 |
  * |---|---|---|
- * | D:\work\dsh_dev | 11-06（5 天前） | **11-11 今天** |
+ * | D:\proj\dsh_dev | 11-06（5 天前） | **11-11 今天** |
  * | D:\steam | 10-29（13 天前） | **11-11 今天** |
  *
  * 那个字段只在建工作区/改名字这类操作时动，跑会话不会刷新它。真实的活动时间在

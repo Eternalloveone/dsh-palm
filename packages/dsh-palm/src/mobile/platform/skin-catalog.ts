@@ -188,14 +188,14 @@ export const SKIN_CATALOG: readonly SkinCatalogEntry[] = [
     id: 'maid-atelier',
     label: '女仆工坊',
     hint: '奶油粉白，蕾丝边',
-    source: '来自 C:\Users\Administrator\dsh-source\dsh-web-ui-fork\node_modules\.pnpm\node_modules\@linxin666\dsh-client-ui-skin-center\skins\maid-atelier\skin.css · MIT',
+    source: '来自 @linxin666\dsh-client-ui-skin-center\skins\maid-atelier\skin.css · MIT',
     builtin: false,
   },
   {
     id: 'whale-mom',
     label: '鲸鱼妈妈',
     hint: '冰蓝浅海，温柔奶白',
-    source: '来自 C:\Users\Administrator\dsh-source\dsh-web-ui-fork\node_modules\.pnpm\node_modules\@linxin666\dsh-client-ui-skin-center\skins\whale-mom\skin.css · MIT',
+    source: '来自 @linxin666\dsh-client-ui-skin-center\skins\whale-mom\skin.css · MIT',
     builtin: false,
   },
 ]

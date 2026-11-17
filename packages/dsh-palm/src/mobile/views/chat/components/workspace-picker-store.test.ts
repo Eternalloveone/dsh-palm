@@ -11,8 +11,8 @@ beforeEach(() => { localStorage.clear() })
 
 describe('折叠状态存储', () => {
   it('写进去再读出来还是那些组键', () => {
-    writeExpandedGroups(['project:D:\\work\\dsh-palm', 'project:D:\\work\\ICNT9388\\1.Code'])
-    expect(readExpandedGroups()).toEqual(['project:D:\\work\\dsh-palm', 'project:D:\\work\\ICNT9388\\1.Code'])
+    writeExpandedGroups(['project:D:\\proj\\dsh-palm', 'project:D:\\proj\\proj-a\\1.Code'])
+    expect(readExpandedGroups()).toEqual(['project:D:\\proj\\dsh-palm', 'project:D:\\proj\\proj-a\\1.Code'])
   })
 
   it('没有记录时是空数组', () => {

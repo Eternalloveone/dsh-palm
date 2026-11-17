@@ -17,15 +17,15 @@ vi.mock('../../../api.ts', async (importOriginal) => {
   return {
     ...actual,
     listDirectory: vi.fn(async (path?: string) => ({
-      path: path ?? 'D:\\work',
-      home: 'D:\\work',
+      path: path ?? 'D:\\proj',
+      home: 'D:\\proj',
       crumbs: [
         { name: 'D:', path: 'D:\\', hidden: false },
-        { name: 'work', path: 'D:\\work', hidden: false },
+        { name: 'proj', path: 'D:\\proj', hidden: false },
       ],
       entries: [
-        { name: 'dsh-palm', path: 'D:\\work\\dsh-palm', hidden: false, kind: 'dir' as const },
-        { name: 'proj', path: 'D:\\work\\proj', hidden: false, kind: 'dir' as const },
+        { name: 'dsh-palm', path: 'D:\\proj\\dsh-palm', hidden: false, kind: 'dir' as const },
+        { name: 'proj', path: 'D:\\proj\\proj', hidden: false, kind: 'dir' as const },
       ],
       truncated: false,
     })),
@@ -43,9 +43,9 @@ const row = (id: string, path: string, extra: { title?: string; updatedAt?: stri
 })
 
 const LIST = [
-  row('cur', 'D:\\work\\ICNT9388\\1.Code\\06.DP523\\ICNT9388', { title: 'ICNT9388', updatedAt: NOW, sessions: 4 }),
-  row('a1', 'D:\\work\\ICNT9388\\1.Code\\00.master\\ICNT9388', { title: 'ICNT9388', updatedAt: '2026-11-09T09:00:00+08:00', sessions: 2 }),
-  row('d', 'D:\\work\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T08:00:00+08:00', sessions: 7 }),
+  row('cur', 'D:\\proj\\proj-a\\1.Code\\06.DP523\\proj-a', { title: 'proj-a', updatedAt: NOW, sessions: 4 }),
+  row('a1', 'D:\\proj\\proj-a\\1.Code\\00.master\\proj-a', { title: 'proj-a', updatedAt: '2026-11-09T09:00:00+08:00', sessions: 2 }),
+  row('d', 'D:\\proj\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T08:00:00+08:00', sessions: 7 }),
 ]
 
 const renderPicker = (props: Partial<Parameters<typeof WorkspacePicker>[0]> = {}) => {
@@ -78,9 +78,9 @@ describe('切换工作区面板', () => {
   it('当前工作区在第一组，显示完整路径和会话数', () => {
     renderPicker()
     expect(screen.getByText('当前')).toBeTruthy()
-    // ICNT9388 有两条（当前 + 最近用过），第一行才是当前
+    // proj-a 有两条（当前 + 最近用过），第一行才是当前
     const current = screen.getAllByRole('menuitem')[0] as HTMLElement
-    expect(current.textContent).toContain('D:\\work\\ICNT9388\\1.Code\\06.DP523\\ICNT9388')
+    expect(current.textContent).toContain('D:\\proj\\proj-a\\1.Code\\06.DP523\\proj-a')
     expect(current.textContent).toContain('4 个会话')
   })
 
@@ -90,7 +90,7 @@ describe('切换工作区面板', () => {
     const items = screen.getAllByRole('menuitem').map(node => node.textContent ?? '')
     // 第 1 条是当前；最近用过里只剩 dsh-palm(a1 也在，但 cur 已在当前组)
     expect(items[1]).toContain('dsh-palm')
-    expect(items.filter(text => text.includes('D:\\work\\ICNT9388\\1.Code\\06.DP523'))).toHaveLength(1)
+    expect(items.filter(text => text.includes('D:\\proj\\proj-a\\1.Code\\06.DP523'))).toHaveLength(1)
   })
 
   it('点一行把工作区原样交给调用方', () => {
@@ -127,9 +127,9 @@ describe('切换工作区面板', () => {
     expect(screen.getByText('找到 1 个工作区')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('新建工作区'))
     const input = screen.getByLabelText('新建工作区') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'D:\\work\\新项目' } })
+    fireEvent.change(input, { target: { value: 'D:\\proj\\新项目' } })
     fireEvent.click(screen.getByText('创建并切换'))
-    await waitFor(() => { expect(onCreate).toHaveBeenCalledWith('D:\\work\\新项目') })
+    await waitFor(() => { expect(onCreate).toHaveBeenCalledWith('D:\\proj\\新项目') })
   })
 
   it('新建失败时错误贴在表单里，不回到列表', async () => {
@@ -146,31 +146,31 @@ describe('切换工作区面板', () => {
    * 真机 2026-11-11：「当前没法新建新的工作区」。
    *
    * 宿主的校验其实是对的（只登记已存在的目录），但界面把
-   * `ENOENT: no such file or directory, realpath 'D:\work\x'` 原样甩给用户，
+   * `ENOENT: no such file or directory, realpath 'D:\proj\x'` 原样甩给用户，
    * 看起来就是「坏了」。改成一句中文 + 下一步。
    */
   it('目录不存在时，把宿主的 ENOENT 翻成一句人话', async () => {
     const onCreate = vi.fn().mockRejectedValue(
-      new Error('cannot create a Workspace at "D:\\work\\x": ENOENT: no such file or directory, realpath \'D:\\work\\x\''),
+      new Error('cannot create a Workspace at "D:\\proj\\x": ENOENT: no such file or directory, realpath \'D:\\proj\\x\''),
     )
     renderPicker({ onCreate })
     fireEvent.click(screen.getByLabelText('新建工作区'))
-    fireEvent.change(screen.getByLabelText('新建工作区'), { target: { value: 'D:\\work\\x' } })
+    fireEvent.change(screen.getByLabelText('新建工作区'), { target: { value: 'D:\\proj\\x' } })
     fireEvent.click(screen.getByText('创建并切换'))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('电脑上没有这个目录')
-    expect(alert.textContent).toContain('D:\\work\\x')
+    expect(alert.textContent).toContain('D:\\proj\\x')
     expect(alert.textContent).toContain('先在电脑上把目录建好')
     expect(alert.textContent).not.toContain('ENOENT')
   })
 
   it('新建表单里能把当前目录一键填进去', () => {
-    renderPicker({ currentPath: 'D:\\work\\dsh-palm' })
+    renderPicker({ currentPath: 'D:\\proj\\dsh-palm' })
     fireEvent.click(screen.getByLabelText('新建工作区'))
     const input = screen.getByLabelText('新建工作区') as HTMLInputElement
     expect(input.value).toBe('')
     fireEvent.click(screen.getByText(/用当前目录/))
-    expect(input.value).toBe('D:\\work\\dsh-palm')
+    expect(input.value).toBe('D:\\proj\\dsh-palm')
   })
 })
 
@@ -178,13 +178,13 @@ describe('切换工作区面板：密度', () => {
   it('单条项目组不重复写一遍父目录（省掉副标题）', () => {
     renderPicker({
       workspaces: [
-        row('cur', 'D:\\work\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T09:40:00+08:00', sessions: 7 }),
-        row('solo', 'D:\\work\\ICNT9388\\1.Code\\00.master\\ICNT9388', { title: 'ICNT9388', sessions: 1 }),
+        row('cur', 'D:\\proj\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T09:40:00+08:00', sessions: 7 }),
+        row('solo', 'D:\\proj\\proj-a\\1.Code\\00.master\\proj-a', { title: 'proj-a', sessions: 1 }),
       ],
     })
     // 项目组默认折叠，先点组头展开
     fireEvent.click(screen.getByLabelText(/00\.master/))
-    const solo = screen.getByRole('menuitem', { name: /ICNT9388/ })
+    const solo = screen.getByRole('menuitem', { name: /proj-a/ })
     // 组标题已经是 `00.master`（上一级 `1.Code` 在右侧浅色提示里），行里不再重复
     expect(solo.querySelector('.sheet-option-desc')).toBeNull()
   })
@@ -195,9 +195,9 @@ describe('切换工作区面板：密度', () => {
     cleanup()
     renderPicker({
       workspaces: [
-        row('cur', 'D:\\work\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T09:40:00+08:00' }),
-        row('x', 'D:\\work\\ICNT9388\\1.Code\\00.master\\X', { title: 'X' }),
-        row('y', 'D:\\work\\ICNT9388\\1.Code\\06.DP523\\Y', { title: 'Y' }),
+        row('cur', 'D:\\proj\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T09:40:00+08:00' }),
+        row('x', 'D:\\proj\\proj-a\\1.Code\\00.master\\X', { title: 'X' }),
+        row('y', 'D:\\proj\\proj-a\\1.Code\\06.DP523\\Y', { title: 'Y' }),
       ],
     })
     const heads = screen.getAllByRole('button', { name: /个工作区$/ })
@@ -212,8 +212,8 @@ describe('切换工作区面板：密度', () => {
   it('搜索时不折叠：命中的行直接铺出来', () => {
     renderPicker({
       workspaces: [
-        row('cur', 'D:\\work\\dsh-palm', { title: 'dsh-palm' }),
-        row('x', 'D:\\work\\ICNT9388\\1.Code\\00.master\\X', { title: 'X' }),
+        row('cur', 'D:\\proj\\dsh-palm', { title: 'dsh-palm' }),
+        row('x', 'D:\\proj\\proj-a\\1.Code\\00.master\\X', { title: 'X' }),
       ],
     })
     fireEvent.change(screen.getByLabelText('搜索工作区'), { target: { value: 'x' } })
@@ -231,8 +231,8 @@ describe('切换工作区面板：密度', () => {
     renderPicker()
     fireEvent.change(screen.getByLabelText('搜索工作区'), { target: { value: 'dsh' } })
     const only = screen.getAllByRole('menuitem')[0] as HTMLElement
-    // 搜索命中时副标题给的是它的父路径 `D:\work`（不是干巴巴的 `work`，也不是整条绝对路径）
-    expect(only.querySelector('.sheet-option-desc')?.textContent).toBe('D:\\work')
+    // 搜索命中时副标题给的是它的父路径 `D:\proj`（不是干巴巴的 `work`，也不是整条绝对路径）
+    expect(only.querySelector('.sheet-option-desc')?.textContent).toBe('D:\\proj')
   })
 })
 describe('切换工作区面板：每行的重命名 / 删除', () => {
@@ -279,7 +279,7 @@ describe('切换工作区面板：每行的重命名 / 删除', () => {
 
   it('菜单里对当前工作区的删除项有明确标注', () => {
     renderPicker()
-    fireEvent.click(screen.getAllByLabelText('更多操作：ICNT9388')[0] as HTMLElement)
+    fireEvent.click(screen.getAllByLabelText('更多操作：proj-a')[0] as HTMLElement)
     expect(screen.getByRole('menuitem', { name: '删除（当前工作区）' })).toBeTruthy()
   })
 })
@@ -288,8 +288,8 @@ describe('切换工作区面板：折叠状态记住', () => {
   it('展开一次后重新挂载，还是展开的', () => {
     const data = {
       workspaces: [
-        row('cur', 'D:\\work\\dsh-palm', { title: 'dsh-palm' }),
-        row('x', 'D:\\work\\ICNT9388\\1.Code\\00.master\\X', { title: 'X' }),
+        row('cur', 'D:\\proj\\dsh-palm', { title: 'dsh-palm' }),
+        row('x', 'D:\\proj\\proj-a\\1.Code\\00.master\\X', { title: 'X' }),
       ],
     }
     renderPicker(data)
@@ -303,8 +303,8 @@ describe('切换工作区面板：折叠状态记住', () => {
   it('收起来也会记住（下次打开还是收着的）', () => {
     const data = {
       workspaces: [
-        row('cur', 'D:\\work\\dsh-palm', { title: 'dsh-palm' }),
-        row('x', 'D:\\work\\ICNT9388\\1.Code\\00.master\\X', { title: 'X' }),
+        row('cur', 'D:\\proj\\dsh-palm', { title: 'dsh-palm' }),
+        row('x', 'D:\\proj\\proj-a\\1.Code\\00.master\\X', { title: 'X' }),
       ],
     }
     renderPicker(data)
@@ -328,7 +328,7 @@ describe('切换工作区面板：折叠状态记住', () => {
     // 选完回到表单，输入框里就是刚点的那个绝对路径（用户还能改）。
     await waitFor(() => {
       const input = screen.getByLabelText('新建工作区') as HTMLInputElement
-      expect(input.value).toBe('D:\\work\\dsh-palm')
+      expect(input.value).toBe('D:\\proj\\dsh-palm')
     })
   })
 

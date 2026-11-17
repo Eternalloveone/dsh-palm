@@ -27,24 +27,24 @@ const ws = (id: string, path: string, extra: { title?: string; updatedAt?: strin
 
 describe('工作区面板：路径整形', () => {
   it('同时吃反斜杠与正斜杠，末尾分隔符不算一段', () => {
-    expect(pathSegments('D:\\work\\dsh-palm')).toEqual(['D:', 'work', 'dsh-palm'])
+    expect(pathSegments('D:\\proj\\dsh-palm')).toEqual(['D:', 'proj', 'dsh-palm'])
     expect(pathSegments('/home/me/proj/')).toEqual(['home', 'me', 'proj'])
   })
 
   it('标题优先用宿主给的 name，没有就取末段', () => {
-    expect(titleOf(ws('a', 'D:\\work\\dsh-palm', { title: 'dsh-palm' }))).toBe('dsh-palm')
-    expect(titleOf(ws('b', 'D:\\work\\dsh-palm'))).toBe('dsh-palm')
+    expect(titleOf(ws('a', 'D:\\proj\\dsh-palm', { title: 'dsh-palm' }))).toBe('dsh-palm')
+    expect(titleOf(ws('b', 'D:\\proj\\dsh-palm'))).toBe('dsh-palm')
   })
 
   it('唯一名字：副标题是父路径的首段 + 末两段', () => {
-    expect(parentTail('D:\\work\\dsh-palm')).toBe('D:\\work')
+    expect(parentTail('D:\\proj\\dsh-palm')).toBe('D:\\proj')
     expect(parentTail('D:\\steam')).toBe('D:\\steam')
-    expect(parentTail('D:\\work\\A\\B\\C\\X')).toBe('D:\\…\\B\\C')
+    expect(parentTail('D:\\proj\\A\\B\\C\\X')).toBe('D:\\…\\B\\C')
     expect(parentTail('D:\\')).toBe('')
   })
 
   it('同名：取最短能分开的尾巴，一级不够自动加一级', () => {
-    expect(distinguishingTails(['D:\\work\\P\\00.master\\X', 'D:\\work\\P\\06.DP523\\X'])).toEqual(['00.master', '06.DP523'])
+    expect(distinguishingTails(['D:\\proj\\P\\00.master\\X', 'D:\\proj\\P\\06.DP523\\X'])).toEqual(['00.master', '06.DP523'])
     expect(distinguishingTails(['D:\\w\\A\\X', 'D:\\w\\B\\X'])).toEqual(['A', 'B'])
     // 一级相同 → 升到两级
     expect(distinguishingTails(['D:\\w\\P\\A\\X', 'D:\\w\\P\\B\\X'][0].length > 0 ? ['D:\\w\\P\\A\\X', 'D:\\w\\Q\\A\\X'] : [])).toEqual(['P\\A', 'Q\\A'])
@@ -59,8 +59,8 @@ describe('工作区面板：路径整形', () => {
   })
 
   it('搜索同时匹配名称与路径', () => {
-    const workspace = ws('a', 'D:\\work\\ICNA3611\\1.FEP\\ICNA3611')
-    expect(matchesQuery(workspace, '3611')).toBe(true)
+    const workspace = ws('a', 'D:\\proj\\proj-b\\1.FEP\\proj-b')
+    expect(matchesQuery(workspace, 'proj-b')).toBe(true)
     expect(matchesQuery(workspace, 'fep')).toBe(true)
     expect(matchesQuery(workspace, 'zzz')).toBe(false)
     expect(matchesQuery(workspace, '   ')).toBe(true)
@@ -69,19 +69,19 @@ describe('工作区面板：路径整形', () => {
 
 describe('工作区面板：分组', () => {
   const list = [
-    ws('cur', 'D:\\work\\ICNT9388\\1.Code\\06.DP523\\ICNT9388', { title: 'ICNT9388', updatedAt: '2026-11-11T09:40:00+08:00', sessions: 4 }),
-    ws('a1', 'D:\\work\\ICNT9388\\1.Code\\00.master\\ICNT9388', { title: 'ICNT9388', updatedAt: '2026-11-09T09:00:00+08:00', sessions: 2 }),
-    ws('b1', 'D:\\work\\ICNA3611\\1.FEP\\ICNA3611', { title: 'ICNA3611', updatedAt: '2026-11-10T09:00:00+08:00', sessions: 1 }),
-    ws('b2', 'D:\\work\\ICNA3611\\2.CP\\ICNA3611', { title: 'ICNA3611', updatedAt: '2026-11-08T09:00:00+08:00', sessions: 3 }),
-    ws('d', 'D:\\work\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T08:00:00+08:00', sessions: 7 }),
+    ws('cur', 'D:\\proj\\proj-a\\1.Code\\06.DP523\\proj-a', { title: 'proj-a', updatedAt: '2026-11-11T09:40:00+08:00', sessions: 4 }),
+    ws('a1', 'D:\\proj\\proj-a\\1.Code\\00.master\\proj-a', { title: 'proj-a', updatedAt: '2026-11-09T09:00:00+08:00', sessions: 2 }),
+    ws('b1', 'D:\\proj\\proj-b\\1.FEP\\proj-b', { title: 'proj-b', updatedAt: '2026-11-10T09:00:00+08:00', sessions: 1 }),
+    ws('b2', 'D:\\proj\\proj-b\\2.CP\\proj-b', { title: 'proj-b', updatedAt: '2026-11-08T09:00:00+08:00', sessions: 3 }),
+    ws('d', 'D:\\proj\\dsh-palm', { title: 'dsh-palm', updatedAt: '2026-11-11T08:00:00+08:00', sessions: 7 }),
     ws('e', 'D:\\steam', { title: 'steam', sessions: 0 }),
   ]
 
   it('当前项永远第一组，且带完整路径与会话数', () => {
     const groups = buildWorkspaceGroups(list, 'cur', '', NOW)
     expect(groups[0]?.kind).toBe('current')
-    expect(groups[0]?.rows[0]?.title).toBe('ICNT9388')
-    expect(groups[0]?.rows[0]?.fullPath).toBe('D:\\work\\ICNT9388\\1.Code\\06.DP523\\ICNT9388')
+    expect(groups[0]?.rows[0]?.title).toBe('proj-a')
+    expect(groups[0]?.rows[0]?.fullPath).toBe('D:\\proj\\proj-a\\1.Code\\06.DP523\\proj-a')
     expect(groups[0]?.rows[0]?.sessionCount).toBe(4)
   })
 
@@ -94,10 +94,10 @@ describe('工作区面板：分组', () => {
   it('剩下的按父目录分组，同名项副标题能分开', () => {
     const groups = buildWorkspaceGroups(list, 'cur', '', NOW)
     const projects = groups.filter(group => group.kind === 'project')
-    // 剩下的是：ICNA3611 的另一条（父目录 2.CP）+ 盘符下的 steam → 其它
+    // 剩下的是：proj-b 的另一条（父目录 2.CP）+ 盘符下的 steam → 其它
     expect(projects.map(group => group.label).some(label => label.endsWith('2.CP'))).toBe(true)
     expect(projects.map(group => group.label)).toContain('其它')
-    const tailRows = groups.flatMap(group => group.rows).filter(row => row.title === 'ICNA3611')
+    const tailRows = groups.flatMap(group => group.rows).filter(row => row.title === 'proj-b')
     expect(tailRows.map(row => row.subtitle).sort()).toEqual(['1.FEP', '2.CP'])
   })
 
@@ -120,10 +120,10 @@ describe('工作区面板：分组', () => {
 
 describe('分组标题：短标题 + 上一级提示', () => {
   it('组标题只取父目录最后一级，上一级变成提示', () => {
-    expect(projectLabel('D:\\work\\ICNT9388\\1.Code\\X')).toBe('1.Code')
-    expect(projectHint('D:\\work\\ICNT9388\\1.Code\\X')).toBe('ICNT9388')
-    expect(projectLabel('D:\\work\\dsh-palm')).toBe('work')
-    expect(projectHint('D:\\work\\dsh-palm')).toBe('')
+    expect(projectLabel('D:\\proj\\proj-a\\1.Code\\X')).toBe('1.Code')
+    expect(projectHint('D:\\proj\\proj-a\\1.Code\\X')).toBe('proj-a')
+    expect(projectLabel('D:\\proj\\dsh-palm')).toBe('proj')
+    expect(projectHint('D:\\proj\\dsh-palm')).toBe('')
     expect(projectLabel('D:\\steam')).toBe('其它')
   })
 
@@ -157,14 +157,14 @@ describe('搜索命中高亮', () => {
   })
 
   it('不命中 / 空搜索词时原样返回一段', () => {
-    expect(highlightMatch('ICNT9268', 'zzz')).toEqual([{ text: 'ICNT9268', hit: false }])
-    expect(highlightMatch('ICNT9268', '  ')).toEqual([{ text: 'ICNT9268', hit: false }])
+    expect(highlightMatch('proj-c', 'zzz')).toEqual([{ text: 'proj-c', hit: false }])
+    expect(highlightMatch('proj-c', '  ')).toEqual([{ text: 'proj-c', hit: false }])
   })
 
   it('路径里的反斜杠不会被吃掉', () => {
-    expect(highlightMatch('D:\\work\\dsh-palm', 'work')).toEqual([
+    expect(highlightMatch('D:\\proj\\dsh-palm', 'proj')).toEqual([
       { text: 'D:\\', hit: false },
-      { text: 'work', hit: true },
+      { text: 'proj', hit: true },
       { text: '\\dsh-palm', hit: false },
     ])
   })
@@ -173,18 +173,18 @@ describe('「最近用过」按会话活动算（2026-11-11 真机）', () => {
   const NOW = Date.parse('2026-11-11T13:40:00+08:00')
 
   /**
-   * 真机数据：`D:\work\dsh_dev` 的 workspace.updatedAt 停在 11-06，但它今天一直在跑。
+   * 真机数据：`D:\proj\dsh_dev` 的 workspace.updatedAt 停在 11-06，但它今天一直在跑。
    * 只看那个字段，「最近用过」里就没有它 —— 用户直接问「我一直在跑却不在最近使用」。
    */
   it('工作区自己的 updatedAt 很旧、但有会话今天在跑：仍然进最近用过（排第一）', () => {
     const workspaces = [
-      { workspaceId: 'w-old', path: 'D:\\work\\ICNT9388\\00.master', title: 'ICNT9388', updatedAt: '2026-11-06T10:09:48.855Z' },
-      { workspaceId: 'w-live', path: 'D:\\work\\dsh_dev', title: 'dsh_dev', updatedAt: '2026-11-06T05:29:30.441Z' },
+      { workspaceId: 'w-old', path: 'D:\\proj\\proj-a\\00.master', title: 'proj-a', updatedAt: '2026-11-06T10:09:48.855Z' },
+      { workspaceId: 'w-live', path: 'D:\\proj\\dsh_dev', title: 'dsh_dev', updatedAt: '2026-11-06T05:29:30.441Z' },
       { workspaceId: 'w-stale', path: 'D:\\steam', title: 'steam', updatedAt: '2026-10-29T10:02:08.992Z' },
     ]
     const activity = workspaceActivityOf(workspaces, [
-      { sessionId: 's1', updatedAt: Date.parse('2026-11-11T12:46:18+08:00'), cwd: 'D:\\work\\dsh_dev' },
-      { sessionId: 's2', updatedAt: Date.parse('2026-11-10T14:59:41+08:00'), cwd: 'D:\\work\\ICNT9388\\00.master' },
+      { sessionId: 's1', updatedAt: Date.parse('2026-11-11T12:46:18+08:00'), cwd: 'D:\\proj\\dsh_dev' },
+      { sessionId: 's2', updatedAt: Date.parse('2026-11-10T14:59:41+08:00'), cwd: 'D:\\proj\\proj-a\\00.master' },
     ])
     const groups = buildWorkspaceGroups(workspaces, '', '', NOW, activity)
     const recent = groups.find(group => group.kind === 'recent')

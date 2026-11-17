@@ -127,8 +127,8 @@ export function visibleSessionRows(
  * 为什么要有 `cwd` 这一半（2026-11-10「抽屉只剩当前会话」）：`sessionIds` 有 TTL、
  * 也会在新会话刚建出来时落后一拍。表落后时按它过滤，抽屉里就只剩当前这一条 ——
  * 用户看到的正是"全部的会话都没了"。而每条会话自带 `cwd`、每个工作区自带 `path`，
- * 两边归一后按**最长前缀**归属：`D:\work\Alpha` 不会把
- * `D:\work\Alpha\1.Code\07.FEP` 名下的会话抢走。
+ * 两边归一后按**最长前缀**归属：`D:\proj\Alpha` 不会把
+ * `D:\proj\Alpha\1.Code\07.FEP` 名下的会话抢走。
  *
  * @param workspaces - `workspace.list` 的行（`workspaceId` / `path` / `sessionIds`）
  * @param rows - 花名册行（`sessionId` / `cwd`）

@@ -10,7 +10,7 @@ import { cwdTail, toSessionView } from './session-view.ts'
 
 describe('cwdTail', () => {
   it('取 Windows 反斜杠路径的最后一段', () => {
-    expect(cwdTail('D:\\work\\dsh-palm')).toBe('dsh-palm')
+    expect(cwdTail('D:\\proj\\dsh-palm')).toBe('dsh-palm')
   })
 
   it('取 Unix 正斜杠路径的最后一段', () => {
@@ -18,7 +18,7 @@ describe('cwdTail', () => {
   })
 
   it('末尾带分隔符也取得到（不会返回空串）', () => {
-    expect(cwdTail('D:\\work\\dsh-palm\\')).toBe('dsh-palm')
+    expect(cwdTail('D:\\proj\\dsh-palm\\')).toBe('dsh-palm')
     expect(cwdTail('/home/me/dsh-palm/')).toBe('dsh-palm')
   })
 
@@ -32,9 +32,9 @@ describe('toSessionView 的标题兜底', () => {
   const base = { sessionId: 'session-1', updatedAt: 1, running: false, blank: false }
 
   it('没有 projections.title 时写「新会话」，不拿目录名或会话 id 顶', () => {
-    const view = toSessionView({ ...base, cwd: 'D:\\work\\ICNT9388\\1.Code' })
+    const view = toSessionView({ ...base, cwd: 'D:\\proj\\proj-a\\1.Code' })
     expect(view.title).toBe('新会话')
-    expect(view.cwd).toBe('D:\\work\\ICNT9388\\1.Code')
+    expect(view.cwd).toBe('D:\\proj\\proj-a\\1.Code')
   })
 
   it('title 是空串 / null 时同样落到「新会话」', () => {
@@ -45,7 +45,7 @@ describe('toSessionView 的标题兜底', () => {
   it('给了 title 就用 title（目录只作为 cwd 带下去，供任务页标注）', () => {
     const view = toSessionView({
       ...base,
-      cwd: 'D:\\work\\dsh-palm',
+      cwd: 'D:\\proj\\dsh-palm',
       projections: { values: { title: '目标条排版' } },
     })
     expect(view.title).toBe('目标条排版')

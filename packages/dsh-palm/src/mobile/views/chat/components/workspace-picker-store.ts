@@ -5,7 +5,7 @@
  * 用户天天用的就是那两三个项目，每次打开都得重新点开。记住展开过的组，
  * 下次打开就是上次的样子。
  *
- * 存储格式是 `string[]`（组键，如 `project:D:\work\Beta\1.Code`）；坏数据/配额满都按
+ * 存储格式是 `string[]`（组键，如 `project:D:\proj\Beta\1.Code`）；坏数据/配额满都按
  * 「没有记录」处理，绝不因为一个缓存把面板弄崩。
  *
  * @module dsh-palm/mobile/views/chat/components/workspace-picker-store

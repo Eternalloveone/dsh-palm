@@ -24,7 +24,7 @@ export interface SessionView {
 
 /** Map a list row to the surface model; the title comes from projections when present. */
 /**
- * 会话所属目录的名字（`dsh-palm` / `ICNT9388`）。
+ * 会话所属目录的名字（`dsh-palm` / `proj-a`）。
  *
  * Windows 的 cwd 是反斜杠路径：只按 `/` 拆会把整条 `D:\dev\app` 当成名字，
  * 同一个目录下的会话于是全显示成同一个截断路径（2026-11-11 的标题 bug 就是这么来的）。

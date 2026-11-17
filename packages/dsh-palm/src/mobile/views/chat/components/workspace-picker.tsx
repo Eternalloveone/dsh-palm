@@ -82,8 +82,8 @@ type PickerForm<T extends WorkspaceLike> =
  * 把宿主的原始错误翻成「下一步做什么」。
  *
  * 2026-11-11 真机：新建时只打了宿主上不存在的目录，界面弹出
- * `cannot create a Workspace at "D:\work\x": ENOENT: no such file or directory,
- * realpath 'D:\work\x'` —— 用户的原话是「没法新建新的工作区」。宿主的判断没错
+ * `cannot create a Workspace at "D:\proj\x": ENOENT: no such file or directory,
+ * realpath 'D:\proj\x'` —— 用户的原话是「没法新建新的工作区」。宿主的判断没错
  * （它只登记已存在的目录、不帮你 mkdir），错的是我们把这句英文原样甩给用户。
  *
  * @param reason - 宿主/RPC 抛出的原因

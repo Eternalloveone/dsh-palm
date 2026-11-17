@@ -44,7 +44,7 @@ export interface WorkspaceView {
   readonly ready: boolean
 }
 
-/** 路径末段：`D:\work\dsh-palm` → `dsh-palm`。 */
+/** 路径末段：`D:\proj\dsh-palm` → `dsh-palm`。 */
 export function lastPathSegment(path: string): string {
   const segments = path.split(/[\\/]/).filter(segment => segment !== '')
   return segments.length === 0 ? '' : (segments[segments.length - 1] as string)
@@ -85,7 +85,7 @@ export function resolveWorkspace(
  *
  * 归属的唯一比较口径：抽屉过滤（`views/drawer-rows.scopedToWorkspace`）、工作区置顶的
  * key、以及这里的 {@link workspaceIdForCwd} 都走它，否则同一台机器上同一目录会被认成
- * 两个工作区（`D:\work\x` 与 `d:/work/x/`）。
+ * 两个工作区（`D:\proj\x` 与 `d:/work/x/`）。
  *
  * @param path - 原始路径（可能 undefined）
  * @returns 归一后的路径；空串表示"没有路径可比"

@@ -35,7 +35,7 @@ function Tally({ adds, dels }: { adds?: number; dels?: number }) {
 /**
  * 路径的父目录（副行显示）：只留**最后 3 段**。
  *
- * 整条绝对路径在 358px 的卡片里永远显示成同一个前缀（`C:\Users\Administrator\…`），
+ * 整条绝对路径在 358px 的卡片里永远显示成同一个前缀（`C:\work\…`），
  * 八行看起来一模一样。掐头留尾之后每行都能看出是哪个目录。
  *
  * @param path - 文件路径
@@ -121,7 +121,7 @@ export function DeliveryDetailView({ facts, testsPassed, onBack, onOpenFile }: D
                           {/*
                             两行式：第一行文件名/交付说明，第二行暗一点的路径。原来只有
                             一行、塞的是完整绝对路径 —— 手机上被省略号截成
-                            `C:\Users\Administrator\dsh-source\dsh-palm\p…`，等于没显示
+                            `C:\work\demo\p…`，等于没显示
                             文件名（2026-11-10 实机"改动详情页排版还要优化"）。
                           */}
                           <span className="palm-dd-name">
