@@ -1,7 +1,7 @@
 # Final gate chain (ASCII only: PowerShell 5.1 + no BOM issues).
 # Runs every gate serially and records exit codes into a log file.
 $ErrorActionPreference = 'Continue'
-$repo = 'C:\Users\Administrator\dsh-source\dsh-palm'
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $log = Join-Path $repo 'final-gates.log'
 if (Test-Path $log) { Remove-Item $log -Force }
 

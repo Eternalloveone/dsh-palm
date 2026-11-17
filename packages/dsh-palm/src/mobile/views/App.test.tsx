@@ -28,6 +28,7 @@ const host = vi.hoisted(() => ({
   prompt: vi.fn(),
   sendCommand: vi.fn(),
   listWorkspaces: vi.fn(),
+  runningSessions: vi.fn(),
 }))
 
 const mux = vi.hoisted(() => ({
@@ -48,6 +49,10 @@ vi.mock('../data/settings.ts', () => ({
 }))
 vi.mock('../data/usage.ts', () => ({
   fetchUsage: vi.fn().mockResolvedValue({ providers: [], fetchedAt: 0 }),
+  // 抽屉打开时会问一次「谁在跑 / 刚跑完哪些」：缺了这两个函数，那次调用会同步抛错，
+  // 抽屉就永远停在「正在读取会话…」（本文件 2026-11-16 加任务页用例时才会踩到）。
+  fetchFinishedRuns: vi.fn().mockResolvedValue([]),
+  clearHostFinishedRuns: vi.fn().mockResolvedValue({ ok: true }),
 }))
 vi.mock('../data/diag.ts', () => ({
   logTail: vi.fn().mockResolvedValue({ rows: [] }),
@@ -88,6 +93,29 @@ vi.mock('./ChatView.tsx', () => ({
   ),
 }))
 vi.mock('./SettingsView.tsx', () => ({ SettingsView: () => <div>settings-ready</div> }))
+/**
+ * 「任务」页在这一屏只当导航用：它自己怎么取数、怎么标注工作区各有测试。
+ * 这里要的是它交给 App 的那份会话快照（`cwd` 必须带上，App 靠它认领工作区）。
+ */
+vi.mock('./TasksView.tsx', () => ({
+  TasksView: (props: {
+    onOpen(session: { sessionId: string; title: string; cwd: string; updatedAt: number; running: boolean; blank: boolean }): void
+  }) => (
+    <div>
+      tasks-ready
+      <button
+        type="button"
+        aria-label="task-foreign"
+        onClick={() => { props.onOpen({ sessionId: 's-2', title: '别的工作区的会话', cwd: 'D:/w-2', updatedAt: 5, running: false, blank: false }) }}
+      >foreign</button>
+      <button
+        type="button"
+        aria-label="task-orphan"
+        onClick={() => { props.onOpen({ sessionId: 's-3', title: '无主目录的会话', cwd: 'D:/nowhere', updatedAt: 6, running: false, blank: false }) }}
+      >orphan</button>
+    </div>
+  ),
+}))
 
 import { App, mobilePairStateForError } from './App.tsx'
 import { createLazyView } from '../lazy-view.tsx'
@@ -110,6 +138,7 @@ beforeEach(() => {
   host.createSession.mockReset()
   host.prompt.mockReset()
   host.observeSession.mockReset().mockResolvedValue(undefined)
+  host.runningSessions.mockReset().mockResolvedValue({ sessionIds: [] })
   api.fetchMobilePreferences.mockReset().mockResolvedValue({ mobileEnterToSend: true })
   host.listWorkspaces.mockResolvedValue([WORKSPACE, OTHER_WORKSPACE])
   host.listSessions.mockResolvedValue({ items: [ROW], hasMore: false })
@@ -262,6 +291,43 @@ describe('抽屉是唯一导航', () => {
     await waitFor(() => expect(screen.getByText('chat-ready')).toBeDefined())
     expect(screen.queryByText('sessions-ready')).toBeNull()
     expect(screen.queryByText('workspace-ready')).toBeNull()
+  })
+})
+
+describe('「任务」进别的工作区的会话（2026-11-16 真机：会话被算进了当前工作区）', () => {
+  /**
+   * 打开抽屉 → 点「任务」→ 点某一行。
+   *
+   * @param label - 任务页里那一行的 aria-label
+   */
+  async function openTaskRow(label: string): Promise<void> {
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('chat-ready')).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'open-drawer' }))
+    fireEvent.click(screen.getByRole('button', { name: /任务/ }))
+    fireEvent.click(await screen.findByRole('button', { name: label }))
+  }
+
+  it('工作区跟着会话的 cwd 走：进的是 w-2，不是原来那个 w-1', async () => {
+    await openTaskRow('task-foreign')
+    await waitFor(() => expect(screen.getByText('other')).toBeDefined())
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).get('workspace')).toBe('w-2')
+    })
+  })
+
+  it('cwd 不属于任何工作区：留在原地，但侧边栏不把这条会话排进本工作区的行里', async () => {
+    await openTaskRow('task-orphan')
+    await waitFor(() => expect(screen.getByText('无主目录的会话')).toBeDefined())
+    // 工作区没变（认不出来就不硬跳），顶栏仍是原来那个。
+    expect(screen.getAllByText('dsh-palm').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'open-drawer' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /新建会话/ })).toBeDefined())
+    // 会话正文里那一处标题仍在，抽屉里不该再出现第二处。
+    expect(screen.getAllByText('无主目录的会话')).toHaveLength(1)
+    // 抽屉照常画本工作区的行（宿主这一页到货后）。
+    await waitFor(() => expect(screen.getAllByText('最近会话').length).toBeGreaterThan(0))
+    expect(screen.getAllByText('无主目录的会话')).toHaveLength(1)
   })
 })
 

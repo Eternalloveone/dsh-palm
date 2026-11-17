@@ -10,22 +10,22 @@ import { normalizeWorkspacePath, ownedByWorkspaces } from './session-list.ts'
 
 describe('normalizeWorkspacePath', () => {
   it('反斜杠/大小写/尾斜杠归一', () => {
-    expect(normalizeWorkspacePath('D:\\work\\ICNT9388\\')).toBe('d:/work/icnt9388')
+    expect(normalizeWorkspacePath('D:\\work\\Alpha\\')).toBe('d:/work/alpha')
     expect(normalizeWorkspacePath(undefined)).toBe('')
   })
 })
 
 describe('ownedByWorkspaces', () => {
   const workspaces = [
-    { workspaceId: 'ws-parent', path: 'D:\\work\\ICNT9388', sessionIds: ['p0'] },
-    { workspaceId: 'ws-child', path: 'D:\\work\\ICNT9388\\1.Code\\07.FEP', sessionIds: [] },
+    { workspaceId: 'ws-parent', path: 'D:\\work\\Alpha', sessionIds: ['p0'] },
+    { workspaceId: 'ws-child', path: 'D:\\work\\Alpha\\1.Code\\07.FEP', sessionIds: [] },
     { workspaceId: 'ws-other', path: 'D:\\work\\dsh-palm' },
   ]
   const rows = [
-    { sessionId: 'p0', cwd: 'D:\\work\\ICNT9388' },
-    { sessionId: 'p1', cwd: 'D:\\work\\ICNT9388\\notes' },
-    { sessionId: 'c1', cwd: 'D:\\work\\ICNT9388\\1.Code\\07.FEP' },
-    { sessionId: 'c2', cwd: 'D:\\work\\ICNT9388\\1.Code\\07.FEP\\sub' },
+    { sessionId: 'p0', cwd: 'D:\\work\\Alpha' },
+    { sessionId: 'p1', cwd: 'D:\\work\\Alpha\\notes' },
+    { sessionId: 'c1', cwd: 'D:\\work\\Alpha\\1.Code\\07.FEP' },
+    { sessionId: 'c2', cwd: 'D:\\work\\Alpha\\1.Code\\07.FEP\\sub' },
     { sessionId: 'o1', cwd: 'D:/WORK/dsh-palm' },
     { sessionId: 'none', cwd: 'D:\\elsewhere' },
   ]

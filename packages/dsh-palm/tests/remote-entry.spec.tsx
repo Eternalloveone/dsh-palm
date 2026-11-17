@@ -108,6 +108,9 @@ describe('RemoteEntry', () => {
     expect(fetch).toHaveBeenCalledWith('/api/pair/issue', expect.objectContaining({ method: 'POST' }))
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Remote access' })).toBeTruthy())
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    // 面板打开后还要等 `/api/pair/issue` 应答回来才会有 QR 与「等待设备」：标题先到、状态后到，
+    // 两拍之间就断言会偶发红（2026-11-16 门禁里撞到过）。这里先把加载完成等到。
+    await waitFor(() => expect(screen.getByText('Waiting for a device')).toBeTruthy())
     expect(screen.getByText('Pair a phone or another computer to access this workspace remotely')).toBeTruthy()
     expect(screen.getByText('Waiting for a device')).toBeTruthy()
     // The onboarding steps render with the pair step active (configure done).

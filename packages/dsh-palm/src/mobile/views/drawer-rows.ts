@@ -15,17 +15,9 @@
  * @module dsh-palm/mobile/views/drawer-rows
  */
 import type { SessionView } from '../shared/session-view.ts'
+import { cwdInWorkspace, pathKey } from '../session/workspace-directory.ts'
 
-/**
- * 路径归一：斜杠统一、去尾斜杠、小写（Windows 路径大小写不敏感）。
- *
- * @param path - 原始路径（可能 undefined）
- * @returns 归一后的路径；空串表示"没有路径可比"
- */
-export function pathKey(path: string | undefined): string {
-  if (path === undefined) return ''
-  return path.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-}
+export { pathKey }
 
 /**
  * 按工作区归属过滤一页会话行。
@@ -43,12 +35,8 @@ export function scopedToWorkspace<T extends { sessionId: string; cwd?: string }>
   items: readonly T[],
   workspace: { sessionIds?: readonly string[]; path?: string },
 ): T[] {
-  const target = pathKey(workspace.path)
-  if (target !== '') {
-    const byPath = items.filter((item) => {
-      const cwd = pathKey(item.cwd)
-      return cwd !== '' && (cwd === target || cwd.startsWith(`${target}/`))
-    })
+  if (pathKey(workspace.path) !== '') {
+    const byPath = items.filter(item => cwdInWorkspace(item.cwd, workspace.path) === true)
     if (byPath.length > 0) return byPath
   }
   const owned = workspace.sessionIds ?? []
@@ -178,9 +166,15 @@ export function orderDrawerRows<T extends { sessionId: string; updatedAt: number
  * 补的顺序：缓存行里同 id 的时间 → 缓存也没有才用"此刻"（刚打开的这个会话，
  * 本身就是最近在用的那个；宁可先归「今天」，也不要先归「更早」再跳走）。
  *
+ * **不属于本工作区的当前会话不画**（2026-11-16 真机：从「任务」进别的工作区的会话，
+ * 侧边栏把它排进当前工作区第一行）。判据只认 `cwd`：明确落在别的目录下才排除，
+ * 认不出来（深链 / 新建会话还没有 cwd）照旧钉住 —— 那是"我在哪"的唯一提示。
+ *
  * @param current - 当前会话（空会话页时给 undefined）
  * @param cached - 本地缓存的会话行
  * @param now - 当前时间（毫秒），注入便于测试
+ * @param pinnedIds - 用户主动置顶的会话 id
+ * @param workspacePath - 抽屉所属工作区的目录（不传 = 不做归属判断）
  * @returns 排好序的新数组
  */
 export function paintDrawerRows(
@@ -188,14 +182,18 @@ export function paintDrawerRows(
   cached: readonly SessionView[],
   now: number = Date.now(),
   pinnedIds?: ReadonlySet<string>,
+  workspacePath?: string,
 ): SessionView[] {
-  if (current === undefined) return orderDrawerRows(cached, undefined, pinnedIds)
-  const rest = cached.filter(row => row.sessionId !== current.sessionId)
-  const known = cached.find(row => row.sessionId === current.sessionId)
-  const pinned = current.updatedAt > 0
-    ? current
-    : { ...current, updatedAt: known !== undefined && known.updatedAt > 0 ? known.updatedAt : now }
-  return orderDrawerRows([pinned, ...rest], current.sessionId, pinnedIds)
+  const head = current !== undefined && cwdInWorkspace(current.cwd, workspacePath) === false
+    ? undefined
+    : current
+  if (head === undefined) return orderDrawerRows(cached, undefined, pinnedIds)
+  const rest = cached.filter(row => row.sessionId !== head.sessionId)
+  const known = cached.find(row => row.sessionId === head.sessionId)
+  const pinned = head.updatedAt > 0
+    ? head
+    : { ...head, updatedAt: known !== undefined && known.updatedAt > 0 ? known.updatedAt : now }
+  return orderDrawerRows([pinned, ...rest], head.sessionId, pinnedIds)
 }
 
 /**

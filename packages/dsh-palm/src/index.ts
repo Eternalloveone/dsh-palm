@@ -483,6 +483,7 @@ function applyImpl(ctx: Context, config?: Config): void {
           // host-side, so nothing from the wire can steer a path. Pushing rides
           // the existing notify capability wired to the route deps below.
           errorDir: join(dshHome(), 'dsh-palm-errors'),
+  probeDir: join(dshHome(), 'dsh-palm-probes'),
           // 自建搜索索引：插件自己的派生库，删了会自动重建（期 1 只写影子日志）。
           searchIndexPath: join(dshHome(), 'dsh-palm-search.db'),          mobileEnterToSend: () => resolve().mobileEnterToSend,
           commands: ctx.get('commands'),

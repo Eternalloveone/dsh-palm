@@ -28,8 +28,8 @@ interface RedactionRule {
 const RULES: readonly RedactionRule[] = [
   // Private key blocks first: they span lines and would swallow everything else.
   {
-    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-    replacement: `-----BEGIN PRIVATE KEY----- ${REDACTED} -----END PRIVATE KEY-----`,
+    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, //gitleaks:allow
+    replacement: `-----BEGIN PRIVATE KEY----- ${REDACTED} -----END PRIVATE KEY-----`, //gitleaks:allow
   },
   // Credentials embedded in a URL: scheme://user:pass@host.
   {

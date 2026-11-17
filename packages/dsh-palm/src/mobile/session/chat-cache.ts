@@ -26,9 +26,10 @@ export interface CachedRow {
 // 字节裁剪的算法在 Cache 内核里（W4）——这条只是借用它的"丢头保尾 + 下限"。
 import { fitByteBudget } from '../kernels/cache.ts'
 import { beginSpan } from '../platform/perf.ts'
+import { buildHash } from '../platform/build-info.ts'
 
 const PREFIX = 'dsh-palm.chat-cache.v1.'
-const INDEX_KEY = 'dsh-palm.chat-cache.v1.index'
+const INDEX_KEY = 'dsh-palm.chat-cache.v1.index' //gitleaks:allow（localStorage 键名，不是凭据；改名会丢用户设置）
 
 /** 最多存多少行（最后一屏够用；太多了会挤爆 localStorage）。 */
 export const CHAT_CACHE_MAX_ROWS = 80
@@ -115,7 +116,7 @@ function saveChatCacheInner(sessionId: string, rows: readonly CachedRow[], now: 
   if (stable.length === 0) return
   let payload = ''
   try {
-    payload = JSON.stringify({ at: now, rows: stable })
+    payload = JSON.stringify({ at: now, build: buildHash(), rows: stable })
   } catch {
     return
   }
@@ -124,7 +125,7 @@ function saveChatCacheInner(sessionId: string, rows: readonly CachedRow[], now: 
   const kept = fitByteBudget(stable, rows => JSON.stringify({ at: now, rows }), CHAT_CACHE_MAX_BYTES, 8)
   if (kept === undefined) return
   try {
-    payload = JSON.stringify({ at: now, rows: kept })
+    payload = JSON.stringify({ at: now, build: buildHash(), rows: kept })
   } catch {
     return
   }
@@ -160,7 +161,14 @@ export function loadChatCache(sessionId: string, now: number = Date.now()): Cach
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return []
-    const { at, rows } = parsed as { at?: unknown; rows?: unknown }
+    const { at, rows, build } = parsed as { at?: unknown; rows?: unknown; build?: unknown }
+    // 构建戳不一致 = 这一屏是旧 bundle 存下的：直接丢弃，别再直通。
+    // 没有构建信息的环境（单测 / 旧宿主）不校验，免得缓存整个失效。
+    const served = buildHash()
+    if (served !== undefined && build !== served) {
+      try { store.removeItem(PREFIX + sessionId) } catch { /* 忽略 */ }
+      return []
+    }
     if (typeof at !== 'number' || now - at > CHAT_CACHE_TTL_MS) {
       try { store.removeItem(PREFIX + sessionId) } catch { /* 忽略 */ }
       return []

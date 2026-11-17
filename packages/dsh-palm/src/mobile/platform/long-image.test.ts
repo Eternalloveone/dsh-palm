@@ -33,7 +33,7 @@ describe('wrapLines', () => {
 
 describe('layoutLongImage', () => {
   const rows: ExportRow[] = [
-    { role: 'user', text: '看看这个 key：sk-abcdefghijklmnop1234' },
+    { role: 'user', text: '看看这个 key：sk-abcdefghijklmnop1234' }, //gitleaks:allow
     { role: 'assistant', text: '收到，先不改动。' },
   ]
 

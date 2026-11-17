@@ -193,4 +193,43 @@ describe('ingestErrorReport', () => {
     expect(second.pushed).toBe(false)
     expect(pushed).toHaveLength(1)
   })
+
+  it('keeps a benign browser layout notice on disk but never pushes it', () => {
+    const pushed: string[] = []
+    const benign = ingestErrorReport({
+      dir,
+      report: { kind: 'error', message: 'ResizeObserver loop completed with undelivered notifications.', source: '?workspace=x:0:0' },
+      notify: undefined, now: 1_000_000,
+      push: (_n, _r, f) => { pushed.push(f) },
+    })
+    expect(benign.pushed).toBe(false)
+    expect(pushed).toHaveLength(0)
+    expect(readdirSync(dir)).toHaveLength(1)
+    // And it must not consume the single push a real failure is entitled to.
+    const real = ingestErrorReport({ dir, report, notify: undefined, now: 1_000_001, push: (_n, _r, f) => { pushed.push(f) } })
+    expect(real.pushed).toBe(true)
+  })
+
+  it('treats a recovery-step probe as evidence, while damage and failures still push', () => {
+    const pushed: string[] = []
+    // stream-lag: the app noticed it was behind and started its own tail re-read.
+    const lag = ingestErrorReport({
+      dir,
+      report: { kind: 'error', message: 'stream-lag lag=28 localSeq=453 hostSeq=481 batched=0', count: 1, probe: 'stream-lag' },
+      notify: undefined, now: 1_000_000,
+      push: (_n, _r, f) => { pushed.push(f) },
+    })
+    expect(lag.pushed).toBe(false)
+    expect(pushed).toHaveLength(0)
+    expect(readdirSync(dir)).toHaveLength(1)
+    // turn-duplicate is user-visible damage: it must still reach the alert path.
+    const dupe = ingestErrorReport({
+      dir,
+      report: { kind: 'error', message: 'turn-duplicate sessionId=s turns=4 rows=32', count: 1, probe: 'turn-duplicate' },
+      notify: undefined, now: 1_000_001,
+      push: (_n, _r, f) => { pushed.push(f) },
+    })
+    expect(dupe.pushed).toBe(true)
+    expect(pushed).toHaveLength(1)
+  })
 })

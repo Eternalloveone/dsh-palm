@@ -3,7 +3,7 @@ import { REDACTED } from './redact.ts'
 import { escapeHtml, exportMarkdown, exportSingleFileHtml } from './export.ts'
 
 const rows = [
-  { role: 'user' as const, text: '把 key 写进 .env：sk-abcdefghijklmnop1234', at: 1_700_000_000_000 },
+  { role: 'user' as const, text: '把 key 写进 .env：sk-abcdefghijklmnop1234', at: 1_700_000_000_000 }, //gitleaks:allow
   { role: 'assistant' as const, text: '好的，已写入 <b>不是 HTML</b> 的文本', at: 1_700_000_060_000 },
 ]
 

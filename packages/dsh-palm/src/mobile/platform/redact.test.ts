@@ -3,10 +3,10 @@ import { REDACTED, containsSecret, redactSecrets } from './redact.ts'
 
 describe('redactSecrets', () => {
   it('masks provider-shaped tokens but keeps the prefix', () => {
-    expect(redactSecrets('key=sk-abcdefghijklmnop1234')).toBe(`key=sk-${REDACTED}`)
-    expect(redactSecrets('token ghp_abcdefghijklmnopqrstuvwx')).toBe(`token gh_${REDACTED}`)
-    expect(redactSecrets('AKIAIOSFODNN7EXAMPLE')).toBe(`AKIA${REDACTED}`)
-    expect(redactSecrets('xoxb-1234567890-abcdefghij')).toBe(`xox-${REDACTED}`)
+    expect(redactSecrets('key=sk-abcdefghijklmnop1234')).toBe(`key=sk-${REDACTED}`) //gitleaks:allow
+    expect(redactSecrets('token ghp_abcdefghijklmnopqrstuvwx')).toBe(`token gh_${REDACTED}`) //gitleaks:allow
+    expect(redactSecrets('AKIAIOSFODNN7EXAMPLE')).toBe(`AKIA${REDACTED}`) //gitleaks:allow
+    expect(redactSecrets('xoxb-1234567890-abcdefghij')).toBe(`xox-${REDACTED}`) //gitleaks:allow
   })
 
   it('masks Bearer headers and key=value pairs, keeping the label', () => {
@@ -22,9 +22,9 @@ describe('redactSecrets', () => {
   })
 
   it('masks JWTs and private key blocks', () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signaturepart'
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signaturepart' //gitleaks:allow
     expect(redactSecrets(`token ${jwt}`)).toBe(`token ${REDACTED}`)
-    const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEow…\n-----END RSA PRIVATE KEY-----'
+    const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEow…\n-----END RSA PRIVATE KEY-----' //gitleaks:allow
     expect(redactSecrets(pem)).toContain(REDACTED)
     expect(redactSecrets(pem)).not.toContain('MIIEow')
   })

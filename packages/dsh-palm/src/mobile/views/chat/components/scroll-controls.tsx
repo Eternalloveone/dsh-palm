@@ -10,6 +10,11 @@
  * 两个浮动按钮仍留在原来的位置：`.chat-jump-turns` 是 `position: sticky` +
  * `margin-top: auto`（在流里），审批/提问面板插在它前面；DOM 顺序一动，sticky 的
  * 落点跟着位移（实测锚点位移从 0px 变成 44px）。
+ *
+ * **两个按钮常挂载、只用 `hidden` 切显隐（2026-11-16）**：原来写的是
+ * `{show && <Button/>}`。按钮自己在流里占 ~84px，判据又是滚动的离底距离，
+ * 手指在底部蹭就会反复挂载/卸载、每次重播 `chat-jump-in` 淡入（一闪一闪）。
+ * 现在 DOM 恒定，动画只在新一轮「从隐藏变显示」时播一次。
  */
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { ChevronDownIcon } from '../../../components/icons.tsx'
@@ -40,32 +45,30 @@ export function JumpControls(props: JumpControlsProps) {
   } = props
   return (
     <>
-      {show && hasTurns && (
-        <Button
-          type="button"
-          className={'chat-jump-turns' + (scrubbing ? ' chat-jump-turns-live' : '')}
-          aria-label="轮次导航：轻点开清单，按住拖动刮擦"
-          onPointerDown={onScrubDown}
-          onPointerMove={onScrubMove}
-          onPointerUp={onScrubUp}
-          onPointerCancel={onScrubCancel}
-          onLostPointerCapture={onScrubCancel}
-          onClick={(event) => { if (event.detail === 0) onOpenTurnList() }}
-        >
-          <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
-        </Button>
-      )}
-      {show && (
-        <Button
-          type="button"
-          className={'chat-jump-latest' + (unreadCount > 0 ? ' chat-jump-latest-hot' : '')}
-          aria-label="回到最新消息"
-          onClick={onJumpLatest}
-        >
-          <ChevronDownIcon width={20} height={20} />
-          {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
-        </Button>
-      )}
+      <Button
+        type="button"
+        className={'chat-jump-turns' + (scrubbing ? ' chat-jump-turns-live' : '')}
+        hidden={!(show && hasTurns)}
+        aria-label="轮次导航：轻点开清单，按住拖动刮擦"
+        onPointerDown={onScrubDown}
+        onPointerMove={onScrubMove}
+        onPointerUp={onScrubUp}
+        onPointerCancel={onScrubCancel}
+        onLostPointerCapture={onScrubCancel}
+        onClick={(event) => { if (event.detail === 0) onOpenTurnList() }}
+      >
+        <span className="chat-jump-turns-label">{shownTurn}/{maxTurn}</span>
+      </Button>
+      <Button
+        type="button"
+        className={'chat-jump-latest' + (unreadCount > 0 ? ' chat-jump-latest-hot' : '')}
+        hidden={!show}
+        aria-label="回到最新消息"
+        onClick={onJumpLatest}
+      >
+        <ChevronDownIcon width={20} height={20} />
+        {unreadCount > 0 && <span className="chat-jump-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+      </Button>
     </>
   )
 }

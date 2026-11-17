@@ -4284,6 +4284,9 @@ button.settings-row:focus-visible {
 .chat-jump-latest:active {
   transform: scale(0.92);
 }
+/* 两个浮动按钮常挂载、显隐只用 hidden（见 scroll-controls.tsx）：display:none
+   不占流高度，所以显隐不再改变 scrollHeight；隐藏期间不跑动画，重新显示才播一次。 */
+.chat-jump-latest[hidden] { display: none; }
 /* New messages arrived while away: pulse the button to draw the eye. */
 .chat-jump-latest-hot {
   color: var(--accent);
@@ -12491,6 +12494,10 @@ details.think-block[open] .chat-disclosure-caret {
 .chat-jump-turns:active {
   transform: scale(0.92);
 }
+
+/* 常挂载、显隐只用 hidden（见 scroll-controls.tsx）：这里必须显式压掉上面的
+   display:flex，否则 [hidden] 的 display:none 被类选择器盖掉、按钮照样占位。 */
+.chat-jump-turns[hidden] { display: none; }
 
 .chat-jump-turns-label {
   font-size: 13px;

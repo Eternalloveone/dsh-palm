@@ -52,7 +52,7 @@ interface TaskRow {
   /** 一句话状态：`运行中` / `完成 · 1 分 30 秒` / `出错 · 40 秒`。 */
   status: string
   /**
-   * 会话所属工作目录的名字（`dsh-palm` / `ICNT9388`）。
+   * 会话所属工作目录的名字（`dsh-palm` / `Beta`）。
    *
    * 任务页把所有工作区在跑的会话聚在一屏，没有这一格就分不清"这是哪个项目的活"
    * —— 两个陌生标题挨着排，用户点进去之前完全不知道要去哪儿。
@@ -182,7 +182,32 @@ export function TasksView(props: TasksViewProps) {
       running: false,
     })),
   ]
-  const byId = new Map([...running, ...done.map(run => ({ sessionId: run.sessionId, title: run.title }))].map(item => [item.sessionId, item]))
+  /**
+   * 点某一行时要交给 App 的会话快照。
+   *
+   * **必须带 `cwd`**（2026-11-16）：任务页把所有工作区聚合在一屏，App 靠 `cwd` 把会话
+   * 认回它真正所属的工作区。以前这里只给 id + 标题，于是从「任务」点开别的工作区的会话，
+   * 路由沿用了当前工作区，侧边栏就把那条会话排进了当前工作区的第一行。
+   * 「刚完成」的行来自宿主收工账本（没有 cwd），用上面那份索引补。
+   */
+  const openable = new Map<string, SessionView>()
+  for (const session of running) openable.set(session.sessionId, session)
+  for (const run of done) {
+    const cwd = cwdCache.current.get(run.sessionId)
+    openable.set(run.sessionId, {
+      sessionId: run.sessionId,
+      title: run.title.trim() === '' ? shortId(run.sessionId) : run.title,
+      ...(cwd === undefined || cwd === '' ? {} : { cwd }),
+      updatedAt: run.finishedAt,
+      running: false,
+      blank: false,
+    })
+  }
+  /** 点一行：拿不到会话快照就当没点（不该发生，但别让一次脏数据炸掉整页）。 */
+  const openRow = (sessionId: string): void => {
+    const session = openable.get(sessionId)
+    if (session !== undefined) props.onOpen(session)
+  }
 
   return (
     <SlotLayout
@@ -222,10 +247,7 @@ export function TasksView(props: TasksViewProps) {
                     <li key={row.sessionId}>
                       <Button
                         className="tasks-row"
-                        onClick={() => {
-                          const session = byId.get(row.sessionId)
-                          if (session !== undefined) props.onOpen(session as SessionView)
-                        }}
+                        onClick={() => { openRow(row.sessionId) }}
                       >
                         <span className="tasks-dot tasks-dot-live" aria-hidden />
                         <span className="tasks-title">{row.title}</span>
@@ -246,10 +268,7 @@ export function TasksView(props: TasksViewProps) {
                     <li key={row.sessionId}>
                       <Button
                         className="tasks-row"
-                        onClick={() => {
-                          const session = byId.get(row.sessionId)
-                          if (session !== undefined) props.onOpen(session as SessionView)
-                        }}
+                        onClick={() => { openRow(row.sessionId) }}
                       >
                         <span className="tasks-dot" aria-hidden />
                         <span className="tasks-title">{row.title}</span>

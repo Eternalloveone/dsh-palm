@@ -5,14 +5,14 @@
  * 用户天天用的就是那两三个项目，每次打开都得重新点开。记住展开过的组，
  * 下次打开就是上次的样子。
  *
- * 存储格式是 `string[]`（组键，如 `project:D:\work\ICNT9388\1.Code`）；坏数据/配额满都按
+ * 存储格式是 `string[]`（组键，如 `project:D:\work\Beta\1.Code`）；坏数据/配额满都按
  * 「没有记录」处理，绝不因为一个缓存把面板弄崩。
  *
  * @module dsh-palm/mobile/views/chat/components/workspace-picker-store
  */
 
 /** localStorage 键（跟 display-prefs 的 `dsh.palm.*` 一致；`.v1` 便于以后改格式）。 */
-export const EXPANDED_GROUPS_KEY = 'dsh.palm.wsExpanded.v1'
+export const EXPANDED_GROUPS_KEY = 'dsh.palm.wsExpanded.v1' //gitleaks:allow（localStorage 键名，不是凭据；改名会丢用户设置）
 
 /** 最多记多少个组：34 个工作区也就 16 组，留 200 足够，防止越攒越大。 */
 const MAX_KEYS = 200

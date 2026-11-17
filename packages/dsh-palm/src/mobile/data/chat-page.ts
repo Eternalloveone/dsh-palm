@@ -58,6 +58,17 @@ function foldHistoryPage(page: Awaited<ReturnType<typeof fetchHistory>>, isTail:
   // already resolved.
   const todo = foldTodoSnapshot(events)
   const turnStartAt = lastOpenTurnStartTime(events)
+  // 临时诊断（2026-11-16）：每页折出多少行、什么 kind。
+  {
+    const snapshot = folder.snapshot()
+    const store = globalThis as unknown as { __palmFold?: unknown[] }
+    store.__palmFold ??= []
+    if (store.__palmFold.length < 8) {
+      const kinds: Record<string, number> = {}
+      for (const row of snapshot) kinds[String(row.kind)] = (kinds[String(row.kind)] ?? 0) + 1
+      store.__palmFold.push({ events: events.length, rows: snapshot.length, kinds, isTail })
+    }
+  }
   return {
     rows: folder.snapshot(),
     maxSeq: folder.lastSeq,
@@ -199,6 +210,43 @@ async function entryOrTail(
   return foldChatPage(tail, true)
 }
 
+/**
+ * `session.history` 退回的空页要自愈（2026-11-16 真机，用户第三次报「消息不见了」）。
+ *
+ * 现场：整台宿主的 `session.history` 恒返回 `rows: 0, hasMore: true`（三个会话都这样），
+ * 而同一宿主的 `mobile.readChat` 与 `mobile.logTail` 都正常返回尾部窗口 —— 客户端却只发了
+ * history（实测两次、0 行），于是入口页永远为空，屏幕上只剩缓存里那一行，用户消息整段消失。
+ *
+ * 这条兜底不改数据源优先级：先按原路读 history；只有**它自己交回空页**时才去问宿主折叠好的
+ * readChat。history 正常（旧宿主 / 日志可读）时行为完全不变。
+ *
+ * @param sessionId - 会话。
+ * @param beforeSeq - 翻页锚点；undefined = 尾页。
+ * @param maxRows - 页大小。
+ * @param signal - 取消信号。
+ * @param include - readChat 的附加投影。
+ * @param isTail - 是否尾页（决定 hasOlder 与缓存写入）。
+ * @returns 折叠好的页。
+ */
+async function historyOrFoldChat(
+  sessionId: string,
+  beforeSeq: number | undefined,
+  maxRows: number | undefined,
+  signal: AbortSignal | undefined,
+  include: readonly ChatOpenInclude[] | undefined,
+  isTail: boolean,
+): Promise<ChatPageResult> {
+  const raw = await fetchHistory(sessionId, beforeSeq, maxRows ?? ENTRY_TAIL_ROWS, signal)
+  const empty = (raw.events ?? []).length === 0
+  if (!empty) return foldHistoryPage(raw, isTail)
+  try {
+    return foldChatPage(await readChat(sessionId, beforeSeq, maxRows ?? ENTRY_TAIL_ROWS, signal, include), isTail)
+  } catch {
+    return foldHistoryPage(raw, isTail)
+  }
+}
+
+
 export async function loadChatPage(
   sessionId: string,
   beforeSeq?: number,
@@ -243,8 +291,12 @@ export async function loadChatPage(
       // 每补一页都把列表往上一顶 —— 真机上就是「一进会话闪一下 / 跳到前面某轮」。
       // 宿主这条路本来就能到 200 行，一次取回就没有中途插入这回事了。
       const fast = await entryOrTail(sessionId, maxRows ?? ENTRY_TAIL_ROWS, signal, preferredTailWindowBytes())
+      // fast 尾读按**字节窗口**切，常常只回来一行，而且它自报的 hasMore 不可信（实测 false）：
+      // 于是 auto-extend 不会跑，入口页永远停在某一轮中间 —— 首屏一条用户消息都没有，
+      // 用户看到的就是「我发的话不见了」（2026-11-16 真机）。这里按同一条规则补到一条。
+      const opening = fast
       // 快路径的结果先落缓存：下一次打开直接命中，不必再解日志。
-      void saveCachedHistory(sessionId, fast)
+      void saveCachedHistory(sessionId, opening)
       // 账本：这一场从网络同步过了（之后有没有新帧由 ChatView 的帧订阅记账）。
       noteChatSynced(sessionId)
       // 宿主的权威页只在首屏还缺东西时才补。一次 readChat 在大会话上要
@@ -255,15 +307,15 @@ export async function loadChatPage(
       // 轮次大纲不在尾页里（一个 87 KB），而下面的权威页只在"尾页完全没有投影"时才补：
       // 尾页一旦带上了权限/上下文投影，大纲就永远到不了手机 —— 轮次清单里只剩已
       // 加载的两三抡，用户以为导航坏了。这里单独补一次（宿主查花名册快照，不读日志）。
-      if (fast.projections?.values?.['turnOutline'] === undefined) {
+      if (opening.projections?.values?.['turnOutline'] === undefined) {
         // 同一份大纲五分钟内只下载一次：列表↔会话来回切是手机端最频繁的动作，
         // 每次都拉几十 KB 在弱网下就是肉眼可见的一两秒（见 outline-cache）。
         const reportOutline = (turns: unknown): void => {
-          const base = fast.projections
+          const base = opening.projections
           // 没有投影基线时走下面的权威页分支（那条路会连大纲一起带回来）。
           if (base === undefined) return
           onAuthority?.({
-            ...fast,
+            ...opening,
             projections: { ...base, values: { ...(base.values ?? {}), turnOutline: turns } },
           })
         }
@@ -281,7 +333,7 @@ export async function loadChatPage(
           )
         }
       }
-      if (fast.projections === undefined) {
+      if (opening.projections === undefined) {
         window.setTimeout(() => {
           if (signal?.aborted === true) return
           void readChat(sessionId, undefined, maxRows, signal, include).then(
@@ -296,14 +348,14 @@ export async function loadChatPage(
           )
         }, HOST_REFRESH_DELAY_MS)
       }
-      return fast
+      return opening
     } catch {
       // 旧宿主没有这条通道，或者日志不在预期位置：走原来的路径。
       signal?.throwIfAborted()
       try {
         return foldChatPage(await readChat(sessionId, undefined, maxRows, signal, include), true)
-      } catch {
-        return foldHistoryPage(await fetchHistory(sessionId, undefined, undefined, signal), true)
+      } catch (error) {
+            return await historyOrFoldChat(sessionId, undefined, maxRows, signal, include, true)
       }
     }
   }
@@ -314,10 +366,11 @@ export async function loadChatPage(
   } catch {
     // Fallback: the raw event page folded locally (identical shape). Any
     // failure of THIS path propagates to the caller's own error handling.
-    result = foldHistoryPage(await fetchHistory(sessionId, beforeSeq, maxRows, signal), isTail)
+    result = await historyOrFoldChat(sessionId, beforeSeq, maxRows, signal, include, isTail)
   }
   // Cache the tail page so a reopen paints instantly (stale-while-revalidate);
   // best-effort — a storage failure never blocks the chat.
+  // 尾页补到至少一条用户消息再落缓存：存下去的必须是用户看得懂的完整一屏。
   if (isTail) void saveCachedHistory(sessionId, result)
   return result
 }

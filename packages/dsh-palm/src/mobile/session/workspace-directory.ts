@@ -1,5 +1,5 @@
 /**
- * 工作区名字的唯一真源。
+ * 工作区归属的唯一真源：会话属于哪个工作区（按 `cwd` 路径认领），工作区叫什么名字。
  *
  * 为什么需要（2026-11-12 用户：「怎么有时候显示本机工作区」→「这是补丁吗」）：
  *
@@ -78,4 +78,66 @@ export function resolveWorkspace(
   const tail = lastPathSegment(path)
   if (tail !== '') return { name: tail, path, ready: false }
   return { name: '工作区', path, ready: false }
+}
+
+/**
+ * 路径归一：斜杠统一、去尾斜杠、小写（Windows 路径大小写不敏感）。
+ *
+ * 归属的唯一比较口径：抽屉过滤（`views/drawer-rows.scopedToWorkspace`）、工作区置顶的
+ * key、以及这里的 {@link workspaceIdForCwd} 都走它，否则同一台机器上同一目录会被认成
+ * 两个工作区（`D:\work\x` 与 `d:/work/x/`）。
+ *
+ * @param path - 原始路径（可能 undefined）
+ * @returns 归一后的路径；空串表示"没有路径可比"
+ */
+export function pathKey(path: string | undefined): string {
+  if (path === undefined) return ''
+  return path.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * 这个 `cwd` 是不是落在某个工作区目录里（相等或在其子目录下）。
+ *
+ * @param cwd - 会话的工作目录
+ * @param path - 工作区路径
+ * @returns `true` / `false`；**任一侧没有路径时给 `undefined`** —— 「不知道」和
+ *          「不属于」必须分开：调用方对前者的正确做法是保持原样，对后者才是排除。
+ */
+export function cwdInWorkspace(cwd: string | undefined, path: string | undefined): boolean | undefined {
+  const target = pathKey(path)
+  const key = pathKey(cwd)
+  if (target === '' || key === '') return undefined
+  return key === target || key.startsWith(`${target}/`)
+}
+
+/**
+ * 会话的工作目录属于哪个工作区。
+ *
+ * 为什么不能直接用路由里那个 `workspaceId`（2026-11-16 真机）：从「任务」进别的工作区的
+ * 会话时，路由沿用了当前工作区 —— 于是侧边栏把那条会话排进了当前工作区的第一行。
+ * `cwd` 是归属的**事实**（每条会话都有、每个工作区都有），按它认领即可。
+ *
+ * 嵌套工作区（`D:/work` 与 `D:/work/sub`）取**路径最长**的那个：一条 `D:/work/sub/a`
+ * 里的会话属于后者，不是它上面那个。
+ *
+ * @param cwd - 会话的工作目录
+ * @param list - 已加载的工作区列表
+ * @returns 命中的 workspaceId；认不出来给 `undefined`（调用方决定退到哪里）
+ */
+export function workspaceIdForCwd(
+  cwd: string | undefined,
+  list: readonly WorkspaceEntry[] = [],
+): string | undefined {
+  if (pathKey(cwd) === '') return undefined
+  let best: string | undefined
+  let bestLength = -1
+  for (const entry of list) {
+    if (entry.workspaceId === undefined) continue
+    if (cwdInWorkspace(cwd, entry.path) !== true) continue
+    const length = pathKey(entry.path).length
+    if (length <= bestLength) continue
+    best = String(entry.workspaceId)
+    bestLength = length
+  }
+  return best
 }

@@ -32,7 +32,7 @@ describe('scopedToWorkspace', () => {
   const rows = [
     view('s1', 300, 'D:\\work\\dsh-palm'),
     view('s2', 200, 'D:\\work\\dsh-palm\\packages\\palm'),
-    view('s3', 100, 'D:\\work\\ICNT9388'),
+    view('s3', 100, 'D:\\work\\ProjectA'),
     view('s4', 50),
   ]
 
@@ -158,6 +158,26 @@ describe('paintDrawerRows：首帧的时间戳不许是 0', () => {
     const rows = paintDrawerRows(view('cur', old), [view('cur', now)], now)
     expect(rows[0]!.updatedAt).toBe(old)
     expect(drawerBucketOf(rows[0]!.updatedAt, now)).toBe('更早')
+  })
+})
+
+describe('paintDrawerRows：别的工作区的当前会话不进这张表', () => {
+  const here = 'D:\\work\\dsh-palm'
+  const cached = [view('mine', 200, here, '本工作区')]
+
+  it('当前会话明确属于别的工作区目录：不钉、也不画（2026-11-16 真机）', () => {
+    const rows = paintDrawerRows(view('foreign', 300, 'D:\\work\\DP503', '别的工作区'), cached, 1_000, undefined, here)
+    expect(rows.map(row => row.sessionId)).toEqual(['mine'])
+  })
+
+  it('在子目录里的会话仍算本工作区，照旧钉第一行', () => {
+    const rows = paintDrawerRows(view('sub', 100, `${here}\\packages\\palm`), cached, 1_000, undefined, here)
+    expect(rows.map(row => row.sessionId)).toEqual(['sub', 'mine'])
+  })
+
+  it('cwd 缺失（深链 / 新会话）或没传工作区路径：保持原行为，仍然钉住', () => {
+    expect(paintDrawerRows(view('deep', 300), cached, 1_000, undefined, here)[0]!.sessionId).toBe('deep')
+    expect(paintDrawerRows(view('foreign', 300, 'D:\\work\\DP503'), cached, 1_000)[0]!.sessionId).toBe('foreign')
   })
 })
 

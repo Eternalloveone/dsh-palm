@@ -99,7 +99,7 @@ export interface ErrorReportContext {
  */
 export async function mobileError(ctx: ErrorReportContext): Promise<void> {
   const { res, parsed, rpcId } = ctx
-  const deps = ctx.deps as { errorDir?: string; notify?: unknown }
+  const deps = ctx.deps as { errorDir?: string; probeDir?: string; notify?: unknown }
   const payload = parsed.payload as { report?: unknown; label?: unknown }
   const rejection = validateErrorReport(payload?.report)
   if (rejection !== undefined) {
@@ -121,6 +121,7 @@ export async function mobileError(ctx: ErrorReportContext): Promise<void> {
   try {
     const result = ingestErrorReport({
       dir: deps.errorDir,
+      probeDir: deps.probeDir,
       report: payload?.report,
       notify: deps.notify,
       now: Date.now(),

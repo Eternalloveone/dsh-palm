@@ -20,8 +20,18 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { ScrollEvent } from '../../../stream/scroll-machine.ts'
 
-/** 离底多少算"贴底"（自动跟随与「回到最新」按钮共用同一个阈值）。 */
+/** 离底多少算"贴底"（自动跟随用）。 */
 export const BOTTOM_FOLLOW_THRESHOLD_PX = 80
+
+/**
+ * 两个浮动按钮（`6/7` + `⌄`）的迟滞阈值：出现要离底 >160px、收起要回到 <60px。
+ * 2026-11-16 实测：只有一条 80px 硬阈值时，按钮自己又在流里占 ~84px
+ * （scrollHeight 2500↔2584），手指在底部蹭就会反复跨阈值 → 反复挂载 →
+ * 每次重播 `chat-jump-in` 160ms 淡入 = 一闪一闪。两条阈值不重叠就不抖。
+ * 只影响按钮显隐，不改自动跟随的 {@link BOTTOM_FOLLOW_THRESHOLD_PX}。
+ */
+export const JUMP_SHOW_PX = 160
+export const JUMP_HIDE_PX = 60
 
 /** 离顶多少就开始自动接上一页。 */
 export const NEAR_TOP_LOAD_PX = 240
@@ -59,7 +69,8 @@ export interface ScrollFollowDeps {
   pendingRef: MutableRefObject<boolean>
   loadOlderRef: MutableRefObject<(auto: boolean) => void>
   scrollEvent: (event: ScrollEvent) => void
-  setShowJumpToLatest: (show: boolean) => void
+  /** 与 `SliceSetters` 同形：支持函数式更新，迟滞判据要读上一帧的显示状态。 */
+  setShowJumpToLatest: (value: boolean | ((previous: boolean) => boolean)) => void
   setCurrentTurn: (turn: number) => void
   deriveCurrentTurn: (scrollTop: number) => number | undefined
   markSeen: () => void
@@ -101,7 +112,10 @@ export function useScrollFollow(deps: ScrollFollowDeps): { handleScroll: () => v
       scrollEvent({ type: 'gesture', at: Date.now(), gap, up: movingUp })
       scrollEvent({ type: 'locate-end' })
     }
-    setShowJumpToLatest(gap > BOTTOM_FOLLOW_THRESHOLD_PX)
+    // 迟滞：已经显示的，回到 <60px 才收；没显示的，离底 >160px 才出。
+    // 用函数式更新把「当前是否显示」一并读进来，这样 jumpToLatest() 里的显式
+    // setShowJumpToLatest(false) 也会自然接上（否则 ref 会和外部写入脱节）。
+    setShowJumpToLatest(previous => gap > (previous ? JUMP_HIDE_PX : JUMP_SHOW_PX))
     if (!programmatic) {
       // 不在这一帧里算：它要逐行读几何，是滚动卡顿的主因。等滚动静止再算一次。
       if (turnTimerRef.current !== undefined) clearTimeout(turnTimerRef.current)

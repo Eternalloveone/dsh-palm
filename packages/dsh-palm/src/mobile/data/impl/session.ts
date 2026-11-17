@@ -317,6 +317,17 @@ export async function history(
     maxMessages,
     ...(beforeSeq !== undefined ? { beforeSeq } : {}),
   }, signal, timeoutMs).then((page) => {
+    // 临时诊断（2026-11-16）：谁在读历史、拿到什么。
+    const diagStore = globalThis as unknown as { __palmHistoryCalls?: unknown[] }
+    diagStore.__palmHistoryCalls ??= []
+    if (diagStore.__palmHistoryCalls.length < 8) {
+      diagStore.__palmHistoryCalls.push({
+        beforeSeq: beforeSeq ?? null,
+        events: (page?.events ?? []).length,
+        hasMore: page?.hasMore ?? null,
+        stack: (new Error().stack ?? '').split('\n').slice(2, 5).map(line => line.trim().replace(/\(?https?:[^)]*\)?/gu, '').slice(0, 64)),
+      })
+    }
     if (recentHistory.size >= RECENT_HISTORY_MAX_ENTRIES) {
       const oldest = recentHistory.keys().next()
       if (oldest.done !== true) recentHistory.delete(oldest.value)

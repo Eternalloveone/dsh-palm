@@ -52,6 +52,11 @@ const PROXY_VARS = [
 
 /** Same excludes the CI hygiene scan and the pre-push hook use. */
 const HYGIENE_EXCLUDES = [
+  // docs/ 不是发布产物（npm 包里只有 lib/assets），里面是归档审计、设计稿 demo、
+  // 进度记录 —— 它们的**内容**就是当时的现场（真实 IP、本机路径、项目代号）。
+  // 2026-11-16 真跑一次才发现：光 docs 就几十处命中；文档脱敏归脱敏，不该让
+  // 发布门禁在这里永远红（CI 用同一份 excludes）。
+  'docs/**',
   'pnpm-lock.yaml',
   '.gitleaks.toml',
   '.github/workflows/ci.yml',

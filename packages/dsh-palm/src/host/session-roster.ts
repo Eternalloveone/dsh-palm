@@ -124,7 +124,12 @@ export function preferArchivedIds(wsSeenAt: number | undefined, enumerated: Set<
     // 没读到工作区列表：用最近一次可信值，连"更旧"也比空集强。
     return lastKnownArchivedIds === undefined ? enumerated : new Set(lastKnownArchivedIds)
   }
-  if (archivedOverride !== undefined && archivedOverride.at > wsSeenAt) {
+  // 「同一毫秒」也必须用应答那份（2026-11-16 修：这条以前是严格大于，于是删除应答与
+  // `workspace.list` 落在同一毫秒时被判成"枚举已经看到了" —— 可那条应答是删除**之后**
+  // 才回来的，枚举看到的仍是删除前那份，被删的会话于是又装回列表。判据取 >=：同毫秒
+  // 优先信用户的删除意图。反向代价（枚举确实比应答新）最多是多显示一个已归档会话，
+  // 比"删了又回来"轻得多。
+  if (archivedOverride !== undefined && archivedOverride.at >= wsSeenAt) {
     lastKnownArchivedIds = archivedOverride.ids
     return new Set(archivedOverride.ids)
   }

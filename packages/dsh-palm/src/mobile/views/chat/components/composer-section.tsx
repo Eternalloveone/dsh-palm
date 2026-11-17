@@ -287,9 +287,30 @@ export function ComposerSection(props: ComposerSectionProps) {
   useEffect(() => {
     const el = composerRef.current
     if (el === null || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => { fitComposer() })
+    /**
+     * 宽度是**唯一输入**，高度不是：这只 textarea 的高度就是下面 `fitComposer` 自己
+     * 写的，把它也当触发源，回调就会改自己观察的盒子，浏览器得在同一帧再投递一轮
+     * （2026-11-16 实测 4 次自激；手机上投不完就报 "ResizeObserver loop …"）。
+     * 认宽度后即稳定点：自己写出的高度再触发回调时宽度没变 → 直接返回，一轮收敛。
+     * rAF 合帧另把写入移出投递窗口，并吃掉同一布局的连发。
+     */
+    let frame = 0
+    let lastWidth = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (frame !== 0) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        const width = el.clientWidth
+        if (width === lastWidth) return
+        lastWidth = width
+        fitComposer()
+      })
+    })
     observer.observe(el)
-    return () => { observer.disconnect() }
+    return () => {
+      if (frame !== 0) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [composerRef, fitComposer])
 
 

@@ -84,7 +84,7 @@ import { searchPageFor } from './search-request.ts'
 import type { ArtifactTurn as ArtifactTurnPayload } from '../session/artifacts.ts'
 import type { TurnEntry as TurnOutlineEntry } from '../session/turn-outline.ts'
 import type { TurnDeliveryFacts } from '../render/message-row.tsx'
-import { resolveWorkspace } from '../session/workspace-directory.ts'
+import { resolveWorkspace, workspaceIdForCwd } from '../session/workspace-directory.ts'
 import { useUsageChip } from './use-usage-chip.ts'
 
 /** One navigation level. */
@@ -1153,10 +1153,10 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     scheduleExitCleanup()
   }, [scheduleExitCleanup])
 
-  /** 打开一个会话（会话页是根：换会话 = 换根，不压栈）。 */
+  /** 打开一个会话（换会话 = 换根）：工作区按会话的 `cwd` 认领 —— 别的工作区的会话不能在当前工作区里打开（2026-11-16 真机：从「任务」进去，侧边栏就把它排进了当前工作区第一行），认不出才用传进来的那个。 */
   const openChat = useCallback((session: SessionView, workspaceId: string) => {
-    navigate(chatRouteOf(session, workspaceId))
-  }, [navigate])
+    navigate(chatRouteOf(session, workspaceIdForCwd(session.cwd, workspaces) ?? workspaceId))
+  }, [navigate, workspaces])
 
   /*
    * 抽屉打开时先取回列表前几条的首屏：用户拉开抽屉找会话的那一两秒，就是切会话时要等的
@@ -1382,7 +1382,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
     const persisted = workspaceId === '' ? undefined : loadPersistedList(workspaceId)
     const cachedRows = persisted?.rows ?? []
     // 第一帧与刷新后同一个排序（用户置顶的在前，其后当前会话，其余按时间倒序）。
-    const painted = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows, Date.now(), loadPinnedSessions())
+    const painted = paintDrawerRows(current.empty === true ? undefined : current.session, cachedRows, Date.now(), loadPinnedSessions(), workspaceView(workspaceId).path)
       // 落盘行可能还留着别人已删的会话：首帧就别画（否则要闪一下才被宿主那页挡掉）。
       .filter(row => !isArchivedSessionId(row.sessionId))
     /*
@@ -1470,7 +1470,7 @@ function PairedApp({ onUnpaired, offline = false}: { onUnpaired: () => void; off
       },
       () => { void recover() },
     )
-  }, [])
+  }, [workspaceView]) // 归属判断要用**已加载**的工作区表（原来 `[]` 拿到的是首帧那份空表）
 
   /**
    * 抽屉开着的时候，定时对一次"谁在跑"。

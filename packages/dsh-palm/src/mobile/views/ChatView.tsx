@@ -81,6 +81,7 @@ import { completedTurns, renderRows, missingTurnReports, EventFolder, foldEvents
 /** renderRows 的实现已移到 messages.ts（会话 hook 共用）；保留导出供既有测试导入。 */
 export { renderRows }
 import { reportError, reportPerf, reportProbe } from '../data/diag.ts'
+import { noteSeqDomain } from '../render/seq-domain.ts'
 import { ledgerSnapshot, recordFrame, resetFrameLedger } from './chat/state/frame-ledger.ts'
 import { FOLLOW_THRESHOLD_PX, mayAutoPin } from '../stream/scroll-machine.ts'
 import { useStickToBottom } from '../ui/hooks/use-stick-to-bottom.ts'
@@ -1173,6 +1174,7 @@ function ChatSessionView({
       stream.loadedPage = true
       stream.folder = folder
       applyMessages(folder.fold([]))
+      noteSeqDomain({ source: 'cache', sessionId: session.sessionId, hostMaxSeq: cached.maxSeq, pageRows: cached.rows, folder, buffered: stream.liveBuffer, report: reportProbe })
       setHasOlder(cached.hasMore)
       setLoading(false)
       reportCardDiagnostic(renderRows(folder.fold([])), [], { pages: 0, whole: false, source: 'cache' })
@@ -1239,6 +1241,7 @@ function ChatSessionView({
         stream.loadedPage = true
       stream.folder = folder
         let foldedRows = folder.fold(buffered)
+        noteSeqDomain({ source: 'entry', sessionId: session.sessionId, hostMaxSeq: page.maxSeq, pageRows: page.rows, folder, buffered, report: reportProbe })
         // 交付卡跟着正文**同一次提交**落地。
         //
         // 以前这里只提交正文，缺卡的轮次交给几秒后的 cardRecovery 去补 —— 用户看到的
@@ -1316,7 +1319,9 @@ function ChatSessionView({
             const holder = stream.folder
             if (holder === undefined) return
             let older: RenderMessage[] = []
-            let loaded = holder.snapshot().length
+            // 数**屏幕上真的有几行**：holder 里是宿主行（16 条），折完可能只有 1 行。
+            // 数宿主行会让 1 行的页面被判成「已够 16 行」，整个铺开循环一次都不跑（根因）。
+            let loaded = renderRows(holder.snapshot()).length
             let pages = 1
             let hasMore = page.hasMore
             while (pages <= OPEN_HISTORY_MAX_PAGES && hasMore && loaded < OPEN_HISTORY_TARGET_ROWS) {
@@ -1335,7 +1340,12 @@ function ChatSessionView({
               // 不要在铺开链里抛 —— 那会变成一个未捕获的 rejection。
               if (olderPage === undefined || !Array.isArray(olderPage.rows)) break
               const rows = renderRows(olderPage.rows)
-              if (rows.length === 0) break
+              // 空页不结束铺开：压缩过的会话里，更早一页可能折不出行，再往前才有人工提问。
+
+              if (rows.length === 0) {
+                hasMore = olderPage.hasMore
+                continue
+              }
               older = [...rows, ...older]
               loaded = holder.snapshot().length + older.length
               hasMore = olderPage.hasMore
@@ -1394,6 +1404,7 @@ function ChatSessionView({
       },
       (reason: unknown) => {
         stopIntentKeepAlive()
+        // 临时诊断（2026-11-16）：入口页为什么被拒。
         if (cancelled) return
         // Load failed: flush the buffer so the live stream still renders.
         const buffered = stream.liveBuffer

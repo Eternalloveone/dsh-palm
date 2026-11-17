@@ -705,6 +705,11 @@ export interface MobileApiDeps {
    */
   errorDir?: string | undefined
   /**
+   * 探针日志目录（`mobile.error` 里的证据类探针写这里，按天追加成 `probe-*.jsonl`）。
+   * 不给就退回旧行为：探针落错误目录、不推送。
+   */
+  probeDir?: string | undefined
+  /**
    * 自建搜索索引库的落盘路径（node:sqlite 单文件）。缺省或 Node 不带
    * 
 ode:sqlite 时整套索引关闭，搜索退回宿主 FTS + 子串补扫的旧路径。

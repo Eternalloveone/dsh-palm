@@ -34,6 +34,10 @@
   transform: scale(0.92);
 }
 
+/* 常挂载、显隐只用 hidden（见 scroll-controls.tsx）：这里必须显式压掉上面的
+   display:flex，否则 [hidden] 的 display:none 被类选择器盖掉、按钮照样占位。 */
+.chat-jump-turns[hidden] { display: none; }
+
 .chat-jump-turns-label {
   font-size: 13px;
   font-weight: 600;

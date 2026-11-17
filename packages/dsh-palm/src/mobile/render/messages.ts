@@ -1426,45 +1426,61 @@ export function mergeTurnReports(
   return out
 }
 
-/**
- * Carry the report rows already on screen into a freshly loaded row list.
+﻿/**
+ * 把已显示的过程条 / 交付卡带进新加载的行列表。
  *
- * 进会话时列表会被整个换掉好几次（缓存页 → 网络页 → 实时重放基线）。页自己不带
- * 报告行，换一次卡片就闪没一次；用户看到的就是"点进会话，卡片突然又消失了"。
- * 这一份只保留"新列表里仍然有那个回合"的报告行，其余交给调用方重新补读。
- * @param previous - the rows that were on screen.
- * @param next - the rows replacing them.
- * @returns the new rows, with the still-relevant report rows kept.
+ * 换列表时卡片整片消失会闪（"点进会话，卡片突然又消失了"），所以要带过来。
+ *
+ * 2026-11-16 修：卡必须和它的正文行成对保留。之前只管卡 —— carried 只要页里还有该轮
+ * 的任意非尾卡行就留卡，可入口页只给十几个事件，该轮的正文常常不在窗口里，留下的那条
+ * 只是 text 为空的过程行；orphaned 更直接：页里完全没有该轮时也留最近 2 张卡。真机实测
+ * （冷启动 832ms）：一屏 6 张卡，其中 4 张所属行的完整文本只有「成了 7分57秒 51 次工具
+ * 调用 改 10 个文件 · 运行命令 …」，没有任何正文 —— 屏幕上就是一摞孤零零的过程条。
+ *
+ * 现在的口径：
+ * - 页里该轮有正文（非尾卡行且 text 非空）→ 卡跟着留下，并进那一行；
+ * - 页里该轮没有正文、但上一帧有 → 卡连同那条正文行一起带回来（正文行插在列表最前，
+ *   它比窗口内的轮都早）；
+ * - 上一帧也只有卡（正文早就不在任何一帧里）→ 卡不留。留一张永远长不出正文的卡，
+ *   就是用户看到的"多条过程条"。
+ *
+ * @param previous - 屏幕上已有的行。
+ * @param next - 替换它们的行。
+ * @returns 新行，其中仍相关的过程条 / 交付卡已被保留。
  */
 export function keepTurnReports(
   previous: readonly RenderMessage[],
   next: readonly RenderMessage[],
 ): RenderMessage[] {
+  const bodyTextOf = (row: RenderMessage): string => (row.text ?? '').trim()
+  const bodyRowOf = (rows: readonly RenderMessage[], turn: number): RenderMessage | undefined =>
+    rows.find(row => row.turn === turn && !isTurnTailRow(row) && bodyTextOf(row) !== '')
   const reportRows = previous.filter(row => isTurnTailRow(row) && reportsAnything(row) && row.turn !== undefined)
-  const carried = reportRows.filter(row =>
-    next.some(other => other.turn === row.turn && !isTurnTailRow(other)),
-  )
-  // 页里**完全没有**这一轮的行（回合的全部事件都在窗口之外）：也要把刚看到的那张卡
-  // 留下，最多留最新 N 轮。否则就是真机那句「交付结果卡片闪一下才出现」——换列表时
-  // 卡被丢掉，几秒后 cardRecovery 读到 turn/end 再补回来，中间那一下就是空白。
-  //
-  // 只能留最近几轮：留全量就变成「上一轮的卡片永远赖在最新位置」。
-  // 只在**尾部相邻**时留：卡属于比页里最新一轮还旧一点的那一轮（差距不超过
-  // KEEP_ORPHAN_REPORT_TURNS）。跳到深历史时页里最新一轮离得很远，卡必须掉，否则
-  // 「上一轮的卡片赖在最新位置」——那正是 keepTurnReports 当初只认页内回合的原因。
+  // 页里还有这一轮正文的：卡留在原处（并进那一行）。
+  const carried = reportRows.filter(row => bodyRowOf(next, row.turn!) !== undefined)
+  // 页里完全看不到这一轮：卡要和上一帧里它的正文行一起回来，否则就是孤卡。
   const newestInPage = next.reduce((max, row) => Math.max(max, row.turn ?? 0), 0)
-  const orphaned = reportRows
-    .filter(row => {
-      if (newestInPage === 0) return false
-      if (next.some(other => other.turn === row.turn)) return false
-      const turn = row.turn ?? 0
-      return turn <= newestInPage && newestInPage - turn <= KEEP_ORPHAN_REPORT_TURNS
-    })
-    .sort((left, right) => (right.turn ?? 0) - (left.turn ?? 0))
-    .slice(0, KEEP_ORPHAN_REPORT_TURNS)
-  const kept = [...carried, ...orphaned]
-  if (kept.length === 0) return [...next]
-  return mergeTurnReports(next, kept)
+  const carriedTurns = new Set(carried.map(row => row.turn!))
+  const pairs: { card: RenderMessage; body: RenderMessage }[] = []
+  for (const card of reportRows) {
+    const turn = card.turn!
+    if (carriedTurns.has(turn)) continue
+    if (newestInPage === 0) break
+    if (next.some(row => row.turn === turn)) continue
+    if (turn > newestInPage || newestInPage - turn > KEEP_ORPHAN_REPORT_TURNS) continue
+    const body = bodyRowOf(previous, turn)
+    if (body === undefined) continue
+    if (!pairs.some(pair => pair.card.turn === turn)) pairs.push({ card, body })
+    if (pairs.length >= KEEP_ORPHAN_REPORT_TURNS) break
+  }
+  if (carried.length === 0 && pairs.length === 0) return [...next]
+  // 成对带回来的正文行比页里所有轮都早：按轮次升序放在列表最前。
+  const olderBodies = pairs
+    .map(pair => pair.body)
+    .sort((left, right) => (left.turn ?? 0) - (right.turn ?? 0))
+  const withBodies = [...olderBodies, ...next]
+  const kept = [...carried, ...pairs.map(pair => pair.card)]
+  return mergeTurnReports(withBodies, kept)
 }
 
 /**
@@ -2239,7 +2255,7 @@ export function triggerEmojiOf(sourceKind: string): string | undefined {
   return isTriggerSourceKind(sourceKind) ? TRIGGER_EMOJI[sourceKind] : undefined
 }
 
-/**
+﻿/**
  * Coalesce consecutive same-turn assistant rows into one turn message.
  *
  * A busy turn emits one `assistant/message` per model step (each step's
@@ -2422,6 +2438,11 @@ export function mergeProcessCardsByTurn(
   // 先给「缺轮号」的助手行补轮号：缓存页/实时折出来的行偶尔没有 turn，而按轮去重的
   // 判据只认 turn —— 补不上就会出现「两张卡、列同一批步骤」（真机：进会话瞬间缓存那一份
   // 与前一份并存）。补的规则保守：中间没有用户行插进来，就沿用上一条助手行的轮号。
+  // 段内已经有助手行时，turn 行（过程条卡）并进去、不再单独画一张：
+  // 2026-11-16 真机 —— 同一次提问下宿主开了 turn 12（收工）与 turn 13（续跑），中间没有
+  // 用户消息，两个 turn 各有一条卡行，屏幕上就是两条过程条（51 次 / 56 次工具调用）。
+  // 卡的内容本来就在助手行的 tools/flow 里（段内合并后是整段），卡行只是多余的第二张。
+
   const withTurn: RenderMessage[] = source.slice()
   let carryTurn: number | undefined
   for (let i = 0; i < withTurn.length; i += 1) {
@@ -2524,6 +2545,13 @@ export function mergeProcessCardsByTurn(
 export class EventFolder {
   private state: FoldState
   private snapshotList: RenderMessage[] | undefined
+  /**
+   * 上一批里被水位跳过的帧数（`seq-domain` 体检用）。
+   *
+   * 冷启动首屏跳帧是正常的（页已经包含那些事件）；异常的是**跳了帧却还是缺行**
+   * 或者水位比行尾还低 —— 那才是同一批事件被折两遍、同一轮出现两条过程条的源头。
+   */
+  lastFoldSkipped = 0
 
   /**
    * @param initial - seed rows (history tail load); omit for an empty stream.
@@ -2554,11 +2582,16 @@ export class EventFolder {
     // event was skipped as if it were a replay).
     const floor = this.state.maxSeq
     let applied = false
+    let skipped = 0
     for (const event of sorted) {
-      if (event.seq <= floor) continue
+      if (event.seq <= floor) {
+        skipped += 1
+        continue
+      }
       applyEvent(this.state, event)
       applied = true
     }
+    this.lastFoldSkipped = skipped
     if (!applied && this.snapshotList !== undefined) return this.snapshotList
     this.snapshotList = snapshotOf(this.state)
     return this.snapshotList
@@ -2709,6 +2742,151 @@ function snapshotOf(state: FoldState): RenderMessage[] {
   }
   // Array.sort is stable: equal-seq rows keep their event insertion order.
   return ordered ? out : out.sort((a, b) => a.seq - b.seq)
+}
+
+/**
+ * 同一轮只留一行：渲染后同 turn 出现两份就是异常（2026-11-16 冷启动真机两次复现）。
+ *
+ * 两次现场：
+ * ① 一张绿点「33 次工具调用 · 改 5 个文件 / 13:44」，一张红点「15 次 · 65分58秒」；
+ * ② 两张**都是绿点**、标题都叫「成了」：「33 次 · 13:44」与「17 次 · 14:45」。
+ *
+ * 共同点：两份的 id、seq 区间、turn+step 全对不上（一份是整轮，一份是窗口里的半截），
+ * 因此 dedupeSameStep（turn+step）、collapseDuplicateRows（共享 callId / seq 重叠）、
+ * dedupeById（同 id）三道都认不出。渲染后一轮本就只有一行（coalesceTurnMessages 的
+ * 契约），所以这里**不看状态、不看 seq**，同 turn 直接收成一行。
+ *
+ * 合并口径：状态与时间取「已收工」那份（它是最终态；两份都收工时取更全的），
+ * 内容（工具、正文、交付物）取两者更全的；最终态是收工时，并进来的 running 工具
+ * 统一落成 ok（否则行仍被判成在跑，红点与秒表都不消失）。
+ *
+ * @param rows - 渲染后的行
+ * @returns 收敛后的行，以及每轮被收掉的明细（供诊断上报）
+ */
+export interface TurnDuplicateDetail {
+  /** 被收掉的轮号。 */
+  turn: number
+  /** 参与合并的行 id（第一份在前）。 */
+  ids: string[]
+  /** 各份的工具调用数（与 ids 同序）。 */
+  tools: number[]
+  /** 各份是否仍在跑（与 ids 同序）。 */
+  running: boolean[]
+}
+
+/**
+ * 只让**最近几轮**保留过程条卡（2026-11-16 真机：冷启动一屏 8 张过程条）。
+ *
+ * 现场：缓存/首屏那次提交带进来 70 多行、横跨 4000 多个 seq（真机实测 rawSpan=4123..8832），
+ * 覆盖 8 个轮次；`mergeProcessCardsByTurn` 按设计给**每一轮**的第一段挂一张卡，于是屏幕上
+ * 是一排「成了 51 次工具调用 / 运行命令 · …」。历史轮"做过什么"由它的正文承担，过程条卡
+ * 只对"最后两轮"有意义（上一轮刚落地、当前轮在跑）。
+ *
+ * @param rows - 渲染后的行。
+ * @param keepTurns - 保留卡的最近轮数。
+ * @returns 更早的轮次 `processCardOwner: false`（不画卡），其余原样。
+ */
+export function hideHistoricalProcessCards(
+  rows: readonly RenderMessage[],
+  keepTurns = 2,
+): RenderMessage[] {
+  // 一段里「续跑」出来的前一个 turn 不画卡：两次用户消息之间，宿主可能先收工一个 turn
+  // 再开一个 turn 接着干（2026-11-16 真机：turn 12 收工 + turn 13 续跑，中间没有用户消息），
+  // 两行各画一张卡 → 屏幕上两条「成了 51 次 / 56 次工具调用」。行不合并（正文、秒表、状态各归各），
+  // 只让续跑那一段画卡：卡说的是「这一次提问现在做到哪」。
+  //
+  // 只认紧邻的续跑（后一段 turn = 前一段 + 1 且前一段已收工），不碰「同段两条独立回答 /
+  // 同 turn 的两次出现」—— 那些各有各的卡，是既有契约（有用例守着）。
+  const hidden = new Set<string>()
+  let segment: readonly RenderMessage[] = []
+  const settle = (): void => {
+    for (let i = 1; i < segment.length; i += 1) {
+      const prev = segment[i - 1]!
+      const next = segment[i]!
+      if (prev.turn === undefined || next.turn === undefined) continue
+      if (next.turn !== prev.turn + 1) continue
+      if (prev.durationMs === undefined) continue
+      hidden.add(prev.id)
+    }
+    segment = []
+  }
+  for (const row of rows) {
+    if (row.kind === 'user') { settle(); continue }
+    if (row.kind === 'assistant') segment = [...segment, row]
+  }
+  settle()
+  // 再收敛到最近 keepTurns 轮：更早的轮次挂着卡，屏幕上就是一排「过程条」。
+  const recentTurns = new Set([...new Set(rows
+    .filter(row => row.kind === 'assistant' && row.turn !== undefined)
+    .map(row => row.turn!))].sort((left, right) => right - left).slice(0, keepTurns))
+  let changed = false
+  const out = rows.map(row => {
+    if (row.kind !== 'assistant' || row.turn === undefined) return row
+    if (row.processCardOwner === false) return row
+    if (hidden.has(row.id) || !recentTurns.has(row.turn)) {
+      changed = true
+      return { ...row, processCardOwner: false }
+    }
+    return row
+  })
+  return changed ? out : rows as RenderMessage[]
+}
+export function mergeSameTurnRows(rows: readonly RenderMessage[]): {
+  rows: RenderMessage[]
+  merged: TurnDuplicateDetail[]
+} {
+  const runningOf = (row: RenderMessage): boolean =>
+    (row.tools ?? []).some(tool => tool.state === 'running')
+  const keptAt = new Map<number, number>()
+  const out: RenderMessage[] = []
+  const merged: TurnDuplicateDetail[] = []
+  for (const row of rows) {
+    const turn = row.kind === 'assistant' ? row.turn : undefined
+    if (turn === undefined) {
+      out.push(row)
+      continue
+    }
+    const at = keptAt.get(turn)
+    if (at === undefined) {
+      keptAt.set(turn, out.length)
+      out.push(row)
+      continue
+    }
+    const before = out[at]!
+    // 只收「两份都带过程」的形态：没有工具调用的多条助手消息同轮并存是**合法**的
+    // （突发消息、插话后的多段回答），合掉就是丢正文。真机两份都是带工具的过程条。
+    if ((before.tools ?? []).length === 0 || (row.tools ?? []).length === 0) {
+      out.push(row)
+      continue
+    }
+    const beforeRunning = runningOf(before)
+    const rowRunning = runningOf(row)
+    // 「收工」那份当 newer（状态、时间以它为准）；两份同态时取更全的当 newer。
+    const kept = beforeRunning === rowRunning ? heavierRow(before, row) : rowRunning ? before : row
+    const extra = kept === before ? row : before
+    const combined = mergeRows(extra, kept)
+    const settled = !runningOf(kept)
+    out[at] = settled && runningOf(combined)
+      ? {
+          ...combined,
+          tools: (combined.tools ?? []).map(tool => (tool.state === 'running' ? { ...tool, state: 'ok' as const } : tool)),
+        }
+      : combined
+    const detail = merged.find(item => item.turn === turn)
+    if (detail === undefined) {
+      merged.push({
+        turn,
+        ids: [String(before.id), String(row.id)],
+        tools: [(before.tools ?? []).length, (row.tools ?? []).length],
+        running: [beforeRunning, rowRunning],
+      })
+    } else {
+      detail.ids.push(String(row.id))
+      detail.tools.push((row.tools ?? []).length)
+      detail.running.push(rowRunning)
+    }
+  }
+  return { rows: out, merged }
 }
 
 /**

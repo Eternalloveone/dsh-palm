@@ -2,7 +2,7 @@
  * 「切换工作区」面板（2026-11-11 重做，同日补上重命名 / 删除）。
  *
  * 老版本是**把后端数据原样铺出来**：每条都画完整绝对路径（长路径折两行，单条 90px）、
- * 同名工作区（`ICNA3611` ×2、`ICNT9388` ×2）分不清、十几个平铺无分组无搜索、当前项没有
+ * 同名工作区（两个项目各出现两次）分不清、十几个平铺无分组无搜索、当前项没有
  * 任何标记。用户的原话是「太不优雅了」。
  *
  * 现在按三段落渲染：当前（✓ + 完整路径）→ 最近用过（按 updatedAt）→ 按项目分组；
@@ -241,7 +241,7 @@ export function WorkspacePicker<T extends WorkspaceLike>(props: WorkspacePickerP
                   className="ws-create-input"
                   value={value}
                   onChange={(event) => { setValue(event.target.value) }}
-                  placeholder={form.kind === 'create' ? 'D:\work\新项目 或 /home/me/proj' : '新的显示名'}
+                  placeholder={form.kind === 'create' ? 'C:\projects\demo 或 /home/me/proj' : '新的显示名'}
                   autoComplete="off"
                   autoCapitalize="off"
                   spellCheck={false}

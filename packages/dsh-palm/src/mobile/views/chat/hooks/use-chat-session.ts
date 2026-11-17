@@ -25,12 +25,14 @@ import {
   dedupeById,
   dedupeSameStep,
   keepTurnReports,
+  hideHistoricalProcessCards,
+  mergeSameTurnRows,
   preferRicherRows,
   type RenderMessage,
   renderRows,
 } from '../../../render/messages.ts'
 import { reportDuplicateCards } from '../../../session/duplicate-report.ts'
-import { reportError } from '../../../data/diag.ts'
+import { reportError, reportProbe } from '../../../data/diag.ts'
 import { useSessionState } from './use-session-scope.ts'
 
 /** Options for the row model. */
@@ -85,10 +87,19 @@ export function useChatSession(options: ChatSessionOptions): ChatSessionHandle {
       // 正是这种形态，于是同一轮的过程条会画两遍（2026-11-12 用户再次复现）。
       const collapsed = collapseDuplicateRows(merged)
       const deduped = [...dedupeSameStep(collapsed)]
-      reportDuplicateCards(sessionId, deduped, report => {
+      // 再一道：同一轮两份并成一份（2026-11-16 冷启动真机两次复现：一张绿点 33 次 + 一张红点 15 次；
+      // 两张都绿点、标题都叫「成了」的 33 次 + 17 次）。两份 id、seq 区间、turn+step 全对不上，
+      // 上面三道都认不出 —— 这里不看状态、不看 seq，同 turn 直接收一行。
+      const settled = mergeSameTurnRows(deduped)
+      if (settled.merged.length > 0) {
+        // 探针是尽力而为：测试/老宿主没接这条通道时不能把提交打断。
+        void reportProbe?.('turn-duplicate', { sessionId, rows: merged.length, turnDuplicates: settled.merged })
+      }
+      reportDuplicateCards(sessionId, settled.rows, report => {
         void reportError(report, 'duplicate-cards').catch(() => {})
       })
-      return deduped
+      // 过程条卡只留最近两轮：更早的轮次挂着卡，屏幕上就是一排「过程条」。
+      return hideHistoricalProcessCards(settled.rows)
     })
   }, [sessionId, getOpenTurn])
 

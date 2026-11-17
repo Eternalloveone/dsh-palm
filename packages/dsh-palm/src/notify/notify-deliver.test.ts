@@ -368,7 +368,7 @@ describe('testNotifyEvent', () => {
 describe('third-party redaction (2026-11-06 audit P1)', () => {
   const leaky = {
     ...event,
-    body: '任务失败：api_key: sk-abcdefghijklmnopqrstuvwx 已读取',
+    body: '任务失败：api_key: sk-abcdefghijklmnopqrstuvwx 已读取', //gitleaks:allow
   }
 
   it('L3 channel bodies are redacted before leaving the host', async () => {
@@ -377,7 +377,7 @@ describe('third-party redaction (2026-11-06 audit P1)', () => {
     const [, init] = fetchMock.mock.calls[0]!
     const desp = (init?.body as URLSearchParams).get('desp') ?? ''
     expect(desp).toContain('[已隐藏]')
-    expect(desp).not.toContain('sk-abcdefghijklmnopqrstuvwx')
+    expect(desp).not.toContain('sk-abcdefghijklmnopqrstuvwx') //gitleaks:allow
   })
 
   it('Web Push payloads are redacted too (Google/Apple infrastructure)', async () => {
@@ -386,7 +386,7 @@ describe('third-party redaction (2026-11-06 audit P1)', () => {
       await deliverL2(store, leaky)
       const parsed = JSON.parse(String(sendNotificationMock.mock.calls[0]![1])) as { body: string }
       expect(parsed.body).toContain('[已隐藏]')
-      expect(parsed.body).not.toContain('sk-abcdefghijklmnopqrstuvwx')
+      expect(parsed.body).not.toContain('sk-abcdefghijklmnopqrstuvwx') //gitleaks:allow
     } finally {
       cleanup()
     }

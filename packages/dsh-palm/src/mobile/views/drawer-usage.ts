@@ -168,7 +168,7 @@ export function pickUsageProvider(
 /** 上一次查到的短语存在哪：抽屉一开就能先显示，不必每次等 3 秒的查询。
  *  `.v2`：2026-11-14 把「本周 32%」改成「本周已用 32%」，旧值里的方向是含糊的，
  *  宁可当没存过让它重查，也不让旧格式再露一次脸。 */
-const CHIP_KEY = 'dsh.palm.usageChip.v2'
+const CHIP_KEY = 'dsh.palm.usageChip.v2' //gitleaks:allow（localStorage 键名，不是凭据；改名会丢用户设置）
 
 /** 读上次存下的短语；坏数据当没有（绝不因此让抽屉打不开）。 */
 export function readCachedUsageChip(): string | undefined {

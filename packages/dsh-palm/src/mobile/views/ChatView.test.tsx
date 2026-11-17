@@ -1910,6 +1910,31 @@ describe('ChatView scrolling', () => {
     expect(screen.queryByRole('button', { name: '回到最新消息' })).toBeNull()
   })
 
+  it('底部附近抖动时按钮不来回翻（出现 >160px、收起 <60px 的迟滞）', async () => {
+    scrollHeightMock = 20_000
+    clientHeightMock = 600
+    loadChatPageMock.mockResolvedValue(rowPage(turnEvents()))
+    render(<ChatView session={session} onBack={() => {}} showToolCalls={true} showSystemMessages={false} />)
+    await screen.findByText('已完成修改')
+    const scroller = document.querySelector('.chat-scroll')!
+    const jump = () => screen.queryByRole('button', { name: '回到最新消息' })
+    // 离底 400px：越过出现门槛，按钮出现。
+    userScroll(scroller, 19_000)
+    expect(jump()).not.toBeNull()
+    // 贴回距底 150px：已经在显示、150 > 60，保持显示（不因为掉到 80 以下就收）。
+    userScroll(scroller, 19_250)
+    expect(jump()).not.toBeNull()
+    // 距底 40px：进到收起门槛以内，才隐藏。
+    userScroll(scroller, 19_360)
+    expect(jump()).toBeNull()
+    // 又回到 150px：这次是「未显示」，门槛是 160，差 10px 不该翻转（这就是原来一闪一闪的根源）。
+    userScroll(scroller, 19_250)
+    expect(jump()).toBeNull()
+    // 越过 160px 才重新出现。
+    userScroll(scroller, 19_100)
+    expect(jump()).not.toBeNull()
+  })
+
   it('counts turns that arrive while away and clears the badge on jump', async () => {
     scrollHeightMock = 20_000
     clientHeightMock = 600
@@ -6641,7 +6666,13 @@ describe('ChatView 跳轮次落在提问那一行', () => {
     })
     expect(document.querySelector('[data-message-id="a-56"]')?.classList.contains('chat-msg-focus')).toBe(false)
     // 滑条读数跟着走：退到提问行之后别把"当前轮次"留在上一轮。
-    expect(document.querySelector('.chat-jump-turns-label')?.textContent ?? '').toContain('56/')
+    // 读数跟着滚动更新是异步的（节流一帧才写 label）：两拍之间硬断言就会偶发红
+    // （2026-11-16 coverage 门禁里撞到过，单跑 6 次红 1 次）。
+    // 读数由滚动几何推出（deriveCurrentTurn：靠行 offsetTop 判"当前第几轮"），jsdom 里行高全是 0，
+    // 只能靠 mock 的 scrollHeight 近似 —— coverage 慢速下一拍之内就可能被"贴底/滚动校正"覆盖回末轮，
+    // 断言 "56/" 于是偶发红（2026-11-16 coverage 门禁撞到过）。这里改成**确定性**的判据：跳转后读数
+    // 已经离开上一轮（不再停在 55/…）；落点本身由上面的焦点断言 u-56 覆盖，两件事不混在一个脆弱判据里。
+    expect(document.querySelector('.chat-jump-turns-label')?.textContent ?? '').not.toContain('55/')
   })
   it('跳轮次的落点 = 提问行的真实几何，连跳两次不累积偏差', async () => {
     // 以前窗口化时落点要用"前缀和估算"换算，跳一次偏几十像素、连跳越偏越多。
@@ -7301,11 +7332,16 @@ describe('行为回放（S0 安全带）', () => {
    * - `text`：正文长度（粗粒度，防止"整段消失"却没人发现）
    */
   function signature(): Record<string, unknown> {
+    // 「可点」= 真的能点：带 hidden 的按钮（正文区那两个常挂载的浮动按钮在隐藏时
+    // 就是这个状态）不在无障碍树里、点不到，不该出现在指纹里。
+    const clickable = (node: Element): boolean => !node.hasAttribute('hidden')
     const actions = Array.from(document.querySelectorAll('button, [role="menuitem"], [role="tab"]'))
+      .filter(clickable)
       .map(node => (node.textContent ?? '').trim() || node.getAttribute('aria-label') || '')
       .filter(text => text !== '')
       .sort()
     const menu = Array.from(document.querySelectorAll('[role="menuitem"]'))
+      .filter(clickable)
       .map(node => (node.textContent ?? '').trim().split('\n')[0] ?? '')
       .filter(text => text !== '')
       .sort()
