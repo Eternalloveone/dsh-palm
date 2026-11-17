@@ -49,7 +49,7 @@ export function installErrorReporter({ send, delayMs = ERROR_REPORT_DEBOUNCE_MS 
       if (sent.has(record)) continue
       sent.add(record)
       try {
-        void send(record)
+        void Promise.resolve(send(record)).catch(() => {})
       } catch {
         // Best-effort: the record lives on in the ring; manual paths remain.
       }

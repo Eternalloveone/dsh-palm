@@ -79,4 +79,26 @@ describe('installErrorReporter', () => {
     // The timer was cleared on stop, and the receiver was unsubscribed.
     expect(sent).not.toHaveBeenCalled()
   })
+
+  it('一个被拒的异步 send 不会变成 unhandled rejection（否则会被当成新错误再上报）', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    const stop = installErrorReporter({
+      send: () => Promise.reject(new Error('错误报告 source 不是 file:line:col')),
+      delayMs: 2000,
+    })
+    try {
+      recordError({ kind: 'resource', message: 'img 加载失败', source: 'pic.png:0:0' })
+      vi.advanceTimersByTime(2000)
+      // 让 node 把「真的没人接」的 rejection 报出来（fake timers 下 nextTick 仍是真时钟）。
+      vi.useRealTimers()
+      await new Promise(resolve => { setTimeout(resolve, 0) })
+      await new Promise(resolve => { setTimeout(resolve, 0) })
+      expect(unhandled).toHaveLength(0)
+    } finally {
+      stop()
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
 })

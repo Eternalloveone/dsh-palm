@@ -1,23 +1,20 @@
 /**
- * `mobile.error` intake: what may land on disk, where it lands, how much is
- * kept, and the first-sight push policy. The route is a thin wrapper around
- * these functions, so the guarantees are pinned here rather than through HTTP:
- * strict shape rejection, host-named paths (nothing from the wire steers one),
- * retention, a stable fingerprint, and a cold cooldown.
+ * `mobile.error` intake: what may land on disk, where it lands, and how much is
+ * kept. The route is a thin wrapper around these functions, so the guarantees
+ * are pinned here rather than through HTTP: strict shape rejection, host-named
+ * paths (nothing from the wire steers one), retention, and a stable fingerprint.
+ * **This channel never pushes** (2026-11-17): `pushed` is always false.
  */
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  ERROR_PUSH_COOLDOWN_MS,
   ERROR_REPORT_KEEP,
   errorFingerprint,
-  errorPushDecision,
   errorSeen,
   ingestErrorReport,
   pruneErrorReports,
-  resetErrorPushCooldown,
   validateErrorReport,
   writeErrorReport,
 } from './mobile-api.ts'
@@ -136,100 +133,49 @@ describe('mobile.error fingerprint + intake', () => {
   })
 })
 
-describe('errorPushDecision (frozen time)', () => {
-  it('pushes on first sight (exists is false)', () => {
-    expect(errorPushDecision({ exists: false, lastPushAt: undefined, now: 1_000_000 }))
-      .toEqual({ push: true, reason: 'first-seen' })
-  })
-
-  it('never pushes a repeat (exists is true)', () => {
-    expect(errorPushDecision({ exists: true, lastPushAt: 1_000_000, now: 2_000_000 }))
-      .toEqual({ push: false, reason: 'repeat' })
-  })
-
-  it('suppresses a first sight inside the cooldown window', () => {
-    const now = 2_000_000
-    expect(errorPushDecision({ exists: false, lastPushAt: now - (ERROR_PUSH_COOLDOWN_MS - 1), now }))
-      .toEqual({ push: false, reason: 'cooldown' })
-  })
-
-  it('pushes once the cooldown has elapsed', () => {
-    const now = 2_000_000
-    expect(errorPushDecision({ exists: false, lastPushAt: now - ERROR_PUSH_COOLDOWN_MS - 1, now }))
-      .toEqual({ push: true, reason: 'first-seen' })
-  })
-})
-
-describe('ingestErrorReport', () => {
+describe('ingestErrorReport（只留档，不推送）', () => {
   let dir: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'dsh-palm-errors-ingest-'))
-    resetErrorPushCooldown()
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('writes and pushes on first sight, then suppresses the repeat', () => {
-    const pushed: string[] = []
-    const first = ingestErrorReport({ dir, report, notify: undefined, now: 1_000_000, push: (_n, _r, f) => { pushed.push(f) } })
-    expect(first.pushed).toBe(true)
-    expect(pushed).toHaveLength(1)
+  it('写一份真失败，pushed 恒为 false（这条通道不再推送）', () => {
+    const first = ingestErrorReport({ dir, report, now: 1_000_000 })
+    expect(first.pushed).toBe(false)
     expect(readdirSync(dir)).toHaveLength(1)
-    // Same fingerprint again (re-seen via the directory) → repeat, no push.
-    const again = ingestErrorReport({ dir, report, notify: undefined, now: 2_000_000, push: (_n, _r, f) => { pushed.push(f) } })
-    expect(again.pushed).toBe(false)
-    expect(pushed).toHaveLength(1)
   })
 
-  it('pushes at most once per plugin lifetime under cooldown, even on distinct reports', () => {
-    const pushed: string[] = []
-    ingestErrorReport({ dir, report, notify: undefined, now: 1_000_000, push: (_n, _r, f) => { pushed.push(f) } })
-    // A different fingerprint shortly after: still gated by the 60-min cooldown.
-    const second = ingestErrorReport({
-      dir, report: { ...report, message: 'another' }, notify: undefined, now: 1_000_001,
-      push: (_n, _r, f) => { pushed.push(f) },
-    })
-    expect(second.pushed).toBe(false)
-    expect(pushed).toHaveLength(1)
+  it('探针一律进 probe 日志，连「用户丢了东西」的两个也不再弹窗', () => {
+    const probeDir = mkdtempSync(join(tmpdir(), 'dsh-palm-probes-'))
+    try {
+      for (const name of ['stream-lag', 'send-no-echo', 'turn-duplicate']) {
+        const result = ingestErrorReport({
+          dir,
+          probeDir,
+          now: new Date(2026, 10, 17, 12, 0, 0).getTime(),
+          report: { kind: 'error', message: `${name} sessionId=s`, count: 1, probe: name },
+        })
+        expect(result.pushed).toBe(false)
+        expect(basename(result.file)).toBe('probe-2026-11-17.jsonl')
+      }
+      expect(readdirSync(dir)).toEqual([])
+      const logged = readFileSync(join(probeDir, 'probe-2026-11-17.jsonl'), 'utf8').trim().split('\n')
+      expect(logged).toHaveLength(3)
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true })
+    }
   })
 
-  it('keeps a benign browser layout notice on disk but never pushes it', () => {
-    const pushed: string[] = []
-    const benign = ingestErrorReport({
+  it('没有 probeDir 时探针退回错误目录，仍然不推送', () => {
+    const result = ingestErrorReport({
       dir,
-      report: { kind: 'error', message: 'ResizeObserver loop completed with undelivered notifications.', source: '?workspace=x:0:0' },
-      notify: undefined, now: 1_000_000,
-      push: (_n, _r, f) => { pushed.push(f) },
+      now: 1_000_000,
+      report: { kind: 'error', message: 'stream-lag lag=1', count: 1, probe: 'stream-lag' },
     })
-    expect(benign.pushed).toBe(false)
-    expect(pushed).toHaveLength(0)
+    expect(result.pushed).toBe(false)
     expect(readdirSync(dir)).toHaveLength(1)
-    // And it must not consume the single push a real failure is entitled to.
-    const real = ingestErrorReport({ dir, report, notify: undefined, now: 1_000_001, push: (_n, _r, f) => { pushed.push(f) } })
-    expect(real.pushed).toBe(true)
-  })
-
-  it('treats a recovery-step probe as evidence, while damage and failures still push', () => {
-    const pushed: string[] = []
-    // stream-lag: the app noticed it was behind and started its own tail re-read.
-    const lag = ingestErrorReport({
-      dir,
-      report: { kind: 'error', message: 'stream-lag lag=28 localSeq=453 hostSeq=481 batched=0', count: 1, probe: 'stream-lag' },
-      notify: undefined, now: 1_000_000,
-      push: (_n, _r, f) => { pushed.push(f) },
-    })
-    expect(lag.pushed).toBe(false)
-    expect(pushed).toHaveLength(0)
-    expect(readdirSync(dir)).toHaveLength(1)
-    // turn-duplicate is user-visible damage: it must still reach the alert path.
-    const dupe = ingestErrorReport({
-      dir,
-      report: { kind: 'error', message: 'turn-duplicate sessionId=s turns=4 rows=32', count: 1, probe: 'turn-duplicate' },
-      notify: undefined, now: 1_000_001,
-      push: (_n, _r, f) => { pushed.push(f) },
-    })
-    expect(dupe.pushed).toBe(true)
-    expect(pushed).toHaveLength(1)
   })
 })

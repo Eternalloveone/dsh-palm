@@ -122,7 +122,10 @@ describe('global error capture', () => {
     const [record] = errorSnapshot()
     expect(record?.kind).toBe('resource')
     expect(record?.message).toBe('img 加载失败')
-    expect(record?.source).toBe('pic.png')
+    // 宿主的形状闸门只收 `file:line:col`：加载失败没有行列号，补 0:0。只给 basename
+    // 会被整条拒掉，那份拒绝文本再以 unhandled rejection 回到手机上弹一次通知
+    // （2026-11-17 用户连收两条「手机端出错」）。
+    expect(record?.source).toBe('pic.png:0:0')
     expect(JSON.stringify(record)).not.toContain('internal.example')
     expect(JSON.stringify(record)).not.toContain('secret')
   })

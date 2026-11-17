@@ -2,7 +2,7 @@
   "$comment": "拆分安全绳：mobile-api.ts 的导出面必须与这里完全一致。改导出面 = 有意为之，必须同 commit 更新本文件并说明理由。",
   "source": "src/mobile-api.ts",
   "count": 25,
-  "hash": "db621a7a53e082c8",
+  "hash": "506169c470db0444",
   "lines": [
     "export const MAX_PROMPT_FILE_PARTS = 5",
     "export const MOBILE_API_PATHS = {",
@@ -16,7 +16,7 @@
     "export type { FinishedRunEntry } from './host/finished-runs.ts'",
     "export type { MobileDirectoryEntry, MobileDirectoryListing } from './host/directory.ts'",
     "export type { RosterItem } from './host/session-list.ts'",
-    "export { ERROR_REPORT_KEEP, ERROR_REPORT_BYTES_MAX, ERROR_MESSAGE_MAX, ERROR_PUSH_COOLDOWN_MS, errorFingerprint, validateErrorReport, writeErrorReport, pruneErrorReports, errorSeen, errorPushDecision, resetErrorPushCooldown, pushErrorOnce, ingestErrorReport } from './host/error-report.ts'",
+    "export { ERROR_REPORT_KEEP, ERROR_REPORT_BYTES_MAX, ERROR_MESSAGE_MAX, errorFingerprint, validateErrorReport, writeErrorReport, pruneErrorReports, errorSeen, ingestErrorReport } from './host/error-report.ts'",
     "export { MOBILE_ALLOWLIST }",
     "export { PERF_CAPTURE_KEEP, PERF_CAPTURE_MAX_BYTES, PERF_RAW_MAX_BYTES, perfCaptureKind, prunePerfCaptures, validatePerfCapture, writePerfCapture } from './host/perf-capture.ts'",
     "export { buildHealthReport } from './mobile/api/health-report.ts'",

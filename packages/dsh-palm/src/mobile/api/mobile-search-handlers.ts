@@ -94,12 +94,12 @@ export interface ErrorReportContext {
  *
  * 与 `mobile.perf` 同一条安全线：只写、惰性、无路径。文件名由宿主用时钟 +
  * 指纹生成，正文必须过严格形状校验（连帧里的 basename 都校验——出现路径分隔符
- * 直接拒绝），这一段里读不到也改不了任何别的东西。指纹首次出现时推送一次
- * （受冷却约束）；没有通知能力时只写盘并返回，绝不报错。
+ * 直接拒绝），这一段里读不到也改不了任何别的东西。**只落盘，不推送、不弹窗**：
+ * 探针进按天追加的 `probe-*.jsonl`，其余进错误目录。
  */
 export async function mobileError(ctx: ErrorReportContext): Promise<void> {
   const { res, parsed, rpcId } = ctx
-  const deps = ctx.deps as { errorDir?: string; probeDir?: string; notify?: unknown }
+  const deps = ctx.deps as { errorDir?: string; probeDir?: string }
   const payload = parsed.payload as { report?: unknown; label?: unknown }
   const rejection = validateErrorReport(payload?.report)
   if (rejection !== undefined) {
@@ -123,7 +123,6 @@ export async function mobileError(ctx: ErrorReportContext): Promise<void> {
       dir: deps.errorDir,
       probeDir: deps.probeDir,
       report: payload?.report,
-      notify: deps.notify,
       now: Date.now(),
     } as never)
     writeJson(res, 200, {

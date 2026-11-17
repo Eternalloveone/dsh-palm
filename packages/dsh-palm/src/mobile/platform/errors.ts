@@ -187,7 +187,7 @@ export function installErrorCapture(): void {
       recordError({
         kind: 'resource',
         message: `${tagName.toLowerCase()} 加载失败`,
-        source: tail === '' ? undefined : tail,
+        source: tail === '' ? undefined : `${tail}:0:0`,
       })
       return
     }
