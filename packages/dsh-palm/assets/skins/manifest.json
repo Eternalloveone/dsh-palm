@@ -30,24 +30,6 @@
       "license": "Apache-2.0",
       "art": [
         {
-          "file": "menu.svg",
-          "role": "icon",
-          "note": "抽屉图标：三横条（Luna 工具栏风格）",
-          "credit": "dsh-palm 项目自绘 · Apache-2.0"
-        },
-        {
-          "file": "plus.svg",
-          "role": "icon",
-          "note": "添加内容图标：粗十字",
-          "credit": "dsh-palm 项目自绘 · Apache-2.0"
-        },
-        {
-          "file": "send.svg",
-          "role": "icon",
-          "note": "发送图标：纸飞机剪影",
-          "credit": "dsh-palm 项目自绘 · Apache-2.0"
-        },
-        {
           "file": "frame.svg",
           "role": "border",
           "note": "Luna 窗口边框的九宫格贴图（48×48）",
@@ -58,99 +40,123 @@
           }
         },
         {
+          "file": "avatar.svg",
+          "role": "badge",
+          "note": "抽屉头像：四色窗口方块（Luna 标志）",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "avatar.svg",
+          "role": "icon",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
           "file": "bell.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "contrast.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "gauge.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "hash.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "image.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "info.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "menu.svg",
+          "role": "icon",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "mic.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "plus.svg",
+          "role": "icon",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "rows.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "scroll-down.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "send.svg",
+          "role": "icon",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "shield.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "sliders.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "trash.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "type.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "upper-right.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "vibrate.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
-          "credit": "dsh-palm 项目自绘 · Apache-2.0"
-        },
-        {
-          "file": "avatar.svg",
-          "role": "badge",
-          "note": "抽屉头像：四色窗口方块（Luna 标志）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         }
       ]
@@ -184,100 +190,100 @@
       "license": "Apache-2.0",
       "art": [
         {
+          "file": "cyber-city.jpg",
+          "role": "illustration",
+          "note": "赛博霓虹街景 673×1200，作页面背景（冷调，压暗后可读）",
+          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
+        },
+        {
           "file": "bell.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "contrast.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "gauge.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "hash.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "image.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "info.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "mic.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "rows.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "scroll-down.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "shield.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "sliders.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "trash.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "type.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "upper-right.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "vibrate.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
-        },
-        {
-          "file": "cyber-city.jpg",
-          "role": "illustration",
-          "note": "赛博霓虹街景 673×1200，作页面背景（冷调，压暗后可读）",
-          "credit": "Agnes image 2.1 生成 · 2026-11-14 · CC0"
         }
       ]
     },
@@ -286,99 +292,105 @@
       "license": "Apache-2.0",
       "art": [
         {
+          "file": "avatar.svg",
+          "role": "badge",
+          "note": "抽屉头像：草方块像素头像",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
+          "file": "avatar.svg",
+          "role": "icon",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
+          "credit": "dsh-palm 项目自绘 · Apache-2.0"
+        },
+        {
           "file": "bell.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "contrast.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "gauge.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "hash.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "image.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "info.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "mic.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "rows.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "scroll-down.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "shield.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "sliders.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "trash.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "type.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "upper-right.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         },
         {
           "file": "vibrate.svg",
           "role": "icon",
-          "note": "图标贴图（mask 上色，跟随 currentColor）",
-          "credit": "dsh-palm 项目自绘 · Apache-2.0"
-        },
-        {
-          "file": "avatar.svg",
-          "role": "badge",
-          "note": "抽屉头像：草方块像素头像",
+          "note": "图标层：设置页/抽屉共用字形，点阵见 scripts/gen-skin-icons.mjs",
           "credit": "dsh-palm 项目自绘 · Apache-2.0"
         }
       ]
