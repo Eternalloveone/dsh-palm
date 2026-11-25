@@ -1,6 +1,10 @@
 # Automated dependency updates (GitHub Dependabot):
 # - npm ecosystem reads the workspace pnpm-lock.yaml at the repo root
 #   and opens grouped PRs (production vs development dependencies)
+#   NOTE: Dependabot also requires a *manifest* in that directory — without one
+#   the weekly job fails with `dependency_file_not_found: /package.json not
+#   found` (that is the red "npm_and_yarn in /." run every Monday, seen since
+#   2026-11-09). Hence the private, dependency-free root package.json.
 # - github-actions keeps the workflows themselves current
 version: 2
 updates:

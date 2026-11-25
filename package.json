@@ -1,0 +1,6 @@
+{
+  "name": "dsh-palm-repo",
+  "private": true,
+  "description": "Repo root for the dsh-palm pnpm workspace (the package itself lives in packages/dsh-palm).",
+  "packageManager": "pnpm@11.7.0"
+}

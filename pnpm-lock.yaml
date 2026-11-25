@@ -6,6 +6,8 @@ settings:
 
 importers:
 
+  .: {}
+
   packages/dsh-palm:
     dependencies:
       '@deepseek-ai/schemastery':
