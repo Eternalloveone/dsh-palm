@@ -91,11 +91,13 @@ jobs:
             # and silently skipped). Skipping is only correct when the version
             # already carries the attestation; otherwise fail loudly and let
             # the next patch version be published by this workflow.
-            attestation=$(npm view "@eternalloveone/dsh-palm@$version" dist.attestations.url --json 2>/dev/null)
-            if [ -z "$attestation" ]; then
-              echo "::error::$version is already on the registry WITHOUT a provenance attestation (it was published by hand). Provenance cannot be added afterwards. Bump to the next patch version and let this workflow publish it - do not publish from a workstation."
-              exit 1
-            fi
+            attestation=$(npm view "@eternalloveone/dsh-palm@$version" dist.attestations.url --json 2>/dev/null || true)
+            case "$attestation" in
+              ""|undefined|null)
+                echo "::error::$version is already on the registry WITHOUT a provenance attestation (it was published by hand). Provenance cannot be added afterwards. Bump to the next patch version and let this workflow publish it - do not publish from a workstation."
+                exit 1
+                ;;
+            esac
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$version is already on the registry with provenance - skipping the npmjs publish"
           else
@@ -116,15 +118,29 @@ jobs:
         # publish time, and it can never be added afterwards. Assert it here so
         # a silent --provenance no-op (or a publish that took another path)
         # turns this run red immediately instead of being noticed weeks later.
+        #
+        # Poll instead of asking once: the registry indexes the attestation a
+        # few seconds after the version itself lands, so a single immediate
+        # query reads empty and red-flags a perfectly good publish. That is
+        # exactly what happened on 2.0.1 (2026-11-25): the version was on npm
+        # with provenance, this step asked 1s later and failed the run.
         working-directory: packages/dsh-palm
         run: |
           version=$(node -p "require('./package.json').version")
-          attestation=$(npm view "@eternalloveone/dsh-palm@$version" dist.attestations.url --json 2>/dev/null)
-          if [ -z "$attestation" ]; then
-            echo "::error::$version is on the registry without a provenance attestation - the publish did not go through this workflow's OIDC path"
-            exit 1
-          fi
-          echo "::notice::provenance attestation present for $version: $attestation"
+          for attempt in $(seq 1 12); do
+            attestation=$(npm view "@eternalloveone/dsh-palm@$version" dist.attestations.url --json 2>/dev/null || true)
+            case "$attestation" in
+              ""|undefined|null) ;;   # not indexed yet
+              *)
+                echo "::notice::provenance attestation present for $version: $attestation"
+                exit 0
+                ;;
+            esac
+            echo "attestation not visible yet (attempt $attempt/12), retrying in 5s"
+            sleep 5
+          done
+          echo "::error::$version is on the registry without a provenance attestation - the publish did not go through this workflow's OIDC path"
+          exit 1
 
   publish-gh:
     if: github.event_name == 'push' || inputs.channel == 'auto' || inputs.channel == 'gh'
