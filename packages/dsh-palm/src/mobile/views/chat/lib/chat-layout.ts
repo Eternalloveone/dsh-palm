@@ -41,11 +41,19 @@ export function messageKey(message: RenderMessage): string {
 /** Estimate one message row's rendered height in px (spacers use this). */
 export function estimateMessageHeight(message: RenderMessage): number {
   if (message.kind === 'user') {
-    const lines = Math.max(1, Math.ceil(message.text.length / ESTIMATE_CHARS_PER_LINE))
+    /*
+     * 长文在气泡里也是折叠的（`.chat-md-collapsed` = 45vh ≈ 12 行）；按全文估会把
+     * 8,549 字估成 4,978px，账本总高一虚高，"滚到底"就被读成中段（见
+     * docs/MOBILE-RENDERING.md「空白屏」）。
+     */
+    const collapsed = !message.pending && message.text.length > LONG_TEXT_LIMIT
+    const chars = collapsed ? LONG_TEXT_PREVIEW : message.text.length
+    const lines = Math.max(1, Math.ceil(chars / ESTIMATE_CHARS_PER_LINE))
     // 图片是固定高的缩略图（.chat-msg-image 的 max-height）：按张数补高度，
     // 否则含图的行在窗口化路径里会被低估，滚动位置会跳。
     const imageHeight = (message.images?.length ?? 0) * IMAGE_TILE_ESTIMATE
-    return 28 + lines * ESTIMATE_LINE_HEIGHT + imageHeight
+    const shown = collapsed ? Math.min(lines, ESTIMATE_MAX_LINES) : lines
+    return 28 + shown * ESTIMATE_LINE_HEIGHT + imageHeight + (collapsed ? 30 : 0)
   }
   let height = 20
   if (message.reasoning !== undefined && message.reasoning !== '') height += 32

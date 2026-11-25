@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format is based on 
 
 暂无。
 
+## [2.0.1] - 2026-11-25
+
+修两个"装上去就看得见"的问题：手机端整页没样式，以及长会话整屏空白。
+
+### Fixed
+
+- **手机端整页没样式（issue #12）**：2.0.0 把样式表改成独立产物 `lib/mobile/app.css`，却没把它加进 `package.json` 的 `files` 白名单（只有 `lib/**/*.js` 与 `lib/**/*.d.ts`），装包后 `/m/` 的 HTML 连 `<link rel=stylesheet>` 都不输出——不报错，只是整页裸奔。现在 `files` 覆盖 `lib/**/*.css`，并新增守卫测试把"路由从磁盘读的产物"逐条核对白名单，同形状的漏发下次会被测试挡住。
+- **长会话整屏空白**：消息列表的虚拟窗口原本把"没挂载的行"交给估值占位顶着，滚动条总高是算出来的，读者能滚进一段没有任何行的虚空。现在窗口翻向——底部永远是真实内容（`end ≡ total`、不留下方占位），首帧只挂一屏、空闲时一屏一屏补齐，补齐按浏览器算出的真实高差补偿滚动位置。
+- **长消息行高估值虚高**：用户气泡超过 6000 字的正文在界面上是折叠的（45vh），估值却按全文算（8549 字估成 4978px，实际约 300px），账本总高虚高 27%，"已经滚到底"被读成中段。改为按折叠后的预览字符数估。
+
+### Changed
+
+- **屏外消息不再参与布局**：`.chat-msg` 加 `content-visibility: auto`，屏外的行不布局不绘制、但仍留在 DOM 里，补齐之后整份会话的几何全部由浏览器算。
+- **发版护栏**：本机 `npm publish` / `pnpm publish` 被 `prepublishOnly`（`scripts/publish-guard.mjs`）直接拒绝——本机发布拿不到 provenance 证明，npm 页面的绿色徽章永久缺失（2.0.0 就是这样丢的，1.2.0、1.3.1 同病）。发布只走 tag 推送 → `publish` 工作流。
+- **CI 补两道证明断言**：tag 撞上「已存在但没有 attestation」的版本直接报红（不再静默跳过），发布后再校验一次 attestation 是否真的落地。
+
 ## [2.0.0] - 2026-11-17
 
 v2 定版：首屏一次成型、消息列表虚拟窗口、24 套皮肤、运行态单一权威。
@@ -1834,7 +1850,8 @@ First open-source release: the standalone mobile surface for the dsh web GUI, ex
 - Highlights rewritten with the full innovation list, Features expanded to the full feature set, innovations marked against upstream
 - Measured sync/stall/weak-network data in the Highlights
 
-[Unreleased]: https://github.com/Eternalloveone/dsh-palm/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/Eternalloveone/dsh-palm/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/Eternalloveone/dsh-palm/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Eternalloveone/dsh-palm/compare/v1.7.1...v2.0.0
 [1.7.1]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v1.7.1
 [1.7.0]: https://github.com/Eternalloveone/dsh-palm/releases/tag/v1.7.0

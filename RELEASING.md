@@ -72,20 +72,27 @@ git commit -m "release: vX.Y.Z"
 git tag -a vX.Y.Z -m "dsh-palm X.Y.Z：<一句话概括>"
 ```
 
-## 5. 发布
+## 5. 发布（只推 tag，绝不在本机 publish）
+
+**不要在本机跑 `npm publish`。** npm 页面上的绿色「Provenance」徽章只在发布当下由 CI 的 OIDC 证明生成，事后补不了：本机手发出来的版本永久缺徽章（2.0.0 就是这么丢的——18:12 手发，CI 18:18 才开跑，发现版本已存在就跳过了带证明的发布；1.2.0、1.3.1 同病）。
+
+这道护栏现在有牙齿：`packages/dsh-palm/package.json` 的 `prepublishOnly` 会跑 `scripts/publish-guard.mjs`，在本机执行 `npm publish` / `pnpm publish` 直接 exit 1 并告诉你改成推 tag（CI 里 `GITHUB_ACTIONS=true` 才放行）。只有真应急才用 `PALM_ALLOW_LOCAL_PUBLISH=1` 绕过——该版本不会有徽章，记得在 release notes 里写明。
 
 ```powershell
-cd packages\dsh-palm
-npm publish            # 先确认已 npm login 且 2FA 可用
 git push origin main --follow-tags
 ```
 
-发布后立刻验：
+推完去 Actions 看 `publish` 工作流跑完（质量门禁 + 真发，约 5–15 分钟，排队久时更慢），再验三样：
 
 ```powershell
-npm view @eternalloveone/dsh-palm version          # 应等于新号
-npm view @eternalloveone/dsh-palm peerDependencies # 应是新版声明
+npm view @eternalloveone/dsh-palm version                      # 应等于新号
+npm view @eternalloveone/dsh-palm peerDependencies             # 应是新版声明
+npm view @eternalloveone/dsh-palm dist.attestations.url --json  # 必须非空 → 徽章在
 ```
+
+第三条输出**空**就是没有 provenance：该版本只能留白，改发下一个补丁版，别指望事后打补丁。
+
+万一在别处手发了一个版本：CI 的 `Check whether this version is already on npmjs` 会**直接报红**并说明原因（不再静默跳过），按红字提示 bump 补丁版重发即可。
 
 ## 6. 发布后回归（用已发布的包，不是本地链接）
 
@@ -117,5 +124,6 @@ push 之后 CI 直接红（2026-10-29 实测） | 现在 `pnpm verify` 第 7 步
 | 重启脚本会把验证脚本一起杀掉 | `restart-dsh.ps1` 结束整棵进程树，挂在它下面的
 「重启后自动复验」脚本会在 `stopping DSH pids: …` 处直接消失（日志只有半截） | 重启与复验**分开**：
 先让用户/独立进程触发重启，重启完成后再由当前会话手动跑探针与验收 |
+| 本地先 `npm publish` 再推 tag | npm 页面没有绿色 Provenance 徽章；Actions 里 `Publish` 步骤 skipped，整条 run 还是绿的（2.0.0 实测：18:12 手发，CI 18:18 才开跑，版本已存在 → 跳过带证明的发布） | 徽章不可补，只能发下一个版本；发布一律只推 tag，见第 5 节 |
 | 手机开着旧包 | 代码已修、手机还是老行为 | `build-refresh` 会自动换一次（可见时 5 分钟/切前台/联网）；也可手动彻底刷新 |
 | 验收脚本自己时好时坏 | 同一用例间歇性失败 | 先怀疑用例（滚动位置、cookie 值、Playwright 自动滚动），别急着放宽阈值 |

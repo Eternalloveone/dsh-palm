@@ -30,17 +30,26 @@
  * @module dsh-palm/mobile/views/chat/hooks/use-row-window
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRowMetrics } from '../lib/row-metrics.ts'
 
-/** 视口附近至少保留多少行（实测 15~20 行时 p95 已落到 76~90ms）。 */
+/** 一次补齐挂多少行（首帧只挂一屏，之后每 120ms 多一屏，直到整份在 DOM 里）。 */
 export const WINDOW_RENDER_ROWS = 18
-/** 视口上下各多留几行做缓冲，滚动时不会看到空白。 */
-export const WINDOW_BUFFER_ROWS = 6
 /** 少于这么多行就不窗口化：短会话本来不贵，也让既有行为保持不变。 */
 export const WINDOW_MIN_ROWS = 32
-/** 手停下来多久才重算窗口（滚动中改 DOM 会重排）。 */
-export const WINDOW_SETTLE_MS = 80
+
+/**
+ * A/B 开关：`?win=0` 直接关掉窗口化（全部行都在 DOM 里）。
+ *
+ * 2026-11-18「空白屏」根治（R1）的对照臂：`.chat-msg` 已经加了 `content-visibility: auto`
+ * （屏外行不布局不绘制，但仍在 DOM 里）。这里只负责把"第二套布局引擎"摘掉，好让真机
+ * 同一提示词下 A/B 同一会话的滚动帧。跑完就删 —— 它只服务这一次判定。
+ */
+export function windowingOff(): boolean {
+  if (typeof window === 'undefined') return false
+  const value = new URLSearchParams(window.location.search).get('win')
+  return value === '0' || value === 'off'
+}
 
 export interface RowWindowInput {
   /** 当前总行数。 */
@@ -90,9 +99,11 @@ const NO_KEY = (): undefined => undefined
  */
 export function useRowWindow(input: RowWindowInput): RowWindow {
   const { total, focusIndex, sessionKey, estimate, scroller, keyOf, onGeometryShift } = input
+  /** `?win=0`：对照臂，整份渲染（见 {@link windowingOff}）。 */
+  const off = windowingOff()
 
-  /** 视口顶部所在行的下标；`null` = 用户还没滚动过，一直贴尾部。 */
-  const [anchorState, setAnchor] = useState<number | null>(null)
+  /** 从尾部往上数，这一帧挂多少行（首帧只挂一屏，其余在空闲里补齐）。 */
+  const [mountedState, setMounted] = useState(WINDOW_MIN_ROWS)
   /** 账本里高度变了就 +1：占位与总高要重算一次。 */
   const [, setGeometryVersion] = useState(0)
 
@@ -118,68 +129,78 @@ export function useRowWindow(input: RowWindowInput): RowWindow {
   /** 换会话：回到"贴尾部"状态，并把实测高度清空。 */
   const sessionRef = useRef(sessionKey)
   useEffect(() => {
+    if (off) return
     if (sessionRef.current === sessionKey) return
     sessionRef.current = sessionKey
     metrics.reset()
-    setAnchor(null)
+    setMounted(WINDOW_MIN_ROWS)
     setGeometryVersion(version => version + 1)
   }, [sessionKey, metrics])
 
-  /*
-   * 贴尾基线：行数会从 0 长到 N（流式、拿历史）。用 `useState` 的惰性初值会把它钉在
-   * 首帧那个 0 上 —— 窗口永远停在第一行，用户看到的全是历史头部（实测测试里
-   * 找不到最后一条消息）。所以基线每次渲染都算，只有用户真的滚动过才用固定值。
-   */
-  const tailAnchor = Math.max(0, total - WINDOW_RENDER_ROWS - WINDOW_BUFFER_ROWS)
-  const anchor = anchorState === null ? tailAnchor : Math.min(anchorState, tailAnchor)
-
   // 账本按这次渲染的行序刷新（行数/首尾身份没变时是空转）。
   metrics.setRows(total, keyOfRef.current)
-  // 视口顶部以上的行不再接受新测量值 —— 改了它，屏幕上的内容会整体位移。
-  metrics.setAnchor(anchor)
 
-  /** 这一帧要渲染的区间（短会话整份渲染）。 */
-  let start = 0
-  let end = total
-  if (total >= WINDOW_MIN_ROWS) {
-    start = Math.max(0, anchor - WINDOW_BUFFER_ROWS)
-    end = Math.min(total, start + WINDOW_RENDER_ROWS + WINDOW_BUFFER_ROWS * 2)
-    // 焦点行（搜索定位）不在窗口里时把窗口挪过去 —— 定位靠真实 DOM 找元素。
-    if (focusIndex >= 0 && (focusIndex < start || focusIndex >= end)) {
-      start = Math.max(0, Math.min(focusIndex - WINDOW_BUFFER_ROWS, total - WINDOW_RENDER_ROWS))
-      end = Math.min(total, start + WINDOW_RENDER_ROWS + WINDOW_BUFFER_ROWS * 2)
-    }
-  }
+  /*
+   * **根治点：下方永远是真实内容。**
+   *
+   * 旧设计让窗口停在历史中段，后面那些行只由"估值占位"顶着高度 —— 于是滚动条总高
+   * 是算出来的，读者能滚进一段没有任何行元素的虚空（真机整屏空白，2026-11-18），
+   * 而"是否贴底"又靠这份估值，一错就再也出不来。
+   *
+   * 现在反过来：`end` 恒等于 `total`、下方**永不**留占位，只把还没挂载的历史放在
+   * 上方；挂载按"一屏一次"补齐，首帧只画尾部一屏（进会话不慢）。
+   */
+  const mounted = Math.min(Math.max(mountedState, WINDOW_MIN_ROWS), total)
+  let start = total - mounted
+  const end = total
+  // 焦点行（搜索定位）不在挂载范围里就整份挂上 —— 定位靠真实 DOM 找元素。
+  if (focusIndex >= 0 && focusIndex < start) start = 0
+  const topSpacer = start === 0 ? 0 : metrics.offset(start)
+  // 视口以上的行不再接受新测量值 —— 改了它，上方占位会抖。
+  metrics.setAnchor(start)
+  const bottomSpacer = 0
 
-  /** 手停下来之后，按 scrollTop 反推视口顶部落在第几行。 */
+  /*
+   * 补齐：一次只多挂一屏，然后让出主线程 —— 一次挂满会把进会话按住（真机就是卡）。
+   * 这是后台行为：用户在看尾部，补上来的都是他看不见的历史。
+   */
   useEffect(() => {
-    if (scroller === null) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const sync = (): void => {
-      timer = undefined
-      const count = totalRef.current
-      if (count < WINDOW_MIN_ROWS) {
-        setAnchor(null)
-        return
-      }
-      const next = metrics.indexAt(scroller.scrollTop + 1)
-      // 贴着底就读作「跟随尾部」(`null`)：只有跟随态才会自动长出新行。锚死在一个
-      // 数字上时，后面新增的行落在窗口外 —— 用户看到的是下面一大片空白。
-      setAnchor(current => {
-        const value = next >= count - WINDOW_RENDER_ROWS ? null : next
-        return current === value ? current : value
-      })
-    }
+    if (off || scroller === null || start === 0) return
+    const timer = setTimeout(
+      () => setMounted(current => Math.min(total, current + WINDOW_RENDER_ROWS)),
+      120,
+    )
+    return () => clearTimeout(timer)
+  }, [off, scroller, start, total])
+
+  /*
+   * 读者往上滑到已挂载区间的上沿：**当场**再挂一屏，别等他滑进还没挂的那段。
+   * 只读 `scrollTop/clientHeight`（滚动事件里本来就有），不做额外布局查询。
+   */
+  useEffect(() => {
+    if (off || scroller === null) return
     const onScroll = (): void => {
-      if (timer !== undefined) clearTimeout(timer)
-      timer = setTimeout(sync, WINDOW_SETTLE_MS)
+      if (scroller.scrollTop > scroller.clientHeight * 1.5) return
+      setMounted(current => (current >= total ? current : Math.min(total, current + WINDOW_RENDER_ROWS)))
     }
     scroller.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      scroller.removeEventListener('scroll', onScroll)
-      if (timer !== undefined) clearTimeout(timer)
-    }
-  }, [scroller, metrics])
+    return () => scroller.removeEventListener('scroll', onScroll)
+  }, [off, scroller, total])
+
+  /*
+   * 上方突然多出内容 → 把**浏览器刚算完的真实高差**交给滚动所有者补回去：读者眼中的
+   * 画面不动，贴底时也仍在底部。差值不经过账本，也就不会带上估值误差。
+   * （写点是 `use-stick-to-bottom` 一处 —— 这里只报数，不直接改滚动位置。）
+   */
+  const heightRef = useRef(0)
+  useLayoutEffect(() => {
+    if (scroller === null) return
+    const height = scroller.scrollHeight
+    const previous = heightRef.current
+    heightRef.current = height
+    if (previous === 0 || height <= previous) return
+    shiftRef.current?.(height - previous)
+  }, [scroller, start, end, total])
 
   /*
    * 实测高度：ResizeObserver 盯住**当前渲染出来的行**（只有它们在 DOM 里）。
@@ -189,7 +210,7 @@ export function useRowWindow(input: RowWindowInput): RowWindow {
    * 依赖里带 `start/end`：新进窗口的行要补挂观察器。
    */
   useEffect(() => {
-    if (scroller === null || typeof ResizeObserver === 'undefined') return
+    if (off || scroller === null || typeof ResizeObserver === 'undefined') return
     let changed = false
     let shift = 0
     const flush = (): void => {
@@ -222,11 +243,6 @@ export function useRowWindow(input: RowWindowInput): RowWindow {
     return () => { observer.disconnect() }
   }, [scroller, metrics, start, end])
 
-  if (total < WINDOW_MIN_ROWS) return { start: 0, end: total, topSpacer: 0, bottomSpacer: 0 }
-  return {
-    start,
-    end,
-    topSpacer: metrics.offset(start),
-    bottomSpacer: metrics.totalHeight() - metrics.offset(end),
-  }
+  if (off || total < WINDOW_MIN_ROWS) return { start: 0, end: total, topSpacer: 0, bottomSpacer: 0 }
+  return { start, end, topSpacer, bottomSpacer }
 }

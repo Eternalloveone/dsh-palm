@@ -1,7 +1,7 @@
 {
   "name": "@eternalloveone/dsh-palm",
   "description": "掌上 dsh — the standalone mobile surface for the dsh web GUI: scan-to-pair device trust, the /m/ phone UI, the /m/api RPC channel with realtime SSE mux bridge, and a polished desktop pairing panel. Extracted from dsh-remote-web-ui (M1, behavior-identical)",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
@@ -13,6 +13,7 @@
     "prebuild": "node scripts/windows-write-preflight.mjs build",
     "test": "vitest run",
     "pretest": "node scripts/windows-write-preflight.mjs test",
+    "prepublishOnly": "node scripts/publish-guard.mjs",
     "typecheck": "tsc -b --pretty false",
     "verify": "node scripts/verify.mjs",
     "verify:mobile": "node ../../tools/mobile-verify/run.mjs",
@@ -44,6 +45,7 @@
   "files": [
     "lib/**/*.js",
     "lib/**/*.d.ts",
+    "lib/**/*.css",
     "!lib/**/*.test.js",
     "!lib/**/*.test.d.ts",
     "!lib/**/*.spec.js",
